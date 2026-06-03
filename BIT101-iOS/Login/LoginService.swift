@@ -829,6 +829,43 @@ struct LoginService {
         return nil
     }
 
+    /// 只确保学校 SSO 会话可用，不检查 BIT101 自有 fake-cookie。
+    ///
+    /// 空教室这类纯学校接口不需要先访问 BIT101 后端；把完整登录检查放在前置路径上
+    /// 会明显拖慢查询速度。
+    func restoreSchoolSessionIfNeeded() async throws -> String? {
+        let schoolContext = try await apiClient.fetchSchoolLoginContext()
+        if schoolContext.isLoggedIn {
+            let studentID = storage.currentStudentID
+            if studentID.isEmpty {
+                throw LoginServiceError.unableToRestoreSchoolSession
+            }
+            return studentID
+        }
+
+        guard let credentials = try storage.loadCredentials() else {
+            throw LoginServiceError.unableToRestoreSchoolSession
+        }
+
+        guard
+            let salt = schoolContext.salt?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !salt.isEmpty,
+            let execution = schoolContext.execution?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !execution.isEmpty
+        else {
+            throw LoginServiceError.invalidSchoolLoginPage
+        }
+
+        let reloginSucceeded = try await apiClient.loginSchool(
+            studentID: credentials.studentID,
+            password: credentials.password,
+            salt: salt,
+            execution: execution
+        )
+
+        return reloginSucceeded ? credentials.studentID : nil
+    }
+
     /// 执行完整登录流程：学校 CAS -> BIT101 WebVPN 校验 -> 登录模式注册。
     ///
     /// 这里严格按 Android 现有顺序执行，保证 iOS 端与现有后端约定保持一致。

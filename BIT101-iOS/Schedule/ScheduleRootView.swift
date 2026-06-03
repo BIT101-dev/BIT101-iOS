@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 /// 统一生成“左右轻扫切换一级分栏”的横向手势。
 ///
@@ -1821,6 +1822,19 @@ private struct DDLEditSheet: View {
     }
 }
 
+private struct ClassroomActivityIndicator: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIActivityIndicatorView {
+        let view = UIActivityIndicatorView(style: .medium)
+        view.hidesWhenStopped = false
+        view.startAnimating()
+        return view
+    }
+
+    func updateUIView(_ uiView: UIActivityIndicatorView, context: Context) {
+        uiView.startAnimating()
+    }
+}
+
 /// 空教室查询页。
 ///
 /// 交互上尽量保持“选校区 -> 自动拉默认楼 -> 再选楼”的顺序，减少无效点击。
@@ -1828,20 +1842,26 @@ private struct FreeClassroomTabView: View {
     @ObservedObject var viewModel: ScheduleViewModel
     @State private var isManuallyRefreshing = false
 
+    private var shouldShowClassroomLoadingState: Bool {
+        !isManuallyRefreshing && (
+            viewModel.shouldShowInitialClassroomSpinner ||
+            viewModel.isLoadingClassroomMeta ||
+            viewModel.isLoadingClassrooms
+        )
+    }
+
+    private var classroomLoadingText: String {
+        if viewModel.shouldShowInitialClassroomSpinner {
+            return "正在加载空教室信息"
+        }
+        if viewModel.isLoadingClassroomMeta {
+            return "正在更新教学楼列表"
+        }
+        return "正在刷新当前教学楼"
+    }
+
     var body: some View {
         List {
-            if viewModel.shouldShowInitialClassroomSpinner && !isManuallyRefreshing {
-                Section {
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                        Spacer()
-                    }
-                    .frame(maxWidth: .infinity)
-                    .listRowBackground(Color.clear)
-                }
-            }
-
             Section("筛选") {
                 Picker("校区", selection: Binding(
                     get: { viewModel.cache.selectedCampusCode },
@@ -1882,7 +1902,21 @@ private struct FreeClassroomTabView: View {
                 }
             }
 
-            if viewModel.classroomAvailabilities.isEmpty {
+            if viewModel.classroomAvailabilities.isEmpty, shouldShowClassroomLoadingState {
+                Section {
+                    ContentUnavailableView {
+                        VStack(spacing: 12) {
+                            ClassroomActivityIndicator()
+                                .frame(width: 24, height: 24)
+                            Text(classroomLoadingText)
+                                .font(.headline)
+                        }
+                    } description: {
+                        Text("请稍候")
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            } else if viewModel.classroomAvailabilities.isEmpty {
                 Section {
                     ContentUnavailableView(
                         "暂无空教室结果",

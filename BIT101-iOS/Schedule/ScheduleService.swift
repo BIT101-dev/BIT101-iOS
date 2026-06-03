@@ -35,21 +35,6 @@ private final class HTTPSUpgradingRedirectDelegate: NSObject, URLSessionTaskDele
     }
 }
 
-/// 手动接管 302 的 session delegate。
-///
-/// WebVPN 建链时需要拿到中间跳转地址，不能让 `URLSession` 自动吞掉。
-private final class ScheduleNoRedirectDelegate: NSObject, URLSessionTaskDelegate {
-    func urlSession(
-        _ session: URLSession,
-        task: URLSessionTask,
-        willPerformHTTPRedirection response: HTTPURLResponse,
-        newRequest request: URLRequest,
-        completionHandler: @escaping (URLRequest?) -> Void
-    ) {
-        completionHandler(nil)
-    }
-}
-
 /// 统一识别 Swift Concurrency 与 URLSession 的取消错误。
 private func isCancellationError(_ error: Error) -> Bool {
     if error is CancellationError {
@@ -59,6 +44,7 @@ private func isCancellationError(_ error: Error) -> Bool {
     let nsError = error as NSError
     return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
 }
+
 
 /// 日程同步链路里所有 URL 的升级工具。
 private enum ScheduleURLUpgrade {
@@ -92,434 +78,6 @@ private enum ScheduleURLUpgrade {
         }
 
         return URL(string: location, relativeTo: baseURL).flatMap(upgradedURL(from:))
-    }
-}
-
-// MARK: - WebVPN Helpers
-
-/// 空教室查询使用的 WebVPN 建链客户端。
-///
-/// 当前只负责把 `jxzxehallapp` 这条链路在校外环境下补通，不扩散到课表与乐学。
-private final class JXZXWebVPNClient {
-    private let ssoTicketURL = URL(string: "https://sso.bit.edu.cn/cas/v1/tickets")!
-    private let webVPNServiceURL = URL(string: "https://webvpn.bit.edu.cn/login?cas_login=true")!
-    private let wrappedJXZXAuthBaseURL = URL(
-        string: "https://webvpn.bit.edu.cn/https/77726476706e69737468656265737421faef5b842238695c72468ba58c1b26316e8e7f6f"
-    )!
-    private let wrappedJXZXAuthURL = URL(
-        string: "https://webvpn.bit.edu.cn/https/77726476706e69737468656265737421faef5b842238695c72468ba58c1b26316e8e7f6f/auth-protocol-core/login?service=https%3A%2F%2Fjxzxehallapp.bit.edu.cn%2Fjwapp%2Fsys%2Fxsfacx%2F*default%2Findex.do"
-    )!
-    private let wrappedJXZXAppBaseURL = URL(
-        string: "https://webvpn.bit.edu.cn/https/77726476706e69737468656265737421faef5b842238695c720999bcd6572a216b231105adc27d"
-    )!
-
-    private let storage: LoginStorage
-    private let cookieStorage: HTTPCookieStorage
-    private let session: URLSession
-    private let noRedirectSession: URLSession
-
-    private var didBootstrapWebVPN = false
-    private var didAuthorizeJXZX = false
-    private var didPrepareWdkbModule = false
-
-    init(storage: LoginStorage = .shared) {
-        self.storage = storage
-        cookieStorage = HTTPCookieStorage.shared
-
-        let configuration = URLSessionConfiguration.default
-        configuration.httpCookieStorage = cookieStorage
-        configuration.httpCookieAcceptPolicy = .always
-        configuration.httpShouldSetCookies = true
-
-        session = URLSession(
-            configuration: configuration,
-            delegate: HTTPSUpgradingRedirectDelegate(),
-            delegateQueue: nil
-        )
-        noRedirectSession = URLSession(
-            configuration: configuration,
-            delegate: ScheduleNoRedirectDelegate(),
-            delegateQueue: nil
-        )
-    }
-
-    /// WebVPN 下查询校区列表。
-    func fetchCampuses() async throws -> [CampusRecord] {
-        let response: CampusListResponse = try await performJXZXRequest(
-            path: "/jwapp/sys/kxjasbyMobile/modules/jxllb/ggzdpx.do?dicCode=48682&SFSY=1&order=%2BDM"
-        )
-
-        return response.datas.ggzdpx.rows.map {
-            CampusRecord(id: $0.code, name: $0.displayName, code: $0.code)
-        }
-    }
-
-    /// WebVPN 下查询当前学期编码。
-    func fetchCurrentTerm() async throws -> String {
-        let response: CurrentTermResponse = try await performJXZXRequest(
-            path: "/jwapp/sys/wdkbby/modules/jshkcb/dqxnxq.do"
-        )
-
-        guard let term = response.datas.dqxnxq.rows.first?.code, !term.isEmpty else {
-            throw ScheduleServiceError.invalidResponse
-        }
-
-        return term
-    }
-
-    /// WebVPN 下查询教学楼列表。
-    func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord] {
-        let query: String
-        if let campusCode, !campusCode.isEmpty {
-            query = "?XXXQDM=\(urlEncode(campusCode))"
-        } else {
-            query = ""
-        }
-
-        let response: BuildingListResponse = try await performJXZXRequest(
-            path: "/jwapp/sys/kxjasbyMobile/modules/jxllb/cxjxl.do\(query)"
-        )
-
-        return response.datas.cxjxl.rows.map {
-            BuildingRecord(
-                id: $0.buildingCode,
-                name: $0.buildingName,
-                buildingCode: $0.buildingCode,
-                campusName: $0.campusName,
-                campusCode: $0.campusCode
-            )
-        }
-    }
-
-    /// WebVPN 下查询教学楼占用情况。
-    func fetchClassrooms(buildingID: String, term: String) async throws -> [ClassroomRecord] {
-        let termParts = term.split(separator: "-")
-        let termID = termParts.last.map(String.init) ?? ""
-        let termYearCode = termParts.dropLast().joined(separator: "-")
-        let dateString = ScheduleDateCodec.formatDate(Date())
-
-        let response: ClassroomListResponse = try await performJXZXRequest(
-            path: "/jwapp/sys/kxjasbyMobile/kxjasbyController/cxkxjasqk.do",
-            method: "POST",
-            body: [
-                ("XQDM", String(termID)),
-                ("JXLDM", buildingID),
-                ("RQ", dateString),
-                ("XNXQDM", term),
-                ("XNDM", String(termYearCode)),
-            ]
-        )
-
-        return response.datas.cxkxjasqk.rows.map {
-            ClassroomRecord(
-                id: $0.classroomName,
-                name: $0.classroomName,
-                busyTimeCodes: $0.busyTimeString?
-                    .split(separator: ",")
-                    .compactMap { Int($0) }
-                    .sorted() ?? []
-            )
-        }
-    }
-
-    /// 统一的 `jxzxehallapp` WebVPN 请求入口，必要时自动补做建链并重试一次。
-    private func performJXZXRequest<Response: Decodable>(
-        path: String,
-        method: String = "GET",
-        body: [(String, String)] = []
-    ) async throws -> Response {
-        do {
-            try await ensureJXZXAuthorized()
-            try await ensureWdkbPrepared()
-            return try await sendJSONRequest(path: path, method: method, body: body)
-        } catch {
-            if isCancellationError(error) {
-                throw error
-            }
-
-            resetAuthorizationState(clearCookies: true)
-            try await ensureJXZXAuthorized()
-            try await ensureWdkbPrepared()
-            return try await sendJSONRequest(path: path, method: method, body: body)
-        }
-    }
-
-    /// 确保当前已经拥有可访问 `jxzxehallapp` 的 WebVPN 会话。
-    private func ensureJXZXAuthorized() async throws {
-        guard !didAuthorizeJXZX else { return }
-
-        try await ensureWebVPNBootstrapped()
-
-        let directCallbackURL = try await fetchJXZXDirectCallbackURL()
-        let callbackTicket = try await createServiceTicket(service: directCallbackURL.absoluteString)
-        let wrappedCallbackURL = try wrappedJXZXCallbackURL(from: directCallbackURL, ticket: callbackTicket)
-
-        try await followRedirectChain(from: wrappedCallbackURL)
-        didAuthorizeJXZX = true
-    }
-
-    /// 先建立通用 WebVPN 会话，让后续站点内跳转可以正常写 cookie。
-    private func ensureWebVPNBootstrapped() async throws {
-        guard !didBootstrapWebVPN else { return }
-
-        let ticket = try await createServiceTicket(service: webVPNServiceURL.absoluteString)
-        var components = URLComponents(url: webVPNServiceURL, resolvingAgainstBaseURL: false)
-        var queryItems = components?.queryItems ?? []
-        queryItems.append(URLQueryItem(name: "ticket", value: ticket))
-        components?.queryItems = queryItems
-
-        guard let callbackURL = components?.url else {
-            throw webVPNError("无法构造 WebVPN 登录回调地址。")
-        }
-
-        try await followRedirectChain(from: callbackURL)
-        didBootstrapWebVPN = true
-    }
-
-    /// `kxjasbyMobile` 这条链路依赖 `wdkbby` 的初始化与语言切换。
-    ///
-    /// 安卓端在空教室查询前也会先做这两步，这里保持同样的预热策略。
-    private func ensureWdkbPrepared() async throws {
-        guard !didPrepareWdkbModule else { return }
-
-        _ = try await sendStringRequest(path: "/jwapp/sys/funauthapp/api/getAppConfig/wdkbby-5959167891382285.do")
-        _ = try await sendStringRequest(path: "/jwapp/i18n.do?appName=wdkbby&EMAP_LANG=zh")
-        didPrepareWdkbModule = true
-    }
-
-    /// 请求教学中心 WebVPN 入口，并从 302 里抠出真实的 `service` 回调地址。
-    private func fetchJXZXDirectCallbackURL() async throws -> URL {
-        let (_, response) = try await sendRequest(URLRequest(url: wrappedJXZXAuthURL), followRedirects: false)
-
-        guard
-            let location = response.value(forHTTPHeaderField: "Location"),
-            let locationURL = ScheduleURLUpgrade.resolvedURL(from: location, relativeTo: wrappedJXZXAuthURL),
-            let components = URLComponents(url: locationURL, resolvingAgainstBaseURL: false),
-            let service = components.queryItems?.first(where: { $0.name == "service" })?.value,
-            let callbackURL = URL(string: service)
-        else {
-            throw webVPNError("无法获取教学中心认证回调地址。")
-        }
-
-        return callbackURL
-    }
-
-    /// 用 CAS `v1/tickets` 为指定服务换一次性 ST。
-    ///
-    /// 这里直接使用已保存的统一认证密码，不依赖当前学校 cookie 是否仍然存活。
-    private func createServiceTicket(service: String) async throws -> String {
-        guard let credentials = try storage.loadCredentials() else {
-            throw ScheduleServiceError.notLoggedIn
-        }
-
-        var createTGTRequest = URLRequest(url: ssoTicketURL)
-        createTGTRequest.httpMethod = "POST"
-        createTGTRequest.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        createTGTRequest.httpBody = formBody(
-            [
-                ("username", credentials.studentID),
-                ("password", credentials.password),
-            ]
-        )
-
-        let (_, tgtResponse) = try await sendRequest(createTGTRequest, followRedirects: false)
-        guard
-            tgtResponse.statusCode == 201,
-            let tgtLocation = tgtResponse.value(forHTTPHeaderField: "Location"),
-            let tgtURL = URL(string: tgtLocation)
-        else {
-            throw webVPNError("无法创建 WebVPN 登录票据。")
-        }
-
-        var serviceTicketRequest = URLRequest(url: tgtURL)
-        serviceTicketRequest.httpMethod = "POST"
-        serviceTicketRequest.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        serviceTicketRequest.httpBody = formBody([("service", service)])
-
-        let (data, serviceResponse) = try await sendRequest(serviceTicketRequest, followRedirects: false)
-        guard serviceResponse.statusCode == 200 else {
-            throw webVPNError("无法换取教学中心访问票据。")
-        }
-
-        let ticket = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !ticket.isEmpty else {
-            throw webVPNError("教学中心访问票据为空。")
-        }
-
-        return ticket
-    }
-
-    /// 跟完整条 302 链，直到真正把 cookie 写进 `jxzxehallapp` 或 WebVPN 会话里。
-    private func followRedirectChain(from url: URL) async throws {
-        var nextURL = url
-
-        for _ in 0 ..< 10 {
-            let (_, response) = try await sendRequest(URLRequest(url: nextURL), followRedirects: false)
-
-            if
-                (300 ..< 400).contains(response.statusCode),
-                let location = response.value(forHTTPHeaderField: "Location"),
-                let resolved = ScheduleURLUpgrade.resolvedURL(from: location, relativeTo: nextURL)
-            {
-                nextURL = resolved
-                continue
-            }
-
-            guard (200 ..< 400).contains(response.statusCode) else {
-                throw webVPNError("WebVPN 建链失败，HTTP 状态码 \(response.statusCode)。")
-            }
-
-            return
-        }
-
-        throw webVPNError("WebVPN 建链跳转次数过多。")
-    }
-
-    /// 把 `jxzxehall.bit.edu.cn` 的 callback 地址包成 WebVPN 可访问地址。
-    ///
-    /// 空教室链路当前只需要支持教学中心这一种 host，因此不额外引入通用 URL 加密器。
-    private func wrappedJXZXCallbackURL(from callbackURL: URL, ticket: String) throws -> URL {
-        guard callbackURL.host == "jxzxehall.bit.edu.cn" else {
-            throw webVPNError("教学中心回调地址异常。")
-        }
-
-        var components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)
-        var queryItems = components?.queryItems ?? []
-        queryItems.append(URLQueryItem(name: "ticket", value: ticket))
-        components?.queryItems = queryItems
-
-        let path = components?.percentEncodedPath ?? callbackURL.path
-        let query = components?.percentEncodedQuery.map { "?\($0)" } ?? ""
-        let relativePath = path + query
-
-        guard let wrappedURL = URL(string: relativePath, relativeTo: wrappedJXZXAuthBaseURL)?.absoluteURL else {
-            throw webVPNError("无法构造教学中心 WebVPN 回调地址。")
-        }
-
-        return wrappedURL
-    }
-
-    /// 发送 WebVPN 下的 `jxzxehallapp` JSON 请求。
-    private func sendJSONRequest<Response: Decodable>(
-        path: String,
-        method: String = "GET",
-        body: [(String, String)] = []
-    ) async throws -> Response {
-        var request = URLRequest(url: buildURL(baseURL: wrappedJXZXAppBaseURL, path: path))
-        request.httpMethod = method
-
-        if method == "POST" {
-            request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
-            request.httpBody = formBody(body)
-        }
-
-        let (data, response) = try await sendRequest(request, followRedirects: true)
-        guard (200 ..< 300).contains(response.statusCode) else {
-            throw webVPNError("教学中心 WebVPN 请求失败，HTTP 状态码 \(response.statusCode)。")
-        }
-
-        do {
-            return try ScheduleService.decoder.decode(Response.self, from: data)
-        } catch {
-            throw ScheduleServiceError.invalidResponse
-        }
-    }
-
-    /// 发送返回文本的 WebVPN 请求，主要用于模块预热。
-    private func sendStringRequest(
-        path: String,
-        method: String = "GET",
-        body: [(String, String)] = []
-    ) async throws -> String {
-        var request = URLRequest(url: buildURL(baseURL: wrappedJXZXAppBaseURL, path: path))
-        request.httpMethod = method
-
-        if method == "POST" {
-            request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
-            request.httpBody = formBody(body)
-        }
-
-        let (data, response) = try await sendRequest(request, followRedirects: true)
-        guard (200 ..< 400).contains(response.statusCode) else {
-            throw webVPNError("教学中心 WebVPN 请求失败，HTTP 状态码 \(response.statusCode)。")
-        }
-
-        return String(decoding: data, as: UTF8.self)
-    }
-
-    /// 统一底层请求入口。
-    private func sendRequest(_ request: URLRequest, followRedirects: Bool) async throws -> (Data, HTTPURLResponse) {
-        let activeSession = followRedirects ? session : noRedirectSession
-        let finalRequest: URLRequest
-
-        if let url = request.url, let upgradedURL = ScheduleURLUpgrade.upgradedURL(from: url), upgradedURL != url {
-            var secureRequest = request
-            secureRequest.url = upgradedURL
-            finalRequest = secureRequest
-        } else {
-            finalRequest = request
-        }
-
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await activeSession.data(for: finalRequest)
-        } catch {
-            if isCancellationError(error) {
-                throw error
-            }
-
-            throw webVPNError(error.localizedDescription)
-        }
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw ScheduleServiceError.invalidResponse
-        }
-
-        return (data, httpResponse)
-    }
-
-    private func buildURL(baseURL: URL, path: String) -> URL {
-        URL(string: path, relativeTo: baseURL)?.absoluteURL ?? baseURL.appending(path: path)
-    }
-
-    private func formBody(_ fields: [(String, String)]) -> Data {
-        let encoded = fields.map { key, value in
-            "\(urlEncode(key))=\(urlEncode(value))"
-        }
-        .joined(separator: "&")
-
-        return Data(encoded.utf8)
-    }
-
-    private func urlEncode(_ value: String) -> String {
-        var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove(charactersIn: "&+=?")
-        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
-    }
-
-    private func resetAuthorizationState(clearCookies: Bool) {
-        didBootstrapWebVPN = false
-        didAuthorizeJXZX = false
-        didPrepareWdkbModule = false
-
-        guard clearCookies else { return }
-
-        cookieStorage.cookies?
-            .filter {
-                $0.domain.contains("webvpn.bit.edu.cn") ||
-                $0.domain.contains("jxzxehall.bit.edu.cn") ||
-                $0.domain.contains("jxzxehallapp.bit.edu.cn")
-            }
-            .forEach { cookieStorage.deleteCookie($0) }
-    }
-
-    private func webVPNError(_ message: String) -> NSError {
-        NSError(
-            domain: "BIT101.Schedule.WebVPN",
-            code: -1,
-            userInfo: [NSLocalizedDescriptionKey: message]
-        )
     }
 }
 
@@ -577,8 +135,8 @@ struct ScheduleService {
     private let schoolBaseURL = URL(string: "https://jxzxehallapp.bit.edu.cn")!
     private let lexueBaseURL = URL(string: "https://lexue.bit.edu.cn")!
     private let session: URLSession
-    private let webVPNClient: JXZXWebVPNClient
     private let redirectDelegate = HTTPSUpgradingRedirectDelegate()
+    private static var didPrepareJXZX = false
     fileprivate static let decoder = JSONDecoder()
     private static let icsUTCDateTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -616,7 +174,6 @@ struct ScheduleService {
             delegate: redirectDelegate,
             delegateQueue: nil
         )
-        webVPNClient = JXZXWebVPNClient()
     }
 
     /// 同步课表、考试和首周日期。
@@ -643,16 +200,9 @@ struct ScheduleService {
     ///
     /// 主要用于空教室页只需要学期编码但不需要整份课表时的轻量查询。
     func fetchCurrentTermOnly() async throws -> String {
-        try await ensureSchoolSession()
-        do {
+        try await performFastSchoolRequest {
             try await prepareJXZX()
             return try await fetchCurrentTerm()
-        } catch {
-            if isCancellationError(error) {
-                throw error
-            }
-
-            return try await webVPNClient.fetchCurrentTerm()
         }
     }
 
@@ -691,16 +241,9 @@ struct ScheduleService {
     ///
     /// 这一步相当于空教室查询的元数据预热，不涉及具体教室占用。
     func fetchCampuses() async throws -> [CampusRecord] {
-        try await ensureSchoolSession()
-        do {
+        try await performFastSchoolRequest {
             try await prepareJXZX()
             return try await fetchCampusesDirect()
-        } catch {
-            if isCancellationError(error) {
-                throw error
-            }
-
-            return try await webVPNClient.fetchCampuses()
         }
     }
 
@@ -708,16 +251,9 @@ struct ScheduleService {
     ///
     /// 教学楼会在进入空教室页时结合“最近下一节课的楼宇”做自动匹配。
     func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord] {
-        try await ensureSchoolSession()
-        do {
+        try await performFastSchoolRequest {
             try await prepareJXZX()
             return try await fetchBuildingsDirect(campusCode: campusCode)
-        } catch {
-            if isCancellationError(error) {
-                throw error
-            }
-
-            return try await webVPNClient.fetchBuildings(campusCode: campusCode)
         }
     }
 
@@ -725,16 +261,41 @@ struct ScheduleService {
     ///
     /// 空教室接口以“当天 + 教学楼”为粒度返回占用节次，后续再在 ViewModel 层按选中的时段块格式化。
     func fetchClassrooms(buildingID: String, term: String) async throws -> [ClassroomRecord] {
-        try await ensureSchoolSession()
-        do {
+        try await performFastSchoolRequest {
             try await prepareJXZX()
             return try await fetchClassroomsDirect(buildingID: buildingID, term: term)
+        }
+    }
+
+    /// 对齐 Android 的空教室链路：先尝试真实业务请求，失败后才做登录态修复。
+    ///
+    /// 登录态检查本身可能很慢；如果把它放到每次空教室请求之前，会让同网络下的 iOS
+    /// 明显慢于 Android。
+    private func performFastSchoolRequest<T>(
+        operation: () async throws -> T
+    ) async throws -> T {
+        do {
+            return try await operation()
         } catch {
             if isCancellationError(error) {
                 throw error
             }
 
-            return try await webVPNClient.fetchClassrooms(buildingID: buildingID, term: term)
+            Self.didPrepareJXZX = false
+
+            guard await restoreSchoolSessionForRetry() else {
+                throw error
+            }
+
+            return try await operation()
+        }
+    }
+
+    private func restoreSchoolSessionForRetry() async -> Bool {
+        do {
+            return try await LoginService().restoreSchoolSessionIfNeeded() != nil
+        } catch {
+            return false
         }
     }
 
@@ -744,7 +305,7 @@ struct ScheduleService {
     /// 真实业务请求之前的额外失败弹窗来源。
     ///
     /// 因此这里仅在远端明确判断当前会话无效时阻断；网络抖动、学校登录页异常等“检查失败”
-    /// 会静默放行，让后续业务请求或 WebVPN fallback 自己给出更贴近场景的错误。
+    /// 会静默放行，让后续业务请求给出更贴近场景的错误。
     private func ensureSchoolSession() async throws {
         do {
             guard try await LoginService().checkLogin() != nil else {
@@ -827,9 +388,12 @@ struct ScheduleService {
     ///
     /// 学校教务接口存在“未预热直接请求会失败”的历史行为，因此这里保留一组轻量预热访问。
     private func prepareJXZX() async throws {
+        guard !Self.didPrepareJXZX else { return }
+
         // 学校教务接口依赖若干预热请求，否则后续接口会直接返回未初始化状态。
         _ = try await sendStringRequest(path: "/jwapp/sys/funauthapp/api/getAppConfig/wdkbby-5959167891382285.do")
         _ = try await sendStringRequest(path: "/jwapp/i18n.do?appName=wdkbby&EMAP_LANG=zh")
+        Self.didPrepareJXZX = true
     }
 
     /// 获取当前学期编码。

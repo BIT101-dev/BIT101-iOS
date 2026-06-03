@@ -125,6 +125,8 @@ final class ScheduleViewModel: ObservableObject {
     private var didFinishInitialClassroomRequest = false
     /// 是否已有一轮空教室请求正在执行。
     private var isClassroomRequestInFlight = false
+    /// 是否已有一轮空教室元数据后台刷新正在执行。
+    private var isRefreshingClassroomMetaInBackground = false
     /// 当前教学楼最近一次拉下来的原始空教室记录。
     private var classroomRecords: [ClassroomRecord] = []
     /// 监听设置和缓存变化，用于跨页面同步。
@@ -972,28 +974,30 @@ final class ScheduleViewModel: ObservableObject {
         guard !didAutoPrepareClassroomThisRun, !isClassroomRequestInFlight else { return }
         didAutoPrepareClassroomThisRun = true
 
+        applyCurrentClassroomSectionBlock()
+        let hasCachedMeta = applyCachedClassroomMetaIfAvailable()
+        if hasCachedMeta {
+            refreshClassroomMetaInBackgroundIfNeeded()
+        }
+
         let requestID = beginClassroomRequest(clearsLoadingState: false)
         defer {
             finishClassroomRequestIfCurrent(requestID)
         }
 
         do {
-            try await withClassroomRequestTimeout { [self] in
-                applyCurrentClassroomSectionBlock()
+            if campuses.isEmpty || buildings.isEmpty {
+                try await loadClassroomMeta(requestID: requestID)
+            }
 
-                if campuses.isEmpty || buildings.isEmpty {
-                    try await loadClassroomMeta(requestID: requestID)
-                }
+            guard isCurrentClassroomRequest(requestID) else { return }
 
-                guard isCurrentClassroomRequest(requestID) else { return }
+            if selectedBuildingID.isEmpty {
+                selectedBuildingID = cache.selectedBuildingID
+            }
 
-                if selectedBuildingID.isEmpty {
-                    selectedBuildingID = cache.selectedBuildingID
-                }
-
-                if classroomRecords.isEmpty, !selectedBuildingID.isEmpty {
-                    try await refreshClassrooms(requestID: requestID)
-                }
+            if classroomRecords.isEmpty, !selectedBuildingID.isEmpty {
+                try await refreshClassrooms(requestID: requestID)
             }
         } catch {
             handleClassroomRequestError(error, requestID: requestID, title: "空教室同步失败")
@@ -1012,18 +1016,19 @@ final class ScheduleViewModel: ObservableObject {
         cache.selectedCampusName = campuses.first(where: { $0.code == code })?.name ?? ""
         selectedBuildingID = ""
         cache.selectedBuildingID = ""
-        buildings = []
+        buildings = cache.cachedClassroomBuildingsByCampusCode[code] ?? []
+        if !buildings.isEmpty {
+            resolveSelectedBuildingIfNeeded(allowsPreferredBuilding: true)
+        }
         classroomRecords = []
         classroomAvailabilities = []
         persist()
 
         do {
-            try await withClassroomRequestTimeout { [self] in
-                try await loadBuildings(requestID: requestID)
-                guard isCurrentClassroomRequest(requestID) else { return }
-                if !selectedBuildingID.isEmpty {
-                    try await refreshClassrooms(requestID: requestID)
-                }
+            try await loadBuildings(requestID: requestID)
+            guard isCurrentClassroomRequest(requestID) else { return }
+            if !selectedBuildingID.isEmpty {
+                try await refreshClassrooms(requestID: requestID)
             }
         } catch {
             handleClassroomRequestError(error, requestID: requestID, title: "空教室同步失败")
@@ -1040,14 +1045,13 @@ final class ScheduleViewModel: ObservableObject {
         }
         selectedBuildingID = id
         cache.selectedBuildingID = id
+        isLoadingClassrooms = true
         classroomRecords = []
         classroomAvailabilities = []
         persist()
 
         do {
-            try await withClassroomRequestTimeout { [self] in
-                try await refreshClassrooms(requestID: requestID)
-            }
+            try await refreshClassrooms(requestID: requestID)
         } catch {
             handleClassroomRequestError(error, requestID: requestID, title: "空教室同步失败")
         }
@@ -1069,9 +1073,7 @@ final class ScheduleViewModel: ObservableObject {
             finishClassroomRequestIfCurrent(requestID)
         }
         do {
-            try await withClassroomRequestTimeout { [self] in
-                try await refreshClassrooms(requestID: requestID)
-            }
+            try await refreshClassrooms(requestID: requestID)
         } catch {
             handleClassroomRequestError(error, requestID: requestID, title: "空教室同步失败")
         }
@@ -1086,7 +1088,9 @@ final class ScheduleViewModel: ObservableObject {
         }
 
         if cache.currentTerm.isEmpty {
-            let term = try await service.fetchCurrentTermOnly()
+            let term = try await withClassroomRequestTimeout { [self] in
+                try await service.fetchCurrentTermOnly()
+            }
             guard isCurrentClassroomRequest(requestID) else { throw CancellationError() }
             cache.currentTerm = term
             persist()
@@ -1101,7 +1105,9 @@ final class ScheduleViewModel: ObservableObject {
             }
         }
 
-        let records = try await service.fetchClassrooms(buildingID: selectedBuildingID, term: cache.currentTerm)
+        let records = try await withClassroomRequestTimeout { [self] in
+            try await service.fetchClassrooms(buildingID: selectedBuildingID, term: cache.currentTerm)
+        }
         guard isCurrentClassroomRequest(requestID) else { throw CancellationError() }
 
         classroomRecords = records
@@ -1118,14 +1124,12 @@ final class ScheduleViewModel: ObservableObject {
         }
 
         do {
-            try await withClassroomRequestTimeout { [self] in
-                if campuses.isEmpty || buildings.isEmpty {
-                    try await loadClassroomMeta(requestID: requestID)
-                }
-
-                guard isCurrentClassroomRequest(requestID), !selectedBuildingID.isEmpty else { return }
-                try await refreshClassrooms(requestID: requestID)
+            if campuses.isEmpty || buildings.isEmpty {
+                try await loadClassroomMeta(requestID: requestID)
             }
+
+            guard isCurrentClassroomRequest(requestID), !selectedBuildingID.isEmpty else { return }
+            try await refreshClassrooms(requestID: requestID)
         } catch {
             handleClassroomRequestError(error, requestID: requestID, title: "空教室同步失败")
         }
@@ -1185,44 +1189,192 @@ final class ScheduleViewModel: ObservableObject {
             }
         }
 
-        let fetchedCampuses = try await service.fetchCampuses()
-        guard isCurrentClassroomRequest(requestID) else { throw CancellationError() }
-
-        campuses = fetchedCampuses
-
-        if cache.selectedCampusCode.isEmpty {
-            if let preferredCampus = preferredCampus(from: campuses) {
-                cache.selectedCampusCode = preferredCampus.code
-                cache.selectedCampusName = preferredCampus.name
-            } else {
-                cache.selectedCampusCode = campuses.first?.code ?? ""
-                cache.selectedCampusName = campuses.first?.name ?? ""
-            }
-            persist()
-        }
-
         try await loadBuildings(requestID: requestID)
+
+        if campuses.isEmpty {
+            refreshClassroomMetaInBackgroundIfNeeded()
+        }
     }
 
     /// 根据当前校区加载教学楼，并优先精确匹配“最近下一节课”的楼宇。
     private func loadBuildings(requestID: Int) async throws {
-        let fetchedBuildings = try await service.fetchBuildings(campusCode: cache.selectedCampusCode)
+        let fetchedBuildings = try await withClassroomRequestTimeout { [self] in
+            try await service.fetchBuildings(campusCode: cache.selectedCampusCode.isEmpty ? nil : cache.selectedCampusCode)
+        }
         guard isCurrentClassroomRequest(requestID) else { throw CancellationError() }
 
+        applyFetchedBuildingsForCurrentSelection(fetchedBuildings, allowsPreferredCampus: true, allowsPreferredBuilding: true)
+    }
+
+    /// 优先用上次成功获取的校区 / 教学楼元数据恢复选择器，避免进入页面时阻塞等待元数据接口。
+    @discardableResult
+    private func applyCachedClassroomMetaIfAvailable() -> Bool {
+        guard !cache.cachedClassroomCampuses.isEmpty else { return false }
+
+        campuses = cache.cachedClassroomCampuses
+        resolveSelectedCampusIfNeeded(allowsPreferredCampus: true)
+
+        let cachedBuildings = cache.cachedClassroomBuildingsByCampusCode[cache.selectedCampusCode] ?? []
+        guard !cachedBuildings.isEmpty else {
+            buildings = []
+            selectedBuildingID = ""
+            cache.selectedBuildingID = ""
+            persist()
+            return true
+        }
+
+        buildings = cachedBuildings
+        resolveSelectedBuildingIfNeeded(allowsPreferredBuilding: true)
+        return true
+    }
+
+    /// 有缓存时后台静默刷新低频变化的元数据；成功后更新缓存，失败不打扰用户。
+    private func refreshClassroomMetaInBackgroundIfNeeded() {
+        guard !isRefreshingClassroomMetaInBackground else { return }
+
+        Task { [weak self] in
+            await self?.refreshClassroomMetaSilently()
+        }
+    }
+
+    /// 后台刷新校区 / 教学楼元数据。
+    ///
+    /// 这条链路不参与空教室结果请求代号，也不弹错误；目的只是让下一次打开页面更快、更准。
+    private func refreshClassroomMetaSilently() async {
+        guard !isRefreshingClassroomMetaInBackground else { return }
+        isRefreshingClassroomMetaInBackground = true
+        defer {
+            isRefreshingClassroomMetaInBackground = false
+        }
+
+        do {
+            let fetchedCampuses = try await withClassroomRequestTimeout { [self] in
+                try await service.fetchCampuses()
+            }
+            applyFetchedCampuses(fetchedCampuses, allowsPreferredCampus: false)
+
+            guard !cache.selectedCampusCode.isEmpty else { return }
+
+            let fetchedBuildings = try await withClassroomRequestTimeout { [self] in
+                try await service.fetchBuildings(campusCode: cache.selectedCampusCode)
+            }
+            applyFetchedBuildings(fetchedBuildings, for: cache.selectedCampusCode, allowsPreferredBuilding: false)
+        } catch {
+            return
+        }
+    }
+
+    /// 写入新的校区元数据，并保持当前选择尽量稳定。
+    private func applyFetchedCampuses(_ fetchedCampuses: [CampusRecord], allowsPreferredCampus: Bool) {
+        guard !fetchedCampuses.isEmpty else { return }
+
+        campuses = fetchedCampuses
+        cache.cachedClassroomCampuses = fetchedCampuses
+        resolveSelectedCampusIfNeeded(allowsPreferredCampus: allowsPreferredCampus)
+        persist()
+    }
+
+    /// 写入教学楼元数据，并在未缓存校区列表时从教学楼字段反推出校区，避免首屏额外等待校区接口。
+    private func applyFetchedBuildingsForCurrentSelection(
+        _ fetchedBuildings: [BuildingRecord],
+        allowsPreferredCampus: Bool,
+        allowsPreferredBuilding: Bool
+    ) {
+        guard !fetchedBuildings.isEmpty else {
+            applyFetchedBuildings([], for: cache.selectedCampusCode, allowsPreferredBuilding: allowsPreferredBuilding)
+            return
+        }
+
+        let grouped = Dictionary(grouping: fetchedBuildings, by: \.campusCode)
+        for (campusCode, campusBuildings) in grouped where !campusCode.isEmpty {
+            cache.cachedClassroomBuildingsByCampusCode[campusCode] = campusBuildings
+        }
+
+        if campuses.isEmpty {
+            let generatedCampuses = grouped.compactMap { campusCode, campusBuildings -> CampusRecord? in
+                guard !campusCode.isEmpty else { return nil }
+                let campusName = campusBuildings.first?.campusName.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return CampusRecord(id: campusCode, name: campusName.isEmpty ? campusCode : campusName, code: campusCode)
+            }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+
+            if !generatedCampuses.isEmpty {
+                campuses = generatedCampuses
+                cache.cachedClassroomCampuses = generatedCampuses
+            }
+        }
+
+        resolveSelectedCampusIfNeeded(allowsPreferredCampus: allowsPreferredCampus)
+
+        let selectedCampusBuildings: [BuildingRecord]
+        if !cache.selectedCampusCode.isEmpty, let campusBuildings = grouped[cache.selectedCampusCode] {
+            selectedCampusBuildings = campusBuildings
+        } else {
+            selectedCampusBuildings = fetchedBuildings
+        }
+
+        buildings = selectedCampusBuildings
+        if !cache.selectedCampusCode.isEmpty {
+            cache.cachedClassroomBuildingsByCampusCode[cache.selectedCampusCode] = selectedCampusBuildings
+        }
+        resolveSelectedBuildingIfNeeded(allowsPreferredBuilding: allowsPreferredBuilding)
+        persist()
+    }
+
+    /// 写入某个校区下的教学楼元数据，并保持当前选择尽量稳定。
+    private func applyFetchedBuildings(
+        _ fetchedBuildings: [BuildingRecord],
+        for campusCode: String,
+        allowsPreferredBuilding: Bool
+    ) {
         buildings = fetchedBuildings
+        cache.cachedClassroomBuildingsByCampusCode[campusCode] = fetchedBuildings
+        resolveSelectedBuildingIfNeeded(allowsPreferredBuilding: allowsPreferredBuilding)
+        persist()
+    }
+
+    /// 在校区列表变化后修正选中校区。
+    private func resolveSelectedCampusIfNeeded(allowsPreferredCampus: Bool) {
+        let validCampusCodes = Set(campuses.map(\.code))
+
+        if validCampusCodes.contains(cache.selectedCampusCode) {
+            cache.selectedCampusName = campuses.first(where: { $0.code == cache.selectedCampusCode })?.name ?? cache.selectedCampusName
+            return
+        }
+
+        if allowsPreferredCampus, let preferredCampus = preferredCampus(from: campuses) {
+            cache.selectedCampusCode = preferredCampus.code
+            cache.selectedCampusName = preferredCampus.name
+            return
+        }
+
+        cache.selectedCampusCode = campuses.first?.code ?? ""
+        cache.selectedCampusName = campuses.first?.name ?? ""
+    }
+
+    /// 在教学楼列表变化后修正选中教学楼。
+    private func resolveSelectedBuildingIfNeeded(allowsPreferredBuilding: Bool) {
         let validBuildingIDs = Set(buildings.map(\.buildingCode))
         let cachedBuildingID = cache.selectedBuildingID
-        let preferredBuildingID = preferredBuildingID(from: buildings)
 
-        if let preferredBuildingID, validBuildingIDs.contains(preferredBuildingID) {
-            selectedBuildingID = preferredBuildingID
-        } else if validBuildingIDs.contains(cachedBuildingID) {
-            selectedBuildingID = cachedBuildingID
-        } else {
-            selectedBuildingID = buildings.first?.buildingCode ?? ""
+        if validBuildingIDs.contains(selectedBuildingID) {
+            cache.selectedBuildingID = selectedBuildingID
+            return
         }
+
+        if validBuildingIDs.contains(cachedBuildingID) {
+            selectedBuildingID = cachedBuildingID
+            return
+        }
+
+        if allowsPreferredBuilding, let preferredBuildingID = preferredBuildingID(from: buildings), validBuildingIDs.contains(preferredBuildingID) {
+            selectedBuildingID = preferredBuildingID
+            cache.selectedBuildingID = selectedBuildingID
+            return
+        }
+
+        selectedBuildingID = buildings.first?.buildingCode ?? ""
         cache.selectedBuildingID = selectedBuildingID
-        persist()
     }
 
     /// 把“1-4,6,8-10”之类的周次文本解析成有序周次数组。
@@ -1574,11 +1726,11 @@ final class ScheduleViewModel: ObservableObject {
         isClassroomRequestInFlight = false
     }
 
-    /// 给一次空教室业务动作加总超时，避免 WebVPN fallback 链路拖住页面。
-    private func withClassroomRequestTimeout(
-        operation: @escaping () async throws -> Void
-    ) async throws {
-        try await withThrowingTaskGroup(of: Void.self) { group in
+    /// 给单个空教室网络请求加超时，避免学校接口长期挂起。
+    private func withClassroomRequestTimeout<T>(
+        operation: @escaping () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
             group.addTask {
                 try await operation()
             }
@@ -1588,8 +1740,9 @@ final class ScheduleViewModel: ObservableObject {
                 throw ClassroomRequestTimeoutError()
             }
 
-            try await group.next()
+            let value = try await group.next()!
             group.cancelAll()
+            return value
         }
     }
 

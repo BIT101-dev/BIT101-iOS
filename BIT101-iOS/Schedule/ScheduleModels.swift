@@ -289,6 +289,8 @@ nonisolated struct ScheduleCache: Codable {
     var selectedCampusName: String = ""
     var selectedCampusCode: String = ""
     var selectedBuildingID: String = ""
+    var cachedClassroomCampuses: [CampusRecord] = []
+    var cachedClassroomBuildingsByCampusCode: [String: [BuildingRecord]] = [:]
     var selectedClassroomSectionIDs: [Int] = []
     var showSaturday = true
     var showSunday = true
@@ -323,6 +325,8 @@ nonisolated struct ScheduleCache: Codable {
         case selectedCampusName
         case selectedCampusCode
         case selectedBuildingID
+        case cachedClassroomCampuses
+        case cachedClassroomBuildingsByCampusCode
         case selectedClassroomSectionIDs
         case showSaturday
         case showSunday
@@ -360,6 +364,11 @@ nonisolated struct ScheduleCache: Codable {
         selectedCampusName = try container.decodeIfPresent(String.self, forKey: .selectedCampusName) ?? ""
         selectedCampusCode = try container.decodeIfPresent(String.self, forKey: .selectedCampusCode) ?? ""
         selectedBuildingID = try container.decodeIfPresent(String.self, forKey: .selectedBuildingID) ?? ""
+        cachedClassroomCampuses = try container.decodeIfPresent([CampusRecord].self, forKey: .cachedClassroomCampuses) ?? []
+        cachedClassroomBuildingsByCampusCode = try container.decodeIfPresent(
+            [String: [BuildingRecord]].self,
+            forKey: .cachedClassroomBuildingsByCampusCode
+        ) ?? [:]
         selectedClassroomSectionIDs = try container.decodeIfPresent([Int].self, forKey: .selectedClassroomSectionIDs) ?? []
         showSaturday = try container.decodeIfPresent(Bool.self, forKey: .showSaturday) ?? true
         showSunday = try container.decodeIfPresent(Bool.self, forKey: .showSunday) ?? true
