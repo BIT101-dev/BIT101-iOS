@@ -143,33 +143,23 @@ struct GalleryService {
         )
     }
 
-    /// 推荐流在本地还会过滤机器人帖子，因此可能出现“某一页服务端有内容，但过滤后整页为空”。
+    /// 拉取推荐流的单个源页。
     ///
-    /// 这里向后多扫几页，直到拿到可展示内容或确认后端已经没有更多数据，避免推荐列表错误停止分页。
-    func fetchRecommendFeed(startPage: Int) async throws -> GalleryRecommendFeedBatch {
-        var sourcePage = startPage
-        var collected: [GalleryPoster] = []
-        var canLoadMore = true
-        let maxScanCount = 6
-
-        for _ in 0 ..< maxScanCount where canLoadMore && collected.count < 10 {
-            let rawPosters = try await fetchRawPosters(
-                mode: nil,
-                order: nil,
-                search: nil,
-                uid: nil,
-                page: sourcePage == 0 ? nil : sourcePage,
-                hideBot: true
-            )
-            collected.append(contentsOf: applyBotFilterIfNeeded(rawPosters, hideBot: true))
-            canLoadMore = !rawPosters.isEmpty
-            sourcePage += 1
-        }
+    /// 首屏只请求一页，保证话题页能尽快显示；后续由 ViewModel 在后台预取更多页。
+    func fetchRecommendPage(sourcePage: Int) async throws -> GalleryRecommendFeedBatch {
+        let rawPosters = try await fetchRawPosters(
+            mode: nil,
+            order: nil,
+            search: nil,
+            uid: nil,
+            page: sourcePage == 0 ? nil : sourcePage,
+            hideBot: true
+        )
 
         return GalleryRecommendFeedBatch(
-            posters: collected,
-            nextSourcePage: sourcePage,
-            canLoadMore: canLoadMore
+            posters: applyBotFilterIfNeeded(rawPosters, hideBot: true),
+            nextSourcePage: sourcePage + 1,
+            canLoadMore: !rawPosters.isEmpty
         )
     }
 

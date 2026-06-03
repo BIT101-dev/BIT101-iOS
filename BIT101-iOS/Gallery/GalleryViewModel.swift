@@ -61,8 +61,8 @@ final class GalleryViewModel: ObservableObject {
     private var prefetchedRecommendPages: [GalleryPrefetchedPage] = []
     /// 当前正在跑的推荐预取任务。
     private var recommendPrefetchTask: Task<Void, Never>?
-    /// 推荐流最多后台缓存两页，防止无限预取抬高内存占用。
-    private let recommendPrefetchDepth = 2
+    /// 推荐流首屏显示后最多后台缓存 6 个源页，避免首屏被串行多页请求拖慢。
+    private let recommendPrefetchDepth = 6
 
     init(service: GalleryService) {
         self.service = service
@@ -112,9 +112,8 @@ final class GalleryViewModel: ObservableObject {
                 }
             } else {
                 if feed == .recommend {
-                    // 推荐流额外走“多扫几页 + 去重”的路径，
-                    // 是因为服务端推荐结果可能夹杂机器人帖子，过滤后会出现空页。
-                    let batch = try await service.fetchRecommendFeed(startPage: 0)
+                    // 推荐流首屏只拉一个源页，先尽快展示；更多源页交给后台预取。
+                    let batch = try await service.fetchRecommendPage(sourcePage: 0)
                     let uniquePosters = await deduplicateInBackground(batch.posters)
                     setState(for: feed) {
                         $0.posters = uniquePosters
@@ -218,7 +217,7 @@ final class GalleryViewModel: ObservableObject {
                     if let prefetchedPage = takePrefetchedRecommendPage(for: nextPage) {
                         batch = prefetchedPage
                     } else {
-                        let loadedBatch = try await service.fetchRecommendFeed(startPage: nextPage)
+                        let loadedBatch = try await service.fetchRecommendPage(sourcePage: nextPage)
                         let deduplicatedPosters = await deduplicateInBackground(loadedBatch.posters)
                         batch = GalleryPrefetchedPage(
                             page: nextPage,
@@ -346,7 +345,7 @@ final class GalleryViewModel: ObservableObject {
         feedStates[feed] = state
     }
 
-    /// 推荐流最多后台缓存两页，既保证顺滑，也避免无限预取占用内存。
+    /// 推荐流首屏后后台缓存若干源页，既保证顺滑，也避免首屏等待多页串行请求。
     ///
     /// 预取本身是“可有可无”的体验优化，所以一旦任务已存在或起点页已缓存，就直接跳过，
     /// 不追求绝对激进。
@@ -378,7 +377,7 @@ final class GalleryViewModel: ObservableObject {
                 }
 
                 do {
-                    let batch = try await service.fetchRecommendFeed(startPage: currentPage)
+                    let batch = try await service.fetchRecommendPage(sourcePage: currentPage)
                     guard !Task.isCancelled else { return }
                     let deduplicatedPosters = await deduplicateInBackground(batch.posters)
                     appendPrefetchedRecommendPage(
