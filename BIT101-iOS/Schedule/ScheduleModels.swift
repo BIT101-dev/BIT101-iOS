@@ -467,10 +467,9 @@ struct ScheduleExportPayload: Codable {
     }
 }
 
-/// 课表分享编码的实验性紧凑载荷 V2。
+/// 课表分享编码的紧凑载荷 V2。
 ///
-/// 这是一份**已正式定义、但当前并未启用**的备用协议，目标是在未来替换现有
-/// `ScheduleExportPayload`（V1）时，把分享码进一步缩短。
+/// 当前导出端默认使用这套协议，V1 仍保留为导入兼容格式。
 ///
 /// ## 设计约束
 /// - 继续复用现有外层包装：`lzfse + base64`
@@ -512,12 +511,9 @@ struct ScheduleExportPayload: Codable {
 /// - `firstDayString`
 /// - `timeTable`
 ///
-/// ## 为什么先定义、暂不启用
-/// 这份协议已经可以作为未来的 `BIT101SCH2` 使用，但当前版本仍默认导出 V1。
-/// 提前把 V2 的结构、注释和解码逻辑埋进代码，主要是为了：
-/// 1. 提前固定格式，避免以后不同分支各自发明一种“V2”
-/// 2. 让未来切换导出算法时，不需要再重新讨论字段顺序
-/// 3. 与当前已加好的“高版本分享码提示更新”兜底配套
+/// ## 兼容策略
+/// 新版默认导出 `BIT101SCH2`；导入端继续支持 `BIT101SCH1`、`BIT101SCH2`，并预置 `BIT101SCH3` 解码。
+/// 低版本客户端如果尚未支持 V2，会无法导入新版分享码，因此高版本兜底提示仍然保留。
 struct ScheduleExportCompactPayloadV2: Codable {
     static let formatVersion = 2
 
@@ -665,6 +661,166 @@ struct ScheduleExportCompactPayloadV2: Codable {
             try encodedCourse.encode(course.weekday)
             try encodedCourse.encode(course.startSection)
             try encodedCourse.encode(course.endSection)
+        }
+    }
+}
+
+
+/// 课表分享编码的紧凑载荷 V3。
+///
+/// V3 在 V2 的课程排布骨架上追加学分字段。当前只预置解码能力，导出端仍默认使用 V2。
+///
+/// 最外层布局固定为：
+///
+/// ```text
+/// [
+///   3,
+///   [
+///     [课程名, 教师, 教室, 周次数组, 星期, 开始节, 结束节, 学分],
+///     ...
+///   ]
+/// ]
+/// ```
+struct ScheduleExportCompactPayloadV3: Codable {
+    static let formatVersion = 3
+
+    /// V3 内部单门课的极简表示。
+    ///
+    /// 字段顺序必须稳定；第 8 项 `credit` 是相对 V2 新增的学分字段。
+    struct CompactCourse: Codable, Hashable {
+        let name: String
+        let teacher: String
+        let classroom: String
+        let weeks: [Int]
+        let weekday: Int
+        let startSection: Int
+        let endSection: Int
+        let credit: Int
+
+        nonisolated init(
+            name: String,
+            teacher: String,
+            classroom: String,
+            weeks: [Int],
+            weekday: Int,
+            startSection: Int,
+            endSection: Int,
+            credit: Int
+        ) {
+            self.name = name
+            self.teacher = teacher
+            self.classroom = classroom
+            self.weeks = weeks
+            self.weekday = weekday
+            self.startSection = startSection
+            self.endSection = endSection
+            self.credit = credit
+        }
+
+        nonisolated init(course: CourseRecord) {
+            self.init(
+                name: course.name,
+                teacher: course.teacher,
+                classroom: course.classroom,
+                weeks: course.weeks,
+                weekday: course.weekday,
+                startSection: course.startSection,
+                endSection: course.endSection,
+                credit: course.credit
+            )
+        }
+
+        func expandedCourse(term: String) -> CourseRecord {
+            CourseRecord(
+                id: UUID().uuidString,
+                term: term,
+                name: name,
+                teacher: teacher,
+                classroom: classroom,
+                description: "",
+                weeks: weeks,
+                weekday: weekday,
+                startSection: startSection,
+                endSection: endSection,
+                campus: "",
+                number: "",
+                credit: credit,
+                hour: 0,
+                type: "",
+                category: "",
+                department: ""
+            )
+        }
+    }
+
+    let courses: [CompactCourse]
+
+    init(cache: ScheduleCache) {
+        self.courses = cache.courses.map(CompactCourse.init(course:))
+    }
+
+    init(payload: ScheduleExportPayload) {
+        self.courses = payload.courses.map(CompactCourse.init(course:))
+    }
+
+    var isEmpty: Bool { courses.isEmpty }
+
+    func expandedPayload(using cache: ScheduleCache, importedAt: Date = Date()) -> ScheduleExportPayload {
+        ScheduleExportPayload(
+            formatVersion: 1,
+            exportedAt: importedAt,
+            currentTerm: cache.currentTerm,
+            firstDayString: cache.firstDayString,
+            timeTable: cache.timeTable,
+            courses: courses.map { $0.expandedCourse(term: cache.currentTerm) }
+        )
+    }
+
+    init(from decoder: Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        let version = try container.decode(Int.self)
+        guard version == Self.formatVersion else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "不支持的紧凑课表分享格式版本：\(version)"
+            )
+        }
+
+        var coursesContainer = try container.nestedUnkeyedContainer()
+        var decodedCourses: [CompactCourse] = []
+        while !coursesContainer.isAtEnd {
+            var course = try coursesContainer.nestedUnkeyedContainer()
+            decodedCourses.append(
+                CompactCourse(
+                    name: try course.decode(String.self),
+                    teacher: try course.decode(String.self),
+                    classroom: try course.decode(String.self),
+                    weeks: try course.decode([Int].self),
+                    weekday: try course.decode(Int.self),
+                    startSection: try course.decode(Int.self),
+                    endSection: try course.decode(Int.self),
+                    credit: try course.decode(Int.self)
+                )
+            )
+        }
+        courses = decodedCourses
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.unkeyedContainer()
+        try container.encode(Self.formatVersion)
+
+        var coursesContainer = container.nestedUnkeyedContainer()
+        for course in courses {
+            var encodedCourse = coursesContainer.nestedUnkeyedContainer()
+            try encodedCourse.encode(course.name)
+            try encodedCourse.encode(course.teacher)
+            try encodedCourse.encode(course.classroom)
+            try encodedCourse.encode(course.weeks)
+            try encodedCourse.encode(course.weekday)
+            try encodedCourse.encode(course.startSection)
+            try encodedCourse.encode(course.endSection)
+            try encodedCourse.encode(course.credit)
         }
     }
 }

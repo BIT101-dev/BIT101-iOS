@@ -76,7 +76,7 @@ struct CoursePageContent: View {
                         )
                     }
 
-                    Section("课程列表") {
+                    Section{
                         courseSection
                     }
                 }

@@ -768,11 +768,11 @@ private struct CalendarSettingsPage: View {
     /// 生成一份可复制的压缩课表编码。
     ///
     /// 当前编码格式为：
-    /// `BIT101SCH1:<base64(lzfse(json(payload)))>`
+    /// `BIT101SCH2:<base64(lzfse(json(compactPayload)))>`
     ///
-    /// 这样既保留了版本前缀，后续做导入时也能区分不同格式。
+    /// V2 只导出课程排布骨架，导入端复用本机的学期、首周和时间表；V1 导入仍保留兼容旧分享码。
     private func exportScheduleCode(allowEmptyCourseData: Bool = false) {
-        let payload = ScheduleExportPayload(cache: viewModel.cache)
+        let payload = ScheduleExportCompactPayloadV2(cache: viewModel.cache)
         guard allowEmptyCourseData || !payload.isEmpty else {
             isShowingEmptyScheduleExportConfirmation = true
             return
@@ -786,7 +786,7 @@ private struct CalendarSettingsPage: View {
             guard let compressedData = try (jsonData as NSData).compressed(using: .lzfse) as Data? else {
                 throw NSError(domain: "BIT101.ScheduleExport", code: -1, userInfo: [NSLocalizedDescriptionKey: "课表压缩失败。"])
             }
-            let code = "BIT101SCH1:\(compressedData.base64EncodedString())"
+            let code = "BIT101SCH2:\(compressedData.base64EncodedString())"
             exportedScheduleCode = ExportedScheduleCode(code: code)
         } catch {
             viewModel.notice = ScheduleNotice(title: "导出失败", message: error.localizedDescription)
@@ -806,9 +806,10 @@ private struct CalendarSettingsPage: View {
 
     /// 解析并导入一份压缩编码的课表。
     ///
-    /// 当前支持两套格式：
+    /// 当前支持三套格式：
     /// - `BIT101SCH1:<base64(lzfse(json(payload))))>`：V1 完整 JSON 载荷
     /// - `BIT101SCH2:<base64(lzfse(json(compactPayload))))>`：V2 精简数组载荷
+    /// - `BIT101SCH3:<base64(lzfse(json(compactPayload))))>`：V3 精简数组载荷，额外包含学分
     ///
     /// UI 保持不变，只在导入端根据版本前缀切换解析器。
     private func importScheduleCode(_ text: String) throws {
@@ -817,12 +818,12 @@ private struct CalendarSettingsPage: View {
             throw NSError(domain: "BIT101.ScheduleImport", code: -1, userInfo: [NSLocalizedDescriptionKey: "请输入或粘贴课表编码。"])
         }
 
-        let supportedPrefixes = ["BIT101SCH1:", "BIT101SCH2:"]
+        let supportedPrefixes = ["BIT101SCH1:", "BIT101SCH2:", "BIT101SCH3:"]
         if !supportedPrefixes.contains(where: { trimmed.hasPrefix($0) }),
            let colonIndex = trimmed.firstIndex(of: ":"),
            trimmed.hasPrefix("BIT101SCH") {
             let versionToken = trimmed[trimmed.index(trimmed.startIndex, offsetBy: "BIT101SCH".count) ..< colonIndex]
-            if let version = Int(versionToken), version > 2 {
+            if let version = Int(versionToken), version > 3 {
                 throw NSError(domain: "BIT101.ScheduleImport", code: -1, userInfo: [NSLocalizedDescriptionKey: "对方版本更高，请更新版本后再导入。"])
             }
         }
@@ -848,6 +849,9 @@ private struct CalendarSettingsPage: View {
             payload = try decoder.decode(ScheduleExportPayload.self, from: jsonData)
         case "BIT101SCH2:":
             let compactPayload = try decoder.decode(ScheduleExportCompactPayloadV2.self, from: jsonData)
+            payload = compactPayload.expandedPayload(using: viewModel.cache)
+        case "BIT101SCH3:":
+            let compactPayload = try decoder.decode(ScheduleExportCompactPayloadV3.self, from: jsonData)
             payload = compactPayload.expandedPayload(using: viewModel.cache)
         default:
             throw NSError(domain: "BIT101.ScheduleImport", code: -1, userInfo: [NSLocalizedDescriptionKey: "课表编码格式不正确。"])

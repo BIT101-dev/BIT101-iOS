@@ -60,6 +60,45 @@ private enum ScoreFilterPreferenceStore {
     }
 }
 
+
+/// 成绩完整结果缓存快照。
+///
+/// 只缓存 `detail=true` 的完整成绩，不缓存网页端用于快速预览的轻量结果，避免列表字段语义降级。
+private struct ScoreCacheSnapshot: Codable {
+    let updatedAt: Date
+    let rows: [ScoreRow]
+}
+
+/// 成绩缓存仓库。
+///
+/// 按学号隔离，避免切换账号后串用上一位用户的成绩。
+private enum ScoreCacheStore {
+    private static let keyPrefix = "score.detail.cache"
+
+    static func load() -> ScoreCacheSnapshot? {
+        guard
+            let data = UserDefaults.standard.data(forKey: storageKey),
+            let snapshot = try? JSONDecoder().decode(ScoreCacheSnapshot.self, from: data)
+        else {
+            return nil
+        }
+        return snapshot
+    }
+
+    static func save(rows: [ScoreRow]) {
+        guard !rows.isEmpty else { return }
+        let snapshot = ScoreCacheSnapshot(updatedAt: Date(), rows: rows)
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        UserDefaults.standard.set(data, forKey: storageKey)
+    }
+
+    private static var storageKey: String {
+        let studentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let suffix = studentID.isEmpty ? "guest" : studentID
+        return "\(keyPrefix).\(suffix)"
+    }
+}
+
 /// 成绩列表支持的排序索引。
 private enum ScoreSortIndex: String, CaseIterable, Identifiable {
     case courseName
@@ -218,10 +257,13 @@ private final class ScoreViewModel: ObservableObject {
     @Published private(set) var sortIndex: ScoreSortIndex = .courseName
     /// 当前成绩列表排序方向。
     @Published private(set) var sortOrder: ScoreSortOrder = .ascending
+    /// 是否正在后台同步完整成绩。
+    @Published private(set) var isSyncing = false
     @Published var alert: LoginAlert?
 
     private let service: ScoreService
     private var isRefreshing = false
+    private var didRestoreCachedRows = false
     private var didInitializeTermSelection = false
     private var didInitializeCourseTypeSelection = false
     /// 启动时读取一次已持久化的筛选快照。
@@ -248,8 +290,11 @@ private final class ScoreViewModel: ObservableObject {
     }
 
     /// 首次进入成绩页时触发一次查询。
+    ///
+    /// 如果本机已有完整成绩缓存，先立即恢复缓存，再后台刷新同样的 `detail=true` 完整数据。
     func bootstrapIfNeeded() async {
         guard state == .idle else { return }
+        restoreCachedRowsIfAvailable()
         await refresh()
     }
 
@@ -261,21 +306,20 @@ private final class ScoreViewModel: ObservableObject {
 
         let hadContent = !rows.isEmpty || state == .loaded
         isRefreshing = true
+        isSyncing = true
         if !hadContent {
             state = .loading
         }
 
         defer {
             isRefreshing = false
+            isSyncing = false
         }
 
         do {
             let fetchedRows = try await service.fetchScores(detail: true)
-            rows = fetchedRows
-            availableTerms = uniqueNonEmptyValues(from: fetchedRows.map(\.term))
-            availableCourseTypes = uniqueNonEmptyValues(from: fetchedRows.map(\.courseType))
-            synchronizeFilters()
-            state = .loaded
+            applyRows(fetchedRows)
+            ScoreCacheStore.save(rows: fetchedRows)
         } catch {
             if isCancellation(error) {
                 state = hadContent ? .loaded : .idle
@@ -389,6 +433,23 @@ private final class ScoreViewModel: ObservableObject {
     func toggleSortOrder() {
         sortOrder = sortOrder.toggled
         persistFilterPreferences()
+    }
+
+    /// 恢复本机缓存的完整成绩结果。
+    private func restoreCachedRowsIfAvailable() {
+        guard !didRestoreCachedRows else { return }
+        didRestoreCachedRows = true
+        guard let snapshot = ScoreCacheStore.load(), !snapshot.rows.isEmpty else { return }
+        applyRows(snapshot.rows)
+    }
+
+    /// 应用一份完整成绩结果，并同步筛选项。
+    private func applyRows(_ newRows: [ScoreRow]) {
+        rows = newRows
+        availableTerms = uniqueNonEmptyValues(from: newRows.map(\.term))
+        availableCourseTypes = uniqueNonEmptyValues(from: newRows.map(\.courseType))
+        synchronizeFilters()
+        state = .loaded
     }
 
     /// 刷新可选项后，同步修正当前筛选集合。
@@ -584,6 +645,18 @@ private struct ScoreListPage: View {
                 .background(Color(.systemGroupedBackground))
             case .loaded:
                 List {
+                    if viewModel.isSyncing {
+                        Section {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("同步中")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .font(.footnote)
+                        }
+                    }
+
                     Section {
                         NavigationLink {
                             ScoreFilterPage(

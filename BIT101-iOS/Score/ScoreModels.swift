@@ -13,7 +13,7 @@ enum ScoreLoadState: Equatable {
 /// 单个成绩字段。
 ///
 /// 服务端返回的是二维表，这里先把表头和值压成键值对，便于详情页复用。
-struct ScoreField: Hashable {
+struct ScoreField: Codable, Hashable {
     let key: String
     let value: String
 }
@@ -21,7 +21,7 @@ struct ScoreField: Hashable {
 /// 成绩表中的一行课程记录。
 ///
 /// 保留原始表头和值的对应关系，同时提供常用字段的便捷访问器。
-struct ScoreRow: Identifiable {
+struct ScoreRow: Codable, Identifiable {
     let id: String
     let values: [ScoreField]
 
