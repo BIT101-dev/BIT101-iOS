@@ -102,12 +102,12 @@ enum AppTab: String, Identifiable, Codable {
 ///
 /// 壳层只关心两件事：按照设置中心决定展示哪些 tab，以及把退出登录回调继续往下传。
 struct AppShellView: View {
-    private static let startupNoticeTitle = "1.5.4 版本更新"
+    private static let startupNoticeTitle = "1.6.0 版本更新"
     private static let startupNoticeBody = """
-    1、课程详情新增共享资料与历史成绩。
-    2、历史成绩支持趋势图、补考学期智能屏蔽。
-    3、日程课程详情补充学分信息。
-    4、优化若干细节。
+    1、空教室查询加载更快，切换教学楼反馈更清晰。
+    2、成绩页支持本地缓存与后台同步提示。
+    3、课表分享升级为第二代分享码，长度大大缩短。
+    4、话题页优化首屏加载与后台预取。
     """
     private static let widgetUsageGuideTitle = "非常有用的几个用法"
     private static let widgetUsageGuideBody = """

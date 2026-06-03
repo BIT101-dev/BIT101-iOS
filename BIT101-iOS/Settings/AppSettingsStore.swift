@@ -105,7 +105,7 @@ final class AppSettingsStore: ObservableObject {
     /// 当前社区规则版本号；版本提升后会强制重新弹出规则确认。
     nonisolated static let currentCommunityRulesVersion = 2
     /// 当前开屏公告版本号；变化后会重新展示一次。
-    nonisolated static let currentStartupNoticeVersion = "1.5.4"
+    nonisolated static let currentStartupNoticeVersion = "1.6.0"
     /// 开屏公告已读状态对应的全局 key。
     nonisolated static let startupNoticeSeenKey = "app.startup.notice.seen.version"
     /// 当前“小组件使用提示”版本号；版本提升后会重新展示一次。
