@@ -249,26 +249,11 @@ struct ScheduleExportCompactPayloadV2: Codable {
 
 /// 课表分享编码的紧凑载荷 V3。
 ///
-/// V3 在 V2 的课程排布骨架上追加学分字段。当前只预置解码能力，导出端仍默认使用 V2。
-///
-/// 最外层布局固定为：
-///
-/// ```text
-/// [
-///   3,
-///   [
-///     [课程名, 教师, 教室, 周次数组, 星期, 开始节, 结束节, 学分],
-///     ...
-///   ]
-/// ]
-/// ```
-struct ScheduleExportCompactPayloadV3: Codable {
+/// V3 在 V2 的课程排布骨架上追加学分字段。当前只提供解码能力，导出端仍默认使用 V2。
+struct ScheduleExportCompactPayloadV3: Decodable {
     static let formatVersion = 3
 
-    /// V3 内部单门课的极简表示。
-    ///
-    /// 字段顺序必须稳定；第 8 项 `credit` 是相对 V2 新增的学分字段。
-    struct CompactCourse: Codable, Hashable {
+    struct CompactCourse: Decodable, Hashable {
         let name: String
         let teacher: String
         let classroom: String
@@ -278,37 +263,16 @@ struct ScheduleExportCompactPayloadV3: Codable {
         let endSection: Int
         let credit: Int
 
-        nonisolated init(
-            name: String,
-            teacher: String,
-            classroom: String,
-            weeks: [Int],
-            weekday: Int,
-            startSection: Int,
-            endSection: Int,
-            credit: Int
-        ) {
-            self.name = name
-            self.teacher = teacher
-            self.classroom = classroom
-            self.weeks = weeks
-            self.weekday = weekday
-            self.startSection = startSection
-            self.endSection = endSection
-            self.credit = credit
-        }
-
-        nonisolated init(course: CourseRecord) {
-            self.init(
-                name: course.name,
-                teacher: course.teacher,
-                classroom: course.classroom,
-                weeks: course.weeks,
-                weekday: course.weekday,
-                startSection: course.startSection,
-                endSection: course.endSection,
-                credit: course.credit
-            )
+        init(from decoder: Decoder) throws {
+            var container = try decoder.unkeyedContainer()
+            name = try container.decode(String.self)
+            teacher = try container.decode(String.self)
+            classroom = try container.decode(String.self)
+            weeks = try container.decode([Int].self)
+            weekday = try container.decode(Int.self)
+            startSection = try container.decode(Int.self)
+            endSection = try container.decode(Int.self)
+            credit = try container.decode(Int.self)
         }
 
         func expandedCourse(term: String) -> CourseRecord {
@@ -336,14 +300,6 @@ struct ScheduleExportCompactPayloadV3: Codable {
 
     let courses: [CompactCourse]
 
-    init(cache: ScheduleCache) {
-        self.courses = cache.courses.map(CompactCourse.init(course:))
-    }
-
-    init(payload: ScheduleExportPayload) {
-        self.courses = payload.courses.map(CompactCourse.init(course:))
-    }
-
     var isEmpty: Bool { courses.isEmpty }
 
     func expandedPayload(using cache: ScheduleCache, importedAt: Date = Date()) -> ScheduleExportPayload {
@@ -370,38 +326,8 @@ struct ScheduleExportCompactPayloadV3: Codable {
         var coursesContainer = try container.nestedUnkeyedContainer()
         var decodedCourses: [CompactCourse] = []
         while !coursesContainer.isAtEnd {
-            var course = try coursesContainer.nestedUnkeyedContainer()
-            decodedCourses.append(
-                CompactCourse(
-                    name: try course.decode(String.self),
-                    teacher: try course.decode(String.self),
-                    classroom: try course.decode(String.self),
-                    weeks: try course.decode([Int].self),
-                    weekday: try course.decode(Int.self),
-                    startSection: try course.decode(Int.self),
-                    endSection: try course.decode(Int.self),
-                    credit: try course.decode(Int.self)
-                )
-            )
+            decodedCourses.append(try coursesContainer.decode(CompactCourse.self))
         }
         courses = decodedCourses
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.unkeyedContainer()
-        try container.encode(Self.formatVersion)
-
-        var coursesContainer = container.nestedUnkeyedContainer()
-        for course in courses {
-            var encodedCourse = coursesContainer.nestedUnkeyedContainer()
-            try encodedCourse.encode(course.name)
-            try encodedCourse.encode(course.teacher)
-            try encodedCourse.encode(course.classroom)
-            try encodedCourse.encode(course.weeks)
-            try encodedCourse.encode(course.weekday)
-            try encodedCourse.encode(course.startSection)
-            try encodedCourse.encode(course.endSection)
-            try encodedCourse.encode(course.credit)
-        }
     }
 }
