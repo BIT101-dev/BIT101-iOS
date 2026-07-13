@@ -608,13 +608,9 @@ private struct ScoreListPage: View {
                 List {
                     if viewModel.isSyncing {
                         Section {
-                            HStack(spacing: 8) {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text("同步中")
-                                    .foregroundStyle(.secondary)
-                            }
-                            .font(.footnote)
+                            Text("同步中")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
                         }
                     }
 
