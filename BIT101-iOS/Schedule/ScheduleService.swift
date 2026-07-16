@@ -104,7 +104,7 @@ enum ScheduleServiceError: LocalizedError {
         case let .challengeInvalid(message):
             return message
         case .teachingCenterSessionExpired:
-            return "教学中心登录状态已失效，请重新验证。"
+            return "学校会话自动恢复失败，请稍后重试；无需退出 App 或重新登录。"
         case let .authenticationFailed(message):
             return message
         case .invalidResponse:
@@ -237,17 +237,45 @@ struct ScheduleService {
     /// 同步课表、考试和首周日期。
     ///
     /// 这三个结果会同时影响课表页面、当前周计算、小组件和灵动岛，所以同步时必须成套获取。
-    func syncCourses() async throws -> CourseSyncPayload {
+    func syncCourses(term: String? = nil) async throws -> CourseSyncPayload {
         try await withTeachingCenterSessionRetry {
-            try await fetchCourseSyncPayload()
+            try await fetchCourseSyncPayload(term: term)
+        }
+    }
+
+    /// 获取学校已经开放的学期列表，供用户主动切换课表学期。
+    func fetchAvailableTerms() async throws -> [String] {
+        try await withTeachingCenterSessionRetry {
+            try await prepareJXZX()
+            let response: TermsResponse = try await sendJSONRequest(
+                path: "/jwapp/sys/wdkbby/modules/jshkcb/xnxqcx.do"
+            )
+            return Array(
+                Set(response.datas.xnxqcx.rows.map(\.code).filter { !$0.isEmpty })
+            ).sorted { $0.localizedStandardCompare($1) == .orderedDescending }
         }
     }
 
     /// 提交新版统一认证的短信验证码，并在认证成功后继续本次课表同步。
     func submitSMSCode(
         _ code: String,
-        for challenge: BITLoginAuthenticationChallenge
+        for challenge: BITLoginAuthenticationChallenge,
+        term: String? = nil
     ) async throws -> CourseSyncPayload {
+        try await submitSMSCodeForTeachingCenterAuthentication(code, for: challenge)
+        return try await withTeachingCenterSessionRetry {
+            try await fetchCourseSyncPayload(term: term)
+        }
+    }
+
+    /// 只完成短信认证，不附带任何课表操作。
+    ///
+    /// 加载学期列表触发验证时使用此入口，认证成功后由 ViewModel 自动继续加载列表，
+    /// 避免仅仅打开学期页却顺手把课表切回学校当前学期。
+    func submitSMSCodeForTeachingCenterAuthentication(
+        _ code: String,
+        for challenge: BITLoginAuthenticationChallenge
+    ) async throws {
         guard !challenge.isExpired else {
             throw ScheduleServiceError.challengeInvalid("验证码已过期，请重新同步课表。")
         }
@@ -276,15 +304,13 @@ struct ScheduleService {
             accessToken: challenge.accessToken
         )
         try await finishTeachingCenterAuthentication(current)
-        return try await withTeachingCenterSessionRetry {
-            try await fetchCourseSyncPayload()
-        }
     }
 
-    private func fetchCourseSyncPayload() async throws -> CourseSyncPayload {
+    private func fetchCourseSyncPayload(term requestedTerm: String? = nil) async throws -> CourseSyncPayload {
         try await prepareJXZX()
 
-        let term = try await fetchCurrentTerm()
+        let normalizedTerm = requestedTerm?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let term = normalizedTerm.isEmpty ? try await fetchCurrentTerm() : normalizedTerm
         let courses = try await fetchCourses(term: term)
         let exams = try await fetchExams(term: term)
         let firstDayString = try await fetchFirstDayString(term: term)
@@ -573,24 +599,29 @@ struct ScheduleService {
     ) async throws -> T {
         try await ensureTeachingCenterAuthentication()
 
-        do {
-            return try await operation()
-        } catch ScheduleServiceError.teachingCenterSessionExpired {
-            teachingCenterState.invalidate()
-            try await ensureTeachingCenterAuthentication(force: true)
-
+        // 学校 WebVPN 偶尔会接受新 Cookie，却在紧接着的第一笔业务请求中仍返回登录页。
+        // 全程自动恢复，最多做两轮重新认证；用户只在确实需要短信验证码时参与。
+        for recoveryAttempt in 0 ... 2 {
             do {
                 return try await operation()
             } catch ScheduleServiceError.teachingCenterSessionExpired {
                 teachingCenterState.invalidate()
-                throw ScheduleServiceError.teachingCenterSessionExpired
-            }
-        } catch {
-            if isCancellationError(error) {
+                guard recoveryAttempt < 2 else {
+                    throw ScheduleServiceError.teachingCenterSessionExpired
+                }
+                if recoveryAttempt > 0 {
+                    try await Task.sleep(for: .seconds(1))
+                }
+                try await ensureTeachingCenterAuthentication(force: true)
+            } catch {
+                if isCancellationError(error) {
+                    throw error
+                }
                 throw error
             }
-            throw error
         }
+
+        throw ScheduleServiceError.teachingCenterSessionExpired
     }
 
     /// 确保学校侧登录态仍然有效。
@@ -976,9 +1007,9 @@ struct ScheduleService {
         do {
             return try Self.decoder.decode(Response.self, from: data)
         } catch {
-            // 教学中心会话失效时通常以 200 + HTML 登录页返回；对业务 JSON 请求而言，
-            // 任何非 JSON 响应都先按会话失效处理，并由上层仅重试一次 bit-login。
-            throw ScheduleServiceError.teachingCenterSessionExpired
+            // 登录页 HTML 已在上方按内容特征识别。其余无法解码的 2xx 响应可能只是学校
+            // 网关故障或接口改版，不能误导用户说“登录失效”。
+            throw ScheduleServiceError.invalidResponse
         }
     }
 
@@ -1149,6 +1180,27 @@ private struct CurrentTermResponse: Decodable {
         }
 
         let dqxnxq: Rows
+    }
+
+    struct TermRow: Decodable {
+        enum CodingKeys: String, CodingKey {
+            case code = "DM"
+        }
+
+        let code: String
+    }
+
+    let datas: Datas
+}
+
+/// 可选学期列表接口响应体。
+private struct TermsResponse: Decodable {
+    struct Datas: Decodable {
+        struct Rows: Decodable {
+            let rows: [TermRow]
+        }
+
+        let xnxqcx: Rows
     }
 
     struct TermRow: Decodable {

@@ -115,6 +115,11 @@ final class ScheduleViewModel: ObservableObject {
     @Published private(set) var smsChallenge: BITLoginAuthenticationChallenge?
     @Published private(set) var smsVerificationError: String?
     @Published private(set) var isSubmittingSMSCode = false
+    /// 学校提供的可切换学期列表。
+    @Published private(set) var availableTerms: [String] = []
+    @Published private(set) var isLoadingTerms = false
+    @Published private(set) var hasLoadedAvailableTerms = false
+    @Published private(set) var syncingTerm: String?
 
     private let service: ScheduleService
     private var hasLoaded = false
@@ -132,6 +137,9 @@ final class ScheduleViewModel: ObservableObject {
     private var isRefreshingClassroomMetaInBackground = false
     /// 当前教学楼最近一次拉下来的原始空教室记录。
     private var classroomRecords: [ClassroomRecord] = []
+    /// 短信验证完成后继续用户原本选择的学期，而不是退回学校“当前学期”。
+    private var pendingCourseSyncTerm: String?
+    private var shouldReloadTermsAfterAuthentication = false
     /// 监听设置和缓存变化，用于跨页面同步。
     private var cacheObserver: NSObjectProtocol?
 
@@ -291,23 +299,60 @@ final class ScheduleViewModel: ObservableObject {
     /// 同步课程表、考试安排和首周日期。
     ///
     /// 同步成功后会立刻更新本地缓存，从而驱动课表页、小组件和灵动岛一起刷新。
-    func syncCourses() async {
-        guard !isSyncingCourses, !isSubmittingSMSCode, smsChallenge == nil else { return }
+    func syncCourses(term: String? = nil) async {
+        guard !isSyncingCourses, !isLoadingTerms, !isSubmittingSMSCode, smsChallenge == nil else { return }
         isSyncingCourses = true
-        defer { isSyncingCourses = false }
+        syncingTerm = term
+        defer {
+            isSyncingCourses = false
+            syncingTerm = nil
+        }
 
         do {
-            let payload = try await service.syncCourses()
+            let payload = try await service.syncCourses(term: term)
             applyCourseSyncPayload(payload)
+            pendingCourseSyncTerm = nil
         } catch ScheduleServiceError.secondFactorRequired(let challenge) {
+            pendingCourseSyncTerm = term
             smsChallenge = challenge
             smsVerificationError = nil
         } catch ScheduleServiceError.challengeInvalid(let message) {
             smsChallenge = nil
             smsVerificationError = nil
+            pendingCourseSyncTerm = nil
             notice = ScheduleNotice(title: "验证已失效", message: message)
         } catch {
             notice = ScheduleNotice(title: "课表同步失败", message: error.localizedDescription)
+        }
+    }
+
+    /// 重新获取当前正在使用的学期，而不是重新询问学校的“当前学期”标记。
+    ///
+    /// 用户主动切到未来学期后，普通的“获取/重新同步”都必须留在该学期；只有学期选择页
+    /// 中明确的“切换到学校当前学期”才传 `nil`。
+    func syncSelectedTerm() async {
+        let term = cache.currentTerm.trimmingCharacters(in: .whitespacesAndNewlines)
+        await syncCourses(term: term.isEmpty ? nil : term)
+    }
+
+    /// 加载学校已经开放的学期列表；当前缓存学期始终保留在选项中。
+    func loadAvailableTerms() async {
+        guard !isLoadingTerms, !isSyncingCourses, smsChallenge == nil else { return }
+        isLoadingTerms = true
+        defer { isLoadingTerms = false }
+
+        do {
+            availableTerms = try await service.fetchAvailableTerms()
+            hasLoadedAvailableTerms = true
+            shouldReloadTermsAfterAuthentication = false
+        } catch ScheduleServiceError.secondFactorRequired(let challenge) {
+            pendingCourseSyncTerm = nil
+            shouldReloadTermsAfterAuthentication = true
+            smsChallenge = challenge
+            smsVerificationError = nil
+        } catch {
+            hasLoadedAvailableTerms = true
+            notice = ScheduleNotice(title: "学期列表加载失败", message: error.localizedDescription)
         }
     }
 
@@ -325,12 +370,31 @@ final class ScheduleViewModel: ObservableObject {
         defer { isSubmittingSMSCode = false }
 
         do {
-            let payload = try await service.submitSMSCode(normalizedCode, for: challenge)
+            if shouldReloadTermsAfterAuthentication {
+                try await service.submitSMSCodeForTeachingCenterAuthentication(
+                    normalizedCode,
+                    for: challenge
+                )
+                smsChallenge = nil
+                pendingCourseSyncTerm = nil
+                shouldReloadTermsAfterAuthentication = false
+                await loadAvailableTerms()
+                return
+            }
+
+            let payload = try await service.submitSMSCode(
+                normalizedCode,
+                for: challenge,
+                term: pendingCourseSyncTerm
+            )
             applyCourseSyncPayload(payload)
             smsChallenge = nil
+            pendingCourseSyncTerm = nil
         } catch ScheduleServiceError.challengeInvalid(let message) {
             smsChallenge = nil
             smsVerificationError = nil
+            pendingCourseSyncTerm = nil
+            shouldReloadTermsAfterAuthentication = false
             notice = ScheduleNotice(title: "验证已失效", message: message)
         } catch {
             smsVerificationError = error.localizedDescription
@@ -341,6 +405,8 @@ final class ScheduleViewModel: ObservableObject {
         guard !isSubmittingSMSCode else { return }
         smsChallenge = nil
         smsVerificationError = nil
+        pendingCourseSyncTerm = nil
+        shouldReloadTermsAfterAuthentication = false
     }
 
     private func applyCourseSyncPayload(_ payload: CourseSyncPayload) {
@@ -348,7 +414,7 @@ final class ScheduleViewModel: ObservableObject {
         cache.firstDayString = payload.firstDayString
         cache.courses = payload.courses
         cache.exams = payload.exams
-        selectedWeek = min(max(resolvedCurrentWeek(), 1), maxWeek)
+        selectedWeek = resolvedCurrentWeek()
         persist()
     }
 
@@ -469,17 +535,27 @@ final class ScheduleViewModel: ObservableObject {
 
     /// 课表周次左移一周。
     func previousWeek() {
-        selectedWeek = max(1, selectedWeek - 1)
+        selectedWeek = ScheduleWeekCodec.previousWeek(before: selectedWeek)
     }
 
     /// 课表周次右移一周。
     func nextWeek() {
-        selectedWeek = min(maxWeek, selectedWeek + 1)
+        selectedWeek = ScheduleWeekCodec.nextWeek(after: selectedWeek)
     }
 
     /// 把周次快速重置到当前周。
     func resetToCurrentWeek() {
-        selectedWeek = min(max(resolvedCurrentWeek(), 1), maxWeek)
+        selectedWeek = resolvedCurrentWeek()
+    }
+
+    /// 手动修正当前课表的第一周起始日期。
+    ///
+    /// 正常切换学期时会自动使用学校按学期返回的第一周日期；这里只作为学校数据尚未更新
+    /// 或临时校历调整时的覆盖入口。
+    func setFirstDay(_ date: Date) {
+        cache.firstDayString = ScheduleDateCodec.formatDate(ScheduleDateCodec.monday(containing: date))
+        selectedWeek = resolvedCurrentWeek()
+        persist()
     }
 
     /// 在“我的课表”和导入课表之间循环切换。
@@ -492,7 +568,6 @@ final class ScheduleViewModel: ObservableObject {
         let count = variants.count
         let nextIndex = (selectedCourseScheduleIndex + step).modulo(count)
         selectedCourseScheduleIndex = nextIndex
-        selectedWeek = min(max(selectedWeek, 1), maxWeek)
     }
 
     /// 重命名当前账号自己的课表。
@@ -895,7 +970,7 @@ final class ScheduleViewModel: ObservableObject {
         )
         persist()
         selectedCourseScheduleIndex = courseSchedules.count - 1
-        selectedWeek = min(max(resolvedCurrentWeek(), 1), maxWeek)
+        selectedWeek = resolvedCurrentWeek()
     }
 
     /// 把已有自定义日程转成编辑草稿；如果为空则生成一份默认草稿。
@@ -1004,11 +1079,11 @@ final class ScheduleViewModel: ObservableObject {
         let start = calendar.startOfDay(for: firstDay)
         let target = calendar.startOfDay(for: date)
         let dayOffset = calendar.dateComponents([.day], from: start, to: target).day ?? 0
-        guard dayOffset >= 0 else {
-            throw scheduleValidationError("目标日期早于当前学期首周，无法调课。")
-        }
-
-        return (week: dayOffset / 7 + 1, weekday: dayOffset % 7 + 1)
+        let weekOffset = ScheduleWeekCodec.weekOffset(
+            forWeekNumber: ScheduleWeekCodec.weekNumber(forDayOffset: dayOffset)
+        )
+        let weekdayOffset = dayOffset - weekOffset * 7
+        return (week: ScheduleWeekCodec.weekNumber(forDayOffset: dayOffset), weekday: weekdayOffset + 1)
     }
 
     /// 进入空教室页前的统一预热入口。
@@ -1694,7 +1769,7 @@ final class ScheduleViewModel: ObservableObject {
         let start = Calendar.current.startOfDay(for: firstDay)
         let today = Calendar.current.startOfDay(for: Date())
         let diff = Calendar.current.dateComponents([.day], from: start, to: today).day ?? 0
-        return max(diff / 7 + 1, 1)
+        return ScheduleWeekCodec.weekNumber(forDayOffset: diff)
     }
 
     /// 当前时间在一天中的分钟偏移。
@@ -1798,7 +1873,7 @@ final class ScheduleViewModel: ObservableObject {
         let previousScheduleIndex = selectedCourseScheduleIndex
         cache = ScheduleCacheStore.load()
         selectedCourseScheduleIndex = min(max(previousScheduleIndex, 0), max(courseSchedules.count - 1, 0))
-        selectedWeek = min(max(resolvedCurrentWeek(), 1), maxWeek)
+        selectedWeek = resolvedCurrentWeek()
         selectedBuildingID = cache.selectedBuildingID
     }
 
@@ -1877,7 +1952,7 @@ final class ScheduleViewModel: ObservableObject {
 
     /// 把课程的教学周/星期/节次时间拼成真实日期时间。
     private func combineCourseDate(firstDay: Date, week: Int, weekday: Int, time: String) -> Date? {
-        let dayOffset = (week - 1) * 7 + (weekday - 1)
+        let dayOffset = ScheduleWeekCodec.weekOffset(forWeekNumber: week) * 7 + (weekday - 1)
         guard let day = Calendar.current.date(byAdding: .day, value: dayOffset, to: firstDay) else {
             return nil
         }

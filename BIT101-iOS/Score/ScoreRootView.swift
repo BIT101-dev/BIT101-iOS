@@ -1,5 +1,6 @@
 import Combine
 import SwiftUI
+import UIKit
 
 /// 统一生成“左右轻扫切换分区”的横向手势。
 ///
@@ -551,6 +552,100 @@ private final class ScoreViewModel: ObservableObject {
     }
 }
 
+/// 可信成绩单申请使用与普通成绩查询相互独立的状态机。
+///
+/// 学校返回的图片地址是短期地址，图片也只保留在内存中；退出页面后不会写入成绩缓存或图片缓存。
+@MainActor
+private final class TrustedTranscriptViewModel: ObservableObject {
+    enum State: Equatable {
+        case idle
+        case loading
+        case loaded
+        case failed(String)
+    }
+
+    @Published private(set) var state: State = .idle
+    @Published private(set) var image: UIImage?
+    @Published private(set) var smsChallenge: BITLoginAuthenticationChallenge?
+    @Published private(set) var smsVerificationError: String?
+    @Published private(set) var isSubmittingSMSCode = false
+
+    private let service: ScoreService
+
+    init(service: ScoreService) {
+        self.service = service
+    }
+
+    convenience init() {
+        self.init(service: ScoreService())
+    }
+
+    /// 发起一次新的学校可信成绩单申请。
+    func apply() async {
+        guard state != .loading, !isSubmittingSMSCode, smsChallenge == nil else { return }
+        image = nil
+        smsVerificationError = nil
+        state = .loading
+
+        do {
+            let url = try await service.fetchTrustedTranscript()
+            try await loadImage(from: url)
+        } catch ScoreServiceError.secondFactorRequired(let challenge) {
+            smsChallenge = challenge
+            state = .idle
+        } catch ScoreServiceError.challengeInvalid(let message) {
+            smsChallenge = nil
+            state = .failed(message)
+        } catch {
+            if error is CancellationError { return }
+            state = .failed(error.localizedDescription)
+        }
+    }
+
+    /// 提交 `jwb_cjd` 独立 challenge 的验证码，并继续下载成绩单图片。
+    func submitSMSCode(_ code: String) async {
+        guard let challenge = smsChallenge, !isSubmittingSMSCode else { return }
+        let normalizedCode = code.filter(\.isNumber)
+        guard (4 ... 8).contains(normalizedCode.count) else {
+            smsVerificationError = "请输入短信中的 4 至 8 位验证码。"
+            return
+        }
+
+        isSubmittingSMSCode = true
+        smsVerificationError = nil
+        defer { isSubmittingSMSCode = false }
+
+        do {
+            let url = try await service.submitTranscriptSMSCode(normalizedCode, for: challenge)
+            smsChallenge = nil
+            state = .loading
+            try await loadImage(from: url)
+        } catch ScoreServiceError.challengeInvalid(let message) {
+            smsChallenge = nil
+            state = .failed(message)
+        } catch {
+            // 普通错误（尤其是错误验证码）留在输入面板内展示，允许用户直接改正后重试。
+            smsVerificationError = error.localizedDescription
+        }
+    }
+
+    func dismissSMSChallenge() {
+        guard !isSubmittingSMSCode else { return }
+        smsChallenge = nil
+        smsVerificationError = nil
+        state = .failed("已取消短信验证，未申请可信成绩单。")
+    }
+
+    private func loadImage(from url: URL) async throws {
+        let data = try await service.downloadTrustedTranscript(from: url)
+        guard let downloadedImage = UIImage(data: data) else {
+            throw ScoreServiceError.queryFailed("学校返回的成绩单图片无法识别，请重新申请。")
+        }
+        image = downloadedImage
+        state = .loaded
+    }
+}
+
 /// “成绩”底部页内部的一级内容分区。
 ///
 /// 课程模块并入后，底部栏只保留“成绩”一个入口，
@@ -679,6 +774,15 @@ private struct ScoreListPage: View {
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                         }
+                    }
+
+                    Section("学校服务") {
+                        NavigationLink {
+                            TrustedTranscriptPage()
+                        } label: {
+                            Label("申请可信成绩单", systemImage: "doc.text.image")
+                        }
+                        .disabled(viewModel.isSyncing)
                     }
 
                     Section {
@@ -817,6 +921,79 @@ private struct ScoreListPage: View {
     }
 }
 
+/// 学校可信成绩单申请与预览页。
+private struct TrustedTranscriptPage: View {
+    @StateObject private var viewModel = TrustedTranscriptViewModel()
+    @State private var isShowingImageViewer = false
+
+    var body: some View {
+        Group {
+            switch viewModel.state {
+            case .idle, .loading:
+                ProgressView("正在向学校申请可信成绩单")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case let .failed(message):
+                ContentUnavailableView {
+                    Label("申请失败", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(message)
+                } actions: {
+                    Button("重试") {
+                        Task { await viewModel.apply() }
+                    }
+                }
+            case .loaded:
+                if let image = viewModel.image {
+                    Button {
+                        isShowingImageViewer = true
+                    } label: {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .padding()
+                    }
+                    .buttonStyle(.plain)
+                    .background(Color(.secondarySystemBackground))
+                }
+            }
+        }
+        .navigationTitle("可信成绩单")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
+        .background(Color(.systemGroupedBackground))
+        .task {
+            // 从成绩页点进来就立即申请，不再增加一次确认操作。
+            await viewModel.apply()
+        }
+        .fullScreenCover(isPresented: $isShowingImageViewer) {
+            if let image = viewModel.image {
+                GalleryLocalImageViewer(image: image)
+            }
+        }
+        .sheet(
+            item: Binding(
+                get: { viewModel.smsChallenge },
+                set: { challenge in
+                    if challenge == nil {
+                        viewModel.dismissSMSChallenge()
+                    }
+                }
+            )
+        ) { challenge in
+            ScoreSMSVerificationSheet(
+                challenge: challenge,
+                isSubmitting: viewModel.isSubmittingSMSCode,
+                errorMessage: viewModel.smsVerificationError,
+                submitTitle: "验证并申请成绩单",
+                onCancel: viewModel.dismissSMSChallenge,
+                onSubmit: { code in
+                    await viewModel.submitSMSCode(code)
+                }
+            )
+        }
+    }
+}
+
 /// 成绩页的原生短信验证码面板。
 ///
 /// `.textContentType(.oneTimeCode)` 会让 iOS 从“来自信息”的验证码建议中自动填入，
@@ -825,6 +1002,7 @@ private struct ScoreSMSVerificationSheet: View {
     let challenge: BITLoginAuthenticationChallenge
     let isSubmitting: Bool
     let errorMessage: String?
+    var submitTitle = "验证并查询成绩"
     let onCancel: () -> Void
     let onSubmit: (String) async -> Void
 
@@ -872,7 +1050,7 @@ private struct ScoreSMSVerificationSheet: View {
                                     .padding(.trailing, 6)
                                 Text("正在验证")
                             } else {
-                                Text("验证并查询成绩")
+                                Text(submitTitle)
                             }
                             Spacer()
                         }
@@ -1189,6 +1367,8 @@ private struct ScoreFilterPage: View {
                             Image(systemName: selectedValues.contains(option) ? "checkmark.circle.fill" : "circle")
                                 .foregroundStyle(selectedValues.contains(option) ? Color.accentColor : .secondary)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
@@ -1237,6 +1417,8 @@ private struct ScoreSortPage: View {
                             Image(systemName: sortIndex == index ? "checkmark.circle.fill" : "circle")
                                 .foregroundStyle(sortIndex == index ? Color.accentColor : .secondary)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
@@ -1254,6 +1436,8 @@ private struct ScoreSortPage: View {
                             .font(.subheadline)
                             .foregroundStyle(Color.accentColor)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
             } header: {
                 Text("排序方向")

@@ -167,7 +167,7 @@ struct ScheduleRootView: View {
 }
 
 /// 课表同步使用的原生短信验证码面板，支持系统“来自信息”的一次性验证码自动填充。
-private struct ScheduleSMSVerificationSheet: View {
+struct ScheduleSMSVerificationSheet: View {
     let challenge: BITLoginAuthenticationChallenge
     let isSubmitting: Bool
     let errorMessage: String?
@@ -295,7 +295,10 @@ private struct CourseScheduleTabView: View {
     /// 课表分区主体。
     var body: some View {
         Group {
-            if viewModel.hasCourseData, let firstDay = activeSchedule.firstDay {
+            // 学校尚未发布未来学期课表时，课程接口通常会正常返回空数组，而不是 404。
+            // 只要首周日期有效，就照常展示空课表网格和右下角操作按钮，不能让“无课程”
+            // 占位页挡住周次浏览、设置以及手动添加日程的入口。
+            if let firstDay = activeSchedule.firstDay {
                 GeometryReader { proxy in
                     ZStack(alignment: .bottomTrailing) {
                         CourseScheduleCalendarView(
@@ -339,12 +342,10 @@ private struct CourseScheduleTabView: View {
                             CourseScheduleFAB(systemImage: "chevron.up") {
                                 viewModel.previousWeek()
                             }
-                            .disabled(viewModel.selectedWeek <= 1)
 
                             CourseScheduleFAB(systemImage: "chevron.down") {
                                 viewModel.nextWeek()
                             }
-                            .disabled(viewModel.selectedWeek >= viewModel.maxWeek)
 
                             if supportsEditingDisplayedSchedule {
                                 Menu {
@@ -377,19 +378,19 @@ private struct CourseScheduleTabView: View {
                 }
             } else {
                 VStack(spacing: 16) {
-                    Text(activeSchedule.isPrimary ? "还没有课表数据" : "这份分享课表还没有课程")
+                    Text(activeSchedule.isPrimary ? "尚未设置学期起始日期" : "这份分享课表缺少起始日期")
                         .font(.headline)
-                    Text(activeSchedule.isPrimary ? "请先获取课表。" : "试试上下滑切换到别的课表，或重新导入一份分享课表。")
+                    Text(activeSchedule.isPrimary ? "请先同步所选学期，或在课表设置中手动设置起始日期。" : "试试上下滑切换到别的课表，或重新导入一份分享课表。")
                         .foregroundStyle(.secondary)
                     if supportsEditingDisplayedSchedule {
                         Button {
-                            Task { await viewModel.syncCourses() }
+                            Task { await viewModel.syncSelectedTerm() }
                         } label: {
                             HStack {
                                 if viewModel.isSyncingCourses {
                                     ProgressView()
                                 }
-                                Text("获取课程表")
+                                Text("重新获取所选学期")
                             }
                         }
                         .buttonStyle(.borderedProminent)
@@ -575,7 +576,11 @@ private struct CourseScheduleTabView: View {
         }
 
         // 课表网格只关心当前周，所以先把课程、考试和自定义日程全部压平成同一套日历块模型。
-        let weekStart = Calendar.current.date(byAdding: .day, value: (viewModel.selectedWeek - 1) * 7, to: firstDay) ?? firstDay
+        let weekStart = Calendar.current.date(
+            byAdding: .day,
+            value: ScheduleWeekCodec.weekOffset(forWeekNumber: viewModel.selectedWeek) * 7,
+            to: firstDay
+        ) ?? firstDay
         let weekEnd = Calendar.current.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart
 
         let courseEntries = activeSchedule.courses
@@ -915,7 +920,11 @@ private struct CourseScheduleCalendarView: View {
             }
             let dayWidth = max((proxy.size.width - leftWidth) / CGFloat(max(visibleWeekdays.count, 1)), 1)
             let weekDates = visibleWeekdays.compactMap {
-                Calendar.current.date(byAdding: .day, value: ($0 - 1) + (week - 1) * 7, to: firstDay)
+                Calendar.current.date(
+                    byAdding: .day,
+                    value: ($0 - 1) + ScheduleWeekCodec.weekOffset(forWeekNumber: week) * 7,
+                    to: firstDay
+                )
             }
             let highlightWeekday = (currentWeek == week && showHighlightToday) ? ScheduleDateCodec.weekdayIndex(from: Date()) : nil
             let timeLineSection = (currentWeek == week && showCurrentTime) ? convertTimeToSection(timeText: currentTimeText(), timeTable: timeTable) : nil
@@ -1639,7 +1648,7 @@ private func resolvedCurrentWeek(firstDay: Date) -> Int {
     let start = Calendar.current.startOfDay(for: firstDay)
     let today = Calendar.current.startOfDay(for: Date())
     let diff = Calendar.current.dateComponents([.day], from: start, to: today).day ?? 0
-    return max(diff / 7 + 1, 1)
+    return ScheduleWeekCodec.weekNumber(forDayOffset: diff)
 }
 
 /// DDL 分页。
@@ -1794,6 +1803,8 @@ private struct DDLEventCard: View {
                 Image(systemName: event.done ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
                     .foregroundStyle(tint)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
@@ -2076,8 +2087,8 @@ private struct ClassroomSectionFilterPage: View {
                     Button {
                         toggle(slot.id)
                     } label: {
-                        HStack {
-                            Text("第\(slot.id)节")
+                            HStack {
+                                Text("第\(slot.id)节")
                                 .foregroundStyle(.primary)
                             Spacer()
                             Image(systemName: selectedSectionIDs.contains(slot.id) ? "checkmark.circle.fill" : "circle")

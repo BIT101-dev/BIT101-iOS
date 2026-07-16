@@ -504,6 +504,14 @@ enum ScheduleDateCodec {
         ScheduleSharedDateCodec.formatDate(date)
     }
 
+    /// 返回给定日期所在自然周的周一，用于保证课表首周基准始终从周一开始。
+    static func monday(containing date: Date) -> Date {
+        let startOfDay = calendar.startOfDay(for: date)
+        let weekday = calendar.component(.weekday, from: startOfDay)
+        let daysAfterMonday = (weekday + 5) % 7
+        return calendar.date(byAdding: .day, value: -daysAfterMonday, to: startOfDay) ?? startOfDay
+    }
+
     /// 格式化 `M月d日` 短日期。
     static func formatShortDate(_ date: Date) -> String {
         ScheduleSharedDateCodec.formatShortDate(date)
@@ -534,6 +542,32 @@ enum ScheduleDateCodec {
     static func minutesOfDay(from date: Date) -> Int {
         let components = calendar.dateComponents([.hour, .minute], from: date)
         return (components.hour ?? 0) * 60 + (components.minute ?? 0)
+    }
+}
+
+/// 课表周次与首周偏移的双向转换。
+///
+/// 产品周次不使用“第 0 周”：第一周之前紧邻的一周记作第 -1 周，再往前是第 -2 周。
+enum ScheduleWeekCodec {
+    static func weekNumber(forDayOffset dayOffset: Int) -> Int {
+        let quotient = dayOffset / 7
+        let remainder = dayOffset % 7
+        let weekOffset = remainder < 0 ? quotient - 1 : quotient
+        return weekOffset >= 0 ? weekOffset + 1 : weekOffset
+    }
+
+    static func weekOffset(forWeekNumber week: Int) -> Int {
+        week > 0 ? week - 1 : week
+    }
+
+    static func previousWeek(before week: Int) -> Int {
+        if week == 1 || week == 0 { return -1 }
+        return week - 1
+    }
+
+    static func nextWeek(after week: Int) -> Int {
+        if week == -1 || week == 0 { return 1 }
+        return week + 1
     }
 }
 

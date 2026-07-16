@@ -2076,7 +2076,7 @@ struct GalleryImageViewer: View {
 
             TabView(selection: $selectedIndex) {
                 ForEach(Array(viewer.images.enumerated()), id: \.element.id) { index, image in
-                    GalleryZoomableRemoteImage(url: URL(string: image.url.isEmpty ? image.lowUrl : image.url))
+                    GalleryZoomableImage(url: URL(string: image.url.isEmpty ? image.lowUrl : image.url))
                     .tag(index)
                 }
             }
@@ -2105,18 +2105,62 @@ struct GalleryImageViewer: View {
     }
 }
 
-/// 基于 `UIScrollView` 的可缩放远程图片。
+/// 单张内存图片的全屏查看器。
+///
+/// 可信成绩单等不应写入远程图片缓存的敏感图片也可以复用话题图片相同的缩放容器。
+struct GalleryLocalImageViewer: View {
+    let image: UIImage
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+
+            GalleryZoomableImage(image: image)
+
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(.black.opacity(0.45), in: Circle())
+                    .overlay {
+                        Circle()
+                            .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                    }
+                    .shadow(color: .black.opacity(0.28), radius: 10, x: 0, y: 4)
+                    .padding(20)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+}
+
+/// 基于 `UIScrollView` 的可缩放图片，支持远程 URL 或已在内存中的 `UIImage`。
 ///
 /// SwiftUI 原生 `AsyncImage` 不适合处理缩放和内容居中，这里用 UIKit 桥一层。
-private struct GalleryZoomableRemoteImage: UIViewRepresentable {
-    let url: URL?
+struct GalleryZoomableImage: UIViewRepresentable {
+    private let url: URL?
+    private let image: UIImage?
+
+    init(url: URL?) {
+        self.url = url
+        image = nil
+    }
+
+    init(image: UIImage) {
+        url = nil
+        self.image = image
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
 
     func makeUIView(context: Context) -> UIScrollView {
-        let scrollView = UIScrollView()
+        let scrollView = LayoutAwareScrollView()
         scrollView.backgroundColor = .black
         scrollView.delegate = context.coordinator
         scrollView.minimumZoomScale = 1
@@ -2126,11 +2170,25 @@ private struct GalleryZoomableRemoteImage: UIViewRepresentable {
         scrollView.showsVerticalScrollIndicator = false
         scrollView.clipsToBounds = true
         context.coordinator.install(on: scrollView)
+        scrollView.onLayout = { [weak scrollView, weak coordinator = context.coordinator] in
+            guard let scrollView, let coordinator else { return }
+            coordinator.layoutAfterBoundsChange(in: scrollView)
+        }
         return scrollView
     }
 
     func updateUIView(_ scrollView: UIScrollView, context: Context) {
-        context.coordinator.update(url: url, in: scrollView)
+        context.coordinator.update(url: url, image: image, in: scrollView)
+    }
+
+    /// 本地图片会在 SwiftUI 尚未给出最终尺寸时同步传入；监听 UIKit 布局后再补一次正确排版。
+    private final class LayoutAwareScrollView: UIScrollView {
+        var onLayout: (() -> Void)?
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            onLayout?()
+        }
     }
 
     final class Coordinator: NSObject, UIScrollViewDelegate {
@@ -2138,6 +2196,7 @@ private struct GalleryZoomableRemoteImage: UIViewRepresentable {
         private let spinner = UIActivityIndicatorView(style: .large)
         private var currentURL: URL?
         private var task: URLSessionDataTask?
+        private var lastLayoutBoundsSize: CGSize = .zero
 
         /// 安装 UIKit 子视图层级。
         func install(on scrollView: UIScrollView) {
@@ -2150,15 +2209,29 @@ private struct GalleryZoomableRemoteImage: UIViewRepresentable {
             scrollView.addSubview(spinner)
         }
 
-        func update(url: URL?, in scrollView: UIScrollView) {
+        func update(url: URL?, image: UIImage?, in scrollView: UIScrollView) {
             spinner.center = CGPoint(x: scrollView.bounds.midX, y: scrollView.bounds.midY)
+
+            if let image {
+                task?.cancel()
+                task = nil
+                currentURL = nil
+                spinner.stopAnimating()
+                if imageView.image !== image {
+                    imageView.image = image
+                    layoutImage(in: scrollView)
+                } else if lastLayoutBoundsSize != scrollView.bounds.size {
+                    layoutImage(in: scrollView)
+                }
+                return
+            }
 
             if currentURL != url {
                 currentURL = url
                 imageView.image = nil
                 task?.cancel()
                 loadImage(from: url, in: scrollView)
-            } else if imageView.image != nil {
+            } else if imageView.image != nil, lastLayoutBoundsSize != scrollView.bounds.size {
                 layoutImage(in: scrollView)
             }
         }
@@ -2169,6 +2242,16 @@ private struct GalleryZoomableRemoteImage: UIViewRepresentable {
 
         func scrollViewDidZoom(_ scrollView: UIScrollView) {
             centerImage(in: scrollView)
+        }
+
+        /// 首次布局及旋转后，用真实的容器尺寸重新计算本地图片 frame。
+        func layoutAfterBoundsChange(in scrollView: UIScrollView) {
+            guard imageView.image != nil,
+                  scrollView.bounds.width > 0,
+                  scrollView.bounds.height > 0,
+                  lastLayoutBoundsSize != scrollView.bounds.size
+            else { return }
+            layoutImage(in: scrollView)
         }
 
         /// 下载远程大图并回填到缩放容器。
@@ -2190,6 +2273,7 @@ private struct GalleryZoomableRemoteImage: UIViewRepresentable {
 
         /// 根据当前图片和容器尺寸重算初始 frame 与 contentSize。
         private func layoutImage(in scrollView: UIScrollView) {
+            lastLayoutBoundsSize = scrollView.bounds.size
             scrollView.zoomScale = 1
 
             guard let image = imageView.image else {

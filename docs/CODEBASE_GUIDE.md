@@ -16,9 +16,7 @@
 - `BIT101-iOS/BIT101ScheduleWidget`
   小组件、锁屏组件、Live Activity / 灵动岛扩展 target
 - `BIT101-iOS/BIT101Watch`
-  Apple Watch app 壳层 target
-- `BIT101-iOS/BIT101WatchExtension`
-  Apple Watch 主界面与同步消费逻辑
+  Apple Watch 单 target 应用，包含应用入口、主界面与同步消费逻辑
 - `BIT101-iOS/BIT101WatchWidgets`
   Apple Watch Smart Stack 课表组件
 

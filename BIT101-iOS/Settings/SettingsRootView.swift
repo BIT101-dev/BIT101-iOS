@@ -437,6 +437,8 @@ private struct PagesSettingsPage: View {
                         } label: {
                             Image(systemName: homeTab == tab ? "checkmark.circle.fill" : "circle")
                                 .foregroundStyle(homeTab == tab ? Color.accentColor : .secondary)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                     }
@@ -537,6 +539,8 @@ private struct CalendarSettingsPage: View {
     @State private var timeTableText = ""
     @State private var isShowingCustomSchedules = false
     @State private var isShowingLiveActivityLeadMinutesPicker = false
+    @State private var isShowingFirstDayEditor = false
+    @State private var firstDayDraft = Date()
     @State private var isShowingEmptyScheduleExportConfirmation = false
     @State private var isShowingSharedScheduleImportGuide = false
     @State private var isShowingLiveActivityExperimentalWarning = false
@@ -552,18 +556,21 @@ private struct CalendarSettingsPage: View {
     var body: some View {
         List {
             Section("数据设置") {
-                LabeledContent("当前学期", value: viewModel.cache.currentTerm.isEmpty ? "未设置" : viewModel.cache.currentTerm)
-                LabeledContent("学期起始日期", value: viewModel.firstDayDescription)
-
-                Toggle("iCloud 实时同步", isOn: Binding(
-                    get: { viewModel.cache.iCloudSyncEnabled },
-                    set: { enabled in
-                        viewModel.setICloudSyncEnabled(enabled)
-                    }
-                ))
+                NavigationLink {
+                    ScheduleTermPickerPage(viewModel: viewModel)
+                } label: {
+                    LabeledContent("当前学期", value: viewModel.cache.currentTerm.isEmpty ? "未设置" : viewModel.cache.currentTerm)
+                }
+                Button {
+                    firstDayDraft = viewModel.cache.firstDay ?? Date()
+                    isShowingFirstDayEditor = true
+                } label: {
+                    LabeledContent("学期起始日期", value: viewModel.firstDayDescription)
+                        .foregroundStyle(.primary)
+                }
 
                 Button {
-                    Task { await viewModel.syncCourses() }
+                    Task { await viewModel.syncSelectedTerm() }
                 } label: {
                     HStack {
                         Text("重新同步课表与考试")
@@ -573,7 +580,7 @@ private struct CalendarSettingsPage: View {
                         }
                     }
                 }
-                .disabled(viewModel.isSyncingCourses)
+                .disabled(viewModel.isSyncingCourses || viewModel.isLoadingTerms)
 
                 Button("时间表") {
                     timeTableText = viewModel.cache.timeTable.map { "\($0.start), \($0.end)" }.joined(separator: "\n")
@@ -662,6 +669,15 @@ private struct CalendarSettingsPage: View {
                 Text("显示设置")
             }
 
+            Section("iCloud 同步") {
+                Toggle("iCloud 实时同步", isOn: Binding(
+                    get: { viewModel.cache.iCloudSyncEnabled },
+                    set: { enabled in
+                        viewModel.setICloudSyncEnabled(enabled)
+                    }
+                ))
+            }
+
             if appSettings.hasSeenSharedScheduleImportGuide {
                 Section("帮助") {
                     Button("重新观看提示") {
@@ -702,6 +718,14 @@ private struct CalendarSettingsPage: View {
                 )
             }
         }
+        .sheet(isPresented: $isShowingFirstDayEditor) {
+            NavigationStack {
+                ScheduleFirstDayEditorPage(date: $firstDayDraft) {
+                    viewModel.setFirstDay(firstDayDraft)
+                    isShowingFirstDayEditor = false
+                }
+            }
+        }
         .sheet(item: $exportedScheduleCode) { payload in
             ScheduleExportCodeSheet(code: payload.code)
         }
@@ -725,6 +749,26 @@ private struct CalendarSettingsPage: View {
                     try viewModel.renameSharedSchedule(id: id, to: newName)
                 }
             }
+        }
+        .sheet(
+            item: Binding(
+                get: { viewModel.smsChallenge },
+                set: { challenge in
+                    if challenge == nil {
+                        viewModel.dismissSMSChallenge()
+                    }
+                }
+            )
+        ) { challenge in
+            ScheduleSMSVerificationSheet(
+                challenge: challenge,
+                isSubmitting: viewModel.isSubmittingSMSCode,
+                errorMessage: viewModel.smsVerificationError,
+                onCancel: viewModel.dismissSMSChallenge,
+                onSubmit: { code in
+                    await viewModel.submitSMSCode(code)
+                }
+            )
         }
         .alert("你尚未获取课表", isPresented: $isShowingEmptyScheduleExportConfirmation) {
             Button("取消", role: .cancel) {}
@@ -858,6 +902,104 @@ private struct CalendarSettingsPage: View {
         }
         try viewModel.importSharedSchedule(payload)
         viewModel.notice = ScheduleNotice(title: "导入成功", message: "分享的课表已导入。考试、DDL 与自定义日程不会随导入覆盖。")
+    }
+}
+
+/// 课表学期选择页。
+///
+/// 这里只展示学校接口实际返回的学期，不在本地追加、推算或生成任何选项。
+/// 真正切换只有在课程、考试和首周全部获取成功后才落盘。
+private struct ScheduleTermPickerPage: View {
+    @ObservedObject var viewModel: ScheduleViewModel
+
+    private var displayedTerms: [String] {
+        viewModel.availableTerms
+    }
+
+    var body: some View {
+        List {
+            Section("选择学期") {
+                if !viewModel.hasLoadedAvailableTerms {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                        Spacer()
+                    }
+                } else {
+                    ForEach(displayedTerms, id: \.self) { term in
+                        Button {
+                            Task { await viewModel.syncCourses(term: term) }
+                        } label: {
+                            HStack {
+                                Text(term)
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if viewModel.isSyncingCourses, viewModel.syncingTerm == term {
+                                    ProgressView()
+                                } else if viewModel.cache.currentTerm == term {
+                                    Image(systemName: "checkmark")
+                                        .fontWeight(.semibold)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .disabled(viewModel.isSyncingCourses || viewModel.isLoadingTerms || viewModel.cache.currentTerm == term)
+                    }
+                }
+            }
+
+        }
+        .navigationTitle("切换学期")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await viewModel.loadAvailableTerms()
+        }
+        .refreshable {
+            await viewModel.loadAvailableTerms()
+        }
+    }
+
+}
+
+/// 手动覆盖当前学期第一周日期的兜底页面。
+private struct ScheduleFirstDayEditorPage: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var date: Date
+    let onSave: () -> Void
+
+    var body: some View {
+        Form {
+            Section {
+                DatePicker(
+                    "第一周起始日期",
+                    selection: $date,
+                    displayedComponents: .date
+                )
+                .datePickerStyle(.graphical)
+                .onChange(of: date) { _, newValue in
+                    let monday = ScheduleDateCodec.monday(containing: newValue)
+                    if ScheduleDateCodec.formatDate(monday) != ScheduleDateCodec.formatDate(newValue) {
+                        date = monday
+                    }
+                }
+            } footer: {
+                Text("起始日期固定为周一。选择其他日期时会自动调整到该日期所在周的周一。切换学期或重新同步时，App 会从学校校历接口重新获取。")
+            }
+        }
+        .navigationTitle("学期起始日期")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            date = ScheduleDateCodec.monday(containing: date)
+        }
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("取消") { dismiss() }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("保存", action: onSave)
+            }
+        }
     }
 }
 
@@ -1450,13 +1592,15 @@ private struct AboutSettingsPage: View {
         defer { isResettingLocalData = false }
 
         LoginStorage.shared.clearAllLocalData()
+        // 先让根状态机退出主壳层，再执行可能耗时的网页数据清理。否则清掉公告已读标记后，
+        // AppShell 仍可能在 clearWebData 等待期间短暂弹出版本公告，随后才被登录页替换。
+        onLogout()
         ScheduleCacheStore.clear()
         clearUserDefaults()
         clearFileSystemCaches()
         URLCache.shared.removeAllCachedResponses()
         await clearWebData()
         AppSettingsStore.shared.resetToDefaults()
-        onLogout()
     }
 
     /// 清空 bundle 对应的 `UserDefaults` 域。

@@ -28,20 +28,6 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "9AE06B6F602FB7E26D7BD7BA"
-               BuildableName = "BIT101WatchExtension.appex"
-               BlueprintName = "BIT101WatchExtension"
-               ReferencedContainer = "container:BIT101-iOS.xcodeproj">
-            </BuildableReference>
-         </BuildActionEntry>
-         <BuildActionEntry
-            buildForTesting = "YES"
-            buildForRunning = "YES"
-            buildForProfiling = "YES"
-            buildForArchiving = "YES"
-            buildForAnalyzing = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
                BlueprintIdentifier = "E14C33A004A034143423AAE7"
                BuildableName = "BIT101WatchWidgets.appex"
                BlueprintName = "BIT101WatchWidgets"

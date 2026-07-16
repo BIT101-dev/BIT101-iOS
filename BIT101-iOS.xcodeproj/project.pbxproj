@@ -13,19 +13,17 @@
 		33BCD239CC2949787F9D7E6F /* ScheduleSharedOccurrence.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2C0A347C3DFB45B555EAF0 /* ScheduleSharedOccurrence.swift */; };
 		46FBCFC063C5DE6022EC19D0 /* ScheduleSharedLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CF4896F51E6C19BBE15048C /* ScheduleSharedLiveActivity.swift */; };
 		6B9445E6F09E8957FC4C25BE /* ScheduleSharedLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CF4896F51E6C19BBE15048C /* ScheduleSharedLiveActivity.swift */; };
-		6BE3679F715527DA44DCD8EA /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4162B327CBFEC0829F8AB242 /* Foundation.framework */; };
 		7E481656A9CBB85EA5FA51AD /* ScheduleSharedSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 498515EF1571216B6C662577 /* ScheduleSharedSnapshot.swift */; };
 		80FEE566078E573A01F25942 /* ScheduleSharedSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 498515EF1571216B6C662577 /* ScheduleSharedSnapshot.swift */; };
 		85798F727C7A8202CDFECFA1 /* BIT101ScheduleWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E4DE63842E0A7A6C0DE9F9 /* BIT101ScheduleWidget.swift */; };
 		86480E32AA132F273CEFA205 /* ScheduleSharedOccurrence.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2C0A347C3DFB45B555EAF0 /* ScheduleSharedOccurrence.swift */; };
-		86E934E59E093F63ED817276 /* BIT101WatchExtensionApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21A95B6C96CDD83709030EF8 /* BIT101WatchExtensionApp.swift */; };
+		86E934E59E093F63ED817276 /* BIT101WatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21A95B6C96CDD83709030EF8 /* BIT101WatchApp.swift */; };
 		8FD3C2B3B8C6D5E68B474DD7 /* BIT101WatchScheduleWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 819ECA98BC5A0A39D0B68FD5 /* BIT101WatchScheduleWidget.swift */; };
 		9AF91C20457A617C9030DE46 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4162B327CBFEC0829F8AB242 /* Foundation.framework */; };
 		A44A833C45CA0AA37FAD6708 /* ScheduleSharedSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 498515EF1571216B6C662577 /* ScheduleSharedSnapshot.swift */; };
 		B979F16E6900E1E884772F00 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C87F2B27CDB14AC63D666139 /* Foundation.framework */; };
 		C0683505889D51D1ED727339 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F8E44554F89A8994A3C6A41E /* Assets.xcassets */; };
 		C8618324F1CB0A8EB9CB55F9 /* BIT101ScheduleWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66582305EDF75198F3070B6C /* BIT101ScheduleWidgetBundle.swift */; };
-		CDDB7CC9D6C32483E0E54C0E /* BIT101WatchExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E8DFA667ABC75C6810BC0A6B /* BIT101WatchExtension.appex */; };
 		D6E1110C49C701CB6C8B3080 /* BIT101Watch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 027903073181F16453D11398 /* BIT101Watch.app */; platformFilter = ios; };
 		E89B1AAE46D4FFA1A056C483 /* ScheduleSharedLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CF4896F51E6C19BBE15048C /* ScheduleSharedLiveActivity.swift */; };
 		E8DF51F6326A8FA9797F82E9 /* BIT101WatchWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 6C427FABBA6FB6C2CF4098BE /* BIT101WatchWidgets.appex */; };
@@ -54,13 +52,6 @@
 			proxyType = 1;
 			remoteGlobalIDString = A222C4EBA765A745DE78B6CF;
 			remoteInfo = BIT101ScheduleWidget;
-		};
-		F7BE3C5322D51E9DF112C5E2 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = D2FF4C8E2F729DB4000FA1C1 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 9AE06B6F602FB7E26D7BD7BA;
-			remoteInfo = BIT101WatchExtension;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -94,7 +85,6 @@
 			dstSubfolderSpec = 13;
 			files = (
 				E8DF51F6326A8FA9797F82E9 /* BIT101WatchWidgets.appex in Embed Foundation Extensions */,
-				CDDB7CC9D6C32483E0E54C0E /* BIT101WatchExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -104,8 +94,7 @@
 /* Begin PBXFileReference section */
 		027903073181F16453D11398 /* BIT101Watch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BIT101Watch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0382F3A6842C7256F74D4FCC /* BIT101ScheduleWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BIT101ScheduleWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		1E1FBB0E34C9522F630975C8 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		21A95B6C96CDD83709030EF8 /* BIT101WatchExtensionApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BIT101WatchExtensionApp.swift; sourceTree = "<group>"; };
+		21A95B6C96CDD83709030EF8 /* BIT101WatchApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BIT101WatchApp.swift; sourceTree = "<group>"; };
 		3CF4896F51E6C19BBE15048C /* ScheduleSharedLiveActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScheduleSharedLiveActivity.swift; sourceTree = "<group>"; };
 		4162B327CBFEC0829F8AB242 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS11.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		498515EF1571216B6C662577 /* ScheduleSharedSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScheduleSharedSnapshot.swift; sourceTree = "<group>"; };
@@ -116,14 +105,13 @@
 		796D7A3D2666B8F0197201E6 /* BIT101WatchWidgetsBundle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BIT101WatchWidgetsBundle.swift; sourceTree = "<group>"; };
 		7A6C2ACF3AF5C705FD407FBA /* WatchScheduleRootView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchScheduleRootView.swift; sourceTree = "<group>"; };
 		819ECA98BC5A0A39D0B68FD5 /* BIT101WatchScheduleWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BIT101WatchScheduleWidget.swift; sourceTree = "<group>"; };
-		8A6CC7127EDBFA094B744873 /* BIT101WatchExtension.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = BIT101WatchExtension.entitlements; sourceTree = "<group>"; };
+		8A6CC7127EDBFA094B744873 /* BIT101Watch.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = BIT101Watch.entitlements; sourceTree = "<group>"; };
 		96F117AE4D80C6B7B073E4F8 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B52AC6532DE224AF07CEA5C1 /* BIT101WatchWidgets.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = BIT101WatchWidgets.entitlements; sourceTree = "<group>"; };
 		C87F2B27CDB14AC63D666139 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		CF8086061B44E95B40189EB0 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		D2FF4C962F729DB4000FA1C1 /* BIT101-iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "BIT101-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		DE2C0A347C3DFB45B555EAF0 /* ScheduleSharedOccurrence.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScheduleSharedOccurrence.swift; sourceTree = "<group>"; };
-		E8DFA667ABC75C6810BC0A6B /* BIT101WatchExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BIT101WatchExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		F1E4DE63842E0A7A6C0DE9F9 /* BIT101ScheduleWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BIT101ScheduleWidget.swift; sourceTree = "<group>"; };
 		F49E2B4B4D5BE4DD9D59BDF1 /* BIT101ScheduleWidget.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = BIT101ScheduleWidget.entitlements; sourceTree = "<group>"; };
 		F8E44554F89A8994A3C6A41E /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -168,14 +156,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		D6916F9287D528C43C08F708 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				6BE3679F715527DA44DCD8EA /* Foundation.framework in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -188,17 +168,6 @@
 				F49E2B4B4D5BE4DD9D59BDF1 /* BIT101ScheduleWidget.entitlements */,
 			);
 			path = BIT101ScheduleWidget;
-			sourceTree = "<group>";
-		};
-		185D0855B8FC9E972ADFF563 /* BIT101WatchExtension */ = {
-			isa = PBXGroup;
-			children = (
-				21A95B6C96CDD83709030EF8 /* BIT101WatchExtensionApp.swift */,
-				7A6C2ACF3AF5C705FD407FBA /* WatchScheduleRootView.swift */,
-				1E1FBB0E34C9522F630975C8 /* Info.plist */,
-				8A6CC7127EDBFA094B744873 /* BIT101WatchExtension.entitlements */,
-			);
-			path = BIT101WatchExtension;
 			sourceTree = "<group>";
 		};
 		25E8641FD8E3B4363BD33FB6 /* BIT101WatchWidgets */ = {
@@ -268,7 +237,6 @@
 				FB4A15B914D492D0DE350199 /* BIT101Watch */,
 				25E8641FD8E3B4363BD33FB6 /* BIT101WatchWidgets */,
 				4E1DE56998160DCFD328522D /* WatchSync */,
-				185D0855B8FC9E972ADFF563 /* BIT101WatchExtension */,
 			);
 			sourceTree = "<group>";
 		};
@@ -279,7 +247,6 @@
 				0382F3A6842C7256F74D4FCC /* BIT101ScheduleWidget.appex */,
 				027903073181F16453D11398 /* BIT101Watch.app */,
 				6C427FABBA6FB6C2CF4098BE /* BIT101WatchWidgets.appex */,
-				E8DFA667ABC75C6810BC0A6B /* BIT101WatchExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -287,7 +254,10 @@
 		FB4A15B914D492D0DE350199 /* BIT101Watch */ = {
 			isa = PBXGroup;
 			children = (
+				21A95B6C96CDD83709030EF8 /* BIT101WatchApp.swift */,
+				7A6C2ACF3AF5C705FD407FBA /* WatchScheduleRootView.swift */,
 				CF8086061B44E95B40189EB0 /* Info.plist */,
+				8A6CC7127EDBFA094B744873 /* BIT101Watch.entitlements */,
 				F8E44554F89A8994A3C6A41E /* Assets.xcassets */,
 			);
 			path = BIT101Watch;
@@ -296,23 +266,6 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		9AE06B6F602FB7E26D7BD7BA /* BIT101WatchExtension */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = BCE0D790BA4FB403AF856446 /* Build configuration list for PBXNativeTarget "BIT101WatchExtension" */;
-			buildPhases = (
-				46FD1760B2028E6B49F8B6A6 /* Sources */,
-				D6916F9287D528C43C08F708 /* Frameworks */,
-				7D31773FA0F1676C3A7747E2 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = BIT101WatchExtension;
-			productName = BIT101WatchExtension;
-			productReference = E8DFA667ABC75C6810BC0A6B /* BIT101WatchExtension.appex */;
-			productType = "com.apple.product-type.watchkit2-extension";
-		};
 		A222C4EBA765A745DE78B6CF /* BIT101ScheduleWidget */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = F1F65253CDF96455497F6E74 /* Build configuration list for PBXNativeTarget "BIT101ScheduleWidget" */;
@@ -343,12 +296,11 @@
 			);
 			dependencies = (
 				75D2E5411165946F2430D859 /* PBXTargetDependency */,
-				95A1B49D80BDC828C1AEDFD9 /* PBXTargetDependency */,
 			);
 			name = BIT101Watch;
 			productName = BIT101Watch;
 			productReference = 027903073181F16453D11398 /* BIT101Watch.app */;
-			productType = "com.apple.product-type.application.watchapp2";
+			productType = "com.apple.product-type.application";
 		};
 		D2FF4C952F729DB4000FA1C1 /* BIT101-iOS */ = {
 			isa = PBXNativeTarget;
@@ -358,11 +310,13 @@
 				D2FF4C932F729DB4000FA1C1 /* Frameworks */,
 				D2FF4C942F729DB4000FA1C1 /* Resources */,
 				524910F6664E97D0AD2254A6 /* Embed Foundation Extensions */,
+				7DE3E2E83612E965A2BA07B0 /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				63B9195EB1C2E887B0BC4A6D /* PBXTargetDependency */,
+				0BA56A68ABF5ED6A9D65BFD9 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				D2FF4C982F729DB4000FA1C1 /* BIT101-iOS */,
@@ -422,20 +376,12 @@
 				A222C4EBA765A745DE78B6CF /* BIT101ScheduleWidget */,
 				C8AF9C40C472741950BEAF70 /* BIT101Watch */,
 				E14C33A004A034143423AAE7 /* BIT101WatchWidgets */,
-				9AE06B6F602FB7E26D7BD7BA /* BIT101WatchExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		18D4B100CC19CB188643D69A /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		7D31773FA0F1676C3A7747E2 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -491,23 +437,16 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		46FD1760B2028E6B49F8B6A6 /* Sources */ = {
+		B7329DD3099B96EF917410BF /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				86E934E59E093F63ED817276 /* BIT101WatchExtensionApp.swift in Sources */,
+				86E934E59E093F63ED817276 /* BIT101WatchApp.swift in Sources */,
 				F52E9C051CAF65D91825FB7A /* WatchScheduleRootView.swift in Sources */,
 				80FEE566078E573A01F25942 /* ScheduleSharedSnapshot.swift in Sources */,
 				86480E32AA132F273CEFA205 /* ScheduleSharedOccurrence.swift in Sources */,
 				E89B1AAE46D4FFA1A056C483 /* ScheduleSharedLiveActivity.swift in Sources */,
 				31C4ED6573B18E57E68C9998 /* WatchScheduleSyncManager.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		B7329DD3099B96EF917410BF /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -540,12 +479,6 @@
 			target = E14C33A004A034143423AAE7 /* BIT101WatchWidgets */;
 			targetProxy = 4821D067A5997FA5482510A0 /* PBXContainerItemProxy */;
 		};
-		95A1B49D80BDC828C1AEDFD9 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			name = BIT101WatchExtension;
-			target = 9AE06B6F602FB7E26D7BD7BA /* BIT101WatchExtension */;
-			targetProxy = F7BE3C5322D51E9DF112C5E2 /* PBXContainerItemProxy */;
-		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -553,42 +486,22 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = WatchAppIcon;
+				CODE_SIGN_ENTITLEMENTS = BIT101Watch/BIT101Watch.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 25;
+				CURRENT_PROJECT_VERSION = 26;
 				DEVELOPMENT_TEAM = Y2T72736G3;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BIT101Watch/Info.plist;
-				MARKETING_VERSION = 1.6.0;
+				MARKETING_VERSION = 1.7.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "BIT101-dev.BIT101-iOS.watchkitapp";
 				PRODUCT_NAME = BIT101Watch;
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
 				WATCHOS_DEPLOYMENT_TARGET = 10.0;
 			};
 			name = Debug;
-		};
-		23DDA852DEAD605010139282 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CODE_SIGN_ENTITLEMENTS = BIT101WatchExtension/BIT101WatchExtension.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 25;
-				DEVELOPMENT_TEAM = Y2T72736G3;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = BIT101WatchExtension/Info.plist;
-				MARKETING_VERSION = 1.6.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "BIT101-dev.BIT101-iOS.watchkitapp.watchkitextension";
-				PRODUCT_NAME = BIT101WatchExtension;
-				SDKROOT = watchos;
-				SKIP_INSTALL = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 4;
-				VALIDATE_PRODUCT = YES;
-				WATCHOS_DEPLOYMENT_TARGET = 10.0;
-			};
-			name = Release;
 		};
 		6009FAA3F529547D9DDBDD3B /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -597,7 +510,7 @@
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = BIT101ScheduleWidget/BIT101ScheduleWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 25;
+				CURRENT_PROJECT_VERSION = 26;
 				DEVELOPMENT_TEAM = Y2T72736G3;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BIT101ScheduleWidget/Info.plist;
@@ -607,7 +520,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.6.0;
+				MARKETING_VERSION = 1.7.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "BIT101-dev.BIT101-iOS.ScheduleWidget";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -624,27 +537,6 @@
 			};
 			name = Debug;
 		};
-		85604DCD19DA3F63647499AB /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CODE_SIGN_ENTITLEMENTS = BIT101WatchExtension/BIT101WatchExtension.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 25;
-				DEVELOPMENT_TEAM = Y2T72736G3;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = BIT101WatchExtension/Info.plist;
-				MARKETING_VERSION = 1.6.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "BIT101-dev.BIT101-iOS.watchkitapp.watchkitextension";
-				PRODUCT_NAME = BIT101WatchExtension;
-				SDKROOT = watchos;
-				SKIP_INSTALL = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 10.0;
-			};
-			name = Debug;
-		};
 		9CA0EE69C55FF3495340685A /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -652,7 +544,7 @@
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = BIT101ScheduleWidget/BIT101ScheduleWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 25;
+				CURRENT_PROJECT_VERSION = 26;
 				DEVELOPMENT_TEAM = Y2T72736G3;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BIT101ScheduleWidget/Info.plist;
@@ -662,7 +554,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.6.0;
+				MARKETING_VERSION = 1.7.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "BIT101-dev.BIT101-iOS.ScheduleWidget";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -686,11 +578,11 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = BIT101WatchWidgets/BIT101WatchWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 25;
+				CURRENT_PROJECT_VERSION = 26;
 				DEVELOPMENT_TEAM = Y2T72736G3;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BIT101WatchWidgets/Info.plist;
-				MARKETING_VERSION = 1.6.0;
+				MARKETING_VERSION = 1.7.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "BIT101-dev.BIT101-iOS.watchkitapp.widgets";
 				PRODUCT_NAME = BIT101WatchWidgets;
 				SDKROOT = watchos;
@@ -829,7 +721,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "BIT101-iOS/BIT101-iOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 25;
+				CURRENT_PROJECT_VERSION = 26;
 				DEVELOPMENT_TEAM = Y2T72736G3;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -839,7 +731,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.6.0;
+				MARKETING_VERSION = 1.7.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "BIT101-dev.BIT101-iOS";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -865,7 +757,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "BIT101-iOS/BIT101-iOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 25;
+				CURRENT_PROJECT_VERSION = 26;
 				DEVELOPMENT_TEAM = Y2T72736G3;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -875,7 +767,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.6.0;
+				MARKETING_VERSION = 1.7.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "BIT101-dev.BIT101-iOS";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -900,11 +792,11 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = BIT101WatchWidgets/BIT101WatchWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 25;
+				CURRENT_PROJECT_VERSION = 26;
 				DEVELOPMENT_TEAM = Y2T72736G3;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BIT101WatchWidgets/Info.plist;
-				MARKETING_VERSION = 1.6.0;
+				MARKETING_VERSION = 1.7.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "BIT101-dev.BIT101-iOS.watchkitapp.widgets";
 				PRODUCT_NAME = BIT101WatchWidgets;
 				SDKROOT = watchos;
@@ -920,16 +812,18 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = WatchAppIcon;
+				CODE_SIGN_ENTITLEMENTS = BIT101Watch/BIT101Watch.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 25;
+				CURRENT_PROJECT_VERSION = 26;
 				DEVELOPMENT_TEAM = Y2T72736G3;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BIT101Watch/Info.plist;
-				MARKETING_VERSION = 1.6.0;
+				MARKETING_VERSION = 1.7.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "BIT101-dev.BIT101-iOS.watchkitapp";
 				PRODUCT_NAME = BIT101Watch;
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
 				VALIDATE_PRODUCT = YES;
 				WATCHOS_DEPLOYMENT_TARGET = 10.0;
@@ -953,15 +847,6 @@
 			buildConfigurations = (
 				F1E47474898F309716A35E58 /* Release */,
 				19B631471B4532818242ABCC /* Debug */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		BCE0D790BA4FB403AF856446 /* Build configuration list for PBXNativeTarget "BIT101WatchExtension" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				23DDA852DEAD605010139282 /* Release */,
-				85604DCD19DA3F63647499AB /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

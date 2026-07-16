@@ -112,9 +112,9 @@
 
 ## 11. Apple Watch
 
-- `BIT101-iOS/BIT101WatchExtension/BIT101WatchExtensionApp.swift`
-  watch extension 入口，负责挂载 watch 主页面状态模型。
-- `BIT101-iOS/BIT101WatchExtension/WatchScheduleRootView.swift`
+- `BIT101-iOS/BIT101Watch/BIT101WatchApp.swift`
+  watch app 入口，负责挂载 watch 主页面状态模型。
+- `BIT101-iOS/BIT101Watch/WatchScheduleRootView.swift`
   Apple Watch 主页面与本地镜像消费逻辑。
 - `BIT101-iOS/BIT101WatchWidgets/BIT101WatchScheduleWidget.swift`
   Apple Watch Smart Stack 课表组件。

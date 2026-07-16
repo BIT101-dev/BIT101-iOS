@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct BIT101WatchExtensionApp: App {
+struct BIT101WatchApp: App {
     @StateObject private var model = WatchScheduleStatusModel()
     @Environment(\.scenePhase) private var scenePhase
 

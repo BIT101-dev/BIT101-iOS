@@ -22,7 +22,7 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>WKCompanionAppBundleIdentifier</key>
 	<string>BIT101-dev.BIT101-iOS</string>
-	<key>WKWatchKitApp</key>
+	<key>WKApplication</key>
 	<true/>
 </dict>
 </plist>

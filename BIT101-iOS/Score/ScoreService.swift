@@ -83,6 +83,27 @@ struct ScoreService {
         let code: String
     }
 
+    /// 可信成绩单使用独立的 `jwb_cjd` 登录服务，不能复用普通成绩查询的 jwb challenge。
+    private struct TranscriptRequest: Encodable {
+        let username: String?
+        let password: String?
+        let challengeID: String?
+        let detailed = false
+
+        enum CodingKeys: String, CodingKey {
+            case username, password, detailed
+            case challengeID = "challenge_id"
+        }
+    }
+
+    private struct TranscriptResponse: Decodable {
+        struct Payload: Decodable {
+            let url: String
+        }
+
+        let data: Payload
+    }
+
     private struct ScoreResponse: Decodable {
         let msg: String?
         let data: [[String]]
@@ -120,7 +141,8 @@ struct ScoreService {
         self.storage = storage
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = Self.requestTimeoutSeconds
-        configuration.timeoutIntervalForResource = Self.requestTimeoutSeconds
+        // 单个轮询请求仍应快速失败，但完整认证/成绩单生成不能被 25 秒的 resource 上限截断。
+        configuration.timeoutIntervalForResource = Self.authenticationWaitSeconds
         self.session = URLSession(configuration: configuration)
 
         if
@@ -152,14 +174,66 @@ struct ScoreService {
         return try await performScoreRequest(body: body, authorization: nil, detail: detail)
     }
 
+    /// 向 bit-login 的 `jwb_cjd` 服务申请由学校实时生成的可信成绩单。
+    func fetchTrustedTranscript() async throws -> URL {
+        let studentID = storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let password = storage.currentPassword
+        guard !studentID.isEmpty, !password.isEmpty else {
+            throw ScoreServiceError.missingCredentials
+        }
+
+        return try await performTranscriptRequest(
+            body: TranscriptRequest(
+                username: studentID,
+                password: password,
+                challengeID: nil
+            ),
+            authorization: nil
+        )
+    }
+
+    /// 完成可信成绩单自己的短信挑战，并继续原申请。
+    func submitTranscriptSMSCode(
+        _ code: String,
+        for challenge: BITLoginAuthenticationChallenge
+    ) async throws -> URL {
+        let current = try await submitSMSAuthentication(code, for: challenge)
+        return try await finishTranscriptAuthentication(current)
+    }
+
+    /// 以内存会话下载临时成绩单图片，不写入 App 的磁盘图片缓存。
+    func downloadTrustedTranscript(from url: URL) async throws -> Data {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = Self.requestTimeoutSeconds
+        configuration.timeoutIntervalForResource = Self.authenticationWaitSeconds
+        let downloadSession = URLSession(configuration: configuration)
+        let (data, response) = try await downloadSession.data(from: url)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw ScoreServiceError.invalidResponse
+        }
+        guard (200 ..< 300).contains(httpResponse.statusCode), !data.isEmpty else {
+            throw ScoreServiceError.queryFailed("学校生成了成绩单，但临时图片暂时无法下载，请重新申请。")
+        }
+        return data
+    }
+
     /// 提交系统短信自动填充得到的验证码，并在认证完成后继续原成绩请求。
     func submitSMSCode(
         _ code: String,
         for challenge: BITLoginAuthenticationChallenge,
         detail: Bool
     ) async throws -> [ScoreRow] {
+        let current = try await submitSMSAuthentication(code, for: challenge)
+        return try await finishAuthentication(current, detail: detail)
+    }
+
+    /// 提交任一 JWB 系列 challenge 的短信验证码，并返回认证后的 challenge 状态。
+    private func submitSMSAuthentication(
+        _ code: String,
+        for challenge: BITLoginAuthenticationChallenge
+    ) async throws -> BITLoginAuthenticationChallenge {
         guard !challenge.isExpired else {
-            throw ScoreServiceError.challengeInvalid("验证码已过期，请重新查询成绩。")
+            throw ScoreServiceError.challengeInvalid("验证码已过期，请重新发起本次操作。")
         }
         var request = URLRequest(
             url: endpointBaseURL.appending(path: "api/auth/\(challenge.challengeID)/sms")
@@ -175,7 +249,7 @@ struct ScoreService {
             let message = messageFromErrorResponse(data) ?? "短信验证码验证失败。"
             if [403, 404, 409].contains(response.statusCode) {
                 throw ScoreServiceError.challengeInvalid(
-                    "本次验证已失效或验证码已提交，请重新查询成绩。\n\(message)"
+                    "本次验证已失效或验证码已提交，请重新发起操作。\n\(message)"
                 )
             }
             throw ScoreServiceError.queryFailed(message)
@@ -186,7 +260,102 @@ struct ScoreService {
             payload,
             accessToken: challenge.accessToken
         )
-        return try await finishAuthentication(current, detail: detail)
+        return current
+    }
+
+    private func performTranscriptRequest(
+        body: TranscriptRequest,
+        authorization: String?,
+        mayRetryTransientFailure: Bool = true
+    ) async throws -> URL {
+        var request = URLRequest(url: endpointBaseURL.appending(path: "api/jwb/cjd/img"))
+        request.timeoutInterval = Self.authenticationWaitSeconds
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let authorization {
+            request.setValue("Bearer \(authorization)", forHTTPHeaderField: "Authorization")
+        }
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await send(request)
+        if response.statusCode == 202 {
+            guard
+                let envelope = try? JSONDecoder().decode(ChallengeEnvelope.self, from: data),
+                let accessToken = envelope.detail.accessToken,
+                !accessToken.isEmpty
+            else {
+                throw ScoreServiceError.invalidResponse
+            }
+            let current = try await waitUntilActionable(envelope.detail, accessToken: accessToken)
+            return try await finishTranscriptAuthentication(current)
+        }
+
+        guard (200 ..< 300).contains(response.statusCode) else {
+            // 已完成认证后，学校生成成绩单的页面偶尔会暂时返回 5xx。复用同一个 challenge
+            // 重试不会重复登录或重复发送短信，也比让用户从头申请安全、快速。
+            if
+                authorization != nil,
+                mayRetryTransientFailure,
+                [500, 502, 503, 504].contains(response.statusCode)
+            {
+                try await Task.sleep(for: .milliseconds(800))
+                return try await performTranscriptRequest(
+                    body: body,
+                    authorization: authorization,
+                    mayRetryTransientFailure: false
+                )
+            }
+
+            if [500, 502, 503, 504].contains(response.statusCode) {
+                throw ScoreServiceError.queryFailed(
+                    "学校可信成绩单服务暂时不可用，请稍后重新申请。"
+                )
+            }
+            throw ScoreServiceError.queryFailed(
+                messageFromErrorResponse(data) ?? "可信成绩单申请失败。"
+            )
+        }
+
+        let payload: TranscriptResponse
+        do {
+            payload = try JSONDecoder().decode(TranscriptResponse.self, from: data)
+        } catch {
+            throw ScoreServiceError.invalidResponse
+        }
+        guard var components = URLComponents(string: payload.data.url) else {
+            throw ScoreServiceError.invalidResponse
+        }
+        if components.scheme?.lowercased() == "http" {
+            components.scheme = "https"
+        }
+        guard components.scheme?.lowercased() == "https", let url = components.url else {
+            throw ScoreServiceError.invalidResponse
+        }
+        return url
+    }
+
+    private func finishTranscriptAuthentication(
+        _ challenge: BITLoginAuthenticationChallenge
+    ) async throws -> URL {
+        switch challenge.status {
+        case "authenticated":
+            return try await performTranscriptRequest(
+                body: TranscriptRequest(
+                    username: nil,
+                    password: nil,
+                    challengeID: challenge.challengeID
+                ),
+                authorization: challenge.accessToken
+            )
+        case "waiting_sms":
+            throw ScoreServiceError.secondFactorRequired(challenge)
+        case "expired":
+            throw ScoreServiceError.challengeInvalid("验证码已过期，请重新申请可信成绩单。")
+        case "failed":
+            throw ScoreServiceError.challengeInvalid("统一身份认证失败，请重新申请可信成绩单。")
+        default:
+            throw ScoreServiceError.queryFailed("统一身份认证暂未完成，请稍后重试。")
+        }
     }
 
     private func performScoreRequest(
@@ -262,7 +431,8 @@ struct ScoreService {
         let deadline = Date().addingTimeInterval(Self.authenticationWaitSeconds)
 
         while ["running", "processing"].contains(payload.status), Date() < deadline {
-            try await Task.sleep(for: .seconds(1))
+            // 与 Android/Web 端保持一致；1 秒轮询会在认证完成后额外平白等待最多近 1 秒。
+            try await Task.sleep(for: .milliseconds(350))
 
             var request = URLRequest(
                 url: endpointBaseURL.appending(path: "api/auth/\(payload.challengeID)")
