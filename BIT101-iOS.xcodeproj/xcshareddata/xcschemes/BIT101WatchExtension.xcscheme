@@ -74,7 +74,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "9AE06B6F602FB7E26D7BD7BA"
             BuildableName = "BIT101WatchExtension.appex"
-            BlueprintName = "BIT101WatchExtension"
             ReferencedContainer = "container:BIT101-iOS.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -91,7 +90,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "9AE06B6F602FB7E26D7BD7BA"
             BuildableName = "BIT101WatchExtension.appex"
-            BlueprintName = "BIT101WatchExtension"
             ReferencedContainer = "container:BIT101-iOS.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

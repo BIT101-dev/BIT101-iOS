@@ -1,12 +1,47 @@
 import Foundation
 
-/// 原生成绩查询的统一错误定义。
+/// 成绩查询过程中由服务端创建的短期统一认证挑战。
 ///
-/// 成绩页直接面向用户展示错误，所以这里尽量把底层异常折叠成少量可理解的文案。
+/// `accessToken` 只保存在内存里，不会写入 UserDefaults 或 Keychain。
+struct BITLoginAuthenticationChallenge: Identifiable, Equatable {
+    let challengeID: String
+    let accessToken: String
+    let status: String
+    let maskedPhone: String?
+    let expiresIn: Int?
+    let receivedAt: Date
+
+    var id: String { challengeID }
+
+    var isExpired: Bool {
+        guard let expiresIn else { return false }
+        return Date() >= receivedAt.addingTimeInterval(TimeInterval(expiresIn))
+    }
+
+    init(
+        challengeID: String,
+        accessToken: String,
+        status: String,
+        maskedPhone: String?,
+        expiresIn: Int?,
+        receivedAt: Date = Date()
+    ) {
+        self.challengeID = challengeID
+        self.accessToken = accessToken
+        self.status = status
+        self.maskedPhone = maskedPhone
+        self.expiresIn = expiresIn
+        self.receivedAt = receivedAt
+    }
+}
+
+/// 原生成绩查询的统一错误定义。
 enum ScoreServiceError: LocalizedError {
     case missingCredentials
     case invalidResponse
     case requestTimedOut
+    case secondFactorRequired(BITLoginAuthenticationChallenge)
+    case challengeInvalid(String)
     case queryFailed(String)
 
     var errorDescription: String? {
@@ -17,6 +52,10 @@ enum ScoreServiceError: LocalizedError {
             return "成绩服务返回了无法识别的数据。"
         case .requestTimedOut:
             return "请求超时，请稍后重试。"
+        case .secondFactorRequired:
+            return "需要短信验证码才能继续查询成绩。"
+        case let .challengeInvalid(message):
+            return message
         case let .queryFailed(message):
             return message
         }
@@ -25,37 +64,58 @@ enum ScoreServiceError: LocalizedError {
 
 /// 成绩接口层。
 ///
-/// 直接使用已保存的学号和统一认证密码请求 `bit_login_url`，不再依赖 WebView 自动填充。
+/// 首次查询仍直接提交已保存的统一认证账号密码。服务端若返回 `202`，则把短期挑战交给
+/// SwiftUI 页面收集短信验证码；验证成功后改用 Bearer challenge 获取成绩。
 struct ScoreService {
-    /// 成绩查询接口的请求体。
-    ///
-    /// `detail=true` 会要求代理返回更完整的二维表，便于 iOS 端自行做筛选和详情展示。
     private struct ScoreRequest: Encodable {
-        let username: String
-        let password: String
+        let username: String?
+        let password: String?
+        let challengeID: String?
         let detail: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case username, password, detail
+            case challengeID = "challenge_id"
+        }
     }
 
-    /// 成绩查询接口的响应体。
-    ///
-    /// 当前接口约定 `data[0]` 是表头，后续每一行对应一条课程成绩。
+    private struct SMSCodeRequest: Encodable {
+        let code: String
+    }
+
     private struct ScoreResponse: Decodable {
         let msg: String?
         let data: [[String]]
     }
 
+    private struct ChallengeEnvelope: Decodable {
+        let detail: ChallengePayload
+    }
+
+    private struct ChallengePayload: Decodable {
+        let challengeID: String
+        let accessToken: String?
+        let status: String
+        let maskedPhone: String?
+        let expiresIn: Int?
+        let error: String?
+
+        enum CodingKeys: String, CodingKey {
+            case status, error
+            case challengeID = "challenge_id"
+            case accessToken = "access_token"
+            case maskedPhone = "masked_phone"
+            case expiresIn = "expires_in"
+        }
+    }
+
     private let storage: LoginStorage
     private let session: URLSession
-    /// 成绩查询的单次请求超时时间。
-    private static let requestTimeoutSeconds: TimeInterval = 15
-    /// 成绩代理服务基地址。
-    ///
-    /// 默认走线上代理；如 `Info.plist` 提供了覆写地址，则优先使用覆写值。
+    private static let requestTimeoutSeconds: TimeInterval = 25
+    /// 统一认证首次启动 OCR/下游会话时可能明显慢于普通 HTTP 请求，不能共用 25 秒单请求超时。
+    private static let authenticationWaitSeconds: TimeInterval = 90
     private let endpointBaseURL: URL
 
-    /// 初始化成绩服务。
-    ///
-    /// 这里不复用主站 fake-cookie，而是直接读取已保存的学号和统一认证密码去请求成绩代理。
     init(storage: LoginStorage = .shared) {
         self.storage = storage
         let configuration = URLSessionConfiguration.default
@@ -74,9 +134,7 @@ struct ScoreService {
         }
     }
 
-    /// 调用成绩接口并把二维表转成 `ScoreRow` 数组。
-    ///
-    /// 接口第一行是表头，后续每一行都是同一列顺序的成绩值。
+    /// 用账号密码发起成绩查询；需要二次认证时抛出携带短期挑战的错误。
     func fetchScores(detail: Bool) async throws -> [ScoreRow] {
         let studentID = storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
         let password = storage.currentPassword
@@ -85,37 +143,178 @@ struct ScoreService {
             throw ScoreServiceError.missingCredentials
         }
 
+        let body = ScoreRequest(
+            username: studentID,
+            password: password,
+            challengeID: nil,
+            detail: detail
+        )
+        return try await performScoreRequest(body: body, authorization: nil, detail: detail)
+    }
+
+    /// 提交系统短信自动填充得到的验证码，并在认证完成后继续原成绩请求。
+    func submitSMSCode(
+        _ code: String,
+        for challenge: BITLoginAuthenticationChallenge,
+        detail: Bool
+    ) async throws -> [ScoreRow] {
+        guard !challenge.isExpired else {
+            throw ScoreServiceError.challengeInvalid("验证码已过期，请重新查询成绩。")
+        }
+        var request = URLRequest(
+            url: endpointBaseURL.appending(path: "api/auth/\(challenge.challengeID)/sms")
+        )
+        request.httpMethod = "POST"
+        request.timeoutInterval = Self.requestTimeoutSeconds
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(challenge.accessToken, forHTTPHeaderField: "X-Challenge-Token")
+        request.httpBody = try JSONEncoder().encode(SMSCodeRequest(code: code))
+
+        let (data, response) = try await send(request)
+        guard (200 ..< 300).contains(response.statusCode) else {
+            let message = messageFromErrorResponse(data) ?? "短信验证码验证失败。"
+            if [403, 404, 409].contains(response.statusCode) {
+                throw ScoreServiceError.challengeInvalid(
+                    "本次验证已失效或验证码已提交，请重新查询成绩。\n\(message)"
+                )
+            }
+            throw ScoreServiceError.queryFailed(message)
+        }
+
+        let payload = try decodeChallengePayload(data)
+        let current = try await waitUntilActionable(
+            payload,
+            accessToken: challenge.accessToken
+        )
+        return try await finishAuthentication(current, detail: detail)
+    }
+
+    private func performScoreRequest(
+        body: ScoreRequest,
+        authorization: String?,
+        detail: Bool
+    ) async throws -> [ScoreRow] {
         var request = URLRequest(url: endpointBaseURL.appending(path: "api/jwb/bit101/score"))
         request.timeoutInterval = Self.requestTimeoutSeconds
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(
-            ScoreRequest(
-                username: studentID,
-                password: password,
+        if let authorization {
+            request.setValue("Bearer \(authorization)", forHTTPHeaderField: "Authorization")
+        }
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await send(request)
+        if response.statusCode == 202 {
+            let envelope = try? JSONDecoder().decode(ChallengeEnvelope.self, from: data)
+            guard
+                let payload = envelope?.detail,
+                let accessToken = payload.accessToken,
+                !accessToken.isEmpty
+            else {
+                throw ScoreServiceError.invalidResponse
+            }
+            let current = try await waitUntilActionable(payload, accessToken: accessToken)
+            return try await finishAuthentication(current, detail: detail)
+        }
+
+        guard (200 ..< 300).contains(response.statusCode) else {
+            throw ScoreServiceError.queryFailed(
+                messageFromErrorResponse(data) ?? "成绩查询失败。"
+            )
+        }
+        return try decodeScoreRows(data)
+    }
+
+    private func finishAuthentication(
+        _ challenge: BITLoginAuthenticationChallenge,
+        detail: Bool
+    ) async throws -> [ScoreRow] {
+        switch challenge.status {
+        case "authenticated":
+            let body = ScoreRequest(
+                username: nil,
+                password: nil,
+                challengeID: challenge.challengeID,
                 detail: detail
             )
-        )
+            return try await performScoreRequest(
+                body: body,
+                authorization: challenge.accessToken,
+                detail: detail
+            )
+        case "waiting_sms":
+            throw ScoreServiceError.secondFactorRequired(challenge)
+        case "expired":
+            throw ScoreServiceError.challengeInvalid("验证码已过期，请重新查询成绩。")
+        case "failed":
+            throw ScoreServiceError.challengeInvalid("统一身份认证失败，请重新查询成绩。")
+        default:
+            throw ScoreServiceError.queryFailed("统一身份认证暂未完成，请稍后重试。")
+        }
+    }
 
-        let data: Data
-        let response: URLResponse
+    /// 初次成绩请求通常会在认证线程仍为 `running` 时返回，短暂轮询到可交互状态。
+    private func waitUntilActionable(
+        _ initialPayload: ChallengePayload,
+        accessToken: String
+    ) async throws -> BITLoginAuthenticationChallenge {
+        var payload = initialPayload
+        let deadline = Date().addingTimeInterval(Self.authenticationWaitSeconds)
+
+        while ["running", "processing"].contains(payload.status), Date() < deadline {
+            try await Task.sleep(for: .seconds(1))
+
+            var request = URLRequest(
+                url: endpointBaseURL.appending(path: "api/auth/\(payload.challengeID)")
+            )
+            request.timeoutInterval = Self.requestTimeoutSeconds
+            request.setValue(accessToken, forHTTPHeaderField: "X-Challenge-Token")
+            let (data, response) = try await send(request)
+            guard (200 ..< 300).contains(response.statusCode) else {
+                throw ScoreServiceError.queryFailed(
+                    messageFromErrorResponse(data) ?? "无法获取统一身份认证状态。"
+                )
+            }
+            payload = try decodeChallengePayload(data)
+        }
+
+        if payload.status == "failed", let error = payload.error, !error.isEmpty {
+            throw ScoreServiceError.challengeInvalid(error)
+        }
+
+        return BITLoginAuthenticationChallenge(
+            challengeID: payload.challengeID,
+            accessToken: accessToken,
+            status: payload.status,
+            maskedPhone: payload.maskedPhone,
+            expiresIn: payload.expiresIn
+        )
+    }
+
+    private func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         do {
-            (data, response) = try await session.data(for: request)
+            let (data, response) = try await session.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw ScoreServiceError.invalidResponse
+            }
+            return (data, httpResponse)
         } catch let error as URLError where error.code == .timedOut {
             throw ScoreServiceError.requestTimedOut
         }
-        guard let httpResponse = response as? HTTPURLResponse else {
+    }
+
+    private func decodeChallengePayload(_ data: Data) throws -> ChallengePayload {
+        do {
+            return try JSONDecoder().decode(ChallengePayload.self, from: data)
+        } catch {
             throw ScoreServiceError.invalidResponse
         }
+    }
 
-        if !(200 ..< 300).contains(httpResponse.statusCode) {
-            throw ScoreServiceError.queryFailed(messageFromErrorResponse(data) ?? "成绩查询失败。")
-        }
-
-        let decoder = JSONDecoder()
+    private func decodeScoreRows(_ data: Data) throws -> [ScoreRow] {
         let payload: ScoreResponse
         do {
-            payload = try decoder.decode(ScoreResponse.self, from: data)
+            payload = try JSONDecoder().decode(ScoreResponse.self, from: data)
         } catch {
             throw ScoreServiceError.invalidResponse
         }
@@ -125,15 +324,11 @@ struct ScoreService {
         }
 
         let headers = payload.data[0]
-        let rows = payload.data.dropFirst().enumerated().map { index, row in
+        return payload.data.dropFirst().enumerated().map { index, row in
             ScoreRow(index: index, headers: headers, values: row)
         }
-        return rows
     }
 
-    /// 尝试从错误响应 JSON 中提取更具体的错误文案。
-    ///
-    /// 成绩代理失败时有时会返回纯文本，有时会返回 JSON，这里两种都兼容。
     private func messageFromErrorResponse(_ data: Data) -> String? {
         guard
             let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -144,11 +339,16 @@ struct ScoreService {
         if let msg = json["msg"] as? String, !msg.isEmpty {
             return msg
         }
-
         if let detail = json["detail"] as? String, !detail.isEmpty {
             return detail
         }
-
+        if
+            let detail = json["detail"] as? [String: Any],
+            let message = (detail["message"] as? String) ?? (detail["error"] as? String),
+            !message.isEmpty
+        {
+            return message
+        }
         return nil
     }
 }

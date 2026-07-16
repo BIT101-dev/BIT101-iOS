@@ -358,13 +358,11 @@
 				D2FF4C932F729DB4000FA1C1 /* Frameworks */,
 				D2FF4C942F729DB4000FA1C1 /* Resources */,
 				524910F6664E97D0AD2254A6 /* Embed Foundation Extensions */,
-				7DE3E2E83612E965A2BA07B0 /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				63B9195EB1C2E887B0BC4A6D /* PBXTargetDependency */,
-				0BA56A68ABF5ED6A9D65BFD9 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				D2FF4C982F729DB4000FA1C1 /* BIT101-iOS */,

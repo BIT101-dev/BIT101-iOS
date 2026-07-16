@@ -112,6 +112,9 @@ final class ScheduleViewModel: ObservableObject {
     @Published var selectedCourseScheduleIndex = 0
     @Published var selectedBuildingID = ""
     @Published var notice: ScheduleNotice?
+    @Published private(set) var smsChallenge: BITLoginAuthenticationChallenge?
+    @Published private(set) var smsVerificationError: String?
+    @Published private(set) var isSubmittingSMSCode = false
 
     private let service: ScheduleService
     private var hasLoaded = false
@@ -289,20 +292,64 @@ final class ScheduleViewModel: ObservableObject {
     ///
     /// 同步成功后会立刻更新本地缓存，从而驱动课表页、小组件和灵动岛一起刷新。
     func syncCourses() async {
+        guard !isSyncingCourses, !isSubmittingSMSCode, smsChallenge == nil else { return }
         isSyncingCourses = true
         defer { isSyncingCourses = false }
 
         do {
             let payload = try await service.syncCourses()
-            cache.currentTerm = payload.term
-            cache.firstDayString = payload.firstDayString
-            cache.courses = payload.courses
-            cache.exams = payload.exams
-            selectedWeek = min(max(resolvedCurrentWeek(), 1), maxWeek)
-            persist()
+            applyCourseSyncPayload(payload)
+        } catch ScheduleServiceError.secondFactorRequired(let challenge) {
+            smsChallenge = challenge
+            smsVerificationError = nil
+        } catch ScheduleServiceError.challengeInvalid(let message) {
+            smsChallenge = nil
+            smsVerificationError = nil
+            notice = ScheduleNotice(title: "验证已失效", message: message)
         } catch {
             notice = ScheduleNotice(title: "课表同步失败", message: error.localizedDescription)
         }
+    }
+
+    /// 提交短信一次性验证码，并继续被暂停的课表同步。
+    func submitSMSCode(_ code: String) async {
+        guard let challenge = smsChallenge, !isSubmittingSMSCode else { return }
+        let normalizedCode = code.filter(\.isNumber)
+        guard (4 ... 8).contains(normalizedCode.count) else {
+            smsVerificationError = "请输入短信中的 4 至 8 位验证码。"
+            return
+        }
+
+        isSubmittingSMSCode = true
+        smsVerificationError = nil
+        defer { isSubmittingSMSCode = false }
+
+        do {
+            let payload = try await service.submitSMSCode(normalizedCode, for: challenge)
+            applyCourseSyncPayload(payload)
+            smsChallenge = nil
+        } catch ScheduleServiceError.challengeInvalid(let message) {
+            smsChallenge = nil
+            smsVerificationError = nil
+            notice = ScheduleNotice(title: "验证已失效", message: message)
+        } catch {
+            smsVerificationError = error.localizedDescription
+        }
+    }
+
+    func dismissSMSChallenge() {
+        guard !isSubmittingSMSCode else { return }
+        smsChallenge = nil
+        smsVerificationError = nil
+    }
+
+    private func applyCourseSyncPayload(_ payload: CourseSyncPayload) {
+        cache.currentTerm = payload.term
+        cache.firstDayString = payload.firstDayString
+        cache.courses = payload.courses
+        cache.exams = payload.exams
+        selectedWeek = min(max(resolvedCurrentWeek(), 1), maxWeek)
+        persist()
     }
 
     /// 同步乐学 DDL，并保留本地手动项目和完成状态。

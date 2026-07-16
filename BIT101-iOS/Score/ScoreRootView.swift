@@ -220,6 +220,11 @@ private final class ScoreViewModel: ObservableObject {
     @Published private(set) var sortOrder: ScoreSortOrder = .ascending
     /// 是否正在后台同步完整成绩。
     @Published private(set) var isSyncing = false
+    /// 当前等待用户输入短信验证码的短期认证挑战。
+    @Published private(set) var smsChallenge: BITLoginAuthenticationChallenge?
+    /// 短信验证码提交过程的行内错误提示。
+    @Published private(set) var smsVerificationError: String?
+    @Published private(set) var isSubmittingSMSCode = false
     @Published var alert: LoginAlert?
 
     private let service: ScoreService
@@ -263,9 +268,11 @@ private final class ScoreViewModel: ObservableObject {
     ///
     /// 若页面已经有内容，则走非破坏性刷新，避免下拉刷新时先把列表清空。
     func refresh() async {
-        guard !isRefreshing else { return }
+        guard !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil else { return }
 
         let hadContent = !rows.isEmpty || state == .loaded
+        smsChallenge = nil
+        smsVerificationError = nil
         isRefreshing = true
         isSyncing = true
         if !hadContent {
@@ -278,9 +285,23 @@ private final class ScoreViewModel: ObservableObject {
         }
 
         do {
-            let fetchedRows = try await service.fetchScores(detail: true)
+            // 列表刷新只取基础成绩，避免服务端逐门抓取排名详情导致长时间阻塞或超时。
+            let fetchedRows = try await service.fetchScores(detail: false)
             applyRows(fetchedRows)
             ScoreCacheStore.save(rows: fetchedRows)
+        } catch ScoreServiceError.secondFactorRequired(let challenge) {
+            smsChallenge = challenge
+            state = hadContent ? .loaded : .loading
+        } catch ScoreServiceError.challengeInvalid(let message) {
+            smsChallenge = nil
+            smsVerificationError = nil
+            if hadContent {
+                state = .loaded
+                alert = LoginAlert(title: "验证已失效", message: message)
+            } else {
+                state = .failed(message)
+                alert = LoginAlert(title: "验证已失效", message: message)
+            }
         } catch {
             if isCancellation(error) {
                 state = hadContent ? .loaded : .idle
@@ -300,6 +321,52 @@ private final class ScoreViewModel: ObservableObject {
             selectedCourseTypes = []
             state = .failed(error.localizedDescription)
             alert = LoginAlert(title: "成绩查询失败", message: error.localizedDescription)
+        }
+    }
+
+    /// 提交原生验证码输入框中的一次性代码，并在认证成功后完成成绩刷新。
+    func submitSMSCode(_ code: String) async {
+        guard let challenge = smsChallenge, !isSubmittingSMSCode else { return }
+
+        let normalizedCode = code.filter(\.isNumber)
+        guard (4 ... 8).contains(normalizedCode.count) else {
+            smsVerificationError = "请输入短信中的 4 至 8 位验证码。"
+            return
+        }
+
+        isSubmittingSMSCode = true
+        smsVerificationError = nil
+        defer { isSubmittingSMSCode = false }
+
+        do {
+            let fetchedRows = try await service.submitSMSCode(
+                normalizedCode,
+                for: challenge,
+                detail: false
+            )
+            applyRows(fetchedRows)
+            ScoreCacheStore.save(rows: fetchedRows)
+            smsChallenge = nil
+            state = .loaded
+        } catch ScoreServiceError.challengeInvalid(let message) {
+            smsChallenge = nil
+            smsVerificationError = nil
+            if rows.isEmpty {
+                state = .failed(message)
+            }
+            alert = LoginAlert(title: "验证已失效", message: message)
+        } catch {
+            smsVerificationError = error.localizedDescription
+        }
+    }
+
+    /// 用户关闭验证码面板后丢弃内存中的短期令牌；服务端会自行清理过期挑战。
+    func dismissSMSChallenge() {
+        guard !isSubmittingSMSCode else { return }
+        smsChallenge = nil
+        smsVerificationError = nil
+        if rows.isEmpty {
+            state = .failed("需要完成短信验证才能查询成绩。")
         }
     }
 
@@ -700,6 +767,26 @@ private struct ScoreListPage: View {
         .alert(item: $viewModel.alert) { alert in
             Alert(title: Text(alert.title), message: Text(alert.message), dismissButton: .default(Text("知道了")))
         }
+        .sheet(
+            item: Binding(
+                get: { viewModel.smsChallenge },
+                set: { challenge in
+                    if challenge == nil {
+                        viewModel.dismissSMSChallenge()
+                    }
+                }
+            )
+        ) { challenge in
+            ScoreSMSVerificationSheet(
+                challenge: challenge,
+                isSubmitting: viewModel.isSubmittingSMSCode,
+                errorMessage: viewModel.smsVerificationError,
+                onCancel: viewModel.dismissSMSChallenge,
+                onSubmit: { code in
+                    await viewModel.submitSMSCode(code)
+                }
+            )
+        }
     }
 
     /// 统一格式化可选小数，没有值时显示占位符。
@@ -727,6 +814,93 @@ private struct ScoreListPage: View {
             return ordered.joined(separator: "、")
         }
         return "\(ordered.prefix(2).joined(separator: "、")) 等 \(ordered.count) 项"
+    }
+}
+
+/// 成绩页的原生短信验证码面板。
+///
+/// `.textContentType(.oneTimeCode)` 会让 iOS 从“来自信息”的验证码建议中自动填入，
+/// 同时保留数字键盘供用户手动输入。
+private struct ScoreSMSVerificationSheet: View {
+    let challenge: BITLoginAuthenticationChallenge
+    let isSubmitting: Bool
+    let errorMessage: String?
+    let onCancel: () -> Void
+    let onSubmit: (String) async -> Void
+
+    @State private var code = ""
+    @FocusState private var isCodeFieldFocused: Bool
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("短信验证码", text: $code)
+                        .keyboardType(.numberPad)
+                        .textContentType(.oneTimeCode)
+                        .multilineTextAlignment(.center)
+                        .font(.title2.monospacedDigit())
+                        .focused($isCodeFieldFocused)
+                        .disabled(isSubmitting)
+                        .onChange(of: code) { _, newValue in
+                            let digits = String(newValue.filter(\.isNumber).prefix(8))
+                            if digits != newValue {
+                                code = digits
+                            }
+                        }
+                } header: {
+                    Text("输入验证码")
+                } footer: {
+                    Text(verificationHint)
+                }
+
+                if let errorMessage, !errorMessage.isEmpty {
+                    Section {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section {
+                    Button {
+                        Task { await onSubmit(code) }
+                    } label: {
+                        HStack {
+                            Spacer()
+                            if isSubmitting {
+                                ProgressView()
+                                    .padding(.trailing, 6)
+                                Text("正在验证")
+                            } else {
+                                Text("验证并查询成绩")
+                            }
+                            Spacer()
+                        }
+                    }
+                    .disabled(isSubmitting || !(4 ... 8).contains(code.count))
+                }
+            }
+            .navigationTitle("短信验证")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消", action: onCancel)
+                        .disabled(isSubmitting)
+                }
+            }
+            .interactiveDismissDisabled(isSubmitting)
+            .onAppear {
+                isCodeFieldFocused = true
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private var verificationHint: String {
+        if let maskedPhone = challenge.maskedPhone, !maskedPhone.isEmpty {
+            return "验证码已发送至绑定手机 \(maskedPhone)，可点击键盘上方建议自动填充。"
+        }
+        return "验证码已发送至绑定手机，可点击键盘上方建议自动填充。"
     }
 }
 

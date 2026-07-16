@@ -83,7 +83,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "C8AF9C40C472741950BEAF70"
             BuildableName = "BIT101Watch.app"
-            BlueprintName = "BIT101Watch"
             ReferencedContainer = "container:BIT101-iOS.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -100,7 +99,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "C8AF9C40C472741950BEAF70"
             BuildableName = "BIT101Watch.app"
-            BlueprintName = "BIT101Watch"
             ReferencedContainer = "container:BIT101-iOS.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

@@ -45,6 +45,111 @@ struct StoredCredentials {
     let password: String
 }
 
+/// 教学中心 WebVPN 会话的进程内状态。
+///
+/// 这里不再使用“成功一次后永久为 true”的静态布尔值，而是把状态绑定到具体学号，
+/// 并且每次使用前同时检查对应 Cookie 是否仍然存在。网络层发现会话失效时可以显式
+/// 调用 `invalidate`，下一次请求就会重新经过 bit-login。
+final class TeachingCenterSessionState {
+    static let shared = TeachingCenterSessionState()
+
+    private let lock = NSLock()
+    private let cookieStorage = HTTPCookieStorage.shared
+    private var authenticatedStudentID: String?
+    private var preparedStudentID: String?
+
+    private init() {}
+
+    func hasUsableSession(for studentID: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard !studentID.isEmpty else { return false }
+        guard hasWebVPNCookie else {
+            authenticatedStudentID = nil
+            preparedStudentID = nil
+            return false
+        }
+
+        // App 重启后内存标记会消失，但系统 Cookie 仍可能有效。登录流程在切换账号前会
+        // 清掉学校 Cookie，因此这里可以把现存 Cookie 重新绑定到当前保存的学号。
+        if authenticatedStudentID == nil {
+            authenticatedStudentID = studentID
+        }
+        return authenticatedStudentID == studentID
+    }
+
+    func markAuthenticated(for studentID: String) {
+        lock.lock()
+        authenticatedStudentID = studentID
+        preparedStudentID = nil
+        lock.unlock()
+    }
+
+    func isPrepared(for studentID: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return authenticatedStudentID == studentID && preparedStudentID == studentID && hasWebVPNCookie
+    }
+
+    func markPrepared(for studentID: String) {
+        lock.lock()
+        if authenticatedStudentID == studentID, hasWebVPNCookie {
+            preparedStudentID = studentID
+        }
+        lock.unlock()
+    }
+
+    /// 使内存状态失效，并按需只删除教学中心/WebVPN 域的 Cookie。
+    func invalidate(clearCookies: Bool = true) {
+        lock.lock()
+        authenticatedStudentID = nil
+        preparedStudentID = nil
+        lock.unlock()
+
+        guard clearCookies else { return }
+        deleteCookies(matching: [
+            "webvpn.bit.edu.cn",
+            "jxzxehall.bit.edu.cn",
+            "jxzxehallapp.bit.edu.cn",
+        ])
+    }
+
+    /// 退出、重新登录或切换账号时清理学校身份相关 Cookie，但不影响其他网站 Cookie。
+    func clearSchoolAuthenticationCookies() {
+        invalidate(clearCookies: false)
+        deleteCookies(matching: [
+            "webvpn.bit.edu.cn",
+            "sso.bit.edu.cn",
+            "jxzxehall.bit.edu.cn",
+            "jxzxehallapp.bit.edu.cn",
+            "jwms.bit.edu.cn",
+            "lexue.bit.edu.cn",
+        ])
+    }
+
+    private var hasWebVPNCookie: Bool {
+        let now = Date()
+        return cookieStorage.cookies?.contains { cookie in
+            normalizedDomain(cookie.domain) == "webvpn.bit.edu.cn"
+                && (cookie.expiresDate == nil || cookie.expiresDate! > now)
+        } ?? false
+    }
+
+    private func deleteCookies(matching domains: Set<String>) {
+        cookieStorage.cookies?.forEach { cookie in
+            let domain = normalizedDomain(cookie.domain)
+            if domains.contains(where: { domain == $0 || domain.hasSuffix(".\($0)") }) {
+                cookieStorage.deleteCookie(cookie)
+            }
+        }
+    }
+
+    private func normalizedDomain(_ domain: String) -> String {
+        domain.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
+    }
+}
+
 /// 从学校登录页里解析出来的必要上下文。
 ///
 /// 学校 CAS 登录页并不是一个稳定 JSON 接口，而是一段 HTML，所以这里先把后续登录真正
@@ -100,8 +205,6 @@ final class LoginStorage {
 
     private let keychainService = "harrybit.BIT101-iOS.login"
     private let defaults = UserDefaults.standard
-    private let cookieStorage = HTTPCookieStorage.shared
-
     private init() {
         purgePersistedCredentialsIfNeededAfterReinstall()
     }
@@ -157,8 +260,8 @@ final class LoginStorage {
     func clearSession() {
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
 
-        // 学校侧登录态完全依赖 cookie，退出时必须一起清理，否则后续会误判为仍然在学校侧已登录。
-        cookieStorage.cookies?.forEach { cookieStorage.deleteCookie($0) }
+        // 只清理学校身份相关域，避免把 App 内其他服务或调试环境的 Cookie 一并删除。
+        TeachingCenterSessionState.shared.clearSchoolAuthenticationCookies()
         deleteKeychainValue(account: KeychainAccount.password)
         notifyAccountChanged()
     }
@@ -168,7 +271,7 @@ final class LoginStorage {
     /// 这是更彻底的“清文稿与数据”语义，会同时抹掉 Keychain 中的账号密码。
     func clearAllLocalData() {
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
-        cookieStorage.cookies?.forEach { cookieStorage.deleteCookie($0) }
+        TeachingCenterSessionState.shared.clearSchoolAuthenticationCookies()
         deleteKeychainValue(account: KeychainAccount.studentID)
         deleteKeychainValue(account: KeychainAccount.password)
         notifyAccountChanged()
@@ -183,7 +286,7 @@ final class LoginStorage {
         guard !defaults.bool(forKey: DefaultsKey.installationMarker) else { return }
 
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
-        cookieStorage.cookies?.forEach { cookieStorage.deleteCookie($0) }
+        TeachingCenterSessionState.shared.clearSchoolAuthenticationCookies()
         deleteKeychainValue(account: KeychainAccount.studentID)
         deleteKeychainValue(account: KeychainAccount.password)
         defaults.set(true, forKey: DefaultsKey.installationMarker)
@@ -783,50 +886,20 @@ struct LoginService {
             return nil
         }
 
-        // 先检查 BIT101 自己的登录态，再检查学校侧 cookie 是否还有效，两边都有效才算真正“已登录”。
+        // App 的全局登录态只由 BIT101 自己的 fake-cookie 决定。
+        // 学校 SSO 是课表、空教室等功能的按需依赖，不能因为学校 CAS 改版而阻止用户进入 App。
         let bit101LoggedIn = try await apiClient.checkBIT101Login(fakeCookie: fakeCookie)
         guard bit101LoggedIn else {
             storage.clearSession()
             return nil
         }
 
-        let schoolContext = try await apiClient.fetchSchoolLoginContext()
-        if schoolContext.isLoggedIn {
-            let studentID = storage.currentStudentID
-            if studentID.isEmpty {
-                throw LoginServiceError.unableToRestoreSchoolSession
-            }
-            return studentID
+        let studentID = storage.currentStudentID
+        guard !studentID.isEmpty else {
+            storage.clearSession()
+            return nil
         }
-
-        guard
-            let credentials = try storage.loadCredentials()
-        else {
-            throw LoginServiceError.unableToRestoreSchoolSession
-        }
-
-        guard
-            let salt = schoolContext.salt?.trimmingCharacters(in: .whitespacesAndNewlines),
-            !salt.isEmpty,
-            let execution = schoolContext.execution?.trimmingCharacters(in: .whitespacesAndNewlines),
-            !execution.isEmpty
-        else {
-            throw LoginServiceError.invalidSchoolLoginPage
-        }
-
-        let reloginSucceeded = try await apiClient.loginSchool(
-            studentID: credentials.studentID,
-            password: credentials.password,
-            salt: salt,
-            execution: execution
-        )
-
-        if reloginSucceeded {
-            return credentials.studentID
-        }
-
-        storage.clearSession()
-        return nil
+        return studentID
     }
 
     /// 只确保学校 SSO 会话可用，不检查 BIT101 自有 fake-cookie。
@@ -866,32 +939,14 @@ struct LoginService {
         return reloginSucceeded ? credentials.studentID : nil
     }
 
-    /// 执行完整登录流程：学校 CAS -> BIT101 WebVPN 校验 -> 登录模式注册。
+    /// 执行 BIT101 登录流程：WebVPN 身份校验 -> 登录模式注册。
     ///
-    /// 这里严格按 Android 现有顺序执行，保证 iOS 端与现有后端约定保持一致。
+    /// WebVPN 校验由 BIT101 后端完成，足以证明学号身份并签发 fake-cookie；手机本地的
+    /// 学校 SSO Cookie 留给真正需要它的功能按需获取，避免学校 CAS 改版拖垮整个 App 登录。
     func login(studentID: String, password: String) async throws -> String {
         storage.clearSession()
 
-        let schoolContext = try await apiClient.fetchSchoolLoginContext()
-        guard
-            let salt = schoolContext.salt,
-            let execution = schoolContext.execution
-        else {
-            throw LoginServiceError.invalidSchoolLoginPage
-        }
-
-        let schoolLoginSucceeded = try await apiClient.loginSchool(
-            studentID: studentID,
-            password: password,
-            salt: salt,
-            execution: execution
-        )
-
-        guard schoolLoginSucceeded else {
-            throw LoginServiceError.schoolLoginFailed
-        }
-
-        // 下面三步与 Android 保持一致：初始化验证码上下文 -> 校验 WebVPN -> 登录模式注册。
+        // 与 BIT101-GO 的现有接口保持一致：初始化验证上下文 -> 校验 WebVPN -> 登录模式注册。
         let initResponse = try await apiClient.webVPNVerifyInit(studentID: studentID)
         let encryptedPassword = try LoginCrypto.encryptPassword(password, saltBase64: initResponse.salt)
         let verifyResponse = try await apiClient.webVPNVerify(

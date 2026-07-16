@@ -86,6 +86,10 @@ private enum ScheduleURLUpgrade {
 /// 这层错误枚举主要服务 UI 展示；更底层的接口差异、字段缺失等问题会在这里统一折叠成少量用户可理解的文案。
 enum ScheduleServiceError: LocalizedError {
     case notLoggedIn
+    case secondFactorRequired(BITLoginAuthenticationChallenge)
+    case challengeInvalid(String)
+    case teachingCenterSessionExpired
+    case authenticationFailed(String)
     case invalidResponse
     case invalidLexuePage
     case invalidCalendarURL
@@ -95,6 +99,14 @@ enum ScheduleServiceError: LocalizedError {
         switch self {
         case .notLoggedIn:
             return "当前登录状态无效，请重新登录后再同步日程。"
+        case .secondFactorRequired:
+            return "需要短信验证码才能继续同步课表。"
+        case let .challengeInvalid(message):
+            return message
+        case .teachingCenterSessionExpired:
+            return "教学中心登录状态已失效，请重新验证。"
+        case let .authenticationFailed(message):
+            return message
         case .invalidResponse:
             return "服务器返回了无法识别的数据。"
         case .invalidLexuePage:
@@ -133,11 +145,57 @@ struct DDLSyncPayload {
 /// 3. ATS 相关的 HTTP -> HTTPS 升级
 struct ScheduleService {
     private let schoolBaseURL = URL(string: "https://jxzxehallapp.bit.edu.cn")!
+    private let webVPNSchoolBaseURL = URL(
+        string: "https://webvpn.bit.edu.cn/https/77726476706e69737468656265737421faef5b842238695c720999bcd6572a216b231105adc27d"
+    )!
+    private let bitLoginBaseURL = URL(string: "https://login.bit101.flwfdd.xyz")!
     private let lexueBaseURL = URL(string: "https://lexue.bit.edu.cn")!
+    private let storage = LoginStorage.shared
+    private let teachingCenterState = TeachingCenterSessionState.shared
     private let session: URLSession
     private let redirectDelegate = HTTPSUpgradingRedirectDelegate()
-    private static var didPrepareJXZX = false
+    private static let authenticationWaitSeconds: TimeInterval = 90
     fileprivate static let decoder = JSONDecoder()
+
+    private struct AuthenticationCredentials: Encodable {
+        let username: String?
+        let password: String?
+        let challengeID: String?
+
+        enum CodingKeys: String, CodingKey {
+            case username, password
+            case challengeID = "challenge_id"
+        }
+    }
+
+    private struct SMSCodeRequest: Encodable {
+        let code: String
+    }
+
+    private struct ChallengeEnvelope: Decodable {
+        let detail: ChallengePayload
+    }
+
+    private struct ChallengePayload: Decodable {
+        let challengeID: String
+        let accessToken: String?
+        let status: String
+        let maskedPhone: String?
+        let expiresIn: Int?
+        let error: String?
+
+        enum CodingKeys: String, CodingKey {
+            case status, error
+            case challengeID = "challenge_id"
+            case accessToken = "access_token"
+            case maskedPhone = "masked_phone"
+            case expiresIn = "expires_in"
+        }
+    }
+
+    private struct CookieResponse: Decodable {
+        let data: [String: String]
+    }
     private static let icsUTCDateTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
@@ -180,7 +238,50 @@ struct ScheduleService {
     ///
     /// 这三个结果会同时影响课表页面、当前周计算、小组件和灵动岛，所以同步时必须成套获取。
     func syncCourses() async throws -> CourseSyncPayload {
-        try await ensureSchoolSession()
+        try await withTeachingCenterSessionRetry {
+            try await fetchCourseSyncPayload()
+        }
+    }
+
+    /// 提交新版统一认证的短信验证码，并在认证成功后继续本次课表同步。
+    func submitSMSCode(
+        _ code: String,
+        for challenge: BITLoginAuthenticationChallenge
+    ) async throws -> CourseSyncPayload {
+        guard !challenge.isExpired else {
+            throw ScheduleServiceError.challengeInvalid("验证码已过期，请重新同步课表。")
+        }
+        var request = URLRequest(
+            url: bitLoginBaseURL.appending(path: "api/auth/\(challenge.challengeID)/sms")
+        )
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(challenge.accessToken, forHTTPHeaderField: "X-Challenge-Token")
+        request.httpBody = try JSONEncoder().encode(SMSCodeRequest(code: code))
+
+        let (data, response) = try await sendRequest(request)
+        guard (200 ..< 300).contains(response.statusCode) else {
+            let message = errorMessage(from: data) ?? "短信验证码验证失败。"
+            if [403, 404, 409].contains(response.statusCode) {
+                throw ScheduleServiceError.challengeInvalid(
+                    "本次验证已失效或验证码已提交，请重新同步课表。\n\(message)"
+                )
+            }
+            throw ScheduleServiceError.authenticationFailed(message)
+        }
+
+        let payload = try decodeChallengePayload(data)
+        let current = try await waitUntilAuthenticationActionable(
+            payload,
+            accessToken: challenge.accessToken
+        )
+        try await finishTeachingCenterAuthentication(current)
+        return try await withTeachingCenterSessionRetry {
+            try await fetchCourseSyncPayload()
+        }
+    }
+
+    private func fetchCourseSyncPayload() async throws -> CourseSyncPayload {
         try await prepareJXZX()
 
         let term = try await fetchCurrentTerm()
@@ -196,11 +297,206 @@ struct ScheduleService {
         )
     }
 
+    /// 通过新版 bit-login challenge 获取教学中心的 WebVPN Cookie。
+    private func ensureTeachingCenterAuthentication(force: Bool = false) async throws {
+        let username = storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let password = storage.currentPassword
+        guard !username.isEmpty, !password.isEmpty else {
+            throw ScheduleServiceError.notLoggedIn
+        }
+
+        if force {
+            teachingCenterState.invalidate()
+        } else if teachingCenterState.hasUsableSession(for: username) {
+            return
+        }
+
+        let body = AuthenticationCredentials(
+            username: username,
+            password: password,
+            challengeID: nil
+        )
+        do {
+            try await requestTeachingCenterCookies(body: body, accessToken: nil)
+        } catch ScheduleServiceError.authenticationFailed(let message)
+            where isTransientAuthenticationFailure(message)
+        {
+            // bit-login 到 WebVPN 的单次请求可能被学校侧 25 秒读超时打断；没有拿到
+            // challenge 的情况下安全地退避并重试一次，避免把瞬时抖动直接暴露给用户。
+            try await Task.sleep(for: .seconds(2))
+            try await requestTeachingCenterCookies(body: body, accessToken: nil)
+        } catch ScheduleServiceError.challengeInvalid(let message)
+            where isTransientAuthenticationFailure(message)
+        {
+            try await Task.sleep(for: .seconds(2))
+            try await requestTeachingCenterCookies(body: body, accessToken: nil)
+        }
+    }
+
+    private func isTransientAuthenticationFailure(_ message: String) -> Bool {
+        let normalized = message.lowercased()
+        return normalized.contains("timed out")
+            || normalized.contains("timeout")
+            || normalized.contains("连接统一身份认证服务")
+            || normalized.contains("暂时不可用")
+            || normalized.contains("http 500")
+            || normalized.contains("http 502")
+            || normalized.contains("http 503")
+            || normalized.contains("http 504")
+    }
+
+    private func requestTeachingCenterCookies(
+        body: AuthenticationCredentials,
+        accessToken: String?
+    ) async throws {
+        var request = URLRequest(
+            url: bitLoginBaseURL.appending(path: "api/jxzxehall/cookies")
+        )
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let accessToken {
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        }
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await sendRequest(request)
+        if response.statusCode == 202 {
+            guard
+                let envelope = try? JSONDecoder().decode(ChallengeEnvelope.self, from: data),
+                let accessToken = envelope.detail.accessToken,
+                !accessToken.isEmpty
+            else {
+                throw ScheduleServiceError.invalidResponse
+            }
+            let current = try await waitUntilAuthenticationActionable(
+                envelope.detail,
+                accessToken: accessToken
+            )
+            try await finishTeachingCenterAuthentication(current)
+            return
+        }
+
+        guard (200 ..< 300).contains(response.statusCode) else {
+            throw ScheduleServiceError.authenticationFailed(
+                errorMessage(from: data) ?? "教学中心统一认证失败。"
+            )
+        }
+        try installTeachingCenterCookies(from: data)
+    }
+
+    private func finishTeachingCenterAuthentication(
+        _ challenge: BITLoginAuthenticationChallenge
+    ) async throws {
+        switch challenge.status {
+        case "authenticated":
+            try await requestTeachingCenterCookies(
+                body: AuthenticationCredentials(
+                    username: nil,
+                    password: nil,
+                    challengeID: challenge.challengeID
+                ),
+                accessToken: challenge.accessToken
+            )
+        case "waiting_sms":
+            throw ScheduleServiceError.secondFactorRequired(challenge)
+        case "expired":
+            throw ScheduleServiceError.challengeInvalid("验证码已过期，请重新同步课表。")
+        case "failed":
+            throw ScheduleServiceError.challengeInvalid("教学中心统一认证失败，请重新同步课表。")
+        default:
+            throw ScheduleServiceError.authenticationFailed("统一身份认证处理超时，请重试。")
+        }
+    }
+
+    private func waitUntilAuthenticationActionable(
+        _ initialPayload: ChallengePayload,
+        accessToken: String
+    ) async throws -> BITLoginAuthenticationChallenge {
+        var payload = initialPayload
+        let deadline = Date().addingTimeInterval(Self.authenticationWaitSeconds)
+
+        while ["running", "processing"].contains(payload.status), Date() < deadline {
+            try await Task.sleep(for: .seconds(1))
+            var request = URLRequest(
+                url: bitLoginBaseURL.appending(path: "api/auth/\(payload.challengeID)")
+            )
+            request.setValue(accessToken, forHTTPHeaderField: "X-Challenge-Token")
+            let (data, response) = try await sendRequest(request)
+            guard (200 ..< 300).contains(response.statusCode) else {
+                throw ScheduleServiceError.authenticationFailed(
+                    errorMessage(from: data) ?? "无法获取统一认证状态。"
+                )
+            }
+            payload = try decodeChallengePayload(data)
+        }
+
+        if payload.status == "failed", let error = payload.error, !error.isEmpty {
+            throw ScheduleServiceError.challengeInvalid(error)
+        }
+        return BITLoginAuthenticationChallenge(
+            challengeID: payload.challengeID,
+            accessToken: accessToken,
+            status: payload.status,
+            maskedPhone: payload.maskedPhone,
+            expiresIn: payload.expiresIn
+        )
+    }
+
+    private func decodeChallengePayload(_ data: Data) throws -> ChallengePayload {
+        do {
+            return try JSONDecoder().decode(ChallengePayload.self, from: data)
+        } catch {
+            throw ScheduleServiceError.invalidResponse
+        }
+    }
+
+    private func installTeachingCenterCookies(from data: Data) throws {
+        let response: CookieResponse
+        do {
+            response = try JSONDecoder().decode(CookieResponse.self, from: data)
+        } catch {
+            throw ScheduleServiceError.invalidResponse
+        }
+        guard !response.data.isEmpty else {
+            throw ScheduleServiceError.invalidResponse
+        }
+
+        for (name, value) in response.data {
+            guard let cookie = HTTPCookie(properties: [
+                .domain: "webvpn.bit.edu.cn",
+                .path: "/",
+                .name: name,
+                .value: value,
+                .secure: "TRUE",
+            ]) else { continue }
+            HTTPCookieStorage.shared.setCookie(cookie)
+        }
+        let studentID = storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !studentID.isEmpty else {
+            teachingCenterState.invalidate()
+            throw ScheduleServiceError.notLoggedIn
+        }
+        teachingCenterState.markAuthenticated(for: studentID)
+    }
+
+    private func errorMessage(from data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return String(data: data, encoding: .utf8)
+        }
+        if let detail = json["detail"] as? String, !detail.isEmpty {
+            return detail
+        }
+        if let message = json["message"] as? String, !message.isEmpty {
+            return message
+        }
+        return nil
+    }
+
     /// 只查询当前学期，不拉完整课表。
     ///
     /// 主要用于空教室页只需要学期编码但不需要整份课表时的轻量查询。
     func fetchCurrentTermOnly() async throws -> String {
-        try await performFastSchoolRequest {
+        try await withTeachingCenterSessionRetry {
             try await prepareJXZX()
             return try await fetchCurrentTerm()
         }
@@ -241,7 +537,7 @@ struct ScheduleService {
     ///
     /// 这一步相当于空教室查询的元数据预热，不涉及具体教室占用。
     func fetchCampuses() async throws -> [CampusRecord] {
-        try await performFastSchoolRequest {
+        try await withTeachingCenterSessionRetry {
             try await prepareJXZX()
             return try await fetchCampusesDirect()
         }
@@ -251,7 +547,7 @@ struct ScheduleService {
     ///
     /// 教学楼会在进入空教室页时结合“最近下一节课的楼宇”做自动匹配。
     func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord] {
-        try await performFastSchoolRequest {
+        try await withTeachingCenterSessionRetry {
             try await prepareJXZX()
             return try await fetchBuildingsDirect(campusCode: campusCode)
         }
@@ -261,41 +557,39 @@ struct ScheduleService {
     ///
     /// 空教室接口以“当天 + 教学楼”为粒度返回占用节次，后续再在 ViewModel 层按选中的时段块格式化。
     func fetchClassrooms(buildingID: String, term: String) async throws -> [ClassroomRecord] {
-        try await performFastSchoolRequest {
+        try await withTeachingCenterSessionRetry {
             try await prepareJXZX()
             return try await fetchClassroomsDirect(buildingID: buildingID, term: term)
         }
     }
 
-    /// 对齐 Android 的空教室链路：先尝试真实业务请求，失败后才做登录态修复。
+    /// 所有教学中心业务请求共用的会话入口。
     ///
-    /// 登录态检查本身可能很慢；如果把它放到每次空教室请求之前，会让同网络下的 iOS
-    /// 明显慢于 Android。
-    private func performFastSchoolRequest<T>(
+    /// 首次请求前确保存在与当前账号绑定的 WebVPN Cookie；如果业务请求明确返回登录页、
+    /// 401/403 或其他会话失效信号，只清理教学中心状态、重新走一次 bit-login 并重试一次。
+    /// 第二次失败会直接向上抛出，避免无限认证循环。
+    private func withTeachingCenterSessionRetry<T>(
         operation: () async throws -> T
     ) async throws -> T {
+        try await ensureTeachingCenterAuthentication()
+
         do {
             return try await operation()
+        } catch ScheduleServiceError.teachingCenterSessionExpired {
+            teachingCenterState.invalidate()
+            try await ensureTeachingCenterAuthentication(force: true)
+
+            do {
+                return try await operation()
+            } catch ScheduleServiceError.teachingCenterSessionExpired {
+                teachingCenterState.invalidate()
+                throw ScheduleServiceError.teachingCenterSessionExpired
+            }
         } catch {
             if isCancellationError(error) {
                 throw error
             }
-
-            Self.didPrepareJXZX = false
-
-            guard await restoreSchoolSessionForRetry() else {
-                throw error
-            }
-
-            return try await operation()
-        }
-    }
-
-    private func restoreSchoolSessionForRetry() async -> Bool {
-        do {
-            return try await LoginService().restoreSchoolSessionIfNeeded() != nil
-        } catch {
-            return false
+            throw error
         }
     }
 
@@ -388,12 +682,14 @@ struct ScheduleService {
     ///
     /// 学校教务接口存在“未预热直接请求会失败”的历史行为，因此这里保留一组轻量预热访问。
     private func prepareJXZX() async throws {
-        guard !Self.didPrepareJXZX else { return }
+        let studentID = storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !studentID.isEmpty else { throw ScheduleServiceError.notLoggedIn }
+        guard !teachingCenterState.isPrepared(for: studentID) else { return }
 
         // 学校教务接口依赖若干预热请求，否则后续接口会直接返回未初始化状态。
         _ = try await sendStringRequest(path: "/jwapp/sys/funauthapp/api/getAppConfig/wdkbby-5959167891382285.do")
         _ = try await sendStringRequest(path: "/jwapp/i18n.do?appName=wdkbby&EMAP_LANG=zh")
-        Self.didPrepareJXZX = true
+        teachingCenterState.markPrepared(for: studentID)
     }
 
     /// 获取当前学期编码。
@@ -510,7 +806,11 @@ struct ScheduleService {
             return storedURL
         }
 
-        let indexHTML = try await sendStringRequest(baseURL: lexueBaseURL, path: "/")
+        let indexHTML = try await sendStringRequest(
+            baseURL: lexueBaseURL,
+            path: "/",
+            requiresTeachingCenterSession: false
+        )
         guard
             let sesskey = indexHTML.captureGroups(pattern: #"[\"']sesskey[\"']:[\"']([^\"']+)[\"']"#).first,
             !sesskey.isEmpty
@@ -528,7 +828,8 @@ struct ScheduleService {
                 ("events[exportevents]", "all"),
                 ("period[timeperiod]", "recentupcoming"),
                 ("generateurl", "获取日历网址"),
-            ]
+            ],
+            requiresTeachingCenterSession: false
         )
 
         let fullURL =
@@ -654,8 +955,10 @@ struct ScheduleService {
         method: String = "GET",
         body: [(String, String)] = []
     ) async throws -> Response {
-        var request = URLRequest(url: buildURL(baseURL: baseURL ?? schoolBaseURL, path: path))
+        var request = URLRequest(url: buildURL(baseURL: baseURL ?? activeSchoolBaseURL, path: path))
         request.httpMethod = method
+        request.setValue("application/json, text/javascript, */*; q=0.01", forHTTPHeaderField: "Accept")
+        request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
 
         if method == "POST" {
             request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
@@ -663,6 +966,9 @@ struct ScheduleService {
         }
 
         let (data, response) = try await sendRequest(request)
+        if isTeachingCenterAuthenticationFailure(data: data, response: response) {
+            throw ScheduleServiceError.teachingCenterSessionExpired
+        }
         guard (200 ..< 300).contains(response.statusCode) else {
             throw httpError(response.statusCode)
         }
@@ -670,7 +976,9 @@ struct ScheduleService {
         do {
             return try Self.decoder.decode(Response.self, from: data)
         } catch {
-            throw ScheduleServiceError.invalidResponse
+            // 教学中心会话失效时通常以 200 + HTML 登录页返回；对业务 JSON 请求而言，
+            // 任何非 JSON 响应都先按会话失效处理，并由上层仅重试一次 bit-login。
+            throw ScheduleServiceError.teachingCenterSessionExpired
         }
     }
 
@@ -679,9 +987,10 @@ struct ScheduleService {
         baseURL: URL? = nil,
         path: String,
         method: String = "GET",
-        body: [(String, String)] = []
+        body: [(String, String)] = [],
+        requiresTeachingCenterSession: Bool = true
     ) async throws -> String {
-        var request = URLRequest(url: buildURL(baseURL: baseURL ?? schoolBaseURL, path: path))
+        var request = URLRequest(url: buildURL(baseURL: baseURL ?? activeSchoolBaseURL, path: path))
         request.httpMethod = method
 
         if method == "POST" {
@@ -689,7 +998,16 @@ struct ScheduleService {
             request.httpBody = formBody(body)
         }
 
-        return try await sendStringRequest(request)
+        let (data, response) = try await sendRequest(request)
+        if requiresTeachingCenterSession,
+           isTeachingCenterAuthenticationFailure(data: data, response: response)
+        {
+            throw ScheduleServiceError.teachingCenterSessionExpired
+        }
+        guard (200 ..< 400).contains(response.statusCode) else {
+            throw httpError(response.statusCode)
+        }
+        return String(decoding: data, as: UTF8.self)
     }
 
     private func sendStringRequest(_ request: URLRequest) async throws -> String {
@@ -727,7 +1045,51 @@ struct ScheduleService {
 
     /// 组装最终请求 URL，兼容绝对路径与相对路径。
     private func buildURL(baseURL: URL, path: String) -> URL {
-        URL(string: path, relativeTo: baseURL)?.absoluteURL ?? baseURL.appending(path: path)
+        if baseURL.host == "webvpn.bit.edu.cn", path.hasPrefix("/") {
+            return URL(string: baseURL.absoluteString + path) ?? baseURL
+        }
+        return URL(string: path, relativeTo: baseURL)?.absoluteURL ?? baseURL.appending(path: path)
+    }
+
+    private var activeSchoolBaseURL: URL {
+        let studentID = storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return teachingCenterState.hasUsableSession(for: studentID) ? webVPNSchoolBaseURL : schoolBaseURL
+    }
+
+    private func isTeachingCenterAuthenticationFailure(
+        data: Data,
+        response: HTTPURLResponse
+    ) -> Bool {
+        if response.statusCode == 401 || response.statusCode == 403 {
+            return true
+        }
+
+        if let url = response.url {
+            let host = url.host?.lowercased() ?? ""
+            let path = url.path.lowercased()
+            if host == "sso.bit.edu.cn"
+                || path.contains("/cas/login")
+                || path.contains("/auth-protocol-core/login")
+            {
+                return true
+            }
+        }
+        if let location = response.value(forHTTPHeaderField: "Location")?.lowercased(),
+           location.contains("login") || location.contains("/cas/")
+        {
+            return true
+        }
+        return looksLikeLoginHTML(data)
+    }
+
+    private func looksLikeLoginHTML(_ data: Data) -> Bool {
+        guard !data.isEmpty else { return false }
+        let prefix = String(decoding: data.prefix(16_384), as: UTF8.self).lowercased()
+        guard prefix.contains("<html") || prefix.contains("<!doctype html") else { return false }
+        return prefix.contains("统一身份认证")
+            || prefix.contains("用户名密码")
+            || prefix.contains("cas/login")
+            || prefix.contains("login-page-flowkey")
     }
 
     /// 用正则从乐学页面里尝试提取订阅链接。
