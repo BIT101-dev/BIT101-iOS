@@ -129,6 +129,10 @@ Widget、锁屏组件、Apple Watch、Live Activity 不能直接依赖主 App �
 - 切号行为不只是清 cookie，还会触发账号变更通知，影响设置页、日程缓存和话廊规则状态
 - `fake-cookie` 会影响共享课表快照里的 `isLoggedIn`，进而影响 widget / Apple Watch 展示；不要把一次不确定的登录检查失败扩散成外部展示层“未登录”。
 
+这里要区分两条认证链：`LoginService` 负责 App/BIT101 登录与恢复；课表、成绩、空教室、
+可信成绩单使用 `ScheduleService` / `ScoreService` 内的 bit-login challenge。后者的 token
+是短期内存状态，不能写进 Keychain，也不能拿普通 `jwb` challenge 去请求 `jwb_cjd`。
+
 ## 4. 日程模块
 
 ### 4.1 组成文件
@@ -173,7 +177,10 @@ Widget、锁屏组件、Apple Watch、Live Activity 不能直接依赖主 App �
 
 当前日程模块已经加入了几类偏好和自动匹配：
 
-- 成绩筛选偏好会记住上一次选择
+- 学期选择只展示学校接口实际返回的值，不在本地追加未来学期
+- 同步指定学期时会同时获取该学期课程、考试和第一周日期；普通刷新保持用户已选学期
+- 周视图支持第 1 周之前和课程周数之后的周次，并跳过不存在的第 0 周
+- 未发布学期没有课表时按空课表处理，不用错误页挡住页面操作
 - 空教室会记住校区偏好
 - 空教室会优先用“最近下一节课”去精确匹配教学楼
 - 空教室节次会按当前时段块自动匹配
@@ -183,6 +190,7 @@ Widget、锁屏组件、Apple Watch、Live Activity 不能直接依赖主 App �
 
 - 不要轻易把“用户上一次选择”覆盖为默认值
 - 但空教室的“最近课程楼匹配”优先级应高于缓存
+- 教学中心会话按账号校验并允许失效；业务响应为 401/403、登录页或非 JSON 时才触发有限恢复
 
 ## 5. 成绩模块
 
@@ -191,7 +199,9 @@ Widget、锁屏组件、Apple Watch、Live Activity 不能直接依赖主 App �
 - `Score/ScoreModels.swift`
   成绩模型、筛选模型、统计模型
 - `Score/ScoreService.swift`
-  成绩请求与解析
+  普通成绩、可信成绩单、短信 challenge、临时图片下载与响应解析
+- `Score/ScoreCacheStore.swift`
+  按账号保存基础成绩列表
 - `Score/ScoreRootView.swift`
   成绩页、筛选页、统计页 UI
 
@@ -202,16 +212,32 @@ Widget、锁屏组件、Apple Watch、Live Activity 不能直接依赖主 App �
 关键点：
 
 - 查询直接复用已保存的学校账号密码
-- 成绩接口单次请求超时为 15 秒，超时后向页面抛出统一中文提示
+- 普通成绩通过 bit-login 的 `jwb` 服务查询，列表默认使用 `detail=false`
+- 普通 HTTP 请求超时为 25 秒；首次认证与轮询最多等待约 90 秒
+- 服务端返回 `202` 时展示原生短信验证码 sheet，并正确处理错误码、过期和重复提交
 - 学期筛选与成绩类型筛选支持全选 / 全不选 / 0 选
 - 上一次筛选结果与列表排序偏好会按账号保存
 - 成绩列表默认按名称排序，并支持按名称、成绩、均分、学分、学期、种类升序 / 降序排序
+- 可信成绩单使用独立的 `jwb_cjd` challenge；入口在成绩同步期间禁用
+- 成绩单图片使用 ephemeral 会话下载，只保留在内存中，点击后复用话题图片全屏缩放器
 
 维护这块时要注意：
 
 - 筛选状态是 UI 偏好，也是查询结果展示逻辑的一部分
 - 不能因为刷新查询结果而直接把用户筛选重置掉
 - 排序只影响列表展示顺序，不改变统计摘要的计算口径
+- 普通成绩与可信成绩单的 challenge 必须相互独立，退出页面后不持久化 token 或成绩单图片
+
+### 5.3 课程合并入口
+
+“成绩”底部入口内部通过顶部分段控件承载“成绩 / 课程”。课程能力位于 `Course/`，包括：
+
+- 课程浏览、搜索与分页
+- 课程详情、教师信息和历年成绩统计
+- 点赞、评分、评论及评论图片预览
+
+课程列表与详情各自拥有 Service / ViewModel，不应塞进 `ScoreViewModel`。左右滑动只负责切换
+一级内容，不应触发成绩筛选或可信成绩单状态变化。
 
 ## 6. 地图模块
 
@@ -329,6 +355,15 @@ Widget、锁屏组件、Apple Watch、Live Activity 不能直接依赖主 App �
 
 这三者是不同层面的策略。
 
+### 7.5 文章合并入口
+
+“话廊”底部入口内部通过顶部分段控件承载“话题 / 文章”。文章代码位于 `Paper/`，
+负责列表、搜索、发布、编辑、详情、点赞和评论。文章正文使用本地模型解析与原生渲染，
+未知正文块静默忽略，不为阅读能力回退到 WebView。
+
+文章与话题会复用用户、评论和全屏图片查看器等基础能力，但分别维护分页与详情状态；
+从深链打开文章时由 `AppShellView` 先切到话廊，再把文章 ID 交给 `PaperRootView`。
+
 ## 8. 我的模块
 
 ### 8.1 组成文件
@@ -397,6 +432,10 @@ Widget、锁屏组件、Apple Watch、Live Activity 不能直接依赖主 App �
 - `Schedule/ScheduleLiveActivityManager.swift`
 - `BIT101ScheduleWidget/BIT101ScheduleWidget.swift`
 - `BIT101ScheduleWidget/BIT101ScheduleWidgetBundle.swift`
+- `BIT101Watch/BIT101WatchApp.swift`
+- `BIT101Watch/WatchScheduleRootView.swift`
+- `BIT101WatchWidgets/BIT101WatchScheduleWidget.swift`
+- `BIT101WatchWidgets/BIT101WatchWidgetsBundle.swift`
 
 ### 10.2 当前能力
 
@@ -440,6 +479,10 @@ Widget、锁屏组件、Apple Watch、Live Activity 不能直接依赖主 App �
 它们虽然共享同一批课表快照，但显示策略和平台约束并不一样。
 
 #### 10.3.4 watch 端逻辑收口
+
+工程已经迁移到新版 Xcode 的单 Watch App target 结构：应用入口和主界面位于
+`BIT101Watch/`，Smart Stack 仍由 `BIT101WatchWidgets` 扩展提供。不要重新创建旧式
+`BIT101WatchExtension` target。
 
 watch app 与 watch widget 当前都不再各自维护一套“读快照 -> 算下一节课”的流程，而是统一复用：
 

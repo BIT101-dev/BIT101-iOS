@@ -10,15 +10,19 @@
 
 ## 1. 工程组成
 
-当前工程包含两个 target：
+当前工程包含四个 target：
 
 - 主 App：`BIT101-iOS`
-- 扩展：`BIT101ScheduleWidget`
+- iOS 扩展：`BIT101ScheduleWidget`
+- Watch App：`BIT101Watch`
+- Watch 扩展：`BIT101WatchWidgets`
 
 相关 bundle identifier：
 
 - 主 App：`BIT101-dev.BIT101-iOS`
 - Widget 扩展：`BIT101-dev.BIT101-iOS.ScheduleWidget`
+- Watch App：`BIT101-dev.BIT101-iOS.watchkitapp`
+- Watch Widget：`BIT101-dev.BIT101-iOS.watchkitapp.widgets`
 
 相关共享容器：
 
@@ -48,7 +52,7 @@
 
 ```bash
 xcodebuild \
-  -project BIT101-iOS/BIT101-iOS.xcodeproj \
+  -project BIT101-iOS.xcodeproj \
   -scheme BIT101-iOS \
   -configuration Debug \
   -destination 'generic/platform=iOS' \
@@ -56,6 +60,10 @@ xcodebuild \
 ```
 
 如果命令行看不到可用真机，`generic/platform=iOS` 是更稳的兜底方案。
+
+当前工程使用 Xcode 27 的单 Watch App target 结构。完整构建 `BIT101-iOS` scheme 时，
+依赖图会同时构建并嵌入 iOS widget、Watch App 和 Watch widget；旧式
+`BIT101WatchExtension` target 已删除。
 
 ### 2.3 真机调试
 
@@ -81,6 +89,9 @@ xcodebuild \
 
 - `Login/LoginService.swift`
 
+bit-login 返回的 `challenge_id`、access token、短信状态和教学中心准备状态不属于长期凭据：
+它们只保存在对应 `Service` / `ViewModel` 的内存中，退出、切号、过期或收到明确失效响应后即丢弃。
+
 ### 3.2 UserDefaults
 
 用于保存：
@@ -102,6 +113,8 @@ xcodebuild \
 - DDL
 - 考试
 - 自定义日程
+
+基础成绩列表另存于按学号分桶的 `UserDefaults`；可信成绩单图片不落盘。
 
 相关入口：
 
@@ -276,6 +289,13 @@ xcodebuild \
 
 原因是 `fake-cookie` 为空会触发共享课表快照导出为未登录，进而让 widget / Apple Watch 一起显示未登录。
 
+如果 App/BIT101 登录正常，但课表、成绩或空教室要求短信验证码，应转到 bit-login 链路排查：
+
+1. 普通成绩是否请求 `jwb`
+2. 可信成绩单是否请求独立的 `jwb_cjd`
+3. 课表与空教室的教学中心 session 是否绑定当前学号
+4. challenge 是否已过期、被重复提交，或仍停在 `running/processing`
+
 ### 8.2 课表 / 成绩 / 空教室异常
 
 先分清是：
@@ -283,6 +303,11 @@ xcodebuild \
 - 本地缓存恢复异常
 - 服务端接口变了
 - 查询偏好把结果筛掉了
+- 学校接口返回登录页、401/403 或非 JSON，触发了教学中心 session 恢复
+- 目标学期尚未发布课表（这种情况应显示空课表，而不是阻断式错误）
+
+学期列表必须以学校接口实际返回值为准；不要为了“方便”在客户端推算或补充未来学期。
+手动修改首周日期时必须归一化到周一。
 
 ### 8.3 小组件没更新
 

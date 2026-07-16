@@ -1,6 +1,6 @@
 import Foundation
 
-/// 成绩查询过程中由服务端创建的短期统一认证挑战。
+/// 学校 JWB 系列业务由 bit-login 创建的短期统一认证挑战。
 ///
 /// `accessToken` 只保存在内存里，不会写入 UserDefaults 或 Keychain。
 struct BITLoginAuthenticationChallenge: Identifiable, Equatable {
@@ -35,7 +35,7 @@ struct BITLoginAuthenticationChallenge: Identifiable, Equatable {
     }
 }
 
-/// 原生成绩查询的统一错误定义。
+/// 普通成绩与可信成绩单共用的错误定义。
 enum ScoreServiceError: LocalizedError {
     case missingCredentials
     case invalidResponse
@@ -65,7 +65,7 @@ enum ScoreServiceError: LocalizedError {
 /// 成绩接口层。
 ///
 /// 首次查询仍直接提交已保存的统一认证账号密码。服务端若返回 `202`，则把短期挑战交给
-/// SwiftUI 页面收集短信验证码；验证成功后改用 Bearer challenge 获取成绩。
+/// SwiftUI 页面收集短信验证码；验证成功后改用 Bearer challenge 获取对应业务结果。
 struct ScoreService {
     private struct ScoreRequest: Encodable {
         let username: String?
@@ -422,7 +422,7 @@ struct ScoreService {
         }
     }
 
-    /// 初次成绩请求通常会在认证线程仍为 `running` 时返回，短暂轮询到可交互状态。
+    /// 初次 JWB 业务请求通常会在认证线程仍为 `running` 时返回，短暂轮询到可交互状态。
     private func waitUntilActionable(
         _ initialPayload: ChallengePayload,
         accessToken: String

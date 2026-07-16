@@ -100,7 +100,7 @@ enum ScheduleServiceError: LocalizedError {
         case .notLoggedIn:
             return "当前登录状态无效，请重新登录后再同步日程。"
         case .secondFactorRequired:
-            return "需要短信验证码才能继续同步课表。"
+            return "需要短信验证码才能继续访问学校教务服务。"
         case let .challengeInvalid(message):
             return message
         case .teachingCenterSessionExpired:
@@ -139,10 +139,11 @@ struct DDLSyncPayload {
 
 /// 日程模块网络层。
 ///
-/// 负责三类事情：
-/// 1. 教务课表 / 考试 / 空教室
-/// 2. 乐学日历订阅地址解析与 ICS 下载
-/// 3. ATS 相关的 HTTP -> HTTPS 升级
+/// 负责四类事情：
+/// 1. bit-login challenge、短信验证与教学中心会话恢复
+/// 2. 指定学期的课表 / 考试 / 首周日期，以及空教室
+/// 3. 乐学日历订阅地址解析与 ICS 下载
+/// 4. ATS 相关的 HTTP -> HTTPS 升级
 struct ScheduleService {
     private let schoolBaseURL = URL(string: "https://jxzxehallapp.bit.edu.cn")!
     private let webVPNSchoolBaseURL = URL(
@@ -518,7 +519,7 @@ struct ScheduleService {
         return nil
     }
 
-    /// 只查询当前学期，不拉完整课表。
+    /// 只查询学校标记的当前学期，不拉完整课表。
     ///
     /// 主要用于空教室页只需要学期编码但不需要整份课表时的轻量查询。
     func fetchCurrentTermOnly() async throws -> String {
@@ -592,8 +593,8 @@ struct ScheduleService {
     /// 所有教学中心业务请求共用的会话入口。
     ///
     /// 首次请求前确保存在与当前账号绑定的 WebVPN Cookie；如果业务请求明确返回登录页、
-    /// 401/403 或其他会话失效信号，只清理教学中心状态、重新走一次 bit-login 并重试一次。
-    /// 第二次失败会直接向上抛出，避免无限认证循环。
+    /// 401/403 或其他会话失效信号，只清理教学中心状态并重新走 bit-login。当前最多执行
+    /// 两轮恢复（共三次业务尝试），之后直接向上抛出，避免无限认证循环。
     private func withTeachingCenterSessionRetry<T>(
         operation: () async throws -> T
     ) async throws -> T {
@@ -723,7 +724,7 @@ struct ScheduleService {
         teachingCenterState.markPrepared(for: studentID)
     }
 
-    /// 获取当前学期编码。
+    /// 获取学校标记的当前学期编码。
     private func fetchCurrentTerm() async throws -> String {
         let response: CurrentTermResponse = try await sendJSONRequest(
             path: "/jwapp/sys/wdkbby/modules/jshkcb/dqxnxq.do"
@@ -736,7 +737,7 @@ struct ScheduleService {
         return term
     }
 
-    /// 拉取当前学期课程表。
+    /// 拉取指定目标学期的课程表。
     ///
     /// 这里会把学校接口里稀疏且命名古老的字段，统一规整成 iOS 端自己的 `CourseRecord`。
     private func fetchCourses(term: String) async throws -> [CourseRecord] {
@@ -773,7 +774,7 @@ struct ScheduleService {
         }
     }
 
-    /// 拉取当前学期考试安排。
+    /// 拉取指定目标学期的考试安排。
     private func fetchExams(term: String) async throws -> [ExamRecord] {
         let response: ExamResponse = try await sendJSONRequest(
             path: "/jwapp/sys/wdksapMobile/modules/ksap/cxxsksap.do",
@@ -810,7 +811,7 @@ struct ScheduleService {
         }
     }
 
-    /// 获取当前学期首周日期。
+    /// 获取指定目标学期的第一周起始日期。
     ///
     /// 课表当前周数、小组件时间线和灵动岛课程推导都依赖这个日期基准。
     private func fetchFirstDayString(term: String) async throws -> String {
@@ -1194,7 +1195,7 @@ private struct CurrentTermResponse: Decodable {
 }
 
 /// 可选学期列表接口响应体。
-private struct TermsResponse: Decodable {
+private nonisolated struct TermsResponse: Decodable {
     struct Datas: Decodable {
         struct Rows: Decodable {
             let rows: [TermRow]

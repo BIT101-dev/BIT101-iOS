@@ -199,7 +199,7 @@ final class ScheduleViewModel: ObservableObject {
         activeCourseSchedule.title
     }
 
-    /// 当前学期最大周数，至少覆盖当前周。
+    /// 当前课表向后浏览的最大周数，至少覆盖课程最后一周和按首周日期推导出的当前周。
     var maxWeek: Int {
         max(activeCourseSchedule.courses.flatMap(\.weeks).max() ?? 1, resolvedCurrentWeek())
     }
@@ -326,16 +326,16 @@ final class ScheduleViewModel: ObservableObject {
         }
     }
 
-    /// 重新获取当前正在使用的学期，而不是重新询问学校的“当前学期”标记。
+    /// 重新获取当前正在显示的目标学期，而不是重新询问学校的“当前学期”标记。
     ///
-    /// 用户主动切到未来学期后，普通的“获取/重新同步”都必须留在该学期；只有学期选择页
-    /// 中明确的“切换到学校当前学期”才传 `nil`。
+    /// 用户主动切到其它学期后，普通的“获取/重新同步”必须留在该学期；只有尚未保存
+    /// 任何学期编码的首次同步才传 `nil`，让学校返回当前学期。
     func syncSelectedTerm() async {
         let term = cache.currentTerm.trimmingCharacters(in: .whitespacesAndNewlines)
         await syncCourses(term: term.isEmpty ? nil : term)
     }
 
-    /// 加载学校已经开放的学期列表；当前缓存学期始终保留在选项中。
+    /// 加载学校接口实际返回的学期列表，不在本地补充、推算或保留接口未返回的学期。
     func loadAvailableTerms() async {
         guard !isLoadingTerms, !isSyncingCourses, smsChallenge == nil else { return }
         isLoadingTerms = true

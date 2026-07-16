@@ -28,13 +28,17 @@
 当前 iOS 端已经覆盖的主要能力包括：
 
 - 登录与会话恢复
+- 学校新版认证与短信验证码
 - 日程
   - 课表
+  - 学校学期切换与首周日期同步
   - 考试
   - DDL
   - 自定义日程
   - 空教室
-- 成绩查询、筛选和统计
+- 成绩查询、筛选、排序和统计
+- 可信成绩单申请与全屏预览
+- 课程浏览、搜索、详情、评分与评论
 - 校园地图
 - 话廊
   - feed 浏览
@@ -44,11 +48,13 @@
   - 举报
   - 本地屏蔽
   - 消息中心
+- 文章浏览、搜索、发布、编辑与评论
 - 我的主页与他人主页
 - 设置中心
 - 桌面小组件
 - 锁屏组件
 - Live Activity / 灵动岛提醒
+- Apple Watch 课表与 Smart Stack 组件
 
 ## 项目状态
 
@@ -71,21 +77,29 @@
   主 App 源码
 - `BIT101-iOS/BIT101ScheduleWidget`
   小组件、锁屏组件、Live Activity / 灵动岛扩展
+- `BIT101-iOS/BIT101Watch`
+  Apple Watch App（Xcode 新版单 target 结构）
+- `BIT101-iOS/BIT101WatchWidgets`
+  Apple Watch Smart Stack 组件扩展
 - `BIT101-iOS/docs`
   仓库级文档
 
 主 App 内的核心模块：
 
 - `Login/`
-  登录、凭据恢复、学校 SSO 与 BIT101 登录桥接
+  App 登录、凭据恢复、学校 SSO 与 BIT101 登录桥接
 - `Schedule/`
-  课表、考试、DDL、空教室、自定义日程，以及小组件快照导出
+  学校新版认证、学期切换、课表、考试、DDL、空教室、自定义日程，以及小组件快照导出
 - `Score/`
-  成绩查询、筛选与统计
+  学校新版认证、成绩查询、可信成绩单、筛选、排序与统计
 - `Map/`
   地图页与 `MapKit` 桥接
 - `Gallery/`
   话廊 feed、搜索、发帖、详情、消息、本地屏蔽
+- `Paper/`
+  文章列表、搜索、发布、详情与评论
+- `Course/`
+  课程浏览、搜索、详情、评分与评论
 - `Mine/`
   我的主页、他人主页、粉丝、关注、帖子
 - `Settings/`
@@ -106,10 +120,12 @@
 
 ## 构建说明
 
-本项目使用 Xcode 工程构建，包含两个 target：
+本项目使用 Xcode 工程构建，当前包含四个 target：
 
 - 主 App：`BIT101-iOS`
-- 扩展：`BIT101ScheduleWidget`
+- iOS 扩展：`BIT101ScheduleWidget`
+- Watch App：`BIT101Watch`
+- Watch 扩展：`BIT101WatchWidgets`
 
 因此在修改以下能力时，需要同时关注主 App 与扩展：
 
@@ -118,10 +134,11 @@
 - 锁屏组件
 - Live Activity / 灵动岛
 - App Group 共享快照
+- Apple Watch 镜像同步与 Smart Stack
 
 基本要求：
 
-- 最新稳定版 Xcode
+- 能识别当前单 target Watch App 结构的 Xcode 27 或更新版本
 - 有效的 Apple 签名与描述文件
 - 真机调试能力
 

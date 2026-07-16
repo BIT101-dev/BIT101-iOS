@@ -200,7 +200,7 @@ private enum ScoreSortOrder: String, CaseIterable, Identifiable {
 
 /// 原生成绩页状态机。
 ///
-/// 固定以复杂模式查询成绩，并负责筛选同步、统计汇总以及错误提示。
+/// 以基础模式查询成绩，并负责缓存恢复、筛选同步、统计汇总以及错误提示。
 @MainActor
 private final class ScoreViewModel: ObservableObject {
     /// 全量成绩数据。
@@ -219,7 +219,7 @@ private final class ScoreViewModel: ObservableObject {
     @Published private(set) var sortIndex: ScoreSortIndex = .courseName
     /// 当前成绩列表排序方向。
     @Published private(set) var sortOrder: ScoreSortOrder = .ascending
-    /// 是否正在后台同步完整成绩。
+    /// 是否正在后台同步基础成绩列表。
     @Published private(set) var isSyncing = false
     /// 当前等待用户输入短信验证码的短期认证挑战。
     @Published private(set) var smsChallenge: BITLoginAuthenticationChallenge?
@@ -258,7 +258,7 @@ private final class ScoreViewModel: ObservableObject {
 
     /// 首次进入成绩页时触发一次查询。
     ///
-    /// 如果本机已有完整成绩缓存，先立即恢复缓存，再后台刷新同样的 `detail=true` 完整数据。
+    /// 如果本机已有成绩缓存，先立即恢复缓存，再后台刷新基础成绩列表。
     func bootstrapIfNeeded() async {
         guard state == .idle else { return }
         restoreCachedRowsIfAvailable()
@@ -464,7 +464,7 @@ private final class ScoreViewModel: ObservableObject {
         persistFilterPreferences()
     }
 
-    /// 恢复本机缓存的完整成绩结果。
+    /// 恢复本机缓存的基础成绩列表。
     private func restoreCachedRowsIfAvailable() {
         guard !didRestoreCachedRows else { return }
         didRestoreCachedRows = true
@@ -472,7 +472,7 @@ private final class ScoreViewModel: ObservableObject {
         applyRows(rows)
     }
 
-    /// 应用一份完整成绩结果，并同步筛选项。
+    /// 应用一份基础成绩列表，并同步筛选项。
     private func applyRows(_ newRows: [ScoreRow]) {
         rows = newRows
         availableTerms = uniqueNonEmptyValues(from: newRows.map(\.term))
@@ -666,7 +666,7 @@ private enum ScoreSurface: String, CaseIterable, Identifiable {
     }
 }
 
-/// 原生成绩查询主页。
+/// 原生成绩与课程合并主页。
 ///
 /// 负责承载“成绩 / 课程”的顶部切换。
 struct ScoreRootView: View {

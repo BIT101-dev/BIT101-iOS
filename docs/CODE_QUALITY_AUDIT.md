@@ -102,7 +102,7 @@
 
 - 这是功能型桥接，优先级低于真正的重复和死代码清理
 
-### 2.4 话廊图片查看器的 `UIScrollView` 缩放
+### 2.4 通用全屏图片查看器的 `UIScrollView` 缩放
 
 文件：
 
@@ -111,10 +111,12 @@
 当前实现：
 
 - `UIViewRepresentable + UIScrollView + UIImageView`
+- 同一缩放容器同时支持远程 URL 和内存 `UIImage`
 
 原因：
 
 - 需要稳定的双指缩放、居中和大图浏览体验
+- 可信成绩单属于敏感临时图片，必须复用缩放 UI，但不能复用话题图片的磁盘下载缓存
 
 结论：
 
@@ -227,6 +229,10 @@
   - 纯工具级 helper
 
 后续继续服务层清理时，也建议优先按这个边界来。
+
+学校接口是例外中的高风险区域。当前 `ScheduleService` 和 `ScoreService` 已显式承载
+bit-login challenge、短信状态、会话失效识别与有限重试。重构时不能重新引入永久
+`didAuthenticate` 布尔值，也不能把 `jwb`、`jwb_cjd` 或教学中心 session 合并成一个全局状态。
 
 ## 5. 如果要继续下一轮，建议顺序
 
