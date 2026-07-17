@@ -356,23 +356,18 @@ private struct ExternalModerationReportPayload: Encodable {
 
 /// 举报上传服务。后端接口和可选自定义审核端点都走后台 best-effort，上报失败不会打断当前用户操作。
 struct CommunityReportService {
-    /// 官方 BIT101 举报接口根地址。
-    private let backendBaseURL = URL(string: "https://bit101.flwfdd.xyz")!
-    private let session: URLSession
+    private let api: CommunityAPIClient<GalleryServiceError>
+    private let httpClient: HTTPClient
     private let storage: LoginStorage
 
     /// 构造带登录态 cookie 策略的举报会话。
     ///
     /// 举报接口依赖现有登录 cookie 和 fake-cookie，因此这里沿用主 app 的 cookie 容器，
     /// 避免再为治理链路单独维护一套认证状态。
-    init(storage: LoginStorage = .shared) {
+    init(storage: LoginStorage = .shared, httpClient: HTTPClient = .community) {
         self.storage = storage
-
-        let configuration = URLSessionConfiguration.default
-        configuration.httpCookieStorage = HTTPCookieStorage.shared
-        configuration.httpCookieAcceptPolicy = .always
-        configuration.httpShouldSetCookies = true
-        session = URLSession(configuration: configuration)
+        self.httpClient = httpClient
+        api = CommunityAPIClient(storage: storage, httpClient: httpClient, errorDomain: "BIT101.Gallery")
     }
 
     /// 对外暴露的举报入口。
@@ -391,12 +386,6 @@ struct CommunityReportService {
     private func sendToBackend(poster: GalleryPoster, type: CommunityReportType, note: String, action: CommunityReportAction) async throws {
         guard !storage.fakeCookie.isEmpty else { return }
 
-        let url = backendBaseURL.appending(path: "manage/reports")
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(storage.fakeCookie, forHTTPHeaderField: "fake-cookie")
-
         // 后端接口的自定义文本区只收一段 note，因此这里把动作、标题和用户补充说明
         // 合并成一段结构化文字，便于管理端人工判断。
         let backendNote = [
@@ -406,7 +395,7 @@ struct CommunityReportService {
         ]
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
-        request.httpBody = try JSONEncoder().encode(
+        let body = try api.encode(
             BackendReportPayload(
                 obj: "poster\(poster.id)",
                 typeID: type.id,
@@ -414,7 +403,7 @@ struct CommunityReportService {
             )
         )
 
-        _ = try await session.data(for: request)
+        try await api.requestVoid(path: "manage/reports", method: "POST", body: body)
     }
 
     /// 如已配置外部审核端点，再额外抄送一份给外部服务。
@@ -444,6 +433,6 @@ struct CommunityReportService {
                 reportedAt: ISO8601DateFormatter().string(from: Date())
             )
         )
-        _ = try await session.data(for: request)
+        _ = try await httpClient.send(request)
     }
 }

@@ -140,7 +140,7 @@ struct GalleryZoomableImage: UIViewRepresentable {
         private let imageView = UIImageView()
         private let spinner = UIActivityIndicatorView(style: .large)
         private var currentURL: URL?
-        private var task: URLSessionDataTask?
+        private var task: Task<Void, Never>?
         private var lastLayoutBoundsSize: CGSize = .zero
 
         /// 安装 UIKit 子视图层级。
@@ -204,16 +204,20 @@ struct GalleryZoomableImage: UIViewRepresentable {
             guard let url else { return }
             spinner.startAnimating()
 
-            task = URLSession.shared.dataTask(with: url) { [weak self, weak scrollView] data, _, _ in
+            task = Task { [weak self, weak scrollView] in
                 guard let self, let scrollView else { return }
-                let image = data.flatMap(UIImage.init(data:))
-                DispatchQueue.main.async {
-                    self.spinner.stopAnimating()
-                    self.imageView.image = image
-                    self.layoutImage(in: scrollView)
+                let image: UIImage?
+                do {
+                    let response = try await HTTPClient.shared.send(URLRequest(url: url))
+                    image = UIImage(data: response.data)
+                } catch {
+                    image = nil
                 }
+                guard !Task.isCancelled, currentURL == url else { return }
+                spinner.stopAnimating()
+                imageView.image = image
+                layoutImage(in: scrollView)
             }
-            task?.resume()
         }
 
         /// 根据当前图片和容器尺寸重算初始 frame 与 contentSize。

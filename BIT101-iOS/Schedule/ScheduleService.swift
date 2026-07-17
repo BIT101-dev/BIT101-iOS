@@ -239,9 +239,10 @@ struct ScheduleService {
 
         let normalizedTerm = requestedTerm?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let term = normalizedTerm.isEmpty ? try await fetchCurrentTerm() : normalizedTerm
-        let courses = try await fetchCourses(term: term)
-        let exams = try await fetchExams(term: term)
-        let firstDayString = try await fetchFirstDayString(term: term)
+        async let coursesTask = fetchCourses(term: term)
+        async let examsTask = fetchExams(term: term)
+        async let firstDayTask = fetchFirstDayString(term: term)
+        let (courses, exams, firstDayString) = try await (coursesTask, examsTask, firstDayTask)
 
         return CourseSyncPayload(
             term: term,
@@ -987,19 +988,15 @@ struct ScheduleService {
         } else {
             secureRequest = request
         }
-        let data: Data
-        let response: URLResponse
-
         do {
-            (data, response) = try await session.data(for: secureRequest)
-        } catch {
-            throw error
-        }
-
-        guard let httpResponse = response as? HTTPURLResponse else {
+            let result = try await HTTPClient(transport: session).send(
+                secureRequest,
+                accepting: 100 ..< 600
+            )
+            return (result.data, result.response)
+        } catch is HTTPClientError {
             throw ScheduleServiceError.invalidResponse
         }
-        return (data, httpResponse)
     }
 
     /// 组装最终请求 URL，兼容绝对路径与相对路径。

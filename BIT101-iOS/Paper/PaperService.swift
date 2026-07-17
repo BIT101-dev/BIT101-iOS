@@ -22,13 +22,16 @@ enum PaperServiceError: LocalizedError {
     }
 }
 
+extension PaperServiceError: CommunityAPIServiceError {
+    static var communityNotLoggedIn: Self { .notLoggedIn }
+    static var communityInvalidResponse: Self { .invalidResponse }
+}
+
 /// 文章模块网络层。
 ///
 /// 文章列表和详情接口独立于话廊，但点赞、评论仍然沿用同一套 reaction 接口。
 struct PaperService {
-    private let baseURL = URL(string: "https://bit101.flwfdd.xyz")!
-    private let session: URLSession
-    private let storage: LoginStorage
+    private let api: CommunityAPIClient<PaperServiceError>
 
     private struct LikeRequest: Encodable {
         let obj: String
@@ -72,13 +75,8 @@ struct PaperService {
         let id: Int
     }
 
-    init(storage: LoginStorage = .shared) {
-        self.storage = storage
-        let configuration = URLSessionConfiguration.default
-        configuration.httpCookieStorage = HTTPCookieStorage.shared
-        configuration.httpCookieAcceptPolicy = .always
-        configuration.httpShouldSetCookies = true
-        session = URLSession(configuration: configuration)
+    init(storage: LoginStorage = .shared, httpClient: HTTPClient = .community) {
+        api = CommunityAPIClient(storage: storage, httpClient: httpClient, errorDomain: "BIT101.Paper")
     }
 
     /// 拉取文章列表。
@@ -90,12 +88,12 @@ struct PaperService {
         if let orderValue = order.requestValue {
             queryItems.append(URLQueryItem(name: "order", value: orderValue))
         }
-        return try await sendJSONRequest(path: "papers", queryItems: queryItems, requiresAuthentication: false)
+        return try await api.request(path: "papers", queryItems: queryItems, authentication: .optional)
     }
 
     /// 拉取单篇文章详情。
     func fetchPaper(id: Int) async throws -> PaperDetail {
-        try await sendJSONRequest(path: "papers/\(id)", requiresAuthentication: false)
+        try await api.request(path: "papers/\(id)", authentication: .optional)
     }
 
     /// 拉取文章评论。
@@ -107,7 +105,7 @@ struct PaperService {
         if let page {
             queryItems.append(URLQueryItem(name: "page", value: String(page)))
         }
-        return try await sendJSONRequest(path: "reaction/comments", queryItems: queryItems, requiresAuthentication: false)
+        return try await api.request(path: "reaction/comments", queryItems: queryItems, authentication: .optional)
     }
 
     /// 点赞或取消点赞文章。
@@ -119,10 +117,10 @@ struct PaperService {
     ///
     /// 文章详情里的评论同样通过 reaction 接口处理，所以这里开放一个最小通用入口。
     func sendLike(objectID: String) async throws -> GalleryLikeResult {
-        try await sendJSONRequest(
+        try await api.request(
             path: "reaction/like",
             method: "POST",
-            body: try JSONEncoder().encode(LikeRequest(obj: objectID))
+            body: try api.encode(LikeRequest(obj: objectID))
         )
     }
 
@@ -134,10 +132,10 @@ struct PaperService {
         replyUID: Int? = nil,
         anonymous: Bool = false
     ) async throws -> GalleryComment {
-        try await sendJSONRequest(
+        try await api.request(
             path: "reaction/comments",
             method: "POST",
-            body: try JSONEncoder().encode(
+            body: try api.encode(
                 CreateCommentRequest(
                     obj: objectID,
                     text: text,
@@ -158,10 +156,10 @@ struct PaperService {
         anonymous: Bool,
         publicEdit: Bool = true
     ) async throws -> Int {
-        let response: CreatePaperResponse = try await sendJSONRequest(
+        let response: CreatePaperResponse = try await api.request(
             path: "papers",
             method: "POST",
-            body: try JSONEncoder().encode(
+            body: try api.encode(
                 CreatePaperRequest(
                     title: title,
                     intro: intro,
@@ -174,65 +172,4 @@ struct PaperService {
         return response.id
     }
 
-    private func sendJSONRequest<Response: Decodable>(
-        path: String,
-        queryItems: [URLQueryItem] = [],
-        method: String = "GET",
-        body: Data? = nil,
-        requiresAuthentication: Bool = true
-    ) async throws -> Response {
-        var components = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false)
-        components?.queryItems = queryItems.isEmpty ? nil : queryItems
-
-        guard let url = components?.url else {
-            throw PaperServiceError.invalidResponse
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        if let body {
-            request.httpBody = body
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        }
-        if requiresAuthentication {
-            request.setValue(try requireFakeCookie(), forHTTPHeaderField: "fake-cookie")
-        } else if !storage.fakeCookie.isEmpty {
-            request.setValue(storage.fakeCookie, forHTTPHeaderField: "fake-cookie")
-        }
-
-        let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw PaperServiceError.invalidResponse
-        }
-
-        switch httpResponse.statusCode {
-        case 200 ..< 300:
-            break
-        case 401:
-            throw PaperServiceError.notLoggedIn
-        default:
-            let message = String(data: data, encoding: .utf8)
-            throw NSError(
-                domain: "BIT101.Paper",
-                code: httpResponse.statusCode,
-                userInfo: [NSLocalizedDescriptionKey: message?.isEmpty == false ? message! : "请求失败"]
-            )
-        }
-
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        do {
-            return try decoder.decode(Response.self, from: data)
-        } catch {
-            throw PaperServiceError.invalidResponse
-        }
-    }
-
-    private func requireFakeCookie() throws -> String {
-        let fakeCookie = storage.fakeCookie
-        guard !fakeCookie.isEmpty else {
-            throw PaperServiceError.notLoggedIn
-        }
-        return fakeCookie
-    }
 }

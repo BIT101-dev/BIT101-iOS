@@ -32,6 +32,10 @@
   segmented 内容区复用的横向轻扫阈值和方向判断。
 - `BIT101-iOS/BIT101-iOS/Shared/Infrastructure/PagedItemsState.swift`
   页码分页列表共用的状态契约、游标推进和尾部触发规则。
+- `BIT101-iOS/BIT101-iOS/Shared/Networking/HTTPClient.swift`
+  可注入的 HTTP 传输、响应校验、错误消息解析和共享会话池。
+- `BIT101-iOS/BIT101-iOS/Shared/Networking/CommunityAPIClient.swift`
+  社区接口的 URL、fake-cookie、JSON 与 multipart 请求边界。
 - `BIT101-iOS/BIT101-iOS/WatchSync/WatchScheduleSyncManager.swift`
   iPhone 与 Apple Watch 之间的课表镜像同步桥。
 

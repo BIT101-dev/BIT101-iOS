@@ -15,15 +15,17 @@
    再看代码库导览，理解各模块职责和关键约束。
 3. [`STATE_AND_STORAGE.md`](STATE_AND_STORAGE.md)
    如果你要改缓存、设置、账号隔离、小组件数据源，这份最重要。
-4. [`MODULE_PLAYBOOK.md`](MODULE_PLAYBOOK.md)
+4. [`NETWORKING.md`](NETWORKING.md)
+   如果你要改接口、认证、会话复用或排查网络耗时，先看这份。
+5. [`MODULE_PLAYBOOK.md`](MODULE_PLAYBOOK.md)
    如果你准备改具体模块，先看对应模块的维护清单和验证建议。
-5. [`MAINTENANCE_GUIDE.md`](MAINTENANCE_GUIDE.md)
+6. [`MAINTENANCE_GUIDE.md`](MAINTENANCE_GUIDE.md)
    如果你准备长期维护、构建、签名、真机调试，这份最重要。
-6. [`CODE_QUALITY_AUDIT.md`](CODE_QUALITY_AUDIT.md)
+7. [`CODE_QUALITY_AUDIT.md`](CODE_QUALITY_AUDIT.md)
    如果你准备继续清理大文件、收重复逻辑或评估哪些 UI 是刻意桥接实现，先看这份。
-7. [`FILE_INDEX.md`](FILE_INDEX.md)
+8. [`FILE_INDEX.md`](FILE_INDEX.md)
    如果你已经知道自己要改什么，只是不知道文件在哪，从这里查最快。
-8. [`TESTING.md`](TESTING.md)
+9. [`TESTING.md`](TESTING.md)
    说明测试 Target、本地命令和 CI 门禁。
 
 ## 每份文档的定位
@@ -34,6 +36,8 @@
   讲当前代码库里各模块的职责、数据流和维护约束。
 - `STATE_AND_STORAGE.md`
   讲状态到底落在哪里，以及如何判断一个新状态该放哪。
+- `NETWORKING.md`
+  讲 HTTP、社区 API、共享会话和学校认证链路之间的边界。
 - `MODULE_PLAYBOOK.md`
   讲“改某个模块时先看什么、最容易坏什么、改完该验什么”。
 - `MAINTENANCE_GUIDE.md`

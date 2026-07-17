@@ -41,7 +41,7 @@ xcodebuild test \
   CODE_SIGNING_ALLOWED=NO
 ```
 
-当前测试基线覆盖共享取消错误识别、账号隔离 Codable 存储和成绩排序规则。新增纯逻辑、缓存键或 ViewModel 状态转换时，应同步补测试。
+当前测试基线覆盖共享取消错误识别、账号隔离 Codable 存储、分页、成绩排序，以及 HTTP/社区 API 请求构造与错误映射。新增纯逻辑、缓存键、网络基础设施或 ViewModel 状态转换时，应同步补测试。
 
 ## CI 门禁
 

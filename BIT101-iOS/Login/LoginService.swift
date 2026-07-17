@@ -523,6 +523,7 @@ private final class HTTPSRedirectDelegate: NSObject, URLSessionTaskDelegate {
 ///
 /// 既负责学校 CAS，也负责 BIT101 自己的 `webvpn_verify` / `register` 接口。
 struct BIT101APIClient {
+    static let shared = BIT101APIClient()
     private let schoolBaseURL = URL(string: "https://sso.bit.edu.cn")!
     private let bit101BaseURL = URL(string: "https://bit101.flwfdd.xyz")!
 
@@ -764,7 +765,12 @@ struct BIT101APIClient {
         }
 
         do {
-            (data, response) = try await activeSession.data(for: finalRequest)
+            let result = try await HTTPClient(transport: activeSession).send(
+                finalRequest,
+                accepting: 100 ..< 600
+            )
+            data = result.data
+            response = result.response
         } catch {
             throw describeNetworkError(error, request: finalRequest)
         }
@@ -850,7 +856,7 @@ struct LoginService {
     private let apiClient: BIT101APIClient
 
     /// 允许注入存储和 API 客户端，方便测试或将来替换实现。
-    init(storage: LoginStorage = .shared, apiClient: BIT101APIClient = BIT101APIClient()) {
+    init(storage: LoginStorage = .shared, apiClient: BIT101APIClient = .shared) {
         self.storage = storage
         self.apiClient = apiClient
     }

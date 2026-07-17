@@ -26,6 +26,11 @@ enum GalleryServiceError: LocalizedError {
     }
 }
 
+extension GalleryServiceError: CommunityAPIServiceError {
+    static var communityNotLoggedIn: Self { .notLoggedIn }
+    static var communityInvalidResponse: Self { .invalidResponse }
+}
+
 /// 机器人分栏的分页结果。
 ///
 /// 机器人流并不是后端原生 feed，而是 iOS 侧“从最新流抓几页再本地筛”得到的结果，
@@ -49,11 +54,7 @@ struct GalleryRecommendFeedBatch {
 ///
 /// 负责帖子流、搜索和与设置中心相关的过滤参数拼接。
 struct GalleryService {
-    /// 话廊相关接口根地址。
-    private let baseURL = URL(string: "https://bit101.flwfdd.xyz")!
-    private let session: URLSession
-    /// 当前登录态与 fake-cookie 存储。
-    private let storage: LoginStorage
+    private let api: CommunityAPIClient<GalleryServiceError>
 
     /// 发帖接口请求体。
     private struct CreatePosterRequest: Encodable {
@@ -114,14 +115,8 @@ struct GalleryService {
     ///
     /// 话廊接口普遍依赖 fake-cookie，同时又需要继承现有登录 session，
     /// 因此这里沿用共享 `HTTPCookieStorage`，避免每个服务实例各自维护认证状态。
-    init(storage: LoginStorage = .shared) {
-        self.storage = storage
-
-        let configuration = URLSessionConfiguration.default
-        configuration.httpCookieStorage = HTTPCookieStorage.shared
-        configuration.httpCookieAcceptPolicy = .always
-        configuration.httpShouldSetCookies = true
-        session = URLSession(configuration: configuration)
+    init(storage: LoginStorage = .shared, httpClient: HTTPClient = .community) {
+        api = CommunityAPIClient(storage: storage, httpClient: httpClient, errorDomain: "BIT101.Gallery")
     }
 
     /// 拉取某个 feed 的帖子列表。
@@ -227,7 +222,7 @@ struct GalleryService {
     ///
     /// claim 会驱动发帖页里的“声明”选择器，因此它属于一个低频但必须成功的基础数据。
     func fetchClaims() async throws -> [GalleryClaim] {
-        try await sendJSONRequest(path: "posters/claims")
+        try await api.request(path: "posters/claims")
     }
 
     /// 上传一张发帖图片，返回服务端生成的图片资源对象。
@@ -235,24 +230,17 @@ struct GalleryService {
     /// 话廊发帖沿用 Android 端的老接口：先上传拿到 `mid`，再把 `image_mids`
     /// 放进真正的发帖请求里。
     func uploadImage(data: Data, filename: String = "poster.jpg") async throws -> GalleryImage {
-        let fakeCookie = try requireFakeCookie()
-
-        let boundary = "Boundary-\(UUID().uuidString)"
-        var request = URLRequest(url: baseURL.appending(path: "upload/image"))
-        request.httpMethod = "POST"
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        request.setValue(fakeCookie, forHTTPHeaderField: "fake-cookie")
-        request.httpBody = multipartBody(boundary: boundary, data: data, filename: filename)
-
-        let (responseData, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw GalleryServiceError.invalidResponse
-        }
-        guard (200 ..< 300).contains(httpResponse.statusCode) else {
+        let multipart = MultipartFormData.jpegFile(data: data, filename: filename)
+        do {
+            return try await api.request(
+                path: "upload/image",
+                method: "POST",
+                body: multipart.body,
+                contentType: multipart.contentType
+            )
+        } catch let error as NSError where error.domain == "BIT101.Gallery" && error.code >= 400 {
             throw GalleryServiceError.uploadFailed
         }
-
-        return try makeSnakeCaseDecoder().decode(GalleryImage.self, from: responseData)
     }
 
     /// 发送帖子创建请求。
@@ -267,81 +255,37 @@ struct GalleryService {
         claimID: Int,
         isPublic: Bool
     ) async throws -> Int {
-        let fakeCookie = try requireFakeCookie()
-
-        let url = baseURL.appending(path: "posters")
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue(fakeCookie, forHTTPHeaderField: "fake-cookie")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(
-            CreatePosterRequest(
-                title: title,
-                text: text,
-                imageMids: imageMids,
-                plugins: "[]",
-                anonymous: anonymous,
-                tags: tags,
-                claimID: claimID,
-                public: isPublic
+        let response: CreatePosterResponse = try await api.request(
+            path: "posters",
+            method: "POST",
+            body: try api.encode(
+                CreatePosterRequest(
+                    title: title,
+                    text: text,
+                    imageMids: imageMids,
+                    plugins: "[]",
+                    anonymous: anonymous,
+                    tags: tags,
+                    claimID: claimID,
+                    public: isPublic
+                )
             )
         )
-
-        let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw GalleryServiceError.invalidResponse
-        }
-
-        switch httpResponse.statusCode {
-        case 200 ..< 300:
-            return try makeSnakeCaseDecoder().decode(CreatePosterResponse.self, from: data).id
-        case 401:
-            throw GalleryServiceError.notLoggedIn
-        default:
-            let message = String(data: data, encoding: .utf8) ?? "发布失败"
-            throw NSError(
-                domain: "BIT101.Gallery",
-                code: httpResponse.statusCode,
-                userInfo: [NSLocalizedDescriptionKey: message]
-            )
-        }
+        return response.id
     }
 
     /// 拉取单个帖子的详情。
     ///
     /// 帖子详情会额外包含 `like / own / plugins` 等当前用户态字段，因此不能完全用列表卡片代替。
     func fetchPoster(id: Int) async throws -> GalleryPosterDetail {
-        try await sendJSONRequest(path: "posters/\(id)")
+        try await api.request(path: "posters/\(id)")
     }
 
     /// 删除一条帖子。
     ///
     /// 删除接口没有复杂返回体，只以 HTTP 成功与否为准。
     func deletePoster(id: Int) async throws {
-        let fakeCookie = try requireFakeCookie()
-
-        var request = URLRequest(url: baseURL.appending(path: "posters/\(id)"))
-        request.httpMethod = "DELETE"
-        request.setValue(fakeCookie, forHTTPHeaderField: "fake-cookie")
-
-        let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw GalleryServiceError.invalidResponse
-        }
-
-        switch httpResponse.statusCode {
-        case 200 ..< 300:
-            return
-        case 401:
-            throw GalleryServiceError.notLoggedIn
-        default:
-            let message = String(data: data, encoding: .utf8) ?? "删除失败"
-            throw NSError(
-                domain: "BIT101.Gallery",
-                code: httpResponse.statusCode,
-                userInfo: [NSLocalizedDescriptionKey: message]
-            )
-        }
+        try await api.requestVoid(path: "posters/\(id)", method: "DELETE")
     }
 
     /// 拉取帖子或评论对象下的评论列表。
@@ -359,17 +303,17 @@ struct GalleryService {
         if let page {
             queryItems.append(URLQueryItem(name: "page", value: String(page)))
         }
-        return try await sendJSONRequest(path: "reaction/comments", queryItems: queryItems)
+        return try await api.request(path: "reaction/comments", queryItems: queryItems)
     }
 
     /// 对帖子或评论执行点赞操作。
     ///
     /// 后端统一把帖子点赞和评论点赞收口到同一个接口，因此这里只需要传对象 ID。
     func like(objectID: String) async throws -> GalleryLikeResult {
-        try await sendJSONRequest(
+        try await api.request(
             path: "reaction/like",
             method: "POST",
-            body: try JSONEncoder().encode(LikeRequest(obj: objectID))
+            body: try api.encode(LikeRequest(obj: objectID))
         )
     }
 
@@ -384,10 +328,10 @@ struct GalleryService {
         replyUID: Int? = nil,
         anonymous: Bool = false
     ) async throws -> GalleryComment {
-        try await sendJSONRequest(
+        try await api.request(
             path: "reaction/comments",
             method: "POST",
-            body: try JSONEncoder().encode(
+            body: try api.encode(
                 CreateCommentRequest(
                     obj: objectID,
                     text: text,
@@ -405,7 +349,7 @@ struct GalleryService {
     /// 服务端目前只提供分类未读数，不提供逐条 read 状态，因此消息页的“伪新消息”
     /// 需要先依赖这里的结果。
     func fetchMessageUnreadCounts() async throws -> GalleryMessageUnreadCounts {
-        try await sendJSONRequest(path: "messages/unread_nums")
+        try await api.request(path: "messages/unread_nums")
     }
 
     /// 拉取某个消息分类的列表。
@@ -416,7 +360,7 @@ struct GalleryService {
         if let lastID {
             queryItems.append(URLQueryItem(name: "last_id", value: String(lastID)))
         }
-        return try await sendJSONRequest(path: "messages", queryItems: queryItems)
+        return try await api.request(path: "messages", queryItems: queryItems)
     }
 
     /// 统一拼装帖子流接口参数。
@@ -453,8 +397,6 @@ struct GalleryService {
         page: Int?,
         hideBot: Bool
     ) async throws -> [GalleryPoster] {
-        let fakeCookie = try requireFakeCookie()
-        var components = URLComponents(url: baseURL.appending(path: "posters"), resolvingAgainstBaseURL: false)
         var queryItems: [URLQueryItem] = []
 
         if let page {
@@ -481,131 +423,6 @@ struct GalleryService {
             queryItems.append(URLQueryItem(name: "hide_bot", value: "true"))
         }
 
-        components?.queryItems = queryItems
-
-        guard let url = components?.url else {
-            throw GalleryServiceError.invalidResponse
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue(fakeCookie, forHTTPHeaderField: "fake-cookie")
-
-        let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw GalleryServiceError.invalidResponse
-        }
-
-        switch httpResponse.statusCode {
-        case 200 ..< 300:
-            break
-        case 401:
-            throw GalleryServiceError.notLoggedIn
-        default:
-            throw NSError(
-                domain: "BIT101.Gallery",
-                code: httpResponse.statusCode,
-                userInfo: [NSLocalizedDescriptionKey: "请求失败，HTTP 状态码 \(httpResponse.statusCode)。"]
-            )
-        }
-
-        do {
-            return try makeSnakeCaseDecoder().decode([GalleryPoster].self, from: data)
-        } catch {
-            throw GalleryServiceError.invalidResponse
-        }
-    }
-
-    /// 统一的 JSON 请求辅助函数。
-    ///
-    /// 话廊大多数接口都共享相同的行为：
-    /// - 带 fake-cookie
-    /// - HTTP 200-299 视为成功
-    /// - 401 统一映射为登录态失效
-    /// - 默认按 `convertFromSnakeCase` 解码
-    ///
-    /// 这里把这些通用规则集中起来，避免每个接口各写一遍样板代码。
-    private func sendJSONRequest<Response: Decodable>(
-        path: String,
-        queryItems: [URLQueryItem] = [],
-        method: String = "GET",
-        body: Data? = nil
-    ) async throws -> Response {
-        let fakeCookie = try requireFakeCookie()
-
-        var components = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false)
-        components?.queryItems = queryItems.isEmpty ? nil : queryItems
-
-        guard let url = components?.url else {
-            throw GalleryServiceError.invalidResponse
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.setValue(fakeCookie, forHTTPHeaderField: "fake-cookie")
-        if let body {
-            request.httpBody = body
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        }
-
-        let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw GalleryServiceError.invalidResponse
-        }
-
-        switch httpResponse.statusCode {
-        case 200 ..< 300:
-            break
-        case 401:
-            throw GalleryServiceError.notLoggedIn
-        default:
-            let message = String(data: data, encoding: .utf8)
-            throw NSError(
-                domain: "BIT101.Gallery",
-                code: httpResponse.statusCode,
-                userInfo: [NSLocalizedDescriptionKey: message?.isEmpty == false ? message! : "请求失败"]
-            )
-        }
-
-        do {
-            return try makeSnakeCaseDecoder().decode(Response.self, from: data)
-        } catch {
-            throw GalleryServiceError.invalidResponse
-        }
-    }
-
-    /// 统一读取并校验当前 fake-cookie。
-    ///
-    /// 话廊绝大多数接口都依赖这条登录态，因此在服务层集中收口可以避免每个请求方法
-    /// 都重复写一遍“读取 -> 判空 -> 抛 notLoggedIn”。
-    private func requireFakeCookie() throws -> String {
-        let fakeCookie = storage.fakeCookie
-        guard !fakeCookie.isEmpty else {
-            throw GalleryServiceError.notLoggedIn
-        }
-        return fakeCookie
-    }
-
-    /// 构造一份按 snake_case 解码的 JSONDecoder。
-    ///
-    /// 当前话廊后端响应几乎都遵循同一套命名规则，因此这里集中提供一个最小 helper，
-    /// 避免每个请求方法都重复配置 `keyDecodingStrategy`。
-    private func makeSnakeCaseDecoder() -> JSONDecoder {
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        return decoder
-    }
-
-    /// 手工拼装上传接口需要的 multipart body。
-    ///
-    /// 表单字段名保持为 `file`，与 Android 端和现有头像上传接口一致。
-    private func multipartBody(boundary: String, data: Data, filename: String) -> Data {
-        var body = Data()
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
-        body.append(data)
-        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-        return body
+        return try await api.request(path: "posters", queryItems: queryItems)
     }
 }

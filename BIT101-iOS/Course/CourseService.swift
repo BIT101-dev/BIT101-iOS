@@ -22,6 +22,11 @@ enum CourseServiceError: LocalizedError {
     }
 }
 
+extension CourseServiceError: CommunityAPIServiceError {
+    static var communityNotLoggedIn: Self { .notLoggedIn }
+    static var communityInvalidResponse: Self { .invalidResponse }
+}
+
 /// 课程模块网络层。
 ///
 /// 课程列表和详情走 `courses` 资源，评论和点赞仍然复用社区 reaction 接口。
@@ -53,18 +58,10 @@ struct CourseService {
         let obj: String
     }
 
-    private let baseURL = URL(string: "https://bit101.flwfdd.xyz")!
-    private let session: URLSession
-    private let storage: LoginStorage
+    private let api: CommunityAPIClient<CourseServiceError>
 
-    init(storage: LoginStorage = .shared) {
-        self.storage = storage
-
-        let configuration = URLSessionConfiguration.default
-        configuration.httpCookieStorage = HTTPCookieStorage.shared
-        configuration.httpCookieAcceptPolicy = .always
-        configuration.httpShouldSetCookies = true
-        session = URLSession(configuration: configuration)
+    init(storage: LoginStorage = .shared, httpClient: HTTPClient = .community) {
+        api = CommunityAPIClient(storage: storage, httpClient: httpClient, errorDomain: "BIT101.Course")
     }
 
     /// 拉取课程列表。
@@ -79,17 +76,17 @@ struct CourseService {
             queryItems.insert(URLQueryItem(name: "search", value: keyword), at: 0)
         }
 
-        return try await sendJSONRequest(path: "courses", queryItems: queryItems)
+        return try await api.request(path: "courses", queryItems: queryItems)
     }
 
     /// 拉取单门课程详情。
     func fetchCourse(id: Int) async throws -> CourseDetail {
-        try await sendJSONRequest(path: "courses/\(id)")
+        try await api.request(path: "courses/\(id)")
     }
 
     /// 拉取单门课程按学期聚合的历史成绩统计。
     func fetchCourseHistories(number: String) async throws -> [CourseHistoryGrade] {
-        try await sendJSONRequest(path: "courses/histories/\(number)")
+        try await api.request(path: "courses/histories/\(number)")
     }
 
     /// 拉取课程评论。
@@ -103,15 +100,15 @@ struct CourseService {
         if let page {
             queryItems.append(URLQueryItem(name: "page", value: String(page)))
         }
-        return try await sendJSONRequest(path: "reaction/comments", queryItems: queryItems)
+        return try await api.request(path: "reaction/comments", queryItems: queryItems)
     }
 
     /// 对课程评论执行点赞或取消点赞。
     func like(objectID: String) async throws -> GalleryLikeResult {
-        try await sendJSONRequest(
+        try await api.request(
             path: "reaction/like",
             method: "POST",
-            body: try JSONEncoder().encode(LikeRequest(obj: objectID))
+            body: try api.encode(LikeRequest(obj: objectID))
         )
     }
 
@@ -124,10 +121,10 @@ struct CourseService {
         anonymous: Bool = false,
         rate: Int? = nil
     ) async throws -> GalleryComment {
-        try await sendJSONRequest(
+        try await api.request(
             path: "reaction/comments",
             method: "POST",
-            body: try JSONEncoder().encode(
+            body: try api.encode(
                 CreateCommentRequest(
                     obj: objectID,
                     text: text,
@@ -141,65 +138,4 @@ struct CourseService {
         )
     }
 
-    private func sendJSONRequest<Response: Decodable>(
-        path: String,
-        queryItems: [URLQueryItem] = [],
-        method: String = "GET",
-        body: Data? = nil
-    ) async throws -> Response {
-        let fakeCookie = try requireFakeCookie()
-
-        var components = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false)
-        components?.queryItems = queryItems.isEmpty ? nil : queryItems
-
-        guard let url = components?.url else {
-            throw CourseServiceError.invalidResponse
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.setValue(fakeCookie, forHTTPHeaderField: "fake-cookie")
-        request.httpBody = body
-        if body != nil {
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        }
-
-        let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw CourseServiceError.invalidResponse
-        }
-
-        switch httpResponse.statusCode {
-        case 200 ..< 300:
-            break
-        case 401:
-            throw CourseServiceError.notLoggedIn
-        default:
-            throw NSError(
-                domain: "BIT101.Course",
-                code: httpResponse.statusCode,
-                userInfo: [NSLocalizedDescriptionKey: "请求失败，HTTP 状态码 \(httpResponse.statusCode)。"]
-            )
-        }
-
-        do {
-            return try makeSnakeCaseDecoder().decode(Response.self, from: data)
-        } catch {
-            throw CourseServiceError.invalidResponse
-        }
-    }
-
-    private func requireFakeCookie() throws -> String {
-        let fakeCookie = storage.fakeCookie
-        guard !fakeCookie.isEmpty else {
-            throw CourseServiceError.notLoggedIn
-        }
-        return fakeCookie
-    }
-
-    private func makeSnakeCaseDecoder() -> JSONDecoder {
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        return decoder
-    }
 }

@@ -139,11 +139,7 @@ struct ScoreService {
 
     init(storage: LoginStorage = .shared) {
         self.storage = storage
-        let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = Self.requestTimeoutSeconds
-        // 单个轮询请求仍应快速失败，但完整认证/成绩单生成不能被 25 秒的 resource 上限截断。
-        configuration.timeoutIntervalForResource = Self.authenticationWaitSeconds
-        self.session = URLSession(configuration: configuration)
+        session = NetworkSessionPool.scoreAuthentication
 
         if
             let configured = Bundle.main.object(forInfoDictionaryKey: "BIT101BitLoginURL") as? String,
@@ -203,18 +199,17 @@ struct ScoreService {
 
     /// 以内存会话下载临时成绩单图片，不写入 App 的磁盘图片缓存。
     func downloadTrustedTranscript(from url: URL) async throws -> Data {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = Self.requestTimeoutSeconds
-        configuration.timeoutIntervalForResource = Self.authenticationWaitSeconds
-        let downloadSession = URLSession(configuration: configuration)
-        let (data, response) = try await downloadSession.data(from: url)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw ScoreServiceError.invalidResponse
-        }
-        guard (200 ..< 300).contains(httpResponse.statusCode), !data.isEmpty else {
+        let request = URLRequest(url: url)
+        let response: HTTPResponse
+        do {
+            response = try await HTTPClient(transport: NetworkSessionPool.sensitiveDownloads).send(request)
+        } catch {
             throw ScoreServiceError.queryFailed("学校生成了成绩单，但临时图片暂时无法下载，请重新申请。")
         }
-        return data
+        guard !response.data.isEmpty else {
+            throw ScoreServiceError.queryFailed("学校生成了成绩单，但临时图片暂时无法下载，请重新申请。")
+        }
+        return response.data
     }
 
     /// 提交系统短信自动填充得到的验证码，并在认证完成后继续原成绩请求。
@@ -463,13 +458,15 @@ struct ScoreService {
 
     private func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         do {
-            let (data, response) = try await session.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw ScoreServiceError.invalidResponse
-            }
-            return (data, httpResponse)
+            let response = try await HTTPClient(transport: session).send(
+                request,
+                accepting: 100 ..< 600
+            )
+            return (response.data, response.response)
         } catch let error as URLError where error.code == .timedOut {
             throw ScoreServiceError.requestTimedOut
+        } catch is HTTPClientError {
+            throw ScoreServiceError.invalidResponse
         }
     }
 

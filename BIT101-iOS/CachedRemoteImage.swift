@@ -89,7 +89,8 @@ private final class CachedRemoteImageLoader: ObservableObject {
         }
 
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let response = try await HTTPClient.shared.send(URLRequest(url: url))
+            let data = response.data
             guard !Task.isCancelled, currentURL == url else { return }
             guard let downloadedImage = UIImage(data: data) else { return }
 
