@@ -1,10 +1,19 @@
 #if canImport(WatchConnectivity)
 
 import Foundation
+import OSLog
 import WatchConnectivity
 #if canImport(WidgetKit)
 import WidgetKit
 #endif
+
+enum WatchScheduleSyncError: Error, Equatable {
+    case notSupported
+    case noSnapshot
+    case invalidPayload
+    case persistenceFailed
+    case transferFailed
+}
 
 /// iPhone 与 Apple Watch 之间的课表快照同步器。
 ///
@@ -15,38 +24,10 @@ import WidgetKit
 @MainActor
 final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     static let shared = WatchScheduleSyncManager()
-
-    /// `WatchConnectivity` 消息里使用的字段名约定。
-    ///
-    /// 这里统一收口是为了避免 iPhone / watch 两端手写字符串常量时发生漂移。
-    private enum PayloadKey {
-        nonisolated static let snapshotData = "schedule_external_snapshot_data"
-        nonisolated static let requestLatestSnapshot = "request_latest_schedule_snapshot"
-    }
-
-    /// watch 端前台即时拉取最新快照时发送的原始请求体。
-    ///
-    /// 这里故意使用 `Data` 而不是字典，是因为 `sendMessageData` 的负载更轻，
-    /// 且请求只需要表达一种语义："请把最新快照发给我"。
-    nonisolated private static let requestData = Data("request_latest_schedule_snapshot".utf8)
-
-    /// 与共享快照仓库保持一致的编码器。
-    ///
-    /// delegate 回调里会在非隔离上下文中引用它，因此显式标记为 `nonisolated`。
-    nonisolated private static let encoder: JSONEncoder = {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        return encoder
-    }()
-
-    /// 与共享快照仓库保持一致的解码器。
-    ///
-    /// 统一使用 ISO8601，避免 iPhone 写入和 watch 读取的日期策略不一致。
-    nonisolated private static let decoder: JSONDecoder = {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return decoder
-    }()
+    nonisolated private static let logger = Logger(
+        subsystem: "BIT101-dev.BIT101-iOS",
+        category: "WatchScheduleSync"
+    )
 
     private override init() {
         super.init()
@@ -67,7 +48,12 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     #if os(iOS)
     /// 编码一份快照，供 iPhone -> watch 同步链路复用。
     private func encodedSnapshotData(_ snapshot: ScheduleExternalSnapshot) -> Data? {
-        try? Self.encoder.encode(snapshot)
+        do {
+            return try ScheduleExternalSnapshotCodec.encode(snapshot)
+        } catch {
+            Self.logger.error("Failed to encode the watch schedule snapshot: \(String(describing: error), privacy: .public)")
+            return nil
+        }
     }
 
     /// 从共享仓库读取并编码当前最新快照。
@@ -84,10 +70,10 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
         session: WCSession
     ) {
         do {
-            try session.updateApplicationContext([
-                PayloadKey.snapshotData: data,
-            ])
-        } catch {}
+            try session.updateApplicationContext(WatchScheduleTransferProtocol.snapshotContext(data))
+        } catch {
+            Self.logger.error("Failed to update the watch application context: \(String(describing: error), privacy: .public)")
+        }
     }
     #endif
 
@@ -115,30 +101,46 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     /// 在 watch 端主动请求 iPhone 重新推送最新课表快照。
     ///
     /// 优先走 `sendMessage` 做前台即时往返；如果当前不可达，再退回 `applicationContext` 的 best-effort 同步。
-    func requestLatestSnapshotFromPhone() {
+    func requestLatestSnapshotFromPhone(
+        completion: @escaping (Result<Void, WatchScheduleSyncError>) -> Void = { _ in }
+    ) {
+        guard WCSession.isSupported() else {
+            completion(.failure(.notSupported))
+            return
+        }
+
         activateIfNeeded()
 
         let session = WCSession.default
         if session.isReachable {
             session.sendMessageData(
-                Self.requestData,
+                WatchScheduleTransferProtocol.requestData,
                 replyHandler: { data in
                     Task { @MainActor in
-                        self.persistSnapshotDataIfPossible(data)
+                        completion(self.persistSnapshotData(data))
                     }
                 },
-                errorHandler: { _ in
-                    try? session.updateApplicationContext([
-                        PayloadKey.requestLatestSnapshot: true,
-                    ])
+                errorHandler: { error in
+                    Task { @MainActor in
+                        Self.logger.notice("Immediate watch sync failed; queueing a context request: \(String(describing: error), privacy: .public)")
+                        do {
+                            try session.updateApplicationContext(WatchScheduleTransferProtocol.requestContext)
+                        } catch {
+                            Self.logger.error("Failed to queue the watch schedule request: \(String(describing: error), privacy: .public)")
+                            completion(.failure(.transferFailed))
+                        }
+                    }
                 }
             )
             return
         }
 
-        try? session.updateApplicationContext([
-            PayloadKey.requestLatestSnapshot: true,
-        ])
+        do {
+            try session.updateApplicationContext(WatchScheduleTransferProtocol.requestContext)
+        } catch {
+            Self.logger.error("Failed to queue the watch schedule request: \(String(describing: error), privacy: .public)")
+            completion(.failure(.transferFailed))
+        }
     }
     #endif
 
@@ -159,7 +161,9 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
             }
         }
         #endif
-        _ = error
+        if let error {
+            Self.logger.error("WatchConnectivity activation failed: \(String(describing: error), privacy: .public)")
+        }
     }
 
     #if os(iOS)
@@ -183,7 +187,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
         replyHandler: @escaping (Data) -> Void
     ) {
         #if os(iOS)
-        if messageData == Self.requestData {
+        if messageData == WatchScheduleTransferProtocol.requestData {
             Task { @MainActor in
                 if let data = self.currentSnapshotDataIfAvailable() {
                     self.updateApplicationContext(withSnapshotData: data, session: session)
@@ -210,12 +214,12 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
         replyHandler: @escaping ([String: Any]) -> Void
     ) {
         #if os(iOS)
-        if let shouldPush = message[PayloadKey.requestLatestSnapshot] as? Bool, shouldPush {
+        if WatchScheduleTransferProtocol.requestsLatestSnapshot(message) {
             Task { @MainActor in
                 let payload: [String: Any]
                 if let data = self.currentSnapshotDataIfAvailable() {
                     self.updateApplicationContext(withSnapshotData: data, session: session)
-                    payload = [PayloadKey.snapshotData: data]
+                    payload = WatchScheduleTransferProtocol.snapshotContext(data)
                 } else {
                     payload = [:]
                 }
@@ -237,7 +241,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
         didReceiveApplicationContext applicationContext: [String: Any]
     ) {
         #if os(iOS)
-        if let shouldPush = applicationContext[PayloadKey.requestLatestSnapshot] as? Bool, shouldPush {
+        if WatchScheduleTransferProtocol.requestsLatestSnapshot(applicationContext) {
             Task { @MainActor in
                 self.pushCurrentSnapshotIfAvailable()
             }
@@ -245,9 +249,11 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
         }
         #endif
 
-        guard let data = applicationContext[PayloadKey.snapshotData] as? Data else { return }
+        guard let data = WatchScheduleTransferProtocol.snapshotData(from: applicationContext) else { return }
         Task { @MainActor in
-            self.persistSnapshotDataIfPossible(data)
+            if case let .failure(error) = self.persistSnapshotData(data) {
+                Self.logger.error("Failed to persist an application-context snapshot: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 
@@ -256,12 +262,29 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     /// 一旦成功保存，就立即触发 `WidgetCenter` 刷新，保证 Smart Stack
     /// 和手表 App 首页能尽快看到最新结果。
     @MainActor
-    private func persistSnapshotDataIfPossible(_ data: Data) {
-        guard let snapshot = try? Self.decoder.decode(ScheduleExternalSnapshot.self, from: data) else { return }
-        ScheduleExternalSnapshotStore.save(snapshot)
-        #if canImport(WidgetKit)
-        WidgetCenter.shared.reloadAllTimelines()
-        #endif
+    private func persistSnapshotData(_ data: Data) -> Result<Void, WatchScheduleSyncError> {
+        guard !data.isEmpty else {
+            return .failure(.noSnapshot)
+        }
+
+        let snapshot: ScheduleExternalSnapshot
+        do {
+            snapshot = try ScheduleExternalSnapshotCodec.decode(data)
+        } catch {
+            Self.logger.error("Failed to decode the watch schedule snapshot: \(String(describing: error), privacy: .public)")
+            return .failure(.invalidPayload)
+        }
+
+        do {
+            try ScheduleExternalSnapshotStore.write(snapshot)
+            #if canImport(WidgetKit)
+            WidgetCenter.shared.reloadAllTimelines()
+            #endif
+            return .success(())
+        } catch {
+            Self.logger.error("Failed to persist the watch schedule snapshot: \(String(describing: error), privacy: .public)")
+            return .failure(.persistenceFailed)
+        }
     }
 }
 

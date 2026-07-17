@@ -348,9 +348,54 @@ struct ScheduleExternalOccurrence: Identifiable, Hashable {
 struct ScheduleExternalResolvedSnapshot {
     let snapshot: ScheduleExternalSnapshot?
     let upcomingOccurrences: [ScheduleExternalOccurrence]
+    let contentState: ScheduleExternalContentState
 
     var nextOccurrence: ScheduleExternalOccurrence? {
         upcomingOccurrences.first
+    }
+}
+
+/// 外部课表展示层共同消费的业务状态。
+///
+/// 文案仍由各端决定，但状态含义必须一致，避免同一份损坏快照在手机 Widget 显示
+/// “请同步”，在 Watch 上却显示“今天没课”。
+enum ScheduleExternalContentState: Equatable {
+    case missing
+    case loggedOut
+    case invalid
+    case rest
+    case ready
+}
+
+/// Widget 时间线的统一刷新时间规划器。
+enum ScheduleTimelineRefreshPlanner {
+    static func nextRefreshDate(
+        for occurrences: [ScheduleExternalOccurrence],
+        now: Date = Date(),
+        includeDisplayUntilDates: Bool,
+        includeNextMidnight: Bool,
+        fallbackInterval: TimeInterval = 30 * 60
+    ) -> Date {
+        let threshold = now.addingTimeInterval(30)
+        var candidates = occurrences.map(\.startDate)
+
+        if includeDisplayUntilDates {
+            candidates.append(contentsOf: occurrences.map(\.displayUntilDate))
+        }
+
+        if includeNextMidnight,
+           let nextMidnight = ScheduleSharedDateCodec.calendar.date(
+               byAdding: .day,
+               value: 1,
+               to: ScheduleSharedDateCodec.calendar.startOfDay(for: now)
+           )?.addingTimeInterval(1) {
+            candidates.append(nextMidnight)
+        }
+
+        return candidates
+            .filter { $0 > threshold }
+            .min()
+            ?? now.addingTimeInterval(fallbackInterval)
     }
 }
 
@@ -446,7 +491,31 @@ enum ScheduleOccurrenceResolver {
         limit: Int? = nil
     ) -> ScheduleExternalResolvedSnapshot {
         guard let snapshot else {
-            return ScheduleExternalResolvedSnapshot(snapshot: nil, upcomingOccurrences: [])
+            return ScheduleExternalResolvedSnapshot(
+                snapshot: nil,
+                upcomingOccurrences: [],
+                contentState: .missing
+            )
+        }
+
+        guard snapshot.isLoggedIn else {
+            return ScheduleExternalResolvedSnapshot(
+                snapshot: snapshot,
+                upcomingOccurrences: [],
+                contentState: .loggedOut
+            )
+        }
+
+        guard
+            ScheduleSharedDateCodec.parseDate(snapshot.firstDayString) != nil,
+            !snapshot.timeTable.isEmpty,
+            !snapshot.courses.isEmpty
+        else {
+            return ScheduleExternalResolvedSnapshot(
+                snapshot: snapshot,
+                upcomingOccurrences: [],
+                contentState: .invalid
+            )
         }
 
         let occurrences = upcomingOccurrences(
@@ -463,7 +532,8 @@ enum ScheduleOccurrenceResolver {
 
         return ScheduleExternalResolvedSnapshot(
             snapshot: snapshot,
-            upcomingOccurrences: trimmedOccurrences
+            upcomingOccurrences: trimmedOccurrences,
+            contentState: trimmedOccurrences.isEmpty ? .rest : .ready
         )
     }
 

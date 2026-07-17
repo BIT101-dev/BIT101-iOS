@@ -10,6 +10,7 @@
 		0D6CC15DA5636384C904E0AD /* BIT101WatchWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 796D7A3D2666B8F0197201E6 /* BIT101WatchWidgetsBundle.swift */; };
 		14721303F52951498981FB7F /* ScheduleSharedOccurrence.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2C0A347C3DFB45B555EAF0 /* ScheduleSharedOccurrence.swift */; };
 		31C4ED6573B18E57E68C9998 /* WatchScheduleSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72A1F6AF2FB00A16DDC8068E /* WatchScheduleSyncManager.swift */; };
+		32D8F834E87443B18CE8F6B1 /* WatchScheduleStatusModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C00AD7820D43C986738C15 /* WatchScheduleStatusModel.swift */; };
 		33BCD239CC2949787F9D7E6F /* ScheduleSharedOccurrence.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2C0A347C3DFB45B555EAF0 /* ScheduleSharedOccurrence.swift */; };
 		46FBCFC063C5DE6022EC19D0 /* ScheduleSharedLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CF4896F51E6C19BBE15048C /* ScheduleSharedLiveActivity.swift */; };
 		6B9445E6F09E8957FC4C25BE /* ScheduleSharedLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CF4896F51E6C19BBE15048C /* ScheduleSharedLiveActivity.swift */; };
@@ -115,6 +116,7 @@
 		819ECA98BC5A0A39D0B68FD5 /* BIT101WatchScheduleWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BIT101WatchScheduleWidget.swift; sourceTree = "<group>"; };
 		8A6CC7127EDBFA094B744873 /* BIT101Watch.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = BIT101Watch.entitlements; sourceTree = "<group>"; };
 		96F117AE4D80C6B7B073E4F8 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A7C00AD7820D43C986738C15 /* WatchScheduleStatusModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchScheduleStatusModel.swift; sourceTree = "<group>"; };
 		B52AC6532DE224AF07CEA5C1 /* BIT101WatchWidgets.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = BIT101WatchWidgets.entitlements; sourceTree = "<group>"; };
 		C87F2B27CDB14AC63D666139 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		CF8086061B44E95B40189EB0 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -277,6 +279,7 @@
 			isa = PBXGroup;
 			children = (
 				21A95B6C96CDD83709030EF8 /* BIT101WatchApp.swift */,
+				A7C00AD7820D43C986738C15 /* WatchScheduleStatusModel.swift */,
 				7A6C2ACF3AF5C705FD407FBA /* WatchScheduleRootView.swift */,
 				CF8086061B44E95B40189EB0 /* Info.plist */,
 				8A6CC7127EDBFA094B744873 /* BIT101Watch.entitlements */,
@@ -504,6 +507,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				86E934E59E093F63ED817276 /* BIT101WatchApp.swift in Sources */,
+				32D8F834E87443B18CE8F6B1 /* WatchScheduleStatusModel.swift in Sources */,
 				F52E9C051CAF65D91825FB7A /* WatchScheduleRootView.swift in Sources */,
 				80FEE566078E573A01F25942 /* ScheduleSharedSnapshot.swift in Sources */,
 				86480E32AA132F273CEFA205 /* ScheduleSharedOccurrence.swift in Sources */,

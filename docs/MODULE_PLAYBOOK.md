@@ -208,6 +208,7 @@
 - `BIT101ScheduleWidget/BIT101ScheduleWidget.swift`
 - `BIT101ScheduleWidget/BIT101ScheduleWidgetBundle.swift`
 - `BIT101Watch/BIT101WatchApp.swift`
+- `BIT101Watch/WatchScheduleStatusModel.swift`
 - `BIT101Watch/WatchScheduleRootView.swift`
 - `BIT101WatchWidgets/BIT101WatchScheduleWidget.swift`
 

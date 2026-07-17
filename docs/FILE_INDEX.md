@@ -197,8 +197,10 @@
 
 - `BIT101-iOS/BIT101Watch/BIT101WatchApp.swift`
   新版单 target Watch App 入口，负责挂载 watch 主页面状态模型。
+- `BIT101-iOS/BIT101Watch/WatchScheduleStatusModel.swift`
+  Watch 课表状态协调层；通过可注入依赖连接本地镜像、系统时间和同步器。
 - `BIT101-iOS/BIT101Watch/WatchScheduleRootView.swift`
-  Apple Watch 主页面与本地镜像消费逻辑。
+  Apple Watch 主页面展示逻辑。
 - `BIT101-iOS/BIT101WatchWidgets/BIT101WatchScheduleWidget.swift`
   Apple Watch Smart Stack 课表组件。
 - `BIT101-iOS/BIT101WatchWidgets/BIT101WatchWidgetsBundle.swift`

@@ -92,38 +92,88 @@ struct ScheduleExternalSnapshot: Codable, Hashable {
     }
 }
 
+/// `ScheduleExternalSnapshot` 的统一传输编解码器。
+///
+/// 磁盘快照和 WatchConnectivity 必须使用相同的日期策略。每次调用创建独立的
+/// encoder / decoder，也避免多个并发消费方共享可变 Foundation 编码器。
+enum ScheduleExternalSnapshotCodec {
+    static func encode(
+        _ snapshot: ScheduleExternalSnapshot,
+        outputFormatting: JSONEncoder.OutputFormatting = []
+    ) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = outputFormatting
+        encoder.dateEncodingStrategy = .iso8601
+        return try encoder.encode(snapshot)
+    }
+
+    static func decode(_ data: Data) throws -> ScheduleExternalSnapshot {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(ScheduleExternalSnapshot.self, from: data)
+    }
+}
+
+/// iPhone 与 Watch 之间传输课表镜像时使用的稳定字段约定。
+enum WatchScheduleTransferProtocol {
+    nonisolated static let snapshotDataKey = "schedule_external_snapshot_data"
+    nonisolated static let requestLatestSnapshotKey = "request_latest_schedule_snapshot"
+    nonisolated static let requestData = Data(requestLatestSnapshotKey.utf8)
+
+    nonisolated static func snapshotContext(_ data: Data) -> [String: Any] {
+        [snapshotDataKey: data]
+    }
+
+    nonisolated static var requestContext: [String: Any] {
+        [requestLatestSnapshotKey: true]
+    }
+
+    nonisolated static func snapshotData(from context: [String: Any]) -> Data? {
+        context[snapshotDataKey] as? Data
+    }
+
+    nonisolated static func requestsLatestSnapshot(_ context: [String: Any]) -> Bool {
+        context[requestLatestSnapshotKey] as? Bool == true
+    }
+}
+
+enum ScheduleExternalSnapshotStoreError: Error {
+    case sharedContainerUnavailable
+}
+
 /// 跨 target 共享快照的磁盘仓库。
 ///
 /// 当前主 app 会写入它，widget 读取它；
 /// 后续接入 watch 时，也应优先复用这里，而不是再手搓一套路径拼接与编解码逻辑。
 enum ScheduleExternalSnapshotStore {
-    private static let encoder: JSONEncoder = {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        return encoder
-    }()
-
-    private static let decoder: JSONDecoder = {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return decoder
-    }()
-
-    static func save(_ snapshot: ScheduleExternalSnapshot) {
-        guard let fileURL else { return }
-
+    @discardableResult
+    static func save(_ snapshot: ScheduleExternalSnapshot) -> Bool {
         do {
-            try FileManager.default.createDirectory(
-                at: fileURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            let data = try encoder.encode(snapshot)
-            try data.write(to: fileURL, options: [.atomic])
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(name: .scheduleExternalSnapshotDidChange, object: nil)
-            }
-        } catch {}
+            try write(snapshot)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// 可抛错的写入入口供同步链路使用，让传输层能够区分解码失败与落盘失败。
+    static func write(_ snapshot: ScheduleExternalSnapshot) throws {
+        guard let fileURL else {
+            throw ScheduleExternalSnapshotStoreError.sharedContainerUnavailable
+        }
+
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let data = try ScheduleExternalSnapshotCodec.encode(
+            snapshot,
+            outputFormatting: [.prettyPrinted, .sortedKeys]
+        )
+        try data.write(to: fileURL, options: [.atomic])
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .scheduleExternalSnapshotDidChange, object: nil)
+        }
     }
 
     static func load() -> ScheduleExternalSnapshot? {
@@ -134,7 +184,7 @@ enum ScheduleExternalSnapshotStore {
             return nil
         }
 
-        return try? decoder.decode(ScheduleExternalSnapshot.self, from: data)
+        return try? ScheduleExternalSnapshotCodec.decode(data)
     }
 
     static func clear() {

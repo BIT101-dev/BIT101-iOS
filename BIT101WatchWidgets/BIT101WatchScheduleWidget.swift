@@ -106,20 +106,21 @@ private struct WatchScheduleProvider: TimelineProvider {
     private func loadEntry(now: Date = Date()) -> WatchScheduleEntry {
         let resolved = ScheduleOccurrenceResolver.loadResolvedSnapshot(now: now, limit: 32)
 
-        guard let snapshot = resolved.snapshot else {
+        switch resolved.contentState {
+        case .missing, .invalid:
             return WatchScheduleEntry(date: now, nextOccurrence: nil, message: watchScheduleWidgetCampusNetworkMessage)
-        }
-
-        guard snapshot.isLoggedIn else {
+        case .loggedOut:
             return WatchScheduleEntry(date: now, nextOccurrence: nil, message: watchScheduleWidgetLoginMessage)
+        case .rest:
+            return WatchScheduleEntry(date: now, nextOccurrence: nil, message: watchScheduleWidgetRestMessage)
+        case .ready:
+            let nextOccurrence = resolved.upcomingOccurrences.first(where: { $0.startDate > now })
+            return WatchScheduleEntry(
+                date: now,
+                nextOccurrence: nextOccurrence,
+                message: nextOccurrence == nil ? watchScheduleWidgetRestMessage : nil
+            )
         }
-
-        let nextOccurrence = resolved.upcomingOccurrences.first(where: { $0.startDate > now })
-        return WatchScheduleEntry(
-            date: now,
-            nextOccurrence: nextOccurrence,
-            message: nextOccurrence == nil ? watchScheduleWidgetRestMessage : nil
-        )
     }
 
     /// complication 需要在“课程开始”和“日期跨天”时刷新。
@@ -128,26 +129,12 @@ private struct WatchScheduleProvider: TimelineProvider {
     /// 午夜到上课前这段时间就会继续显示“明天”。因此这里把下一个午夜也作为刷新点，
     /// 让 watch 离开手机时仍能用本地镜像把“明天”修正为“今天”。
     private func nextRefreshDate(for entry: WatchScheduleEntry) -> Date {
-        let now = Date()
-        let fallbackRefreshDate = Calendar.current.date(byAdding: .minute, value: 30, to: now)
-            ?? now.addingTimeInterval(1800)
-        let nextMidnight = ScheduleSharedDateCodec.calendar.date(
-            byAdding: .day,
-            value: 1,
-            to: ScheduleSharedDateCodec.calendar.startOfDay(for: now)
-        )?.addingTimeInterval(1)
-
-        var refreshDates = [fallbackRefreshDate]
-
-        if let nextMidnight, nextMidnight > now.addingTimeInterval(30) {
-            refreshDates.append(nextMidnight)
-        }
-
-        if let nextStartDate = entry.nextOccurrence?.startDate, nextStartDate > now.addingTimeInterval(30) {
-            refreshDates.append(nextStartDate)
-        }
-
-        return refreshDates.min() ?? fallbackRefreshDate
+        ScheduleTimelineRefreshPlanner.nextRefreshDate(
+            for: entry.nextOccurrence.map { [$0] } ?? [],
+            now: entry.date,
+            includeDisplayUntilDates: false,
+            includeNextMidnight: true
+        )
     }
 }
 

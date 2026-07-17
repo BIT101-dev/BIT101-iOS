@@ -223,37 +223,29 @@ private struct ScheduleWidgetProvider: TimelineProvider {
         completion(Timeline(entries: [entry], policy: .after(refreshDate)))
     }
 
-    private func loadEntry() -> ScheduleWidgetEntry {
-        guard let snapshot = ScheduleExternalSnapshotStore.load() else {
-            return emptyEntry(message: scheduleWidgetCampusNetworkMessage)
+    private func loadEntry(now: Date = Date()) -> ScheduleWidgetEntry {
+        let resolved = ScheduleOccurrenceResolver.loadResolvedSnapshot(now: now, limit: 6)
+
+        switch resolved.contentState {
+        case .missing, .invalid:
+            return emptyEntry(message: scheduleWidgetCampusNetworkMessage, date: now)
+        case .loggedOut:
+            return emptyEntry(message: scheduleWidgetLoginMessage, date: now)
+        case .rest:
+            return emptyEntry(message: scheduleWidgetRestMessage, date: now)
+        case .ready:
+            return ScheduleWidgetEntry(
+                date: now,
+                nextOccurrences: resolved.upcomingOccurrences,
+                message: nil
+            )
         }
-
-        guard snapshot.isLoggedIn else {
-            return emptyEntry(message: scheduleWidgetLoginMessage)
-        }
-
-        guard ScheduleOccurrenceResolver.parseDate(snapshot.firstDayString) != nil else {
-            return emptyEntry(message: scheduleWidgetCampusNetworkMessage)
-        }
-
-        guard !snapshot.courses.isEmpty else {
-            return emptyEntry(message: scheduleWidgetCampusNetworkMessage)
-        }
-
-        let occurrences = ScheduleOccurrenceResolver.upcomingOccurrences(from: snapshot)
-        let message = occurrences.isEmpty ? scheduleWidgetRestMessage : nil
-
-        return ScheduleWidgetEntry(
-            date: Date(),
-            nextOccurrences: Array(occurrences.prefix(6)),
-            message: message
-        )
     }
 
     /// 构造统一的空态条目，避免多处重复写空数组与同样的文案。
-    private func emptyEntry(message: String) -> ScheduleWidgetEntry {
+    private func emptyEntry(message: String, date: Date) -> ScheduleWidgetEntry {
         ScheduleWidgetEntry(
-            date: Date(),
+            date: date,
             nextOccurrences: [],
             message: message
         )
@@ -263,17 +255,12 @@ private struct ScheduleWidgetProvider: TimelineProvider {
     ///
     /// 优先在最近一节课的开始/切换节点刷新；没有课程时再走兜底刷新。
     private func nextRefreshDate(for entry: ScheduleWidgetEntry) -> Date {
-        let now = Date()
-        let candidates = entry.nextOccurrences
-            .flatMap { [$0.startDate, $0.displayUntilDate] }
-            .filter { $0 > now.addingTimeInterval(30) }
-            .sorted()
-
-        if let next = candidates.first {
-            return next
-        }
-
-        return Calendar.current.date(byAdding: .minute, value: 30, to: now) ?? now.addingTimeInterval(1800)
+        ScheduleTimelineRefreshPlanner.nextRefreshDate(
+            for: entry.nextOccurrences,
+            now: entry.date,
+            includeDisplayUntilDates: true,
+            includeNextMidnight: false
+        )
     }
 }
 

@@ -105,3 +105,127 @@ struct ScorePresentationTests {
         )
     }
 }
+
+@Suite("External schedule infrastructure")
+struct ExternalScheduleInfrastructureTests {
+    @Test("Snapshot codec preserves the shared contract")
+    func snapshotCodecRoundTrip() throws {
+        let snapshot = makeSnapshot()
+        let data = try ScheduleExternalSnapshotCodec.encode(snapshot)
+
+        #expect(try ScheduleExternalSnapshotCodec.decode(data) == snapshot)
+    }
+
+    @Test("Watch transfer protocol recognizes requests and snapshots")
+    func watchTransferProtocol() throws {
+        let data = try ScheduleExternalSnapshotCodec.encode(makeSnapshot())
+        let context = WatchScheduleTransferProtocol.snapshotContext(data)
+
+        #expect(WatchScheduleTransferProtocol.requestData == Data("request_latest_schedule_snapshot".utf8))
+        #expect(WatchScheduleTransferProtocol.requestsLatestSnapshot(WatchScheduleTransferProtocol.requestContext))
+        #expect(WatchScheduleTransferProtocol.snapshotData(from: context) == data)
+        #expect(!WatchScheduleTransferProtocol.requestsLatestSnapshot(context))
+    }
+
+    @Test("Resolved snapshot states distinguish missing login invalid rest and ready")
+    func resolvedSnapshotStates() throws {
+        let firstDay = try #require(ScheduleSharedDateCodec.parseDate("2026-03-02"))
+        let beforeClass = try #require(ScheduleSharedDateCodec.combine(date: firstDay, time: "07:00"))
+        let afterClass = try #require(ScheduleSharedDateCodec.combine(date: firstDay, time: "10:00"))
+
+        #expect(ScheduleOccurrenceResolver.resolvedSnapshot(from: nil, now: beforeClass).contentState == .missing)
+        #expect(ScheduleOccurrenceResolver.resolvedSnapshot(
+            from: makeSnapshot(isLoggedIn: false),
+            now: beforeClass
+        ).contentState == .loggedOut)
+        #expect(ScheduleOccurrenceResolver.resolvedSnapshot(
+            from: makeSnapshot(includeCourses: false),
+            now: beforeClass
+        ).contentState == .invalid)
+        #expect(ScheduleOccurrenceResolver.resolvedSnapshot(
+            from: makeSnapshot(),
+            now: afterClass
+        ).contentState == .rest)
+
+        let ready = ScheduleOccurrenceResolver.resolvedSnapshot(
+            from: makeSnapshot(),
+            now: beforeClass,
+            limit: 1
+        )
+        #expect(ready.contentState == .ready)
+        #expect(ready.upcomingOccurrences.count == 1)
+        #expect(ready.nextOccurrence?.title == "高等数学")
+    }
+
+    @Test("Timeline planner selects course transitions and midnight")
+    func timelineRefreshPlanning() throws {
+        let day = try #require(ScheduleSharedDateCodec.parseDate("2026-03-02"))
+        let start = try #require(ScheduleSharedDateCodec.combine(date: day, time: "08:00"))
+        let displayUntil = start.addingTimeInterval(5 * 60)
+        let occurrence = ScheduleExternalOccurrence(
+            id: "course-1",
+            title: "高等数学",
+            classroom: "理教201",
+            teacher: "张老师",
+            startDate: start,
+            endDate: start.addingTimeInterval(90 * 60),
+            displayUntilDate: displayUntil
+        )
+
+        let beforeClass = start.addingTimeInterval(-60 * 60)
+        #expect(ScheduleTimelineRefreshPlanner.nextRefreshDate(
+            for: [occurrence],
+            now: beforeClass,
+            includeDisplayUntilDates: true,
+            includeNextMidnight: false
+        ) == start)
+
+        let duringDisplayWindow = start.addingTimeInterval(60)
+        #expect(ScheduleTimelineRefreshPlanner.nextRefreshDate(
+            for: [occurrence],
+            now: duringDisplayWindow,
+            includeDisplayUntilDates: true,
+            includeNextMidnight: false
+        ) == displayUntil)
+
+        let lateEvening = try #require(ScheduleSharedDateCodec.combine(date: day, time: "23:50"))
+        let nextMidnight = ScheduleSharedDateCodec.calendar.date(
+            byAdding: .day,
+            value: 1,
+            to: ScheduleSharedDateCodec.calendar.startOfDay(for: lateEvening)
+        )?.addingTimeInterval(1)
+        #expect(ScheduleTimelineRefreshPlanner.nextRefreshDate(
+            for: [],
+            now: lateEvening,
+            includeDisplayUntilDates: false,
+            includeNextMidnight: true
+        ) == nextMidnight)
+    }
+
+    private func makeSnapshot(
+        isLoggedIn: Bool = true,
+        includeCourses: Bool = true
+    ) -> ScheduleExternalSnapshot {
+        ScheduleExternalSnapshot(
+            generatedAt: Date(timeIntervalSince1970: 1_772_422_400),
+            isLoggedIn: isLoggedIn,
+            studentID: "1120260001",
+            firstDayString: "2026-03-02",
+            timeTable: [
+                ScheduleExternalTimeSlotSnapshot(id: 1, start: "08:00", end: "09:30"),
+            ],
+            courses: includeCourses ? [
+                ScheduleExternalCourseSnapshot(
+                    id: "course-1",
+                    name: "高等数学",
+                    classroom: "理科教学楼201",
+                    teacher: "张老师",
+                    weeks: [1],
+                    weekday: 1,
+                    startSection: 1,
+                    endSection: 1
+                ),
+            ] : []
+        )
+    }
+}

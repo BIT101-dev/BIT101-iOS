@@ -487,16 +487,21 @@ Widget、锁屏组件、Apple Watch、Live Activity 不能直接依赖主 App �
 watch app 与 watch widget 当前都不再各自维护一套“读快照 -> 算下一节课”的流程，而是统一复用：
 
 - `Shared/ScheduleSharedOccurrence.swift`
-  负责共享快照到 `ScheduleExternalOccurrence` 的解析
+  负责共享快照到 `ScheduleExternalOccurrence` 的解析、内容状态判定和时间线刷新规划
+- `Shared/ScheduleSharedSnapshot.swift`
+  负责快照存储、统一 ISO8601 编解码以及 WatchConnectivity 字段协议
 - `WatchSync/WatchScheduleSyncManager.swift`
-  负责 iPhone 与 watch 间的镜像同步
+  负责 iPhone 与 watch 间的镜像同步，并记录不包含课表内容的结构化错误日志
+- `BIT101Watch/WatchScheduleStatusModel.swift`
+  负责 Watch 页面状态协调；系统时间、快照读取和同步入口均通过依赖边界注入
 
 这意味着维护手表相关问题时，建议优先按下面顺序看：
 
 1. 主 App 是否成功导出了 `ScheduleExternalSnapshot`
 2. `WatchConnectivity` 是否把镜像送到了 watch
 3. watch 侧是否成功落地共享快照
-4. watch app / widget 是否只是消费了解析结果
+4. `contentState` 是否正确区分未同步、未登录、无效快照和确实无课
+5. watch app / widget 是否只是消费了解析结果
 
 ## 11. 文件级入口建议
 

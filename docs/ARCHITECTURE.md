@@ -274,11 +274,17 @@ watch app 和 watch widget 当前遵循和桌面 widget 类似的原则：
    - 读取镜像
    - 展示“当前 / 下一节 / 后续课程”
 
+桌面 Widget、Watch App 和 Watch Widget 统一通过 `ScheduleExternalContentState`
+区分“未同步 / 未登录 / 快照无效 / 无课 / 有课”，并通过
+`ScheduleTimelineRefreshPlanner` 计算课程切换与跨日刷新时刻。快照磁盘存储和
+WatchConnectivity 传输共同使用 `ScheduleExternalSnapshotCodec`，避免日期策略漂移。
+
 这样做的原因是：
 
 - watch 端不需要重复维护“首周 + 周次 + 节次 -> 实际上课时间”的推导
 - watch app 与 watch widget 可以共享同一套最小解析逻辑
 - 同步问题可以优先收敛到 `WatchConnectivity + shared snapshot` 这条链路上排查
+- Watch 同步错误会写入 `WatchScheduleSync` 分类日志，但不会记录课表正文或学生信息
 
 ## 9. Live Activity 与 Widget 的区别
 
