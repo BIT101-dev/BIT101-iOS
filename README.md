@@ -117,6 +117,8 @@
    说明构建、签名、真机、账号隔离、小组件、Live Activity 和常见维护注意事项。
 3. [`docs/FILE_INDEX.md`](docs/FILE_INDEX.md)
    列出全部 Swift 源码文件及其职责，适合快速定位代码入口。
+4. [`docs/TESTING.md`](docs/TESTING.md)
+   说明测试 Target、本地测试命令与 CI 门禁。
 
 ## 构建说明
 

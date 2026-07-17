@@ -9,16 +9,7 @@ import Combine
 import Foundation
 
 private func isCourseDetailCancellation(_ error: Error) -> Bool {
-    if error is CancellationError {
-        return true
-    }
-
-    if let urlError = error as? URLError, urlError.code == .cancelled {
-        return true
-    }
-
-    let nsError = error as NSError
-    return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
+    TaskCancellation.matches(error)
 }
 
 /// 课程评论输入目标。
@@ -97,14 +88,14 @@ final class CourseDetailViewModel: ObservableObject {
     @Published private(set) var historyGradeStatus: CourseHistoryGradeLoadStatus = .idle
     @Published private(set) var likingCommentIDs: Set<Int> = []
     @Published private(set) var isSubmittingComment = false
-    @Published var alert: LoginAlert?
+    @Published var alert: AppAlert?
 
     let initialCourse: CourseSummary
 
-    private let service: CourseService
+    private let service: any CourseDetailServicing
     private var hasBootstrapped = false
 
-    init(initialCourse: CourseSummary, service: CourseService? = nil) {
+    init(initialCourse: CourseSummary, service: (any CourseDetailServicing)? = nil) {
         self.initialCourse = initialCourse
         self.service = service ?? CourseService()
     }
@@ -226,7 +217,7 @@ final class CourseDetailViewModel: ObservableObject {
             commentState.canLoadMore = !comments.isEmpty
         case let .failure(error):
             if isCourseDetailCancellation(error) { return }
-            alert = LoginAlert(title: "加载更多评论失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载更多评论失败", message: error.localizedDescription)
         }
     }
 
@@ -281,7 +272,7 @@ final class CourseDetailViewModel: ObservableObject {
             }
         } catch {
             if isCourseDetailCancellation(error) { return }
-            alert = LoginAlert(title: "点赞失败", message: error.localizedDescription)
+            alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
     }
 
@@ -295,18 +286,18 @@ final class CourseDetailViewModel: ObservableObject {
             commentState.items = commentState.items.updatingLike(for: comment.id, like: result.like, likeNum: result.likeNum)
         } catch {
             if isCourseDetailCancellation(error) { return }
-            alert = LoginAlert(title: "点赞失败", message: error.localizedDescription)
+            alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
     }
 
     func submitComment(text: String, anonymous: Bool, rate: Int?, target: CourseCommentComposerTarget) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            alert = LoginAlert(title: "发送失败", message: "评论不能为空。")
+            alert = AppAlert(title: "发送失败", message: "评论不能为空。")
             return false
         }
         if let message = CommunityModeration.validateCommentDraft(text: trimmed) {
-            alert = LoginAlert(title: "内容不合规", message: message)
+            alert = AppAlert(title: "内容不合规", message: message)
             return false
         }
         guard !isSubmittingComment else { return false }
@@ -327,7 +318,7 @@ final class CourseDetailViewModel: ObservableObject {
             return true
         } catch {
             if isCourseDetailCancellation(error) { return false }
-            alert = LoginAlert(title: "发送失败", message: error.localizedDescription)
+            alert = AppAlert(title: "发送失败", message: error.localizedDescription)
             return false
         }
     }
@@ -363,12 +354,12 @@ final class CourseDetailViewModel: ObservableObject {
 
             if hadCourse {
                 status = .loaded
-                alert = LoginAlert(title: "刷新课程详情失败", message: error.localizedDescription)
+                alert = AppAlert(title: "刷新课程详情失败", message: error.localizedDescription)
                 return
             }
 
             status = .failed(error.localizedDescription)
-            alert = LoginAlert(title: "加载课程详情失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载课程详情失败", message: error.localizedDescription)
         }
     }
 
@@ -390,7 +381,7 @@ final class CourseDetailViewModel: ObservableObject {
             commentState.status = .failed(error.localizedDescription)
             commentState.canLoadMore = false
             commentState.isLoadingMore = false
-            alert = LoginAlert(title: "加载评论失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载评论失败", message: error.localizedDescription)
         }
     }
 

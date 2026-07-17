@@ -10,23 +10,6 @@ import UIKit
 import Network
 import Combine
 
-/// 统一生成文章页使用的横向轻扫切换手势。
-///
-/// 这里和话廊页保持同一套判断：
-/// - 横向位移大于纵向位移
-/// - 横向位移达到最小触发阈值
-/// - 左滑记作 `+1`，右滑记作 `-1`
-private func makePaperHorizontalSwitchGesture(onStep: @escaping (Int) -> Void) -> some Gesture {
-    DragGesture(minimumDistance: 24, coordinateSpace: .local)
-        .onEnded { value in
-            let horizontal = value.translation.width
-            let vertical = value.translation.height
-
-            guard abs(horizontal) > abs(vertical), abs(horizontal) >= 56 else { return }
-            onStep(horizontal < 0 ? 1 : -1)
-        }
-}
-
 /// 文章模块根视图。
 ///
 /// 这里承接底部栏里的“文章”入口，负责文章列表、搜索和详情跳转。
@@ -261,7 +244,7 @@ struct PaperRootView: View {
     ///
     /// 当已经位于最左或最右的排序分区时，继续向外轻扫会切回“话题”页。
     private var sortSwitchGesture: some Gesture {
-        makePaperHorizontalSwitchGesture(onStep: switchSortOrder)
+        makeHorizontalSwitchGesture(onStep: switchSortOrder)
     }
 
     private func switchSortOrder(step: Int) {
@@ -1348,7 +1331,7 @@ private struct PaperComposerView: View {
     @State private var content = ""
     @State private var anonymous = false
     @State private var isSubmitting = false
-    @State private var alert: LoginAlert?
+    @State private var alert: AppAlert?
 
     private let service = PaperService()
 
@@ -1399,7 +1382,7 @@ private struct PaperComposerView: View {
         let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmedTitle.isEmpty, !trimmedIntro.isEmpty, !trimmedContent.isEmpty else {
-            alert = LoginAlert(title: "发布失败", message: "标题、简介和正文都不能为空。")
+            alert = AppAlert(title: "发布失败", message: "标题、简介和正文都不能为空。")
             return
         }
 
@@ -1417,7 +1400,7 @@ private struct PaperComposerView: View {
             onCreated()
             dismiss()
         } catch {
-            alert = LoginAlert(title: "发布失败", message: error.localizedDescription)
+            alert = AppAlert(title: "发布失败", message: error.localizedDescription)
         }
     }
 }

@@ -10,51 +10,14 @@ import Foundation
 
 /// 判断文章模块请求是否只是任务取消。
 private func isPaperRequestCancellation(_ error: Error) -> Bool {
-    if error is CancellationError {
-        return true
-    }
-
-    let nsError = error as NSError
-    return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
-}
-
-/// 文章列表滚到尾部附近时的统一分页判断。
-private func paperShouldLoadMore(currentID: Int, state: PaperListState) -> Bool {
-    guard
-        state.status == .loaded,
-        !state.isLoadingMore,
-        state.canLoadMore,
-        state.items.suffix(4).contains(where: { $0.id == currentID })
-    else {
-        return false
-    }
-
-    return true
+    TaskCancellation.matches(error)
 }
 
 private extension PaperListState {
     /// 首屏请求开始前统一重置分页状态。
     mutating func prepareForRefresh() {
         status = .loading
-        items = []
-        isLoadingMore = false
-        nextPage = 0
-        canLoadMore = true
-    }
-
-    /// 首屏请求完成后统一落状态。
-    mutating func applyFirstPage(_ papers: [PaperSummary]) {
-        items = papers
-        status = .loaded
-        nextPage = 1
-        canLoadMore = !papers.isEmpty
-    }
-
-    /// 追加下一页结果。
-    mutating func appendPage(_ papers: [PaperSummary]) {
-        items.append(contentsOf: papers)
-        nextPage += 1
-        canLoadMore = !papers.isEmpty
+        resetPagination()
     }
 }
 
@@ -65,13 +28,13 @@ final class PaperListViewModel: ObservableObject {
     @Published private(set) var previewMetadataByPaperID: [Int: PaperPreviewMetadata] = [:]
     @Published var selectedOrder: PaperSortOrder = .newest
     @Published var searchText = ""
-    @Published var alert: LoginAlert?
+    @Published var alert: AppAlert?
 
-    private let service: PaperService
+    private let service: any PaperListServicing
     private var hasBootstrapped = false
     private var previewLoadingIDs: Set<Int> = []
 
-    init(service: PaperService? = nil) {
+    init(service: (any PaperListServicing)? = nil) {
         self.service = service ?? PaperService()
     }
 
@@ -91,16 +54,17 @@ final class PaperListViewModel: ObservableObject {
                 page: 0
             )
             state.applyFirstPage(papers)
+            state.status = .loaded
         } catch {
             if isPaperRequestCancellation(error) { return }
             state.status = .failed(error.localizedDescription)
-            alert = LoginAlert(title: "加载文章失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载文章失败", message: error.localizedDescription)
         }
     }
 
     func loadMoreIfNeeded(currentPaper: PaperSummary?) async {
         guard let currentPaper else { return }
-        guard paperShouldLoadMore(currentID: currentPaper.id, state: state) else { return }
+        guard state.status == .loaded, state.shouldLoadMore(currentID: currentPaper.id) else { return }
 
         state.isLoadingMore = true
         defer { state.isLoadingMore = false }
@@ -114,7 +78,7 @@ final class PaperListViewModel: ObservableObject {
             state.appendPage(papers)
         } catch {
             if isPaperRequestCancellation(error) { return }
-            alert = LoginAlert(title: "加载更多失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
     }
 
@@ -155,12 +119,12 @@ final class PaperSearchViewModel: ObservableObject {
     @Published private(set) var previewMetadataByPaperID: [Int: PaperPreviewMetadata] = [:]
     @Published var selectedOrder: PaperSortOrder = .newest
     @Published var searchText = ""
-    @Published var alert: LoginAlert?
+    @Published var alert: AppAlert?
 
-    private let service: PaperService
+    private let service: any PaperListServicing
     private var previewLoadingIDs: Set<Int> = []
 
-    init(service: PaperService? = nil) {
+    init(service: (any PaperListServicing)? = nil) {
         self.service = service ?? PaperService()
     }
 
@@ -179,16 +143,17 @@ final class PaperSearchViewModel: ObservableObject {
                 page: 0
             )
             state.applyFirstPage(papers)
+            state.status = .loaded
         } catch {
             if isPaperRequestCancellation(error) { return }
             state.status = .failed(error.localizedDescription)
-            alert = LoginAlert(title: "搜索文章失败", message: error.localizedDescription)
+            alert = AppAlert(title: "搜索文章失败", message: error.localizedDescription)
         }
     }
 
     func loadMoreIfNeeded(currentPaper: PaperSummary?) async {
         guard let currentPaper, let trimmedSearchText else { return }
-        guard paperShouldLoadMore(currentID: currentPaper.id, state: state) else { return }
+        guard state.status == .loaded, state.shouldLoadMore(currentID: currentPaper.id) else { return }
 
         state.isLoadingMore = true
         defer { state.isLoadingMore = false }
@@ -202,7 +167,7 @@ final class PaperSearchViewModel: ObservableObject {
             state.appendPage(papers)
         } catch {
             if isPaperRequestCancellation(error) { return }
-            alert = LoginAlert(title: "加载更多失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
     }
 
@@ -247,14 +212,14 @@ final class PaperDetailViewModel: ObservableObject {
     @Published private(set) var isLikingPaper = false
     @Published private(set) var likingCommentIDs: Set<Int> = []
     @Published private(set) var isSubmittingComment = false
-    @Published var alert: LoginAlert?
+    @Published var alert: AppAlert?
 
     let initialPaper: PaperSummary
 
-    private let service: PaperService
+    private let service: any PaperDetailServicing
     private var hasBootstrapped = false
 
-    init(initialPaper: PaperSummary, service: PaperService? = nil) {
+    init(initialPaper: PaperSummary, service: (any PaperDetailServicing)? = nil) {
         self.initialPaper = initialPaper
         self.service = service ?? PaperService()
     }
@@ -290,14 +255,9 @@ final class PaperDetailViewModel: ObservableObject {
 
     func loadMoreCommentsIfNeeded(currentComment: GalleryComment?) async {
         guard let currentComment else { return }
-        guard
-            commentState.status == .loaded,
-            !commentState.isLoadingMore,
-            commentState.canLoadMore,
-            commentState.items.suffix(4).contains(where: { $0.id == currentComment.id })
-        else {
-            return
-        }
+        guard commentState.status == .loaded,
+              commentState.shouldLoadMore(currentID: currentComment.id)
+        else { return }
 
         commentState.isLoadingMore = true
         defer { commentState.isLoadingMore = false }
@@ -312,12 +272,10 @@ final class PaperDetailViewModel: ObservableObject {
 
         switch result {
         case let .success(comments):
-            commentState.items.append(contentsOf: comments)
-            commentState.nextPage += 1
-            commentState.canLoadMore = !comments.isEmpty
+            commentState.appendPage(comments)
         case let .failure(error):
             if isPaperRequestCancellation(error) { return }
-            alert = LoginAlert(title: "加载更多失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
     }
 
@@ -340,7 +298,7 @@ final class PaperDetailViewModel: ObservableObject {
             }
         } catch {
             if isPaperRequestCancellation(error) { return }
-            alert = LoginAlert(title: "点赞失败", message: error.localizedDescription)
+            alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
     }
 
@@ -354,18 +312,18 @@ final class PaperDetailViewModel: ObservableObject {
             commentState.items = commentState.items.updatingLike(for: comment.id, like: result.like, likeNum: result.likeNum)
         } catch {
             if isPaperRequestCancellation(error) { return }
-            alert = LoginAlert(title: "点赞失败", message: error.localizedDescription)
+            alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
     }
 
     func submitComment(text: String, anonymous: Bool, target: PaperCommentComposerTarget) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            alert = LoginAlert(title: "发送失败", message: "评论不能为空。")
+            alert = AppAlert(title: "发送失败", message: "评论不能为空。")
             return false
         }
         if let message = CommunityModeration.validateCommentDraft(text: trimmed) {
-            alert = LoginAlert(title: "内容不合规", message: message)
+            alert = AppAlert(title: "内容不合规", message: message)
             return false
         }
         guard !isSubmittingComment else { return false }
@@ -385,7 +343,7 @@ final class PaperDetailViewModel: ObservableObject {
             return true
         } catch {
             if isPaperRequestCancellation(error) { return false }
-            alert = LoginAlert(title: "发送失败", message: error.localizedDescription)
+            alert = AppAlert(title: "发送失败", message: error.localizedDescription)
             return false
         }
     }
@@ -402,7 +360,7 @@ final class PaperDetailViewModel: ObservableObject {
                 return
             }
             paperStatus = .failed(error.localizedDescription)
-            alert = LoginAlert(title: "加载文章失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载文章失败", message: error.localizedDescription)
         }
     }
 
@@ -423,16 +381,13 @@ final class PaperDetailViewModel: ObservableObject {
             commentState.status = .failed(error.localizedDescription)
             commentState.canLoadMore = false
             commentState.isLoadingMore = false
-            alert = LoginAlert(title: "加载评论失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载评论失败", message: error.localizedDescription)
         }
     }
 
     private func resetCommentStateForRefresh() {
         commentState.status = .loading
-        commentState.items = []
-        commentState.isLoadingMore = false
-        commentState.nextPage = 0
-        commentState.canLoadMore = true
+        commentState.resetPagination()
     }
 
     private func loadResult<T>(_ operation: @escaping () async throws -> T) async -> Result<T, Error> {

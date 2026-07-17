@@ -53,3 +53,5 @@ struct MinePagedState<Item> {
     /// 后端是否还有更多数据；为 `false` 时不再触发分页。
     var canLoadMore = true
 }
+
+extension MinePagedState: PagedItemsState {}

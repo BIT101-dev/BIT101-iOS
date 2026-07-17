@@ -22,6 +22,16 @@
   共享快照模型、共享容器路径和读写入口。
 - `BIT101-iOS/BIT101-iOS/Shared/ScheduleSharedLiveActivity.swift`
   主 App 与 widget target 共用的 Live Activity attributes / content state 契约。
+- `BIT101-iOS/BIT101-iOS/Shared/Infrastructure/AppAlert.swift`
+  各业务模块共享的页面提示数据模型。
+- `BIT101-iOS/BIT101-iOS/Shared/Infrastructure/TaskCancellation.swift`
+  Concurrency 与 URLSession 取消错误的统一识别入口。
+- `BIT101-iOS/BIT101-iOS/Shared/Infrastructure/AccountScopedCodableStore.swift`
+  统一按账号拼接键并读写 Codable 快照。
+- `BIT101-iOS/BIT101-iOS/Shared/Infrastructure/HorizontalSwitchGesture.swift`
+  segmented 内容区复用的横向轻扫阈值和方向判断。
+- `BIT101-iOS/BIT101-iOS/Shared/Infrastructure/PagedItemsState.swift`
+  页码分页列表共用的状态契约、游标推进和尾部触发规则。
 - `BIT101-iOS/BIT101-iOS/WatchSync/WatchScheduleSyncManager.swift`
   iPhone 与 Apple Watch 之间的课表镜像同步桥。
 
@@ -38,6 +48,8 @@
   登录流程状态机，管理输入、提交、错误态和恢复逻辑。
 - `BIT101-iOS/BIT101-iOS/Login/LoginService.swift`
   学校 CAS、SSO、BIT101 登录桥接、Keychain 与凭据恢复。
+- `BIT101-iOS/BIT101-iOS/Login/LoginServicing.swift`
+  登录 ViewModel 使用的最小 Service 协议与生产实现适配。
 
 注意：学校教务业务的新版 bit-login challenge 不在 `LoginService`，而分别由
 `ScheduleService` 和 `ScoreService` 管理。
@@ -50,12 +62,16 @@
   发帖页，包括标签、自定义标签、内容输入和提交。
 - `BIT101-iOS/BIT101-iOS/Gallery/GalleryModels.swift`
   帖子、评论、搜索、消息、用户等模型定义。
+- `BIT101-iOS/BIT101-iOS/Gallery/GalleryImageViewer.swift`
+  远程与内存图片共用的全屏缩放查看器和日期解析支持。
 - `BIT101-iOS/BIT101-iOS/Gallery/GalleryPosterDetailViewModel.swift`
   帖子详情页状态机，处理评论、点赞、详情刷新等。
 - `BIT101-iOS/BIT101-iOS/Gallery/GalleryRootView.swift`
   话廊首页、消息页、搜索页、帖子详情、图片查看器等主要视图。
 - `BIT101-iOS/BIT101-iOS/Gallery/GalleryService.swift`
   话廊 feed、搜索、消息、帖子详情、删除等网络接口。
+- `BIT101-iOS/BIT101-iOS/Gallery/GalleryServicing.swift`
+  按 feed、消息和帖子详情场景拆分的 Service 协议。
 - `BIT101-iOS/BIT101-iOS/Gallery/GalleryViewModel.swift`
   话廊 feed、搜索与消息分类的状态机，负责刷新、分页、预取和本地已读近似状态。
 
@@ -67,6 +83,8 @@
   文章列表、搜索、详情、发布、编辑、评论和图片预览 UI。
 - `BIT101-iOS/BIT101-iOS/Paper/PaperService.swift`
   文章列表、详情、发布、编辑、删除、点赞与评论接口。
+- `BIT101-iOS/BIT101-iOS/Paper/PaperServicing.swift`
+  文章列表和详情状态机使用的最小 Service 协议。
 - `BIT101-iOS/BIT101-iOS/Paper/PaperViewModel.swift`
   文章列表与详情状态机，负责分页、搜索、详情刷新和评论交互。
 
@@ -83,6 +101,8 @@
   我的主页、他人主页、粉丝、关注、帖子列表等视图。
 - `BIT101-iOS/BIT101-iOS/Mine/MineService.swift`
   个人信息、粉丝、关注、帖子列表相关请求。
+- `BIT101-iOS/BIT101-iOS/Mine/MineServicing.swift`
+  我的主页与他人主页各自使用的 Service 协议。
 - `BIT101-iOS/BIT101-iOS/Mine/MineViewModel.swift`
   我的模块状态机，管理主页加载与分页。
 
@@ -92,16 +112,26 @@
   课程提醒 Live Activity 管理器，负责开始、更新和结束提醒。
 - `BIT101-iOS/BIT101-iOS/Schedule/ScheduleModels.swift`
   课表、考试、DDL、空教室、自定义日程、本地缓存和时间表相关模型。
+- `BIT101-iOS/BIT101-iOS/Schedule/FreeClassroomViews.swift`
+  空教室查询、加载状态和节次筛选视图。
+- `BIT101-iOS/BIT101-iOS/Schedule/ClassroomSorting.swift`
+  空教室名称的自然排序规则。
 - `BIT101-iOS/BIT101-iOS/Schedule/ScheduleRootView.swift`
   日程页主视图，包含课表、DDL、空教室三块 UI。
 - `BIT101-iOS/BIT101-iOS/Schedule/ScheduleSharePayloads.swift`
   课表分享载荷、紧凑分享码版本兼容与导入补全规则。
 - `BIT101-iOS/BIT101-iOS/Schedule/ScheduleService.swift`
   bit-login 教学中心会话、学期列表、课表、考试、首周日期、乐学与空教室接口及解析逻辑。
+- `BIT101-iOS/BIT101-iOS/Schedule/ScheduleServiceSupport.swift`
+  学校重定向 HTTPS 升级、URL 解析和取消判断支持。
+- `BIT101-iOS/BIT101-iOS/Schedule/ScheduleServicing.swift`
+  日程状态机依赖的学校系统 Service 协议。
 - `BIT101-iOS/BIT101-iOS/Schedule/ScheduleViewModel.swift`
   日程模块状态机，负责缓存恢复、同步、偏好恢复、自动匹配和查询。
 - `BIT101-iOS/BIT101-iOS/Schedule/ScheduleWidgetSupport.swift`
   将主 App 课表导出为共享快照，供 widget / 锁屏 / Live Activity 使用。
+- `BIT101-iOS/BIT101-iOS/Schedule/ScheduleVerificationView.swift`
+  课表同步使用的短信验证码输入与提交面板。
 
 ## 8. 成绩模块
 
@@ -109,8 +139,16 @@
   成绩记录、筛选与统计模型。
 - `BIT101-iOS/BIT101-iOS/Score/ScoreCacheStore.swift`
   按学号隔离的基础成绩列表缓存。
+- `BIT101-iOS/BIT101-iOS/Score/ScorePresentationModels.swift`
+  成绩筛选偏好、排序索引和比较规则。
+- `BIT101-iOS/BIT101-iOS/Score/ScoreFilterViews.swift`
+  学期/种类多选与排序设置页面。
 - `BIT101-iOS/BIT101-iOS/Score/ScoreRootView.swift`
   成绩主页、筛选、排序、统计、可信成绩单申请与短信验证等原生视图。
+- `BIT101-iOS/BIT101-iOS/Score/ScoreViewModels.swift`
+  普通成绩与可信成绩单两套独立状态机。
+- `BIT101-iOS/BIT101-iOS/Score/ScoreServicing.swift`
+  普通成绩与可信成绩单场景各自使用的 Service 协议。
 - `BIT101-iOS/BIT101-iOS/Score/ScoreService.swift`
   普通成绩与可信成绩单的独立 bit-login challenge、短信验证、查询和临时图片下载。
 
@@ -122,6 +160,8 @@
   课程浏览、搜索和详情入口；当前嵌入“成绩 / 课程”合并页。
 - `BIT101-iOS/BIT101-iOS/Course/CourseService.swift`
   课程列表、搜索、详情、点赞与评论接口。
+- `BIT101-iOS/BIT101-iOS/Course/CourseServicing.swift`
+  按列表和详情场景拆分的 Service 协议。
 - `BIT101-iOS/BIT101-iOS/Course/CourseViewModel.swift`
   课程列表状态机，负责刷新、搜索和分页。
 - `BIT101-iOS/BIT101-iOS/Course/CourseDetailView.swift`
@@ -134,9 +174,13 @@
 - `BIT101-iOS/BIT101-iOS/Settings/AppSettingsStore.swift`
   设置快照与持久化中心，处理全局设置和账号隔离设置。
 - `BIT101-iOS/BIT101-iOS/Settings/SettingsRootView.swift`
-  设置页、关于页、开源声明与子设置页。
+  设置入口、账号、页面、主题、课表和 DDL 子设置页。
+- `BIT101-iOS/BIT101-iOS/Settings/SettingsCommunityViews.swift`
+  话廊设置、关于、开源声明和缓存清理页面。
 - `BIT101-iOS/BIT101-iOS/Settings/SettingsServices.swift`
   设置模块复用的网络辅助逻辑。
+- `BIT101-iOS/BIT101-iOS/Settings/SettingsSupportViews.swift`
+  设置模块复用的文本编辑、隐藏用户和隐藏帖子组件。
 
 ## 10. Widget / 锁屏组件 / Live Activity 扩展
 

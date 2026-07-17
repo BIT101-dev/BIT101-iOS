@@ -510,7 +510,7 @@ private struct MinePosterListView: View {
     @State private var selectedPoster: GalleryPoster?
     @State private var imageViewer: GalleryImageViewerState?
     @State private var deletingPoster: GalleryPoster?
-    @State private var alert: LoginAlert?
+    @State private var alert: AppAlert?
     @State private var deletedPosterIDs: Set<Int> = []
     private let service = GalleryService()
 
@@ -645,7 +645,7 @@ private struct MinePosterListView: View {
             }
             onRefresh()
         } catch {
-            alert = LoginAlert(title: "删除失败", message: error.localizedDescription)
+            alert = AppAlert(title: "删除失败", message: error.localizedDescription)
         }
     }
 }

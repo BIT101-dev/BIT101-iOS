@@ -32,6 +32,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		111111111111111111111117 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D2FF4C8E2F729DB4000FA1C1 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D2FF4C952F729DB4000FA1C1;
+			remoteInfo = "BIT101-iOS";
+		};
 		4821D067A5997FA5482510A0 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = D2FF4C8E2F729DB4000FA1C1 /* Project object */;
@@ -92,6 +99,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		111111111111111111111112 /* BIT101-iOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "BIT101-iOSTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		027903073181F16453D11398 /* BIT101Watch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BIT101Watch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0382F3A6842C7256F74D4FCC /* BIT101ScheduleWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BIT101ScheduleWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		21A95B6C96CDD83709030EF8 /* BIT101WatchApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BIT101WatchApp.swift; sourceTree = "<group>"; };
@@ -118,6 +126,11 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		111111111111111111111113 /* BIT101-iOSTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "BIT101-iOSTests";
+			sourceTree = "<group>";
+		};
 		D2FF4C982F729DB4000FA1C1 /* BIT101-iOS */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "BIT101-iOS";
@@ -126,6 +139,13 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		111111111111111111111115 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		4C472C2944238BC1477A9927 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -230,6 +250,7 @@
 			isa = PBXGroup;
 			children = (
 				D2FF4C982F729DB4000FA1C1 /* BIT101-iOS */,
+				111111111111111111111113 /* BIT101-iOSTests */,
 				D2FF4C972F729DB4000FA1C1 /* Products */,
 				CDE5796C86F63D4361DA19D7 /* Frameworks */,
 				004DE69434B9FEF2A654EB3C /* BIT101ScheduleWidget */,
@@ -244,6 +265,7 @@
 			isa = PBXGroup;
 			children = (
 				D2FF4C962F729DB4000FA1C1 /* BIT101-iOS.app */,
+				111111111111111111111112 /* BIT101-iOSTests.xctest */,
 				0382F3A6842C7256F74D4FCC /* BIT101ScheduleWidget.appex */,
 				027903073181F16453D11398 /* BIT101Watch.app */,
 				6C427FABBA6FB6C2CF4098BE /* BIT101WatchWidgets.appex */,
@@ -266,6 +288,27 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		111111111111111111111111 /* BIT101-iOSTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 11111111111111111111111B /* Build configuration list for PBXNativeTarget "BIT101-iOSTests" */;
+			buildPhases = (
+				111111111111111111111114 /* Sources */,
+				111111111111111111111115 /* Frameworks */,
+				111111111111111111111116 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				111111111111111111111118 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				111111111111111111111113 /* BIT101-iOSTests */,
+			);
+			name = "BIT101-iOSTests";
+			productName = "BIT101-iOSTests";
+			productReference = 111111111111111111111112 /* BIT101-iOSTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		A222C4EBA765A745DE78B6CF /* BIT101ScheduleWidget */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = F1F65253CDF96455497F6E74 /* Build configuration list for PBXNativeTarget "BIT101ScheduleWidget" */;
@@ -353,6 +396,10 @@
 				LastSwiftUpdateCheck = 2630;
 				LastUpgradeCheck = 2630;
 				TargetAttributes = {
+					111111111111111111111111 = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = D2FF4C952F729DB4000FA1C1;
+					};
 					D2FF4C952F729DB4000FA1C1 = {
 						CreatedOnToolsVersion = 26.3;
 					};
@@ -373,6 +420,7 @@
 			projectRoot = "";
 			targets = (
 				D2FF4C952F729DB4000FA1C1 /* BIT101-iOS */,
+				111111111111111111111111 /* BIT101-iOSTests */,
 				A222C4EBA765A745DE78B6CF /* BIT101ScheduleWidget */,
 				C8AF9C40C472741950BEAF70 /* BIT101Watch */,
 				E14C33A004A034143423AAE7 /* BIT101WatchWidgets */,
@@ -381,6 +429,13 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		111111111111111111111116 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		18D4B100CC19CB188643D69A /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -413,6 +468,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		111111111111111111111114 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		0EF4EDC316C0A2A17A0BF63F /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -460,6 +522,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		111111111111111111111118 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D2FF4C952F729DB4000FA1C1 /* BIT101-iOS */;
+			targetProxy = 111111111111111111111117 /* PBXContainerItemProxy */;
+		};
 		0BA56A68ABF5ED6A9D65BFD9 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			name = BIT101Watch;
@@ -482,6 +549,46 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		111111111111111111111119 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = Y2T72736G3;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "BIT101-dev.BIT101-iOSTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BIT101-iOS.app/BIT101-iOS";
+			};
+			name = Debug;
+		};
+		11111111111111111111111A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = Y2T72736G3;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "BIT101-dev.BIT101-iOSTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BIT101-iOS.app/BIT101-iOS";
+			};
+			name = Release;
+		};
 		19B631471B4532818242ABCC /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -833,6 +940,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		11111111111111111111111B /* Build configuration list for PBXNativeTarget "BIT101-iOSTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				111111111111111111111119 /* Debug */,
+				11111111111111111111111A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		453A22FEB7A39D1F95247516 /* Build configuration list for PBXNativeTarget "BIT101WatchWidgets" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

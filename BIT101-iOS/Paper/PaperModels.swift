@@ -125,6 +125,8 @@ struct PaperListState {
     var canLoadMore = true
 }
 
+extension PaperListState: PagedItemsState {}
+
 /// 文章评论输入目标。
 enum PaperCommentComposerTarget: Identifiable, Equatable {
     case paper(paperID: Int)

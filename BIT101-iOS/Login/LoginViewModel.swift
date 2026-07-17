@@ -22,12 +22,6 @@ enum LoginScreenState: Equatable {
 ///
 /// 登录模块所有错误提示都经由这个模型统一上抛给视图层，避免 ViewModel 直接依赖
 /// 某种具体 Alert 组件。
-struct LoginAlert: Identifiable {
-    let id = UUID()
-    let title: String
-    let message: String
-}
-
 /// 登录流程状态机。
 ///
 /// 负责：
@@ -44,9 +38,9 @@ final class LoginViewModel: ObservableObject {
     /// 是否正在执行登录请求。
     @Published private(set) var isSubmitting = false
     /// 当前待展示的提示弹窗。
-    @Published var alert: LoginAlert?
+    @Published var alert: AppAlert?
 
-    private let service: LoginService
+    private let service: any LoginServicing
     /// 避免启动校验在视图重建时重复触发。
     private var hasBootstrapped = false
 
@@ -54,7 +48,7 @@ final class LoginViewModel: ObservableObject {
     ///
     /// 如果本地已有 fake-cookie，会先停留在无副作用的恢复页；只有远端确认会话有效后，
     /// 才挂载会触发启动公告等行为的主界面。
-    init(service: LoginService = LoginService()) {
+    init(service: any LoginServicing = LoginService()) {
         self.service = service
         let savedStudentID = service.savedStudentID
         studentID = savedStudentID
@@ -116,12 +110,12 @@ final class LoginViewModel: ObservableObject {
         let trimmedStudentID = studentID.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmedStudentID.isEmpty else {
-            alert = LoginAlert(title: "学号不能为空", message: "请输入学校统一身份认证使用的学号。")
+            alert = AppAlert(title: "学号不能为空", message: "请输入学校统一身份认证使用的学号。")
             return
         }
 
         guard !password.isEmpty else {
-            alert = LoginAlert(title: "密码不能为空", message: "请输入学校统一身份认证使用的密码。")
+            alert = AppAlert(title: "密码不能为空", message: "请输入学校统一身份认证使用的密码。")
             return
         }
 
@@ -134,7 +128,7 @@ final class LoginViewModel: ObservableObject {
             self.password = ""
             screenState = .signedIn(studentID: studentID)
         } catch {
-            alert = LoginAlert(
+            alert = AppAlert(
                 title: "登录失败",
                 message: error.localizedDescription
             )

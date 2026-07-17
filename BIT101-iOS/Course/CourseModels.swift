@@ -253,6 +253,8 @@ struct CoursePagedState {
     var canLoadMore = true
 }
 
+extension CoursePagedState: PagedItemsState {}
+
 /// 课程详情加载状态。
 ///
 /// 课程详情页与评论列表是两条并行的数据流，因此详情本体单独维护自己的加载状态。

@@ -16,30 +16,6 @@ private extension Int {
     }
 }
 
-/// 空教室列表里的教室名自然升序比较器。
-///
-/// 这里使用 `localizedStandardCompare`，让 `101 -> 102 -> 103` 这类教室名
-/// 按人类直觉排序，而不是简单字典序。
-private func classroomNameAscending(_ lhs: ClassroomAvailability, _ rhs: ClassroomAvailability) -> Bool {
-    let lhsName = lhs.name.trimmingCharacters(in: .whitespacesAndNewlines)
-    let rhsName = rhs.name.trimmingCharacters(in: .whitespacesAndNewlines)
-
-    switch (lhsName.isEmpty, rhsName.isEmpty) {
-    case (true, false):
-        return false
-    case (false, true):
-        return true
-    default:
-        break
-    }
-
-    let nameOrder = lhsName.localizedStandardCompare(rhsName)
-    if nameOrder != .orderedSame {
-        return nameOrder == .orderedAscending
-    }
-
-    return lhs.id.localizedStandardCompare(rhs.id) == .orderedAscending
-}
 
 /// 日程页统一使用的提示模型。
 ///
@@ -121,7 +97,7 @@ final class ScheduleViewModel: ObservableObject {
     @Published private(set) var hasLoadedAvailableTerms = false
     @Published private(set) var syncingTerm: String?
 
-    private let service: ScheduleService
+    private let service: any ScheduleServicing
     private var hasLoaded = false
     /// 空教室业务请求的总超时时间。
     private let classroomRequestTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
@@ -144,7 +120,7 @@ final class ScheduleViewModel: ObservableObject {
     private var cacheObserver: NSObjectProtocol?
 
     /// 初始化日程状态机，并监听缓存变化通知。
-    init(service: ScheduleService) {
+    init(service: any ScheduleServicing) {
         self.service = service
         cacheObserver = NotificationCenter.default.addObserver(
             forName: .scheduleCacheDidChange,
@@ -1796,12 +1772,7 @@ final class ScheduleViewModel: ObservableObject {
 
     /// 统一兼容任务取消错误。
     private func isCancellation(_ error: Error) -> Bool {
-        if error is CancellationError {
-            return true
-        }
-
-        let nsError = error as NSError
-        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
+        TaskCancellation.matches(error)
     }
 
     /// 开始一轮新的空教室请求，并让所有旧请求失去 UI 回写资格。

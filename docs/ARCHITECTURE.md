@@ -105,6 +105,22 @@
 - 复杂网络逻辑
 - 大量数据拼接和计算
 
+### 3.5 Shared Infrastructure
+
+跨模块、无业务语义的基础能力放在 `Shared/Infrastructure`，目前包括：
+
+- `AppAlert`：页面提示数据，不再由登录模块反向提供给其它业务。
+- `TaskCancellation`：统一识别 Concurrency 与 URLSession 取消错误。
+- `AccountScopedCodableStore`：统一账号隔离的 Codable 快照存储键。
+- `makeHorizontalSwitchGesture`：保持多个 segmented 页面一致的轻扫阈值。
+- `PagedItemsState`：统一页码分页列表的重置、首屏回写、追加和尾部预加载判断。
+
+ViewModel 对 Service 的依赖应优先使用按页面场景划分的协议。例如课程列表不需要知道课程详情的评论接口。协议用于缩小依赖面和支持测试，不要求把所有 Service 合并成一个通用网络层。
+
+当前登录、课程、话廊、文章、我的主页、日程和成绩 ViewModel 都通过场景协议依赖网络层。生产环境仍由原有 Service 实现这些协议，因此请求路径、认证会话和响应解析没有被抽到额外的通用网络层。
+
+大视图文件按可独立维护的叶子功能拆分：图片查看器、空教室页、设置社区/关于页和成绩状态机各自有独立文件。拆分只改变源码归属，不改变页面路由和视图层级。
+
 ## 4. 数据来源分类
 
 当前工程里的数据大致来自五种来源：

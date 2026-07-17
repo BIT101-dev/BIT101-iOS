@@ -10,56 +10,14 @@ import Foundation
 
 /// 判断课程请求是否只是被任务取消，避免把切页或重复触发刷新误报成失败。
 private func isCourseRequestCancellation(_ error: Error) -> Bool {
-    if error is CancellationError {
-        return true
-    }
-
-    if let urlError = error as? URLError, urlError.code == .cancelled {
-        return true
-    }
-
-    let nsError = error as NSError
-    return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
-}
-
-private func courseShouldLoadMore(currentID: Int, state: CoursePagedState) -> Bool {
-    guard
-        state.status == .loaded,
-        !state.isLoadingMore,
-        state.canLoadMore,
-        state.items.suffix(4).contains(where: { $0.id == currentID })
-    else {
-        return false
-    }
-
-    return true
+    TaskCancellation.matches(error)
 }
 
 private extension CoursePagedState {
     /// 进入首屏刷新时重置分页游标。
     mutating func prepareForRefresh() {
         status = .loading
-        items = []
-        nextPage = 0
-        canLoadMore = true
-        isLoadingMore = false
-    }
-
-    /// 首屏页加载完成后统一落状态。
-    mutating func applyFirstPage(_ items: [CourseSummary]) {
-        self.items = items
-        status = .loaded
-        nextPage = 1
-        canLoadMore = !items.isEmpty
-        isLoadingMore = false
-    }
-
-    /// 追加后续分页结果，并推进下一页游标。
-    mutating func appendPage(_ items: [CourseSummary]) {
-        self.items.append(contentsOf: items)
-        nextPage += 1
-        isLoadingMore = false
-        canLoadMore = !items.isEmpty
+        resetPagination()
     }
 }
 
@@ -68,12 +26,12 @@ private extension CoursePagedState {
 final class CourseListViewModel: ObservableObject {
     @Published private(set) var state = CoursePagedState()
     @Published var searchText = ""
-    @Published var alert: LoginAlert?
+    @Published var alert: AppAlert?
 
-    private let service: CourseService
+    private let service: any CourseListServicing
     private var hasBootstrapped = false
 
-    init(service: CourseService) {
+    init(service: any CourseListServicing) {
         self.service = service
     }
 
@@ -109,6 +67,7 @@ final class CourseListViewModel: ObservableObject {
                 page: 0
             )
             state.applyFirstPage(items)
+            state.status = .loaded
         } catch {
             if isCourseRequestCancellation(error) {
                 if !hadCourses {
@@ -121,19 +80,19 @@ final class CourseListViewModel: ObservableObject {
 
             if hadCourses {
                 state.status = .loaded
-                alert = LoginAlert(title: "刷新课程失败", message: error.localizedDescription)
+                alert = AppAlert(title: "刷新课程失败", message: error.localizedDescription)
                 return
             }
 
             state.status = .failed(error.localizedDescription)
             state.canLoadMore = false
-            alert = LoginAlert(title: "加载课程失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载课程失败", message: error.localizedDescription)
         }
     }
 
     func loadMoreIfNeeded(currentCourse: CourseSummary?) async {
         guard let currentCourse else { return }
-        guard courseShouldLoadMore(currentID: currentCourse.id, state: state) else { return }
+        guard state.status == .loaded, state.shouldLoadMore(currentID: currentCourse.id) else { return }
 
         state.isLoadingMore = true
 
@@ -150,7 +109,7 @@ final class CourseListViewModel: ObservableObject {
             }
 
             state.isLoadingMore = false
-            alert = LoginAlert(title: "加载更多失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
     }
 

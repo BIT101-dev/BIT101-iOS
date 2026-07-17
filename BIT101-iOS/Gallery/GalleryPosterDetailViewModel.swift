@@ -15,6 +15,8 @@ struct GalleryCommentState {
     var canLoadMore = true
 }
 
+extension GalleryCommentState: PagedItemsState {}
+
 /// 评论输入的目标。
 ///
 /// 发评论页既支持“直接评论帖子”，也支持“回复某条评论”。
@@ -108,11 +110,11 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     /// 是否正在删除帖子。
     @Published private(set) var isDeletingPoster = false
     /// 页面级统一提示。
-    @Published var alert: LoginAlert?
+    @Published var alert: AppAlert?
 
     /// 固定的帖子 ID。后续刷新都基于它重新请求详情。
     private let posterID: Int
-    private let service: GalleryService
+    private let service: any GalleryPosterDetailServicing
     /// 当前详情页对应的帖子对象 ID 字符串。
     ///
     /// 帖子详情、评论、点赞等接口都复用同一套 `poster{id}` 语义，把这层拼接抽成统一属性，
@@ -123,7 +125,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     ///
     /// 详情页通常是从某张帖子卡片点进来的，因此这里先把列表已有数据转换成一份
     /// 临时详情对象，再异步替换成真实详情，可以避免页面首帧完全空白。
-    init(initialPoster: GalleryPoster, service: GalleryService) {
+    init(initialPoster: GalleryPoster, service: any GalleryPosterDetailServicing) {
         posterID = initialPoster.id
         poster = GalleryPosterDetail(poster: initialPoster)
         self.service = service
@@ -178,14 +180,9 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     /// 且用户更能接受在尾部附近触发一次分页请求。
     func loadMoreCommentsIfNeeded(currentComment: GalleryComment?) async {
         guard let currentComment else { return }
-        guard
-            commentState.status == .loaded,
-            !commentState.isLoadingMore,
-            commentState.canLoadMore,
-            commentState.items.suffix(4).contains(where: { $0.id == currentComment.id })
-        else {
-            return
-        }
+        guard commentState.status == .loaded,
+              commentState.shouldLoadMore(currentID: currentComment.id)
+        else { return }
 
         commentState.isLoadingMore = true
         defer { commentState.isLoadingMore = false }
@@ -196,14 +193,12 @@ final class GalleryPosterDetailViewModel: ObservableObject {
 
         switch result {
         case let .success(comments):
-            commentState.items.append(contentsOf: comments)
-            commentState.nextPage += 1
-            commentState.canLoadMore = !comments.isEmpty
+            commentState.appendPage(comments)
         case let .failure(error):
             if isCancellation(error) {
                 return
             }
-            alert = LoginAlert(title: "加载更多失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
     }
 
@@ -230,7 +225,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             poster = poster.updatingLike(result.like, likeNum: result.likeNum)
         } catch {
             if isCancellation(error) { return }
-            alert = LoginAlert(title: "点赞失败", message: error.localizedDescription)
+            alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
     }
 
@@ -247,7 +242,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             commentState.items = commentState.items.updatingLike(for: comment.id, like: result.like, likeNum: result.likeNum)
         } catch {
             if isCancellation(error) { return }
-            alert = LoginAlert(title: "点赞失败", message: error.localizedDescription)
+            alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
     }
 
@@ -257,11 +252,11 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     func submitComment(text: String, anonymous: Bool, target: GalleryCommentComposerTarget) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            alert = LoginAlert(title: "发送失败", message: "评论不能为空。")
+            alert = AppAlert(title: "发送失败", message: "评论不能为空。")
             return false
         }
         if let message = CommunityModeration.validateCommentDraft(text: trimmed) {
-            alert = LoginAlert(title: "内容不合规", message: message)
+            alert = AppAlert(title: "内容不合规", message: message)
             return false
         }
         guard !isSubmittingComment else { return false }
@@ -281,7 +276,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             return true
         } catch {
             if isCancellation(error) { return false }
-            alert = LoginAlert(title: "发送失败", message: error.localizedDescription)
+            alert = AppAlert(title: "发送失败", message: error.localizedDescription)
             return false
         }
     }
@@ -301,7 +296,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             return true
         } catch {
             if isCancellation(error) { return false }
-            alert = LoginAlert(title: "删除失败", message: error.localizedDescription)
+            alert = AppAlert(title: "删除失败", message: error.localizedDescription)
             return false
         }
     }
@@ -321,7 +316,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
                 return
             }
             posterStatus = .failed(error.localizedDescription)
-            alert = LoginAlert(title: "加载帖子失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载帖子失败", message: error.localizedDescription)
         }
     }
 
@@ -343,7 +338,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             commentState.status = .failed(error.localizedDescription)
             commentState.canLoadMore = false
             commentState.isLoadingMore = false
-            alert = LoginAlert(title: "加载评论失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载评论失败", message: error.localizedDescription)
         }
     }
 
@@ -353,10 +348,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     /// 避免同一组字段在多个方法里重复赋值。
     private func resetCommentStateForRefresh() {
         commentState.status = .loading
-        commentState.items = []
-        commentState.isLoadingMore = false
-        commentState.nextPage = 0
-        commentState.canLoadMore = true
+        commentState.resetPagination()
     }
 
     /// 把抛错的异步操作包成 `Result`，方便并发拉详情和评论时统一收口。
@@ -370,12 +362,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
 
     /// 同时兼容 Swift Concurrency 的 `CancellationError` 和 URLSession 的 `-999 cancelled`。
     private func isCancellation(_ error: Error) -> Bool {
-        if error is CancellationError {
-            return true
-        }
-
-        let nsError = error as NSError
-        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
+        TaskCancellation.matches(error)
     }
 }
 

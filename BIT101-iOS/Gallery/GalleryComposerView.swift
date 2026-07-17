@@ -152,7 +152,7 @@ struct GalleryComposerView: View {
     /// 是否正在提交帖子。
     @State private var isSubmitting = false
     /// 页面级错误提示。
-    @State private var alert: LoginAlert?
+    @State private var alert: AppAlert?
 
     /// 发帖接口服务。
     private let service = GalleryService()
@@ -340,29 +340,29 @@ struct GalleryComposerView: View {
         let tags = combinedTags()
 
         guard !trimmedTitle.isEmpty else {
-            alert = LoginAlert(title: "发布失败", message: "标题不能为空。")
+            alert = AppAlert(title: "发布失败", message: "标题不能为空。")
             return
         }
         guard !trimmedText.isEmpty else {
-            alert = LoginAlert(title: "发布失败", message: "正文不能为空。")
+            alert = AppAlert(title: "发布失败", message: "正文不能为空。")
             return
         }
         guard tags.count >= 2 else {
-            alert = LoginAlert(title: "发布失败", message: "请至少添加 2 个标签。")
+            alert = AppAlert(title: "发布失败", message: "请至少添加 2 个标签。")
             return
         }
         if let message = CommunityModeration.validateDraft(title: trimmedTitle, text: trimmedText, tags: tags) {
-            alert = LoginAlert(title: "内容不合规", message: message)
+            alert = AppAlert(title: "内容不合规", message: message)
             return
         }
         guard !hasUploadingImages else {
-            alert = LoginAlert(title: "发布失败", message: "图片仍在上传，请稍候。")
+            alert = AppAlert(title: "发布失败", message: "图片仍在上传，请稍候。")
             return
         }
 
         let uploadedImages = imageDrafts.compactMap(\.uploadedImage)
         guard uploadedImages.count == imageDrafts.count else {
-            alert = LoginAlert(title: "发布失败", message: "有图片上传失败，请删除后重试，或点“重试”重新上传。")
+            alert = AppAlert(title: "发布失败", message: "有图片上传失败，请删除后重试，或点“重试”重新上传。")
             return
         }
 
@@ -382,7 +382,7 @@ struct GalleryComposerView: View {
             onCreated()
             dismiss()
         } catch {
-            alert = LoginAlert(title: "发布失败", message: error.localizedDescription)
+            alert = AppAlert(title: "发布失败", message: error.localizedDescription)
         }
     }
 
@@ -456,7 +456,7 @@ struct GalleryComposerView: View {
 
             replaceImageDraft(draft)
         } catch {
-            alert = LoginAlert(title: "图片添加失败", message: error.localizedDescription)
+            alert = AppAlert(title: "图片添加失败", message: error.localizedDescription)
         }
     }
 

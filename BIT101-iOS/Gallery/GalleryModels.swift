@@ -447,6 +447,13 @@ struct GalleryFeedState {
     var canLoadMore = true
 }
 
+extension GalleryFeedState: PagedItemsState {
+    var items: [GalleryPoster] {
+        get { posters }
+        set { posters = newValue }
+    }
+}
+
 /// 消息中心支持的消息类型。
 ///
 /// 消息页虽然最终表现为四个分类，但服务端对它们的参数、未读数和跳转语义都不同，
@@ -646,6 +653,21 @@ struct GalleryMessageListState {
     var nextLastID: Int?
     /// 服务端是否还有更多历史消息。
     var canLoadMore = true
+}
+
+extension GalleryMessageListState {
+    func shouldLoadMore(currentID: GalleryMessage.ID, preloadCount: Int = 4) -> Bool {
+        !isLoadingMore &&
+            canLoadMore &&
+            items.suffix(preloadCount).contains(where: { $0.id == currentID })
+    }
+
+    mutating func appendPage(_ messages: [GalleryMessage]) {
+        items.append(contentsOf: messages)
+        isLoadingMore = false
+        nextLastID = messages.last?.id ?? nextLastID
+        canLoadMore = !messages.isEmpty
+    }
 }
 
 private extension GalleryImage {

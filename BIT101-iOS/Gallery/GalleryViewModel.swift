@@ -13,12 +13,7 @@ import Foundation
 /// 话廊模块大量使用 Swift Concurrency 和 URLSession；二者的取消错误类型并不完全一致，
 /// 因此在文件级收敛成一个 helper，避免每个调用点重复写同样的判断。
 private func isGalleryCancellation(_ error: Error) -> Bool {
-    if error is CancellationError {
-        return true
-    }
-
-    let nsError = error as NSError
-    return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
+    TaskCancellation.matches(error)
 }
 
 /// 推荐流预取缓存页。
@@ -47,7 +42,7 @@ final class GalleryViewModel: ObservableObject {
     /// 是否展示搜索页。
     @Published var isShowingSearch = false
     /// 统一错误提示。
-    @Published var alert: LoginAlert?
+    @Published var alert: AppAlert?
 
     /// 各 feed 的完整状态字典。
     @Published private(set) var feedStates: [GalleryFeedKind: GalleryFeedState] = {
@@ -56,7 +51,7 @@ final class GalleryViewModel: ObservableObject {
         return states
     }()
 
-    private let service: GalleryService
+    private let service: any GalleryFeedServicing
     /// 已经预取好的推荐页缓存。
     private var prefetchedRecommendPages: [GalleryPrefetchedPage] = []
     /// 当前正在跑的推荐预取任务。
@@ -64,7 +59,7 @@ final class GalleryViewModel: ObservableObject {
     /// 推荐流首屏显示后最多后台缓存 6 个源页，避免首屏被串行多页请求拖慢。
     private let recommendPrefetchDepth = 6
 
-    init(service: GalleryService) {
+    init(service: any GalleryFeedServicing) {
         self.service = service
     }
 
@@ -153,7 +148,7 @@ final class GalleryViewModel: ObservableObject {
                 $0.status = .failed(error.localizedDescription)
                 $0.canLoadMore = false
             }
-            alert = LoginAlert(title: "加载话廊失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载话廊失败", message: error.localizedDescription)
         }
     }
 
@@ -182,13 +177,12 @@ final class GalleryViewModel: ObservableObject {
     ///
     /// 普通 feed 直接请求下一页；推荐 feed 则优先消费本地预取页，必要时继续向后跳过空页。
     func loadMoreIfNeeded(for feed: GalleryFeedKind, currentPoster: GalleryPoster?) async {
-        guard currentPoster != nil else { return }
+        guard let currentPoster else { return }
         let state = state(for: feed)
 
         guard
             state.status == .loaded,
-            !state.isLoadingMore,
-            state.canLoadMore
+            state.shouldLoadMore(currentID: currentPoster.id)
         else {
             return
         }
@@ -259,7 +253,7 @@ final class GalleryViewModel: ObservableObject {
                 return
             }
             setState(for: feed) { $0.isLoadingMore = false }
-            alert = LoginAlert(title: "加载更多失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
     }
 
@@ -271,17 +265,12 @@ final class GalleryViewModel: ObservableObject {
         searchQuery.text = trimmed
         let previousState = searchState
         searchState.status = .loading
-        searchState.posters = []
-        searchState.isLoadingMore = false
-        searchState.nextPage = 0
-        searchState.canLoadMore = true
+        searchState.resetPagination()
 
         do {
             let posters = try await service.searchPosters(query: searchQuery, page: nil)
-            searchState.posters = await deduplicateInBackground(posters)
+            searchState.applyFirstPage(await deduplicateInBackground(posters))
             searchState.status = .loaded
-            searchState.nextPage = 1
-            searchState.canLoadMore = !posters.isEmpty
         } catch {
             if isGalleryCancellation(error) {
                 searchState = previousState
@@ -289,7 +278,7 @@ final class GalleryViewModel: ObservableObject {
             }
             searchState.status = .failed(error.localizedDescription)
             searchState.canLoadMore = false
-            alert = LoginAlert(title: "搜索失败", message: error.localizedDescription)
+            alert = AppAlert(title: "搜索失败", message: error.localizedDescription)
         }
     }
 
@@ -297,12 +286,11 @@ final class GalleryViewModel: ObservableObject {
     ///
     /// 搜索结果不做预取，保持实现简单并避免无关键词时产生多余请求。
     func loadMoreSearchResultsIfNeeded(currentPoster: GalleryPoster?) async {
-        guard currentPoster != nil else { return }
+        guard let currentPoster else { return }
 
         guard
             searchState.status == .loaded,
-            !searchState.isLoadingMore,
-            searchState.canLoadMore
+            searchState.shouldLoadMore(currentID: currentPoster.id)
         else {
             return
         }
@@ -321,7 +309,7 @@ final class GalleryViewModel: ObservableObject {
                 return
             }
             searchState.isLoadingMore = false
-            alert = LoginAlert(title: "加载更多失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
     }
 
@@ -568,7 +556,7 @@ final class GalleryMessageViewModel: ObservableObject {
     @Published var selectedType: GalleryMessageType = .comment
     /// 服务端返回的分类未读摘要。
     @Published private(set) var unreadCounts = GalleryMessageUnreadCounts()
-    @Published var alert: LoginAlert?
+    @Published var alert: AppAlert?
     /// 用于强制触发依赖本地已读仓库的视图刷新。
     @Published private var localReadVersion = 0
 
@@ -579,13 +567,18 @@ final class GalleryMessageViewModel: ObservableObject {
         return states
     }()
 
-    private let service: GalleryService
+    private let service: any GalleryMessageServicing
     private let readStore: GalleryMessageReadStore
 
     /// 允许注入服务和已读仓库，方便后续测试。
-    private init(service: GalleryService, readStore: GalleryMessageReadStore) {
+    private init(service: any GalleryMessageServicing, readStore: GalleryMessageReadStore) {
         self.service = service
         self.readStore = readStore
+    }
+
+    init(service: any GalleryMessageServicing) {
+        self.service = service
+        readStore = .shared
     }
 
     convenience init() {
@@ -675,7 +668,7 @@ final class GalleryMessageViewModel: ObservableObject {
                 $0.status = .failed(error.localizedDescription)
                 $0.canLoadMore = false
             }
-            alert = LoginAlert(title: "加载消息失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载消息失败", message: error.localizedDescription)
         }
     }
 
@@ -717,24 +710,16 @@ final class GalleryMessageViewModel: ObservableObject {
         guard let currentMessage else { return }
         let state = state(for: type)
 
-        guard
-            state.status == .loaded,
-            !state.isLoadingMore,
-            state.canLoadMore,
-            state.items.suffix(4).contains(where: { $0.id == currentMessage.id })
-        else {
-            return
-        }
+        guard state.status == .loaded,
+              state.shouldLoadMore(currentID: currentMessage.id)
+        else { return }
 
         setState(for: type) { $0.isLoadingMore = true }
 
         do {
             let messages = try await service.fetchMessages(type: type, lastID: state.nextLastID)
             setState(for: type) {
-                $0.items.append(contentsOf: messages)
-                $0.isLoadingMore = false
-                $0.nextLastID = messages.last?.id ?? $0.nextLastID
-                $0.canLoadMore = !messages.isEmpty
+                $0.appendPage(messages)
             }
         } catch {
             if isGalleryCancellation(error) {
@@ -742,7 +727,7 @@ final class GalleryMessageViewModel: ObservableObject {
                 return
             }
             setState(for: type) { $0.isLoadingMore = false }
-            alert = LoginAlert(title: "加载更多失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
     }
 

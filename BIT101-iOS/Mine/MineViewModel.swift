@@ -11,33 +11,11 @@ import Foundation
 /// “我的”列表分页触发条件。
 ///
 /// 只有滚动到尾部附近、当前不在加载中且服务端仍有更多数据时，才允许继续翻页。
-private func mineShouldLoadMore<T: Identifiable>(currentID: T.ID, state: MinePagedState<T>) -> Bool where T.ID: Equatable {
-    guard
-        state.status == .loaded,
-        !state.isLoadingMore,
-        state.canLoadMore,
-        state.items.suffix(4).contains(where: { $0.id == currentID })
-    else {
-        return false
-    }
-
-    return true
-}
-
 /// “我的”模块统一使用的取消错误判断。
 ///
 /// 页面切换、下拉刷新和任务复用时都可能触发取消，这里集中兼容 Swift Concurrency 与 URLSession 两类信号。
 private func isMineCancellation(_ error: Error) -> Bool {
-    if error is CancellationError {
-        return true
-    }
-
-    if let urlError = error as? URLError, urlError.code == .cancelled {
-        return true
-    }
-
-    let nsError = error as NSError
-    return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
+    TaskCancellation.matches(error)
 }
 
 /// 把分页状态重置到“重新拉第一页”的初始状态。
@@ -45,10 +23,7 @@ private func isMineCancellation(_ error: Error) -> Bool {
 /// “我的”模块里多个列表都沿用同一套分页状态结构，因此第一页刷新前的状态清空逻辑也完全一致。
 private func resetMinePagedState<Item>(_ state: inout MinePagedState<Item>) {
     state.status = .loading
-    state.items = []
-    state.nextPage = 0
-    state.canLoadMore = true
-    state.isLoadingMore = false
+    state.resetPagination()
 }
 
 /// 用新拉回来的第一页结果覆盖分页状态。
@@ -56,21 +31,15 @@ private func resetMinePagedState<Item>(_ state: inout MinePagedState<Item>) {
 /// “我的”模块多个列表第一页刷新成功后的回写逻辑完全一致，因此集中成一个 helper，
 /// 避免每个刷新函数都各自维护同样一套字段赋值。
 private func applyMinePagedRefreshResult<Item>(_ items: [Item], to state: inout MinePagedState<Item>) {
-    state.items = items
+    state.applyFirstPage(items)
     state.status = .loaded
-    state.nextPage = 1
-    state.canLoadMore = !items.isEmpty
-    state.isLoadingMore = false
 }
 
 /// 将新加载的一页结果追加到已有分页状态中。
 ///
 /// 关注、粉丝、帖子三类列表在“加载更多成功”时的状态推进规则相同，因此统一收口。
 private func appendMinePagedPage<Item>(_ items: [Item], to state: inout MinePagedState<Item>) {
-    state.items.append(contentsOf: items)
-    state.nextPage += 1
-    state.isLoadingMore = false
-    state.canLoadMore = !items.isEmpty
+    state.appendPage(items)
 }
 
 @MainActor
@@ -88,13 +57,13 @@ final class MineViewModel: ObservableObject {
     @Published private(set) var followingState = MinePagedState<GalleryUser>()
     /// 我的帖子列表分页状态。
     @Published private(set) var posterState = MinePagedState<GalleryPoster>()
-    @Published var alert: LoginAlert?
+    @Published var alert: AppAlert?
 
-    private let service: MineService
+    private let service: any MineOverviewServicing
     /// 防止主页首次加载逻辑重复执行。
     private var hasBootstrapped = false
 
-    init(service: MineService) {
+    init(service: any MineOverviewServicing) {
         self.service = service
     }
 
@@ -146,13 +115,13 @@ final class MineViewModel: ObservableObject {
 
             if hadUserInfo {
                 profileStatus = .loaded
-                alert = LoginAlert(title: "刷新个人信息失败", message: error.localizedDescription)
+                alert = AppAlert(title: "刷新个人信息失败", message: error.localizedDescription)
                 return
             }
 
             userInfo = nil
             profileStatus = .failed(error.localizedDescription)
-            alert = LoginAlert(title: "加载个人信息失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载个人信息失败", message: error.localizedDescription)
         }
     }
 
@@ -168,14 +137,14 @@ final class MineViewModel: ObservableObject {
         } catch {
             followerState.status = .failed(error.localizedDescription)
             followerState.canLoadMore = false
-            alert = LoginAlert(title: "加载粉丝失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载粉丝失败", message: error.localizedDescription)
         }
     }
 
     /// 粉丝列表的分页加载。
     func loadMoreFollowersIfNeeded(currentUser: GalleryUser?) async {
         guard let currentUser else { return }
-        guard mineShouldLoadMore(currentID: currentUser.id, state: followerState) else { return }
+        guard followerState.status == .loaded, followerState.shouldLoadMore(currentID: currentUser.id) else { return }
 
         followerState.isLoadingMore = true
         do {
@@ -183,7 +152,7 @@ final class MineViewModel: ObservableObject {
             appendMinePagedPage(users, to: &followerState)
         } catch {
             followerState.isLoadingMore = false
-            alert = LoginAlert(title: "加载更多失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
     }
 
@@ -197,14 +166,14 @@ final class MineViewModel: ObservableObject {
         } catch {
             followingState.status = .failed(error.localizedDescription)
             followingState.canLoadMore = false
-            alert = LoginAlert(title: "加载关注失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载关注失败", message: error.localizedDescription)
         }
     }
 
     /// 关注列表的分页加载。
     func loadMoreFollowingsIfNeeded(currentUser: GalleryUser?) async {
         guard let currentUser else { return }
-        guard mineShouldLoadMore(currentID: currentUser.id, state: followingState) else { return }
+        guard followingState.status == .loaded, followingState.shouldLoadMore(currentID: currentUser.id) else { return }
 
         followingState.isLoadingMore = true
         do {
@@ -212,7 +181,7 @@ final class MineViewModel: ObservableObject {
             appendMinePagedPage(users, to: &followingState)
         } catch {
             followingState.isLoadingMore = false
-            alert = LoginAlert(title: "加载更多失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
     }
 
@@ -238,20 +207,20 @@ final class MineViewModel: ObservableObject {
 
             if hadPosters {
                 posterState.status = .loaded
-                alert = LoginAlert(title: "刷新帖子失败", message: error.localizedDescription)
+                alert = AppAlert(title: "刷新帖子失败", message: error.localizedDescription)
                 return
             }
 
             posterState.status = .failed(error.localizedDescription)
             posterState.canLoadMore = false
-            alert = LoginAlert(title: "加载帖子失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载帖子失败", message: error.localizedDescription)
         }
     }
 
     /// “我的帖子”列表的分页加载。
     func loadMorePostersIfNeeded(currentPoster: GalleryPoster?) async {
         guard let currentPoster else { return }
-        guard mineShouldLoadMore(currentID: currentPoster.id, state: posterState) else { return }
+        guard posterState.status == .loaded, posterState.shouldLoadMore(currentID: currentPoster.id) else { return }
 
         posterState.isLoadingMore = true
         do {
@@ -259,7 +228,7 @@ final class MineViewModel: ObservableObject {
             appendMinePagedPage(posters, to: &posterState)
         } catch {
             posterState.isLoadingMore = false
-            alert = LoginAlert(title: "加载更多失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
     }
 
@@ -276,14 +245,14 @@ final class UserProfileViewModel: ObservableObject {
     @Published private(set) var profileStatus: MineLoadStatus = .idle
     /// 他人帖子列表分页状态。
     @Published private(set) var posterState = MinePagedState<GalleryPoster>()
-    @Published var alert: LoginAlert?
+    @Published var alert: AppAlert?
 
     private let userID: Int
-    private let service: MineService
+    private let service: any UserProfileServicing
     /// 防止首次加载逻辑重复执行。
     private var hasBootstrapped = false
 
-    init(userID: Int, service: MineService) {
+    init(userID: Int, service: any UserProfileServicing) {
         self.userID = userID
         self.service = service
     }
@@ -340,13 +309,13 @@ final class UserProfileViewModel: ObservableObject {
 
             if hadUserInfo {
                 profileStatus = .loaded
-                alert = LoginAlert(title: "刷新主页失败", message: error.localizedDescription)
+                alert = AppAlert(title: "刷新主页失败", message: error.localizedDescription)
                 return
             }
 
             userInfo = nil
             profileStatus = .failed(error.localizedDescription)
-            alert = LoginAlert(title: "加载主页失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载主页失败", message: error.localizedDescription)
         }
     }
 
@@ -370,20 +339,20 @@ final class UserProfileViewModel: ObservableObject {
 
             if hadPosters {
                 posterState.status = .loaded
-                alert = LoginAlert(title: "刷新帖子失败", message: error.localizedDescription)
+                alert = AppAlert(title: "刷新帖子失败", message: error.localizedDescription)
                 return
             }
 
             posterState.status = .failed(error.localizedDescription)
             posterState.canLoadMore = false
-            alert = LoginAlert(title: "加载帖子失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载帖子失败", message: error.localizedDescription)
         }
     }
 
     /// 指定用户帖子列表分页加载。
     func loadMorePostersIfNeeded(currentPoster: GalleryPoster?) async {
         guard let currentPoster else { return }
-        guard mineShouldLoadMore(currentID: currentPoster.id, state: posterState) else { return }
+        guard posterState.status == .loaded, posterState.shouldLoadMore(currentID: currentPoster.id) else { return }
 
         posterState.isLoadingMore = true
         do {
@@ -391,7 +360,7 @@ final class UserProfileViewModel: ObservableObject {
             appendMinePagedPage(posters, to: &posterState)
         } catch {
             posterState.isLoadingMore = false
-            alert = LoginAlert(title: "加载更多失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
     }
 

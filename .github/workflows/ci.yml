@@ -1,0 +1,30 @@
+name: iOS CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ios-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-for-testing:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: xcodebuild -version
+      - name: Validate project
+        run: plutil -lint BIT101-iOS.xcodeproj/project.pbxproj
+      - name: Build app and tests
+        run: >-
+          xcodebuild build-for-testing
+          -project BIT101-iOS.xcodeproj
+          -scheme BIT101-iOS
+          -configuration Debug
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath build/CI
+          CODE_SIGNING_ALLOWED=NO

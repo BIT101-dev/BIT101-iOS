@@ -189,7 +189,7 @@ import SwiftUI
                 if let url = viewModel.sharedMaterialsURL {
                     openURL(url)
                 } else {
-                    viewModel.alert = LoginAlert(title: "无法打开共享资料", message: "课程名称或课程号为空。")
+                    viewModel.alert = AppAlert(title: "无法打开共享资料", message: "课程名称或课程号为空。")
                 }
             } label: {
                 CourseResourceCard(
