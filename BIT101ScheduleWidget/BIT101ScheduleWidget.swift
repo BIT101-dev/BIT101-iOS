@@ -15,7 +15,7 @@ private let scheduleWidgetCampusNetworkMessage = "请先获取课表"
 /// 未登录时统一使用的 widget 空态提示。
 private let scheduleWidgetLoginMessage = "请登录"
 /// 当后续没有课程时统一使用的 widget 空态提示。
-private let scheduleWidgetRestMessage = "课已经上完，好好休息"
+private let scheduleWidgetRestMessage = "暂无后续课程"
 @available(iOSApplicationExtension 16.2, *)
 /// 课程提醒 Live Activity 配置。
 ///

@@ -359,7 +359,10 @@ struct ScoreService {
         detail: Bool
     ) async throws -> [ScoreRow] {
         var request = URLRequest(url: endpointBaseURL.appending(path: "api/jwb/bit101/score"))
-        request.timeoutInterval = Self.requestTimeoutSeconds
+        // 完整模式需要学校端逐门补全均分与排名，不应被普通单请求的 25 秒上限截断。
+        request.timeoutInterval = detail
+            ? Self.authenticationWaitSeconds
+            : Self.requestTimeoutSeconds
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let authorization {

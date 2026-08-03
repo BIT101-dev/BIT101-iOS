@@ -130,7 +130,7 @@ private struct ScoreListPage: View {
                         }
                     }
 
-                    Section("学校服务") {
+                    Section {
                         NavigationLink {
                             TrustedTranscriptPage()
                         } label: {

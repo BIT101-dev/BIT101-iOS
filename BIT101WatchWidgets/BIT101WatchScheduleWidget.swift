@@ -6,7 +6,7 @@ private let watchScheduleWidgetCampusNetworkMessage = "打开手机 App 同步�
 /// 用户尚未在手机侧登录时的提示文案。
 private let watchScheduleWidgetLoginMessage = "请先登录"
 /// 当前没有任何下一节课时的提示文案。
-private let watchScheduleWidgetRestMessage = "今天没课啦"
+private let watchScheduleWidgetRestMessage = "暂无后续课程"
 
 /// 手表 complication 使用的时间线条目。
 private struct WatchScheduleEntry: TimelineEntry {

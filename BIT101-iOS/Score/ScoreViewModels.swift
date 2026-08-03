@@ -2,7 +2,7 @@ import Combine
 import Foundation
 import UIKit
 
-/// 以基础模式查询成绩，并负责缓存恢复、筛选同步、统计汇总以及错误提示。
+/// 查询完整成绩，并负责缓存恢复、筛选同步、统计汇总以及错误提示。
 @MainActor
 final class ScoreViewModel: ObservableObject {
     /// 全量成绩数据。
@@ -60,7 +60,7 @@ final class ScoreViewModel: ObservableObject {
 
     /// 首次进入成绩页时触发一次查询。
     ///
-    /// 如果本机已有成绩缓存，先立即恢复缓存，再后台刷新基础成绩列表。
+    /// 如果本机已有成绩缓存，先立即恢复缓存，再后台刷新完整成绩列表。
     func bootstrapIfNeeded() async {
         guard state == .idle else { return }
         restoreCachedRowsIfAvailable()
@@ -88,8 +88,8 @@ final class ScoreViewModel: ObservableObject {
         }
 
         do {
-            // 列表刷新只取基础成绩，避免服务端逐门抓取排名详情导致长时间阻塞或超时。
-            let fetchedRows = try await service.fetchScores(detail: false)
+            // 均分、排名和详情字段只在 detail=true 时返回；基础模式只能满足简略列表。
+            let fetchedRows = try await service.fetchScores(detail: true)
             applyRows(fetchedRows)
             ScoreCacheStore.save(rows: fetchedRows)
         } catch ScoreServiceError.secondFactorRequired(let challenge) {
@@ -145,7 +145,7 @@ final class ScoreViewModel: ObservableObject {
             let fetchedRows = try await service.submitSMSCode(
                 normalizedCode,
                 for: challenge,
-                detail: false
+                detail: true
             )
             applyRows(fetchedRows)
             ScoreCacheStore.save(rows: fetchedRows)
@@ -266,7 +266,7 @@ final class ScoreViewModel: ObservableObject {
         persistFilterPreferences()
     }
 
-    /// 恢复本机缓存的基础成绩列表。
+    /// 恢复本机缓存的成绩列表。
     private func restoreCachedRowsIfAvailable() {
         guard !didRestoreCachedRows else { return }
         didRestoreCachedRows = true
@@ -274,7 +274,7 @@ final class ScoreViewModel: ObservableObject {
         applyRows(rows)
     }
 
-    /// 应用一份基础成绩列表，并同步筛选项。
+    /// 应用一份成绩列表，并同步筛选项。
     private func applyRows(_ newRows: [ScoreRow]) {
         rows = newRows
         availableTerms = uniqueNonEmptyValues(from: newRows.map(\.term))
@@ -443,4 +443,3 @@ final class TrustedTranscriptViewModel: ObservableObject {
 ///
 /// 课程模块并入后，底部栏只保留“成绩”一个入口，
 /// 再通过这里的顶部栏在“成绩 / 课程”之间切换。
-

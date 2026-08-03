@@ -10,10 +10,9 @@ import Foundation
 
 /// 登录页当前展示的顶层状态。
 ///
-/// 登录模块不直接暴露大量布尔值，而是收敛成“恢复中 / 已登录 / 未登录”三种外层场景。
+/// 登录模块不直接暴露大量布尔值，而是收敛成“已登录 / 未登录”两种外层场景。
 /// 这样根视图切换更直观，也避免多个布尔值组合出无意义状态。
 enum LoginScreenState: Equatable {
-    case restoring
     case signedOut
     case signedIn(studentID: String)
 }
@@ -46,14 +45,13 @@ final class LoginViewModel: ObservableObject {
 
     /// 用持久化的本地状态初始化登录表单与首屏。
     ///
-    /// 如果本地已有 fake-cookie，会先停留在无副作用的恢复页；只有远端确认会话有效后，
-    /// 才挂载会触发启动公告等行为的主界面。
+    /// 如果本地已有 fake-cookie，先乐观进入主界面，远端校验放到后台完成。
     init(service: any LoginServicing = LoginService()) {
         self.service = service
         let savedStudentID = service.savedStudentID
         studentID = savedStudentID
         password = service.savedPassword
-        screenState = service.hasCachedSession ? .restoring : .signedOut
+        screenState = service.hasCachedSession ? .signedIn(studentID: savedStudentID) : .signedOut
     }
 
     /// 当前输入是否满足提交条件。
@@ -67,8 +65,7 @@ final class LoginViewModel: ObservableObject {
 
     /// 只在首次进入时检查一次登录态，避免视图重建时重复发请求。
     ///
-    /// 本地有会话时先完成远端校验，再决定进入主界面还是登录页，避免主界面的公告、
-    /// 权限请求等副作用在失效会话被清退前短暂出现。
+    /// 本地有会话时不阻塞首屏；只有远端明确返回未登录才切到登录页。
     func bootstrapIfNeeded() async {
         guard !hasBootstrapped else { return }
         hasBootstrapped = true
@@ -92,8 +89,7 @@ final class LoginViewModel: ObservableObject {
             studentID = service.savedStudentID
             password = service.savedPassword
 
-            // 体验优先：网络等临时错误不主动清退本地会话。此时仍允许进入主界面，
-            // 后续由真实业务请求决定是否提示用户；只有明确的无效响应才会在上方切到登录页。
+            // 网络、超时或解析等临时错误必须静默保留主界面，避免断网被误判为退出登录。
             if service.hasCachedSession, !studentID.isEmpty {
                 screenState = .signedIn(studentID: studentID)
             } else {

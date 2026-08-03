@@ -103,7 +103,7 @@ struct WatchScheduleRootView: View {
             } else if model.contentState == .loggedOut {
                 WatchScheduleEmptyStateView(message: "请先在手机上登录")
             } else if model.contentState == .rest {
-                WatchScheduleEmptyStateView(message: "今天没课啦")
+                WatchScheduleEmptyStateView(message: "暂无后续课程")
             } else {
                 WatchScheduleEmptyStateView(
                     message: "打开手机 App 同步课表",

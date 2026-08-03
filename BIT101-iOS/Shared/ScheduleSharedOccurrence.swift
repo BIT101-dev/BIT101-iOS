@@ -506,11 +506,25 @@ enum ScheduleOccurrenceResolver {
             )
         }
 
-        guard
-            ScheduleSharedDateCodec.parseDate(snapshot.firstDayString) != nil,
-            !snapshot.timeTable.isEmpty,
-            !snapshot.courses.isEmpty
-        else {
+        guard ScheduleSharedDateCodec.parseDate(snapshot.firstDayString) != nil else {
+            return ScheduleExternalResolvedSnapshot(
+                snapshot: snapshot,
+                upcomingOccurrences: [],
+                contentState: .invalid
+            )
+        }
+
+        // 已同步的空学期是有效业务结果，不能与“从未获取课表”混为 invalid。
+        guard !snapshot.courses.isEmpty else {
+            return ScheduleExternalResolvedSnapshot(
+                snapshot: snapshot,
+                upcomingOccurrences: [],
+                contentState: .rest
+            )
+        }
+
+        // 只有真正需要解析课程时，缺失节次表才是损坏快照。
+        guard !snapshot.timeTable.isEmpty else {
             return ScheduleExternalResolvedSnapshot(
                 snapshot: snapshot,
                 upcomingOccurrences: [],

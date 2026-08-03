@@ -2,6 +2,64 @@ import Foundation
 import Testing
 @testable import BIT101_iOS
 
+@Suite("Login bootstrap behavior")
+struct LoginBootstrapTests {
+    private final class LoginServiceStub: LoginServicing {
+        enum CheckResult {
+            case signedIn(String)
+            case signedOut
+            case failed
+        }
+
+        let savedStudentID: String
+        let savedPassword = "saved-password"
+        let hasCachedSession: Bool
+        let checkResult: CheckResult
+
+        init(
+            studentID: String = "1120260001",
+            hasCachedSession: Bool = true,
+            checkResult: CheckResult
+        ) {
+            savedStudentID = studentID
+            self.hasCachedSession = hasCachedSession
+            self.checkResult = checkResult
+        }
+
+        func checkLogin() async throws -> String? {
+            switch checkResult {
+            case let .signedIn(studentID): studentID
+            case .signedOut: nil
+            case .failed: throw URLError(.notConnectedToInternet)
+            }
+        }
+
+        func login(studentID: String, password: String) async throws -> String { studentID }
+        func logout() {}
+    }
+
+    @Test("Cached sessions show the app shell before network validation")
+    func cachedSessionIsOptimistic() {
+        let viewModel = LoginViewModel(service: LoginServiceStub(checkResult: .failed))
+        #expect(viewModel.screenState == .signedIn(studentID: "1120260001"))
+    }
+
+    @Test("Transient validation failures stay silent and signed in")
+    func transientFailureKeepsSession() async {
+        let viewModel = LoginViewModel(service: LoginServiceStub(checkResult: .failed))
+        await viewModel.bootstrapIfNeeded()
+        #expect(viewModel.screenState == .signedIn(studentID: "1120260001"))
+        #expect(viewModel.alert == nil)
+    }
+
+    @Test("Only an explicit signed-out response dismisses the app shell")
+    func explicitSignOutDismissesSession() async {
+        let viewModel = LoginViewModel(service: LoginServiceStub(checkResult: .signedOut))
+        await viewModel.bootstrapIfNeeded()
+        #expect(viewModel.screenState == .signedOut)
+    }
+}
+
 @Suite("Shared infrastructure")
 struct InfrastructureTests {
     private struct TestItem: Identifiable, Equatable {
@@ -81,6 +139,71 @@ struct InfrastructureTests {
 
 @Suite("Score presentation logic")
 struct ScorePresentationTests {
+    private final class ScoreServiceSpy: ScoreListServicing {
+        private(set) var requestedDetailValues: [Bool] = []
+        private let requiresSMS: Bool
+
+        init(requiresSMS: Bool = false) {
+            self.requiresSMS = requiresSMS
+        }
+
+        func fetchScores(detail: Bool) async throws -> [ScoreRow] {
+            requestedDetailValues.append(detail)
+            if requiresSMS {
+                throw ScoreServiceError.secondFactorRequired(BITLoginAuthenticationChallenge(
+                    challengeID: "challenge-1",
+                    accessToken: "token-1",
+                    status: "waiting_sms",
+                    maskedPhone: "138****0000",
+                    expiresIn: 300
+                ))
+            }
+            return detailedRows
+        }
+
+        func submitSMSCode(
+            _ code: String,
+            for challenge: BITLoginAuthenticationChallenge,
+            detail: Bool
+        ) async throws -> [ScoreRow] {
+            requestedDetailValues.append(detail)
+            return detailedRows
+        }
+
+        private var detailedRows: [ScoreRow] {
+            [ScoreRow(
+                index: 0,
+                headers: ["课程编号", "课程名称", "成绩", "平均分", "学分", "开课学期", "课程性质"],
+                values: ["MATH-1", "高等数学", "90", "82.5", "4", "2025-2026-1", "必修"]
+            )]
+        }
+    }
+
+    @Test("Score refresh requests fields required by the detail UI")
+    @MainActor
+    func scoreRefreshRequestsDetailedRows() async {
+        let service = ScoreServiceSpy()
+        let viewModel = ScoreViewModel(service: service)
+
+        await viewModel.refresh()
+
+        #expect(service.requestedDetailValues == [true])
+        #expect(viewModel.rows.first?.averageScore == "82.5")
+    }
+
+    @Test("Score refresh preserves detailed mode after SMS authentication")
+    @MainActor
+    func scoreSMSRefreshRequestsDetailedRows() async {
+        let service = ScoreServiceSpy(requiresSMS: true)
+        let viewModel = ScoreViewModel(service: service)
+
+        await viewModel.refresh()
+        await viewModel.submitSMSCode("123456")
+
+        #expect(service.requestedDetailValues == [true, true])
+        #expect(viewModel.rows.first?.averageScore == "82.5")
+    }
+
     @Test("Qualitative scores use their numeric ordering")
     func qualitativeScoresUseNumericOrdering() {
         let excellent = makeRow(index: 0, score: "优秀")
@@ -127,7 +250,7 @@ struct ExternalScheduleInfrastructureTests {
         #expect(!WatchScheduleTransferProtocol.requestsLatestSnapshot(context))
     }
 
-    @Test("Resolved snapshot states distinguish missing login invalid rest and ready")
+    @Test("Resolved snapshot states distinguish missing login invalid empty rest and ready")
     func resolvedSnapshotStates() throws {
         let firstDay = try #require(ScheduleSharedDateCodec.parseDate("2026-03-02"))
         let beforeClass = try #require(ScheduleSharedDateCodec.combine(date: firstDay, time: "07:00"))
@@ -139,7 +262,15 @@ struct ExternalScheduleInfrastructureTests {
             now: beforeClass
         ).contentState == .loggedOut)
         #expect(ScheduleOccurrenceResolver.resolvedSnapshot(
-            from: makeSnapshot(includeCourses: false),
+            from: makeSnapshot(firstDayString: "invalid-date"),
+            now: beforeClass
+        ).contentState == .invalid)
+        #expect(ScheduleOccurrenceResolver.resolvedSnapshot(
+            from: makeSnapshot(includeCourses: false, includeTimeTable: false),
+            now: beforeClass
+        ).contentState == .rest)
+        #expect(ScheduleOccurrenceResolver.resolvedSnapshot(
+            from: makeSnapshot(includeTimeTable: false),
             now: beforeClass
         ).contentState == .invalid)
         #expect(ScheduleOccurrenceResolver.resolvedSnapshot(
@@ -204,16 +335,18 @@ struct ExternalScheduleInfrastructureTests {
 
     private func makeSnapshot(
         isLoggedIn: Bool = true,
-        includeCourses: Bool = true
+        includeCourses: Bool = true,
+        firstDayString: String = "2026-03-02",
+        includeTimeTable: Bool = true
     ) -> ScheduleExternalSnapshot {
         ScheduleExternalSnapshot(
             generatedAt: Date(timeIntervalSince1970: 1_772_422_400),
             isLoggedIn: isLoggedIn,
             studentID: "1120260001",
-            firstDayString: "2026-03-02",
-            timeTable: [
+            firstDayString: firstDayString,
+            timeTable: includeTimeTable ? [
                 ScheduleExternalTimeSlotSnapshot(id: 1, start: "08:00", end: "09:30"),
-            ],
+            ] : [],
             courses: includeCourses ? [
                 ScheduleExternalCourseSnapshot(
                     id: "course-1",

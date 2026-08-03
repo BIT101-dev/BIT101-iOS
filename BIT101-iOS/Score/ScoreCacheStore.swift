@@ -2,8 +2,8 @@ import Foundation
 
 /// 成绩缓存仓库。
 ///
-/// 按学号隔离，避免切换账号后串用上一位用户的成绩。当前缓存的是列表查询返回的基础成绩；
-/// `score.detail.cache` 只是兼容既有安装的历史 key，不再表示请求使用 `detail=true`。
+/// 按学号隔离，避免切换账号后串用上一位用户的成绩。
+/// 保留历史 key 以兼容既有安装；新的完整查询会自动覆盖旧的基础数据。
 enum ScoreCacheStore {
     private static let store = AccountScopedCodableStore<[ScoreRow]>(
         keyPrefix: "score.detail.cache",

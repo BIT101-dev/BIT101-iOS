@@ -11,8 +11,8 @@ import SwiftUI
 
 /// 登录模块根视图。
 ///
-/// 根据 `LoginViewModel` 的状态，在会话恢复页、登录表单和主应用壳层之间切换。
-/// 主壳层必须等缓存会话校验完成后才挂载，避免启动公告在失效会话清退前抢先弹出。
+/// 根据 `LoginViewModel` 的状态，在登录表单和主应用壳层之间切换。
+/// 有本地会话时立即挂载主壳层，登录校验在后台静默完成。
 struct LoginRootView: View {
     /// 登录模块唯一状态机。
     @StateObject private var viewModel = LoginViewModel()
@@ -23,8 +23,6 @@ struct LoginRootView: View {
     var body: some View {
         Group {
             switch viewModel.screenState {
-            case .restoring:
-                LoginRestoringView()
             case .signedOut:
                 NavigationStack {
                     LoginFormView(viewModel: viewModel)
@@ -43,16 +41,6 @@ struct LoginRootView: View {
                 dismissButton: .default(Text("知道了"))
             )
         }
-    }
-}
-
-/// 冷启动恢复缓存会话时使用的无副作用过渡页。
-///
-/// 这里不挂载 `AppShellView`，因此版本公告和其他登录后提示不会在认证结论出来前触发。
-private struct LoginRestoringView: View {
-    var body: some View {
-        ProgressView("正在恢复登录状态…")
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
