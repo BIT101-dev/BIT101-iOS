@@ -90,8 +90,39 @@ struct PaperDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
+                HStack {
+                    Spacer()
+                    Button {
+                        Task { await viewModel.likePaper() }
+                    } label: {
+                        HStack(spacing: 8) {
+                            if viewModel.isLikingPaper {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: isPaperLiked ? "hand.thumbsup.fill" : "hand.thumbsup")
+                            }
+
+                            Text(isPaperLiked ? "已点赞" : "看完了，点个赞")
+                                .fontWeight(.semibold)
+                        }
+                        .foregroundStyle(isPaperLiked ? Color.white : Color.orange)
+                        .padding(.horizontal, 22)
+                        .frame(minHeight: 44)
+                        .background(
+                            isPaperLiked ? Color.orange : Color.orange.opacity(0.12),
+                            in: Capsule()
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(viewModel.isLikingPaper)
+                    .accessibilityLabel(isPaperLiked ? "取消点赞" : "点赞文章")
+                    Spacer()
+                }
+                .padding(.top, 6)
+
                 HStack(spacing: 18) {
-                    Text("\(viewModel.paper?.likeNum ?? initialPaper.likeNum)赞")
+                    Text("\(paperLikeCount)赞")
                     Text("\(viewModel.paper?.commentNum ?? initialPaper.commentNum)评论")
                 }
                 .font(.subheadline)
@@ -193,6 +224,14 @@ struct PaperDetailView: View {
             return PaperContentRenderer.blocks(from: paper.content)
         }
         return blocks
+    }
+
+    private var isPaperLiked: Bool {
+        viewModel.paper?.like ?? false
+    }
+
+    private var paperLikeCount: Int {
+        viewModel.paper?.likeNum ?? initialPaper.likeNum
     }
 
     private var filteredComments: [GalleryComment] {
@@ -422,4 +461,3 @@ private struct PaperRichTextView: UIViewRepresentable {
         return UIFont(descriptor: descriptor, size: baseFont.pointSize)
     }
 }
-
