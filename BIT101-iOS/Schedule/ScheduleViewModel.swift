@@ -721,7 +721,7 @@ final class ScheduleViewModel: ObservableObject {
             weekday: record.weekday,
             startSection: record.startSection,
             endSection: record.endSection,
-            weeksText: editsOccurrenceOnly ? "\(week)" : formattedWeeksText(record.weeks)
+            weeksText: editsOccurrenceOnly ? "\(week)" : ScheduleCourseEditor.formatWeeks(record.weeks)
         )
     }
 
@@ -729,7 +729,7 @@ final class ScheduleViewModel: ObservableObject {
     ///
     /// 这里不会回写学校接口，而是只修改本地缓存，用于补录临时课程或手动修正。
     func addCourse(_ draft: CourseDraft) throws {
-        let resolved = try resolveCourseDraft(draft)
+        let resolved = try ScheduleCourseEditor.resolve(draft)
 
         cache.courses.append(
             CourseRecord(
@@ -758,7 +758,7 @@ final class ScheduleViewModel: ObservableObject {
     /// 更新整门课程。
     func updateCourse(id: String, draft: CourseDraft) throws {
         guard let index = cache.courses.firstIndex(where: { $0.id == id }) else { return }
-        let resolved = try resolveCourseDraft(draft)
+        let resolved = try ScheduleCourseEditor.resolve(draft)
         let original = cache.courses[index]
 
         cache.courses[index] = CourseRecord(
@@ -790,7 +790,7 @@ final class ScheduleViewModel: ObservableObject {
     func updateCourseOccurrence(id: String, week: Int, draft: CourseDraft) throws {
         guard let index = cache.courses.firstIndex(where: { $0.id == id }) else { return }
         let original = cache.courses[index]
-        let resolved = try resolveCourseDraft(draft, fixedWeeks: [week])
+        let resolved = try ScheduleCourseEditor.resolve(draft, fixedWeeks: [week])
         let adjustedCourse = CourseRecord(
             id: original.weeks == [week] ? original.id : UUID().uuidString,
             term: original.term,
@@ -1157,7 +1157,7 @@ final class ScheduleViewModel: ObservableObject {
 
     /// 更新空教室节次筛选结果。
     func setSelectedClassroomSectionIDs(_ values: [Int]) {
-        cache.selectedClassroomSectionIDs = normalizeSelectedClassroomSectionIDs(values)
+        cache.selectedClassroomSectionIDs = ClassroomAvailabilityCalculator.normalizedSections(values, in: cache.timeTable)
         persist()
         refreshClassroomAvailabilities()
     }
@@ -1475,265 +1475,40 @@ final class ScheduleViewModel: ObservableObject {
         cache.selectedBuildingID = selectedBuildingID
     }
 
-    /// 把“1-4,6,8-10”之类的周次文本解析成有序周次数组。
-    private func parseWeeksText(_ text: String) throws -> [Int] {
-        let cleaned = text.replacingOccurrences(of: "，", with: ",")
-        let segments = cleaned
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-
-        guard !segments.isEmpty else {
-            throw scheduleValidationError("周次不能为空。")
-        }
-
-        var weeks = Set<Int>()
-
-        for segment in segments {
-            if segment.contains("-") {
-                let bounds = segment.split(separator: "-").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                guard bounds.count == 2, let lower = Int(bounds[0]), let upper = Int(bounds[1]), lower > 0, upper >= lower else {
-                    throw scheduleValidationError("周次格式不正确，请使用如 1-16,18 的写法。")
-                }
-                for week in lower ... upper {
-                    weeks.insert(week)
-                }
-            } else {
-                guard let week = Int(segment), week > 0 else {
-                    throw scheduleValidationError("周次格式不正确，请使用如 1-16,18 的写法。")
-                }
-                weeks.insert(week)
-            }
-        }
-
-        return weeks.sorted()
-    }
-
-    /// 把有序周次数组压成适合表单展示的文本，例如 `1-4,6,8-10`。
-    private func formattedWeeksText(_ weeks: [Int]) -> String {
-        guard !weeks.isEmpty else { return "" }
-
-        var ranges: [String] = []
-        var lower = weeks[0]
-        var upper = weeks[0]
-
-        for week in weeks.dropFirst() {
-            if week == upper + 1 {
-                upper = week
-            } else {
-                ranges.append(lower == upper ? "\(lower)" : "\(lower)-\(upper)")
-                lower = week
-                upper = week
-            }
-        }
-        ranges.append(lower == upper ? "\(lower)" : "\(lower)-\(upper)")
-        return ranges.joined(separator: ",")
-    }
-
-    /// 对课程表单做统一校验并返回裁剪后的值。
-    private func resolveCourseDraft(_ draft: CourseDraft, fixedWeeks: [Int]? = nil) throws -> (
-        title: String,
-        teacher: String,
-        classroom: String,
-        weeks: [Int],
-        weekday: Int,
-        startSection: Int,
-        endSection: Int
-    ) {
-        let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty else {
-            throw scheduleValidationError("课程名称不能为空。")
-        }
-
-        let weekday = draft.weekday
-        guard (1 ... 7).contains(weekday) else {
-            throw scheduleValidationError("星期设置不合法。")
-        }
-
-        guard draft.startSection > 0, draft.endSection >= draft.startSection else {
-            throw scheduleValidationError("节次范围不合法。")
-        }
-
-        let weeks = try fixedWeeks ?? parseWeeksText(draft.weeksText)
-        return (
-            title: title,
-            teacher: draft.teacher.trimmingCharacters(in: .whitespacesAndNewlines),
-            classroom: draft.classroom.trimmingCharacters(in: .whitespacesAndNewlines),
-            weeks: weeks,
-            weekday: weekday,
-            startSection: draft.startSection,
-            endSection: draft.endSection
-        )
-    }
-
-    /// 把原始教室占用记录格式化成可直接展示的空教室列表。
+    /// 按当前节次筛选把原始占用记录转换为展示模型。
     private func refreshClassroomAvailabilities() {
-        let nowMinutes = currentMinutes()
-        let selectedSections = normalizeSelectedClassroomSectionIDs(cache.selectedClassroomSectionIDs)
-        let currentFreeOnly = selectedSections.isEmpty
-        let selectedSet = Set(selectedSections)
-
-        let mapped = classroomRecords.map { record in
-            buildClassroomAvailability(
-                record: record,
-                nowMinutes: nowMinutes
-            )
-        }
-
-        classroomAvailabilities = mapped
-            .filter { availability in
-                if currentFreeOnly {
-                    return availability.isFreeNow
-                }
-                return !selectedSet.intersection(availability.freeSections).isEmpty
-            }
-            .sorted { lhs, rhs in
-                if currentFreeOnly, lhs.isFreeNow != rhs.isFreeNow {
-                    return lhs.isFreeNow
-                }
-                return classroomNameAscending(lhs, rhs)
-            }
-    }
-
-    /// 构造单间教室的当前空闲状态描述。
-    private func buildClassroomAvailability(
-        record: ClassroomRecord,
-        nowMinutes: Int
-    ) -> ClassroomAvailability {
-        let busySet = Set(record.busyTimeCodes)
-        let freeSections = cache.timeTable
-            .map(\.id)
-            .filter { !busySet.contains($0) }
-
-        let prettyFreeTimes = prettySectionsString(freeSections)
-        let nextBusyStart = cache.timeTable
-            .filter { busySet.contains($0.id) && $0.startMinutes >= nowMinutes }
-            .map(\.startMinutes)
-            .min()
-
-        let currentBusySlot = cache.timeTable.first { slot in
-            busySet.contains(slot.id) && slot.startMinutes <= nowMinutes && nowMinutes < slot.endMinutes
-        }
-
-        let isFreeNow: Bool
-        let statusText: String
-        let detailText: String
-
-        if currentBusySlot == nil, let nextBusyStart {
-            let remaining = nextBusyStart - nowMinutes
-            isFreeNow = true
-            statusText = "还会空闲 \(formatDuration(seconds: remaining))"
-            detailText = "直到 \(TimeSlot.formatMinutes(nextBusyStart))"
-        } else if currentBusySlot == nil {
-            isFreeNow = true
-            statusText = "空闲到明天"
-            detailText = ""
-        } else {
-            isFreeNow = false
-            if let nextFreeStart = nextFreeStartMinutes(from: record, after: nowMinutes) {
-                statusText = "\(formatDuration(seconds: nextFreeStart - nowMinutes)) 后空闲"
-                detailText = TimeSlot.formatMinutes(nextFreeStart)
-            } else {
-                statusText = "使用中"
-                detailText = ""
-            }
-        }
-
-        return ClassroomAvailability(
-            id: record.id,
-            name: record.name,
-            prettyFreeTimes: prettyFreeTimes,
-            statusText: statusText,
-            detailText: detailText,
-            isFreeNow: isFreeNow,
-            freeSections: freeSections
+        classroomAvailabilities = ClassroomAvailabilityCalculator.availabilities(
+            records: classroomRecords,
+            timeTable: cache.timeTable,
+            selectedSections: cache.selectedClassroomSectionIDs,
+            nowMinutes: currentMinutes()
         )
     }
 
     /// 节次筛选摘要文本。
     var classroomSectionFilterSummary: String {
-        let selected = normalizeSelectedClassroomSectionIDs(cache.selectedClassroomSectionIDs)
-        if selected.isEmpty {
-            return "当前空闲"
-        }
-        return prettySectionsString(selected)
+        let selected = ClassroomAvailabilityCalculator.normalizedSections(
+            cache.selectedClassroomSectionIDs,
+            in: cache.timeTable
+        )
+        return selected.isEmpty ? "当前空闲" : ClassroomAvailabilityCalculator.sectionsText(selected)
     }
 
     /// 当前是否处于“当前空闲”模式。
     var isCurrentFreeClassroomMode: Bool {
-        normalizeSelectedClassroomSectionIDs(cache.selectedClassroomSectionIDs).isEmpty
+        ClassroomAvailabilityCalculator.normalizedSections(
+            cache.selectedClassroomSectionIDs,
+            in: cache.timeTable
+        ).isEmpty
     }
 
     /// 计算某间教室与当前筛选节次的命中摘要。
     func classroomMatchedSectionsText(for availability: ClassroomAvailability) -> String {
-        let selected = normalizeSelectedClassroomSectionIDs(cache.selectedClassroomSectionIDs)
-        guard !selected.isEmpty else { return "" }
-        let selectedSet = Set(selected)
-        let matched = availability.freeSections.filter { selectedSet.contains($0) }
-        return prettySectionsString(matched)
-    }
-
-    /// 查询某间教室在指定时刻之后的最近空闲起点。
-    private func nextFreeStartMinutes(from record: ClassroomRecord, after minutes: Int) -> Int? {
-        let busySet = Set(record.busyTimeCodes)
-
-        for slot in cache.timeTable {
-            let slotStart = slot.startMinutes
-            let slotEnd = slot.endMinutes
-
-            if slotEnd <= minutes || busySet.contains(slot.id) {
-                continue
-            }
-
-            return max(minutes, slotStart)
-        }
-
-        return nil
-    }
-
-    /// 把一组节次压缩成更适合展示的区间文本。
-    private func prettySectionsString(_ sections: [Int]) -> String {
-        guard !sections.isEmpty else {
-            return "无"
-        }
-
-        var groups: [[Int]] = []
-        for section in sections {
-            if var last = groups.last, last.last == section - 1 {
-                last.append(section)
-                groups[groups.count - 1] = last
-            } else {
-                groups.append([section])
-            }
-        }
-
-        return groups.map { group in
-            if group.count == 1 {
-                return "\(group[0])"
-            }
-            return "\(group.first!)~\(group.last!)"
-        }
-        .joined(separator: ", ")
-    }
-
-    /// 把时长秒数格式化成中文短文案。
-    private func formatDuration(seconds: Int) -> String {
-        let positive = max(seconds, 0)
-        if positive < 60 {
-            return "< 1 分钟"
-        }
-
-        let totalMinutes = positive / 60
-        if totalMinutes < 60 {
-            return "\(totalMinutes) 分钟"
-        }
-
-        let hours = totalMinutes / 60
-        let minutes = totalMinutes % 60
-        if minutes == 0 {
-            return "\(hours) 小时"
-        }
-        return "\(hours) 小时 \(minutes) 分钟"
+        ClassroomAvailabilityCalculator.matchedSectionsText(
+            freeSections: availability.freeSections,
+            selectedSections: cache.selectedClassroomSectionIDs,
+            timeTable: cache.timeTable
+        )
     }
 
     /// 根据首周日期推导当前周次。
@@ -1752,22 +1527,6 @@ final class ScheduleViewModel: ObservableObject {
     private func currentMinutes() -> Int {
         let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
         return (components.hour ?? 0) * 60 + (components.minute ?? 0)
-    }
-
-    /// 去重并裁剪节次筛选结果，只保留合法节次。
-    private func normalizeSelectedClassroomSectionIDs(_ values: [Int]) -> [Int] {
-        let validSectionIDs = Set(cache.timeTable.map(\.id))
-        var unique: [Int] = []
-
-        for value in values {
-            if validSectionIDs.contains(value) {
-                if !unique.contains(value) {
-                    unique.append(value)
-                }
-            }
-        }
-
-        return unique.sorted()
     }
 
     /// 统一兼容任务取消错误。
@@ -1858,10 +1617,10 @@ final class ScheduleViewModel: ObservableObject {
     /// 规则是：永远先做精确匹配，精确失败后才退回前缀匹配，再不行才回退缓存。
     private func preferredBuildingID(from buildings: [BuildingRecord]) -> String? {
         guard let course = nextUpcomingCourse() else { return nil }
-        let candidates = buildingMatchCandidates(from: course.classroom)
+        let candidates = ClassroomAvailabilityCalculator.buildingCandidates(from: course.classroom)
         guard !candidates.isEmpty else { return nil }
 
-        let normalizedBuildings = buildings.map { ($0, normalizeBuildingMatchText($0.name)) }
+        let normalizedBuildings = buildings.map { ($0, ClassroomAvailabilityCalculator.normalizedBuildingName($0.name)) }
 
         if let exact = normalizedBuildings.first(where: { pair in
             candidates.contains(pair.1)
@@ -1881,12 +1640,12 @@ final class ScheduleViewModel: ObservableObject {
     /// 从“最近下一节课”的校区信息推导默认校区。
     private func preferredCampus(from campuses: [CampusRecord]) -> CampusRecord? {
         guard let course = nextUpcomingCourse() else { return nil }
-        let normalizedCampus = normalizeBuildingMatchText(course.campus)
+        let normalizedCampus = ClassroomAvailabilityCalculator.normalizedBuildingName(course.campus)
         guard !normalizedCampus.isEmpty else { return nil }
 
         return campuses.first { campus in
-            let campusName = normalizeBuildingMatchText(campus.name)
-            let campusCode = normalizeBuildingMatchText(campus.code)
+            let campusName = ClassroomAvailabilityCalculator.normalizedBuildingName(campus.name)
+            let campusCode = ClassroomAvailabilityCalculator.normalizedBuildingName(campus.code)
             return normalizedCampus.contains(campusName) || campusName.contains(normalizedCampus) || normalizedCampus == campusCode
         }
     }
@@ -1940,49 +1699,14 @@ final class ScheduleViewModel: ObservableObject {
         return Calendar.current.date(from: components)
     }
 
-    /// 归一化楼宇名称，提升“综教A101 -> 综教A”这类匹配成功率。
-    private func normalizeBuildingMatchText(_ value: String) -> String {
-        let compact = value
-            .uppercased()
-            .replacingOccurrences(of: "理教楼", with: "理教")
-            .replacingOccurrences(of: "文萃楼", with: "文萃")
-            .replacingOccurrences(of: "教学楼", with: "")
-            .replacingOccurrences(of: "楼", with: "")
-            .unicodeScalars
-            .filter { scalar in
-                !CharacterSet.whitespacesAndNewlines.contains(scalar) &&
-                !CharacterSet.punctuationCharacters.contains(scalar) &&
-                !CharacterSet.symbols.contains(scalar)
-            }
-
-        return String(String.UnicodeScalarView(compact))
-    }
-
-    /// 从完整教室名中推导一组可能的楼宇候选值。
-    private func buildingMatchCandidates(from classroom: String) -> [String] {
-        let normalized = normalizeBuildingMatchText(classroom)
-        guard !normalized.isEmpty else { return [] }
-
-        var candidates: [String] = [normalized]
-
-        if let firstDigitIndex = normalized.firstIndex(where: { $0.isNumber }) {
-            let prefix = String(normalized[..<firstDigitIndex])
-            if !prefix.isEmpty {
-                candidates.append(prefix)
-            }
-        }
-
-        return Array(NSOrderedSet(array: candidates)) as? [String] ?? candidates
-    }
-
     /// 按当前时间自动切换到对应的节次块筛选。
     ///
     /// 不是首次才做，而是每次进入空教室页都会重新计算。
     private func applyCurrentClassroomSectionBlock() {
-        let sectionIDs = currentClassroomSectionBlockIDs()
+        let sectionIDs = ClassroomAvailabilityCalculator.sectionBlock(at: currentMinutes(), in: cache.timeTable)
         guard !sectionIDs.isEmpty else { return }
 
-        let normalized = normalizeSelectedClassroomSectionIDs(sectionIDs)
+        let normalized = ClassroomAvailabilityCalculator.normalizedSections(sectionIDs, in: cache.timeTable)
         guard cache.selectedClassroomSectionIDs != normalized else { return }
         cache.selectedClassroomSectionIDs = normalized
         persist()
@@ -1991,30 +1715,4 @@ final class ScheduleViewModel: ObservableObject {
         }
     }
 
-    /// 计算当前时间所在的学校节次块：
-    /// 1-2 / 3-5 / 6-7 / 8-10 / 11-13。
-    private func currentClassroomSectionBlockIDs() -> [Int] {
-        let now = currentMinutes()
-
-        let activeSlotID = cache.timeTable.first(where: { slot in
-            slot.startMinutes <= now && now < slot.endMinutes
-        })?.id ?? cache.timeTable.first(where: { $0.startMinutes > now })?.id
-
-        guard let activeSlotID else { return [] }
-
-        switch activeSlotID {
-        case 1, 2:
-            return [1, 2]
-        case 3, 4, 5:
-            return [3, 4, 5]
-        case 6, 7:
-            return [6, 7]
-        case 8, 9, 10:
-            return [8, 9, 10]
-        case 11, 12, 13:
-            return [11, 12, 13]
-        default:
-            return [activeSlotID]
-        }
-    }
 }
