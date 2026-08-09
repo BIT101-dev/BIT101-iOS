@@ -59,7 +59,11 @@ final class WatchScheduleStatusModel: ObservableObject {
     private var refreshFeedbackTask: Task<Void, Never>?
     private var foregroundRefreshTask: Task<Void, Never>?
 
-    init(dependencies: WatchScheduleStatusDependencies = .live) {
+    convenience init() {
+        self.init(dependencies: .live)
+    }
+
+    init(dependencies: WatchScheduleStatusDependencies) {
         self.dependencies = dependencies
         self.referenceDate = dependencies.now()
     }

@@ -697,7 +697,10 @@ actor ScheduleCloudSyncManager {
         static let updatedAt = "updatedAt"
     }
 
-    private let container = CKContainer.default()
+    /// CloudKit containers require a signed host carrying the iCloud entitlement.
+    /// Resolve it only after the persisted opt-in check, so unit-test hosts and
+    /// unsigned simulator builds can launch without touching CloudKit.
+    private var container: CKContainer { CKContainer.default() }
     private let recordType = "ScheduleCacheSyncRecord"
     #if canImport(os)
     private let logger = Logger(subsystem: "BIT101", category: "ScheduleCloudSync")
