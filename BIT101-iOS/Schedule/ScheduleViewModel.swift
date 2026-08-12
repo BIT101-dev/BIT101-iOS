@@ -1635,9 +1635,12 @@ final class ScheduleViewModel: ObservableObject {
     /// 从磁盘重新加载缓存，并同步周次与当前教学楼。
     private func reloadFromDisk() {
         let previousScheduleIndex = selectedCourseScheduleIndex
+        let previousWeek = selectedWeek
         cache = ScheduleCacheStore.load()
         selectedCourseScheduleIndex = min(max(previousScheduleIndex, 0), max(courseSchedules.count - 1, 0))
-        selectedWeek = resolvedCurrentWeek()
+        // 本地编辑会通过 scheduleCacheDidChange 回到这里。只更新数据，
+        // 不把用户正在查看的历史/未来周强制跳回当前周。
+        selectedWeek = previousWeek
         selectedBuildingID = cache.selectedBuildingID
     }
 

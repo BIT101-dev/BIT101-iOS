@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-for-testing:
+  test:
     runs-on: macos-26
     timeout-minutes: 45
     steps:
@@ -19,12 +19,18 @@ jobs:
         run: xcodebuild -version
       - name: Validate project
         run: plutil -lint BIT101-iOS.xcodeproj/project.pbxproj
-      - name: Build app and tests
-        run: >-
-          xcodebuild build-for-testing
-          -project BIT101-iOS.xcodeproj
-          -scheme BIT101-iOS
-          -configuration Debug
-          -destination 'generic/platform=iOS'
-          -derivedDataPath build/CI
-          CODE_SIGNING_ALLOWED=NO
+      - name: Run unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEVICE_ID="$(xcrun simctl list devices available -j | jq -r '
+            [.devices[][] | select(.name | startswith("iPhone"))][0].udid
+          ')"
+          test -n "$DEVICE_ID" && test "$DEVICE_ID" != "null"
+          xcodebuild test \
+            -project BIT101-iOS.xcodeproj \
+            -scheme BIT101-iOS \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -derivedDataPath build/CI \
+            CODE_SIGNING_ALLOWED=NO
