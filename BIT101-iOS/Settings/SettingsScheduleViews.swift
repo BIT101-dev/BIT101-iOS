@@ -33,7 +33,8 @@ struct CalendarSettingsPage: View {
         let title: String
     }
 
-    @StateObject private var viewModel = ScheduleViewModel()
+    @StateObject private var viewModel = SchoolDataRefreshCoordinator.shared.scheduleViewModel
+    @State private var autoRefreshIntervalDays = ScheduleAutoRefreshPreferences.intervalDays
     @State private var isShowingTimeTableEditor = false
     @State private var timeTableText = ""
     @State private var isShowingCustomSchedules = false
@@ -80,6 +81,15 @@ struct CalendarSettingsPage: View {
                     }
                 }
                 .disabled(viewModel.isSyncingCourses || viewModel.isLoadingTerms)
+
+                Picker("自动更新课表", selection: $autoRefreshIntervalDays) {
+                    ForEach(ScheduleAutoRefreshPreferences.availableIntervals, id: \.self) { days in
+                        Text(ScheduleAutoRefreshPreferences.title(for: days)).tag(days)
+                    }
+                }
+                .onChange(of: autoRefreshIntervalDays) { _, days in
+                    ScheduleAutoRefreshPreferences.intervalDays = days
+                }
 
                 Button("时间表") {
                     timeTableText = viewModel.cache.timeTable.map { "\($0.start), \($0.end)" }.joined(separator: "\n")
@@ -169,7 +179,7 @@ struct CalendarSettingsPage: View {
             }
 
             Section("iCloud 同步") {
-                Toggle("iCloud 实时同步", isOn: Binding(
+                Toggle("iCloud 多端同步", isOn: Binding(
                     get: { viewModel.cache.iCloudSyncEnabled },
                     set: { enabled in
                         viewModel.setICloudSyncEnabled(enabled)

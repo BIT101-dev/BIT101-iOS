@@ -219,7 +219,24 @@ enum CommunityModeration {
 
     /// 过滤整批帖子列表。
     static func filterVisiblePosters(_ posters: [GalleryPoster], snapshot: AppSettingsSnapshot) -> [GalleryPoster] {
-        posters.filter { isPosterVisible($0, snapshot: snapshot) }
+        let hideAnonymous = snapshot.galleryHiddenUserIDs.first == -1
+        let hiddenUsers = Set(snapshot.galleryHiddenUserIDs.filter { $0 != -1 })
+        let hiddenPosters = Set(snapshot.galleryHiddenPosters.map(\.id))
+
+        return posters.filter { poster in
+            if hiddenPosters.contains(poster.id) { return false }
+            if hideAnonymous && poster.anonymous { return false }
+            if hiddenUsers.contains(poster.user.id) { return false }
+            if shouldBypassDirtyWords(tags: poster.tags) { return true }
+
+            let posterTexts = [
+                poster.title,
+                poster.text,
+                poster.user.nickname,
+                poster.user.motto
+            ] + poster.tags
+            return !containsBlockedContent(in: posterTexts)
+        }
     }
 
     /// 判断单条评论在当前设置下是否可见。

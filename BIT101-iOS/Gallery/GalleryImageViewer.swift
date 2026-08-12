@@ -1,266 +1,315 @@
+import QuickLook
 import SwiftUI
 import UIKit
 
+/// 一次系统图片预览请求。
 struct GalleryImageViewerState: Identifiable {
+    fileprivate enum Source {
+        case remote([GalleryImage])
+        case local([UIImage])
+    }
+
     let id = UUID()
-    let images: [GalleryImage]
+    fileprivate let source: Source
     let initialIndex: Int
-}
 
-/// 全屏图片查看器。
-///
-/// 负责多图左右切换、沉浸式背景和关闭按钮。
-struct GalleryImageViewer: View {
-    let viewer: GalleryImageViewerState
-    @Environment(\.dismiss) private var dismiss
-    @State private var selectedIndex = 0
+    init(images: [GalleryImage], initialIndex: Int) {
+        source = .remote(images)
+        self.initialIndex = initialIndex
+    }
 
-    var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Color.black.ignoresSafeArea()
-
-            TabView(selection: $selectedIndex) {
-                ForEach(Array(viewer.images.enumerated()), id: \.element.id) { index, image in
-                    GalleryZoomableImage(url: URL(string: image.url.isEmpty ? image.lowUrl : image.url))
-                    .tag(index)
-                }
-            }
-            .tabViewStyle(.page(indexDisplayMode: .automatic))
-
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
-                    .background(.black.opacity(0.45), in: Circle())
-                    .overlay {
-                        Circle()
-                            .stroke(Color.white.opacity(0.18), lineWidth: 1)
-                    }
-                    .shadow(color: .black.opacity(0.28), radius: 10, x: 0, y: 4)
-                    .padding(20)
-            }
-            .buttonStyle(.plain)
-        }
-        .onAppear {
-            selectedIndex = min(max(viewer.initialIndex, 0), max(viewer.images.count - 1, 0))
-        }
+    init(localImages: [UIImage], initialIndex: Int) {
+        source = .local(localImages)
+        self.initialIndex = initialIndex
     }
 }
 
-/// 单张内存图片的全屏查看器。
-///
-/// 可信成绩单等不应写入远程图片缓存的敏感图片也可以复用话题图片相同的缩放容器。
-struct GalleryLocalImageViewer: View {
-    let image: UIImage
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Color.black.ignoresSafeArea()
-
-            GalleryZoomableImage(image: image)
-
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
-                    .background(.black.opacity(0.45), in: Circle())
-                    .overlay {
-                        Circle()
-                            .stroke(Color.white.opacity(0.18), lineWidth: 1)
-                    }
-                    .shadow(color: .black.opacity(0.28), radius: 10, x: 0, y: 4)
-                    .padding(20)
-            }
-            .buttonStyle(.plain)
-        }
+extension View {
+    /// 直接从当前页面呈现系统 Quick Look，不增加自定义“正在准备”中间页。
+    func gallerySystemImagePreview(item: Binding<GalleryImageViewerState?>) -> some View {
+        background(GalleryQuickLookPresenter(viewer: item).frame(width: 0, height: 0))
     }
 }
 
-/// 基于 `UIScrollView` 的可缩放图片，支持远程 URL 或已在内存中的 `UIImage`。
+/// 挂在现有页面上的 UIKit 呈现锚点。
 ///
-/// SwiftUI 原生 `AsyncImage` 不适合处理缩放和内容居中，这里用 UIKit 桥一层。
-struct GalleryZoomableImage: UIViewRepresentable {
-    private let url: URL?
-    private let image: UIImage?
-
-    init(url: URL?) {
-        self.url = url
-        image = nil
-    }
-
-    init(image: UIImage) {
-        url = nil
-        self.image = image
-    }
+/// 相比 SwiftUI `.quickLookPreview`，`QLPreviewController` 允许预览期间刷新数据源，
+/// 因而可以先显示低清缓存，再在同一预览器内原地替换成高清文件。
+private struct GalleryQuickLookPresenter: UIViewControllerRepresentable {
+    @Binding var viewer: GalleryImageViewerState?
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
 
-    func makeUIView(context: Context) -> UIScrollView {
-        let scrollView = LayoutAwareScrollView()
-        scrollView.backgroundColor = .black
-        scrollView.delegate = context.coordinator
-        scrollView.minimumZoomScale = 1
-        scrollView.maximumZoomScale = 4
-        scrollView.bouncesZoom = true
-        scrollView.showsHorizontalScrollIndicator = false
-        scrollView.showsVerticalScrollIndicator = false
-        scrollView.clipsToBounds = true
-        context.coordinator.install(on: scrollView)
-        scrollView.onLayout = { [weak scrollView, weak coordinator = context.coordinator] in
-            guard let scrollView, let coordinator else { return }
-            coordinator.layoutAfterBoundsChange(in: scrollView)
+    func makeUIViewController(context: Context) -> HostViewController {
+        let controller = HostViewController()
+        controller.onReady = { [weak coordinator = context.coordinator, weak controller] in
+            guard let coordinator, let controller else { return }
+            coordinator.presentPendingIfPossible(from: controller)
         }
-        return scrollView
+        return controller
     }
 
-    func updateUIView(_ scrollView: UIScrollView, context: Context) {
-        context.coordinator.update(url: url, image: image, in: scrollView)
+    func updateUIViewController(_ controller: HostViewController, context: Context) {
+        context.coordinator.onDismiss = { viewer = nil }
+        context.coordinator.receive(viewer, from: controller)
     }
 
-    /// 本地图片会在 SwiftUI 尚未给出最终尺寸时同步传入；监听 UIKit 布局后再补一次正确排版。
-    private final class LayoutAwareScrollView: UIScrollView {
-        var onLayout: (() -> Void)?
+    static func dismantleUIViewController(_ controller: HostViewController, coordinator: Coordinator) {
+        coordinator.cancel()
+    }
 
-        override func layoutSubviews() {
-            super.layoutSubviews()
-            onLayout?()
+    final class HostViewController: UIViewController {
+        var onReady: (() -> Void)?
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            onReady?()
         }
     }
 
-    final class Coordinator: NSObject, UIScrollViewDelegate {
-        private let imageView = UIImageView()
-        private let spinner = UIActivityIndicatorView(style: .large)
-        private var currentURL: URL?
-        private var task: Task<Void, Never>?
-        private var lastLayoutBoundsSize: CGSize = .zero
+    @MainActor
+    final class Coordinator: NSObject, QLPreviewControllerDataSource, QLPreviewControllerDelegate {
+        private var requestID: UUID?
+        private var pendingRequest: GalleryImageViewerState?
+        private var preparationTask: Task<Void, Never>?
+        private var upgradeTask: Task<Void, Never>?
+        private var previewController: QLPreviewController?
+        private var items: [MutableQuickLookItem] = []
+        private var isPreviewPresentationComplete = false
+        private var pendingCurrentRefresh = false
+        var onDismiss: (() -> Void)?
 
-        /// 安装 UIKit 子视图层级。
-        func install(on scrollView: UIScrollView) {
-            imageView.contentMode = .scaleAspectFit
-            imageView.backgroundColor = .clear
-            scrollView.addSubview(imageView)
-
-            spinner.color = .white
-            spinner.hidesWhenStopped = true
-            scrollView.addSubview(spinner)
-        }
-
-        func update(url: URL?, image: UIImage?, in scrollView: UIScrollView) {
-            spinner.center = CGPoint(x: scrollView.bounds.midX, y: scrollView.bounds.midY)
-
-            if let image {
-                task?.cancel()
-                task = nil
-                currentURL = nil
-                spinner.stopAnimating()
-                if imageView.image !== image {
-                    imageView.image = image
-                    layoutImage(in: scrollView)
-                } else if lastLayoutBoundsSize != scrollView.bounds.size {
-                    layoutImage(in: scrollView)
-                }
+        func receive(_ request: GalleryImageViewerState?, from host: HostViewController) {
+            guard let request else {
+                if previewController == nil { cancel() }
                 return
             }
-
-            if currentURL != url {
-                currentURL = url
-                imageView.image = nil
-                task?.cancel()
-                loadImage(from: url, in: scrollView)
-            } else if imageView.image != nil, lastLayoutBoundsSize != scrollView.bounds.size {
-                layoutImage(in: scrollView)
-            }
+            guard request.id != requestID else { return }
+            cancel()
+            requestID = request.id
+            pendingRequest = request
+            presentPendingIfPossible(from: host)
         }
 
-        func viewForZooming(in scrollView: UIScrollView) -> UIView? {
-            imageView
-        }
-
-        func scrollViewDidZoom(_ scrollView: UIScrollView) {
-            centerImage(in: scrollView)
-        }
-
-        /// 首次布局及旋转后，用真实的容器尺寸重新计算本地图片 frame。
-        func layoutAfterBoundsChange(in scrollView: UIScrollView) {
-            guard imageView.image != nil,
-                  scrollView.bounds.width > 0,
-                  scrollView.bounds.height > 0,
-                  lastLayoutBoundsSize != scrollView.bounds.size
-            else { return }
-            layoutImage(in: scrollView)
-        }
-
-        /// 下载远程大图并回填到缩放容器。
-        private func loadImage(from url: URL?, in scrollView: UIScrollView) {
-            guard let url else { return }
-            spinner.startAnimating()
-
-            task = Task { [weak self, weak scrollView] in
-                guard let self, let scrollView else { return }
-                let image: UIImage?
+        func presentPendingIfPossible(from host: HostViewController) {
+            guard host.viewIfLoaded?.window != nil, let request = pendingRequest else { return }
+            pendingRequest = nil
+            preparationTask = Task { [weak self, weak host] in
+                guard let self, let host else { return }
                 do {
-                    let response = try await HTTPClient.shared.send(URLRequest(url: url))
-                    image = UIImage(data: response.data)
+                    let prepared = try await prepareInitialItems(for: request)
+                    guard !Task.isCancelled, requestID == request.id else { return }
+                    items = prepared.items
+
+                    let controller = QLPreviewController()
+                    controller.dataSource = self
+                    controller.delegate = self
+                    controller.currentPreviewItemIndex = prepared.initialIndex
+                    previewController = controller
+                    isPreviewPresentationComplete = false
+                    host.present(controller, animated: true) { [weak self] in
+                        guard let self else { return }
+                        isPreviewPresentationComplete = true
+                        if pendingCurrentRefresh {
+                            pendingCurrentRefresh = false
+                            refreshCurrentPreviewItemSmoothly()
+                        }
+                    }
+
+                    upgradeTask = Task { [weak self] in
+                        await self?.upgradeRemoteItems(for: request, initialIndex: prepared.initialIndex)
+                    }
                 } catch {
-                    image = nil
+                    guard !Task.isCancelled else { return }
+                    onDismiss?()
+                    cancel()
                 }
-                guard !Task.isCancelled, currentURL == url else { return }
-                spinner.stopAnimating()
-                imageView.image = image
-                layoutImage(in: scrollView)
             }
         }
 
-        /// 根据当前图片和容器尺寸重算初始 frame 与 contentSize。
-        private func layoutImage(in scrollView: UIScrollView) {
-            lastLayoutBoundsSize = scrollView.bounds.size
-            scrollView.zoomScale = 1
+        func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
+            items.count
+        }
 
-            guard let image = imageView.image else {
-                imageView.frame = scrollView.bounds
-                scrollView.contentSize = scrollView.bounds.size
+        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
+            items[index]
+        }
+
+        func previewControllerDidDismiss(_ controller: QLPreviewController) {
+            onDismiss?()
+            cancel()
+        }
+
+        func cancel() {
+            preparationTask?.cancel()
+            upgradeTask?.cancel()
+            preparationTask = nil
+            upgradeTask = nil
+            pendingRequest = nil
+            requestID = nil
+            items = []
+            previewController = nil
+            isPreviewPresentationComplete = false
+            pendingCurrentRefresh = false
+        }
+
+        /// 只保证用户点击的图片已有可读文件；其它图片优先复用缓存，否则暂用占位。
+        /// 因此不会再等待整个帖子所有高清图下载完成后才打开预览。
+        private func prepareInitialItems(
+            for request: GalleryImageViewerState
+        ) async throws -> (items: [MutableQuickLookItem], initialIndex: Int) {
+            switch request.source {
+            case let .local(images):
+                var prepared: [MutableQuickLookItem] = []
+                for image in images {
+                    try Task.checkCancellation()
+                    guard let data = image.pngData() else { continue }
+                    let file = try await GalleryImageCache.shared.localFile(data: data)
+                    prepared.append(MutableQuickLookItem(url: file))
+                }
+                guard !prepared.isEmpty else { throw QuickLookPreparationError.noImages }
+                return (prepared, min(max(request.initialIndex, 0), prepared.count - 1))
+
+            case let .remote(images):
+                guard !images.isEmpty else { throw QuickLookPreparationError.noImages }
+                let initialIndex = min(max(request.initialIndex, 0), images.count - 1)
+                let placeholder = try await GalleryImageCache.shared.placeholderFile()
+                let prepared = images.map { _ in MutableQuickLookItem(url: placeholder) }
+
+                let initialImage = images[initialIndex]
+                if let highURL = originalURL(for: initialImage),
+                   let high = await GalleryImageCache.shared.cachedFile(for: highURL, variant: .original) {
+                    prepared[initialIndex].url = high
+                } else if let lowURL = thumbnailURL(for: initialImage) {
+                    // 首页已经展示过的缩略图必然已进入统一磁盘缓存；点击时只做
+                    // 一次缓存查询，不重新编码图片，也不等待帖子内其它图片。
+                    prepared[initialIndex].url = if let cached = await GalleryImageCache.shared.cachedFile(
+                        for: lowURL,
+                        variant: .thumbnail
+                    ) {
+                        cached
+                    } else {
+                        // 极少数情况下，用户可能在图片尚未加载完成时立即点击；只有
+                        // 这种缓存确实缺失的场景才兜底下载当前缩略图。
+                        try await GalleryImageCache.shared.file(for: lowURL, variant: .thumbnail)
+                    }
+                } else if let highURL = originalURL(for: initialImage) {
+                    prepared[initialIndex].url = try await GalleryImageCache.shared.file(
+                        for: highURL,
+                        variant: .original
+                    )
+                }
+                return (prepared, initialIndex)
+            }
+        }
+
+        /// 当前图优先升级高清，其余图片随后逐张补低清并缓存高清。
+        private func upgradeRemoteItems(for request: GalleryImageViewerState, initialIndex: Int) async {
+            guard case let .remote(images) = request.source else { return }
+            let remainingIndices = images.indices.filter { $0 != initialIndex }
+
+            // 当前高清下载与其它页低清补齐并行，既尽快让当前画面变清晰，也避免用户
+            // 在高清大图下载期间左右滑动时看到透明占位。
+            async let currentUpgrade: Void = upgradeOriginal(
+                images[initialIndex],
+                at: initialIndex,
+                requestID: request.id
+            )
+
+            for index in remainingIndices {
+                guard !Task.isCancelled, requestID == request.id else { return }
+                let image = images[index]
+                if items.indices.contains(index),
+                   items[index].url.lastPathComponent == "preview-placeholder.png",
+                   let lowURL = thumbnailURL(for: image),
+                   let lowFile = try? await GalleryImageCache.shared.file(for: lowURL, variant: .thumbnail) {
+                    items[index].url = lowFile
+                }
+            }
+            await currentUpgrade
+
+            for index in remainingIndices {
+                guard !Task.isCancelled, requestID == request.id, images.indices.contains(index) else { return }
+                await upgradeOriginal(images[index], at: index, requestID: request.id)
+            }
+        }
+
+        private func upgradeOriginal(_ image: GalleryImage, at index: Int, requestID expectedID: UUID) async {
+            guard let highURL = originalURL(for: image) else { return }
+            guard let highFile = try? await GalleryImageCache.shared.file(for: highURL, variant: .original) else {
+                return
+            }
+            guard !Task.isCancelled, requestID == expectedID, items.indices.contains(index) else { return }
+            items[index].url = highFile
+
+            if previewController?.currentPreviewItemIndex == index {
+                if isPreviewPresentationComplete {
+                    refreshCurrentPreviewItemSmoothly()
+                } else {
+                    // 高清在系统入场动画完成前就已就绪时，只更新数据源，延后视觉刷新。
+                    // 避免给正在从底部上移的控制器截图，造成动画中途像被“按住”一下。
+                    pendingCurrentRefresh = true
+                }
+            }
+        }
+
+        /// 用当前低清画面的快照盖住 Quick Look 重新载入文件时的短暂空白，再快速淡出。
+        ///
+        /// Quick Look 没有公开的渐进式换图接口，直接 `refreshCurrentPreviewItem()` 会由
+        /// 系统重建当前预览，偶尔出现明显闪白。这里不改变系统预览器本身，只为这次刷新
+        /// 加一层不接收触摸的旧画面快照，让低清到高清更接近一次轻微交叉渐变。
+        private func refreshCurrentPreviewItemSmoothly() {
+            guard let controller = previewController else { return }
+            guard let snapshot = controller.view.snapshotView(afterScreenUpdates: false) else {
+                controller.refreshCurrentPreviewItem()
                 return
             }
 
-            let boundsSize = scrollView.bounds.size
-            let fitSize = aspectFitSize(for: image.size, in: boundsSize)
-            imageView.frame = CGRect(origin: .zero, size: fitSize)
-            scrollView.contentSize = fitSize
-            centerImage(in: scrollView)
-        }
+            snapshot.isUserInteractionEnabled = false
+            snapshot.frame = controller.view.bounds
+            snapshot.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            controller.view.addSubview(snapshot)
+            controller.refreshCurrentPreviewItem()
 
-        /// 在缩放或容器尺寸变化后重新把图片居中。
-        private func centerImage(in scrollView: UIScrollView) {
-            let boundsSize = scrollView.bounds.size
-            var frame = imageView.frame
-
-            frame.origin.x = frame.size.width < boundsSize.width ? (boundsSize.width - frame.size.width) / 2 : 0
-            frame.origin.y = frame.size.height < boundsSize.height ? (boundsSize.height - frame.size.height) / 2 : 0
-
-            imageView.frame = frame
-        }
-
-        /// 计算图片在当前容器中的 aspect-fit 尺寸。
-        private func aspectFitSize(for imageSize: CGSize, in boundsSize: CGSize) -> CGSize {
-            guard imageSize.width > 0, imageSize.height > 0, boundsSize.width > 0, boundsSize.height > 0 else {
-                return boundsSize
+            UIView.animate(
+                withDuration: 0.5,
+                delay: 0.10,
+                options: [.curveEaseOut, .beginFromCurrentState]
+            ) {
+                snapshot.alpha = 0
+            } completion: { _ in
+                snapshot.removeFromSuperview()
             }
-
-            let widthRatio = boundsSize.width / imageSize.width
-            let heightRatio = boundsSize.height / imageSize.height
-            let scale = min(widthRatio, heightRatio)
-
-            return CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
         }
+
+        private func originalURL(for image: GalleryImage) -> URL? {
+            URL(string: image.url.isEmpty ? image.lowUrl : image.url)
+        }
+
+        private func thumbnailURL(for image: GalleryImage) -> URL? {
+            URL(string: image.lowUrl.isEmpty ? image.url : image.lowUrl)
+        }
+    }
+}
+
+/// Quick Look 会在需要时重新读取该对象的 URL，因此高清下载完成后可以原地替换。
+private final class MutableQuickLookItem: NSObject, QLPreviewItem {
+    var url: URL
+    var previewItemTitle: String? { nil }
+    var previewItemURL: URL? { url }
+
+    init(url: URL) {
+        self.url = url
+    }
+}
+
+private enum QuickLookPreparationError: LocalizedError {
+    case noImages
+
+    var errorDescription: String? {
+        "没有可供预览的图片。"
     }
 }
 
@@ -284,15 +333,11 @@ enum GalleryDateDecoder {
                 return date
             }
         }
-
         return iso8601Formatter.date(from: string)
     }
 
     static func relativeText(from string: String, fallback: String) -> String {
-        guard let date = date(from: string) else {
-            return fallback
-        }
-
+        guard let date = date(from: string) else { return fallback }
         return relativeFormatter.localizedString(for: date, relativeTo: Date())
     }
 
@@ -309,9 +354,7 @@ enum GalleryDateDecoder {
 extension Color {
     init?(hex: String) {
         let sanitized = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        guard sanitized.count == 6, let value = Int(sanitized, radix: 16) else {
-            return nil
-        }
+        guard sanitized.count == 6, let value = Int(sanitized, radix: 16) else { return nil }
 
         self.init(
             red: Double((value >> 16) & 0xFF) / 255.0,

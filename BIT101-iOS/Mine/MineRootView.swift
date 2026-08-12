@@ -219,9 +219,7 @@ struct UserProfileRootView: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.hidden)
         }
-        .fullScreenCover(item: $imageViewer) { viewer in
-            GalleryImageViewer(viewer: viewer)
-        }
+        .gallerySystemImagePreview(item: $imageViewer)
         .alert(item: $viewModel.alert) { alert in
             Alert(
                 title: Text(alert.title),
@@ -250,7 +248,10 @@ struct UserProfileRootView: View {
             if let info = viewModel.userInfo {
                 MineProfileCard(
                     info: info,
-                    posterCountText: viewModel.posterCountText
+                    posterCountText: viewModel.posterCountText,
+                    onOpenAvatar: {
+                        imageViewer = GalleryImageViewerState(images: [info.user.avatar], initialIndex: 0)
+                    }
                 )
             }
         }
@@ -334,39 +335,36 @@ private struct MineProfileCard: View {
     let onOpenFollowers: (() -> Void)?
     let onOpenFollowings: (() -> Void)?
     let onOpenPosters: (() -> Void)?
+    let onOpenAvatar: (() -> Void)?
 
     init(
         info: MineUserInfo,
         posterCountText: String,
         onOpenFollowers: (() -> Void)? = nil,
         onOpenFollowings: (() -> Void)? = nil,
-        onOpenPosters: (() -> Void)? = nil
+        onOpenPosters: (() -> Void)? = nil,
+        onOpenAvatar: (() -> Void)? = nil
     ) {
         self.info = info
         self.posterCountText = posterCountText
         self.onOpenFollowers = onOpenFollowers
         self.onOpenFollowings = onOpenFollowings
         self.onOpenPosters = onOpenPosters
+        self.onOpenAvatar = onOpenAvatar
     }
 
     /// 资料卡主体。
     var body: some View {
         VStack(spacing: 0) {
-            CachedRemoteImage(url: URL(string: info.user.avatar.url)) { image in
-                image
-                    .resizable()
-                    .scaledToFill()
-            } placeholder: {
-                Circle()
-                    .fill(Color.blue.opacity(0.14))
-                    .overlay {
-                        Image(systemName: "person.fill")
-                            .foregroundStyle(.blue)
-                            .font(.title2)
-                    }
+            if let onOpenAvatar {
+                Button(action: onOpenAvatar) {
+                    profileAvatar
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("查看头像")
+            } else {
+                profileAvatar
             }
-            .frame(width: 78, height: 78)
-            .clipShape(Circle())
 
             Spacer().frame(height: 8)
 
@@ -398,6 +396,25 @@ private struct MineProfileCard: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 10)
+    }
+
+    private var profileAvatar: some View {
+        CachedRemoteImage(url: URL(string: info.user.avatar.url)) { image in
+            image
+                .resizable()
+                .scaledToFill()
+        } placeholder: {
+            Circle()
+                .fill(Color.blue.opacity(0.14))
+                .overlay {
+                    Image(systemName: "person.fill")
+                        .foregroundStyle(.blue)
+                        .font(.title2)
+                }
+        }
+        .frame(width: 78, height: 78)
+        .clipShape(Circle())
+        .contentShape(Circle())
     }
 
     private var identityColor: Color {
@@ -595,9 +612,7 @@ private struct MinePosterListView: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.hidden)
         }
-        .fullScreenCover(item: $imageViewer) { viewer in
-            GalleryImageViewer(viewer: viewer)
-        }
+        .gallerySystemImagePreview(item: $imageViewer)
         .alert(
             "删除帖子",
             isPresented: Binding(

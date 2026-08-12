@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct DDLSettingsPage: View {
-    @StateObject private var viewModel = ScheduleViewModel()
+    @StateObject private var viewModel = SchoolDataRefreshCoordinator.shared.scheduleViewModel
     @State private var pickerRoute: DDLSettingsNumberPickerRoute?
 
     var body: some View {

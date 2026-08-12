@@ -56,8 +56,9 @@ final class GalleryViewModel: ObservableObject {
     private var prefetchedRecommendPages: [GalleryPrefetchedPage] = []
     /// 当前正在跑的推荐预取任务。
     private var recommendPrefetchTask: Task<Void, Never>?
-    /// 推荐流首屏显示后最多后台缓存 6 个源页，避免首屏被串行多页请求拖慢。
-    private let recommendPrefetchDepth = 6
+    /// 每轮只提前准备两个源页。一次吞六页会在快速滚动时造成 JSON、去重和缓存任务集中抢占
+    /// CPU；两页足以隐藏网络等待，消费后又会继续补齐，因此不牺牲连续浏览能力。
+    private let recommendPrefetchDepth = 2
 
     init(service: any GalleryFeedServicing) {
         self.service = service
@@ -421,7 +422,7 @@ final class GalleryViewModel: ObservableObject {
     /// 去重和拼接放到后台队列执行，是为了避免大数组操作阻塞主线程滚动。
     private func mergeUniqueInBackground(existing: [GalleryPoster], incoming: [GalleryPoster]) async -> [GalleryPoster] {
         await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
+            DispatchQueue.global(qos: .utility).async {
                 continuation.resume(returning: Self.mergeUniqueSync(existing: existing, incoming: incoming))
             }
         }
@@ -430,7 +431,7 @@ final class GalleryViewModel: ObservableObject {
     /// 首屏列表也走同一套去重逻辑，但放到后台队列执行，避免刷新时卡主滚动。
     private func deduplicateInBackground(_ posters: [GalleryPoster]) async -> [GalleryPoster] {
         await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
+            DispatchQueue.global(qos: .utility).async {
                 continuation.resume(returning: Self.deduplicateSync(posters))
             }
         }

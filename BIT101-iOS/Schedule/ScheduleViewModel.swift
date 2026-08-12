@@ -145,6 +145,34 @@ final class ScheduleViewModel: ObservableObject {
         }
     }
 
+    /// 切换账号后重置页面内存态，并从新账号的隔离缓存重新开始加载。
+    func resetForCurrentAccount() {
+        classroomRequestGeneration &+= 1
+        hasLoaded = false
+        didAutoPrepareClassroomThisRun = false
+        didFinishInitialClassroomRequest = false
+        isClassroomRequestInFlight = false
+        isLoadingCache = true
+        isSyncingCourses = false
+        isSyncingDDL = false
+        isLoadingClassroomMeta = false
+        isLoadingClassrooms = false
+        shouldShowInitialClassroomSpinner = false
+        campuses = []
+        buildings = []
+        classroomRecords = []
+        classroomAvailabilities = []
+        availableTerms = []
+        hasLoadedAvailableTerms = false
+        selectedBuildingID = ""
+        smsChallenge = nil
+        smsVerificationError = nil
+        pendingCourseSyncTerm = nil
+        shouldReloadTermsAfterAuthentication = false
+        notice = nil
+        reloadFromDisk()
+    }
+
     /// 构造日程模块统一使用的本地校验错误。
     ///
     /// 这类错误都属于“用户输入不合法”或“本地配置格式不正确”，
@@ -388,14 +416,18 @@ final class ScheduleViewModel: ObservableObject {
     private func applyCourseSyncPayload(_ payload: CourseSyncPayload) {
         cache.currentTerm = payload.term
         cache.firstDayString = payload.firstDayString
+        cache.coursesUpdatedAt = Date()
         cache.courses = payload.courses
+        cache.cachedCoursesByTerm[payload.term] = payload.courses
         cache.exams = payload.exams
         selectedWeek = resolvedCurrentWeek()
         persist()
     }
 
     /// 同步乐学 DDL，并保留本地手动项目和完成状态。
-    func syncDDL(showSuccessNotice: Bool = true) async {
+    @discardableResult
+    func syncDDL(showSuccessNotice: Bool = true, showErrorNotice: Bool = true) async -> Bool {
+        guard !isSyncingDDL else { return false }
         isSyncingDDL = true
         defer { isSyncingDDL = false }
 
@@ -415,8 +447,12 @@ final class ScheduleViewModel: ObservableObject {
                     message: payload.events.isEmpty ? "已更新成功，当前没有乐学日程。" : "已更新成功，共同步 \(payload.events.count) 条乐学日程。"
                 )
             }
+            return true
         } catch {
-            notice = ScheduleNotice(title: "DDL 同步失败", message: error.localizedDescription)
+            if showErrorNotice {
+                notice = ScheduleNotice(title: "DDL 同步失败", message: error.localizedDescription)
+            }
+            return false
         }
     }
 
@@ -1068,7 +1104,7 @@ final class ScheduleViewModel: ObservableObject {
     /// 1. 按当前时间块重设节次筛选。
     /// 2. 加载校区/教学楼元数据。
     /// 3. 必要时刷新当前楼栋的空教室结果。
-    func prepareClassroomIfNeeded() async {
+    func prepareClassroomIfNeeded(showErrors: Bool = true) async {
         guard !didAutoPrepareClassroomThisRun, !isClassroomRequestInFlight else { return }
         didAutoPrepareClassroomThisRun = true
 
@@ -1098,7 +1134,42 @@ final class ScheduleViewModel: ObservableObject {
                 try await refreshClassrooms(requestID: requestID)
             }
         } catch {
-            handleClassroomRequestError(error, requestID: requestID, title: "空教室同步失败")
+            if showErrors {
+                handleClassroomRequestError(error, requestID: requestID, title: "空教室同步失败")
+            } else {
+                finishClassroomRequestIfCurrent(requestID)
+            }
+        }
+    }
+
+    /// 按自动更新策略静默刷新当前课表。
+    ///
+    /// 成功时直接沿用普通同步的缓存写回；失败时返回错误，由应用壳层统一弹窗，避免
+    /// 自动任务产生只能在日程页才能看到的局部提示。短信验证不会在启动时主动弹出。
+    func autoRefreshCourses() async -> ScheduleNotice? {
+        guard !isSyncingCourses, !isLoadingTerms, !isSubmittingSMSCode, smsChallenge == nil else {
+            return nil
+        }
+
+        isSyncingCourses = true
+        let term = cache.currentTerm.trimmingCharacters(in: .whitespacesAndNewlines)
+        syncingTerm = term.isEmpty ? nil : term
+        defer {
+            isSyncingCourses = false
+            syncingTerm = nil
+        }
+
+        do {
+            let payload = try await service.syncCourses(term: term.isEmpty ? nil : term)
+            applyCourseSyncPayload(payload)
+            return nil
+        } catch ScheduleServiceError.secondFactorRequired {
+            return ScheduleNotice(
+                title: "课表自动更新失败",
+                message: "本次更新需要短信验证，请在课表设置中手动同步。"
+            )
+        } catch {
+            return ScheduleNotice(title: "课表自动更新失败", message: error.localizedDescription)
         }
     }
 

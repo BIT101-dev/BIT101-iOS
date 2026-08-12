@@ -82,8 +82,7 @@ private final class CachedRemoteImageLoader: ObservableObject {
 
         guard let url else { return }
 
-        if let cachedData = await CachedRemoteImageStore.shared.data(for: url),
-           let cachedImage = UIImage(data: cachedData) {
+        if let cachedImage = await CachedRemoteImageStore.shared.image(for: url) {
             image = cachedImage
             return
         }
@@ -92,9 +91,9 @@ private final class CachedRemoteImageLoader: ObservableObject {
             let response = try await HTTPClient.shared.send(URLRequest(url: url))
             let data = response.data
             guard !Task.isCancelled, currentURL == url else { return }
-            guard let downloadedImage = UIImage(data: data) else { return }
-
-            await CachedRemoteImageStore.shared.store(data, for: url)
+            guard let downloadedImage = await CachedRemoteImageStore.shared.storeAndDecode(data, for: url) else {
+                return
+            }
             image = downloadedImage
         } catch {
             // 头像加载失败时直接停留在占位图，不额外打断 UI。
@@ -117,6 +116,13 @@ private actor CachedRemoteImageStore {
 
     /// 内存层缓存，负责加速当前进程内的重复命中。
     private let memoryCache = NSCache<NSString, NSData>()
+    /// 已解压位图缓存，避免滚动复用头像时重复在主线程触发解码。
+    private let imageCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 160
+        cache.totalCostLimit = 24 * 1_024 * 1_024
+        return cache
+    }()
     private let fileManager = FileManager.default
     /// 磁盘缓存根目录。
     private let directoryURL: URL
@@ -152,6 +158,18 @@ private actor CachedRemoteImageStore {
         return data
     }
 
+    /// 从内存/磁盘读取并在 actor 执行器上提前解压头像。
+    func image(for url: URL) -> UIImage? {
+        let key = cacheKey(for: url)
+        if let cached = imageCache.object(forKey: key as NSString) {
+            return cached
+        }
+        guard let data = data(for: url), let source = UIImage(data: data) else { return nil }
+        let decoded = source.preparingForDisplay() ?? source
+        imageCache.setObject(decoded, forKey: key as NSString, cost: decodedPixelCost(decoded))
+        return decoded
+    }
+
     /// 写入指定 URL 的缓存数据。
     ///
     /// 这里同时更新内存和磁盘，两层保持最终一致；不额外做写入去重，是因为头像文件
@@ -163,9 +181,20 @@ private actor CachedRemoteImageStore {
         try? data.write(to: fileURL, options: .atomic)
     }
 
+    /// 写入新下载头像并直接在后台准备显示位图。
+    func storeAndDecode(_ data: Data, for url: URL) -> UIImage? {
+        store(data, for: url)
+        guard let source = UIImage(data: data) else { return nil }
+        let decoded = source.preparingForDisplay() ?? source
+        let key = cacheKey(for: url) as NSString
+        imageCache.setObject(decoded, forKey: key, cost: decodedPixelCost(decoded))
+        return decoded
+    }
+
     /// 清空当前进程内和磁盘上的远程图片缓存。
     func clearAll() {
         memoryCache.removeAllObjects()
+        imageCache.removeAllObjects()
 
         guard fileManager.fileExists(atPath: directoryURL.path) else { return }
         if let children = try? fileManager.contentsOfDirectory(
@@ -186,5 +215,10 @@ private actor CachedRemoteImageStore {
     private func cacheKey(for url: URL) -> String {
         let digest = SHA256.hash(data: Data(url.absoluteString.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+
+    private func decodedPixelCost(_ image: UIImage) -> Int {
+        Int(image.size.width * image.scale) * Int(image.size.height * image.scale) * 4
     }
 }

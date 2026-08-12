@@ -336,7 +336,7 @@ private struct CourseCommentImagesView: View {
         Button {
             onOpenImage(index, images)
         } label: {
-            CourseCommentThumbnail(
+            GalleryPosterThumbnail(
                 image: image,
                 width: width,
                 maxHeight: maxHeight,
@@ -344,36 +344,6 @@ private struct CourseCommentImagesView: View {
             )
         }
         .buttonStyle(.plain)
-    }
-}
-
-private struct CourseCommentThumbnail: View {
-    let image: GalleryImage
-    let width: CGFloat?
-    let maxHeight: CGFloat?
-    let aspectRatio: CGFloat
-
-    var body: some View {
-        AsyncImage(url: URL(string: image.lowUrl.isEmpty ? image.url : image.lowUrl)) { phase in
-            switch phase {
-            case let .success(renderedImage):
-                renderedImage
-                    .resizable()
-                    .scaledToFit()
-            default:
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.orange.opacity(0.12))
-                    .overlay {
-                        Image(systemName: "photo")
-                            .foregroundStyle(.orange)
-                    }
-            }
-        }
-        .frame(maxWidth: width == nil ? .infinity : width)
-        .aspectRatio(aspectRatio, contentMode: .fit)
-        .frame(width: width)
-        .frame(maxHeight: maxHeight)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 

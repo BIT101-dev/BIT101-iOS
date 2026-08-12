@@ -279,8 +279,12 @@ nonisolated struct ScheduleCache: Codable {
     var primaryScheduleTitle = "课表"
     var currentTerm: String = ""
     var firstDayString: String = ""
+    /// 最近一次从学校成功同步课表与考试的时间，用于按天数触发自动更新。
+    var coursesUpdatedAt: Date = .distantPast
     var lexueCalendarURL: String = ""
     var courses: [CourseRecord] = []
+    /// 已成功同步过的各学期课表快照，供成绩页本地判断尚未出分的课程。
+    var cachedCoursesByTerm: [String: [CourseRecord]] = [:]
     var exams: [ExamRecord] = []
     var customSchedules: [CustomScheduleRecord] = []
     var ddlEvents: [DDLEventRecord] = []
@@ -315,8 +319,10 @@ nonisolated struct ScheduleCache: Codable {
         case primaryScheduleTitle
         case currentTerm
         case firstDayString
+        case coursesUpdatedAt
         case lexueCalendarURL
         case courses
+        case cachedCoursesByTerm
         case exams
         case customSchedules
         case ddlEvents
@@ -354,8 +360,17 @@ nonisolated struct ScheduleCache: Codable {
             try container.decodeIfPresent(String.self, forKey: .primaryScheduleTitle) ?? "课表"
         )
         firstDayString = try container.decodeIfPresent(String.self, forKey: .firstDayString) ?? ""
+        let decodedCoursesUpdatedAt = try container.decodeIfPresent(Date.self, forKey: .coursesUpdatedAt)
         lexueCalendarURL = try container.decodeIfPresent(String.self, forKey: .lexueCalendarURL) ?? ""
         courses = try container.decodeIfPresent([CourseRecord].self, forKey: .courses) ?? []
+        cachedCoursesByTerm = try container.decodeIfPresent(
+            [String: [CourseRecord]].self,
+            forKey: .cachedCoursesByTerm
+        ) ?? [:]
+        // 从旧版单学期缓存平滑迁移；升级不会丢失用户已经保存的课表。
+        if cachedCoursesByTerm.isEmpty, !currentTerm.isEmpty, !courses.isEmpty {
+            cachedCoursesByTerm[currentTerm] = courses
+        }
         exams = try container.decodeIfPresent([ExamRecord].self, forKey: .exams) ?? []
         customSchedules = try container.decodeIfPresent([CustomScheduleRecord].self, forKey: .customSchedules) ?? []
         ddlEvents = try container.decodeIfPresent([DDLEventRecord].self, forKey: .ddlEvents) ?? []
@@ -390,6 +405,9 @@ nonisolated struct ScheduleCache: Codable {
         }
         iCloudSyncEnabled = try container.decodeIfPresent(Bool.self, forKey: .iCloudSyncEnabled) ?? true
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .distantPast
+        // 老版本没有独立的课表同步时间；迁移时以原缓存更新时间作为保守基线，
+        // 避免用户升级后的第一次启动立即触发一次意外自动更新。
+        coursesUpdatedAt = decodedCoursesUpdatedAt ?? (courses.isEmpty ? .distantPast : updatedAt)
     }
 
     /// 把课表标题裁到统一长度上限。

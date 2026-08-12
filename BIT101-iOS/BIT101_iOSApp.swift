@@ -6,99 +6,139 @@
 //
 
 import SwiftUI
+import Combine
 import BackgroundTasks
 import UIKit
 
-/// 每日首次进入应用时的静默 DDL 同步协调器。
+/// 课表自动更新间隔设置。
 ///
-/// 目标：
-/// - 只在当天第一次进入 app 时尝试一次
-/// - 不打断前台，不弹成功/失败提示
-/// - 仅对“已经启用过乐学 DDL”的账号生效，避免从未使用过 DDL 的用户被动发起请求
-enum DDLSilentRefreshCoordinator {
-    /// 记录“某个账号今天已经尝试过静默同步”的 key 前缀。
-    ///
-    /// 这里显式标记成 `nonisolated`，是因为后台任务闭包会在非主线程里拼 key。
-    nonisolated private static let lastAttemptKeyPrefix = "schedule.ddl.silent-refresh.last-attempt"
-    private static let gate = Gate()
+/// `0` 表示关闭；其它值按自然日计算。该设置属于设备级偏好，而最近同步时间随课表
+/// 缓存按账号隔离，因此切换账号不会串用另一位用户的更新时间。
+enum ScheduleAutoRefreshPreferences {
+    nonisolated static let intervalDaysKey = "schedule.auto-refresh.interval-days"
+    nonisolated static let defaultIntervalDays = 7
+    nonisolated static let availableIntervals = [0, 1, 3, 7, 14, 30]
 
-    /// 防止启动、回前台、登录态变化等多个入口在同一时刻重复发起静默同步。
-    private actor Gate {
-        private var activeStudentIDs: Set<String> = []
-
-        func runIfNeeded(for studentID: String, operation: @Sendable () async -> Void) async {
-            guard activeStudentIDs.insert(studentID).inserted else { return }
-            defer { activeStudentIDs.remove(studentID) }
-            await operation()
+    nonisolated static var intervalDays: Int {
+        get {
+            guard UserDefaults.standard.object(forKey: intervalDaysKey) != nil else {
+                return defaultIntervalDays
+            }
+            return max(UserDefaults.standard.integer(forKey: intervalDaysKey), 0)
+        }
+        set {
+            UserDefaults.standard.set(max(newValue, 0), forKey: intervalDaysKey)
         }
     }
 
-    /// 在合适时机尝试静默同步当日 DDL。
-    ///
-    /// 调用方不需要关心“今天是否已经试过”或“当前是否有其它入口正在同步”；
-    /// 这些约束统一由协调器内部处理。
-    nonisolated static func refreshIfNeeded(trigger: String) {
-        Task(priority: .utility) {
-            // 登录态和本地账号信息目前仍由主 actor 托管，因此这里先切回主线程
-            // 把参与静默同步判断的最小信息读出来，再在后台继续执行后续流程。
-            let (fakeCookie, studentID) = await MainActor.run {
-                (
-                    LoginStorage.shared.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines),
-                    LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
-                )
-            }
-            guard !fakeCookie.isEmpty else { return }
-            guard !studentID.isEmpty else { return }
+    nonisolated static func title(for days: Int) -> String {
+        days == 0 ? "关闭" : "每 \(days) 天"
+    }
+}
 
-            await gate.runIfNeeded(for: studentID) {
-                // `ScheduleCacheStore` 仍是主端真相源的一部分，这里复用主 actor 上的快照。
-                let cache = await MainActor.run { ScheduleCacheStore.load() }
-                let hasLexueSyncHistory =
-                    !cache.lexueCalendarURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                    cache.ddlEvents.contains(where: { $0.group == "lexue" })
-                guard hasLexueSyncHistory else { return }
+/// 登录后学校数据的统一前台预热协调器。
+///
+/// 不注册开机或系统后台任务，只在 App 启动、重新回到前台、切换账号时检查：
+/// - 成绩：本次运行首次进入后立即同步，并复用成绩页状态机和缓存。
+/// - DDL：保持每天首次进入时同步一次。
+/// - 空教室：预热当前教学楼的数据，进入页面时可直接展示。
+/// - 课表：仅达到用户设置的间隔后刷新；失败通过壳层统一提示。
+@MainActor
+final class SchoolDataRefreshCoordinator: ObservableObject {
+    static let shared = SchoolDataRefreshCoordinator()
 
-                let attemptKey = "\(lastAttemptKeyPrefix).\(studentID)"
-                let todayStamp = dayStamp(for: Date())
-                guard UserDefaults.standard.string(forKey: attemptKey) != todayStamp else { return }
+    let scheduleViewModel = ScheduleViewModel()
+    let scoreViewModel = ScoreViewModel()
+    @Published var alert: AppAlert?
 
-                // 这里按“尝试一次”记账，而不是按“成功一次”记账。
-                // 用户要求的是“当天首次进入 app 时静默拉取一次”，而不是失败后反复重试。
-                UserDefaults.standard.set(todayStamp, forKey: attemptKey)
+    private let ddlAttemptKeyPrefix = "schedule.ddl.silent-refresh.last-attempt"
+    private let courseAttemptKeyPrefix = "schedule.courses.auto-refresh.last-attempt"
+    private var activeTask: Task<Void, Never>?
+    private var activeRunID: UUID?
+    private var activeStudentID = ""
 
-                do {
-                    // `ScheduleService` 当前还依赖主端登录态与 cookie 存储，因此在主 actor 上构造。
-                    let service = await MainActor.run { ScheduleService() }
-                    let manualEvents = cache.ddlEvents.filter { $0.group != "lexue" }
-                    let payload = try await service.syncDDLEvents(
-                        existingEvents: cache.ddlEvents,
-                        storedURL: cache.lexueCalendarURL
-                    )
+    private init() {}
 
-                    var updatedCache = cache
-                    updatedCache.lexueCalendarURL = payload.url
-                    updatedCache.ddlEvents = (manualEvents + payload.events).sorted { $0.dueAt < $1.dueAt }
-                    let cacheToSave = updatedCache
-                    // 保存动作会顺带触发共享快照导出与外部展示刷新，因此也回到主 actor 执行。
-                    await MainActor.run { ScheduleCacheStore.save(cacheToSave) }
-                } catch {
-                    // 静默同步失败不打断前台，也不弹提示。
-                    _ = trigger
+    func refreshOnEntry(trigger: String) {
+        let studentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fakeCookie = LoginStorage.shared.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !studentID.isEmpty, !fakeCookie.isEmpty else { return }
+
+        if activeStudentID != studentID {
+            activeTask?.cancel()
+            activeTask = nil
+            activeRunID = nil
+            activeStudentID = studentID
+            scheduleViewModel.resetForCurrentAccount()
+            scoreViewModel.resetForCurrentAccount()
+        }
+        guard activeTask == nil else { return }
+
+        let runID = UUID()
+        activeRunID = runID
+        activeTask = Task(priority: .utility) { [weak self] in
+            guard let self else { return }
+            defer {
+                if activeRunID == runID {
+                    activeTask = nil
+                    activeRunID = nil
                 }
             }
+
+            await scheduleViewModel.loadIfNeeded()
+
+            async let scoreRefresh: Void = scoreViewModel.bootstrapIfNeeded()
+            async let classroomRefresh: Void = scheduleViewModel.prepareClassroomIfNeeded(showErrors: false)
+            async let ddlRefresh: Void = refreshDDLIfNeeded(studentID: studentID)
+            async let courseRefresh: Void = refreshCoursesIfNeeded()
+            _ = await (scoreRefresh, classroomRefresh, ddlRefresh, courseRefresh)
+            _ = trigger
         }
     }
 
-    /// 生成“本地自然日”粒度的日期戳。
-    ///
-    /// 使用当前时区的 `yyyy-MM-dd`，确保“每天一次”的判定和用户体感一致。
-    nonisolated private static func dayStamp(for date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = .current
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
+    private func refreshDDLIfNeeded(studentID: String) async {
+        let cache = scheduleViewModel.cache
+        let hasLexueSyncHistory =
+            !cache.lexueCalendarURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            cache.ddlEvents.contains(where: { $0.group == "lexue" })
+        guard hasLexueSyncHistory else { return }
+
+        let key = "\(ddlAttemptKeyPrefix).\(studentID)"
+        let calendar = Calendar.current
+        if let lastAttempt = UserDefaults.standard.object(forKey: key) as? Date,
+           calendar.isDate(lastAttempt, inSameDayAs: Date()) {
+            return
+        }
+        UserDefaults.standard.set(Date(), forKey: key)
+        _ = await scheduleViewModel.syncDDL(showSuccessNotice: false, showErrorNotice: false)
+    }
+
+    private func refreshCoursesIfNeeded() async {
+        let intervalDays = ScheduleAutoRefreshPreferences.intervalDays
+        guard intervalDays > 0 else { return }
+
+        let cache = scheduleViewModel.cache
+        let hasExistingSchedule = !cache.currentTerm.isEmpty || !cache.courses.isEmpty
+        guard hasExistingSchedule else { return }
+
+        let dueDate = Calendar.current.date(
+            byAdding: .day,
+            value: intervalDays,
+            to: cache.coursesUpdatedAt
+        ) ?? .distantPast
+        guard Date() >= dueDate else { return }
+
+        let studentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let attemptKey = "\(courseAttemptKeyPrefix).\(studentID)"
+        if let lastAttempt = UserDefaults.standard.object(forKey: attemptKey) as? Date,
+           Calendar.current.isDate(lastAttempt, inSameDayAs: Date()) {
+            return
+        }
+        UserDefaults.standard.set(Date(), forKey: attemptKey)
+
+        if let failure = await scheduleViewModel.autoRefreshCourses() {
+            alert = AppAlert(title: failure.title, message: failure.message)
+        }
     }
 }
 
@@ -234,6 +274,7 @@ struct BIT101_iOSApp: App {
     @Environment(\.scenePhase) private var scenePhase
     /// 全局设置单例，负责驱动主题模式、旋转等跨页面偏好。
     @StateObject private var settings = AppSettingsStore.shared
+    @StateObject private var schoolDataRefresh = SchoolDataRefreshCoordinator.shared
     /// 保留一个 UIKit delegate 入口，用于响应方向能力查询。
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
@@ -294,13 +335,13 @@ struct BIT101_iOSApp: App {
                     // 启动时补做一次导出与提醒刷新，保证外部展示拿到的是当前账号的最新缓存。
                     refreshScheduleExternalDisplays(trigger: "app_launch_task", syncWidgetSnapshot: true)
                     refreshScheduleCloudSyncIfNeeded(trigger: "app_launch_task")
-                    DDLSilentRefreshCoordinator.refreshIfNeeded(trigger: "app_launch_task")
+                    schoolDataRefresh.refreshOnEntry(trigger: "app_launch_task")
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .loginStorageDidChange)) { _ in
                     // 切换账号后，组件和灵动岛必须立即改读新账号的缓存。
                     refreshScheduleExternalDisplays(trigger: "login_storage_changed", syncWidgetSnapshot: true)
                     refreshScheduleCloudSyncIfNeeded(trigger: "login_storage_changed")
-                    DDLSilentRefreshCoordinator.refreshIfNeeded(trigger: "login_storage_changed")
+                    schoolDataRefresh.refreshOnEntry(trigger: "login_storage_changed")
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .scheduleCacheDidChange)) { _ in
                     // 这里主要负责刷新 Live Activity。
@@ -314,7 +355,7 @@ struct BIT101_iOSApp: App {
                 // 否则即便用户主动打开 app，桌面/锁屏小组件也可能继续沿用后台停留期间的旧条目。
                 refreshScheduleExternalDisplays(trigger: "scene_active", syncWidgetSnapshot: true)
                 refreshScheduleCloudSyncIfNeeded(trigger: "scene_active")
-                DDLSilentRefreshCoordinator.refreshIfNeeded(trigger: "scene_active")
+                schoolDataRefresh.refreshOnEntry(trigger: "scene_active")
             }
         }
     }

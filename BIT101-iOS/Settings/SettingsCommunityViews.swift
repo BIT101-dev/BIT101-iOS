@@ -7,6 +7,8 @@ struct GallerySettingsPage: View {
     @State private var hiddenUsers: [MineUserInfo] = []
     @State private var isLoadingUsers = false
     @State private var alert: AppAlert?
+    @State private var imageCacheLimitMB = GalleryImageCachePreferences.limitMB
+    @State private var imageCacheUsageText = "计算中"
 
     private let service = SettingsNetworkService()
 
@@ -62,6 +64,34 @@ struct GallerySettingsPage: View {
                 ))
             }
 
+            Section {
+                HStack(spacing: 12) {
+                    TextField("缓存上限", value: $imageCacheLimitMB, format: .number)
+                        .keyboardType(.numberPad)
+                        .onChange(of: imageCacheLimitMB) { _, newValue in
+                            let normalized = max(newValue, 0)
+                            if normalized != newValue {
+                                imageCacheLimitMB = normalized
+                                return
+                            }
+                            GalleryImageCachePreferences.limitMB = normalized
+                            Task {
+                                await GalleryImageCache.shared.enforceCurrentLimit()
+                                await refreshImageCacheUsage()
+                            }
+                        }
+
+                    Text("已用缓存 \(imageCacheUsageText)")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                }
+            } header: {
+                Text("本地图片缓存上限（MB）")
+            } footer: {
+                Text("低清图、高清图和动图共用此额度。输入 0 表示无限；缓存仍可能在设备空间不足时被系统清理。")
+            }
+
             Section("社区治理") {
                 Text(settings.hasAcceptedCurrentCommunityRules ? "当前设备已同意最新社区规则。" : "当前设备尚未同意社区规则，首次进入话廊时会弹出提示。")
                     .foregroundStyle(.secondary)
@@ -75,10 +105,24 @@ struct GallerySettingsPage: View {
                 }
             }
         }
-        .task { await loadHiddenUsers() }
+        .task {
+            imageCacheLimitMB = GalleryImageCachePreferences.limitMB
+            await refreshImageCacheUsage()
+            await loadHiddenUsers()
+        }
         .alert(item: $alert) { alert in
             Alert(title: Text(alert.title), message: Text(alert.message), dismissButton: .default(Text("知道了")))
         }
+    }
+
+    /// 在后台统计话廊图片缓存，并以系统文件大小格式回写设置页。
+    private func refreshImageCacheUsage() async {
+        let bytes = await GalleryImageCache.shared.usedBytes()
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.includesUnit = true
+        formatter.isAdaptive = true
+        imageCacheUsageText = formatter.string(fromByteCount: bytes)
     }
 
     /// 批量加载已隐藏用户的公开资料，供列表展示昵称和头像。

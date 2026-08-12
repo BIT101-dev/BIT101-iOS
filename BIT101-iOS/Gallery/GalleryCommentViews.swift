@@ -91,11 +91,6 @@ struct GalleryPosterCommentsSection: View {
                             .padding(.vertical, 12)
                         }
                     }
-                    .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(Color.primary.opacity(0.06), lineWidth: 1)
-                    }
                 }
             }
         }
@@ -282,17 +277,15 @@ private struct GalleryCommentBubble: View {
             (
                 Text("回复 @\(comment.replyUser.nickname)：")
                     .foregroundStyle(.secondary) +
-                    Text(comment.text)
-                    .foregroundStyle(.primary)
+                    Text(galleryLinkifiedText(comment.text))
             )
             .font(.subheadline)
             .lineSpacing(3)
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         } else {
-            Text(comment.text)
+            Text(galleryLinkifiedText(comment.text))
                 .font(.subheadline)
-                .foregroundStyle(.primary)
                 .lineSpacing(3)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)

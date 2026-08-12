@@ -294,17 +294,6 @@ final class GalleryNetworkObserver: ObservableObject {
     }
 }
 
-/// 记录当前列表里“最靠近顶部的帖子”的垂直偏移。
-///
-/// 下拉刷新后会用它来恢复用户原先的阅读位置，减少刷新导致的“跳走感”。
-struct GalleryVisiblePosterOffsetPreferenceKey: PreferenceKey {
-    static var defaultValue: [Int: CGFloat] = [:]
-
-    static func reduce(value: inout [Int: CGFloat], nextValue: () -> [Int: CGFloat]) {
-        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
-    }
-}
-
 /// 统一的右下角悬浮操作按钮。
 ///
 /// 主 feed、搜索、消息等入口都复用这一套胶囊按钮样式。

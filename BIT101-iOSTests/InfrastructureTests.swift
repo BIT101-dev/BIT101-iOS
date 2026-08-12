@@ -147,8 +147,7 @@ struct ScorePresentationTests {
             self.requiresSMS = requiresSMS
         }
 
-        func fetchScores(detail: Bool) async throws -> [ScoreRow] {
-            requestedDetailValues.append(detail)
+        func startScoreChallenge() async throws -> BITLoginAuthenticationChallenge {
             if requiresSMS {
                 throw ScoreServiceError.secondFactorRequired(BITLoginAuthenticationChallenge(
                     challengeID: "challenge-1",
@@ -158,16 +157,40 @@ struct ScorePresentationTests {
                     expiresIn: 300
                 ))
             }
-            return detailedRows
+            return authenticatedChallenge
         }
 
-        func submitSMSCode(
-            _ code: String,
-            for challenge: BITLoginAuthenticationChallenge,
-            detail: Bool
+        func fetchScores(
+            detail: Bool,
+            authenticatedBy challenge: BITLoginAuthenticationChallenge
         ) async throws -> [ScoreRow] {
             requestedDetailValues.append(detail)
-            return detailedRows
+            return detail ? detailedRows : briefRows
+        }
+
+        func submitScoreSMSCode(
+            _ code: String,
+            for challenge: BITLoginAuthenticationChallenge
+        ) async throws -> BITLoginAuthenticationChallenge {
+            authenticatedChallenge
+        }
+
+        private var authenticatedChallenge: BITLoginAuthenticationChallenge {
+            BITLoginAuthenticationChallenge(
+                challengeID: "challenge-1",
+                accessToken: "token-1",
+                status: "authenticated",
+                maskedPhone: nil,
+                expiresIn: 1_800
+            )
+        }
+
+        private var briefRows: [ScoreRow] {
+            [ScoreRow(
+                index: 0,
+                headers: ["课程编号", "课程名称", "成绩", "学分", "开课学期", "课程性质"],
+                values: ["MATH-1", "高等数学", "90", "4", "2025-2026-1", "必修"]
+            )]
         }
 
         private var detailedRows: [ScoreRow] {
@@ -187,7 +210,7 @@ struct ScorePresentationTests {
 
         await viewModel.refresh()
 
-        #expect(service.requestedDetailValues == [true])
+        #expect(service.requestedDetailValues == [false, true])
         #expect(viewModel.rows.first?.averageScore == "82.5")
     }
 
@@ -200,7 +223,7 @@ struct ScorePresentationTests {
         await viewModel.refresh()
         await viewModel.submitSMSCode("123456")
 
-        #expect(service.requestedDetailValues == [true, true])
+        #expect(service.requestedDetailValues == [false, true])
         #expect(viewModel.rows.first?.averageScore == "82.5")
     }
 

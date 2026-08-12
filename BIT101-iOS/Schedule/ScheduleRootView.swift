@@ -29,7 +29,7 @@ private func normalizeDisplayedCourseTitle(_ value: String) -> String {
 struct ScheduleRootView: View {
     /// 壳层深链请求的目标分栏，例如从小组件点进来直接落到课表。
     @Binding var requestedSection: ScheduleSection?
-    @StateObject private var viewModel = ScheduleViewModel()
+    @StateObject private var viewModel = SchoolDataRefreshCoordinator.shared.scheduleViewModel
     @State private var courseTabResetSignal = 0
 
     /// 日程主页主体。

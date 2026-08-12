@@ -106,7 +106,7 @@ struct GalleryPosterDetailView: View {
                     .foregroundStyle(.orange)
                 }
 
-                Text(viewModel.poster.text)
+                Text(galleryLinkifiedText(viewModel.poster.text))
                     .font(.body)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -198,8 +198,17 @@ struct GalleryPosterDetailView: View {
             UserProfileRootView(userID: route.userID)
         }
         .toolbar {
-            if onReport != nil || viewModel.poster.own {
-                ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                ShareLink(
+                    item: posterShareURL,
+                    subject: Text(viewModel.poster.title.isEmpty ? "BIT101 话题" : viewModel.poster.title),
+                    message: Text("在 BIT101 查看这个话题")
+                ) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .accessibilityLabel("分享话题")
+
+                if onReport != nil || viewModel.poster.own {
                     GalleryPosterActionMenu(
                         onSelectAction: onReport == nil ? nil : { action in
                             reportContext = GalleryReportContext(poster: viewModel.poster.asPoster, action: action)
@@ -214,9 +223,7 @@ struct GalleryPosterDetailView: View {
         .task {
             await viewModel.bootstrapIfNeeded()
         }
-        .fullScreenCover(item: $imageViewer) { viewer in
-            GalleryImageViewer(viewer: viewer)
-        }
+        .gallerySystemImagePreview(item: $imageViewer)
         .sheet(item: $reportContext) { context in
             CommunityReportSheet(context: context) { type, note in
                 applyReport(context, type: type, note: note)
@@ -292,6 +299,11 @@ struct GalleryPosterDetailView: View {
 
     private var filteredComments: [GalleryComment] {
         CommunityModeration.filterVisibleComments(viewModel.commentState.items, snapshot: settings.snapshot)
+    }
+
+    /// 网页端帖子详情使用稳定的 `/gallery/{id}` 路由，分享后无需安装 App 也能打开。
+    private var posterShareURL: URL {
+        URL(string: "https://bit101.cn/gallery/\(viewModel.poster.id)")!
     }
 
     /// 在详情页里应用举报动作。

@@ -73,6 +73,18 @@ struct CourseDetailView: View {
         .navigationTitle("课程详情")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                ShareLink(
+                    item: courseShareURL,
+                    subject: Text(viewModel.resolvedName),
+                    message: Text("在 BIT101 查看这门课程")
+                ) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .accessibilityLabel("分享课程")
+            }
+        }
         .navigationDestination(item: $userRoute) { route in
             UserProfileRootView(userID: route.userID)
         }
@@ -107,9 +119,7 @@ struct CourseDetailView: View {
                 await viewModel.loadHistoryGradesIfNeeded()
             }
         }
-        .fullScreenCover(item: $imageViewer) { viewer in
-            GalleryImageViewer(viewer: viewer)
-        }
+        .gallerySystemImagePreview(item: $imageViewer)
         .alert(item: $viewModel.alert) { alert in
             Alert(
                 title: Text(alert.title),
@@ -215,6 +225,11 @@ struct CourseDetailView: View {
 
     private var filteredComments: [GalleryComment] {
         CommunityModeration.filterVisibleComments(viewModel.commentState.items, snapshot: settings.snapshot)
+    }
+
+    /// 网页端课程详情使用稳定的 `/course/{id}` 路由，接收方可直接在浏览器查看。
+    private var courseShareURL: URL {
+        URL(string: "https://bit101.cn/course/\(initialCourse.id)")!
     }
 }
 

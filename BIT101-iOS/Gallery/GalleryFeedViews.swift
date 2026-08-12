@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct GalleryFeedView: View {
     let feedState: GalleryFeedState
@@ -22,6 +23,7 @@ struct GalleryFeedView: View {
     @State private var deletedPosterIDs: Set<Int> = []
     @State private var currentTopPosterID: Int?
     @State private var pendingRestorePosterID: Int?
+    @State private var lastPrefetchTriggerPosterID: Int?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -64,16 +66,10 @@ struct GalleryFeedView: View {
                                 }
                             }
                             .id(poster.id)
-                            .background(
-                                GeometryReader { geometry in
-                                    Color.clear.preference(
-                                        key: GalleryVisiblePosterOffsetPreferenceKey.self,
-                                        value: [poster.id: geometry.frame(in: .named(feedScrollSpaceName)).minY]
-                                    )
-                                }
-                            )
                             .onAppear {
-                                if prefetchTriggerPosterIDs.contains(poster.id) {
+                                if poster.id == prefetchTriggerPosterID,
+                                   lastPrefetchTriggerPosterID != poster.id {
+                                    lastPrefetchTriggerPosterID = poster.id
                                     onPrefetch(poster)
                                 }
                                 guard poster.id == visiblePosters.last?.id else { return }
@@ -93,15 +89,14 @@ struct GalleryFeedView: View {
                     .scrollTargetLayout()
                 }
             }
-            .coordinateSpace(name: feedScrollSpaceName)
+            // 系统滚动定位只在顶部目标发生变化时更新一次，不再让每张卡片通过
+            // GeometryReader 在每个滚动帧上报坐标字典。
+            .scrollPosition(id: $currentTopPosterID, anchor: .top)
             .background(Color(.systemGroupedBackground))
             .id(feedIdentity)
             .refreshable {
                 pendingRestorePosterID = currentTopPosterID ?? visiblePosters.first?.id
                 onRefresh()
-            }
-            .onPreferenceChange(GalleryVisiblePosterOffsetPreferenceKey.self) { offsets in
-                currentTopPosterID = topVisiblePosterID(from: offsets)
             }
             .onChange(of: visiblePosterIDs) { _, newIDs in
                 restoreScrollPositionIfNeeded(with: proxy, availableIDs: newIDs)
@@ -117,9 +112,7 @@ struct GalleryFeedView: View {
                     }
                 )
             }
-            .fullScreenCover(item: $imageViewer) { viewer in
-                GalleryImageViewer(viewer: viewer)
-            }
+            .gallerySystemImagePreview(item: $imageViewer)
             .sheet(item: $reportContext) { context in
                 CommunityReportSheet(context: context) { type, note in
                     applyReport(context, type: type, note: note)
@@ -165,31 +158,9 @@ struct GalleryFeedView: View {
     ///
     /// 预取只负责后台准备下一页，不直接把数据拼到列表里，这样可以降低滚动条比例
     /// 和当前位置突然变化带来的“跳走”感。
-    private var prefetchTriggerPosterIDs: Set<Int> {
-        guard prefetchTriggerThreshold > 0 else { return [] }
-        return Set(visiblePosters.suffix(prefetchTriggerThreshold).map(\.id))
-    }
-
-    /// 当前 feed 独立的滚动坐标空间名称。
-    private var feedScrollSpaceName: String {
-        "GalleryFeedScroll-\(feedIdentity)"
-    }
-
-    /// 根据偏移字典推断当前位于屏幕顶部附近的帖子。
-    ///
-    /// 算法选择“距离 0 最近的 minY”，这样不需要真正知道可见区域高度，
-    /// 也能粗略定位用户当时正在阅读哪一条。
-    private func topVisiblePosterID(from offsets: [Int: CGFloat]) -> Int? {
-        guard !offsets.isEmpty else { return currentTopPosterID }
-
-        return offsets.min { lhs, rhs in
-            let lhsDistance = abs(lhs.value)
-            let rhsDistance = abs(rhs.value)
-            if lhsDistance == rhsDistance {
-                return lhs.value < rhs.value
-            }
-            return lhsDistance < rhsDistance
-        }?.key
+    private var prefetchTriggerPosterID: Int? {
+        guard prefetchTriggerThreshold > 0, !visiblePosters.isEmpty else { return nil }
+        return visiblePosters[max(visiblePosters.count - prefetchTriggerThreshold, 0)].id
     }
 
     /// 刷新完成后，把滚动位置尽量恢复到刷新前的顶部帖子。
@@ -246,7 +217,7 @@ struct GalleryPosterCard: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(poster.title)
                 .font(.headline)
-                .foregroundStyle(.primary)
+                .foregroundStyle(.orange)
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -292,9 +263,8 @@ struct GalleryPosterCard: View {
                 }
             }
 
-            Text(poster.text)
+            Text(galleryLinkifiedText(poster.text))
                 .font(.subheadline)
-                .foregroundStyle(.primary)
                 .lineLimit(poster.images.count <= 2 ? 4 : 3)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -376,43 +346,89 @@ struct GalleryAvatarView: View {
 
 /// 帖子图片网格。
 ///
-/// 这里故意按图片数量做三套布局，而不是一律九宫格：
-/// - 1 张图时尽量给更大的阅读空间
-/// - 2 张图时用并排双列
-/// - 3 张及以上再退回网格
+/// 首页最多展示四张图，统一放进固定高度的横向图片区。
+///
+/// 若图片区总尺寸为 `y × x`，则一至四张图的单格宽度依次为
+/// `y`、`y / 2`、`y / 3`、`y / 4`，高度始终为 `x`。每张图中心裁切填满格子，
+/// 原始比例仍由点开后的系统预览完整呈现。
 struct GalleryPosterImagesView: View {
     let images: [GalleryImage]
     let onOpenImage: (Int, [GalleryImage]) -> Void
+    @State private var singleImageAspectRatio: CGFloat?
 
     var body: some View {
-        let displayedImages = images.count <= 2 ? images : Array(images.prefix(images.count == 3 ? 3 : 4))
+        let displayedImages = Array(images.prefix(4))
 
-        if displayedImages.count == 1 {
-            thumbnailButton(image: displayedImages[0], index: 0, width: 180, maxHeight: 220, aspectRatio: 1)
-        } else if displayedImages.count == 2 {
-            HStack(spacing: 8) {
-                ForEach(Array(displayedImages.enumerated()), id: \.element.id) { index, image in
-                    thumbnailButton(image: image, index: index, width: nil, maxHeight: 150, aspectRatio: 1)
+        GeometryReader { proxy in
+            let spacing: CGFloat = 6
+            let count = max(displayedImages.count, 1)
+            let totalSpacing = spacing * CGFloat(count - 1)
+            let equalItemWidth = max((proxy.size.width - totalSpacing) / CGFloat(count), 0)
+            let itemWidth = displayedImages.count == 1
+                ? preferredSingleImageWidth(in: proxy.size)
+                : equalItemWidth
+
+            HStack(spacing: spacing) {
+                // 同一帖子内的图片 `mid` 偶尔可能为空或重复，不能拿它作为拼贴格子的
+                // SwiftUI 身份，否则双图会被合并成一个视图。索引在当前前四张内稳定且唯一。
+                ForEach(Array(displayedImages.enumerated()), id: \.offset) { index, image in
+                    thumbnailButton(
+                        image: image,
+                        index: index,
+                        reportsAspectRatio: displayedImages.count == 1
+                    )
+                        .frame(width: itemWidth, height: proxy.size.height)
+                        // 必须在最终格子尺寸确定后裁切。若先裁切再设宽度，图片内容仍会
+                        // 按自身理想尺寸绘制到相邻格子，表现为多图互相覆盖。
+                        .clipped()
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
             }
-        } else {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: min(displayedImages.count, 4)), spacing: 8) {
-                ForEach(Array(displayedImages.enumerated()), id: \.element.id) { index, image in
-                    thumbnailButton(image: image, index: index, width: nil, maxHeight: 78, aspectRatio: 1)
-                }
-            }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
         }
+        // 图片组始终横向铺满卡片，整组高度固定为约四分之一屏幕。
+        .frame(maxWidth: .infinity)
+        .frame(height: groupHeight)
     }
 
-    private func thumbnailButton(image: GalleryImage, index: Int, width: CGFloat?, maxHeight: CGFloat?, aspectRatio: CGFloat) -> some View {
+    /// 使用设备固定坐标空间而不是 App 当前兼容坐标的 `bounds`，确保高度真的是
+    /// 整块设备屏幕的四分之一；横竖屏切换也不改变这条基准。
+    private var groupHeight: CGFloat {
+        let screen = UIScreen.main.fixedCoordinateSpace.bounds
+        return max(screen.width, screen.height) * 0.25
+    }
+
+    /// 单图在“整行”和“双图单格”两种常用尺寸中选择裁切利用率更高的一种。
+    /// 利用率表示中心裁切后仍能保留的原图面积比例，范围为 0...1。
+    private func preferredSingleImageWidth(in size: CGSize) -> CGFloat {
+        guard let imageRatio = singleImageAspectRatio, size.height > 0 else {
+            return size.width
+        }
+
+        let spacing: CGFloat = 6
+        let fullWidth = size.width
+        let halfWidth = max((size.width - spacing) / 2, 0)
+        let fullUtilization = cropUtilization(imageRatio: imageRatio, containerRatio: fullWidth / size.height)
+        let halfUtilization = cropUtilization(imageRatio: imageRatio, containerRatio: halfWidth / size.height)
+        return halfUtilization > fullUtilization ? halfWidth : fullWidth
+    }
+
+    private func cropUtilization(imageRatio: CGFloat, containerRatio: CGFloat) -> CGFloat {
+        guard imageRatio > 0, containerRatio > 0 else { return 0 }
+        return min(imageRatio / containerRatio, containerRatio / imageRatio)
+    }
+
+    private func thumbnailButton(image: GalleryImage, index: Int, reportsAspectRatio: Bool) -> some View {
         Button {
             onOpenImage(index, images)
         } label: {
             GalleryPosterThumbnail(
                 image: image,
-                width: width,
-                maxHeight: maxHeight,
-                aspectRatio: aspectRatio
+                contentMode: .fill,
+                onAspectRatioResolved: reportsAspectRatio ? { ratio in
+                    guard singleImageAspectRatio != ratio else { return }
+                    singleImageAspectRatio = ratio
+                } : nil
             )
         }
         .buttonStyle(.plain)
@@ -422,32 +438,77 @@ struct GalleryPosterImagesView: View {
 /// 单张帖子图片缩略图。
 struct GalleryPosterThumbnail: View {
     let image: GalleryImage
-    let width: CGFloat?
-    let maxHeight: CGFloat?
-    let aspectRatio: CGFloat
+    private let width: CGFloat?
+    private let maxHeight: CGFloat?
+    private let aspectRatio: CGFloat?
+    private let contentMode: ContentMode
+    private let onAspectRatioResolved: ((CGFloat) -> Void)?
+
+    init(
+        image: GalleryImage,
+        contentMode: ContentMode = .fit,
+        onAspectRatioResolved: ((CGFloat) -> Void)? = nil
+    ) {
+        self.image = image
+        width = nil
+        maxHeight = nil
+        aspectRatio = nil
+        self.contentMode = contentMode
+        self.onAspectRatioResolved = onAspectRatioResolved
+    }
+
+    /// 保留详情页和课程评论原有尺寸语义；主页拼贴使用上面的精简初始化器。
+    init(image: GalleryImage, width: CGFloat?, maxHeight: CGFloat?, aspectRatio: CGFloat) {
+        self.image = image
+        self.width = width
+        self.maxHeight = maxHeight
+        self.aspectRatio = aspectRatio
+        contentMode = .fit
+        onAspectRatioResolved = nil
+    }
 
     var body: some View {
-        AsyncImage(url: URL(string: image.lowUrl.isEmpty ? image.url : image.lowUrl)) { phase in
-            switch phase {
-            case let .success(renderedImage):
-                renderedImage
-                    .resizable()
-                    .scaledToFit()
-            default:
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.orange.opacity(0.12))
-                    .overlay {
-                        Image(systemName: "photo")
-                            .foregroundStyle(.orange)
-                    }
+        if let aspectRatio {
+            thumbnailContent
+                .frame(maxWidth: width == nil ? .infinity : width)
+                .aspectRatio(aspectRatio, contentMode: .fit)
+                .frame(width: width)
+                .frame(maxHeight: maxHeight)
+                .clipped()
+        } else {
+            thumbnailContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+        }
+    }
+
+    @ViewBuilder
+    private var thumbnailContent: some View {
+        Group {
+            if let animatedURL {
+                GalleryAutoplayingImage(url: animatedURL, contentMode: contentMode)
+            } else {
+                GalleryCachedStillImage(
+                    url: thumbnailURL,
+                    contentMode: contentMode,
+                    onAspectRatioResolved: onAspectRatioResolved
+                )
             }
         }
-        .frame(maxWidth: width == nil ? .infinity : width)
-        .aspectRatio(aspectRatio, contentMode: .fit)
-        .frame(width: width)
-        .frame(maxHeight: maxHeight)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
+
+    private var thumbnailURL: URL? {
+        URL(string: image.lowUrl.isEmpty ? image.url : image.lowUrl)
+    }
+
+    /// 动图必须读取原文件；服务端生成的 lowUrl 通常只是静态缩略图。
+    private var animatedURL: URL? {
+        guard let url = URL(string: image.url), url.pathExtension.lowercased() == "gif" else {
+            return nil
+        }
+        return url
+    }
+
 }
 
 /// 帖子详情页。

@@ -24,7 +24,7 @@ private enum ScoreSurface: String, CaseIterable, Identifiable {
 ///
 /// 负责承载“成绩 / 课程”的顶部切换。
 struct ScoreRootView: View {
-    @StateObject private var scoreViewModel = ScoreViewModel()
+    @StateObject private var scoreViewModel = SchoolDataRefreshCoordinator.shared.scoreViewModel
     @StateObject private var courseViewModel = CourseListViewModel()
     @State private var selectedSurface: ScoreSurface = .score
 
@@ -122,11 +122,20 @@ private struct ScoreListPage: View {
                 .background(Color(.systemGroupedBackground))
             case .loaded:
                 List {
-                    if viewModel.isSyncing {
-                        Section {
-                            Text("同步中")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
+                    Section {
+                        HStack(spacing: 10) {
+                            if viewModel.isSyncing {
+                                ProgressView()
+                                Text(viewModel.syncStatusText)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Image(systemName: "clock")
+                                    .foregroundStyle(.secondary)
+                                Text(viewModel.lastUpdatedText)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
 
@@ -186,7 +195,10 @@ private struct ScoreListPage: View {
                     }
 
                     Section("统计") {
-                        ScoreSummaryRow(title: "课程数", value: "\(viewModel.summary.selectedCourseCount)")
+                        ScoreSummaryRow(title: "已出分", value: "\(viewModel.summary.selectedCourseCount)")
+                        if let pendingCourseCount = viewModel.pendingCourseCount {
+                            ScoreSummaryRow(title: "未出分", value: "\(pendingCourseCount)")
+                        }
                         ScoreSummaryRow(title: "总学分", value: format(decimal: viewModel.summary.totalCredit))
                         ScoreSummaryRow(title: "加权平均分", value: format(optionalDecimal: viewModel.summary.weightedAverageScore))
                         ScoreSummaryRow(title: "加权 GPA", value: format(optionalDecimal: viewModel.summary.weightedAverageGPA))
@@ -206,6 +218,19 @@ private struct ScoreListPage: View {
                                     ScoreDetailView(row: row)
                                 } label: {
                                     ScoreRowCard(row: row)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+
+                    if let pendingCourses = viewModel.pendingCourses, !pendingCourses.isEmpty {
+                        Section("未出分") {
+                            ForEach(pendingCourses) { course in
+                                NavigationLink {
+                                    PendingScoreDetailView(course: course)
+                                } label: {
+                                    PendingScoreRowCard(course: course)
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -278,7 +303,7 @@ private struct ScoreListPage: View {
 /// 学校可信成绩单申请与预览页。
 private struct TrustedTranscriptPage: View {
     @StateObject private var viewModel = TrustedTranscriptViewModel()
-    @State private var isShowingImageViewer = false
+    @State private var imageViewer: GalleryImageViewerState?
 
     var body: some View {
         Group {
@@ -297,16 +322,25 @@ private struct TrustedTranscriptPage: View {
                     }
                 }
             case .loaded:
-                if let image = viewModel.image {
-                    Button {
-                        isShowingImageViewer = true
-                    } label: {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFit()
-                            .padding()
+                if !viewModel.images.isEmpty {
+                    ScrollView {
+                        LazyVStack(spacing: 12) {
+                            ForEach(Array(viewModel.images.enumerated()), id: \.offset) { index, image in
+                                Button {
+                                    imageViewer = GalleryImageViewerState(
+                                        localImages: viewModel.images,
+                                        initialIndex: index
+                                    )
+                                } label: {
+                                    Image(uiImage: image)
+                                        .resizable()
+                                        .scaledToFit()
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding()
                     }
-                    .buttonStyle(.plain)
                     .background(Color(.secondarySystemBackground))
                 }
             }
@@ -319,11 +353,7 @@ private struct TrustedTranscriptPage: View {
             // 从成绩页点进来就立即申请，不再增加一次确认操作。
             await viewModel.apply()
         }
-        .fullScreenCover(isPresented: $isShowingImageViewer) {
-            if let image = viewModel.image {
-                GalleryLocalImageViewer(image: image)
-            }
-        }
+        .gallerySystemImagePreview(item: $imageViewer)
         .sheet(
             item: Binding(
                 get: { viewModel.smsChallenge },
@@ -430,9 +460,9 @@ private struct ScoreSMSVerificationSheet: View {
 
     private var verificationHint: String {
         if let maskedPhone = challenge.maskedPhone, !maskedPhone.isEmpty {
-            return "验证码已发送至绑定手机 \(maskedPhone)，可点击键盘上方建议自动填充。"
+            return "学校统一身份认证要求二次验证，验证码已发送至 \(maskedPhone)。可点击键盘上方建议自动填充。"
         }
-        return "验证码已发送至绑定手机，可点击键盘上方建议自动填充。"
+        return "学校统一身份认证要求二次验证，验证码已发送至绑定手机。可点击键盘上方建议自动填充。"
     }
 }
 
@@ -524,6 +554,140 @@ private struct ScoreRowCard: View {
         guard !trimmed.isEmpty else { return "-" }
         guard let value = Double(trimmed) else { return trimmed }
         return value.formatted(.number.precision(.fractionLength(2)))
+    }
+}
+
+/// “未出分”分区中的课程占位卡片。
+///
+/// 列宽和已出分课程保持一致，但在列表层级上单独归入“未出分”分区。
+private struct PendingScoreRowCard: View {
+    let course: CourseRecord
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ScoreFixedColumnRow(
+                items: [
+                    ScoreFixedColumnItem(
+                        text: course.name.isEmpty ? "未命名课程" : course.name,
+                        ratio: 0.55,
+                        font: .headline,
+                        color: .primary
+                    ),
+                    ScoreFixedColumnItem(
+                        text: course.credit > 0 ? "\(course.credit)分" : "-",
+                        ratio: 0.15,
+                        font: .caption,
+                        color: .secondary
+                    ),
+                    ScoreFixedColumnItem(
+                        text: course.term.isEmpty ? "-" : course.term,
+                        ratio: 0.3,
+                        font: .caption,
+                        color: .secondary,
+                        alignment: .trailing
+                    ),
+                ],
+                height: 22
+            )
+
+            ScoreFixedColumnRow(
+                items: [
+                    ScoreFixedColumnItem(
+                        text: "成绩 -",
+                        ratio: 0.25,
+                        font: .subheadline.weight(.semibold),
+                        color: .primary
+                    ),
+                    ScoreFixedColumnItem(
+                        text: "均分 -",
+                        ratio: 0.45,
+                        font: .subheadline.weight(.semibold),
+                        color: .primary
+                    ),
+                    ScoreFixedColumnItem(
+                        text: course.type.isEmpty ? "-" : course.type,
+                        ratio: 0.3,
+                        font: .caption,
+                        color: .secondary,
+                        alignment: .trailing
+                    ),
+                ],
+                height: 20
+            )
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+/// 未出分课程详情页。
+///
+/// 数据来自对应学期的课表缓存，因此展示课表能够确认的课程信息；成绩和均分在
+/// 教务系统发布前统一显示为横杠。
+private struct PendingScoreDetailView: View {
+    let course: CourseRecord
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(course.name.isEmpty ? "未命名课程" : course.name)
+                        .font(.title3.weight(.bold))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    HStack(spacing: 18) {
+                        Text("成绩 -")
+                        Text("均分 -")
+                        Text(course.credit > 0 ? "学分 \(course.credit)" : "学分 -")
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        ScoreDetailMetaRow(title: "课程号", value: course.number)
+                        ScoreDetailMetaRow(title: "学期", value: course.term)
+                        ScoreDetailMetaRow(title: "课程性质", value: course.type)
+                    }
+                    .font(.subheadline)
+                }
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("课程信息")
+                        .font(.headline)
+                    ScoreDetailMetaRow(title: "教师", value: course.teacher)
+                    ScoreDetailMetaRow(title: "教室", value: course.classroom)
+                    ScoreDetailMetaRow(title: "校区", value: course.campus)
+                    ScoreDetailMetaRow(title: "上课时间", value: scheduleText)
+                    ScoreDetailMetaRow(title: "教学周", value: weeksText)
+                    ScoreDetailMetaRow(title: "学时", value: course.hour > 0 ? "\(course.hour)" : "-")
+                    if !course.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        ScoreDetailMetaRow(title: "备注", value: course.description)
+                    }
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 18)
+            .padding(.bottom, 24)
+        }
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle("成绩详情")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var scheduleText: String {
+        guard (1...7).contains(course.weekday), course.startSection > 0 else { return "-" }
+        let weekdays = ["一", "二", "三", "四", "五", "六", "日"]
+        let section = course.endSection > course.startSection
+            ? "第\(course.startSection)-\(course.endSection)节"
+            : "第\(course.startSection)节"
+        return "星期\(weekdays[course.weekday - 1]) \(section)"
+    }
+
+    private var weeksText: String {
+        guard !course.weeks.isEmpty else { return "-" }
+        return ScheduleCourseEditor.formatWeeks(course.weeks)
+            .replacingOccurrences(of: ",", with: "、")
     }
 }
 

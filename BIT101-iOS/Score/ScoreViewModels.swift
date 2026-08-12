@@ -23,6 +23,12 @@ final class ScoreViewModel: ObservableObject {
     @Published private(set) var sortOrder: ScoreSortOrder = .ascending
     /// 是否正在后台同步基础成绩列表。
     @Published private(set) var isSyncing = false
+    /// 复用现有同步提示区域展示两阶段查询进度，不额外弹窗打扰用户。
+    @Published private(set) var syncStatusText = "同步中"
+    /// 最近一次成功写入成绩缓存的时间；失败刷新不会改动它。
+    @Published private(set) var lastUpdatedAt: Date?
+    /// 已缓存课表可确认的未出分课程；缺少同学期课表时为 nil。
+    @Published private(set) var pendingCourses: [CourseRecord]?
     /// 当前等待用户输入短信验证码的短期认证挑战。
     @Published private(set) var smsChallenge: BITLoginAuthenticationChallenge?
     /// 短信验证码提交过程的行内错误提示。
@@ -31,15 +37,22 @@ final class ScoreViewModel: ObservableObject {
     @Published var alert: AppAlert?
 
     private let service: any ScoreListServicing
+    private let scheduleService: (any ScheduleServicing)?
     private var isRefreshing = false
     private var didRestoreCachedRows = false
     private var didInitializeTermSelection = false
     private var didInitializeCourseTypeSelection = false
+    /// 补齐成绩所涉及学期课表的静默任务；重复刷新不会再启动第二份。
+    private var scheduleCacheTask: Task<Void, Never>?
     /// 启动时读取一次已持久化的筛选快照。
     private let preferenceSnapshot = ScoreFilterPreferenceStore.load()
 
-    init(service: any ScoreListServicing) {
+    init(
+        service: any ScoreListServicing,
+        scheduleService: (any ScheduleServicing)? = nil
+    ) {
         self.service = service
+        self.scheduleService = scheduleService
         if
             let rawSortIndex = preferenceSnapshot?.sortIndex,
             let persistedSortIndex = ScoreSortIndex(rawValue: rawSortIndex)
@@ -55,7 +68,31 @@ final class ScoreViewModel: ObservableObject {
     }
 
     convenience init() {
-        self.init(service: ScoreService())
+        self.init(service: ScoreService(), scheduleService: ScheduleService())
+    }
+
+    /// 切换账号后丢弃内存态；磁盘缓存仍按新学号在下一次启动时恢复。
+    func resetForCurrentAccount() {
+        scheduleCacheTask?.cancel()
+        scheduleCacheTask = nil
+        rows = []
+        state = .idle
+        availableTerms = []
+        availableCourseTypes = []
+        selectedTerms = []
+        selectedCourseTypes = []
+        pendingCourses = nil
+        smsChallenge = nil
+        smsVerificationError = nil
+        isSubmittingSMSCode = false
+        isRefreshing = false
+        isSyncing = false
+        syncStatusText = "同步中"
+        lastUpdatedAt = nil
+        didRestoreCachedRows = false
+        didInitializeTermSelection = false
+        didInitializeCourseTypeSelection = false
+        alert = nil
     }
 
     /// 首次进入成绩页时触发一次查询。
@@ -64,13 +101,13 @@ final class ScoreViewModel: ObservableObject {
     func bootstrapIfNeeded() async {
         guard state == .idle else { return }
         restoreCachedRowsIfAvailable()
-        await refresh()
+        await refresh(showErrors: false)
     }
 
     /// 刷新成绩列表。
     ///
     /// 若页面已经有内容，则走非破坏性刷新，避免下拉刷新时先把列表清空。
-    func refresh() async {
+    func refresh(showErrors: Bool = true) async {
         guard !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil else { return }
 
         let hadContent = !rows.isEmpty || state == .loaded
@@ -78,6 +115,7 @@ final class ScoreViewModel: ObservableObject {
         smsVerificationError = nil
         isRefreshing = true
         isSyncing = true
+        syncStatusText = "同步简略成绩中"
         if !hadContent {
             state = .loading
         }
@@ -88,22 +126,24 @@ final class ScoreViewModel: ObservableObject {
         }
 
         do {
-            // 均分、排名和详情字段只在 detail=true 时返回；基础模式只能满足简略列表。
-            let fetchedRows = try await service.fetchScores(detail: true)
-            applyRows(fetchedRows)
-            ScoreCacheStore.save(rows: fetchedRows)
+            let challenge = try await service.startScoreChallenge()
+            try await synchronizeScores(authenticatedBy: challenge)
         } catch ScoreServiceError.secondFactorRequired(let challenge) {
             smsChallenge = challenge
             state = hadContent ? .loaded : .loading
         } catch ScoreServiceError.challengeInvalid(let message) {
             smsChallenge = nil
             smsVerificationError = nil
-            if hadContent {
+            if hadContent || !rows.isEmpty {
                 state = .loaded
-                alert = AppAlert(title: "验证已失效", message: message)
+                if showErrors {
+                    alert = AppAlert(title: "验证已失效", message: message)
+                }
             } else {
                 state = .failed(message)
-                alert = AppAlert(title: "验证已失效", message: message)
+                if showErrors {
+                    alert = AppAlert(title: "验证已失效", message: message)
+                }
             }
         } catch {
             if isCancellation(error) {
@@ -111,9 +151,11 @@ final class ScoreViewModel: ObservableObject {
                 return
             }
 
-            if hadContent {
+            if hadContent || !rows.isEmpty {
                 state = .loaded
-                alert = AppAlert(title: "成绩刷新失败", message: error.localizedDescription)
+                if showErrors {
+                    alert = AppAlert(title: "成绩刷新失败", message: error.localizedDescription)
+                }
                 return
             }
 
@@ -123,7 +165,9 @@ final class ScoreViewModel: ObservableObject {
             selectedTerms = []
             selectedCourseTypes = []
             state = .failed(error.localizedDescription)
-            alert = AppAlert(title: "成绩查询失败", message: error.localizedDescription)
+            if showErrors {
+                alert = AppAlert(title: "成绩查询失败", message: error.localizedDescription)
+            }
         }
     }
 
@@ -142,15 +186,15 @@ final class ScoreViewModel: ObservableObject {
         defer { isSubmittingSMSCode = false }
 
         do {
-            let fetchedRows = try await service.submitSMSCode(
+            let authenticatedChallenge = try await service.submitScoreSMSCode(
                 normalizedCode,
-                for: challenge,
-                detail: true
+                for: challenge
             )
-            applyRows(fetchedRows)
-            ScoreCacheStore.save(rows: fetchedRows)
             smsChallenge = nil
-            state = .loaded
+            isSyncing = true
+            syncStatusText = "同步简略成绩中"
+            defer { isSyncing = false }
+            try await synchronizeScores(authenticatedBy: authenticatedChallenge)
         } catch ScoreServiceError.challengeInvalid(let message) {
             smsChallenge = nil
             smsVerificationError = nil
@@ -160,6 +204,79 @@ final class ScoreViewModel: ObservableObject {
             alert = AppAlert(title: "验证已失效", message: message)
         } catch {
             smsVerificationError = error.localizedDescription
+        }
+    }
+
+    /// 用同一个认证会话先取简略列表，再补充排名、均分等详细字段。
+    ///
+    /// 简略结果到达后立即驱动页面并启动详细查询；“简略成绩同步完成”文案至少展示半秒，
+    /// 但这段展示时间不会阻塞网络请求。
+    private func synchronizeScores(
+        authenticatedBy challenge: BITLoginAuthenticationChallenge
+    ) async throws {
+        let briefRows = try await service.fetchScores(detail: false, authenticatedBy: challenge)
+        applyRows(briefRows)
+        startMissingScheduleCacheRefresh(for: briefRows)
+        syncStatusText = "简略成绩同步完成"
+        async let detailedRowsRequest = service.fetchScores(
+            detail: true,
+            authenticatedBy: challenge
+        )
+        try await Task.sleep(for: .milliseconds(500))
+
+        syncStatusText = "同步详细信息中"
+        do {
+            let detailedRows = try await detailedRowsRequest
+            applyRows(detailedRows)
+            ScoreCacheStore.save(rows: detailedRows)
+            lastUpdatedAt = ScoreCacheStore.loadUpdatedAt()
+        } catch {
+            // 简略成绩已经可用时不回滚为空；把简略结果缓存下来，下一次仍可秒开。
+            ScoreCacheStore.save(rows: briefRows)
+            lastUpdatedAt = ScoreCacheStore.loadUpdatedAt()
+            throw error
+        }
+    }
+
+    /// 对成绩中出现、但本机尚未缓存课表的学期做一次静默补齐。
+    ///
+    /// 该任务与详细成绩查询并行；失败或需要短信验证时不弹窗，也不会影响成绩列表。
+    private func startMissingScheduleCacheRefresh(for scoreRows: [ScoreRow]) {
+        guard let scheduleService else { return }
+        guard scheduleCacheTask == nil else { return }
+        let terms = Set(scoreRows.map(\.term).filter { !$0.isEmpty })
+        let existingTerms = Set(ScheduleCacheStore.load().cachedCoursesByTerm.keys)
+        let missingTerms = terms.subtracting(existingTerms).sorted {
+            $0.localizedStandardCompare($1) == .orderedDescending
+        }
+        guard !missingTerms.isEmpty else { return }
+
+        scheduleCacheTask = Task { [weak self] in
+            guard let self else { return }
+            defer { scheduleCacheTask = nil }
+            var fetchedCoursesByTerm: [String: [CourseRecord]] = [:]
+
+            for term in missingTerms {
+                guard !Task.isCancelled else { return }
+                do {
+                    let payload = try await scheduleService.syncCourses(term: term)
+                    fetchedCoursesByTerm[payload.term] = payload.courses
+                } catch ScheduleServiceError.secondFactorRequired(_) {
+                    // 认证服务可能发送短信；停止后续学期，避免一次静默任务重复触发验证码。
+                    break
+                } catch {
+                    // 后台补齐只用于辅助提示；任何认证或网络错误都留待用户在课表页主动处理。
+                    continue
+                }
+            }
+
+            if !fetchedCoursesByTerm.isEmpty {
+                // 网络等待期间用户可能修改课表；保存前重读最新快照，只合并学期缓存。
+                var latestCache = ScheduleCacheStore.load()
+                latestCache.cachedCoursesByTerm.merge(fetchedCoursesByTerm) { _, fetched in fetched }
+                ScheduleCacheStore.save(latestCache, source: .localWithoutCloudPush)
+                pendingCourses = calculatePendingCourses()
+            }
         }
     }
 
@@ -217,6 +334,56 @@ final class ScoreViewModel: ObservableObject {
         ScoreSummary.make(from: filteredRows)
     }
 
+    /// 根据本机已缓存的同学期课表，估算仍未出分的去重课程数。
+    ///
+    /// 没有对应学期缓存时返回 `nil`，避免把“不知道”误显示成 0。
+    private func calculatePendingCourses() -> [CourseRecord]? {
+        let scoreTerms = Set(rows.map(\.term).filter { !$0.isEmpty })
+            .intersection(selectedTerms)
+        guard !scoreTerms.isEmpty else { return nil }
+
+        let scheduleCache = ScheduleCacheStore.load()
+        let coveredTerms = scoreTerms.filter { scheduleCache.cachedCoursesByTerm[$0] != nil }
+        guard !coveredTerms.isEmpty else { return nil }
+
+        let scoredNumbers = Set(rows.compactMap { row -> String? in
+            let number = normalizedCourseIdentity(row.courseNumber)
+            return number.isEmpty ? nil : "\(row.term)|\(number)"
+        })
+        let scoredNames = Set(rows.compactMap { row -> String? in
+            let name = normalizedCourseIdentity(row.courseName)
+            return name.isEmpty ? nil : "\(row.term)|\(name)"
+        })
+        var pendingByIdentity: [String: CourseRecord] = [:]
+
+        for term in coveredTerms {
+            for course in scheduleCache.cachedCoursesByTerm[term] ?? [] {
+                let number = normalizedCourseIdentity(course.number)
+                let name = normalizedCourseIdentity(course.name)
+                let hasScore = (!number.isEmpty && scoredNumbers.contains("\(term)|\(number)"))
+                    || (!name.isEmpty && scoredNames.contains("\(term)|\(name)"))
+                guard !hasScore else { continue }
+
+                let identity = !number.isEmpty ? "\(term)|n|\(number)" : "\(term)|t|\(name)"
+                if !name.isEmpty || !number.isEmpty {
+                    pendingByIdentity[identity] = pendingByIdentity[identity] ?? course
+                }
+            }
+        }
+        return pendingByIdentity.values.sorted { lhs, rhs in
+            let termOrder = lhs.term.localizedStandardCompare(rhs.term)
+            if termOrder != .orderedSame {
+                return termOrder == .orderedDescending
+            }
+            return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    /// 当前筛选范围内尚未出分的课程数。
+    var pendingCourseCount: Int? {
+        pendingCourses?.count
+    }
+
     /// 当前排序偏好的人类可读摘要。
     var sortDescription: String {
         return "\(sortIndex.title) · \(sortOrder.title)"
@@ -225,6 +392,7 @@ final class ScoreViewModel: ObservableObject {
     /// 替换学期筛选结果，并自动剔除已不存在的选项。
     func setSelectedTerms(_ values: Set<String>) {
         selectedTerms = values.intersection(Set(availableTerms))
+        pendingCourses = calculatePendingCourses()
         persistFilterPreferences()
     }
 
@@ -238,6 +406,7 @@ final class ScoreViewModel: ObservableObject {
     func toggleAllTerms() {
         let allTerms = Set(availableTerms)
         selectedTerms = selectedTerms == allTerms ? [] : allTerms
+        pendingCourses = calculatePendingCourses()
         persistFilterPreferences()
     }
 
@@ -271,7 +440,14 @@ final class ScoreViewModel: ObservableObject {
         guard !didRestoreCachedRows else { return }
         didRestoreCachedRows = true
         guard let rows = ScoreCacheStore.loadRows(), !rows.isEmpty else { return }
+        lastUpdatedAt = ScoreCacheStore.loadUpdatedAt()
         applyRows(rows)
+    }
+
+    /// 非同步状态下常驻显示的最近更新时间。
+    var lastUpdatedText: String {
+        guard let lastUpdatedAt else { return "更新时间：暂无记录" }
+        return "更新时间：\(lastUpdatedAt.formatted(.dateTime.month().day().hour().minute()))"
     }
 
     /// 应用一份成绩列表，并同步筛选项。
@@ -280,6 +456,7 @@ final class ScoreViewModel: ObservableObject {
         availableTerms = uniqueNonEmptyValues(from: newRows.map(\.term))
         availableCourseTypes = uniqueNonEmptyValues(from: newRows.map(\.courseType))
         synchronizeFilters()
+        pendingCourses = calculatePendingCourses()
         state = .loaded
     }
 
@@ -328,6 +505,13 @@ final class ScoreViewModel: ObservableObject {
         return values
     }
 
+    /// 课程号和名称比较时忽略空白及大小写差异。
+    private func normalizedCourseIdentity(_ value: String) -> String {
+        value.components(separatedBy: .whitespacesAndNewlines)
+            .joined()
+            .lowercased()
+    }
+
     /// 把当前筛选结果写回本地偏好。
     private func persistFilterPreferences() {
         guard didInitializeTermSelection, didInitializeCourseTypeSelection else { return }
@@ -358,7 +542,7 @@ final class TrustedTranscriptViewModel: ObservableObject {
     }
 
     @Published private(set) var state: State = .idle
-    @Published private(set) var image: UIImage?
+    @Published private(set) var images: [UIImage] = []
     @Published private(set) var smsChallenge: BITLoginAuthenticationChallenge?
     @Published private(set) var smsVerificationError: String?
     @Published private(set) var isSubmittingSMSCode = false
@@ -376,13 +560,13 @@ final class TrustedTranscriptViewModel: ObservableObject {
     /// 发起一次新的学校可信成绩单申请。
     func apply() async {
         guard state != .loading, !isSubmittingSMSCode, smsChallenge == nil else { return }
-        image = nil
+        images = []
         smsVerificationError = nil
         state = .loading
 
         do {
-            let url = try await service.fetchTrustedTranscript()
-            try await loadImage(from: url)
+            let pages = try await service.fetchTrustedTranscriptPages()
+            try loadImages(from: pages)
         } catch ScoreServiceError.secondFactorRequired(let challenge) {
             smsChallenge = challenge
             state = .idle
@@ -409,10 +593,10 @@ final class TrustedTranscriptViewModel: ObservableObject {
         defer { isSubmittingSMSCode = false }
 
         do {
-            let url = try await service.submitTranscriptSMSCode(normalizedCode, for: challenge)
+            let pages = try await service.submitTranscriptSMSCode(normalizedCode, for: challenge)
             smsChallenge = nil
             state = .loading
-            try await loadImage(from: url)
+            try loadImages(from: pages)
         } catch ScoreServiceError.challengeInvalid(let message) {
             smsChallenge = nil
             state = .failed(message)
@@ -429,12 +613,12 @@ final class TrustedTranscriptViewModel: ObservableObject {
         state = .failed("已取消短信验证，未申请可信成绩单。")
     }
 
-    private func loadImage(from url: URL) async throws {
-        let data = try await service.downloadTrustedTranscript(from: url)
-        guard let downloadedImage = UIImage(data: data) else {
+    private func loadImages(from pages: [Data]) throws {
+        let downloadedImages = pages.compactMap(UIImage.init(data:))
+        guard downloadedImages.count == pages.count, !downloadedImages.isEmpty else {
             throw ScoreServiceError.queryFailed("学校返回的成绩单图片无法识别，请重新申请。")
         }
-        image = downloadedImage
+        images = downloadedImages
         state = .loaded
     }
 }

@@ -102,12 +102,12 @@ enum AppTab: String, Identifiable, Codable {
 ///
 /// 壳层只关心两件事：按照设置中心决定展示哪些 tab，以及把退出登录回调继续往下传。
 struct AppShellView: View {
-    private static let startupNoticeTitle = "1.7.0 版本更新"
+    private static let startupNoticeTitle = "1.7.1 版本更新"
     private static let startupNoticeBody = """
-    1、适配学校新的统一身份认证逻辑。
-    2、课表支持切换学期。
-    3、新增可信成绩单申请。
-    4、优化使用体验。
+    1、成绩页新增未出分课程提示。
+    2、可信成绩单支持多页查看。
+    3、优化成绩同步速度与使用体验。
+    4、优化话廊图片浏览体验。
     """
     private static let widgetUsageGuideTitle = "非常有用的几个用法"
     private static let widgetUsageGuideBody = """
@@ -123,6 +123,7 @@ struct AppShellView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var settings = AppSettingsStore.shared
+    @ObservedObject private var schoolDataRefresh = SchoolDataRefreshCoordinator.shared
     @State private var selectedTab: AppTab = .schedule
     @State private var isShowingGalleryEULA = false
     @State private var isShowingStartupNotice = false
@@ -131,6 +132,8 @@ struct AppShellView: View {
     @State private var isShowingScheduleNotificationPrompt = false
     @State private var requestedScheduleSection: ScheduleSection?
     @State private var requestedPaperID: Int?
+    /// 系统全屏控制器关闭时壳层可能再次收到 `onAppear`，不能因此重置当前 tab。
+    @State private var didInitializeSelectedTab = false
 
     /// 登录后的应用壳层主体。
     ///
@@ -211,10 +214,20 @@ struct AppShellView: View {
         } message: {
             Text(Self.linuxDoThanksBody)
         }
+        .alert(item: $schoolDataRefresh.alert) { alert in
+            Alert(
+                title: Text(alert.title),
+                message: Text(alert.message),
+                dismissButton: .default(Text("知道了"))
+            )
+        }
         .onAppear {
-            let initial = settings.visibleTabs.contains(settings.homeTab) ? settings.homeTab : (settings.visibleTabs.first ?? .schedule)
-            if selectedTab != initial {
-                selectTab(initial)
+            if !didInitializeSelectedTab {
+                didInitializeSelectedTab = true
+                let initial = settings.visibleTabs.contains(settings.homeTab) ? settings.homeTab : (settings.visibleTabs.first ?? .schedule)
+                if selectedTab != initial {
+                    selectTab(initial)
+                }
             }
             if settings.shouldShowCurrentStartupNotice {
                 isShowingStartupNotice = true

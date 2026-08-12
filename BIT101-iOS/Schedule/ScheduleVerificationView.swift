@@ -76,8 +76,9 @@ struct ScheduleSMSVerificationSheet: View {
 
     private var verificationHint: String {
         if let maskedPhone = challenge.maskedPhone, !maskedPhone.isEmpty {
-            return "验证码已发送至绑定手机 \(maskedPhone)，可点击键盘上方建议自动填充。"
+            return "学校统一身份认证要求二次验证，验证码已发送至 \(maskedPhone)。可点击键盘上方建议自动填充。"
         }
-        return "验证码已发送至绑定手机，可点击键盘上方建议自动填充。"
+        return "学校统一身份认证要求二次验证，验证码已发送至绑定手机。可点击键盘上方建议自动填充。"
     }
+
 }

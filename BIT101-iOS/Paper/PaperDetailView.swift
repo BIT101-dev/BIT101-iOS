@@ -191,9 +191,7 @@ struct PaperDetailView: View {
             }
             .presentationDragIndicator(.visible)
         }
-        .fullScreenCover(item: $imageViewer) { viewer in
-            GalleryImageViewer(viewer: viewer)
-        }
+        .gallerySystemImagePreview(item: $imageViewer)
         .task {
             await viewModel.bootstrapIfNeeded()
         }
@@ -351,18 +349,7 @@ private struct PaperContentBlockView: View {
                 onOpenImage(image)
             } label: {
                 VStack(alignment: .leading, spacing: 8) {
-                    CachedRemoteImage(url: image.preferredRemoteURL) { renderedImage in
-                        renderedImage
-                            .resizable()
-                            .scaledToFit()
-                    } placeholder: {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.orange.opacity(0.12))
-                            .overlay {
-                                Image(systemName: "photo")
-                                    .foregroundStyle(.orange)
-                            }
-                    }
+                    GalleryCachedStillImage(url: image.preferredRemoteURL)
                     .frame(maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 

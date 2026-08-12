@@ -11,6 +11,11 @@ protocol CommunityAPIServiceError: Error {
     static var communityInvalidResponse: Self { get }
 }
 
+/// `Decodable` 元类型只用于后台队列同步调用 `JSONDecoder`，生命周期由调用栈保证。
+private struct CommunityDecodableType<Response: Decodable>: @unchecked Sendable {
+    let value: Response.Type
+}
+
 /// BIT101 社区后端的统一认证、URL、状态码和 JSON 边界。
 struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
     private let baseURL: URL
@@ -60,9 +65,7 @@ struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         )
 
         do {
-            let decoder = JSONDecoder()
-            decoder.keyDecodingStrategy = .convertFromSnakeCase
-            return try decoder.decode(Response.self, from: response.data)
+            return try await Self.decodeResponse(Response.self, from: response.data)
         } catch {
             throw Failure.communityInvalidResponse
         }
@@ -104,6 +107,25 @@ struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
 
     func encode<Body: Encodable>(_ body: Body) throws -> Data {
         try JSONEncoder().encode(body)
+    }
+
+    /// 社区列表响应可能包含大量帖子和嵌套图片；解码不应占用 MainActor 的滚动帧。
+    private nonisolated static func decodeResponse<Response: Decodable>(
+        _ type: Response.Type,
+        from data: Data
+    ) async throws -> Response {
+        let responseType = CommunityDecodableType(value: type)
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                do {
+                    let decoder = JSONDecoder()
+                    decoder.keyDecodingStrategy = .convertFromSnakeCase
+                    continuation.resume(returning: try decoder.decode(responseType.value, from: data))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
     }
 
     private func send(

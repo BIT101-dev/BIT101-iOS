@@ -9,6 +9,10 @@ enum ScoreCacheStore {
         keyPrefix: "score.detail.cache",
         accountIdentifier: { LoginStorage.shared.currentStudentID }
     )
+    private static let updatedAtStore = AccountScopedCodableStore<Date>(
+        keyPrefix: "score.detail.cache.updated-at",
+        accountIdentifier: { LoginStorage.shared.currentStudentID }
+    )
 
     static func loadRows() -> [ScoreRow]? {
         store.load()
@@ -17,5 +21,10 @@ enum ScoreCacheStore {
     static func save(rows: [ScoreRow]) {
         guard !rows.isEmpty else { return }
         store.save(rows)
+        updatedAtStore.save(Date())
+    }
+
+    static func loadUpdatedAt() -> Date? {
+        updatedAtStore.load()
     }
 }
