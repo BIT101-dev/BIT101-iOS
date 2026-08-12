@@ -108,6 +108,7 @@ struct AppShellView: View {
     2、可信成绩单支持多页查看。
     3、优化成绩同步速度与使用体验。
     4、优化话廊图片浏览体验。
+    5、新增校园导航功能，让你不再迷路。
     """
     private static let widgetUsageGuideTitle = "非常有用的几个用法"
     private static let widgetUsageGuideBody = """
@@ -152,7 +153,7 @@ struct AppShellView: View {
                     case .course:
                         ScoreRootView()
                     case .map:
-                        CampusMapScreen()
+                        CampusMapScreen(scheduleViewModel: schoolDataRefresh.scheduleViewModel)
                     case .score:
                         ScoreRootView()
                     case .gallery:

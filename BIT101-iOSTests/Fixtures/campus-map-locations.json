@@ -1,0 +1,2787 @@
+[
+  {
+    "campus": "中关村校区",
+    "classroom": "1号教学楼130",
+    "expected": "1号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "201所",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "201研究所实验中心",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "2锅炉房",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼127",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼301",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼302",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼308",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼310",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼311",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼312",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼313",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼314",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼315",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼318",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼324",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼325/326",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼327/328",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼329",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼330",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼335",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼337",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼338",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼341",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼401",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼402",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼404",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼422",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼423",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼425",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼428",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼429",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼430",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼434",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "3号楼436",
+    "expected": "3号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "5号教学楼10层分析测试中心",
+    "expected": "5号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "5号教学楼302和319室",
+    "expected": "5号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "5号教学楼417室",
+    "expected": "5号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "5号教学楼419",
+    "expected": "5号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "5号教学楼901-1实验室",
+    "expected": "5号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "5号教学楼906室",
+    "expected": "5号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "5号教学楼911，902室",
+    "expected": "5号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "5号楼1005",
+    "expected": "5号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "5号楼302",
+    "expected": "5号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "5号楼626",
+    "expected": "5号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "5号楼802-3",
+    "expected": "5号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "5号楼823",
+    "expected": "5号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "5号楼B121、403-2",
+    "expected": "5号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "5号楼B122",
+    "expected": "5号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "5号楼B123",
+    "expected": "5号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "5号楼会议室",
+    "expected": "5号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "6号教学楼236",
+    "expected": "6号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "6号教学楼601",
+    "expected": "6号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "6号教学楼后三层玻璃楼会议室",
+    "expected": "6号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "6号楼702实验室",
+    "expected": "6号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "7号楼108",
+    "expected": "7号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "8号楼1001",
+    "expected": "8号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "8号楼1003",
+    "expected": "8号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "8号楼1005",
+    "expected": "8号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "8号楼1007",
+    "expected": "8号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "8号楼1009",
+    "expected": "8号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "8号楼2001",
+    "expected": "8号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "8号楼2003",
+    "expected": "8号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "8号楼2005",
+    "expected": "8号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "8号楼2007",
+    "expected": "8号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "8号楼2009",
+    "expected": "8号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "8号楼3001",
+    "expected": "8号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "8号楼3005",
+    "expected": "8号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "8号楼4018",
+    "expected": "8号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "9号教学楼428室",
+    "expected": "9号楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "中关村东操场主席台",
+    "expected": "东操场"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "中关村体育馆北厅140",
+    "expected": "体育馆"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "中关村体育馆地下羽毛球场",
+    "expected": "体育馆"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "中关村校区主楼133",
+    "expected": "主楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "中关村校区主楼309",
+    "expected": "主楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "中关村校区，发动机研究所东楼112",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "中关村校医院b105",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "中教1003",
+    "expected": "中教"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "中教211",
+    "expected": "中教"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "中教230",
+    "expected": "中教"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "中教316",
+    "expected": "中教"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "中教325",
+    "expected": "中教"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "中教425",
+    "expected": "中教"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "中机寰宇试验室",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "主楼 429",
+    "expected": "主楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "主楼115",
+    "expected": "主楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "主楼133",
+    "expected": "主楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "主楼240教室",
+    "expected": "主楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "主楼345",
+    "expected": "主楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "主楼409",
+    "expected": "主楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "体育馆乐团排练厅",
+    "expected": "体育馆"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "体育馆夹层J13",
+    "expected": "体育馆"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "发动机试验室东楼205",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "宇航楼107",
+    "expected": "宇航楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "宇航楼116",
+    "expected": "宇航楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "宇航楼308",
+    "expected": "宇航楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "实验室",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "排练厅D11",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "文萃楼F201",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "文萃楼F205",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "文萃楼F302",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "文萃楼F304",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "文萃楼G126",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "文萃楼I101",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "文萃楼I201",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "文萃楼I203",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "文萃楼I205",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "文萃楼I301",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "文萃楼I304",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "文萃楼I401",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "文萃楼I702",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "文萃楼I703",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "文萃楼I704",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "材料学院动态性能实验室",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "求是楼103",
+    "expected": "求是楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "理教楼108",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "理教楼109",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "理教楼207",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼103",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼104",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼105",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼106",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼203",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼204",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼206",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼207",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼208",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼209",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼210",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼301",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼302",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼303",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼304",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼304C",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼306",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼307",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼308",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼403",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼404",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼405",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼406",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼407",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼408",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼409",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼501",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼502",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼503",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼504",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼505",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼506",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼507",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼508",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼509",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼603",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼604",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼605",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼606",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼607",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼608",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研楼609",
+    "expected": "研楼"
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "研究生院201报告厅",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "综教A104",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "综教B103",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "综教B105",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "综教B306",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "综教B405",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "良乡实训楼201",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "良乡校区实训楼909",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "西山实验区19号楼E08",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "西山实验室",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "西山实验室区19号楼E08",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "西山校区337实验室",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "西山阻燃中心",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "西山阻燃中心高分子加工实验室",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "西山阻燃中心高分子材料表征实验室",
+    "expected": null
+  },
+  {
+    "campus": "中关村校区",
+    "classroom": "车辆重点实验楼二层半报告厅",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "3号楼324",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "3号楼423",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "5号楼1023",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "5号楼419",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "5号楼427",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "8号楼4018",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "B224",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "中关村工作室",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "中央美术学院美术馆",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "中教425",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "中级仪器平台实验室 310",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "任课教师工作室",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "化学实验中心100",
+    "expected": "化学实验中心"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "化学实验中心103-104房间及315房间",
+    "expected": "化学实验中心"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "化学实验中心216",
+    "expected": "化学实验中心"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "化学实验中心218",
+    "expected": "化学实验中心"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "化学实验中心219",
+    "expected": "化学实验中心"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "化学实验中心222",
+    "expected": "化学实验中心"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "化学实验中心312",
+    "expected": "化学实验中心"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "化学实验中心402",
+    "expected": "化学实验中心"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "化学实验中心405",
+    "expected": "化学实验中心"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "化学实验中心407",
+    "expected": "化学实验中心"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "化学实验中心408",
+    "expected": "化学实验中心"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "化学实验中心509",
+    "expected": "化学实验中心"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "化学实验中心分析505",
+    "expected": "化学实验中心"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "化学实验中心无机325",
+    "expected": "化学实验中心"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "化学实验中心无机327",
+    "expected": "化学实验中心"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "化学实验中心有机412",
+    "expected": "化学实验中心"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "化学实验中心有机413",
+    "expected": "化学实验中心"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "化学实验中心有机414",
+    "expected": "化学实验中心"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "化学实验中心虚拟仿真110",
+    "expected": "化学实验中心"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "化学实验楼508",
+    "expected": "化学实验中心"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "北京市大兴区小米汽车基地",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "北京市大兴区小米汽车生产基地",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "南校区排球场",
+    "expected": "南校区排球场"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "南校区篮球场",
+    "expected": "南校区篮球场"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "南校区网球场",
+    "expected": "南校区网球场"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "南校区足球场",
+    "expected": "南校区足球场"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "图书馆",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "学生实践调研",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工业生态楼409实验室",
+    "expected": "工业生态楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工业生态楼一层分析测试中心",
+    "expected": "工业生态楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工业生态楼各科研实验室",
+    "expected": "工业生态楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工业生态楼科研实验室/文萃楼H124机房",
+    "expected": "文萃楼H"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工程训练中心",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼1003",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼1004",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼1005",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼1010",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼1011",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼1015",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼102",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼106",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼107",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼301",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼302A",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼306",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼307",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼309",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼313",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼315",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼403",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼406",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼412",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼502",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼509",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼602",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼604",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼607",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼610",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼804",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼902",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼903",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼904",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼905",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼908",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼909",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼910",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼911",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼913",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼915",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "工训楼配楼114",
+    "expected": "工训楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "按教学计划：15周周二，外出博物馆考察。16周周二，外出 市场竞品调研。",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "故宫博物院家具馆实践教学",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文博中心",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文博中心大剧院",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃A311",
+    "expected": "文萃楼A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃A412",
+    "expected": "文萃楼A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃C901室",
+    "expected": "文萃楼C"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃G125",
+    "expected": "文萃楼G"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃I303",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃K508",
+    "expected": "文萃楼K"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃L614",
+    "expected": "文萃楼L"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼-圆形报告厅",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼A座412会议室",
+    "expected": "文萃楼A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼B129",
+    "expected": "文萃楼B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼B130",
+    "expected": "文萃楼B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼B139",
+    "expected": "文萃楼B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼B140",
+    "expected": "文萃楼B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼B221",
+    "expected": "文萃楼B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼B222",
+    "expected": "文萃楼B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼B223",
+    "expected": "文萃楼B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼B224",
+    "expected": "文萃楼B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼B227",
+    "expected": "文萃楼B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼B228",
+    "expected": "文萃楼B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼B233",
+    "expected": "文萃楼B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼C409",
+    "expected": "文萃楼C"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼C501a",
+    "expected": "文萃楼C"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼C501b",
+    "expected": "文萃楼C"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼C501c",
+    "expected": "文萃楼C"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼C505",
+    "expected": "文萃楼C"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼C506",
+    "expected": "文萃楼C"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼C601",
+    "expected": "文萃楼C"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼C705",
+    "expected": "文萃楼C"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼C805",
+    "expected": "文萃楼C"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼C806",
+    "expected": "文萃楼C"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼C903",
+    "expected": "文萃楼C"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼C905",
+    "expected": "文萃楼C"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼E207",
+    "expected": "文萃楼E"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼E218",
+    "expected": "文萃楼E"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F101",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F102",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F103",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F201",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F202",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F203",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F204",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F205",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F301",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F302",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F303",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F304",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F305",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F401",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F402",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F403",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F404",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F405",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F501",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F502",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F503",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F504",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F505",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F601",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F602",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F603",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F604",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F605",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F701",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F702",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F703",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F704",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼F705",
+    "expected": "文萃楼F"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼G124",
+    "expected": "文萃楼G"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼G125",
+    "expected": "文萃楼G"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼G126",
+    "expected": "文萃楼G"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼G130",
+    "expected": "文萃楼G"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼G221",
+    "expected": "文萃楼G"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼G222",
+    "expected": "文萃楼G"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼G223",
+    "expected": "文萃楼G"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼G224",
+    "expected": "文萃楼G"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼H124良乡一号机房",
+    "expected": "文萃楼H"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼H125良乡二号机房",
+    "expected": "文萃楼H"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼H126良乡三号机房",
+    "expected": "文萃楼H"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼H130",
+    "expected": "文萃楼H"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼H221良乡四号机房",
+    "expected": "文萃楼H"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼H222良乡五号机房",
+    "expected": "文萃楼H"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼H226良乡六号机房",
+    "expected": "文萃楼H"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼H229良乡七号机房",
+    "expected": "文萃楼H"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I101",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I102",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I103",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I201",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I202",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I203",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I204",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I205",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I301",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I302",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I303",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I304",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I305",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I401",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I402",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I403",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I404",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I405",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I501",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I502",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I503",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I504",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I505",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I601",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I602",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I603",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I604",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I605",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I701",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I702",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I703",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I704",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼I705",
+    "expected": "文萃楼I"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼J911",
+    "expected": "文萃楼J"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼J916",
+    "expected": "文萃楼J"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼K306-307",
+    "expected": "文萃楼K"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼K306-307会议室",
+    "expected": "文萃楼K"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼L1009文学与文化研究中心",
+    "expected": "文萃楼L"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼L309会议室",
+    "expected": "文萃楼L"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼L614",
+    "expected": "文萃楼L"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼L716",
+    "expected": "文萃楼L"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼L716实验室",
+    "expected": "文萃楼L"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼L812",
+    "expected": "文萃楼L"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼M124",
+    "expected": "文萃楼M"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼M125",
+    "expected": "文萃楼M"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼M134",
+    "expected": "文萃楼M"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼M135",
+    "expected": "文萃楼M"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼M221",
+    "expected": "文萃楼M"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼M222",
+    "expected": "文萃楼M"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼M223",
+    "expected": "文萃楼M"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼M224",
+    "expected": "文萃楼M"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼M227",
+    "expected": "文萃楼M"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼M228",
+    "expected": "文萃楼M"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "文萃楼M233",
+    "expected": "文萃楼M"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "昌平回龙观",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "模拟法庭",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "模拟法庭教室",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "法学院智慧法治实验室（文萃楼J120）",
+    "expected": "文萃楼J"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "清华大学艺术博物馆家具馆现场教学",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "游泳馆浅水区北侧",
+    "expected": "体育馆"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "游泳馆浅水区南侧",
+    "expected": "体育馆"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "游泳馆深水区",
+    "expected": "体育馆"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "物理实验中心",
+    "expected": "物理实验中心"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理学B2-102",
+    "expected": "理学楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理学B2-106",
+    "expected": "理学楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理学B2-206",
+    "expected": "理学楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理学C1-106",
+    "expected": "理学楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理学C1-207",
+    "expected": "理学楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理学C307",
+    "expected": "理学楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理学C314",
+    "expected": "理学楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理学C315",
+    "expected": "理学楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理学C402",
+    "expected": "理学楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理学C403",
+    "expected": "理学楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理学C405",
+    "expected": "理学楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理学C406",
+    "expected": "理学楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理学C408",
+    "expected": "理学楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理学楼A206(院史馆，课堂思政教学)",
+    "expected": "理学楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理学楼C208实验室",
+    "expected": "理学楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理学楼C座102微纳加工中心",
+    "expected": "理学楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼101",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼102",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼103",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼104",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼105",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼106",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼107",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼108",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼109",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼201",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼202",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼203",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼204",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼205",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼206",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼207",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼208",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼209",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼210",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼301",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼302",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼303",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼304",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼305",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼306",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼307",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼308",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼309",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼310",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼401",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼402",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼403",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼404",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼405",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼406",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼407",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼408",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼409",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼501",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼505",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "理教楼506",
+    "expected": "理教楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "田径场主席台",
+    "expected": "南校区足球场"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "由教师通知",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "疏桐园A地下",
+    "expected": "疏桐A地下"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "研楼105",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "研楼106",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "研楼204",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "研楼208",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "研楼209",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "研楼210",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "研楼304",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "研楼304C",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "研楼308",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "研楼403",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "研楼404",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "研楼408",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "研楼409",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "研楼503",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "研楼504",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "研楼508",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "研楼608",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "社工实验室团体室",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A 105",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A101",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A102",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A103",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A104",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A105",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A106",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A201",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A202",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A203",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A204",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A205",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A206",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A301",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A302",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A303",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A304",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A305",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A306",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A401",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A402",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A403",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A404",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A405",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A406",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A501",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A502",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A503",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教A504",
+    "expected": "综教A"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B101",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B102",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B103",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B104",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B105",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B201",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B202",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B203",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B204",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B301",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B302",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B303",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B304",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B305",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B306",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B401",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B402",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B403",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B405",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B406",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B501",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B502",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B503",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B504",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "综教B505",
+    "expected": "综教B"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "良乡体育馆202",
+    "expected": "体育馆"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "良乡体育馆209",
+    "expected": "体育馆"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "良乡体育馆212",
+    "expected": "体育馆"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "良乡体育馆302",
+    "expected": "体育馆"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "良乡体育馆316",
+    "expected": "体育馆"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "良乡体育馆407",
+    "expected": "体育馆"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "良乡体育馆健身房",
+    "expected": "体育馆"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "良乡体育馆篮球场",
+    "expected": "体育馆"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "良乡体育馆羽毛球场",
+    "expected": "体育馆"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "良乡校区交叉大楼2楼光量子与纳机电实验平台",
+    "expected": "前沿交叉大楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "良乡校区前沿交叉大楼323实验室",
+    "expected": "前沿交叉大楼"
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "良乡校区行政楼308会议室",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "西山阻燃楼",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "课外调研",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "车辆实验楼106",
+    "expected": null
+  },
+  {
+    "campus": "良乡校区",
+    "classroom": "阿里巴巴北京园区",
+    "expected": null
+  }
+]
