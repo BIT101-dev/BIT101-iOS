@@ -113,19 +113,26 @@
 - 这同样属于功能型桥接
 - 后续可以优化实现细节，但不建议把它简单定义为“应尽快删掉的非原生代码”
 
-## 3. 重构后的剩余热点
+## 3. 2026 年 8 月后续定点重构
+
+- `ScheduleModels.swift` 已只保留领域模型和日期/周次编解码；本地存储与 CloudKit 分别迁至 `ScheduleCacheStore.swift`、`ScheduleCloudSyncManager.swift`。
+- 缓存旧格式迁移与云端时间戳冲突决策已增加回归测试，CloudKit 决策本身不再依赖签名容器才能验证。
+- 空教室请求代次、单次预热、元数据 single-flight 和超时归入 `ScheduleClassroomCoordinator`。
+- 课表短信验证后的续接目的归入 `ScheduleCourseSyncCoordinator`，避免学期列表与指定学期同步互相串线。
+- Gallery 推荐页后台预取归入 `GalleryRecommendPrefetchCoordinator`；前台分页与后台预取复用同一个源页任务，避免竞态重复请求。
+
+## 4. 重构后的剩余热点
 
 当前已没有同时承载整套子页面的千行级 RootView。剩余较长文件主要是状态机和数据模型：
 
-- `ScheduleViewModel.swift`：仍是日程页面的主状态机，但课程表单和空教室纯计算已经移出。若继续拆，应优先引入有明确生命周期的同步协调器，而不是为了行数放宽 `private` 访问级别。
-- `ScheduleModels.swift`：同时包含缓存和 CloudKit 同步。后续可按模型、缓存存储、云同步拆分，但需要保留账号隔离与通知顺序。
+- `ScheduleViewModel.swift`：仍是日程页面的主状态机，但表单计算、空教室请求生命周期与短信续接状态已移出。后续只在出现新的独立生命周期时继续拆，不按行数机械切割。
 - `ScheduleRootView.swift`：剩余的是三分栏容器和页面协调；日历、编辑器与 DDL 子页已经独立。
-- `GalleryViewModel.swift`：推荐流预取、普通分页、搜索和消息状态仍较集中。它们共享取消与去重约束，继续拆分前应先补预取竞态测试。
+- `GalleryViewModel.swift`：推荐预取任务已独立；普通 feed、搜索和消息状态仍在同文件中，但属于不同类型，暂不为缩短文件继续拆分。
 - `MineRootView.swift`、`ScoreRootView.swift`：约 700 行，但目前以单域原生页面组合为主，没有发现必须立即拆分的高风险耦合。
 
 因此不再按“行数超过某阈值”机械拆文件；优先以可独立测试的职责和真实修改频率判断。
 
-## 4. 代码清理时要守住的边界
+## 5. 代码清理时要守住的边界
 
 继续清理这个项目时，最容易出问题的不是“删少了”，而是“把行为约束一起删掉了”。
 
@@ -172,15 +179,15 @@
 bit-login challenge、短信状态、会话失效识别与有限重试。重构时不能重新引入永久
 `didAuthenticate` 布尔值，也不能把 `jwb`、`jwb_cjd` 或教学中心 session 合并成一个全局状态。
 
-## 5. 下一轮建议顺序
+## 6. 下一轮建议顺序
 
-1. 为 Gallery 推荐预取与重复页合并补竞态测试，再评估拆分 feed 协调器。
-2. 将 `ScheduleModels.swift` 的本地缓存与 CloudKit 同步分层，并为迁移/合并规则补 fixture。
+1. 为学校接口响应增加脱敏 fixture，重点覆盖认证失效与空响应兼容。
+2. 观察空教室协调器和推荐预取协调器的真实修改频率，再决定是否继续扩大职责。
 3. 只有在 Mine 或 Score 页面继续增长时，再按独立导航目的地拆分其 RootView。
 
 不建议为了压缩行数优先改 `ScheduleLiveActivityManager.swift` 或 widget：它们牵涉 ActivityKit、后台时序和系统扩展，回归更隐蔽。
 
-## 6. 维护时的一个简单判断法
+## 7. 维护时的一个简单判断法
 
 当你看到一段代码时，可以先问自己三个问题：
 

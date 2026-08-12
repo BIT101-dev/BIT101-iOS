@@ -95,7 +95,9 @@
 - `BIT101-iOS/BIT101-iOS/Gallery/GalleryServicing.swift`
   按 feed、消息和帖子详情场景拆分的 Service 协议。
 - `BIT101-iOS/BIT101-iOS/Gallery/GalleryViewModel.swift`
-  话廊 feed、搜索与消息分类的状态机，负责刷新、分页、预取和本地已读近似状态。
+  话廊 feed、搜索与消息分类的状态机，负责刷新、分页和本地已读近似状态。
+- `BIT101-iOS/BIT101-iOS/Gallery/GalleryRecommendPrefetchCoordinator.swift`
+  推荐流源页预取协调器，统一后台预取、前台消费、取消代次和同页请求复用。
 
 ### 4.1 文章模块
 
@@ -139,7 +141,15 @@
 - `BIT101-iOS/BIT101-iOS/Schedule/ScheduleLiveActivityManager.swift`
   课程提醒 Live Activity 管理器，负责开始、更新和结束提醒。
 - `BIT101-iOS/BIT101-iOS/Schedule/ScheduleModels.swift`
-  课表、考试、DDL、空教室、自定义日程、本地缓存和时间表相关模型。
+  课表、考试、DDL、空教室、自定义日程、缓存快照和时间表领域模型。
+- `BIT101-iOS/BIT101-iOS/Schedule/ScheduleCacheStore.swift`
+  按账号隔离的日程缓存磁盘读写、通知和小组件导出触发。
+- `BIT101-iOS/BIT101-iOS/Schedule/ScheduleCloudSyncManager.swift`
+  日程缓存的 CloudKit 传输与时间戳冲突决策。
+- `BIT101-iOS/BIT101-iOS/Schedule/ScheduleClassroomCoordinator.swift`
+  空教室请求代次、超时、首次加载和元数据 single-flight 协调。
+- `BIT101-iOS/BIT101-iOS/Schedule/ScheduleCourseSyncCoordinator.swift`
+  记录短信认证后应续接指定学期同步还是学期列表加载。
 - `BIT101-iOS/BIT101-iOS/Schedule/FreeClassroomViews.swift`
   空教室查询、加载状态和节次筛选视图。
 - `BIT101-iOS/BIT101-iOS/Schedule/ClassroomSorting.swift`

@@ -1,5 +1,15 @@
 # 测试与持续集成
 
+## 设备使用红线
+
+**禁止启动、使用或创建任何 iOS / watchOS 模拟器。**
+
+- 不得执行 `simctl boot`，不得选择 Simulator destination，也不得运行任何会隐式启动模拟器的自动化操作。
+- 构建、测试、安装和运行验证只能使用当前已连接并受信任的真机。
+- 没有可用真机时必须停止验证并明确说明，不能改用模拟器。
+- 仅做编译检查时使用 generic device destination，执行前仍须确认命令不指向模拟器。
+- 本约束同样适用于维护者、CI 脚本和自动化代理。
+
 ## 本地工具链
 
 工程当前使用 Xcode 27 Beta。若它没有设为系统默认，所有命令显式指定开发者目录：
@@ -9,7 +19,7 @@ export DEVELOPER_DIR=/Users/harrybit/Desktop/Xcode-beta.app/Contents/Developer
 xcodebuild -version
 ```
 
-不必为了本仓库永久切换系统 `xcode-select`。Beta 环境下测试诊断进程可能仍调用系统工具；先手动启动模拟器，并传入 `-collect-test-diagnostics never` 可避免该依赖。
+不必为了本仓库永久切换系统 `xcode-select`。执行任何构建或测试前，先确认 destination 是 generic device 或当前连接的真机。
 
 ## 编译测试包
 
@@ -18,32 +28,29 @@ xcodebuild build-for-testing \
   -project BIT101-iOS.xcodeproj \
   -scheme BIT101-iOS \
   -configuration Debug \
-  -destination 'generic/platform=iOS Simulator' \
+  -destination 'generic/platform=iOS' \
   -derivedDataPath build/Tests \
-  -collect-test-diagnostics never \
-  CODE_SIGNING_ALLOWED=NO
+  -allowProvisioningUpdates
 ```
 
-## 运行模拟器测试
+## 运行真机测试
 
-先从 `xcrun simctl list devices available` 选择设备并启动：
+连接并信任真机后，通过 `xcodebuild -showdestinations` 获取设备 ID：
 
 ```sh
-DEVICE_ID='<simulator-udid>'
-xcrun simctl boot "$DEVICE_ID" 2>/dev/null || true
-xcrun simctl bootstatus "$DEVICE_ID" -b
+DEVICE_ID='<xcode-device-id>'
 
 xcodebuild test \
   -project BIT101-iOS.xcodeproj \
   -scheme BIT101-iOS \
   -configuration Debug \
-  -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+  -destination "platform=iOS,id=$DEVICE_ID" \
   -derivedDataPath build/Tests \
   -collect-test-diagnostics never \
-  CODE_SIGNING_ALLOWED=NO
+  -allowProvisioningUpdates
 ```
 
-2026-08-09 的基线为 **40 项测试全部通过，0 条编译警告/错误**。覆盖范围包括：
+2026-08-09 的历史基线为 **40 项测试全部通过，0 条编译警告/错误**。后续只能在真机上复验。覆盖范围包括：
 
 - 取消错误、页码分页、账号隔离 Codable 快照
 - HTTP/社区请求构造和错误映射
@@ -72,4 +79,4 @@ xcodebuild build \
 
 ## CI 门禁
 
-`.github/workflows/ci.yml` 在 push 到 `main` 和 Pull Request 时执行工程校验及 `build-for-testing`。CI 不负责签名、真机能力、Widget 时间线或 Live Activity 时序，这些仍按 `MODULE_PLAYBOOK.md` 做人工验证。
+CI 或其它自动化同样不得启动、创建或使用模拟器。无法提供真机 destination 的环境只能做不依赖模拟器的静态检查；真机构建、测试、Widget 时间线和 Live Activity 时序按 `MODULE_PLAYBOOK.md` 人工验证。

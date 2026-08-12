@@ -146,6 +146,7 @@ struct ScoreSummary {
         default:
             let score = Double(raw) ?? 0
             if score < 60 { return 0 }
+            // 百分制使用学校公布的连续公式；等级制由上面的官方映射处理。
             return 4 - 3 * (100 - score) * (100 - score) / 1600
         }
     }

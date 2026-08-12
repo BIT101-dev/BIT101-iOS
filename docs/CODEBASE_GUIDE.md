@@ -139,7 +139,15 @@ Widget、锁屏组件、Apple Watch、Live Activity 不能直接依赖主 App �
 ### 4.1 组成文件
 
 - `Schedule/ScheduleModels.swift`
-  课表、考试、DDL、空教室、本地缓存和时间表模型
+  课表、考试、DDL、空教室、缓存快照和时间表模型
+- `Schedule/ScheduleCacheStore.swift`
+  按账号隔离的本地缓存读写
+- `Schedule/ScheduleCloudSyncManager.swift`
+  CloudKit 同步与冲突决策
+- `Schedule/ScheduleClassroomCoordinator.swift`
+  空教室请求生命周期与超时
+- `Schedule/ScheduleCourseSyncCoordinator.swift`
+  短信认证后的同步续接目的
 - `Schedule/ScheduleService.swift`
   教务、乐学、空教室相关的网络请求与数据解析
 - `Schedule/ScheduleViewModel.swift`
