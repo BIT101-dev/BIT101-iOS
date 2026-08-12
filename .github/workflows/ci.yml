@@ -25,6 +25,6 @@ jobs:
           -project BIT101-iOS.xcodeproj
           -scheme BIT101-iOS
           -configuration Debug
-          -destination 'generic/platform=iOS Simulator'
+          -destination 'generic/platform=iOS'
           -derivedDataPath build/CI
           CODE_SIGNING_ALLOWED=NO
