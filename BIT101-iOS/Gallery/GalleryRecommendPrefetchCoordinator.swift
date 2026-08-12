@@ -54,7 +54,11 @@ final class GalleryRecommendPrefetchCoordinator {
         let task = task(for: page, generation: expectedGeneration)
         let result = try await task.value
         guard generation == expectedGeneration else { throw CancellationError() }
-        pageTasks[page] = nil
+        // Keep the just-consumed task briefly. A background chain that was already
+        // awaiting the same page can resume after foreground pagination and ask for
+        // that source page again; retaining the completed task prevents a duplicate
+        // network request. Older pages are pruned to keep memory bounded.
+        pageTasks = pageTasks.filter { $0.key >= page - 2 }
         return result
     }
 
