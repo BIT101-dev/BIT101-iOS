@@ -10,7 +10,8 @@
 
 ## 提交前检查
 
-1. 运行 `xcodebuild build-for-testing`。
-2. 运行受影响的单元测试。
-3. 按 `docs/MODULE_PLAYBOOK.md` 人工验证受影响页面。
-4. 缓存、状态或模块边界变化时同步更新文档。
+1. 禁止启动、使用或创建 iOS / watchOS 模拟器；没有已连接真机时停止验证，不得改用模拟器。
+2. 使用 generic device 或已连接真机运行 `xcodebuild build-for-testing`。
+3. 仅在已连接真机上运行受影响的单元测试。
+4. 按 `docs/MODULE_PLAYBOOK.md` 人工验证受影响页面。
+5. 缓存、状态或模块边界变化时同步更新文档。
