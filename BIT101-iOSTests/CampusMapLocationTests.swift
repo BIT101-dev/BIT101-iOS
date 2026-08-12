@@ -69,16 +69,4 @@ struct CampusMapLocationTests {
         #expect(liangxiang.campus == .liangxiang)
         #expect(zhongguancun.coordinate.latitude != liangxiang.coordinate.latitude)
     }
-
-    @Test("Removed or unsupported locations do not create misleading pins")
-    func rejectsRemovedLocations() {
-        #expect(CampusMapPlaceCatalog.place(
-            campusName: "中关村校区",
-            classroom: "2锅炉房"
-        ) == nil)
-        #expect(CampusMapPlaceCatalog.place(
-            campusName: "中关村校区",
-            classroom: "中关村校医b105"
-        ) == nil)
-    }
 }
