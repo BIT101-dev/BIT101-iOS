@@ -16,18 +16,6 @@ private func isGalleryCancellation(_ error: Error) -> Bool {
     TaskCancellation.matches(error)
 }
 
-/// 推荐流预取缓存页。
-///
-/// iOS 17 上 `ObservableObject` 在反射 `GalleryViewModel` 的存储属性时，
-/// 对类内嵌套私有类型的 metadata 处理不稳定，导致进入话题页时崩溃。
-/// 这里把类型提升到文件级，避免 `@StateObject` 初始化时触发该系统问题。
-private struct GalleryPrefetchedPage {
-    let page: Int
-    let posters: [GalleryPoster]
-    let nextPage: Int
-    let canLoadMore: Bool
-}
-
 @MainActor
 /// 话题页状态机。
 ///
@@ -52,16 +40,11 @@ final class GalleryViewModel: ObservableObject {
     }()
 
     private let service: any GalleryFeedServicing
-    /// 已经预取好的推荐页缓存。
-    private var prefetchedRecommendPages: [GalleryPrefetchedPage] = []
-    /// 当前正在跑的推荐预取任务。
-    private var recommendPrefetchTask: Task<Void, Never>?
-    /// 每轮只提前准备两个源页。一次吞六页会在快速滚动时造成 JSON、去重和缓存任务集中抢占
-    /// CPU；两页足以隐藏网络等待，消费后又会继续补齐，因此不牺牲连续浏览能力。
-    private let recommendPrefetchDepth = 2
+    private let recommendPrefetch: GalleryRecommendPrefetchCoordinator
 
     init(service: any GalleryFeedServicing) {
         self.service = service
+        recommendPrefetch = GalleryRecommendPrefetchCoordinator(service: service)
     }
 
     convenience init() {
@@ -88,7 +71,7 @@ final class GalleryViewModel: ObservableObject {
             return
         }
         if feed == .recommend {
-            clearRecommendPrefetch()
+            recommendPrefetch.reset()
         }
         setState(for: feed) {
             $0.status = .loading
@@ -118,7 +101,7 @@ final class GalleryViewModel: ObservableObject {
                         $0.canLoadMore = batch.canLoadMore
                     }
                     if batch.canLoadMore {
-                        startRecommendPrefetching(from: batch.nextSourcePage)
+                        recommendPrefetch.start(from: batch.nextSourcePage)
                     }
                 } else {
                     let posters = try await service.fetchFeed(kind: feed, page: nil)
@@ -171,7 +154,7 @@ final class GalleryViewModel: ObservableObject {
         }
         guard state.posters.contains(where: { $0.id == currentPoster.id }) else { return }
 
-        startRecommendPrefetching(from: state.nextPage)
+        recommendPrefetch.start(from: state.nextPage)
     }
 
     /// 当用户滚动到尾部附近时触发分页加载。
@@ -209,18 +192,7 @@ final class GalleryViewModel: ObservableObject {
                 // 推荐流允许在一次分页里向后多试几页，直到真正拿到能展示的新帖子。
                 while attempt < 3, canLoadMore, mergedPosters.count == state.posters.count {
                     let batch: GalleryPrefetchedPage
-                    if let prefetchedPage = takePrefetchedRecommendPage(for: nextPage) {
-                        batch = prefetchedPage
-                    } else {
-                        let loadedBatch = try await service.fetchRecommendPage(sourcePage: nextPage)
-                        let deduplicatedPosters = await deduplicateInBackground(loadedBatch.posters)
-                        batch = GalleryPrefetchedPage(
-                            page: nextPage,
-                            posters: deduplicatedPosters,
-                            nextPage: loadedBatch.nextSourcePage,
-                            canLoadMore: loadedBatch.canLoadMore
-                        )
-                    }
+                    batch = try await recommendPrefetch.takePage(for: nextPage)
 
                     mergedPosters = await mergeUniqueInBackground(existing: mergedPosters, incoming: batch.posters)
                     nextPage = batch.nextPage
@@ -235,7 +207,7 @@ final class GalleryViewModel: ObservableObject {
                     $0.canLoadMore = canLoadMore
                 }
                 if canLoadMore {
-                    startRecommendPrefetching(from: nextPage)
+                    recommendPrefetch.start(from: nextPage)
                 }
             } else {
                 let posters = try await service.fetchFeed(kind: feed, page: state.nextPage)
@@ -332,89 +304,6 @@ final class GalleryViewModel: ObservableObject {
         var state = feedStates[feed] ?? GalleryFeedState()
         mutate(&state)
         feedStates[feed] = state
-    }
-
-    /// 推荐流首屏后后台缓存若干源页，既保证顺滑，也避免首屏等待多页串行请求。
-    ///
-    /// 预取本身是“可有可无”的体验优化，所以一旦任务已存在或起点页已缓存，就直接跳过，
-    /// 不追求绝对激进。
-    private func startRecommendPrefetching(from startPage: Int) {
-        guard recommendPrefetchTask == nil else { return }
-
-        let existingPages = Set(prefetchedRecommendPages.map(\.page))
-        guard !existingPages.contains(startPage) else { return }
-
-        recommendPrefetchTask = Task { [service] in
-            defer { recommendPrefetchTask = nil }
-
-            var currentPage = startPage
-            var prefetchedCount = 0
-
-            while prefetchedCount < recommendPrefetchDepth {
-                guard !Task.isCancelled else { return }
-
-                if prefetchedRecommendPages.contains(where: { $0.page == currentPage }) {
-                    guard let existingBatch = prefetchedRecommendPages.first(where: { $0.page == currentPage }) else {
-                        return
-                    }
-                    if !existingBatch.canLoadMore {
-                        return
-                    }
-                    currentPage = existingBatch.nextPage
-                    prefetchedCount += 1
-                    continue
-                }
-
-                do {
-                    let batch = try await service.fetchRecommendPage(sourcePage: currentPage)
-                    guard !Task.isCancelled else { return }
-                    let deduplicatedPosters = await deduplicateInBackground(batch.posters)
-                    appendPrefetchedRecommendPage(
-                        page: currentPage,
-                        posters: deduplicatedPosters,
-                        nextPage: batch.nextSourcePage,
-                        canLoadMore: batch.canLoadMore
-                    )
-                    if !batch.canLoadMore {
-                        return
-                    }
-                    currentPage = batch.nextSourcePage
-                    prefetchedCount += 1
-                } catch {
-                    if isGalleryCancellation(error) {
-                        return
-                    }
-                    return
-                }
-            }
-        }
-    }
-
-    /// 记录已经预取好的推荐页，并保持页码有序。
-    private func appendPrefetchedRecommendPage(page: Int, posters: [GalleryPoster], nextPage: Int, canLoadMore: Bool) {
-        prefetchedRecommendPages.removeAll { $0.page == page }
-        prefetchedRecommendPages.append(
-            GalleryPrefetchedPage(
-                page: page,
-                posters: posters,
-                nextPage: nextPage,
-                canLoadMore: canLoadMore
-            )
-        )
-        prefetchedRecommendPages.sort { $0.page < $1.page }
-    }
-
-    /// 读取并消费已经预取好的推荐页。
-    private func takePrefetchedRecommendPage(for page: Int) -> GalleryPrefetchedPage? {
-        guard let index = prefetchedRecommendPages.firstIndex(where: { $0.page == page }) else { return nil }
-        return prefetchedRecommendPages.remove(at: index)
-    }
-
-    /// 刷新推荐流时，需要丢掉旧的预取结果，避免拼接到新列表上。
-    private func clearRecommendPrefetch() {
-        recommendPrefetchTask?.cancel()
-        recommendPrefetchTask = nil
-        prefetchedRecommendPages = []
     }
 
     /// 推荐流可能出现重复帖子，这里按帖子 ID 去重后再拼接。

@@ -27,7 +27,7 @@ struct ScheduleNotice: Identifiable {
 }
 
 /// 空教室页业务级超时错误。
-private struct ClassroomRequestTimeoutError: LocalizedError {
+struct ClassroomRequestTimeoutError: LocalizedError {
     var errorDescription: String? {
         "请求超时，请稍后重试。"
     }
@@ -98,24 +98,11 @@ final class ScheduleViewModel: ObservableObject {
     @Published private(set) var syncingTerm: String?
 
     private let service: any ScheduleServicing
+    private let classroomCoordinator = ScheduleClassroomCoordinator()
+    private let courseSyncCoordinator = ScheduleCourseSyncCoordinator()
     private var hasLoaded = false
-    /// 空教室业务请求的总超时时间。
-    private let classroomRequestTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
-    /// 空教室请求代号。新的页面动作会让旧请求失去回写 UI 状态和弹窗的资格。
-    private var classroomRequestGeneration = 0
-    /// 本次 App 运行中是否已经自动预热过空教室页。
-    private var didAutoPrepareClassroomThisRun = false
-    /// 本次 App 运行中，空教室页是否已经完成过一次请求（成功或失败）。
-    private var didFinishInitialClassroomRequest = false
-    /// 是否已有一轮空教室请求正在执行。
-    private var isClassroomRequestInFlight = false
-    /// 是否已有一轮空教室元数据后台刷新正在执行。
-    private var isRefreshingClassroomMetaInBackground = false
     /// 当前教学楼最近一次拉下来的原始空教室记录。
     private var classroomRecords: [ClassroomRecord] = []
-    /// 短信验证完成后继续用户原本选择的学期，而不是退回学校“当前学期”。
-    private var pendingCourseSyncTerm: String?
-    private var shouldReloadTermsAfterAuthentication = false
     /// 监听设置和缓存变化，用于跨页面同步。
     private var cacheObserver: NSObjectProtocol?
 
@@ -147,11 +134,8 @@ final class ScheduleViewModel: ObservableObject {
 
     /// 切换账号后重置页面内存态，并从新账号的隔离缓存重新开始加载。
     func resetForCurrentAccount() {
-        classroomRequestGeneration &+= 1
+        classroomCoordinator.reset()
         hasLoaded = false
-        didAutoPrepareClassroomThisRun = false
-        didFinishInitialClassroomRequest = false
-        isClassroomRequestInFlight = false
         isLoadingCache = true
         isSyncingCourses = false
         isSyncingDDL = false
@@ -167,8 +151,7 @@ final class ScheduleViewModel: ObservableObject {
         selectedBuildingID = ""
         smsChallenge = nil
         smsVerificationError = nil
-        pendingCourseSyncTerm = nil
-        shouldReloadTermsAfterAuthentication = false
+        courseSyncCoordinator.reset()
         notice = nil
         reloadFromDisk()
     }
@@ -315,15 +298,15 @@ final class ScheduleViewModel: ObservableObject {
         do {
             let payload = try await service.syncCourses(term: term)
             applyCourseSyncPayload(payload)
-            pendingCourseSyncTerm = nil
+            courseSyncCoordinator.reset()
         } catch ScheduleServiceError.secondFactorRequired(let challenge) {
-            pendingCourseSyncTerm = term
+            courseSyncCoordinator.waitForCourseAuthentication(term: term)
             smsChallenge = challenge
             smsVerificationError = nil
         } catch ScheduleServiceError.challengeInvalid(let message) {
             smsChallenge = nil
             smsVerificationError = nil
-            pendingCourseSyncTerm = nil
+            courseSyncCoordinator.reset()
             notice = ScheduleNotice(title: "验证已失效", message: message)
         } catch {
             notice = ScheduleNotice(title: "课表同步失败", message: error.localizedDescription)
@@ -348,10 +331,9 @@ final class ScheduleViewModel: ObservableObject {
         do {
             availableTerms = try await service.fetchAvailableTerms()
             hasLoadedAvailableTerms = true
-            shouldReloadTermsAfterAuthentication = false
+            courseSyncCoordinator.reset()
         } catch ScheduleServiceError.secondFactorRequired(let challenge) {
-            pendingCourseSyncTerm = nil
-            shouldReloadTermsAfterAuthentication = true
+            courseSyncCoordinator.waitForAvailableTermsAuthentication()
             smsChallenge = challenge
             smsVerificationError = nil
         } catch {
@@ -374,14 +356,13 @@ final class ScheduleViewModel: ObservableObject {
         defer { isSubmittingSMSCode = false }
 
         do {
-            if shouldReloadTermsAfterAuthentication {
+            if courseSyncCoordinator.continuation == .availableTerms {
                 try await service.submitSMSCodeForTeachingCenterAuthentication(
                     normalizedCode,
                     for: challenge
                 )
                 smsChallenge = nil
-                pendingCourseSyncTerm = nil
-                shouldReloadTermsAfterAuthentication = false
+                courseSyncCoordinator.reset()
                 await loadAvailableTerms()
                 return
             }
@@ -389,16 +370,15 @@ final class ScheduleViewModel: ObservableObject {
             let payload = try await service.submitSMSCode(
                 normalizedCode,
                 for: challenge,
-                term: pendingCourseSyncTerm
+                term: courseSyncCoordinator.courseSyncTerm
             )
             applyCourseSyncPayload(payload)
             smsChallenge = nil
-            pendingCourseSyncTerm = nil
+            courseSyncCoordinator.reset()
         } catch ScheduleServiceError.challengeInvalid(let message) {
             smsChallenge = nil
             smsVerificationError = nil
-            pendingCourseSyncTerm = nil
-            shouldReloadTermsAfterAuthentication = false
+            courseSyncCoordinator.reset()
             notice = ScheduleNotice(title: "验证已失效", message: message)
         } catch {
             smsVerificationError = error.localizedDescription
@@ -409,8 +389,7 @@ final class ScheduleViewModel: ObservableObject {
         guard !isSubmittingSMSCode else { return }
         smsChallenge = nil
         smsVerificationError = nil
-        pendingCourseSyncTerm = nil
-        shouldReloadTermsAfterAuthentication = false
+        courseSyncCoordinator.reset()
     }
 
     private func applyCourseSyncPayload(_ payload: CourseSyncPayload) {
@@ -1105,8 +1084,7 @@ final class ScheduleViewModel: ObservableObject {
     /// 2. 加载校区/教学楼元数据。
     /// 3. 必要时刷新当前楼栋的空教室结果。
     func prepareClassroomIfNeeded(showErrors: Bool = true) async {
-        guard !didAutoPrepareClassroomThisRun, !isClassroomRequestInFlight else { return }
-        didAutoPrepareClassroomThisRun = true
+        guard classroomCoordinator.claimAutomaticPreparation() else { return }
 
         applyCurrentClassroomSectionBlock()
         let hasCachedMeta = applyCachedClassroomMetaIfAvailable()
@@ -1399,27 +1377,26 @@ final class ScheduleViewModel: ObservableObject {
 
     /// 有缓存时后台静默刷新低频变化的元数据；成功后更新缓存，失败不打扰用户。
     private func refreshClassroomMetaInBackgroundIfNeeded() {
-        guard !isRefreshingClassroomMetaInBackground else { return }
+        guard let token = classroomCoordinator.beginMetadataRefresh() else { return }
 
         Task { [weak self] in
-            await self?.refreshClassroomMetaSilently()
+            await self?.refreshClassroomMetaSilently(token: token)
         }
     }
 
     /// 后台刷新校区 / 教学楼元数据。
     ///
     /// 这条链路不参与空教室结果请求代号，也不弹错误；目的只是让下一次打开页面更快、更准。
-    private func refreshClassroomMetaSilently() async {
-        guard !isRefreshingClassroomMetaInBackground else { return }
-        isRefreshingClassroomMetaInBackground = true
+    private func refreshClassroomMetaSilently(token: Int) async {
         defer {
-            isRefreshingClassroomMetaInBackground = false
+            classroomCoordinator.finishMetadataRefresh(token)
         }
 
         do {
             let fetchedCampuses = try await withClassroomRequestTimeout { [self] in
                 try await service.fetchCampuses()
             }
+            guard classroomCoordinator.isCurrentMetadataRefresh(token) else { return }
             applyFetchedCampuses(fetchedCampuses, allowsPreferredCampus: false)
 
             guard !cache.selectedCampusCode.isEmpty else { return }
@@ -1427,6 +1404,7 @@ final class ScheduleViewModel: ObservableObject {
             let fetchedBuildings = try await withClassroomRequestTimeout { [self] in
                 try await service.fetchBuildings(campusCode: cache.selectedCampusCode)
             }
+            guard classroomCoordinator.isCurrentMetadataRefresh(token) else { return }
             applyFetchedBuildings(fetchedBuildings, for: cache.selectedCampusCode, allowsPreferredBuilding: false)
         } catch {
             return
@@ -1607,19 +1585,18 @@ final class ScheduleViewModel: ObservableObject {
 
     /// 开始一轮新的空教室请求，并让所有旧请求失去 UI 回写资格。
     private func beginClassroomRequest(clearsLoadingState: Bool = true) -> Int {
-        classroomRequestGeneration &+= 1
-        isClassroomRequestInFlight = true
-        shouldShowInitialClassroomSpinner = !didFinishInitialClassroomRequest && classroomAvailabilities.isEmpty
+        let request = classroomCoordinator.beginRequest(hasVisibleResults: !classroomAvailabilities.isEmpty)
+        shouldShowInitialClassroomSpinner = request.shouldShowInitialSpinner
         if clearsLoadingState {
             isLoadingClassroomMeta = false
             isLoadingClassrooms = false
         }
-        return classroomRequestGeneration
+        return request.id
     }
 
     /// 判断指定空教室请求是否仍然是当前最新请求。
     private func isCurrentClassroomRequest(_ requestID: Int) -> Bool {
-        requestID == classroomRequestGeneration
+        classroomCoordinator.isCurrent(requestID)
     }
 
     /// 统一处理空教室链路错误。
@@ -1629,13 +1606,13 @@ final class ScheduleViewModel: ObservableObject {
         guard isCurrentClassroomRequest(requestID) else { return }
 
         if isCancellation(error) {
+            classroomCoordinator.finish(requestID)
             shouldShowInitialClassroomSpinner = false
             return
         }
 
-        didFinishInitialClassroomRequest = true
+        classroomCoordinator.finish(requestID)
         shouldShowInitialClassroomSpinner = false
-        isClassroomRequestInFlight = false
         isLoadingClassroomMeta = false
         isLoadingClassrooms = false
         notice = ScheduleNotice(title: title, message: error.localizedDescription)
@@ -1644,29 +1621,15 @@ final class ScheduleViewModel: ObservableObject {
     /// 标记当前空教室请求已正常结束。
     private func finishClassroomRequestIfCurrent(_ requestID: Int) {
         guard isCurrentClassroomRequest(requestID) else { return }
-        didFinishInitialClassroomRequest = true
+        classroomCoordinator.finish(requestID)
         shouldShowInitialClassroomSpinner = false
-        isClassroomRequestInFlight = false
     }
 
     /// 给单个空教室网络请求加超时，避免学校接口长期挂起。
-    private func withClassroomRequestTimeout<T>(
-        operation: @escaping () async throws -> T
+    private func withClassroomRequestTimeout<T: Sendable>(
+        operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask {
-                try await operation()
-            }
-
-            group.addTask { [classroomRequestTimeoutNanoseconds] in
-                try await Task.sleep(nanoseconds: classroomRequestTimeoutNanoseconds)
-                throw ClassroomRequestTimeoutError()
-            }
-
-            let value = try await group.next()!
-            group.cancelAll()
-            return value
-        }
+        try await classroomCoordinator.withTimeout(operation: operation)
     }
 
     /// 从磁盘重新加载缓存，并同步周次与当前教学楼。
