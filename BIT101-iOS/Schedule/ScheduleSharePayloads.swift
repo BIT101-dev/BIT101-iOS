@@ -50,7 +50,7 @@ struct ScheduleExportPayload: Codable {
 
 /// 课表分享编码的紧凑载荷 V2。
 ///
-/// 当前导出端默认使用这套协议，V1 仍保留为导入兼容格式。
+/// 该协议保留用于导入旧分享码；当前导出端已经升级到 V3。
 ///
 /// ## 设计约束
 /// - 继续复用现有外层包装：`lzfse + base64`
@@ -93,7 +93,7 @@ struct ScheduleExportPayload: Codable {
 /// - `timeTable`
 ///
 /// ## 兼容策略
-/// 新版默认导出 `BIT101SCH2`；导入端继续支持 `BIT101SCH1`、`BIT101SCH2`，并预置 `BIT101SCH3` 解码。
+/// 新版默认导出 `BIT101SCH3`；导入端继续支持 `BIT101SCH1`、`BIT101SCH2` 和 `BIT101SCH3`。
 /// 低版本客户端如果尚未支持 V2，会无法导入新版分享码，因此高版本兜底提示仍然保留。
 struct ScheduleExportCompactPayloadV2: Codable {
     static let formatVersion = 2
@@ -249,11 +249,11 @@ struct ScheduleExportCompactPayloadV2: Codable {
 
 /// 课表分享编码的紧凑载荷 V3。
 ///
-/// V3 在 V2 的课程排布骨架上追加学分字段。当前只提供解码能力，导出端仍默认使用 V2。
-struct ScheduleExportCompactPayloadV3: Decodable {
+/// V3 在 V2 的课程排布骨架上追加学分字段，是当前默认导出格式。
+struct ScheduleExportCompactPayloadV3: Codable {
     static let formatVersion = 3
 
-    struct CompactCourse: Decodable, Hashable {
+    struct CompactCourse: Codable, Hashable {
         let name: String
         let teacher: String
         let classroom: String
@@ -262,6 +262,17 @@ struct ScheduleExportCompactPayloadV3: Decodable {
         let startSection: Int
         let endSection: Int
         let credit: Int
+
+        nonisolated init(course: CourseRecord) {
+            name = course.name
+            teacher = course.teacher
+            classroom = course.classroom
+            weeks = course.weeks
+            weekday = course.weekday
+            startSection = course.startSection
+            endSection = course.endSection
+            credit = course.credit
+        }
 
         init(from decoder: Decoder) throws {
             var container = try decoder.unkeyedContainer()
@@ -273,6 +284,18 @@ struct ScheduleExportCompactPayloadV3: Decodable {
             startSection = try container.decode(Int.self)
             endSection = try container.decode(Int.self)
             credit = try container.decode(Int.self)
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.unkeyedContainer()
+            try container.encode(name)
+            try container.encode(teacher)
+            try container.encode(classroom)
+            try container.encode(weeks)
+            try container.encode(weekday)
+            try container.encode(startSection)
+            try container.encode(endSection)
+            try container.encode(credit)
         }
 
         func expandedCourse(term: String) -> CourseRecord {
@@ -299,6 +322,10 @@ struct ScheduleExportCompactPayloadV3: Decodable {
     }
 
     let courses: [CompactCourse]
+
+    init(cache: ScheduleCache) {
+        courses = cache.courses.map(CompactCourse.init(course:))
+    }
 
     var isEmpty: Bool { courses.isEmpty }
 
@@ -329,5 +356,98 @@ struct ScheduleExportCompactPayloadV3: Decodable {
             decodedCourses.append(try coursesContainer.decode(CompactCourse.self))
         }
         courses = decodedCourses
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.unkeyedContainer()
+        try container.encode(Self.formatVersion)
+        try container.encode(courses)
+    }
+}
+
+enum ScheduleShareCodeError: LocalizedError, Equatable {
+    case empty
+    case unsupportedNewerFormat(Int)
+    case invalidFormat
+    case invalidBase64
+    case compressionFailed
+    case decompressionFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .empty:
+            "请输入或粘贴课表编码。"
+        case let .unsupportedNewerFormat(version):
+            "该课表使用 BIT101SCH\(version) 格式，请更新 BIT101 后再导入。"
+        case .invalidFormat:
+            "课表编码格式不正确。"
+        case .invalidBase64:
+            "课表编码无法解码。"
+        case .compressionFailed:
+            "课表压缩失败。"
+        case .decompressionFailed:
+            "课表编码解压失败。"
+        }
+    }
+}
+
+/// 课表分享码的唯一编解码入口；默认导出 V3，导入继续兼容 V1/V2/V3。
+enum ScheduleShareCodeCodec {
+    static let latestVersion = 3
+    static let supportedPrefixes = ["BIT101SCH1:", "BIT101SCH2:", "BIT101SCH3:"]
+
+    static func encodeLatest(cache: ScheduleCache) throws -> String {
+        let payload = ScheduleExportCompactPayloadV3(cache: cache)
+        let jsonData = try JSONEncoder().encode(payload)
+        guard let compressedData = try (jsonData as NSData).compressed(using: .lzfse) as Data? else {
+            throw ScheduleShareCodeError.compressionFailed
+        }
+        return "BIT101SCH3:\(compressedData.base64EncodedString())"
+    }
+
+    static func decode(_ text: String, using cache: ScheduleCache) throws -> ScheduleExportPayload {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw ScheduleShareCodeError.empty }
+
+        if !supportedPrefixes.contains(where: trimmed.hasPrefix),
+           let version = declaredVersion(in: trimmed),
+           version > latestVersion
+        {
+            throw ScheduleShareCodeError.unsupportedNewerFormat(version)
+        }
+
+        guard let prefix = supportedPrefixes.first(where: trimmed.hasPrefix) else {
+            throw ScheduleShareCodeError.invalidFormat
+        }
+        let body = String(trimmed.dropFirst(prefix.count))
+        guard let compressedData = Data(base64Encoded: body) else {
+            throw ScheduleShareCodeError.invalidBase64
+        }
+        guard let jsonData = try (compressedData as NSData).decompressed(using: .lzfse) as Data? else {
+            throw ScheduleShareCodeError.decompressionFailed
+        }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        switch prefix {
+        case "BIT101SCH1:":
+            return try decoder.decode(ScheduleExportPayload.self, from: jsonData)
+        case "BIT101SCH2:":
+            return try decoder.decode(ScheduleExportCompactPayloadV2.self, from: jsonData)
+                .expandedPayload(using: cache)
+        case "BIT101SCH3:":
+            return try decoder.decode(ScheduleExportCompactPayloadV3.self, from: jsonData)
+                .expandedPayload(using: cache)
+        default:
+            throw ScheduleShareCodeError.invalidFormat
+        }
+    }
+
+    private static func declaredVersion(in code: String) -> Int? {
+        let marker = "BIT101SCH"
+        guard code.hasPrefix(marker), let colon = code.firstIndex(of: ":") else { return nil }
+        let start = code.index(code.startIndex, offsetBy: marker.count)
+        guard start < colon else { return nil }
+        return Int(code[start ..< colon])
     }
 }

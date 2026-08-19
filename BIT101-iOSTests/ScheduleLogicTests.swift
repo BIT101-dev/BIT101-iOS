@@ -2,6 +2,90 @@ import Foundation
 import Testing
 @testable import BIT101_iOS
 
+private func shanghaiDate(_ year: Int, _ month: Int, _ day: Int) -> Date {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 8 * 3600)!
+    return calendar.date(from: DateComponents(year: year, month: month, day: day))!
+}
+
+@Suite("Academic term policy")
+struct AcademicTermPolicyTests {
+    @Test("March and September roll to the next adjacent pair")
+    func adjacentTermPairs() {
+        #expect(AcademicTermPolicy.adjacentTerms(on: shanghaiDate(2026, 2, 28)) == [
+            "2025-2026-1", "2025-2026-2",
+        ])
+        #expect(AcademicTermPolicy.adjacentTerms(on: shanghaiDate(2026, 3, 1)) == [
+            "2025-2026-2", "2026-2027-1",
+        ])
+        #expect(AcademicTermPolicy.adjacentTerms(on: shanghaiDate(2026, 9, 1)) == [
+            "2026-2027-1", "2026-2027-2",
+        ])
+    }
+
+    @Test("Automatic score refresh runs only after week 16 and before next term")
+    func scoreRefreshWindow() {
+        let cache = makeSpringToFallCache()
+
+        #expect(!ScoreAutomaticRefreshPolicy.isWithinRefreshWindow(
+            cache: cache,
+            now: shanghaiDate(2026, 6, 21)
+        ))
+        #expect(ScoreAutomaticRefreshPolicy.isWithinRefreshWindow(
+            cache: cache,
+            now: shanghaiDate(2026, 6, 22)
+        ))
+        #expect(!ScoreAutomaticRefreshPolicy.isWithinRefreshWindow(
+            cache: cache,
+            now: shanghaiDate(2026, 8, 31)
+        ))
+    }
+
+    @Test("Vacation suppresses teaching resources and ends on the next first week")
+    func academicActivityPhase() {
+        let cache = makeSpringToFallCache()
+        #expect(AcademicTermPolicy.activityPhase(
+            cache: cache,
+            on: shanghaiDate(2026, 6, 21)
+        ) == .teaching)
+        #expect(AcademicTermPolicy.activityPhase(
+            cache: cache,
+            on: shanghaiDate(2026, 6, 22)
+        ) == .vacation)
+        #expect(AcademicTermPolicy.activityPhase(
+            cache: cache,
+            on: shanghaiDate(2026, 8, 30)
+        ) == .vacation)
+        #expect(AcademicTermPolicy.activityPhase(
+            cache: cache,
+            on: shanghaiDate(2026, 8, 31)
+        ) == .teaching)
+        #expect(AcademicTermPolicy.preferredCachedTerm(
+            cache: cache,
+            on: shanghaiDate(2026, 8, 31)
+        ) == "2026-2027-1")
+    }
+
+    private func makeSpringToFallCache() -> ScheduleCache {
+        var cache = ScheduleCache()
+        cache.termSchedulesByTerm["2025-2026-2"] = TermScheduleSnapshot(
+            term: "2025-2026-2",
+            firstDayString: "2026-03-02",
+            courses: [],
+            exams: [],
+            updatedAt: shanghaiDate(2026, 3, 2)
+        )
+        cache.termSchedulesByTerm["2026-2027-1"] = TermScheduleSnapshot(
+            term: "2026-2027-1",
+            firstDayString: "2026-08-31",
+            courses: [],
+            exams: [],
+            updatedAt: shanghaiDate(2026, 8, 1)
+        )
+        return cache
+    }
+}
+
 @Suite("Schedule course editing")
 struct ScheduleCourseEditorTests {
     @Test("Week ranges accept Chinese punctuation, deduplicate and sort")
@@ -55,6 +139,51 @@ struct ScheduleCourseEditorTests {
                 endSection: 2,
                 weeksText: "1"
             ))
+        }
+    }
+}
+
+@MainActor
+@Suite("Schedule sharing codec")
+struct ScheduleShareCodeCodecTests {
+    @Test("Latest exports use V3 and preserve course credits")
+    func v3RoundTrip() throws {
+        var cache = ScheduleCache()
+        cache.currentTerm = "2025-2026-2"
+        cache.firstDayString = "2026-03-02"
+        cache.courses = [CourseRecord(
+            id: "course-1",
+            term: cache.currentTerm,
+            name: "编译原理",
+            teacher: "教师",
+            classroom: "综教A101",
+            description: "",
+            weeks: [1, 2, 3],
+            weekday: 3,
+            startSection: 3,
+            endSection: 5,
+            campus: "良乡",
+            number: "100001",
+            credit: 4,
+            hour: 48,
+            type: "专业课",
+            category: "必修",
+            department: "计算机学院"
+        )]
+
+        let code = try ScheduleShareCodeCodec.encodeLatest(cache: cache)
+        let decoded = try ScheduleShareCodeCodec.decode(code, using: cache)
+
+        #expect(code.hasPrefix("BIT101SCH3:"))
+        #expect(decoded.courses.count == 1)
+        #expect(decoded.courses[0].name == "编译原理")
+        #expect(decoded.courses[0].credit == 4)
+    }
+
+    @Test("A newer share format requests an app update")
+    func unsupportedNewerFormat() {
+        #expect(throws: ScheduleShareCodeError.unsupportedNewerFormat(4)) {
+            _ = try ScheduleShareCodeCodec.decode("BIT101SCH4:anything", using: ScheduleCache())
         }
     }
 }

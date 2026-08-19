@@ -80,3 +80,44 @@ xcodebuild build \
 ## CI 门禁
 
 CI 或其它自动化同样不得启动、创建或使用模拟器。无法提供真机 destination 的环境只能做不依赖模拟器的静态检查；真机构建、测试、Widget 时间线和 Live Activity 时序按 `MODULE_PLAYBOOK.md` 人工验证。
+
+CI 的版本门禁由 `Scripts/validate_versions.py` 提供，检查所有 Target/Configuration 的公开版本与 Build 是否一致、格式是否合法，以及相对 PR 基准是否倒退。在 GitHub Actions 手动运行 `iOS CI` 并打开 `release_check`，还会确认准备发布的公开版本高于 App Store 当前版本。
+
+## App Store 更新提醒真机测试
+
+不修改工程版本号，也不使用模拟器。手机重新连接后，用命令行构建参数临时覆盖 Debug 包的公开版本，例如把本机伪装成 `1.7.0`：
+
+```sh
+DEVICE_ID='<xcode-device-id>'
+
+xcodebuild build \
+  -project BIT101-iOS.xcodeproj \
+  -scheme BIT101-iOS \
+  -configuration Debug \
+  -destination "platform=iOS,id=$DEVICE_ID" \
+  -derivedDataPath build/UpdatePromptTest \
+  -allowProvisioningUpdates \
+  MARKETING_VERSION=1.7.0 \
+  CURRENT_PROJECT_VERSION=9001
+```
+
+把 `build/UpdatePromptTest/Build/Products/Debug-iphoneos/BIT101-iOS.app` 安装到真机后，依次验证：
+
+1. 首次启动显示“发现新版本 1.7.1”，正文与 App Store 的开发者更新内容一致，三个操作均可见。
+2. 点击“前往 App Store”，确认打开 BIT101 的中国区 App Store 页面。
+3. 点击“本次忽略”，弹窗应立即关闭；强制退出并重新启动后，24 小时内不得再次提醒，也不得产生第二次网络查询。
+4. 点击“忽略此版本”，弹窗应立即关闭；超过 24 小时后 `1.7.1` 仍不应继续提醒，只有更高版本可以再次出现。
+5. 卸载 Debug 包以清除其 `UserDefaults` 后重装，再断网启动；查询失败必须静默，不得阻塞登录或主界面。
+6. 最后安装正常 `1.7.1` Debug 包；线上版本与本地相同时不得提醒。
+
+自动化测试覆盖数字版本比较、24 小时查询节流、24 小时展示冷却、更新内容缓存、失败静默和“忽略此版本”。真机暂不连接时只进行 static/generic-device 编译验证，实际弹窗和 App Store 跳转留待真机恢复后执行。
+
+## 学期滚动缓存与成绩自动刷新
+
+- 课表自动同步按 3 月 1 日、9 月 1 日推导当前及下一学期，并保存两份转换后的完整快照（首周、课程、考试）。
+- 学校返回的首周日期优先于日历分界；新学期快照尚无课程/考试时不得用空数据覆盖当前课表。
+- 冷启动只可从本地快照自动切换到已经开始的新学期，不得为切换而启动模拟器或依赖 UI 自动化。
+- 启动自动成绩查询仅在第 16 周结束后至下一学期首周之前启用，并按账号每天最多尝试一次；主动进入成绩页和下拉刷新不受此限制。
+- 假期内不得自动同步 DDL 或预热空教室；学期开始后恢复。主动进入对应页面或手动刷新不受限制。
+- 假期只检查下一学期课表：平时最多每 7 天一次，距新学期首周 14 天内最多每天一次；已经取得有效课表后，开学前不再重复获取。
+- 真机 smoke 应检查相邻两个学期均已写入缓存、当前学期选择正确，且同一天重复启动不会再次查询成绩。

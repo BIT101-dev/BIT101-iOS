@@ -321,25 +321,17 @@ struct CalendarSettingsPage: View {
     /// 生成一份可复制的压缩课表编码。
     ///
     /// 当前编码格式为：
-    /// `BIT101SCH2:<base64(lzfse(json(compactPayload)))>`
+    /// `BIT101SCH3:<base64(lzfse(json(compactPayload)))>`
     ///
-    /// V2 只导出课程排布骨架，导入端复用本机的学期、首周和时间表；V1 导入仍保留兼容旧分享码。
+    /// V3 导出课程排布骨架与学分，导入端复用本机的学期、首周和时间表。
     private func exportScheduleCode(allowEmptyCourseData: Bool = false) {
-        let payload = ScheduleExportCompactPayloadV2(cache: viewModel.cache)
-        guard allowEmptyCourseData || !payload.isEmpty else {
+        guard allowEmptyCourseData || !viewModel.cache.courses.isEmpty else {
             isShowingEmptyScheduleExportConfirmation = true
             return
         }
 
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-
         do {
-            let jsonData = try encoder.encode(payload)
-            guard let compressedData = try (jsonData as NSData).compressed(using: .lzfse) as Data? else {
-                throw NSError(domain: "BIT101.ScheduleExport", code: -1, userInfo: [NSLocalizedDescriptionKey: "课表压缩失败。"])
-            }
-            let code = "BIT101SCH2:\(compressedData.base64EncodedString())"
+            let code = try ScheduleShareCodeCodec.encodeLatest(cache: viewModel.cache)
             exportedScheduleCode = ExportedScheduleCode(code: code)
         } catch {
             viewModel.notice = ScheduleNotice(title: "导出失败", message: error.localizedDescription)
@@ -366,49 +358,7 @@ struct CalendarSettingsPage: View {
     ///
     /// UI 保持不变，只在导入端根据版本前缀切换解析器。
     private func importScheduleCode(_ text: String) throws {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            throw NSError(domain: "BIT101.ScheduleImport", code: -1, userInfo: [NSLocalizedDescriptionKey: "请输入或粘贴课表编码。"])
-        }
-
-        let supportedPrefixes = ["BIT101SCH1:", "BIT101SCH2:", "BIT101SCH3:"]
-        if !supportedPrefixes.contains(where: { trimmed.hasPrefix($0) }),
-           let colonIndex = trimmed.firstIndex(of: ":"),
-           trimmed.hasPrefix("BIT101SCH") {
-            let versionToken = trimmed[trimmed.index(trimmed.startIndex, offsetBy: "BIT101SCH".count) ..< colonIndex]
-            if let version = Int(versionToken), version > 3 {
-                throw NSError(domain: "BIT101.ScheduleImport", code: -1, userInfo: [NSLocalizedDescriptionKey: "对方版本更高，请更新版本后再导入。"])
-            }
-        }
-
-        guard let prefix = supportedPrefixes.first(where: { trimmed.hasPrefix($0) }) else {
-            throw NSError(domain: "BIT101.ScheduleImport", code: -1, userInfo: [NSLocalizedDescriptionKey: "课表编码格式不正确。"])
-        }
-
-        let body = String(trimmed.dropFirst(prefix.count))
-        guard let compressedData = Data(base64Encoded: body) else {
-            throw NSError(domain: "BIT101.ScheduleImport", code: -1, userInfo: [NSLocalizedDescriptionKey: "课表编码无法解码。"])
-        }
-
-        guard let jsonData = try (compressedData as NSData).decompressed(using: .lzfse) as Data? else {
-            throw NSError(domain: "BIT101.ScheduleImport", code: -1, userInfo: [NSLocalizedDescriptionKey: "课表编码解压失败。"])
-        }
-
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let payload: ScheduleExportPayload
-        switch prefix {
-        case "BIT101SCH1:":
-            payload = try decoder.decode(ScheduleExportPayload.self, from: jsonData)
-        case "BIT101SCH2:":
-            let compactPayload = try decoder.decode(ScheduleExportCompactPayloadV2.self, from: jsonData)
-            payload = compactPayload.expandedPayload(using: viewModel.cache)
-        case "BIT101SCH3:":
-            let compactPayload = try decoder.decode(ScheduleExportCompactPayloadV3.self, from: jsonData)
-            payload = compactPayload.expandedPayload(using: viewModel.cache)
-        default:
-            throw NSError(domain: "BIT101.ScheduleImport", code: -1, userInfo: [NSLocalizedDescriptionKey: "课表编码格式不正确。"])
-        }
+        let payload = try ScheduleShareCodeCodec.decode(text, using: viewModel.cache)
         try viewModel.importSharedSchedule(payload)
         viewModel.notice = ScheduleNotice(title: "导入成功", message: "分享的课表已导入。考试、DDL 与自定义日程不会随导入覆盖。")
     }
@@ -607,8 +557,10 @@ private struct ScheduleImportCodeSheet: View {
     let onImport: (String) throws -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @State private var text: String
     @State private var localAlert: AppAlert?
+    @State private var unsupportedFormatVersion: Int?
 
     init(initialText: String, onImport: @escaping (String) throws -> Void) {
         self.initialText = initialText
@@ -640,6 +592,12 @@ private struct ScheduleImportCodeSheet: View {
                         do {
                             try onImport(text)
                             dismiss()
+                        } catch let error as ScheduleShareCodeError {
+                            if case let .unsupportedNewerFormat(version) = error {
+                                unsupportedFormatVersion = version
+                            } else {
+                                localAlert = AppAlert(title: "导入失败", message: error.localizedDescription)
+                            }
                         } catch {
                             localAlert = AppAlert(title: "导入失败", message: error.localizedDescription)
                         }
@@ -662,6 +620,21 @@ private struct ScheduleImportCodeSheet: View {
             }
             .alert(item: $localAlert) { alert in
                 Alert(title: Text(alert.title), message: Text(alert.message), dismissButton: .default(Text("知道了")))
+            }
+            .alert(
+                "需要更新 BIT101",
+                isPresented: Binding(
+                    get: { unsupportedFormatVersion != nil },
+                    set: { if !$0 { unsupportedFormatVersion = nil } }
+                )
+            ) {
+                Button("前往 App Store") {
+                    openURL(BIT101AppStore.url)
+                }
+                .keyboardShortcut(.defaultAction)
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("该课表使用 BIT101SCH\(unsupportedFormatVersion ?? 0) 格式，请更新 BIT101 后再导入。")
             }
         }
     }

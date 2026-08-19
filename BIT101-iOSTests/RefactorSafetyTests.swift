@@ -30,6 +30,8 @@ struct ScheduleCacheMigrationTests {
 
         #expect(decoded.courses == [course])
         #expect(decoded.cachedCoursesByTerm[course.term] == [course])
+        #expect(decoded.termSchedulesByTerm[course.term]?.courses == [course])
+        #expect(decoded.termSchedulesByTerm[course.term]?.updatedAt == timestamp)
         #expect(decoded.coursesUpdatedAt == timestamp)
         #expect(decoded.primaryScheduleTitle.count == scheduleNameCharacterLimit)
         #expect(decoded.iCloudSyncEnabled)

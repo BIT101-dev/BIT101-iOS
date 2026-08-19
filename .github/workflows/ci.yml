@@ -4,33 +4,48 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      release_check:
+        description: Confirm that the local version is newer than the App Store version
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: ios-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test:
+  build-for-testing:
     runs-on: macos-26
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Show toolchain
         run: xcodebuild -version
       - name: Validate project
         run: plutil -lint BIT101-iOS.xcodeproj/project.pbxproj
-      - name: Run unit tests
+      - name: Validate versions
         shell: bash
         run: |
           set -euo pipefail
-          DEVICE_ID="$(xcrun simctl list devices available -j | jq -r '
-            [.devices[][] | select(.name | startswith("iPhone"))][0].udid
-          ')"
-          test -n "$DEVICE_ID" && test "$DEVICE_ID" != "null"
-          xcodebuild test \
-            -project BIT101-iOS.xcodeproj \
-            -scheme BIT101-iOS \
-            -configuration Debug \
-            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
-            -derivedDataPath build/CI \
-            CODE_SIGNING_ALLOWED=NO
+          args=()
+          if [[ -n "${GITHUB_BASE_REF:-}" ]]; then
+            args+=(--compare-git-ref "origin/${GITHUB_BASE_REF}")
+          fi
+          python3 Scripts/validate_versions.py "${args[@]}"
+      - name: Validate release against App Store
+        if: github.event_name == 'workflow_dispatch' && inputs.release_check
+        run: python3 Scripts/validate_versions.py --check-app-store
+      - name: Build app and tests without a simulator
+        run: >-
+          xcodebuild build-for-testing
+          -project BIT101-iOS.xcodeproj
+          -scheme BIT101-iOS
+          -configuration Debug
+          -destination 'generic/platform=iOS'
+          -derivedDataPath build/CI
+          CODE_SIGNING_ALLOWED=NO

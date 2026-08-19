@@ -3,6 +3,7 @@ build/
 DerivedData/
 *.xcuserstate
 xcuserdata/
+__pycache__/
 .git.backup-*/
 
 BIT101-iOS.xcodeproj/xcuserdata/

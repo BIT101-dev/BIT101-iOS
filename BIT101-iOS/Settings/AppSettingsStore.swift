@@ -104,10 +104,6 @@ final class AppSettingsStore: ObservableObject {
     nonisolated static let storageKeyPrefix = "app.settings.snapshot"
     /// 当前社区规则版本号；版本提升后会强制重新弹出规则确认。
     nonisolated static let currentCommunityRulesVersion = 2
-    /// 当前开屏公告版本号；变化后会重新展示一次。
-    nonisolated static let currentStartupNoticeVersion = "1.7.1-campus-navigation"
-    /// 开屏公告已读状态对应的全局 key。
-    nonisolated static let startupNoticeSeenKey = "app.startup.notice.seen.version"
     /// 当前“小组件使用提示”版本号；版本提升后会重新展示一次。
     nonisolated static let currentWidgetUsageGuideVersion = 1
     /// “鸣谢 LINUX DO”提示会在首周内按账号均匀散开弹出，避免集中到固定某一天。
@@ -155,9 +151,6 @@ final class AppSettingsStore: ObservableObject {
     var paperHiddenIDs: [Int] { snapshot.paperHiddenIDs }
     var hasAcceptedCurrentCommunityRules: Bool { snapshot.galleryCommunityRulesAcceptedVersion >= Self.currentCommunityRulesVersion }
     var hasSeenSharedScheduleImportGuide: Bool { snapshot.hasSeenSharedScheduleImportGuide }
-    var shouldShowCurrentStartupNotice: Bool {
-        defaults.string(forKey: Self.startupNoticeSeenKey) != Self.currentStartupNoticeVersion
-    }
     var hasAcceptedCurrentWidgetUsageGuide: Bool { snapshot.widgetUsageGuideAcceptedVersion >= Self.currentWidgetUsageGuideVersion }
     var shouldShowLinuxDoThanksNotice: Bool {
         guard
@@ -295,11 +288,6 @@ final class AppSettingsStore: ObservableObject {
     func revokeCommunityRulesAcceptance() {
         snapshot.galleryCommunityRulesAcceptedVersion = 0
         save()
-    }
-
-    /// 标记当前版本的开屏通知已读。
-    func markCurrentStartupNoticeSeen() {
-        defaults.set(Self.currentStartupNoticeVersion, forKey: Self.startupNoticeSeenKey)
     }
 
     /// 标记“鸣谢 LINUX DO”提示已经弹出过。

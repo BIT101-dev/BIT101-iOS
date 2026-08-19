@@ -39,7 +39,7 @@ enum ScheduleAutoRefreshPreferences {
 /// 登录后学校数据的统一前台预热协调器。
 ///
 /// 不注册开机或系统后台任务，只在 App 启动、重新回到前台、切换账号时检查：
-/// - 成绩：本次运行首次进入后立即同步，并复用成绩页状态机和缓存。
+/// - 成绩：仅在第 16 周结束后的假期窗口内每天自动同步一次。
 /// - DDL：保持每天首次进入时同步一次。
 /// - 空教室：预热当前教学楼的数据，进入页面时可直接展示。
 /// - 课表：仅达到用户设置的间隔后刷新；失败通过壳层统一提示。
@@ -53,6 +53,7 @@ final class SchoolDataRefreshCoordinator: ObservableObject {
 
     private let ddlAttemptKeyPrefix = "schedule.ddl.silent-refresh.last-attempt"
     private let courseAttemptKeyPrefix = "schedule.courses.auto-refresh.last-attempt"
+    private let scoreAttemptKeyPrefix = "score.auto-refresh.last-attempt"
     private var activeTask: Task<Void, Never>?
     private var activeRunID: UUID?
     private var activeStudentID = ""
@@ -87,16 +88,45 @@ final class SchoolDataRefreshCoordinator: ObservableObject {
 
             await scheduleViewModel.loadIfNeeded()
 
-            async let scoreRefresh: Void = scoreViewModel.bootstrapIfNeeded()
-            async let classroomRefresh: Void = scheduleViewModel.prepareClassroomIfNeeded(showErrors: false)
-            async let ddlRefresh: Void = refreshDDLIfNeeded(studentID: studentID)
-            async let courseRefresh: Void = refreshCoursesIfNeeded()
-            _ = await (scoreRefresh, classroomRefresh, ddlRefresh, courseRefresh)
+            let initialPhase = AcademicTermPolicy.activityPhase(
+                cache: scheduleViewModel.cache,
+                on: Date()
+            )
+            async let classroomRefresh: Void = refreshClassroomIfNeeded(during: initialPhase)
+            async let ddlRefresh: Void = refreshDDLIfNeeded(studentID: studentID, during: initialPhase)
+            await refreshCoursesIfNeeded(during: initialPhase)
+            await refreshScoresIfNeeded(studentID: studentID)
+            _ = await (classroomRefresh, ddlRefresh)
             _ = trigger
         }
     }
 
-    private func refreshDDLIfNeeded(studentID: String) async {
+    private func refreshScoresIfNeeded(studentID: String) async {
+        let now = Date()
+        guard ScoreAutomaticRefreshPolicy.isWithinRefreshWindow(
+            cache: scheduleViewModel.cache,
+            now: now
+        ) else { return }
+
+        let key = "\(scoreAttemptKeyPrefix).\(studentID)"
+        if let lastAttempt = UserDefaults.standard.object(forKey: key) as? Date,
+           Calendar.current.isDate(lastAttempt, inSameDayAs: now)
+        {
+            return
+        }
+        // Record the attempt before starting authentication so repeated launches
+        // cannot create duplicate server work or repeated SMS challenges.
+        UserDefaults.standard.set(now, forKey: key)
+        await scoreViewModel.bootstrapIfNeeded()
+    }
+
+    private func refreshClassroomIfNeeded(during phase: AcademicActivityPhase) async {
+        guard phase != .vacation else { return }
+        await scheduleViewModel.prepareClassroomIfNeeded(showErrors: false)
+    }
+
+    private func refreshDDLIfNeeded(studentID: String, during phase: AcademicActivityPhase) async {
+        guard phase != .vacation else { return }
         let cache = scheduleViewModel.cache
         let hasLexueSyncHistory =
             !cache.lexueCalendarURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
@@ -113,30 +143,58 @@ final class SchoolDataRefreshCoordinator: ObservableObject {
         _ = await scheduleViewModel.syncDDL(showSuccessNotice: false, showErrorNotice: false)
     }
 
-    private func refreshCoursesIfNeeded() async {
+    private func refreshCoursesIfNeeded(during phase: AcademicActivityPhase) async {
         let intervalDays = ScheduleAutoRefreshPreferences.intervalDays
-        guard intervalDays > 0 else { return }
-
         let cache = scheduleViewModel.cache
         let hasExistingSchedule = !cache.currentTerm.isEmpty || !cache.courses.isEmpty
         guard hasExistingSchedule else { return }
 
-        let dueDate = Calendar.current.date(
-            byAdding: .day,
-            value: intervalDays,
-            to: cache.coursesUpdatedAt
-        ) ?? .distantPast
-        guard Date() >= dueDate else { return }
+        let now = Date()
+        let adjacentTerms = AcademicTermPolicy.adjacentTerms(on: now)
+        let targetTerm: String
+        let dueDate: Date
+
+        if phase == .vacation, let nextTerm = adjacentTerms.dropFirst().first {
+            targetTerm = nextTerm
+            let snapshot = cache.termSchedulesByTerm[nextTerm]
+            let nextStart = snapshot?.firstDay ?? AcademicTermPolicy.nextBoundary(after: now)
+            let daysUntilStart = Calendar.current.dateComponents([.day], from: now, to: nextStart).day ?? 99
+            // Weekly during the vacation, then daily in the final two weeks while
+            // schools are most likely to publish or adjust the new timetable.
+            let retryDays = daysUntilStart <= 14 ? 1 : 7
+            dueDate = Calendar.current.date(
+                byAdding: .day,
+                value: retryDays,
+                to: snapshot?.updatedAt ?? .distantPast
+            ) ?? .distantPast
+            if snapshot?.hasDisplayableData == true, now < nextStart {
+                return
+            }
+        } else {
+            targetTerm = AcademicTermPolicy.preferredCachedTerm(cache: cache, on: now)
+            let targetSnapshot = cache.termSchedulesByTerm[targetTerm]
+            let needsTermTransition = cache.currentTerm != targetTerm
+                && targetSnapshot?.hasDisplayableData != true
+            guard intervalDays > 0 || needsTermTransition else { return }
+            let retryDays = needsTermTransition ? 1 : intervalDays
+            let snapshotUpdatedAt = targetSnapshot?.updatedAt ?? cache.coursesUpdatedAt
+            dueDate = Calendar.current.date(
+                byAdding: .day,
+                value: retryDays,
+                to: snapshotUpdatedAt
+            ) ?? .distantPast
+        }
+        guard now >= dueDate else { return }
 
         let studentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
         let attemptKey = "\(courseAttemptKeyPrefix).\(studentID)"
         if let lastAttempt = UserDefaults.standard.object(forKey: attemptKey) as? Date,
-           Calendar.current.isDate(lastAttempt, inSameDayAs: Date()) {
+           Calendar.current.isDate(lastAttempt, inSameDayAs: now) {
             return
         }
-        UserDefaults.standard.set(Date(), forKey: attemptKey)
+        UserDefaults.standard.set(now, forKey: attemptKey)
 
-        if let failure = await scheduleViewModel.autoRefreshCourses() {
+        if let failure = await scheduleViewModel.autoRefreshCourses(terms: [targetTerm]) {
             alert = AppAlert(title: failure.title, message: failure.message)
         }
     }
@@ -319,6 +377,7 @@ struct BIT101_iOSApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .appUpdatePrompt()
                 .preferredColorScheme(settings.themeMode.colorScheme)
                 .onAppear {
                     // 首次挂载时，立即把当前旋转偏好下发给 UIKit。

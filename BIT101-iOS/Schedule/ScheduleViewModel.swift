@@ -277,6 +277,9 @@ final class ScheduleViewModel: ObservableObject {
 
         // 页面先读本地缓存，确保一打开就有内容，避免每次冷启动都重新同步。
         reloadFromDisk()
+        if activatePreferredCachedTermIfAvailable(on: Date()) {
+            persist()
+        }
         #if canImport(CloudKit)
         await ScheduleCloudSyncManager.shared.refreshFromCloudIfNeeded()
         #endif
@@ -393,14 +396,58 @@ final class ScheduleViewModel: ObservableObject {
     }
 
     private func applyCourseSyncPayload(_ payload: CourseSyncPayload) {
-        cache.currentTerm = payload.term
-        cache.firstDayString = payload.firstDayString
-        cache.coursesUpdatedAt = Date()
-        cache.courses = payload.courses
+        let snapshot = makeTermSnapshot(from: payload)
+        cache.termSchedulesByTerm[payload.term] = snapshot
         cache.cachedCoursesByTerm[payload.term] = payload.courses
-        cache.exams = payload.exams
+        activate(snapshot)
+        trimTermSnapshots(preserving: Set([payload.term]))
         selectedWeek = resolvedCurrentWeek()
         persist()
+    }
+
+    private func makeTermSnapshot(from payload: CourseSyncPayload, now: Date = Date()) -> TermScheduleSnapshot {
+        TermScheduleSnapshot(
+            term: payload.term,
+            firstDayString: payload.firstDayString,
+            courses: payload.courses,
+            exams: payload.exams,
+            updatedAt: now
+        )
+    }
+
+    private func activate(_ snapshot: TermScheduleSnapshot) {
+        cache.currentTerm = snapshot.term
+        cache.firstDayString = snapshot.firstDayString
+        cache.coursesUpdatedAt = snapshot.updatedAt
+        cache.courses = snapshot.courses
+        cache.exams = snapshot.exams
+    }
+
+    /// Keep the rolling cache small while never discarding the currently visible
+    /// semester during an explicit historical-term sync.
+    private func trimTermSnapshots(preserving terms: Set<String>) {
+        guard cache.termSchedulesByTerm.count > 2 else { return }
+        let removable = cache.termSchedulesByTerm.values
+            .filter { !terms.contains($0.term) && $0.term != cache.currentTerm }
+            .sorted { $0.updatedAt < $1.updatedAt }
+        for snapshot in removable where cache.termSchedulesByTerm.count > 2 {
+            cache.termSchedulesByTerm.removeValue(forKey: snapshot.term)
+        }
+    }
+
+    /// Switch from the previous term using only local data. A school-provided
+    /// first-week date delays the March/September fallback boundary when needed.
+    @discardableResult
+    private func activatePreferredCachedTermIfAvailable(on date: Date) -> Bool {
+        let preferred = AcademicTermPolicy.preferredCachedTerm(cache: cache, on: date)
+        guard preferred != cache.currentTerm,
+              let snapshot = cache.termSchedulesByTerm[preferred],
+              snapshot.hasDisplayableData
+        else { return false }
+        if let firstDay = snapshot.firstDay, date < firstDay { return false }
+        activate(snapshot)
+        selectedWeek = resolvedCurrentWeek()
+        return true
     }
 
     /// 同步乐学 DDL，并保留本地手动项目和完成状态。
@@ -1124,22 +1171,44 @@ final class ScheduleViewModel: ObservableObject {
     ///
     /// 成功时直接沿用普通同步的缓存写回；失败时返回错误，由应用壳层统一弹窗，避免
     /// 自动任务产生只能在日程页才能看到的局部提示。短信验证不会在启动时主动弹出。
-    func autoRefreshCourses() async -> ScheduleNotice? {
+    func autoRefreshCourses(terms requestedTerms: [String]? = nil) async -> ScheduleNotice? {
         guard !isSyncingCourses, !isLoadingTerms, !isSubmittingSMSCode, smsChallenge == nil else {
             return nil
         }
 
+        let terms = requestedTerms ?? AcademicTermPolicy.adjacentTerms(on: Date())
+        guard !terms.isEmpty else { return nil }
         isSyncingCourses = true
-        let term = cache.currentTerm.trimmingCharacters(in: .whitespacesAndNewlines)
-        syncingTerm = term.isEmpty ? nil : term
+        syncingTerm = terms.first
         defer {
             isSyncingCourses = false
             syncingTerm = nil
         }
 
         do {
-            let payload = try await service.syncCourses(term: term.isEmpty ? nil : term)
-            applyCourseSyncPayload(payload)
+            var snapshots: [String: TermScheduleSnapshot] = [:]
+            var fetchedCourses: [String: [CourseRecord]] = [:]
+            for term in terms {
+                let payload = try await service.syncCourses(term: term)
+                snapshots[payload.term] = makeTermSnapshot(from: payload)
+                fetchedCourses[payload.term] = payload.courses
+            }
+
+            cache.termSchedulesByTerm.merge(snapshots) { _, fetched in fetched }
+            let retainedTerms = Set(AcademicTermPolicy.adjacentTerms(on: Date()))
+            cache.termSchedulesByTerm = cache.termSchedulesByTerm.filter { retainedTerms.contains($0.key) }
+            cache.cachedCoursesByTerm.merge(fetchedCourses) { _, fetched in fetched }
+
+            let preferred = AcademicTermPolicy.preferredCachedTerm(cache: cache, on: Date())
+            if let snapshot = cache.termSchedulesByTerm[preferred], snapshot.hasDisplayableData {
+                if snapshot.firstDay.map({ Date() >= $0 }) ?? true {
+                    activate(snapshot)
+                }
+            } else if let refreshedCurrent = cache.termSchedulesByTerm[cache.currentTerm] {
+                activate(refreshedCurrent)
+            }
+            selectedWeek = resolvedCurrentWeek()
+            persist()
             return nil
         } catch ScheduleServiceError.secondFactorRequired {
             return ScheduleNotice(

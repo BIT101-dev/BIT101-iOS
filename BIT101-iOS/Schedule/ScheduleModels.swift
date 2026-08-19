@@ -279,6 +279,8 @@ nonisolated struct ScheduleCache: Codable {
     var courses: [CourseRecord] = []
     /// 已成功同步过的各学期课表快照，供成绩页本地判断尚未出分的课程。
     var cachedCoursesByTerm: [String: [CourseRecord]] = [:]
+    /// Current and next semester as complete, already-converted offline snapshots.
+    var termSchedulesByTerm: [String: TermScheduleSnapshot] = [:]
     var exams: [ExamRecord] = []
     var customSchedules: [CustomScheduleRecord] = []
     var ddlEvents: [DDLEventRecord] = []
@@ -317,6 +319,7 @@ nonisolated struct ScheduleCache: Codable {
         case lexueCalendarURL
         case courses
         case cachedCoursesByTerm
+        case termSchedulesByTerm
         case exams
         case customSchedules
         case ddlEvents
@@ -361,6 +364,10 @@ nonisolated struct ScheduleCache: Codable {
             [String: [CourseRecord]].self,
             forKey: .cachedCoursesByTerm
         ) ?? [:]
+        termSchedulesByTerm = try container.decodeIfPresent(
+            [String: TermScheduleSnapshot].self,
+            forKey: .termSchedulesByTerm
+        ) ?? [:]
         // 从旧版单学期缓存平滑迁移；升级不会丢失用户已经保存的课表。
         if cachedCoursesByTerm.isEmpty, !currentTerm.isEmpty, !courses.isEmpty {
             cachedCoursesByTerm[currentTerm] = courses
@@ -402,6 +409,15 @@ nonisolated struct ScheduleCache: Codable {
         // 老版本没有独立的课表同步时间；迁移时以原缓存更新时间作为保守基线，
         // 避免用户升级后的第一次启动立即触发一次意外自动更新。
         coursesUpdatedAt = decodedCoursesUpdatedAt ?? (courses.isEmpty ? .distantPast : updatedAt)
+        if termSchedulesByTerm.isEmpty, !currentTerm.isEmpty, !courses.isEmpty {
+            termSchedulesByTerm[currentTerm] = TermScheduleSnapshot(
+                term: currentTerm,
+                firstDayString: firstDayString,
+                courses: courses,
+                exams: exams,
+                updatedAt: coursesUpdatedAt
+            )
+        }
     }
 
     /// 把课表标题裁到统一长度上限。
@@ -428,6 +444,34 @@ nonisolated struct ScheduleCache: Codable {
         components.month = parts[1]
         components.day = parts[2]
         return calendar.date(from: components)
+    }
+}
+
+/// A complete converted timetable for one semester. Only the adjacent two terms
+/// are retained by automatic synchronization.
+nonisolated struct TermScheduleSnapshot: Codable {
+    let term: String
+    let firstDayString: String
+    let courses: [CourseRecord]
+    let exams: [ExamRecord]
+    let updatedAt: Date
+
+    var firstDay: Date? {
+        let parts = firstDayString.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 8 * 3600) ?? .current
+        return calendar.date(from: DateComponents(
+            calendar: calendar,
+            timeZone: calendar.timeZone,
+            year: parts[0],
+            month: parts[1],
+            day: parts[2]
+        ))
+    }
+
+    var hasDisplayableData: Bool {
+        !courses.isEmpty || !exams.isEmpty
     }
 }
 
