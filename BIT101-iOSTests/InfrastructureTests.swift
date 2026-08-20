@@ -252,6 +252,84 @@ struct ScorePresentationTests {
     }
 }
 
+@MainActor
+@Suite("Score detail refresh policy")
+struct ScoreDetailRefreshPolicyTests {
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    @Test("Unchanged completed scores reuse detailed cache")
+    func completedCacheIsReused() {
+        let brief = [makeBrief(score: "90")]
+        let cached = [makeDetailed(score: "90", completion: "是")]
+        #expect(ScoreDetailRefreshPolicy.decision(
+            briefRows: brief,
+            cachedRows: cached,
+            detailedUpdatedAt: nil,
+            now: now
+        ) == .reuseCompletedCache)
+    }
+
+    @Test("New deleted or changed brief scores require detail refresh")
+    func changedBriefRequiresDetails() {
+        let cached = [makeDetailed(score: "90", completion: "是")]
+        #expect(ScoreDetailRefreshPolicy.decision(
+            briefRows: [makeBrief(score: "91")],
+            cachedRows: cached,
+            detailedUpdatedAt: now,
+            now: now
+        ) == .fetch)
+        #expect(ScoreDetailRefreshPolicy.decision(
+            briefRows: [makeBrief(score: "90"), makeBrief(number: "NEW-1", score: "88")],
+            cachedRows: cached,
+            detailedUpdatedAt: now,
+            now: now
+        ) == .fetch)
+        #expect(ScoreDetailRefreshPolicy.decision(
+            briefRows: [],
+            cachedRows: cached,
+            detailedUpdatedAt: now,
+            now: now
+        ) == .fetch)
+    }
+
+    @Test("Incomplete unchanged details are limited to once per day")
+    func incompleteCacheIsRateLimited() {
+        let brief = [makeBrief(score: "90")]
+        let cached = [makeDetailed(score: "90", completion: "否")]
+        #expect(ScoreDetailRefreshPolicy.decision(
+            briefRows: brief,
+            cachedRows: cached,
+            detailedUpdatedAt: now.addingTimeInterval(-60 * 60),
+            now: now
+        ) == .reuseRateLimitedCache)
+        #expect(ScoreDetailRefreshPolicy.decision(
+            briefRows: brief,
+            cachedRows: cached,
+            detailedUpdatedAt: now.addingTimeInterval(-25 * 60 * 60),
+            now: now
+        ) == .fetch)
+    }
+
+    private func makeBrief(number: String = "MATH-1", score: String) -> ScoreRow {
+        ScoreRow(
+            index: 0,
+            headers: ["序号", "开课学期", "课程编号", "课程名称", "成绩", "学分", "操作栏"],
+            values: ["1", "2025-2026-2", number, "高等数学", score, "4", "查看"]
+        )
+    }
+
+    private func makeDetailed(number: String = "MATH-1", score: String, completion: String) -> ScoreRow {
+        ScoreRow(
+            index: 0,
+            headers: [
+                "序号", "开课学期", "课程编号", "课程名称", "成绩", "学分", "操作栏",
+                "平均分", "该课程所有教学班成绩录入完毕", "本人成绩在班级中占",
+            ],
+            values: ["9", "2025-2026-2", number, "高等数学", score, "4", "", "82.5", completion, "10%"]
+        )
+    }
+}
+
 @Suite("External schedule infrastructure")
 struct ExternalScheduleInfrastructureTests {
     @Test("Snapshot codec preserves the shared contract")

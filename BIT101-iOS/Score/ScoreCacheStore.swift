@@ -13,6 +13,10 @@ enum ScoreCacheStore {
         keyPrefix: "score.detail.cache.updated-at",
         accountIdentifier: { LoginStorage.shared.currentStudentID }
     )
+    private static let detailedUpdatedAtStore = AccountScopedCodableStore<Date>(
+        keyPrefix: "score.detail.cache.full-updated-at",
+        accountIdentifier: { LoginStorage.shared.currentStudentID }
+    )
 
     static func loadRows() -> [ScoreRow]? {
         store.load()
@@ -24,7 +28,25 @@ enum ScoreCacheStore {
         updatedAtStore.save(Date())
     }
 
+    static func saveDetailed(rows: [ScoreRow]) {
+        guard !rows.isEmpty else { return }
+        let now = Date()
+        store.save(rows)
+        updatedAtStore.save(now)
+        detailedUpdatedAtStore.save(now)
+    }
+
+    /// A successful brief comparison refreshes the visible freshness timestamp
+    /// without replacing the richer cached rows.
+    static func markChecked() {
+        updatedAtStore.save(Date())
+    }
+
     static func loadUpdatedAt() -> Date? {
         updatedAtStore.load()
+    }
+
+    static func loadDetailedUpdatedAt() -> Date? {
+        detailedUpdatedAtStore.load()
     }
 }

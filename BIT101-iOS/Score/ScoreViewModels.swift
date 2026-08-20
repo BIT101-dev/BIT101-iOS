@@ -42,6 +42,9 @@ final class ScoreViewModel: ObservableObject {
     private var didRestoreCachedRows = false
     private var didInitializeTermSelection = false
     private var didInitializeCourseTypeSelection = false
+    /// A refresh that reached SMS verification must retain whether the user
+    /// explicitly requested a cache-bypassing detailed refresh.
+    private var pendingRefreshForcesDetailed = false
     /// 补齐成绩所涉及学期课表的静默任务；重复刷新不会再启动第二份。
     private var scheduleCacheTask: Task<Void, Never>?
     /// 启动时读取一次已持久化的筛选快照。
@@ -92,6 +95,7 @@ final class ScoreViewModel: ObservableObject {
         didRestoreCachedRows = false
         didInitializeTermSelection = false
         didInitializeCourseTypeSelection = false
+        pendingRefreshForcesDetailed = false
         alert = nil
     }
 
@@ -101,19 +105,23 @@ final class ScoreViewModel: ObservableObject {
     func bootstrapIfNeeded() async {
         guard state == .idle else { return }
         restoreCachedRowsIfAvailable()
-        await refresh(showErrors: false)
+        await refresh(showErrors: false, forceDetailedRefresh: false)
     }
 
     /// 刷新成绩列表。
     ///
     /// 若页面已经有内容，则走非破坏性刷新，避免下拉刷新时先把列表清空。
-    func refresh(showErrors: Bool = true) async {
+    func refresh(
+        showErrors: Bool = true,
+        forceDetailedRefresh: Bool = true
+    ) async {
         guard !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil else { return }
 
         let hadContent = !rows.isEmpty || state == .loaded
         smsChallenge = nil
         smsVerificationError = nil
         isRefreshing = true
+        pendingRefreshForcesDetailed = forceDetailedRefresh
         isSyncing = true
         syncStatusText = "同步简略成绩中"
         if !hadContent {
@@ -127,13 +135,17 @@ final class ScoreViewModel: ObservableObject {
 
         do {
             let challenge = try await service.startScoreChallenge()
-            try await synchronizeScores(authenticatedBy: challenge)
+            try await synchronizeScores(
+                authenticatedBy: challenge,
+                forceDetailedRefresh: forceDetailedRefresh
+            )
         } catch ScoreServiceError.secondFactorRequired(let challenge) {
             smsChallenge = challenge
             state = hadContent ? .loaded : .loading
         } catch ScoreServiceError.challengeInvalid(let message) {
             smsChallenge = nil
             smsVerificationError = nil
+            pendingRefreshForcesDetailed = false
             if hadContent || !rows.isEmpty {
                 state = .loaded
                 if showErrors {
@@ -194,10 +206,16 @@ final class ScoreViewModel: ObservableObject {
             isSyncing = true
             syncStatusText = "同步简略成绩中"
             defer { isSyncing = false }
-            try await synchronizeScores(authenticatedBy: authenticatedChallenge)
+            let forceDetailedRefresh = pendingRefreshForcesDetailed
+            pendingRefreshForcesDetailed = false
+            try await synchronizeScores(
+                authenticatedBy: authenticatedChallenge,
+                forceDetailedRefresh: forceDetailedRefresh
+            )
         } catch ScoreServiceError.challengeInvalid(let message) {
             smsChallenge = nil
             smsVerificationError = nil
+            pendingRefreshForcesDetailed = false
             if rows.isEmpty {
                 state = .failed(message)
             }
@@ -207,17 +225,36 @@ final class ScoreViewModel: ObservableObject {
         }
     }
 
-    /// 用同一个认证会话先取简略列表，再补充排名、均分等详细字段。
+    /// 用同一个认证会话先取简略列表，仅在缓存不足或发生变化时补充详细字段。
     ///
-    /// 简略结果到达后立即驱动页面并启动详细查询；“简略成绩同步完成”文案至少展示半秒，
-    /// 但这段展示时间不会阻塞网络请求。
+    /// 简略结果到达后立即驱动页面；若成绩未变化且详细缓存可复用，则不发起昂贵的
+    /// 逐课程详情请求。确需详情时，“简略成绩同步完成”文案至少展示半秒。
     private func synchronizeScores(
-        authenticatedBy challenge: BITLoginAuthenticationChallenge
+        authenticatedBy challenge: BITLoginAuthenticationChallenge,
+        forceDetailedRefresh: Bool
     ) async throws {
+        let cachedRows = ScoreCacheStore.loadRows()
         let briefRows = try await service.fetchScores(detail: false, authenticatedBy: challenge)
         applyRows(briefRows)
         startMissingScheduleCacheRefresh(for: briefRows)
         syncStatusText = "简略成绩同步完成"
+
+        let detailDecision: ScoreDetailRefreshDecision = forceDetailedRefresh
+            ? .fetch
+            : ScoreDetailRefreshPolicy.decision(
+                briefRows: briefRows,
+                cachedRows: cachedRows,
+                detailedUpdatedAt: ScoreCacheStore.loadDetailedUpdatedAt(),
+                now: Date()
+            )
+        if detailDecision != .fetch, let cachedRows {
+            applyRows(cachedRows)
+            ScoreCacheStore.markChecked()
+            lastUpdatedAt = ScoreCacheStore.loadUpdatedAt()
+            syncStatusText = "成绩已是最新"
+            return
+        }
+
         async let detailedRowsRequest = service.fetchScores(
             detail: true,
             authenticatedBy: challenge
@@ -228,11 +265,18 @@ final class ScoreViewModel: ObservableObject {
         do {
             let detailedRows = try await detailedRowsRequest
             applyRows(detailedRows)
-            ScoreCacheStore.save(rows: detailedRows)
+            ScoreCacheStore.saveDetailed(rows: detailedRows)
             lastUpdatedAt = ScoreCacheStore.loadUpdatedAt()
         } catch {
-            // 简略成绩已经可用时不回滚为空；把简略结果缓存下来，下一次仍可秒开。
-            ScoreCacheStore.save(rows: briefRows)
+            if let cachedRows,
+               ScoreDetailRefreshPolicy.briefRowsMatchCache(briefRows, cachedRows: cachedRows)
+            {
+                // The brief list is unchanged, so preserve richer cached fields
+                // when a due detail refresh happens to fail.
+                applyRows(cachedRows)
+            } else {
+                ScoreCacheStore.save(rows: briefRows)
+            }
             lastUpdatedAt = ScoreCacheStore.loadUpdatedAt()
             throw error
         }
@@ -285,6 +329,7 @@ final class ScoreViewModel: ObservableObject {
         guard !isSubmittingSMSCode else { return }
         smsChallenge = nil
         smsVerificationError = nil
+        pendingRefreshForcesDetailed = false
         if rows.isEmpty {
             state = .failed("需要完成短信验证才能查询成绩。")
         }

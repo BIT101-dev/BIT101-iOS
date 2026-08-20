@@ -53,10 +53,74 @@ struct ScoreRow: Codable, Identifiable {
     var classRank: String { self["本人成绩在班级中占"] }
     var majorRank: String { self["本人成绩在专业中占"] }
     var courseNumber: String { self["课程编号"] }
+    var teachingClassesCompletionStatus: String {
+        self["该课程所有教学班成绩录入完毕"]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     /// 学分的数值化表示，供统计时直接参与加权计算。
     var numericCredit: Double? {
         Double(creditText)
+    }
+}
+
+enum ScoreDetailRefreshDecision: Equatable {
+    case fetch
+    case reuseCompletedCache
+    case reuseRateLimitedCache
+}
+
+/// Decides whether the expensive per-course detail crawl is still useful after
+/// the inexpensive score list has been refreshed.
+enum ScoreDetailRefreshPolicy {
+    static let incompleteRetryInterval: TimeInterval = 24 * 60 * 60
+    private static let ignoredBriefKeys: Set<String> = ["序号", "操作栏"]
+
+    static func decision(
+        briefRows: [ScoreRow],
+        cachedRows: [ScoreRow]?,
+        detailedUpdatedAt: Date?,
+        now: Date
+    ) -> ScoreDetailRefreshDecision {
+        guard let cachedRows, !cachedRows.isEmpty,
+              briefRowsMatchCache(briefRows, cachedRows: cachedRows)
+        else { return .fetch }
+
+        guard let latestTerm = briefRows.map(\.term).filter({ !$0.isEmpty }).max() else {
+            return .fetch
+        }
+        let relevantRows = cachedRows.filter { $0.term == latestTerm }
+        guard !relevantRows.isEmpty else { return .fetch }
+
+        let knownStatuses = relevantRows.map(\.teachingClassesCompletionStatus).filter { !$0.isEmpty }
+        if !knownStatuses.isEmpty,
+           knownStatuses.allSatisfy({ $0 == "是" })
+        {
+            return .reuseCompletedCache
+        }
+
+        guard knownStatuses.contains("否"),
+              let detailedUpdatedAt,
+              now.timeIntervalSince(detailedUpdatedAt) < incompleteRetryInterval
+        else { return .fetch }
+        return .reuseRateLimitedCache
+    }
+
+    static func briefRowsMatchCache(_ briefRows: [ScoreRow], cachedRows: [ScoreRow]) -> Bool {
+        guard !briefRows.isEmpty, !cachedRows.isEmpty else { return false }
+        let briefKeys = Set(briefRows.flatMap { $0.values.map(\.key) })
+            .subtracting(ignoredBriefKeys)
+        guard !briefKeys.isEmpty else { return false }
+        return signatures(for: briefRows, keys: briefKeys) == signatures(for: cachedRows, keys: briefKeys)
+    }
+
+    private static func signatures(for rows: [ScoreRow], keys: Set<String>) -> [String] {
+        rows.map { row in
+            keys.sorted().map { key in
+                let value = row[key].trimmingCharacters(in: .whitespacesAndNewlines)
+                return "\(key.count):\(key)\(value.count):\(value)"
+            }.joined(separator: "|")
+        }.sorted()
     }
 }
 
