@@ -24,15 +24,25 @@ enum ScoreFilterPreferenceStore {
         sortIndex: ScoreSortIndex,
         sortOrder: ScoreSortOrder
     ) {
-        store.save(
-            ScoreFilterPreferenceSnapshot(
-                selectedTerms: Array(selectedTerms),
-                selectedCourseTypes: Array(selectedCourseTypes),
-                sortIndex: sortIndex.rawValue,
-                sortOrder: sortOrder.rawValue
-            )
+        let snapshot = ScoreFilterPreferenceSnapshot(
+            selectedTerms: Array(selectedTerms),
+            selectedCourseTypes: Array(selectedCourseTypes),
+            sortIndex: sortIndex.rawValue,
+            sortOrder: sortOrder.rawValue
         )
+        store.save(snapshot)
+        ExperimentalPreferenceCloudSync.shared.localValueDidChange(in: .scoreFilters)
     }
+
+    /// 写入来自 iCloud 的筛选偏好，不再次触发上传。
+    static func applySynced(_ snapshot: ScoreFilterPreferenceSnapshot) {
+        store.save(snapshot)
+        NotificationCenter.default.post(name: .scoreFilterPreferencesDidChange, object: nil)
+    }
+}
+
+extension Notification.Name {
+    static let scoreFilterPreferencesDidChange = Notification.Name("scoreFilterPreferencesDidChange")
 }
 
 enum ScoreSortIndex: String, CaseIterable, Identifiable {

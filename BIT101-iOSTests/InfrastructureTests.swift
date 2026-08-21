@@ -2,6 +2,22 @@ import Foundation
 import Testing
 @testable import BIT101_iOS
 
+@Suite("Experimental preference iCloud sync")
+struct ExperimentalPreferenceCloudSyncTests {
+    @Test("Independent domain timestamps choose the newest value")
+    func reconciliationPolicy() {
+        let old = Date(timeIntervalSince1970: 100)
+        let new = Date(timeIntervalSince1970: 200)
+
+        #expect(ExperimentalPreferenceSyncPolicy.decision(localUpdatedAt: nil, remoteUpdatedAt: nil) == .noChange)
+        #expect(ExperimentalPreferenceSyncPolicy.decision(localUpdatedAt: nil, remoteUpdatedAt: new) == .applyRemote)
+        #expect(ExperimentalPreferenceSyncPolicy.decision(localUpdatedAt: new, remoteUpdatedAt: nil) == .uploadLocal)
+        #expect(ExperimentalPreferenceSyncPolicy.decision(localUpdatedAt: old, remoteUpdatedAt: new) == .applyRemote)
+        #expect(ExperimentalPreferenceSyncPolicy.decision(localUpdatedAt: new, remoteUpdatedAt: old) == .uploadLocal)
+        #expect(ExperimentalPreferenceSyncPolicy.decision(localUpdatedAt: new, remoteUpdatedAt: new) == .noChange)
+    }
+}
+
 @Suite("Login bootstrap behavior")
 struct LoginBootstrapTests {
     private final class LoginServiceStub: LoginServicing {

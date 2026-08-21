@@ -94,6 +94,33 @@ struct AppSettingsSnapshot: Codable, Equatable {
     var hasShownLinuxDoThanksNotice = false
 }
 
+/// 只同步真正属于用户偏好的字段；规则确认、首次打开时间和一次性提示仍保留在本机。
+struct AppSettingsSyncPayload: Codable, Equatable {
+    var homeTab: AppTab
+    var pageOrder: [AppTab]
+    var hiddenTabs: [AppTab]
+    var themeMode: AppThemeMode
+    var autoRotate: Bool
+    var galleryHideBotPosterInSearch: Bool
+    var galleryHideStrictMode: Bool
+    var galleryHiddenUserIDs: [Int]
+    var galleryHiddenPosters: [HiddenPosterRecord]
+    var paperHiddenIDs: [Int]
+
+    init(snapshot: AppSettingsSnapshot) {
+        homeTab = snapshot.homeTab
+        pageOrder = snapshot.pageOrder
+        hiddenTabs = snapshot.hiddenTabs
+        themeMode = snapshot.themeMode
+        autoRotate = snapshot.autoRotate
+        galleryHideBotPosterInSearch = snapshot.galleryHideBotPosterInSearch
+        galleryHideStrictMode = snapshot.galleryHideStrictMode
+        galleryHiddenUserIDs = snapshot.galleryHiddenUserIDs
+        galleryHiddenPosters = snapshot.galleryHiddenPosters
+        paperHiddenIDs = snapshot.paperHiddenIDs
+    }
+}
+
 @MainActor
 /// 全局设置仓库。
 ///
@@ -185,13 +212,13 @@ final class AppSettingsStore: ObservableObject {
     /// 修改默认启动页。
     func setHomeTab(_ tab: AppTab) {
         snapshot.homeTab = normalizedHomeTab(tab)
-        save()
+        save(syncPreferences: true)
     }
 
     /// 保存底部栏顺序。
     func setPageOrder(_ tabs: [AppTab]) {
         snapshot.pageOrder = normalizePageOrder(tabs)
-        save()
+        save(syncPreferences: true)
     }
 
     /// 保存被隐藏的 tab 集合。
@@ -200,7 +227,7 @@ final class AppSettingsStore: ObservableObject {
         if snapshot.hiddenTabs.contains(snapshot.homeTab) {
             snapshot.homeTab = visibleTabs.first ?? .schedule
         }
-        save()
+        save(syncPreferences: true)
     }
 
     /// 重置页面顺序和默认页设置。
@@ -208,19 +235,19 @@ final class AppSettingsStore: ObservableObject {
         snapshot.pageOrder = AppTab.allCases
         snapshot.hiddenTabs = []
         snapshot.homeTab = .schedule
-        save()
+        save(syncPreferences: true)
     }
 
     /// 修改固定主题模式。
     func setThemeMode(_ mode: AppThemeMode) {
         snapshot.themeMode = mode
-        save()
+        save(syncPreferences: true)
     }
 
     /// 修改自动旋转开关。
     func setAutoRotate(_ enabled: Bool) {
         snapshot.autoRotate = enabled
-        save()
+        save(syncPreferences: true)
         AppOrientationController.applyPreference(autoRotate: enabled)
     }
 
@@ -235,7 +262,7 @@ final class AppSettingsStore: ObservableObject {
         if let hideBotPosterInSearch { snapshot.galleryHideBotPosterInSearch = hideBotPosterInSearch }
         if let hideStrictMode { snapshot.galleryHideStrictMode = hideStrictMode }
         if let hiddenUserIDs { snapshot.galleryHiddenUserIDs = hiddenUserIDs }
-        save()
+        save(syncPreferences: true)
     }
 
     /// 在隐藏匿名用户和恢复匿名用户之间切换。
@@ -245,14 +272,14 @@ final class AppSettingsStore: ObservableObject {
         } else {
             snapshot.galleryHiddenUserIDs.insert(-1, at: 0)
         }
-        save()
+        save(syncPreferences: true)
     }
 
     /// 删除一条已屏蔽用户记录。
     func removeHiddenUser(at index: Int) {
         guard snapshot.galleryHiddenUserIDs.indices.contains(index) else { return }
         snapshot.galleryHiddenUserIDs.remove(at: index)
-        save()
+        save(syncPreferences: true)
     }
 
     /// 把一条帖子加入本地隐藏列表。
@@ -268,21 +295,21 @@ final class AppSettingsStore: ObservableObject {
             ),
             at: 0
         )
-        save()
+        save(syncPreferences: true)
     }
 
     /// 删除一条已隐藏帖子记录。
     func removeHiddenPoster(at index: Int) {
         guard snapshot.galleryHiddenPosters.indices.contains(index) else { return }
         snapshot.galleryHiddenPosters.remove(at: index)
-        save()
+        save(syncPreferences: true)
     }
 
     /// 把一篇文章加入本地隐藏列表。
     func hidePaper(id: Int) {
         guard !snapshot.paperHiddenIDs.contains(id) else { return }
         snapshot.paperHiddenIDs.append(id)
-        save()
+        save(syncPreferences: true)
     }
 
     /// 记录当前设备已经同意最新社区规则。
@@ -323,7 +350,26 @@ final class AppSettingsStore: ObservableObject {
     /// 把设置恢复到默认值。
     func resetToDefaults() {
         snapshot = AppSettingsSnapshot()
+        save(syncPreferences: true)
+    }
+
+    /// 应用来自 iCloud 的用户偏好，同时保留当前设备的一次性提示与规则确认状态。
+    func applySyncedPreferences(_ payload: AppSettingsSyncPayload) {
+        snapshot.homeTab = normalizedHomeTab(payload.homeTab)
+        snapshot.pageOrder = normalizePageOrder(payload.pageOrder)
+        snapshot.hiddenTabs = payload.hiddenTabs.filter { $0 != .mine && $0 != .paper && $0 != .course }
+        if snapshot.hiddenTabs.contains(snapshot.homeTab) {
+            snapshot.homeTab = visibleTabs.first ?? .schedule
+        }
+        snapshot.themeMode = payload.themeMode
+        snapshot.autoRotate = payload.autoRotate
+        snapshot.galleryHideBotPosterInSearch = payload.galleryHideBotPosterInSearch
+        snapshot.galleryHideStrictMode = payload.galleryHideStrictMode
+        snapshot.galleryHiddenUserIDs = payload.galleryHiddenUserIDs
+        snapshot.galleryHiddenPosters = payload.galleryHiddenPosters
+        snapshot.paperHiddenIDs = payload.paperHiddenIDs
         save()
+        AppOrientationController.applyPreference(autoRotate: snapshot.autoRotate)
     }
 
     /// 从 `UserDefaults` 加载设置快照。
@@ -349,9 +395,12 @@ final class AppSettingsStore: ObservableObject {
     /// 把当前快照写回 `UserDefaults`。
     ///
     /// 所有设置入口最终都汇总到这里落盘，保证同一账号只维护一份快照。
-    private func save() {
+    private func save(syncPreferences: Bool = false) {
         if let data = try? Self.encoder.encode(snapshot) {
             defaults.set(data, forKey: currentStorageKey)
+        }
+        if syncPreferences {
+            ExperimentalPreferenceCloudSync.shared.localValueDidChange(in: .appSettings)
         }
     }
 

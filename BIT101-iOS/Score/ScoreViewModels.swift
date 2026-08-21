@@ -48,7 +48,9 @@ final class ScoreViewModel: ObservableObject {
     /// 补齐成绩所涉及学期课表的静默任务；重复刷新不会再启动第二份。
     private var scheduleCacheTask: Task<Void, Never>?
     /// 启动时读取一次已持久化的筛选快照。
-    private let preferenceSnapshot = ScoreFilterPreferenceStore.load()
+    private var preferenceSnapshot = ScoreFilterPreferenceStore.load()
+    private var preferenceObserver: NSObjectProtocol?
+    private var scoreCacheObserver: NSObjectProtocol?
 
     init(
         service: any ScoreListServicing,
@@ -67,6 +69,35 @@ final class ScoreViewModel: ObservableObject {
             let persistedSortOrder = ScoreSortOrder(rawValue: rawSortOrder)
         {
             sortOrder = persistedSortOrder
+        }
+        preferenceObserver = NotificationCenter.default.addObserver(
+            forName: .scoreFilterPreferencesDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                self.applyPersistedFilterPreferences()
+            }
+        }
+        scoreCacheObserver = NotificationCenter.default.addObserver(
+            forName: .scoreCacheDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                self.applySyncedScoreCacheIfAvailable()
+            }
+        }
+    }
+
+    deinit {
+        if let preferenceObserver {
+            NotificationCenter.default.removeObserver(preferenceObserver)
+        }
+        if let scoreCacheObserver {
+            NotificationCenter.default.removeObserver(scoreCacheObserver)
         }
     }
 
@@ -96,6 +127,7 @@ final class ScoreViewModel: ObservableObject {
         didInitializeTermSelection = false
         didInitializeCourseTypeSelection = false
         pendingRefreshForcesDetailed = false
+        preferenceSnapshot = ScoreFilterPreferenceStore.load()
         alert = nil
     }
 
@@ -489,6 +521,14 @@ final class ScoreViewModel: ObservableObject {
         applyRows(rows)
     }
 
+    /// iCloud 成绩缓存到达时立即刷新当前页面，只读缓存，不访问学校服务器。
+    private func applySyncedScoreCacheIfAvailable() {
+        guard let cachedRows = ScoreCacheStore.loadRows(), !cachedRows.isEmpty else { return }
+        didRestoreCachedRows = true
+        lastUpdatedAt = ScoreCacheStore.loadUpdatedAt()
+        applyRows(cachedRows)
+    }
+
     /// 非同步状态下常驻显示的最近更新时间。
     var lastUpdatedText: String {
         guard let lastUpdatedAt else { return "更新时间：暂无记录" }
@@ -535,6 +575,26 @@ final class ScoreViewModel: ObservableObject {
         }
 
         persistFilterPreferences()
+    }
+
+    /// iCloud 拉取完成后立即更新已存在的成绩页面，不必等到重启 App。
+    private func applyPersistedFilterPreferences() {
+        preferenceSnapshot = ScoreFilterPreferenceStore.load()
+        guard let preferenceSnapshot else { return }
+
+        if let raw = preferenceSnapshot.sortIndex, let value = ScoreSortIndex(rawValue: raw) {
+            sortIndex = value
+        }
+        if let raw = preferenceSnapshot.sortOrder, let value = ScoreSortOrder(rawValue: raw) {
+            sortOrder = value
+        }
+        if didInitializeTermSelection {
+            selectedTerms = Set(preferenceSnapshot.selectedTerms).intersection(Set(availableTerms))
+            pendingCourses = calculatePendingCourses()
+        }
+        if didInitializeCourseTypeSelection {
+            selectedCourseTypes = Set(preferenceSnapshot.selectedCourseTypes).intersection(Set(availableCourseTypes))
+        }
     }
 
     /// 提取去重后的非空字符串列表，并保留原始出现顺序。

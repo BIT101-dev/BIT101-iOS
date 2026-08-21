@@ -83,6 +83,25 @@ CI 或其它自动化同样不得启动、创建或使用模拟器。无法提�
 
 CI 的版本门禁由 `Scripts/validate_versions.py` 提供，检查所有 Target/Configuration 的公开版本与 Build 是否一致、格式是否合法，以及相对 PR 基准是否倒退。在 GitHub Actions 手动运行 `iOS CI` 并打开 `release_check`，还会确认准备发布的公开版本高于 App Store 当前版本。
 
+## iCloud 跨设备双向 Smoke
+
+`BIT101-iOSTests/ManualICloudCrossDeviceSmokeTests.swift` 保留了“真机 → Mac Catalyst → 真机”的双向验证，但仅在显式加入 `ICLOUD_CROSS_DEVICE_SMOKE` 编译条件时存在：
+
+- 不进入 App Target 或 Release 包；
+- 默认构建和默认测试不会包含、发现或执行这些用例；
+- 只能通过专用脚本运行，脚本不会选择或启动模拟器；
+- 两端必须登录同一 Apple ID 和同一 BIT101 学号，真机需已解锁并保存过成绩缓存。
+
+运行方式：
+
+```sh
+Scripts/run_icloud_cross_device_smoke.sh \
+  '<真机设备ID>' \
+  '/Applications/Xcode.app/Contents/Developer'
+```
+
+测试会让手机临时切换“自动旋转”偏好并上传成绩缓存，Mac 收到后写回原值，最后由手机确认。正常完成或脚本异常退出时都会尝试恢复原设置、实验开关并清除协调数据；测试期间不要在两端手动修改相关设置。
+
 ## App Store 更新提醒真机测试
 
 不修改工程版本号，也不使用模拟器。手机重新连接后，用命令行构建参数临时覆盖 Debug 包的公开版本，例如把本机伪装成 `1.7.0`：

@@ -10,6 +10,7 @@ import UIKit
 
 struct CalendarSettingsPage: View {
     @ObservedObject private var appSettings = AppSettingsStore.shared
+    @ObservedObject private var preferenceCloudSync = ExperimentalPreferenceCloudSync.shared
 
     private struct ExportedScheduleCode: Identifiable {
         let id = UUID()
@@ -51,6 +52,23 @@ struct CalendarSettingsPage: View {
 
     private var normalizedLeadMinutes: Int {
         min(max(viewModel.cache.courseLiveActivityLeadMinutes, 1), 60)
+    }
+
+    private var iCloudSyncSection: some View {
+        Section {
+            Toggle("iCloud 多端同步", isOn: Binding(
+                get: { viewModel.cache.iCloudSyncEnabled },
+                set: { viewModel.setICloudSyncEnabled($0) }
+            ))
+            Toggle("同步设置与使用偏好（实验性）", isOn: Binding(
+                get: { preferenceCloudSync.isEnabled },
+                set: { preferenceCloudSync.setEnabled($0) }
+            ))
+        } header: {
+            Text("iCloud 同步")
+        } footer: {
+            Text("默认关闭。开启后同步界面设置、成绩与筛选偏好、话廊消息已读状态；不同步账号密码和登录状态。")
+        }
     }
 
     var body: some View {
@@ -178,14 +196,7 @@ struct CalendarSettingsPage: View {
                 Text("显示设置")
             }
 
-            Section("iCloud 同步") {
-                Toggle("iCloud 多端同步", isOn: Binding(
-                    get: { viewModel.cache.iCloudSyncEnabled },
-                    set: { enabled in
-                        viewModel.setICloudSyncEnabled(enabled)
-                    }
-                ))
-            }
+            iCloudSyncSection
 
             if appSettings.hasSeenSharedScheduleImportGuide {
                 Section("帮助") {

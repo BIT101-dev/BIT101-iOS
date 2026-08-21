@@ -347,7 +347,7 @@ final class GalleryViewModel: ObservableObject {
 /// 本地保存的消息已读快照。
 ///
 /// 服务端只有分类未读数，没有逐条已读状态，这里按账号做一层“伪新消息”持久化。
-private struct GalleryMessageReadSnapshot: Codable {
+struct GalleryMessageReadSnapshot: Codable, Equatable {
     var latestIDsByType: [String: [Int]] = [:]
     var seenIDsByType: [String: [Int]] = [:]
 }
@@ -355,7 +355,7 @@ private struct GalleryMessageReadSnapshot: Codable {
 /// 本地消息已读仓库。
 ///
 /// 只记录“当前分类最新一批消息”和“已被用户手动标记已读的消息”，不申请系统通知。
-private final class GalleryMessageReadStore {
+final class GalleryMessageReadStore {
     static let shared = GalleryMessageReadStore()
 
     private let defaults = UserDefaults.standard
@@ -377,9 +377,23 @@ private final class GalleryMessageReadStore {
     }
 
     /// 回写当前账号的本地快照。
-    private func saveSnapshot(_ snapshot: GalleryMessageReadSnapshot) {
+    private func saveSnapshot(_ snapshot: GalleryMessageReadSnapshot, shouldSync: Bool = true) {
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         defaults.set(data, forKey: storageKey)
+        if shouldSync {
+            Task { @MainActor in
+                ExperimentalPreferenceCloudSync.shared.localValueDidChange(in: .galleryMessageRead)
+            }
+        }
+    }
+
+    func syncSnapshot() -> GalleryMessageReadSnapshot {
+        loadSnapshot()
+    }
+
+    func applySyncedSnapshot(_ snapshot: GalleryMessageReadSnapshot) {
+        saveSnapshot(snapshot, shouldSync: false)
+        NotificationCenter.default.post(name: .galleryMessageReadStateDidChange, object: nil)
     }
 
     /// 用服务端给出的未读数量，重建当前分类的“候选新消息”集合。
@@ -438,6 +452,10 @@ private final class GalleryMessageReadStore {
     }
 }
 
+extension Notification.Name {
+    static let galleryMessageReadStateDidChange = Notification.Name("galleryMessageReadStateDidChange")
+}
+
 @MainActor
 /// 消息中心状态机。
 ///
@@ -459,20 +477,42 @@ final class GalleryMessageViewModel: ObservableObject {
 
     private let service: any GalleryMessageServicing
     private let readStore: GalleryMessageReadStore
+    private var readStateObserver: NSObjectProtocol?
 
     /// 允许注入服务和已读仓库，方便后续测试。
     private init(service: any GalleryMessageServicing, readStore: GalleryMessageReadStore) {
         self.service = service
         self.readStore = readStore
+        observeSyncedReadState()
     }
 
     init(service: any GalleryMessageServicing) {
         self.service = service
         readStore = .shared
+        observeSyncedReadState()
     }
 
     convenience init() {
         self.init(service: GalleryService(), readStore: .shared)
+    }
+
+    deinit {
+        if let readStateObserver {
+            NotificationCenter.default.removeObserver(readStateObserver)
+        }
+    }
+
+    private func observeSyncedReadState() {
+        readStateObserver = NotificationCenter.default.addObserver(
+            forName: .galleryMessageReadStateDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                self.localReadVersion += 1
+            }
+        }
     }
 
     /// 悬浮消息按钮使用的总未读数。

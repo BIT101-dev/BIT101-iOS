@@ -364,6 +364,9 @@ struct BIT101_iOSApp: App {
         #if canImport(CloudKit)
         Task {
             await ScheduleCloudSyncManager.shared.refreshFromCloudIfNeeded()
+            await MainActor.run {
+                ExperimentalPreferenceCloudSync.shared.refreshFromCloudIfNeeded()
+            }
             _ = trigger
         }
         #endif
