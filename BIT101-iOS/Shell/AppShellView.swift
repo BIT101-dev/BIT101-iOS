@@ -102,6 +102,8 @@ enum AppTab: String, Identifiable, Codable {
 ///
 /// 壳层只关心两件事：按照设置中心决定展示哪些 tab，以及把退出登录回调继续往下传。
 struct AppShellView: View {
+    private static let startupNoticeTitle = "1.7.2 版本更新"
+    private static let startupNoticeBody = "优化使用体验"
     private static let widgetUsageGuideTitle = "非常有用的几个用法"
     private static let widgetUsageGuideBody = """
     推荐在锁屏添加锁屏小组件（如果你习惯使用息屏显示）。
@@ -119,6 +121,7 @@ struct AppShellView: View {
     @ObservedObject private var schoolDataRefresh = SchoolDataRefreshCoordinator.shared
     @State private var selectedTab: AppTab = .schedule
     @State private var isShowingGalleryEULA = false
+    @State private var isShowingStartupNotice = false
     @State private var isShowingWidgetUsageGuide = false
     @State private var isShowingLinuxDoThanksNotice = false
     @State private var isShowingScheduleNotificationPrompt = false
@@ -132,7 +135,7 @@ struct AppShellView: View {
     /// 这里同时承担：
     /// 1. 底部 tab 容器
     /// 2. 话廊 EULA 拦截
-    /// 3. 一次性使用提示
+    /// 3. 版本更新内容与一次性使用提示
     /// 4. 小组件/深链路由分发
     var body: some View {
         TabView(selection: tabSelection) {
@@ -175,6 +178,14 @@ struct AppShellView: View {
                 }
             )
         }
+        .alert(Self.startupNoticeTitle, isPresented: $isShowingStartupNotice) {
+            Button("确定") {
+                settings.markCurrentStartupNoticeSeen()
+                presentWidgetUsageGuideIfNeeded()
+            }
+        } message: {
+            Text(Self.startupNoticeBody)
+        }
         .alert(Self.widgetUsageGuideTitle, isPresented: $isShowingWidgetUsageGuide) {
             Button("知道了") {
                 settings.markCurrentWidgetUsageGuideSeen()
@@ -213,7 +224,9 @@ struct AppShellView: View {
                     selectTab(initial)
                 }
             }
-            if !settings.hasAcceptedCurrentWidgetUsageGuide {
+            if settings.shouldShowCurrentStartupNotice {
+                isShowingStartupNotice = true
+            } else if !settings.hasAcceptedCurrentWidgetUsageGuide {
                 isShowingWidgetUsageGuide = true
             } else if settings.shouldShowLinuxDoThanksNotice {
                 isShowingLinuxDoThanksNotice = true
@@ -294,6 +307,11 @@ struct AppShellView: View {
     private func refreshScheduleNotificationPromptIfNeeded() {
         Task {
             let shouldContinue = await MainActor.run { () -> Bool in
+                if settings.shouldShowCurrentStartupNotice {
+                    isShowingStartupNotice = true
+                    return false
+                }
+
                 if !settings.hasAcceptedCurrentWidgetUsageGuide {
                     isShowingWidgetUsageGuide = true
                     return false
@@ -315,6 +333,17 @@ struct AppShellView: View {
             await MainActor.run {
                 presentScheduleNotificationPromptIfNeeded()
             }
+        }
+    }
+
+    /// After the release note closes, continue the existing one-time prompt chain.
+    private func presentWidgetUsageGuideIfNeeded() {
+        if !settings.hasAcceptedCurrentWidgetUsageGuide {
+            isShowingWidgetUsageGuide = true
+        } else if settings.shouldShowLinuxDoThanksNotice {
+            isShowingLinuxDoThanksNotice = true
+        } else {
+            refreshScheduleNotificationPromptIfNeeded()
         }
     }
 
