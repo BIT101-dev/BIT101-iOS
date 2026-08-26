@@ -66,6 +66,24 @@ struct AcademicTermPolicyTests {
         ) == "2026-2027-1")
     }
 
+    @Test("Smart switching never reverts an explicitly selected upcoming term")
+    func upcomingTermSelectionIsStable() {
+        var cache = makeSpringToFallCache()
+        let beforeFirstWeek = shanghaiDate(2026, 8, 26)
+
+        cache.currentTerm = "2025-2026-2"
+        #expect(AcademicTermPolicy.preferredCachedTerm(
+            cache: cache,
+            on: beforeFirstWeek
+        ) == "2025-2026-2")
+
+        cache.currentTerm = "2026-2027-1"
+        #expect(AcademicTermPolicy.preferredCachedTerm(
+            cache: cache,
+            on: beforeFirstWeek
+        ) == "2026-2027-1")
+    }
+
     private func makeSpringToFallCache() -> ScheduleCache {
         var cache = ScheduleCache()
         cache.termSchedulesByTerm["2025-2026-2"] = TermScheduleSnapshot(
@@ -83,6 +101,80 @@ struct AcademicTermPolicyTests {
             updatedAt: shanghaiDate(2026, 8, 1)
         )
         return cache
+    }
+}
+
+@Suite("Small-term week normalization")
+struct SmallTermWeekNormalizerTests {
+    @Test("First-semester small terms shift dates and labels together")
+    func normalizesFirstSemester() {
+        let courses = [
+            makeCourse(id: "a", description: "1-5周 星期一", weeks: Array(4 ... 8)),
+            makeCourse(id: "b", description: "7-12周 星期一", weeks: Array(10 ... 15)),
+        ]
+        let result = SmallTermWeekNormalizer.normalize(
+            term: "2026-2027-1",
+            firstDayString: "2026-08-31",
+            courses: courses
+        )
+
+        #expect(result.offset == 3)
+        #expect(result.firstDayString == "2026-09-21")
+        #expect(result.courses[0].weeks == Array(1 ... 5))
+        #expect(result.courses[1].weeks == Array(7 ... 12))
+    }
+
+    @Test("Second semester never applies small-term correction")
+    func leavesSecondSemesterUnchanged() {
+        let course = makeCourse(id: "a", description: "1-5周 星期一", weeks: Array(4 ... 8))
+        let result = SmallTermWeekNormalizer.normalize(
+            term: "2026-2027-2",
+            firstDayString: "2027-03-01",
+            courses: [course]
+        )
+
+        #expect(result.offset == 0)
+        #expect(result.firstDayString == "2027-03-01")
+        #expect(result.courses == [course])
+    }
+
+    @Test("Conflicting evidence fails closed")
+    func rejectsMixedOffsets() {
+        let courses = [
+            makeCourse(id: "a", description: "1-5周 星期一", weeks: Array(4 ... 8)),
+            makeCourse(id: "b", description: "1-5周 星期二", weeks: Array(1 ... 5)),
+        ]
+        let result = SmallTermWeekNormalizer.normalize(
+            term: "2026-2027-1",
+            firstDayString: "2026-08-31",
+            courses: courses
+        )
+
+        #expect(result.offset == 0)
+        #expect(result.firstDayString == "2026-08-31")
+        #expect(result.courses == courses)
+    }
+
+    private func makeCourse(id: String, description: String, weeks: [Int]) -> CourseRecord {
+        CourseRecord(
+            id: id,
+            term: "2026-2027-1",
+            name: "测试课程\(id)",
+            teacher: "",
+            classroom: "",
+            description: description,
+            weeks: weeks,
+            weekday: 1,
+            startSection: 1,
+            endSection: 2,
+            campus: "",
+            number: id,
+            credit: 1,
+            hour: 16,
+            type: "",
+            category: "",
+            department: ""
+        )
     }
 }
 

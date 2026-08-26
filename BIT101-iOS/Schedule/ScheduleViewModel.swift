@@ -276,7 +276,10 @@ final class ScheduleViewModel: ObservableObject {
         hasLoaded = true
 
         // 页面先读本地缓存，确保一打开就有内容，避免每次冷启动都重新同步。
+        // `loadIfNeeded` 在进程生命周期内只成功执行一次，因此这里定位到今天所在周：
+        // 杀后台后的冷启动会回到今日；仅切换页面或前后台切换不会打断用户正在浏览的周次。
         reloadFromDisk()
+        selectedWeek = resolvedCurrentWeek()
         if activatePreferredCachedTermIfAvailable(on: Date()) {
             persist()
         }

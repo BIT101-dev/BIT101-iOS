@@ -102,7 +102,7 @@ enum AppTab: String, Identifiable, Codable {
 ///
 /// 壳层只关心两件事：按照设置中心决定展示哪些 tab，以及把退出登录回调继续往下传。
 struct AppShellView: View {
-    private static let startupNoticeTitle = "1.7.2 版本更新"
+    private static let startupNoticeTitle = "1.7.3 版本更新"
     private static let startupNoticeBody = "优化使用体验"
     private static let widgetUsageGuideTitle = "非常有用的几个用法"
     private static let widgetUsageGuideBody = """

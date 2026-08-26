@@ -418,6 +418,30 @@ nonisolated struct ScheduleCache: Codable {
                 updatedAt: coursesUpdatedAt
             )
         }
+
+        // 旧版已经落盘的 `-1` 小学期课表也在解码时确定性迁移。校正后的数据再次
+        // 解码会得到 offset=0，因此不会重复平移；其它学期不会进入该规则。
+        for (term, snapshot) in termSchedulesByTerm {
+            let normalized = SmallTermWeekNormalizer.normalize(
+                term: term,
+                firstDayString: snapshot.firstDayString,
+                courses: snapshot.courses
+            )
+            guard normalized.offset > 0 else { continue }
+            let migrated = TermScheduleSnapshot(
+                term: term,
+                firstDayString: normalized.firstDayString,
+                courses: normalized.courses,
+                exams: snapshot.exams,
+                updatedAt: snapshot.updatedAt
+            )
+            termSchedulesByTerm[term] = migrated
+            cachedCoursesByTerm[term] = normalized.courses
+            if currentTerm == term {
+                firstDayString = normalized.firstDayString
+                courses = normalized.courses
+            }
+        }
     }
 
     /// 把课表标题裁到统一长度上限。

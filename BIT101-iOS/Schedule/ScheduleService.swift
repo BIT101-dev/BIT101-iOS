@@ -56,6 +56,143 @@ struct CourseSyncPayload {
     let exams: [ExamRecord]
 }
 
+/// 校正上半学期中由小学期产生的周次整体偏移。
+///
+/// 教务接口的 `SKZC` 有时仍以完整校历计数，而 `YPSJDD` 已按小学期重新从第 1 周
+/// 标注。只有 `-1` 学期允许校正，并且必须由所有可解析课程共同证明同一个偏移量；
+/// 这样不会把普通学期或单条异常数据误判成小学期。
+nonisolated enum SmallTermWeekNormalizer {
+    struct Result {
+        let firstDayString: String
+        let courses: [CourseRecord]
+        let offset: Int
+    }
+
+    static func normalize(
+        term: String,
+        firstDayString: String,
+        courses: [CourseRecord]
+    ) -> Result {
+        let unchanged = Result(firstDayString: firstDayString, courses: courses, offset: 0)
+        guard term.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("-1"),
+              !courses.isEmpty
+        else { return unchanged }
+
+        struct CourseGroup {
+            var rawWeeks = Set<Int>()
+            var describedWeeks = Set<Int>()
+        }
+
+        var groups: [String: CourseGroup] = [:]
+        for course in courses {
+            let described = weeksDescribed(in: course.description)
+            guard !described.isEmpty else { continue }
+            let key = "\(course.number)|\(course.name)|\(course.description)"
+            var group = groups[key, default: CourseGroup()]
+            group.rawWeeks.formUnion(course.weeks)
+            group.describedWeeks.formUnion(described)
+            groups[key] = group
+        }
+        guard !groups.isEmpty else { return unchanged }
+
+        var offsets = Set<Int>()
+        for group in groups.values {
+            let raw = group.rawWeeks.sorted()
+            let described = group.describedWeeks.sorted()
+            guard raw.count == described.count, raw.count >= 2 else { return unchanged }
+            let differences = Set(zip(raw, described).map(-))
+            guard differences.count == 1, let difference = differences.first else { return unchanged }
+            offsets.insert(difference)
+        }
+
+        guard offsets.count == 1,
+              let offset = offsets.first,
+              (1 ... 8).contains(offset),
+              courses.allSatisfy({ $0.weeks.allSatisfy { $0 > offset } }),
+              let firstDay = parseDate(firstDayString),
+              let shiftedFirstDay = calendar.date(byAdding: .day, value: offset * 7, to: firstDay)
+        else { return unchanged }
+
+        return Result(
+            firstDayString: formatDate(shiftedFirstDay),
+            courses: courses.map { shiftingWeeks(of: $0, by: -offset) },
+            offset: offset
+        )
+    }
+
+    private static var calendar: Calendar {
+        var value = Calendar(identifier: .gregorian)
+        value.timeZone = TimeZone(secondsFromGMT: 8 * 3600) ?? .current
+        return value
+    }
+
+    private static func parseDate(_ string: String) -> Date? {
+        let parts = string.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        return calendar.date(from: DateComponents(
+            calendar: calendar,
+            timeZone: calendar.timeZone,
+            year: parts[0],
+            month: parts[1],
+            day: parts[2]
+        ))
+    }
+
+    private static func formatDate(_ date: Date) -> String {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(
+            format: "%04d-%02d-%02d",
+            components.year ?? 0,
+            components.month ?? 0,
+            components.day ?? 0
+        )
+    }
+
+    private static func weeksDescribed(in text: String) -> Set<Int> {
+        let pattern = #"(\d{1,2})\s*(?:[-－—~～至]\s*(\d{1,2}))?\s*周"#
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(text.startIndex..., in: text)
+        var result = Set<Int>()
+        for match in expression.matches(in: text, range: range) {
+            guard let lowerRange = Range(match.range(at: 1), in: text),
+                  let lower = Int(text[lowerRange])
+            else { continue }
+            if match.range(at: 2).location != NSNotFound,
+               let upperRange = Range(match.range(at: 2), in: text),
+               let upper = Int(text[upperRange]),
+               upper >= lower
+            {
+                result.formUnion(lower ... upper)
+            } else {
+                result.insert(lower)
+            }
+        }
+        return result
+    }
+
+    private static func shiftingWeeks(of course: CourseRecord, by delta: Int) -> CourseRecord {
+        CourseRecord(
+            id: course.id,
+            term: course.term,
+            name: course.name,
+            teacher: course.teacher,
+            classroom: course.classroom,
+            description: course.description,
+            weeks: course.weeks.map { $0 + delta },
+            weekday: course.weekday,
+            startSection: course.startSection,
+            endSection: course.endSection,
+            campus: course.campus,
+            number: course.number,
+            credit: course.credit,
+            hour: course.hour,
+            type: course.type,
+            category: course.category,
+            department: course.department
+        )
+    }
+}
+
 /// 同步 DDL 后的组合结果。
 ///
 /// 乐学同步除了事件列表外，还可能拿到新的订阅 URL，因此一起返回给上层缓存。
@@ -218,11 +355,16 @@ struct ScheduleService {
         async let examsTask = fetchExams(term: term)
         async let firstDayTask = fetchFirstDayString(term: term)
         let (courses, exams, firstDayString) = try await (coursesTask, examsTask, firstDayTask)
+        let normalized = SmallTermWeekNormalizer.normalize(
+            term: term,
+            firstDayString: firstDayString,
+            courses: courses
+        )
 
         return CourseSyncPayload(
             term: term,
-            firstDayString: firstDayString,
-            courses: courses,
+            firstDayString: normalized.firstDayString,
+            courses: normalized.courses,
             exams: exams
         )
     }

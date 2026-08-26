@@ -40,6 +40,12 @@ nonisolated enum AcademicTermPolicy {
     static func preferredCachedTerm(cache: ScheduleCache, on date: Date) -> String {
         let terms = adjacentTerms(on: date)
         guard terms.count == 2 else { return preferredTerm(on: date) }
+        // A user may explicitly fetch and select the upcoming semester before
+        // its first week begins. Smart switching is only allowed to advance a
+        // timetable; it must not undo that explicit selection on every launch.
+        if cache.currentTerm == terms[1] {
+            return terms[1]
+        }
         if let nextStart = cache.termSchedulesByTerm[terms[1]]?.firstDay,
            date >= nextStart
         {
