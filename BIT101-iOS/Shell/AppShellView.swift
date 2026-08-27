@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Combine
 import UIKit
 
 /// 应用底部 Tab 的稳定标识。
@@ -119,12 +120,9 @@ struct AppShellView: View {
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var settings = AppSettingsStore.shared
     @ObservedObject private var schoolDataRefresh = SchoolDataRefreshCoordinator.shared
+    @ObservedObject private var promptCoordinator = AppPromptCoordinator.shared
     @State private var selectedTab: AppTab = .schedule
     @State private var isShowingGalleryEULA = false
-    @State private var isShowingStartupNotice = false
-    @State private var isShowingWidgetUsageGuide = false
-    @State private var isShowingLinuxDoThanksNotice = false
-    @State private var isShowingScheduleNotificationPrompt = false
     @State private var requestedScheduleSection: ScheduleSection?
     @State private var requestedPaperID: Int?
     /// 系统全屏控制器关闭时壳层可能再次收到 `onAppear`，不能因此重置当前 tab。
@@ -178,44 +176,6 @@ struct AppShellView: View {
                 }
             )
         }
-        .alert(Self.startupNoticeTitle, isPresented: $isShowingStartupNotice) {
-            Button("确定") {
-                settings.markCurrentStartupNoticeSeen()
-                presentWidgetUsageGuideIfNeeded()
-            }
-        } message: {
-            Text(Self.startupNoticeBody)
-        }
-        .alert(Self.widgetUsageGuideTitle, isPresented: $isShowingWidgetUsageGuide) {
-            Button("知道了") {
-                settings.markCurrentWidgetUsageGuideSeen()
-                refreshScheduleNotificationPromptIfNeeded()
-            }
-        } message: {
-            Text(Self.widgetUsageGuideBody)
-        }
-        .alert(Self.linuxDoThanksTitle, isPresented: $isShowingLinuxDoThanksNotice) {
-            Button("知道了") {
-                settings.markLinuxDoThanksNoticeShown()
-                refreshScheduleNotificationPromptIfNeeded()
-            }
-            Button("发送邮件") {
-                settings.markLinuxDoThanksNoticeShown()
-                if let url = URL(string: "mailto:systemd@linux.do") {
-                    openURL(url)
-                }
-                refreshScheduleNotificationPromptIfNeeded()
-            }
-        } message: {
-            Text(Self.linuxDoThanksBody)
-        }
-        .alert(item: $schoolDataRefresh.alert) { alert in
-            Alert(
-                title: Text(alert.title),
-                message: Text(alert.message),
-                dismissButton: .default(Text("知道了"))
-            )
-        }
         .onAppear {
             if !didInitializeSelectedTab {
                 didInitializeSelectedTab = true
@@ -224,15 +184,7 @@ struct AppShellView: View {
                     selectTab(initial)
                 }
             }
-            if settings.shouldShowCurrentStartupNotice {
-                isShowingStartupNotice = true
-            } else if !settings.hasAcceptedCurrentWidgetUsageGuide {
-                isShowingWidgetUsageGuide = true
-            } else if settings.shouldShowLinuxDoThanksNotice {
-                isShowingLinuxDoThanksNotice = true
-            } else {
-                refreshScheduleNotificationPromptIfNeeded()
-            }
+            enqueueStartupPromptsIfNeeded()
         }
         .onChange(of: settings.snapshot) { _, _ in
             if !settings.visibleTabs.contains(selectedTab) {
@@ -245,6 +197,18 @@ struct AppShellView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .scheduleCacheDidChange)) { _ in
             refreshScheduleNotificationPromptIfNeeded()
+        }
+        .onReceive(schoolDataRefresh.$alert.compactMap { $0 }) { alert in
+            promptCoordinator.enqueue(AppPrompt(
+                id: "school-data-\(alert.id.uuidString)",
+                title: alert.title,
+                message: alert.message,
+                actions: [
+                    AppPromptAction(id: "dismiss", title: "知道了") {
+                        schoolDataRefresh.alert = nil
+                    }
+                ]
+            ))
         }
         .onOpenURL { url in
             handleIncomingURL(url)
@@ -306,128 +270,80 @@ struct AppShellView: View {
     /// 因此这里把提示状态集中收口，供 onAppear / 回前台 / 课表缓存变化共同复用。
     private func refreshScheduleNotificationPromptIfNeeded() {
         Task {
-            let shouldContinue = await MainActor.run { () -> Bool in
-                if settings.shouldShowCurrentStartupNotice {
-                    isShowingStartupNotice = true
-                    return false
-                }
-
-                if !settings.hasAcceptedCurrentWidgetUsageGuide {
-                    isShowingWidgetUsageGuide = true
-                    return false
-                }
-
-                if settings.shouldShowLinuxDoThanksNotice {
-                    isShowingLinuxDoThanksNotice = true
-                    return false
-                }
-
-                return true
-            }
-
-            guard shouldContinue else { return }
-
             let authorizationState = await ScheduleLiveActivityManager.shared.notificationAuthorizationStateForReminderFallback()
             guard authorizationState == .denied else { return }
 
             await MainActor.run {
-                presentScheduleNotificationPromptIfNeeded()
+                enqueueScheduleNotificationPrompt()
             }
         }
     }
 
-    /// After the release note closes, continue the existing one-time prompt chain.
-    private func presentWidgetUsageGuideIfNeeded() {
+    private func enqueueStartupPromptsIfNeeded() {
+        if settings.shouldShowCurrentStartupNotice {
+            promptCoordinator.enqueue(AppPrompt(
+                id: "startup-notice-\(Self.startupNoticeTitle)",
+                title: Self.startupNoticeTitle,
+                message: Self.startupNoticeBody,
+                actions: [
+                    AppPromptAction(id: "confirm", title: "确定", isDefault: true) {
+                        settings.markCurrentStartupNoticeSeen()
+                    }
+                ]
+            ))
+        }
+
         if !settings.hasAcceptedCurrentWidgetUsageGuide {
-            isShowingWidgetUsageGuide = true
-        } else if settings.shouldShowLinuxDoThanksNotice {
-            isShowingLinuxDoThanksNotice = true
-        } else {
-            refreshScheduleNotificationPromptIfNeeded()
+            promptCoordinator.enqueue(AppPrompt(
+                id: "widget-usage-guide",
+                title: Self.widgetUsageGuideTitle,
+                message: Self.widgetUsageGuideBody,
+                actions: [
+                    AppPromptAction(id: "confirm", title: "知道了", isDefault: true) {
+                        settings.markCurrentWidgetUsageGuideSeen()
+                    }
+                ]
+            ))
         }
+
+        if settings.shouldShowLinuxDoThanksNotice {
+            promptCoordinator.enqueue(AppPrompt(
+                id: "linux-do-thanks",
+                title: Self.linuxDoThanksTitle,
+                message: Self.linuxDoThanksBody,
+                actions: [
+                    AppPromptAction(id: "dismiss", title: "知道了", isDefault: true) {
+                        settings.markLinuxDoThanksNoticeShown()
+                    },
+                    AppPromptAction(id: "send-email", title: "发送邮件") {
+                        settings.markLinuxDoThanksNoticeShown()
+                        if let url = URL(string: "mailto:systemd@linux.do") {
+                            openURL(url)
+                        }
+                    }
+                ]
+            ))
+        }
+
+        refreshScheduleNotificationPromptIfNeeded()
     }
 
-    private func presentScheduleNotificationPromptIfNeeded(retryCount: Int = 4) {
-        if isShowingScheduleNotificationPrompt {
-            return
-        }
-
-        guard let rootViewController = topViewController() else {
-            guard retryCount > 0 else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                presentScheduleNotificationPromptIfNeeded(retryCount: retryCount - 1)
-            }
-            return
-        }
-
-        if let currentAlert = rootViewController as? UIAlertController,
-           currentAlert.title == "请开启通知" {
-            isShowingScheduleNotificationPrompt = true
-            return
-        }
-
-        if let presentedAlert = rootViewController.presentedViewController as? UIAlertController,
-           presentedAlert.title == "请开启通知" {
-            isShowingScheduleNotificationPrompt = true
-            return
-        }
-
-        // 这里故意使用 UIKit 的 `UIAlertController`，而不是再叠一层 SwiftUI `.alert`。
-        //
-        // 原因是壳层本身已经承载了启动公告等弹窗；如果继续在同一层叠多个 SwiftUI alert，
-        // 启动时很容易出现提示互相抢占、状态算出来了但界面没有真正弹出的情况。
-        // 这属于当前项目里一处明确的“非原生 SwiftUI UI 实现”，保留它只是为了稳定性，
-        // 后续若要回收这条绕路实现，优先方向应该是统一顶层弹窗路由，而不是直接删回 `.alert`。
-        let alert = UIAlertController(
+    private func enqueueScheduleNotificationPrompt() {
+        promptCoordinator.enqueue(AppPrompt(
+            id: "schedule-notification-permission",
             title: "请开启通知",
             message: "灵动岛需要应用常驻前台；应用未能自动启动时，会使用本地通知，以避免您错过上课。请在系统设置的通知页面中允许 BIT101 发送通知。",
-            preferredStyle: .alert
-        )
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel) { _ in
-            isShowingScheduleNotificationPrompt = false
-        })
-        alert.addAction(UIAlertAction(title: "转到设置", style: .default) { _ in
-            isShowingScheduleNotificationPrompt = false
-            if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
-                openURL(url)
-            } else if let fallbackURL = URL(string: UIApplication.openSettingsURLString) {
-                openURL(fallbackURL)
-            }
-        })
-
-        isShowingScheduleNotificationPrompt = true
-        rootViewController.present(alert, animated: true)
-    }
-
-    private func topViewController() -> UIViewController? {
-        let scenes = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-
-        let scene = scenes.first(where: { $0.activationState == .foregroundActive })
-            ?? scenes.first(where: { $0.activationState == .foregroundInactive })
-            ?? scenes.first
-
-        let root = scene?.windows.first(where: \.isKeyWindow)?.rootViewController
-            ?? scene?.windows.first(where: { !$0.isHidden && $0.rootViewController != nil })?.rootViewController
-            ?? scene?.windows.first?.rootViewController
-        return topViewController(from: root)
-    }
-
-    /// 从当前场景的根控制器向上追到真正可展示提示的最顶层控制器。
-    ///
-    /// 由于通知权限提示使用的是 UIKit alert，这里必须自己处理导航栈、Tab 容器和已呈现控制器，
-    /// 否则很容易把提示挂到一个当前并不可见的控制器上，表现出来就像“没有弹窗”。
-    private func topViewController(from viewController: UIViewController?) -> UIViewController? {
-        if let navigationController = viewController as? UINavigationController {
-            return topViewController(from: navigationController.visibleViewController)
-        }
-        if let tabBarController = viewController as? UITabBarController {
-            return topViewController(from: tabBarController.selectedViewController)
-        }
-        if let presented = viewController?.presentedViewController {
-            return topViewController(from: presented)
-        }
-        return viewController
+            actions: [
+                AppPromptAction(id: "cancel", title: "取消", role: .cancel) {},
+                AppPromptAction(id: "open-settings", title: "转到设置", isDefault: true) {
+                    if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
+                        openURL(url)
+                    } else if let fallbackURL = URL(string: UIApplication.openSettingsURLString) {
+                        openURL(fallbackURL)
+                    }
+                }
+            ]
+        ))
     }
 }
 

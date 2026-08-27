@@ -83,6 +83,19 @@ final class AppUpdateChecker {
         self.now = now
         self.installedVersion = installedVersion
         self.loadData = loadData
+
+        #if DEBUG
+        // 真机更新提醒 smoke 专用；仅显式传入启动环境变量时清除提醒门禁，Release 不包含。
+        if ProcessInfo.processInfo.environment["BIT101_UPDATE_PROMPT_SMOKE_RESET"] == "1" {
+            [
+                Self.lastAttemptKey,
+                Self.cachedReleaseKey,
+                Self.ignoredVersionKey,
+                Self.lastPresentedAtKey,
+                Self.lastPresentedVersionKey
+            ].forEach(defaults.removeObject(forKey:))
+        }
+        #endif
     }
 
     /// 每次冷启动调用一次。联网查询与弹窗展示分别受 24 小时门禁控制。
@@ -121,12 +134,24 @@ final class AppUpdateChecker {
     }
 
     private func fetchLatestRelease() async throws -> AppStoreRelease {
+        // Apple Lookup CDN 可能按 User-Agent 返回已过期版本；每次受 24 小时门禁控制的
+        // 查询追加唯一参数，避免 CFNetwork 命中 CDN 中仍停留在上一版本的响应。
+        var components = URLComponents(url: Self.lookupURL, resolvingAgainstBaseURL: false)
+        let existingQueryItems = components?.queryItems ?? []
+        components?.queryItems = existingQueryItems + [
+            URLQueryItem(name: "requestTime", value: String(Int(now().timeIntervalSince1970)))
+        ]
+        guard let lookupURL = components?.url else {
+            throw URLError(.badURL)
+        }
+
         var request = URLRequest(
-            url: Self.lookupURL,
+            url: lookupURL,
             cachePolicy: .reloadIgnoringLocalCacheData,
             timeoutInterval: 10
         )
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
 
         let (data, response) = try await loadData(request)
         guard let httpResponse = response as? HTTPURLResponse,
@@ -174,13 +199,121 @@ final class AppUpdateChecker {
     }
 }
 
+/// 单个原生弹窗里的一个操作。
+struct AppPromptAction: Identifiable {
+    let id: String
+    let title: String
+    let role: ButtonRole?
+    let isDefault: Bool
+    let handler: @MainActor () -> Void
+
+    init(
+        id: String,
+        title: String,
+        role: ButtonRole? = nil,
+        isDefault: Bool = false,
+        handler: @escaping @MainActor () -> Void
+    ) {
+        self.id = id
+        self.title = title
+        self.role = role
+        self.isDefault = isDefault
+        self.handler = handler
+    }
+}
+
+/// 应用级原生弹窗请求。所有启动弹窗只能经由同一个协调器展示。
+struct AppPrompt: Identifiable {
+    let id: String
+    let title: String
+    let message: String
+    let actions: [AppPromptAction]
+    let onPresent: @MainActor () -> Void
+
+    init(
+        id: String,
+        title: String,
+        message: String,
+        actions: [AppPromptAction],
+        onPresent: @escaping @MainActor () -> Void = {}
+    ) {
+        self.id = id
+        self.title = title
+        self.message = message
+        self.actions = actions
+        self.onPresent = onPresent
+    }
+}
+
+/// 应用唯一的弹窗队列，同一时刻只向 SwiftUI 提交一个 `.alert`。
+@MainActor
+final class AppPromptCoordinator: ObservableObject {
+    static let shared = AppPromptCoordinator()
+
+    @Published private(set) var activePrompt: AppPrompt?
+
+    private var queue: [AppPrompt] = []
+    private var queuedIDs: Set<String> = []
+    private var handledIDs: Set<String> = []
+    private var advanceTask: Task<Void, Never>?
+    private let advanceDelay: Duration
+
+    init(advanceDelay: Duration = .milliseconds(350)) {
+        self.advanceDelay = advanceDelay
+    }
+
+    func enqueue(_ prompt: AppPrompt) {
+        guard activePrompt?.id != prompt.id,
+              !queuedIDs.contains(prompt.id),
+              !handledIDs.contains(prompt.id)
+        else { return }
+
+        queuedIDs.insert(prompt.id)
+        queue.append(prompt)
+        presentNextIfPossible()
+    }
+
+    func perform(_ action: AppPromptAction) {
+        action.handler()
+        finishActivePrompt()
+    }
+
+    /// 系统手势或其它系统级关闭路径同样必须推进队列。
+    func alertPresentationChanged(isPresented: Bool) {
+        if !isPresented {
+            finishActivePrompt()
+        }
+    }
+
+    private func finishActivePrompt() {
+        guard let activePrompt else { return }
+        handledIDs.insert(activePrompt.id)
+        self.activePrompt = nil
+
+        // 等待系统完成上一只 UIAlertController 的退场动画，再交付下一项。
+        advanceTask?.cancel()
+        advanceTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(for: advanceDelay)
+            guard !Task.isCancelled else { return }
+            presentNextIfPossible()
+        }
+    }
+
+    private func presentNextIfPossible() {
+        guard activePrompt == nil, !queue.isEmpty else { return }
+        let prompt = queue.removeFirst()
+        queuedIDs.remove(prompt.id)
+        activePrompt = prompt
+        // 只有轮到这一项成为唯一活动弹窗时才记为已经展示。
+        prompt.onPresent()
+    }
+}
+
 /// 把查询状态收束在 App 根节点，避免登录页和登录后壳层各自重复请求。
 @MainActor
-final class AppUpdatePromptCoordinator: ObservableObject {
+final class AppUpdatePromptCoordinator {
     static let shared = AppUpdatePromptCoordinator()
-
-    @Published private(set) var release: AppStoreRelease?
-    @Published var isShowingPrompt = false
 
     private let checker: AppUpdateChecker
     private var didCheckThisLaunch = false
@@ -189,61 +322,82 @@ final class AppUpdatePromptCoordinator: ObservableObject {
         self.checker = checker ?? AppUpdateChecker()
     }
 
-    func checkAtLaunch() async {
-        guard !didCheckThisLaunch else { return }
+    func releaseToPresentAtLaunch() async -> AppStoreRelease? {
+        guard !didCheckThisLaunch else { return nil }
         didCheckThisLaunch = true
 
-        guard let release = await checker.releaseToPresentAtLaunch() else { return }
-        self.release = release
-        checker.markPresented(version: release.version)
-        isShowingPrompt = true
+        return await checker.releaseToPresentAtLaunch()
     }
 
-    func dismissPrompt() {
-        isShowingPrompt = false
+    func markPresented(version: String) {
+        checker.markPresented(version: version)
     }
 
-    func ignorePresentedVersion() {
-        guard let version = release?.version else { return }
+    func ignore(version: String) {
         checker.ignore(version: version)
-        isShowingPrompt = false
     }
 }
 
-private struct AppUpdatePromptModifier: ViewModifier {
+private struct AppPromptHostModifier: ViewModifier {
     @Environment(\.openURL) private var openURL
-    @StateObject private var coordinator = AppUpdatePromptCoordinator.shared
+    @StateObject private var promptCoordinator = AppPromptCoordinator.shared
+    private let updateCoordinator = AppUpdatePromptCoordinator.shared
 
     func body(content: Content) -> some View {
         content
             .task {
-                await coordinator.checkAtLaunch()
+                guard let release = await updateCoordinator.releaseToPresentAtLaunch() else { return }
+                promptCoordinator.enqueue(AppPrompt(
+                    id: "app-update-\(release.version)",
+                    title: "发现新版本 \(release.version)",
+                    message: release.updateMessage,
+                    actions: [
+                        AppPromptAction(
+                            id: "open-store",
+                            title: "前往 App Store",
+                            isDefault: true
+                        ) {
+                            openURL(release.appStoreURL)
+                        },
+                        AppPromptAction(id: "dismiss", title: "本次忽略") {},
+                        AppPromptAction(id: "ignore-version", title: "忽略此版本") {
+                            updateCoordinator.ignore(version: release.version)
+                        }
+                    ],
+                    onPresent: {
+                        updateCoordinator.markPresented(version: release.version)
+                    }
+                ))
             }
             .alert(
-                "发现新版本 \(coordinator.release?.version ?? "")",
-                isPresented: $coordinator.isShowingPrompt
+                promptCoordinator.activePrompt?.title ?? "",
+                isPresented: Binding(
+                    get: { promptCoordinator.activePrompt != nil },
+                    set: { promptCoordinator.alertPresentationChanged(isPresented: $0) }
+                ),
+                presenting: promptCoordinator.activePrompt
             ) {
-                Button("前往 App Store") {
-                    coordinator.dismissPrompt()
-                    if let url = coordinator.release?.appStoreURL {
-                        openURL(url)
+                prompt in
+                ForEach(prompt.actions) { action in
+                    if action.isDefault {
+                        Button(action.title, role: action.role) {
+                            promptCoordinator.perform(action)
+                        }
+                        .keyboardShortcut(.defaultAction)
+                    } else {
+                        Button(action.title, role: action.role) {
+                            promptCoordinator.perform(action)
+                        }
                     }
                 }
-                .keyboardShortcut(.defaultAction)
-                Button("本次忽略") {
-                    coordinator.dismissPrompt()
-                }
-                Button("忽略此版本") {
-                    coordinator.ignorePresentedVersion()
-                }
-            } message: {
-                Text(coordinator.release?.updateMessage ?? "")
+            } message: { prompt in
+                Text(prompt.message)
             }
     }
 }
 
 extension View {
-    func appUpdatePrompt() -> some View {
-        modifier(AppUpdatePromptModifier())
+    func appPromptHost() -> some View {
+        modifier(AppPromptHostModifier())
     }
 }

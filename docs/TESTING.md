@@ -122,6 +122,10 @@ xcodebuild build \
 
 把 `build/UpdatePromptTest/Build/Products/Debug-iphoneos/BIT101-iOS.app` 安装到真机后，依次验证：
 
+首次 smoke 可通过 `devicectl` 仅为该次 Debug 启动传入
+`BIT101_UPDATE_PROMPT_SMOKE_RESET=1`，清除更新提醒自身的查询、忽略与展示门禁；该入口受
+`#if DEBUG` 保护，不进入 Release 构建，也不会清除登录、课表或其它用户数据。
+
 1. 首次启动显示“发现新版本 1.7.1”，正文与 App Store 的开发者更新内容一致，三个操作均可见。
 2. 点击“前往 App Store”，确认打开 BIT101 的中国区 App Store 页面。
 3. 点击“本次忽略”，弹窗应立即关闭；强制退出并重新启动后，24 小时内不得再次提醒，也不得产生第二次网络查询。

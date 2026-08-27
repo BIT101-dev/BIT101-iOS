@@ -380,7 +380,7 @@ struct BIT101_iOSApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .appUpdatePrompt()
+                .appPromptHost()
                 .preferredColorScheme(settings.themeMode.colorScheme)
                 .onAppear {
                     // 首次挂载时，立即把当前旋转偏好下发给 UIKit。

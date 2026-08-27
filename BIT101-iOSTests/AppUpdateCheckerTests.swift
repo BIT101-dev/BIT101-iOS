@@ -5,6 +5,51 @@ import Testing
 @MainActor
 @Suite("App Store update reminder")
 struct AppUpdateCheckerTests {
+    @Test("Global prompt coordinator presents one prompt at a time in queue order")
+    func promptQueueIsSerial() async throws {
+        let coordinator = AppPromptCoordinator(advanceDelay: .zero)
+        var presented: [String] = []
+        var performed: [String] = []
+
+        func prompt(_ id: String) -> AppPrompt {
+            AppPrompt(
+                id: id,
+                title: id,
+                message: id,
+                actions: [
+                    AppPromptAction(id: "confirm", title: "确定") {
+                        performed.append(id)
+                    }
+                ],
+                onPresent: {
+                    presented.append(id)
+                }
+            )
+        }
+
+        coordinator.enqueue(prompt("first"))
+        coordinator.enqueue(prompt("second"))
+        coordinator.enqueue(prompt("second"))
+
+        #expect(coordinator.activePrompt?.id == "first")
+        #expect(presented == ["first"])
+
+        let firstAction = try #require(coordinator.activePrompt?.actions.first)
+        coordinator.perform(firstAction)
+        try await Task.sleep(for: .milliseconds(10))
+
+        #expect(coordinator.activePrompt?.id == "second")
+        #expect(presented == ["first", "second"])
+        #expect(performed == ["first"])
+
+        let secondAction = try #require(coordinator.activePrompt?.actions.first)
+        coordinator.perform(secondAction)
+        try await Task.sleep(for: .milliseconds(10))
+
+        #expect(coordinator.activePrompt == nil)
+        #expect(performed == ["first", "second"])
+    }
+
     @Test("Version comparison treats each component numerically")
     func numericVersionComparison() {
         #expect(AppVersionComparison.isNewer("1.10.0", than: "1.9.9"))
@@ -26,6 +71,8 @@ struct AppUpdateCheckerTests {
             loadData: { request in
                 requestCount += 1
                 #expect(request.url?.host == "itunes.apple.com")
+                #expect(request.url?.query?.contains("requestTime=") == true)
+                #expect(request.value(forHTTPHeaderField: "Cache-Control") == "no-cache")
                 return try Self.lookupResponse(for: request.url!)
             }
         )
