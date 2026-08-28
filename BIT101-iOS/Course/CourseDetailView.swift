@@ -77,8 +77,7 @@ struct CourseDetailView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 ShareLink(
                     item: courseShareURL,
-                    subject: Text(viewModel.resolvedName),
-                    message: Text("在 BIT101 查看这门课程")
+                    subject: Text(viewModel.resolvedName)
                 ) {
                     Image(systemName: "square.and.arrow.up")
                 }
@@ -227,9 +226,9 @@ struct CourseDetailView: View {
         CommunityModeration.filterVisibleComments(viewModel.commentState.items, snapshot: settings.snapshot)
     }
 
-    /// 网页端课程详情使用稳定的 `/course/{id}` 路由，接收方可直接在浏览器查看。
+    /// 独立跳转域名使用稳定的 `/course/{id}` 路由；未安装 App 时由 Worker 转至网页。
     private var courseShareURL: URL {
-        URL(string: "https://bit101.cn/course/\(initialCourse.id)")!
+        URL(string: "https://open.aihelpme.dev/course/\(initialCourse.id)")!
     }
 }
 

@@ -27,6 +27,11 @@ struct ScoreRootView: View {
     @StateObject private var scoreViewModel = SchoolDataRefreshCoordinator.shared.scoreViewModel
     @StateObject private var courseViewModel = CourseListViewModel()
     @State private var selectedSurface: ScoreSurface = .score
+    @Binding private var requestedCourseID: Int?
+
+    init(requestedCourseID: Binding<Int?> = .constant(nil)) {
+        _requestedCourseID = requestedCourseID
+    }
 
     var body: some View {
         ZStack {
@@ -36,7 +41,10 @@ struct ScoreRootView: View {
                     .simultaneousGesture(surfaceSwitchGesture)
                     .transition(.opacity)
             case .course:
-                CoursePageContent(viewModel: courseViewModel)
+                CoursePageContent(
+                    viewModel: courseViewModel,
+                    requestedCourseID: $requestedCourseID
+                )
                     .simultaneousGesture(surfaceSwitchGesture)
                     .transition(.opacity)
             }
@@ -55,6 +63,10 @@ struct ScoreRootView: View {
             .background(Color(.systemGroupedBackground))
         }
         .toolbar(.hidden, for: .navigationBar)
+        .task(id: requestedCourseID) {
+            guard requestedCourseID != nil else { return }
+            selectedSurface = .course
+        }
     }
 
     /// 顶部 segmented 的受控绑定。

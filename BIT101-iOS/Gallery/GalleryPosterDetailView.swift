@@ -201,8 +201,7 @@ struct GalleryPosterDetailView: View {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 ShareLink(
                     item: posterShareURL,
-                    subject: Text(viewModel.poster.title.isEmpty ? "BIT101 话题" : viewModel.poster.title),
-                    message: Text("在 BIT101 查看这个话题")
+                    subject: Text(viewModel.poster.title.isEmpty ? "BIT101 话题" : viewModel.poster.title)
                 ) {
                     Image(systemName: "square.and.arrow.up")
                 }
@@ -301,9 +300,9 @@ struct GalleryPosterDetailView: View {
         CommunityModeration.filterVisibleComments(viewModel.commentState.items, snapshot: settings.snapshot)
     }
 
-    /// 网页端帖子详情使用稳定的 `/gallery/{id}` 路由，分享后无需安装 App 也能打开。
+    /// 独立跳转域名使用稳定的 `/gallery/{id}` 路由；未安装 App 时由 Worker 转至网页。
     private var posterShareURL: URL {
-        URL(string: "https://bit101.cn/gallery/\(viewModel.poster.id)")!
+        URL(string: "https://open.aihelpme.dev/gallery/\(viewModel.poster.id)")!
     }
 
     /// 在详情页里应用举报动作。

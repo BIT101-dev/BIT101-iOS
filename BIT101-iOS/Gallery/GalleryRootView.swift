@@ -48,10 +48,17 @@ struct GalleryRootView: View {
     @State private var isShowingComposer = false
     @State private var isShowingMessages = false
     @Binding private var requestedPaperID: Int?
+    @Binding private var requestedPosterID: Int?
     @State private var selectedSurface: GallerySurface = .gallery
+    @State private var deepLinkedPoster: GalleryPoster?
+    @State private var deepLinkAlert: AppAlert?
 
-    init(requestedPaperID: Binding<Int?> = .constant(nil)) {
+    init(
+        requestedPaperID: Binding<Int?> = .constant(nil),
+        requestedPosterID: Binding<Int?> = .constant(nil)
+    ) {
         _requestedPaperID = requestedPaperID
+        _requestedPosterID = requestedPosterID
     }
 
     var body: some View {
@@ -91,7 +98,35 @@ struct GalleryRootView: View {
             guard newValue != nil else { return }
             selectedSurface = .paper
         }
+        .task(id: requestedPosterID) {
+            await openRequestedPosterIfNeeded()
+        }
+        .navigationDestination(item: $deepLinkedPoster) { poster in
+            GalleryPosterDetailView(poster: poster)
+        }
+        .alert(item: $deepLinkAlert) { alert in
+            Alert(
+                title: Text(alert.title),
+                message: Text(alert.message),
+                dismissButton: .default(Text("知道了"))
+            )
+        }
         .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private func openRequestedPosterIfNeeded() async {
+        guard let posterID = requestedPosterID else { return }
+        selectedSurface = .gallery
+        do {
+            deepLinkedPoster = try await GalleryService().fetchPoster(id: posterID).asPoster
+        } catch {
+            deepLinkAlert = AppAlert(title: "无法打开话题", message: error.localizedDescription)
+        }
+        // `.task(id:)` 会在 id 改变时取消当前任务；必须等请求完成后再消费链接，
+        // 否则这里一开始清空 binding 会立即取消刚发出的详情请求。
+        if requestedPosterID == posterID {
+            requestedPosterID = nil
+        }
     }
 
     private var galleryContent: some View {

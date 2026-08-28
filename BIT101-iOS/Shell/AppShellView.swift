@@ -103,8 +103,8 @@ enum AppTab: String, Identifiable, Codable {
 ///
 /// 壳层只关心两件事：按照设置中心决定展示哪些 tab，以及把退出登录回调继续往下传。
 struct AppShellView: View {
-    private static let startupNoticeTitle = "1.7.3 版本更新"
-    private static let startupNoticeBody = "优化使用体验"
+    private static let startupNoticeTitle = "1.7.4 版本更新"
+    private static let startupNoticeBody = "新增课表导入系统日历，优化使用体验"
     private static let widgetUsageGuideTitle = "非常有用的几个用法"
     private static let widgetUsageGuideBody = """
     推荐在锁屏添加锁屏小组件（如果你习惯使用息屏显示）。
@@ -125,6 +125,8 @@ struct AppShellView: View {
     @State private var isShowingGalleryEULA = false
     @State private var requestedScheduleSection: ScheduleSection?
     @State private var requestedPaperID: Int?
+    @State private var requestedPosterID: Int?
+    @State private var requestedCourseID: Int?
     /// 系统全屏控制器关闭时壳层可能再次收到 `onAppear`，不能因此重置当前 tab。
     @State private var didInitializeSelectedTab = false
 
@@ -143,15 +145,21 @@ struct AppShellView: View {
                     case .schedule:
                         ScheduleRootView(requestedSection: $requestedScheduleSection)
                     case .course:
-                        ScoreRootView()
+                        ScoreRootView(requestedCourseID: $requestedCourseID)
                     case .map:
                         CampusMapScreen(scheduleViewModel: schoolDataRefresh.scheduleViewModel)
                     case .score:
-                        ScoreRootView()
+                        ScoreRootView(requestedCourseID: $requestedCourseID)
                     case .gallery:
-                        GalleryRootView(requestedPaperID: $requestedPaperID)
+                        GalleryRootView(
+                            requestedPaperID: $requestedPaperID,
+                            requestedPosterID: $requestedPosterID
+                        )
                     case .paper:
-                        GalleryRootView(requestedPaperID: $requestedPaperID)
+                        GalleryRootView(
+                            requestedPaperID: $requestedPaperID,
+                            requestedPosterID: $requestedPosterID
+                        )
                     case .mine:
                         MineRootView(fallbackStudentID: studentID, onLogout: onLogout)
                     }
@@ -210,8 +218,9 @@ struct AppShellView: View {
                 ]
             ))
         }
-        .onOpenURL { url in
+        .onReceive(AppDeepLinkCoordinator.shared.$pendingURL.compactMap { $0 }) { url in
             handleIncomingURL(url)
+            AppDeepLinkCoordinator.shared.consume(url)
         }
     }
 
@@ -236,27 +245,23 @@ struct AppShellView: View {
 
     /// 处理来自小组件等入口的 app 深链。
     ///
-    /// 当前仅接 `bit101://schedule/courses` 这一类深链，但集中收口到这里，后续继续扩展其它页面入口会更顺。
+    /// 同时接收 `bit101://` 内部链接和 `https://open.aihelpme.dev` Universal Link。
     private func handleIncomingURL(_ url: URL) {
-        guard url.scheme?.lowercased() == "bit101" else { return }
+        guard let route = AppDeepLinkRoute(url: url) else { return }
 
-        let pathComponents = url.pathComponents.filter { $0 != "/" }
-        let routeHead = url.host ?? pathComponents.first ?? ""
-
-        if routeHead == "schedule" {
+        switch route {
+        case .scheduleCourses:
             selectedTab = .schedule
-            let routeTail = url.host == nil ? pathComponents.dropFirst().first : pathComponents.first
-            if routeTail == "courses" {
-                requestedScheduleSection = .courses
-            }
-            return
-        }
-
-        if routeHead == "paper" {
-            let rawID = url.host == nil ? pathComponents.dropFirst().first : pathComponents.first
-            guard let rawID, let paperID = Int(rawID) else { return }
-            selectedTab = .gallery
+            requestedScheduleSection = .courses
+        case let .paper(paperID):
+            selectTab(.gallery)
             requestedPaperID = paperID
+        case let .gallery(posterID):
+            selectTab(.gallery)
+            requestedPosterID = posterID
+        case let .course(courseID):
+            selectTab(.score)
+            requestedCourseID = courseID
         }
     }
 

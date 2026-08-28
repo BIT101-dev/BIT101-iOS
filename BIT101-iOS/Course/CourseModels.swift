@@ -33,7 +33,7 @@ enum CourseRatingText {
 /// 课程列表单项。
 ///
 /// 当前底部课程页先承接课程浏览与详情能力，因此模型只保留列表展示所需字段。
-struct CourseSummary: Decodable, Identifiable, Equatable {
+struct CourseSummary: Decodable, Identifiable, Equatable, Hashable {
     let id: Int
     let name: String
     let number: String
@@ -68,6 +68,18 @@ struct CourseSummary: Decodable, Identifiable, Equatable {
         rate = try container.decode(Double.self, forKey: .rate)
         teachersName = try container.decode(String.self, forKey: .teachersName)
         teachersNumber = try container.decode(String.self, forKey: .teachersNumber)
+    }
+
+    init(detail: CourseDetail) {
+        id = detail.id
+        name = detail.name
+        number = detail.number
+        credit = detail.credit
+        likeNum = detail.likeNum
+        commentNum = detail.commentNum
+        rate = detail.rate
+        teachersName = detail.teachersName
+        teachersNumber = detail.teachersNumber
     }
 }
 

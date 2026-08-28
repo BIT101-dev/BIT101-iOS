@@ -77,7 +77,13 @@ struct CalendarSettingsPage: View {
                 NavigationLink {
                     ScheduleTermPickerPage(viewModel: viewModel)
                 } label: {
-                    LabeledContent("当前学期", value: viewModel.cache.currentTerm.isEmpty ? "未设置" : viewModel.cache.currentTerm)
+                    LabeledContent {
+                        Text(viewModel.cache.currentTerm.isEmpty ? "未设置" : viewModel.cache.currentTerm)
+                            .foregroundStyle(.secondary)
+                    } label: {
+                        Text("当前学期")
+                            .foregroundStyle(.tint)
+                    }
                 }
                 Button {
                     firstDayDraft = viewModel.cache.firstDay ?? Date()
@@ -100,10 +106,14 @@ struct CalendarSettingsPage: View {
                 }
                 .disabled(viewModel.isSyncingCourses || viewModel.isLoadingTerms)
 
-                Picker("自动更新课表", selection: $autoRefreshIntervalDays) {
+                Picker(selection: $autoRefreshIntervalDays) {
                     ForEach(ScheduleAutoRefreshPreferences.availableIntervals, id: \.self) { days in
-                        Text(ScheduleAutoRefreshPreferences.title(for: days)).tag(days)
+                        Text(ScheduleAutoRefreshPreferences.title(for: days))
+                            .tag(days)
                     }
+                } label: {
+                    Text("自动更新课表")
+                        .foregroundStyle(.tint)
                 }
                 .onChange(of: autoRefreshIntervalDays) { _, days in
                     ScheduleAutoRefreshPreferences.intervalDays = days
@@ -125,6 +135,7 @@ struct CalendarSettingsPage: View {
                 Button("导入课表") {
                     presentImportGuideIfNeeded(openImportAfterGuide: true)
                 }
+
             }
 
             Section("课表名称") {
@@ -373,6 +384,7 @@ struct CalendarSettingsPage: View {
         try viewModel.importSharedSchedule(payload)
         viewModel.notice = ScheduleNotice(title: "导入成功", message: "分享的课表已导入。考试、DDL 与自定义日程不会随导入覆盖。")
     }
+
 }
 
 /// 课表学期选择页。

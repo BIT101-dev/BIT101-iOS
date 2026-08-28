@@ -43,6 +43,8 @@
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>BIT101 需要使用你的定位，以便在地图中显示你当前所在位置。</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>BIT101 需要访问日历，以导入、更新或删除你选择导入的课表事件。</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>ITSAppUsesNonExemptEncryption</key>

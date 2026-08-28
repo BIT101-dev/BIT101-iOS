@@ -33,6 +33,17 @@ struct CourseRootView: View {
 /// 独立出来后，既能继续作为单独页面使用，也能被“成绩 / 课程”合并页复用。
 struct CoursePageContent: View {
     @ObservedObject var viewModel: CourseListViewModel
+    @Binding var requestedCourseID: Int?
+    @State private var deepLinkedCourse: CourseSummary?
+    @State private var deepLinkAlert: AppAlert?
+
+    init(
+        viewModel: CourseListViewModel,
+        requestedCourseID: Binding<Int?> = .constant(nil)
+    ) {
+        self.viewModel = viewModel
+        _requestedCourseID = requestedCourseID
+    }
 
     var body: some View {
         Group {
@@ -101,7 +112,34 @@ struct CoursePageContent: View {
                 dismissButton: .default(Text("知道了"))
             )
         }
+        .alert(item: $deepLinkAlert) { alert in
+            Alert(
+                title: Text(alert.title),
+                message: Text(alert.message),
+                dismissButton: .default(Text("知道了"))
+            )
+        }
+        .navigationDestination(item: $deepLinkedCourse) { course in
+            CourseDetailView(initialCourse: course)
+        }
+        .task(id: requestedCourseID) {
+            await openRequestedCourseIfNeeded()
+        }
         .background(Color(.systemGroupedBackground))
+    }
+
+    private func openRequestedCourseIfNeeded() async {
+        guard let courseID = requestedCourseID else { return }
+        do {
+            let detail = try await CourseService().fetchCourse(id: courseID)
+            deepLinkedCourse = CourseSummary(detail: detail)
+        } catch {
+            deepLinkAlert = AppAlert(title: "无法打开课程", message: error.localizedDescription)
+        }
+        // 与话题入口相同，提前改变 `.task(id:)` 的 id 会取消正在进行的网络请求。
+        if requestedCourseID == courseID {
+            requestedCourseID = nil
+        }
     }
 
     @ViewBuilder

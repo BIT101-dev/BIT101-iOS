@@ -381,6 +381,9 @@ struct BIT101_iOSApp: App {
         WindowGroup {
             ContentView()
                 .appPromptHost()
+                .onOpenURL { url in
+                    AppDeepLinkCoordinator.shared.receive(url)
+                }
                 .preferredColorScheme(settings.themeMode.colorScheme)
                 .onAppear {
                     // 首次挂载时，立即把当前旋转偏好下发给 UIKit。

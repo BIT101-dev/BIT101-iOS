@@ -8,6 +8,78 @@ private func shanghaiDate(_ year: Int, _ month: Int, _ day: Int) -> Date {
     return calendar.date(from: DateComponents(year: year, month: month, day: day))!
 }
 
+@Suite("System calendar schedule export")
+struct ScheduleSystemCalendarEventBuilderTests {
+    @Test("Course weeks expand into exact class dates and timetable bounds")
+    func expandsCourseOccurrences() throws {
+        let course = CourseRecord(
+            id: "course-a",
+            term: "2026-2027-1",
+            name: "软件工程导论",
+            teacher: "测试教师",
+            classroom: "综教A101",
+            description: "课程说明",
+            weeks: [-1, 1, 3],
+            weekday: 3,
+            startSection: 3,
+            endSection: 4,
+            campus: "良乡校区",
+            number: "CS101",
+            credit: 2,
+            hour: 32,
+            type: "",
+            category: "",
+            department: ""
+        )
+
+        let drafts = ScheduleSystemCalendarEventBuilder.makeDrafts(
+            courses: [course],
+            firstDay: shanghaiDate(2026, 9, 7),
+            timeTable: TimeSlot.default
+        )
+
+        #expect(drafts.count == 3)
+        #expect(ScheduleDateCodec.formatDate(drafts[0].startDate) == "2026-09-02")
+        #expect(ScheduleDateCodec.formatDate(drafts[1].startDate) == "2026-09-09")
+        #expect(ScheduleDateCodec.formatDate(drafts[2].startDate) == "2026-09-23")
+        let startComponents = ScheduleSharedDateCodec.calendar.dateComponents([.hour, .minute], from: drafts[1].startDate)
+        let endComponents = ScheduleSharedDateCodec.calendar.dateComponents([.hour, .minute], from: drafts[1].endDate)
+        #expect(startComponents.hour == 9 && startComponents.minute == 55)
+        #expect(endComponents.hour == 11 && endComponents.minute == 30)
+        #expect(drafts[1].location == "综教A101")
+        #expect(drafts[1].notes.contains("教师：测试教师"))
+    }
+
+    @Test("Courses with missing timetable sections are skipped")
+    func skipsInvalidTimetableBounds() {
+        let course = CourseRecord(
+            id: "course-b",
+            term: "2026-2027-1",
+            name: "测试课",
+            teacher: "",
+            classroom: "",
+            description: "",
+            weeks: [1],
+            weekday: 1,
+            startSection: 99,
+            endSection: 100,
+            campus: "",
+            number: "",
+            credit: 0,
+            hour: 0,
+            type: "",
+            category: "",
+            department: ""
+        )
+
+        #expect(ScheduleSystemCalendarEventBuilder.makeDrafts(
+            courses: [course],
+            firstDay: shanghaiDate(2026, 9, 7),
+            timeTable: TimeSlot.default
+        ).isEmpty)
+    }
+}
+
 @Suite("Academic term policy")
 struct AcademicTermPolicyTests {
     @Test("March and September roll to the next adjacent pair")
