@@ -32,11 +32,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          args=()
           if [[ -n "${GITHUB_BASE_REF:-}" ]]; then
-            args+=(--compare-git-ref "origin/${GITHUB_BASE_REF}")
+            python3 Scripts/validate_versions.py \
+              --compare-git-ref "origin/${GITHUB_BASE_REF}"
+          else
+            python3 Scripts/validate_versions.py
           fi
-          python3 Scripts/validate_versions.py "${args[@]}"
       - name: Validate release against App Store
         if: github.event_name == 'workflow_dispatch' && inputs.release_check
         run: python3 Scripts/validate_versions.py --check-app-store
