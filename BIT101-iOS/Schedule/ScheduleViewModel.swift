@@ -461,14 +461,15 @@ final class ScheduleViewModel: ObservableObject {
         defer { isSyncingDDL = false }
 
         do {
-            // 手动创建的 DDL 与乐学同步内容并存；同步时要保留手动项目和 done 状态。
-            let manualEvents = cache.ddlEvents.filter { $0.group != "lexue" }
             let payload = try await service.syncDDLEvents(
                 existingEvents: cache.ddlEvents,
                 storedURL: cache.lexueCalendarURL
             )
             cache.lexueCalendarURL = payload.url
-            cache.ddlEvents = (manualEvents + payload.events).sorted { $0.dueAt < $1.dueAt }
+            cache.ddlEvents = ScheduleDDLEditor.mergingSyncedEvents(
+                payload.events,
+                into: cache.ddlEvents
+            )
             persist()
             if showSuccessNotice {
                 notice = ScheduleNotice(
@@ -507,58 +508,33 @@ final class ScheduleViewModel: ObservableObject {
     ///
     /// `done` 是纯本地状态，不会回写乐学网页端。
     func toggleDDLDone(_ event: DDLEventRecord) {
-        guard let index = cache.ddlEvents.firstIndex(where: { $0.id == event.id }) else {
-            return
-        }
-
-        cache.ddlEvents[index].done.toggle()
+        guard cache.ddlEvents.contains(where: { $0.id == event.id }) else { return }
+        cache.ddlEvents = ScheduleDDLEditor.togglingDone(id: event.id, in: cache.ddlEvents)
         persist()
     }
 
     /// 把已有 DDL 记录转成编辑草稿。
     func ddlDraft(for event: DDLEventRecord?) -> DDLDraft {
-        guard let event else { return DDLDraft() }
-        return DDLDraft(title: event.title, dueAt: event.dueAt, text: event.text)
+        ScheduleDDLEditor.draft(for: event)
     }
 
     /// 新增一条本地 DDL。
     ///
     /// 手动 DDL 与乐学同步项并存，但会用 `group` 字段区分来源。
     func addDDL(_ draft: DDLDraft) throws {
-        guard !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw scheduleValidationError("标题不能为空。")
-        }
-
-        cache.ddlEvents.append(
-            DDLEventRecord(
-                id: UUID().uuidString,
-                group: "main",
-                title: draft.title.trimmingCharacters(in: .whitespacesAndNewlines),
-                text: draft.text,
-                dueAt: draft.dueAt,
-                done: false
-            )
-        )
-        cache.ddlEvents.sort { $0.dueAt < $1.dueAt }
+        cache.ddlEvents = try ScheduleDDLEditor.adding(draft, to: cache.ddlEvents)
         persist()
     }
 
     /// 更新一条已有的本地 DDL。
     func updateDDL(id: String, draft: DDLDraft) throws {
-        guard !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw scheduleValidationError("标题不能为空。")
-        }
-        guard let index = cache.ddlEvents.firstIndex(where: { $0.id == id }) else { return }
-
-        cache.ddlEvents[index].title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        cache.ddlEvents[index].text = draft.text
-        cache.ddlEvents[index].dueAt = draft.dueAt
+        cache.ddlEvents = try ScheduleDDLEditor.updating(id: id, with: draft, in: cache.ddlEvents)
         persist()
     }
 
     /// 删除指定 DDL。
     func deleteDDL(id: String) {
-        cache.ddlEvents.removeAll { $0.id == id }
+        cache.ddlEvents = ScheduleDDLEditor.deleting(id: id, from: cache.ddlEvents)
         persist()
     }
 
@@ -794,56 +770,20 @@ final class ScheduleViewModel: ObservableObject {
     ///
     /// 这里不会回写学校接口，而是只修改本地缓存，用于补录临时课程或手动修正。
     func addCourse(_ draft: CourseDraft) throws {
-        let resolved = try ScheduleCourseEditor.resolve(draft)
-
-        cache.courses.append(
-            CourseRecord(
-                id: UUID().uuidString,
-                term: cache.currentTerm,
-                name: resolved.title,
-                teacher: resolved.teacher,
-                classroom: resolved.classroom,
-                description: "",
-                weeks: resolved.weeks,
-                weekday: resolved.weekday,
-                startSection: resolved.startSection,
-                endSection: resolved.endSection,
-                campus: "",
-                number: "",
-                credit: 0,
-                hour: 0,
-                type: "",
-                category: "",
-                department: ""
-            )
+        cache.courses = try ScheduleCourseEditor.adding(
+            draft,
+            to: cache.courses,
+            term: cache.currentTerm
         )
         persist()
     }
 
     /// 更新整门课程。
     func updateCourse(id: String, draft: CourseDraft) throws {
-        guard let index = cache.courses.firstIndex(where: { $0.id == id }) else { return }
-        let resolved = try ScheduleCourseEditor.resolve(draft)
-        let original = cache.courses[index]
-
-        cache.courses[index] = CourseRecord(
-            id: original.id,
-            term: original.term,
-            name: resolved.title,
-            teacher: resolved.teacher,
-            classroom: resolved.classroom,
-            description: original.description,
-            weeks: resolved.weeks,
-            weekday: resolved.weekday,
-            startSection: resolved.startSection,
-            endSection: resolved.endSection,
-            campus: original.campus,
-            number: original.number,
-            credit: original.credit,
-            hour: original.hour,
-            type: original.type,
-            category: original.category,
-            department: original.department
+        cache.courses = try ScheduleCourseEditor.updating(
+            id: id,
+            with: draft,
+            in: cache.courses
         )
         persist()
     }
@@ -853,55 +793,12 @@ final class ScheduleViewModel: ObservableObject {
     /// 实现方式是把原课程里的当前周拆出去，生成一条只覆盖这一周的新课程记录；
     /// 其它周仍保留原来的排课信息。
     func updateCourseOccurrence(id: String, week: Int, draft: CourseDraft) throws {
-        guard let index = cache.courses.firstIndex(where: { $0.id == id }) else { return }
-        let original = cache.courses[index]
-        let resolved = try ScheduleCourseEditor.resolve(draft, fixedWeeks: [week])
-        let adjustedCourse = CourseRecord(
-            id: original.weeks == [week] ? original.id : UUID().uuidString,
-            term: original.term,
-            name: resolved.title,
-            teacher: resolved.teacher,
-            classroom: resolved.classroom,
-            description: original.description,
-            weeks: [week],
-            weekday: resolved.weekday,
-            startSection: resolved.startSection,
-            endSection: resolved.endSection,
-            campus: original.campus,
-            number: original.number,
-            credit: original.credit,
-            hour: original.hour,
-            type: original.type,
-            category: original.category,
-            department: original.department
+        cache.courses = try ScheduleCourseEditor.updatingOccurrence(
+            id: id,
+            week: week,
+            with: draft,
+            in: cache.courses
         )
-
-        if original.weeks == [week] {
-            cache.courses[index] = adjustedCourse
-        } else {
-            let remainingWeeks = original.weeks.filter { $0 != week }
-            cache.courses[index] = CourseRecord(
-                id: original.id,
-                term: original.term,
-                name: original.name,
-                teacher: original.teacher,
-                classroom: original.classroom,
-                description: original.description,
-                weeks: remainingWeeks,
-                weekday: original.weekday,
-                startSection: original.startSection,
-                endSection: original.endSection,
-                campus: original.campus,
-                number: original.number,
-                credit: original.credit,
-                hour: original.hour,
-                type: original.type,
-                category: original.category,
-                department: original.department
-            )
-            cache.courses.append(adjustedCourse)
-        }
-
         persist()
     }
 
@@ -909,46 +806,27 @@ final class ScheduleViewModel: ObservableObject {
     ///
     /// 如果删完后课程已不再覆盖任何周次，则直接移除整门课。
     func deleteCourseOccurrence(id: String, week: Int) {
-        guard let index = cache.courses.firstIndex(where: { $0.id == id }) else { return }
-
-        let course = cache.courses[index]
-        let remainingWeeks = course.weeks.filter { $0 != week }
-
-        if remainingWeeks.isEmpty {
-            cache.courses.remove(at: index)
-        } else {
-            cache.courses[index] = CourseRecord(
-                id: course.id,
-                term: course.term,
-                name: course.name,
-                teacher: course.teacher,
-                classroom: course.classroom,
-                description: course.description,
-                weeks: remainingWeeks,
-                weekday: course.weekday,
-                startSection: course.startSection,
-                endSection: course.endSection,
-                campus: course.campus,
-                number: course.number,
-                credit: course.credit,
-                hour: course.hour,
-                type: course.type,
-                category: course.category,
-                department: course.department
-            )
-        }
+        cache.courses = ScheduleCourseEditor.deletingOccurrence(
+            id: id,
+            week: week,
+            from: cache.courses
+        )
         persist()
     }
 
     /// 删除整门课程。
     func deleteCourse(id: String) {
-        cache.courses.removeAll { $0.id == id }
+        cache.courses = ScheduleCourseEditor.deleting(id: id, from: cache.courses)
         persist()
     }
 
     /// 将指定日期设置为放假：只清空这一天的课程，不影响考试和自定义日程。
     func clearCourses(week: Int, weekday: Int) {
-        cache.courses = coursesRemovingOccurrences(from: cache.courses, week: week, weekday: weekday)
+        cache.courses = ScheduleCourseEditor.removingOccurrences(
+            from: cache.courses,
+            week: week,
+            weekday: weekday
+        )
         persist()
     }
 
@@ -960,35 +838,13 @@ final class ScheduleViewModel: ObservableObject {
     /// - 只移动课程，不移动考试和自定义日程。
     func transferCourses(fromWeek: Int, fromWeekday: Int, to targetDate: Date) throws {
         let target = try courseDayContext(for: targetDate)
-        let sourceCourses = cache.courses.filter { course in
-            course.weekday == fromWeekday && course.weeks.contains(fromWeek)
-        }
-
-        var nextCourses = coursesRemovingOccurrences(from: cache.courses, week: fromWeek, weekday: fromWeekday)
-        nextCourses = coursesRemovingOccurrences(from: nextCourses, week: target.week, weekday: target.weekday)
-        nextCourses.append(contentsOf: sourceCourses.map { course in
-            CourseRecord(
-                id: UUID().uuidString,
-                term: course.term,
-                name: course.name,
-                teacher: course.teacher,
-                classroom: course.classroom,
-                description: course.description,
-                weeks: [target.week],
-                weekday: target.weekday,
-                startSection: course.startSection,
-                endSection: course.endSection,
-                campus: course.campus,
-                number: course.number,
-                credit: course.credit,
-                hour: course.hour,
-                type: course.type,
-                category: course.category,
-                department: course.department
-            )
-        })
-
-        cache.courses = nextCourses
+        cache.courses = ScheduleCourseEditor.transferring(
+            courses: cache.courses,
+            fromWeek: fromWeek,
+            fromWeekday: fromWeekday,
+            toWeek: target.week,
+            toWeekday: target.weekday
+        )
         persist()
     }
 
@@ -1079,36 +935,7 @@ final class ScheduleViewModel: ObservableObject {
     }
 
     /// 把一组课程中的某个具体周次 / 星期出现移除。
-    private func coursesRemovingOccurrences(from courses: [CourseRecord], week: Int, weekday: Int) -> [CourseRecord] {
-        courses.compactMap { course in
-            guard course.weekday == weekday, course.weeks.contains(week) else {
-                return course
-            }
 
-            let remainingWeeks = course.weeks.filter { $0 != week }
-            guard !remainingWeeks.isEmpty else { return nil }
-
-            return CourseRecord(
-                id: course.id,
-                term: course.term,
-                name: course.name,
-                teacher: course.teacher,
-                classroom: course.classroom,
-                description: course.description,
-                weeks: remainingWeeks,
-                weekday: course.weekday,
-                startSection: course.startSection,
-                endSection: course.endSection,
-                campus: course.campus,
-                number: course.number,
-                credit: course.credit,
-                hour: course.hour,
-                type: course.type,
-                category: course.category,
-                department: course.department
-            )
-        }
-    }
 
     /// 根据日期计算它落在当前课表首周后的第几周、周几。
     private func courseDayContext(for date: Date) throws -> (week: Int, weekday: Int) {

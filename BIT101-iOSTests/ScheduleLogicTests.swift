@@ -305,6 +305,131 @@ struct ScheduleCourseEditorTests {
             ))
         }
     }
+
+    @Test("Editing one occurrence preserves the remaining weeks")
+    func editsOneOccurrence() throws {
+        let original = makeCourse(id: "original", weeks: [1, 2], weekday: 1)
+        let draft = CourseDraft(
+            title: "调整后的课程",
+            weekday: 3,
+            startSection: 5,
+            endSection: 6,
+            weeksText: "ignored"
+        )
+
+        let courses = try ScheduleCourseEditor.updatingOccurrence(
+            id: original.id,
+            week: 1,
+            with: draft,
+            in: [original],
+            adjustedID: "adjusted"
+        )
+
+        #expect(courses.count == 2)
+        #expect(courses.first(where: { $0.id == "original" })?.weeks == [2])
+        let adjusted = courses.first(where: { $0.id == "adjusted" })
+        #expect(adjusted?.weeks == [1])
+        #expect(adjusted?.weekday == 3)
+        #expect(adjusted?.name == "调整后的课程")
+    }
+
+    @Test("Transferring a day clears target occurrences without deleting other weeks")
+    func transfersOneDay() {
+        let source = makeCourse(id: "source", weeks: [1, 2], weekday: 1)
+        let target = makeCourse(id: "target", weeks: [1, 3], weekday: 2)
+
+        let courses = ScheduleCourseEditor.transferring(
+            courses: [source, target],
+            fromWeek: 1,
+            fromWeekday: 1,
+            toWeek: 1,
+            toWeekday: 2,
+            makeID: { "moved" }
+        )
+
+        #expect(courses.first(where: { $0.id == "source" })?.weeks == [2])
+        #expect(courses.first(where: { $0.id == "target" })?.weeks == [3])
+        let moved = courses.first(where: { $0.id == "moved" })
+        #expect(moved?.weeks == [1])
+        #expect(moved?.weekday == 2)
+    }
+
+    private func makeCourse(id: String, weeks: [Int], weekday: Int) -> CourseRecord {
+        CourseRecord(
+            id: id,
+            term: "2026-2027-1",
+            name: id,
+            teacher: "教师",
+            classroom: "教室",
+            description: "说明",
+            weeks: weeks,
+            weekday: weekday,
+            startSection: 1,
+            endSection: 2,
+            campus: "良乡",
+            number: "100001",
+            credit: 1,
+            hour: 16,
+            type: "必修",
+            category: "专业课",
+            department: "学院"
+        )
+    }
+}
+
+@Suite("Schedule DDL editing")
+struct ScheduleDDLEditorTests {
+    @Test("Manual events survive Lexue synchronization and remain sorted")
+    func mergesSyncedEvents() {
+        let later = Date(timeIntervalSince1970: 200)
+        let earlier = Date(timeIntervalSince1970: 100)
+        let manual = DDLEventRecord(
+            id: "manual",
+            group: "main",
+            title: "手动",
+            text: "",
+            dueAt: later,
+            done: false
+        )
+        let staleLexue = DDLEventRecord(
+            id: "stale",
+            group: "lexue",
+            title: "旧乐学",
+            text: "",
+            dueAt: later,
+            done: false
+        )
+        let synced = DDLEventRecord(
+            id: "synced",
+            group: "lexue",
+            title: "新乐学",
+            text: "",
+            dueAt: earlier,
+            done: true
+        )
+
+        let result = ScheduleDDLEditor.mergingSyncedEvents(
+            [synced],
+            into: [manual, staleLexue]
+        )
+
+        #expect(result.map(\.id) == ["synced", "manual"])
+    }
+
+    @Test("Manual drafts are trimmed and empty titles are rejected")
+    func validatesManualDrafts() throws {
+        let dueAt = Date(timeIntervalSince1970: 100)
+        let result = try ScheduleDDLEditor.adding(
+            DDLDraft(title: "  作业  ", dueAt: dueAt, text: "说明"),
+            to: [],
+            id: "new"
+        )
+        #expect(result.first?.title == "作业")
+        #expect(result.first?.id == "new")
+        #expect(throws: Error.self) {
+            try ScheduleDDLEditor.adding(DDLDraft(title: "   "), to: [])
+        }
+    }
 }
 
 @MainActor
