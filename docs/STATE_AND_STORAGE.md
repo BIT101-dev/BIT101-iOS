@@ -34,18 +34,22 @@
 
 ### 2.2 保存位置
 
-这类信息应优先放在：
+这些状态并不都在同一个存储中：
 
-- Keychain
+- 学号、密码：Keychain
+- BIT101 `fake-cookie`、安装标记：`UserDefaults`
+- 学校认证 cookie：系统 `HTTPCookieStorage`
 
 相关代码主要在：
 
+- `Login/LoginStorage.swift`
 - `Login/LoginService.swift`
 
 ### 2.3 维护原则
 
 - 任何敏感信息不要回落到普通 `UserDefaults`
 - 如果登录链路调整了字段名或恢复逻辑，先确认旧 Keychain 迁移是否还兼容
+- 卸载会清除安装标记，但 Keychain 可能由系统保留；重装后首次创建 `LoginStorage` 时会据此主动清理旧学号和密码。
 - 登录态检查不能把“无法确认”当成“已失效”。网络不稳、学校页面解析失败、缺少静默恢复材料等情况应该保留本地 session 并向上抛错；只有远端明确返回凭据无效时才清除 `fake-cookie`、cookie 和本地密码。
 - `fake-cookie` 为空会被外部课表快照导出为 `isLoggedIn = false`，并同步到 widget / Apple Watch。因此登录检查的清退策略会直接影响手表端是否显示“请先登录”。
 
@@ -80,6 +84,7 @@
 
 相关代码主要在：
 
+- `Schedule/ScheduleCacheStore.swift`
 - `Schedule/ScheduleModels.swift`
 - `Schedule/ScheduleViewModel.swift`
 
@@ -140,6 +145,21 @@
 
 当前 `ScheduleCache` 的解码策略大量使用了“缺字段就回默认值”的兼容写法，因此常见的“新增字段”通常不会破坏旧缓存；但如果未来改了字段语义、字段类型，或者直接删改了关键结构，还是要把迁移策略写清楚。
 
+### 3.7 iCloud 课表同步
+
+用户开启课表 iCloud 同步后，`ScheduleCloudSyncManager` 会把当前账号的完整
+`ScheduleCache` 同步到 CloudKit 私有数据库：
+
+- 记录按学号隔离
+- 本地与云端按 `updatedAt` 决定应用较新版本或上传本地版本
+- 关闭 `iCloudSyncEnabled` 后不再拉取或上传
+- 本地文件缓存仍是 App 和扩展导出流程的直接数据来源，CloudKit 不是它们直接读取的数据库
+
+相关代码主要在：
+
+- `Schedule/ScheduleCloudSyncManager.swift`
+- `Schedule/ScheduleCacheStore.swift`
+
 ## 4. 设置与偏好
 
 ### 4.1 保存内容
@@ -188,6 +208,20 @@
 
 可信成绩单不属于业务缓存。图片由学校生成的短期 URL 下载，使用 ephemeral URLSession，
 只在申请页 ViewModel 中持有 `UIImage`；退出页面后不应进入 `CachedRemoteImage` 的磁盘缓存。
+
+### 4.4 实验性偏好 iCloud 同步
+
+用户单独开启实验开关后，`ExperimentalPreferenceCloudSync` 使用 iCloud Key-Value Store
+同步设置、成绩筛选、成绩缓存和话廊消息已读状态：
+
+- 开关保存在当前设备并按学号隔离，默认关闭
+- 各同步域分别记录修改时间，避免一个域覆盖另一个域
+- 它不负责课表；课表使用上一节所述的 CloudKit 同步
+
+相关代码主要在：
+
+- `Shared/Infrastructure/ExperimentalPreferenceCloudSync.swift`
+- `Score/ScoreCacheStore.swift`
 
 ## 5. 话廊的本地状态
 

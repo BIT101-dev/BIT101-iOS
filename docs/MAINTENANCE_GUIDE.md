@@ -87,7 +87,11 @@ xcodebuild \
 
 相关入口：
 
+- `Login/LoginStorage.swift`
 - `Login/LoginService.swift`
+
+其中学号和密码存入 Keychain，`fake-cookie` 和安装标记存入 `UserDefaults`，学校认证
+cookie 由系统 `HTTPCookieStorage` 管理。不要把这三类状态笼统地当成 Keychain 数据。
 
 bit-login 返回的 `challenge_id`、access token、短信状态和教学中心准备状态不属于长期凭据：
 它们只保存在对应 `Service` / `ViewModel` 的内存中，退出、切号、过期或收到明确失效响应后即丢弃。
@@ -118,7 +122,16 @@ bit-login 返回的 `challenge_id`、access token、短信状态和教学中心�
 
 相关入口：
 
+- `Schedule/ScheduleCacheStore.swift`
 - `Schedule/ScheduleModels.swift`
+
+课表缓存可按用户开关同步到 CloudKit 私有数据库，记录仍按当前学号隔离。实验性的偏好同步则
+使用 iCloud Key-Value Store，覆盖设置、成绩筛选与缓存、话廊消息已读状态；两套同步机制不要混用。
+
+相关入口：
+
+- `Schedule/ScheduleCloudSyncManager.swift`
+- `Shared/Infrastructure/ExperimentalPreferenceCloudSync.swift`
 
 ### 3.4 App Group 共享快照
 
@@ -151,7 +164,7 @@ bit-login 返回的 `challenge_id`、access token、短信状态和教学中心�
 
 下面这些行为才会真的把本地数据打掉：
 
-1. 卸载再安装
+1. 卸载再安装（首次启动会根据安装标记清理 Keychain 中可能残留的旧账号密码）
 2. 设置页执行“删除所有文稿与数据”
 3. 开发时手动清空 App 沙盒
 4. 某次版本升级引入了破坏性迁移 bug
@@ -261,26 +274,27 @@ bit-login 返回的 `challenge_id`、access token、短信状态和教学中心�
 
 ## 7. 地图维护建议
 
-地图页的问题通常分成两类：
+地图页由 SwiftUI 页面和原生 MapKit 桥接层组成，目前不依赖 `MKMapView` 的私有子视图层级。
+出现问题时按职责检查：
 
-1. 地图本身功能问题
-2. attribution / legal label / logo 相关显示问题
+- 页面状态、校区切换：`Map/CampusMapScreen.swift`
+- 地图相机、用户定位、下一节课标记：`Map/CampusNativeMapView.swift`
+- 校区坐标和地点别名：`Map/CampusMapLocations.swift`
+- 下一节课地点解析：`Map/UpcomingCourseMapResolver.swift`
 
-第二类通常更脆，因为依赖系统内部子视图层级。
-
-如果未来系统版本升级后地图角标又异常，优先检查：
-
-- `CampusMapScreen.swift` 里对 `MKMapView` 子视图的处理
+系统升级后不要通过隐藏或改写 attribution、legal label、logo 等内部子视图来修显示问题；
+这类实现依赖私有层级，容易随 MapKit 版本失效。
 
 ## 8. 常见排查路径
 
 ### 8.1 登录失败
 
-先分三层看：
+先区分两条链路：
 
-1. 学校 CAS 参数获取是否失败
-2. 学校登录是否失败
-3. BIT101 注册 / 登录桥接是否失败
+1. App 登录：BIT101 / bit-login 的登录、注册与 `fake-cookie` 获取是否失败
+2. 学校 SSO 恢复：本地凭据、学校 CAS 参数或 cookie 恢复是否失败
+
+学校 CAS 不是每次 App 登录都必经的前台步骤，主要用于需要学校身份时的静默恢复。
 
 排查登录态检查时，要先区分“明确失效”和“暂时无法确认”：
 

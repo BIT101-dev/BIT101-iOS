@@ -33,6 +33,8 @@ ViewModel 继续通过场景化 `Servicing` 协议依赖 Service，不直接依�
 ## 3. 性能策略
 
 - 社区模块不再为每个 Service 新建 `URLSession`，减少重复 DNS、TLS 和连接预热。
+- 共享网络会话启用 `waitsForConnectivity`，短暂断网或网络切换时由系统等待可用连接，
+  但上层仍需正确呈现最终的超时、DNS 和离线错误。
 - `BIT101APIClient.shared` 复用 CAS 的两套重定向会话，设置检查和日程前置登录不再重复创建会话。
 - 成绩两类页面复用相同的 bit-login 传输会话。
 - 课表拿到目标学期后，并发请求课程、考试和首周日期，避免三个独立请求串行等待。
