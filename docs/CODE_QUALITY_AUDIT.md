@@ -85,7 +85,7 @@
 
 - 这是功能型桥接，优先级低于真正的重复和死代码清理
 
-### 2.4 通用全屏图片查看器的 `UIScrollView` 缩放
+### 2.4 通用图片查看器的 Quick Look 桥接
 
 文件：
 
@@ -93,18 +93,18 @@
 
 当前实现：
 
-- `UIViewRepresentable + UIScrollView + UIImageView`
-- 同一缩放容器同时支持远程 URL 和内存 `UIImage`
+- `UIViewControllerRepresentable + QLPreviewController`
+- 先展示缓存预览图，再在预览期间替换为已校正方向的原图
 
 原因：
 
-- 需要稳定的双指缩放、居中和大图浏览体验
-- 可信成绩单属于敏感临时图片，必须复用缩放 UI，但不能复用话题图片的磁盘下载缓存
+- Quick Look 提供系统原生的缩放、翻页和关闭体验
+- SwiftUI `.quickLookPreview` 不便在呈现期间替换数据源，桥接控制器用于完成预览图到原图的升级
 
 结论：
 
-- 这同样属于功能型桥接
-- 后续可以优化实现细节，但不建议把它简单定义为“应尽快删掉的非原生代码”
+- 这是对原生系统组件的轻量桥接，不是自制图片浏览器
+- 除非 SwiftUI API 能覆盖动态替换预览项，否则无需为消除桥接而重写
 
 ## 3. 2026 年 8 月后续定点重构
 
@@ -113,12 +113,14 @@
 - 空教室请求代次、单次预热、元数据 single-flight 和超时归入 `ScheduleClassroomCoordinator`。
 - 课表短信验证后的续接目的归入 `ScheduleCourseSyncCoordinator`，避免学期列表与指定学期同步互相串线。
 - Gallery 推荐页后台预取归入 `GalleryRecommendPrefetchCoordinator`；前台分页与后台预取复用同一个源页任务，避免竞态重复请求。
+- `ScheduleService` 已按统一认证、教学中心接口、乐学日历和共享传输拆分，原类型继续作为统一业务门面。
+- DDL 集合变更归入 `ScheduleDDLEditor`，课程集合增删改与单次调课归入 `ScheduleCourseEditor`；ViewModel 只负责回写和持久化。
 
 ## 4. 重构后的剩余热点
 
 当前已没有同时承载整套子页面的千行级 RootView。剩余较长文件主要是状态机和数据模型：
 
-- `ScheduleViewModel.swift`：仍是日程页面的主状态机，但表单计算、空教室请求生命周期与短信续接状态已移出。后续只在出现新的独立生命周期时继续拆，不按行数机械切割。
+- `ScheduleViewModel.swift`：仍是日程页面的主状态机，但表单计算、DDL/课程集合编辑、空教室请求生命周期与短信续接状态已移出。后续只在出现新的独立生命周期时继续拆，不按行数机械切割。
 - `ScheduleRootView.swift`：剩余的是三分栏容器和页面协调；日历、编辑器与 DDL 子页已经独立。
 - `GalleryViewModel.swift`：推荐预取任务已独立；普通 feed、搜索和消息状态仍在同文件中，但属于不同类型，暂不为缩短文件继续拆分。
 - `MineRootView.swift`、`ScoreRootView.swift`：约 700 行，但目前以单域原生页面组合为主，没有发现必须立即拆分的高风险耦合。
@@ -175,7 +177,7 @@ bit-login challenge、短信状态、会话失效识别与有限重试。重构�
 ## 6. 下一轮建议顺序
 
 1. 为学校接口响应增加脱敏 fixture，重点覆盖认证失效、DNS 路由切换与空响应兼容。
-2. 按认证、访问路由、教学中心 API 和乐学日历拆分 `ScheduleService`；保持 `ScheduleService` 为业务门面。
+2. 完成校园网 DNS 回退的真实网络验证，再决定是否提交这条行为修改。
 3. 观察空教室协调器和推荐预取协调器的真实修改频率，再决定是否继续扩大职责。
 4. 只有在 Mine 或 Score 页面继续增长时，再按独立导航目的地拆分其 RootView。
 
