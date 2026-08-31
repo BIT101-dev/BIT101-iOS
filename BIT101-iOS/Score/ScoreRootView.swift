@@ -1,6 +1,5 @@
 import Combine
 import SwiftUI
-import UIKit
 
 /// 原生成绩页状态机。
 ///

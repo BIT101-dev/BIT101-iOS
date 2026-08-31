@@ -7,7 +7,6 @@
 
 import PhotosUI
 import SwiftUI
-import UIKit
 
 struct AccountSettingsPage: View {
     let studentID: String

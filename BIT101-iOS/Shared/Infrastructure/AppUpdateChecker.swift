@@ -297,7 +297,7 @@ final class AppPromptCoordinator: ObservableObject {
             return
         }
 
-        // 等待系统完成上一只 UIAlertController 的退场动画，再交付下一项。
+        // 等待系统完成上一条 alert 的退场动画，再交付下一项。
         advanceTask?.cancel()
         advanceTask = Task { @MainActor [weak self] in
             guard let self else { return }
