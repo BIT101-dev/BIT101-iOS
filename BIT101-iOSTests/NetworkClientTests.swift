@@ -145,4 +145,34 @@ struct NetworkClientTests {
         #expect(text.contains("Content-Type: image/jpeg"))
         #expect(text.hasSuffix("--\r\n"))
     }
+
+    @Test("School URLs are resolved and upgraded through one policy")
+    func secureSchoolURLResolution() throws {
+        let insecure = try #require(URL(string: "http://example.com/path?q=1"))
+        #expect(HTTPSURLUpgrade.upgradedURL(from: insecure).absoluteString == "https://example.com/path?q=1")
+
+        let login = try #require(URL(string: "https://sso.bit.edu.cn/cas/login"))
+        #expect(
+            HTTPSURLUpgrade.resolvedURL(from: "/gate/cas-success", relativeTo: login)?.absoluteString
+                == "https://sso.bit.edu.cn/gate/cas-success"
+        )
+    }
+
+    @Test("bit-login challenge protocol is shared by school services")
+    func sharedBITLoginChallengeProtocol() throws {
+        let data = Data(
+            #"{"challenge_id":"challenge-1","access_token":"token","status":"waiting_sms","masked_phone":"138****0000","expires_in":120}"#.utf8
+        )
+        let payload = try BITLoginChallengeSupport.decodePayload(from: data)
+        let challenge = BITLoginChallengeSupport.challenge(from: payload, accessToken: "token")
+
+        #expect(challenge.challengeID == "challenge-1")
+        #expect(challenge.status == "waiting_sms")
+        #expect(challenge.maskedPhone == "138****0000")
+        #expect(
+            BITLoginChallengeSupport.errorMessage(
+                from: Data(#"{"detail":{"error":"验证码错误"}}"#.utf8)
+            ) == "验证码错误"
+        )
+    }
 }

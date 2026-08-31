@@ -6,6 +6,8 @@
 	<array>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).schedule-refresh</string>
 	</array>
+	<key>BIT101EmergencyUpdateURL</key>
+	<string>https://update.aihelpme.dev/emergency-update.json</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

@@ -12,15 +12,14 @@ extension ScheduleService {
     ///
     /// 这三个结果会同时影响课表页面、当前周计算、小组件和灵动岛，所以同步时必须成套获取。
     func syncCourses(term: String? = nil) async throws -> CourseSyncPayload {
-        try await withTeachingCenterSessionRetry {
+        try await withPreparedTeachingCenterSession {
             try await fetchCourseSyncPayload(term: term)
         }
     }
 
     /// 获取学校已经开放的学期列表，供用户主动切换课表学期。
     func fetchAvailableTerms() async throws -> [String] {
-        try await withTeachingCenterSessionRetry {
-            try await prepareJXZX()
+        try await withPreparedTeachingCenterSession {
             let response: TermsResponse = try await sendJSONRequest(
                 path: "/jwapp/sys/wdkbby/modules/jshkcb/xnxqcx.do"
             )
@@ -37,7 +36,7 @@ extension ScheduleService {
         term: String? = nil
     ) async throws -> CourseSyncPayload {
         try await submitSMSCodeForTeachingCenterAuthentication(code, for: challenge)
-        return try await withTeachingCenterSessionRetry {
+        return try await withPreparedTeachingCenterSession {
             try await fetchCourseSyncPayload(term: term)
         }
     }
@@ -59,11 +58,11 @@ extension ScheduleService {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(challenge.accessToken, forHTTPHeaderField: "X-Challenge-Token")
-        request.httpBody = try JSONEncoder().encode(SMSCodeRequest(code: code))
+        request.httpBody = try JSONEncoder().encode(BITLoginSMSCodeRequest(code: code))
 
         let (data, response) = try await sendRequest(request)
         guard (200 ..< 300).contains(response.statusCode) else {
-            let message = errorMessage(from: data) ?? "短信验证码验证失败。"
+            let message = BITLoginChallengeSupport.errorMessage(from: data) ?? "短信验证码验证失败。"
             if [403, 404, 409].contains(response.statusCode) {
                 throw ScheduleServiceError.challengeInvalid(
                     "本次验证已失效或验证码已提交，请重新同步课表。\n\(message)"
@@ -72,7 +71,7 @@ extension ScheduleService {
             throw ScheduleServiceError.authenticationFailed(message)
         }
 
-        let payload = try decodeChallengePayload(data)
+        let payload = try decodeBITLoginChallengePayload(data)
         let current = try await waitUntilAuthenticationActionable(
             payload,
             accessToken: challenge.accessToken
@@ -81,8 +80,6 @@ extension ScheduleService {
     }
 
     private func fetchCourseSyncPayload(term requestedTerm: String? = nil) async throws -> CourseSyncPayload {
-        try await prepareJXZX()
-
         let normalizedTerm = requestedTerm?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let term = normalizedTerm.isEmpty ? try await fetchCurrentTerm() : normalizedTerm
         async let coursesTask = fetchCourses(term: term)
@@ -143,6 +140,7 @@ extension ScheduleService {
         let normalized = message.lowercased()
         return normalized.contains("timed out")
             || normalized.contains("timeout")
+            || normalized.contains("超时")
             || normalized.contains("连接统一身份认证服务")
             || normalized.contains("暂时不可用")
             || normalized.contains("http 500")
@@ -168,7 +166,7 @@ extension ScheduleService {
         let (data, response) = try await sendRequest(request)
         if response.statusCode == 202 {
             guard
-                let envelope = try? JSONDecoder().decode(ChallengeEnvelope.self, from: data),
+                let envelope = try? JSONDecoder().decode(BITLoginChallengeEnvelope.self, from: data),
                 let accessToken = envelope.detail.accessToken,
                 !accessToken.isEmpty
             else {
@@ -184,7 +182,7 @@ extension ScheduleService {
 
         guard (200 ..< 300).contains(response.statusCode) else {
             throw ScheduleServiceError.authenticationFailed(
-                errorMessage(from: data) ?? "教学中心统一认证失败。"
+                BITLoginChallengeSupport.errorMessage(from: data) ?? "教学中心统一认证失败。"
             )
         }
         try installTeachingCenterCookies(from: data)
@@ -215,42 +213,36 @@ extension ScheduleService {
     }
 
     private func waitUntilAuthenticationActionable(
-        _ initialPayload: ChallengePayload,
+        _ initialPayload: BITLoginChallengePayload,
         accessToken: String
     ) async throws -> BITLoginAuthenticationChallenge {
-        var payload = initialPayload
-        let deadline = Date().addingTimeInterval(Self.authenticationWaitSeconds)
-
-        while ["running", "processing"].contains(payload.status), Date() < deadline {
-            try await Task.sleep(for: .seconds(1))
+        let payload = try await BITLoginChallengeSupport.pollUntilActionable(
+            initialPayload,
+            timeout: Self.authenticationWaitSeconds,
+            interval: .seconds(1)
+        ) { challengeID in
             var request = URLRequest(
-                url: bitLoginBaseURL.appending(path: "api/auth/\(payload.challengeID)")
+                url: bitLoginBaseURL.appending(path: "api/auth/\(challengeID)")
             )
             request.setValue(accessToken, forHTTPHeaderField: "X-Challenge-Token")
             let (data, response) = try await sendRequest(request)
             guard (200 ..< 300).contains(response.statusCode) else {
                 throw ScheduleServiceError.authenticationFailed(
-                    errorMessage(from: data) ?? "无法获取统一认证状态。"
+                    BITLoginChallengeSupport.errorMessage(from: data) ?? "无法获取统一认证状态。"
                 )
             }
-            payload = try decodeChallengePayload(data)
+            return try decodeBITLoginChallengePayload(data)
         }
 
         if payload.status == "failed", let error = payload.error, !error.isEmpty {
             throw ScheduleServiceError.challengeInvalid(error)
         }
-        return BITLoginAuthenticationChallenge(
-            challengeID: payload.challengeID,
-            accessToken: accessToken,
-            status: payload.status,
-            maskedPhone: payload.maskedPhone,
-            expiresIn: payload.expiresIn
-        )
+        return BITLoginChallengeSupport.challenge(from: payload, accessToken: accessToken)
     }
 
-    private func decodeChallengePayload(_ data: Data) throws -> ChallengePayload {
+    private func decodeBITLoginChallengePayload(_ data: Data) throws -> BITLoginChallengePayload {
         do {
-            return try JSONDecoder().decode(ChallengePayload.self, from: data)
+            return try BITLoginChallengeSupport.decodePayload(from: data)
         } catch {
             throw ScheduleServiceError.invalidResponse
         }
@@ -285,25 +277,11 @@ extension ScheduleService {
         teachingCenterState.markAuthenticated(for: studentID)
     }
 
-    private func errorMessage(from data: Data) -> String? {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return String(data: data, encoding: .utf8)
-        }
-        if let detail = json["detail"] as? String, !detail.isEmpty {
-            return detail
-        }
-        if let message = json["message"] as? String, !message.isEmpty {
-            return message
-        }
-        return nil
-    }
-
     /// 只查询学校标记的当前学期，不拉完整课表。
     ///
     /// 主要用于空教室页只需要学期编码但不需要整份课表时的轻量查询。
     func fetchCurrentTermOnly() async throws -> String {
-        try await withTeachingCenterSessionRetry {
-            try await prepareJXZX()
+        try await withPreparedTeachingCenterSession {
             return try await fetchCurrentTerm()
         }
     }

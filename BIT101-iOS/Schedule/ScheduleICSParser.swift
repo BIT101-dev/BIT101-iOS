@@ -13,6 +13,10 @@ enum ScheduleICSParser {
             .replacingOccurrences(of: "\r\n\t", with: "")
             .replacingOccurrences(of: "\r\n", with: "\n")
 
+        guard unfolded.contains("BEGIN:VCALENDAR"), unfolded.contains("END:VCALENDAR") else {
+            throw ScheduleServiceError.invalidCalendarData
+        }
+
         var events: [DDLEventRecord] = []
         for block in unfolded.components(separatedBy: "BEGIN:VEVENT").dropFirst() {
             guard let content = block.components(separatedBy: "END:VEVENT").first else { continue }
@@ -45,7 +49,6 @@ enum ScheduleICSParser {
             ))
         }
 
-        guard !events.isEmpty else { throw ScheduleServiceError.invalidCalendarData }
         return events.sorted { $0.dueAt < $1.dueAt }
     }
 

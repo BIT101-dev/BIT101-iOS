@@ -57,6 +57,9 @@ extension ScheduleService {
             let sesskey = indexHTML.captureGroups(pattern: #"[\"']sesskey[\"']:[\"']([^\"']+)[\"']"#).first,
             !sesskey.isEmpty
         else {
+            if isSchoolSMSAuthenticationPage(indexHTML) {
+                throw ScheduleServiceError.schoolSecondFactorRequired
+            }
             throw ScheduleServiceError.invalidLexuePage
         }
 
@@ -88,13 +91,21 @@ extension ScheduleService {
             throw ScheduleServiceError.invalidCalendarURL
         }
 
-        return ScheduleURLUpgrade.upgradedURLString(from: fullURL)
+        return HTTPSURLUpgrade.upgradedURLString(from: fullURL)
+    }
+
+    /// CAS 在切换网络或判定风险较高时可能直接进入短信二次认证页。
+    private func isSchoolSMSAuthenticationPage(_ html: String) -> Bool {
+        !html.captureGroups(
+            pattern: #"id=[\"'](?:sso-second|current-login-type)[\"'][^>]*>\s*(?:true|smsLogin)\s*<"#,
+            options: [.caseInsensitive]
+        ).isEmpty
     }
 
     /// 下载并解析乐学 ICS 数据。
     private func fetchLexueEvents(urlString: String) async throws -> [DDLEventRecord] {
         // 订阅链接可能以 webcal:// 或 http:// 返回，这里统一标准化后再拉取 ICS。
-        let secureURLString = ScheduleURLUpgrade.upgradedURLString(from: urlString)
+        let secureURLString = HTTPSURLUpgrade.upgradedURLString(from: urlString)
 
         guard let url = URL(string: secureURLString) else {
             throw ScheduleServiceError.invalidCalendarURL
@@ -115,7 +126,7 @@ extension ScheduleService {
                 if urlString.lowercased().hasPrefix("webcal://") {
                     return "https://" + urlString.dropFirst("webcal://".count)
                 }
-                return ScheduleURLUpgrade.upgradedURLString(from: urlString)
+                return HTTPSURLUpgrade.upgradedURLString(from: urlString)
             }
     }
 

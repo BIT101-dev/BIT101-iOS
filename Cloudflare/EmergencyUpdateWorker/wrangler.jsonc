@@ -1,0 +1,18 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "bit101-emergency-update",
+	"main": "src/index.js",
+	"compatibility_date": "2026-08-31",
+	"routes": [
+		{
+			"pattern": "update.aihelpme.dev",
+			"custom_domain": true
+		}
+	],
+	"kv_namespaces": [
+		{
+			"binding": "EMERGENCY_CONFIG",
+			"id": "219c1a093ac444e489cbabfb7b703d3f"
+		}
+	]
+}

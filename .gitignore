@@ -5,6 +5,9 @@ DerivedData/
 *.xcuserstate
 xcuserdata/
 __pycache__/
+node_modules/
+.wrangler/
+.generated-emergency-update.json
 .git.backup-*/
 
 BIT101-iOS.xcodeproj/xcuserdata/

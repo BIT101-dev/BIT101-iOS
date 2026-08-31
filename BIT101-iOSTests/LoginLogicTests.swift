@@ -4,6 +4,18 @@ import Testing
 
 @Suite("Login parsing and cryptography")
 struct LoginLogicTests {
+    @Test("CAS success gate 401 is a terminal browser landing response")
+    func acceptsCASGateLandingResponse() throws {
+        let gateURL = try #require(URL(string: "https://sso.bit.edu.cn/gate/cas-success"))
+        let otherURL = try #require(URL(string: "https://sso.bit.edu.cn/cas/login"))
+
+        #expect(BIT101APIClient.isAcceptedSchoolLoginCompletion(statusCode: 401, url: gateURL))
+        #expect(BIT101APIClient.isSchoolLoginSuccessLanding(gateURL))
+        #expect(!BIT101APIClient.isAcceptedSchoolLoginCompletion(statusCode: 401, url: otherURL))
+        #expect(!BIT101APIClient.isSchoolLoginSuccessLanding(otherURL))
+        #expect(BIT101APIClient.isAcceptedSchoolLoginCompletion(statusCode: 204, url: otherURL))
+    }
+
     @Test("CAS fields are extracted from either quote style")
     func parsesCASLoginPage() {
         let html = """

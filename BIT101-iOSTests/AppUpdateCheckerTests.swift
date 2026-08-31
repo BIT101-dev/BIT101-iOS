@@ -5,6 +5,83 @@ import Testing
 @MainActor
 @Suite("App Store update reminder")
 struct AppUpdateCheckerTests {
+    @Test("Emergency notices target Build numbers and can only be ignored today")
+    func emergencyNoticeEligibility() async throws {
+        let context = try TestContext()
+        defer { context.cleanUp() }
+        let endpoint = try #require(URL(string: "https://example.com/emergency-update.json"))
+        let checker = EmergencyUpdateChecker(
+            defaults: context.defaults,
+            now: { context.now },
+            installedBuild: { 32 },
+            endpointURL: { endpoint },
+            loadData: { request in
+                #expect(request.timeoutInterval == 5)
+                return try Self.emergencyResponse(for: request.url!, maximumBuild: 32)
+            }
+        )
+
+        let notice = try #require(await checker.noticeToPresentAtLaunch())
+        #expect(notice.noticeID == "network-fix")
+        checker.ignoreForToday(noticeID: notice.noticeID)
+        #expect(await checker.noticeToPresentAtLaunch() == nil)
+
+        context.now.addTimeInterval(24 * 60 * 60)
+        #expect(await checker.noticeToPresentAtLaunch()?.noticeID == "network-fix")
+    }
+
+    @Test("Emergency notice suppresses the ordinary App Store prompt")
+    func emergencyNoticeHasPriority() async throws {
+        let context = try TestContext()
+        defer { context.cleanUp() }
+        let endpoint = try #require(URL(string: "https://example.com/emergency-update.json"))
+        let storeChecker = AppUpdateChecker(
+            defaults: context.defaults,
+            now: { context.now },
+            installedVersion: { "1.7.0" },
+            loadData: { request in try Self.lookupResponse(for: request.url!) }
+        )
+        let emergencyChecker = EmergencyUpdateChecker(
+            defaults: context.defaults,
+            now: { context.now },
+            installedBuild: { 31 },
+            endpointURL: { endpoint },
+            loadData: { request in
+                try Self.emergencyResponse(for: request.url!, maximumBuild: 31)
+            }
+        )
+        let coordinator = AppUpdatePromptCoordinator(
+            checker: storeChecker,
+            emergencyChecker: emergencyChecker
+        )
+
+        guard case let .emergency(notice) = await coordinator.noticeToPresentAtLaunch() else {
+            Issue.record("Expected the emergency notice to win")
+            return
+        }
+        #expect(notice.maximumAffectedBuild == 31)
+        let secondNotice = await coordinator.noticeToPresentAtLaunch()
+        if secondNotice != nil {
+            Issue.record("The launch coordinator must only return one notice")
+        }
+    }
+
+    @Test("Builds newer than the emergency threshold are unaffected")
+    func emergencyNoticeDoesNotAffectNewBuilds() async throws {
+        let context = try TestContext()
+        defer { context.cleanUp() }
+        let endpoint = try #require(URL(string: "https://example.com/emergency-update.json"))
+        let checker = EmergencyUpdateChecker(
+            defaults: context.defaults,
+            installedBuild: { 33 },
+            endpointURL: { endpoint },
+            loadData: { request in
+                try Self.emergencyResponse(for: request.url!, maximumBuild: 32)
+            }
+        )
+        #expect(await checker.noticeToPresentAtLaunch() == nil)
+    }
+
     @Test("Global prompt coordinator presents one prompt at a time in queue order")
     func promptQueueIsSerial() throws {
         let coordinator = AppPromptCoordinator(advanceDelay: .zero)
@@ -167,6 +244,30 @@ struct AppUpdateCheckerTests {
             "releaseNotes": "修复问题并优化体验。",
             "trackViewUrl": "https://apps.apple.com/cn/app/bit101/id6761147125?uo=4"
           }]
+        }
+        """.utf8)
+        let response = try #require(HTTPURLResponse(
+            url: url,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        ))
+        return (data, response)
+    }
+
+    private static func emergencyResponse(
+        for url: URL,
+        maximumBuild: Int
+    ) throws -> (Data, URLResponse) {
+        let data = Data("""
+        {
+          "schema_version": 1,
+          "enabled": true,
+          "notice_id": "network-fix",
+          "maximum_affected_build": \(maximumBuild),
+          "title": "发现重要功能更新",
+          "message": "请尽快更新。",
+          "update_url": "https://apps.apple.com/cn/app/bit101/id6761147125"
         }
         """.utf8)
         let response = try #require(HTTPURLResponse(

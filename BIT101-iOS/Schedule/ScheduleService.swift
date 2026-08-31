@@ -17,6 +17,7 @@ enum ScheduleServiceError: LocalizedError {
     case challengeInvalid(String)
     case teachingCenterSessionExpired
     case authenticationFailed(String)
+    case schoolSecondFactorRequired
     case invalidResponse
     case invalidLexuePage
     case invalidCalendarURL
@@ -34,6 +35,8 @@ enum ScheduleServiceError: LocalizedError {
             return "学校会话自动恢复失败，请稍后重试；无需退出 App 或重新登录。"
         case let .authenticationFailed(message):
             return message
+        case .schoolSecondFactorRequired:
+            return "学校统一身份认证要求短信二次验证。"
         case .invalidResponse:
             return "服务器返回了无法识别的数据。"
         case .invalidLexuePage:
@@ -233,31 +236,6 @@ struct ScheduleService {
         }
     }
 
-    struct SMSCodeRequest: Encodable {
-        let code: String
-    }
-
-    struct ChallengeEnvelope: Decodable {
-        let detail: ChallengePayload
-    }
-
-    struct ChallengePayload: Decodable {
-        let challengeID: String
-        let accessToken: String?
-        let status: String
-        let maskedPhone: String?
-        let expiresIn: Int?
-        let error: String?
-
-        enum CodingKeys: String, CodingKey {
-            case status, error
-            case challengeID = "challenge_id"
-            case accessToken = "access_token"
-            case maskedPhone = "masked_phone"
-            case expiresIn = "expires_in"
-        }
-    }
-
     struct CookieResponse: Decodable {
         let data: [String: String]
     }
@@ -267,6 +245,11 @@ struct ScheduleService {
         configuration.httpCookieStorage = HTTPCookieStorage.shared
         configuration.httpCookieAcceptPolicy = .always
         configuration.httpShouldSetCookies = true
+        // 教学中心有两条可用链路：校外 WebVPN 与校园网直连。这里不能等待一个
+        // 当前网络永远无法解析的主机恢复，否则 DNS 错误不会抛出，直连回退也无法执行。
+        configuration.waitsForConnectivity = false
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 60
         session = URLSession(
             configuration: configuration,
             delegate: redirectDelegate,

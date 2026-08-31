@@ -4,6 +4,33 @@ import Testing
 
 @Suite("Schedule iCalendar parsing")
 struct ScheduleICSParserTests {
+    @Test("Host resolution failures include wrapped URL errors")
+    func recognizesHostResolutionErrors() {
+        let direct = URLError(.cannotFindHost)
+        let wrapped = NSError(
+            domain: "BIT101.Test",
+            code: 1,
+            userInfo: [NSUnderlyingErrorKey: direct]
+        )
+
+        #expect(isHostResolutionError(direct))
+        #expect(isHostResolutionError(wrapped))
+        #expect(!isHostResolutionError(URLError(.timedOut)))
+    }
+
+    @Test("Teaching center falls back for DNS and transient authentication failures")
+    func recognizesDirectTeachingCenterFallbackErrors() {
+        let service = ScheduleService()
+
+        #expect(service.shouldAttemptDirectTeachingCenterFallback(for: URLError(.cannotFindHost)))
+        #expect(service.shouldAttemptDirectTeachingCenterFallback(
+            for: ScheduleServiceError.authenticationFailed("统一身份认证请求超时，请稍后重试")
+        ))
+        #expect(!service.shouldAttemptDirectTeachingCenterFallback(
+            for: ScheduleServiceError.authenticationFailed("用户名或密码错误")
+        ))
+    }
+
     @Test("Events are unfolded, decoded and sorted")
     func parsesEvents() throws {
         let ics = """
@@ -44,10 +71,9 @@ struct ScheduleICSParserTests {
         #expect(components.hour == 0)
     }
 
-    @Test("Calendars without valid events are rejected")
-    func rejectsInvalidCalendar() {
-        #expect(throws: ScheduleServiceError.self) {
-            try ScheduleICSParser.parse("BEGIN:VCALENDAR\nEND:VCALENDAR")
-        }
+    @Test("Valid empty calendars are accepted while non-calendar responses are rejected")
+    func handlesEmptyAndInvalidCalendars() throws {
+        #expect(try ScheduleICSParser.parse("BEGIN:VCALENDAR\nEND:VCALENDAR").isEmpty)
+        #expect(throws: ScheduleServiceError.self) { try ScheduleICSParser.parse("<html>login</html>") }
     }
 }

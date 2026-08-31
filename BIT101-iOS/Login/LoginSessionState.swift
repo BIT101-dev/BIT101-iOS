@@ -26,6 +26,8 @@ final class TeachingCenterSessionState {
     private let cookieStorage = HTTPCookieStorage.shared
     private var authenticatedStudentID: String?
     private var preparedStudentID: String?
+    private var directStudentID: String?
+    private var directPreferenceUntil: Date?
 
     private init() {}
 
@@ -34,6 +36,9 @@ final class TeachingCenterSessionState {
         defer { lock.unlock() }
 
         guard !studentID.isEmpty else { return false }
+        if isDirectPreferredLocked(for: studentID, now: Date()) {
+            return false
+        }
         guard hasWebVPNCookie else {
             authenticatedStudentID = nil
             preparedStudentID = nil
@@ -52,18 +57,49 @@ final class TeachingCenterSessionState {
         lock.lock()
         authenticatedStudentID = studentID
         preparedStudentID = nil
+        directStudentID = nil
+        directPreferenceUntil = nil
+        lock.unlock()
+    }
+
+    /// WebVPN 在当前网络失败后，短期复用已经验证成功的校内直连路线。
+    func shouldPreferDirect(for studentID: String, now: Date = Date()) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard directStudentID == studentID,
+              let directPreferenceUntil,
+              directPreferenceUntil > now
+        else {
+            directStudentID = nil
+            self.directPreferenceUntil = nil
+            return false
+        }
+        return true
+    }
+
+    func markDirectPreferred(for studentID: String, now: Date = Date()) {
+        lock.lock()
+        authenticatedStudentID = nil
+        preparedStudentID = nil
+        directStudentID = studentID
+        directPreferenceUntil = now.addingTimeInterval(10 * 60)
         lock.unlock()
     }
 
     func isPrepared(for studentID: String) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return authenticatedStudentID == studentID && preparedStudentID == studentID && hasWebVPNCookie
+        let routeIsUsable =
+            (authenticatedStudentID == studentID && hasWebVPNCookie)
+            || isDirectPreferredLocked(for: studentID, now: Date())
+        return routeIsUsable && preparedStudentID == studentID
     }
 
     func markPrepared(for studentID: String) {
         lock.lock()
-        if authenticatedStudentID == studentID, hasWebVPNCookie {
+        if (authenticatedStudentID == studentID && hasWebVPNCookie)
+            || isDirectPreferredLocked(for: studentID, now: Date())
+        {
             preparedStudentID = studentID
         }
         lock.unlock()
@@ -74,6 +110,8 @@ final class TeachingCenterSessionState {
         lock.lock()
         authenticatedStudentID = nil
         preparedStudentID = nil
+        directStudentID = nil
+        directPreferenceUntil = nil
         lock.unlock()
 
         guard clearCookies else { return }
@@ -103,6 +141,10 @@ final class TeachingCenterSessionState {
             normalizedDomain(cookie.domain) == "webvpn.bit.edu.cn"
                 && (cookie.expiresDate == nil || cookie.expiresDate! > now)
         } ?? false
+    }
+
+    private func isDirectPreferredLocked(for studentID: String, now: Date) -> Bool {
+        directStudentID == studentID && (directPreferenceUntil ?? .distantPast) > now
     }
 
     private func deleteCookies(matching domains: Set<String>) {

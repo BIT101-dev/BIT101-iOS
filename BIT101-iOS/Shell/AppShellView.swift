@@ -103,8 +103,12 @@ enum AppTab: String, Identifiable, Codable {
 ///
 /// 壳层只关心两件事：按照设置中心决定展示哪些 tab，以及把退出登录回调继续往下传。
 struct AppShellView: View {
-    private static let startupNoticeTitle = "1.7.4 版本更新"
-    private static let startupNoticeBody = "新增课表导入系统日历，优化使用体验"
+    private static let startupNoticeTitle = "1.7.5 版本更新"
+    private static let startupNoticeBody = """
+    点击课程后可选择跳转至对应的课程详情。
+    修复并加速课表网络请求；此前无法获取课表的同学现在可以正常使用。
+    优化使用体验。
+    """
     private static let widgetUsageGuideTitle = "非常有用的几个用法"
     private static let widgetUsageGuideBody = """
     推荐在锁屏添加锁屏小组件（如果你习惯使用息屏显示）。

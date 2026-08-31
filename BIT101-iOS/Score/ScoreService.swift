@@ -1,40 +1,5 @@
 import Foundation
 
-/// 学校 JWB 系列业务由 bit-login 创建的短期统一认证挑战。
-///
-/// `accessToken` 只保存在内存里，不会写入 UserDefaults 或 Keychain。
-struct BITLoginAuthenticationChallenge: Identifiable, Equatable {
-    let challengeID: String
-    let accessToken: String
-    let status: String
-    let maskedPhone: String?
-    let expiresIn: Int?
-    let receivedAt: Date
-
-    var id: String { challengeID }
-
-    var isExpired: Bool {
-        guard let expiresIn else { return false }
-        return Date() >= receivedAt.addingTimeInterval(TimeInterval(expiresIn))
-    }
-
-    init(
-        challengeID: String,
-        accessToken: String,
-        status: String,
-        maskedPhone: String?,
-        expiresIn: Int?,
-        receivedAt: Date = Date()
-    ) {
-        self.challengeID = challengeID
-        self.accessToken = accessToken
-        self.status = status
-        self.maskedPhone = maskedPhone
-        self.expiresIn = expiresIn
-        self.receivedAt = receivedAt
-    }
-}
-
 /// 普通成绩与可信成绩单共用的错误定义。
 enum ScoreServiceError: LocalizedError {
     case missingCredentials
@@ -79,10 +44,6 @@ struct ScoreService {
         }
     }
 
-    private struct SMSCodeRequest: Encodable {
-        let code: String
-    }
-
     private struct AuthenticationStartRequest: Encodable {
         let username: String
         let password: String
@@ -119,27 +80,6 @@ struct ScoreService {
     private struct ScoreResponse: Decodable {
         let msg: String?
         let data: [[String]]
-    }
-
-    private struct ChallengeEnvelope: Decodable {
-        let detail: ChallengePayload
-    }
-
-    private struct ChallengePayload: Decodable {
-        let challengeID: String
-        let accessToken: String?
-        let status: String
-        let maskedPhone: String?
-        let expiresIn: Int?
-        let error: String?
-
-        enum CodingKeys: String, CodingKey {
-            case status, error
-            case challengeID = "challenge_id"
-            case accessToken = "access_token"
-            case maskedPhone = "masked_phone"
-            case expiresIn = "expires_in"
-        }
     }
 
     private let storage: LoginStorage
@@ -188,10 +128,10 @@ struct ScoreService {
         let (data, response) = try await send(request)
         guard (200 ..< 300).contains(response.statusCode) else {
             throw ScoreServiceError.queryFailed(
-                messageFromErrorResponse(data) ?? "无法启动成绩认证。"
+                BITLoginChallengeSupport.errorMessage(from: data) ?? "无法启动成绩认证。"
             )
         }
-        let payload = try decodeChallengePayload(data)
+        let payload = try decodeBITLoginChallengePayload(data)
         guard let accessToken = payload.accessToken, !accessToken.isEmpty else {
             throw ScoreServiceError.invalidResponse
         }
@@ -272,11 +212,11 @@ struct ScoreService {
         request.timeoutInterval = Self.requestTimeoutSeconds
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(challenge.accessToken, forHTTPHeaderField: "X-Challenge-Token")
-        request.httpBody = try JSONEncoder().encode(SMSCodeRequest(code: code))
+        request.httpBody = try JSONEncoder().encode(BITLoginSMSCodeRequest(code: code))
 
         let (data, response) = try await send(request)
         guard (200 ..< 300).contains(response.statusCode) else {
-            let message = messageFromErrorResponse(data) ?? "短信验证码验证失败。"
+            let message = BITLoginChallengeSupport.errorMessage(from: data) ?? "短信验证码验证失败。"
             if [403, 404, 409].contains(response.statusCode) {
                 throw ScoreServiceError.challengeInvalid(
                     "本次验证已失效或验证码已提交，请重新发起操作。\n\(message)"
@@ -285,7 +225,7 @@ struct ScoreService {
             throw ScoreServiceError.queryFailed(message)
         }
 
-        let payload = try decodeChallengePayload(data)
+        let payload = try decodeBITLoginChallengePayload(data)
         let current = try await waitUntilActionable(
             payload,
             accessToken: challenge.accessToken
@@ -310,7 +250,7 @@ struct ScoreService {
         let (data, response) = try await send(request)
         if response.statusCode == 202 {
             guard
-                let envelope = try? JSONDecoder().decode(ChallengeEnvelope.self, from: data),
+                let envelope = try? JSONDecoder().decode(BITLoginChallengeEnvelope.self, from: data),
                 let accessToken = envelope.detail.accessToken,
                 !accessToken.isEmpty
             else {
@@ -342,7 +282,7 @@ struct ScoreService {
                 )
             }
             throw ScoreServiceError.queryFailed(
-                messageFromErrorResponse(data) ?? "可信成绩单申请失败。"
+                BITLoginChallengeSupport.errorMessage(from: data) ?? "可信成绩单申请失败。"
             )
         }
 
@@ -452,7 +392,7 @@ struct ScoreService {
 
         let (data, response) = try await send(request)
         if response.statusCode == 202 {
-            let envelope = try? JSONDecoder().decode(ChallengeEnvelope.self, from: data)
+            let envelope = try? JSONDecoder().decode(BITLoginChallengeEnvelope.self, from: data)
             guard
                 let payload = envelope?.detail,
                 let accessToken = payload.accessToken,
@@ -466,7 +406,7 @@ struct ScoreService {
 
         guard (200 ..< 300).contains(response.statusCode) else {
             throw ScoreServiceError.queryFailed(
-                messageFromErrorResponse(data) ?? "成绩查询失败。"
+                BITLoginChallengeSupport.errorMessage(from: data) ?? "成绩查询失败。"
             )
         }
         return try decodeScoreRows(data)
@@ -502,41 +442,34 @@ struct ScoreService {
 
     /// 初次 JWB 业务请求通常会在认证线程仍为 `running` 时返回，短暂轮询到可交互状态。
     private func waitUntilActionable(
-        _ initialPayload: ChallengePayload,
+        _ initialPayload: BITLoginChallengePayload,
         accessToken: String
     ) async throws -> BITLoginAuthenticationChallenge {
-        var payload = initialPayload
-        let deadline = Date().addingTimeInterval(Self.authenticationWaitSeconds)
-
-        while ["running", "processing"].contains(payload.status), Date() < deadline {
-            // 与 Android/Web 端保持一致；1 秒轮询会在认证完成后额外平白等待最多近 1 秒。
-            try await Task.sleep(for: .milliseconds(350))
-
+        // 与 Android/Web 端保持一致；1 秒轮询会在认证完成后额外平白等待最多近 1 秒。
+        let payload = try await BITLoginChallengeSupport.pollUntilActionable(
+            initialPayload,
+            timeout: Self.authenticationWaitSeconds,
+            interval: .milliseconds(350)
+        ) { challengeID in
             var request = URLRequest(
-                url: endpointBaseURL.appending(path: "api/auth/\(payload.challengeID)")
+                url: endpointBaseURL.appending(path: "api/auth/\(challengeID)")
             )
             request.timeoutInterval = Self.requestTimeoutSeconds
             request.setValue(accessToken, forHTTPHeaderField: "X-Challenge-Token")
             let (data, response) = try await send(request)
             guard (200 ..< 300).contains(response.statusCode) else {
                 throw ScoreServiceError.queryFailed(
-                    messageFromErrorResponse(data) ?? "无法获取统一身份认证状态。"
+                    BITLoginChallengeSupport.errorMessage(from: data) ?? "无法获取统一身份认证状态。"
                 )
             }
-            payload = try decodeChallengePayload(data)
+            return try decodeBITLoginChallengePayload(data)
         }
 
         if payload.status == "failed", let error = payload.error, !error.isEmpty {
             throw ScoreServiceError.challengeInvalid(error)
         }
 
-        return BITLoginAuthenticationChallenge(
-            challengeID: payload.challengeID,
-            accessToken: accessToken,
-            status: payload.status,
-            maskedPhone: payload.maskedPhone,
-            expiresIn: payload.expiresIn
-        )
+        return BITLoginChallengeSupport.challenge(from: payload, accessToken: accessToken)
     }
 
     private func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
@@ -553,9 +486,9 @@ struct ScoreService {
         }
     }
 
-    private func decodeChallengePayload(_ data: Data) throws -> ChallengePayload {
+    private func decodeBITLoginChallengePayload(_ data: Data) throws -> BITLoginChallengePayload {
         do {
-            return try JSONDecoder().decode(ChallengePayload.self, from: data)
+            return try BITLoginChallengeSupport.decodePayload(from: data)
         } catch {
             throw ScoreServiceError.invalidResponse
         }
@@ -579,26 +512,4 @@ struct ScoreService {
         }
     }
 
-    private func messageFromErrorResponse(_ data: Data) -> String? {
-        guard
-            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else {
-            return String(data: data, encoding: .utf8)
-        }
-
-        if let msg = json["msg"] as? String, !msg.isEmpty {
-            return msg
-        }
-        if let detail = json["detail"] as? String, !detail.isEmpty {
-            return detail
-        }
-        if
-            let detail = json["detail"] as? [String: Any],
-            let message = (detail["message"] as? String) ?? (detail["error"] as? String),
-            !message.isEmpty
-        {
-            return message
-        }
-        return nil
-    }
 }

@@ -323,17 +323,33 @@ final class AppUpdatePromptCoordinator {
     static let shared = AppUpdatePromptCoordinator()
 
     private let checker: AppUpdateChecker
+    private let emergencyChecker: EmergencyUpdateChecker
     private var didCheckThisLaunch = false
 
-    init(checker: AppUpdateChecker? = nil) {
+    init(
+        checker: AppUpdateChecker? = nil,
+        emergencyChecker: EmergencyUpdateChecker? = nil
+    ) {
         self.checker = checker ?? AppUpdateChecker()
+        self.emergencyChecker = emergencyChecker ?? EmergencyUpdateChecker()
     }
 
-    func releaseToPresentAtLaunch() async -> AppStoreRelease? {
+    enum LaunchNotice {
+        case emergency(EmergencyUpdateNotice)
+        case appStore(AppStoreRelease)
+    }
+
+    /// 两项检查并行启动，但只有紧急配置确认未命中后才允许交付 App Store 弹窗。
+    func noticeToPresentAtLaunch() async -> LaunchNotice? {
         guard !didCheckThisLaunch else { return nil }
         didCheckThisLaunch = true
 
-        return await checker.releaseToPresentAtLaunch()
+        let storeTask = Task { await checker.releaseToPresentAtLaunch() }
+        if let emergency = await emergencyChecker.noticeToPresentAtLaunch() {
+            storeTask.cancel()
+            return .emergency(emergency)
+        }
+        return await storeTask.value.map(LaunchNotice.appStore)
     }
 
     func markPresented(version: String) {
@@ -342,6 +358,10 @@ final class AppUpdatePromptCoordinator {
 
     func ignore(version: String) {
         checker.ignore(version: version)
+    }
+
+    func ignoreEmergencyForToday(noticeID: String) {
+        emergencyChecker.ignoreForToday(noticeID: noticeID)
     }
 }
 
@@ -353,28 +373,49 @@ private struct AppPromptHostModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .task {
-                guard let release = await updateCoordinator.releaseToPresentAtLaunch() else { return }
-                promptCoordinator.enqueue(AppPrompt(
-                    id: "app-update-\(release.version)",
-                    title: "发现新版本 \(release.version)",
-                    message: release.updateMessage,
-                    actions: [
-                        AppPromptAction(
-                            id: "open-store",
-                            title: "前往 App Store",
-                            isDefault: true
-                        ) {
-                            openURL(release.appStoreURL)
-                        },
-                        AppPromptAction(id: "dismiss", title: "本次忽略") {},
-                        AppPromptAction(id: "ignore-version", title: "忽略此版本") {
-                            updateCoordinator.ignore(version: release.version)
+                guard let notice = await updateCoordinator.noticeToPresentAtLaunch() else { return }
+                switch notice {
+                case let .emergency(emergency):
+                    promptCoordinator.enqueue(AppPrompt(
+                        id: "emergency-update-\(emergency.noticeID)",
+                        title: emergency.title,
+                        message: emergency.message,
+                        actions: [
+                            AppPromptAction(
+                                id: "open-store",
+                                title: "立即更新",
+                                isDefault: true
+                            ) {
+                                openURL(emergency.safeUpdateURL)
+                            },
+                            AppPromptAction(id: "ignore-today", title: "今日忽略") {
+                                updateCoordinator.ignoreEmergencyForToday(noticeID: emergency.noticeID)
+                            }
+                        ]
+                    ))
+                case let .appStore(release):
+                    promptCoordinator.enqueue(AppPrompt(
+                        id: "app-update-\(release.version)",
+                        title: "发现新版本 \(release.version)",
+                        message: release.updateMessage,
+                        actions: [
+                            AppPromptAction(
+                                id: "open-store",
+                                title: "前往 App Store",
+                                isDefault: true
+                            ) {
+                                openURL(release.appStoreURL)
+                            },
+                            AppPromptAction(id: "dismiss", title: "本次忽略") {},
+                            AppPromptAction(id: "ignore-version", title: "忽略此版本") {
+                                updateCoordinator.ignore(version: release.version)
+                            }
+                        ],
+                        onPresent: {
+                            updateCoordinator.markPresented(version: release.version)
                         }
-                    ],
-                    onPresent: {
-                        updateCoordinator.markPresented(version: release.version)
-                    }
-                ))
+                    ))
+                }
             }
             .alert(
                 promptCoordinator.activePrompt?.title ?? "",

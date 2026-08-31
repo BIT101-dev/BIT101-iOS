@@ -83,7 +83,8 @@ extension ScheduleService {
     /// 统一底层请求入口，并在发起前做 HTTPS 升级。
     func sendRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let secureRequest: URLRequest
-        if let url = request.url, let upgradedURL = ScheduleURLUpgrade.upgradedURL(from: url), upgradedURL != url {
+        if let url = request.url {
+            let upgradedURL = HTTPSURLUpgrade.upgradedURL(from: url)
             var upgradedRequest = request
             upgradedRequest.url = upgradedURL
             secureRequest = upgradedRequest

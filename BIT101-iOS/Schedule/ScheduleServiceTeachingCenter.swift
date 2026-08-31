@@ -12,8 +12,7 @@ extension ScheduleService {
     ///
     /// 这一步相当于空教室查询的元数据预热，不涉及具体教室占用。
     func fetchCampuses() async throws -> [CampusRecord] {
-        try await withTeachingCenterSessionRetry {
-            try await prepareJXZX()
+        try await withPreparedTeachingCenterSession {
             return try await fetchCampusesDirect()
         }
     }
@@ -22,8 +21,7 @@ extension ScheduleService {
     ///
     /// 教学楼会在进入空教室页时结合“最近下一节课的楼宇”做自动匹配。
     func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord] {
-        try await withTeachingCenterSessionRetry {
-            try await prepareJXZX()
+        try await withPreparedTeachingCenterSession {
             return try await fetchBuildingsDirect(campusCode: campusCode)
         }
     }
@@ -32,9 +30,18 @@ extension ScheduleService {
     ///
     /// 空教室接口以“当天 + 教学楼”为粒度返回占用节次，后续再在 ViewModel 层按选中的时段块格式化。
     func fetchClassrooms(buildingID: String, term: String) async throws -> [ClassroomRecord] {
+        try await withPreparedTeachingCenterSession {
+            return try await fetchClassroomsDirect(buildingID: buildingID, term: term)
+        }
+    }
+
+    /// 所有教学中心读操作共用的完整入口：先恢复可用路线，再完成一次会话预热。
+    func withPreparedTeachingCenterSession<T>(
+        operation: () async throws -> T
+    ) async throws -> T {
         try await withTeachingCenterSessionRetry {
             try await prepareJXZX()
-            return try await fetchClassroomsDirect(buildingID: buildingID, term: term)
+            return try await operation()
         }
     }
 
@@ -44,6 +51,61 @@ extension ScheduleService {
     /// 401/403 或其他会话失效信号，只清理教学中心状态并重新走 bit-login。当前最多执行
     /// 两轮恢复（共三次业务尝试），之后直接向上抛出，避免无限认证循环。
     func withTeachingCenterSessionRetry<T>(
+        operation: () async throws -> T
+    ) async throws -> T {
+        let studentID = storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if teachingCenterState.shouldPreferDirect(for: studentID) {
+            return try await withDirectTeachingCenterSessionRetry(operation: operation)
+        }
+
+        do {
+            return try await withWebVPNTeachingCenterSessionRetry(operation: operation)
+        } catch {
+            guard shouldAttemptDirectTeachingCenterFallback(for: error) else { throw error }
+
+            // 部分校园网 DNS 无法解析 bit-login 或 WebVPN 域名。此时学校教学中心本身
+            // 位于校内可直连，改用本机已有的学校 SSO 会话，不让 WebVPN 的 DNS 故障
+            // 阻断课表和空教室功能。
+            teachingCenterState.invalidate()
+            guard try await LoginService().restoreSchoolSessionIfNeeded() != nil else {
+                throw ScheduleServiceError.notLoggedIn
+            }
+            teachingCenterState.markDirectPreferred(for: studentID)
+            return try await operation()
+        }
+    }
+
+    /// 已验证当前网络适合校内直连时直接执行；仅在业务接口明确返回登录页时恢复一次 SSO。
+    private func withDirectTeachingCenterSessionRetry<T>(
+        operation: () async throws -> T
+    ) async throws -> T {
+        do {
+            return try await operation()
+        } catch ScheduleServiceError.teachingCenterSessionExpired {
+            guard try await LoginService().restoreSchoolSessionIfNeeded() != nil else {
+                throw ScheduleServiceError.notLoggedIn
+            }
+            return try await operation()
+        }
+    }
+
+    /// 校园网环境下，WebVPN 域名无法解析和 bit-login 网关超时都不应阻断校内直连。
+    func shouldAttemptDirectTeachingCenterFallback(for error: Error) -> Bool {
+        if isHostResolutionError(error) {
+            return true
+        }
+
+        switch error {
+        case ScheduleServiceError.authenticationFailed(let message),
+             ScheduleServiceError.challengeInvalid(let message):
+            return isTransientAuthenticationFailure(message)
+        default:
+            return false
+        }
+    }
+
+    /// 校外默认走 WebVPN，并保留既有的会话失效自动恢复策略。
+    private func withWebVPNTeachingCenterSessionRetry<T>(
         operation: () async throws -> T
     ) async throws -> T {
         try await ensureTeachingCenterAuthentication()
@@ -73,22 +135,13 @@ extension ScheduleService {
         throw ScheduleServiceError.teachingCenterSessionExpired
     }
 
-    /// 确保学校侧登录态仍然有效。
+    /// 确保学校 SSO 会话仍然有效；过期时使用 Keychain 凭据静默恢复。
     ///
-    /// 日程模块大量依赖学校接口，但登录状态检查本身只是前置探测，不应该成为课表 / DDL / 空教室
-    /// 真实业务请求之前的额外失败弹窗来源。
-    ///
-    /// 因此这里仅在远端明确判断当前会话无效时阻断；网络抖动、学校登录页异常等“检查失败”
-    /// 会静默放行，让后续业务请求给出更贴近场景的错误。
+    /// BIT101 社区登录态与学校 SSO 相互独立。这里只检查社区 fake-cookie 会让乐学请求
+    /// 在学校 Cookie 过期后直接拿到 CAS 登录页，因此必须调用学校会话专用恢复入口。
     func ensureSchoolSession() async throws {
-        do {
-            guard try await LoginService().checkLogin() != nil else {
-                throw ScheduleServiceError.notLoggedIn
-            }
-        } catch let error as ScheduleServiceError {
-            throw error
-        } catch {
-            return
+        guard try await LoginService().restoreSchoolSessionIfNeeded() != nil else {
+            throw ScheduleServiceError.notLoggedIn
         }
     }
 

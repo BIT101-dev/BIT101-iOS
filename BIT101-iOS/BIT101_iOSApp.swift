@@ -61,6 +61,10 @@ final class SchoolDataRefreshCoordinator: ObservableObject {
     private init() {}
 
     func refreshOnEntry(trigger: String) {
+        #if RELEASE_NETWORK_SMOKE
+        // 专用冒烟测试会自行顺序调用真实业务服务；避免 App 生命周期预热并发发起同一批请求。
+        _ = trigger
+        #else
         let studentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
         let fakeCookie = LoginStorage.shared.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !studentID.isEmpty, !fakeCookie.isEmpty else { return }
@@ -99,6 +103,7 @@ final class SchoolDataRefreshCoordinator: ObservableObject {
             _ = await (classroomRefresh, ddlRefresh)
             _ = trigger
         }
+        #endif
     }
 
     private func refreshScoresIfNeeded(studentID: String) async {
@@ -361,6 +366,9 @@ struct BIT101_iOSApp: App {
     }
 
     private func refreshScheduleCloudSyncIfNeeded(trigger: String) {
+        #if RELEASE_NETWORK_SMOKE
+        _ = trigger
+        #else
         #if canImport(CloudKit)
         Task {
             await ScheduleCloudSyncManager.shared.refreshFromCloudIfNeeded()
@@ -369,6 +377,7 @@ struct BIT101_iOSApp: App {
             }
             _ = trigger
         }
+        #endif
         #endif
     }
 
@@ -379,6 +388,12 @@ struct BIT101_iOSApp: App {
     /// 的地方，因为这些副作用本质上都属于“全局应用状态发生变化”。
     var body: some Scene {
         WindowGroup {
+            #if RELEASE_NETWORK_SMOKE
+            // XCTest 会先启动测试宿主 App。冒烟模式不挂载正常业务 UI，避免登录校验、
+            // 首页 `.task` 或未来新增的启动请求与顺序网络探针并发，污染耗时和结果。
+            Color.clear
+                .accessibilityIdentifier("release-network-smoke-host")
+            #else
             ContentView()
                 .appPromptHost()
                 .onOpenURL { url in
@@ -413,7 +428,9 @@ struct BIT101_iOSApp: App {
                     // widget 快照本身已经在 `ScheduleCacheStore.save` 时同步导出了。
                     refreshScheduleExternalDisplays(trigger: "schedule_cache_changed", syncWidgetSnapshot: false)
                 }
+            #endif
         }
+        #if !RELEASE_NETWORK_SMOKE
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
                 // 应用重新回到前台时，同时补做一次 widget 快照导出与时间线刷新。
@@ -423,5 +440,6 @@ struct BIT101_iOSApp: App {
                 schoolDataRefresh.refreshOnEntry(trigger: "scene_active")
             }
         }
+        #endif
     }
 }

@@ -1,0 +1,13 @@
+{
+  "name": "bit101-emergency-update-worker",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "publish": "./Scripts/publish-emergency-update.sh",
+    "disable": "./Scripts/disable-emergency-update.sh"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

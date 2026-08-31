@@ -5,33 +5,6 @@
 
 import Foundation
 
-// MARK: - URL Upgrade
-
-/// 学校 SSO 存在从 HTTPS 跳回 HTTP 的历史问题。
-///
-/// iOS 的 ATS 不允许这类明文跳转，所以这里统一在客户端把目标地址升级回 HTTPS。
-private enum LoginURLUpgrade {
-    /// 把学校偶发返回的 HTTP 跳转地址升级成 HTTPS。
-    nonisolated static func upgradedURL(from url: URL) -> URL {
-        guard url.scheme?.lowercased() == "http" else {
-            return url
-        }
-
-        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        components?.scheme = "https"
-        return components?.url ?? url
-    }
-
-    /// 根据响应头里的 `Location` 字段解析下一跳地址，并补做 HTTPS 升级。
-    nonisolated static func resolvedURL(from location: String, relativeTo baseURL: URL) -> URL? {
-        if let absolute = URL(string: location) {
-            return upgradedURL(from: absolute)
-        }
-
-        return URL(string: location, relativeTo: baseURL).map(upgradedURL(from:))
-    }
-}
-
 /// WebVPN 校验初始化请求体。
 struct WebVPNVerifyInitRequest: Encodable {
     let sid: String
@@ -74,47 +47,6 @@ struct RegisterResponse: Decodable {
     let fakeCookie: String
 }
 
-/// 禁止自动重定向的 `URLSession` delegate。
-///
-/// 学校登录的第一跳需要手动截获 302，才能继续补走整条 SSO 链路。
-private final class NoRedirectDelegate: NSObject, URLSessionTaskDelegate {
-    func urlSession(
-        _ session: URLSession,
-        task: URLSessionTask,
-        willPerformHTTPRedirection response: HTTPURLResponse,
-        newRequest request: URLRequest,
-        completionHandler: @escaping (URLRequest?) -> Void
-    ) {
-        completionHandler(nil)
-    }
-}
-
-/// 允许正常跳转，但在发生 HTTP 降级时强制改回 HTTPS。
-private final class HTTPSRedirectDelegate: NSObject, URLSessionTaskDelegate {
-    func urlSession(
-        _ session: URLSession,
-        task: URLSessionTask,
-        willPerformHTTPRedirection response: HTTPURLResponse,
-        newRequest request: URLRequest,
-        completionHandler: @escaping (URLRequest?) -> Void
-    ) {
-        guard let url = request.url else {
-            completionHandler(request)
-            return
-        }
-
-        let upgradedURL = LoginURLUpgrade.upgradedURL(from: url)
-        if upgradedURL != url {
-            var secureRequest = request
-            secureRequest.url = upgradedURL
-            completionHandler(secureRequest)
-            return
-        }
-
-        completionHandler(request)
-    }
-}
-
 /// 登录相关的网络客户端。
 ///
 /// 既负责学校 CAS，也负责 BIT101 自己的 `webvpn_verify` / `register` 接口。
@@ -127,8 +59,8 @@ struct BIT101APIClient {
     private let noRedirectSession: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
-    private let noRedirectDelegate = NoRedirectDelegate()
-    private let redirectDelegate = HTTPSRedirectDelegate()
+    private let noRedirectDelegate = NoRedirectURLSessionDelegate()
+    private let redirectDelegate = HTTPSUpgradingRedirectDelegate()
 
     /// 构造两套会话：
     /// 1. 正常跟随重定向
@@ -166,7 +98,19 @@ struct BIT101APIClient {
         var request = URLRequest(url: schoolBaseURL.appending(path: "cas/login"))
         request.httpMethod = "GET"
 
-        let html = try await sendStringRequest(request)
+        let (data, response) = try await sendRequest(request, followRedirects: false)
+        if (300 ..< 400).contains(response.statusCode),
+           let location = response.value(forHTTPHeaderField: "Location"),
+           let redirectURL = HTTPSURLUpgrade.resolvedURL(from: location, relativeTo: request.url!),
+           Self.isSchoolLoginSuccessLanding(redirectURL, schoolHost: schoolBaseURL.host)
+        {
+            return SchoolLoginContext(salt: nil, execution: nil, isLoggedIn: true)
+        }
+        guard (200 ..< 300).contains(response.statusCode) else {
+            throw errorForStatusCode(response.statusCode)
+        }
+
+        let html = String(decoding: data, as: UTF8.self)
         return SchoolLoginHTMLParser.parse(html: html)
     }
 
@@ -217,7 +161,7 @@ struct BIT101APIClient {
     /// 如果缺了这一步，后续看起来像“学校登录成功了”，但教务/乐学接口依赖的学校 cookie
     /// 实际上还没完整写入，会导致部分功能在进入主界面后再失败。
     private func finishSchoolLoginRedirectChain(from location: String, relativeTo baseURL: URL) async throws {
-        guard var nextURL = LoginURLUpgrade.resolvedURL(from: location, relativeTo: baseURL) else {
+        guard var nextURL = HTTPSURLUpgrade.resolvedURL(from: location, relativeTo: baseURL) else {
             return
         }
 
@@ -230,21 +174,45 @@ struct BIT101APIClient {
 
             if (300 ..< 400).contains(response.statusCode),
                let nextLocation = response.value(forHTTPHeaderField: "Location"),
-               let resolved = LoginURLUpgrade.resolvedURL(from: nextLocation, relativeTo: nextURL) {
+               let resolved = HTTPSURLUpgrade.resolvedURL(from: nextLocation, relativeTo: nextURL) {
                 nextURL = resolved
                 continue
             }
 
-            if (200 ..< 300).contains(response.statusCode) {
-                return
-            }
-
-            if (200 ..< 400).contains(response.statusCode) {
+            // 新版统一认证把登录成功后的浏览器落点改成了一个前端 gate 路由。
+            // CAS 会话 Cookie 已在上一步 302 时写入；该路由对普通 URLSession GET
+            // 返回 401，但这并不代表刚完成的用户名密码认证失败。真正的业务系统
+            // 会在下一次带 service 参数访问 CAS 时继续完成票据跳转。
+            if Self.isAcceptedSchoolLoginCompletion(
+                statusCode: response.statusCode,
+                url: nextURL,
+                schoolHost: schoolBaseURL.host
+            ) {
                 return
             }
 
             throw errorForStatusCode(response.statusCode)
         }
+    }
+
+    static func isAcceptedSchoolLoginCompletion(
+        statusCode: Int,
+        url: URL,
+        schoolHost: String? = "sso.bit.edu.cn"
+    ) -> Bool {
+        if (200 ..< 400).contains(statusCode) {
+            return true
+        }
+        return statusCode == 401
+            && isSchoolLoginSuccessLanding(url, schoolHost: schoolHost)
+    }
+
+    static func isSchoolLoginSuccessLanding(
+        _ url: URL,
+        schoolHost: String? = "sso.bit.edu.cn"
+    ) -> Bool {
+        url.host?.lowercased() == schoolHost?.lowercased()
+            && url.path == "/gate/cas-success"
     }
 
     /// 初始化 WebVPN 校验上下文。
@@ -354,7 +322,7 @@ struct BIT101APIClient {
 
         if let url = request.url {
             var upgradedRequest = request
-            upgradedRequest.url = LoginURLUpgrade.upgradedURL(from: url)
+            upgradedRequest.url = HTTPSURLUpgrade.upgradedURL(from: url)
             finalRequest = upgradedRequest
         } else {
             finalRequest = request
