@@ -26,10 +26,10 @@ struct ScoreRootView: View {
     @StateObject private var scoreViewModel = SchoolDataRefreshCoordinator.shared.scoreViewModel
     @StateObject private var courseViewModel = CourseListViewModel()
     @State private var selectedSurface: ScoreSurface = .score
-    @Binding private var requestedCourseID: Int?
+    @Binding private var requestedCourse: CourseNavigationRequest?
 
-    init(requestedCourseID: Binding<Int?> = .constant(nil)) {
-        _requestedCourseID = requestedCourseID
+    init(requestedCourse: Binding<CourseNavigationRequest?> = .constant(nil)) {
+        _requestedCourse = requestedCourse
     }
 
     var body: some View {
@@ -42,7 +42,7 @@ struct ScoreRootView: View {
             case .course:
                 CoursePageContent(
                     viewModel: courseViewModel,
-                    requestedCourseID: $requestedCourseID
+                    requestedCourse: $requestedCourse
                 )
                     .simultaneousGesture(surfaceSwitchGesture)
                     .transition(.opacity)
@@ -62,8 +62,8 @@ struct ScoreRootView: View {
             .background(Color(.systemGroupedBackground))
         }
         .toolbar(.hidden, for: .navigationBar)
-        .task(id: requestedCourseID) {
-            guard requestedCourseID != nil else { return }
+        .task(id: requestedCourse?.id) {
+            guard requestedCourse != nil else { return }
             selectedSurface = .course
         }
     }

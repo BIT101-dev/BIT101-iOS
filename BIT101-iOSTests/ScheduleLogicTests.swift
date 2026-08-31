@@ -98,6 +98,21 @@ struct ScheduleSystemCalendarEventBuilderTests {
 
 @Suite("Schedule academic course matching")
 struct ScheduleAcademicCourseMatcherTests {
+    private final class ServiceStub: CourseListServicing {
+        let results: [String: [CourseSummary]]
+        private(set) var searches: [String] = []
+
+        init(results: [String: [CourseSummary]]) {
+            self.results = results
+        }
+
+        func fetchCourses(search: String, page: Int) async throws -> [CourseSummary] {
+            searches.append(search)
+            await Task.yield()
+            return results[search] ?? []
+        }
+    }
+
     @Test("Course number matching ignores formatting differences")
     func matchesCourseNumber() {
         let expected = makeSummary(id: 1, name: "高等数学", number: "MATH-1001", teacher: "张老师")
@@ -124,6 +139,41 @@ struct ScheduleAcademicCourseMatcherTests {
         ) == nil)
     }
 
+    @Test("Teacher also disambiguates records sharing one course number")
+    func disambiguatesSameNumberByTeacher() {
+        let first = makeSummary(id: 1, name: "线性代数", number: "MATH-1", teacher: "张老师")
+        let second = makeSummary(id: 2, name: "线性代数", number: "MATH-1", teacher: "李老师、王老师")
+        #expect(ScheduleAcademicCourseMatcher.numberMatch(
+            courseNumber: "MATH-1",
+            teacher: "李老师",
+            candidates: [first, second]
+        )?.id == second.id)
+    }
+
+    @Test("Resolution prepares all same-name teachers while selecting the current teacher")
+    @MainActor
+    func resolvesAndPrefetchesSearchResults() async throws {
+        let first = makeSummary(id: 1, name: "大学物理", number: "PHY-1", teacher: "张老师")
+        let second = makeSummary(id: 2, name: "大学物理", number: "PHY-1", teacher: "李老师")
+        let service = ServiceStub(results: [
+            "PHY-1": [first, second],
+            "大学物理": [first, second],
+        ])
+        let resolver = ScheduleAcademicCourseResolver(service: service)
+
+        let resolution = try #require(await resolver.resolve(makeCourse(
+            name: "大学物理",
+            number: "PHY-1",
+            teacher: "李老师"
+        )))
+
+        #expect(Set(service.searches) == ["PHY-1", "大学物理"])
+        #expect(resolution.selectedCourse.id == second.id)
+        #expect(resolution.searchQuery == "大学物理")
+        #expect(resolution.searchResults.map(\.id) == [first.id, second.id])
+        #expect(resolution.navigationRequest.preparedCourse?.id == second.id)
+    }
+
     private func makeSummary(
         id: Int,
         name: String,
@@ -142,6 +192,28 @@ struct ScheduleAcademicCourseMatcherTests {
             teachersNumber: "",
             like: false
         ))
+    }
+
+    private func makeCourse(name: String, number: String, teacher: String) -> CourseRecord {
+        CourseRecord(
+            id: "schedule-course",
+            term: "2026-2027-1",
+            name: name,
+            teacher: teacher,
+            classroom: "",
+            description: "",
+            weeks: [1],
+            weekday: 1,
+            startSection: 1,
+            endSection: 2,
+            campus: "",
+            number: number,
+            credit: 2,
+            hour: 32,
+            type: "",
+            category: "",
+            department: ""
+        )
     }
 }
 

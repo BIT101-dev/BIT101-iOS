@@ -62,6 +62,23 @@ struct CourseListViewModelTests {
         #expect(viewModel.alert == nil)
     }
 
+    @Test("Prepared searches are visible immediately and continue from the next page")
+    @MainActor
+    func appliesPreparedSearch() async throws {
+        let first = try course(id: 1)
+        let second = try course(id: 2)
+        let service = ServiceStub(pages: [1: .success([second])])
+        let viewModel = CourseListViewModel(service: service)
+
+        viewModel.applyPreparedSearch(query: "高等数学", items: [first])
+        await viewModel.loadMoreIfNeeded(currentCourse: first)
+
+        #expect(viewModel.searchText == "高等数学")
+        #expect(viewModel.state.items == [first, second])
+        #expect(viewModel.state.status == .loaded)
+        #expect(service.requests.map { "\($0.search):\($0.page)" } == ["高等数学:1"])
+    }
+
     private func course(id: Int) throws -> CourseSummary {
         try JSONDecoder().decode(CourseSummary.self, from: Data("""
         {"id":\(id),"name":"课程\(id)","number":"C-\(id)","credit":2,

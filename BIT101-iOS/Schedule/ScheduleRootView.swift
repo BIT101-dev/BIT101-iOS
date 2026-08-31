@@ -28,13 +28,13 @@ private func normalizeDisplayedCourseTitle(_ value: String) -> String {
 struct ScheduleRootView: View {
     /// 壳层深链请求的目标分栏，例如从小组件点进来直接落到课表。
     @Binding var requestedSection: ScheduleSection?
-    let onOpenAcademicCourse: (Int) -> Void
+    let onOpenAcademicCourse: (CourseNavigationRequest) -> Void
     @StateObject private var viewModel = SchoolDataRefreshCoordinator.shared.scheduleViewModel
     @State private var courseTabResetSignal = 0
 
     init(
         requestedSection: Binding<ScheduleSection?>,
-        onOpenAcademicCourse: @escaping (Int) -> Void = { _ in }
+        onOpenAcademicCourse: @escaping (CourseNavigationRequest) -> Void = { _ in }
     ) {
         _requestedSection = requestedSection
         self.onOpenAcademicCourse = onOpenAcademicCourse
@@ -184,7 +184,7 @@ private struct ScheduleSectionTabs: View {
 private struct CourseScheduleTabView: View {
     @ObservedObject var viewModel: ScheduleViewModel
     let resetSignal: Int
-    let onOpenAcademicCourse: (Int) -> Void
+    let onOpenAcademicCourse: (CourseNavigationRequest) -> Void
     @State private var selectedEntry: ScheduleCalendarEntry?
     @State private var editingCustomScheduleID: String?
     @State private var editingCourseID: String?
@@ -346,9 +346,9 @@ private struct CourseScheduleTabView: View {
                 timeTable: activeSchedule.timeTable,
                 allowsCourseMutation: supportsEditingDisplayedSchedule,
                 allowsCustomScheduleMutation: supportsEditingDisplayedSchedule,
-                onOpenAcademicCourse: { courseID in
+                onOpenAcademicCourse: { request in
                     selectedEntry = nil
-                    onOpenAcademicCourse(courseID)
+                    onOpenAcademicCourse(request)
                 },
                 onEditCourseOccurrence: {
                     guard let course = viewModel.cache.courses.first(where: { $0.id == entry.sourceID }) else { return }

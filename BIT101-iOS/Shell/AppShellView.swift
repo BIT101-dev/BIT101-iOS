@@ -126,7 +126,7 @@ struct AppShellView: View {
     @State private var requestedScheduleSection: ScheduleSection?
     @State private var requestedPaperID: Int?
     @State private var requestedPosterID: Int?
-    @State private var requestedCourseID: Int?
+    @State private var requestedCourse: CourseNavigationRequest?
     /// 系统全屏控制器关闭时壳层可能再次收到 `onAppear`，不能因此重置当前 tab。
     @State private var didInitializeSelectedTab = false
 
@@ -145,17 +145,17 @@ struct AppShellView: View {
                     case .schedule:
                         ScheduleRootView(
                             requestedSection: $requestedScheduleSection,
-                            onOpenAcademicCourse: { courseID in
+                            onOpenAcademicCourse: { request in
                                 selectTab(.score)
-                                requestedCourseID = courseID
+                                requestedCourse = request
                             }
                         )
                     case .course:
-                        ScoreRootView(requestedCourseID: $requestedCourseID)
+                        ScoreRootView(requestedCourse: $requestedCourse)
                     case .map:
                         CampusMapScreen(scheduleViewModel: schoolDataRefresh.scheduleViewModel)
                     case .score:
-                        ScoreRootView(requestedCourseID: $requestedCourseID)
+                        ScoreRootView(requestedCourse: $requestedCourse)
                     case .gallery:
                         GalleryRootView(
                             requestedPaperID: $requestedPaperID,
@@ -267,7 +267,7 @@ struct AppShellView: View {
             requestedPosterID = posterID
         case let .course(courseID):
             selectTab(.score)
-            requestedCourseID = courseID
+            requestedCourse = CourseNavigationRequest(courseID: courseID)
         }
     }
 

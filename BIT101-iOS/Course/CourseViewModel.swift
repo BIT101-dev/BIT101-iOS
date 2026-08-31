@@ -47,6 +47,18 @@ final class CourseListViewModel: ObservableObject {
         !normalizedSearchText.isEmpty
     }
 
+    /// 接收其它页面已经并行预取好的课程搜索首屏。
+    ///
+    /// 同时写入搜索词和分页状态，用户从详情返回时可以立即浏览同名课程的其它教师，
+    /// 后续滚动仍从 page 1 继续正常分页。
+    func applyPreparedSearch(query: String, items: [CourseSummary]) {
+        hasBootstrapped = true
+        searchText = query
+        state.applyFirstPage(items)
+        state.status = .loaded
+        alert = nil
+    }
+
     func bootstrapIfNeeded() async {
         guard !hasBootstrapped else { return }
         hasBootstrapped = true

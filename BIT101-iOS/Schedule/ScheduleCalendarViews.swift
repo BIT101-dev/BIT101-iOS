@@ -317,7 +317,7 @@ struct ScheduleEntryDetailSheet: View {
     let timeTable: [TimeSlot]
     let allowsCourseMutation: Bool
     let allowsCustomScheduleMutation: Bool
-    let onOpenAcademicCourse: (Int) -> Void
+    let onOpenAcademicCourse: (CourseNavigationRequest) -> Void
     let onEditCourseOccurrence: () -> Void
     let onEditCourse: () -> Void
     let onDeleteCourseOccurrence: () -> Void
@@ -454,7 +454,7 @@ struct ScheduleEntryDetailSheet: View {
         isResolvingAcademicCourse = true
         defer { isResolvingAcademicCourse = false }
         do {
-            guard let course = try await ScheduleAcademicCourseResolver().resolve(academicCourse) else {
+            guard let resolution = try await ScheduleAcademicCourseResolver().resolve(academicCourse) else {
                 academicCourseAlert = AppAlert(
                     title: "没有找到此课程",
                     message: "“\(academicCourse.name)”暂未收录在学业课程中。"
@@ -462,7 +462,7 @@ struct ScheduleEntryDetailSheet: View {
                 return
             }
             dismiss()
-            onOpenAcademicCourse(course.id)
+            onOpenAcademicCourse(resolution.navigationRequest)
         } catch {
             academicCourseAlert = AppAlert(
                 title: "查找课程失败",

@@ -83,6 +83,30 @@ struct CourseSummary: Decodable, Identifiable, Equatable, Hashable {
     }
 }
 
+/// 从深链或其它业务页面进入课程详情时携带的导航上下文。
+///
+/// 日程页已经取得课程搜索结果时，会把命中的教师课程和同名课程首屏一起带过来；
+/// 这样详情可以立即打开，返回列表时也无需再等待一次搜索请求。
+struct CourseNavigationRequest: Identifiable {
+    let id = UUID()
+    let courseID: Int
+    let preparedCourse: CourseSummary?
+    let searchQuery: String?
+    let searchResults: [CourseSummary]?
+
+    init(
+        courseID: Int,
+        preparedCourse: CourseSummary? = nil,
+        searchQuery: String? = nil,
+        searchResults: [CourseSummary]? = nil
+    ) {
+        self.courseID = courseID
+        self.preparedCourse = preparedCourse
+        self.searchQuery = searchQuery
+        self.searchResults = searchResults
+    }
+}
+
 /// 课程详情。
 ///
 /// 详情接口在课程基础信息外，还会返回当前用户的点赞状态。
