@@ -10,6 +10,20 @@
 
 ## 提交前检查
 
+首次克隆后启用仓库内置 Git hooks：
+
+```sh
+git config core.hooksPath .githooks
+```
+
+`pre-commit` 会提示超过 30 天没有修改的维护性非代码文件（Markdown、Plist、
+Entitlements、YAML/JSON 配置等）。它只提供 `info`，不会阻止提交；静态图片、测试
+fixture 和 Xcode 自动维护的工程元数据不参与检查。确需临时关闭提示时可使用：
+
+```sh
+SKIP_STALE_NONCODE_CHECK=1 git commit ...
+```
+
 1. 禁止启动、使用或创建 iOS / watchOS 模拟器；没有已连接真机时停止验证，不得改用模拟器。
 2. 使用 generic device 或已连接真机运行 `xcodebuild build-for-testing`。
 3. 仅在已连接真机上运行受影响的单元测试。
