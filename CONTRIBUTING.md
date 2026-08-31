@@ -16,12 +16,12 @@
 git config core.hooksPath .githooks
 ```
 
-`pre-commit` 会提示超过 30 天没有修改的维护性非代码文件（Markdown、Plist、
-Entitlements、YAML/JSON 配置等）。它只提供 `info`，不会阻止提交；静态图片、测试
-fixture 和 Xcode 自动维护的工程元数据不参与检查。确需临时关闭提示时可使用：
+`pre-commit` 会提示超过 30 天没有修改的 Markdown 文档。它只提供 `info`，不会阻止
+提交；Info.plist、Entitlements、配置、静态资源和测试 fixture 均不参与检查。确需临时
+关闭提示时可使用：
 
 ```sh
-SKIP_STALE_NONCODE_CHECK=1 git commit ...
+SKIP_STALE_DOCS_CHECK=1 git commit ...
 ```
 
 1. 禁止启动、使用或创建 iOS / watchOS 模拟器；没有已连接真机时停止验证，不得改用模拟器。

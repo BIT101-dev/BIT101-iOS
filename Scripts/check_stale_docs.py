@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Non-blocking reminder for tracked maintenance files that may be stale."""
+"""Non-blocking reminder for tracked Markdown documents that may be stale."""
 
 from __future__ import annotations
 
@@ -9,15 +9,7 @@ import pathlib
 import subprocess
 
 
-MAINTAINED_SUFFIXES = {
-    ".entitlements",
-    ".json",
-    ".md",
-    ".plist",
-    ".xcconfig",
-    ".yaml",
-    ".yml",
-}
+DOCUMENT_SUFFIX = ".md"
 EXCLUDED_PARTS = {"Fixtures"}
 EXCLUDED_SUFFIXES = {".xcodeproj", ".xcworkspace"}
 
@@ -30,8 +22,8 @@ def git(*arguments: str) -> str:
     ).strip()
 
 
-def is_maintained_noncode_file(path: pathlib.PurePosixPath) -> bool:
-    if path.suffix.lower() not in MAINTAINED_SUFFIXES:
+def is_document(path: pathlib.PurePosixPath) -> bool:
+    if path.suffix.lower() != DOCUMENT_SUFFIX:
         return False
     if EXCLUDED_PARTS.intersection(path.parts) or any(
         part.endswith(".xcassets") for part in path.parts
@@ -49,7 +41,7 @@ def stale_files(days: int) -> list[tuple[int, str]]:
         if not name:
             continue
         path = pathlib.PurePosixPath(name)
-        if not is_maintained_noncode_file(path):
+        if not is_document(path):
             continue
 
         # 正在参与本次提交或仍有工作区修改的文件显然不属于“久未编辑”。
@@ -80,7 +72,7 @@ def main() -> int:
         return 0
 
     print(
-        f"info: 检测到 {len(files)} 个非代码文件已经超过 {arguments.days} 天未编辑，"
+        f"info: 检测到 {len(files)} 个文档已经超过 {arguments.days} 天未编辑，"
         "请查看是否过时（非强制，可以忽略，如果确实不需要编辑）。"
     )
     visible = files if arguments.all else files[:10]
@@ -89,7 +81,7 @@ def main() -> int:
     if len(visible) < len(files):
         print(
             f"  …其余 {len(files) - len(visible)} 个；"
-            "运行 `python3 Scripts/check_stale_noncode_files.py --all` 查看全部。"
+            "运行 `python3 Scripts/check_stale_docs.py --all` 查看全部。"
         )
     return 0
 
