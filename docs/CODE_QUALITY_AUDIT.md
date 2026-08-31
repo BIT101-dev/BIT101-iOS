@@ -26,26 +26,19 @@
 
 这部分不是忘了改，而是有意先保留。后续继续动手时，应先理解它们为什么存在。
 
-### 2.1 AppShell 的通知权限提示
+### 2.1 AppShell 的全局提示队列
 
 文件：
 
 - `BIT101-iOS/Shell/AppShellView.swift`
 
-当前实现：
-
-- 使用 `UIAlertController`
-- 通过 `topViewController()` 手动找到当前最顶层控制器并弹窗
-
-为什么没直接改回 SwiftUI `.alert`：
-
-- 壳层本身同时承载启动公告、深链、登录切换等全局弹层
-- 之前已经遇到过多个 SwiftUI alert 互相抢占，导致状态算出来了但界面没弹出的情况
+当前实现已经使用 SwiftUI `.alert`，由 `AppPromptCoordinator` 对更新提醒、通知权限提示等
+全局提示进行串行排队。过去通过 `UIAlertController + topViewController()` 绕开的实现已经删除。
 
 结论：
 
-- 这是“明确的 UIKit 绕路实现”
-- 如果未来要回收，应先统一壳层弹窗路由，而不是只把这一条硬改回 `.alert`
+- 这里已回归原生 SwiftUI 呈现，不再属于 UIKit 绕路
+- 后续新增启动提示应进入同一队列，避免多个 `.alert` 竞争
 
 ### 2.2 话廊首页与消息页的左右滑动切换
 
@@ -155,7 +148,7 @@
 
 例如：
 
-- AppShell 的 UIKit alert
+- AppShell 的全局提示队列
 - 话廊 feed 的 segmented + 手势切换
 
 它们都不够“纯”，但目前行为是稳定的。

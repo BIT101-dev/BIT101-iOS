@@ -196,19 +196,6 @@ private struct CourseHistoryGradesChart: View {
             }
             .chartLegend(position: .bottom, alignment: .leading)
             .chartXSelection(value: $selectedTerm)
-            .chartOverlay { proxy in
-                GeometryReader { geometry in
-                    Rectangle()
-                        .fill(.clear)
-                        .contentShape(Rectangle())
-                        .gesture(
-                            DragGesture(minimumDistance: 0)
-                                .onChanged { value in
-                                    updateSelectedTerm(at: value.location, proxy: proxy, geometry: geometry)
-                                }
-                        )
-                }
-            }
             .frame(height: 240)
 
             if let selectedGrade {
@@ -228,17 +215,6 @@ private struct CourseHistoryGradesChart: View {
             return String(format: "%.0f", value)
         }
         return String(format: "%.1f", value)
-    }
-
-    private func updateSelectedTerm(at location: CGPoint, proxy: ChartProxy, geometry: GeometryProxy) {
-        guard let plotFrame = proxy.plotFrame else { return }
-        let frame = geometry[plotFrame]
-        guard frame.contains(location) else { return }
-
-        let localX = location.x - frame.origin.x
-        if let term = proxy.value(atX: localX, as: String.self), chartGrades.contains(where: { $0.term == term }) {
-            selectedTerm = term
-        }
     }
 
     private func shouldShowYearLabel(for term: String) -> Bool {

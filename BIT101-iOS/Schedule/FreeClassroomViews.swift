@@ -1,18 +1,4 @@
 import SwiftUI
-import UIKit
-
-struct ClassroomActivityIndicator: UIViewRepresentable {
-    func makeUIView(context: Context) -> UIActivityIndicatorView {
-        let view = UIActivityIndicatorView(style: .medium)
-        view.hidesWhenStopped = false
-        view.startAnimating()
-        return view
-    }
-
-    func updateUIView(_ uiView: UIActivityIndicatorView, context: Context) {
-        uiView.startAnimating()
-    }
-}
 
 /// 空教室查询页。
 ///
@@ -85,8 +71,8 @@ struct FreeClassroomTabView: View {
                 Section {
                     ContentUnavailableView {
                         VStack(spacing: 12) {
-                            ClassroomActivityIndicator()
-                                .frame(width: 24, height: 24)
+                            ProgressView()
+                                .controlSize(.regular)
                             Text(classroomLoadingText)
                                 .font(.headline)
                         }
@@ -198,4 +184,3 @@ struct ClassroomSectionFilterPage: View {
         selectedSectionIDs.count == timeTable.count ? "全不选" : "全选"
     }
 }
-
