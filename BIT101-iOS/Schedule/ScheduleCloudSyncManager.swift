@@ -247,13 +247,13 @@ actor ScheduleCloudSyncManager {
 
     private func logDebug(_ message: String) {
         #if canImport(os)
-        logger.debug("\(message, privacy: .public)")
+        logger.debug("\(message, privacy: .private)")
         #endif
     }
 
     private func logError(_ message: String) {
         #if canImport(os)
-        logger.error("\(message, privacy: .public)")
+        logger.error("\(message, privacy: .private)")
         #endif
     }
 }

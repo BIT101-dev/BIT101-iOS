@@ -92,7 +92,7 @@ final class ScheduleLiveActivityManager {
 
         if let currentOccurrence {
             logger.debug(
-                "selected occurrence kind=\(currentOccurrence.kindText, privacy: .public) title=\(currentOccurrence.title, privacy: .public) start=\(Self.debugDateFormatter.string(from: currentOccurrence.startDate), privacy: .public) end=\(Self.debugDateFormatter.string(from: currentOccurrence.endDate), privacy: .public)"
+                "selected occurrence kind=\(currentOccurrence.kindText, privacy: .public) title=\(currentOccurrence.title, privacy: .private) start=\(Self.debugDateFormatter.string(from: currentOccurrence.startDate), privacy: .private) end=\(Self.debugDateFormatter.string(from: currentOccurrence.endDate), privacy: .private)"
             )
         } else {
             logger.debug("selected occurrence is nil for current time=\(Self.debugDateFormatter.string(from: now), privacy: .public)")
@@ -166,7 +166,7 @@ final class ScheduleLiveActivityManager {
         let studentID = LoginStorage.shared.currentStudentID
         let activities = Activity<CourseReminderActivityAttributes>.activities
         let activeActivity = activities.first
-        logger.debug("syncActivity activeCount=\(activities.count, privacy: .public) currentStudentID=\(studentID, privacy: .public)")
+        logger.debug("syncActivity activeCount=\(activities.count, privacy: .public) currentStudentID=\(studentID, privacy: .private(mask: .hash))")
 
         // 1. 如果当前没有课要上，直接关掉现有的活动
         guard let occ = occurrence else {
@@ -193,11 +193,11 @@ final class ScheduleLiveActivityManager {
 
         if let activity = activeActivity {
             logger.debug(
-                "active activity id=\(activity.id, privacy: .public) state=\(Self.describe(activity.content.state), privacy: .public) next=\(Self.describe(newState), privacy: .public)"
+                "active activity id=\(activity.id, privacy: .public) state=\(Self.describe(activity.content.state), privacy: .private) next=\(Self.describe(newState), privacy: .private)"
             )
             // 情况 A：账号换了，必须重开
             if activity.attributes.studentID != studentID {
-                logger.debug("student changed old=\(activity.attributes.studentID, privacy: .public) new=\(studentID, privacy: .public); ending and requesting new activity")
+                logger.debug("student changed old=\(activity.attributes.studentID, privacy: .private(mask: .hash)) new=\(studentID, privacy: .private(mask: .hash)); ending and requesting new activity")
                 await activity.end(nil, dismissalPolicy: .immediate)
                 await requestActivity(attributes: attributes, content: content, reason: "student_changed")
                 return
@@ -412,7 +412,7 @@ final class ScheduleLiveActivityManager {
         reason: StaticString
     ) async {
         logger.debug(
-            "requesting new activity reason=\(reason) state=\(Self.describe(content.state), privacy: .public)"
+            "requesting new activity reason=\(reason, privacy: .public) state=\(Self.describe(content.state), privacy: .private)"
         )
         _ = try? Activity.request(attributes: attributes, content: content)
     }
@@ -507,7 +507,7 @@ final class ScheduleLiveActivityManager {
                 try await notificationCenter.add(request)
             } catch {
                 logger.error(
-                    "schedule fallback notification failed title=\(occurrence.title, privacy: .public) trigger=\(Self.debugDateFormatter.string(from: triggerDate), privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+                    "schedule fallback notification failed title=\(occurrence.title, privacy: .private) trigger=\(Self.debugDateFormatter.string(from: triggerDate), privacy: .private) error=\(error.localizedDescription, privacy: .public)"
                 )
             }
         }
