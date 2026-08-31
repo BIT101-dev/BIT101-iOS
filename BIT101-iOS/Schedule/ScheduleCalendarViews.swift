@@ -254,6 +254,7 @@ private struct CourseScheduleBlockView: View {
 /// 右下角悬浮按钮。
 struct CourseScheduleFAB: View {
     let systemImage: String
+    let accessibilityLabel: String
     let action: () -> Void
 
     var body: some View {
@@ -261,6 +262,7 @@ struct CourseScheduleFAB: View {
             CourseScheduleFABLabel(systemImage: systemImage)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
     }
 }
 
@@ -501,4 +503,3 @@ func normalize(entries: [ScheduleCalendarEntry]) -> [ScheduleCalendarEntry] {
 
     return result
 }
-

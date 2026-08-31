@@ -44,18 +44,25 @@ struct CampusMapScreen: View {
 
             VStack(alignment: .trailing, spacing: 10) {
                 if let place = nextCourseTarget?.place {
-                    FloatingMapButton(systemImage: "arrow.triangle.turn.up.right.diamond.fill") {
+                    FloatingMapButton(
+                        systemImage: "arrow.triangle.turn.up.right.diamond.fill",
+                        accessibilityLabel: "导航到下一节课"
+                    ) {
                         openDirections(to: place)
                     }
                 }
 
-                FloatingMapButton(systemImage: locationController.isAuthorized ? "location.fill" : "location") {
+                FloatingMapButton(
+                    systemImage: locationController.isAuthorized ? "location.fill" : "location",
+                    accessibilityLabel: "定位到我的位置"
+                ) {
                     centerOnUser()
                 }
 
                 ForEach(CampusPreset.allCases) { preset in
                     FloatingMapLabelButton(
                         label: preset.shortLabel,
+                        accessibilityLabel: "切换到\(preset.displayName)",
                         isSelected: preset == selectedCampus
                     ) {
                         jump(to: preset, animated: false)
@@ -154,6 +161,7 @@ struct CampusMapScreen: View {
 /// 地图页的定位按钮和其它圆形入口都复用这一套样式，保持与话廊/日程悬浮按钮观感一致。
 private struct FloatingMapButton: View {
     let systemImage: String
+    let accessibilityLabel: String
     let action: () -> Void
 
     /// 通用圆形按钮主体。
@@ -166,6 +174,7 @@ private struct FloatingMapButton: View {
         }
         .buttonStyle(.plain)
         .background(.ultraThinMaterial, in: Circle())
+        .accessibilityLabel(accessibilityLabel)
     }
 }
 
@@ -174,6 +183,7 @@ private struct FloatingMapButton: View {
 /// 这里用极简的单字标签，是因为按钮空间很小；完整校区名由地图内容本身承担识别。
 private struct FloatingMapLabelButton: View {
     let label: String
+    let accessibilityLabel: String
     let isSelected: Bool
     let action: () -> Void
 
@@ -191,5 +201,7 @@ private struct FloatingMapLabelButton: View {
             in: Circle()
         )
         .background(.ultraThinMaterial, in: Circle())
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }

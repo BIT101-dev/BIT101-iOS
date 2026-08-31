@@ -245,11 +245,11 @@ private struct CourseScheduleTabView: View {
                         .padding(.bottom, 10)
 
                         VStack(spacing: 10) {
-                            CourseScheduleFAB(systemImage: "chevron.up") {
+                            CourseScheduleFAB(systemImage: "chevron.up", accessibilityLabel: "上一周") {
                                 viewModel.previousWeek()
                             }
 
-                            CourseScheduleFAB(systemImage: "chevron.down") {
+                            CourseScheduleFAB(systemImage: "chevron.down", accessibilityLabel: "下一周") {
                                 viewModel.nextWeek()
                             }
 
@@ -271,6 +271,7 @@ private struct CourseScheduleTabView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .tint(.primary)
+                                .accessibilityLabel("添加课表内容")
 
                                 Menu {
                                     Button(role: .destructive) {
@@ -290,9 +291,10 @@ private struct CourseScheduleTabView: View {
                                 .buttonStyle(.plain)
                                 .tint(.primary)
                                 .disabled(isUpdatingSystemCalendar)
+                                .accessibilityLabel("系统日历操作")
                             }
 
-                            CourseScheduleFAB(systemImage: "gearshape") {
+                            CourseScheduleFAB(systemImage: "gearshape", accessibilityLabel: "课表设置") {
                                 settingsRoute = .calendar
                             }
                         }

@@ -51,6 +51,7 @@ struct PaperArticleActionMenu: View {
 /// 这里直接对齐话廊现有的按钮尺寸和材质，避免两个内容页入口按钮风格割裂。
 struct PaperFloatingActionButton: View {
     let systemImage: String
+    let accessibilityLabel: String
     let action: () -> Void
 
     var body: some View {
@@ -62,6 +63,7 @@ struct PaperFloatingActionButton: View {
                 .background(.ultraThinMaterial, in: Circle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
     }
 }
 

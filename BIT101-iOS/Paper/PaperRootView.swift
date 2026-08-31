@@ -109,11 +109,11 @@ struct PaperRootView: View {
             .simultaneousGesture(sortSwitchGesture)
 
             VStack(spacing: 10) {
-                PaperFloatingActionButton(systemImage: "square.and.pencil") {
+                PaperFloatingActionButton(systemImage: "square.and.pencil", accessibilityLabel: "发布文章") {
                     isShowingComposer = true
                 }
 
-                PaperFloatingActionButton(systemImage: "magnifyingglass") {
+                PaperFloatingActionButton(systemImage: "magnifyingglass", accessibilityLabel: "搜索文章") {
                     isShowingSearch = true
                 }
             }

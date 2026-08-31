@@ -75,13 +75,13 @@ struct DDLScheduleTabView: View {
             }
 
             VStack(spacing: 10) {
-                CourseScheduleFAB(systemImage: "plus") {
+                CourseScheduleFAB(systemImage: "plus", accessibilityLabel: "添加待办") {
                     editingEventID = nil
                     draft = DDLDraft()
                     isShowingEditor = true
                 }
 
-                CourseScheduleFAB(systemImage: "gearshape") {
+                CourseScheduleFAB(systemImage: "gearshape", accessibilityLabel: "待办设置") {
                     settingsRoute = .ddl
                 }
             }

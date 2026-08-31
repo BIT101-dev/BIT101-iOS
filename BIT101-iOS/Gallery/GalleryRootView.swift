@@ -159,16 +159,17 @@ struct GalleryRootView: View {
             VStack(spacing: 10) {
                 GalleryFloatingActionButton(
                     systemImage: "bell.badge",
-                    badgeText: messageBadgeText
+                    badgeText: messageBadgeText,
+                    accessibilityLabel: "消息"
                 ) {
                     isShowingMessages = true
                 }
 
-                GalleryFloatingActionButton(systemImage: "square.and.pencil") {
+                GalleryFloatingActionButton(systemImage: "square.and.pencil", accessibilityLabel: "发布话题") {
                     isShowingComposer = true
                 }
 
-                GalleryFloatingActionButton(systemImage: "magnifyingglass") {
+                GalleryFloatingActionButton(systemImage: "magnifyingglass", accessibilityLabel: "搜索话廊") {
                     viewModel.isShowingSearch = true
                 }
             }
@@ -335,11 +336,18 @@ final class GalleryNetworkObserver: ObservableObject {
 private struct GalleryFloatingActionButton: View {
     let systemImage: String
     let badgeText: String?
+    let accessibilityLabel: String
     let action: () -> Void
 
-    init(systemImage: String, badgeText: String? = nil, action: @escaping () -> Void) {
+    init(
+        systemImage: String,
+        badgeText: String? = nil,
+        accessibilityLabel: String,
+        action: @escaping () -> Void
+    ) {
         self.systemImage = systemImage
         self.badgeText = badgeText
+        self.accessibilityLabel = accessibilityLabel
         self.action = action
     }
 
@@ -364,6 +372,8 @@ private struct GalleryFloatingActionButton: View {
             }
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(badgeText.map { "\($0) 条未读" } ?? "")
     }
 }
 

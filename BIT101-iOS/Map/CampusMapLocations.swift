@@ -29,6 +29,16 @@ enum CampusPreset: String, CaseIterable, Identifiable {
         }
     }
 
+    /// VoiceOver 和其它需要完整语义的界面使用的校区名。
+    var displayName: String {
+        switch self {
+        case .liangxiang:
+            return "良乡校区"
+        case .zhongguancun:
+            return "中关村校区"
+        }
+    }
+
     /// 当前校区在地图上的中心点。
     var coordinate: CLLocationCoordinate2D {
         switch self {
