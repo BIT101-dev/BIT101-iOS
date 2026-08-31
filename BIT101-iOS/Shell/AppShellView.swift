@@ -143,7 +143,13 @@ struct AppShellView: View {
                 NavigationStack {
                     switch tab {
                     case .schedule:
-                        ScheduleRootView(requestedSection: $requestedScheduleSection)
+                        ScheduleRootView(
+                            requestedSection: $requestedScheduleSection,
+                            onOpenAcademicCourse: { courseID in
+                                selectTab(.score)
+                                requestedCourseID = courseID
+                            }
+                        )
                     case .course:
                         ScoreRootView(requestedCourseID: $requestedCourseID)
                     case .map:

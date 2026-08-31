@@ -28,8 +28,17 @@ private func normalizeDisplayedCourseTitle(_ value: String) -> String {
 struct ScheduleRootView: View {
     /// 壳层深链请求的目标分栏，例如从小组件点进来直接落到课表。
     @Binding var requestedSection: ScheduleSection?
+    let onOpenAcademicCourse: (Int) -> Void
     @StateObject private var viewModel = SchoolDataRefreshCoordinator.shared.scheduleViewModel
     @State private var courseTabResetSignal = 0
+
+    init(
+        requestedSection: Binding<ScheduleSection?>,
+        onOpenAcademicCourse: @escaping (Int) -> Void = { _ in }
+    ) {
+        _requestedSection = requestedSection
+        self.onOpenAcademicCourse = onOpenAcademicCourse
+    }
 
     /// 日程主页主体。
     var body: some View {
@@ -103,7 +112,8 @@ struct ScheduleRootView: View {
         case .courses:
             CourseScheduleTabView(
                 viewModel: viewModel,
-                resetSignal: courseTabResetSignal
+                resetSignal: courseTabResetSignal,
+                onOpenAcademicCourse: onOpenAcademicCourse
             )
         case .ddl:
             DDLScheduleTabView(viewModel: viewModel)
@@ -174,6 +184,7 @@ private struct ScheduleSectionTabs: View {
 private struct CourseScheduleTabView: View {
     @ObservedObject var viewModel: ScheduleViewModel
     let resetSignal: Int
+    let onOpenAcademicCourse: (Int) -> Void
     @State private var selectedEntry: ScheduleCalendarEntry?
     @State private var editingCustomScheduleID: String?
     @State private var editingCourseID: String?
@@ -330,10 +341,15 @@ private struct CourseScheduleTabView: View {
         .sheet(item: $selectedEntry) { entry in
             ScheduleEntryDetailSheet(
                 entry: entry,
+                academicCourse: activeSchedule.courses.first(where: { $0.id == entry.sourceID }),
                 currentWeek: viewModel.selectedWeek,
                 timeTable: activeSchedule.timeTable,
                 allowsCourseMutation: supportsEditingDisplayedSchedule,
                 allowsCustomScheduleMutation: supportsEditingDisplayedSchedule,
+                onOpenAcademicCourse: { courseID in
+                    selectedEntry = nil
+                    onOpenAcademicCourse(courseID)
+                },
                 onEditCourseOccurrence: {
                     guard let course = viewModel.cache.courses.first(where: { $0.id == entry.sourceID }) else { return }
                     editingCourseID = course.id

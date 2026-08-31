@@ -78,6 +78,71 @@ struct ScheduleSystemCalendarEventBuilderTests {
             timeTable: TimeSlot.default
         ).isEmpty)
     }
+
+    @Test("Numeric course numbers are not detected as phone numbers")
+    func preventsCourseNumberPhoneDetection() throws {
+        let rawNumber = "10001234567"
+        let protectedNumber = ScheduleSystemCalendarEventBuilder.dataDetectorSafeCourseNumber(rawNumber)
+        #expect(protectedNumber.replacingOccurrences(of: "\u{2060}", with: "") == rawNumber)
+
+        let notes = "课程编号：\(protectedNumber)"
+        let detector = try NSDataDetector(
+            types: NSTextCheckingResult.CheckingType.phoneNumber.rawValue
+        )
+        #expect(detector.matches(
+            in: notes,
+            range: NSRange(notes.startIndex..., in: notes)
+        ).isEmpty)
+    }
+}
+
+@Suite("Schedule academic course matching")
+struct ScheduleAcademicCourseMatcherTests {
+    @Test("Course number matching ignores formatting differences")
+    func matchesCourseNumber() {
+        let expected = makeSummary(id: 1, name: "高等数学", number: "MATH-1001", teacher: "张老师")
+        let other = makeSummary(id: 2, name: "高等数学", number: "MATH-1002", teacher: "张老师")
+        #expect(ScheduleAcademicCourseMatcher.numberMatch(
+            courseNumber: " math 1001 ",
+            candidates: [other, expected]
+        )?.id == expected.id)
+    }
+
+    @Test("Teacher disambiguates courses with the same name")
+    func disambiguatesByTeacher() {
+        let first = makeSummary(id: 1, name: "大学物理", number: "PHY-1", teacher: "张老师")
+        let second = makeSummary(id: 2, name: "大学物理", number: "PHY-2", teacher: "李老师")
+        #expect(ScheduleAcademicCourseMatcher.nameMatch(
+            courseName: "大学 物理",
+            teacher: "李老师",
+            candidates: [first, second]
+        )?.id == second.id)
+        #expect(ScheduleAcademicCourseMatcher.nameMatch(
+            courseName: "大学物理",
+            teacher: "",
+            candidates: [first, second]
+        ) == nil)
+    }
+
+    private func makeSummary(
+        id: Int,
+        name: String,
+        number: String,
+        teacher: String
+    ) -> CourseSummary {
+        CourseSummary(detail: CourseDetail(
+            id: id,
+            name: name,
+            number: number,
+            credit: 2,
+            likeNum: 0,
+            commentNum: 0,
+            rate: 0,
+            teachersName: teacher,
+            teachersNumber: "",
+            like: false
+        ))
+    }
 }
 
 @Suite("Academic term policy")

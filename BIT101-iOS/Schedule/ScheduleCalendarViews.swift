@@ -312,10 +312,12 @@ struct ScheduleCalendarEntry: Identifiable {
 /// 课表块点击后的二级详情页，兼容课程、考试和自定义日程三种来源。
 struct ScheduleEntryDetailSheet: View {
     let entry: ScheduleCalendarEntry
+    let academicCourse: CourseRecord?
     let currentWeek: Int
     let timeTable: [TimeSlot]
     let allowsCourseMutation: Bool
     let allowsCustomScheduleMutation: Bool
+    let onOpenAcademicCourse: (Int) -> Void
     let onEditCourseOccurrence: () -> Void
     let onEditCourse: () -> Void
     let onDeleteCourseOccurrence: () -> Void
@@ -324,6 +326,8 @@ struct ScheduleEntryDetailSheet: View {
     let onDeleteCustomSchedule: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var pendingCourseDeletion: PendingCourseDeletion?
+    @State private var isResolvingAcademicCourse = false
+    @State private var academicCourseAlert: AppAlert?
 
     var body: some View {
         NavigationStack {
@@ -342,6 +346,23 @@ struct ScheduleEntryDetailSheet: View {
                         ForEach(entry.detailLines, id: \.self) { line in
                             Text(line)
                         }
+                    }
+                }
+
+                if entry.kind == .course {
+                    Section {
+                        Button {
+                            Task { await openAcademicCourse() }
+                        } label: {
+                            HStack {
+                                Label("在“学业－课程”中查看", systemImage: "books.vertical")
+                                Spacer()
+                                if isResolvingAcademicCourse {
+                                    ProgressView()
+                                }
+                            }
+                        }
+                        .disabled(isResolvingAcademicCourse)
                     }
                 }
 
@@ -409,6 +430,44 @@ struct ScheduleEntryDetailSheet: View {
                     secondaryButton: .cancel(Text("取消"))
                 )
             }
+            .alert(item: $academicCourseAlert) { alert in
+                Alert(
+                    title: Text(alert.title),
+                    message: Text(alert.message),
+                    dismissButton: .default(Text("知道了"))
+                )
+            }
+        }
+    }
+
+    @MainActor
+    private func openAcademicCourse() async {
+        guard !isResolvingAcademicCourse else { return }
+        guard let academicCourse else {
+            academicCourseAlert = AppAlert(
+                title: "没有找到此课程",
+                message: "当前课表中找不到这门课程的完整信息。"
+            )
+            return
+        }
+
+        isResolvingAcademicCourse = true
+        defer { isResolvingAcademicCourse = false }
+        do {
+            guard let course = try await ScheduleAcademicCourseResolver().resolve(academicCourse) else {
+                academicCourseAlert = AppAlert(
+                    title: "没有找到此课程",
+                    message: "“\(academicCourse.name)”暂未收录在学业课程中。"
+                )
+                return
+            }
+            dismiss()
+            onOpenAcademicCourse(course.id)
+        } catch {
+            academicCourseAlert = AppAlert(
+                title: "查找课程失败",
+                message: error.localizedDescription
+            )
         }
     }
 

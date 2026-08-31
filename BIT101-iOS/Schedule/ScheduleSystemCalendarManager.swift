@@ -43,7 +43,7 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
 
                 let noteLines = [
                     course.teacher.isEmpty ? nil : "教师：\(course.teacher)",
-                    course.number.isEmpty ? nil : "课程编号：\(course.number)",
+                    course.number.isEmpty ? nil : "课程编号：\(dataDetectorSafeCourseNumber(course.number))",
                     course.description.isEmpty ? nil : course.description,
                 ].compactMap { $0 }
 
@@ -61,6 +61,21 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
             if lhs.startDate != rhs.startDate { return lhs.startDate < rhs.startDate }
             return lhs.title < rhs.title
         }
+    }
+
+    /// 在连续数字之间插入不可见的 word joiner，保留视觉内容，同时阻止系统日历
+    /// 把纯数字课程号误判成可拨打的电话号码。
+    static func dataDetectorSafeCourseNumber(_ value: String) -> String {
+        var result = ""
+        var previousWasNumber = false
+        for character in value {
+            if previousWasNumber, character.isNumber {
+                result.append("\u{2060}")
+            }
+            result.append(character)
+            previousWasNumber = character.isNumber
+        }
+        return result
     }
 
     private static func date(on day: Date, time: String, calendar: Calendar) -> Date? {
