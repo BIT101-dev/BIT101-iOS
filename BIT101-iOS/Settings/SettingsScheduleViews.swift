@@ -79,7 +79,7 @@ struct CalendarSettingsPage: View {
                 } label: {
                     LabeledContent {
                         Text(viewModel.cache.currentTerm.isEmpty ? "未设置" : viewModel.cache.currentTerm)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.tint)
                     } label: {
                         Text("当前学期")
                             .foregroundStyle(.tint)
