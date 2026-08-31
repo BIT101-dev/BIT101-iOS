@@ -11,13 +11,13 @@
 
 项目由两部分组成：
 
-- `BIT101-iOS/BIT101-iOS`
+- `BIT101-iOS`
   主应用 target
-- `BIT101-iOS/BIT101ScheduleWidget`
+- `BIT101ScheduleWidget`
   小组件、锁屏组件、Live Activity / 灵动岛扩展 target
-- `BIT101-iOS/BIT101Watch`
+- `BIT101Watch`
   Apple Watch 单 target 应用，包含应用入口、主界面与同步消费逻辑
-- `BIT101-iOS/BIT101WatchWidgets`
+- `BIT101WatchWidgets`
   Apple Watch Smart Stack 课表组件
 
 主应用的顶层流程非常直接：

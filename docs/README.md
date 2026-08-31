@@ -2,8 +2,8 @@
 
 `docs/` 目录的目标是把“能跑的代码”补成“能接手的工程”。
 
-当前文档基线对应 `1.7.0 (26)`：已包含学校新版 bit-login challenge、学期切换、
-可信成绩单，以及 Xcode 27 单 Watch App target 结构。
+当前文档基线对应 `1.7.4 (31)`：已包含学校新版 bit-login challenge、学期切换、
+可信成绩单、日历集成、Universal Links，以及 Xcode 27 单 Watch App target 结构。
 
 如果你是第一次进入这个仓库，建议从这里开始，而不是直接闯进某个大文件。
 

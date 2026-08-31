@@ -73,15 +73,15 @@
 
 主要目录如下：
 
-- `BIT101-iOS/BIT101-iOS`
+- `BIT101-iOS`
   主 App 源码
-- `BIT101-iOS/BIT101ScheduleWidget`
+- `BIT101ScheduleWidget`
   小组件、锁屏组件、Live Activity / 灵动岛扩展
-- `BIT101-iOS/BIT101Watch`
+- `BIT101Watch`
   Apple Watch App（Xcode 新版单 target 结构）
-- `BIT101-iOS/BIT101WatchWidgets`
+- `BIT101WatchWidgets`
   Apple Watch Smart Stack 组件扩展
-- `BIT101-iOS/docs`
+- `docs`
   仓库级文档
 
 主 App 内的核心模块：
