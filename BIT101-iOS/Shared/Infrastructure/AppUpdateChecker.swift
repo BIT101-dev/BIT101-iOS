@@ -290,6 +290,13 @@ final class AppPromptCoordinator: ObservableObject {
         handledIDs.insert(activePrompt.id)
         self.activePrompt = nil
 
+        // 测试或无动画宿主可以显式关闭退场等待；此时同步推进，避免把队列语义
+        // 绑定到主线程任务何时获得调度。
+        if advanceDelay == .zero {
+            presentNextIfPossible()
+            return
+        }
+
         // 等待系统完成上一只 UIAlertController 的退场动画，再交付下一项。
         advanceTask?.cancel()
         advanceTask = Task { @MainActor [weak self] in

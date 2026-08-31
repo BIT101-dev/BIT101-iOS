@@ -6,7 +6,7 @@ import Testing
 @Suite("App Store update reminder")
 struct AppUpdateCheckerTests {
     @Test("Global prompt coordinator presents one prompt at a time in queue order")
-    func promptQueueIsSerial() async throws {
+    func promptQueueIsSerial() throws {
         let coordinator = AppPromptCoordinator(advanceDelay: .zero)
         var presented: [String] = []
         var performed: [String] = []
@@ -36,7 +36,6 @@ struct AppUpdateCheckerTests {
 
         let firstAction = try #require(coordinator.activePrompt?.actions.first)
         coordinator.perform(firstAction)
-        try await Task.sleep(for: .milliseconds(10))
 
         #expect(coordinator.activePrompt?.id == "second")
         #expect(presented == ["first", "second"])
@@ -44,7 +43,6 @@ struct AppUpdateCheckerTests {
 
         let secondAction = try #require(coordinator.activePrompt?.actions.first)
         coordinator.perform(secondAction)
-        try await Task.sleep(for: .milliseconds(10))
 
         #expect(coordinator.activePrompt == nil)
         #expect(performed == ["first", "second"])
