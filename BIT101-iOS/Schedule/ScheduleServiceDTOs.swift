@@ -199,8 +199,8 @@ struct BuildingListResponse: Decodable {
 
         let buildingName: String
         let buildingCode: String
-        let campusName: String
-        let campusCode: String
+        let campusName: String?
+        let campusCode: String?
     }
 
     let datas: Datas

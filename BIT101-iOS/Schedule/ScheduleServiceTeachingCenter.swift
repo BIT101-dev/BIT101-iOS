@@ -174,8 +174,8 @@ extension ScheduleService {
                 id: $0.buildingCode,
                 name: $0.buildingName,
                 buildingCode: $0.buildingCode,
-                campusName: $0.campusName,
-                campusCode: $0.campusCode
+                campusName: $0.campusName ?? "",
+                campusCode: $0.campusCode ?? ""
             )
         }
     }
