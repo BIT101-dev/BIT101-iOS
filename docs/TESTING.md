@@ -1,8 +1,8 @@
 # 测试与持续集成
 
-## 测试授权边界
+## 网络冒烟测试授权边界
 
-除非用户明确要求进行网络测试，否则不得主动执行任何测试；不能因用户要求检查、实现、构建、安装或评估可行性而自行扩大为测试任务。
+未经用户明确指示，不得主动执行网络侧冒烟测试。构建、静态检查及不涉及网络的本地验证不属于此限制；是否执行仍按当前任务要求决定。
 
 ## 设备使用红线
 
@@ -83,6 +83,25 @@ xcodebuild build \
 
 ## CI 门禁
 
+发布前网络冒烟按依赖边界提供两个入口：
+
+- `Scripts/release-network-smoke-bit101.sh`：BIT101 自有 API、社区/学业只读接口、网页中转和远程配置；
+- `Scripts/release-network-smoke-school.sh`：学校教学中心、WebVPN、乐学、课表、成绩及可信成绩单相关链路。
+
+### 正式 App 网络冒烟说明
+
+`release-network-smoke.sh` 使用 Debug 构建，不会把 smoke runner 和触发路由编译进 App Store Release；
+它会先做一次本地构建检查，然后直接向
+当前已安装并运行中的正式 App 发送 `bit101://network-smoke/<scope>?run=<uuid>`，
+在同一进程内触发只读探针。这样可以复用正式 App 当前保存的登录态、Cookie 与缓存，
+而不是测试 Host 的独立会话。
+
+脚本会把结果写到应用组目录 `group.BIT101-dev.BIT101-iOS.shared/Library/NetworkSmoke/` 下的
+`release-network-smoke-<runID>.json`，再由命令行读取并判断是否通过。
+
+可信成绩单仍然属于学校链路的一部分；当前冒烟只区分 `all`、`bit101` 和 `school`
+三个范围，不再单独保留重新认证入口。
+
 CI 或其它自动化同样不得启动、创建或使用模拟器。无法提供真机 destination 的环境只能做不依赖模拟器的静态检查；真机构建、测试、Widget 时间线和 Live Activity 时序按 `MODULE_PLAYBOOK.md` 人工验证。
 
 CI 的版本门禁由 `Scripts/validate_versions.py` 提供，检查所有 Target/Configuration 的公开版本与 Build 是否一致、格式是否合法，以及相对 PR 基准是否倒退。在 GitHub Actions 手动运行 `iOS CI` 并打开 `release_check`，还会确认准备发布的公开版本高于 App Store 当前版本。
@@ -143,7 +162,9 @@ xcodebuild build \
 
 - 课表自动同步按 3 月 1 日、9 月 1 日推导当前及下一学期，并保存两份转换后的完整快照（首周、课程、考试）。
 - 学校返回的首周日期优先于日历分界；新学期快照尚无课程/考试时不得用空数据覆盖当前课表。
+- 手动选择学期先更新当前学期；随后课表请求失败仍应保留该选择并显示错误，已有快照应继续展示，没有快照时不得展示旧学期课程。
 - 冷启动只可从本地快照自动切换到已经开始的新学期，不得为切换而启动模拟器或依赖 UI 自动化。
+- 手动周次浏览应可超过课程最后一周；冷启动、学期切换、同步和“回到本周”按首周日期定位时，结果应限制在第 -12 至 +20 周。
 - 启动自动成绩查询仅在第 16 周结束后至下一学期首周之前启用，并按账号每天最多尝试一次；主动进入成绩页和下拉刷新不受此限制。
 - 假期内不得自动同步 DDL 或预热空教室；学期开始后恢复。主动进入对应页面或手动刷新不受限制。
 - 假期只检查下一学期课表：平时最多每 7 天一次，距新学期首周 14 天内最多每天一次；已经取得有效课表后，开学前不再重复获取。
@@ -164,3 +185,14 @@ xcodebuild build \
 - 简略列表未变化，且最新学期已知教学班状态全部为“是”时，直接复用详细缓存。
 - 简略列表未变化但仍存在“否”时，详细查询按账号限制为 24 小时最多一次。
 - 主动下拉刷新优先级最高，必须绕过详细缓存并完整查询简略与详细成绩。
+## 错误报告
+
+```sh
+Scripts/check-error-report-coverage.sh
+Scripts/error-reports.sh list
+Scripts/error-reports.sh latest
+Scripts/error-reports.sh delete '<report-key>'
+```
+
+覆盖检查确保用户可见的错误弹窗和主要失败占位页保留 App Store 与错误报告入口。
+报告直接通过当前 Wrangler 登录读取远端 KV，不需要额外管理网页。

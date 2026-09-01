@@ -103,11 +103,11 @@ enum AppTab: String, Identifiable, Codable {
 ///
 /// 壳层只关心两件事：按照设置中心决定展示哪些 tab，以及把退出登录回调继续往下传。
 struct AppShellView: View {
-    private static let startupNoticeTitle = "1.7.5 版本更新"
+    private static let startupNoticeTitle = "1.7.6 版本更新"
     private static let startupNoticeBody = """
-    点击课程后可选择跳转至对应的课程详情。
-    修复并加速课表网络请求；此前无法获取课表的同学现在可以正常使用。
-    优化使用体验。
+    新增可选的错误信息反馈，可提交脱敏调试信息或原始网络响应，并附加留言。
+    优化错误提示、更新入口和课表同步，异常数据不会覆盖现有课表。
+    优化输入体验。
     """
     private static let widgetUsageGuideTitle = "非常有用的几个用法"
     private static let widgetUsageGuideBody = """
@@ -232,6 +232,10 @@ struct AppShellView: View {
             handleIncomingURL(url)
             AppDeepLinkCoordinator.shared.consume(url)
         }
+        .onReceive(schoolDataRefresh.scheduleViewModel.$notice.compactMap { $0 }) { notice in
+            schoolDataRefresh.scheduleViewModel.notice = nil
+            AppErrorPresenter.shared.present(notice)
+        }
     }
 
     /// 统一拦截 tab 切换，把话题 EULA 的弹出逻辑收束到这里。
@@ -257,6 +261,18 @@ struct AppShellView: View {
     ///
     /// 同时接收 `bit101://` 内部链接和 `https://open.aihelpme.dev` Universal Link。
     private func handleIncomingURL(_ url: URL) {
+        #if DEBUG || RELEASE_NETWORK_SMOKE
+        if let smokeRequest = ReleaseNetworkSmokeLaunchRequest(url: url) {
+            Task {
+                _ = await ReleaseNetworkSmokeRunner().run(
+                    scope: smokeRequest.scope,
+                    runID: smokeRequest.runID
+                )
+            }
+            return
+        }
+
+        #endif
         guard let route = AppDeepLinkRoute(url: url) else { return }
 
         switch route {

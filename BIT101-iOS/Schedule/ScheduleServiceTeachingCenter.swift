@@ -248,7 +248,22 @@ extension ScheduleService {
             body: [("XNXQDM", term)]
         )
 
-        return response.datas.cxxszhxqkb.rows.map { row in
+        let result = response.datas.cxxszhxqkb
+        if result.rows.isEmpty,
+           let message = result.extParams?.msg?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !message.isEmpty
+        {
+            throw ScheduleServiceError.schoolResponse(message)
+        }
+
+        guard result.rows.allSatisfy({ row in
+            !(row.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !(row.courseNumber ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) else {
+            throw ScheduleServiceError.invalidResponse
+        }
+
+        return result.rows.map { row in
             let weeks = (row.rawWeeks ?? "").enumerated().compactMap { index, flag in
                 flag == "1" ? index + 1 : nil
             }

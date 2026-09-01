@@ -43,6 +43,8 @@ struct CourseCommentsSection: View {
                     Label("加载评论失败", systemImage: "bubble.right.fill")
                 } description: {
                     Text(message)
+                } actions: {
+                    DiagnosticRecoveryActions(title: "加载评论失败", message: message)
                 }
 
             default:

@@ -116,13 +116,7 @@ struct PaperComposerView: View {
                 .disabled(isSubmitting)
             }
         }
-        .alert(item: $alert) { alert in
-            Alert(
-                title: Text(alert.title),
-                message: Text(alert.message),
-                dismissButton: .default(Text("知道了"))
-            )
-        }
+        .diagnosticAlert(item: $alert)
     }
 
     private func submit() async {

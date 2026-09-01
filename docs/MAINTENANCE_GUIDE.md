@@ -361,3 +361,8 @@ bit-login 返回的 `challenge_id`、access token、短信状态和教学中心�
 
 - `docs/MAINTENANCE_GUIDE.md`
 - `docs/FILE_INDEX.md`
+# 维护边界
+
+- 本项目维护者仅负责 BIT101 iOS 客户端。
+- 不拥有 BIT101 相关域名，也不是服务端维护者；服务端问题应提交 issue 或联系服务端维护团队。
+- 仅拥有 `aihelpme.dev` 及其相关资源。

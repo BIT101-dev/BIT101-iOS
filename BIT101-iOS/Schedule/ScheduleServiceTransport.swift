@@ -34,6 +34,9 @@ extension ScheduleService {
         guard (200 ..< 300).contains(response.statusCode) else {
             throw httpError(response.statusCode)
         }
+        if let message = Self.schoolBusinessErrorMessage(from: data) {
+            throw ScheduleServiceError.schoolResponse(message)
+        }
 
         do {
             return try Self.decoder.decode(Response.self, from: data)
@@ -42,6 +45,43 @@ extension ScheduleService {
             // 网关故障或接口改版，不能误导用户说“登录失效”。
             throw ScheduleServiceError.invalidResponse
         }
+    }
+
+    /// 学校部分 JSON 接口即使业务失败也返回 HTTP 200 和外层 `code: 0`，
+    /// 真正错误藏在任意层级的 `code + msg`（例如课表未发布的 extParams）。
+    nonisolated static func schoolBusinessErrorMessage(from data: Data) -> String? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) else { return nil }
+
+        func inspect(_ value: Any) -> String? {
+            if let dictionary = value as? [String: Any] {
+                let message = (dictionary["msg"] as? String)
+                    ?? (dictionary["message"] as? String)
+                    ?? (dictionary["error"] as? String)
+                let trimmed = message?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !trimmed.isEmpty {
+                    if let success = dictionary["success"] as? Bool, !success { return trimmed }
+                    if let code = normalizedBusinessCode(dictionary["code"]), ![0, 1, 200].contains(code) {
+                        return trimmed
+                    }
+                }
+                for child in dictionary.values {
+                    if let found = inspect(child) { return found }
+                }
+            } else if let array = value as? [Any] {
+                for child in array {
+                    if let found = inspect(child) { return found }
+                }
+            }
+            return nil
+        }
+
+        return inspect(root)
+    }
+
+    private nonisolated static func normalizedBusinessCode(_ value: Any?) -> Int? {
+        if let number = value as? NSNumber { return number.intValue }
+        if let string = value as? String { return Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        return nil
     }
 
     /// 发送返回字符串正文的请求，主要用于 HTML 页和 ICS 文件。

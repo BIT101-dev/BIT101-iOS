@@ -95,13 +95,7 @@ struct CampusMapScreen: View {
                 pendingCenterOnUserAfterAuthorization = false
             }
         }
-        .alert(item: $locationController.notice) { notice in
-            Alert(
-                title: Text(notice.title),
-                message: Text(notice.message),
-                dismissButton: .default(Text("知道了"))
-            )
-        }
+        .diagnosticAlert(item: $locationController.notice)
     }
 
     /// 切换到指定校区并更新本地持久化。

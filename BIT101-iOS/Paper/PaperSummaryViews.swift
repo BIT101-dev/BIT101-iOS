@@ -119,7 +119,9 @@ struct PaperEmptyState: View {
             if let onRetry {
                 Button("重试", action: onRetry)
             }
+            if title.contains("失败") {
+                DiagnosticRecoveryActions(title: title, message: message)
+            }
         }
     }
 }
-

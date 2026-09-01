@@ -42,6 +42,7 @@ struct GalleryFeedView: View {
                             Button("重试") {
                                 onRefresh()
                             }
+                            DiagnosticRecoveryActions(title: "加载话廊失败", message: message)
                         }
                     }
                 } else {

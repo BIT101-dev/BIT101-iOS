@@ -128,6 +128,7 @@ private struct ScoreListPage: View {
                     Button("重新查询") {
                         Task { await viewModel.refresh() }
                     }
+                    DiagnosticRecoveryActions(title: "成绩加载失败", message: message)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(.systemGroupedBackground))
@@ -258,9 +259,7 @@ private struct ScoreListPage: View {
         .task {
             await viewModel.bootstrapIfNeeded()
         }
-        .alert(item: $viewModel.alert) { alert in
-            Alert(title: Text(alert.title), message: Text(alert.message), dismissButton: .default(Text("知道了")))
-        }
+        .diagnosticAlert(item: $viewModel.alert)
         .sheet(
             item: Binding(
                 get: { viewModel.smsChallenge },
@@ -331,6 +330,7 @@ private struct TrustedTranscriptPage: View {
                     Button("重试") {
                         Task { await viewModel.apply() }
                     }
+                    DiagnosticRecoveryActions(title: "可信成绩单申请失败", message: message)
                 }
             case .loaded:
                 if !viewModel.images.isEmpty {

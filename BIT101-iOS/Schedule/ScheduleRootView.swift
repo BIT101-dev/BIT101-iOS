@@ -76,13 +76,6 @@ struct ScheduleRootView: View {
         .onChange(of: requestedSection) { _, _ in
             consumeRequestedSectionIfNeeded()
         }
-        .alert(item: $viewModel.notice) { notice in
-            Alert(
-                title: Text(notice.title),
-                message: Text(notice.message),
-                dismissButton: .default(Text("知道了"))
-            )
-        }
         .sheet(
             item: Binding(
                 get: { viewModel.smsChallenge },

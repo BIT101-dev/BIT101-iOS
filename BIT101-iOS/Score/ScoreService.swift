@@ -236,7 +236,7 @@ struct ScoreService {
     private func performTranscriptRequest(
         body: TranscriptRequest,
         authorization: String?,
-        mayRetryTransientFailure: Bool = true
+        remainingTransientRetries: Int = 2
     ) async throws -> [Data] {
         var request = URLRequest(url: endpointBaseURL.appending(path: "api/jwb/cjd/cookies"))
         request.timeoutInterval = Self.authenticationWaitSeconds
@@ -262,17 +262,17 @@ struct ScoreService {
 
         guard (200 ..< 300).contains(response.statusCode) else {
             // 已完成认证后，学校生成成绩单的页面偶尔会暂时返回 5xx。复用同一个 challenge
-            // 重试不会重复登录或重复发送短信，也比让用户从头申请安全、快速。
+            // 多试几次不会重复登录或重复发送短信，也比让用户从头申请安全、快速。
             if
                 authorization != nil,
-                mayRetryTransientFailure,
+                remainingTransientRetries > 0,
                 [500, 502, 503, 504].contains(response.statusCode)
             {
                 try await Task.sleep(for: .milliseconds(800))
                 return try await performTranscriptRequest(
                     body: body,
                     authorization: authorization,
-                    mayRetryTransientFailure: false
+                    remainingTransientRetries: remainingTransientRetries - 1
                 )
             }
 

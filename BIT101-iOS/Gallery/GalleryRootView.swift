@@ -103,13 +103,7 @@ struct GalleryRootView: View {
         .navigationDestination(item: $deepLinkedPoster) { poster in
             GalleryPosterDetailView(poster: poster)
         }
-        .alert(item: $deepLinkAlert) { alert in
-            Alert(
-                title: Text(alert.title),
-                message: Text(alert.message),
-                dismissButton: .default(Text("知道了"))
-            )
-        }
+        .diagnosticAlert(item: $deepLinkAlert)
         .toolbar(.hidden, for: .navigationBar)
     }
 
@@ -232,13 +226,7 @@ struct GalleryRootView: View {
                 }
             }
         }
-        .alert(item: $viewModel.alert) { alert in
-            Alert(
-                title: Text(alert.title),
-                message: Text(alert.message),
-                dismissButton: .default(Text("知道了"))
-            )
-        }
+        .diagnosticAlert(item: $viewModel.alert)
     }
 
     private func filteredState(for feed: GalleryFeedKind) -> GalleryFeedState {

@@ -109,9 +109,7 @@ struct GallerySettingsPage: View {
             await refreshImageCacheUsage()
             await loadHiddenUsers()
         }
-        .alert(item: $alert) { alert in
-            Alert(title: Text(alert.title), message: Text(alert.message), dismissButton: .default(Text("知道了")))
-        }
+        .diagnosticAlert(item: $alert)
     }
 
     /// 在后台统计话廊图片缓存，并以系统文件大小格式回写设置页。
@@ -234,9 +232,7 @@ struct AboutSettingsPage: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .alert(item: $alert) { alert in
-            Alert(title: Text(alert.title), message: Text(alert.message), dismissButton: .default(Text("知道了")))
-        }
+        .diagnosticAlert(item: $alert)
         .alert("非常有用的几个用法", isPresented: $isShowingWidgetUsageGuide) {
             Button("知道了") {
                 settings.markCurrentWidgetUsageGuideSeen()

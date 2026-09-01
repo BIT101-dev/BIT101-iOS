@@ -52,6 +52,12 @@ struct CourseResponse: Decodable {
     struct Datas: Decodable {
         struct Rows: Decodable {
             let rows: [CourseRow]
+            let extParams: ExtParams?
+        }
+
+        struct ExtParams: Decodable {
+            let code: Int?
+            let msg: String?
         }
 
         let cxxszhxqkb: Rows

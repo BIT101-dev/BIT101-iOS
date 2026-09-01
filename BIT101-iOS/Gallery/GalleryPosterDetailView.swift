@@ -241,13 +241,7 @@ struct GalleryPosterDetailView: View {
                 }
             }
         }
-        .alert(item: $viewModel.alert) { alert in
-            Alert(
-                title: Text(alert.title),
-                message: Text(alert.message),
-                dismissButton: .default(Text("知道了"))
-            )
-        }
+        .diagnosticAlert(item: $viewModel.alert)
         .alert(
             "删除帖子",
             isPresented: $isShowingDeleteConfirmation,

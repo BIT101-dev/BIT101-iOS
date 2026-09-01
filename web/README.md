@@ -9,6 +9,7 @@
 | `privacy.aihelpme.dev` | Pages | `privacy-policy` | `web/privacy/` |
 | `open.aihelpme.dev` | Worker | `bit101-open` | `web/open-worker/` |
 | `update.aihelpme.dev` | Worker + KV | `bit101-emergency-update` | `Cloudflare/EmergencyUpdateWorker/` |
+| `feedback.aihelpme.dev` | Worker + KV | `bit101-error-reports` | `Cloudflare/ErrorReportWorker/` |
 
 2026-08-31 已通过 Wrangler 确认：当前 OAuth 登录可以读取并部署 `privacy-policy` Pages 项目和
 `bit101-open` Worker，并具有 Pages、Workers、KV 与 Worker Routes 写入权限。因此在授权未过期
@@ -29,6 +30,9 @@
 
 # 紧急更新 Worker
 (cd Cloudflare/EmergencyUpdateWorker && npx wrangler deploy)
+
+# 用户主动提交的错误报告 Worker
+(cd Cloudflare/ErrorReportWorker && npx wrangler deploy)
 ```
 
 以上命令都会直接修改线上资源，只有在用户明确要求部署时才能执行。若 Wrangler 授权过期、被撤销

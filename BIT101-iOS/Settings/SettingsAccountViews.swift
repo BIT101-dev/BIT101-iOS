@@ -122,9 +122,7 @@ struct AccountSettingsPage: View {
                 }
             )
         }
-        .alert(item: $alert) { alert in
-            Alert(title: Text(alert.title), message: Text(alert.message), dismissButton: .default(Text("知道了")))
-        }
+        .diagnosticAlert(item: $alert)
     }
 
     /// 拉取当前登录用户资料卡。

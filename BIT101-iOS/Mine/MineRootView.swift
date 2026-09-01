@@ -102,13 +102,7 @@ struct MineRootView: View {
         .task {
             await viewModel.bootstrapIfNeeded()
         }
-        .alert(item: $viewModel.alert) { alert in
-            Alert(
-                title: Text(alert.title),
-                message: Text(alert.message),
-                dismissButton: .default(Text("知道了"))
-            )
-        }
+        .diagnosticAlert(item: $viewModel.alert)
     }
 
     /// 资料卡区域，根据加载状态展示骨架、错误页或真实内容。
@@ -124,6 +118,8 @@ struct MineRootView: View {
                 Label("加载失败", systemImage: "person.crop.circle.badge.exclamationmark")
             } description: {
                 Text(message)
+            } actions: {
+                DiagnosticRecoveryActions(title: "个人信息加载失败", message: message)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 20)
@@ -220,13 +216,7 @@ struct UserProfileRootView: View {
             .presentationDragIndicator(.hidden)
         }
         .gallerySystemImagePreview(item: $imageViewer)
-        .alert(item: $viewModel.alert) { alert in
-            Alert(
-                title: Text(alert.title),
-                message: Text(alert.message),
-                dismissButton: .default(Text("知道了"))
-            )
-        }
+        .diagnosticAlert(item: $viewModel.alert)
     }
 
     @ViewBuilder
@@ -241,6 +231,8 @@ struct UserProfileRootView: View {
                 Label("加载失败", systemImage: "person.crop.circle.badge.exclamationmark")
             } description: {
                 Text(message)
+            } actions: {
+                DiagnosticRecoveryActions(title: "主页加载失败", message: message)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 20)
@@ -277,6 +269,8 @@ struct UserProfileRootView: View {
                 Label("加载帖子失败", systemImage: "text.bubble")
             } description: {
                 Text(message)
+            } actions: {
+                DiagnosticRecoveryActions(title: "帖子加载失败", message: message)
             }
         default:
             if visiblePosters.isEmpty {
@@ -443,6 +437,8 @@ private struct MineUserListView: View {
                     Label("加载失败", systemImage: "person.2.slash")
                 } description: {
                     Text(message)
+                } actions: {
+                    DiagnosticRecoveryActions(title: "用户列表加载失败", message: message)
                 }
             } else {
                 List {
@@ -551,6 +547,8 @@ private struct MinePosterListView: View {
                     Label("加载失败", systemImage: "text.bubble")
                 } description: {
                     Text(message)
+                } actions: {
+                    DiagnosticRecoveryActions(title: "帖子加载失败", message: message)
                 }
             } else if visiblePosters.isEmpty {
                 ContentUnavailableView("暂无可显示的帖子", systemImage: "text.bubble")
@@ -633,13 +631,7 @@ private struct MinePosterListView: View {
         } message: { poster in
             Text("确定删除“\(poster.title.isEmpty ? "未命名帖子" : poster.title)”吗？删除后无法恢复。")
         }
-        .alert(item: $alert) { alert in
-            Alert(
-                title: Text(alert.title),
-                message: Text(alert.message),
-                dismissButton: .default(Text("知道了"))
-            )
-        }
+        .diagnosticAlert(item: $alert)
     }
 
     private var isInitialLoading: Bool {

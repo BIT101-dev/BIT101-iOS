@@ -331,13 +331,6 @@ struct CalendarSettingsPage: View {
         } message: {
             Text("课表可以单击以改名，左滑以删除，在日程界面上下滑可循环切换，所有小组件以自己的课表作为数据源。")
         }
-        .alert(item: $viewModel.notice) { notice in
-            Alert(
-                title: Text(notice.title),
-                message: Text(notice.message),
-                dismissButton: .default(Text("知道了"))
-            )
-        }
     }
 
     /// 生成一份可复制的压缩课表编码。
@@ -390,7 +383,7 @@ struct CalendarSettingsPage: View {
 /// 课表学期选择页。
 ///
 /// 这里只展示学校接口实际返回的学期，不在本地追加、推算或生成任何选项。
-/// 真正切换只有在课程、考试和首周全部获取成功后才落盘。
+/// 学期选择先独立落盘；课表、考试和首周的同步失败只提示错误，不回滚学期选择。
 private struct ScheduleTermPickerPage: View {
     @ObservedObject var viewModel: ScheduleViewModel
 
@@ -641,9 +634,7 @@ private struct ScheduleImportCodeSheet: View {
                     }
                 }
             }
-            .alert(item: $localAlert) { alert in
-                Alert(title: Text(alert.title), message: Text(alert.message), dismissButton: .default(Text("知道了")))
-            }
+            .diagnosticAlert(item: $localAlert)
             .alert(
                 "需要更新 BIT101",
                 isPresented: Binding(
@@ -708,9 +699,7 @@ private struct ScheduleRenameSheet: View {
                     }
                 }
             }
-            .alert(item: $localAlert) { alert in
-                Alert(title: Text(alert.title), message: Text(alert.message), dismissButton: .default(Text("知道了")))
-            }
+            .diagnosticAlert(item: $localAlert)
         }
     }
 }

@@ -8,6 +8,34 @@
 import Combine
 import Foundation
 
+nonisolated enum CourseSyncReplacementPolicy {
+    static func shouldReplace(existing: [CourseRecord], with incoming: [CourseRecord]) -> Bool {
+        guard !incoming.isEmpty, incoming.count >= existing.count else { return false }
+        let existingIDs = Set(existing.map(identity))
+        return incoming.map(identity).contains { !existingIDs.contains($0) }
+    }
+
+    private static func identity(_ course: CourseRecord) -> String {
+        [course.number, course.name, course.teacher, course.classroom,
+         course.weekday.description, course.startSection.description,
+         course.endSection.description, course.weeks.map(String.init).joined(separator: ",")]
+            .joined(separator: "|")
+    }
+}
+
+/// 周视图的自动定位范围。
+///
+/// 手动翻页不使用这个范围；它只保护冷启动、学期切换和同步等
+/// “按今天计算周次”的入口，避免首周日期异常时跳到过远的周次。
+nonisolated enum ScheduleAutomaticWeekPolicy {
+    static let minimumWeek = -12
+    static let maximumWeek = 20
+
+    static func clamped(_ week: Int) -> Int {
+        min(max(week, minimumWeek), maximumWeek)
+    }
+}
+
 private extension Int {
     func modulo(_ count: Int) -> Int {
         guard count > 0 else { return 0 }
@@ -186,11 +214,6 @@ final class ScheduleViewModel: ObservableObject {
         activeCourseSchedule.title
     }
 
-    /// 当前课表向后浏览的最大周数，至少覆盖课程最后一周和按首周日期推导出的当前周。
-    var maxWeek: Int {
-        max(activeCourseSchedule.courses.flatMap(\.weeks).max() ?? 1, resolvedCurrentWeek())
-    }
-
     /// 是否已经同步到任何课程或考试数据。
     var hasCourseData: Bool {
         activeCourseSchedule.hasCourseData
@@ -276,10 +299,11 @@ final class ScheduleViewModel: ObservableObject {
         hasLoaded = true
 
         // 页面先读本地缓存，确保一打开就有内容，避免每次冷启动都重新同步。
-        // `loadIfNeeded` 在进程生命周期内只成功执行一次，因此这里定位到今天所在周：
+        // `loadIfNeeded` 在进程生命周期内只成功执行一次，因此这里按今天定位；
+        // 自动定位结果会保护在第 -12 至 +20 周，手动翻页仍不受此限制：
         // 杀后台后的冷启动会回到今日；仅切换页面或前后台切换不会打断用户正在浏览的周次。
         reloadFromDisk()
-        selectedWeek = resolvedCurrentWeek()
+        selectedWeek = resolvedAutomaticWeek()
         if activatePreferredCachedTermIfAvailable(on: Date()) {
             persist()
         }
@@ -291,9 +315,13 @@ final class ScheduleViewModel: ObservableObject {
 
     /// 同步课程表、考试安排和首周日期。
     ///
+    /// 传入明确学期时先更新本地选择；即使后续请求失败，也不回滚该选择。
     /// 同步成功后会立刻更新本地缓存，从而驱动课表页、小组件和灵动岛一起刷新。
     func syncCourses(term: String? = nil) async {
         guard !isSyncingCourses, !isLoadingTerms, !isSubmittingSMSCode, smsChallenge == nil else { return }
+        if let term {
+            selectTermForSync(term)
+        }
         isSyncingCourses = true
         syncingTerm = term
         defer {
@@ -317,6 +345,27 @@ final class ScheduleViewModel: ObservableObject {
         } catch {
             notice = ScheduleNotice(title: "课表同步失败", message: error.localizedDescription)
         }
+    }
+
+    /// 先落盘用户选择的学期，再独立请求课表。
+    ///
+    /// 已有快照会立即切换到对应内容；没有快照时只清空当前课表数据，避免把旧学期
+    /// 的课程误显示在新学期下。后续请求失败只通过 `notice` 提示，不回滚学期选择。
+    private func selectTermForSync(_ term: String) {
+        let normalizedTerm = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTerm.isEmpty, cache.currentTerm != normalizedTerm else { return }
+
+        if let snapshot = cache.termSchedulesByTerm[normalizedTerm] {
+            activate(snapshot)
+        } else {
+            cache.currentTerm = normalizedTerm
+            cache.firstDayString = ""
+            cache.coursesUpdatedAt = .distantPast
+            cache.courses = []
+            cache.exams = []
+        }
+        selectedWeek = resolvedAutomaticWeek()
+        persist()
     }
 
     /// 重新获取当前正在显示的目标学期，而不是重新询问学校的“当前学期”标记。
@@ -399,12 +448,18 @@ final class ScheduleViewModel: ObservableObject {
     }
 
     private func applyCourseSyncPayload(_ payload: CourseSyncPayload) {
+        let incomingCourses = payload.courses
+        let existingCourses = cache.termSchedulesByTerm[payload.term]?.courses
+            ?? (cache.currentTerm == payload.term ? cache.courses : [])
+        // 不用空响应、缩减响应或完全相同的响应覆盖用户当前课表。
+        // 只有服务端确实返回了此前不存在的课程时，才替换本地快照。
+        guard CourseSyncReplacementPolicy.shouldReplace(existing: existingCourses, with: incomingCourses) else { return }
         let snapshot = makeTermSnapshot(from: payload)
         cache.termSchedulesByTerm[payload.term] = snapshot
         cache.cachedCoursesByTerm[payload.term] = payload.courses
         activate(snapshot)
         trimTermSnapshots(preserving: Set([payload.term]))
-        selectedWeek = resolvedCurrentWeek()
+        selectedWeek = resolvedAutomaticWeek()
         persist()
     }
 
@@ -449,7 +504,7 @@ final class ScheduleViewModel: ObservableObject {
         else { return false }
         if let firstDay = snapshot.firstDay, date < firstDay { return false }
         activate(snapshot)
-        selectedWeek = resolvedCurrentWeek()
+        selectedWeek = resolvedAutomaticWeek()
         return true
     }
 
@@ -550,19 +605,19 @@ final class ScheduleViewModel: ObservableObject {
         persist()
     }
 
-    /// 课表周次左移一周。
+    /// 课表周次左移一周。手动浏览不受课程最后一周限制。
     func previousWeek() {
         selectedWeek = ScheduleWeekCodec.previousWeek(before: selectedWeek)
     }
 
-    /// 课表周次右移一周。
+    /// 课表周次右移一周。手动浏览不受课程最后一周限制。
     func nextWeek() {
         selectedWeek = ScheduleWeekCodec.nextWeek(after: selectedWeek)
     }
 
     /// 把周次快速重置到当前周。
     func resetToCurrentWeek() {
-        selectedWeek = resolvedCurrentWeek()
+        selectedWeek = resolvedAutomaticWeek()
     }
 
     /// 手动修正当前课表的第一周起始日期。
@@ -571,7 +626,7 @@ final class ScheduleViewModel: ObservableObject {
     /// 或临时校历调整时的覆盖入口。
     func setFirstDay(_ date: Date) {
         cache.firstDayString = ScheduleDateCodec.formatDate(ScheduleDateCodec.monday(containing: date))
-        selectedWeek = resolvedCurrentWeek()
+        selectedWeek = resolvedAutomaticWeek()
         persist()
     }
 
@@ -867,7 +922,7 @@ final class ScheduleViewModel: ObservableObject {
         )
         persist()
         selectedCourseScheduleIndex = courseSchedules.count - 1
-        selectedWeek = resolvedCurrentWeek()
+        selectedWeek = resolvedAutomaticWeek()
     }
 
     /// 把已有自定义日程转成编辑草稿；如果为空则生成一份默认草稿。
@@ -1037,7 +1092,7 @@ final class ScheduleViewModel: ObservableObject {
             } else if let refreshedCurrent = cache.termSchedulesByTerm[cache.currentTerm] {
                 activate(refreshedCurrent)
             }
-            selectedWeek = resolvedCurrentWeek()
+            selectedWeek = resolvedAutomaticWeek()
             persist()
             return nil
         } catch ScheduleServiceError.secondFactorRequired {
@@ -1469,6 +1524,11 @@ final class ScheduleViewModel: ObservableObject {
         let today = Calendar.current.startOfDay(for: Date())
         let diff = Calendar.current.dateComponents([.day], from: start, to: today).day ?? 0
         return ScheduleWeekCodec.weekNumber(forDayOffset: diff)
+    }
+
+    /// 计算今天所在周后，仅对自动定位结果做边界保护；手动翻页仍可继续向前或向后浏览。
+    private func resolvedAutomaticWeek() -> Int {
+        ScheduleAutomaticWeekPolicy.clamped(resolvedCurrentWeek())
     }
 
     /// 当前时间在一天中的分钟偏移。

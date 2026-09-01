@@ -32,17 +32,23 @@ SKIP_STALE_DOCS_CHECK=1 git commit ...
 
 ## 发布前网络冒烟测试
 
-在已登录的真机上运行同一份只读用户流程测试：
+在已登录的真机上按依赖边界运行只读用户流程测试：
 
 ```sh
-./Scripts/release-network-smoke.sh <真机设备ID> /Users/harrybit/Desktop/Xcode-beta.app/Contents/Developer
+./Scripts/release-network-smoke-bit101.sh <真机设备ID> /Users/harrybit/Desktop/Xcode-beta.app/Contents/Developer
+./Scripts/release-network-smoke-school.sh <真机设备ID> /Users/harrybit/Desktop/Xcode-beta.app/Contents/Developer
 ```
 
-脚本不会检测、切换或根据 Wi-Fi、蜂窝网络、校园网改变测试内容。需要比较不同网络时，
-只需在对应网络环境下重复执行同一条命令。测试覆盖登录、社区、话廊及图片、课程、文章、
-个人资料、学期列表、课表、空教室、乐学日历和 App Store 更新接口；不会执行点赞、评论、
-发帖、上传等写操作。冒烟编译条件下测试宿主不会挂载正常 App UI，因此登录校验、首页
-`.task` 和其它启动自动请求不会与顺序探针并发。完整日志保存在
+`release-network-smoke.sh` 会先做一次本地构建检查，然后直接向当前已安装并运行中的正式 App
+发送 `bit101://network-smoke/...`，在同一进程内触发同一份只读探针，因此会复用正式 App 当前
+保存的登录态、Cookie 和缓存。
+脚本不会检测、切换或根据 Wi‑Fi、蜂窝网络、校园网改变测试内容。需要比较不同网络时，
+只需在对应网络环境下重复执行同一条命令。
+
+测试覆盖登录、社区、话廊及图片、课程、文章、个人资料、学期列表、课表、空教室、乐学
+日历、成绩、可信成绩单和 App Store 更新接口；不会执行点赞、评论、发帖、上传等写操作。
+结果会写到 `group.BIT101-dev.BIT101-iOS.shared/Library/NetworkSmoke/` 下的
+`release-network-smoke-<runID>.json`，完整日志保存在
 `.build/release-network-smoke/network-smoke.log`。
 
 每个探针输出 `PASS`、`FAIL` 或 `AUTH_BLOCKED`。`AUTH_BLOCKED` 表示学校要求短信等

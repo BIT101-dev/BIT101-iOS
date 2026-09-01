@@ -77,13 +77,6 @@ struct DDLSettingsPage: View {
                 }
             }
         }
-        .alert(item: $viewModel.notice) { notice in
-            Alert(
-                title: Text(notice.title),
-                message: Text(notice.message),
-                dismissButton: .default(Text("知道了"))
-            )
-        }
     }
 }
 

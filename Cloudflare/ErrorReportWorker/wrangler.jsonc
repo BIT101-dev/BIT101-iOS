@@ -1,0 +1,17 @@
+{
+  "name": "bit101-error-reports",
+  "main": "worker.js",
+  "compatibility_date": "2026-09-01",
+  "routes": [
+    {
+      "pattern": "feedback.aihelpme.dev",
+      "custom_domain": true
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "ERROR_REPORTS",
+      "id": "4c6402dfad4e406a93cc2518843803c6"
+    }
+  ]
+}

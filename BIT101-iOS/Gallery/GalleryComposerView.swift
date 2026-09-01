@@ -286,9 +286,7 @@ struct GalleryComposerView: View {
                 guard !newValue.isEmpty else { return }
                 Task { await addImages(from: newValue) }
             }
-            .alert(item: $alert) { alert in
-                Alert(title: Text(alert.title), message: Text(alert.message), dismissButton: .default(Text("知道了")))
-            }
+            .diagnosticAlert(item: $alert)
         }
     }
 

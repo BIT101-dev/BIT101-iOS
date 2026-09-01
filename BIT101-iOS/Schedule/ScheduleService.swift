@@ -22,6 +22,7 @@ enum ScheduleServiceError: LocalizedError {
     case invalidLexuePage
     case invalidCalendarURL
     case invalidCalendarData
+    case schoolResponse(String)
 
     var errorDescription: String? {
         switch self {
@@ -45,6 +46,8 @@ enum ScheduleServiceError: LocalizedError {
             return "乐学日历订阅链接无效。"
         case .invalidCalendarData:
             return "乐学日历数据解析失败。"
+        case let .schoolResponse(message):
+            return message
         }
     }
 }

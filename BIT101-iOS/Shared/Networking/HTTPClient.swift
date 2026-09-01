@@ -39,7 +39,22 @@ struct HTTPClient {
         _ request: URLRequest,
         accepting statusCodes: Range<Int> = 200 ..< 300
     ) async throws -> HTTPResponse {
-        let (data, response) = try await transport.data(for: request)
+        let startedAt = Date()
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await transport.data(for: request)
+            await NetworkDiagnosticStore.shared.record(
+                request: request, data: data, response: response, error: nil,
+                elapsed: Date().timeIntervalSince(startedAt)
+            )
+        } catch {
+            await NetworkDiagnosticStore.shared.record(
+                request: request, data: nil, response: nil, error: error,
+                elapsed: Date().timeIntervalSince(startedAt)
+            )
+            throw error
+        }
         guard let httpResponse = response as? HTTPURLResponse else {
             throw HTTPClientError.invalidResponse
         }

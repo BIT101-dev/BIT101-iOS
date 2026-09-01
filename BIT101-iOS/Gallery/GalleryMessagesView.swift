@@ -36,6 +36,7 @@ struct GalleryMessagesView: View {
                                 await viewModel.refreshSelectedType()
                             }
                         }
+                        DiagnosticRecoveryActions(title: "加载消息失败", message: message)
                     }
                 } else {
                     List {
@@ -141,20 +142,8 @@ struct GalleryMessagesView: View {
         .navigationDestination(item: $selectedPoster) { poster in
             GalleryPosterDetailView(poster: poster)
         }
-        .alert(item: $viewModel.alert) { alert in
-            Alert(
-                title: Text(alert.title),
-                message: Text(alert.message),
-                dismissButton: .default(Text("知道了"))
-            )
-        }
-        .alert(item: $localAlert) { alert in
-            Alert(
-                title: Text(alert.title),
-                message: Text(alert.message),
-                dismissButton: .default(Text("知道了"))
-            )
-        }
+        .diagnosticAlert(item: $viewModel.alert)
+        .diagnosticAlert(item: $localAlert)
     }
 
     private var currentState: GalleryMessageListState {

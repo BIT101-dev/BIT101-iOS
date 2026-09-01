@@ -178,13 +178,7 @@ struct PaperRootView: View {
                 await retryListIfNeeded()
             }
         }
-        .alert(item: $viewModel.alert) { alert in
-            Alert(
-                title: Text(alert.title),
-                message: Text(alert.message),
-                dismissButton: .default(Text("知道了"))
-            )
-        }
+        .diagnosticAlert(item: $viewModel.alert)
     }
 
     private func consumeDeepLinkedPaperIfNeeded(_ paperID: Int?) {

@@ -36,6 +36,7 @@ struct CourseHistoryGradesSheet: View {
                             }
                         }
                         .buttonStyle(.borderedProminent)
+                        DiagnosticRecoveryActions(title: "加载历史成绩失败", message: message)
                     }
 
                 case .loaded:

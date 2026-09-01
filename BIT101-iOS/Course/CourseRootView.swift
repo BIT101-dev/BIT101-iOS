@@ -65,6 +65,10 @@ struct CoursePageContent: View {
                             await viewModel.refresh()
                         }
                     }
+                    DiagnosticRecoveryActions(
+                        title: viewModel.hasActiveSearch ? "搜索失败" : "加载失败",
+                        message: message
+                    )
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(.systemGroupedBackground))
@@ -105,20 +109,8 @@ struct CoursePageContent: View {
         .onChange(of: viewModel.searchText) { oldValue, newValue in
             viewModel.clearSearchIfNeeded(from: oldValue, to: newValue)
         }
-        .alert(item: $viewModel.alert) { alert in
-            Alert(
-                title: Text(alert.title),
-                message: Text(alert.message),
-                dismissButton: .default(Text("知道了"))
-            )
-        }
-        .alert(item: $deepLinkAlert) { alert in
-            Alert(
-                title: Text(alert.title),
-                message: Text(alert.message),
-                dismissButton: .default(Text("知道了"))
-            )
-        }
+        .diagnosticAlert(item: $viewModel.alert)
+        .diagnosticAlert(item: $deepLinkAlert)
         .navigationDestination(item: $deepLinkedCourse) { course in
             CourseDetailView(initialCourse: course)
         }
