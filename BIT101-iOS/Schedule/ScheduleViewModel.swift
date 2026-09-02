@@ -312,4 +312,36 @@ final class ScheduleViewModel: ObservableObject {
         #endif
         isLoadingCache = false
     }
+
+    /// 根据首周日期推导当前周次。
+    func resolvedAutomaticWeek() -> Int {
+        guard let firstDay = cache.firstDay else { return 1 }
+
+        let start = Calendar.current.startOfDay(for: firstDay)
+        let today = Calendar.current.startOfDay(for: Date())
+        let diff = Calendar.current.dateComponents([.day], from: start, to: today).day ?? 0
+        return ScheduleAutomaticWeekPolicy.clamped(
+            ScheduleWeekCodec.weekNumber(forDayOffset: diff)
+        )
+    }
+
+    /// 从磁盘重新加载缓存，保留用户当前正在浏览的周次和课表分身。
+    func reloadFromDisk() {
+        let previousScheduleIndex = selectedCourseScheduleIndex
+        let previousWeek = selectedWeek
+        cache = ScheduleCacheStore.load()
+        selectedCourseScheduleIndex = min(max(previousScheduleIndex, 0), max(courseSchedules.count - 1, 0))
+        selectedWeek = previousWeek
+        selectedBuildingID = cache.selectedBuildingID
+    }
+
+    /// 写回缓存。
+    func persist(source: ScheduleCacheStore.SaveSource = .local) {
+        ScheduleCacheStore.save(cache, source: source)
+    }
+
+    /// 统一兼容任务取消错误。
+    func isCancellation(_ error: Error) -> Bool {
+        TaskCancellation.matches(error)
+    }
 }

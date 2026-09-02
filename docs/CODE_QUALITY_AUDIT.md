@@ -25,9 +25,9 @@
 
 | 文件 | 行数 | 判断 |
 | --- | ---: | --- |
-| `Schedule/ScheduleViewModel.swift` | 315 | 日程状态、初始化、缓存投影。其余职责已移到扩展文件。 |
+| `Schedule/ScheduleViewModel.swift` | 347 | 日程状态、初始化、缓存投影和共享辅助方法。其余职责已移到扩展文件。 |
 | `Schedule/ScheduleViewModel+CourseSync.swift` | 258 | 课表同步、学期列表、短信验证和自动刷新。 |
-| `Schedule/ScheduleViewModel+Classroom.swift` | 612 | 空教室请求、元数据和筛选。 |
+| `Schedule/ScheduleViewModel+Classroom.swift` | 573 | 空教室请求、元数据和筛选。 |
 | `Schedule/ScheduleViewModel+CourseEditing.swift` | 223 | 课程和自定义日程编辑。 |
 | `Schedule/ScheduleViewModel+DDL.swift` | 151 | 乐学、DDL 和相关文案。 |
 | `Schedule/ScheduleViewModel+Preferences.swift` | 203 | 周次、显示设置和时间表。 |

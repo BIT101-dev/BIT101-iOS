@@ -413,32 +413,10 @@ extension ScheduleViewModel {
         )
     }
 
-    /// 根据首周日期推导当前周次。
-    private func resolvedCurrentWeek() -> Int {
-        guard let firstDay = cache.firstDay else {
-            return 1
-        }
-
-        let start = Calendar.current.startOfDay(for: firstDay)
-        let today = Calendar.current.startOfDay(for: Date())
-        let diff = Calendar.current.dateComponents([.day], from: start, to: today).day ?? 0
-        return ScheduleWeekCodec.weekNumber(forDayOffset: diff)
-    }
-
-    /// 计算今天所在周后，仅对自动定位结果做边界保护；手动翻页仍可继续向前或向后浏览。
-    func resolvedAutomaticWeek() -> Int {
-        ScheduleAutomaticWeekPolicy.clamped(resolvedCurrentWeek())
-    }
-
     /// 当前时间在一天中的分钟偏移。
     private func currentMinutes() -> Int {
         let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
         return (components.hour ?? 0) * 60 + (components.minute ?? 0)
-    }
-
-    /// 统一兼容任务取消错误。
-    func isCancellation(_ error: Error) -> Bool {
-        TaskCancellation.matches(error)
     }
 
     /// 开始一轮新的空教室请求，并让所有旧请求失去 UI 回写资格。
@@ -488,23 +466,6 @@ extension ScheduleViewModel {
         operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
         try await classroomCoordinator.withTimeout(operation: operation)
-    }
-
-    /// 从磁盘重新加载缓存，并同步周次与当前教学楼。
-    func reloadFromDisk() {
-        let previousScheduleIndex = selectedCourseScheduleIndex
-        let previousWeek = selectedWeek
-        cache = ScheduleCacheStore.load()
-        selectedCourseScheduleIndex = min(max(previousScheduleIndex, 0), max(courseSchedules.count - 1, 0))
-        // 本地编辑会通过 scheduleCacheDidChange 回到这里。只更新数据，
-        // 不把用户正在查看的历史/未来周强制跳回当前周。
-        selectedWeek = previousWeek
-        selectedBuildingID = cache.selectedBuildingID
-    }
-
-    /// 写回缓存。
-    func persist(source: ScheduleCacheStore.SaveSource = .local) {
-        ScheduleCacheStore.save(cache, source: source)
     }
 
     /// 从“最近下一节课”的教室名推导最匹配的教学楼。
