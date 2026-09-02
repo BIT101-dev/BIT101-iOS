@@ -193,7 +193,17 @@
 - `BIT101-iOS/Schedule/ScheduleServicing.swift`
   日程状态机依赖的学校系统 Service 协议。
 - `BIT101-iOS/Schedule/ScheduleViewModel.swift`
-  日程模块状态机，负责缓存恢复、同步、偏好恢复、自动匹配和查询。
+  日程状态、初始化、缓存恢复和公共状态投影。
+- `BIT101-iOS/Schedule/ScheduleViewModel+CourseSync.swift`
+  课表同步、学期列表、短信验证和自动刷新。
+- `BIT101-iOS/Schedule/ScheduleViewModel+Classroom.swift`
+  空教室请求、元数据、筛选和自动匹配。
+- `BIT101-iOS/Schedule/ScheduleViewModel+CourseEditing.swift`
+  课程与自定义日程的本地编辑。
+- `BIT101-iOS/Schedule/ScheduleViewModel+DDL.swift`
+  乐学同步、DDL 编辑和相关文案。
+- `BIT101-iOS/Schedule/ScheduleViewModel+Preferences.swift`
+  周次、课表显示设置和时间表编辑。
 - `BIT101-iOS/Schedule/ScheduleCourseEditor.swift`
   课程草稿校验与周次编解码。
 - `BIT101-iOS/Schedule/ClassroomAvailabilityCalculator.swift`

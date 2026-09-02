@@ -25,14 +25,19 @@
 
 | 文件 | 行数 | 判断 |
 | --- | ---: | --- |
-| `Schedule/ScheduleViewModel.swift` | 1722 | 日程主状态机。职责集中，已有多个协调器分担子流程。暂不拆。 |
+| `Schedule/ScheduleViewModel.swift` | 315 | 日程状态、初始化、缓存投影。其余职责已移到扩展文件。 |
+| `Schedule/ScheduleViewModel+CourseSync.swift` | 258 | 课表同步、学期列表、短信验证和自动刷新。 |
+| `Schedule/ScheduleViewModel+Classroom.swift` | 612 | 空教室请求、元数据和筛选。 |
+| `Schedule/ScheduleViewModel+CourseEditing.swift` | 223 | 课程和自定义日程编辑。 |
+| `Schedule/ScheduleViewModel+DDL.swift` | 151 | 乐学、DDL 和相关文案。 |
+| `Schedule/ScheduleViewModel+Preferences.swift` | 203 | 周次、显示设置和时间表。 |
 | `Schedule/ScheduleModels.swift` | 674 | 课表、考试、DDL、缓存模型和编解码。属于同一领域。暂不拆。 |
 | `Schedule/ScheduleRootView.swift` | 1009 | 日程容器、路由和多页面协调。叶子页面已独立。暂不拆。 |
 | `Score/ScoreViewModels.swift` | 734 | 成绩筛选、缓存、短信续接和刷新状态。状态互相关联。暂不拆。 |
 | `Score/ScoreRootView.swift` | 865 | 成绩/课程合并页及其列表子视图。后续可按页面增长拆分。 |
 | `Gallery/GalleryModels.swift` | 728 | 话廊数据模型和分页状态。职责单一。暂不拆。 |
 | `Gallery/GalleryViewModel.swift` | 676 | feed、搜索、消息状态。推荐预取已独立。暂不拆。 |
-| `BIT101_iOSApp.swift` | 457 | 应用生命周期和全局副作用。已移出 439 行网络 smoke runner。 |
+| `BIT101_iOSApp.swift` | 457 | 应用生命周期和全局副作用。网络 smoke runner 已独立。 |
 | `Shared/Infrastructure/ReleaseNetworkSmoke.swift` | 441 | 只在 Debug/专用 smoke 条件下编译。与应用生命周期分离。 |
 
 继续拆分的条件：出现独立生命周期、独立测试边界或高频冲突。仅为减少行数不拆。
