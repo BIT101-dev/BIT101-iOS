@@ -13,5 +13,11 @@
       "binding": "ERROR_REPORTS",
       "id": "4c6402dfad4e406a93cc2518843803c6"
     }
+  ],
+  "send_email": [
+    {
+      "name": "REPORT_EMAIL",
+      "destination_address": "idleassetsd@gmail.com"
+    }
   ]
 }

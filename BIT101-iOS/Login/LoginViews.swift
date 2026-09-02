@@ -48,64 +48,64 @@ private struct LoginFormView: View {
 
     /// 登录表单主体。
     var body: some View {
-        Form {
-            Section {
-                // 学号输入完成后，直接把焦点移到密码框，减少一次手动点按。
-                TextField("学号", text: $viewModel.studentID)
-                    .keyboardType(.numberPad)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .textContentType(.username)
-                    .submitLabel(.next)
-                    .focused($focusedField, equals: .studentID)
-                    .onSubmit {
-                        focusedField = .password
-                    }
-
-                SecureField("密码", text: $viewModel.password)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .textContentType(.password)
-                    .submitLabel(.go)
-                    .focused($focusedField, equals: .password)
-                    .onSubmit {
-                        Task { await viewModel.login() }
-                    }
-            }
-
-            Section {
-                // 登录按钮和键盘回车最终都复用同一个 `viewModel.login()` 入口，
-                // 保证校验、错误提示和提交态完全一致。
-                Button {
-                    focusedField = nil
-                    Task { await viewModel.login() }
-                } label: {
-                    HStack {
-                        Spacer()
-                        if viewModel.isSubmitting {
-                            ProgressView()
-                        } else {
-                            Text("登录")
-                                .fontWeight(.semibold)
+        ZStack(alignment: .bottom) {
+            Form {
+                Section {
+                    // 学号输入完成后，直接把焦点移到密码框，减少一次手动点按。
+                    TextField("学号", text: $viewModel.studentID)
+                        // numberPad 没有 QuickType 栏，系统密码自动填充通常只能在密码框出现；
+                        // 使用可显示 QuickType 的键盘后，聚焦学号框时也能直接提供凭据建议。
+                        .keyboardType(.asciiCapable)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .textContentType(.username)
+                        .submitLabel(.next)
+                        .focused($focusedField, equals: .studentID)
+                        .onSubmit {
+                            focusedField = .password
                         }
-                        Spacer()
+
+                    SecureField("密码", text: $viewModel.password)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .textContentType(.password)
+                        .submitLabel(.go)
+                        .focused($focusedField, equals: .password)
+                        .onSubmit {
+                            Task { await viewModel.login() }
+                        }
+                }
+
+                Section {
+                    // 登录按钮和键盘回车最终都复用同一个 `viewModel.login()` 入口，
+                    // 保证校验、错误提示和提交态完全一致。
+                    Button {
+                        focusedField = nil
+                        Task { await viewModel.login() }
+                    } label: {
+                        HStack {
+                            Spacer()
+                            if viewModel.isSubmitting {
+                                ProgressView()
+                            } else {
+                                Text("登录")
+                                    .fontWeight(.semibold)
+                            }
+                            Spacer()
+                        }
+                    }
+                    .disabled(!viewModel.canSubmit)
+                } footer: {
+                    // 页脚集中承载账号说明、风险提示和当前版本差异说明，
+                    // 避免登录表单本体被次要信息挤压。
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("使用学校统一身份认证账号密码登录。若未注册过 BIT101 账号，将自动完成注册；密码仅会经不可逆加密后传输。")
+                        Text("本 App 尚处在开发中，不保证所有功能始终可用；如遇到问题，请联系 systemd@linux.do。开发者不对使用过程中造成的损失负责。")
+                        Text("本 App 为了完成 Apple 的合规性审查，加入了一些风味元素，功能与安卓版有所差异。")
                     }
                 }
-                .disabled(!viewModel.canSubmit)
-            } footer: {
-                // 页脚集中承载账号说明、风险提示和当前版本差异说明，
-                // 避免登录表单本体被次要信息挤压。
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("使用学校统一身份认证账号密码登录。若未注册过 BIT101 账号，将自动完成注册；密码仅会经不可逆加密后传输。")
-                    Text("本 App 尚处在开发中，不保证所有功能始终可用；如遇到问题，请联系 systemd@linux.do。开发者不对使用过程中造成的损失负责。")
-                    Text("本 App 为了完成 Apple 的合规性审查，加入了一些风味元素，功能与安卓版有所差异。")
-                }
             }
-        }
-        .navigationTitle("登录")
-        .navigationBarTitleDisplayMode(.inline)
-        .scrollDismissesKeyboard(.interactively)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+
             Link(destination: AppLegalInfo.icpPublicNoticeURL) {
                 Text(AppLegalInfo.icpDisplayText)
                     .font(.footnote)
@@ -114,8 +114,14 @@ private struct LoginFormView: View {
                     .padding(.horizontal, 16)
                     .padding(.top, 6)
                     .padding(.bottom, 10)
+                    .background(.regularMaterial)
             }
         }
+        .navigationTitle("登录")
+        .navigationBarTitleDisplayMode(.inline)
+        .scrollDismissesKeyboard(.interactively)
+        // 备案号固定在容器底部，不参与键盘安全区重新布局；键盘出现时由系统覆盖底部区域。
+        .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 }
 

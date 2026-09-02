@@ -1,15 +1,24 @@
 #!/bin/zsh
 set -euo pipefail
 
-if [[ $# -lt 1 || $# -gt 2 ]]; then
-  echo "用法: $0 <真机设备ID> [Developer目录]" >&2
-  exit 64
-fi
-
-DEVICE_ID="$1"
-export DEVELOPER_DIR="${2:-${DEVELOPER_DIR:-$(xcode-select -p)}}"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT="$ROOT_DIR/BIT101-iOS.xcodeproj"
+
+if [[ $# -eq 0 ]]; then
+  source "$ROOT_DIR/Scripts/device-support.sh"
+  bit101_require_device "$PROJECT" || exit 1
+  DEVICE_ID="$BIT101_XCODE_DEVICE_ID"
+  DEVICETCL_DEVICE_ID="$BIT101_DEVICETCL_DEVICE_ID"
+else
+  if [[ $# -gt 2 ]]; then
+    echo "用法: $0 [真机设备ID] [Developer目录]" >&2
+    exit 64
+  fi
+  DEVICE_ID="$1"
+  export DEVELOPER_DIR="${2:-${DEVELOPER_DIR:-/Users/harrybit/Desktop/Xcode-beta.app/Contents/Developer}}"
+  DEVICETCL_DEVICE_ID="$DEVICE_ID"
+fi
+
 DERIVED_DATA="$ROOT_DIR/.build/release-network-smoke"
 LOG_FILE="$DERIVED_DATA/network-smoke.log"
 BUILD_LOG="$DERIVED_DATA/build.log"
@@ -57,7 +66,7 @@ fi
 
 echo "触发当前已安装的正式 App 内的网络冒烟..." | tee -a "$LOG_FILE"
 xcrun devicectl device process openURL \
-  --device "$DEVICE_ID" \
+  --device "$DEVICETCL_DEVICE_ID" \
   "$SMOKE_URL" \
   --activate | tee -a "$LOG_FILE"
 
@@ -65,7 +74,7 @@ echo "等待结果文件..." | tee -a "$LOG_FILE"
 MAX_ATTEMPTS=300
 for (( attempt = 1; attempt <= MAX_ATTEMPTS; attempt++ )); do
   if xcrun devicectl device copy from \
-    --device "$DEVICE_ID" \
+    --device "$DEVICETCL_DEVICE_ID" \
     --domain-type appGroupDataContainer \
     --domain-identifier "$APP_GROUP_ID" \
     --source "$REMOTE_REPORT_PATH" \

@@ -67,7 +67,16 @@ final class SchoolDataRefreshCoordinator: ObservableObject {
         #else
         let studentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
         let fakeCookie = LoginStorage.shared.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !studentID.isEmpty, !fakeCookie.isEmpty else { return }
+        guard !studentID.isEmpty, !fakeCookie.isEmpty else {
+            // 退出登录时先停掉仍持有旧账号的预热任务，防止它在登录页继续回写错误。
+            activeTask?.cancel()
+            activeTask = nil
+            activeRunID = nil
+            activeStudentID = ""
+            scheduleViewModel.resetForCurrentAccount()
+            scoreViewModel.resetForCurrentAccount()
+            return
+        }
 
         if activeStudentID != studentID {
             activeTask?.cancel()
@@ -419,6 +428,8 @@ struct BIT101_iOSApp: App {
                     schoolDataRefresh.refreshOnEntry(trigger: "app_launch_task")
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .loginStorageDidChange)) { _ in
+                    // 账号切换会让旧页面的请求和错误提示失去上下文，先清掉全局提示队列。
+                    AppErrorPresenter.shared.reset()
                     // 切换账号后，组件和灵动岛必须立即改读新账号的缓存。
                     refreshScheduleExternalDisplays(trigger: "login_storage_changed", syncWidgetSnapshot: true)
                     refreshScheduleCloudSyncIfNeeded(trigger: "login_storage_changed")

@@ -213,6 +213,8 @@ private struct CourseScheduleTabView: View {
                         CourseScheduleCalendarView(
                             entries: scheduleEntries,
                             week: viewModel.selectedWeek,
+                            displayMode: viewModel.cache.scheduleDisplayMode,
+                            allWeeksLabel: allWeeksLabel,
                             firstDay: firstDay,
                             timeTable: activeSchedule.timeTable,
                             currentWeek: resolvedCurrentWeek(firstDay: firstDay),
@@ -334,10 +336,15 @@ private struct CourseScheduleTabView: View {
         .sheet(item: $selectedEntry) { entry in
             ScheduleEntryDetailSheet(
                 entry: entry,
-                academicCourse: activeSchedule.courses.first(where: { $0.id == entry.sourceID }),
+                academicCourses: entry.resolvedSourceIDs.compactMap { sourceID in
+                    activeSchedule.courses.first(where: { $0.id == sourceID })
+                },
                 currentWeek: viewModel.selectedWeek,
                 timeTable: activeSchedule.timeTable,
-                allowsCourseMutation: supportsEditingDisplayedSchedule,
+                allowsCourseMutation: supportsEditingDisplayedSchedule
+                    && viewModel.cache.scheduleDisplayMode == .weekly,
+                isOverviewMode: supportsEditingDisplayedSchedule
+                    && viewModel.cache.scheduleDisplayMode == .allWeeks,
                 allowsCustomScheduleMutation: supportsEditingDisplayedSchedule,
                 onOpenAcademicCourse: { request in
                     selectedEntry = nil
@@ -566,27 +573,15 @@ private struct CourseScheduleTabView: View {
         ) ?? firstDay
         let weekEnd = Calendar.current.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart
 
-        let courseEntries = activeSchedule.courses
-            .filter { $0.weeks.contains(viewModel.selectedWeek) }
-            .map {
-                ScheduleCalendarEntry(
-                    id: "course-\($0.id)",
-                    sourceID: $0.id,
-                    dayOfWeek: $0.weekday,
-                    startSection: CGFloat($0.startSection - 1),
-                    endSection: CGFloat($0.endSection),
-                    title: normalizeDisplayedCourseTitle($0.name),
-                    subtitle: normalizeDisplayedClassroom($0.classroom),
-                    detailLines: [
-                        $0.teacher.isEmpty ? nil : "教师：\($0.teacher)",
-                        $0.classroom.isEmpty ? nil : "教室：\(normalizeDisplayedClassroom($0.classroom))",
-                        "学分：\($0.credit > 0 ? String($0.credit) : "-")",
-                        "节次：\($0.sectionText)",
-                        $0.description.isEmpty ? nil : $0.description,
-                    ].compactMap { $0 },
-                    kind: .course
-                )
-            }
+        let courseEntries: [ScheduleCalendarEntry]
+        switch viewModel.cache.scheduleDisplayMode {
+        case .weekly:
+            courseEntries = activeSchedule.courses
+                .filter { $0.weeks.contains(viewModel.selectedWeek) }
+                .map(courseEntry(for:))
+        case .allWeeks:
+            courseEntries = makeAllWeeksCourseEntries(from: activeSchedule.courses)
+        }
 
         let examEntries = viewModel.cache.showExamInfo ? activeSchedule.exams.compactMap { exam -> ScheduleCalendarEntry? in
             guard
@@ -608,6 +603,7 @@ private struct CourseScheduleTabView: View {
             return ScheduleCalendarEntry(
                 id: "exam-\(exam.id)",
                 sourceID: exam.id,
+                sourceIDs: [exam.id],
                 dayOfWeek: weekday,
                 startSection: startSection,
                 endSection: endSection,
@@ -643,6 +639,7 @@ private struct CourseScheduleTabView: View {
             return ScheduleCalendarEntry(
                 id: "custom-\(schedule.id)",
                 sourceID: schedule.id,
+                sourceIDs: [schedule.id],
                 dayOfWeek: weekday,
                 startSection: startSection,
                 endSection: endSection,
@@ -659,6 +656,150 @@ private struct CourseScheduleTabView: View {
         }
 
         return normalize(entries: courseEntries + examEntries + customEntries)
+    }
+
+    private var allWeeksLabel: String {
+        let weeks = activeSchedule.courses.flatMap(\.weeks).sorted()
+        guard let first = weeks.first, let last = weeks.last else { return "全部" }
+        return first == last ? "第\(first)周" : "\(first)-\(last)周"
+    }
+
+    private func courseEntry(for course: CourseRecord) -> ScheduleCalendarEntry {
+        ScheduleCalendarEntry(
+            id: "course-\(course.id)",
+            sourceID: course.id,
+            sourceIDs: [course.id],
+            dayOfWeek: course.weekday,
+            startSection: CGFloat(course.startSection - 1),
+            endSection: CGFloat(course.endSection),
+            title: normalizeDisplayedCourseTitle(course.name),
+            subtitle: normalizeDisplayedClassroom(course.classroom),
+            detailLines: [
+                course.teacher.isEmpty ? nil : "教师：\(course.teacher)",
+                course.classroom.isEmpty ? nil : "教室：\(normalizeDisplayedClassroom(course.classroom))",
+                "学分：\(course.credit > 0 ? String(course.credit) : "-")",
+                "节次：\(course.sectionText)",
+                course.description.isEmpty ? nil : course.description,
+            ].compactMap { $0 },
+            kind: .course
+        )
+    }
+
+    /// 把同一天内相互重叠的课程合并成一个紧凑课程块，避免全学期概览互相遮挡。
+    private func makeAllWeeksCourseEntries(from courses: [CourseRecord]) -> [ScheduleCalendarEntry] {
+        let entries = courses.map(courseEntry(for:))
+        var merged: [ScheduleCalendarEntry] = []
+
+        for day in 1 ... 7 {
+            let dayEntries = entries
+                .filter { $0.dayOfWeek == day }
+                .sorted { lhs, rhs in
+                    if lhs.startSection == rhs.startSection {
+                        return lhs.endSection < rhs.endSection
+                    }
+                    return lhs.startSection < rhs.startSection
+                }
+
+            var bucket: [ScheduleCalendarEntry] = []
+            var bucketEnd: CGFloat = 0
+
+            for entry in dayEntries {
+                if bucket.isEmpty || entry.startSection >= bucketEnd {
+                    if !bucket.isEmpty {
+                        merged.append(mergedCourseEntry(from: bucket))
+                    }
+                    bucket = [entry]
+                    bucketEnd = entry.endSection
+                } else {
+                    bucket.append(entry)
+                    bucketEnd = max(bucketEnd, entry.endSection)
+                }
+            }
+
+            if !bucket.isEmpty {
+                merged.append(mergedCourseEntry(from: bucket))
+            }
+        }
+
+        return merged
+    }
+
+    private func mergedCourseEntry(from entries: [ScheduleCalendarEntry]) -> ScheduleCalendarEntry {
+        let courses = entries.flatMap { entry in
+            entry.resolvedSourceIDs.compactMap { sourceID in
+                activeSchedule.courses.first(where: { $0.id == sourceID })
+            }
+        }
+        let sourceIDs = courses.map(\.id)
+        let names = unique(courses.map { normalizeDisplayedCourseTitle($0.name) })
+        let teachers = unique(courses.map(\.teacher).filter { !$0.isEmpty })
+        let classrooms = unique(courses.map { normalizeDisplayedClassroom($0.classroom) }.filter { !$0.isEmpty })
+        let weeks = courses.flatMap(\.weeks)
+
+        let title = compactList(names, limit: 2, suffix: "门")
+        let subtitleParts = [
+            compactWeekText(weeks),
+            teachers.isEmpty
+                ? (classrooms.isEmpty ? nil : compactList(classrooms, limit: 1, suffix: "间教室"))
+                : compactList(teachers, limit: 1, suffix: "位教师"),
+        ].compactMap { $0 }
+        let detailLines = courses.flatMap { course -> [String] in
+            let weekText = compactWeekText(course.weeks) ?? "未知周次"
+            return [
+                "课程：\(normalizeDisplayedCourseTitle(course.name))（\(weekText)）",
+                course.teacher.isEmpty ? nil : "教师：\(course.teacher)",
+                course.classroom.isEmpty ? nil : "教室：\(normalizeDisplayedClassroom(course.classroom))",
+                "学分：\(course.credit > 0 ? String(course.credit) : "-")",
+                "节次：\(course.sectionText)",
+            ].compactMap { $0 }
+        }
+
+        return ScheduleCalendarEntry(
+            id: "course-overview-\(entries[0].dayOfWeek)-\(entries[0].startSection)-\(entries.map(\.id).joined(separator: ","))",
+            sourceID: sourceIDs[0],
+            sourceIDs: sourceIDs,
+            dayOfWeek: entries[0].dayOfWeek,
+            startSection: entries.map(\.startSection).min() ?? entries[0].startSection,
+            endSection: entries.map(\.endSection).max() ?? entries[0].endSection,
+            title: title,
+            subtitle: subtitleParts.joined(separator: " · "),
+            detailLines: detailLines,
+            kind: .course
+        )
+    }
+
+    private func unique(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        return values.filter { seen.insert($0).inserted }
+    }
+
+    private func compactList(_ values: [String], limit: Int, suffix: String) -> String {
+        guard !values.isEmpty else { return "课程" }
+        let shown = values.prefix(limit).map { String($0.prefix(8)) }
+        let omitted = values.count - shown.count
+        let tail = omitted > 0 ? "等\(values.count)\(suffix)" : ""
+        return shown.joined(separator: "、") + tail
+    }
+
+    private func compactWeekText(_ weeks: [Int]) -> String? {
+        let sorted = Array(Set(weeks)).sorted()
+        guard !sorted.isEmpty else { return nil }
+
+        var ranges: [String] = []
+        var start = sorted[0]
+        var end = start
+        for week in sorted.dropFirst() {
+            if week == end + 1 {
+                end = week
+            } else {
+                ranges.append(start == end ? "\(start)" : "\(start)-\(end)")
+                start = week
+                end = week
+            }
+        }
+        ranges.append(start == end ? "\(start)" : "\(start)-\(end)")
+        let text = ranges.joined(separator: "、")
+        return text.count > 14 ? "多周（\(sorted.count)周）" : "第\(text)周"
     }
 }
 

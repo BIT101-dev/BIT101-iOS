@@ -257,6 +257,18 @@ final class AppErrorPresenter {
 
     private init() {}
 
+    /// 账号切换后丢弃旧账号遗留的错误，避免退出登录后旧请求的提示出现在登录页。
+    @MainActor
+    func reset() {
+        queue.removeAll()
+        reportDelegate = nil
+        isPresenting = false
+
+        if let presenter = Self.topViewController(), let alert = presenter as? UIAlertController {
+            alert.dismiss(animated: false)
+        }
+    }
+
     func present(_ alert: any DiagnosticAlertPresentable) {
         queue.append(AppErrorPresentation(
             title: alert.title, message: alert.message, allowsDiagnostics: alert.allowsDiagnostics
@@ -473,12 +485,13 @@ private struct ErrorReportSheet: View {
                 }
             }
             .task { await viewModel.load() }
-            .sheet(isPresented: $confirmsRaw) {
-                RawReportConfirmationSheet {
+            .alert("确认提交原始网络响应？", isPresented: $confirmsRaw) {
+                Button("确认提交") {
                     Task { if await viewModel.submit() { close() } }
                 }
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("你选择了原始网络响应，其中可能包含你的学号、姓名、课程、成绩等个人信息。\n\n密码、Cookie、Token 等认证信息会强制脱敏。\n\n提交后，开发者仅将这些信息用于排查本 App 的故障，不用于其他用途，不会公开传播，并会在排查完成后删除。如需了解信息利用情况，可通过 systemd@linux.do 联系开发者。")
             }
         }
     }
@@ -514,49 +527,4 @@ private struct ErrorReportSheet: View {
         }
     }
 
-}
-
-private struct RawReportConfirmationSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    let onConfirm: () -> Void
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    (
-                        Text("你选择了原始网络响应，其中")
-                            .foregroundColor(.secondary)
-                        + Text("可能包含你的学号、姓名、课程、成绩等个人信息。")
-                            .bold()
-                            .foregroundColor(.accentColor)
-                    )
-                    .font(.body)
-
-                    Text("密码、Cookie、Token 等认证信息会进行强制脱敏。")
-                        .font(.body.bold())
-
-                    Text("提交后，开发者仅将这些信息用于排查本 App 的故障，不用于其他用途，更不会公开传播。软件开发者许诺在问题排查完成后将会删除，并接受你的监督：你可以通过 systemd@linux.do 联系开发者以获取有关你信息的利用情况。")
-                        .foregroundStyle(.secondary)
-                }
-                .padding()
-            }
-            .navigationTitle("确认提交原始网络响应？")
-            .navigationBarTitleDisplayMode(.inline)
-            .safeAreaInset(edge: .bottom) {
-                VStack(spacing: 10) {
-                    Button("确认提交") {
-                        dismiss()
-                        onConfirm()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .frame(maxWidth: .infinity)
-
-                    Button("取消", role: .cancel) { dismiss() }
-                }
-                .padding()
-                .background(.bar)
-            }
-        }
-    }
 }

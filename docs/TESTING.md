@@ -81,6 +81,23 @@ xcodebuild build \
 
 构建后可用 `xcrun devicectl device install app` 和 `device process launch` 安装、启动开发包。真机检查至少确认主 App 与 widget extension 没有启动即崩溃；涉及登录、学校接口、通知、Live Activity 或深链时，再按 `MODULE_PLAYBOOK.md` 完成人工交互回归。
 
+也可以直接运行免参数的一键脚本：
+
+```sh
+Scripts/build-install-device.sh
+```
+
+脚本会自动寻找可用的 iPhone 真机；未连接或未信任时给出提示并退出。它只执行 Debug 构建、安装和启动，不执行 Archive。需要时也可传入设备 ID 和 Developer 目录。
+
+### Watch 与 iOS 构建说明
+
+1. 发布使用 Xcode Archive 或 `xcodebuild archive`。
+2. Debug 装机使用具体 iPhone 设备 ID。
+3. Watch 单独使用 watchOS scheme/destination 构建。
+4. 不要用 generic iOS Debug 构建结果判断正式发布是否可行。
+
+Xcode 27 beta 在 generic iOS Debug 构建中可能把嵌入的 Watch target 按 iOS SDK 处理，触发 Watch 图标或 watchOS API 报错；当前不需要修改 Watch 图标或 Watch 代码。
+
 ## CI 门禁
 
 发布前网络冒烟按依赖边界提供两个入口：
@@ -98,6 +115,15 @@ xcodebuild build \
 
 脚本会把结果写到应用组目录 `group.BIT101-dev.BIT101-iOS.shared/Library/NetworkSmoke/` 下的
 `release-network-smoke-<runID>.json`，再由命令行读取并判断是否通过。
+
+默认直接运行对应入口即可，脚本会自动寻找可用的 iPhone 真机：
+
+```sh
+Scripts/release-network-smoke-bit101.sh
+Scripts/release-network-smoke-school.sh
+```
+
+仍可传入设备 ID 和 Developer 目录覆盖自动发现结果。
 
 可信成绩单仍然属于学校链路的一部分；当前冒烟只区分 `all`、`bit101` 和 `school`
 三个范围，不再单独保留重新认证入口。
@@ -118,10 +144,10 @@ CI 的版本门禁由 `Scripts/validate_versions.py` 提供，检查所有 Targe
 运行方式：
 
 ```sh
-Scripts/run_icloud_cross_device_smoke.sh \
-  '<真机设备ID>' \
-  '/Applications/Xcode.app/Contents/Developer'
+Scripts/run_icloud_cross_device_smoke.sh
 ```
+
+脚本默认自动寻找可用的 iPhone 真机；也兼容显式传入设备 ID 和 Developer 目录。
 
 测试会让手机临时切换“自动旋转”偏好并上传成绩缓存，Mac 收到后写回原值，最后由手机确认。正常完成或脚本异常退出时都会尝试恢复原设置、实验开关并清除协调数据；测试期间不要在两端手动修改相关设置。
 
@@ -192,7 +218,9 @@ Scripts/check-error-report-coverage.sh
 Scripts/error-reports.sh list
 Scripts/error-reports.sh latest
 Scripts/error-reports.sh delete '<report-key>'
+Scripts/fetch-issues-and-reports.sh
 ```
 
 覆盖检查确保用户可见的错误弹窗和主要失败占位页保留 App Store 与错误报告入口。
 报告直接通过当前 Wrangler 登录读取远端 KV，不需要额外管理网页。
+最后一个脚本会用当前 GitHub CLI 和 Wrangler 登录状态，一次拉取仓库 Issues 与 Cloudflare KV 报告，保存到 `.build/issue-report-inbox` 并输出简要汇总；完整报告仅保存在本机，不会写回仓库。

@@ -718,6 +718,13 @@ final class ScheduleViewModel: ObservableObject {
         persist()
     }
 
+    /// 设置课程在周视图中的排布方式。
+    func setScheduleDisplayMode(_ mode: ScheduleDisplayMode) {
+        guard cache.scheduleDisplayMode != mode else { return }
+        cache.scheduleDisplayMode = mode
+        persist()
+    }
+
     func setICloudSyncEnabled(_ value: Bool) {
         guard cache.iCloudSyncEnabled != value else { return }
         cache.iCloudSyncEnabled = value
@@ -1101,6 +1108,7 @@ final class ScheduleViewModel: ObservableObject {
                 message: "本次更新需要短信验证，请在课表设置中手动同步。"
             )
         } catch {
+            if isCancellation(error) { return nil }
             return ScheduleNotice(title: "课表自动更新失败", message: error.localizedDescription)
         }
     }

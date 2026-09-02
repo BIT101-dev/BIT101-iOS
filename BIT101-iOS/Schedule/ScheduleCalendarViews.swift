@@ -19,6 +19,8 @@ struct CourseScheduleCalendarView: View {
 
     let entries: [ScheduleCalendarEntry]
     let week: Int
+    let displayMode: ScheduleDisplayMode
+    let allWeeksLabel: String
     let firstDay: Date
     let timeTable: [TimeSlot]
     let currentWeek: Int
@@ -64,8 +66,8 @@ struct CourseScheduleCalendarView: View {
                 VStack(spacing: 0) {
                     HStack(spacing: 0) {
                         VStack(spacing: 1) {
-                            Text("\(week)")
-                            Text("周")
+                            Text(displayMode == .allWeeks ? "全学期" : "\(week)")
+                            Text(displayMode == .allWeeks ? allWeeksLabel : "周")
                         }
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.primary)
@@ -298,6 +300,8 @@ enum ScheduleCalendarKind {
 struct ScheduleCalendarEntry: Identifiable {
     let id: String
     let sourceID: String
+    /// 叠加模式下，一个格子可能对应多门课程；普通模式只有一个元素。
+    let sourceIDs: [String]
     let dayOfWeek: Int
     let startSection: CGFloat
     let endSection: CGFloat
@@ -305,6 +309,10 @@ struct ScheduleCalendarEntry: Identifiable {
     let subtitle: String
     let detailLines: [String]
     let kind: ScheduleCalendarKind
+
+    var resolvedSourceIDs: [String] {
+        sourceIDs.isEmpty ? [sourceID] : sourceIDs
+    }
 }
 
 /// 课表条目详情。
@@ -312,10 +320,11 @@ struct ScheduleCalendarEntry: Identifiable {
 /// 课表块点击后的二级详情页，兼容课程、考试和自定义日程三种来源。
 struct ScheduleEntryDetailSheet: View {
     let entry: ScheduleCalendarEntry
-    let academicCourse: CourseRecord?
+    let academicCourses: [CourseRecord]
     let currentWeek: Int
     let timeTable: [TimeSlot]
     let allowsCourseMutation: Bool
+    let isOverviewMode: Bool
     let allowsCustomScheduleMutation: Bool
     let onOpenAcademicCourse: (CourseNavigationRequest) -> Void
     let onEditCourseOccurrence: () -> Void
@@ -349,24 +358,39 @@ struct ScheduleEntryDetailSheet: View {
                     }
                 }
 
-                if entry.kind == .course {
-                    Section {
-                        Button {
-                            Task { await openAcademicCourse() }
-                        } label: {
-                            HStack {
-                                Label("在“学业－课程”中查看", systemImage: "books.vertical")
-                                Spacer()
-                                if isResolvingAcademicCourse {
-                                    ProgressView()
+                if entry.kind == .course, !academicCourses.isEmpty {
+                    Section("学业课程") {
+                        ForEach(academicCourses) { course in
+                            Button {
+                                Task { await openAcademicCourse(course) }
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(ScheduleDisplayNormalizer.normalizeCourseTitle(course.name))
+                                            .lineLimit(1)
+                                        if academicCourses.count > 1, !course.teacher.isEmpty {
+                                            Text(course.teacher)
+                                                .font(.footnote)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                    }
+                                    Spacer()
+                                    if isResolvingAcademicCourse {
+                                        ProgressView()
+                                    } else {
+                                        Image(systemName: "chevron.right")
+                                            .font(.footnote.weight(.semibold))
+                                            .foregroundStyle(.tertiary)
+                                    }
                                 }
                             }
+                            .disabled(isResolvingAcademicCourse)
                         }
-                        .disabled(isResolvingAcademicCourse)
                     }
                 }
 
-                if entry.kind == .course, allowsCourseMutation {
+                if entry.kind == .course, allowsCourseMutation, academicCourses.count == 1 {
                     Section {
                         Button("调这节课") {
                             dismiss()
@@ -390,7 +414,9 @@ struct ScheduleEntryDetailSheet: View {
 
                 if entry.kind == .course, !allowsCourseMutation {
                     Section("编辑") {
-                        Text("分享课表是只读副本，不能调课、删除课程或做调休 / 放假。")
+                        Text(isOverviewMode
+                            ? "全学期叠加仅用于查看；请切换为按周显示后再编辑课程。"
+                            : "分享课表是只读副本，不能调课、删除课程或做调休 / 放假。")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -435,23 +461,16 @@ struct ScheduleEntryDetailSheet: View {
     }
 
     @MainActor
-    private func openAcademicCourse() async {
+    private func openAcademicCourse(_ course: CourseRecord) async {
         guard !isResolvingAcademicCourse else { return }
-        guard let academicCourse else {
-            academicCourseAlert = AppAlert(
-                title: "没有找到此课程",
-                message: "当前课表中找不到这门课程的完整信息。"
-            )
-            return
-        }
 
         isResolvingAcademicCourse = true
         defer { isResolvingAcademicCourse = false }
         do {
-            guard let resolution = try await ScheduleAcademicCourseResolver().resolve(academicCourse) else {
+            guard let resolution = try await ScheduleAcademicCourseResolver().resolve(course) else {
                 academicCourseAlert = AppAlert(
                     title: "没有找到此课程",
-                    message: "“\(academicCourse.name)”暂未收录在学业课程中。"
+                    message: "“\(course.name)”暂未收录在学业课程中。"
                 )
                 return
             }
@@ -537,6 +556,7 @@ func normalize(entries: [ScheduleCalendarEntry]) -> [ScheduleCalendarEntry] {
                         ScheduleCalendarEntry(
                             id: "\(entry.id)-trim-\(last.endSection)",
                             sourceID: entry.sourceID,
+                            sourceIDs: entry.resolvedSourceIDs,
                             dayOfWeek: entry.dayOfWeek,
                             startSection: last.endSection,
                             endSection: entry.endSection,

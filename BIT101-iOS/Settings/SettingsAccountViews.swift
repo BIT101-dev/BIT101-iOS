@@ -97,6 +97,7 @@ struct AccountSettingsPage: View {
             }
         }
         .task {
+            guard !LoginStorage.shared.fakeCookie.isEmpty else { return }
             await loadProfile()
         }
         .onChange(of: selectedPhoto) { _, newValue in
@@ -127,21 +128,25 @@ struct AccountSettingsPage: View {
 
     /// 拉取当前登录用户资料卡。
     private func loadProfile() async {
+        let sessionCookie = LoginStorage.shared.fakeCookie
         do {
             profile = try await service.fetchMyInfo()
             isLoggedIn = true
         } catch {
+            guard !shouldIgnore(error: error, sessionCookie: sessionCookie) else { return }
             alert = AppAlert(title: "加载失败", message: error.localizedDescription)
         }
     }
 
     /// 触发一次显式登录状态检查。
     private func checkLogin() async {
+        let sessionCookie = LoginStorage.shared.fakeCookie
         isCheckingLogin = true
         defer { isCheckingLogin = false }
         do {
             isLoggedIn = try await service.checkLogin()
         } catch {
+            guard !shouldIgnore(error: error, sessionCookie: sessionCookie) else { return }
             alert = AppAlert(title: "检查失败", message: error.localizedDescription)
         }
     }
@@ -151,6 +156,7 @@ struct AccountSettingsPage: View {
     /// 接口要求整份资料一起提交，所以未改动字段也要回填旧值。
     private func updateProfile(nickname: String?, motto: String?) async {
         guard let profile else { return }
+        let sessionCookie = LoginStorage.shared.fakeCookie
         isUpdating = true
         defer { isUpdating = false }
         do {
@@ -163,6 +169,7 @@ struct AccountSettingsPage: View {
             showNicknameEditor = false
             showMottoEditor = false
         } catch {
+            guard !shouldIgnore(error: error, sessionCookie: sessionCookie) else { return }
             alert = AppAlert(title: "更新失败", message: error.localizedDescription)
         }
     }
@@ -170,6 +177,7 @@ struct AccountSettingsPage: View {
     /// 上传并绑定新头像。
     private func updateAvatar(with item: PhotosPickerItem) async {
         guard let profile else { return }
+        let sessionCookie = LoginStorage.shared.fakeCookie
         isUpdating = true
         defer { isUpdating = false }
 
@@ -185,8 +193,16 @@ struct AccountSettingsPage: View {
             )
             await loadProfile()
         } catch {
+            guard !shouldIgnore(error: error, sessionCookie: sessionCookie) else { return }
             alert = AppAlert(title: "头像更新失败", message: error.localizedDescription)
         }
+    }
+
+    /// 退出或切换账号后，旧请求的失败不能再回写到新账号界面。
+    private func shouldIgnore(error: Error, sessionCookie: String) -> Bool {
+        TaskCancellation.matches(error)
+            || sessionCookie.isEmpty
+            || LoginStorage.shared.fakeCookie != sessionCookie
     }
 }
 

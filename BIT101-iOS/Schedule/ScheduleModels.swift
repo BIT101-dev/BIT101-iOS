@@ -47,6 +47,25 @@ enum ScheduleSection: String, CaseIterable, Identifiable {
     }
 }
 
+/// 课程在周视图中的排布方式。
+///
+/// 按周显示是原有行为；全学期叠加用于快速查看一学期内固定时段的课程概览。
+enum ScheduleDisplayMode: String, CaseIterable, Codable, Identifiable {
+    case weekly
+    case allWeeks
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .weekly:
+            return "按周显示"
+        case .allWeeks:
+            return "全学期叠加"
+        }
+    }
+}
+
 /// 节次与时间段的映射。
 ///
 /// `TimeSlot` 是课表、空教室、当前时间线、小组件和灵动岛共同依赖的基础模型。
@@ -299,6 +318,7 @@ nonisolated struct ScheduleCache: Codable {
     var showDivider = true
     var showCurrentTime = true
     var showExamInfo = true
+    var scheduleDisplayMode: ScheduleDisplayMode = .weekly
     var showCourseLiveActivityReminder = false
     var courseLiveActivityLeadMinutes = 20
     var timeTable: [TimeSlot] = TimeSlot.default
@@ -338,6 +358,7 @@ nonisolated struct ScheduleCache: Codable {
         case showDivider
         case showCurrentTime
         case showExamInfo
+        case scheduleDisplayMode
         case showCourseLiveActivityReminder
         case courseLiveActivityLeadMinutes
         case timeTable
@@ -393,6 +414,7 @@ nonisolated struct ScheduleCache: Codable {
         showDivider = try container.decodeIfPresent(Bool.self, forKey: .showDivider) ?? true
         showCurrentTime = try container.decodeIfPresent(Bool.self, forKey: .showCurrentTime) ?? true
         showExamInfo = try container.decodeIfPresent(Bool.self, forKey: .showExamInfo) ?? true
+        scheduleDisplayMode = try container.decodeIfPresent(ScheduleDisplayMode.self, forKey: .scheduleDisplayMode) ?? .weekly
         showCourseLiveActivityReminder = try container.decodeIfPresent(Bool.self, forKey: .showCourseLiveActivityReminder) ?? false
         courseLiveActivityLeadMinutes = min(
             max(try container.decodeIfPresent(Int.self, forKey: .courseLiveActivityLeadMinutes) ?? 20, 1),

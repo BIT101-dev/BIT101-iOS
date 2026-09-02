@@ -33,7 +33,7 @@ function json(data, status = 200) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") return json({}, 204);
     if (url.pathname !== "/api/error-reports" || request.method !== "POST") {
@@ -62,6 +62,15 @@ export default {
       JSON.stringify({ id, receivedAt, report }),
       { metadata: { mode: report.mode, title: report.errorTitle, version: report.appVersion, build: report.build } }
     );
+
+    if (env.REPORT_EMAIL) {
+      ctx.waitUntil(env.REPORT_EMAIL.send({
+        from: "error-report@aihelpme.dev",
+        to: "idleassetsd@gmail.com",
+        subject: `BIT101 新错误报告（${report.appVersion || "未知版本"}）`,
+        text: `收到新的 BIT101 错误报告。\n\n报告编号：${id}\n接收时间：${receivedAt}\n\n邮件不包含报告正文，请在已登录的电脑上运行 Scripts/error-reports.sh 查看。`
+      }).catch(() => {}));
+    }
     return json({ id }, 201);
   }
 };

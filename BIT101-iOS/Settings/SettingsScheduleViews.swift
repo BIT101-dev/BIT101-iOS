@@ -169,6 +169,17 @@ struct CalendarSettingsPage: View {
             }
 
             Section {
+                Picker(selection: Binding(
+                    get: { viewModel.cache.scheduleDisplayMode },
+                    set: { viewModel.setScheduleDisplayMode($0) }
+                )) {
+                    ForEach(ScheduleDisplayMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                } label: {
+                    Text("课程显示方式")
+                        .foregroundStyle(.tint)
+                }
                 Toggle("显示周六", isOn: Binding(get: { viewModel.cache.showSaturday }, set: viewModel.setShowSaturday))
                 Toggle("显示周日", isOn: Binding(get: { viewModel.cache.showSunday }, set: viewModel.setShowSunday))
                 Toggle("显示课程卡片边框", isOn: Binding(get: { viewModel.cache.showBorder }, set: viewModel.setShowBorder))
