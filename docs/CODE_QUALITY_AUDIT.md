@@ -5,7 +5,8 @@
 ## 结论
 
 - 默认真机测试共 95 项：89 项 Swift Testing、6 项 XCTest。
-- `RELEASE_NETWORK_SMOKE` 和 `ICLOUD_CROSS_DEVICE_SMOKE` 为专用测试，不进入默认测试和 Release 包。
+- `RELEASE_NETWORK_SMOKE`、`ICLOUD_CROSS_DEVICE_SMOKE` 和 `EXTENDED_AUTOMATION` 为专用测试，不进入默认测试和 Release 包。
+- `EXTENDED_AUTOMATION` 另有 27 项本地自动化测试，按课程表、基础设施、登录三组运行。
 - 未发现测试仍断言已删除功能或旧接口。
 - 发现一份维护手册超过 30 天未更新，已在本轮同步更新。
 - 已将网络 smoke runner 从 `BIT101_iOSApp.swift` 移到独立文件。

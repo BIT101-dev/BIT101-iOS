@@ -219,8 +219,22 @@ Scripts/error-reports.sh list
 Scripts/error-reports.sh latest
 Scripts/error-reports.sh delete '<report-key>'
 Scripts/fetch-issues-and-reports.sh
+Scripts/run-static-audit.sh
+Scripts/run-extended-tests.sh
 ```
 
 覆盖检查确保用户可见的错误弹窗和主要失败占位页保留 App Store 与错误报告入口。
 报告直接通过当前 Wrangler 登录读取远端 KV，不需要额外管理网页。
 最后一个脚本会用当前 GitHub CLI 和 Wrangler 登录状态，一次拉取仓库 Issues 与 Cloudflare KV 报告，保存到 `.build/issue-report-inbox` 并输出简要汇总；完整报告仅保存在本机，不会写回仓库。
+
+`run-static-audit.sh` 只做静态检查，不连接学校接口，不运行网络 smoke，不执行 Archive。它按 Swift、Shell、Python、Worker、Git 和文档六组输出结果。
+
+## 扩展自动化测试
+
+扩展测试使用 `EXTENDED_AUTOMATION` 条件编译，默认测试和 Release 包不会包含这些用例。运行：
+
+```sh
+Scripts/run-extended-tests.sh
+```
+
+脚本在真机上分组执行 27 项课程表策略、基础设施和登录状态测试；未连接真机时直接提示，不会改用模拟器。测试日志保存在 `.build/extended-automation`。
