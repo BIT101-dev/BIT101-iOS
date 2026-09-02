@@ -225,7 +225,7 @@ Scripts/run-extended-tests.sh
 
 覆盖检查确保用户可见的错误弹窗和主要失败占位页保留 App Store 与错误报告入口。
 报告直接通过当前 Wrangler 登录读取远端 KV，不需要额外管理网页。
-最后一个脚本会用当前 GitHub CLI 和 Wrangler 登录状态，一次拉取仓库 Issues 与 Cloudflare KV 报告，保存到 `.build/issue-report-inbox` 并输出简要汇总；完整报告仅保存在本机，不会写回仓库。
+最后一个脚本会用当前 GitHub CLI 和 Wrangler 登录状态，一次拉取未关闭的仓库 Issues 与 Cloudflare KV 报告，保存到 `.build/issue-report-inbox` 并输出简要汇总。错误报告按 `本次/上次/上上次` 保留三批；完整拉取成功后只清理本次已拉取的 Cloudflare 报告，失败时保留远端数据。完整报告仅保存在本机，不会写回仓库。
 
 `run-static-audit.sh` 只做静态检查，不连接学校接口，不运行网络 smoke，不执行 Archive。它按 Swift、Shell、Python、Worker、Git 和文档六组输出结果。
 
