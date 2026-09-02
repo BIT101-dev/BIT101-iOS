@@ -1,212 +1,70 @@
-# BIT101-iOS 代码质量审计说明
-
-这份文档记录的是当前 iOS 代码库在“可维护性、重复实现、桥接实现、清理方向”上的状态。
-
-它不试图替代源码注释，也不试图做一次性的“大重构计划”。
-它的目标只有两个：
-
-1. 让后续维护者快速知道：哪些地方已经收过，哪些地方还故意保留着。
-2. 当你准备继续清理某个大文件时，先知道哪些代码是“桥接必需”，哪些只是历史上为了赶进度留下的实现。
-
-## 1. 2026 年 8 月重构结果
-
-本轮在 Xcode 27 Beta 下建立基线后，完成了以下工作：
-
-- 修复 unsigned test host 中 CloudKit 过早初始化导致的崩溃，以及 watch 状态模型的并发警告。
-- 按叶子功能拆分 Gallery、Schedule、Settings、Paper、Course 的巨型视图；根视图只保留布局、路由和弹层协调。
-- 将课程草稿校验/周次编解码与空教室展示计算从 `ScheduleViewModel` 提取为纯组件。
-- 将登录服务拆成会话、Keychain 存储、密码变换、CAS HTML 解析、API 客户端和业务门面。
-- 将日程服务的 ICS 解析、学校接口 DTO 和字符串解析分离。
-- 自动化测试现有 86 项，覆盖账号隔离、分页、取消/失败状态、登录兼容向量、ICS、课程编辑、空教室、学校网络策略和列表状态机。
-- 每个结构性提交都通过 `build-for-testing`；最终同时通过模拟器全测和 iPhone 17 真机构建、安装与启动。
-
-本轮刻意不修改学校请求路径、认证语义、页面路由和既有手势行为，避免把结构整理扩大成产品行为变化。
-
-## 2. 当前仍然保留的“非原生”或桥接实现
-
-这部分不是忘了改，而是有意先保留。后续继续动手时，应先理解它们为什么存在。
-
-### 2.1 AppShell 的全局提示队列
-
-文件：
-
-- `BIT101-iOS/Shell/AppShellView.swift`
-
-当前实现已经使用 SwiftUI `.alert`，由 `AppPromptCoordinator` 对更新提醒、通知权限提示等
-全局提示进行串行排队。过去通过 `UIAlertController + topViewController()` 绕开的实现已经删除。
-
-结论：
-
-- 这里已回归原生 SwiftUI 呈现，不再属于 UIKit 绕路
-- 后续新增启动提示应进入同一队列，避免多个 `.alert` 竞争
-
-### 2.2 话廊首页与消息页的左右滑动切换
-
-文件：
-
-- `BIT101-iOS/Gallery/GalleryRootView.swift`
-
-当前实现：
-
-- 顶部 `Picker(.segmented)`
-- 正文区再叠一层手写 `DragGesture`
-
-为什么算“非原生”：
-
-- 它不是系统 pager
-- 更像 Android / 网页时期交互的一种迁移式适配
-
-为什么暂时保留：
-
-- 这条交互目前已经和刷新保位、悬浮按钮、顶部 segmented 的布局绑定在一起
-- 一次性改成系统分页容器，风险会明显大于当前这轮清理的目标
-
-### 2.3 地图页的 `MKMapView` 桥接
-
-文件：
-
-- `BIT101-iOS/Map/CampusMapScreen.swift`
-
-当前实现：
-
-- `UIViewRepresentable + MKMapView`
-
-它属于：
-
-- 桥接实现
-- 但不是“坏味道”本身
-
-原因：
-
-- 地图页需要更细的相机控制、定位回调和瓦片/overlay 能力
-- 纯 SwiftUI `Map` 很难完全覆盖现在这页的需求
-
-结论：
-
-- 这是功能型桥接，优先级低于真正的重复和死代码清理
-
-### 2.4 通用图片查看器的 Quick Look 桥接
-
-文件：
-
-- `BIT101-iOS/Gallery/GalleryImageViewer.swift`
-
-当前实现：
-
-- `UIViewControllerRepresentable + QLPreviewController`
-- 先展示缓存预览图，再在预览期间替换为已校正方向的原图
-
-原因：
-
-- Quick Look 提供系统原生的缩放、翻页和关闭体验
-- SwiftUI `.quickLookPreview` 不便在呈现期间替换数据源，桥接控制器用于完成预览图到原图的升级
-
-结论：
-
-- 这是对原生系统组件的轻量桥接，不是自制图片浏览器
-- 除非 SwiftUI API 能覆盖动态替换预览项，否则无需为消除桥接而重写
-
-## 3. 2026 年 8 月后续定点重构
-
-- `ScheduleModels.swift` 已只保留领域模型和日期/周次编解码；本地存储与 CloudKit 分别迁至 `ScheduleCacheStore.swift`、`ScheduleCloudSyncManager.swift`。
-- 缓存旧格式迁移与云端时间戳冲突决策已增加回归测试，CloudKit 决策本身不再依赖签名容器才能验证。
-- 空教室请求代次、单次预热、元数据 single-flight 和超时归入 `ScheduleClassroomCoordinator`。
-- 课表短信验证后的续接目的归入 `ScheduleCourseSyncCoordinator`，避免学期列表与指定学期同步互相串线。
-- Gallery 推荐页后台预取归入 `GalleryRecommendPrefetchCoordinator`；前台分页与后台预取复用同一个源页任务，避免竞态重复请求。
-- `ScheduleService` 已按统一认证、教学中心接口、乐学日历和共享传输拆分，原类型继续作为统一业务门面。
-- DDL 集合变更归入 `ScheduleDDLEditor`，课程集合增删改与单次调课归入 `ScheduleCourseEditor`；ViewModel 只负责回写和持久化。
-- 重新获取课表、切换学期、空教室等教学中心操作统一经过 `withPreparedTeachingCenterSession`，不再各自重复预热、认证和失效重试。
-- 登录、课表和乐学请求统一使用 `HTTPSURLUpgrade` 及共享重定向 delegate，避免不同入口各自修补 HTTP 降级。
-- 成绩和课表共用 bit-login challenge 的 DTO、轮询状态机、短信请求体及错误解析；`jwb`、`jwb_cjd` 和教学中心会话仍严格隔离。
-- 发布前真实网络冒烟测试由单一脚本驱动，不区分校园网、普通 Wi-Fi 或蜂窝网络；同一组只读探针验证当前实际链路。
-
-## 4. 重构后的剩余热点
-
-当前已没有同时承载整套子页面的千行级 RootView。剩余较长文件主要是状态机和数据模型：
-
-- `ScheduleViewModel.swift`：仍是日程页面的主状态机，但表单计算、DDL/课程集合编辑、空教室请求生命周期与短信续接状态已移出。后续只在出现新的独立生命周期时继续拆，不按行数机械切割。
-- `ScheduleRootView.swift`：剩余的是三分栏容器和页面协调；日历、编辑器与 DDL 子页已经独立。
-- `GalleryViewModel.swift`：推荐预取任务已独立；普通 feed、搜索和消息状态仍在同文件中，但属于不同类型，暂不为缩短文件继续拆分。
-- `MineRootView.swift`、`ScoreRootView.swift`：约 700 行，但目前以单域原生页面组合为主，没有发现必须立即拆分的高风险耦合。
-
-因此不再按“行数超过某阈值”机械拆文件；优先以可独立测试的职责和真实修改频率判断。
-
-## 5. 代码清理时要守住的边界
-
-继续清理这个项目时，最容易出问题的不是“删少了”，而是“把行为约束一起删掉了”。
-
-### 4.1 先分清“桥接必需”和“历史绕路”
-
-优先不要轻易动的：
-
-- `MKMapView` 桥接
-- 图片查看器桥接
-- Live Activity / widget target 边界
-
-优先可以继续动的：
-
-- 自定义手势的重复判断
-- 分页状态重置 / 成功回写的重复代码
-- 同一类错误对象的重复构造
-- 无效的 UI 补丁代码
-
-### 4.2 不要为了“更纯”把当前稳定行为改坏
-
-例如：
-
-- AppShell 的全局提示队列
-- 话廊 feed 的 segmented + 手势切换
-
-它们都不够“纯”，但目前行为是稳定的。
-如果未来要动，应先在交互层重新设计，而不是只做表面替换。
-
-### 4.3 服务层优先收重复 helper，不要轻易改接口语义
-
-这一轮服务层的清理策略已经证明比较稳：
-
-- 不碰请求路径
-- 不碰参数语义
-- 只收：
-  - fake-cookie 判空
-  - JSON 解码器
-  - 本地错误构造
-  - 纯工具级 helper
-
-后续继续服务层清理时，也建议优先按这个边界来。
-
-学校接口是例外中的高风险区域。当前 `ScheduleService` 和 `ScoreService` 已显式承载
-bit-login challenge、短信状态、会话失效识别与有限重试。重构时不能重新引入永久
-`didAuthenticate` 布尔值，也不能把 `jwb`、`jwb_cjd` 或教学中心 session 合并成一个全局状态。
-
-## 6. 下一轮建议顺序
-
-1. 为学校接口响应增加 fixture，重点覆盖认证失效、DNS 路由切换与空响应兼容。
-2. 观察发布前网络冒烟探针的真实失败样本，再按证据补充探针，不为不同网络复制脚本。
-3. 观察空教室协调器和推荐预取协调器的真实修改频率，再决定是否继续扩大职责。
-4. 只有在 Mine 或 Score 页面继续增长时，再按独立导航目的地拆分其 RootView。
-
-不建议为了压缩行数优先改 `ScheduleLiveActivityManager.swift` 或 widget：它们牵涉 ActivityKit、后台时序和系统扩展，回归更隐蔽。
-
-## 7. 维护时的一个简单判断法
-
-当你看到一段代码时，可以先问自己三个问题：
-
-1. 这是平台桥接，还是纯业务逻辑？
-2. 这段重复是否真的影响了维护成本？
-3. 如果现在删掉/收口，是否会立刻影响当前稳定交互？
-
-如果答案分别是：
-
-- 平台桥接
-- 影响不大
-- 可能打坏当前稳定行为
-
-那这段代码就不该是当前轮次的优先目标。
-
-如果答案是：
-
-- 纯业务逻辑
-- 重复明显
-- 行为边界清楚
-
-那就应该优先收掉。
+# BIT101-iOS 代码质量审计
+
+更新时间：2026-09-02
+
+## 结论
+
+- 默认真机测试共 95 项：89 项 Swift Testing、6 项 XCTest。
+- `RELEASE_NETWORK_SMOKE` 和 `ICLOUD_CROSS_DEVICE_SMOKE` 为专用测试，不进入默认测试和 Release 包。
+- 未发现测试仍断言已删除功能或旧接口。
+- 发现一份维护手册超过 30 天未更新，已在本轮同步更新。
+- 已将网络 smoke runner 从 `BIT101_iOSApp.swift` 移到独立文件。
+- 不按行数机械拆分状态机和模型文件。
+
+## 已完成的结构整理
+
+- Gallery、Schedule、Settings、Paper、Course 的页面按叶子功能拆分。
+- 登录拆为存储、会话、密码变换、CAS 解析、API 客户端和业务门面。
+- 日程拆出缓存、CloudKit、空教室协调、短信续接、ICS 解析和集合编辑。
+- 社区请求统一由 `CommunityAPIClient` 处理认证、URL、状态码和 JSON。
+- 取消错误统一由 `TaskCancellation` 识别。
+- 分页状态统一由 `PagedItemsState` 管理。
+- 错误报告、更新提醒、网络 smoke 各自使用独立基础组件。
+
+## 大文件审查
+
+| 文件 | 行数 | 判断 |
+| --- | ---: | --- |
+| `Schedule/ScheduleViewModel.swift` | 1722 | 日程主状态机。职责集中，已有多个协调器分担子流程。暂不拆。 |
+| `Schedule/ScheduleModels.swift` | 674 | 课表、考试、DDL、缓存模型和编解码。属于同一领域。暂不拆。 |
+| `Schedule/ScheduleRootView.swift` | 1009 | 日程容器、路由和多页面协调。叶子页面已独立。暂不拆。 |
+| `Score/ScoreViewModels.swift` | 734 | 成绩筛选、缓存、短信续接和刷新状态。状态互相关联。暂不拆。 |
+| `Score/ScoreRootView.swift` | 865 | 成绩/课程合并页及其列表子视图。后续可按页面增长拆分。 |
+| `Gallery/GalleryModels.swift` | 728 | 话廊数据模型和分页状态。职责单一。暂不拆。 |
+| `Gallery/GalleryViewModel.swift` | 676 | feed、搜索、消息状态。推荐预取已独立。暂不拆。 |
+| `BIT101_iOSApp.swift` | 457 | 应用生命周期和全局副作用。已移出 439 行网络 smoke runner。 |
+| `Shared/Infrastructure/ReleaseNetworkSmoke.swift` | 441 | 只在 Debug/专用 smoke 条件下编译。与应用生命周期分离。 |
+
+继续拆分的条件：出现独立生命周期、独立测试边界或高频冲突。仅为减少行数不拆。
+
+## 有意保留的桥接
+
+- `Map/CampusMapScreen.swift`：`MKMapView` 提供相机、定位和 overlay 能力。
+- `Gallery/GalleryImageViewer.swift`：Quick Look 提供系统图片预览；控制器负责预览图到原图的替换。
+- `Gallery/GalleryRootView.swift`：segmented + 手势切换已稳定，暂不改为 pager。
+- Live Activity、Widget、Watch target：受系统 target 边界约束，单独维护。
+
+这些是平台适配，不是重复实现。
+
+## 已收口的重复逻辑
+
+- 课表同步、学期切换和空教室请求共用教学中心会话准备入口。
+- 课程、成绩和学校请求共用 bit-login challenge 基础类型，但 `jwb`、`jwb_cjd`、教学中心会话保持隔离。
+- 空响应、缩减响应和完全相同的课表不会覆盖现有课程；替换策略有自动化测试。
+- 账号切换会取消预热任务、清理旧错误提示，设置页旧请求不会回写新会话。
+- GitHub Issues 与 Cloudflare KV 报告可由 `Scripts/fetch-issues-and-reports.sh` 一次拉取。
+
+## 仍需关注的真实风险
+
+1. 学校 CAS、WebVPN、教务 JSON 结构变化。
+2. 课表、成绩、可信成绩单的 challenge 失效和短信续接。
+3. App、Widget、Watch、Live Activity 的共享快照版本一致性。
+4. 账号切换时旧任务的取消和 UI 回写。
+5. Xcode beta 对 Watch target 的构建行为。
+
+## 后续顺序
+
+1. 依据真实错误报告增加学校响应 fixture。
+2. 观察 smoke 失败样本，再补充探针。
+3. 观察状态机的修改频率，再决定是否继续拆分。
+4. 保持测试、脚本和文档中的版本与数量同步。

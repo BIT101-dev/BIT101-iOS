@@ -5,7 +5,7 @@ BIT101 分享链接使用独立域名：
 - `https://open.aihelpme.dev/gallery/{id}`
 - `https://open.aihelpme.dev/course/{id}`
 
-安装 App 时由 iOS 打开对应详情。微信、QQ 等内置浏览器可能不触发 Universal Link，因此
+安装 App 时由 iOS 打开对应详情。微信、QQ 等内置浏览器可能不触发 Universal Link，所以
 Cloudflare Worker 会显示一个轻量中转页，而不是立即重定向。用户可在中转页尝试用
 `bit101://` 打开 App，或者继续访问 `https://bit101.cn` 的对应网页。该 Worker 与现有的
 `privacy.aihelpme.dev` Pages 项目互相独立，不会改动隐私页面。
@@ -139,7 +139,7 @@ function landingPage(url, route, id) {
   <script>
     (() => {
       // 每个浏览器历史记录项只尝试一次：返回或刷新不会重试；用户再次点开同一链接
-      // 会形成新的记录项，因此仍会自动尝试。
+      // 会形成新的记录项，所以仍会自动尝试。
       const previousState = history.state && typeof history.state === "object"
         ? history.state
         : {};
