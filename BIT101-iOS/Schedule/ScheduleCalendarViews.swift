@@ -20,7 +20,6 @@ struct CourseScheduleCalendarView: View {
     let entries: [ScheduleCalendarEntry]
     let week: Int
     let displayMode: ScheduleDisplayMode
-    let allWeeksLabel: String
     let firstDay: Date
     let timeTable: [TimeSlot]
     let currentWeek: Int
@@ -67,7 +66,9 @@ struct CourseScheduleCalendarView: View {
                     HStack(spacing: 0) {
                         VStack(spacing: 1) {
                             Text(displayMode == .allWeeks ? "全学期" : "\(week)")
-                            Text(displayMode == .allWeeks ? allWeeksLabel : "周")
+                            if displayMode == .weekly {
+                                Text("周")
+                            }
                         }
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.primary)
@@ -75,19 +76,27 @@ struct CourseScheduleCalendarView: View {
                         .background(Color(.secondarySystemBackground))
 
                         ForEach(Array(weekDates.enumerated()), id: \.offset) { index, date in
-                            Button {
-                                onSelectDay(date, visibleWeekdays[index])
-                            } label: {
-                                VStack(spacing: 2) {
-                                    Text(weekdayText(for: visibleWeekdays[index]))
-                                    Text(mmddText(for: date))
+                            if displayMode == .allWeeks {
+                                Text(weekdayText(for: visibleWeekdays[index]))
+                                    .font(.caption2)
+                                    .foregroundStyle(.primary)
+                                    .frame(width: dayWidth, height: headerHeight)
+                                    .background(Color(.secondarySystemBackground))
+                            } else {
+                                Button {
+                                    onSelectDay(date, visibleWeekdays[index])
+                                } label: {
+                                    VStack(spacing: 2) {
+                                        Text(weekdayText(for: visibleWeekdays[index]))
+                                        Text(mmddText(for: date))
+                                    }
+                                    .font(.caption2)
+                                    .foregroundStyle(.primary)
+                                    .frame(width: dayWidth, height: headerHeight)
+                                    .background(Color(.secondarySystemBackground))
                                 }
-                                .font(.caption2)
-                                .foregroundStyle(.primary)
-                                .frame(width: dayWidth, height: headerHeight)
-                                .background(Color(.secondarySystemBackground))
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
 
@@ -143,12 +152,27 @@ struct CourseScheduleCalendarView: View {
                 }
 
                 ForEach(entries.filter { visibleWeekdays.contains($0.dayOfWeek) }) { entry in
-                    Button {
-                        onSelect(entry)
-                    } label: {
-                        CourseScheduleBlockView(entry: entry, showBorder: showBorder)
+                    ZStack(alignment: .topLeading) {
+                        ForEach(entry.backgroundLayers) { layer in
+                            CourseScheduleBackgroundView(entry: entry, showBorder: showBorder)
+                                .frame(
+                                    width: max(dayWidth - 4, 1),
+                                    height: max(rowHeight * (layer.endSection - layer.startSection) - 4, 1)
+                                )
+                                .offset(y: rowHeight * (layer.startSection - entry.startSection) + 2)
+                        }
+
+                        Button {
+                            onSelect(entry)
+                        } label: {
+                            CourseScheduleBlockView(entry: entry, showBorder: false, showsBackground: false)
+                        }
+                        .buttonStyle(.plain)
+                        .frame(
+                            width: max(dayWidth - 4, 1),
+                            height: max(rowHeight * (entry.endSection - entry.startSection) - 4, 1)
+                        )
                     }
-                    .buttonStyle(.plain)
                     .frame(
                         width: max(dayWidth - 4, 1),
                         height: max(rowHeight * (entry.endSection - entry.startSection) - 4, 1)
@@ -186,6 +210,7 @@ struct CourseScheduleCalendarView: View {
 private struct CourseScheduleBlockView: View {
     let entry: ScheduleCalendarEntry
     let showBorder: Bool
+    let showsBackground: Bool
 
     var body: some View {
         VStack(spacing: 4) {
@@ -203,16 +228,21 @@ private struct CourseScheduleBlockView: View {
             Text(entry.subtitle)
                 .font(.caption2)
                 .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .minimumScaleFactor(0.75)
+                .lineLimit(3)
+                .minimumScaleFactor(0.7)
                 .foregroundStyle(textColor)
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 5)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(backgroundColor, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background {
+            if showsBackground {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(backgroundColor)
+            }
+        }
         .overlay {
-            if showBorder {
+            if showBorder, showsBackground {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(borderColor, lineWidth: 0.8)
             }
@@ -249,6 +279,45 @@ private struct CourseScheduleBlockView: View {
             return .orange
         case .custom:
             return .blue
+        }
+    }
+}
+
+private struct CourseScheduleBackgroundView: View {
+    let entry: ScheduleCalendarEntry
+    let showBorder: Bool
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(backgroundColor)
+            .opacity(entry.backgroundLayers.count > 1 ? 0.5 : 1)
+            .overlay {
+                if showBorder {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(borderColor, lineWidth: 0.8)
+                }
+            }
+    }
+
+    private var backgroundColor: Color {
+        switch entry.kind {
+        case .course:
+            return Color(uiColor: .secondarySystemFill).opacity(0.95)
+        case .exam:
+            return Color.orange.opacity(0.22)
+        case .custom:
+            return Color.blue.opacity(0.18)
+        }
+    }
+
+    private var borderColor: Color {
+        switch entry.kind {
+        case .course:
+            return Color.secondary.opacity(0.25)
+        case .exam:
+            return Color.orange.opacity(0.35)
+        case .custom:
+            return Color.blue.opacity(0.30)
         }
     }
 }
@@ -309,10 +378,49 @@ struct ScheduleCalendarEntry: Identifiable {
     let subtitle: String
     let detailLines: [String]
     let kind: ScheduleCalendarKind
+    let backgroundLayers: [ScheduleCalendarLayer]
+
+    init(
+        id: String,
+        sourceID: String,
+        sourceIDs: [String],
+        dayOfWeek: Int,
+        startSection: CGFloat,
+        endSection: CGFloat,
+        title: String,
+        subtitle: String,
+        detailLines: [String],
+        kind: ScheduleCalendarKind,
+        backgroundLayers: [ScheduleCalendarLayer]? = nil
+    ) {
+        self.id = id
+        self.sourceID = sourceID
+        self.sourceIDs = sourceIDs
+        self.dayOfWeek = dayOfWeek
+        self.startSection = startSection
+        self.endSection = endSection
+        self.title = title
+        self.subtitle = subtitle
+        self.detailLines = detailLines
+        self.kind = kind
+        self.backgroundLayers = backgroundLayers ?? [
+            ScheduleCalendarLayer(
+                id: "background-\(id)",
+                startSection: startSection,
+                endSection: endSection
+            )
+        ]
+    }
 
     var resolvedSourceIDs: [String] {
         sourceIDs.isEmpty ? [sourceID] : sourceIDs
     }
+}
+
+struct ScheduleCalendarLayer: Identifiable {
+    let id: String
+    let startSection: CGFloat
+    let endSection: CGFloat
 }
 
 /// 课表条目详情。
@@ -350,7 +458,21 @@ struct ScheduleEntryDetailSheet: View {
                     }
                 }
 
-                if !entry.detailLines.isEmpty {
+                if entry.kind == .course, !academicCourseGroups.isEmpty {
+                    Section("详情") {
+                        ForEach(academicCourseGroups.indices, id: \.self) { index in
+                            let group = academicCourseGroups[index]
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(Array(detailLines(for: group).enumerated()), id: \.offset) { _, line in
+                                    Text(line)
+                                }
+                            }
+                            if index < academicCourseGroups.count - 1 {
+                                Divider()
+                            }
+                        }
+                    }
+                } else if !entry.detailLines.isEmpty {
                     Section("详情") {
                         ForEach(entry.detailLines, id: \.self) { line in
                             Text(line)
@@ -358,9 +480,11 @@ struct ScheduleEntryDetailSheet: View {
                     }
                 }
 
-                if entry.kind == .course, !academicCourses.isEmpty {
+                if entry.kind == .course, !academicCourseGroups.isEmpty {
                     Section("学业课程") {
-                        ForEach(academicCourses) { course in
+                        ForEach(academicCourseGroups.indices, id: \.self) { index in
+                            let group = academicCourseGroups[index]
+                            let course = group[0]
                             Button {
                                 Task { await openAcademicCourse(course) }
                             } label: {
@@ -368,8 +492,9 @@ struct ScheduleEntryDetailSheet: View {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(ScheduleDisplayNormalizer.normalizeCourseTitle(course.name))
                                             .lineLimit(1)
-                                        if academicCourses.count > 1, !course.teacher.isEmpty {
-                                            Text(course.teacher)
+                                        let teachers = unique(group.map(\.teacher).filter { !$0.isEmpty })
+                                        if academicCourseGroups.count > 1, !teachers.isEmpty {
+                                            Text(teachers.joined(separator: "、"))
                                                 .font(.footnote)
                                                 .foregroundStyle(.secondary)
                                                 .lineLimit(1)
@@ -390,7 +515,7 @@ struct ScheduleEntryDetailSheet: View {
                     }
                 }
 
-                if entry.kind == .course, allowsCourseMutation, academicCourses.count == 1 {
+                if entry.kind == .course, allowsCourseMutation, academicCourseGroups.count == 1 {
                     Section {
                         Button("调这节课") {
                             dismiss()
@@ -512,6 +637,48 @@ struct ScheduleEntryDetailSheet: View {
             }
         }
     }
+
+    private var academicCourseGroups: [[CourseRecord]] {
+        var groups: [[CourseRecord]] = []
+        for course in academicCourses {
+            if let index = groups.firstIndex(where: { scheduleCourseIdentity($0[0]) == scheduleCourseIdentity(course) }) {
+                groups[index].append(course)
+            } else {
+                groups.append([course])
+            }
+        }
+        return groups
+    }
+
+    private func unique(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        return values.filter { seen.insert($0).inserted }
+    }
+
+    private func detailLines(for group: [CourseRecord]) -> [String] {
+        guard let first = group.first else { return [] }
+        let teachers = unique(group.map(\.teacher).filter { !$0.isEmpty })
+        let classrooms = unique(group.map { ScheduleDisplayNormalizer.normalizeClassroom($0.classroom) }.filter { !$0.isEmpty })
+        let sections = unique(group.map(\.sectionText))
+        let descriptions = unique(group.map(\.description).filter { !$0.isEmpty })
+        return [
+            "课程：\(ScheduleDisplayNormalizer.normalizeCourseTitle(first.name))",
+            teachers.isEmpty ? nil : "教师：\(teachers.joined(separator: "、"))",
+            classrooms.isEmpty ? nil : "教室：\(classrooms.joined(separator: "\n"))",
+            "学分：\(first.credit > 0 ? String(first.credit) : "-")",
+            "节次：\(sections.joined(separator: "\n"))",
+            descriptions.isEmpty ? nil : descriptions.joined(separator: "\n"),
+        ].compactMap { $0 }
+    }
+}
+
+func scheduleCourseIdentity(_ course: CourseRecord) -> String {
+    let number = course.number.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let name = course.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if !number.isEmpty {
+        return "number:\(number)|name:\(name)"
+    }
+    return "name:\(name)|teacher:\(course.teacher.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
 }
 /// 把具体时间映射到课表网格中的“浮点节次位置”。
 ///
