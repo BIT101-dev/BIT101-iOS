@@ -63,6 +63,7 @@ struct ExtendedLoginTests {
     func blankCredentials() async {
         let service = ServiceStub()
         let viewModel = LoginViewModel(service: service)
+        viewModel.studentID = ""
 
         await viewModel.login()
 
