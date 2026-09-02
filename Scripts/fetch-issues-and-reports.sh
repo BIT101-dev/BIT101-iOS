@@ -135,7 +135,7 @@ else
   rmdir "$STAGING_DIR"
 fi
 
-python3 - "$OUTPUT_DIR/github-issues.json" "$CURRENT_DIR" "$OUTPUT_DIR/summary.txt" "$REPORT_COUNT" <<'PY'
+python3 - "$OUTPUT_DIR/github-issues.json" "$CURRENT_DIR" "$OUTPUT_DIR/summary.txt" "$REPORT_COUNT" "$PREVIOUS_DIR" "$OLDER_DIR" <<'PY'
 import json
 import pathlib
 import sys
@@ -143,6 +143,8 @@ import sys
 issues = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 report_dir = pathlib.Path(sys.argv[2])
 new_report_count = int(sys.argv[4])
+previous_dir = pathlib.Path(sys.argv[5])
+older_dir = pathlib.Path(sys.argv[6])
 reports = []
 if report_dir.exists():
     for path in sorted(report_dir.glob("*.json"), reverse=True):
@@ -164,7 +166,13 @@ lines = [f"GitHub Issues：{len(issues)}"]
 for issue in issues:
     lines.append(f"  #{issue['number']} [{issue['state']}] {issue['title']}  {issue['url']}")
 lines.append("")
-lines.append(f"Cloudflare 错误报告：本次新增 {new_report_count} 条；当前本次批次共 {len(reports)} 条")
+previous_count = len(list(previous_dir.glob("*.json"))) if previous_dir.exists() else 0
+older_count = len(list(older_dir.glob("*.json"))) if older_dir.exists() else 0
+lines.append(f"Cloudflare 错误报告：本次新增 {new_report_count} 条")
+lines.append(f"上次批次：{previous_count} 条")
+lines.append(f"上上次批次：{older_count} 条")
+lines.append("")
+lines.append("本次新增报告详情：" if new_report_count else "最近一次报告详情（本次无新增）：")
 for received_at, version, build, mode, title, filename in reports:
     lines.append(f"  {received_at}  {version} ({build})  {mode}  {title}")
     lines.append(f"    文件：本次/{filename}")
