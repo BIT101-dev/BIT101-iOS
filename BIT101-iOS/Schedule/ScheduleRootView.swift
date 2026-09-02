@@ -740,7 +740,11 @@ private struct CourseScheduleTabView: View {
             }
         }
 
-        let title = unique(courses.map { normalizeDisplayedCourseTitle($0.name) }).joined(separator: "\n")
+        var seenCourseIdentities = Set<String>()
+        let title = courses.compactMap { course -> String? in
+            guard seenCourseIdentities.insert(scheduleCourseIdentity(course)).inserted else { return nil }
+            return normalizeDisplayedCourseTitle(course.name)
+        }.joined(separator: "\n")
         let subtitle = [
             compactWeekText(courses.flatMap(\.weeks)),
         ].compactMap { $0 }.joined(separator: "\n")

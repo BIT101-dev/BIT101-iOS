@@ -216,12 +216,7 @@ private struct CourseScheduleBlockView: View {
         VStack(spacing: 4) {
             Spacer(minLength: 0)
 
-            Text(entry.title)
-                .font(.caption2)
-                .multilineTextAlignment(.center)
-                .lineLimit(4)
-                .minimumScaleFactor(0.75)
-                .foregroundStyle(textColor)
+            titleView
 
             Spacer(minLength: 0)
 
@@ -279,6 +274,35 @@ private struct CourseScheduleBlockView: View {
             return .orange
         case .custom:
             return .blue
+        }
+    }
+
+    @ViewBuilder
+    private var titleView: some View {
+        let titles = entry.title.components(separatedBy: "\n")
+        if entry.kind == .course, titles.count > 1 {
+            VStack(spacing: 2) {
+                ForEach(Array(titles.enumerated()), id: \.offset) { index, title in
+                    Text(title)
+                        .font(.caption2)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.75)
+                        .foregroundStyle(textColor)
+                    if index < titles.count - 1 {
+                        Rectangle()
+                            .fill(textColor.opacity(0.35))
+                            .frame(height: 0.5)
+                    }
+                }
+            }
+        } else {
+            Text(entry.title)
+                .font(.caption2)
+                .multilineTextAlignment(.center)
+                .lineLimit(4)
+                .minimumScaleFactor(0.75)
+                .foregroundStyle(textColor)
         }
     }
 }
@@ -449,68 +473,23 @@ struct ScheduleEntryDetailSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    Text(entry.title)
-                        .font(.headline)
-                    if !entry.subtitle.isEmpty {
-                        Text(entry.subtitle)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
                 if entry.kind == .course, !academicCourseGroups.isEmpty {
-                    Section("详情") {
-                        ForEach(academicCourseGroups.indices, id: \.self) { index in
-                            let group = academicCourseGroups[index]
-                            VStack(alignment: .leading, spacing: 8) {
-                                ForEach(Array(detailLines(for: group).enumerated()), id: \.offset) { _, line in
-                                    Text(line)
-                                }
-                            }
-                            if index < academicCourseGroups.count - 1 {
-                                Divider()
-                            }
+                    courseDetailSections
+                } else {
+                    Section {
+                        Text(entry.title)
+                            .font(.headline)
+                        if !entry.subtitle.isEmpty {
+                            Text(entry.subtitle)
+                                .foregroundStyle(.secondary)
                         }
                     }
-                } else if !entry.detailLines.isEmpty {
-                    Section("详情") {
-                        ForEach(entry.detailLines, id: \.self) { line in
-                            Text(line)
-                        }
-                    }
-                }
 
-                if entry.kind == .course, !academicCourseGroups.isEmpty {
-                    Section("学业课程") {
-                        ForEach(academicCourseGroups.indices, id: \.self) { index in
-                            let group = academicCourseGroups[index]
-                            let course = group[0]
-                            Button {
-                                Task { await openAcademicCourse(course) }
-                            } label: {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(ScheduleDisplayNormalizer.normalizeCourseTitle(course.name))
-                                            .lineLimit(1)
-                                        let teachers = unique(group.map(\.teacher).filter { !$0.isEmpty })
-                                        if academicCourseGroups.count > 1, !teachers.isEmpty {
-                                            Text(teachers.joined(separator: "、"))
-                                                .font(.footnote)
-                                                .foregroundStyle(.secondary)
-                                                .lineLimit(1)
-                                        }
-                                    }
-                                    Spacer()
-                                    if isResolvingAcademicCourse {
-                                        ProgressView()
-                                    } else {
-                                        Image(systemName: "chevron.right")
-                                            .font(.footnote.weight(.semibold))
-                                            .foregroundStyle(.tertiary)
-                                    }
-                                }
+                    if !entry.detailLines.isEmpty {
+                        Section("详情") {
+                            ForEach(entry.detailLines, id: \.self) { line in
+                                Text(line)
                             }
-                            .disabled(isResolvingAcademicCourse)
                         }
                     }
                 }
@@ -638,6 +617,39 @@ struct ScheduleEntryDetailSheet: View {
         }
     }
 
+    @ViewBuilder
+    private var courseDetailSections: some View {
+        ForEach(academicCourseGroups.indices, id: \.self) { index in
+            let group = academicCourseGroups[index]
+            let first = group[0]
+            Section {
+                Text(ScheduleDisplayNormalizer.normalizeCourseTitle(first.name))
+                    .font(.headline)
+                let classrooms = unique(group.map { ScheduleDisplayNormalizer.normalizeClassroom($0.classroom) }.filter { !$0.isEmpty })
+                if !classrooms.isEmpty {
+                    Text(classrooms.joined(separator: "\n"))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("详情") {
+                ForEach(Array(detailLines(for: group).enumerated()), id: \.offset) { _, line in
+                    Text(line)
+                }
+            }
+
+            Section("学业课程") {
+                academicCourseRow(for: group)
+            }
+
+            if index < academicCourseGroups.count - 1 {
+                Section {
+                    Divider()
+                }
+            }
+        }
+    }
+
     private var academicCourseGroups: [[CourseRecord]] {
         var groups: [[CourseRecord]] = []
         for course in academicCourses {
@@ -655,6 +667,36 @@ struct ScheduleEntryDetailSheet: View {
         return values.filter { seen.insert($0).inserted }
     }
 
+    private func academicCourseRow(for group: [CourseRecord]) -> some View {
+        let course = group[0]
+        return Button {
+            Task { await openAcademicCourse(course) }
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(ScheduleDisplayNormalizer.normalizeCourseTitle(course.name))
+                        .lineLimit(1)
+                    let teachers = unique(group.map(\.teacher).filter { !$0.isEmpty })
+                    if academicCourseGroups.count > 1, !teachers.isEmpty {
+                        Text(teachers.joined(separator: "、"))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer()
+                if isResolvingAcademicCourse {
+                    ProgressView()
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .disabled(isResolvingAcademicCourse)
+    }
+
     private func detailLines(for group: [CourseRecord]) -> [String] {
         guard let first = group.first else { return [] }
         let teachers = unique(group.map(\.teacher).filter { !$0.isEmpty })
@@ -662,7 +704,6 @@ struct ScheduleEntryDetailSheet: View {
         let sections = unique(group.map(\.sectionText))
         let descriptions = unique(group.map(\.description).filter { !$0.isEmpty })
         return [
-            "课程：\(ScheduleDisplayNormalizer.normalizeCourseTitle(first.name))",
             teachers.isEmpty ? nil : "教师：\(teachers.joined(separator: "、"))",
             classrooms.isEmpty ? nil : "教室：\(classrooms.joined(separator: "\n"))",
             "学分：\(first.credit > 0 ? String(first.credit) : "-")",
