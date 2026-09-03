@@ -103,11 +103,12 @@ enum AppTab: String, Identifiable, Codable {
 ///
 /// 壳层只关心两件事：按照设置中心决定展示哪些 tab，以及把退出登录回调继续往下传。
 struct AppShellView: View {
-    private static let startupNoticeTitle = "1.7.6 版本更新"
+    private static let startupNoticeTitle = "1.7.7 版本更新"
     private static let startupNoticeBody = """
-    新增可选的错误信息反馈，可提交脱敏调试信息或原始网络响应，并附加留言。
-    优化错误提示、更新入口和课表同步，异常数据不会覆盖现有课表。
-    优化输入体验。
+    课表支持全学期叠加查看、重叠课程分层显示和更顺滑的周次切换。
+    课程详情可查看上课地点并跳转地图，支持长按课程或空白处分享。
+    建议反馈支持图片、草稿恢复与更清晰的错误信息提交流程。
+    优化错误提示、课表同步和整体使用体验。
     """
     private static let widgetUsageGuideTitle = "非常有用的几个用法"
     private static let widgetUsageGuideBody = """

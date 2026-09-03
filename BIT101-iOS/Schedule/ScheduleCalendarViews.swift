@@ -95,7 +95,6 @@ struct CourseScheduleCalendarView: View {
     let showBorder: Bool
     let onSelect: (ScheduleCalendarEntry) -> Void
     let onSelectDay: (Date, Int) -> Void
-    let onSelectWeek: () -> Void
     let onSelectWeekValue: (Int) -> Void
     let onLongPressCourse: (ScheduleCalendarEntry) -> Void
     let onPrepareCourseShare: (ScheduleCalendarEntry) -> Void
@@ -142,6 +141,7 @@ struct CourseScheduleCalendarView: View {
                         ScheduleInlineWeekSlider(
                             weeks: availableWeeks,
                             currentWeek: week,
+                            highlightedWeek: currentWeek,
                             onSelectWeek: onSelectWeekValue
                         )
                         .frame(maxWidth: .infinity)
@@ -149,17 +149,13 @@ struct CourseScheduleCalendarView: View {
                         .background(Color(.secondarySystemBackground))
 
                         HStack(spacing: 0) {
-                            Button(action: onSelectWeek) {
-                                Text("第\(week)周")
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(Color.accentColor)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.8)
-                                    .frame(width: leftWidth, height: dateHeaderHeight)
-                            }
-                            .buttonStyle(.plain)
+                            Text("第\(week)周")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                                .frame(width: leftWidth, height: dateHeaderHeight)
                             .background(Color(.secondarySystemBackground))
-                            .accessibilityLabel("选择周次")
 
                             ForEach(Array(weekDates.enumerated()), id: \.offset) { index, date in
                                 Button {
@@ -280,7 +276,7 @@ struct CourseScheduleCalendarView: View {
                                 )
                         }
 
-                        CourseScheduleBlockView(entry: entry, showBorder: false, showsBackground: false)
+                        CourseScheduleBlockView(entry: entry)
                             .contentShape(Rectangle())
                             .onTapGesture { onSelect(entry) }
                             .contextMenu {
@@ -342,8 +338,6 @@ struct CourseScheduleCalendarView: View {
 /// 课表中的单个课程 / 考试 / 自定义日程块。
 private struct CourseScheduleBlockView: View {
     let entry: ScheduleCalendarEntry
-    let showBorder: Bool
-    let showsBackground: Bool
 
     var body: some View {
         VStack(spacing: 4) {
@@ -358,18 +352,6 @@ private struct CourseScheduleBlockView: View {
         .padding(.horizontal, 2)
         .padding(.vertical, 5)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background {
-            if showsBackground {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(backgroundColor)
-            }
-        }
-        .overlay {
-            if showBorder, showsBackground {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(borderColor, lineWidth: 0.8)
-            }
-        }
     }
 
     @ViewBuilder
@@ -384,28 +366,6 @@ private struct CourseScheduleBlockView: View {
                     .minimumScaleFactor(minimumScaleFactor)
                     .foregroundStyle(textColor)
             }
-        }
-    }
-
-    private var backgroundColor: Color {
-        switch entry.kind {
-        case .course:
-            return Color(uiColor: .secondarySystemFill).opacity(0.95)
-        case .exam:
-            return Color.orange.opacity(0.22)
-        case .custom:
-            return Color.blue.opacity(0.18)
-        }
-    }
-
-    private var borderColor: Color {
-        switch entry.kind {
-        case .course:
-            return Color.secondary.opacity(0.25)
-        case .exam:
-            return Color.orange.opacity(0.35)
-        case .custom:
-            return Color.blue.opacity(0.30)
         }
     }
 
@@ -500,16 +460,19 @@ struct CourseScheduleFABLabel: View {
 private struct ScheduleInlineWeekSlider: View {
     let weeks: [Int]
     let currentWeek: Int
+    let highlightedWeek: Int
     let onSelectWeek: (Int) -> Void
     @State private var selectedWeek: Int?
 
     init(
         weeks: [Int],
         currentWeek: Int,
+        highlightedWeek: Int,
         onSelectWeek: @escaping (Int) -> Void
     ) {
         self.weeks = weeks
         self.currentWeek = currentWeek
+        self.highlightedWeek = highlightedWeek
         self.onSelectWeek = onSelectWeek
         // 先等滚动内容完成首轮布局，再设置选中项；直接在初始化阶段绑定滚动位置会落在半个刻度。
         _selectedWeek = State(initialValue: nil)
@@ -528,11 +491,11 @@ private struct ScheduleInlineWeekSlider: View {
                             VStack(spacing: 1) {
                                 Text(isMajorWeek(week) ? "\(week)" : "")
                                     .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(week == selectedWeek ? .primary : .secondary)
+                                    .foregroundStyle(week == highlightedWeek ? Color.accentColor : .secondary)
                                     .frame(height: 13)
                                 Capsule()
-                                    .fill(week == selectedWeek ? Color.accentColor : Color.secondary.opacity(0.55))
-                                    .frame(width: week == selectedWeek ? 4 : 3, height: isMajorWeek(week) ? barHeight : 16)
+                                    .fill(week == highlightedWeek ? Color.accentColor : Color.secondary.opacity(0.55))
+                                    .frame(width: week == highlightedWeek ? 4 : 3, height: isMajorWeek(week) ? barHeight : 16)
                             }
                             .frame(width: itemWidth, height: 34, alignment: .top)
                             .contentShape(Rectangle())
@@ -601,102 +564,6 @@ private struct ScheduleInlineWeekSlider: View {
         DispatchQueue.main.async {
             proxy.scrollTo(target, anchor: .center)
         }
-    }
-}
-
-/// 按周模式的横向周次选择器。
-struct ScheduleWeekPickerSheet: View {
-    let weeks: [Int]
-    let currentWeek: Int
-    let onSelectWeek: (Int) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var selectedWeek: Int?
-
-    init(
-        weeks: [Int],
-        currentWeek: Int,
-        onSelectWeek: @escaping (Int) -> Void
-    ) {
-        self.weeks = weeks
-        self.currentWeek = currentWeek
-        self.onSelectWeek = onSelectWeek
-        _selectedWeek = State(initialValue: weeks.contains(currentWeek) ? currentWeek : weeks.first)
-    }
-
-    var body: some View {
-        VStack(spacing: 14) {
-            HStack {
-                Button("取消") { dismiss() }
-                Spacer()
-                Text("选择周次")
-                    .font(.headline)
-                Spacer()
-                Button("完成") {
-                    if let selectedWeek {
-                        onSelectWeek(selectedWeek)
-                    }
-                    dismiss()
-                }
-                .fontWeight(.semibold)
-            }
-
-            Text("第\(selectedWeek ?? currentWeek)周")
-                .font(.title3.weight(.semibold))
-
-            GeometryReader { proxy in
-                let itemWidth: CGFloat = 30
-                ScrollView(.horizontal) {
-                    LazyHStack(spacing: 8) {
-                        ForEach(weeks, id: \.self) { week in
-                            VStack(spacing: 4) {
-                                Text(isMajorWeek(week) ? "\(week)" : "")
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(week == selectedWeek ? .primary : .secondary)
-                                    .frame(height: 16)
-                                Capsule()
-                                    .fill(week == selectedWeek ? Color.accentColor : Color.secondary.opacity(0.55))
-                                    .frame(width: week == selectedWeek ? 5 : 4, height: isMajorWeek(week) ? 42 : 28)
-                            }
-                            .frame(width: itemWidth, height: 70, alignment: .top)
-                            .contentShape(Rectangle())
-                            .id(week)
-                            .onTapGesture {
-                                withAnimation(.snappy) {
-                                    selectedWeek = week
-                                }
-                            }
-                        }
-                    }
-                    .scrollTargetLayout()
-                    .frame(minHeight: 70)
-                }
-                .scrollIndicators(.hidden)
-                .scrollTargetBehavior(.viewAligned)
-                .scrollPosition(id: $selectedWeek, anchor: .center)
-                .safeAreaPadding(.horizontal, max((proxy.size.width - itemWidth) / 2, 0))
-                .overlay {
-                    VStack(spacing: 0) {
-                        Image(systemName: "triangle.fill")
-                            .font(.caption2)
-                            .foregroundStyle(.tint)
-                            .rotationEffect(.degrees(180))
-                        Rectangle()
-                            .fill(Color.accentColor)
-                            .frame(width: 2, height: 42)
-                    }
-                    .allowsHitTesting(false)
-                }
-            }
-            .frame(height: 78)
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 14)
-        .presentationDetents([.height(210)])
-        .presentationDragIndicator(.visible)
-    }
-
-    private func isMajorWeek(_ week: Int) -> Bool {
-        week == 1 || week % 5 == 0
     }
 }
 
@@ -879,7 +746,6 @@ struct ScheduleEntryDetailSheet: View {
     let entry: ScheduleCalendarEntry
     let academicCourses: [CourseRecord]
     let currentWeek: Int
-    let timeTable: [TimeSlot]
     let allowsCourseMutation: Bool
     let isOverviewMode: Bool
     let allowsCustomScheduleMutation: Bool

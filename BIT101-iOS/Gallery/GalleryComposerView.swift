@@ -261,7 +261,8 @@ struct GalleryComposerView: View {
     /// 页面级错误提示。
     @State private var alert: AppAlert?
     @State private var isShowingDraftAlert = false
-    @State private var didRestoreDraft = false
+    @State private var isShowingDraftRestoreAlert = false
+    @State private var didCheckDraft = false
 
     /// 发帖接口服务。
     private let service = GalleryService()
@@ -395,7 +396,7 @@ struct GalleryComposerView: View {
                 guard !newValue.isEmpty else { return }
                 Task { await addImages(from: newValue) }
             }
-            .onAppear { restoreDraftIfNeeded() }
+            .onAppear { checkDraftOnAppear() }
             .alert("保存草稿？", isPresented: $isShowingDraftAlert) {
                 Button("保存草稿") {
                     saveDraft()
@@ -405,9 +406,18 @@ struct GalleryComposerView: View {
                     ComposerDraftStore.removeGallery()
                     dismiss()
                 }
-                Button("继续编辑", role: .cancel) {}
             } message: {
-                Text("退出后下次可以继续编辑。")
+                Text("保存后下次打开时可以加载草稿。")
+            }
+            .alert("加载草稿？", isPresented: $isShowingDraftRestoreAlert) {
+                Button("加载草稿") {
+                    loadSavedDraft()
+                }
+                Button("不加载", role: .destructive) {
+                    ComposerDraftStore.removeGallery()
+                }
+            } message: {
+                Text("发现上次保存的发帖草稿。")
             }
             .diagnosticAlert(item: $alert)
         }
@@ -443,9 +453,13 @@ struct GalleryComposerView: View {
         )
     }
 
-    private func restoreDraftIfNeeded() {
-        guard !didRestoreDraft else { return }
-        didRestoreDraft = true
+    private func checkDraftOnAppear() {
+        guard !didCheckDraft else { return }
+        didCheckDraft = true
+        isShowingDraftRestoreAlert = ComposerDraftStore.loadGallery() != nil
+    }
+
+    private func loadSavedDraft() {
         guard let draft = ComposerDraftStore.loadGallery() else { return }
 
         title = draft.title

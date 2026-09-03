@@ -224,7 +224,6 @@ private struct CourseScheduleTabView: View {
     @State private var isShowingSystemCalendarImportConfirmation = false
     @State private var isShowingSystemCalendarDeleteConfirmation = false
     @State private var isUpdatingSystemCalendar = false
-    @State private var isShowingWeekPicker = false
     @State private var isShowingScheduleImport = false
     @State private var exportedSchedule: ScheduleCodePresentation?
     @State private var courseSharePresentation: CourseSharePresentation?
@@ -284,9 +283,6 @@ private struct CourseScheduleTabView: View {
                                 dayAdjustmentDraft = ScheduleDayAdjustmentDraft(
                                     targetDate: Calendar.current.date(byAdding: .day, value: 1, to: date) ?? date
                                 )
-                            },
-                            onSelectWeek: {
-                                isShowingWeekPicker = true
                             },
                             onSelectWeekValue: { week in
                                 viewModel.selectedWeek = week
@@ -397,7 +393,6 @@ private struct CourseScheduleTabView: View {
                     activeSchedule.courses.first(where: { $0.id == sourceID })
                 },
                 currentWeek: viewModel.selectedWeek,
-                timeTable: activeSchedule.timeTable,
                 allowsCourseMutation: supportsEditingDisplayedSchedule,
                 isOverviewMode: supportsEditingDisplayedSchedule
                     && viewModel.cache.scheduleDisplayMode == .allWeeks,
@@ -536,13 +531,6 @@ private struct CourseScheduleTabView: View {
                 }
             )
         }
-        .sheet(isPresented: $isShowingWeekPicker) {
-            ScheduleWeekPickerSheet(
-                weeks: weekPickerWeeks,
-                currentWeek: viewModel.selectedWeek,
-                onSelectWeek: { viewModel.selectedWeek = $0 }
-            )
-        }
         .sheet(item: $courseSharePresentation) { presentation in
             CourseActivityShareSheet(url: presentation.url, subject: presentation.subject)
         }
@@ -593,7 +581,6 @@ private struct CourseScheduleTabView: View {
         settingsRoute = nil
         isShowingEditSchedule = false
         isShowingCourseEditor = false
-        isShowingWeekPicker = false
         isShowingScheduleImport = false
         exportedSchedule = nil
         courseSharePresentation = nil

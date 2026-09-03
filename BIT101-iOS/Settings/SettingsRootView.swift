@@ -195,7 +195,8 @@ struct DeveloperSuggestionPage: View {
     @State private var isSubmitting = false
     @State private var alert: AppAlert?
     @State private var isShowingDraftAlert = false
-    @State private var didRestoreDraft = false
+    @State private var isShowingDraftRestoreAlert = false
+    @State private var didCheckDraft = false
 
     var body: some View {
         Form {
@@ -263,7 +264,7 @@ struct DeveloperSuggestionPage: View {
                 guard !newValue.isEmpty else { return }
                 Task { await addImages(from: newValue) }
             }
-            .onAppear { restoreDraftIfNeeded() }
+            .onAppear { checkDraftOnAppear() }
             .alert("保存草稿？", isPresented: $isShowingDraftAlert) {
                 Button("保存草稿") {
                     saveDraft()
@@ -273,9 +274,18 @@ struct DeveloperSuggestionPage: View {
                     ComposerDraftStore.removeSuggestion()
                     dismiss()
                 }
-                Button("继续编辑", role: .cancel) {}
             } message: {
-                Text("退出后下次可以继续编辑。")
+                Text("保存后下次打开时可以加载草稿。")
+            }
+            .alert("加载草稿？", isPresented: $isShowingDraftRestoreAlert) {
+                Button("加载草稿") {
+                    loadSavedDraft()
+                }
+                Button("不加载", role: .destructive) {
+                    ComposerDraftStore.removeSuggestion()
+                }
+            } message: {
+                Text("发现上次保存的建议草稿。")
             }
             .diagnosticAlert(item: $alert)
     }
@@ -349,9 +359,13 @@ struct DeveloperSuggestionPage: View {
         )
     }
 
-    private func restoreDraftIfNeeded() {
-        guard !didRestoreDraft else { return }
-        didRestoreDraft = true
+    private func checkDraftOnAppear() {
+        guard !didCheckDraft else { return }
+        didCheckDraft = true
+        isShowingDraftRestoreAlert = ComposerDraftStore.loadSuggestion() != nil
+    }
+
+    private func loadSavedDraft() {
         guard let draft = ComposerDraftStore.loadSuggestion() else { return }
 
         text = draft.text

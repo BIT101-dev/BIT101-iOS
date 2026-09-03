@@ -1,313 +1,86 @@
-# BIT101-iOS 源码文件索引
+# BIT101-iOS 源码索引
 
-这份文档只做一件事：列出当前全部 Swift 源码文件，并给出每份文件的职责说明。
+这份文档提供**模块入口和职责地图**，不再手工维护逐文件清单。新增同模块文件时只需保持目录归属；完整清单用文末命令生成。
 
-适合这几种场景：
+## 应用入口
 
-- 你知道要改哪个模块，但不知道先从哪份文件看起
-- 你想快速判断某份文件是模型、服务、状态机还是视图
-- 你想确认一个功能到底分布在主 App 还是 widget extension
+- `BIT101-iOS/BIT101_iOSApp.swift`：应用入口、全局主题、方向策略。
+- `BIT101-iOS/ContentView.swift`：按登录状态切换登录页和主壳层。
+- `BIT101-iOS/Shell/AppShellView.swift`：登录后 tab、全局路由、深链和跨模块弹层。
+- `BIT101-iOS/Settings/AppSettingsStore.swift`：全局设置、账号隔离和公告状态。
 
-## 1. 主应用入口与公共文件
+## 共享层
 
-- `BIT101-iOS/BIT101_iOSApp.swift`
-  应用入口，负责全局主题、根视图挂载和屏幕方向策略。
-- `BIT101-iOS/ContentView.swift`
-  根容器，根据登录状态切换登录页或登录后壳层。
-- `BIT101-iOS/CachedRemoteImage.swift`
-  远程图片缓存组件，负责头像等高频图片的内存与磁盘缓存。
-- `BIT101-iOS/Shared/ScheduleSharedOccurrence.swift`
-  跨主 App / widget / watch 共用的课表 occurrence 解析与展示规范化逻辑。
-- `BIT101-iOS/Shared/ScheduleSharedSnapshot.swift`
-  共享快照模型、共享容器路径和读写入口。
-- `BIT101-iOS/Shared/ScheduleSharedLiveActivity.swift`
-  主 App 与 widget target 共用的 Live Activity attributes / content state 契约。
-- `BIT101-iOS/Shared/Infrastructure/AppAlert.swift`
-  各业务模块共享的页面提示数据模型。
-- `BIT101-iOS/Shared/Infrastructure/TaskCancellation.swift`
-  Concurrency 与 URLSession 取消错误的统一识别入口。
-- `BIT101-iOS/Shared/Infrastructure/AccountScopedCodableStore.swift`
-  统一按账号拼接键并读写 Codable 快照。
-- `BIT101-iOS/Shared/Infrastructure/HorizontalSwitchGesture.swift`
-  segmented 内容区复用的横向轻扫阈值和方向判断。
-- `BIT101-iOS/Shared/Infrastructure/PagedItemsState.swift`
-  页码分页列表共用的状态契约、游标推进和尾部触发规则。
-- `BIT101-iOS/Shared/Infrastructure/AppDeepLinkCoordinator.swift`
-  解析自定义链接与 Universal Link，并把待处理路由交给应用壳层。
-- `BIT101-iOS/Shared/Infrastructure/AppUpdateChecker.swift`
-  App Store 版本查询、更新提示节流和全局弹窗队列。
-- `BIT101-iOS/Shared/Infrastructure/ExperimentalPreferenceCloudSync.swift`
-  实验性偏好与成绩缓存的 iCloud KVS 同步及冲突决策。
-- `BIT101-iOS/Shared/Networking/HTTPClient.swift`
-  可注入的 HTTP 传输、响应校验、错误消息解析和共享会话池。
-- `BIT101-iOS/Shared/Networking/CommunityAPIClient.swift`
-  社区接口的 URL、fake-cookie、JSON 与 multipart 请求边界。
-- `BIT101-iOS/WatchSync/WatchScheduleSyncManager.swift`
-  iPhone 与 Apple Watch 之间的课表镜像同步桥。
+- `BIT101-iOS/Shared/Infrastructure/`：提示模型、深链、更新检查、紧急更新、错误报告、键盘收起、分页、账号存储、手势、任务取消、偏好同步和网络 smoke。
+- `BIT101-iOS/Shared/Networking/`：HTTP 传输、社区 API、登录 challenge 支持和安全 URL 传输。
+- `BIT101-iOS/Shared/ScheduleShared*.swift`：主 App、widget、Live Activity 共用的课表快照与 occurrence 规范。
+- `BIT101-iOS/WatchSync/WatchScheduleSyncManager.swift`：iPhone 与 Apple Watch 的课表镜像同步。
+- `BIT101-iOS/CachedRemoteImage.swift`：头像等远程图片的内存与磁盘缓存。
 
-## 2. Shell
+## 业务模块
 
-- `BIT101-iOS/Shell/AppShellView.swift`
-  登录后的全局壳层，负责 tab、全局路由、深链分发和部分跨模块弹层。
+### 登录
 
-## 3. 登录模块
+目录：`BIT101-iOS/Login/`
 
-- `BIT101-iOS/Login/LoginViews.swift`
-  登录页、启动检查页、原生表单 UI。
-- `BIT101-iOS/Login/LoginViewModel.swift`
-  登录流程状态机，管理输入、提交、错误态和恢复逻辑。
-- `BIT101-iOS/Login/LoginService.swift`
-  登录业务门面，协调 BIT101 身份校验、本地持久化和学校会话恢复。
-- `BIT101-iOS/Login/BIT101APIClient.swift`
-  学校 CAS 与 BIT101 登录网络客户端。
-- `BIT101-iOS/Login/LoginSessionState.swift`
-  登录模型、错误和教学中心进程内会话状态。
-- `BIT101-iOS/Login/LoginStorage.swift`
-  Keychain、fake-cookie 与卸载重装清理规则。
-- `BIT101-iOS/Login/LoginCrypto.swift`
-  与现有服务兼容的 AES/MD5 密码变换。
-- `BIT101-iOS/Login/SchoolLoginHTMLParser.swift`
-  CAS 登录页必要字段解析。
-- `BIT101-iOS/Login/LoginServicing.swift`
-  登录 ViewModel 使用的最小 Service 协议与生产实现适配。
+`LoginViews.swift` 是表单入口，`LoginViewModel.swift` 管理状态，`LoginService.swift` 协调登录与会话，`BIT101APIClient.swift` 负责学校与 BIT101 网络请求；其余文件负责模型、存储、加密和 CAS 页面解析。
 
-注意：学校教务业务的新版 bit-login challenge 不在 `LoginService`，而分别由
-`ScheduleService` 和 `ScoreService` 管理。
+### 话廊与文章
 
-## 4. 话廊模块
+- `BIT101-iOS/Gallery/`：信息流、搜索、消息、帖子详情、评论、治理、图片缓存和发帖。
+- `BIT101-iOS/Paper/`：文章列表、详情、评论、编辑、搜索和点赞。
 
-- `BIT101-iOS/Gallery/CommunityModeration.swift`
-  本地敏感词、屏蔽规则、举报相关辅助逻辑。
-- `BIT101-iOS/Gallery/GalleryComposerView.swift`
-  发帖页，包括标签、自定义标签、内容输入和提交。
-- `BIT101-iOS/Gallery/GalleryModels.swift`
-  帖子、评论、搜索、消息、用户等模型定义。
-- `BIT101-iOS/Gallery/GalleryImageViewer.swift`
-  远程与内存图片共用的全屏缩放查看器和日期解析支持。
-- `BIT101-iOS/Gallery/GalleryAnimatedImage.swift`
-  动图解码、播放与生命周期桥接。
-- `BIT101-iOS/Gallery/GalleryImageCache.swift`
-  话廊缩略图和原图的下载、内存/磁盘缓存边界。
-- `BIT101-iOS/Gallery/GalleryLinkifiedText.swift`
-  帖子正文中的链接识别与可点击文本展示。
-- `BIT101-iOS/Gallery/GalleryPosterDetailViewModel.swift`
-  帖子详情页状态机，处理评论、点赞、详情刷新等。
-- `BIT101-iOS/Gallery/GalleryRootView.swift`
-  话廊容器、分栏切换和全局路由。
-- `BIT101-iOS/Gallery/GalleryFeedViews.swift`
-  信息流容器与帖子卡片。
-- `BIT101-iOS/Gallery/GallerySearchView.swift`、`GalleryMessagesView.swift`
-  搜索与消息中心页面。
-- `BIT101-iOS/Gallery/GalleryPosterDetailView.swift`、`GalleryCommentViews.swift`
-  帖子详情与评论交互。
-- `BIT101-iOS/Gallery/GalleryModerationViews.swift`
-  举报与治理弹层。
-- `BIT101-iOS/Gallery/GalleryService.swift`
-  话廊 feed、搜索、消息、帖子详情、删除等网络接口。
-- `BIT101-iOS/Gallery/GalleryServicing.swift`
-  按 feed、消息和帖子详情场景拆分的 Service 协议。
-- `BIT101-iOS/Gallery/GalleryViewModel.swift`
-  话廊 feed、搜索与消息分类的状态机，负责刷新、分页和本地已读近似状态。
-- `BIT101-iOS/Gallery/GalleryRecommendPrefetchCoordinator.swift`
-  推荐流源页预取协调器，统一后台预取、前台消费、取消代次和同页请求复用。
+各模块的 `*RootView.swift` 是页面入口，`*Service.swift` 是网络门面，`*ViewModel.swift` 管理页面状态，`*Models.swift` 保存载荷模型。
 
-### 4.1 文章模块
+### 日程
 
-- `BIT101-iOS/Paper/PaperModels.swift`
-  文章列表、详情、正文块、评论与编辑载荷模型。
-- `BIT101-iOS/Paper/PaperRootView.swift`
-  文章模块入口、列表和路由协调。
-- `BIT101-iOS/Paper/PaperSearchViews.swift`、`PaperSummaryViews.swift`
-  文章搜索和列表摘要。
-- `BIT101-iOS/Paper/PaperDetailView.swift`、`PaperCommentViews.swift`
-  文章详情与评论。
-- `BIT101-iOS/Paper/PaperComposerViews.swift`
-  发布与编辑表单。
-- `BIT101-iOS/Paper/PaperService.swift`
-  文章列表、详情、发布、编辑、删除、点赞与评论接口。
-- `BIT101-iOS/Paper/PaperServicing.swift`
-  文章列表和详情状态机使用的最小 Service 协议。
-- `BIT101-iOS/Paper/PaperViewModel.swift`
-  文章列表与详情状态机，负责分页、搜索、详情刷新和评论交互。
+目录：`BIT101-iOS/Schedule/`
 
-## 5. 地图模块
+- `ScheduleRootView.swift`：日程页容器和页面路由。
+- `ScheduleCalendarViews.swift`：按周/全学期课表网格、课程详情、分享和交互。
+- `ScheduleModels.swift`：课程、考试、DDL、空教室和缓存领域模型。
+- `ScheduleViewModel*.swift`：同步、学期、空教室、编辑、DDL 和偏好分支。
+- `ScheduleService*.swift`：教学中心、乐学、认证、传输及响应模型。
+- `ScheduleCacheStore.swift`、`ScheduleWidgetSupport.swift`：缓存持久化和 widget 导出。
+- 其余解析器、策略、日历、分享和编辑文件按职责拆分，不在此重复列出。
 
-- `BIT101-iOS/Map/CampusMapScreen.swift`
-  基于 `MapKit` 的地图页，包含校区跳转、定位与自定义图层桥接。
-- `BIT101-iOS/Map/CampusNativeMapView.swift`
-  `MKMapView` 的 SwiftUI 桥接、相机和标注协调。
-- `BIT101-iOS/Map/CampusMapLocations.swift`
-  校区地点、建筑别名和课表教室匹配规则。
-- `BIT101-iOS/Map/CampusLocationController.swift`
-  定位授权、当前位置更新和错误状态。
-- `BIT101-iOS/Map/UpcomingCourseMapResolver.swift`
-  从课表缓存推导下一节课及目标校区建筑。
+### 成绩与课程
 
-## 6. 我的模块
+- `BIT101-iOS/Score/`：成绩、筛选、统计、可信成绩单及其独立状态机。
+- `BIT101-iOS/Course/`：课程搜索、详情、教师评价、历年成绩和评论。
 
-- `BIT101-iOS/Mine/MineModels.swift`
-  个人资料、分页状态、列表项等模型。
-- `BIT101-iOS/Mine/MineRootView.swift`
-  我的主页、他人主页、粉丝、关注、帖子列表等视图。
-- `BIT101-iOS/Mine/MineService.swift`
-  个人信息、粉丝、关注、帖子列表相关请求。
-- `BIT101-iOS/Mine/MineServicing.swift`
-  我的主页与他人主页各自使用的 Service 协议。
-- `BIT101-iOS/Mine/MineViewModel.swift`
-  我的模块状态机，管理主页加载与分页。
+两者均遵循 Models / Service / Servicing / ViewModel / View 的职责划分。
 
-## 7. 日程模块
+### 地图
 
-- `BIT101-iOS/Schedule/ScheduleLiveActivityManager.swift`
-  课程提醒 Live Activity 管理器，负责开始、更新和结束提醒。
-- `BIT101-iOS/Schedule/ScheduleModels.swift`
-  课表、考试、DDL、空教室、自定义日程、缓存快照和时间表领域模型。
-- `BIT101-iOS/Schedule/ScheduleCacheStore.swift`
-  按账号隔离的日程缓存磁盘读写、通知和小组件导出触发。
-- `BIT101-iOS/Schedule/ScheduleCloudSyncManager.swift`
-  日程缓存的 CloudKit 传输与时间戳冲突决策。
-- `BIT101-iOS/Schedule/ScheduleClassroomCoordinator.swift`
-  空教室请求代次、超时、首次加载和元数据 single-flight 协调。
-- `BIT101-iOS/Schedule/ScheduleCourseSyncCoordinator.swift`
-  记录短信认证后应续接指定学期同步还是学期列表加载。
-- `BIT101-iOS/Schedule/FreeClassroomViews.swift`
-  空教室查询、加载状态和节次筛选视图。
-- `BIT101-iOS/Schedule/ClassroomSorting.swift`
-  空教室名称的自然排序规则。
-- `BIT101-iOS/Schedule/AcademicTermPolicy.swift`
-  学期切换、自动刷新和成绩刷新窗口的纯策略。
-- `BIT101-iOS/Schedule/ScheduleRootView.swift`
-  日程页主视图，包含课表、DDL、空教室三块 UI。
-- `BIT101-iOS/Schedule/ScheduleSharePayloads.swift`
-  课表分享载荷、紧凑分享码版本兼容与导入补全规则。
-- `BIT101-iOS/Schedule/ScheduleService.swift`
-  bit-login 教学中心会话与日程网络请求门面。
-- `BIT101-iOS/Schedule/ScheduleICSParser.swift`
-  乐学 iCalendar 折行、转义和日期解析。
-- `BIT101-iOS/Schedule/ScheduleStringParsing.swift`
-  学校返回文本的正则捕获和 HTML 解码支持。
-- `BIT101-iOS/Schedule/ScheduleServiceDTOs.swift`
-  学期、课程、考试、校区、教学楼和教室接口响应模型。
-- `BIT101-iOS/Schedule/ScheduleServiceSupport.swift`
-  学校重定向 HTTPS 升级、URL 解析和取消判断支持。
-- `BIT101-iOS/Schedule/ScheduleServicing.swift`
-  日程状态机依赖的学校系统 Service 协议。
-- `BIT101-iOS/Schedule/ScheduleViewModel.swift`
-  日程状态、初始化、缓存恢复和公共状态投影。
-- `BIT101-iOS/Schedule/ScheduleViewModel+CourseSync.swift`
-  课表同步、学期列表、短信验证和自动刷新。
-- `BIT101-iOS/Schedule/ScheduleViewModel+Classroom.swift`
-  空教室请求、元数据、筛选和自动匹配。
-- `BIT101-iOS/Schedule/ScheduleViewModel+CourseEditing.swift`
-  课程与自定义日程的本地编辑。
-- `BIT101-iOS/Schedule/ScheduleViewModel+DDL.swift`
-  乐学同步、DDL 编辑和相关文案。
-- `BIT101-iOS/Schedule/ScheduleViewModel+Preferences.swift`
-  周次、课表显示设置和时间表编辑。
-- `BIT101-iOS/Schedule/ScheduleCourseEditor.swift`
-  课程草稿校验与周次编解码。
-- `BIT101-iOS/Schedule/ClassroomAvailabilityCalculator.swift`
-  空教室筛选、状态文案和楼宇名称纯计算。
-- `BIT101-iOS/Schedule/ScheduleCalendarViews.swift`、`ScheduleEditorViews.swift`、`ScheduleDDLViews.swift`
-  日历网格、课表编辑与 DDL 子页面。
-- `BIT101-iOS/Schedule/ScheduleWidgetSupport.swift`
-  将主 App 课表导出为共享快照，供 widget / 锁屏 / Live Activity 使用。
-- `BIT101-iOS/Schedule/ScheduleVerificationView.swift`
-  课表同步使用的短信验证码输入与提交面板。
-- `BIT101-iOS/Schedule/ScheduleSystemCalendarManager.swift`
-  将课程展开为系统日历事件并处理日历授权与写入。
+目录：`BIT101-iOS/Map/`
 
-## 8. 成绩模块
+`CampusMapScreen.swift` 是地图入口，`CampusNativeMapView.swift` 桥接 MapKit，`CampusMapLocations.swift` 保存校区与教室匹配规则；定位和下一节课解析分别由同目录辅助文件负责。
 
-- `BIT101-iOS/Score/ScoreModels.swift`
-  成绩记录、筛选与统计模型。
-- `BIT101-iOS/Score/ScoreCacheStore.swift`
-  按学号隔离的基础成绩列表缓存。
-- `BIT101-iOS/Score/ScorePresentationModels.swift`
-  成绩筛选偏好、排序索引和比较规则。
-- `BIT101-iOS/Score/ScoreFilterViews.swift`
-  学期/种类多选与排序设置页面。
-- `BIT101-iOS/Score/ScoreRootView.swift`
-  成绩主页、筛选、排序、统计、可信成绩单申请与短信验证等原生视图。
-- `BIT101-iOS/Score/ScoreViewModels.swift`
-  普通成绩与可信成绩单两套独立状态机。
-- `BIT101-iOS/Score/ScoreServicing.swift`
-  普通成绩与可信成绩单场景各自使用的 Service 协议。
-- `BIT101-iOS/Score/ScoreService.swift`
-  普通成绩与可信成绩单的独立 bit-login challenge、短信验证、查询和临时图片下载。
+### 我的与设置
 
-### 8.1 课程模块
+- `BIT101-iOS/Mine/`：个人主页、他人主页、关注关系和帖子列表。
+- `BIT101-iOS/Settings/`：账号、外观、课表、DDL、话廊、关于和开发者建议页面。
 
-- `BIT101-iOS/Course/CourseModels.swift`
-  课程列表、详情、教师、评分、评论与筛选模型。
-- `BIT101-iOS/Course/CourseRootView.swift`
-  课程浏览、搜索和详情入口；当前嵌入“成绩 / 课程”合并页。
-- `BIT101-iOS/Course/CourseService.swift`
-  课程列表、搜索、详情、点赞与评论接口。
-- `BIT101-iOS/Course/CourseServicing.swift`
-  按列表和详情场景拆分的 Service 协议。
-- `BIT101-iOS/Course/CourseViewModel.swift`
-  课程列表状态机，负责刷新、搜索和分页。
-- `BIT101-iOS/Course/CourseDetailView.swift`
-  课程信息、教师、历年成绩统计、评论和图片预览 UI。
-- `BIT101-iOS/Course/CourseDetailViewModel.swift`
-  课程详情状态机，负责详情、评论分页、点赞和评论提交。
-- `BIT101-iOS/Course/CourseCommentViews.swift`
-  课程评论列表、回复和发布交互。
-- `BIT101-iOS/Course/CourseHistoryGradesViews.swift`
-  历年成绩分布、统计和详情展示。
+## 扩展 target
 
-## 9. 设置模块
+- `BIT101ScheduleWidget/`：桌面/锁屏 widget、Live Activity 和 Dynamic Island。
+- `BIT101Watch/`：Apple Watch 主 App。
+- `BIT101WatchWidgets/`：Apple Watch Smart Stack widget。
 
-- `BIT101-iOS/Settings/AppSettingsStore.swift`
-  设置快照与持久化中心，处理全局设置和账号隔离设置。
-- `BIT101-iOS/Settings/SettingsRootView.swift`
-  设置入口与导航协调。
-- `BIT101-iOS/Settings/SettingsAccountViews.swift`、`SettingsAppearanceViews.swift`
-  账号与外观设置。
-- `BIT101-iOS/Settings/SettingsScheduleViews.swift`、`SettingsDDLViews.swift`
-  课表与 DDL 设置。
-- `BIT101-iOS/Settings/SettingsCommunityViews.swift`
-  话廊设置、关于、开源声明和缓存清理页面。
-- `BIT101-iOS/Settings/SettingsServices.swift`
-  设置模块复用的网络辅助逻辑。
-- `BIT101-iOS/Settings/SettingsSupportViews.swift`
-  设置模块复用的文本编辑、隐藏用户和隐藏帖子组件。
+旧目录 `BIT101WatchExtension/` 已删除，不应重新添加。
 
-## 10. Widget / 锁屏组件 / Live Activity 扩展
+## 维护提示
 
-- `BIT101ScheduleWidget/BIT101ScheduleWidget.swift`
-  桌面小组件、锁屏组件、Live Activity / Dynamic Island 的主要实现。
-- `BIT101ScheduleWidget/BIT101ScheduleWidgetBundle.swift`
-  widget bundle 入口，用来向系统注册当前扩展提供的组件。
+- 课表核心 UI 仍集中在 `ScheduleCalendarViews.swift` 与 `ScheduleRootView.swift`；拆分计划见 [CODE_QUALITY_AUDIT.md](CODE_QUALITY_AUDIT.md)。
+- 新文件优先放入已有模块目录，不在根目录复制业务实现。
+- 网络请求统一经过对应 Service，不在 View 中直接创建请求。
 
-## 11. Apple Watch
+## 生成完整文件清单
 
-- `BIT101Watch/BIT101WatchApp.swift`
-  新版单 target Watch App 入口，负责挂载 watch 主页面状态模型。
-- `BIT101Watch/WatchScheduleStatusModel.swift`
-  Watch 课表状态协调层；通过可注入依赖连接本地镜像、系统时间和同步器。
-- `BIT101Watch/WatchScheduleRootView.swift`
-  Apple Watch 主页面展示逻辑。
-- `BIT101WatchWidgets/BIT101WatchScheduleWidget.swift`
-  Apple Watch Smart Stack 课表组件。
-- `BIT101WatchWidgets/BIT101WatchWidgetsBundle.swift`
-  watch widgets bundle 入口，用来向系统注册 Smart Stack 组件。
+文档不保存易过时的行号或逐文件职责表。需要完整清单时运行：
 
-旧目录 `BIT101WatchExtension/` 已随 Xcode 27 Watch 工程结构迁移删除，不应再作为源码入口。
-
-## 12. 建议阅读顺序
-
-如果你准备修改某个模块，推荐先按这个顺序看：
-
-1. 对应模块的 `Models`
-2. 对应模块的 `Service`
-3. 对应模块的 `ViewModel`
-4. 对应模块的 `RootView`
-
-如果你准备改全局行为，优先看：
-
-1. `BIT101_iOSApp.swift`
-2. `ContentView.swift`
-3. `Shell/AppShellView.swift`
-4. `Settings/AppSettingsStore.swift`
+```sh
+find BIT101-iOS BIT101ScheduleWidget BIT101Watch BIT101WatchWidgets \
+  -type f -name '*.swift' | sort
+```

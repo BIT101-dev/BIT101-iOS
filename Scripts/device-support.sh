@@ -20,7 +20,7 @@ bit101_find_device() {
 
   device_list="$(xcrun devicectl list devices 2>/dev/null || true)"
   device_line="$(printf '%s\n' "$device_list" \
-    | grep -E 'available.*physical' \
+    | grep -E '(connected|available).*physical' \
     | head -n 1 || true)"
   BIT101_DEVICETCL_DEVICE_ID="$(printf '%s\n' "$device_line" \
     | grep -Eo '[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}' \
