@@ -110,11 +110,6 @@ struct AppShellView: View {
     建议反馈支持图片、草稿恢复与更清晰的错误信息提交流程。
     优化错误提示、课表同步和整体使用体验。
     """
-    private static let widgetUsageGuideTitle = "非常有用的几个用法"
-    private static let widgetUsageGuideBody = """
-    推荐在锁屏添加锁屏小组件（如果你习惯使用息屏显示）。
-    桌面小组件也很实用，可以尝试一波。
-    """
     private static let linuxDoThanksTitle = "特别鸣谢 LINUX DO"
     private static let linuxDoThanksBody = "特别感谢 LINUX DO（L站）以及佬友们。这个 App 的诞生，离不开他们提供的免费 tokens 与无私的支持。L站倡导“真诚、友善、团结、专业，共建你我引以为荣之社区。”某种意义上，BIT101 也是在这样的氛围里，被一点点推出来的。\n\n如果你也想加入，可以向开发者发送邮件索要 L 站邀请码：systemd@linux.do"
 
@@ -328,19 +323,6 @@ struct AppShellView: View {
                 actions: [
                     AppPromptAction(id: "confirm", title: "确定", isDefault: true) {
                         settings.markCurrentStartupNoticeSeen()
-                    }
-                ]
-            ))
-        }
-
-        if !settings.hasAcceptedCurrentWidgetUsageGuide {
-            promptCoordinator.enqueue(AppPrompt(
-                id: "widget-usage-guide",
-                title: Self.widgetUsageGuideTitle,
-                message: Self.widgetUsageGuideBody,
-                actions: [
-                    AppPromptAction(id: "confirm", title: "知道了", isDefault: true) {
-                        settings.markCurrentWidgetUsageGuideSeen()
                     }
                 ]
             ))

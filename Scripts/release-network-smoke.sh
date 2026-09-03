@@ -79,7 +79,18 @@ for (( attempt = 1; attempt <= MAX_ATTEMPTS; attempt++ )); do
     --domain-identifier "$APP_GROUP_ID" \
     --source "$REMOTE_REPORT_PATH" \
     --destination "$LOCAL_REPORT_PATH" >/dev/null 2>&1; then
-    break
+    if python3 - "$LOCAL_REPORT_PATH" "$RUN_ID" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as stream:
+    report = json.load(stream)
+
+sys.exit(0 if report.get("runID") == sys.argv[2] else 1)
+PY
+    then
+      break
+    fi
   fi
   if [[ $attempt -eq $MAX_ATTEMPTS ]]; then
     echo "未在超时时间内拿到冒烟结果文件：$REMOTE_REPORT_PATH" | tee -a "$LOG_FILE" >&2

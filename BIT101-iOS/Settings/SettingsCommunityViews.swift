@@ -149,12 +149,10 @@ struct GallerySettingsPage: View {
 struct AboutSettingsPage: View {
     let onLogout: () -> Void
 
-    @ObservedObject private var settings = AppSettingsStore.shared
     @State private var alert: AppAlert?
     @State private var isResettingLocalData = false
     @State private var isClearingCaches = false
     @State private var isShowingResetConfirmation = false
-    @State private var isShowingWidgetUsageGuide = false
 
     var body: some View {
         List {
@@ -192,12 +190,6 @@ struct AboutSettingsPage: View {
                 }
             }
 
-            Section("提示") {
-                Button("重新观看小组件提示") {
-                    isShowingWidgetUsageGuide = true
-                }
-            }
-
             Section("调试") {
                 Button {
                     Task { await clearCaches() }
@@ -226,20 +218,9 @@ struct AboutSettingsPage: View {
                     }
                 }
                 .disabled(isResettingLocalData || isClearingCaches)
-
-                Text("“清理缓存”只会清空临时文件、图片缓存和网络缓存；“删除所有文稿与数据”会清除本地登录信息、设置、课表/DDL缓存、Cookie 和网页数据，并退回登录页。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
         }
         .diagnosticAlert(item: $alert)
-        .alert("非常有用的几个用法", isPresented: $isShowingWidgetUsageGuide) {
-            Button("知道了") {
-                settings.markCurrentWidgetUsageGuideSeen()
-            }
-        } message: {
-            Text("推荐在锁屏添加锁屏小组件（如果你习惯使用息屏显示）。\n桌面小组件也很实用，可以尝试一波。")
-        }
         .alert("删除所有文稿与数据", isPresented: $isShowingResetConfirmation) {
             Button("取消", role: .cancel) {}
             Button("删除", role: .destructive) {

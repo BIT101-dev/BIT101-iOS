@@ -86,8 +86,6 @@ struct AppSettingsSnapshot: Codable, Equatable {
     var galleryCommunityRulesAcceptedVersion = 0
     /// 是否已经看过“导入分享课表”的使用提示。
     var hasSeenSharedScheduleImportGuide = false
-    /// 当前设备已接受过的小组件使用提示版本号。
-    var widgetUsageGuideAcceptedVersion = 0
     /// 当前账号第一次进入 app 的时间。
     var firstOpenDate: Date?
     /// 当前账号是否已经看过“鸣谢 LINUX DO”提示。
@@ -135,8 +133,6 @@ final class AppSettingsStore: ObservableObject {
     nonisolated static let currentStartupNoticeVersion = "1.7.7"
     /// 更新内容公告已读状态使用全局 key，避免切换账号后重复展示。
     nonisolated static let startupNoticeSeenKey = "app.startup.notice.seen.version"
-    /// 当前“小组件使用提示”版本号；版本提升后会重新展示一次。
-    nonisolated static let currentWidgetUsageGuideVersion = 1
     /// “鸣谢 LINUX DO”提示会在首周内按账号均匀散开弹出，避免集中到固定某一天。
     nonisolated static let linuxDoThanksNoticeSpreadDays = 7
     private static let encoder = JSONEncoder()
@@ -185,7 +181,6 @@ final class AppSettingsStore: ObservableObject {
     var shouldShowCurrentStartupNotice: Bool {
         defaults.string(forKey: Self.startupNoticeSeenKey) != Self.currentStartupNoticeVersion
     }
-    var hasAcceptedCurrentWidgetUsageGuide: Bool { snapshot.widgetUsageGuideAcceptedVersion >= Self.currentWidgetUsageGuideVersion }
     var shouldShowLinuxDoThanksNotice: Bool {
         guard
             let firstOpenDate = snapshot.firstOpenDate,
@@ -338,12 +333,6 @@ final class AppSettingsStore: ObservableObject {
     /// 标记“导入分享课表”提示已读。
     func markSharedScheduleImportGuideSeen() {
         snapshot.hasSeenSharedScheduleImportGuide = true
-        save()
-    }
-
-    /// 记录当前设备已经接受最新的小组件使用提示。
-    func markCurrentWidgetUsageGuideSeen() {
-        snapshot.widgetUsageGuideAcceptedVersion = Self.currentWidgetUsageGuideVersion
         save()
     }
 
