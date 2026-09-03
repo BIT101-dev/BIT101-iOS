@@ -809,16 +809,14 @@ private struct ScoreDetailFieldRow: View {
     let field: ScoreField
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            Text(field.key)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .frame(width: 84, alignment: .leading)
-
+        LabeledContent {
             Text(field.value)
                 .font(.subheadline)
                 .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        } label: {
+            Text(field.key)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
         .padding(.vertical, 12)
     }

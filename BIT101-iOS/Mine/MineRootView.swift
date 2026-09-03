@@ -34,6 +34,8 @@ struct MineRootView: View {
     @State private var route: MineRoute?
     /// 设置页内部路由。
     @State private var settingsRoute: SettingsRoute?
+    /// 建议使用独立抽屉呈现，避免进入设置导航栈。
+    @State private var isShowingSuggestion = false
 
     /// “我的”主页主体。
     ///
@@ -99,6 +101,11 @@ struct MineRootView: View {
         .navigationDestination(item: $settingsRoute) { destination in
             SettingsRootView(initialRoute: destination, studentID: fallbackStudentID, onLogout: onLogout)
         }
+        .sheet(isPresented: $isShowingSuggestion) {
+            NavigationStack {
+                DeveloperSuggestionPage()
+            }
+        }
         .task {
             await viewModel.bootstrapIfNeeded()
         }
@@ -142,7 +149,11 @@ struct MineRootView: View {
     private var settingsSection: some View {
         ForEach(SettingsRoute.allCases) { route in
             Button {
-                settingsRoute = route
+                if route == .suggestion {
+                    isShowingSuggestion = true
+                } else {
+                    settingsRoute = route
+                }
             } label: {
                 HStack(spacing: 10) {
                     Image(systemName: route.systemImage)
@@ -161,7 +172,6 @@ struct MineRootView: View {
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.tertiary)
                 }
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

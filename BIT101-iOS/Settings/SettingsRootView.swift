@@ -93,22 +93,37 @@ struct SettingsRootView: View {
 private struct SettingsIndexPage: View {
     let studentID: String
     let onLogout: () -> Void
+    @State private var isShowingSuggestion = false
 
     var body: some View {
         ScrollView {
             VStack(spacing: 8) {
                 ForEach(SettingsRoute.allCases) { route in
-                    NavigationLink {
-                        SettingsRoutePage(route: route, studentID: studentID, onLogout: onLogout)
-                    } label: {
-                        SettingsIndexCard(route: route)
+                    if route == .suggestion {
+                        Button {
+                            isShowingSuggestion = true
+                        } label: {
+                            SettingsIndexCard(route: route)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        NavigationLink {
+                            SettingsRoutePage(route: route, studentID: studentID, onLogout: onLogout)
+                        } label: {
+                            SettingsIndexCard(route: route)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
             .padding(16)
         }
         .background(Color(.systemGroupedBackground))
+        .sheet(isPresented: $isShowingSuggestion) {
+            NavigationStack {
+                DeveloperSuggestionPage()
+            }
+        }
     }
 }
 
@@ -131,7 +146,6 @@ private struct SettingsIndexCard: View {
             Spacer()
         }
         .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
@@ -237,27 +251,18 @@ struct DeveloperSuggestionPage: View {
 
             }
 
-            Section {
-                Button {
-                    Task { await submit() }
-                } label: {
-                    HStack {
-                        Text(isSubmitting ? "提交中" : "提交建议")
-                        Spacer()
-                        if isSubmitting {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                    }
-                }
-                .disabled(isSubmitting || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
         }
             .navigationTitle("我想和开发者提建议")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("取消") { requestDismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(isSubmitting ? "提交中" : "提交") {
+                        Task { await submit() }
+                    }
+                    .disabled(isSubmitting || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
             .onChange(of: selectedPhotoItems) { _, newValue in

@@ -146,7 +146,6 @@ struct ClassroomSectionFilterPage: View {
                             Image(systemName: selectedSectionIDs.contains(slot.id) ? "checkmark.circle.fill" : "circle")
                                 .foregroundStyle(selectedSectionIDs.contains(slot.id) ? Color.accentColor : .secondary)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)

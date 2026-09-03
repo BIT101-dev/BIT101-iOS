@@ -27,7 +27,6 @@ struct ScoreFilterPage: View {
                             Image(systemName: selectedValues.contains(option) ? "checkmark.circle.fill" : "circle")
                                 .foregroundStyle(selectedValues.contains(option) ? Color.accentColor : .secondary)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -73,7 +72,6 @@ struct ScoreSortPage: View {
                             Image(systemName: sortIndex == index ? "checkmark.circle.fill" : "circle")
                                 .foregroundStyle(sortIndex == index ? Color.accentColor : .secondary)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -92,7 +90,6 @@ struct ScoreSortPage: View {
                             .font(.subheadline)
                             .foregroundStyle(Color.accentColor)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                 }
             } header: {

@@ -427,7 +427,6 @@ private struct ScheduleTermPickerPage: View {
                                         .fontWeight(.semibold)
                                 }
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())
                         }
                         .disabled(viewModel.isSyncingCourses || viewModel.isLoadingTerms || viewModel.cache.currentTerm == term)

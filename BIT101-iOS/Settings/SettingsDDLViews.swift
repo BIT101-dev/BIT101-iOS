@@ -105,7 +105,6 @@ private struct DDLSettingsActionRow: View {
                     .foregroundStyle(Color.accentColor)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
     }
 }
