@@ -32,12 +32,12 @@ case "$SMOKE_SCOPE" in
 esac
 
 mkdir -p "$DERIVED_DATA" "$REPORT_DIR"
-rm -f "$LOG_FILE" "$BUILD_LOG"
 
 RUN_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
 SMOKE_URL="bit101://network-smoke/$SMOKE_SCOPE?run=$RUN_ID"
-REMOTE_REPORT_PATH="Library/NetworkSmoke/release-network-smoke-$RUN_ID.json"
-LOCAL_REPORT_PATH="$REPORT_DIR/release-network-smoke-$RUN_ID.json"
+REMOTE_REPORT_PATH="Library/NetworkSmoke/release-network-smoke.json"
+LOCAL_REPORT_PATH="$REPORT_DIR/release-network-smoke.json"
+rm -f "$LOG_FILE" "$BUILD_LOG" "$LOCAL_REPORT_PATH"
 
 {
   echo "发布前网络冒烟开始：scope=$SMOKE_SCOPE"

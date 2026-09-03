@@ -13,9 +13,11 @@ import UIKit
 /// 带校区信息的原生地图标记，供 delegate 选择不同颜色。
 private final class CampusPlaceAnnotation: MKPointAnnotation {
     let campus: CampusPreset
+    let place: CampusMapPlace
 
-    init(campus: CampusPreset) {
-        self.campus = campus
+    init(place: CampusMapPlace) {
+        self.place = place
+        self.campus = place.campus
         super.init()
     }
 }
@@ -34,6 +36,7 @@ struct CampusNativeMapView: UIViewRepresentable {
     let focusRequest: MapFocusRequest
     let centerOnUserRequestID: UUID?
     let nextCourseTarget: UpcomingCourseMapTarget?
+    let requestedLocation: CampusMapLocationRequest?
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -54,8 +57,10 @@ struct CampusNativeMapView: UIViewRepresentable {
         mapView.isRotateEnabled = true
 
         context.coordinator.syncNextCourseAnnotation(nextCourseTarget, in: mapView)
+        context.coordinator.syncRequestedLocation(requestedLocation, in: mapView)
 
         applyFocus(to: mapView, animated: false)
+        context.coordinator.focus(on: requestedLocation?.places.first, in: mapView, animated: false)
         context.coordinator.lastFocusID = focusRequest.id
 
         return mapView
@@ -64,6 +69,7 @@ struct CampusNativeMapView: UIViewRepresentable {
     /// 根据最新的 SwiftUI 状态同步地图相机和“回到我的位置”动作。
     func updateUIView(_ mapView: MKMapView, context: Context) {
         context.coordinator.syncNextCourseAnnotation(nextCourseTarget, in: mapView)
+        let requestedLocationChanged = context.coordinator.syncRequestedLocation(requestedLocation, in: mapView)
 
         if context.coordinator.lastCenterOnUserRequestID != centerOnUserRequestID,
            let centerOnUserRequestID {
@@ -73,6 +79,10 @@ struct CampusNativeMapView: UIViewRepresentable {
         if context.coordinator.lastFocusID != focusRequest.id {
             applyFocus(to: mapView, animated: focusRequest.animated)
             context.coordinator.lastFocusID = focusRequest.id
+        }
+
+        if requestedLocationChanged {
+            context.coordinator.focus(on: requestedLocation?.places.first, in: mapView, animated: true)
         }
     }
 
@@ -94,7 +104,9 @@ struct CampusNativeMapView: UIViewRepresentable {
         var lastCenterOnUserRequestID: UUID?
         private var pendingCenterOnUserRequestID: UUID?
         private var lastCourseTargetID: String?
+        private var lastRequestedLocationID: UUID?
         private weak var nextCourseAnnotation: CampusPlaceAnnotation?
+        private var requestedLocationAnnotations: [CampusPlaceAnnotation] = []
 
         /// 地图只保留下一节课的一个 pin；课程变化时原地替换，不残留校对标记。
         func syncNextCourseAnnotation(_ target: UpcomingCourseMapTarget?, in mapView: MKMapView) {
@@ -107,12 +119,49 @@ struct CampusNativeMapView: UIViewRepresentable {
             lastCourseTargetID = target?.id
 
             guard let target, let place = target.place else { return }
-            let annotation = CampusPlaceAnnotation(campus: place.campus)
+            let annotation = CampusPlaceAnnotation(place: place)
             annotation.coordinate = place.coordinate
             annotation.title = "下一节课在\(place.name)"
             annotation.subtitle = "\(target.courseName) · \(ScheduleDateCodec.formatRelativeDateTime(target.startDate))"
             mapView.addAnnotation(annotation)
             nextCourseAnnotation = annotation
+        }
+
+        /// 同步课程详情临时传入的上课地点 pin；请求只在当前进程内保留。
+        @discardableResult
+        func syncRequestedLocation(_ request: CampusMapLocationRequest?, in mapView: MKMapView) -> Bool {
+            guard lastRequestedLocationID != request?.id else { return false }
+
+            for annotation in requestedLocationAnnotations {
+                mapView.removeAnnotation(annotation)
+            }
+            requestedLocationAnnotations = []
+            lastRequestedLocationID = request?.id
+
+            guard let request else { return true }
+            let annotations = request.places.map { place -> CampusPlaceAnnotation in
+                let annotation = CampusPlaceAnnotation(place: place)
+                annotation.coordinate = place.coordinate
+                annotation.title = request.courseName
+                annotation.subtitle = place.name
+                return annotation
+            }
+            mapView.addAnnotations(annotations)
+            requestedLocationAnnotations = annotations
+            return true
+        }
+
+        /// 聚焦到课程详情传入的第一个上课地点；清空请求时恢复到校区视角。
+        func focus(on place: CampusMapPlace?, in mapView: MKMapView, animated: Bool) {
+            guard let place else { return }
+            mapView.setUserTrackingMode(.none, animated: false)
+            let camera = MKMapCamera(
+                lookingAtCenter: place.coordinate,
+                fromDistance: 1_200,
+                pitch: 0,
+                heading: 0
+            )
+            mapView.setCamera(camera, animated: animated)
         }
 
         /// 为下一节课地点提供可点开课程信息的原生 marker。

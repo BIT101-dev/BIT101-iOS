@@ -17,6 +17,7 @@ private struct GalleryCustomTagDraft: Identifiable, Equatable {
 struct GalleryComposerImageDraft: Identifiable {
     enum Status {
         case uploading
+        case compressing
         case prepared
         case uploaded(GalleryImage)
         case failed(String)
@@ -25,7 +26,23 @@ struct GalleryComposerImageDraft: Identifiable {
     let id = UUID()
     let previewData: Data
     let filename: String
+    var uploadData: Data?
+    var progress: Int = 0
     var status: Status = .uploading
+
+    init(
+        previewData: Data,
+        filename: String,
+        uploadData: Data? = nil,
+        progress: Int = 0,
+        status: Status = .uploading
+    ) {
+        self.previewData = previewData
+        self.filename = filename
+        self.uploadData = uploadData
+        self.progress = progress
+        self.status = status
+    }
 
     /// 只有上传成功后，图片才会拿到可提交给发帖接口的 `mid`。
     var uploadedImage: GalleryImage? {
@@ -89,16 +106,21 @@ struct GalleryComposerImageTile: View {
                     .tint(.white)
             }
             .frame(height: 28)
-        case .prepared:
-            HStack(spacing: 4) {
-                Image(systemName: "checkmark.circle.fill")
-                Text("已压缩")
+        case .compressing:
+            ZStack {
+                Rectangle()
+                    .fill(.black.opacity(0.45))
+                Text("\(draft.progress)%")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white)
             }
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
-            .background(.black.opacity(0.35))
+            .frame(height: 28)
+        case .prepared:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.title3)
+                .foregroundStyle(.white)
+                .padding(6)
+                .background(.black.opacity(0.35), in: Circle())
         case .uploaded:
             HStack(spacing: 4) {
                 Image(systemName: "checkmark.circle.fill")
@@ -123,6 +145,80 @@ struct GalleryComposerImageTile: View {
             }
             .buttonStyle(.plain)
         }
+    }
+}
+
+struct ComposerImageDraftSnapshot: Codable {
+    let filename: String
+    let previewData: Data
+    let uploadData: Data?
+}
+
+struct GalleryComposerDraftSnapshot: Codable {
+    let title: String
+    let text: String
+    let selectedTags: [String]
+    let customTags: [String]
+    let anonymous: Bool
+    let isPublic: Bool
+    let selectedClaimID: Int
+    let images: [ComposerImageDraftSnapshot]
+}
+
+struct DeveloperSuggestionDraftSnapshot: Codable {
+    let text: String
+    let images: [ComposerImageDraftSnapshot]
+}
+
+enum ComposerDraftStore {
+    private static let directoryName = "ComposerDrafts"
+
+    static func saveGallery(_ snapshot: GalleryComposerDraftSnapshot) {
+        save(snapshot, filename: "gallery.json")
+    }
+
+    static func loadGallery() -> GalleryComposerDraftSnapshot? {
+        load(filename: "gallery.json")
+    }
+
+    static func saveSuggestion(_ snapshot: DeveloperSuggestionDraftSnapshot) {
+        save(snapshot, filename: "suggestion.json")
+    }
+
+    static func loadSuggestion() -> DeveloperSuggestionDraftSnapshot? {
+        load(filename: "suggestion.json")
+    }
+
+    static func removeGallery() {
+        remove(filename: "gallery.json")
+    }
+
+    static func removeSuggestion() {
+        remove(filename: "suggestion.json")
+    }
+
+    private static var directoryURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent(directoryName, isDirectory: true)
+    }
+
+    private static func save<T: Encodable>(_ value: T, filename: String) {
+        do {
+            try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+            let data = try JSONEncoder().encode(value)
+            try data.write(to: directoryURL.appendingPathComponent(filename), options: .atomic)
+        } catch {
+            // 草稿保存失败不应阻止用户退出。
+        }
+    }
+
+    private static func load<T: Decodable>(filename: String) -> T? {
+        guard let data = try? Data(contentsOf: directoryURL.appendingPathComponent(filename)) else { return nil }
+        return try? JSONDecoder().decode(T.self, from: data)
+    }
+
+    private static func remove(filename: String) {
+        try? FileManager.default.removeItem(at: directoryURL.appendingPathComponent(filename))
     }
 }
 
@@ -164,6 +260,8 @@ struct GalleryComposerView: View {
     @State private var isSubmitting = false
     /// 页面级错误提示。
     @State private var alert: AppAlert?
+    @State private var isShowingDraftAlert = false
+    @State private var didRestoreDraft = false
 
     /// 发帖接口服务。
     private let service = GalleryService()
@@ -283,7 +381,7 @@ struct GalleryComposerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("取消") { dismiss() }
+                    Button("取消") { requestDismiss() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(isSubmitting ? "发布中" : "发布") {
@@ -297,8 +395,89 @@ struct GalleryComposerView: View {
                 guard !newValue.isEmpty else { return }
                 Task { await addImages(from: newValue) }
             }
+            .onAppear { restoreDraftIfNeeded() }
+            .alert("保存草稿？", isPresented: $isShowingDraftAlert) {
+                Button("保存草稿") {
+                    saveDraft()
+                    dismiss()
+                }
+                Button("不保存", role: .destructive) {
+                    ComposerDraftStore.removeGallery()
+                    dismiss()
+                }
+                Button("继续编辑", role: .cancel) {}
+            } message: {
+                Text("退出后下次可以继续编辑。")
+            }
             .diagnosticAlert(item: $alert)
         }
+    }
+
+    private func requestDismiss() {
+        guard !isSubmitting else { return }
+        guard hasDraftContent else {
+            dismiss()
+            return
+        }
+        isShowingDraftAlert = true
+    }
+
+    private func saveDraft() {
+        ComposerDraftStore.saveGallery(
+            GalleryComposerDraftSnapshot(
+                title: title,
+                text: text,
+                selectedTags: selectedTags,
+                customTags: customTagDrafts.map(\.text),
+                anonymous: anonymous,
+                isPublic: isPublic,
+                selectedClaimID: selectedClaimID,
+                images: imageDrafts.map {
+                    ComposerImageDraftSnapshot(
+                        filename: $0.filename,
+                        previewData: $0.previewData,
+                        uploadData: $0.uploadData
+                    )
+                }
+            )
+        )
+    }
+
+    private func restoreDraftIfNeeded() {
+        guard !didRestoreDraft else { return }
+        didRestoreDraft = true
+        guard let draft = ComposerDraftStore.loadGallery() else { return }
+
+        title = draft.title
+        text = draft.text
+        selectedTags = draft.selectedTags
+        customTagDrafts = draft.customTags.map { tag in
+            var draft = GalleryCustomTagDraft()
+            draft.text = tag
+            return draft
+        }
+        anonymous = draft.anonymous
+        isPublic = draft.isPublic
+        selectedClaimID = draft.selectedClaimID
+        imageDrafts = draft.images.map {
+            GalleryComposerImageDraft(
+                previewData: $0.previewData,
+                filename: $0.filename,
+                uploadData: $0.uploadData,
+                status: .failed("需要重新上传")
+            )
+        }
+    }
+
+    private var hasDraftContent: Bool {
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !selectedTags.isEmpty
+            || !customTagDrafts.isEmpty
+            || !imageDrafts.isEmpty
+            || anonymous
+            || !isPublic
+            || selectedClaimID != 0
     }
 
     /// 当前是否仍有图片在上传中。
@@ -388,6 +567,7 @@ struct GalleryComposerView: View {
                 claimID: selectedClaimID,
                 isPublic: isPublic
             )
+            ComposerDraftStore.removeGallery()
             onCreated()
             dismiss()
         } catch {

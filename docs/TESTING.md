@@ -102,7 +102,7 @@ Xcode 27 beta 在 generic iOS Debug 构建中可能把嵌入的 Watch target 按
 
 发布前网络冒烟按依赖边界提供两个入口：
 
-- `Scripts/release-network-smoke-bit101.sh`：BIT101 自有 API、社区/学业只读接口、网页中转和远程配置；
+- `Scripts/release-network-smoke-bit101.sh`：BIT101 自有 API、社区/学业只读接口、网页中转、远程配置，以及自有反馈 Worker 的临时写入/读取/删除；
 - `Scripts/release-network-smoke-school.sh`：学校教学中心、WebVPN、乐学、课表、成绩及可信成绩单相关链路。
 
 ### 正式 App 网络冒烟说明
@@ -110,11 +110,12 @@ Xcode 27 beta 在 generic iOS Debug 构建中可能把嵌入的 Watch target 按
 `release-network-smoke.sh` 使用 Debug 构建，不会把 smoke runner 和触发路由编译进 App Store Release；
 它会先做一次本地构建检查，然后直接向
 当前已安装并运行中的正式 App 发送 `bit101://network-smoke/<scope>?run=<uuid>`，
-在同一进程内触发只读探针。这样可以复用正式 App 当前保存的登录态、Cookie 与缓存，
+在同一进程内触发探针。BIT101 自有反馈 Worker 的测试数据会在同一请求内写入、读取并删除，
+不会发送邮件或留下报告。这样可以复用正式 App 当前保存的登录态、Cookie 与缓存，
 而不是测试 Host 的独立会话。
 
 脚本会把结果写到应用组目录 `group.BIT101-dev.BIT101-iOS.shared/Library/NetworkSmoke/` 下的
-`release-network-smoke-<runID>.json`，再由命令行读取并判断是否通过。
+`release-network-smoke.json`，再由命令行读取并判断是否通过；每次运行覆盖上一份结果。
 
 默认直接运行对应入口即可，脚本会自动寻找可用的 iPhone 真机：
 

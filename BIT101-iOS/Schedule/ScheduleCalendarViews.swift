@@ -82,6 +82,7 @@ struct CourseScheduleCalendarView: View {
 
     let entries: [ScheduleCalendarEntry]
     let week: Int
+    let availableWeeks: [Int]
     let displayMode: ScheduleDisplayMode
     let firstDay: Date
     let timeTable: [TimeSlot]
@@ -95,6 +96,7 @@ struct CourseScheduleCalendarView: View {
     let onSelect: (ScheduleCalendarEntry) -> Void
     let onSelectDay: (Date, Int) -> Void
     let onSelectWeek: () -> Void
+    let onSelectWeekValue: (Int) -> Void
     let onLongPressCourse: (ScheduleCalendarEntry) -> Void
     let onPrepareCourseShare: (ScheduleCalendarEntry) -> Void
     let onShareSchedule: () -> Void
@@ -102,8 +104,10 @@ struct CourseScheduleCalendarView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let leftWidth: CGFloat = 50
-            let headerHeight: CGFloat = 42
+            let cardInset: CGFloat = 1
+            let weekSliderHeight: CGFloat = 36
+            let dateHeaderHeight: CGFloat = 26
+            let headerHeight: CGFloat = displayMode == .weekly ? weekSliderHeight + dateHeaderHeight : 42
             let usableHeight = max(proxy.size.height - headerHeight, 1)
             let rowHeight = usableHeight / CGFloat(max(timeTable.count, 1))
             let visibleWeekdays = (1 ... 7).filter {
@@ -111,7 +115,10 @@ struct CourseScheduleCalendarView: View {
                 if $0 == 7 { return showSunday }
                 return true
             }
-            let dayWidth = max((proxy.size.width - leftWidth) / CGFloat(max(visibleWeekdays.count, 1)), 1)
+            let columnWidth = max(proxy.size.width / CGFloat(visibleWeekdays.count + 1), 1)
+            let leftWidth = columnWidth
+            let dayWidth = columnWidth
+            let cardWidth = max(dayWidth - cardInset * 2, 1)
             let weekDates = visibleWeekdays.compactMap {
                 Calendar.current.date(
                     byAdding: .day,
@@ -131,54 +138,54 @@ struct CourseScheduleCalendarView: View {
                 }
 
                 VStack(spacing: 0) {
-                    HStack(spacing: 0) {
-                        Group {
-                            if displayMode == .weekly {
-                                Button(action: onSelectWeek) {
-                                    VStack(spacing: 1) {
-                                        Text("\(week)")
-                                        Text("周")
-                                    }
-                                    .frame(width: leftWidth, height: headerHeight)
+                    if displayMode == .weekly {
+                        ScheduleInlineWeekSlider(
+                            weeks: availableWeeks,
+                            currentWeek: week,
+                            onSelectWeek: onSelectWeekValue
+                        )
+                        .frame(maxWidth: .infinity)
+                        .frame(height: weekSliderHeight)
+                        .background(Color(.secondarySystemBackground))
+
+                        HStack(spacing: 0) {
+                            Button(action: onSelectWeek) {
+                                Text("第\(week)周")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(Color.accentColor)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
+                                    .frame(width: leftWidth, height: dateHeaderHeight)
+                            }
+                            .buttonStyle(.plain)
+                            .background(Color(.secondarySystemBackground))
+                            .accessibilityLabel("选择周次")
+
+                            ForEach(Array(weekDates.enumerated()), id: \.offset) { index, date in
+                                Button {
+                                    onSelectDay(date, visibleWeekdays[index])
+                                } label: {
+                                    Text(mmddText(for: date))
+                                        .font(.caption2)
+                                        .foregroundStyle(.primary)
+                                        .frame(width: dayWidth, height: dateHeaderHeight)
+                                        .background(Color(.secondarySystemBackground))
                                 }
                                 .buttonStyle(.plain)
-                                .accessibilityLabel("选择周次")
-                            } else {
-                                Color.clear
                             }
                         }
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(displayMode == .weekly ? Color.accentColor : Color.primary)
-                        .frame(width: leftWidth, height: headerHeight)
-                        .background {
-                            if displayMode == .weekly {
-                                Color.accentColor.opacity(0.12)
-                            } else {
-                                Color(.secondarySystemBackground)
-                            }
-                        }
+                    } else {
+                        HStack(spacing: 0) {
+                            Color.clear
+                                .frame(width: leftWidth, height: headerHeight)
+                                .background(Color(.secondarySystemBackground))
 
-                        ForEach(Array(weekDates.enumerated()), id: \.offset) { index, date in
-                            if displayMode == .allWeeks {
+                            ForEach(Array(weekDates.enumerated()), id: \.offset) { index, _ in
                                 Text(weekdayText(for: visibleWeekdays[index]))
                                     .font(.caption2)
                                     .foregroundStyle(.primary)
                                     .frame(width: dayWidth, height: headerHeight)
                                     .background(Color(.secondarySystemBackground))
-                            } else {
-                                Button {
-                                    onSelectDay(date, visibleWeekdays[index])
-                                } label: {
-                                    VStack(spacing: 2) {
-                                        Text(weekdayText(for: visibleWeekdays[index]))
-                                        Text(mmddText(for: date))
-                                    }
-                                    .font(.caption2)
-                                    .foregroundStyle(.primary)
-                                    .frame(width: dayWidth, height: headerHeight)
-                                    .background(Color(.secondarySystemBackground))
-                                }
-                                .buttonStyle(.plain)
                             }
                         }
                     }
@@ -188,9 +195,12 @@ struct CourseScheduleCalendarView: View {
                             VStack(spacing: 1) {
                                 Text("\(index + 1)")
                                     .font(.caption2.weight(.bold))
+                                    .lineLimit(1)
                                 Text(slot.start)
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
                             }
                             .frame(width: leftWidth, height: rowHeight)
 
@@ -215,8 +225,14 @@ struct CourseScheduleCalendarView: View {
                 ForEach(0 ... visibleWeekdays.count, id: \.self) { column in
                     Rectangle()
                         .fill(Color.secondary.opacity(column == 0 ? 0.18 : 0.12))
-                        .frame(width: 0.5, height: proxy.size.height)
-                        .offset(x: leftWidth + dayWidth * CGFloat(column))
+                        .frame(
+                            width: 0.5,
+                            height: proxy.size.height - (displayMode == .weekly ? weekSliderHeight : 0)
+                        )
+                        .offset(
+                            x: leftWidth + dayWidth * CGFloat(column),
+                            y: displayMode == .weekly ? weekSliderHeight : 0
+                        )
                 }
 
                 if let timeLineSection,
@@ -249,12 +265,19 @@ struct CourseScheduleCalendarView: View {
                 ForEach(entries.filter { visibleWeekdays.contains($0.dayOfWeek) }) { entry in
                     ZStack(alignment: .topLeading) {
                         ForEach(entry.backgroundLayers) { layer in
-                            CourseScheduleBackgroundView(entry: entry, showBorder: showBorder)
+                            CourseScheduleBackgroundView(
+                                entry: entry,
+                                showBorder: showBorder,
+                                isOpaque: displayMode == .weekly && entry.kind == .course
+                            )
                                 .frame(
-                                    width: max(dayWidth - 4, 1),
-                                    height: max(rowHeight * (layer.endSection - layer.startSection) - 4, 1)
+                                    width: cardWidth,
+                                    height: max(rowHeight * (layer.endSection - layer.startSection) - cardInset * 2, 1)
                                 )
-                                .offset(y: rowHeight * (layer.startSection - entry.startSection) + 2)
+                                .offset(
+                                    y: rowHeight * (layer.startSection - entry.startSection)
+                                        + cardInset
+                                )
                         }
 
                         CourseScheduleBlockView(entry: entry, showBorder: false, showsBackground: false)
@@ -273,20 +296,23 @@ struct CourseScheduleCalendarView: View {
                                         .onAppear { onPrepareCourseShare(entry) }
                                 }
                             }
-                            .accessibilityAddTraits(.isButton)
+                        .accessibilityAddTraits(.isButton)
                         .frame(
-                            width: max(dayWidth - 4, 1),
-                            height: max(rowHeight * (entry.endSection - entry.startSection) - 4, 1)
+                            width: cardWidth,
+                            height: max(rowHeight * (entry.endSection - entry.startSection) - cardInset * 2, 1)
                         )
                     }
                     .frame(
-                        width: max(dayWidth - 4, 1),
-                        height: max(rowHeight * (entry.endSection - entry.startSection) - 4, 1)
+                        width: cardWidth,
+                        height: max(rowHeight * (entry.endSection - entry.startSection) - cardInset * 2, 1)
                     )
                     .offset(
-                        x: leftWidth + dayWidth * CGFloat(visibleWeekdays.firstIndex(of: entry.dayOfWeek) ?? 0) + 2,
-                        y: headerHeight + rowHeight * entry.startSection + 2
+                        x: leftWidth + dayWidth * CGFloat(visibleWeekdays.firstIndex(of: entry.dayOfWeek) ?? 0)
+                            + cardInset,
+                        y: headerHeight + rowHeight * entry.startSection
+                            + cardInset
                     )
+                    .zIndex(1)
                 }
 
             }
@@ -399,13 +425,14 @@ private struct CourseScheduleBlockView: View {
 private struct CourseScheduleBackgroundView: View {
     let entry: ScheduleCalendarEntry
     let showBorder: Bool
+    let isOpaque: Bool
 
     var body: some View {
         RoundedRectangle(cornerRadius: 10, style: .continuous)
             .fill(backgroundColor)
-            .opacity(entry.backgroundLayers.count > 1 ? 0.5 : 1)
+            .opacity(isOpaque ? 1 : (entry.backgroundLayers.count > 1 ? 0.5 : 1))
             .overlay {
-                if showBorder {
+                if showBorder, entry.kind != .course {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .stroke(borderColor, lineWidth: 0.8)
                 }
@@ -415,7 +442,9 @@ private struct CourseScheduleBackgroundView: View {
     private var backgroundColor: Color {
         switch entry.kind {
         case .course:
-            return Color(uiColor: .secondarySystemFill).opacity(0.95)
+            return isOpaque
+                ? Color(uiColor: .secondarySystemBackground)
+                : Color(uiColor: .secondarySystemFill).opacity(0.95)
         case .exam:
             return Color.orange.opacity(0.22)
         case .custom:
@@ -464,6 +493,114 @@ struct CourseScheduleFABLabel: View {
             .frame(width: 42, height: 42)
             .background(.ultraThinMaterial, in: Circle())
             .contentShape(Circle())
+    }
+}
+
+/// 课表顶部的周次滑动条，直接切换当前周。
+private struct ScheduleInlineWeekSlider: View {
+    let weeks: [Int]
+    let currentWeek: Int
+    let onSelectWeek: (Int) -> Void
+    @State private var selectedWeek: Int?
+
+    init(
+        weeks: [Int],
+        currentWeek: Int,
+        onSelectWeek: @escaping (Int) -> Void
+    ) {
+        self.weeks = weeks
+        self.currentWeek = currentWeek
+        self.onSelectWeek = onSelectWeek
+        // 先等滚动内容完成首轮布局，再设置选中项；直接在初始化阶段绑定滚动位置会落在半个刻度。
+        _selectedWeek = State(initialValue: nil)
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let itemWidth: CGFloat = 24
+            let barHeight: CGFloat = 20
+            let horizontalPadding = max((proxy.size.width - itemWidth) / 2, 0).rounded()
+
+            ScrollViewReader { scrollProxy in
+                ScrollView(.horizontal) {
+                    LazyHStack(spacing: 5) {
+                        ForEach(weeks, id: \.self) { week in
+                            VStack(spacing: 1) {
+                                Text(isMajorWeek(week) ? "\(week)" : "")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(week == selectedWeek ? .primary : .secondary)
+                                    .frame(height: 13)
+                                Capsule()
+                                    .fill(week == selectedWeek ? Color.accentColor : Color.secondary.opacity(0.55))
+                                    .frame(width: week == selectedWeek ? 4 : 3, height: isMajorWeek(week) ? barHeight : 16)
+                            }
+                            .frame(width: itemWidth, height: 34, alignment: .top)
+                            .contentShape(Rectangle())
+                            .id(week)
+                            .onTapGesture {
+                                withAnimation(.snappy) {
+                                    selectedWeek = week
+                                }
+                            }
+                        }
+                    }
+                    .scrollTargetLayout()
+                    .frame(minHeight: 34)
+                }
+                .scrollIndicators(.hidden)
+                .scrollTargetBehavior(.viewAligned)
+                .scrollPosition(id: $selectedWeek, anchor: .center)
+                .safeAreaPadding(.horizontal, horizontalPadding)
+                .overlay(alignment: .top) {
+                    Image(systemName: "triangle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.tint)
+                        .rotationEffect(.degrees(180))
+                        .allowsHitTesting(false)
+                }
+                .onAppear {
+                    let target = weeks.contains(currentWeek) ? currentWeek : weeks.first
+                    guard let target else { return }
+                    DispatchQueue.main.async {
+                        selectedWeek = target
+                        DispatchQueue.main.async {
+                            scrollProxy.scrollTo(target, anchor: .center)
+                        }
+                    }
+                }
+                .onChange(of: selectedWeek) { _, week in
+                    guard let week, week != currentWeek else { return }
+                    onSelectWeek(week)
+                }
+                .onChange(of: currentWeek) { _, week in
+                    let target = weeks.contains(week) ? week : weeks.first
+                    guard selectedWeek != target else { return }
+                    selectedWeek = target
+                    alignSelection(using: scrollProxy, to: target)
+                }
+                .onChange(of: weeks) { _, newWeeks in
+                    let target = newWeeks.contains(currentWeek) ? currentWeek : newWeeks.first
+                    guard selectedWeek == target else {
+                        selectedWeek = target
+                        alignSelection(using: scrollProxy, to: target)
+                        return
+                    }
+                    alignSelection(using: scrollProxy, to: target)
+                }
+            }
+        }
+    }
+
+    private func isMajorWeek(_ week: Int) -> Bool {
+        week == 1 || week % 5 == 0
+    }
+
+    /// 首次布局完成后再次定位到完整周次项，避免冷启动时停在半个刻度。
+    private func alignSelection(using proxy: ScrollViewProxy, to target: Int? = nil) {
+        guard let target = target ?? selectedWeek else { return }
+        DispatchQueue.main.async {
+            proxy.scrollTo(target, anchor: .center)
+        }
     }
 }
 
@@ -747,6 +884,7 @@ struct ScheduleEntryDetailSheet: View {
     let isOverviewMode: Bool
     let allowsCustomScheduleMutation: Bool
     let onOpenAcademicCourse: (CourseNavigationRequest) -> Void
+    let onOpenCourseLocation: (CampusMapLocationRequest) -> Void
     let onEditCourseOccurrence: (String) -> Void
     let onEditCourse: (String) -> Void
     let onDeleteCourseOccurrence: (String) -> Void
@@ -910,8 +1048,30 @@ struct ScheduleEntryDetailSheet: View {
                 }
             }
 
-            Section("学业课程") {
+            Section("课程评价") {
                 academicCourseRow(for: group)
+            }
+
+            Section {
+                Button {
+                    let places = mapPlaces(for: group)
+                    guard !places.isEmpty else {
+                        academicCourseAlert = AppAlert(
+                            title: "没有找到上课地点",
+                            message: "这门课的教室暂时无法匹配到校园地图。"
+                        )
+                        return
+                    }
+                    dismiss()
+                    onOpenCourseLocation(
+                        CampusMapLocationRequest(
+                            courseName: ScheduleDisplayNormalizer.normalizeCourseTitle(group[0].name),
+                            places: places
+                        )
+                    )
+                } label: {
+                    Label("查看上课地点", systemImage: "mappin.and.ellipse")
+                }
             }
 
             if allowsCourseMutation {
@@ -969,6 +1129,19 @@ struct ScheduleEntryDetailSheet: View {
     private func unique(_ values: [String]) -> [String] {
         var seen = Set<String>()
         return values.filter { seen.insert($0).inserted }
+    }
+
+    private func mapPlaces(for group: [CourseRecord]) -> [CampusMapPlace] {
+        var seen = Set<String>()
+        return group.compactMap { course in
+            guard let place = CampusMapPlaceCatalog.place(
+                campusName: course.campus,
+                classroom: course.classroom
+            ), seen.insert(place.id).inserted else {
+                return nil
+            }
+            return place
+        }
     }
 
     private func academicCourseRow(for group: [CourseRecord]) -> some View {

@@ -137,6 +137,35 @@ private struct ErrorReportPayload: Encodable {
     let diagnostics: [NetworkDiagnosticRecord]
 }
 
+private enum FeedbackSubmissionError: LocalizedError {
+    case invalidResponse
+    case server(statusCode: Int, message: String?)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidResponse:
+            return "服务器返回了无法识别的响应。"
+        case let .server(statusCode, message):
+            if let message, !message.isEmpty {
+                return "服务器响应异常（HTTP \(statusCode)）：\(message)"
+            }
+            return "服务器响应异常（HTTP \(statusCode)）。"
+        }
+    }
+}
+
+#if DEBUG || RELEASE_NETWORK_SMOKE
+private struct NetworkSmokePayload: Encodable {
+    let mode = "network-smoke"
+    let runID: String
+}
+
+private struct NetworkSmokeResponse: Decodable {
+    let ok: Bool
+    let restored: Bool
+}
+#endif
+
 /// 错误报告与开发者建议共用的反馈提交入口。
 struct FeedbackSubmissionClient {
     static func submit<Payload: Encodable>(_ payload: Payload) async throws {
@@ -147,11 +176,43 @@ struct FeedbackSubmissionClient {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         request.httpBody = try encoder.encode(payload)
-        let (_, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 201 else {
-            throw URLError(.badServerResponse)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw FeedbackSubmissionError.invalidResponse
+        }
+        guard (200 ..< 300).contains(http.statusCode) else {
+            throw FeedbackSubmissionError.server(
+                statusCode: http.statusCode,
+                message: HTTPClient.errorMessage(from: data)
+            )
         }
     }
+
+#if DEBUG || RELEASE_NETWORK_SMOKE
+    static func submitNetworkSmoke(runID: String) async throws {
+        var request = URLRequest(url: URL(string: "https://feedback.aihelpme.dev/api/error-reports")!)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 20
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("1", forHTTPHeaderField: "X-BIT101-Network-Smoke")
+        request.httpBody = try JSONEncoder().encode(NetworkSmokePayload(runID: runID))
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw FeedbackSubmissionError.invalidResponse
+        }
+        guard (200 ..< 300).contains(http.statusCode) else {
+            throw FeedbackSubmissionError.server(
+                statusCode: http.statusCode,
+                message: HTTPClient.errorMessage(from: data)
+            )
+        }
+        let result = try JSONDecoder().decode(NetworkSmokeResponse.self, from: data)
+        guard result.ok, result.restored else {
+            throw URLError(.dataNotAllowed)
+        }
+    }
+#endif
 }
 
 @MainActor

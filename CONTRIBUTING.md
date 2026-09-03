@@ -48,7 +48,7 @@ SKIP_STALE_DOCS_CHECK=1 git commit ...
 测试覆盖登录、社区、话廊及图片、课程、文章、个人资料、学期列表、课表、空教室、乐学
 日历、成绩、可信成绩单和 App Store 更新接口；不会执行点赞、评论、发帖、上传等写操作。
 结果会写到 `group.BIT101-dev.BIT101-iOS.shared/Library/NetworkSmoke/` 下的
-`release-network-smoke-<runID>.json`，完整日志保存在
+`release-network-smoke.json`，完整日志保存在
 `.build/release-network-smoke/network-smoke.log`。
 
 每个探针输出 `PASS`、`FAIL` 或 `AUTH_BLOCKED`。`AUTH_BLOCKED` 表示学校要求短信等

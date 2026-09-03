@@ -7,6 +7,7 @@
 
 import PhotosUI
 import SwiftUI
+import ImageIO
 import WebKit
 
 let mitLicenseText = "MIT License Copyright (c) 2026 BIT101 Contributors Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
@@ -105,7 +106,7 @@ private struct SettingsIndexPage: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(12)
+            .padding(16)
         }
         .background(Color(.systemGroupedBackground))
     }
@@ -187,11 +188,14 @@ private struct DeveloperSuggestionPayload: Encodable {
 
 /// 向开发者提交功能建议，复用错误反馈 Worker 与邮件通知链路。
 struct DeveloperSuggestionPage: View {
+    @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var imageDrafts: [GalleryComposerImageDraft] = []
     @State private var isSubmitting = false
     @State private var alert: AppAlert?
+    @State private var isShowingDraftAlert = false
+    @State private var didRestoreDraft = false
 
     var body: some View {
         Form {
@@ -230,15 +234,6 @@ struct DeveloperSuggestionPage: View {
                     }
                 }
 
-                if hasUploadingImages {
-                    Text("图片上传中，上传完成后即可提交。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-
-                Text("图片会自动压缩后上传。最多 6 张。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
 
             Section {
@@ -259,9 +254,28 @@ struct DeveloperSuggestionPage: View {
         }
             .navigationTitle("我想和开发者提建议")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("取消") { requestDismiss() }
+                }
+            }
             .onChange(of: selectedPhotoItems) { _, newValue in
                 guard !newValue.isEmpty else { return }
                 Task { await addImages(from: newValue) }
+            }
+            .onAppear { restoreDraftIfNeeded() }
+            .alert("保存草稿？", isPresented: $isShowingDraftAlert) {
+                Button("保存草稿") {
+                    saveDraft()
+                    dismiss()
+                }
+                Button("不保存", role: .destructive) {
+                    ComposerDraftStore.removeSuggestion()
+                    dismiss()
+                }
+                Button("继续编辑", role: .cancel) {}
+            } message: {
+                Text("退出后下次可以继续编辑。")
             }
             .diagnosticAlert(item: $alert)
     }
@@ -272,14 +286,14 @@ struct DeveloperSuggestionPage: View {
         let suggestion = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !suggestion.isEmpty else { return }
         guard !hasUploadingImages else {
-            alert = AppAlert(title: "提交失败", message: "图片仍在上传，请稍候。")
+            alert = AppAlert(title: "提交失败", message: "图片仍在处理中，请稍候。")
             return
         }
         guard imageDrafts.allSatisfy({
             if case .prepared = $0.status { return true }
             return false
         }) else {
-            alert = AppAlert(title: "提交失败", message: "有图片上传失败，请删除后重试，或点“重试”重新上传。")
+            alert = AppAlert(title: "提交失败", message: "有图片未处理完成，请删除后重新选择。")
             return
         }
 
@@ -297,48 +311,183 @@ struct DeveloperSuggestionPage: View {
                         DeveloperSuggestionAttachment(
                             filename: $0.filename,
                             contentType: "image/jpeg",
-                            data: $0.previewData.base64EncodedString()
+                            data: ($0.uploadData ?? $0.previewData).base64EncodedString()
                         )
                     }
                 )
             )
             text = ""
-            alert = AppAlert(title: "提交成功", message: "感谢你的建议。")
+            ComposerDraftStore.removeSuggestion()
+            alert = nil
+            dismiss()
         } catch {
             alert = AppAlert(title: "提交失败", message: error.localizedDescription)
         }
     }
 
+    private func requestDismiss() {
+        guard !isSubmitting else { return }
+        guard hasDraftContent else {
+            dismiss()
+            return
+        }
+        isShowingDraftAlert = true
+    }
+
+    private func saveDraft() {
+        ComposerDraftStore.saveSuggestion(
+            DeveloperSuggestionDraftSnapshot(
+                text: text,
+                images: imageDrafts.map {
+                    ComposerImageDraftSnapshot(
+                        filename: $0.filename,
+                        previewData: $0.previewData,
+                        uploadData: $0.uploadData
+                    )
+                }
+            )
+        )
+    }
+
+    private func restoreDraftIfNeeded() {
+        guard !didRestoreDraft else { return }
+        didRestoreDraft = true
+        guard let draft = ComposerDraftStore.loadSuggestion() else { return }
+
+        text = draft.text
+        imageDrafts = draft.images.map {
+            GalleryComposerImageDraft(
+                previewData: $0.previewData,
+                filename: $0.filename,
+                uploadData: $0.uploadData,
+                progress: $0.uploadData == nil ? 0 : 100,
+                status: $0.uploadData == nil ? .compressing : .prepared
+            )
+        }
+        if imageDrafts.contains(where: { $0.status.isCompressing }) {
+            Task { await compressRestoredImages() }
+        }
+    }
+
+    private func compressRestoredImages() async {
+        let drafts = imageDrafts.filter { $0.status.isCompressing }
+        guard !drafts.isEmpty else { return }
+
+        var results: [(GalleryComposerImageDraft.ID, Data?)] = []
+        var completedCount = 0
+        await withTaskGroup(of: (GalleryComposerImageDraft.ID, Data?).self) { group in
+            for draft in drafts {
+                group.addTask {
+                    (draft.id, try? SuggestionImageCompressor.compress(draft.previewData))
+                }
+            }
+            for await result in group {
+                results.append(result)
+                completedCount += 1
+                let progress = Int((Double(completedCount) / Double(drafts.count) * 100).rounded())
+                imageDrafts = imageDrafts.map { draft in
+                    guard draft.status.isCompressing else { return draft }
+                    var updated = draft
+                    updated.progress = progress
+                    return updated
+                }
+            }
+        }
+
+        imageDrafts = imageDrafts.map { draft in
+            guard let result = results.first(where: { $0.0 == draft.id }) else { return draft }
+            guard let data = result.1 else {
+                var failed = draft
+                failed.status = .failed("图片无法处理")
+                return failed
+            }
+            var prepared = draft
+            prepared.uploadData = data
+            prepared.status = .prepared
+            return prepared
+        }
+    }
+
+    private var hasDraftContent: Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !imageDrafts.isEmpty
+    }
+
     private var hasUploadingImages: Bool {
         imageDrafts.contains {
             if case .uploading = $0.status { return true }
+            if case .compressing = $0.status { return true }
             return false
         }
     }
 
     private func addImages(from items: [PhotosPickerItem]) async {
         defer { selectedPhotoItems = [] }
-        for item in items {
-            await addImage(from: item)
-        }
-    }
+        let remaining = max(0, 6 - imageDrafts.count)
+        let selectedItems = Array(items.prefix(remaining))
+        guard !selectedItems.isEmpty else { return }
 
-    private func addImage(from item: PhotosPickerItem) async {
-        do {
-            guard imageDrafts.count < 6 else { return }
-            guard let data = try await item.loadTransferable(type: Data.self) else {
-                throw GalleryServiceError.uploadFailed
+        var loaded: [(Int, Data)] = []
+        await withTaskGroup(of: (Int, Data?).self) { group in
+            for (index, item) in selectedItems.enumerated() {
+                group.addTask {
+                    (index, try? await item.loadTransferable(type: Data.self))
+                }
             }
+            for await (index, data) in group {
+                if let data {
+                    loaded.append((index, data))
+                }
+            }
+        }
+        loaded.sort { $0.0 < $1.0 }
 
-            let compressed = try compressImage(data)
-            let draft = GalleryComposerImageDraft(
-                previewData: compressed,
+        let drafts = loaded.map { _, data in
+            GalleryComposerImageDraft(
+                previewData: data,
                 filename: "suggestion-\(UUID().uuidString).jpg",
-                status: .prepared
+                status: .compressing
             )
-            imageDrafts.append(draft)
-        } catch {
-            alert = AppAlert(title: "图片添加失败", message: error.localizedDescription)
+        }
+        imageDrafts.append(contentsOf: drafts)
+
+        var compressed: [(GalleryComposerImageDraft.ID, Data?)] = []
+        var completedCount = 0
+        await withTaskGroup(of: (GalleryComposerImageDraft.ID, Data?).self) { group in
+            for draft in drafts {
+                group.addTask {
+                    (draft.id, try? SuggestionImageCompressor.compress(draft.previewData))
+                }
+            }
+            for await result in group {
+                compressed.append(result)
+                completedCount += 1
+                let progress = Int((Double(completedCount) / Double(drafts.count) * 100).rounded())
+                imageDrafts = imageDrafts.map { draft in
+                    guard draft.status.isCompressing else { return draft }
+                    var updated = draft
+                    updated.progress = progress
+                    return updated
+                }
+            }
+        }
+
+        var failed = false
+        imageDrafts = imageDrafts.map { draft in
+            guard let result = compressed.first(where: { $0.0 == draft.id }) else { return draft }
+            guard let data = result.1 else {
+                failed = true
+                var failedDraft = draft
+                failedDraft.status = .failed("图片无法处理")
+                return failedDraft
+            }
+            var preparedDraft = draft
+            preparedDraft.uploadData = data
+            preparedDraft.status = .prepared
+            return preparedDraft
+        }
+
+        if failed {
+            alert = AppAlert(title: "图片添加失败", message: "部分图片无法处理，请删除后重新选择。")
         }
     }
 
@@ -346,33 +495,62 @@ struct DeveloperSuggestionPage: View {
         imageDrafts.removeAll { $0.id == id }
     }
 
-    private func compressImage(_ data: Data) throws -> Data {
-        guard let image = UIImage(data: data) else {
+}
+
+private extension GalleryComposerImageDraft.Status {
+    var isCompressing: Bool {
+        if case .compressing = self { return true }
+        return false
+    }
+}
+
+private enum SuggestionImageCompressor {
+    nonisolated static func compress(_ data: Data) throws -> Data {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(
+                  source,
+                  0,
+                  [
+                      kCGImageSourceCreateThumbnailFromImageAlways: true,
+                      kCGImageSourceCreateThumbnailWithTransform: true,
+                      kCGImageSourceThumbnailMaxPixelSize: 1600
+                  ] as CFDictionary
+              ) else {
             throw GalleryServiceError.uploadFailed
         }
 
-        let maxBytes = 100 * 1024
-        var dimension: CGFloat = 1600
-        var best = data
-        while dimension >= 320 {
-            let scale = min(1, dimension / max(image.size.width, image.size.height))
-            let size = CGSize(
-                width: max(1, image.size.width * scale),
-                height: max(1, image.size.height * scale)
-            )
-            let renderer = UIGraphicsImageRenderer(size: size)
-            for quality in [0.72, 0.58, 0.42, 0.28] {
-                let candidate = renderer.jpegData(withCompressionQuality: quality) {
-                    _ in image.draw(in: CGRect(origin: .zero, size: size))
-                }
-                best = candidate
-                if candidate.count <= maxBytes {
-                    return candidate
-                }
-            }
-            dimension *= 0.8
+        let maxBytes = 1 * 1024 * 1024
+        var best = render(image: image, maxDimension: 1600, quality: 0.68)
+        if best.count <= maxBytes { return best }
+
+        for quality in [0.48, 0.32, 0.2] {
+            best = render(image: image, maxDimension: 1600, quality: quality)
+            if best.count <= maxBytes { return best }
+        }
+
+        for dimension in [1200, 900, 700] {
+            best = render(image: image, maxDimension: CGFloat(dimension), quality: 0.5)
+            if best.count <= maxBytes { return best }
         }
         return best
+    }
+
+    private nonisolated static func render(
+        image: CGImage,
+        maxDimension: CGFloat,
+        quality: CGFloat
+    ) -> Data {
+        let width = CGFloat(image.width)
+        let height = CGFloat(image.height)
+        let scale = min(1, maxDimension / max(width, height))
+        let size = CGSize(
+            width: max(1, width * scale),
+            height: max(1, height * scale)
+        )
+        return UIGraphicsImageRenderer(size: size).jpegData(withCompressionQuality: quality) { context in
+            context.cgContext.interpolationQuality = .medium
+            UIImage(cgImage: image).draw(in: CGRect(origin: .zero, size: size))
+        }
     }
 }
 

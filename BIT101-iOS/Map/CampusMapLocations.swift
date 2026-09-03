@@ -65,14 +65,32 @@ enum CampusPreset: String, CaseIterable, Identifiable {
 ///
 /// 显示名可在不同校区重复（如“体育馆”）；匹配时会同时检查校区，
 /// 因此不会把同名建筑导航到另一个校区。
-struct CampusMapPlace: Equatable {
+struct CampusMapPlace: Equatable, Identifiable {
     let campus: CampusPreset
     let name: String
     let latitude: CLLocationDegrees
     let longitude: CLLocationDegrees
 
+    var id: String {
+        "\(campus.rawValue):\(name):\(latitude):\(longitude)"
+    }
+
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+}
+
+/// 从课程详情页临时带到地图页的上课地点请求。
+///
+/// 只存在于当前进程内，不写入设置或课表缓存；应用冷启动后自然清空。
+struct CampusMapLocationRequest: Equatable, Identifiable {
+    let id = UUID()
+    let courseName: String
+    let places: [CampusMapPlace]
+
+    init(courseName: String, places: [CampusMapPlace]) {
+        self.courseName = courseName
+        self.places = places
     }
 }
 

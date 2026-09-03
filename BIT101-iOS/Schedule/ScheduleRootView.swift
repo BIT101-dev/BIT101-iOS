@@ -29,15 +29,18 @@ struct ScheduleRootView: View {
     /// 壳层深链请求的目标分栏，例如从小组件点进来直接落到课表。
     @Binding var requestedSection: ScheduleSection?
     let onOpenAcademicCourse: (CourseNavigationRequest) -> Void
+    let onOpenCourseLocation: (CampusMapLocationRequest) -> Void
     @StateObject private var viewModel = SchoolDataRefreshCoordinator.shared.scheduleViewModel
     @State private var courseTabResetSignal = 0
 
     init(
         requestedSection: Binding<ScheduleSection?>,
-        onOpenAcademicCourse: @escaping (CourseNavigationRequest) -> Void = { _ in }
+        onOpenAcademicCourse: @escaping (CourseNavigationRequest) -> Void = { _ in },
+        onOpenCourseLocation: @escaping (CampusMapLocationRequest) -> Void = { _ in }
     ) {
         _requestedSection = requestedSection
         self.onOpenAcademicCourse = onOpenAcademicCourse
+        self.onOpenCourseLocation = onOpenCourseLocation
     }
 
     /// 日程主页主体。
@@ -51,12 +54,21 @@ struct ScheduleRootView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 8)
 
-            ZStack {
-                selectedSectionView
+            GeometryReader { proxy in
+                ZStack {
+                    selectedSectionView
+                }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .contentShape(Rectangle())
+                    .simultaneousGesture(
+                        sectionSwitchGesture(
+                            topDisabledHeight: viewModel.selectedSection == .courses
+                                ? proxy.size.height * 0.25
+                                : 0
+                        )
+                    )
             }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .contentShape(Rectangle())
-                .simultaneousGesture(sectionSwitchGesture)
         }
         .background(Color(.systemGroupedBackground))
         .toolbar(.hidden, for: .navigationBar)
@@ -106,7 +118,8 @@ struct ScheduleRootView: View {
             CourseScheduleTabView(
                 viewModel: viewModel,
                 resetSignal: courseTabResetSignal,
-                onOpenAcademicCourse: onOpenAcademicCourse
+                onOpenAcademicCourse: onOpenAcademicCourse,
+                onOpenCourseLocation: onOpenCourseLocation
             )
         case .ddl:
             DDLScheduleTabView(viewModel: viewModel)
@@ -117,9 +130,16 @@ struct ScheduleRootView: View {
 
     /// 轻扫切换课表 / DDL / 空教室的手势。
     ///
-    /// 与话廊页保持同一套交互语义：顶部 segmented 可点，正文支持横向轻扫切换。
-    private var sectionSwitchGesture: some Gesture {
-        makeHorizontalSwitchGesture(onStep: switchSection)
+    /// 课表上方四分之一保留给周次滑动条，避免误触分区切换；其余区域支持横向轻扫。
+    private func sectionSwitchGesture(topDisabledHeight: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 24, coordinateSpace: .local)
+            .onEnded { value in
+                let horizontal = value.translation.width
+                let vertical = value.translation.height
+                guard abs(horizontal) > abs(vertical), abs(horizontal) >= 56 else { return }
+                guard value.startLocation.y >= topDisabledHeight else { return }
+                switchSection(step: horizontal < 0 ? 1 : -1)
+            }
     }
 
     /// 根据方向切换一级分区。
@@ -189,6 +209,7 @@ private struct CourseScheduleTabView: View {
     @ObservedObject var viewModel: ScheduleViewModel
     let resetSignal: Int
     let onOpenAcademicCourse: (CourseNavigationRequest) -> Void
+    let onOpenCourseLocation: (CampusMapLocationRequest) -> Void
     @State private var selectedEntry: ScheduleCalendarEntry?
     @State private var editingCustomScheduleID: String?
     @State private var editingCourseID: String?
@@ -232,6 +253,7 @@ private struct CourseScheduleTabView: View {
                         CourseScheduleCalendarView(
                             entries: scheduleEntries,
                             week: viewModel.selectedWeek,
+                            availableWeeks: weekPickerWeeks,
                             displayMode: viewModel.cache.scheduleDisplayMode,
                             firstDay: firstDay,
                             timeTable: activeSchedule.timeTable,
@@ -265,6 +287,9 @@ private struct CourseScheduleTabView: View {
                             },
                             onSelectWeek: {
                                 isShowingWeekPicker = true
+                            },
+                            onSelectWeekValue: { week in
+                                viewModel.selectedWeek = week
                             },
                             onLongPressCourse: { entry in
                                 shareCourse(from: entry)
@@ -380,6 +405,10 @@ private struct CourseScheduleTabView: View {
                 onOpenAcademicCourse: { request in
                     selectedEntry = nil
                     onOpenAcademicCourse(request)
+                },
+                onOpenCourseLocation: { request in
+                    selectedEntry = nil
+                    onOpenCourseLocation(request)
                 },
                 onEditCourseOccurrence: { courseID in
                     guard let course = activeSchedule.courses.first(where: { $0.id == courseID }) else { return }

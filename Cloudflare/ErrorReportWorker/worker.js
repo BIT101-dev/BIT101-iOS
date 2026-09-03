@@ -1,6 +1,7 @@
-const MAX_BODY_BYTES = 1024 * 1024;
+// 六张 2 MB 附件再加上 JSON/Base64 开销，需要 16 MB 请求体空间。
+const MAX_BODY_BYTES = 16 * 1024 * 1024;
 const MAX_ATTACHMENTS = 6;
-const MAX_ATTACHMENT_BYTES = 120 * 1024;
+const MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024;
 const MAX_REPORTS_PER_DAY = 1000;
 
 const SECRET_KEYS = /password|passwd|pwd|cookie|authorization|token|session/i;
@@ -59,12 +60,27 @@ export default {
         if (!attachment || typeof attachment.data !== "string") {
           return json({ error: "invalid_attachment" }, 400);
         }
-        const bytes = Math.floor(attachment.data.length * 3 / 4);
+        const padding = attachment.data.endsWith("==") ? 2 : attachment.data.endsWith("=") ? 1 : 0;
+        const bytes = Math.floor(attachment.data.length * 3 / 4) - padding;
         if (bytes > MAX_ATTACHMENT_BYTES) {
           return json({ error: "attachment_too_large" }, 413);
         }
       }
     }
+
+    if (
+      report.mode === "network-smoke"
+      && request.headers.get("x-bit101-network-smoke") === "1"
+    ) {
+      const runID = String(report.runID || "").replace(/[^a-zA-Z0-9-]/g, "");
+      if (!runID) return json({ error: "invalid_smoke_run" }, 400);
+      const smokeKey = `smoke:${runID}:${crypto.randomUUID()}`;
+      await env.ERROR_REPORTS.put(smokeKey, JSON.stringify(forceRedact(report)), { expirationTtl: 60 });
+      const stored = await env.ERROR_REPORTS.get(smokeKey);
+      await env.ERROR_REPORTS.delete(smokeKey);
+      return stored ? json({ ok: true, restored: true }, 201) : json({ error: "smoke_write_failed" }, 500);
+    }
+
     report = forceRedact(report);
     const day = new Date().toISOString().slice(0, 10);
     const countKey = `count:${day}`;

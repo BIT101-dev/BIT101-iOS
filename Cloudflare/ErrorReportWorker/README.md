@@ -11,7 +11,9 @@ npx wrangler deploy
 
 接口：`POST https://feedback.aihelpme.dev/api/error-reports`。
 
-请求体上限为 1 MB。建议页最多上传 6 张图片，每张会在 App 内压缩到约 100 KB，再以 Base64 放入 Worker 报告；Worker 会把建议与图片一起存入 KV。建议报告使用 `mode: "suggestion"`，与错误报告共用 KV，但拉取脚本会按“错误报告 / 用户建议”分目录保存，并将图片解码为独立文件。
+网络冒烟会向同一接口发送 `mode: "network-smoke"` 的临时请求。Worker 会写入、读取并删除临时 KV 键，不发送邮件、不保留报告。
+
+请求体上限为 16 MB。建议页最多上传 6 张图片，每张在 App 内以约 1 MB 为目标压缩，Worker 单张上限为 2 MB，再以 Base64 放入报告。Worker 会把建议与图片一起存入 KV。建议报告使用 `mode: "suggestion"`，与错误报告共用 KV，但拉取脚本会按“错误报告 / 用户建议”分目录保存，并将图片解码为独立文件。
 
 ## 邮件提醒
 

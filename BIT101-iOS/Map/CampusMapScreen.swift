@@ -21,6 +21,7 @@ private enum MapPreferenceKey {
 /// 使用原生 MapKit 展示下一节课的位置，并提供校区切换和系统地图导航入口。
 struct CampusMapScreen: View {
     @ObservedObject var scheduleViewModel: ScheduleViewModel
+    let requestedLocation: CampusMapLocationRequest?
     @AppStorage(MapPreferenceKey.selectedCampus) private var selectedCampusID = CampusPreset.liangxiang.rawValue
     @StateObject private var locationController = CampusLocationController()
     /// SwiftUI 发给地图桥接层的聚焦请求。
@@ -31,6 +32,16 @@ struct CampusMapScreen: View {
     @State private var pendingCenterOnUserAfterAuthorization = false
     /// 防止 `onAppear` 重复覆盖用户当前选中的校区。
     @State private var hasRestoredStoredCampus = false
+    /// 课程详情传入的临时地点；只在当前进程内展示。
+    @State private var activeRequestedLocation: CampusMapLocationRequest?
+
+    init(
+        scheduleViewModel: ScheduleViewModel,
+        requestedLocation: CampusMapLocationRequest? = nil
+    ) {
+        self.scheduleViewModel = scheduleViewModel
+        self.requestedLocation = requestedLocation
+    }
 
     /// 地图主页主体。
     var body: some View {
@@ -38,7 +49,8 @@ struct CampusMapScreen: View {
             CampusNativeMapView(
                 focusRequest: focusRequest,
                 centerOnUserRequestID: centerOnUserRequestID,
-                nextCourseTarget: nextCourseTarget
+                nextCourseTarget: nextCourseTarget,
+                requestedLocation: activeRequestedLocation
             )
             .ignoresSafeArea(edges: [.top, .bottom])
 
@@ -77,6 +89,7 @@ struct CampusMapScreen: View {
             guard !hasRestoredStoredCampus else { return }
             hasRestoredStoredCampus = true
             focusOnNextCourseIfPossible(animated: false)
+            consumeRequestedLocationIfNeeded()
         }
         .task {
             await scheduleViewModel.loadIfNeeded()
@@ -84,6 +97,9 @@ struct CampusMapScreen: View {
         }
         .onChange(of: nextCourseTarget?.id) { _, _ in
             focusOnNextCourseIfPossible(animated: false)
+        }
+        .onChange(of: requestedLocation?.id) { _, _ in
+            consumeRequestedLocationIfNeeded()
         }
         .onReceive(locationController.$authorizationStatus.dropFirst()) { status in
             guard pendingCenterOnUserAfterAuthorization else { return }
@@ -96,6 +112,17 @@ struct CampusMapScreen: View {
             }
         }
         .diagnosticAlert(item: $locationController.notice)
+    }
+
+    /// 读取课程详情传入的临时地点请求，不写入本地持久化。
+    private func consumeRequestedLocationIfNeeded() {
+        guard let requestedLocation,
+              activeRequestedLocation?.id != requestedLocation.id else { return }
+        activeRequestedLocation = requestedLocation
+        if let place = requestedLocation.places.first {
+            selectedCampusID = place.campus.rawValue
+            focusRequest = MapFocusRequest(preset: place.campus, animated: true)
+        }
     }
 
     /// 切换到指定校区并更新本地持久化。

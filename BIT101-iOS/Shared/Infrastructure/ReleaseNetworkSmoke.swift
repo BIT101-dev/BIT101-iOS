@@ -29,6 +29,8 @@ enum NetworkSmokeScope: String, Codable {
                 || name.hasPrefix("我的")
                 || name.hasPrefix("App Store")
                 || name.hasPrefix("紧急更新")
+                || name.hasPrefix("open.aihelpme.dev")
+                || name.hasPrefix("feedback.aihelpme.dev")
         case .school:
             return name == "BIT101 登录状态"
                 || name.hasPrefix("切换学期")
@@ -82,7 +84,7 @@ enum ReleaseNetworkSmokeReportStore {
     private static let directoryName = "NetworkSmoke"
     private static let filePrefix = "release-network-smoke"
 
-    static func fileURL(runID: String) -> URL? {
+    static func fileURL(runID _: String) -> URL? {
         guard let containerURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: ScheduleSharedContainer.identifier
         ) else {
@@ -92,7 +94,7 @@ enum ReleaseNetworkSmokeReportStore {
         return containerURL
             .appending(path: "Library", directoryHint: .isDirectory)
             .appending(path: directoryName, directoryHint: .isDirectory)
-            .appending(path: "\(filePrefix)-\(runID).json")
+            .appending(path: "\(filePrefix).json")
     }
 
     static func write(_ report: ReleaseNetworkSmokeReport) throws {
@@ -104,6 +106,16 @@ enum ReleaseNetworkSmokeReportStore {
             at: fileURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
+        let directory = fileURL.deletingLastPathComponent()
+        let oldReports = (try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        for oldReport in oldReports
+            where oldReport.lastPathComponent.hasPrefix("\(filePrefix)-")
+        {
+            try? FileManager.default.removeItem(at: oldReport)
+        }
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -172,6 +184,9 @@ final class ReleaseNetworkSmokeRunner {
         }
 
         let gallery = GalleryService()
+        _ = await probe("open.aihelpme.dev 首页", scope: scope) {
+            try await Self.fetchWebPage("https://open.aihelpme.dev")
+        }
         let posters = await probe("话廊最新列表", scope: scope) {
             try await gallery.fetchFeed(kind: .newest, page: nil)
         } ?? []
@@ -331,6 +346,9 @@ final class ReleaseNetworkSmokeRunner {
             try await Self.fetchWebPage(
                 "https://update.aihelpme.dev/emergency-update.json"
             )
+        }
+        _ = await probe("feedback.aihelpme.dev 写入恢复", scope: scope) {
+            try await FeedbackSubmissionClient.submitNetworkSmoke(runID: runID)
         }
 
         return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
