@@ -9,9 +9,7 @@ import SwiftUI
 import UIKit
 
 struct PaperDetailView: View {
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
-    @ObservedObject private var settings = AppSettingsStore.shared
     let initialPaper: PaperSummary
 
     @StateObject private var viewModel: PaperDetailViewModel
@@ -39,18 +37,15 @@ struct PaperDetailView: View {
                         Spacer()
 
                         HStack(spacing: 10) {
-                            Button {
+                            AppDetailCircleButton {
                                 composerTarget = .paper(paperID: initialPaper.id)
                             } label: {
                                 Image(systemName: "bubble.right")
                                     .font(.headline)
                                     .foregroundStyle(.primary)
-                                    .frame(width: 34, height: 34)
-                                    .background(Color.orange.opacity(0.12), in: Circle())
                             }
-                            .buttonStyle(.plain)
 
-                            Button {
+                            AppDetailCircleButton {
                                 Task { await viewModel.likePaper() }
                             } label: {
                                 Group {
@@ -62,11 +57,8 @@ struct PaperDetailView: View {
                                             .font(.headline)
                                     }
                                 }
-                                .foregroundStyle((viewModel.paper?.like ?? false) ? Color.orange : Color.primary)
-                                .frame(width: 34, height: 34)
-                                .background(Color.orange.opacity(0.12), in: Circle())
+                                .foregroundStyle((viewModel.paper?.like ?? false) ? AppDesignSystem.Palette.highlight : Color.primary)
                             }
-                            .buttonStyle(.plain)
                             .disabled(viewModel.isLikingPaper)
                         }
                     }
@@ -106,11 +98,11 @@ struct PaperDetailView: View {
                             Text(isPaperLiked ? "已点赞" : "看完了，点个赞")
                                 .fontWeight(.semibold)
                         }
-                        .foregroundStyle(isPaperLiked ? Color.white : Color.orange)
+                        .foregroundStyle(isPaperLiked ? Color.white : AppDesignSystem.Palette.highlight)
                         .padding(.horizontal, 22)
                         .frame(minHeight: 44)
                         .background(
-                            isPaperLiked ? Color.orange : Color.orange.opacity(0.12),
+                            isPaperLiked ? AppDesignSystem.Palette.highlight : AppDesignSystem.Palette.highlight.opacity(0.12),
                             in: Capsule()
                         )
                     }
@@ -158,10 +150,10 @@ struct PaperDetailView: View {
                     }
                 )
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 12)
+            .padding(.horizontal, AppDesignSystem.Detail.contentPadding)
+            .padding(.vertical, AppDesignSystem.Detail.contentPadding)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(AppDesignSystem.Palette.groupedBackground)
         .refreshable {
             await viewModel.refreshAll()
         }
@@ -169,10 +161,11 @@ struct PaperDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                PaperArticleActionMenu {
-                    settings.hidePaper(id: initialPaper.id)
-                    dismiss()
-                }
+                AppDetailShareLink(
+                    item: paperShareURL,
+                    subject: viewModel.paper?.title ?? initialPaper.title,
+                    accessibilityLabel: "分享文章"
+                )
             }
         }
         .sheet(item: $composerTarget) { target in
@@ -226,8 +219,12 @@ struct PaperDetailView: View {
         viewModel.paper?.likeNum ?? initialPaper.likeNum
     }
 
+    private var paperShareURL: URL {
+        URL(string: "https://open.aihelpme.dev/paper/\(initialPaper.id)")!
+    }
+
     private var filteredComments: [GalleryComment] {
-        CommunityModeration.filterVisibleComments(viewModel.commentState.items, snapshot: AppSettingsStore.shared.snapshot)
+        CommunityModeration.filterVisibleComments(viewModel.commentState.items)
     }
 
     private var inlineImages: [PaperInlineImage] {
@@ -324,7 +321,7 @@ private struct PaperContentBlockView: View {
             .padding(.leading, 14)
             .overlay(alignment: .leading) {
                 Capsule()
-                    .fill(Color.orange)
+                    .fill(AppDesignSystem.Palette.highlight)
                     .frame(width: 4)
             }
         case let .list(_, items, ordered):
@@ -345,7 +342,7 @@ private struct PaperContentBlockView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     GalleryCachedStillImage(url: image.preferredRemoteURL)
                     .frame(maxWidth: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card, style: .continuous))
 
                     if let caption = image.caption, !String(caption.characters).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         PaperRichTextView(text: caption, textStyle: .caption1, textColor: .secondaryLabel)

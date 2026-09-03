@@ -18,7 +18,7 @@ struct GalleryMessagesView: View {
 
     var body: some View {
         ZStack {
-            Color(.systemGroupedBackground)
+            AppDesignSystem.Palette.groupedBackground
                 .ignoresSafeArea()
 
             Group {
@@ -41,17 +41,17 @@ struct GalleryMessagesView: View {
                 } else {
                     List {
                         ForEach(Array(currentState.items.enumerated()), id: \.element.id) { index, message in
-                        VStack(spacing: 0) {
-                            GalleryMessageRow(
-                                type: viewModel.selectedType,
-                                message: message,
-                                isUnread: viewModel.isUnread(message, in: viewModel.selectedType),
-                                onOpenPoster: {
-                                    Task {
-                                        await openMessage(message)
+                            VStack(spacing: 0) {
+                                GalleryMessageRow(
+                                    type: viewModel.selectedType,
+                                    message: message,
+                                    isUnread: viewModel.isUnread(message, in: viewModel.selectedType),
+                                    onOpenPoster: {
+                                        Task {
+                                            await openMessage(message)
+                                        }
                                     }
-                                }
-                            )
+                                )
 
                                 if index != currentState.items.count - 1 {
                                     Divider()
@@ -80,7 +80,7 @@ struct GalleryMessagesView: View {
                     }
                     .listStyle(.plain)
                     .scrollContentBackground(.hidden)
-                    .background(Color(.systemGroupedBackground))
+                    .background(AppDesignSystem.Palette.groupedBackground)
                     .refreshable {
                         await viewModel.refreshSelectedType()
                     }
@@ -115,7 +115,8 @@ struct GalleryMessagesView: View {
             .padding(.horizontal, 12)
             .padding(.top, 8)
             .padding(.bottom, 6)
-            .background(Color(.systemGroupedBackground))
+            .background(AppDesignSystem.Palette.groupedBackground)
+            .appSelectionFeedback(trigger: viewModel.selectedType.rawValue)
         }
         .task {
             await viewModel.bootstrapIfNeeded()
@@ -235,7 +236,7 @@ private struct GalleryMessageRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     if isUnread {
                         Circle()
-                            .fill(Color.orange)
+                            .fill(AppDesignSystem.Palette.highlight)
                             .frame(width: 7, height: 7)
                     }
 
@@ -275,7 +276,7 @@ private struct GalleryMessageRow: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isUnread ? Color.orange.opacity(0.06) : Color(.systemBackground))
+        .background(isUnread ? AppDesignSystem.Palette.highlight.opacity(0.06) : AppDesignSystem.Palette.systemBackground)
         .contentShape(Rectangle())
         .onTapGesture {
             guard canOpenPoster else { return }
@@ -298,10 +299,10 @@ private struct GalleryMessageAvatarView: View {
     var body: some View {
         if user.id == 0 {
             ZStack {
-                Circle().fill(Color.orange.opacity(0.12))
+                Circle().fill(AppDesignSystem.Palette.highlight.opacity(0.12))
                 Image(systemName: type == .system ? "bell.fill" : "person.fill")
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(AppDesignSystem.Palette.highlight)
             }
             .frame(width: 34, height: 34)
         } else {
@@ -309,8 +310,3 @@ private struct GalleryMessageAvatarView: View {
         }
     }
 }
-
-/// 举报动作的上下文。
-///
-/// 举报 sheet 打开时需要同时知道帖子和动作类型，因此这里用一个小上下文对象
-/// 作为 `sheet(item:)` 的载体。

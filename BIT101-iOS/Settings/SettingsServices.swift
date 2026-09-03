@@ -46,14 +46,9 @@ struct SettingsNetworkService {
 
     /// 拉取当前登录用户自己的资料。
     ///
-    /// 账号设置页、隐藏用户列表恢复展示等场景都会复用这条接口。
+    /// 账号设置页复用这条接口。
     func fetchMyInfo() async throws -> MineUserInfo {
         try await api.request(path: "user/info/0")
-    }
-
-    /// 拉取指定用户的公开资料。
-    func fetchUserInfo(id: Int) async throws -> MineUserInfo {
-        try await api.request(path: "user/info/\(id)")
     }
 
     /// 更新昵称、签名和头像。

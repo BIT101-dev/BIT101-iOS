@@ -57,7 +57,7 @@ struct DDLSettingsPage: View {
                 .buttonStyle(.plain)
             }
         }
-        .listStyle(.insetGrouped)
+        .appGroupedListStyle()
         .task { await viewModel.loadIfNeeded() }
         .sheet(item: $pickerRoute) { route in
             switch route {
@@ -96,13 +96,13 @@ private struct DDLSettingsActionRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Text(title)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(AppDesignSystem.Palette.accent)
 
             Spacer(minLength: 0)
 
             if let value {
                 Text(value)
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(AppDesignSystem.Palette.accent)
             }
         }
         .contentShape(Rectangle())
@@ -136,6 +136,7 @@ private struct DDLSettingsNumberPickerSheet: View {
                 }
                 .pickerStyle(.wheel)
                 .labelsHidden()
+                .appSelectionFeedback(trigger: value)
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
@@ -160,4 +161,4 @@ private struct DDLSettingsNumberPickerSheet: View {
 
 /// 画廊设置页。
 ///
-/// 集中管理本地黑名单、隐藏帖子、社区规则状态以及相关联系信息。
+/// 集中管理机器人帖子显示和本地图片缓存。

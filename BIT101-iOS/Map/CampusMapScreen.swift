@@ -54,7 +54,7 @@ struct CampusMapScreen: View {
             )
             .ignoresSafeArea(edges: [.top, .bottom])
 
-            VStack(alignment: .trailing, spacing: 10) {
+            AppFloatingActionStack {
                 if let place = nextCourseTarget?.place {
                     FloatingMapButton(
                         systemImage: "arrow.triangle.turn.up.right.diamond.fill",
@@ -81,8 +81,6 @@ struct CampusMapScreen: View {
                     }
                 }
             }
-            .padding(.trailing, 10)
-            .padding(.bottom, 20)
         }
         .toolbar(.hidden, for: .navigationBar)
         .onAppear {
@@ -187,15 +185,11 @@ private struct FloatingMapButton: View {
 
     /// 通用圆形按钮主体。
     var body: some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(.primary)
-                .frame(width: 42, height: 42)
-        }
-        .buttonStyle(.plain)
-        .background(.ultraThinMaterial, in: Circle())
-        .accessibilityLabel(accessibilityLabel)
+        AppFloatingActionButton(
+            systemImage: systemImage,
+            accessibilityLabel: accessibilityLabel,
+            action: action
+        )
     }
 }
 
@@ -207,21 +201,22 @@ private struct FloatingMapLabelButton: View {
     let accessibilityLabel: String
     let isSelected: Bool
     let action: () -> Void
+    @State private var feedbackToken = 0
 
     /// 校区切换按钮主体。
     var body: some View {
-        Button(action: action) {
-            Text(label)
-                .font(.system(size: 17, weight: .bold, design: .rounded))
-                .frame(width: 42, height: 42)
-                .foregroundStyle(isSelected ? Color.white : Color.primary)
+        Button {
+            feedbackToken &+= 1
+            action()
+        } label: {
+            AppFloatingActionButtonSurface(fill: isSelected ? AppDesignSystem.Palette.accent : nil) {
+                Text(label)
+                    .font(AppDesignSystem.Typography.floatingLabel)
+                    .foregroundStyle(isSelected ? Color.white : Color.primary)
+            }
         }
         .buttonStyle(.plain)
-        .background(
-            isSelected ? Color.accentColor : Color.clear,
-            in: Circle()
-        )
-        .background(.ultraThinMaterial, in: Circle())
+        .appImpactFeedback(trigger: feedbackToken)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }

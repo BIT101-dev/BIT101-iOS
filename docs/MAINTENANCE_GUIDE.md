@@ -198,8 +198,6 @@ bit-login 返回的 `challenge_id`、access token、短信状态和教学中心�
 目前至少这几类已经按账号隔离：
 
 - 课表 / DDL 缓存
-- 社区规则同意状态
-- 隐藏用户 / 隐藏帖子
 - 一部分查询和筛选偏好
 
 ## 5. 小组件、锁屏组件与 Live Activity

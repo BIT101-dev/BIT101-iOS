@@ -96,6 +96,35 @@ struct ScheduleSystemCalendarEventBuilderTests {
     }
 }
 
+@Suite("Schedule calendar layer ordering")
+struct ScheduleCalendarLayerOrderingTests {
+    @Test("Earlier course center is rendered above later course center")
+    func earlierCenterIsOnTop() {
+        let entry = ScheduleCalendarEntry(
+            id: "overlap",
+            sourceID: "first",
+            sourceIDs: ["first", "second"],
+            dayOfWeek: 1,
+            startSection: 0,
+            endSection: 5,
+            title: "重叠课程",
+            subtitle: "",
+            detailLines: [],
+            kind: .course,
+            backgroundLayers: [
+                ScheduleCalendarLayer(id: "first", startSection: 0, endSection: 3),
+                ScheduleCalendarLayer(id: "second", startSection: 2, endSection: 5)
+            ]
+        )
+
+        #expect(entry.orderedBackgroundLayers.map(\.id) == ["second", "first"])
+        #expect(
+            (entry.orderedBackgroundLayers.last?.displayZIndex ?? 0)
+                > (entry.orderedBackgroundLayers.first?.displayZIndex ?? 0)
+        )
+    }
+}
+
 @Suite("Schedule academic course matching")
 struct ScheduleAcademicCourseMatcherTests {
     private final class ServiceStub: CourseListServicing {

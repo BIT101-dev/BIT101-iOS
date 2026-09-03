@@ -38,7 +38,7 @@ struct AccountSettingsPage: View {
                             CachedRemoteImage(url: URL(string: profile.user.avatar.url)) { image in
                                 image.resizable().scaledToFill()
                             } placeholder: {
-                                Circle().fill(Color.blue.opacity(0.15))
+                                Circle().fill(AppDesignSystem.Palette.info.opacity(0.15))
                             }
                             .frame(width: 40, height: 40)
                             .clipShape(Circle())
@@ -96,6 +96,7 @@ struct AccountSettingsPage: View {
                 Button("退出登录", role: .destructive, action: onLogout)
             }
         }
+        .appGroupedListStyle()
         .task {
             guard !LoginStorage.shared.fakeCookie.isEmpty else { return }
             await loadProfile()
@@ -230,7 +231,7 @@ private struct SettingsSensitiveValueRow: View {
                         .blur(radius: 7)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .background(.ultraThinMaterial, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.small, style: .continuous))
                 }
             }
         }

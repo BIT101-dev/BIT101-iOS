@@ -25,7 +25,7 @@ struct ScoreFilterPage: View {
                                 .foregroundStyle(.primary)
                             Spacer()
                             Image(systemName: selectedValues.contains(option) ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(selectedValues.contains(option) ? Color.accentColor : .secondary)
+                                .foregroundStyle(selectedValues.contains(option) ? AppDesignSystem.Palette.accent : .secondary)
                         }
                         .contentShape(Rectangle())
                     }
@@ -33,6 +33,8 @@ struct ScoreFilterPage: View {
                 }
             }
         }
+        .appGroupedListStyle()
+        .appSelectionFeedback(trigger: selectedValues)
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -70,7 +72,7 @@ struct ScoreSortPage: View {
                                 .foregroundStyle(.primary)
                             Spacer()
                             Image(systemName: sortIndex == index ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(sortIndex == index ? Color.accentColor : .secondary)
+                                .foregroundStyle(sortIndex == index ? AppDesignSystem.Palette.accent : .secondary)
                         }
                         .contentShape(Rectangle())
                     }
@@ -88,7 +90,7 @@ struct ScoreSortPage: View {
                         Spacer()
                         Text("切换")
                             .font(.subheadline)
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(AppDesignSystem.Palette.accent)
                     }
                     .contentShape(Rectangle())
                 }
@@ -98,6 +100,9 @@ struct ScoreSortPage: View {
                 Text("升序表示小的在上，降序表示大的在上。")
             }
         }
+        .appGroupedListStyle()
+        .appSelectionFeedback(trigger: sortIndex)
+        .appSelectionFeedback(trigger: sortOrder)
         .navigationTitle("成绩排序")
         .navigationBarTitleDisplayMode(.inline)
     }

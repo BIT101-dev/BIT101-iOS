@@ -23,7 +23,7 @@ struct PaperCommentsSection: View {
     let onRetry: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Comment.sectionSpacing) {
             HStack {
                 Text("评论")
                     .font(.headline)
@@ -38,6 +38,7 @@ struct PaperCommentsSection: View {
                         Text(order.title).tag(order)
                     }
                 }
+                .appSelectionFeedback(trigger: selectedOrder)
                 .pickerStyle(.menu)
             }
 
@@ -45,7 +46,7 @@ struct PaperCommentsSection: View {
             case .idle where comments.isEmpty, .loading where comments.isEmpty:
                 ProgressView("正在加载评论")
                     .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 20)
+                    .padding(.vertical, AppDesignSystem.Comment.progressVerticalPadding)
             case let .failed(message):
                 PaperEmptyState(
                     systemImage: "text.bubble",
@@ -59,7 +60,7 @@ struct PaperCommentsSection: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, 16)
+                        .padding(.vertical, AppDesignSystem.Comment.emptyVerticalPadding)
                 } else {
                     LazyVStack(spacing: 0) {
                         ForEach(Array(comments.enumerated()), id: \.element.id) { index, comment in
@@ -73,7 +74,7 @@ struct PaperCommentsSection: View {
 
                                 if index != comments.count - 1 {
                                     Divider()
-                                        .padding(.leading, 46)
+                                        .padding(.leading, AppDesignSystem.Comment.dividerLeading)
                                 }
                             }
                             .onAppear {
@@ -87,14 +88,10 @@ struct PaperCommentsSection: View {
                                 ProgressView()
                                 Spacer()
                             }
-                            .padding(.vertical, 12)
+                            .padding(.vertical, AppDesignSystem.Spacing.content)
                         }
                     }
-                    .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(Color.primary.opacity(0.06), lineWidth: 1)
-                    }
+                    .appCommentSectionStyle()
                 }
             default:
                 EmptyView()
@@ -171,17 +168,17 @@ private struct PaperCommentRow: View {
 
                             if subComment.id != comment.sub.last?.id {
                                 Divider()
-                                    .padding(.leading, 42)
+                    .padding(.leading, AppDesignSystem.Comment.subCommentIndent)
                             }
                         }
                     }
                 }
-                .padding(.leading, 42)
+                .padding(.leading, AppDesignSystem.Comment.subCommentIndent)
                 .padding(.top, 4)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 14)
+        .padding(.horizontal, AppDesignSystem.Comment.rowHorizontalPadding)
+        .padding(.vertical, AppDesignSystem.Comment.rowVerticalPadding)
     }
 }
 
@@ -239,7 +236,7 @@ private struct PaperCommentBubble: View {
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.secondary)
                 }
-                    .buttonStyle(.plain)
+                .buttonStyle(.plain)
                 Button {
                     onLikeComment()
                 } label: {
@@ -257,7 +254,3 @@ private struct PaperCommentBubble: View {
         }
     }
 }
-
-/// 文章列表和详情复用的文章操作菜单。
-///
-/// 当前先提供最小能力：本地隐藏本文。

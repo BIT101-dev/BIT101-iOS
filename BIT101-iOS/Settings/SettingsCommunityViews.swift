@@ -3,64 +3,17 @@ import WebKit
 
 struct GallerySettingsPage: View {
     @ObservedObject private var settings = AppSettingsStore.shared
-    @State private var hiddenUsers: [MineUserInfo] = []
-    @State private var isLoadingUsers = false
-    @State private var alert: AppAlert?
     @State private var imageCacheLimitMB = GalleryImageCachePreferences.limitMB
     @State private var imageCacheUsageText = "计算中"
 
-    private let service = SettingsNetworkService()
-
     var body: some View {
         List {
-            Section {
-                NavigationLink {
-                    HiddenUsersPage(hiddenUsers: hiddenUsers, isLoading: isLoadingUsers) { index in
-                        settings.removeHiddenUser(at: index + (settings.galleryHiddenUserIDs.first == -1 ? 1 : 0))
-                        Task { await loadHiddenUsers() }
-                    }
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("隐藏用户")
-                        Text("当前列表中\(settings.galleryHiddenUserIDs.filter { $0 != -1 }.count == 0 ? "没有用户" : "有 \(settings.galleryHiddenUserIDs.filter { $0 != -1 }.count) 名用户")")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                NavigationLink {
-                    HiddenPostersPage(hiddenPosters: settings.galleryHiddenPosters) { index in
-                        settings.removeHiddenPoster(at: index)
-                    }
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("隐藏帖子")
-                        Text("当前列表中\(settings.galleryHiddenPosters.isEmpty ? "没有帖子" : "有 \(settings.galleryHiddenPosters.count) 条帖子")")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Toggle("隐藏匿名用户", isOn: Binding(
-                    get: { settings.galleryHiddenUserIDs.first == -1 },
-                    set: { _ in settings.toggleHideAnonymous() }
-                ))
-
-                Toggle("严格屏蔽模式", isOn: Binding(
-                    get: { settings.galleryHideStrictMode },
-                    set: { settings.updateGallerySettings(hideStrictMode: $0) }
-                ))
-            } header: {
-                Text("屏蔽设置")
-            } footer: {
-                Text("开启后，如果一条评论是在回复已屏蔽用户，也会一并隐藏。")
-            }
-
             Section("机器人") {
                 Toggle("在搜索结果中隐藏机器人帖子", isOn: Binding(
                     get: { settings.galleryHideBotPosterInSearch },
                     set: { settings.updateGallerySettings(hideBotPosterInSearch: $0) }
                 ))
+                .appSelectionFeedback(trigger: settings.galleryHideBotPosterInSearch)
             }
 
             Section {
@@ -87,29 +40,14 @@ struct GallerySettingsPage: View {
                 }
             } header: {
                 Text("本地图片缓存上限（MB）")
-            } footer: {
-                Text("低清图、高清图和动图共用此额度。输入 0 表示无限；缓存仍可能在设备空间不足时被系统清理。")
             }
 
-            Section("社区治理") {
-                Text(settings.hasAcceptedCurrentCommunityRules ? "当前设备已同意最新社区规则。" : "当前设备尚未同意社区规则，首次进入话廊时会弹出提示。")
-                    .foregroundStyle(.secondary)
-                Text("联系邮箱：\(CommunitySupport.email)")
-                    .textSelection(.enabled)
-
-                if settings.hasAcceptedCurrentCommunityRules {
-                    Button("撤销同意社区规则", role: .destructive) {
-                        settings.revokeCommunityRulesAcceptance()
-                    }
-                }
-            }
         }
+        .appGroupedListStyle()
         .task {
             imageCacheLimitMB = GalleryImageCachePreferences.limitMB
             await refreshImageCacheUsage()
-            await loadHiddenUsers()
         }
-        .diagnosticAlert(item: $alert)
     }
 
     /// 在后台统计话廊图片缓存，并以系统文件大小格式回写设置页。
@@ -122,25 +60,6 @@ struct GallerySettingsPage: View {
         imageCacheUsageText = formatter.string(fromByteCount: bytes)
     }
 
-    /// 批量加载已隐藏用户的公开资料，供列表展示昵称和头像。
-    private func loadHiddenUsers() async {
-        isLoadingUsers = true
-        defer { isLoadingUsers = false }
-        do {
-            hiddenUsers = try await withThrowingTaskGroup(of: MineUserInfo.self) { group in
-                for uid in settings.galleryHiddenUserIDs where uid != -1 {
-                    group.addTask { try await service.fetchUserInfo(id: uid) }
-                }
-                var result: [MineUserInfo] = []
-                for try await item in group {
-                    result.append(item)
-                }
-                return result.sorted { $0.user.id < $1.user.id }
-            }
-        } catch {
-            alert = AppAlert(title: "加载失败", message: error.localizedDescription)
-        }
-    }
 }
 
 /// 关于页。
@@ -220,6 +139,7 @@ struct AboutSettingsPage: View {
                 .disabled(isResettingLocalData || isClearingCaches)
             }
         }
+        .appGroupedListStyle()
         .diagnosticAlert(item: $alert)
         .alert("删除所有文稿与数据", isPresented: $isShowingResetConfirmation) {
             Button("取消", role: .cancel) {}

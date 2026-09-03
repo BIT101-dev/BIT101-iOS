@@ -60,14 +60,14 @@ struct CalendarSettingsPage: View {
                 get: { viewModel.cache.iCloudSyncEnabled },
                 set: { viewModel.setICloudSyncEnabled($0) }
             ))
+            .appSelectionFeedback(trigger: viewModel.cache.iCloudSyncEnabled)
             Toggle("同步设置与使用偏好（实验性）", isOn: Binding(
                 get: { preferenceCloudSync.isEnabled },
                 set: { preferenceCloudSync.setEnabled($0) }
             ))
+            .appSelectionFeedback(trigger: preferenceCloudSync.isEnabled)
         } header: {
             Text("iCloud 同步")
-        } footer: {
-            Text("默认关闭。开启后同步界面设置、成绩与筛选偏好、话廊消息已读状态；不同步账号密码和登录状态。")
         }
     }
 
@@ -118,6 +118,7 @@ struct CalendarSettingsPage: View {
                 .onChange(of: autoRefreshIntervalDays) { _, days in
                     ScheduleAutoRefreshPreferences.intervalDays = days
                 }
+                .appSelectionFeedback(trigger: autoRefreshIntervalDays)
 
                 Button("时间表") {
                     timeTableText = viewModel.cache.timeTable.map { "\($0.start), \($0.end)" }.joined(separator: "\n")
@@ -180,13 +181,21 @@ struct CalendarSettingsPage: View {
                     Text("课程显示方式")
                         .foregroundStyle(.tint)
                 }
+                .appSelectionFeedback(trigger: viewModel.cache.scheduleDisplayMode)
                 Toggle("显示周六", isOn: Binding(get: { viewModel.cache.showSaturday }, set: viewModel.setShowSaturday))
+                    .appSelectionFeedback(trigger: viewModel.cache.showSaturday)
                 Toggle("显示周日", isOn: Binding(get: { viewModel.cache.showSunday }, set: viewModel.setShowSunday))
+                    .appSelectionFeedback(trigger: viewModel.cache.showSunday)
                 Toggle("显示课程卡片边框", isOn: Binding(get: { viewModel.cache.showBorder }, set: viewModel.setShowBorder))
+                    .appSelectionFeedback(trigger: viewModel.cache.showBorder)
                 Toggle("高亮今日", isOn: Binding(get: { viewModel.cache.showHighlightToday }, set: viewModel.setShowHighlightToday))
+                    .appSelectionFeedback(trigger: viewModel.cache.showHighlightToday)
                 Toggle("显示节次分割线", isOn: Binding(get: { viewModel.cache.showDivider }, set: viewModel.setShowDivider))
+                    .appSelectionFeedback(trigger: viewModel.cache.showDivider)
                 Toggle("显示当前时间线", isOn: Binding(get: { viewModel.cache.showCurrentTime }, set: viewModel.setShowCurrentTime))
+                    .appSelectionFeedback(trigger: viewModel.cache.showCurrentTime)
                 Toggle("显示考试安排", isOn: Binding(get: { viewModel.cache.showExamInfo }, set: viewModel.setShowExamInfo))
+                    .appSelectionFeedback(trigger: viewModel.cache.showExamInfo)
                 Toggle("显示灵动岛提醒（实验性）", isOn: Binding(
                     get: { viewModel.cache.showCourseLiveActivityReminder },
                     set: { enabled in
@@ -197,6 +206,7 @@ struct CalendarSettingsPage: View {
                         }
                     }
                 ))
+                .appSelectionFeedback(trigger: viewModel.cache.showCourseLiveActivityReminder)
                 Button {
                     guard viewModel.cache.showCourseLiveActivityReminder else { return }
                     isShowingLiveActivityLeadMinutesPicker = true
@@ -228,6 +238,7 @@ struct CalendarSettingsPage: View {
                 }
             }
         }
+        .appGroupedListStyle()
         .task {
             await viewModel.loadIfNeeded()
             if viewModel.cache.courseLiveActivityLeadMinutes != normalizedLeadMinutes {
@@ -397,6 +408,7 @@ struct CalendarSettingsPage: View {
 /// 学期选择先独立落盘；课表、考试和首周的同步失败只提示错误，不回滚学期选择。
 private struct ScheduleTermPickerPage: View {
     @ObservedObject var viewModel: ScheduleViewModel
+    @State private var selectionFeedbackToken = 0
 
     private var displayedTerms: [String] {
         viewModel.availableTerms
@@ -414,6 +426,7 @@ private struct ScheduleTermPickerPage: View {
                 } else {
                     ForEach(displayedTerms, id: \.self) { term in
                         Button {
+                            selectionFeedbackToken &+= 1
                             Task { await viewModel.syncCourses(term: term) }
                         } label: {
                             HStack {
@@ -435,6 +448,8 @@ private struct ScheduleTermPickerPage: View {
             }
 
         }
+        .appGroupedListStyle()
+        .appSelectionFeedback(trigger: selectionFeedbackToken)
         .navigationTitle("切换学期")
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -539,7 +554,7 @@ struct ScheduleExportCodeSheet: View {
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(14)
-                        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+                        .background(AppDesignSystem.Palette.secondaryGroupedBackground, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.sheet))
                 }
 
                 Button {
@@ -601,7 +616,7 @@ struct ScheduleImportCodeSheet: View {
                     .font(.footnote.monospaced())
                     .frame(minHeight: 220)
                     .padding(10)
-                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+                    .background(AppDesignSystem.Palette.secondaryGroupedBackground, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.sheet))
 
                 HStack(spacing: 12) {
                     Button {

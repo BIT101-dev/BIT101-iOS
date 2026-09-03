@@ -82,7 +82,7 @@ final class ScheduleLiveActivityManager {
         }
 
         logger.debug("resolved occurrences count=\(occurrences.count, privacy: .public) leadMinutes=\(leadMinutes, privacy: .public)")
-        
+
         // 只在“进入提醒窗口但尚未开始”的课前阶段选择一条提醒对象。
         let now = Date()
         let currentOccurrence = occurrences.first { occ in
@@ -187,7 +187,7 @@ final class ScheduleLiveActivityManager {
             timeRangeText: Self.timeRangeText(start: occ.startDate, end: occ.endDate),
             countdownTargetDate: occ.startDate
         )
-        
+
         let content = ActivityContent(state: newState, staleDate: occ.startDate)
         let attributes = CourseReminderActivityAttributes(studentID: studentID)
 
@@ -202,7 +202,7 @@ final class ScheduleLiveActivityManager {
                 await requestActivity(attributes: attributes, content: content, reason: "student_changed")
                 return
             }
-            
+
             // 情况 B：内容已经是一样的了，不要去捅系统，防止 UI 闪烁
             if activity.content.state == newState {
                 logger.debug("skipping update because content state is unchanged")
@@ -225,7 +225,7 @@ final class ScheduleLiveActivityManager {
     /// - 某条课/日程正式开始，提醒应当消失
     private func scheduleNextRefresh(for occurrences: [CourseReminderOccurrence], leadMinutes: Int) {
         scheduledRefreshTask?.cancel()
-        
+
         let now = Date()
         let refreshPoints = futureRefreshPoints(for: occurrences, leadMinutes: leadMinutes, now: now)
 
@@ -337,7 +337,7 @@ final class ScheduleLiveActivityManager {
     private func resolveOccurrences(from cache: ScheduleCache) -> [CourseReminderOccurrence] {
         let now = Date()
         let slotMap = Dictionary(uniqueKeysWithValues: cache.timeTable.map { ($0.id, $0) })
-        
+
         var results: [CourseReminderOccurrence] = []
 
         // 处理常规课程
@@ -349,7 +349,7 @@ final class ScheduleLiveActivityManager {
                           let start = ScheduleSharedDateCodec.combine(firstDay: firstDay, week: week, weekday: course.weekday, time: startSlot.start),
                           let end = ScheduleSharedDateCodec.combine(firstDay: firstDay, week: week, weekday: course.weekday, time: endSlot.end),
                           end > now else { continue }
-                    
+
                     results.append(CourseReminderOccurrence(
                         kindText: "上课",
                         title: ScheduleDisplayNormalizer.normalizeCourseTitle(course.name),
@@ -368,7 +368,7 @@ final class ScheduleLiveActivityManager {
                   let start = ScheduleSharedDateCodec.combine(date: date, time: schedule.beginTime),
                   let end = ScheduleSharedDateCodec.combine(date: date, time: schedule.endTime),
                   end > now else { continue }
-            
+
             results.append(CourseReminderOccurrence(
                 kindText: "日程",
                 title: schedule.title,

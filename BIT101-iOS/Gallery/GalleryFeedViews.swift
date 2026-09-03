@@ -15,11 +15,8 @@ struct GalleryFeedView: View {
     let onRefresh: () -> Void
     let onPrefetch: (GalleryPoster?) -> Void
     let onLoadMore: (GalleryPoster?) -> Void
-    @ObservedObject private var settings = AppSettingsStore.shared
-    private let reportService = CommunityReportService()
     @State private var selectedPoster: GalleryPoster?
     @State private var imageViewer: GalleryImageViewerState?
-    @State private var reportContext: GalleryReportContext?
     @State private var deletedPosterIDs: Set<Int> = []
     @State private var currentTopPosterID: Int?
     @State private var pendingRestorePosterID: Int?
@@ -55,15 +52,12 @@ struct GalleryFeedView: View {
                                     onOpenImage: { index, images in
                                         imageViewer = GalleryImageViewerState(images: images, initialIndex: index)
                                     },
-                                    onReport: { action in
-                                        reportContext = GalleryReportContext(poster: poster, action: action)
-                                    },
                                     onDelete: nil
                                 )
 
                                 if index != visiblePosters.count - 1 {
                                     Divider()
-                                        .padding(.leading, 14)
+                                        .padding(.leading, AppDesignSystem.Feed.dividerLeading)
                                 }
                             }
                             .id(poster.id)
@@ -93,7 +87,7 @@ struct GalleryFeedView: View {
             // 系统滚动定位只在顶部目标发生变化时更新一次，不再让每张卡片通过
             // GeometryReader 在每个滚动帧上报坐标字典。
             .scrollPosition(id: $currentTopPosterID, anchor: .top)
-            .background(Color(.systemGroupedBackground))
+            .background(AppDesignSystem.Palette.groupedBackground)
             .id(feedIdentity)
             .refreshable {
                 pendingRestorePosterID = currentTopPosterID ?? visiblePosters.first?.id
@@ -102,11 +96,10 @@ struct GalleryFeedView: View {
             .onChange(of: visiblePosterIDs) { _, newIDs in
                 restoreScrollPositionIfNeeded(with: proxy, availableIDs: newIDs)
             }
-            .background(Color(.systemGroupedBackground))
+            .background(AppDesignSystem.Palette.groupedBackground)
             .navigationDestination(item: $selectedPoster) { poster in
                 GalleryPosterDetailView(
                     poster: poster,
-                    onReport: { _ in },
                     onDeleted: {
                         deletedPosterIDs.insert(poster.id)
                         onRefresh()
@@ -114,11 +107,6 @@ struct GalleryFeedView: View {
                 )
             }
             .gallerySystemImagePreview(item: $imageViewer)
-            .sheet(item: $reportContext) { context in
-                CommunityReportSheet(context: context) { type, note in
-                    applyReport(context, type: type, note: note)
-                }
-            }
         }
     }
 
@@ -198,10 +186,6 @@ struct GalleryFeedView: View {
         }
     }
 
-    /// 应用“举报并隐藏 / 举报并屏蔽用户”的本地治理动作，再异步上报。
-    private func applyReport(_ context: GalleryReportContext, type: CommunityReportType, note: String) {
-        applyGalleryModerationAction(context, type: type, note: note, settings: settings, reportService: reportService)
-    }
 }
 
 /// 单个帖子卡片。
@@ -211,14 +195,13 @@ struct GalleryPosterCard: View {
     let poster: GalleryPoster
     let onOpenPoster: () -> Void
     let onOpenImage: (Int, [GalleryImage]) -> Void
-    let onReport: ((CommunityReportAction) -> Void)?
     let onDelete: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(poster.title)
                 .font(.headline)
-                .foregroundStyle(.orange)
+                .foregroundStyle(AppDesignSystem.Palette.highlight)
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -253,9 +236,8 @@ struct GalleryPosterCard: View {
 
                 Spacer()
 
-                if onReport != nil || onDelete != nil {
+                if onDelete != nil {
                     GalleryPosterActionMenu(
-                        onSelectAction: onReport,
                         onDelete: onDelete
                     )
                     // 右上角菜单需要吞掉点击，避免父卡片的 onTapGesture 同时触发进详情。
@@ -297,22 +279,19 @@ struct GalleryPosterCard: View {
                                 .font(.caption.weight(.medium))
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 5)
-                                .background(Color.orange.opacity(0.12), in: Capsule())
-                                .foregroundStyle(.orange)
+                                .background(AppDesignSystem.Palette.highlight.opacity(0.12), in: Capsule())
+                                .foregroundStyle(AppDesignSystem.Palette.highlight)
                         }
                     }
                 }
             }
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.systemBackground))
-        .contentShape(Rectangle())
+        .appFeedCardStyle()
         .onTapGesture(perform: onOpenPoster)
     }
 
     private var identityColor: Color {
-        Color(hex: poster.user.identity.color) ?? .orange
+        Color(hex: poster.user.identity.color) ?? AppDesignSystem.Palette.highlight
     }
 
     /// 把后端时间文本转成相对时间文案。
@@ -334,9 +313,9 @@ struct GalleryAvatarView: View {
                 .scaledToFill()
         } placeholder: {
             ZStack {
-                Circle().fill(Color.orange.opacity(0.15))
+                Circle().fill(AppDesignSystem.Palette.highlight.opacity(0.15))
                 Image(systemName: "person.fill")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(AppDesignSystem.Palette.highlight)
                     .font(.caption.weight(.bold))
             }
         }
@@ -382,7 +361,7 @@ struct GalleryPosterImagesView: View {
                         // 必须在最终格子尺寸确定后裁切。若先裁切再设宽度，图片内容仍会
                         // 按自身理想尺寸绘制到相邻格子，表现为多图互相覆盖。
                         .clipped()
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card, style: .continuous))
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
@@ -517,5 +496,5 @@ struct GalleryPosterThumbnail: View {
 /// 详情页是一个相对完整的“二级页面壳层”：
 /// - 顶部帖子正文和互动按钮
 /// - 评论列表与排序
-/// - 举报、删帖、看图、评论输入
+/// - 删帖、看图、评论输入
 /// - 点击作者或评论作者跳到用户主页

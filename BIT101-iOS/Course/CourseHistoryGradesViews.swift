@@ -58,6 +58,7 @@ struct CourseHistoryGradesSheet: View {
 
                             Section {
                                 Toggle("智能屏蔽补考学期", isOn: $hidesMakeupOutliers)
+                                    .appSelectionFeedback(trigger: hidesMakeupOutliers)
                             }
 
                             Section {
@@ -66,6 +67,7 @@ struct CourseHistoryGradesSheet: View {
                                 }
                             }
                         }
+                        .appGroupedListStyle()
                     }
                 }
             }
@@ -104,6 +106,18 @@ private struct CourseHistoryGradesChart: View {
             return chartGrades.last
         }
         return chartGrades.first { $0.term == selectedTerm } ?? chartGrades.last
+    }
+
+    /// 松手时 Charts 会把选择值写回 nil；忽略这次清空，保留用户最后停留的学期。
+    private var chartSelection: Binding<String?> {
+        Binding(
+            get: { selectedTerm },
+            set: { newValue in
+                if let newValue {
+                    selectedTerm = newValue
+                }
+            }
+        )
     }
 
     private var chartPoints: [CourseHistoryGradeChartPoint] {
@@ -180,7 +194,7 @@ private struct CourseHistoryGradesChart: View {
 
                 if let selectedGrade {
                     RuleMark(x: .value("选中学期", selectedGrade.term))
-                        .foregroundStyle(Color.red.opacity(0.9))
+                        .foregroundStyle(AppDesignSystem.Palette.danger.opacity(0.9))
                         .lineStyle(StrokeStyle(lineWidth: 2, dash: [5, 4]))
                 }
             }
@@ -196,7 +210,7 @@ private struct CourseHistoryGradesChart: View {
                 }
             }
             .chartLegend(position: .bottom, alignment: .leading)
-            .chartXSelection(value: $selectedTerm)
+            .chartXSelection(value: chartSelection)
             .frame(height: 240)
 
             if let selectedGrade {
@@ -326,9 +340,9 @@ private struct CourseHistoryGradeRow: View {
                 .font(.headline)
 
             HStack(spacing: 10) {
-                CourseHistoryMetric(title: "平均分", value: scoreText(grade.avgScore), tint: .orange)
-                CourseHistoryMetric(title: "最高分", value: scoreText(grade.maxScore), tint: .pink)
-                CourseHistoryMetric(title: "学习人数", value: studentText(grade.studentNum), tint: .blue)
+                CourseHistoryMetric(title: "平均分", value: scoreText(grade.avgScore), tint: AppDesignSystem.Palette.highlight)
+                CourseHistoryMetric(title: "最高分", value: scoreText(grade.maxScore), tint: AppDesignSystem.Palette.scoreMetric)
+                CourseHistoryMetric(title: "学习人数", value: studentText(grade.studentNum), tint: AppDesignSystem.Palette.info)
             }
         }
         .padding(.vertical, 4)
@@ -364,7 +378,7 @@ private struct CourseHistoryMetric: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
-        .background(tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(tint.opacity(0.10), in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.badge, style: .continuous))
     }
 }
 

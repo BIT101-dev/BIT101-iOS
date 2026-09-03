@@ -509,6 +509,7 @@ private struct ErrorReportSheet: View {
                     }
                     .pickerStyle(.inline)
                     .labelsHidden()
+                    .appSelectionFeedback(trigger: viewModel.mode)
                     modeExplanation
                 } header: {
                     Text("选择提交内容")

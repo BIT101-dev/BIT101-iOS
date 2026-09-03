@@ -82,19 +82,19 @@ enum AppTab: String, Identifiable, Codable {
     var tintColor: Color {
         switch self {
         case .schedule:
-            return .indigo
+            return AppDesignSystem.Palette.scheduleTab
         case .course:
-            return .teal
+            return AppDesignSystem.Palette.courseTab
         case .map:
-            return .green
+            return AppDesignSystem.Palette.mapTab
         case .score:
-            return .pink
+            return AppDesignSystem.Palette.scoreTab
         case .gallery:
-            return .orange
+            return AppDesignSystem.Palette.highlight
         case .paper:
-            return .brown
+            return AppDesignSystem.Palette.paperTab
         case .mine:
-            return .blue
+            return AppDesignSystem.Palette.info
         }
     }
 }
@@ -122,7 +122,6 @@ struct AppShellView: View {
     @ObservedObject private var schoolDataRefresh = SchoolDataRefreshCoordinator.shared
     @ObservedObject private var promptCoordinator = AppPromptCoordinator.shared
     @State private var selectedTab: AppTab = .schedule
-    @State private var isShowingGalleryEULA = false
     @State private var requestedScheduleSection: ScheduleSection?
     @State private var requestedPaperID: Int?
     @State private var requestedPosterID: Int?
@@ -135,9 +134,8 @@ struct AppShellView: View {
     ///
     /// 这里同时承担：
     /// 1. 底部 tab 容器
-    /// 2. 话廊 EULA 拦截
-    /// 3. 版本更新内容与一次性使用提示
-    /// 4. 小组件/深链路由分发
+    /// 2. 版本更新内容与一次性使用提示
+    /// 3. 小组件/深链路由分发
     var body: some View {
         TabView(selection: tabSelection) {
             ForEach(settings.visibleTabs) { tab in
@@ -185,19 +183,7 @@ struct AppShellView: View {
             }
         }
         .tint(selectedTab.tintColor)
-        .sheet(isPresented: $isShowingGalleryEULA) {
-            GalleryCommunityRulesSheet(
-                contactEmail: CommunitySupport.email,
-                onAccept: {
-                    settings.acceptCurrentCommunityRules()
-                    selectedTab = .gallery
-                    isShowingGalleryEULA = false
-                },
-                onDecline: {
-                    isShowingGalleryEULA = false
-                }
-            )
-        }
+        .appSelectionFeedback(trigger: selectedTab.rawValue)
         .onAppear {
             if !didInitializeSelectedTab {
                 didInitializeSelectedTab = true
@@ -242,7 +228,6 @@ struct AppShellView: View {
         }
     }
 
-    /// 统一拦截 tab 切换，把话题 EULA 的弹出逻辑收束到这里。
     private var tabSelection: Binding<AppTab> {
         Binding(
             get: { selectedTab },
@@ -252,12 +237,7 @@ struct AppShellView: View {
         )
     }
 
-    /// 切换底部 tab，必要时先要求用户同意社区规则。
     private func selectTab(_ tab: AppTab) {
-        if tab == .gallery, !settings.hasAcceptedCurrentCommunityRules {
-            isShowingGalleryEULA = true
-            return
-        }
         selectedTab = tab
     }
 
@@ -366,50 +346,5 @@ struct AppShellView: View {
                 }
             ]
         ))
-    }
-}
-
-/// 首次进入话题前展示的社区规则弹层。
-private struct GalleryCommunityRulesSheet: View {
-    let contactEmail: String
-    let onAccept: () -> Void
-    let onDecline: () -> Void
-
-    /// 首次进入话题前的社区规则确认页。
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("在继续进入话廊前，请确认你已阅读并同意社区规则。")
-                        .font(.headline)
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("1. 禁止发布政治敏感、色情低俗、辱骂骚扰、隐私泄露、谣言和广告刷屏内容。")
-                        Text("2. 话廊内容会在本地进行敏感词过滤，以通过 Apple 审查；命中的帖子会被直接隐藏，因此显示的帖子数量可能会比网页端少。")
-                        Text("3. 你可以在帖子菜单中举报并隐藏帖子，或举报并屏蔽用户。")
-                        Text("4. 举报信息会异步提交给开发者进行处理。")
-                        Text("5. 如需联系开发者，请使用邮箱：\(contactEmail)")
-                    }
-                    .font(.body)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    Text("继续使用话廊功能即表示你同意遵守以上规则。")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(20)
-            }
-            .navigationTitle("社区规则")
-            .navigationBarTitleDisplayMode(.inline)
-            .interactiveDismissDisabled()
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("暂不进入", action: onDecline)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("同意并继续", action: onAccept)
-                }
-            }
-        }
     }
 }

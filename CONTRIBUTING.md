@@ -29,6 +29,9 @@ SKIP_STALE_DOCS_CHECK=1 git commit ...
 3. 仅在已连接真机上运行受影响的单元测试。
 4. 按 `docs/MODULE_PLAYBOOK.md` 人工验证受影响页面。
 5. 缓存、状态或模块边界变化时同步更新文档。
+6. UI 改动按需运行 `Scripts/check-ui-consistency.sh`，确认没有绕过公共设计系统。
+7. 需要全盘源码风格审查时运行 `Scripts/check-code-quality.sh`；它会固定覆盖报告，不按时间或序号创建文件。
+8. 不新增旧版已移除的社区操作或主 App 标准输出；新增的列表、卡片、详情和悬浮操作必须接入公共组件。
 
 ## 发布前网络冒烟测试
 

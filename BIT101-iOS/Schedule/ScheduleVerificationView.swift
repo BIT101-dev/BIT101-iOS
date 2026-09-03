@@ -37,7 +37,7 @@ struct ScheduleSMSVerificationSheet: View {
                 if let errorMessage, !errorMessage.isEmpty {
                     Section {
                         Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.red)
+                            .foregroundStyle(AppDesignSystem.Palette.danger)
                     }
                 }
 

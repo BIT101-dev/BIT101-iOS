@@ -9,7 +9,6 @@ import SwiftUI
 
 struct GallerySearchView: View {
     @ObservedObject var viewModel: GalleryViewModel
-    @ObservedObject private var settings = AppSettingsStore.shared
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -65,7 +64,7 @@ struct GallerySearchView: View {
 
     private var filteredSearchState: GalleryFeedState {
         var state = viewModel.searchState
-        state.posters = CommunityModeration.filterVisiblePosters(state.posters, snapshot: settings.snapshot)
+        state.posters = CommunityModeration.filterVisiblePosters(state.posters)
         return state
     }
 }
@@ -96,6 +95,7 @@ private struct GallerySearchBar: View {
                 Label(query.order.title, systemImage: "arrow.up.arrow.down.circle")
             }
             .pickerStyle(.menu)
+            .appSelectionFeedback(trigger: query.order)
 
             TextField("在这里搜索哦", text: $query.text)
                 .textInputAutocapitalization(.never)
@@ -109,13 +109,13 @@ private struct GallerySearchBar: View {
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.title3)
-                    .foregroundStyle(query.text.isEmpty ? Color.secondary.opacity(0.35) : Color.orange)
+                    .foregroundStyle(query.text.isEmpty ? Color.secondary.opacity(0.35) : AppDesignSystem.Palette.highlight)
             }
             .buttonStyle(.plain)
             .disabled(query.text.isEmpty)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(AppDesignSystem.Palette.secondaryBackground, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped, style: .continuous))
     }
 }

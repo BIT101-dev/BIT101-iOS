@@ -13,24 +13,18 @@ struct GalleryPosterDetailView: View {
         var id: Int { userID }
     }
 
-    @ObservedObject private var settings = AppSettingsStore.shared
-    private let reportService = CommunityReportService()
     @StateObject private var viewModel: GalleryPosterDetailViewModel
     @State private var imageViewer: GalleryImageViewerState?
-    @State private var reportContext: GalleryReportContext?
     @State private var composerTarget: GalleryCommentComposerTarget?
     @State private var userRoute: UserRoute?
     @State private var isShowingDeleteConfirmation = false
-    let onReport: ((CommunityReportAction) -> Void)?
     let onDeleted: (() -> Void)?
 
     init(
         poster: GalleryPoster,
-        onReport: ((CommunityReportAction) -> Void)? = nil,
         onDeleted: (() -> Void)? = nil
     ) {
         _viewModel = StateObject(wrappedValue: GalleryPosterDetailViewModel(initialPoster: poster))
-        self.onReport = onReport
         self.onDeleted = onDeleted
     }
 
@@ -62,18 +56,15 @@ struct GalleryPosterDetailView: View {
                         Spacer()
 
                         HStack(spacing: 10) {
-                            Button {
+                            AppDetailCircleButton {
                                 composerTarget = .poster(posterID: viewModel.poster.id)
                             } label: {
                                 Image(systemName: "bubble.right")
                                     .font(.headline)
                                     .foregroundStyle(.primary)
-                                    .frame(width: 34, height: 34)
-                                    .background(Color.orange.opacity(0.12), in: Circle())
                             }
-                            .buttonStyle(.plain)
 
-                            Button {
+                            AppDetailCircleButton {
                                 Task {
                                     await viewModel.likePoster()
                                 }
@@ -87,11 +78,8 @@ struct GalleryPosterDetailView: View {
                                             .font(.headline)
                                     }
                                 }
-                                .foregroundStyle(viewModel.poster.like ? Color.orange : Color.primary)
-                                .frame(width: 34, height: 34)
-                                .background(Color.orange.opacity(0.12), in: Circle())
+                                .foregroundStyle(viewModel.poster.like ? AppDesignSystem.Palette.highlight : Color.primary)
                             }
-                            .buttonStyle(.plain)
                             .disabled(viewModel.isLikingPoster)
                         }
                     }
@@ -103,7 +91,7 @@ struct GalleryPosterDetailView: View {
                         Text(viewModel.poster.claim.text)
                     }
                     .font(.footnote.weight(.medium))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(AppDesignSystem.Palette.highlight)
                 }
 
                 Text(galleryLinkifiedText(viewModel.poster.text))
@@ -136,8 +124,8 @@ struct GalleryPosterDetailView: View {
                                 .font(.caption.weight(.medium))
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
-                                .background(Color.orange.opacity(0.12), in: Capsule())
-                                .foregroundStyle(.orange)
+                                .background(AppDesignSystem.Palette.highlight.opacity(0.12), in: Capsule())
+                                .foregroundStyle(AppDesignSystem.Palette.highlight)
                         }
                     }
                 }
@@ -185,13 +173,13 @@ struct GalleryPosterDetailView: View {
                     }
                 )
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 18)
+            .padding(.horizontal, AppDesignSystem.Detail.contentPadding)
+            .padding(.top, AppDesignSystem.Detail.contentPadding)
         }
         .refreshable {
             await viewModel.refreshAll()
         }
-        .background(Color(.systemGroupedBackground))
+        .background(AppDesignSystem.Palette.groupedBackground)
         .navigationTitle("帖子详情")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $userRoute) { route in
@@ -199,22 +187,17 @@ struct GalleryPosterDetailView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                ShareLink(
+                AppDetailShareLink(
                     item: posterShareURL,
-                    subject: Text(viewModel.poster.title.isEmpty ? "BIT101 话题" : viewModel.poster.title)
-                ) {
-                    Image(systemName: "square.and.arrow.up")
-                }
-                .accessibilityLabel("分享话题")
+                    subject: viewModel.poster.title.isEmpty ? "BIT101 话题" : viewModel.poster.title,
+                    accessibilityLabel: "分享话题"
+                )
 
-                if onReport != nil || viewModel.poster.own {
+                if viewModel.poster.own {
                     GalleryPosterActionMenu(
-                        onSelectAction: onReport == nil ? nil : { action in
-                            reportContext = GalleryReportContext(poster: viewModel.poster.asPoster, action: action)
-                        },
-                        onDelete: viewModel.poster.own ? {
+                        onDelete: {
                             isShowingDeleteConfirmation = true
-                        } : nil
+                        }
                     )
                 }
             }
@@ -223,11 +206,6 @@ struct GalleryPosterDetailView: View {
             await viewModel.bootstrapIfNeeded()
         }
         .gallerySystemImagePreview(item: $imageViewer)
-        .sheet(item: $reportContext) { context in
-            CommunityReportSheet(context: context) { type, note in
-                applyReport(context, type: type, note: note)
-            }
-        }
         .sheet(item: $composerTarget) { target in
             GalleryCommentComposerSheet(
                 target: target,
@@ -291,7 +269,7 @@ struct GalleryPosterDetailView: View {
     }
 
     private var filteredComments: [GalleryComment] {
-        CommunityModeration.filterVisibleComments(viewModel.commentState.items, snapshot: settings.snapshot)
+        CommunityModeration.filterVisibleComments(viewModel.commentState.items)
     }
 
     /// 独立跳转域名使用稳定的 `/gallery/{id}` 路由；未安装 App 时由 Worker 转至网页。
@@ -299,10 +277,6 @@ struct GalleryPosterDetailView: View {
         URL(string: "https://open.aihelpme.dev/gallery/\(viewModel.poster.id)")!
     }
 
-    /// 在详情页里应用举报动作。
-    private func applyReport(_ context: GalleryReportContext, type: CommunityReportType, note: String) {
-        applyGalleryModerationAction(context, type: type, note: note, settings: settings, reportService: reportService)
-    }
 }
 
 /// 评论区主体。

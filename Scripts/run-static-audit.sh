@@ -30,10 +30,20 @@ swift_parse() {
 }
 
 shell_parse() { zsh -n "$ROOT_DIR"/Scripts/*.sh; }
-python_parse() { python3 -m py_compile "$ROOT_DIR"/Scripts/*.py; }
+python_parse() {
+  python3 - "$ROOT_DIR" <<'PY'
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1]) / "Scripts"
+for path in sorted(root.glob("*.py")):
+    compile(path.read_text(encoding="utf-8"), str(path), "exec")
+PY
+}
 worker_parse() {
-  node --check "$ROOT_DIR/Cloudflare/ErrorReportWorker/worker.js"
-  node --check "$ROOT_DIR/Cloudflare/EmergencyUpdateWorker/src/index.js"
+  find "$ROOT_DIR/Cloudflare" "$ROOT_DIR/web" \
+    -path '*/node_modules' -prune -o \
+    -type f -name '*.js' -exec node --check {} +
 }
 git_check() { git -C "$ROOT_DIR" diff --check; }
 docs_check() {
@@ -41,6 +51,11 @@ docs_check() {
   (cd "$ROOT_DIR" && Scripts/check-error-report-coverage.sh)
   (cd "$ROOT_DIR" && python3 Scripts/validate_versions.py)
 }
+ui_consistency() { "$ROOT_DIR/Scripts/check-ui-consistency.sh"; }
+haptic_consistency() { "$ROOT_DIR/Scripts/check-haptic-consistency.sh"; }
+component_consistency() { "$ROOT_DIR/Scripts/check-component-consistency.sh"; }
+explanatory_text_report() { "$ROOT_DIR/Scripts/report-explanatory-text.sh"; }
+code_quality() { "$ROOT_DIR/Scripts/check-code-quality.sh"; }
 
 run_group swift-parse swift_parse
 run_group shell-parse shell_parse
@@ -48,4 +63,9 @@ run_group python-parse python_parse
 run_group worker-parse worker_parse
 run_group git-diff git_check
 run_group docs docs_check
+run_group ui-consistency ui_consistency
+run_group haptic-consistency haptic_consistency
+run_group component-consistency component_consistency
+run_group code-quality code_quality
+run_group explanatory-text explanatory_text_report
 echo "静态审计全部通过。"

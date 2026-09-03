@@ -22,7 +22,7 @@ struct GalleryPosterCommentsSection: View {
     let onLoadMore: (GalleryComment?) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Comment.sectionSpacing) {
             HStack {
                 Text("评论")
                     .font(.headline)
@@ -38,6 +38,7 @@ struct GalleryPosterCommentsSection: View {
                         Text(order.title).tag(order)
                     }
                 }
+                .appSelectionFeedback(trigger: selectedOrder)
                 .pickerStyle(.menu)
             }
 
@@ -45,7 +46,7 @@ struct GalleryPosterCommentsSection: View {
             case .idle where comments.isEmpty, .loading where comments.isEmpty:
                 ProgressView("正在加载评论")
                     .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 20)
+                    .padding(.vertical, AppDesignSystem.Comment.progressVerticalPadding)
             case let .failed(message) where comments.isEmpty:
                 ContentUnavailableView {
                     Label("加载评论失败", systemImage: "bubble.right.fill")
@@ -60,7 +61,7 @@ struct GalleryPosterCommentsSection: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, 16)
+                        .padding(.vertical, AppDesignSystem.Comment.emptyVerticalPadding)
                 } else {
                     LazyVStack(spacing: 0) {
                         ForEach(Array(comments.enumerated()), id: \.element.id) { index, comment in
@@ -76,7 +77,7 @@ struct GalleryPosterCommentsSection: View {
 
                                 if index != comments.count - 1 {
                                     Divider()
-                                        .padding(.leading, 46)
+                                        .padding(.leading, AppDesignSystem.Comment.dividerLeading)
                                 }
                             }
                             .onAppear {
@@ -90,9 +91,10 @@ struct GalleryPosterCommentsSection: View {
                                 ProgressView()
                                 Spacer()
                             }
-                            .padding(.vertical, 12)
+                            .padding(.vertical, AppDesignSystem.Spacing.content)
                         }
                     }
+                    .appCommentSectionStyle()
                 }
             }
         }
@@ -159,17 +161,17 @@ private struct GalleryCommentRow: View {
 
                             if index != comment.sub.count - 1 {
                                 Divider()
-                                    .padding(.leading, 42)
+                                .padding(.leading, AppDesignSystem.Comment.subCommentIndent)
                             }
                         }
                     }
                 }
-                .padding(.leading, 42)
+                .padding(.leading, AppDesignSystem.Comment.subCommentIndent)
                 .padding(.top, 4)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, AppDesignSystem.Comment.rowHorizontalPadding)
+        .padding(.vertical, AppDesignSystem.Comment.rowVerticalPadding)
     }
 }
 
@@ -257,7 +259,7 @@ private struct GalleryCommentBubble: View {
                                 Image(systemName: comment.like ? "hand.thumbsup.fill" : "hand.thumbsup")
                             }
                         }
-                        .foregroundStyle(comment.like ? Color.orange : Color.secondary)
+                        .foregroundStyle(comment.like ? AppDesignSystem.Palette.highlight : Color.secondary)
                     }
                     .buttonStyle(.plain)
 
@@ -315,25 +317,24 @@ struct GalleryCommentComposerSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("内容") {
+                AppCommentComposerContentSection(anonymous: $anonymous) {
                     TextField(target.placeholder, text: $text, axis: .vertical)
                         .lineLimit(5, reservesSpace: true)
-
-                    Toggle("匿名评论", isOn: $anonymous)
                 }
             }
             .navigationTitle(target.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("取消") { dismiss() }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(isSubmitting ? "发送中" : "发送") {
+                AppComposerToolbar(
+                    isSubmitting: isSubmitting,
+                    submitTitle: "发送",
+                    onCancel: {
+                        dismiss()
+                    },
+                    onSubmit: {
                         onSubmit(text, anonymous)
                     }
-                    .disabled(isSubmitting)
-                }
+                )
             }
         }
     }
@@ -342,4 +343,4 @@ struct GalleryCommentComposerSheet: View {
 /// 搜索页。
 ///
 /// 搜索结果页直接复用 `GalleryFeedView`，只是在顶部额外挂一个搜索栏，
-/// 这样搜索结果的分页、详情、举报和看图逻辑都不需要重复实现。
+/// 这样搜索结果的分页、详情和看图逻辑都不需要重复实现。

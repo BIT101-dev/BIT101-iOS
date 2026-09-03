@@ -59,7 +59,8 @@ struct ScoreRootView: View {
             .padding(.horizontal, 12)
             .padding(.top, 8)
             .padding(.bottom, 6)
-            .background(Color(.systemGroupedBackground))
+            .background(AppDesignSystem.Palette.groupedBackground)
+            .appSelectionFeedback(trigger: selectedSurface.rawValue)
         }
         .toolbar(.hidden, for: .navigationBar)
         .task(id: requestedCourse?.id) {
@@ -118,7 +119,7 @@ private struct ScoreListPage: View {
             case .idle, .loading:
                 ProgressView("正在查询成绩")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color(.systemGroupedBackground))
+                    .background(AppDesignSystem.Palette.groupedBackground)
             case let .failed(message):
                 ContentUnavailableView {
                     Label("加载失败", systemImage: "exclamationmark.triangle")
@@ -131,7 +132,7 @@ private struct ScoreListPage: View {
                     DiagnosticRecoveryActions(title: "成绩加载失败", message: message)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(.systemGroupedBackground))
+                .background(AppDesignSystem.Palette.groupedBackground)
             case .loaded:
                 List {
                     Section {
@@ -249,8 +250,10 @@ private struct ScoreListPage: View {
                         }
                     }
                 }
-                .listStyle(.insetGrouped)
-                .background(Color(.systemGroupedBackground))
+                .appGroupedListStyle()
+                // 顶部切换栏已经占用安全区，成绩内容从切换栏下方直接开始。
+                .contentMargins(.top, 0, for: .scrollContent)
+                .background(AppDesignSystem.Palette.groupedBackground)
                 .refreshable {
                     await viewModel.refresh()
                 }
@@ -352,14 +355,14 @@ private struct TrustedTranscriptPage: View {
                         }
                         .padding()
                     }
-                    .background(Color(.secondarySystemBackground))
+                    .background(AppDesignSystem.Palette.secondaryBackground)
                 }
             }
         }
         .navigationTitle("可信成绩单")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
-        .background(Color(.systemGroupedBackground))
+        .background(AppDesignSystem.Palette.groupedBackground)
         .task {
             // 从成绩页点进来就立即申请，不再增加一次确认操作。
             await viewModel.apply()
@@ -430,7 +433,7 @@ private struct ScoreSMSVerificationSheet: View {
                 if let errorMessage, !errorMessage.isEmpty {
                     Section {
                         Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.red)
+                            .foregroundStyle(AppDesignSystem.Palette.danger)
                     }
                 }
 
@@ -681,7 +684,7 @@ private struct PendingScoreDetailView: View {
             .padding(.top, 18)
             .padding(.bottom, 24)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(AppDesignSystem.Palette.groupedBackground)
         .navigationTitle("成绩详情")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -719,7 +722,7 @@ private struct ScoreDetailView: View {
             .padding(.top, 18)
             .padding(.bottom, 24)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(AppDesignSystem.Palette.groupedBackground)
         .navigationTitle("成绩详情")
         .navigationBarTitleDisplayMode(.inline)
     }

@@ -214,7 +214,7 @@ final class ReleaseNetworkSmokeRunner {
         }
         _ = await probe("话廊推荐流", scope: scope) { try await gallery.fetchRecommendPage(sourcePage: 0) }
         _ = await probe("话廊机器人流", scope: scope) { try await gallery.fetchBotFeed(startPage: 0) }
-        _ = await probe("社区举报类型", scope: scope) { try await gallery.fetchClaims() }
+        _ = await probe("帖子声明列表", scope: scope) { try await gallery.fetchClaims() }
         _ = await probe("话廊搜索", scope: scope) {
             try await gallery.searchPosters(query: GallerySearchQuery(text: "BIT101"), page: 0)
         }

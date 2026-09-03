@@ -16,7 +16,6 @@ struct PaperRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var viewModel = PaperListViewModel()
     @StateObject private var networkObserver = PaperNetworkObserver()
-    @ObservedObject private var settings = AppSettingsStore.shared
     @State private var isShowingComposer = false
     @State private var isShowingSearch = false
     @State private var selectedPaper: PaperSummary?
@@ -34,7 +33,7 @@ struct PaperRootView: View {
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            Color(.systemGroupedBackground)
+            AppDesignSystem.Palette.groupedBackground
                 .ignoresSafeArea(edges: .bottom)
 
             ScrollView {
@@ -76,15 +75,12 @@ struct PaperRootView: View {
                                         previewMetadata: viewModel.previewMetadata(for: paper.id),
                                         onOpen: {
                                             selectedPaper = paper
-                                        },
-                                        onHide: {
-                                            settings.hidePaper(id: paper.id)
                                         }
                                     )
 
                                     if index != visiblePapers.count - 1 {
                                         Divider()
-                                            .padding(.leading, 14)
+                                            .padding(.leading, AppDesignSystem.Feed.dividerLeading)
                                     }
                                 }
                                 .task {
@@ -107,7 +103,7 @@ struct PaperRootView: View {
             }
             .simultaneousGesture(sortSwitchGesture)
 
-            VStack(spacing: 10) {
+            AppFloatingActionStack {
                 PaperFloatingActionButton(systemImage: "square.and.pencil", accessibilityLabel: "发布文章") {
                     isShowingComposer = true
                 }
@@ -116,8 +112,6 @@ struct PaperRootView: View {
                     isShowingSearch = true
                 }
             }
-            .padding(.trailing, 10)
-            .padding(.bottom, 20)
         }
         .safeAreaInset(edge: .top) {
             Picker("文章排序", selection: $viewModel.selectedOrder) {
@@ -129,7 +123,8 @@ struct PaperRootView: View {
             .padding(.horizontal, 12)
             .padding(.top, 8)
             .padding(.bottom, 6)
-            .background(Color(.systemGroupedBackground))
+            .background(AppDesignSystem.Palette.groupedBackground)
+            .appSelectionFeedback(trigger: viewModel.selectedOrder.id)
         }
         .navigationDestination(item: $selectedPaper) { paper in
             PaperDetailView(initialPaper: paper)
@@ -203,23 +198,9 @@ struct PaperRootView: View {
     }
 
     /// 当前真正应显示在文章首页的列表。
-    ///
-    /// 文章本地屏蔽优先级最高；如果作者预览信息已经补齐，则顺手复用画廊现有的“隐藏匿名/隐藏用户”规则。
-    private var visiblePapers: [PaperSummary] {
-        viewModel.state.items.filter { paper in
-            guard !settings.paperHiddenIDs.contains(paper.id) else { return false }
-            guard let metadata = viewModel.previewMetadata(for: paper.id) else { return true }
-            if metadata.anonymous, settings.galleryHiddenUserIDs.first == -1 {
-                return false
-            }
-            if let authorID = metadata.authorID, settings.galleryHiddenUserIDs.contains(authorID) {
-                return false
-            }
-            return true
-        }
-    }
+    private var visiblePapers: [PaperSummary] { viewModel.state.items }
 
-    /// 当尾部若干篇文章被本地隐藏后，分页触发应继续参考原始数据尾部，而不是只看过滤后的结果。
+    /// 分页触发继续参考原始数据尾部，避免过滤后的列表提前停止加载。
     private func paginationProbePaper(currentPaper: PaperSummary) -> PaperSummary {
         guard currentPaper.id == visiblePapers.last?.id else { return currentPaper }
         return viewModel.state.items.last ?? currentPaper

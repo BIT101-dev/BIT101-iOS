@@ -20,7 +20,7 @@ struct CourseCommentsSection: View {
     let onLoadMore: (GalleryComment?) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Comment.sectionSpacing) {
             HStack {
                 Text("评论")
                     .font(.headline)
@@ -36,7 +36,7 @@ struct CourseCommentsSection: View {
             case .idle where comments.isEmpty, .loading where comments.isEmpty:
                 ProgressView("正在加载评论")
                     .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 20)
+                    .padding(.vertical, AppDesignSystem.Comment.progressVerticalPadding)
 
             case let .failed(message) where comments.isEmpty:
                 ContentUnavailableView {
@@ -53,7 +53,7 @@ struct CourseCommentsSection: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, 16)
+                        .padding(.vertical, AppDesignSystem.Comment.emptyVerticalPadding)
                 } else {
                     LazyVStack(spacing: 0) {
                         ForEach(Array(comments.enumerated()), id: \.element.id) { index, comment in
@@ -69,7 +69,7 @@ struct CourseCommentsSection: View {
 
                                 if index != comments.count - 1 {
                                     Divider()
-                                        .padding(.leading, 46)
+                                        .padding(.leading, AppDesignSystem.Comment.dividerLeading)
                                 }
                             }
                             .onAppear {
@@ -83,9 +83,10 @@ struct CourseCommentsSection: View {
                                 ProgressView()
                                 Spacer()
                             }
-                            .padding(.vertical, 12)
+                            .padding(.vertical, AppDesignSystem.Spacing.content)
                         }
                     }
+                    .appCommentSectionStyle()
                 }
             }
         }
@@ -146,17 +147,17 @@ private struct CourseCommentRow: View {
 
                             if index != comment.sub.count - 1 {
                                 Divider()
-                                    .padding(.leading, 42)
+                                    .padding(.leading, AppDesignSystem.Comment.subCommentIndent)
                             }
                         }
                     }
                 }
-                .padding(.leading, 42)
+                .padding(.leading, AppDesignSystem.Comment.subCommentIndent)
                 .padding(.top, 4)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, AppDesignSystem.Comment.rowHorizontalPadding)
+        .padding(.vertical, AppDesignSystem.Comment.rowVerticalPadding)
     }
 }
 
@@ -216,7 +217,7 @@ private struct CourseCommentBubble: View {
                 if comment.rate > 0 {
                     Label(CourseRatingText.text(from: comment.rate), systemImage: "star.fill")
                         .font(.caption.weight(.medium))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(AppDesignSystem.Palette.highlight)
                 }
 
                 commentText
@@ -245,7 +246,7 @@ private struct CourseCommentBubble: View {
                                 Image(systemName: comment.like ? "hand.thumbsup.fill" : "hand.thumbsup")
                             }
                         }
-                        .foregroundStyle(comment.like ? Color.orange : Color.secondary)
+                        .foregroundStyle(comment.like ? AppDesignSystem.Palette.highlight : Color.secondary)
                     }
                     .buttonStyle(.plain)
 
@@ -299,9 +300,9 @@ private struct CourseCommentAvatarView: View {
                 .scaledToFill()
         } placeholder: {
             ZStack {
-                Circle().fill(Color.orange.opacity(0.15))
+                Circle().fill(AppDesignSystem.Palette.highlight.opacity(0.15))
                 Image(systemName: "person.fill")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(AppDesignSystem.Palette.highlight)
                     .font(.caption.weight(.bold))
             }
         }
@@ -366,11 +367,9 @@ struct CourseCommentComposerSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("内容") {
+                AppCommentComposerContentSection(anonymous: $anonymous) {
                     TextField(target.placeholder, text: $text, axis: .vertical)
                         .lineLimit(5, reservesSpace: true)
-
-                    Toggle("匿名评论", isOn: $anonymous)
                 }
 
                 if supportsCourseRating {
@@ -381,7 +380,7 @@ struct CourseCommentComposerSheet: View {
                                     ZStack {
                                         Image(systemName: starSymbol(for: value))
                                             .font(.title3)
-                                            .foregroundStyle(Color.orange)
+                                            .foregroundStyle(AppDesignSystem.Palette.highlight)
                                             .frame(width: 28, height: 28)
 
                                         HStack(spacing: 0) {
@@ -410,28 +409,27 @@ struct CourseCommentComposerSheet: View {
 
                                 Text(rating == 0 ? "不评分" : CourseRatingText.text(from: rating, empty: "不评分"))
                                     .font(.subheadline.weight(.medium))
-                                    .foregroundStyle(rating == 0 ? Color.secondary : Color.orange)
+                                    .foregroundStyle(rating == 0 ? Color.secondary : AppDesignSystem.Palette.highlight)
                             }
 
-                            Text("支持半星；点左半颗记 0.5 分，点右半颗记整颗星。提交带评分的课程评论后，当前账号不能重复评价。")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
                         }
                     }
                 }
             }
+            .appSelectionFeedback(trigger: rating)
             .navigationTitle(target.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("取消") { dismiss() }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(isSubmitting ? "发送中" : "发送") {
+                AppComposerToolbar(
+                    isSubmitting: isSubmitting,
+                    submitTitle: "发送",
+                    onCancel: {
+                        dismiss()
+                    },
+                    onSubmit: {
                         onSubmit(text, anonymous, rawRating)
                     }
-                    .disabled(isSubmitting)
-                }
+                )
             }
         }
     }

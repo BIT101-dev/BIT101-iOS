@@ -228,7 +228,7 @@ Scripts/run-extended-tests.sh
 报告直接通过当前 Wrangler 登录读取远端 KV，不需要额外管理网页。
 最后一个脚本会用当前 GitHub CLI 和 Wrangler 登录状态，一次拉取未关闭的仓库 Issues 与 Cloudflare KV 报告，保存到 `.build/issue-report-inbox` 并输出简要汇总。错误报告按 `本次/上次/上上次` 保留三批；输出本次详情，只输出上两批数量。本次没有新报告时显示最近一批详情。完整拉取成功后只清理本次已拉取的 Cloudflare 报告，失败时保留远端数据。完整报告仅保存在本机，不会写回仓库。
 
-`run-static-audit.sh` 只做静态检查，不连接学校接口，不运行网络 smoke，不执行 Archive。它按 Swift、Shell、Python、Worker、Git 和文档六组输出结果。
+`run-static-audit.sh` 只做静态检查，不连接学校接口，不运行网络 smoke，不执行 Archive。它按 Swift、Shell、Python、Worker、Git、文档、UI、触感、组件和源码质量规则输出结果；源码质量报告固定覆盖 `.build/code-quality-report.txt`。
 
 ## 扩展自动化测试
 

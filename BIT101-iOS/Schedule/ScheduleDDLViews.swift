@@ -21,7 +21,7 @@ struct DDLScheduleTabView: View {
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            Color(.systemGroupedBackground)
+            AppDesignSystem.Palette.groupedBackground
                 .ignoresSafeArea(edges: .bottom)
 
             Group {
@@ -70,11 +70,11 @@ struct DDLScheduleTabView: View {
                             }
                         }
                     }
-                    .listStyle(.insetGrouped)
+                    .appGroupedListStyle()
                 }
             }
 
-            VStack(spacing: 10) {
+            AppFloatingActionStack {
                 CourseScheduleFAB(systemImage: "plus", accessibilityLabel: "添加待办") {
                     editingEventID = nil
                     draft = DDLDraft()
@@ -85,8 +85,6 @@ struct DDLScheduleTabView: View {
                     settingsRoute = .ddl
                 }
             }
-            .padding(.trailing, 10)
-            .padding(.bottom, 20)
         }
         .sheet(item: $selectedEvent) { event in
             DDLEventDetailSheet(
@@ -132,13 +130,13 @@ struct DDLScheduleTabView: View {
     private func color(for event: DDLEventRecord) -> Color {
         switch viewModel.ddlTint(for: event) {
         case "red":
-            return .red
+            return AppDesignSystem.Palette.danger
         case "orange":
-            return .orange
+            return AppDesignSystem.Palette.highlight
         case "gray":
-            return .gray
+            return AppDesignSystem.Palette.neutral
         default:
-            return .green
+            return AppDesignSystem.Palette.success
         }
     }
 }
@@ -164,6 +162,7 @@ private struct DDLEventCard: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .appSelectionFeedback(trigger: event.done)
 
             VStack(alignment: .leading, spacing: 8) {
                 Text(event.title)
@@ -191,8 +190,8 @@ private struct DDLEventCard: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(AppDesignSystem.Palette.secondaryBackground, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped, style: .continuous))
+        .contentShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped, style: .continuous))
         .onTapGesture(perform: onOpenDetail)
     }
 
@@ -242,6 +241,7 @@ private struct DDLEventDetailSheet: View {
                     }
                 }
             }
+            .appGroupedListStyle()
             .navigationTitle("DDL 详情")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

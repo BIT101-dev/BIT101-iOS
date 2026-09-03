@@ -25,7 +25,9 @@
    如果你准备继续清理大文件、收重复逻辑或评估哪些 UI 是刻意桥接实现，先看这份。
 8. [`FILE_INDEX.md`](FILE_INDEX.md)
    如果你已经知道自己要改什么，只是不知道文件在哪，从这里查最快。
-9. [`TESTING.md`](TESTING.md)
+9. [`DESIGN_SYSTEM.md`](DESIGN_SYSTEM.md)
+   如果你要复用或调整 UI 样式，先看这里，避免重新定义颜色、间距和公共组件。
+10. [`TESTING.md`](TESTING.md)
    说明测试 Target、本地命令和 CI 门禁。
 
 ## 每份文档的定位
@@ -43,9 +45,11 @@
 - `MAINTENANCE_GUIDE.md`
   讲工程维护、构建、真机、账号隔离、小组件和排障建议。
 - `CODE_QUALITY_AUDIT.md`
-  讲当前代码清理的落点、仍保留的桥接/非原生实现，以及后续继续收口时该优先看哪里。
+  讲当前代码清理的落点、逐份源码审查、检查脚本覆盖范围，以及后续继续收口时该优先看哪里。
 - `FILE_INDEX.md`
   讲全部 Swift 源码文件及其职责。
+- `DESIGN_SYSTEM.md`
+  讲 UI 设计令牌、公共卡片组件、显式变体和自动检查入口。
 - `TESTING.md`
   讲如何编译和运行测试，以及 CI 覆盖范围。
 

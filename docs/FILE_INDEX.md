@@ -12,6 +12,7 @@
 ## 共享层
 
 - `BIT101-iOS/Shared/Infrastructure/`：提示模型、深链、更新检查、紧急更新、错误报告、键盘收起、分页、账号存储、手势、任务取消、偏好同步和网络 smoke。
+- `BIT101-iOS/Shared/DesignSystem/`：主 App 的颜色、间距、圆角、评论/建议输入组件和系统触感修饰器。
 - `BIT101-iOS/Shared/Networking/`：HTTP 传输、社区 API、登录 challenge 支持和安全 URL 传输。
 - `BIT101-iOS/Shared/ScheduleShared*.swift`：主 App、widget、Live Activity 共用的课表快照与 occurrence 规范。
 - `BIT101-iOS/WatchSync/WatchScheduleSyncManager.swift`：iPhone 与 Apple Watch 的课表镜像同步。
@@ -37,7 +38,10 @@
 目录：`BIT101-iOS/Schedule/`
 
 - `ScheduleRootView.swift`：日程页容器和页面路由。
-- `ScheduleCalendarViews.swift`：按周/全学期课表网格、课程详情、分享和交互。
+- `CourseScheduleTabView.swift`：课表分栏、周次切换、分享和编辑入口。
+- `ScheduleCalendarViews.swift`：按周/全学期课表网格与课程背景层。
+- `ScheduleEntryDetailView.swift`：课程、考试和自定义日程详情。
+- `ScheduleEditingSupport.swift`：课程编辑模式与调休/放假表单。
 - `ScheduleModels.swift`：课程、考试、DDL、空教室和缓存领域模型。
 - `ScheduleViewModel*.swift`：同步、学期、空教室、编辑、DDL 和偏好分支。
 - `ScheduleService*.swift`：教学中心、乐学、认证、传输及响应模型。
@@ -62,6 +66,10 @@
 - `BIT101-iOS/Mine/`：个人主页、他人主页、关注关系和帖子列表。
 - `BIT101-iOS/Settings/`：账号、外观、课表、DDL、话廊、关于和开发者建议页面。
 
+设计一致性检查：`Scripts/check-ui-consistency.sh`、`Scripts/check-haptic-consistency.sh`、`Scripts/check-component-consistency.sh`。
+逐份源码质量检查：`Scripts/check-code-quality.sh`，结果固定写入 `.build/code-quality-report.txt`。
+解释性文案候选报告：`Scripts/report-explanatory-text.sh`，结果固定写入 `.build/explanatory-text-report.txt`，只报告不自动删除。
+
 ## 扩展 target
 
 - `BIT101ScheduleWidget/`：桌面/锁屏 widget、Live Activity 和 Dynamic Island。
@@ -72,13 +80,13 @@
 
 ## 维护提示
 
-- 课表核心 UI 仍集中在 `ScheduleCalendarViews.swift` 与 `ScheduleRootView.swift`；拆分计划见 [CODE_QUALITY_AUDIT.md](CODE_QUALITY_AUDIT.md)。
+- 课表 UI 按容器、课表分栏、网格、详情和编辑职责拆分，避免单文件承载多个页面层级。
 - 新文件优先放入已有模块目录，不在根目录复制业务实现。
 - 网络请求统一经过对应 Service，不在 View 中直接创建请求。
 
 ## 生成完整文件清单
 
-文档不保存易过时的行号或逐文件职责表。需要完整清单时运行：
+文档不保存易过时的逐文件职责表。需要完整清单时运行：
 
 ```sh
 find BIT101-iOS BIT101ScheduleWidget BIT101Watch BIT101WatchWidgets \

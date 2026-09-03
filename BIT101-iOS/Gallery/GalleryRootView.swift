@@ -42,8 +42,6 @@ struct GalleryRootView: View {
     @StateObject private var messageViewModel = GalleryMessageViewModel()
     /// 监听网络从断开恢复为可用，帮助失败态自动重试。
     @StateObject private var networkObserver = GalleryNetworkObserver()
-    /// 全局话廊设置快照。
-    @ObservedObject private var settings = AppSettingsStore.shared
     @State private var isShowingComposer = false
     @State private var isShowingMessages = false
     @Binding private var requestedPaperID: Int?
@@ -87,7 +85,8 @@ struct GalleryRootView: View {
             .padding(.horizontal, 12)
             .padding(.top, 8)
             .padding(.bottom, 6)
-            .background(Color(.systemGroupedBackground))
+            .background(AppDesignSystem.Palette.groupedBackground)
+            .appSelectionFeedback(trigger: selectedSurface.rawValue)
         }
         .task(id: requestedPaperID) {
             guard requestedPaperID != nil else { return }
@@ -124,7 +123,7 @@ struct GalleryRootView: View {
 
     private var galleryContent: some View {
         ZStack(alignment: .bottomTrailing) {
-            Color(.systemGroupedBackground)
+            AppDesignSystem.Palette.groupedBackground
                 .ignoresSafeArea(edges: .bottom)
 
             GalleryFeedView(
@@ -149,7 +148,7 @@ struct GalleryRootView: View {
             )
             .simultaneousGesture(feedSwitchGesture)
 
-            VStack(spacing: 10) {
+            AppFloatingActionStack {
                 GalleryFloatingActionButton(
                     systemImage: "bell.badge",
                     badgeText: messageBadgeText,
@@ -166,8 +165,6 @@ struct GalleryRootView: View {
                     viewModel.isShowingSearch = true
                 }
             }
-            .padding(.trailing, 10)
-            .padding(.bottom, 20)
         }
         .safeAreaInset(edge: .top) {
             Picker("话廊分区", selection: $viewModel.selectedFeed) {
@@ -179,7 +176,8 @@ struct GalleryRootView: View {
             .padding(.horizontal, 12)
             .padding(.top, 8)
             .padding(.bottom, 6)
-            .background(Color(.systemGroupedBackground))
+            .background(AppDesignSystem.Palette.groupedBackground)
+            .appSelectionFeedback(trigger: viewModel.selectedFeed.rawValue)
         }
         .task {
             async let feedTask: Void = viewModel.bootstrapIfNeeded()
@@ -275,7 +273,7 @@ struct GalleryRootView: View {
 
     /// 过滤逻辑与 Android 一致：支持隐藏匿名用户，以及按 UID 黑名单过滤。
     private func filterPosters(_ posters: [GalleryPoster]) -> [GalleryPoster] {
-        CommunityModeration.filterVisiblePosters(posters, snapshot: settings.snapshot)
+        CommunityModeration.filterVisiblePosters(posters)
     }
 
     /// 网络恢复或应用回前台时，如果当前 feed 仍停在失败空态，则自动再试一次。
@@ -319,7 +317,7 @@ final class GalleryNetworkObserver: ObservableObject {
 
 /// 统一的右下角悬浮操作按钮。
 ///
-/// 主 feed、搜索、消息等入口都复用这一套胶囊按钮样式。
+/// 主 feed、搜索、消息等入口都复用这一套圆形按钮样式。
 private struct GalleryFloatingActionButton: View {
     let systemImage: String
     let badgeText: String?
@@ -339,28 +337,12 @@ private struct GalleryFloatingActionButton: View {
     }
 
     var body: some View {
-        Button(action: action) {
-            ZStack(alignment: .topTrailing) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .frame(width: 42, height: 42)
-                    .background(.ultraThinMaterial, in: Circle())
-
-                if let badgeText {
-                    Text(badgeText)
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, badgeText.count > 2 ? 5 : 4)
-                        .frame(minWidth: 18, minHeight: 18)
-                        .background(Color.red, in: Capsule())
-                        .offset(x: 5, y: -5)
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityValue(badgeText.map { "\($0) 条未读" } ?? "")
+        AppFloatingActionButton(
+            systemImage: systemImage,
+            badgeText: badgeText,
+            accessibilityLabel: accessibilityLabel,
+            action: action
+        )
     }
 }
 
@@ -371,6 +353,6 @@ private struct GalleryFloatingActionButton: View {
 /// 2. 下拉刷新
 /// 3. 预取和分页触发
 /// 4. 刷新后滚动位置恢复
-/// 5. 帖子详情、举报、看图等二级交互入口
+/// 5. 帖子详情、看图等二级交互入口
 ///
 /// 因此它是 `GalleryRootView` 中最关键的子视图。

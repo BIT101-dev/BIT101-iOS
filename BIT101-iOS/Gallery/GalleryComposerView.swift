@@ -65,8 +65,8 @@ struct GalleryComposerImageTile: View {
     var body: some View {
         ZStack(alignment: .topTrailing) {
             ZStack {
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(Color(.secondarySystemGroupedBackground))
+                AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.sheet)
+                    .fill(AppDesignSystem.Palette.secondaryGroupedBackground)
 
                 if let image = UIImage(data: draft.previewData) {
                     Image(uiImage: image)
@@ -79,7 +79,7 @@ struct GalleryComposerImageTile: View {
                 }
             }
             .frame(width: 96, height: 96)
-            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.sheet))
             .overlay(alignment: .bottom) {
                 overlayContent
             }
@@ -141,7 +141,7 @@ struct GalleryComposerImageTile: View {
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 6)
-                .background(.red.opacity(0.82))
+                .background(AppDesignSystem.Palette.danger.opacity(0.82))
             }
             .buttonStyle(.plain)
         }
@@ -302,12 +302,12 @@ struct GalleryComposerView: View {
                             } label: {
                                 Text(tag)
                                     .font(.footnote.weight(.medium))
-                                    .foregroundStyle(selectedTags.contains(tag) ? Color.white : Color.accentColor)
+                                    .foregroundStyle(selectedTags.contains(tag) ? Color.white : AppDesignSystem.Palette.accent)
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 8)
                                     .frame(maxWidth: .infinity)
                                     .background(
-                                        selectedTags.contains(tag) ? Color.accentColor : Color.accentColor.opacity(0.12),
+                                        selectedTags.contains(tag) ? AppDesignSystem.Palette.accent : AppDesignSystem.Palette.accent.opacity(0.12),
                                         in: Capsule()
                                     )
                             }
@@ -319,17 +319,18 @@ struct GalleryComposerView: View {
                         } label: {
                             Text("自定义")
                                 .font(.footnote.weight(.medium))
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(AppDesignSystem.Palette.accent)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 8)
                                 .frame(maxWidth: .infinity)
                                 .background(
-                                    Color.accentColor.opacity(0.12),
+                                    AppDesignSystem.Palette.accent.opacity(0.12),
                                     in: Capsule()
                                 )
                         }
                         .buttonStyle(.plain)
                     }
+                    .appSelectionFeedback(trigger: selectedTags)
 
                     if !customTagDrafts.isEmpty {
                         // 每条自定义标签都用单独输入行，避免旧版“统一输入框 + 行内删除”
@@ -360,9 +361,12 @@ struct GalleryComposerView: View {
                             Text(claim.text).tag(claim.id)
                         }
                     }
+                    .appSelectionFeedback(trigger: selectedClaimID)
 
                     Toggle("匿名发布", isOn: $anonymous)
+                        .appSelectionFeedback(trigger: anonymous)
                     Toggle("公开显示", isOn: $isPublic)
+                        .appSelectionFeedback(trigger: isPublic)
                 }
 
                 Section("图片") {
@@ -402,7 +406,7 @@ struct GalleryComposerView: View {
                     saveDraft()
                     dismiss()
                 }
-                Button("不保存", role: .destructive) {
+                Button("不保存") {
                     ComposerDraftStore.removeGallery()
                     dismiss()
                 }
@@ -413,7 +417,7 @@ struct GalleryComposerView: View {
                 Button("加载草稿") {
                     loadSavedDraft()
                 }
-                Button("不加载", role: .destructive) {
+                Button("不加载") {
                     ComposerDraftStore.removeGallery()
                 }
             } message: {

@@ -7,45 +7,6 @@
 
 import SwiftUI
 
-struct PaperArticleActionMenu: View {
-    let onHide: () -> Void
-    @State private var isPresentingFallbackActions = false
-
-    var body: some View {
-        Group {
-            if #available(iOS 18.0, *) {
-                Menu {
-                    Button("屏蔽本文", systemImage: "eye.slash") {
-                        onHide()
-                    }
-                } label: {
-                    menuLabel
-                }
-            } else {
-                Button {
-                    isPresentingFallbackActions = true
-                } label: {
-                    menuLabel
-                }
-                .confirmationDialog("", isPresented: $isPresentingFallbackActions, titleVisibility: .hidden) {
-                    Button("屏蔽本文", systemImage: "eye.slash") {
-                        onHide()
-                    }
-                    Button("取消", role: .cancel) {}
-                }
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var menuLabel: some View {
-        Image(systemName: "ellipsis.circle")
-            .font(.title3)
-            .foregroundStyle(.secondary)
-            .frame(width: 32, height: 32)
-    }
-}
-
 /// 文章右下角悬浮操作按钮。
 ///
 /// 这里直接对齐话廊现有的按钮尺寸和材质，避免两个内容页入口按钮风格割裂。
@@ -55,15 +16,11 @@ struct PaperFloatingActionButton: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(.primary)
-                .frame(width: 42, height: 42)
-                .background(.ultraThinMaterial, in: Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(accessibilityLabel)
+        AppFloatingActionButton(
+            systemImage: systemImage,
+            accessibilityLabel: accessibilityLabel,
+            action: action
+        )
     }
 }
 
@@ -96,6 +53,7 @@ struct PaperComposerView: View {
 
             Section("发布设置") {
                 Toggle("匿名发布", isOn: $anonymous)
+                    .appSelectionFeedback(trigger: anonymous)
             }
         }
         .navigationTitle("发布文章")
@@ -160,33 +118,27 @@ struct PaperCommentComposerSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             List {
-                Section {
+                AppCommentComposerContentSection(title: target.title, anonymous: $anonymous) {
                     TextEditor(text: $text)
                         .frame(minHeight: 180)
-                } header: {
-                    Text(target.title)
-                }
-
-                Section {
-                    Toggle("匿名评论", isOn: $anonymous)
                 }
             }
+            .appGroupedListStyle()
         }
         .navigationTitle(target.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("取消") {
+            AppComposerToolbar(
+                isSubmitting: isSubmitting,
+                submitTitle: "发布",
+                isSubmitDisabled: text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                onCancel: {
                     dismiss()
-                }
-            }
-
-            ToolbarItem(placement: .confirmationAction) {
-                Button(isSubmitting ? "发送中…" : "发布") {
+                },
+                onSubmit: {
                     onSubmit(text, anonymous)
                 }
-                .disabled(isSubmitting || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
+            )
         }
     }
 }
@@ -200,7 +152,7 @@ private struct PaperActionPillButtonStyle: ButtonStyle {
             .foregroundStyle(accentColor)
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .background(Color(.secondarySystemGroupedBackground), in: Capsule())
+            .background(AppDesignSystem.Palette.secondaryGroupedBackground, in: Capsule())
             .opacity(configuration.isPressed ? 0.75 : 1)
     }
 }

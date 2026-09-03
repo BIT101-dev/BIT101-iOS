@@ -118,7 +118,7 @@ private struct SettingsIndexPage: View {
             }
             .padding(16)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(AppDesignSystem.Palette.groupedBackground)
         .sheet(isPresented: $isShowingSuggestion) {
             NavigationStack {
                 DeveloperSuggestionPage()
@@ -132,21 +132,19 @@ private struct SettingsIndexCard: View {
     let route: SettingsRoute
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: route.systemImage)
-                .frame(width: 24, height: 24)
-                .foregroundStyle(.primary)
+        AppCard(variant: .standard) {
+            HStack(spacing: AppDesignSystem.Spacing.control) {
+                Image(systemName: route.systemImage)
+                    .frame(width: 24, height: 24)
+                    .foregroundStyle(.primary)
 
-            VStack(alignment: .leading, spacing: 0) {
                 Text(route.title)
                     .font(.headline)
                     .foregroundStyle(.primary)
-            }
 
-            Spacer()
+                Spacer()
+            }
         }
-        .padding(12)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
@@ -214,7 +212,7 @@ struct DeveloperSuggestionPage: View {
 
     var body: some View {
         Form {
-            Section("建议内容") {
+            AppComposerContentSection(title: "建议内容") {
                 ZStack(alignment: .topLeading) {
                     TextEditor(text: $text)
                         .frame(minHeight: 180)
@@ -255,15 +253,18 @@ struct DeveloperSuggestionPage: View {
             .navigationTitle("我想和开发者提建议")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("取消") { requestDismiss() }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(isSubmitting ? "提交中" : "提交") {
+                AppComposerToolbar(
+                    isSubmitting: isSubmitting,
+                    submitTitle: "提交",
+                    submittingTitle: "提交中",
+                    isSubmitDisabled: text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                    onCancel: {
+                        requestDismiss()
+                    },
+                    onSubmit: {
                         Task { await submit() }
                     }
-                    .disabled(isSubmitting || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
+                )
             }
             .onChange(of: selectedPhotoItems) { _, newValue in
                 guard !newValue.isEmpty else { return }
@@ -275,7 +276,7 @@ struct DeveloperSuggestionPage: View {
                     saveDraft()
                     dismiss()
                 }
-                Button("不保存", role: .destructive) {
+                Button("不保存") {
                     ComposerDraftStore.removeSuggestion()
                     dismiss()
                 }
@@ -286,7 +287,7 @@ struct DeveloperSuggestionPage: View {
                 Button("加载草稿") {
                     loadSavedDraft()
                 }
-                Button("不加载", role: .destructive) {
+                Button("不加载") {
                     ComposerDraftStore.removeSuggestion()
                 }
             } message: {

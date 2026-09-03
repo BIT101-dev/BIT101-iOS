@@ -18,7 +18,6 @@ struct CourseDetailView: View {
     let initialCourse: CourseSummary
 
     @Environment(\.openURL) private var openURL
-    @ObservedObject private var settings = AppSettingsStore.shared
     @StateObject private var viewModel: CourseDetailViewModel
     @State private var composerTarget: CourseCommentComposerTarget?
     @State private var imageViewer: GalleryImageViewerState?
@@ -66,22 +65,20 @@ struct CourseDetailView: View {
                     }
                 )
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 18)
+            .padding(.horizontal, AppDesignSystem.Detail.contentPadding)
+            .padding(.top, AppDesignSystem.Detail.contentPadding)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(AppDesignSystem.Palette.groupedBackground)
         .navigationTitle("课程详情")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                ShareLink(
+                AppDetailShareLink(
                     item: courseShareURL,
-                    subject: Text(viewModel.resolvedName)
-                ) {
-                    Image(systemName: "square.and.arrow.up")
-                }
-                .accessibilityLabel("分享课程")
+                    subject: viewModel.resolvedName,
+                    accessibilityLabel: "分享课程"
+                )
             }
         }
         .navigationDestination(item: $userRoute) { route in
@@ -131,18 +128,15 @@ struct CourseDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 HStack(spacing: 10) {
-                    Button {
+                    AppDetailCircleButton {
                         composerTarget = .course(courseID: initialCourse.id)
                     } label: {
                         Image(systemName: "bubble.right")
                             .font(.headline)
                             .foregroundStyle(.primary)
-                            .frame(width: 34, height: 34)
-                            .background(Color.orange.opacity(0.12), in: Circle())
                     }
-                    .buttonStyle(.plain)
 
-                    Button {
+                    AppDetailCircleButton {
                         Task {
                             await viewModel.likeCourse()
                         }
@@ -156,11 +150,8 @@ struct CourseDetailView: View {
                                     .font(.headline)
                             }
                         }
-                        .foregroundStyle(viewModel.isCourseLiked ? Color.orange : Color.primary)
-                        .frame(width: 34, height: 34)
-                        .background(Color.orange.opacity(0.12), in: Circle())
+                        .foregroundStyle(viewModel.isCourseLiked ? AppDesignSystem.Palette.highlight : Color.primary)
                     }
-                    .buttonStyle(.plain)
                     .disabled(viewModel.isLikingCourse)
                 }
             }
@@ -217,7 +208,7 @@ struct CourseDetailView: View {
     }
 
     private var filteredComments: [GalleryComment] {
-        CommunityModeration.filterVisibleComments(viewModel.commentState.items, snapshot: settings.snapshot)
+        CommunityModeration.filterVisibleComments(viewModel.commentState.items)
     }
 
     /// 独立跳转域名使用稳定的 `/course/{id}` 路由；未安装 App 时由 Worker 转至网页。
@@ -232,26 +223,26 @@ private struct CourseResourceCard: View {
     let systemImage: String
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: systemImage)
-                .font(.headline)
-                .foregroundStyle(Color.orange)
-                .frame(width: 34, height: 34)
-                .background(Color.orange.opacity(0.12), in: Circle())
+        AppCard(variant: .secondaryGrouped) {
+            HStack(spacing: AppDesignSystem.Spacing.control) {
+                Image(systemName: systemImage)
+                    .font(.headline)
+                    .foregroundStyle(AppDesignSystem.Palette.highlight)
+                    .frame(width: 34, height: 34)
+                    .background(AppDesignSystem.Palette.highlight.opacity(0.12), in: Circle())
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 0)
             }
-
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }

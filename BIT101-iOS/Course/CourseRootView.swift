@@ -52,7 +52,7 @@ struct CoursePageContent: View {
                  .loading where viewModel.state.items.isEmpty:
                 ProgressView(viewModel.hasActiveSearch ? "正在搜索课程" : "正在加载课程")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color(.systemGroupedBackground))
+                    .background(AppDesignSystem.Palette.groupedBackground)
 
             case let .failed(message) where viewModel.state.items.isEmpty:
                 ContentUnavailableView {
@@ -71,7 +71,7 @@ struct CoursePageContent: View {
                     )
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(.systemGroupedBackground))
+                .background(AppDesignSystem.Palette.groupedBackground)
 
             default:
                 List {
@@ -95,8 +95,10 @@ struct CoursePageContent: View {
                         courseSection
                     }
                 }
-                .listStyle(.insetGrouped)
-                .background(Color(.systemGroupedBackground))
+                .appGroupedListStyle()
+                // 顶部分段栏已由外层 safeAreaInset 提供，列表不再叠加默认滚动上边距。
+                .contentMargins(.top, 0, for: .scrollContent)
+                .background(AppDesignSystem.Palette.groupedBackground)
                 .refreshable {
                     await viewModel.refresh()
                 }
@@ -113,11 +115,14 @@ struct CoursePageContent: View {
         .diagnosticAlert(item: $deepLinkAlert)
         .navigationDestination(item: $deepLinkedCourse) { course in
             CourseDetailView(initialCourse: course)
+                // 课程详情页持有自己的 StateObject；切换课程时强制按课程 ID 重建，
+                // 避免在已有详情页上复用上一门课的评论状态。
+                .id(course.id)
         }
         .task(id: requestedCourse?.id) {
             await openRequestedCourseIfNeeded()
         }
-        .background(Color(.systemGroupedBackground))
+        .background(AppDesignSystem.Palette.groupedBackground)
     }
 
     private func openRequestedCourseIfNeeded() async {
@@ -235,7 +240,7 @@ private struct CourseListRow: View {
                         text: CourseRatingText.text(from: course.rate, empty: "-"),
                         ratio: 0.16,
                         font: .subheadline.weight(.semibold),
-                        color: .orange,
+                        color: AppDesignSystem.Palette.highlight,
                         alignment: .trailing
                     ),
                     CourseFixedColumnItem(

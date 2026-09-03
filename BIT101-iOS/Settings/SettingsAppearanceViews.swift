@@ -45,11 +45,12 @@ struct PagesSettingsPage: View {
                             persist()
                         } label: {
                             Image(systemName: homeTab == tab ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(homeTab == tab ? Color.accentColor : .secondary)
+                                .foregroundStyle(homeTab == tab ? AppDesignSystem.Palette.accent : .secondary)
                                 .frame(width: 44, height: 44)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .appSelectionFeedback(trigger: homeTab)
                     }
                 }
                 .onMove { from, to in
@@ -60,6 +61,7 @@ struct PagesSettingsPage: View {
                 Text("页面编辑")
             }
         }
+        .appGroupedListStyle()
         .environment(\.editMode, $editMode)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -105,11 +107,13 @@ struct ThemeSettingsPage: View {
                         Text(mode.title).tag(mode)
                     }
                 }
+                .appSelectionFeedback(trigger: settings.themeMode)
 
                 Toggle("自动旋转", isOn: Binding(
                     get: { settings.autoRotate },
                     set: settings.setAutoRotate
                 ))
+                .appSelectionFeedback(trigger: settings.autoRotate)
             }
         }
     }

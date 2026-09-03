@@ -40,6 +40,7 @@ struct FreeClassroomTabView: View {
                         Text(campus.name).tag(campus.code)
                     }
                 }
+                .appSelectionFeedback(trigger: viewModel.cache.selectedCampusCode)
 
                 Picker("教学楼", selection: Binding(
                     get: { viewModel.selectedBuildingID },
@@ -53,6 +54,7 @@ struct FreeClassroomTabView: View {
                         Text(building.name).tag(building.buildingCode)
                     }
                 }
+                .appSelectionFeedback(trigger: viewModel.selectedBuildingID)
 
                 NavigationLink {
                     ClassroomSectionFilterPage(
@@ -108,7 +110,7 @@ struct FreeClassroomTabView: View {
                 }
             }
         }
-        .listStyle(.insetGrouped)
+        .appGroupedListStyle()
         .refreshable {
             isManuallyRefreshing = true
             defer {
@@ -144,16 +146,16 @@ struct ClassroomSectionFilterPage: View {
                                 .foregroundStyle(.primary)
                             Spacer()
                             Image(systemName: selectedSectionIDs.contains(slot.id) ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(selectedSectionIDs.contains(slot.id) ? Color.accentColor : .secondary)
+                                .foregroundStyle(selectedSectionIDs.contains(slot.id) ? AppDesignSystem.Palette.accent : .secondary)
                         }
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
-            } footer: {
-                Text("不选任何节次时，默认按“当前空闲”展示；选择具体节次后，会显示在所选任一节次内有空闲的教室。")
             }
         }
+        .appGroupedListStyle()
+        .appSelectionFeedback(trigger: selectedSectionIDs)
         .navigationTitle("节次筛选")
         .navigationBarTitleDisplayMode(.inline)
     }

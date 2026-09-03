@@ -1,6 +1,6 @@
 # BIT101-iOS 代码质量审计
 
-更新时间：2026-09-02
+更新时间：2026-09-03
 
 ## 结论
 
@@ -8,9 +8,11 @@
 - `RELEASE_NETWORK_SMOKE`、`ICLOUD_CROSS_DEVICE_SMOKE` 和 `EXTENDED_AUTOMATION` 为专用测试，不进入默认测试和 Release 包。
 - `EXTENDED_AUTOMATION` 另有 27 项本地自动化测试，按课程表、基础设施、登录三组运行。
 - 未发现测试仍断言已删除功能或旧接口。
-- 发现一份维护手册超过 30 天未更新，已在本轮同步更新。
+- 维护手册与源码职责已在本轮同步，后续由 stale-docs 检查提醒长期未编辑文档。
 - 已将网络 smoke runner 从 `BIT101_iOSApp.swift` 移到独立文件。
-- 不按行数机械拆分状态机和模型文件。
+- 不因文件长度机械拆分状态机和模型文件。
+- 已加入逐份源码质量扫描，覆盖 App、Widget、Watch 和测试 target；硬性规则阻止死代码、
+  越过公共网络/触感入口和脚本动态临时产物，布局值、强制解包与大型文件仅生成审查候选。
 
 ## 已完成的结构整理
 
@@ -24,24 +26,28 @@
 
 ## 大文件审查
 
-| 文件 | 行数 | 判断 |
-| --- | ---: | --- |
-| `Schedule/ScheduleViewModel.swift` | 347 | 日程状态、初始化、缓存投影和共享辅助方法。其余职责已移到扩展文件。 |
-| `Schedule/ScheduleViewModel+CourseSync.swift` | 258 | 课表同步、学期列表、短信验证和自动刷新。 |
-| `Schedule/ScheduleViewModel+Classroom.swift` | 573 | 空教室请求、元数据和筛选。 |
-| `Schedule/ScheduleViewModel+CourseEditing.swift` | 223 | 课程和自定义日程编辑。 |
-| `Schedule/ScheduleViewModel+DDL.swift` | 151 | 乐学、DDL 和相关文案。 |
-| `Schedule/ScheduleViewModel+Preferences.swift` | 203 | 周次、显示设置和时间表。 |
-| `Schedule/ScheduleModels.swift` | 674 | 课表、考试、DDL、缓存模型和编解码。属于同一领域。暂不拆。 |
-| `Schedule/ScheduleRootView.swift` | 1009 | 日程容器、路由和多页面协调。叶子页面已独立。暂不拆。 |
-| `Score/ScoreViewModels.swift` | 734 | 成绩筛选、缓存、短信续接和刷新状态。状态互相关联。暂不拆。 |
-| `Score/ScoreRootView.swift` | 865 | 成绩/课程合并页及其列表子视图。后续可按页面增长拆分。 |
-| `Gallery/GalleryModels.swift` | 728 | 话廊数据模型和分页状态。职责单一。暂不拆。 |
-| `Gallery/GalleryViewModel.swift` | 676 | feed、搜索、消息状态。推荐预取已独立。暂不拆。 |
-| `BIT101_iOSApp.swift` | 457 | 应用生命周期和全局副作用。网络 smoke runner 已独立。 |
-| `Shared/Infrastructure/ReleaseNetworkSmoke.swift` | 441 | 只在 Debug/专用 smoke 条件下编译。与应用生命周期分离。 |
+| 文件 | 判断 |
+| --- | --- |
+| `Schedule/ScheduleViewModel.swift` | 日程状态、初始化、缓存投影和共享辅助方法。其余职责已移到扩展文件。 |
+| `Schedule/ScheduleViewModel+CourseSync.swift` | 课表同步、学期列表、短信验证和自动刷新。 |
+| `Schedule/ScheduleViewModel+Classroom.swift` | 空教室请求、元数据和筛选。 |
+| `Schedule/ScheduleViewModel+CourseEditing.swift` | 课程和自定义日程编辑。 |
+| `Schedule/ScheduleViewModel+DDL.swift` | 乐学、DDL 和相关文案。 |
+| `Schedule/ScheduleViewModel+Preferences.swift` | 周次、显示设置和时间表。 |
+| `Schedule/ScheduleModels.swift` | 课表、考试、DDL、缓存模型和编解码。属于同一领域，暂不拆。 |
+| `Schedule/ScheduleRootView.swift` | 日程容器和页面路由。 |
+| `Schedule/CourseScheduleTabView.swift` | 课表分栏、周次切换、分享和编辑入口。 |
+| `Schedule/ScheduleCalendarViews.swift` | 按周/全学期课表网格和背景层。 |
+| `Schedule/ScheduleEntryDetailView.swift` | 课程、考试和自定义日程详情。 |
+| `Schedule/ScheduleEditingSupport.swift` | 课程编辑模式和调休/放假表单。 |
+| `Score/ScoreViewModels.swift` | 成绩筛选、缓存、短信续接和刷新状态。状态互相关联，暂不拆。 |
+| `Score/ScoreRootView.swift` | 成绩/课程合并页及其列表子视图，后续按独立生命周期拆分。 |
+| `Gallery/GalleryModels.swift` | 话廊数据模型和分页状态，职责单一。 |
+| `Gallery/GalleryViewModel.swift` | 信息流、搜索、消息状态，推荐预取已独立。 |
+| `BIT101_iOSApp.swift` | 应用生命周期和全局副作用，网络 smoke runner 已独立。 |
+| `Shared/Infrastructure/ReleaseNetworkSmoke.swift` | 只在 Debug/专用 smoke 条件下编译，与应用生命周期分离。 |
 
-继续拆分的条件：出现独立生命周期、独立测试边界或高频冲突。仅为减少行数不拆。
+继续拆分的条件：出现独立生命周期、独立测试边界或高频冲突。仅为减少文件长度不拆。
 
 ## 有意保留的桥接
 
@@ -67,6 +73,20 @@
 3. App、Widget、Watch、Live Activity 的共享快照版本一致性。
 4. 账号切换时旧任务的取消和 UI 回写。
 5. Xcode beta 对 Watch target 的构建行为。
+
+## UI 一致性收口
+
+- 主 App 的系统背景色、圆角和公共卡片集中在 `Shared/DesignSystem/AppDesignSystem.swift`。
+- 课程、帖子和文章详情页共用分享及圆形操作按钮；评论区共用间距、分割线和容器样式。
+- 周次和全学期叠加课表共用等宽网格，叠加层按课程中心排序并使用不透明课程背景隔离节次分割线。
+- 页面差异通过 `AppCardVariant` 等语义变体表达，不复制卡片结构后局部修改。
+- `Scripts/check-ui-consistency.sh` 还会检查详情页分享/操作组件、评论区样式、信息流间距和课表叠加规则。
+- 检查同时阻止已移除的社区操作回流、阻止主 App 直接写标准输出，并限制 plain 列表只用于消息中心。
+- 网络请求边界也纳入检查：业务页面不能绕过 `HTTPClient` 直接使用 `URLSession.shared`。
+- 该检查按需运行，不替代编译或真机验证。
+- `Scripts/check-code-quality.sh` 逐份扫描全部 Swift 文件，并固定输出 `.build/code-quality-report.txt`；
+  它补充了原有 UI、触感、组件检查未覆盖的脚本权限、死代码标记、文档失效链接、重复 import、
+  强制解包候选和大型文件候选。
 
 ## 后续顺序
 

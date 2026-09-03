@@ -46,8 +46,6 @@
 下面这些数据已经按学号隔离：
 
 - 课表 / DDL / 考试缓存
-- 话廊社区规则同意状态
-- 隐藏用户 / 隐藏帖子
 - 一部分界面与查询偏好
 
 所以：
@@ -176,7 +174,7 @@ Widget、锁屏组件、Apple Watch、Live Activity 不能直接依赖主 App �
 - 空教室
   负责校区、教学楼、节次的当前查询
 
-这些能力虽然都放在 `ScheduleRootView.swift` 里，但状态来源并不一样：
+这些能力由日程根视图和各自的分栏视图协作，但状态来源并不一样：
 
 - 课表 / DDL / 考试：依赖课表缓存
 - 空教室：依赖查询偏好 + 当前查询结果
@@ -284,7 +282,7 @@ Widget、锁屏组件、Apple Watch、Live Activity 不能直接依赖主 App �
 - `Gallery/GalleryModels.swift`
   帖子、评论、搜索、消息、用户等模型
 - `Gallery/CommunityModeration.swift`
-  本地敏感词、屏蔽与举报相关规则
+  本地敏感词和屏蔽规则
 - `Gallery/GalleryComposerView.swift`
   发帖页
 - `Gallery/GalleryPosterDetailViewModel.swift`
@@ -304,7 +302,6 @@ Widget、锁屏组件、Apple Watch、Live Activity 不能直接依赖主 App �
 - 搜索
 - 发帖
 - 评论
-- 举报
 - 本地屏蔽
 - 消息中心
 - 帖子详情跳他人主页
@@ -355,8 +352,7 @@ Widget、锁屏组件、Apple Watch、Live Activity 不能直接依赖主 App �
 
 1. 发帖前本地校验
 2. 展示前本地过滤
-3. 用户手动隐藏帖子 / 用户
-4. 机器人相关显示策略
+3. 机器人相关显示策略
 
 维护这部分时不要混淆：
 

@@ -18,11 +18,15 @@ ViewModel 继续通过场景化 `Servicing` 协议依赖 Service，不直接依�
 `NetworkSessionPool` 维护可复用会话：
 
 - `community`
-  Gallery、Course、Paper、Mine、Settings 和举报共用。共享 Cookie、URLCache、连接池与 TLS 连接。
+  Gallery、Course、Paper、Mine 和 Settings 共用。共享 Cookie、URLCache、连接池与 TLS 连接。
 - `scoreAuthentication`
   普通成绩和可信成绩单共用 bit-login 连接，但认证 challenge 状态仍由各自业务流程管理。
 - `sensitiveDownloads`
   使用 ephemeral 配置下载可信成绩单图片，不写入通用磁盘缓存。
+
+业务页面不要直接调用 `URLSession.shared`。请求应进入 `HTTPClient` 或对应的场景化
+Service，以便统一会话、认证、取消和错误映射；版本检查、紧急更新、错误上报和网络
+smoke 属于共享基础设施例外。
 
 以下会话不能合并：
 

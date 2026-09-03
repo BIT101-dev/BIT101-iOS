@@ -11,7 +11,6 @@ struct PaperSummaryCard: View {
     let paper: PaperSummary
     let previewMetadata: PaperPreviewMetadata?
     let onOpen: () -> Void
-    let onHide: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -36,10 +35,6 @@ struct PaperSummaryCard: View {
                 }
 
                 Spacer(minLength: 12)
-
-                PaperArticleActionMenu(onHide: onHide)
-                    .contentShape(Rectangle())
-                    .onTapGesture { }
             }
 
             if !paper.intro.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -59,10 +54,7 @@ struct PaperSummaryCard: View {
             .font(.caption)
             .foregroundStyle(.secondary)
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.systemBackground))
-        .contentShape(Rectangle())
+        .appFeedCardStyle()
         .onTapGesture(perform: onOpen)
     }
 }

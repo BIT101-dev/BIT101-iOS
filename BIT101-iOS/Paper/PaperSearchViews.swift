@@ -10,7 +10,6 @@ import SwiftUI
 struct PaperSearchView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = PaperSearchViewModel()
-    @ObservedObject private var settings = AppSettingsStore.shared
     @State private var selectedPaper: PaperSummary?
 
     var body: some View {
@@ -58,15 +57,12 @@ struct PaperSearchView: View {
                                         previewMetadata: viewModel.previewMetadata(for: paper.id),
                                         onOpen: {
                                             selectedPaper = paper
-                                        },
-                                        onHide: {
-                                            settings.hidePaper(id: paper.id)
                                         }
                                     )
 
                                     if index != visiblePapers.count - 1 {
                                         Divider()
-                                            .padding(.leading, 14)
+                                            .padding(.leading, AppDesignSystem.Feed.dividerLeading)
                                     }
                                 }
                                 .task {
@@ -85,7 +81,7 @@ struct PaperSearchView: View {
             }
             .padding(.vertical, 12)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(AppDesignSystem.Palette.groupedBackground)
         .refreshable {
             await viewModel.performSearch()
         }
@@ -134,19 +130,7 @@ struct PaperSearchView: View {
         .diagnosticAlert(item: $viewModel.alert)
     }
 
-    private var visiblePapers: [PaperSummary] {
-        viewModel.state.items.filter { paper in
-            guard !settings.paperHiddenIDs.contains(paper.id) else { return false }
-            guard let metadata = viewModel.previewMetadata(for: paper.id) else { return true }
-            if metadata.anonymous, settings.galleryHiddenUserIDs.first == -1 {
-                return false
-            }
-            if let authorID = metadata.authorID, settings.galleryHiddenUserIDs.contains(authorID) {
-                return false
-            }
-            return true
-        }
-    }
+    private var visiblePapers: [PaperSummary] { viewModel.state.items }
 
     private func paginationProbePaper(currentPaper: PaperSummary) -> PaperSummary {
         guard currentPaper.id == visiblePapers.last?.id else { return currentPaper }
@@ -182,6 +166,7 @@ private struct PaperSearchBar: View {
                 Label(selectedOrder.title, systemImage: "arrow.up.arrow.down.circle")
             }
             .pickerStyle(.menu)
+            .appSelectionFeedback(trigger: selectedOrder)
 
             TextField("在这里搜索哦", text: $searchText)
                 .textInputAutocapitalization(.never)
@@ -195,14 +180,14 @@ private struct PaperSearchBar: View {
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.title3)
-                    .foregroundStyle(searchText.isEmpty ? Color.secondary.opacity(0.35) : Color.orange)
+                    .foregroundStyle(searchText.isEmpty ? Color.secondary.opacity(0.35) : AppDesignSystem.Palette.highlight)
             }
             .buttonStyle(.plain)
             .disabled(searchText.isEmpty)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(AppDesignSystem.Palette.secondaryBackground, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped, style: .continuous))
     }
 }
 

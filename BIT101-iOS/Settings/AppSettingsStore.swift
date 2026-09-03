@@ -47,17 +47,6 @@ enum AppThemeMode: String, CaseIterable, Identifiable, Codable {
     }
 }
 
-/// 被用户本地隐藏的帖子摘要。
-///
-/// 只保存恢复显示需要的最小字段，不复制整份帖子详情。
-struct HiddenPosterRecord: Codable, Equatable, Identifiable, Hashable {
-    let id: Int
-    let title: String
-    let userID: Int
-    let userNickname: String
-    let createdTime: String
-}
-
 /// 持久化到 `UserDefaults` 的设置快照。
 ///
 /// 这是整个 app 的“设置真相来源”。UI 层只改这里，真正的读写、账号隔离和默认值全由这份快照承接。
@@ -74,16 +63,6 @@ struct AppSettingsSnapshot: Codable, Equatable {
     var autoRotate = false
     /// 是否在搜索结果里也隐藏机器人帖子。
     var galleryHideBotPosterInSearch = false
-    /// 是否启用更严格的画廊过滤。
-    var galleryHideStrictMode = false
-    /// 用户主动屏蔽的用户 ID 列表。
-    var galleryHiddenUserIDs: [Int] = []
-    /// 用户主动隐藏的帖子摘要。
-    var galleryHiddenPosters: [HiddenPosterRecord] = []
-    /// 用户主动隐藏的文章 ID 列表。
-    var paperHiddenIDs: [Int] = []
-    /// 当前设备接受过的社区规则版本号。
-    var galleryCommunityRulesAcceptedVersion = 0
     /// 是否已经看过“导入分享课表”的使用提示。
     var hasSeenSharedScheduleImportGuide = false
     /// 当前账号第一次进入 app 的时间。
@@ -92,7 +71,7 @@ struct AppSettingsSnapshot: Codable, Equatable {
     var hasShownLinuxDoThanksNotice = false
 }
 
-/// 只同步真正属于用户偏好的字段；规则确认、首次打开时间和一次性提示仍保留在本机。
+/// 只同步真正属于用户偏好的字段；首次打开时间和一次性提示仍保留在本机。
 struct AppSettingsSyncPayload: Codable, Equatable {
     var homeTab: AppTab
     var pageOrder: [AppTab]
@@ -100,10 +79,6 @@ struct AppSettingsSyncPayload: Codable, Equatable {
     var themeMode: AppThemeMode
     var autoRotate: Bool
     var galleryHideBotPosterInSearch: Bool
-    var galleryHideStrictMode: Bool
-    var galleryHiddenUserIDs: [Int]
-    var galleryHiddenPosters: [HiddenPosterRecord]
-    var paperHiddenIDs: [Int]
 
     init(snapshot: AppSettingsSnapshot) {
         homeTab = snapshot.homeTab
@@ -112,10 +87,6 @@ struct AppSettingsSyncPayload: Codable, Equatable {
         themeMode = snapshot.themeMode
         autoRotate = snapshot.autoRotate
         galleryHideBotPosterInSearch = snapshot.galleryHideBotPosterInSearch
-        galleryHideStrictMode = snapshot.galleryHideStrictMode
-        galleryHiddenUserIDs = snapshot.galleryHiddenUserIDs
-        galleryHiddenPosters = snapshot.galleryHiddenPosters
-        paperHiddenIDs = snapshot.paperHiddenIDs
     }
 }
 
@@ -127,8 +98,6 @@ final class AppSettingsStore: ObservableObject {
     static let shared = AppSettingsStore()
     /// 各账号设置快照在 `UserDefaults` 中使用的 key 前缀。
     nonisolated static let storageKeyPrefix = "app.settings.snapshot"
-    /// 当前社区规则版本号；版本提升后会强制重新弹出规则确认。
-    nonisolated static let currentCommunityRulesVersion = 2
     /// 当前安装版本的更新内容公告；每个版本只展示一次。
     nonisolated static let currentStartupNoticeVersion = "1.7.7"
     /// 更新内容公告已读状态使用全局 key，避免切换账号后重复展示。
@@ -171,12 +140,6 @@ final class AppSettingsStore: ObservableObject {
     var themeMode: AppThemeMode { snapshot.themeMode }
     var autoRotate: Bool { snapshot.autoRotate }
     var galleryHideBotPosterInSearch: Bool { snapshot.galleryHideBotPosterInSearch }
-    var galleryHideStrictMode: Bool { snapshot.galleryHideStrictMode }
-    var galleryHiddenUserIDs: [Int] { snapshot.galleryHiddenUserIDs }
-    var galleryHiddenPosters: [HiddenPosterRecord] { snapshot.galleryHiddenPosters }
-    var galleryHiddenPosterIDs: [Int] { snapshot.galleryHiddenPosters.map(\.id) }
-    var paperHiddenIDs: [Int] { snapshot.paperHiddenIDs }
-    var hasAcceptedCurrentCommunityRules: Bool { snapshot.galleryCommunityRulesAcceptedVersion >= Self.currentCommunityRulesVersion }
     var hasSeenSharedScheduleImportGuide: Bool { snapshot.hasSeenSharedScheduleImportGuide }
     var shouldShowCurrentStartupNotice: Bool {
         defaults.string(forKey: Self.startupNoticeSeenKey) != Self.currentStartupNoticeVersion
@@ -246,77 +209,10 @@ final class AppSettingsStore: ObservableObject {
         AppOrientationController.applyPreference(autoRotate: enabled)
     }
 
-    /// 一次性更新画廊治理相关设置。
-    ///
-    /// 这些偏好会和当前学号一起隔离存储，不会在切号后串到别的账号上。
-    func updateGallerySettings(
-        hideBotPosterInSearch: Bool? = nil,
-        hideStrictMode: Bool? = nil,
-        hiddenUserIDs: [Int]? = nil
-    ) {
-        if let hideBotPosterInSearch { snapshot.galleryHideBotPosterInSearch = hideBotPosterInSearch }
-        if let hideStrictMode { snapshot.galleryHideStrictMode = hideStrictMode }
-        if let hiddenUserIDs { snapshot.galleryHiddenUserIDs = hiddenUserIDs }
+    /// 修改搜索结果中的机器人帖子隐藏开关。
+    func updateGallerySettings(hideBotPosterInSearch: Bool) {
+        snapshot.galleryHideBotPosterInSearch = hideBotPosterInSearch
         save(syncPreferences: true)
-    }
-
-    /// 在隐藏匿名用户和恢复匿名用户之间切换。
-    func toggleHideAnonymous() {
-        if snapshot.galleryHiddenUserIDs.first == -1 {
-            snapshot.galleryHiddenUserIDs.removeFirst()
-        } else {
-            snapshot.galleryHiddenUserIDs.insert(-1, at: 0)
-        }
-        save(syncPreferences: true)
-    }
-
-    /// 删除一条已屏蔽用户记录。
-    func removeHiddenUser(at index: Int) {
-        guard snapshot.galleryHiddenUserIDs.indices.contains(index) else { return }
-        snapshot.galleryHiddenUserIDs.remove(at: index)
-        save(syncPreferences: true)
-    }
-
-    /// 把一条帖子加入本地隐藏列表。
-    func hidePoster(id: Int, title: String, userID: Int, userNickname: String, createdTime: String) {
-        snapshot.galleryHiddenPosters.removeAll { $0.id == id }
-        snapshot.galleryHiddenPosters.insert(
-            HiddenPosterRecord(
-                id: id,
-                title: title,
-                userID: userID,
-                userNickname: userNickname,
-                createdTime: createdTime
-            ),
-            at: 0
-        )
-        save(syncPreferences: true)
-    }
-
-    /// 删除一条已隐藏帖子记录。
-    func removeHiddenPoster(at index: Int) {
-        guard snapshot.galleryHiddenPosters.indices.contains(index) else { return }
-        snapshot.galleryHiddenPosters.remove(at: index)
-        save(syncPreferences: true)
-    }
-
-    /// 把一篇文章加入本地隐藏列表。
-    func hidePaper(id: Int) {
-        guard !snapshot.paperHiddenIDs.contains(id) else { return }
-        snapshot.paperHiddenIDs.append(id)
-        save(syncPreferences: true)
-    }
-
-    /// 记录当前设备已经同意最新社区规则。
-    func acceptCurrentCommunityRules() {
-        snapshot.galleryCommunityRulesAcceptedVersion = Self.currentCommunityRulesVersion
-        save()
-    }
-
-    /// 撤销社区规则同意状态，方便重新验证 EULA。
-    func revokeCommunityRulesAcceptance() {
-        snapshot.galleryCommunityRulesAcceptedVersion = 0
-        save()
     }
 
     /// 标记当前安装版本的更新内容已经展示。
@@ -353,10 +249,6 @@ final class AppSettingsStore: ObservableObject {
         snapshot.themeMode = payload.themeMode
         snapshot.autoRotate = payload.autoRotate
         snapshot.galleryHideBotPosterInSearch = payload.galleryHideBotPosterInSearch
-        snapshot.galleryHideStrictMode = payload.galleryHideStrictMode
-        snapshot.galleryHiddenUserIDs = payload.galleryHiddenUserIDs
-        snapshot.galleryHiddenPosters = payload.galleryHiddenPosters
-        snapshot.paperHiddenIDs = payload.paperHiddenIDs
         save()
         AppOrientationController.applyPreference(autoRotate: snapshot.autoRotate)
     }

@@ -43,18 +43,21 @@ struct AddCourseSheet: View {
                             Text("周\(weekday)").tag(weekday)
                         }
                     }
+                    .appSelectionFeedback(trigger: draft.weekday)
 
                     Picker("开始节次", selection: $draft.startSection) {
                         ForEach(timeTable) { slot in
                             Text("第\(slot.id)节  \(slot.start)").tag(slot.id)
                         }
                     }
+                    .appSelectionFeedback(trigger: draft.startSection)
 
                     Picker("结束节次", selection: $draft.endSection) {
                         ForEach(timeTable.filter { $0.id >= draft.startSection }) { slot in
                             Text("第\(slot.id)节  \(slot.end)").tag(slot.id)
                         }
                     }
+                    .appSelectionFeedback(trigger: draft.endSection)
                 }
 
                 Section {
@@ -141,10 +144,10 @@ struct TimeTableEditorSheet: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
-                TextEditor(text: $text)
-                    .font(.system(.body, design: .monospaced))
-                    .padding(10)
-                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                AppCard(variant: .compact) {
+                    TextEditor(text: $text)
+                        .font(.system(.body, design: .monospaced))
+                }
 
                 Spacer()
             }
@@ -203,6 +206,7 @@ struct CustomScheduleListSheet: View {
                     }
                 }
             }
+            .appGroupedListStyle()
             .navigationTitle("自定义日程")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -248,6 +252,7 @@ struct CustomScheduleListSheet: View {
                             }
                         }
                     }
+                    .appGroupedListStyle()
                     .navigationTitle("自定义日程")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
@@ -279,4 +284,3 @@ struct CustomScheduleListSheet: View {
         }
     }
 }
-

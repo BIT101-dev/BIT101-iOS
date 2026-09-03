@@ -366,7 +366,7 @@ struct GalleryComment: Decodable, Identifiable, Hashable {
     /// 复制评论并替换其子评论列表。
     ///
     /// 主要用于本地过滤后重建仍然可见的评论树。
-    func replacingSubComments(_ sub: [GalleryComment]) -> GalleryComment {
+    nonisolated func replacingSubComments(_ sub: [GalleryComment]) -> GalleryComment {
         GalleryComment(
             id: id,
             obj: obj,

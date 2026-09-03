@@ -56,7 +56,7 @@ enum CampusPreset: String, CaseIterable, Identifiable {
         case .liangxiang:
             return 4500
         case .zhongguancun:
-            return 3200
+            return 5000
         }
     }
 }

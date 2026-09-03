@@ -50,7 +50,7 @@ struct MineRootView: View {
                 settingsSection
             }
         }
-        .listStyle(.insetGrouped)
+        .appGroupedListStyle()
         .refreshable {
             await viewModel.refreshProfile()
             await viewModel.refreshPosters()
@@ -187,7 +187,6 @@ struct UserProfileRootView: View {
 
     /// 指定用户主页状态机。
     @StateObject private var viewModel: UserProfileViewModel
-    @ObservedObject private var settings = AppSettingsStore.shared
     @State private var selectedPoster: GalleryPoster?
     @State private var imageViewer: GalleryImageViewerState?
 
@@ -206,7 +205,7 @@ struct UserProfileRootView: View {
                 posterSection
             }
         }
-        .listStyle(.insetGrouped)
+        .appGroupedListStyle()
         .refreshable {
             await viewModel.refreshAll()
         }
@@ -258,9 +257,9 @@ struct UserProfileRootView: View {
 
     @ViewBuilder
     private var posterSection: some View {
-        // 他人主页也沿用社区本地治理过滤，避免被你屏蔽的用户/帖子在这里重新出现。
+        // 他人主页也沿用社区本地内容过滤。
         let visiblePosters = CommunityModeration
-            .filterVisiblePosters(viewModel.posterState.items, snapshot: settings.snapshot)
+            .filterVisiblePosters(viewModel.posterState.items)
 
         switch viewModel.posterState.status {
         case .idle where visiblePosters.isEmpty:
@@ -291,7 +290,6 @@ struct UserProfileRootView: View {
                             onOpenImage: { index, images in
                                 imageViewer = GalleryImageViewerState(images: images, initialIndex: index)
                             },
-                            onReport: nil,
                             onDelete: nil
                         )
                         .task {
@@ -403,10 +401,10 @@ private struct MineProfileCard: View {
                 .scaledToFill()
         } placeholder: {
             Circle()
-                .fill(Color.blue.opacity(0.14))
+                .fill(AppDesignSystem.Palette.info.opacity(0.14))
                 .overlay {
                     Image(systemName: "person.fill")
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(AppDesignSystem.Palette.info)
                         .font(.title2)
                 }
         }
@@ -454,10 +452,10 @@ private struct MineUserListView: View {
                                     .scaledToFill()
                             } placeholder: {
                                 Circle()
-                                    .fill(Color.blue.opacity(0.14))
+                                    .fill(AppDesignSystem.Palette.info.opacity(0.14))
                                     .overlay {
                                         Image(systemName: "person.fill")
-                                            .foregroundStyle(.blue)
+                                            .foregroundStyle(AppDesignSystem.Palette.info)
                                     }
                             }
                             .frame(width: 46, height: 46)
@@ -471,7 +469,7 @@ private struct MineUserListView: View {
                                     if !user.identity.text.isEmpty {
                                         Text(user.identity.text)
                                             .font(.caption2.weight(.semibold))
-                                            .foregroundStyle(MineColorDecoder.color(from: user.identity.color) ?? .blue)
+                                            .foregroundStyle(MineColorDecoder.color(from: user.identity.color) ?? AppDesignSystem.Palette.info)
                                     }
                                 }
 
@@ -493,6 +491,7 @@ private struct MineUserListView: View {
                         }
                     }
                 }
+                .appGroupedListStyle()
                 .refreshable {
                     onRefresh()
                 }
@@ -518,7 +517,6 @@ private struct MineUserListView: View {
 ///
 /// 直接复用话题卡片与详情实现，避免“我的帖子”和“话题详情”之间出现两套视觉和交互逻辑。
 private struct MinePosterListView: View {
-    @ObservedObject private var settings = AppSettingsStore.shared
     let posters: [GalleryPoster]
     let status: MineLoadStatus
     let isLoadingMore: Bool
@@ -533,11 +531,11 @@ private struct MinePosterListView: View {
 
     /// 当前真正可展示的帖子列表。
     ///
-    /// 这里同时叠加“社区屏蔽规则”和“本地刚删掉但服务端还没刷新回来”的过滤，
+    /// 这里同时叠加本地内容过滤和“刚删掉但服务端还没刷新回来”的过滤，
     /// 供列表主体与 loading 判断共同复用，避免两处各自维护一套相同过滤。
     private var visiblePosters: [GalleryPoster] {
         CommunityModeration
-            .filterVisiblePosters(posters, snapshot: settings.snapshot)
+            .filterVisiblePosters(posters)
             .filter { !deletedPosterIDs.contains($0.id) }
     }
 
@@ -566,7 +564,6 @@ private struct MinePosterListView: View {
                                 onOpenImage: { index, images in
                                     imageViewer = GalleryImageViewerState(images: images, initialIndex: index)
                                 },
-                                onReport: nil,
                                 onDelete: { deletingPoster = poster }
                             )
                             .task {
@@ -595,14 +592,13 @@ private struct MinePosterListView: View {
                 onRefresh()
             }
         }
-        .background(Color(.systemGroupedBackground))
+        .background(AppDesignSystem.Palette.groupedBackground)
         .navigationTitle("我的帖子")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $selectedPoster) { poster in
             NavigationStack {
                 GalleryPosterDetailView(
                     poster: poster,
-                    onReport: nil,
                     onDeleted: {
                         deletedPosterIDs.insert(poster.id)
                         Task {
