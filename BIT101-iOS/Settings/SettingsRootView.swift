@@ -21,6 +21,7 @@ enum SettingsRoute: String, CaseIterable, Identifiable {
     case calendar
     case ddl
     case gallery
+    case suggestion
     case about
 
     var id: String { rawValue }
@@ -33,19 +34,8 @@ enum SettingsRoute: String, CaseIterable, Identifiable {
         case .calendar: return "课程表设置"
         case .ddl: return "DDL设置"
         case .gallery: return "话廊设置"
+        case .suggestion: return "我想和开发者提建议"
         case .about: return "关于"
-        }
-    }
-
-    var subtitle: String {
-        switch self {
-        case .account: return "个人信息编辑及登录状态管理"
-        case .pages: return "启动页及页面顺序"
-        case .theme: return "主题及暗黑模式"
-        case .calendar: return "课程表数据及显示方式"
-        case .ddl: return "日程数据及显示方式"
-        case .gallery: return "话廊数据及显示方式"
-        case .about: return "关于 BIT101"
         }
     }
 
@@ -57,6 +47,7 @@ enum SettingsRoute: String, CaseIterable, Identifiable {
         case .calendar: return "calendar.badge.clock"
         case .ddl: return "list.bullet.clipboard"
         case .gallery: return "bubble.left.and.bubble.right"
+        case .suggestion: return "lightbulb"
         case .about: return "info.circle"
         }
     }
@@ -130,13 +121,10 @@ private struct SettingsIndexCard: View {
                 .frame(width: 24, height: 24)
                 .foregroundStyle(.primary)
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 0) {
                 Text(route.title)
                     .font(.headline)
                     .foregroundStyle(.primary)
-                Text(route.subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
             }
 
             Spacer()
@@ -169,9 +157,222 @@ private struct SettingsRoutePage: View {
             DDLSettingsPage()
         case .gallery:
             GallerySettingsPage()
+        case .suggestion:
+            DeveloperSuggestionPage()
         case .about:
             AboutSettingsPage(onLogout: onLogout)
         }
+    }
+}
+
+private struct DeveloperSuggestionAttachment: Encodable {
+    let filename: String
+    let contentType: String
+    let data: String
+}
+
+private struct DeveloperSuggestionPayload: Encodable {
+    let mode = "suggestion"
+    let comment: String
+    let errorTitle = "开发者建议"
+    let errorMessage = "用户主动提交的功能建议。"
+    let appVersion: String
+    let build: String
+    let systemVersion: String
+    let deviceModel: String
+    let networkStatus = ""
+    let diagnostics: [NetworkDiagnosticRecord] = []
+    let attachments: [DeveloperSuggestionAttachment]
+}
+
+/// 向开发者提交功能建议，复用错误反馈 Worker 与邮件通知链路。
+struct DeveloperSuggestionPage: View {
+    @State private var text = ""
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    @State private var imageDrafts: [GalleryComposerImageDraft] = []
+    @State private var isSubmitting = false
+    @State private var alert: AppAlert?
+
+    var body: some View {
+        Form {
+            Section("建议内容") {
+                ZStack(alignment: .topLeading) {
+                    TextEditor(text: $text)
+                        .frame(minHeight: 180)
+                    if text.isEmpty {
+                        Text("请输入你想告诉开发者的内容")
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 8)
+                            .padding(.leading, 5)
+                            .allowsHitTesting(false)
+                    }
+                }
+            }
+
+            Section("图片（可选）") {
+                PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 6, matching: .images) {
+                    Label("插入图片", systemImage: "photo.badge.plus")
+                }
+                .disabled(isSubmitting || imageDrafts.count >= 6)
+
+                if !imageDrafts.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(imageDrafts) { draft in
+                                GalleryComposerImageTile(
+                                    draft: draft,
+                                    onRetry: {},
+                                    onRemove: { removeImageDraft(id: draft.id) }
+                                )
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+
+                if hasUploadingImages {
+                    Text("图片上传中，上传完成后即可提交。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Text("图片会自动压缩后上传。最多 6 张。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Button {
+                    Task { await submit() }
+                } label: {
+                    HStack {
+                        Text(isSubmitting ? "提交中" : "提交建议")
+                        Spacer()
+                        if isSubmitting {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                    }
+                }
+                .disabled(isSubmitting || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+            .navigationTitle("我想和开发者提建议")
+            .navigationBarTitleDisplayMode(.inline)
+            .onChange(of: selectedPhotoItems) { _, newValue in
+                guard !newValue.isEmpty else { return }
+                Task { await addImages(from: newValue) }
+            }
+            .diagnosticAlert(item: $alert)
+    }
+
+    @MainActor
+    private func submit() async {
+        guard !isSubmitting else { return }
+        let suggestion = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !suggestion.isEmpty else { return }
+        guard !hasUploadingImages else {
+            alert = AppAlert(title: "提交失败", message: "图片仍在上传，请稍候。")
+            return
+        }
+        guard imageDrafts.allSatisfy({
+            if case .prepared = $0.status { return true }
+            return false
+        }) else {
+            alert = AppAlert(title: "提交失败", message: "有图片上传失败，请删除后重试，或点“重试”重新上传。")
+            return
+        }
+
+        isSubmitting = true
+        defer { isSubmitting = false }
+        do {
+            try await FeedbackSubmissionClient.submit(
+                DeveloperSuggestionPayload(
+                    comment: suggestion,
+                    appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?",
+                    build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?",
+                    systemVersion: UIDevice.current.systemVersion,
+                    deviceModel: UIDevice.current.model,
+                    attachments: imageDrafts.map {
+                        DeveloperSuggestionAttachment(
+                            filename: $0.filename,
+                            contentType: "image/jpeg",
+                            data: $0.previewData.base64EncodedString()
+                        )
+                    }
+                )
+            )
+            text = ""
+            alert = AppAlert(title: "提交成功", message: "感谢你的建议。")
+        } catch {
+            alert = AppAlert(title: "提交失败", message: error.localizedDescription)
+        }
+    }
+
+    private var hasUploadingImages: Bool {
+        imageDrafts.contains {
+            if case .uploading = $0.status { return true }
+            return false
+        }
+    }
+
+    private func addImages(from items: [PhotosPickerItem]) async {
+        defer { selectedPhotoItems = [] }
+        for item in items {
+            await addImage(from: item)
+        }
+    }
+
+    private func addImage(from item: PhotosPickerItem) async {
+        do {
+            guard imageDrafts.count < 6 else { return }
+            guard let data = try await item.loadTransferable(type: Data.self) else {
+                throw GalleryServiceError.uploadFailed
+            }
+
+            let compressed = try compressImage(data)
+            let draft = GalleryComposerImageDraft(
+                previewData: compressed,
+                filename: "suggestion-\(UUID().uuidString).jpg",
+                status: .prepared
+            )
+            imageDrafts.append(draft)
+        } catch {
+            alert = AppAlert(title: "图片添加失败", message: error.localizedDescription)
+        }
+    }
+
+    private func removeImageDraft(id: GalleryComposerImageDraft.ID) {
+        imageDrafts.removeAll { $0.id == id }
+    }
+
+    private func compressImage(_ data: Data) throws -> Data {
+        guard let image = UIImage(data: data) else {
+            throw GalleryServiceError.uploadFailed
+        }
+
+        let maxBytes = 100 * 1024
+        var dimension: CGFloat = 1600
+        var best = data
+        while dimension >= 320 {
+            let scale = min(1, dimension / max(image.size.width, image.size.height))
+            let size = CGSize(
+                width: max(1, image.size.width * scale),
+                height: max(1, image.size.height * scale)
+            )
+            let renderer = UIGraphicsImageRenderer(size: size)
+            for quality in [0.72, 0.58, 0.42, 0.28] {
+                let candidate = renderer.jpegData(withCompressionQuality: quality) {
+                    _ in image.draw(in: CGRect(origin: .zero, size: size))
+                }
+                best = candidate
+                if candidate.count <= maxBytes {
+                    return candidate
+                }
+            }
+            dimension *= 0.8
+        }
+        return best
     }
 }
 

@@ -6,6 +6,69 @@
 //
 
 import SwiftUI
+import UIKit
+
+/// 空白课表区域的原生上下文菜单，按真实长按坐标定位菜单。
+private struct ScheduleBlankContextMenuView: UIViewRepresentable {
+    let onShare: () -> Void
+    let onImport: () -> Void
+
+    func makeUIView(context: Context) -> ScheduleBlankContextMenuControl {
+        let view = ScheduleBlankContextMenuControl()
+        view.onShare = onShare
+        view.onImport = onImport
+        return view
+    }
+
+    func updateUIView(_ uiView: ScheduleBlankContextMenuControl, context: Context) {
+        uiView.onShare = onShare
+        uiView.onImport = onImport
+    }
+}
+
+private final class ScheduleBlankContextMenuControl: UIControl {
+    var onShare: (() -> Void)?
+    var onImport: (() -> Void)?
+    private var lastInteractionLocation: CGPoint = .zero
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        isOpaque = false
+        isContextMenuInteractionEnabled = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction,
+        configurationForMenuAtLocation location: CGPoint
+    ) -> UIContextMenuConfiguration? {
+        lastInteractionLocation = location
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+            UIMenu(children: [
+                UIAction(
+                    title: "分享课表",
+                    image: UIImage(systemName: "square.and.arrow.up")
+                ) { _ in
+                    self?.onShare?()
+                },
+                UIAction(
+                    title: "导入课表",
+                    image: UIImage(systemName: "square.and.arrow.down")
+                ) { _ in
+                    self?.onImport?()
+                }
+            ])
+        }
+    }
+
+    override func menuAttachmentPoint(for configuration: UIContextMenuConfiguration) -> CGPoint {
+        lastInteractionLocation
+    }
+}
 
 struct CourseScheduleCalendarView: View {
     private static let monthDayFormatter: DateFormatter = {
@@ -31,6 +94,11 @@ struct CourseScheduleCalendarView: View {
     let showBorder: Bool
     let onSelect: (ScheduleCalendarEntry) -> Void
     let onSelectDay: (Date, Int) -> Void
+    let onSelectWeek: () -> Void
+    let onLongPressCourse: (ScheduleCalendarEntry) -> Void
+    let onPrepareCourseShare: (ScheduleCalendarEntry) -> Void
+    let onShareSchedule: () -> Void
+    let onImportSchedule: () -> Void
 
     var body: some View {
         GeometryReader { proxy in
@@ -64,16 +132,31 @@ struct CourseScheduleCalendarView: View {
 
                 VStack(spacing: 0) {
                     HStack(spacing: 0) {
-                        VStack(spacing: 1) {
-                            Text(displayMode == .allWeeks ? "全学期" : "\(week)")
+                        Group {
                             if displayMode == .weekly {
-                                Text("周")
+                                Button(action: onSelectWeek) {
+                                    VStack(spacing: 1) {
+                                        Text("\(week)")
+                                        Text("周")
+                                    }
+                                    .frame(width: leftWidth, height: headerHeight)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("选择周次")
+                            } else {
+                                Color.clear
                             }
                         }
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(displayMode == .weekly ? Color.accentColor : Color.primary)
                         .frame(width: leftWidth, height: headerHeight)
-                        .background(Color(.secondarySystemBackground))
+                        .background {
+                            if displayMode == .weekly {
+                                Color.accentColor.opacity(0.12)
+                            } else {
+                                Color(.secondarySystemBackground)
+                            }
+                        }
 
                         ForEach(Array(weekDates.enumerated()), id: \.offset) { index, date in
                             if displayMode == .allWeeks {
@@ -148,8 +231,20 @@ struct CourseScheduleCalendarView: View {
                         .offset(
                             x: leftWidth + dayWidth * CGFloat(index),
                             y: headerHeight + rowHeight * timeLineSection
-                        )
+                    )
                 }
+
+                VStack(spacing: 0) {
+                    Color.clear
+                        .frame(height: headerHeight)
+                        .allowsHitTesting(false)
+                    ScheduleBlankContextMenuView(
+                        onShare: onShareSchedule,
+                        onImport: onImportSchedule
+                    )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
 
                 ForEach(entries.filter { visibleWeekdays.contains($0.dayOfWeek) }) { entry in
                     ZStack(alignment: .topLeading) {
@@ -162,12 +257,23 @@ struct CourseScheduleCalendarView: View {
                                 .offset(y: rowHeight * (layer.startSection - entry.startSection) + 2)
                         }
 
-                        Button {
-                            onSelect(entry)
-                        } label: {
-                            CourseScheduleBlockView(entry: entry, showBorder: false, showsBackground: false)
-                        }
-                        .buttonStyle(.plain)
+                        CourseScheduleBlockView(entry: entry, showBorder: false, showsBackground: false)
+                            .contentShape(Rectangle())
+                            .onTapGesture { onSelect(entry) }
+                            .contextMenu {
+                                if entry.kind == .course {
+                                    Button("分享课程", systemImage: "square.and.arrow.up") {
+                                        onLongPressCourse(entry)
+                                    }
+                                }
+                            } preview: {
+                                if entry.kind == .course {
+                                    Color.clear
+                                        .frame(width: 1, height: 1)
+                                        .onAppear { onPrepareCourseShare(entry) }
+                                }
+                            }
+                            .accessibilityAddTraits(.isButton)
                         .frame(
                             width: max(dayWidth - 4, 1),
                             height: max(rowHeight * (entry.endSection - entry.startSection) - 4, 1)
@@ -182,6 +288,7 @@ struct CourseScheduleCalendarView: View {
                         y: headerHeight + rowHeight * entry.startSection + 2
                     )
                 }
+
             }
             .clipped()
             .background(Color(.systemBackground))
@@ -216,18 +323,13 @@ private struct CourseScheduleBlockView: View {
         VStack(spacing: 4) {
             Spacer(minLength: 0)
 
-            titleView
+            textStack(entry.title, minimumScaleFactor: 0.75)
 
             Spacer(minLength: 0)
 
-            Text(entry.subtitle)
-                .font(.caption2)
-                .multilineTextAlignment(.center)
-                .lineLimit(3)
-                .minimumScaleFactor(0.7)
-                .foregroundStyle(textColor)
+            textStack(entry.subtitle, minimumScaleFactor: 0.7)
         }
-        .padding(.horizontal, 4)
+        .padding(.horizontal, 2)
         .padding(.vertical, 5)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
@@ -240,6 +342,21 @@ private struct CourseScheduleBlockView: View {
             if showBorder, showsBackground {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(borderColor, lineWidth: 0.8)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func textStack(_ value: String, minimumScaleFactor: CGFloat) -> some View {
+        let groups = value.components(separatedBy: "\n\n")
+        VStack(spacing: groups.count > 1 ? 8 : 0) {
+            ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+                Text(group)
+                    .font(.caption2)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(nil)
+                    .minimumScaleFactor(minimumScaleFactor)
+                    .foregroundStyle(textColor)
             }
         }
     }
@@ -277,34 +394,6 @@ private struct CourseScheduleBlockView: View {
         }
     }
 
-    @ViewBuilder
-    private var titleView: some View {
-        let titles = entry.title.components(separatedBy: "\n")
-        if entry.kind == .course, titles.count > 1 {
-            VStack(spacing: 2) {
-                ForEach(Array(titles.enumerated()), id: \.offset) { index, title in
-                    Text(title)
-                        .font(.caption2)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.75)
-                        .foregroundStyle(textColor)
-                    if index < titles.count - 1 {
-                        Rectangle()
-                            .fill(textColor.opacity(0.35))
-                            .frame(height: 0.5)
-                    }
-                }
-            }
-        } else {
-            Text(entry.title)
-                .font(.caption2)
-                .multilineTextAlignment(.center)
-                .lineLimit(4)
-                .minimumScaleFactor(0.75)
-                .foregroundStyle(textColor)
-        }
-    }
 }
 
 private struct CourseScheduleBackgroundView: View {
@@ -375,6 +464,205 @@ struct CourseScheduleFABLabel: View {
             .frame(width: 42, height: 42)
             .background(.ultraThinMaterial, in: Circle())
             .contentShape(Circle())
+    }
+}
+
+/// 按周模式的横向周次选择器。
+struct ScheduleWeekPickerSheet: View {
+    let weeks: [Int]
+    let currentWeek: Int
+    let onSelectWeek: (Int) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedWeek: Int?
+
+    init(
+        weeks: [Int],
+        currentWeek: Int,
+        onSelectWeek: @escaping (Int) -> Void
+    ) {
+        self.weeks = weeks
+        self.currentWeek = currentWeek
+        self.onSelectWeek = onSelectWeek
+        _selectedWeek = State(initialValue: weeks.contains(currentWeek) ? currentWeek : weeks.first)
+    }
+
+    var body: some View {
+        VStack(spacing: 14) {
+            HStack {
+                Button("取消") { dismiss() }
+                Spacer()
+                Text("选择周次")
+                    .font(.headline)
+                Spacer()
+                Button("完成") {
+                    if let selectedWeek {
+                        onSelectWeek(selectedWeek)
+                    }
+                    dismiss()
+                }
+                .fontWeight(.semibold)
+            }
+
+            Text("第\(selectedWeek ?? currentWeek)周")
+                .font(.title3.weight(.semibold))
+
+            GeometryReader { proxy in
+                let itemWidth: CGFloat = 30
+                ScrollView(.horizontal) {
+                    LazyHStack(spacing: 8) {
+                        ForEach(weeks, id: \.self) { week in
+                            VStack(spacing: 4) {
+                                Text(isMajorWeek(week) ? "\(week)" : "")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(week == selectedWeek ? .primary : .secondary)
+                                    .frame(height: 16)
+                                Capsule()
+                                    .fill(week == selectedWeek ? Color.accentColor : Color.secondary.opacity(0.55))
+                                    .frame(width: week == selectedWeek ? 5 : 4, height: isMajorWeek(week) ? 42 : 28)
+                            }
+                            .frame(width: itemWidth, height: 70, alignment: .top)
+                            .contentShape(Rectangle())
+                            .id(week)
+                            .onTapGesture {
+                                withAnimation(.snappy) {
+                                    selectedWeek = week
+                                }
+                            }
+                        }
+                    }
+                    .scrollTargetLayout()
+                    .frame(minHeight: 70)
+                }
+                .scrollIndicators(.hidden)
+                .scrollTargetBehavior(.viewAligned)
+                .scrollPosition(id: $selectedWeek, anchor: .center)
+                .safeAreaPadding(.horizontal, max((proxy.size.width - itemWidth) / 2, 0))
+                .overlay {
+                    VStack(spacing: 0) {
+                        Image(systemName: "triangle.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.tint)
+                            .rotationEffect(.degrees(180))
+                        Rectangle()
+                            .fill(Color.accentColor)
+                            .frame(width: 2, height: 42)
+                    }
+                    .allowsHitTesting(false)
+                }
+            }
+            .frame(height: 78)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 14)
+        .presentationDetents([.height(210)])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func isMajorWeek(_ week: Int) -> Bool {
+        week == 1 || week % 5 == 0
+    }
+}
+
+/// 课程长按分享使用的系统分享面板。
+struct CourseActivityShareSheet: UIViewControllerRepresentable {
+    let url: URL
+    let subject: String
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(
+            activityItems: [CourseShareItemSource(url: url, subject: subject)],
+            applicationActivities: nil
+        )
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+}
+
+private final class CourseShareItemSource: NSObject, UIActivityItemSource {
+    let url: URL
+    let subject: String
+
+    init(url: URL, subject: String) {
+        self.url = url
+        self.subject = subject
+    }
+
+    func activityViewControllerPlaceholderItem(_ activityViewController: UIActivityViewController) -> Any {
+        url
+    }
+
+    func activityViewController(
+        _ activityViewController: UIActivityViewController,
+        itemForActivityType activityType: UIActivity.ActivityType?
+    ) -> Any? {
+        url
+    }
+
+    func activityViewController(
+        _ activityViewController: UIActivityViewController,
+        subjectForActivityType activityType: UIActivity.ActivityType?
+    ) -> String {
+        subject
+    }
+}
+
+/// 使用 UIKit 手势识别器保留真实长按坐标，不影响课程块原有的点击手势。
+private struct LongPressLocationDetector: UIViewRepresentable {
+    let onTap: (() -> Void)?
+    let onEnded: (CGPoint) -> Void
+
+    init(onTap: (() -> Void)? = nil, onEnded: @escaping (CGPoint) -> Void) {
+        self.onTap = onTap
+        self.onEnded = onEnded
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onEnded: onEnded)
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.backgroundColor = .clear
+        view.isUserInteractionEnabled = true
+        let longPress = UILongPressGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handle(_:))
+        )
+        longPress.minimumPressDuration = 0.5
+        longPress.cancelsTouchesInView = false
+        view.addGestureRecognizer(longPress)
+        if onTap != nil {
+            let tap = UITapGestureRecognizer(
+                target: context.coordinator,
+                action: #selector(Coordinator.handleTap(_:))
+            )
+            tap.require(toFail: longPress)
+            view.addGestureRecognizer(tap)
+        }
+        return view
+    }
+
+    func updateUIView(_ view: UIView, context: Context) {
+        context.coordinator.onEnded = onEnded
+        context.coordinator.onTap = onTap
+    }
+
+    final class Coordinator: NSObject {
+        var onTap: (() -> Void)?
+        var onEnded: (CGPoint) -> Void
+
+        init(onEnded: @escaping (CGPoint) -> Void) {
+            self.onEnded = onEnded
+        }
+
+        @objc func handle(_ recognizer: UILongPressGestureRecognizer) {
+            guard recognizer.state == .began else { return }
+            onEnded(recognizer.location(in: recognizer.view))
+        }
+
+        @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
+            onTap?()
+        }
     }
 }
 
@@ -459,10 +747,10 @@ struct ScheduleEntryDetailSheet: View {
     let isOverviewMode: Bool
     let allowsCustomScheduleMutation: Bool
     let onOpenAcademicCourse: (CourseNavigationRequest) -> Void
-    let onEditCourseOccurrence: () -> Void
-    let onEditCourse: () -> Void
-    let onDeleteCourseOccurrence: () -> Void
-    let onDeleteCourse: () -> Void
+    let onEditCourseOccurrence: (String) -> Void
+    let onEditCourse: (String) -> Void
+    let onDeleteCourseOccurrence: (String) -> Void
+    let onDeleteCourse: (String) -> Void
     let onEditCustomSchedule: () -> Void
     let onDeleteCustomSchedule: () -> Void
     @Environment(\.dismiss) private var dismiss
@@ -490,28 +778,6 @@ struct ScheduleEntryDetailSheet: View {
                             ForEach(entry.detailLines, id: \.self) { line in
                                 Text(line)
                             }
-                        }
-                    }
-                }
-
-                if entry.kind == .course, allowsCourseMutation, academicCourseGroups.count == 1 {
-                    Section {
-                        Button("调这节课") {
-                            dismiss()
-                            onEditCourseOccurrence()
-                        }
-                        Button("调这门课") {
-                            dismiss()
-                            onEditCourse()
-                        }
-                    }
-
-                    Section {
-                        Button("删除这节课", role: .destructive) {
-                            pendingCourseDeletion = .occurrence
-                        }
-                        Button("删除这门课", role: .destructive) {
-                            pendingCourseDeletion = .wholeCourse
                         }
                     }
                 }
@@ -552,9 +818,9 @@ struct ScheduleEntryDetailSheet: View {
                     primaryButton: .destructive(Text("删除")) {
                         switch target {
                         case .occurrence:
-                            onDeleteCourseOccurrence()
+                            onDeleteCourseOccurrence(target.courseID)
                         case .wholeCourse:
-                            onDeleteCourse()
+                            onDeleteCourse(target.courseID)
                         }
                     },
                     secondaryButton: .cancel(Text("取消"))
@@ -597,22 +863,28 @@ struct ScheduleEntryDetailSheet: View {
     }
 
     private enum PendingCourseDeletion: Identifiable {
-        case occurrence
-        case wholeCourse
+        case occurrence(courseID: String, courseName: String, week: Int)
+        case wholeCourse(courseID: String, courseName: String)
 
-        var id: Int {
+        var id: String {
             switch self {
-            case .occurrence: return 0
-            case .wholeCourse: return 1
+            case let .occurrence(courseID, _, _): return "occurrence-\(courseID)"
+            case let .wholeCourse(courseID, _): return "whole-\(courseID)"
+            }
+        }
+
+        var courseID: String {
+            switch self {
+            case let .occurrence(courseID, _, _), let .wholeCourse(courseID, _): return courseID
             }
         }
 
         func message(entry: ScheduleCalendarEntry, currentWeek: Int) -> String {
             switch self {
-            case .occurrence:
-                return "你要删除的是第\(currentWeek)周第\(Int(entry.startSection) + 1)到第\(Int(entry.endSection))节的一节课：\(entry.title)"
-            case .wholeCourse:
-                return "你要删除的是\(entry.title)这门课的本学期所有课程"
+            case let .occurrence(_, courseName, week):
+                return "你要删除的是第\(week)周的一节课：\(courseName)"
+            case let .wholeCourse(_, courseName):
+                return "你要删除的是\(courseName)这门课的本学期所有课程"
             }
         }
     }
@@ -633,7 +905,7 @@ struct ScheduleEntryDetailSheet: View {
             }
 
             Section("详情") {
-                ForEach(Array(detailLines(for: group).enumerated()), id: \.offset) { _, line in
+                ForEach(detailLines(for: group), id: \.self) { line in
                     Text(line)
                 }
             }
@@ -642,10 +914,42 @@ struct ScheduleEntryDetailSheet: View {
                 academicCourseRow(for: group)
             }
 
-            if index < academicCourseGroups.count - 1 {
+            if allowsCourseMutation {
                 Section {
-                    Divider()
+                    Button("调这节课") {
+                        dismiss()
+                        onEditCourseOccurrence(first.id)
+                    }
+                    Button("调这门课") {
+                        dismiss()
+                        onEditCourse(first.id)
+                    }
                 }
+
+                Section {
+                    Button("删除这节课", role: .destructive) {
+                        pendingCourseDeletion = .occurrence(
+                            courseID: first.id,
+                            courseName: ScheduleDisplayNormalizer.normalizeCourseTitle(first.name),
+                            week: mutationWeek(for: group)
+                        )
+                    }
+                    Button("删除这门课", role: .destructive) {
+                        pendingCourseDeletion = .wholeCourse(
+                            courseID: first.id,
+                            courseName: ScheduleDisplayNormalizer.normalizeCourseTitle(first.name)
+                        )
+                    }
+                }
+            }
+
+            if index < academicCourseGroups.count - 1 {
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.35))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 1)
+                    .listRowInsets(EdgeInsets(top: 12, leading: 0, bottom: 12, trailing: 0))
+                    .listRowBackground(Color.clear)
             }
         }
     }
@@ -710,6 +1014,11 @@ struct ScheduleEntryDetailSheet: View {
             "节次：\(sections.joined(separator: "\n"))",
             descriptions.isEmpty ? nil : descriptions.joined(separator: "\n"),
         ].compactMap { $0 }
+    }
+
+    private func mutationWeek(for group: [CourseRecord]) -> Int {
+        guard let course = group.first else { return currentWeek }
+        return course.weeks.contains(currentWeek) ? currentWeek : (course.weeks.first ?? currentWeek)
     }
 }
 

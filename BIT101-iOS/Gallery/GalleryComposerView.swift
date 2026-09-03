@@ -14,9 +14,10 @@ private struct GalleryCustomTagDraft: Identifiable, Equatable {
 ///
 /// Android 端的实现是“先上传得到服务端图片对象，再带 `mid` 发帖”。iOS 这里沿用同样的链路，
 /// 因此页面需要显式维护上传状态，而不是只记录一个本地 `UIImage`。
-private struct GalleryComposerImageDraft: Identifiable {
+struct GalleryComposerImageDraft: Identifiable {
     enum Status {
         case uploading
+        case prepared
         case uploaded(GalleryImage)
         case failed(String)
     }
@@ -39,7 +40,7 @@ private struct GalleryComposerImageDraft: Identifiable {
 /// - 上传中显示进度
 /// - 失败时允许重试
 /// - 任意状态都允许删除
-private struct GalleryComposerImageTile: View {
+struct GalleryComposerImageTile: View {
     let draft: GalleryComposerImageDraft
     let onRetry: () -> Void
     let onRemove: () -> Void
@@ -88,6 +89,16 @@ private struct GalleryComposerImageTile: View {
                     .tint(.white)
             }
             .frame(height: 28)
+        case .prepared:
+            HStack(spacing: 4) {
+                Image(systemName: "checkmark.circle.fill")
+                Text("已压缩")
+            }
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .background(.black.opacity(0.35))
         case .uploaded:
             HStack(spacing: 4) {
                 Image(systemName: "checkmark.circle.fill")

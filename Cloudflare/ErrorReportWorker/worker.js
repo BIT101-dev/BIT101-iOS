@@ -1,4 +1,6 @@
-const MAX_BODY_BYTES = 256 * 1024;
+const MAX_BODY_BYTES = 1024 * 1024;
+const MAX_ATTACHMENTS = 6;
+const MAX_ATTACHMENT_BYTES = 120 * 1024;
 const MAX_REPORTS_PER_DAY = 1000;
 
 const SECRET_KEYS = /password|passwd|pwd|cookie|authorization|token|session/i;
@@ -49,6 +51,20 @@ export default {
     let report;
     try { report = JSON.parse(body); } catch { return json({ error: "invalid_json" }, 400); }
     if (!report || typeof report !== "object") return json({ error: "invalid_report" }, 400);
+    if (Array.isArray(report.attachments)) {
+      if (report.attachments.length > MAX_ATTACHMENTS) {
+        return json({ error: "too_many_attachments" }, 413);
+      }
+      for (const attachment of report.attachments) {
+        if (!attachment || typeof attachment.data !== "string") {
+          return json({ error: "invalid_attachment" }, 400);
+        }
+        const bytes = Math.floor(attachment.data.length * 3 / 4);
+        if (bytes > MAX_ATTACHMENT_BYTES) {
+          return json({ error: "attachment_too_large" }, 413);
+        }
+      }
+    }
     report = forceRedact(report);
     const day = new Date().toISOString().slice(0, 10);
     const countKey = `count:${day}`;
@@ -57,6 +73,7 @@ export default {
     await env.ERROR_REPORTS.put(countKey, String(count + 1), { expirationTtl: 172800 });
     const id = crypto.randomUUID();
     const receivedAt = new Date().toISOString();
+    const category = report.mode === "suggestion" ? "用户建议" : "错误报告";
     await env.ERROR_REPORTS.put(
       `report:${receivedAt}:${id}`,
       JSON.stringify({ id, receivedAt, report }),
@@ -67,8 +84,8 @@ export default {
       ctx.waitUntil(env.REPORT_EMAIL.send({
         from: "error-report@aihelpme.dev",
         to: "idleassetsd@gmail.com",
-        subject: `BIT101 新错误报告（${report.appVersion || "未知版本"}）`,
-        text: `收到新的 BIT101 错误报告。\n\n报告编号：${id}\n接收时间：${receivedAt}\n\n邮件不包含报告正文，请在已登录的电脑上运行 Scripts/error-reports.sh 查看。`
+        subject: `BIT101 新${category}（${report.appVersion || "未知版本"}）`,
+        text: `收到新的 BIT101 ${category}。\n\n报告编号：${id}\n接收时间：${receivedAt}\n\n邮件不包含报告正文，请在已登录的电脑上运行 Scripts/error-reports.sh 查看。`
       }).catch(() => {}));
     }
     return json({ id }, 201);

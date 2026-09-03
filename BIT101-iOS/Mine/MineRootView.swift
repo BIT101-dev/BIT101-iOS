@@ -149,13 +149,10 @@ struct MineRootView: View {
                         .frame(width: 24, height: 24)
                         .foregroundStyle(.primary)
 
-                    VStack(alignment: .leading, spacing: 3) {
+                    VStack(alignment: .leading, spacing: 0) {
                         Text(route.title)
                             .font(.headline)
                             .foregroundStyle(.primary)
-                        Text(route.subtitle)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
                     }
 
                     Spacer()

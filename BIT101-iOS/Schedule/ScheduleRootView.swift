@@ -175,6 +175,17 @@ private struct ScheduleSectionTabs: View {
 ///
 /// 负责周视图课表、悬浮操作按钮、自定义日程编辑以及跳转到共享设置中心。
 private struct CourseScheduleTabView: View {
+    private struct ScheduleCodePresentation: Identifiable {
+        let id = UUID()
+        let code: String
+    }
+
+    private struct CourseSharePresentation: Identifiable {
+        let id = UUID()
+        let url: URL
+        let subject: String
+    }
+
     @ObservedObject var viewModel: ScheduleViewModel
     let resetSignal: Int
     let onOpenAcademicCourse: (CourseNavigationRequest) -> Void
@@ -192,6 +203,14 @@ private struct CourseScheduleTabView: View {
     @State private var isShowingSystemCalendarImportConfirmation = false
     @State private var isShowingSystemCalendarDeleteConfirmation = false
     @State private var isUpdatingSystemCalendar = false
+    @State private var isShowingWeekPicker = false
+    @State private var isShowingScheduleImport = false
+    @State private var exportedSchedule: ScheduleCodePresentation?
+    @State private var courseSharePresentation: CourseSharePresentation?
+    @State private var courseShareAlert: AppAlert?
+    @State private var isResolvingCourseShare = false
+    @State private var prefetchedCourseID: String?
+    @State private var prefetchedCourseResolution: ScheduleAcademicCourseResolution?
 
     private var activeSchedule: ScheduleViewModel.CourseScheduleVariant {
         viewModel.activeCourseSchedule
@@ -243,22 +262,33 @@ private struct CourseScheduleTabView: View {
                                 dayAdjustmentDraft = ScheduleDayAdjustmentDraft(
                                     targetDate: Calendar.current.date(byAdding: .day, value: 1, to: date) ?? date
                                 )
-                            }
+                            },
+                            onSelectWeek: {
+                                isShowingWeekPicker = true
+                            },
+                            onLongPressCourse: { entry in
+                                shareCourse(from: entry)
+                            },
+                            onPrepareCourseShare: { entry in
+                                prepareCourseShare(from: entry)
+                            },
+                            onShareSchedule: { exportScheduleCode() },
+                            onImportSchedule: { isShowingScheduleImport = true }
                         )
                         .padding(.horizontal, 12)
                         .padding(.top, 8)
                         .padding(.bottom, 10)
 
                         VStack(spacing: 10) {
-                            CourseScheduleFAB(systemImage: "chevron.up", accessibilityLabel: "上一周") {
-                                viewModel.previousWeek()
-                            }
-                            .disabled(viewModel.cache.scheduleDisplayMode == .allWeeks)
+                            if viewModel.cache.scheduleDisplayMode == .weekly {
+                                CourseScheduleFAB(systemImage: "chevron.up", accessibilityLabel: "上一周") {
+                                    viewModel.previousWeek()
+                                }
 
-                            CourseScheduleFAB(systemImage: "chevron.down", accessibilityLabel: "下一周") {
-                                viewModel.nextWeek()
+                                CourseScheduleFAB(systemImage: "chevron.down", accessibilityLabel: "下一周") {
+                                    viewModel.nextWeek()
+                                }
                             }
-                            .disabled(viewModel.cache.scheduleDisplayMode == .allWeeks)
 
                             if supportsEditingDisplayedSchedule {
                                 Menu {
@@ -343,8 +373,7 @@ private struct CourseScheduleTabView: View {
                 },
                 currentWeek: viewModel.selectedWeek,
                 timeTable: activeSchedule.timeTable,
-                allowsCourseMutation: supportsEditingDisplayedSchedule
-                    && viewModel.cache.scheduleDisplayMode == .weekly,
+                allowsCourseMutation: supportsEditingDisplayedSchedule,
                 isOverviewMode: supportsEditingDisplayedSchedule
                     && viewModel.cache.scheduleDisplayMode == .allWeeks,
                 allowsCustomScheduleMutation: supportsEditingDisplayedSchedule,
@@ -352,28 +381,35 @@ private struct CourseScheduleTabView: View {
                     selectedEntry = nil
                     onOpenAcademicCourse(request)
                 },
-                onEditCourseOccurrence: {
-                    guard let course = viewModel.cache.courses.first(where: { $0.id == entry.sourceID }) else { return }
+                onEditCourseOccurrence: { courseID in
+                    guard let course = activeSchedule.courses.first(where: { $0.id == courseID }) else { return }
+                    let week = course.weeks.contains(viewModel.selectedWeek)
+                        ? viewModel.selectedWeek
+                        : (course.weeks.first ?? viewModel.selectedWeek)
                     editingCourseID = course.id
-                    courseEditorMode = .editOccurrence(week: viewModel.selectedWeek)
-                    courseDraft = viewModel.courseDraft(for: course, week: viewModel.selectedWeek, editsOccurrenceOnly: true)
+                    courseEditorMode = .editOccurrence(week: week)
+                    courseDraft = viewModel.courseDraft(for: course, week: week, editsOccurrenceOnly: true)
                     selectedEntry = nil
                     isShowingCourseEditor = true
                 },
-                onEditCourse: {
-                    guard let course = viewModel.cache.courses.first(where: { $0.id == entry.sourceID }) else { return }
+                onEditCourse: { courseID in
+                    guard let course = activeSchedule.courses.first(where: { $0.id == courseID }) else { return }
                     editingCourseID = course.id
                     courseEditorMode = .editCourse(courseID: course.id)
                     courseDraft = viewModel.courseDraft(for: course, week: viewModel.selectedWeek, editsOccurrenceOnly: false)
                     selectedEntry = nil
                     isShowingCourseEditor = true
                 },
-                onDeleteCourseOccurrence: {
-                    viewModel.deleteCourseOccurrence(id: entry.sourceID, week: viewModel.selectedWeek)
+                onDeleteCourseOccurrence: { courseID in
+                    guard let course = activeSchedule.courses.first(where: { $0.id == courseID }) else { return }
+                    let week = course.weeks.contains(viewModel.selectedWeek)
+                        ? viewModel.selectedWeek
+                        : (course.weeks.first ?? viewModel.selectedWeek)
+                    viewModel.deleteCourseOccurrence(id: course.id, week: week)
                     selectedEntry = nil
                 },
-                onDeleteCourse: {
-                    viewModel.deleteCourse(id: entry.sourceID)
+                onDeleteCourse: { courseID in
+                    viewModel.deleteCourse(id: courseID)
                     selectedEntry = nil
                 },
                 onEditCustomSchedule: {
@@ -471,6 +507,27 @@ private struct CourseScheduleTabView: View {
                 }
             )
         }
+        .sheet(isPresented: $isShowingWeekPicker) {
+            ScheduleWeekPickerSheet(
+                weeks: weekPickerWeeks,
+                currentWeek: viewModel.selectedWeek,
+                onSelectWeek: { viewModel.selectedWeek = $0 }
+            )
+        }
+        .sheet(item: $courseSharePresentation) { presentation in
+            CourseActivityShareSheet(url: presentation.url, subject: presentation.subject)
+        }
+        .sheet(item: $exportedSchedule) { presentation in
+            ScheduleExportCodeSheet(code: presentation.code)
+        }
+        .sheet(isPresented: $isShowingScheduleImport) {
+            ScheduleImportCodeSheet(
+                initialText: "",
+                onImport: { text in
+                    try importScheduleCode(text)
+                }
+            )
+        }
         .sheet(item: $settingsRoute) { route in
             NavigationStack {
                 SettingsRootView(initialRoute: route, studentID: "", onLogout: {}, showsCloseButton: true)
@@ -492,6 +549,7 @@ private struct CourseScheduleTabView: View {
         } message: {
             Text("只删除带 BIT101 标记的事件，不会删除你自己创建的日程。")
         }
+        .diagnosticAlert(item: $courseShareAlert)
         .onChange(of: resetSignal) { _, _ in
             dismissPresentedSheets()
         }
@@ -506,9 +564,22 @@ private struct CourseScheduleTabView: View {
         settingsRoute = nil
         isShowingEditSchedule = false
         isShowingCourseEditor = false
+        isShowingWeekPicker = false
+        isShowingScheduleImport = false
+        exportedSchedule = nil
+        courseSharePresentation = nil
+        prefetchedCourseID = nil
+        prefetchedCourseResolution = nil
         editingCustomScheduleID = nil
         editingCourseID = nil
         selectedDayAdjustmentContext = nil
+    }
+
+    private var weekPickerWeeks: [Int] {
+        let courseWeeks = activeSchedule.courses.flatMap(\.weeks)
+        let lowerBound = min(-12, min(viewModel.selectedWeek, courseWeeks.min() ?? -12))
+        let upperBound = max(20, max(viewModel.selectedWeek, courseWeeks.max() ?? 20))
+        return Array(lowerBound ... upperBound).filter { $0 != 0 }
     }
 
     private func importCurrentTermToSystemCalendar() {
@@ -540,6 +611,86 @@ private struct CourseScheduleTabView: View {
                 viewModel.notice = ScheduleNotice(title: "删除失败", message: error.localizedDescription)
             }
             isUpdatingSystemCalendar = false
+        }
+    }
+
+    private func exportScheduleCode() {
+        guard !viewModel.cache.courses.isEmpty else {
+            viewModel.notice = ScheduleNotice(title: "无法分享课表", message: "你尚未获取课表。")
+            return
+        }
+
+        do {
+            exportedSchedule = ScheduleCodePresentation(
+                code: try ScheduleShareCodeCodec.encodeLatest(cache: viewModel.cache)
+            )
+        } catch {
+            viewModel.notice = ScheduleNotice(title: "导出失败", message: error.localizedDescription)
+        }
+    }
+
+    private func importScheduleCode(_ text: String) throws {
+        let payload = try ScheduleShareCodeCodec.decode(text, using: viewModel.cache)
+        try viewModel.importSharedSchedule(payload)
+        viewModel.notice = ScheduleNotice(title: "导入成功", message: "分享的课表已导入。考试、DDL 与自定义日程不会随导入覆盖。")
+    }
+
+    @MainActor
+    private func shareCourse(from entry: ScheduleCalendarEntry) {
+        guard !isResolvingCourseShare else { return }
+        guard let sourceID = entry.resolvedSourceIDs.first,
+              let course = activeSchedule.courses.first(where: { $0.id == sourceID })
+        else {
+            courseShareAlert = AppAlert(title: "没有找到此课程", message: "课表中的课程记录已不存在。")
+            return
+        }
+
+        let prefetchedResolution = prefetchedCourseID == sourceID ? prefetchedCourseResolution : nil
+        isResolvingCourseShare = true
+        Task { @MainActor in
+            defer { isResolvingCourseShare = false }
+            do {
+                let resolution: ScheduleAcademicCourseResolution?
+                if let prefetchedResolution {
+                    resolution = prefetchedResolution
+                } else {
+                    resolution = try await ScheduleAcademicCourseResolver().resolve(course)
+                }
+                guard let resolution else {
+                    courseShareAlert = AppAlert(
+                        title: "没有找到此课程",
+                        message: "“\(course.name)”暂未收录在学业课程中。"
+                    )
+                    return
+                }
+                guard let url = URL(string: "https://open.aihelpme.dev/course/\(resolution.selectedCourse.id)") else {
+                    courseShareAlert = AppAlert(title: "分享失败", message: "课程分享链接无效。")
+                    return
+                }
+                courseSharePresentation = CourseSharePresentation(
+                    url: url,
+                    subject: resolution.selectedCourse.name
+                )
+            } catch {
+                courseShareAlert = AppAlert(title: "查找课程失败", message: error.localizedDescription)
+            }
+        }
+    }
+
+    @MainActor
+    private func prepareCourseShare(from entry: ScheduleCalendarEntry) {
+        guard let sourceID = entry.resolvedSourceIDs.first,
+              let course = activeSchedule.courses.first(where: { $0.id == sourceID })
+        else { return }
+        guard prefetchedCourseID != sourceID else { return }
+
+        prefetchedCourseID = sourceID
+        prefetchedCourseResolution = nil
+        Task { @MainActor in
+            guard let resolution = try? await ScheduleAcademicCourseResolver().resolve(course),
+                  prefetchedCourseID == sourceID
+            else { return }
+            prefetchedCourseResolution = resolution
         }
     }
 
@@ -740,15 +891,34 @@ private struct CourseScheduleTabView: View {
             }
         }
 
-        var seenCourseIdentities = Set<String>()
-        let title = courses.compactMap { course -> String? in
-            guard seenCourseIdentities.insert(scheduleCourseIdentity(course)).inserted else { return nil }
-            return normalizeDisplayedCourseTitle(course.name)
-        }.joined(separator: "\n")
-        let subtitle = [
-            compactWeekText(courses.flatMap(\.weeks)),
-        ].compactMap { $0 }.joined(separator: "\n")
-        let detailLines = courses.flatMap { course -> [String] in
+        var courseGroups: [[CourseRecord]] = []
+        for course in courses {
+            if let index = courseGroups.firstIndex(where: {
+                scheduleCourseIdentity($0[0]) == scheduleCourseIdentity(course)
+            }) {
+                courseGroups[index].append(course)
+            } else {
+                courseGroups.append([course])
+            }
+        }
+
+        let orderedCourseGroups = courseGroups.sorted { lhs, rhs in
+            let lhsCenter = courseGroupCenter(lhs)
+            let rhsCenter = courseGroupCenter(rhs)
+            if lhsCenter == rhsCenter {
+                return lhs[0].name.localizedStandardCompare(rhs[0].name) == .orderedAscending
+            }
+            return lhsCenter < rhsCenter
+        }
+        let orderedCourses = orderedCourseGroups.flatMap { $0 }
+
+        let title = orderedCourseGroups
+            .map { normalizeDisplayedCourseTitle($0[0].name) }
+            .joined(separator: "\n\n")
+        let subtitle = orderedCourseGroups
+            .compactMap { compactWeekText($0.flatMap(\.weeks)) }
+            .joined(separator: "\n\n")
+        let detailLines = orderedCourses.flatMap { course -> [String] in
             let weekText = compactWeekText(course.weeks) ?? "未知周次"
             return [
                 "课程：\(normalizeDisplayedCourseTitle(course.name))（\(weekText)）",
@@ -762,7 +932,7 @@ private struct CourseScheduleTabView: View {
         return ScheduleCalendarEntry(
             id: "course-overview-\(entries[0].dayOfWeek)-\(entries[0].startSection)-\(entries.map(\.id).joined(separator: ","))",
             sourceID: courses.first?.id ?? entries[0].sourceID,
-            sourceIDs: courses.map(\.id),
+            sourceIDs: orderedCourses.map(\.id),
             dayOfWeek: entries[0].dayOfWeek,
             startSection: entries.map(\.startSection).min() ?? entries[0].startSection,
             endSection: entries.map(\.endSection).max() ?? entries[0].endSection,
@@ -777,6 +947,12 @@ private struct CourseScheduleTabView: View {
     private func unique(_ values: [String]) -> [String] {
         var seen = Set<String>()
         return values.filter { seen.insert($0).inserted }
+    }
+
+    private func courseGroupCenter(_ group: [CourseRecord]) -> CGFloat {
+        guard !group.isEmpty else { return 0 }
+        let centers = group.map { CGFloat($0.startSection - 1 + $0.endSection) / 2 }
+        return centers.reduce(0, +) / CGFloat(centers.count)
     }
 
     private func compactWeekText(_ weeks: [Int]) -> String? {

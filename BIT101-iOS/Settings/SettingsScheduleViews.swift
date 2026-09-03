@@ -525,7 +525,7 @@ private struct CourseLiveActivityLeadMinutesPickerPage: View {
 /// 导出的课表压缩编码预览页。
 ///
 /// 这里先让用户看见完整编码，再决定是否复制，方便后续用在聊天、iMessage 或手动导入场景。
-private struct ScheduleExportCodeSheet: View {
+struct ScheduleExportCodeSheet: View {
     let code: String
 
     @Environment(\.dismiss) private var dismiss
@@ -579,7 +579,7 @@ private struct ScheduleExportCodeSheet: View {
 /// 这里支持两种动作：
 /// - 手动粘贴/编辑编码
 /// - 一键从剪贴板读取
-private struct ScheduleImportCodeSheet: View {
+struct ScheduleImportCodeSheet: View {
     let initialText: String
     let onImport: (String) throws -> Void
 

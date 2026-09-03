@@ -137,6 +137,23 @@ private struct ErrorReportPayload: Encodable {
     let diagnostics: [NetworkDiagnosticRecord]
 }
 
+/// 错误报告与开发者建议共用的反馈提交入口。
+struct FeedbackSubmissionClient {
+    static func submit<Payload: Encodable>(_ payload: Payload) async throws {
+        var request = URLRequest(url: URL(string: "https://feedback.aihelpme.dev/api/error-reports")!)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 20
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        request.httpBody = try encoder.encode(payload)
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 201 else {
+            throw URLError(.badServerResponse)
+        }
+    }
+}
+
 @MainActor
 final class ErrorReportViewModel: ObservableObject {
     enum Mode: String, CaseIterable, Identifiable {
@@ -185,17 +202,7 @@ final class ErrorReportViewModel: ObservableObject {
             diagnostics: selected
         )
         do {
-            var request = URLRequest(url: URL(string: "https://feedback.aihelpme.dev/api/error-reports")!)
-            request.httpMethod = "POST"
-            request.timeoutInterval = 20
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            request.httpBody = try encoder.encode(payload)
-            let (_, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 201 else {
-                throw URLError(.badServerResponse)
-            }
+            try await FeedbackSubmissionClient.submit(payload)
             resultMessage = "错误信息已提交，感谢你的帮助。"
             return true
         } catch {

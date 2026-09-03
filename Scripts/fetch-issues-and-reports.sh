@@ -75,6 +75,7 @@ fi
 
 python3 - "$OUTPUT_DIR/error-report-keys.json" "$STAGING_DIR" "$WORKER_DIR" "$NAMESPACE_ID" "$OUTPUT_DIR/report-keys.txt" "$SKIP_KEYS_FILE" <<'PY'
 import json
+import base64
 import pathlib
 import subprocess
 import sys
@@ -96,7 +97,6 @@ keys_output.write_text("\n".join(keys) + ("\n" if keys else ""), encoding="utf-8
 
 for key in keys:
     filename = key.replace(":", "_") + ".json"
-    destination = staging_dir / filename
     result = subprocess.run(
         [
             "npx", "wrangler", "kv", "key", "get", key,
@@ -110,7 +110,40 @@ for key in keys:
     if result.returncode:
         print(f"读取报告失败：{key}", file=sys.stderr)
         sys.exit(result.returncode or 1)
-    destination.write_text(result.stdout, encoding="utf-8")
+    try:
+        item = json.loads(result.stdout)
+        report = item.get("report", {})
+    except json.JSONDecodeError:
+        item = {}
+        report = {}
+    category = "用户建议" if report.get("mode") == "suggestion" else "错误报告"
+    category_dir = staging_dir / category
+    category_dir.mkdir(parents=True, exist_ok=True)
+    attachments = report.get("attachments", [])
+    if isinstance(attachments, list) and attachments:
+        attachment_dir = category_dir / f"{pathlib.Path(filename).stem}_附件"
+        attachment_dir.mkdir(parents=True, exist_ok=True)
+        downloaded_attachments = []
+        for index, attachment in enumerate(attachments, 1):
+            if not isinstance(attachment, dict) or not isinstance(attachment.get("data"), str):
+                continue
+            try:
+                data = base64.b64decode(attachment["data"], validate=True)
+            except (ValueError, base64.binascii.Error):
+                continue
+            content_type = attachment.get("contentType", "image/jpeg")
+            extension = {"image/jpeg": ".jpg", "image/png": ".png", "image/heic": ".heic"}.get(content_type, ".bin")
+            (attachment_dir / f"图片-{index:02d}{extension}").write_bytes(data)
+            downloaded_attachments.append(
+                {key: value for key, value in attachment.items() if key != "data"} | {"bytes": len(data)}
+            )
+        report["attachments"] = downloaded_attachments
+        item["report"] = report
+        result_text = json.dumps(item, ensure_ascii=False, indent=2)
+    else:
+        result_text = result.stdout
+    destination = category_dir / filename
+    destination.write_text(result_text, encoding="utf-8")
 PY
 
 REPORT_COUNT="$(find "$STAGING_DIR" -type f -name '*.json' | wc -l | tr -d ' ')"
@@ -145,37 +178,41 @@ report_dir = pathlib.Path(sys.argv[2])
 new_report_count = int(sys.argv[4])
 previous_dir = pathlib.Path(sys.argv[5])
 older_dir = pathlib.Path(sys.argv[6])
-reports = []
-if report_dir.exists():
-    for path in sorted(report_dir.glob("*.json"), reverse=True):
+
+def category_counts(folder):
+    counts = {"错误报告": 0, "用户建议": 0}
+    if not folder.exists():
+        return counts
+    for path in folder.rglob("*.json"):
         try:
-            item = json.loads(path.read_text(encoding="utf-8"))
-            report = item.get("report", {})
-            reports.append((
-                item.get("receivedAt", "未知时间"),
-                report.get("appVersion", "未知版本"),
-                report.get("build", "未知 Build"),
-                report.get("mode", "未知模式"),
-                report.get("errorTitle", "未知错误"),
-                path.name,
-            ))
+            report = json.loads(path.read_text(encoding="utf-8")).get("report", {})
         except (OSError, json.JSONDecodeError):
             continue
+        category = "用户建议" if report.get("mode") == "suggestion" else "错误报告"
+        counts[category] += 1
+    return counts
 
 lines = [f"GitHub Issues：{len(issues)}"]
 for issue in issues:
     lines.append(f"  #{issue['number']} [{issue['state']}] {issue['title']}  {issue['url']}")
 lines.append("")
-previous_count = len(list(previous_dir.glob("*.json"))) if previous_dir.exists() else 0
-older_count = len(list(older_dir.glob("*.json"))) if older_dir.exists() else 0
-lines.append(f"Cloudflare 错误报告：本次新增 {new_report_count} 条")
-lines.append(f"上次批次：{previous_count} 条")
-lines.append(f"上上次批次：{older_count} 条")
-lines.append("")
-lines.append("本次新增报告详情：" if new_report_count else "最近一次报告详情（本次无新增）：")
-for received_at, version, build, mode, title, filename in reports:
-    lines.append(f"  {received_at}  {version} ({build})  {mode}  {title}")
-    lines.append(f"    文件：本次/{filename}")
+previous_count = len(list(previous_dir.rglob("*.json"))) if previous_dir.exists() else 0
+older_count = len(list(older_dir.rglob("*.json"))) if older_dir.exists() else 0
+current_counts = category_counts(report_dir)
+previous_counts = category_counts(previous_dir)
+older_counts = category_counts(older_dir)
+lines.append(
+    f"Cloudflare 报告：本次新增 {new_report_count} 条"
+    f"（错误报告 {current_counts['错误报告']}，用户建议 {current_counts['用户建议']}）"
+)
+lines.append(
+    f"上次批次：{previous_count} 条"
+    f"（错误报告 {previous_counts['错误报告']}，用户建议 {previous_counts['用户建议']}）"
+)
+lines.append(
+    f"上上次批次：{older_count} 条"
+    f"（错误报告 {older_counts['错误报告']}，用户建议 {older_counts['用户建议']}）"
+)
 
 pathlib.Path(sys.argv[3]).write_text("\n".join(lines) + "\n", encoding="utf-8")
 print(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"), end="")
