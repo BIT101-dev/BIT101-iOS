@@ -374,7 +374,6 @@ private struct MineProfileCard: View {
 
             Text(info.user.motto.isEmpty ? "空简介" : info.user.motto)
                 .font(.body)
-                .frame(maxWidth: .infinity, alignment: .leading)
 
             Spacer().frame(height: 10)
 
@@ -383,9 +382,7 @@ private struct MineProfileCard: View {
                 MineStatButton(number: "\(info.followingNum)", title: "关注", action: onOpenFollowings)
                 MineStatButton(number: posterCountText, title: "帖子", action: onOpenPosters)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity)
         .padding(.top, 10)
     }
 
