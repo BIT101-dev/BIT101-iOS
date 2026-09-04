@@ -71,17 +71,8 @@ struct FreeClassroomTabView: View {
 
             if viewModel.classroomAvailabilities.isEmpty, shouldShowClassroomLoadingState {
                 Section {
-                    ContentUnavailableView {
-                        VStack(spacing: 12) {
-                            ProgressView()
-                                .controlSize(.regular)
-                            Text(classroomLoadingText)
-                                .font(.headline)
-                        }
-                    } description: {
-                        Text("请稍候")
-                    }
-                    .frame(maxWidth: .infinity)
+                    AppInlineLoadingState(classroomLoadingText)
+                        .frame(maxWidth: .infinity)
                 }
             } else if viewModel.classroomAvailabilities.isEmpty {
                 Section {

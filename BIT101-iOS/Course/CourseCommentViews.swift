@@ -21,22 +21,11 @@ struct CourseCommentsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Comment.sectionSpacing) {
-            HStack {
-                Text("评论")
-                    .font(.headline)
-
-                Text("\(totalCommentCount)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-            }
+            AppCommentSectionHeader(count: totalCommentCount) { EmptyView() }
 
             switch status {
             case .idle where comments.isEmpty, .loading where comments.isEmpty:
-                ProgressView("正在加载评论")
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, AppDesignSystem.Comment.progressVerticalPadding)
+                AppInlineLoadingState("正在加载评论")
 
             case let .failed(message) where comments.isEmpty:
                 AppFailureState(
@@ -76,12 +65,7 @@ struct CourseCommentsSection: View {
                         }
 
                         if isLoadingMore {
-                            HStack {
-                                Spacer()
-                                ProgressView()
-                                Spacer()
-                            }
-                            .padding(.vertical, AppDesignSystem.Spacing.content)
+                            AppInlineLoadingState()
                         }
                     }
                     .appCommentSectionStyle()
@@ -106,25 +90,8 @@ private struct CourseCommentRow: View {
     let onOpenUser: (GalleryUser) -> Void
 
     var body: some View {
-        AppCommentRowContainer {
-            commentBubble(comment, isSubComment: false)
-
-            if !comment.sub.isEmpty {
-                VStack(spacing: 0) {
-                    ForEach(Array(comment.sub.enumerated()), id: \.element.id) { index, subComment in
-                        VStack(spacing: 0) {
-                            commentBubble(subComment, isSubComment: true)
-
-                            if index != comment.sub.count - 1 {
-                                Divider()
-                                    .padding(.leading, AppDesignSystem.Comment.subCommentIndent)
-                            }
-                        }
-                    }
-                }
-                .padding(.leading, AppDesignSystem.Comment.subCommentIndent)
-                .padding(.top, AppDesignSystem.Comment.subCommentTopPadding)
-            }
+        AppCommentThread(comment: comment, subcomments: comment.sub) { comment, isSubComment in
+            commentBubble(comment, isSubComment: isSubComment)
         }
     }
     @ViewBuilder
@@ -140,7 +107,7 @@ private struct CourseCommentRow: View {
             AppCommentIdentityHeader(
                 nickname: comment.user.nickname,
                 isSubComment: isSubComment,
-                timeText: CourseCommentDateDecoder.relativeText(from: comment.createTime, fallback: "未知时间"),
+                timeText: AppDateText.relativeText(from: comment.createTime, fallback: "未知时间"),
                 onOpenProfile: canOpenUserProfile(comment) ? { onOpenUser(comment.user) } : nil
             )
 
@@ -345,45 +312,5 @@ struct CourseCommentComposerSheet: View {
     private func setRating(for value: Int, isHalf: Bool) {
         let nextRating = value * 2 - (isHalf ? 1 : 0)
         rating = rating == nextRating ? 0 : nextRating
-    }
-}
-
-/// 课程评论时间解析器。
-///
-/// 评论接口历史上出现过多种日期格式，这里集中兼容，避免视图层自己兜底解析。
-private enum CourseCommentDateDecoder {
-    private static let formatters: [DateFormatter] = [
-        makeFormatter("yyyy-MM-dd HH:mm:ss"),
-        makeFormatter("yyyy-MM-dd'T'HH:mm:ss.SSSZ"),
-        makeFormatter("yyyy-MM-dd'T'HH:mm:ssZ"),
-    ]
-
-    private static let iso8601Formatter = ISO8601DateFormatter()
-    private static let relativeFormatter = RelativeDateTimeFormatter()
-
-    static func date(from string: String) -> Date? {
-        for formatter in formatters {
-            if let date = formatter.date(from: string) {
-                return date
-            }
-        }
-
-        return iso8601Formatter.date(from: string)
-    }
-
-    static func relativeText(from string: String, fallback: String) -> String {
-        guard let date = date(from: string) else {
-            return fallback
-        }
-
-        return relativeFormatter.localizedString(for: date, relativeTo: Date())
-    }
-
-    private static func makeFormatter(_ format: String) -> DateFormatter {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 8 * 3600)
-        formatter.dateFormat = format
-        return formatter
     }
 }

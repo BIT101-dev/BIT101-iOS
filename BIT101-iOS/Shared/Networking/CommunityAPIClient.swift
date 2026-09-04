@@ -26,7 +26,7 @@ struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
     init(
         storage: LoginStorage = .shared,
         httpClient: HTTPClient = .community,
-        baseURL: URL = URL(string: "https://bit101.flwfdd.xyz")!,
+        baseURL: URL = AppURL.required("https://bit101.flwfdd.xyz"),
         errorDomain: String
     ) {
         fakeCookieProvider = { storage.fakeCookie }
@@ -185,11 +185,11 @@ enum MultipartFormData {
     static func jpegFile(data: Data, filename: String, fieldName: String = "file") -> (body: Data, contentType: String) {
         let boundary = "Boundary-\(UUID().uuidString)"
         var body = Data()
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"\(fieldName)\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+        body.append(Data("--\(boundary)\r\n".utf8))
+        body.append(Data("Content-Disposition: form-data; name=\"\(fieldName)\"; filename=\"\(filename)\"\r\n".utf8))
+        body.append(Data("Content-Type: image/jpeg\r\n\r\n".utf8))
         body.append(data)
-        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
         return (body, "multipart/form-data; boundary=\(boundary)")
     }
 }

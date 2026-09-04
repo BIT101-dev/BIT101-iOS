@@ -55,7 +55,7 @@ final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     }
 
     func testUnpublishedScheduleResponsePreservesSchoolMessage() throws {
-        let data = #"{"datas":{"cxxszhxqkb":{"extParams":{"code":3,"msg":"此学年学期的课表未发布"},"rows":[]}}}"#.data(using: .utf8)!
+        let data = Data(#"{"datas":{"cxxszhxqkb":{"extParams":{"code":3,"msg":"此学年学期的课表未发布"},"rows":[]}}}"#.utf8)
         let response = try JSONDecoder().decode(CourseResponse.self, from: data)
         XCTAssertTrue(response.datas.cxxszhxqkb.rows.isEmpty)
         XCTAssertEqual(response.datas.cxxszhxqkb.extParams?.code, 3)
@@ -75,8 +75,8 @@ final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     }
 
     func testSchoolBusinessInspectorDoesNotRejectSuccessfulOrLegitimateEmptyResponses() {
-        let success = #"{"datas":{"rows":[]},"code":"0"}"#.data(using: .utf8)!
-        let nestedSuccess = #"{"datas":{"rows":[],"extParams":{"code":1}},"code":"0"}"#.data(using: .utf8)!
+        let success = Data(#"{"datas":{"rows":[]},"code":"0"}"#.utf8)
+        let nestedSuccess = Data(#"{"datas":{"rows":[],"extParams":{"code":1}},"code":"0"}"#.utf8)
         XCTAssertNil(ScheduleService.schoolBusinessErrorMessage(from: success))
         XCTAssertNil(ScheduleService.schoolBusinessErrorMessage(from: nestedSuccess))
     }

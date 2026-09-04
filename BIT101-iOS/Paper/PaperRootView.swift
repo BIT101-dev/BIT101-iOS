@@ -40,33 +40,31 @@ struct PaperRootView: View {
                 LazyVStack(spacing: 0) {
                     switch viewModel.state.status {
                     case .idle where viewModel.state.items.isEmpty:
-                        ProgressView("正在加载文章")
-                            .frame(maxWidth: .infinity)
-                            .padding(.top, 48)
+                        AppInlineLoadingState("正在加载文章")
                     case .loading where viewModel.state.items.isEmpty:
-                        ProgressView("正在加载文章")
-                            .frame(maxWidth: .infinity)
-                            .padding(.top, 48)
+                        AppInlineLoadingState("正在加载文章")
                     case let .failed(message) where viewModel.state.items.isEmpty:
-                        AppFailureState(
-                            title: "加载文章失败",
-                            systemImage: "doc.text.magnifyingglass",
-                            message: message,
-                            onRetry: {
-                                Task {
-                                    await viewModel.refresh()
+                        AppScrollStateContainer {
+                            AppFailureState(
+                                title: "加载文章失败",
+                                systemImage: "doc.text.magnifyingglass",
+                                message: message,
+                                onRetry: {
+                                    Task {
+                                        await viewModel.refresh()
+                                    }
                                 }
-                            }
-                        )
-                        .padding(.top, 48)
+                            )
+                        }
                     default:
                         if visiblePapers.isEmpty {
-                            AppEmptyState(
-                                title: "暂无文章",
-                                systemImage: "doc.text",
-                                message: "还没有可展示的文章。"
-                            )
-                            .padding(.top, 48)
+                            AppScrollStateContainer {
+                                AppEmptyState(
+                                    title: "暂无文章",
+                                    systemImage: "doc.text",
+                                    message: "还没有可展示的文章。"
+                                )
+                            }
                         } else {
                             ForEach(Array(visiblePapers.enumerated()), id: \.element.id) { index, paper in
                                 AppFeedRow(isLast: index == visiblePapers.count - 1) {
@@ -85,8 +83,7 @@ struct PaperRootView: View {
                             }
 
                             if viewModel.state.isLoadingMore {
-                                ProgressView("正在加载更多")
-                                    .padding(.vertical, 12)
+                                AppInlineLoadingState("正在加载更多")
                             }
                         }
                 }
@@ -99,11 +96,11 @@ struct PaperRootView: View {
             .simultaneousGesture(sortSwitchGesture)
 
             AppFloatingActionStack {
-                PaperFloatingActionButton(systemImage: "square.and.pencil", accessibilityLabel: "发布文章") {
+                AppFloatingActionButton(systemImage: "square.and.pencil", accessibilityLabel: "发布文章") {
                     isShowingComposer = true
                 }
 
-                PaperFloatingActionButton(systemImage: "magnifyingglass", accessibilityLabel: "搜索文章") {
+                AppFloatingActionButton(systemImage: "magnifyingglass", accessibilityLabel: "搜索文章") {
                     isShowingSearch = true
                 }
             }

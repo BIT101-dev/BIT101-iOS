@@ -17,7 +17,7 @@ struct AppUpdateCheckerTests {
             endpointURL: { endpoint },
             loadData: { request in
                 #expect(request.timeoutInterval == 5)
-                return try Self.emergencyResponse(for: request.url!, maximumBuild: 32)
+                return try Self.emergencyResponse(for: try #require(request.url), maximumBuild: 32)
             }
         )
 
@@ -39,7 +39,7 @@ struct AppUpdateCheckerTests {
             defaults: context.defaults,
             now: { context.now },
             installedVersion: { "1.7.0" },
-            loadData: { request in try Self.lookupResponse(for: request.url!) }
+            loadData: { request in try Self.lookupResponse(for: try #require(request.url)) }
         )
         let emergencyChecker = EmergencyUpdateChecker(
             defaults: context.defaults,
@@ -47,7 +47,7 @@ struct AppUpdateCheckerTests {
             installedBuild: { 31 },
             endpointURL: { endpoint },
             loadData: { request in
-                try Self.emergencyResponse(for: request.url!, maximumBuild: 31)
+                try Self.emergencyResponse(for: try #require(request.url), maximumBuild: 31)
             }
         )
         let coordinator = AppUpdatePromptCoordinator(
@@ -76,7 +76,7 @@ struct AppUpdateCheckerTests {
             installedBuild: { 33 },
             endpointURL: { endpoint },
             loadData: { request in
-                try Self.emergencyResponse(for: request.url!, maximumBuild: 32)
+                try Self.emergencyResponse(for: try #require(request.url), maximumBuild: 32)
             }
         )
         #expect(await checker.noticeToPresentAtLaunch() == nil)
@@ -148,7 +148,7 @@ struct AppUpdateCheckerTests {
                 #expect(request.url?.host == "itunes.apple.com")
                 #expect(request.url?.query?.contains("requestTime=") == true)
                 #expect(request.value(forHTTPHeaderField: "Cache-Control") == "no-cache")
-                return try Self.lookupResponse(for: request.url!)
+                return try Self.lookupResponse(for: try #require(request.url))
             }
         )
 
@@ -173,7 +173,7 @@ struct AppUpdateCheckerTests {
             installedVersion: { "1.7.0" },
             loadData: { request in
                 requestCount += 1
-                return try Self.lookupResponse(for: request.url!)
+                return try Self.lookupResponse(for: try #require(request.url))
             }
         )
 
@@ -198,7 +198,7 @@ struct AppUpdateCheckerTests {
             now: { context.now },
             installedVersion: { "1.7.0" },
             loadData: { request in
-                try Self.lookupResponse(for: request.url!, version: storeVersion)
+                try Self.lookupResponse(for: try #require(request.url), version: storeVersion)
             }
         )
 

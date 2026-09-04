@@ -111,8 +111,7 @@ private struct ScoreListPage: View {
         Group {
             switch viewModel.state {
             case .idle, .loading:
-                ProgressView("正在查询成绩")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                AppLoadingState(title: "正在查询成绩")
                     .background(AppDesignSystem.Palette.groupedBackground)
             case let .failed(message):
                 AppFailureState(
@@ -259,10 +258,11 @@ private struct ScoreListPage: View {
                 }
             )
         ) { challenge in
-            ScoreSMSVerificationSheet(
+            AppSMSVerificationSheet(
                 challenge: challenge,
                 isSubmitting: viewModel.isSubmittingSMSCode,
                 errorMessage: viewModel.smsVerificationError,
+                submitTitle: "验证并查询成绩",
                 onCancel: viewModel.dismissSMSChallenge,
                 onSubmit: { code in
                     await viewModel.submitSMSCode(code)
@@ -308,8 +308,7 @@ private struct TrustedTranscriptPage: View {
         Group {
             switch viewModel.state {
             case .idle, .loading:
-                ProgressView("正在向学校申请可信成绩单")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                AppLoadingState(title: "正在向学校申请可信成绩单")
             case let .failed(message):
                 AppFailureState(
                     title: "申请失败",
@@ -362,7 +361,7 @@ private struct TrustedTranscriptPage: View {
                 }
             )
         ) { challenge in
-            ScoreSMSVerificationSheet(
+            AppSMSVerificationSheet(
                 challenge: challenge,
                 isSubmitting: viewModel.isSubmittingSMSCode,
                 errorMessage: viewModel.smsVerificationError,
@@ -373,94 +372,6 @@ private struct TrustedTranscriptPage: View {
                 }
             )
         }
-    }
-}
-
-/// 成绩页的原生短信验证码面板。
-///
-/// `.textContentType(.oneTimeCode)` 会让 iOS 从“来自信息”的验证码建议中自动填入，
-/// 同时保留数字键盘供用户手动输入。
-private struct ScoreSMSVerificationSheet: View {
-    let challenge: BITLoginAuthenticationChallenge
-    let isSubmitting: Bool
-    let errorMessage: String?
-    var submitTitle = "验证并查询成绩"
-    let onCancel: () -> Void
-    let onSubmit: (String) async -> Void
-
-    @State private var code = ""
-    @FocusState private var isCodeFieldFocused: Bool
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("短信验证码", text: $code)
-                        .keyboardType(.numberPad)
-                        .textContentType(.oneTimeCode)
-                        .multilineTextAlignment(.center)
-                        .font(.title2.monospacedDigit())
-                        .focused($isCodeFieldFocused)
-                        .disabled(isSubmitting)
-                        .onChange(of: code) { _, newValue in
-                            let digits = String(newValue.filter(\.isNumber).prefix(8))
-                            if digits != newValue {
-                                code = digits
-                            }
-                        }
-                } header: {
-                    Text("输入验证码")
-                } footer: {
-                    Text(verificationHint)
-                }
-
-                if let errorMessage, !errorMessage.isEmpty {
-                    Section {
-                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(AppDesignSystem.Palette.danger)
-                    }
-                }
-
-                Section {
-                    Button {
-                        Task { await onSubmit(code) }
-                    } label: {
-                        HStack {
-                            Spacer()
-                            if isSubmitting {
-                                ProgressView()
-                                    .padding(.trailing, 6)
-                                Text("正在验证")
-                            } else {
-                                Text(submitTitle)
-                            }
-                            Spacer()
-                        }
-                    }
-                    .disabled(isSubmitting || !(4 ... 8).contains(code.count))
-                }
-            }
-            .navigationTitle("短信验证")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消", action: onCancel)
-                        .disabled(isSubmitting)
-                }
-            }
-            .interactiveDismissDisabled(isSubmitting)
-            .onAppear {
-                isCodeFieldFocused = true
-            }
-        }
-        .presentationDetents([.medium])
-    }
-
-    private var verificationHint: String {
-        if let maskedPhone = challenge.maskedPhone, !maskedPhone.isEmpty {
-            return "学校统一身份认证要求二次验证，验证码已发送至 \(maskedPhone)。可点击键盘上方建议自动填充。"
-        }
-        return "学校统一身份认证要求二次验证，验证码已发送至绑定手机。可点击键盘上方建议自动填充。"
     }
 }
 
@@ -486,21 +397,21 @@ private struct ScoreRowCard: View {
     /// 列表态成绩卡片的紧凑布局。
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ScoreFixedColumnRow(
+            AppFixedColumnRow(
                 items: [
-                    ScoreFixedColumnItem(
+                    AppFixedColumnItem(
                         text: row.courseName.isEmpty ? "未命名课程" : row.courseName,
                         ratio: 0.55,
                         font: .headline,
                         color: .primary,
                     ),
-                    ScoreFixedColumnItem(
+                    AppFixedColumnItem(
                         text: formattedCredit,
                         ratio: 0.15,
                         font: .caption,
                         color: .secondary,
                     ),
-                    ScoreFixedColumnItem(
+                    AppFixedColumnItem(
                         text: row.term.isEmpty ? "-" : row.term,
                         ratio: 0.3,
                         font: .caption,
@@ -508,24 +419,24 @@ private struct ScoreRowCard: View {
                         alignment: .trailing
                     ),
                 ],
-                height: 22
+                height: AppDesignSystem.Size.compactPrimaryRowHeight
             )
 
-            ScoreFixedColumnRow(
+            AppFixedColumnRow(
                 items: [
-                    ScoreFixedColumnItem(
+                    AppFixedColumnItem(
                         text: "成绩 \(row.score.isEmpty ? "-" : row.score)",
                         ratio: 0.25,
                         font: .subheadline.weight(.semibold),
                         color: .primary
                     ),
-                    ScoreFixedColumnItem(
+                    AppFixedColumnItem(
                         text: "均分 \(formattedAverageScore)",
                         ratio: 0.45,
                         font: .subheadline.weight(.semibold),
                         color: .primary,
                     ),
-                    ScoreFixedColumnItem(
+                    AppFixedColumnItem(
                         text: row.courseType.isEmpty ? "-" : row.courseType,
                         ratio: 0.3,
                         font: .caption,
@@ -533,7 +444,7 @@ private struct ScoreRowCard: View {
                         alignment: .trailing
                     ),
                 ],
-                height: 20
+                height: AppDesignSystem.Size.compactSecondaryRowHeight
             )
         }
         .padding(.vertical, 4)
@@ -563,21 +474,21 @@ private struct PendingScoreRowCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ScoreFixedColumnRow(
+            AppFixedColumnRow(
                 items: [
-                    ScoreFixedColumnItem(
+                    AppFixedColumnItem(
                         text: course.name.isEmpty ? "未命名课程" : course.name,
                         ratio: 0.55,
                         font: .headline,
                         color: .primary
                     ),
-                    ScoreFixedColumnItem(
+                    AppFixedColumnItem(
                         text: course.credit > 0 ? "\(course.credit)分" : "-",
                         ratio: 0.15,
                         font: .caption,
                         color: .secondary
                     ),
-                    ScoreFixedColumnItem(
+                    AppFixedColumnItem(
                         text: course.term.isEmpty ? "-" : course.term,
                         ratio: 0.3,
                         font: .caption,
@@ -585,24 +496,24 @@ private struct PendingScoreRowCard: View {
                         alignment: .trailing
                     ),
                 ],
-                height: 22
+                height: AppDesignSystem.Size.compactPrimaryRowHeight
             )
 
-            ScoreFixedColumnRow(
+            AppFixedColumnRow(
                 items: [
-                    ScoreFixedColumnItem(
+                    AppFixedColumnItem(
                         text: "成绩 -",
                         ratio: 0.25,
                         font: .subheadline.weight(.semibold),
                         color: .primary
                     ),
-                    ScoreFixedColumnItem(
+                    AppFixedColumnItem(
                         text: "均分 -",
                         ratio: 0.45,
                         font: .subheadline.weight(.semibold),
                         color: .primary
                     ),
-                    ScoreFixedColumnItem(
+                    AppFixedColumnItem(
                         text: course.type.isEmpty ? "-" : course.type,
                         ratio: 0.3,
                         font: .caption,
@@ -610,7 +521,7 @@ private struct PendingScoreRowCard: View {
                         alignment: .trailing
                     ),
                 ],
-                height: 20
+                height: AppDesignSystem.Size.compactSecondaryRowHeight
             )
         }
         .padding(.vertical, 4)
@@ -696,17 +607,28 @@ private struct ScoreDetailView: View {
     let row: ScoreRow
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+        List {
+            Section {
                 summarySection
-                Divider()
-                detailSection
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 18)
-            .padding(.bottom, 24)
+
+            Section("课程评价") {
+                courseEvaluationLink
+            }
+
+            Section("详细信息") {
+                if remainingFields.isEmpty {
+                    Text("暂无更多信息")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(Array(remainingFields.enumerated()), id: \.offset) { _, field in
+                        ScoreDetailFieldRow(field: field)
+                    }
+                }
+            }
         }
-        .background(AppDesignSystem.Palette.groupedBackground)
+        .appGroupedListStyle()
         .navigationTitle("成绩详情")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -736,29 +658,26 @@ private struct ScoreDetailView: View {
         }
     }
 
-    private var detailSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("详细信息")
-                .font(.headline)
-
-            if remainingFields.isEmpty {
-                Text("暂无更多信息")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            } else {
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(remainingFields.enumerated()), id: \.offset) { index, field in
-                        VStack(spacing: 0) {
-                            ScoreDetailFieldRow(field: field)
-
-                            if index != remainingFields.count - 1 {
-                                Divider()
-                            }
-                        }
-                    }
-                }
-            }
+    private var courseEvaluationLink: some View {
+        NavigationLink {
+            CoursePageContent(
+                viewModel: CourseListViewModel(),
+                requestedCourse: .constant(
+                    CourseNavigationRequest.lookup(
+                        courseName: row.courseName,
+                        courseNumber: row.courseNumber
+                    )
+                )
+            )
+        } label: {
+            Label("查看课程评价", systemImage: "bubble.right")
         }
+        .disabled(!canOpenCourseEvaluation)
+    }
+
+    private var canOpenCourseEvaluation: Bool {
+        !row.courseName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !row.courseNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var remainingFields: [ScoreField] {
@@ -806,44 +725,5 @@ private struct ScoreDetailFieldRow: View {
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 12)
-    }
-}
-
-/// 成绩卡片里的单列定义。
-///
-/// 用固定比例列把两行信息对齐，避免不同长度课程名把后面的字段全部挤歪。
-private struct ScoreFixedColumnItem {
-    let text: String
-    let ratio: CGFloat
-    let font: Font
-    let color: Color
-    var alignment: Alignment = .leading
-}
-
-/// 按固定比例切分宽度的一行文本。
-private struct ScoreFixedColumnRow: View {
-    let items: [ScoreFixedColumnItem]
-    let height: CGFloat
-
-    /// 按比例切分宽度的一整行内容。
-    var body: some View {
-        GeometryReader { proxy in
-            let totalWidth = proxy.size.width
-            HStack(spacing: 0) {
-                ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                    Text(item.text)
-                        .font(item.font)
-                        .foregroundStyle(item.color)
-                        .lineLimit(1)
-                        .monospacedDigit()
-                        .frame(
-                            width: totalWidth * item.ratio,
-                            height: height,
-                            alignment: item.alignment
-                        )
-                }
-            }
-        }
-        .frame(height: height)
     }
 }

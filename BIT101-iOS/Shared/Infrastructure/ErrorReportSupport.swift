@@ -175,17 +175,16 @@ private struct NetworkSmokeResponse: Decodable {
 /// 错误报告与开发者建议共用的反馈提交入口。
 struct FeedbackSubmissionClient {
     static func submit<Payload: Encodable>(_ payload: Payload) async throws {
-        var request = URLRequest(url: URL(string: "https://feedback.aihelpme.dev/api/error-reports")!)
+        var request = URLRequest(url: AppURL.required("https://feedback.aihelpme.dev/api/error-reports"))
         request.httpMethod = "POST"
         request.timeoutInterval = 20
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         request.httpBody = try encoder.encode(payload)
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw FeedbackSubmissionError.invalidResponse
-        }
+        let response = try await HTTPClient.shared.send(request, accepting: 100 ..< 600)
+        let data = response.data
+        let http = response.response
         guard (200 ..< 300).contains(http.statusCode) else {
             throw FeedbackSubmissionError.server(
                 statusCode: http.statusCode,
@@ -196,17 +195,16 @@ struct FeedbackSubmissionClient {
 
 #if DEBUG || RELEASE_NETWORK_SMOKE
     static func submitNetworkSmoke(runID: String) async throws {
-        var request = URLRequest(url: URL(string: "https://feedback.aihelpme.dev/api/error-reports")!)
+        var request = URLRequest(url: AppURL.required("https://feedback.aihelpme.dev/api/error-reports"))
         request.httpMethod = "POST"
         request.timeoutInterval = 20
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("1", forHTTPHeaderField: "X-BIT101-Network-Smoke")
         request.httpBody = try JSONEncoder().encode(NetworkSmokePayload(runID: runID))
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw FeedbackSubmissionError.invalidResponse
-        }
+        let response = try await HTTPClient.shared.send(request, accepting: 100 ..< 600)
+        let data = response.data
+        let http = response.response
         guard (200 ..< 300).contains(http.statusCode) else {
             throw FeedbackSubmissionError.server(
                 statusCode: http.statusCode,

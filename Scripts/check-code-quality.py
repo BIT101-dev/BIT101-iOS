@@ -9,7 +9,6 @@ from __future__ import annotations
 import re
 import stat
 import sys
-from collections import Counter
 from pathlib import Path
 
 
@@ -28,9 +27,6 @@ HAPTIC_SYSTEM = ROOT / "BIT101-iOS/Shared/DesignSystem/AppHapticFeedback.swift"
 
 ALLOWED_STDOUT = {"BIT101-iOS/Shared/Infrastructure/ReleaseNetworkSmoke.swift"}
 ALLOWED_URL_SESSION = {
-    "BIT101-iOS/Shared/Infrastructure/AppUpdateChecker.swift",
-    "BIT101-iOS/Shared/Infrastructure/EmergencyUpdateChecker.swift",
-    "BIT101-iOS/Shared/Infrastructure/ErrorReportSupport.swift",
     "BIT101-iOS/Shared/Infrastructure/ReleaseNetworkSmoke.swift",
     "BIT101-iOS/Shared/Networking/HTTPClient.swift",
 }
@@ -159,10 +155,11 @@ def source_findings() -> tuple[list[str], list[str]]:
     direct_rounded_rectangle = re.compile(r"\bRoundedRectangle\s*\(")
     direct_list_style = re.compile(r"\.listStyle\(\s*\.(?:plain|insetGrouped)\s*\)|\.listSectionSpacing\(")
     direct_view_request = re.compile(r"\bURLRequest\s*\(")
+    direct_cancellation_check = re.compile(r"\berror\s+is\s+CancellationError\b")
+    empty_catch = re.compile(r"\bcatch\s*\{\s*\}")
 
     large_files: list[str] = []
     layout_counts: list[tuple[int, str]] = []
-    force_unwraps: Counter[str] = Counter()
     semantic_colors: list[str] = []
 
     for path in swift_files():
@@ -209,6 +206,9 @@ def source_findings() -> tuple[list[str], list[str]]:
             )
         if name != relative(HAPTIC_SYSTEM):
             add_matches(errors, path, masked_source, direct_haptic, "触感必须使用 AppHapticFeedback 公共接口")
+        if name != relative(ROOT / "BIT101-iOS/Shared/Infrastructure/TaskCancellation.swift"):
+            add_matches(errors, path, masked_source, direct_cancellation_check, "任务取消必须通过 TaskCancellation.matches 统一识别")
+        add_matches(errors, path, masked_source, empty_catch, "禁止静默吞掉异常；请记录诊断或显式处理错误")
         if path != DESIGN_SYSTEM:
             add_matches(errors, path, masked_source, direct_rounded_rectangle, "圆角必须使用 AppDesignSystem.roundedRectangle")
             if path.name != "GalleryMessagesView.swift":
@@ -231,7 +231,7 @@ def source_findings() -> tuple[list[str], list[str]]:
                 layout_counts.append((count, name))
         force_count = len(force_unwrap.findall(masked_source))
         if force_count:
-            force_unwraps[name] = force_count
+            errors.append(f"{name}: 禁止强制解包，共 {force_count} 处；请改用 guard/if let/#require")
         if len(source.splitlines()) > 800:
             large_files.append(name)
 
@@ -241,11 +241,6 @@ def source_findings() -> tuple[list[str], list[str]]:
         review.append(
             "固定布局值候选（仅供迁移审查）："
             + ", ".join(f"{name} × {count}" for count, name in sorted(layout_counts, reverse=True))
-        )
-    if force_unwraps:
-        review.append(
-            "强制解包候选文件（请确认是否可安全改为 guard/if let）："
-            + ", ".join(f"{name} × {count}" for name, count in sorted(force_unwraps.items()))
         )
     if large_files:
         review.append("大型文件候选（按独立生命周期拆分，不因长度机械拆分）：" + ", ".join(large_files))
@@ -332,6 +327,84 @@ def automatic_school_fetch_findings() -> list[str]:
     return errors
 
 
+def architectural_contract_findings() -> list[str]:
+    """检查已确认的模块关系，防止同一概念在新文件中重新分叉。"""
+    errors: list[str] = []
+
+    required_conformances = {
+        "BIT101-iOS/Course/CourseModels.swift": (
+            "extension CoursePagedState: PagedItemsState {}",
+        ),
+        "BIT101-iOS/Gallery/GalleryModels.swift": (
+            "extension GalleryFeedState: PagedItemsState",
+            "extension GalleryMessageListState: CursorPagedItemsState {}",
+        ),
+        "BIT101-iOS/Gallery/GalleryPosterDetailViewModel.swift": (
+            "extension GalleryCommentState: PagedItemsState {}",
+        ),
+        "BIT101-iOS/Mine/MineModels.swift": (
+            "extension MinePagedState: PagedItemsState {}",
+        ),
+        "BIT101-iOS/Paper/PaperModels.swift": (
+            "extension PaperListState: PagedItemsState {}",
+        ),
+    }
+    for file_name, markers in required_conformances.items():
+        path = ROOT / file_name
+        source = path.read_text(encoding="utf-8") if path.is_file() else ""
+        for marker in markers:
+            if marker not in source:
+                errors.append(f"{file_name}: 缺少已统一的分页结构约束：{marker}")
+
+    community_services = (
+        "BIT101-iOS/Course/CourseService.swift",
+        "BIT101-iOS/Gallery/GalleryService.swift",
+        "BIT101-iOS/Mine/MineService.swift",
+        "BIT101-iOS/Paper/PaperService.swift",
+        "BIT101-iOS/Settings/SettingsServices.swift",
+    )
+    for file_name in community_services:
+        source = (ROOT / file_name).read_text(encoding="utf-8")
+        if "CommunityAPIClient" not in source:
+            errors.append(f"{file_name}: 社区服务必须经 CommunityAPIClient，不能自建网络边界")
+
+    for file_name in (
+        "BIT101-iOS/Schedule/ScheduleCacheStore.swift",
+        "BIT101-iOS/Gallery/GalleryComposerView.swift",
+    ):
+        source = (ROOT / file_name).read_text(encoding="utf-8")
+        if "AppFileDirectories.applicationSupport" not in source:
+            errors.append(f"{file_name}: 持久化仓库必须复用 AppFileDirectories.applicationSupport")
+
+    forbidden_duplicate_wrappers = (
+        "GalleryFloatingActionButton",
+        "PaperFloatingActionButton",
+        "FloatingMapButton",
+    )
+    for path in swift_files():
+        source = path.read_text(encoding="utf-8")
+        for name in forbidden_duplicate_wrappers:
+            if re.search(rf"\b(?:struct|class|enum)\s+{name}\b", source):
+                errors.append(f"{relative(path)}: 不得重新包装 {name}，请直接使用公共浮动按钮组件")
+
+    # 首屏文字加载状态必须走公共状态组件；按钮内的无文字进度条仍可保留。
+    for path in swift_files():
+        if path == ROOT / "BIT101-iOS/Shared/Infrastructure/AppStateComponents.swift":
+            continue
+        source = path.read_text(encoding="utf-8")
+        if re.search(r"\bProgressView\s*\(\s*\"", source):
+            errors.append(f"{relative(path)}: 首屏文字加载状态必须使用 AppLoadingState/AppInlineLoadingState")
+
+    for path in sorted((ROOT / "BIT101-iOS").rglob("*.swift")):
+        if not path.name.endswith(("ViewModel.swift", "ViewModels.swift")):
+            continue
+        source = path.read_text(encoding="utf-8")
+        if "TaskCancellation" not in source and "isCancellation(" not in source:
+            errors.append(f"{relative(path)}: 状态模型必须统一处理任务取消，不能把取消当成业务失败")
+
+    return errors
+
+
 def audit_wiring_findings() -> list[str]:
     """防止新增检查脚本存在，却没有进入统一静态审计入口。"""
     errors: list[str] = []
@@ -377,6 +450,7 @@ def main() -> int:
     errors.extend(script_findings())
     errors.extend(documentation_findings())
     errors.extend(automatic_school_fetch_findings())
+    errors.extend(architectural_contract_findings())
     errors.extend(audit_wiring_findings())
     audit_doc = (ROOT / "docs/CODE_QUALITY_AUDIT.md").read_text(encoding="utf-8")
     if re.search(r"行号|行数", audit_doc):

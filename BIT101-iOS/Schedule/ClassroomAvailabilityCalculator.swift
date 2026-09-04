@@ -94,7 +94,8 @@ enum ClassroomAvailabilityCalculator {
             }
         }
         return groups.map { group in
-            group.count == 1 ? "\(group[0])" : "\(group.first!)~\(group.last!)"
+            guard let first = group.first, let last = group.last else { return "" }
+            return group.count == 1 ? "\(first)" : "\(first)~\(last)"
         }.joined(separator: ", ")
     }
 

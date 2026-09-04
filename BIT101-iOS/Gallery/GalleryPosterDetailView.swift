@@ -258,12 +258,12 @@ struct GalleryPosterDetailView: View {
     }
 
     private func relativeTimeText(_ string: String) -> String {
-        GalleryDateDecoder.relativeText(from: string, fallback: "未知时间")
+        AppDateText.relativeText(from: string, fallback: "未知时间")
     }
 
     /// 独立跳转域名使用稳定的 `/gallery/{id}` 路由；未安装 App 时由 Worker 转至网页。
     private var posterShareURL: URL {
-        URL(string: "https://open.aihelpme.dev/gallery/\(viewModel.poster.id)")!
+        AppURL.required("https://open.aihelpme.dev/gallery/\(viewModel.poster.id)")
     }
 
 }

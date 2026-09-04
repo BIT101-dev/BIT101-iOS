@@ -1,4 +1,5 @@
 import PhotosUI
+import OSLog
 import SwiftUI
 import UIKit
 
@@ -172,6 +173,7 @@ struct DeveloperSuggestionDraftSnapshot: Codable {
 
 enum ComposerDraftStore {
     private static let directoryName = "ComposerDrafts"
+    private static let logger = Logger(subsystem: "BIT101", category: "ComposerDraft")
 
     static func saveGallery(_ snapshot: GalleryComposerDraftSnapshot) {
         save(snapshot, filename: "gallery.json")
@@ -198,7 +200,7 @@ enum ComposerDraftStore {
     }
 
     private static var directoryURL: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        AppFileDirectories.applicationSupport
             .appendingPathComponent(directoryName, isDirectory: true)
     }
 
@@ -208,7 +210,8 @@ enum ComposerDraftStore {
             let data = try JSONEncoder().encode(value)
             try data.write(to: directoryURL.appendingPathComponent(filename), options: .atomic)
         } catch {
-            // 草稿保存失败不应阻止用户退出。
+            // 草稿保存失败不应阻止用户退出，但必须留下可诊断记录。
+            logger.error("保存草稿失败：\(String(describing: error), privacy: .public)")
         }
     }
 

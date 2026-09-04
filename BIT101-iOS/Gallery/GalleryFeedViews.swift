@@ -27,7 +27,7 @@ struct GalleryFeedView: View {
             ScrollView {
                 if isInitialLoading {
                     galleryPlaceholderContainer {
-                        ProgressView("正在加载话廊")
+                        AppInlineLoadingState("正在加载话廊")
                     }
                 } else if case let .failed(message) = feedState.status, feedState.posters.isEmpty {
                     galleryPlaceholderContainer {
@@ -64,12 +64,7 @@ struct GalleryFeedView: View {
                         }
 
                         if feedState.isLoadingMore {
-                            HStack {
-                                Spacer()
-                                ProgressView()
-                                Spacer()
-                            }
-                            .padding(.vertical, 12)
+                            AppInlineLoadingState()
                         }
                     }
                     .scrollTargetLayout()
@@ -104,12 +99,7 @@ struct GalleryFeedView: View {
     /// 加载中和失败空态也放进统一滚动容器里，保证始终可以下拉刷新。
     @ViewBuilder
     private func galleryPlaceholderContainer<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack {
-            Spacer(minLength: 120)
-            content()
-            Spacer(minLength: 240)
-        }
-        .frame(maxWidth: .infinity)
+        AppScrollStateContainer(content: content)
     }
 
     /// 首屏空态下是否应该显示中央加载指示器。
@@ -280,7 +270,7 @@ struct GalleryPosterCard: View {
 
     /// 把后端时间文本转成相对时间文案。
     private func relativeTimeText(_ string: String) -> String {
-        GalleryDateDecoder.relativeText(from: string, fallback: "未知")
+        AppDateText.relativeText(from: string, fallback: "未知")
     }
 }
 

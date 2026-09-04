@@ -56,7 +56,7 @@ struct CampusMapScreen: View {
 
             AppFloatingActionStack {
                 if let place = nextCourseTarget?.place {
-                    FloatingMapButton(
+                    AppFloatingActionButton(
                         systemImage: "arrow.triangle.turn.up.right.diamond.fill",
                         accessibilityLabel: "导航到下一节课"
                     ) {
@@ -64,7 +64,7 @@ struct CampusMapScreen: View {
                     }
                 }
 
-                FloatingMapButton(
+                AppFloatingActionButton(
                     systemImage: locationController.isAuthorized ? "location.fill" : "location",
                     accessibilityLabel: "定位到我的位置"
                 ) {
@@ -172,24 +172,6 @@ struct CampusMapScreen: View {
     /// 主课表中尚未开始的最近一节课程。
     private var nextCourseTarget: UpcomingCourseMapTarget? {
         UpcomingCourseMapResolver.nextTarget(in: scheduleViewModel.cache)
-    }
-}
-
-/// 圆形悬浮按钮的统一样式。
-///
-/// 地图页的定位按钮和其它圆形入口都复用这一套样式，保持与话廊/日程悬浮按钮观感一致。
-private struct FloatingMapButton: View {
-    let systemImage: String
-    let accessibilityLabel: String
-    let action: () -> Void
-
-    /// 通用圆形按钮主体。
-    var body: some View {
-        AppFloatingActionButton(
-            systemImage: systemImage,
-            accessibilityLabel: accessibilityLabel,
-            action: action
-        )
     }
 }
 

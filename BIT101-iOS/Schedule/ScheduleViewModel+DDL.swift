@@ -39,6 +39,7 @@ extension ScheduleViewModel {
             )
             return false
         } catch {
+            if isCancellation(error) { return false }
             if showErrorNotice {
                 notice = ScheduleNotice(title: "DDL 同步失败", message: error.localizedDescription)
             }
@@ -71,6 +72,7 @@ extension ScheduleViewModel {
                 message: "学校要求短信二次验证，请先在学校登录页面完成验证后再重试。"
             )
         } catch {
+            if isCancellation(error) { return }
             notice = ScheduleNotice(title: "订阅链接获取失败", message: error.localizedDescription)
         }
     }

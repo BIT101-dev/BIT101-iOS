@@ -320,11 +320,8 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     private func handleCommentRefreshResult(_ result: Result<[GalleryComment], Error>) {
         switch result {
         case let .success(comments):
-            commentState.items = comments
+            commentState.applyFirstPage(comments)
             commentState.status = .loaded
-            commentState.nextPage = 1
-            commentState.canLoadMore = !comments.isEmpty
-            commentState.isLoadingMore = false
         case let .failure(error):
             if isCancellation(error) {
                 commentState.status = .idle

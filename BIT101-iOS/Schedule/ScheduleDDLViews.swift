@@ -169,45 +169,43 @@ private struct DDLEventCard: View {
     let onOpenDetail: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Button(action: onToggleDone) {
-                Image(systemName: event.done ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(tint)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .appSelectionFeedback(trigger: event.done)
+        AppCard {
+            HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
+                Button(action: onToggleDone) {
+                    Image(systemName: event.done ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundStyle(tint)
+                        .frame(width: AppDesignSystem.Size.touchTarget, height: AppDesignSystem.Size.touchTarget)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .appSelectionFeedback(trigger: event.done)
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text(event.title)
-                    .font(.headline)
-                    .strikethrough(event.done)
+                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
+                    Text(event.title)
+                        .font(.headline)
+                        .strikethrough(event.done)
 
-                if !displayText.isEmpty {
-                    Text(displayText)
+                    if !displayText.isEmpty {
+                        Text(displayText)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                    }
+
+                    Text(remainText)
                         .font(.subheadline)
+                        .foregroundStyle(tint)
+
+                    Text(dueText)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(3)
                 }
 
-                Text(remainText)
-                    .font(.subheadline)
-                    .foregroundStyle(tint)
-
-                Text(dueText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
             }
-
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppDesignSystem.Palette.secondaryBackground, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped))
-        .contentShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped))
         .onTapGesture(perform: onOpenDetail)
     }
 

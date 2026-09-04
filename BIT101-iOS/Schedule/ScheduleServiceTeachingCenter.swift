@@ -124,11 +124,6 @@ extension ScheduleService {
                     try await Task.sleep(for: .seconds(1))
                 }
                 try await ensureTeachingCenterAuthentication(force: true)
-            } catch {
-                if isCancellationError(error) {
-                    throw error
-                }
-                throw error
             }
         }
 

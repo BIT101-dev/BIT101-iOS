@@ -117,9 +117,7 @@ struct MineRootView: View {
     private var profileSection: some View {
         switch viewModel.profileStatus {
         case .idle, .loading:
-            ProgressView("正在加载个人信息")
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 48)
+            AppInlineLoadingState("正在加载个人信息")
         case let .failed(message):
             AppFailureState(
                 title: "个人信息加载失败",
@@ -130,7 +128,6 @@ struct MineRootView: View {
                 }
             )
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 20)
         case .loaded:
             if let info = viewModel.userInfo {
                 MineProfileCard(
@@ -230,9 +227,7 @@ struct UserProfileRootView: View {
     private var profileSection: some View {
         switch viewModel.profileStatus {
         case .idle, .loading:
-            ProgressView("正在加载主页")
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 48)
+            AppInlineLoadingState("正在加载主页")
         case let .failed(message):
             AppFailureState(
                 title: "主页加载失败",
@@ -243,7 +238,6 @@ struct UserProfileRootView: View {
                 }
             )
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 20)
         case .loaded:
             if let info = viewModel.userInfo {
                 MineProfileCard(
@@ -263,13 +257,9 @@ struct UserProfileRootView: View {
 
         switch viewModel.posterState.status {
         case .idle where visiblePosters.isEmpty:
-            ProgressView("正在加载帖子")
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 28)
+            AppInlineLoadingState("正在加载帖子")
         case .loading where visiblePosters.isEmpty:
-            ProgressView("正在加载帖子")
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 28)
+            AppInlineLoadingState("正在加载帖子")
         case let .failed(message) where visiblePosters.isEmpty:
             AppFailureState(
                 title: "帖子加载失败",
@@ -302,21 +292,18 @@ struct UserProfileRootView: View {
                     .listRowBackground(Color.clear)
                 }
 
-                if viewModel.posterState.isLoadingMore {
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                        Spacer()
-                    }
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
+                    if viewModel.posterState.isLoadingMore {
+                    AppInlineLoadingState()
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                 }
             }
         }
     }
 
     private var navigationTitle: String {
-        viewModel.userInfo?.user.nickname.isEmpty == false ? viewModel.userInfo!.user.nickname : "主页"
+        guard let nickname = viewModel.userInfo?.user.nickname, !nickname.isEmpty else { return "主页" }
+        return nickname
     }
 }
 
@@ -418,8 +405,7 @@ private struct MineUserListView: View {
     var body: some View {
         Group {
             if isInitialLoading {
-                ProgressView("正在加载")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                AppLoadingState(title: "正在加载")
             } else if case let .failed(message) = status, users.isEmpty {
                 AppFailureState(
                     title: "用户列表加载失败",
@@ -460,11 +446,7 @@ private struct MineUserListView: View {
                     }
 
                     if isLoadingMore {
-                        HStack {
-                            Spacer()
-                            ProgressView()
-                            Spacer()
-                        }
+                        AppInlineLoadingState()
                     }
                 }
                 .appGroupedListStyle()
@@ -515,8 +497,7 @@ private struct MinePosterListView: View {
     var body: some View {
         Group {
             if isInitialLoading {
-                ProgressView("正在加载帖子")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                AppLoadingState(title: "正在加载帖子")
             } else if case let .failed(message) = status, visiblePosters.isEmpty {
                 AppFailureState(
                     title: "帖子加载失败",
@@ -546,8 +527,7 @@ private struct MinePosterListView: View {
                         }
 
                         if isLoadingMore {
-                            ProgressView()
-                                .padding(.vertical, 20)
+                            AppInlineLoadingState()
                         }
                     }
                 }

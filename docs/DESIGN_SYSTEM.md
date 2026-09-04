@@ -27,7 +27,13 @@
 - `AppAvatarView`：统一话题、文章、我的、设置、消息和评论头像的加载、占位、裁切和尺寸；不同语义只传入尺寸与色彩参数。
 - `AppTagChip`、`AppTagChipVariant`：统一信息流、详情页和编辑页标签胶囊的间距、字体、前景色和背景色。
 - `AppCommentAvatarView`、`AppCommentIdentityHeader`、`AppCommentActionBar`、`AppCommentBubble`、`AppCommentRowContainer`：统一课程、话廊和文章评论的头像、标题、操作、气泡和行布局；业务差异只保留在内容闭包。
+- `AppCommentThread`：统一三类评论的主评论、回复缩进和分隔线结构；单条气泡内容由业务闭包提供。
+- `AppSMSVerificationSheet`：统一课表、成绩和可信成绩单的验证码输入、错误态、焦点与提交状态；业务只传入挑战和提交文案。
+- `AppDateText`：统一社区时间字段的多格式解析和相对时间文案，课程、话廊与消息不得各自维护 formatter。
+- `AppFileDirectories`：统一 App 持久化目录的系统入口，仓库只负责追加语义子目录。
 - `AppEmptyState`、`AppFailureState`：统一无数据和加载失败页面的系统图标、说明、重试和诊断入口。
+- `AppLoadingState`、`AppInlineLoadingState`、`AppScrollStateContainer`：统一首屏、列表内和滚动页状态的布局，不允许页面重复包进度条或使用机型相关的上下留白。
+- `AppFixedColumnItem`、`AppFixedColumnRow`：课程与成绩列表共用的比例列数据行；列内容由业务传入，几何和截断规则只保留一份。
 - `AppRefreshStatusRow`：统一成绩、课表、DDL 等数据页面的最近更新时间、同步状态和手动刷新入口；所有更新时间直接放进页面主 List 的 Section。
 
 `AppHapticFeedback.swift` 提供 `appSelectionFeedback(trigger:)` 和 `appImpactFeedback(trigger:)`，分别用于离散切换和操作按钮；实际是否输出由系统决定。右下角公共按钮、地图校区按钮、课表菜单按钮和空白处长按菜单均接入触感。所有 `Picker`、`Toggle`、自绘勾选行和全选/全不选入口也必须接入选择触感。`Scripts/check-haptic-consistency.sh` 会扫描这些控件，提醒遗漏，并拒绝绕过公共接口的触感实现。

@@ -50,8 +50,7 @@ struct CoursePageContent: View {
             switch viewModel.state.status {
             case .idle where viewModel.state.items.isEmpty,
                  .loading where viewModel.state.items.isEmpty:
-                ProgressView(viewModel.hasActiveSearch ? "正在搜索课程" : "正在加载课程")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                AppLoadingState(title: viewModel.hasActiveSearch ? "正在搜索课程" : "正在加载课程")
                     .background(AppDesignSystem.Palette.groupedBackground)
 
             case let .failed(message) where viewModel.state.items.isEmpty:
@@ -100,7 +99,9 @@ struct CoursePageContent: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .task {
-            await viewModel.bootstrapIfNeeded()
+            if requestedCourse == nil {
+                await viewModel.bootstrapIfNeeded()
+            }
         }
         .onChange(of: viewModel.searchText) { oldValue, newValue in
             viewModel.clearSearchIfNeeded(from: oldValue, to: newValue)
@@ -130,6 +131,31 @@ struct CoursePageContent: View {
 
         if let preparedCourse = request.preparedCourse {
             deepLinkedCourse = preparedCourse
+        } else if request.hasLookupIdentity {
+            do {
+                let number = (request.lookupCourseNumber ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let name = (request.lookupCourseName ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let search = number.isEmpty ? name : number
+                guard !search.isEmpty else {
+                    throw CourseLookupError.missingIdentity
+                }
+                let candidates = try await CourseService().fetchCourses(search: search, page: 0)
+                guard let course = CourseLookupMatcher.bestMatch(
+                    courseNumber: number,
+                    courseName: name,
+                    teacher: "",
+                    candidates: candidates
+                ) else {
+                    throw CourseLookupError.notFound
+                }
+                deepLinkedCourse = course
+            } catch let error as CourseLookupError {
+                deepLinkAlert = AppAlert(title: "无法打开课程评价", message: error.localizedDescription)
+            } catch {
+                deepLinkAlert = AppAlert(title: "无法打开课程评价", message: error.localizedDescription)
+            }
         } else {
             do {
                 let detail = try await CourseService().fetchCourse(id: request.courseID)
@@ -176,13 +202,22 @@ struct CoursePageContent: View {
             }
 
             if viewModel.state.isLoadingMore {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                    Spacer()
-                }
-                .padding(.vertical, 6)
+                AppInlineLoadingState()
             }
+        }
+    }
+}
+
+private enum CourseLookupError: LocalizedError {
+    case missingIdentity
+    case notFound
+
+    var errorDescription: String? {
+        switch self {
+        case .missingIdentity:
+            return "成绩记录缺少课程号和课程名。"
+        case .notFound:
+            return "学业课程中没有找到对应课程。"
         }
     }
 }
@@ -222,22 +257,22 @@ private struct CourseListRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            CourseFixedColumnRow(
+            AppFixedColumnRow(
                 items: [
-                    CourseFixedColumnItem(
+                    AppFixedColumnItem(
                         text: course.name.isEmpty ? "未命名课程" : course.name,
                         ratio: 0.64,
                         font: .headline,
                         color: .primary
                     ),
-                    CourseFixedColumnItem(
+                    AppFixedColumnItem(
                         text: CourseRatingText.text(from: course.rate, empty: "-"),
                         ratio: 0.16,
                         font: .subheadline.weight(.semibold),
                         color: AppDesignSystem.Palette.highlight,
                         alignment: .trailing
                     ),
-                    CourseFixedColumnItem(
+                    AppFixedColumnItem(
                         text: "\(course.commentNum)评",
                         ratio: 0.20,
                         font: .caption,
@@ -245,24 +280,24 @@ private struct CourseListRow: View {
                         alignment: .trailing
                     ),
                 ],
-                height: 22
+                height: AppDesignSystem.Size.compactPrimaryRowHeight
             )
 
-            CourseFixedColumnRow(
+            AppFixedColumnRow(
                 items: [
-                    CourseFixedColumnItem(
+                    AppFixedColumnItem(
                         text: course.number.isEmpty ? "-" : course.number,
                         ratio: 0.30,
                         font: .caption,
                         color: .secondary
                     ),
-                    CourseFixedColumnItem(
+                    AppFixedColumnItem(
                         text: course.teachersName.isEmpty ? "-" : course.teachersName,
                         ratio: 0.45,
                         font: .caption,
                         color: .secondary
                     ),
-                    CourseFixedColumnItem(
+                    AppFixedColumnItem(
                         text: "\(course.likeNum)赞",
                         ratio: 0.25,
                         font: .caption,
@@ -270,44 +305,8 @@ private struct CourseListRow: View {
                         alignment: .trailing
                     ),
                 ],
-                height: 20
+                height: AppDesignSystem.Size.compactSecondaryRowHeight
             )
         }
-    }
-}
-
-/// 课程列表固定比例列。
-private struct CourseFixedColumnItem {
-    let text: String
-    let ratio: CGFloat
-    let font: Font
-    let color: Color
-    var alignment: Alignment = .leading
-}
-
-/// 按固定比例分配宽度的一行文本。
-private struct CourseFixedColumnRow: View {
-    let items: [CourseFixedColumnItem]
-    let height: CGFloat
-
-    var body: some View {
-        GeometryReader { proxy in
-            let totalWidth = proxy.size.width
-            HStack(spacing: 0) {
-                ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                    Text(item.text)
-                        .font(item.font)
-                        .foregroundStyle(item.color)
-                        .lineLimit(1)
-                        .monospacedDigit()
-                        .frame(
-                            width: totalWidth * item.ratio,
-                            height: height,
-                            alignment: item.alignment
-                        )
-                }
-            }
-        }
-        .frame(height: height)
     }
 }

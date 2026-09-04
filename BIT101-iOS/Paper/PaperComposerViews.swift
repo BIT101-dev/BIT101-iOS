@@ -7,23 +7,6 @@
 
 import SwiftUI
 
-/// 文章右下角悬浮操作按钮。
-///
-/// 这里直接对齐话廊现有的按钮尺寸和材质，避免两个内容页入口按钮风格割裂。
-struct PaperFloatingActionButton: View {
-    let systemImage: String
-    let accessibilityLabel: String
-    let action: () -> Void
-
-    var body: some View {
-        AppFloatingActionButton(
-            systemImage: systemImage,
-            accessibilityLabel: accessibilityLabel,
-            action: action
-        )
-    }
-}
-
 /// 文章发布页。
 ///
 /// 当前先提供最小原生编辑器：标题、简介、正文、匿名开关。

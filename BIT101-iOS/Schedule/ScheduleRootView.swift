@@ -87,10 +87,11 @@ struct ScheduleRootView: View {
                 }
             )
         ) { challenge in
-            ScheduleSMSVerificationSheet(
+            AppSMSVerificationSheet(
                 challenge: challenge,
                 isSubmitting: viewModel.isSubmittingSMSCode,
                 errorMessage: viewModel.smsVerificationError,
+                submitTitle: "验证并同步课表",
                 onCancel: viewModel.dismissSMSChallenge,
                 onSubmit: { code in
                     await viewModel.submitSMSCode(code)

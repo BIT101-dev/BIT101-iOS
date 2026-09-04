@@ -1,11 +1,5 @@
 import Foundation
 
-/// 统一识别 Swift Concurrency 与 URLSession 的取消错误。
-func isCancellationError(_ error: Error) -> Bool {
-    TaskCancellation.matches(error)
-}
-
-
 /// 判断请求是否因为 DNS 无法解析主机而失败。
 ///
 /// `URLSession` 有时会把真正的 `URLError` 包在底层错误里，因此不能只检查最外层。
@@ -26,4 +20,3 @@ func isHostResolutionError(_ error: Error) -> Bool {
     }
     return false
 }
-

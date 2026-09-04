@@ -32,7 +32,7 @@ struct NetworkClientTests {
     func structuredHTTPError() async throws {
         let transport = MockHTTPTransport { request in
             let response = try #require(HTTPURLResponse(
-                url: request.url!,
+                url: try #require(request.url),
                 statusCode: 503,
                 httpVersion: nil,
                 headerFields: nil
@@ -41,11 +41,11 @@ struct NetworkClientTests {
         }
 
         await #expect(throws: HTTPClientError.self) {
-            _ = try await HTTPClient(transport: transport).send(URLRequest(url: URL(string: "https://example.com")!))
+            _ = try await HTTPClient(transport: transport).send(URLRequest(url: try #require(URL(string: "https://example.com"))))
         }
 
         do {
-            _ = try await HTTPClient(transport: transport).send(URLRequest(url: URL(string: "https://example.com")!))
+            _ = try await HTTPClient(transport: transport).send(URLRequest(url: try #require(URL(string: "https://example.com"))))
             Issue.record("Expected an HTTP error")
         } catch let error as HTTPClientError {
             #expect(error.errorDescription == "稍后重试")
@@ -58,11 +58,11 @@ struct NetworkClientTests {
             #expect(request.httpMethod == "GET")
             #expect(request.value(forHTTPHeaderField: "fake-cookie") == "session-token")
             #expect(request.value(forHTTPHeaderField: "Accept") == "application/json")
-            #expect(URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems == [
+            #expect(URLComponents(url: try #require(request.url), resolvingAgainstBaseURL: false)?.queryItems == [
                 URLQueryItem(name: "page", value: "2")
             ])
             let response = try #require(HTTPURLResponse(
-                url: request.url!,
+                url: try #require(request.url),
                 statusCode: 200,
                 httpVersion: nil,
                 headerFields: nil
@@ -71,7 +71,7 @@ struct NetworkClientTests {
         }
         let api = CommunityAPIClient<TestCommunityError>(
             httpClient: HTTPClient(transport: transport),
-            baseURL: URL(string: "https://example.com")!,
+            baseURL: try #require(URL(string: "https://example.com")),
             errorDomain: "Test",
             fakeCookieProvider: { "session-token" }
         )
@@ -91,7 +91,7 @@ struct NetworkClientTests {
         }
         let api = CommunityAPIClient<TestCommunityError>(
             httpClient: HTTPClient(transport: transport),
-            baseURL: URL(string: "https://example.com")!,
+            baseURL: try #require(URL(string: "https://example.com")),
             errorDomain: "Test",
             fakeCookieProvider: { "" }
         )
@@ -111,7 +111,7 @@ struct NetworkClientTests {
         let transport = MockHTTPTransport { request in
             #expect(request.value(forHTTPHeaderField: "fake-cookie") == nil)
             let response = try #require(HTTPURLResponse(
-                url: request.url!,
+                url: try #require(request.url),
                 statusCode: 200,
                 httpVersion: nil,
                 headerFields: nil
@@ -120,7 +120,7 @@ struct NetworkClientTests {
         }
         let api = CommunityAPIClient<TestCommunityError>(
             httpClient: HTTPClient(transport: transport),
-            baseURL: URL(string: "https://example.com")!,
+            baseURL: try #require(URL(string: "https://example.com")),
             errorDomain: "Test",
             fakeCookieProvider: { "" }
         )

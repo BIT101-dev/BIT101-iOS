@@ -90,20 +90,40 @@ struct CourseSummary: Decodable, Identifiable, Equatable, Hashable {
 struct CourseNavigationRequest: Identifiable {
     let id = UUID()
     let courseID: Int
+    /// 课程详情没有社区 ID 时，使用课程号/名称走统一检索匹配。
+    let lookupCourseName: String?
+    let lookupCourseNumber: String?
     let preparedCourse: CourseSummary?
     let searchQuery: String?
     let searchResults: [CourseSummary]?
 
+    var hasLookupIdentity: Bool {
+        lookupCourseName != nil || lookupCourseNumber != nil
+    }
+
     init(
         courseID: Int,
+        lookupCourseName: String? = nil,
+        lookupCourseNumber: String? = nil,
         preparedCourse: CourseSummary? = nil,
         searchQuery: String? = nil,
         searchResults: [CourseSummary]? = nil
     ) {
         self.courseID = courseID
+        self.lookupCourseName = lookupCourseName
+        self.lookupCourseNumber = lookupCourseNumber
         self.preparedCourse = preparedCourse
         self.searchQuery = searchQuery
         self.searchResults = searchResults
+    }
+
+    /// 从仅含教务字段的记录跳转到统一课程详情/评价页。
+    static func lookup(courseName: String, courseNumber: String) -> Self {
+        Self(
+            courseID: 0,
+            lookupCourseName: courseName,
+            lookupCourseNumber: courseNumber
+        )
     }
 }
 

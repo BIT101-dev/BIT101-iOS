@@ -8,6 +8,10 @@
 import Combine
 import Foundation
 
+private func isLoginCancellation(_ error: Error) -> Bool {
+    TaskCancellation.matches(error)
+}
+
 /// 登录页当前展示的顶层状态。
 ///
 /// 登录模块不直接暴露大量布尔值，而是收敛成“已登录 / 未登录”两种外层场景。
@@ -86,6 +90,10 @@ final class LoginViewModel: ObservableObject {
                 screenState = .signedOut
             }
         } catch {
+            if isLoginCancellation(error) {
+                hasBootstrapped = false
+                return
+            }
             studentID = service.savedStudentID
             password = service.savedPassword
 
@@ -124,6 +132,9 @@ final class LoginViewModel: ObservableObject {
             self.password = ""
             screenState = .signedIn(studentID: studentID)
         } catch {
+            if isLoginCancellation(error) {
+                return
+            }
             alert = AppAlert(
                 title: "登录失败",
                 message: error.localizedDescription

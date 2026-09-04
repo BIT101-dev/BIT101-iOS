@@ -30,6 +30,9 @@ enum AppDesignSystem {
         static let wideBadgePadding: CGFloat = 5
         static let badgeOffset: CGFloat = 5
         static let floatingActionBottomInset: CGFloat = 20
+        static let touchTarget: CGFloat = 44
+        static let compactPrimaryRowHeight: CGFloat = 22
+        static let compactSecondaryRowHeight: CGFloat = 20
     }
 
     enum Typography {
@@ -114,6 +117,15 @@ enum AppDesignSystem {
         static let subCommentTopPadding: CGFloat = 4
         static let subCommentIndent: CGFloat = 42
         static let dividerLeading: CGFloat = 46
+    }
+
+    /// 加载、空态和失败态的公共布局语义；不借用某个业务模块的参数。
+    enum State {
+        static let inlineVerticalPadding: CGFloat = Spacing.content
+    }
+
+    enum Verification {
+        static let progressTrailingPadding: CGFloat = 6
     }
 
     enum Palette {

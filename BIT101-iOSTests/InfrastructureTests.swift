@@ -105,11 +105,25 @@ struct InfrastructureTests {
         var canLoadMore = true
     }
 
+    private struct TestCursorState: CursorPagedItemsState {
+        var items: [TestItem] = []
+        var nextCursor: Int?
+        var isLoadingMore = false
+        var canLoadMore = true
+    }
+
     @Test("Cancellation signals are normalized")
     func cancellationSignalsAreNormalized() {
         #expect(TaskCancellation.matches(CancellationError()))
         #expect(TaskCancellation.matches(URLError(.cancelled)))
         #expect(!TaskCancellation.matches(URLError(.timedOut)))
+    }
+
+    @Test("Community timestamps use one parser and preserve fallback text")
+    func communityDateText() {
+        #expect(AppDateText.date(from: "2026-09-05T12:34:56.000+0800") != nil)
+        #expect(AppDateText.date(from: "not-a-date") == nil)
+        #expect(AppDateText.relativeText(from: "not-a-date", fallback: "未知时间") == "未知时间")
     }
 
     @Test("Codable snapshots are isolated by account")
@@ -165,6 +179,28 @@ struct InfrastructureTests {
         state.resetPagination()
         #expect(state.items.isEmpty)
         #expect(state.nextPage == 0)
+        #expect(state.canLoadMore)
+    }
+
+    @Test("Cursor state preserves backend cursor semantics")
+    func cursorStateAdvancesAndStops() {
+        var state = TestCursorState()
+
+        state.applyFirstCursorPage([TestItem(id: 10), TestItem(id: 9)])
+        #expect(state.nextCursor == 9)
+        #expect(state.shouldLoadMore(currentID: 9))
+
+        state.appendCursorPage([TestItem(id: 8)])
+        #expect(state.items.map(\.id) == [10, 9, 8])
+        #expect(state.nextCursor == 8)
+
+        state.appendCursorPage([])
+        #expect(state.nextCursor == 8)
+        #expect(!state.canLoadMore)
+
+        state.resetCursorPagination()
+        #expect(state.items.isEmpty)
+        #expect(state.nextCursor == nil)
         #expect(state.canLoadMore)
     }
 }

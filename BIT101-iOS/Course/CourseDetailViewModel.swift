@@ -212,9 +212,7 @@ final class CourseDetailViewModel: ObservableObject {
 
         switch result {
         case let .success(comments):
-            commentState.items.append(contentsOf: comments)
-            commentState.nextPage += 1
-            commentState.canLoadMore = !comments.isEmpty
+            commentState.appendPage(comments)
         case let .failure(error):
             if isCourseDetailCancellation(error) { return }
             alert = AppAlert(title: "加载更多评论失败", message: error.localizedDescription)
@@ -362,11 +360,8 @@ final class CourseDetailViewModel: ObservableObject {
     private func handleCommentRefreshResult(_ result: Result<[GalleryComment], Error>) {
         switch result {
         case let .success(comments):
-            commentState.items = comments
+            commentState.applyFirstPage(comments)
             commentState.status = .loaded
-            commentState.nextPage = 1
-            commentState.canLoadMore = !comments.isEmpty
-            commentState.isLoadingMore = false
         case let .failure(error):
             if isCourseDetailCancellation(error) {
                 commentState.status = .idle
@@ -383,10 +378,7 @@ final class CourseDetailViewModel: ObservableObject {
 
     private func resetCommentStateForRefresh() {
         commentState.status = .loading
-        commentState.items = []
-        commentState.isLoadingMore = false
-        commentState.nextPage = 0
-        commentState.canLoadMore = true
+        commentState.resetPagination()
     }
 
     private func courseExternalURL() -> URL? {

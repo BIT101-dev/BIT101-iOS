@@ -57,7 +57,9 @@ final class ScheduleClassroomCoordinator {
                 throw ClassroomRequestTimeoutError()
             }
 
-            let value = try await group.next()!
+            guard let value = try await group.next() else {
+                throw CancellationError()
+            }
             group.cancelAll()
             return value
         }

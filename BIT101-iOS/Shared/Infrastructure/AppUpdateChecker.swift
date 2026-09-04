@@ -3,7 +3,7 @@ import SwiftUI
 import Combine
 
 enum BIT101AppStore {
-    nonisolated static let url = URL(string: "https://apps.apple.com/cn/app/bit101/id6761147125")!
+    nonisolated static let url = AppURL.required("https://apps.apple.com/cn/app/bit101/id6761147125")
 }
 
 /// App Store Lookup API 中与更新提醒有关的最小数据集。
@@ -60,9 +60,7 @@ final class AppUpdateChecker {
     nonisolated static let lastPresentedAtKey = "app.update-check.last-presented-at"
     nonisolated static let lastPresentedVersionKey = "app.update-check.last-presented-version"
 
-    private static let lookupURL = URL(
-        string: "https://itunes.apple.com/lookup?id=6761147125&country=cn"
-    )!
+    private static let lookupURL = AppURL.required("https://itunes.apple.com/lookup?id=6761147125&country=cn")
 
     private let defaults: UserDefaults
     private let now: () -> Date
@@ -76,7 +74,8 @@ final class AppUpdateChecker {
             Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
         },
         loadData: @escaping DataLoader = { request in
-            try await URLSession.shared.data(for: request)
+            let response = try await HTTPClient.shared.send(request, accepting: 100 ..< 600)
+            return (response.data, response.response)
         }
     ) {
         self.defaults = defaults

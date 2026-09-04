@@ -209,7 +209,7 @@ struct CourseDetailView: View {
 
     /// 独立跳转域名使用稳定的 `/course/{id}` 路由；未安装 App 时由 Worker 转至网页。
     private var courseShareURL: URL {
-        URL(string: "https://open.aihelpme.dev/course/\(initialCourse.id)")!
+        AppURL.required("https://open.aihelpme.dev/course/\(initialCourse.id)")
     }
 }
 

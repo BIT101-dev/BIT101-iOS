@@ -21,8 +21,7 @@ struct CourseHistoryGradesSheet: View {
             Group {
                 switch status {
                 case .idle, .loading:
-                    ProgressView("正在加载历史成绩")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    AppLoadingState(title: "正在加载历史成绩")
 
                 case let .failed(message):
                     AppFailureState(

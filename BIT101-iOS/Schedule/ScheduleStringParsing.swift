@@ -20,7 +20,8 @@ extension String {
         }
 
         guard match.numberOfRanges > 1 else {
-            return [String(self[Range(match.range, in: self)!])]
+            guard let range = Range(match.range, in: self) else { return [] }
+            return [String(self[range])]
         }
 
         return (1 ..< match.numberOfRanges).compactMap { index in

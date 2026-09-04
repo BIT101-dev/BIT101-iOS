@@ -4,8 +4,11 @@ import Testing
 
 private func shanghaiDate(_ year: Int, _ month: Int, _ day: Int) -> Date {
     var calendar = Calendar(identifier: .gregorian)
-    calendar.timeZone = TimeZone(secondsFromGMT: 8 * 3600)!
-    return calendar.date(from: DateComponents(year: year, month: month, day: day))!
+    calendar.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? .current
+    guard let date = calendar.date(from: DateComponents(year: year, month: month, day: day)) else {
+        preconditionFailure("Invalid test date")
+    }
+    return date
 }
 
 @Suite("System calendar schedule export")
@@ -126,7 +129,7 @@ struct ScheduleCalendarLayerOrderingTests {
 }
 
 @Suite("Schedule academic course matching")
-struct ScheduleAcademicCourseMatcherTests {
+struct CourseLookupMatcherTests {
     private final class ServiceStub: CourseListServicing {
         let results: [String: [CourseSummary]]
         private(set) var searches: [String] = []
@@ -146,7 +149,7 @@ struct ScheduleAcademicCourseMatcherTests {
     func matchesCourseNumber() {
         let expected = makeSummary(id: 1, name: "高等数学", number: "MATH-1001", teacher: "张老师")
         let other = makeSummary(id: 2, name: "高等数学", number: "MATH-1002", teacher: "张老师")
-        #expect(ScheduleAcademicCourseMatcher.numberMatch(
+        #expect(CourseLookupMatcher.numberMatch(
             courseNumber: " math 1001 ",
             candidates: [other, expected]
         )?.id == expected.id)
@@ -156,12 +159,12 @@ struct ScheduleAcademicCourseMatcherTests {
     func disambiguatesByTeacher() {
         let first = makeSummary(id: 1, name: "大学物理", number: "PHY-1", teacher: "张老师")
         let second = makeSummary(id: 2, name: "大学物理", number: "PHY-2", teacher: "李老师")
-        #expect(ScheduleAcademicCourseMatcher.nameMatch(
+        #expect(CourseLookupMatcher.nameMatch(
             courseName: "大学 物理",
             teacher: "李老师",
             candidates: [first, second]
         )?.id == second.id)
-        #expect(ScheduleAcademicCourseMatcher.nameMatch(
+        #expect(CourseLookupMatcher.nameMatch(
             courseName: "大学物理",
             teacher: "",
             candidates: [first, second]
@@ -172,7 +175,7 @@ struct ScheduleAcademicCourseMatcherTests {
     func disambiguatesSameNumberByTeacher() {
         let first = makeSummary(id: 1, name: "线性代数", number: "MATH-1", teacher: "张老师")
         let second = makeSummary(id: 2, name: "线性代数", number: "MATH-1", teacher: "李老师、王老师")
-        #expect(ScheduleAcademicCourseMatcher.numberMatch(
+        #expect(CourseLookupMatcher.numberMatch(
             courseNumber: "MATH-1",
             teacher: "李老师",
             candidates: [first, second]

@@ -143,7 +143,7 @@ struct GalleryRootView: View {
             .simultaneousGesture(feedSwitchGesture)
 
             AppFloatingActionStack {
-                GalleryFloatingActionButton(
+                AppFloatingActionButton(
                     systemImage: "bell.badge",
                     badgeText: messageBadgeText,
                     accessibilityLabel: "消息"
@@ -151,11 +151,11 @@ struct GalleryRootView: View {
                     isShowingMessages = true
                 }
 
-                GalleryFloatingActionButton(systemImage: "square.and.pencil", accessibilityLabel: "发布话题") {
+                AppFloatingActionButton(systemImage: "square.and.pencil", accessibilityLabel: "发布话题") {
                     isShowingComposer = true
                 }
 
-                GalleryFloatingActionButton(systemImage: "magnifyingglass", accessibilityLabel: "搜索话廊") {
+                AppFloatingActionButton(systemImage: "magnifyingglass", accessibilityLabel: "搜索话廊") {
                     viewModel.isShowingSearch = true
                 }
             }
@@ -293,37 +293,6 @@ final class GalleryNetworkObserver: ObservableObject {
 
     deinit {
         monitor.cancel()
-    }
-}
-
-/// 统一的右下角悬浮操作按钮。
-///
-/// 主 feed、搜索、消息等入口都复用这一套圆形按钮样式。
-private struct GalleryFloatingActionButton: View {
-    let systemImage: String
-    let badgeText: String?
-    let accessibilityLabel: String
-    let action: () -> Void
-
-    init(
-        systemImage: String,
-        badgeText: String? = nil,
-        accessibilityLabel: String,
-        action: @escaping () -> Void
-    ) {
-        self.systemImage = systemImage
-        self.badgeText = badgeText
-        self.accessibilityLabel = accessibilityLabel
-        self.action = action
-    }
-
-    var body: some View {
-        AppFloatingActionButton(
-            systemImage: systemImage,
-            badgeText: badgeText,
-            accessibilityLabel: accessibilityLabel,
-            action: action
-        )
     }
 }
 

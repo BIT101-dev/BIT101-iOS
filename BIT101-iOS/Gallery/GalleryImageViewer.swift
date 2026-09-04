@@ -313,43 +313,6 @@ private enum QuickLookPreparationError: LocalizedError {
     }
 }
 
-/// 帖子时间文本格式化工具。
-///
-/// 服务端历史上使用过多种时间格式，这里集中做兼容，避免每个视图各自维护
-/// 一套 `DateFormatter`。
-enum GalleryDateDecoder {
-    private static let formatters: [DateFormatter] = [
-        makeFormatter("yyyy-MM-dd HH:mm:ss"),
-        makeFormatter("yyyy-MM-dd'T'HH:mm:ss.SSSZ"),
-        makeFormatter("yyyy-MM-dd'T'HH:mm:ssZ"),
-    ]
-
-    private static let iso8601Formatter = ISO8601DateFormatter()
-    private static let relativeFormatter = RelativeDateTimeFormatter()
-
-    static func date(from string: String) -> Date? {
-        for formatter in formatters {
-            if let date = formatter.date(from: string) {
-                return date
-            }
-        }
-        return iso8601Formatter.date(from: string)
-    }
-
-    static func relativeText(from string: String, fallback: String) -> String {
-        guard let date = date(from: string) else { return fallback }
-        return relativeFormatter.localizedString(for: date, relativeTo: Date())
-    }
-
-    private static func makeFormatter(_ format: String) -> DateFormatter {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 8 * 3600)
-        formatter.dateFormat = format
-        return formatter
-    }
-}
-
 /// 兼容服务端返回的十六进制颜色字符串。
 extension Color {
     init?(hex: String) {

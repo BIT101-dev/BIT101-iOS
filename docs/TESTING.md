@@ -87,6 +87,14 @@ xcodebuild build \
 Scripts/build-install-device.sh
 ```
 
+构建后可覆盖保存当前真机截图（不会生成按时间或序号累积的文件）：
+
+```sh
+Scripts/capture-screenshot-device.sh
+```
+
+截图固定写入 `.build/latest-screenshot.png`；也可以传入设备 ID 和 Developer 目录。
+
 脚本会自动寻找可用的 iPhone 真机；未连接或未信任时给出提示并退出。它只执行 Debug 构建、安装和启动，不执行 Archive。需要时也可传入设备 ID 和 Developer 目录。
 
 ### Watch 与 iOS 构建说明

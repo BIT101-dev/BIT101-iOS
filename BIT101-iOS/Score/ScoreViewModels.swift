@@ -240,6 +240,9 @@ final class ScoreViewModel: ObservableObject {
                 authenticatedBy: authenticatedChallenge,
                 forceDetailedRefresh: forceDetailedRefresh
             )
+        } catch ScoreServiceError.secondFactorRequired(let challenge) {
+            smsChallenge = challenge
+            smsVerificationError = "请输入最新收到的短信验证码。"
         } catch ScoreServiceError.challengeInvalid(let message) {
             smsChallenge = nil
             smsVerificationError = nil
@@ -249,6 +252,10 @@ final class ScoreViewModel: ObservableObject {
             }
             alert = AppAlert(title: "验证已失效", message: message)
         } catch {
+            if isCancellation(error) {
+                state = rows.isEmpty ? .idle : .loaded
+                return
+            }
             smsVerificationError = error.localizedDescription
         }
     }
@@ -632,7 +639,10 @@ final class TrustedTranscriptViewModel: ObservableObject {
             smsChallenge = nil
             state = .failed(message)
         } catch {
-            if error is CancellationError { return }
+            if TaskCancellation.matches(error) {
+                state = .idle
+                return
+            }
             state = .failed(error.localizedDescription)
         }
     }
@@ -658,8 +668,16 @@ final class TrustedTranscriptViewModel: ObservableObject {
         } catch ScoreServiceError.challengeInvalid(let message) {
             smsChallenge = nil
             state = .failed(message)
+        } catch ScoreServiceError.secondFactorRequired(let challenge) {
+            smsChallenge = challenge
+            state = .idle
+            smsVerificationError = "请输入最新收到的短信验证码。"
         } catch {
             // 普通错误（尤其是错误验证码）留在输入面板内展示，允许用户直接改正后重试。
+            if TaskCancellation.matches(error) {
+                state = .idle
+                return
+            }
             smsVerificationError = error.localizedDescription
         }
     }

@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import OSLog
 
 /// 日程模块本地缓存仓库。
 ///
@@ -30,12 +31,13 @@ enum ScheduleCacheStore {
         return decoder
     }()
 
+    private static let logger = Logger(subsystem: "BIT101", category: "ScheduleCache")
+
     /// 当前账号对应的缓存文件路径。
     ///
     /// 课表、DDL 和灵动岛设置都已按账号隔离，所以路径会带当前学号。
     private static var fileURL: URL {
-        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let directory = root
+        let directory = AppFileDirectories.applicationSupport
             .appending(path: "BIT101-iOS", directoryHint: .isDirectory)
             .appending(path: currentAccountIdentifier(), directoryHint: .isDirectory)
         return directory.appending(path: "schedule-cache.json")
@@ -87,7 +89,9 @@ enum ScheduleCacheStore {
                 }
             }
             #endif
-        } catch {}
+        } catch {
+            logger.error("保存课表缓存失败：\(String(describing: error), privacy: .public)")
+        }
     }
 
     /// 清空当前账号的日程缓存。
@@ -109,7 +113,9 @@ enum ScheduleCacheStore {
 
             ScheduleWidgetExporter.syncFromCurrentCache()
             postCacheDidChange()
-        } catch {}
+        } catch {
+            logger.error("清理课表缓存失败：\(String(describing: error), privacy: .public)")
+        }
     }
 
     /// 在主线程广播“课表缓存已变化”。
@@ -122,4 +128,3 @@ enum ScheduleCacheStore {
         }
     }
 }
-

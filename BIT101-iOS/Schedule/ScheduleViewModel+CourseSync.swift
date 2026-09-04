@@ -38,6 +38,7 @@ extension ScheduleViewModel {
         } catch let error as ScheduleServiceError where error.isUnpublishedCourseSchedule {
             notice = ScheduleNotice(title: "课表暂未发布", message: error.localizedDescription)
         } catch {
+            if isCancellation(error) { return }
             notice = ScheduleNotice(title: "课表同步失败", message: error.localizedDescription)
         }
     }
@@ -93,6 +94,7 @@ extension ScheduleViewModel {
             smsChallenge = challenge
             smsVerificationError = nil
         } catch {
+            if isCancellation(error) { return }
             hasLoadedAvailableTerms = true
             notice = ScheduleNotice(title: "学期列表加载失败", message: error.localizedDescription)
         }
@@ -142,6 +144,9 @@ extension ScheduleViewModel {
             applyCourseSyncPayload(payload)
             smsChallenge = nil
             courseSyncCoordinator.reset()
+        } catch ScheduleServiceError.secondFactorRequired(let challenge) {
+            smsChallenge = challenge
+            smsVerificationError = "请输入最新收到的短信验证码。"
         } catch ScheduleServiceError.challengeInvalid(let message) {
             smsChallenge = nil
             smsVerificationError = nil
@@ -150,6 +155,7 @@ extension ScheduleViewModel {
         } catch let error as ScheduleServiceError where error.isUnpublishedCourseSchedule {
             notice = ScheduleNotice(title: "课表暂未发布", message: error.localizedDescription)
         } catch {
+            if isCancellation(error) { return }
             smsVerificationError = error.localizedDescription
         }
     }

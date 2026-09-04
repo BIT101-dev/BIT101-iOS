@@ -649,26 +649,13 @@ struct GalleryMessageListState {
     var status: GalleryFeedStatus = .idle
     /// 是否正在请求下一页。
     var isLoadingMore = false
-    /// 下一次分页请求要带的 last_id。
-    var nextLastID: Int?
+    /// 下一次分页请求要带的最后一条消息 ID。
+    var nextCursor: Int?
     /// 服务端是否还有更多历史消息。
     var canLoadMore = true
 }
 
-extension GalleryMessageListState {
-    func shouldLoadMore(currentID: GalleryMessage.ID, preloadCount: Int = 4) -> Bool {
-        !isLoadingMore &&
-            canLoadMore &&
-            items.suffix(preloadCount).contains(where: { $0.id == currentID })
-    }
-
-    mutating func appendPage(_ messages: [GalleryMessage]) {
-        items.append(contentsOf: messages)
-        isLoadingMore = false
-        nextLastID = messages.last?.id ?? nextLastID
-        canLoadMore = !messages.isEmpty
-    }
-}
+extension GalleryMessageListState: CursorPagedItemsState {}
 
 private extension GalleryImage {
     /// 供占位 UI 构造出的空图片模型。

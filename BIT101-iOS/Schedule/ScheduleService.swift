@@ -220,12 +220,10 @@ struct DDLSyncPayload {
 /// 3. 乐学日历订阅地址解析与 ICS 下载
 /// 4. ATS 相关的 HTTP -> HTTPS 升级
 struct ScheduleService {
-    let schoolBaseURL = URL(string: "https://jxzxehallapp.bit.edu.cn")!
-    let webVPNSchoolBaseURL = URL(
-        string: "https://webvpn.bit.edu.cn/https/77726476706e69737468656265737421faef5b842238695c720999bcd6572a216b231105adc27d"
-    )!
-    let bitLoginBaseURL = URL(string: "https://login.bit101.flwfdd.xyz")!
-    let lexueBaseURL = URL(string: "https://lexue.bit.edu.cn")!
+    let schoolBaseURL = AppURL.required("https://jxzxehallapp.bit.edu.cn")
+    let webVPNSchoolBaseURL = AppURL.required("https://webvpn.bit.edu.cn/https/77726476706e69737468656265737421faef5b842238695c720999bcd6572a216b231105adc27d")
+    let bitLoginBaseURL = AppURL.required("https://login.bit101.flwfdd.xyz")
+    let lexueBaseURL = AppURL.required("https://lexue.bit.edu.cn")
     let storage = LoginStorage.shared
     let teachingCenterState = TeachingCenterSessionState.shared
     let session: URLSession

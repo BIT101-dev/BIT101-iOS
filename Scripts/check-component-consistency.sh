@@ -5,6 +5,7 @@ root="BIT101-iOS"
 shared="$root/Shared/DesignSystem/AppCommentComposerComponents.swift"
 shared_avatar="$root/Shared/DesignSystem/AppAvatarComponents.swift"
 shared_comments="$root/Shared/DesignSystem/AppCommentComponents.swift"
+shared_verification="$root/Shared/DesignSystem/AppVerificationComponents.swift"
 shared_controls="$root/Shared/DesignSystem/AppContentControlComponents.swift"
 shared_tags="$root/Shared/DesignSystem/AppTagComponents.swift"
 shared_state="$root/Shared/Infrastructure/AppStateComponents.swift"
@@ -30,10 +31,13 @@ done
 
 for item in \
   "$shared_comments:struct AppCommentAvatarView" \
+  "$shared_comments:struct AppCommentSectionHeader" \
   "$shared_comments:struct AppCommentIdentityHeader" \
   "$shared_comments:struct AppCommentActionBar" \
   "$shared_comments:struct AppCommentBubble" \
   "$shared_comments:struct AppCommentRowContainer" \
+  "$shared_comments:struct AppCommentThread" \
+  "$shared_verification:struct AppSMSVerificationSheet" \
   "$shared_controls:struct AppSegmentedPicker" \
   "$shared_controls:struct AppTopSegmentedPicker" \
   "$shared_controls:struct AppOrderedSearchBar" \
@@ -43,6 +47,8 @@ for item in \
   "$shared_tags:struct AppTagChip" \
   "$shared_state:struct AppFailureState" \
   "$shared_state:struct AppEmptyState" \
+  "$root/Shared/DesignSystem/AppFixedColumnComponents.swift:struct AppFixedColumnItem" \
+  "$root/Shared/DesignSystem/AppFixedColumnComponents.swift:struct AppFixedColumnRow" \
   "$root/Shared/DesignSystem/AppRefreshStatusComponents.swift:struct AppRefreshStatusRow" \
   "$root/Shared/DesignSystem/AppFeedComponents.swift:struct AppFeedRow"; do
   file="${item%%:*}"
@@ -53,12 +59,73 @@ for item in \
   fi
 done
 
+for item in \
+  "$shared_state:struct AppLoadingState" \
+  "$shared_state:struct AppInlineLoadingState" \
+  "$shared_state:struct AppScrollStateContainer"; do
+  file="${item%%:*}"
+  pattern="${item#*:}"
+  if ! rg -q --fixed-strings "$pattern" "$file"; then
+    printf '[失败] 缺少公共状态组件：%s (%s)\n' "$file" "$pattern"
+    exit 1
+  fi
+done
+
+for file in \
+  "$root/Course/CourseRootView.swift" \
+  "$root/Course/CourseHistoryGradesViews.swift" \
+  "$root/Score/ScoreRootView.swift" \
+  "$root/Gallery/GalleryMessagesView.swift" \
+  "$root/Mine/MineRootView.swift" \
+  "$root/Paper/PaperRootView.swift" \
+  "$root/Paper/PaperSearchViews.swift"; do
+  if ! rg -q -e 'AppLoadingState' -e 'AppInlineLoadingState' "$file"; then
+    printf '[失败] 首屏加载状态未复用公共组件：%s\n' "$file"
+    exit 1
+  fi
+done
+
+for file in "$root/Gallery/GalleryFeedViews.swift" "$root/Paper/PaperRootView.swift" "$root/Paper/PaperSearchViews.swift"; do
+  if ! rg -q --fixed-strings 'AppScrollStateContainer' "$file"; then
+    printf '[失败] 滚动页首屏状态未复用公共容器：%s\n' "$file"
+    exit 1
+  fi
+done
+
 for file in "$root/Score/ScoreRootView.swift" "$root/Schedule/ScheduleDDLViews.swift"; do
   if ! rg -q --fixed-strings 'AppRefreshStatusRow' "$file"; then
     printf '[失败] 数据页面未复用更新时间/刷新公共行：%s\n' "$file"
     exit 1
   fi
 done
+
+for file in "$root/Course/CourseRootView.swift" "$root/Score/ScoreRootView.swift"; do
+  if ! rg -q --fixed-strings 'AppFixedColumnRow' "$file"; then
+    printf '[失败] 紧凑比例数据行必须复用公共实现：%s\n' "$file"
+    exit 1
+  fi
+done
+
+score_detail_source="$root/Score/ScoreRootView.swift"
+for marker in 'private struct ScoreDetailView: View' 'List {' 'Section("课程评价")' 'CourseNavigationRequest.lookup' '.appGroupedListStyle()'; do
+  if ! rg -q --fixed-strings "$marker" "$score_detail_source"; then
+    printf '[失败] 成绩详情必须复用原生 List 与统一课程评价入口：%s\n' "$marker"
+    exit 1
+  fi
+done
+if ! rg -q --fixed-strings 'hasLookupIdentity' "$root/Course/CourseModels.swift"; then
+  printf '[失败] 课程导航请求必须约束 ID 路由与名称/课程号检索路由不能混淆\n'
+  exit 1
+fi
+
+if ! rg -q --fixed-strings 'CourseLookupMatcher' "$root/Schedule/ScheduleAcademicCourseResolver.swift"; then
+  printf '[失败] 日程课程评价入口必须使用共享课程匹配器\n'
+  exit 1
+fi
+if ! rg -q --fixed-strings 'CourseLookupMatcher' "$root/Course/CourseRootView.swift"; then
+  printf '[失败] 成绩课程评价入口必须使用共享课程匹配器\n'
+  exit 1
+fi
 
 if ! rg -q --fixed-strings 'AppRefreshStatusRow' "$root/Schedule/CourseScheduleTabView.swift"; then
   printf '[失败] 课表更新时间必须直接复用主 List 的公共行\n'
@@ -151,12 +218,12 @@ for file in "${comment_files[@]}"; do
   done
 done
 
-# 三类评论必须共享头像、标题、操作行、气泡和主项容器，业务差异只能留在内容闭包内。
+# 三类评论必须共享头像、标题、操作行、气泡和线程结构，业务差异只能留在内容闭包内。
 for file in \
   "$root/Course/CourseCommentViews.swift" \
   "$root/Gallery/GalleryCommentViews.swift" \
   "$root/Paper/PaperCommentViews.swift"; do
-  for pattern in AppCommentRowContainer AppCommentBubble AppCommentIdentityHeader AppCommentActionBar AppCommentAvatarView; do
+  for pattern in AppCommentThread AppCommentBubble AppCommentIdentityHeader AppCommentActionBar AppCommentAvatarView; do
     if ! rg -q --fixed-strings "$pattern" "$file"; then
       printf '[失败] 评论页面未复用公共结构：%s (%s)\n' "$file" "$pattern"
       exit 1
@@ -166,7 +233,36 @@ for file in \
     printf '[失败] 评论页面重复实现气泡或头像：%s\n' "$file"
     exit 1
   fi
+  if rg -q 'DateFormatter|ISO8601DateFormatter|RelativeDateTimeFormatter' "$file"; then
+    printf '[失败] 评论页面不得重复实现时间解析器：%s\n' "$file"
+    exit 1
+  fi
 done
+
+for file in "$root/Schedule/ScheduleRootView.swift" "$root/Score/ScoreRootView.swift" "$root/Settings/SettingsScheduleViews.swift"; do
+  if ! rg -q --fixed-strings 'AppSMSVerificationSheet' "$file"; then
+    printf '[失败] 验证码页面未复用公共组件：%s\n' "$file"
+    exit 1
+  fi
+done
+
+# 社区时间格式跨课程、话廊和消息复用；旧的模块级解析器不得重新出现。
+for file in \
+  "$root/Course/CourseCommentViews.swift" \
+  "$root/Gallery/GalleryCommentViews.swift" \
+  "$root/Gallery/GalleryFeedViews.swift" \
+  "$root/Gallery/GalleryMessagesView.swift" \
+  "$root/Gallery/GalleryPosterDetailView.swift"; do
+  if ! rg -q --fixed-strings 'AppDateText' "$file"; then
+    printf '[失败] 社区时间文案未复用公共解析器：%s\n' "$file"
+    exit 1
+  fi
+done
+legacy_dates="$(rg -n 'GalleryDateDecoder|CourseCommentDateDecoder' "$root" --glob '*.swift' || true)"
+if [[ -n "$legacy_dates" ]]; then
+  printf '[失败] 不得重复实现社区时间解析器：\n%s\n' "$legacy_dates"
+  exit 1
+fi
 
 # 文章和话廊搜索栏必须共享排序菜单、输入框、清空按钮和顶部材质。
 for file in "$root/Gallery/GallerySearchView.swift" "$root/Paper/PaperSearchViews.swift"; do

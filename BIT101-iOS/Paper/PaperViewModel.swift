@@ -45,6 +45,7 @@ final class PaperListViewModel: ObservableObject {
     }
 
     func refresh() async {
+        let previousState = state
         state.prepareForRefresh()
 
         do {
@@ -56,7 +57,10 @@ final class PaperListViewModel: ObservableObject {
             state.applyFirstPage(papers)
             state.status = .loaded
         } catch {
-            if isPaperRequestCancellation(error) { return }
+            if isPaperRequestCancellation(error) {
+                state = previousState
+                return
+            }
             state.status = .failed(error.localizedDescription)
             alert = AppAlert(title: "加载文章失败", message: error.localizedDescription)
         }
@@ -134,6 +138,7 @@ final class PaperSearchViewModel: ObservableObject {
             return
         }
 
+        let previousState = state
         state.prepareForRefresh()
 
         do {
@@ -145,7 +150,10 @@ final class PaperSearchViewModel: ObservableObject {
             state.applyFirstPage(papers)
             state.status = .loaded
         } catch {
-            if isPaperRequestCancellation(error) { return }
+            if isPaperRequestCancellation(error) {
+                state = previousState
+                return
+            }
             state.status = .failed(error.localizedDescription)
             alert = AppAlert(title: "搜索文章失败", message: error.localizedDescription)
         }
@@ -363,11 +371,8 @@ final class PaperDetailViewModel: ObservableObject {
     private func handleCommentRefreshResult(_ result: Result<[GalleryComment], Error>) {
         switch result {
         case let .success(comments):
-            commentState.items = comments
+            commentState.applyFirstPage(comments)
             commentState.status = .loaded
-            commentState.nextPage = 1
-            commentState.canLoadMore = !comments.isEmpty
-            commentState.isLoadingMore = false
         case let .failure(error):
             if isPaperRequestCancellation(error) {
                 commentState.status = .idle

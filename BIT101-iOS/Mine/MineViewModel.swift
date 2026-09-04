@@ -129,12 +129,17 @@ final class MineViewModel: ObservableObject {
     ///
     /// 这里采用“整页重置再请求”的策略，因为粉丝/关注量通常不大，简单可靠比局部 diff 更重要。
     func refreshFollowers() async {
+        let previousState = followerState
         resetMinePagedState(&followerState)
 
         do {
             let users = try await service.fetchFollowers(page: 0)
             applyMinePagedRefreshResult(users, to: &followerState)
         } catch {
+            if isMineCancellation(error) {
+                followerState = previousState
+                return
+            }
             followerState.status = .failed(error.localizedDescription)
             followerState.canLoadMore = false
             alert = AppAlert(title: "加载粉丝失败", message: error.localizedDescription)
@@ -151,6 +156,10 @@ final class MineViewModel: ObservableObject {
             let users = try await service.fetchFollowers(page: followerState.nextPage)
             appendMinePagedPage(users, to: &followerState)
         } catch {
+            if isMineCancellation(error) {
+                followerState.isLoadingMore = false
+                return
+            }
             followerState.isLoadingMore = false
             alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
@@ -158,12 +167,17 @@ final class MineViewModel: ObservableObject {
 
     /// 重新拉取关注列表第一页。
     func refreshFollowings() async {
+        let previousState = followingState
         resetMinePagedState(&followingState)
 
         do {
             let users = try await service.fetchFollowings(page: 0)
             applyMinePagedRefreshResult(users, to: &followingState)
         } catch {
+            if isMineCancellation(error) {
+                followingState = previousState
+                return
+            }
             followingState.status = .failed(error.localizedDescription)
             followingState.canLoadMore = false
             alert = AppAlert(title: "加载关注失败", message: error.localizedDescription)
@@ -180,6 +194,10 @@ final class MineViewModel: ObservableObject {
             let users = try await service.fetchFollowings(page: followingState.nextPage)
             appendMinePagedPage(users, to: &followingState)
         } catch {
+            if isMineCancellation(error) {
+                followingState.isLoadingMore = false
+                return
+            }
             followingState.isLoadingMore = false
             alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
@@ -227,6 +245,10 @@ final class MineViewModel: ObservableObject {
             let posters = try await service.fetchMyPosters(page: posterState.nextPage)
             appendMinePagedPage(posters, to: &posterState)
         } catch {
+            if isMineCancellation(error) {
+                posterState.isLoadingMore = false
+                return
+            }
             posterState.isLoadingMore = false
             alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
@@ -359,6 +381,10 @@ final class UserProfileViewModel: ObservableObject {
             let posters = try await service.fetchUserPosters(userID: userID, page: posterState.nextPage)
             appendMinePagedPage(posters, to: &posterState)
         } catch {
+            if isMineCancellation(error) {
+                posterState.isLoadingMore = false
+                return
+            }
             posterState.isLoadingMore = false
             alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }

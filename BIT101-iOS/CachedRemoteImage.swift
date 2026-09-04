@@ -97,6 +97,7 @@ private final class CachedRemoteImageLoader: ObservableObject {
             image = downloadedImage
         } catch {
             // 头像加载失败时直接停留在占位图，不额外打断 UI。
+            image = nil
         }
     }
 }

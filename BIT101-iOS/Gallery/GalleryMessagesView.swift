@@ -23,8 +23,7 @@ struct GalleryMessagesView: View {
 
             Group {
                 if isInitialLoading {
-                    ProgressView("正在加载消息")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    AppLoadingState(title: "正在加载消息")
                 } else if case let .failed(message) = currentState.status, currentState.items.isEmpty {
                     AppFailureState(
                         title: "加载消息失败",
@@ -67,11 +66,7 @@ struct GalleryMessagesView: View {
                         }
 
                         if currentState.isLoadingMore {
-                            HStack {
-                                Spacer()
-                                ProgressView()
-                                Spacer()
-                            }
+                            AppInlineLoadingState()
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
                         }
@@ -198,7 +193,7 @@ struct GalleryMessagesView: View {
             let poster = try await service.fetchPoster(id: posterID)
             selectedPoster = poster.asPoster
         } catch {
-            if error is CancellationError {
+            if TaskCancellation.matches(error) {
                 return
             }
             localAlert = AppAlert(title: "无法打开", message: "相关帖子不存在或已删除。")
@@ -276,7 +271,7 @@ private struct GalleryMessageRow: View {
     }
 
     private func relativeTimeText(_ string: String) -> String {
-        GalleryDateDecoder.relativeText(from: string, fallback: "未知时间")
+        AppDateText.relativeText(from: string, fallback: "未知时间")
     }
 }
 

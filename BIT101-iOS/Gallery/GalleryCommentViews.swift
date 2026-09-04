@@ -23,16 +23,7 @@ struct GalleryPosterCommentsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Comment.sectionSpacing) {
-            HStack {
-                Text("评论")
-                    .font(.headline)
-
-                Text("\(totalCommentCount)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-
+            AppCommentSectionHeader(count: totalCommentCount) {
                 Picker("排序", selection: Binding(get: { selectedOrder }, set: onSelectOrder)) {
                     ForEach(GalleryCommentOrder.allCases) { order in
                         Text(order.title).tag(order)
@@ -44,9 +35,7 @@ struct GalleryPosterCommentsSection: View {
 
             switch status {
             case .idle where comments.isEmpty, .loading where comments.isEmpty:
-                ProgressView("正在加载评论")
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, AppDesignSystem.Comment.progressVerticalPadding)
+                AppInlineLoadingState("正在加载评论")
             case let .failed(message) where comments.isEmpty:
                 AppFailureState(
                     title: "加载评论失败",
@@ -84,12 +73,7 @@ struct GalleryPosterCommentsSection: View {
                         }
 
                         if isLoadingMore {
-                            HStack {
-                                Spacer()
-                                ProgressView()
-                                Spacer()
-                            }
-                            .padding(.vertical, AppDesignSystem.Spacing.content)
+                            AppInlineLoadingState()
                         }
                     }
                     .appCommentSectionStyle()
@@ -120,25 +104,8 @@ private struct GalleryCommentRow: View {
     let onOpenUser: (GalleryUser) -> Void
 
     var body: some View {
-        AppCommentRowContainer {
-            commentBubble(comment, isSubComment: false)
-
-            if !comment.sub.isEmpty {
-                VStack(spacing: 0) {
-                    ForEach(Array(comment.sub.enumerated()), id: \.element.id) { index, subComment in
-                        VStack(spacing: 0) {
-                            commentBubble(subComment, isSubComment: true)
-
-                            if index != comment.sub.count - 1 {
-                                Divider()
-                                .padding(.leading, AppDesignSystem.Comment.subCommentIndent)
-                            }
-                        }
-                    }
-                }
-                .padding(.leading, AppDesignSystem.Comment.subCommentIndent)
-                .padding(.top, AppDesignSystem.Comment.subCommentTopPadding)
-            }
+        AppCommentThread(comment: comment, subcomments: comment.sub) { comment, isSubComment in
+            commentBubble(comment, isSubComment: isSubComment)
         }
     }
     @ViewBuilder
@@ -154,7 +121,7 @@ private struct GalleryCommentRow: View {
             AppCommentIdentityHeader(
                 nickname: comment.user.nickname,
                 isSubComment: isSubComment,
-                timeText: GalleryDateDecoder.relativeText(from: comment.createTime, fallback: "未知时间"),
+                timeText: AppDateText.relativeText(from: comment.createTime, fallback: "未知时间"),
                 onOpenProfile: canOpenUserProfile(comment) ? { onOpenUser(comment.user) } : nil
             )
 

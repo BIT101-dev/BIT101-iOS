@@ -52,8 +52,8 @@ struct RegisterResponse: Decodable {
 /// 既负责学校 CAS，也负责 BIT101 自己的 `webvpn_verify` / `register` 接口。
 struct BIT101APIClient {
     static let shared = BIT101APIClient()
-    private let schoolBaseURL = URL(string: "https://sso.bit.edu.cn")!
-    private let bit101BaseURL = URL(string: "https://bit101.flwfdd.xyz")!
+    private let schoolBaseURL = AppURL.required("https://sso.bit.edu.cn")
+    private let bit101BaseURL = AppURL.required("https://bit101.flwfdd.xyz")
 
     private let session: URLSession
     private let noRedirectSession: URLSession
@@ -95,11 +95,12 @@ struct BIT101APIClient {
     func fetchSchoolLoginContext() async throws -> SchoolLoginContext {
         var request = URLRequest(url: schoolBaseURL.appending(path: "cas/login"))
         request.httpMethod = "GET"
+        guard let requestURL = request.url else { throw LoginServiceError.invalidServerResponse }
 
         let (data, response) = try await sendRequest(request, followRedirects: false)
         if (300 ..< 400).contains(response.statusCode),
            let location = response.value(forHTTPHeaderField: "Location"),
-           let redirectURL = HTTPSURLUpgrade.resolvedURL(from: location, relativeTo: request.url!),
+           let redirectURL = HTTPSURLUpgrade.resolvedURL(from: location, relativeTo: requestURL),
            Self.isSchoolLoginSuccessLanding(redirectURL, schoolHost: schoolBaseURL.host)
         {
             return SchoolLoginContext(salt: nil, execution: nil, isLoggedIn: true)
@@ -121,6 +122,7 @@ struct BIT101APIClient {
 
         var request = URLRequest(url: schoolBaseURL.appending(path: "cas/login"))
         request.httpMethod = "POST"
+        guard let requestURL = request.url else { throw LoginServiceError.invalidServerResponse }
         request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
         request.httpBody = formBody(
             [
@@ -141,7 +143,7 @@ struct BIT101APIClient {
         if (300 ..< 400).contains(response.statusCode) {
             // 正确密码时学校会进入一串 SSO 成功跳转；如果这里不补走，后续教务和乐学接口仍然拿不到学校 cookie。
             if let location = response.value(forHTTPHeaderField: "Location") {
-                try await finishSchoolLoginRedirectChain(from: location, relativeTo: request.url!)
+                try await finishSchoolLoginRedirectChain(from: location, relativeTo: requestURL)
             }
             return true
         }

@@ -565,19 +565,15 @@ final class GalleryMessageViewModel: ObservableObject {
 
         setState(for: type) {
             $0.status = .loading
-            $0.isLoadingMore = false
-            $0.canLoadMore = true
-            $0.nextLastID = nil
+            $0.resetCursorPagination()
         }
 
         do {
             let messages = try await service.fetchMessages(type: type, lastID: nil)
             readStore.replaceLatestIDs(messages.map(\.id), unreadCount: serverUnreadBeforeFetch, for: type)
             setState(for: type) {
-                $0.items = messages
+                $0.applyFirstCursorPage(messages)
                 $0.status = .loaded
-                $0.nextLastID = messages.last?.id
-                $0.canLoadMore = !messages.isEmpty
             }
             localReadVersion += 1
             await refreshUnreadCounts()
@@ -587,7 +583,7 @@ final class GalleryMessageViewModel: ObservableObject {
                     $0.items = previousState.items
                     $0.status = previousState.items.isEmpty ? .idle : .loaded
                     $0.isLoadingMore = false
-                    $0.nextLastID = previousState.nextLastID
+                    $0.nextCursor = previousState.nextCursor
                     $0.canLoadMore = previousState.canLoadMore
                 }
                 return
@@ -647,9 +643,9 @@ final class GalleryMessageViewModel: ObservableObject {
         setState(for: type) { $0.isLoadingMore = true }
 
         do {
-            let messages = try await service.fetchMessages(type: type, lastID: state.nextLastID)
+            let messages = try await service.fetchMessages(type: type, lastID: state.nextCursor)
             setState(for: type) {
-                $0.appendPage(messages)
+                $0.appendCursorPage(messages)
             }
         } catch {
             if isGalleryCancellation(error) {

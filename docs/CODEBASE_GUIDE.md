@@ -224,6 +224,7 @@ Widget、锁屏组件、Apple Watch、Live Activity 不能直接依赖主 App �
 - 普通成绩通过 bit-login 的 `jwb` 服务查询；由于均分、排名和详情字段只在完整模式返回，列表使用 `detail=true`
 - 普通 HTTP 请求超时为 25 秒；完整成绩查询、首次认证与轮询最多等待约 90 秒
 - 服务端返回 `202` 时展示原生短信验证码 sheet，并正确处理错误码、过期和重复提交
+- 课表、成绩和可信成绩单共用 `AppSMSVerificationSheet`，认证状态仍由各自 ViewModel 管理
 - 学期筛选与成绩类型筛选支持全选 / 全不选 / 0 选
 - 上一次筛选结果与列表排序偏好会按账号保存
 - 成绩列表默认按名称排序，并支持按名称、成绩、均分、学分、学期、种类升序 / 降序排序
@@ -244,6 +245,10 @@ Widget、锁屏组件、Apple Watch、Live Activity 不能直接依赖主 App �
 - 课程浏览、搜索与分页
 - 课程详情、教师信息和历年成绩统计
 - 点赞、评分、评论及评论图片预览
+
+课程号/课程名/教师消歧集中在 `Course/CourseLookup.swift`。日程课程详情和成绩详情的
+“查看课程评价”都通过 `CourseNavigationRequest` 进入 `CoursePageContent`，最终使用同一套
+课程详情与评论实现。
 
 课程列表与详情各自拥有 Service / ViewModel，不应塞进 `ScoreViewModel`。左右滑动只负责切换
 一级内容，不应触发成绩筛选或可信成绩单状态变化。

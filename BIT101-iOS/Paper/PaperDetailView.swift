@@ -219,7 +219,7 @@ struct PaperDetailView: View {
     }
 
     private var paperShareURL: URL {
-        URL(string: "https://open.aihelpme.dev/paper/\(initialPaper.id)")!
+        AppURL.required("https://open.aihelpme.dev/paper/\(initialPaper.id)")
     }
 
     private var inlineImages: [PaperInlineImage] {

@@ -12,7 +12,7 @@ import SwiftUI
 /// ICP 备案号统一跳转到工信部备案管理系统公共入口，便于用户自行核验公示内容。
 enum AppLegalInfo {
     static let icpDisplayText = "京ICP备2026016481号"
-    static let icpPublicNoticeURL = URL(string: "https://beian.miit.gov.cn/")!
+    static let icpPublicNoticeURL = AppURL.required("https://beian.miit.gov.cn/")
 }
 
 /// 根容器视图。

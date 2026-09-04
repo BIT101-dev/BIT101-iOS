@@ -62,7 +62,8 @@ final class EmergencyUpdateChecker {
             return URL(string: raw)
         },
         loadData: @escaping DataLoader = { request in
-            try await URLSession.shared.data(for: request)
+            let response = try await HTTPClient.shared.send(request, accepting: 100 ..< 600)
+            return (response.data, response.response)
         }
     ) {
         self.defaults = defaults

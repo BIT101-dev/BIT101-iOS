@@ -67,11 +67,11 @@ enum ScheduleICSParser {
 
     private static let utcDateTimeFormatter = formatter(timeZone: .gmt, format: "yyyyMMdd'T'HHmmss'Z'")
     private static let localDateTimeFormatter = formatter(
-        timeZone: TimeZone(secondsFromGMT: 8 * 3600)!,
+        timeZone: TimeZone(identifier: "Asia/Shanghai") ?? .current,
         format: "yyyyMMdd'T'HHmmss"
     )
     private static let dateOnlyFormatter = formatter(
-        timeZone: TimeZone(secondsFromGMT: 8 * 3600)!,
+        timeZone: TimeZone(identifier: "Asia/Shanghai") ?? .current,
         format: "yyyyMMdd"
     )
 

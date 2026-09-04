@@ -100,7 +100,7 @@ struct ScoreService {
         {
             endpointBaseURL = url
         } else {
-            endpointBaseURL = URL(string: "https://login.bit101.flwfdd.xyz")!
+            endpointBaseURL = AppURL.required("https://login.bit101.flwfdd.xyz")
         }
     }
 
@@ -302,7 +302,7 @@ struct ScoreService {
     private func downloadTranscriptPages(cookieString: String) async throws -> [Data] {
         guard !cookieString.isEmpty else { throw ScoreServiceError.invalidResponse }
 
-        let reportURL = URL(string: "https://jwb.bit.edu.cn/cjd/ScoreReport2/Index?GPA=1")!
+        let reportURL = AppURL.required("https://jwb.bit.edu.cn/cjd/ScoreReport2/Index?GPA=1")
         var reportRequest = URLRequest(url: reportURL)
         reportRequest.timeoutInterval = Self.authenticationWaitSeconds
         reportRequest.setValue(cookieString, forHTTPHeaderField: "Cookie")

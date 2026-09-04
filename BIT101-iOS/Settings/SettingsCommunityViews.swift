@@ -75,15 +75,15 @@ struct AboutSettingsPage: View {
             Section("致谢") {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("特别感谢 LINUX DO（L站）以及佬友们。这个 App 的诞生，离不开他们提供的免费 tokens 与无私的支持。L站倡导“真诚、友善、团结、专业，共建你我引以为荣之社区。”某种意义上，BIT101 也是在这样的氛围里，被一点点推出来的。")
-                    Link("如果你也想加入，可以点击此处，向开发者发送邮件，以索要L站邀请码。", destination: URL(string: "mailto:systemd@linux.do")!)
+                    Link("如果你也想加入，可以点击此处，向开发者发送邮件，以索要L站邀请码。", destination: AppURL.required("mailto:systemd@linux.do"))
                 }
                 .padding(.vertical, 2)
             }
 
             Section("联系我们") {
-                Link("项目仓库", destination: URL(string: "https://github.com/BIT101-dev/BIT101-iOS")!)
-                Link("QQ交流群", destination: URL(string: "https://jq.qq.com/?_wv=1027&k=OTttwrzb")!)
-                Link("邮箱", destination: URL(string: "mailto:systemd@linux.do")!)
+                Link("项目仓库", destination: AppURL.required("https://github.com/BIT101-dev/BIT101-iOS"))
+                Link("QQ交流群", destination: AppURL.required("https://jq.qq.com/?_wv=1027&k=OTttwrzb"))
+                Link("邮箱", destination: AppURL.required("mailto:systemd@linux.do"))
             }
 
             Section("关于本 APP") {

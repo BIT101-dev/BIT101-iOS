@@ -9,6 +9,7 @@ node_modules/
 .wrangler/
 .generated-emergency-update.json
 .git.backup-*/
+TODO.md
 
 BIT101-iOS.xcodeproj/xcuserdata/
 BIT101-iOS.xcodeproj/project.xcworkspace/xcuserdata/

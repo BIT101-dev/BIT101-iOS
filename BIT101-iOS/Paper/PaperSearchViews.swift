@@ -21,34 +21,34 @@ struct PaperSearchView: View {
                         systemImage: "magnifyingglass",
                         message: "输入关键词后再搜索文章。"
                     )
-                    .padding(.top, 48)
+                    .frame(maxWidth: .infinity)
                 } else {
                     switch viewModel.state.status {
                     case .idle where viewModel.state.items.isEmpty,
                          .loading where viewModel.state.items.isEmpty:
-                        ProgressView("正在搜索文章")
-                            .frame(maxWidth: .infinity)
-                            .padding(.top, 48)
+                        AppInlineLoadingState("正在搜索文章")
                     case let .failed(message) where viewModel.state.items.isEmpty:
-                        AppFailureState(
-                            title: "搜索失败",
-                            systemImage: "doc.text.magnifyingglass",
-                            message: message,
-                            onRetry: {
-                                Task {
-                                    await viewModel.performSearch()
+                        AppScrollStateContainer {
+                            AppFailureState(
+                                title: "搜索失败",
+                                systemImage: "doc.text.magnifyingglass",
+                                message: message,
+                                onRetry: {
+                                    Task {
+                                        await viewModel.performSearch()
+                                    }
                                 }
-                            }
-                        )
-                        .padding(.top, 48)
+                            )
+                        }
                     default:
                         if visiblePapers.isEmpty {
-                            AppEmptyState(
-                                title: "没有找到相关文章",
-                                systemImage: "doc.text.magnifyingglass",
-                                message: "换个关键词试试。"
-                            )
-                            .padding(.top, 48)
+                            AppScrollStateContainer {
+                                AppEmptyState(
+                                    title: "没有找到相关文章",
+                                    systemImage: "doc.text.magnifyingglass",
+                                    message: "换个关键词试试。"
+                                )
+                            }
                         } else {
                             ForEach(Array(visiblePapers.enumerated()), id: \.element.id) { index, paper in
                                 AppFeedRow(isLast: index == visiblePapers.count - 1) {
@@ -67,8 +67,7 @@ struct PaperSearchView: View {
                             }
 
                             if viewModel.state.isLoadingMore {
-                                ProgressView("正在加载更多")
-                                    .padding(.vertical, 12)
+                                AppInlineLoadingState("正在加载更多")
                             }
                         }
                     }

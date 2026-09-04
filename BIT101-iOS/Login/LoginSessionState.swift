@@ -139,7 +139,7 @@ final class TeachingCenterSessionState {
         let now = Date()
         return cookieStorage.cookies?.contains { cookie in
             normalizedDomain(cookie.domain) == "webvpn.bit.edu.cn"
-                && (cookie.expiresDate == nil || cookie.expiresDate! > now)
+                && (cookie.expiresDate.map { $0 > now } ?? true)
         } ?? false
     }
 

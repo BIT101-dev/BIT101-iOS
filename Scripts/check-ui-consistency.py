@@ -48,9 +48,6 @@ STACK_SPACING_LITERAL = re.compile(
 
 ALLOWED_SHARED_URLSESSION_FILES = {
     "BIT101-iOS/Shared/Networking/HTTPClient.swift",
-    "BIT101-iOS/Shared/Infrastructure/AppUpdateChecker.swift",
-    "BIT101-iOS/Shared/Infrastructure/EmergencyUpdateChecker.swift",
-    "BIT101-iOS/Shared/Infrastructure/ErrorReportSupport.swift",
     "BIT101-iOS/Shared/Infrastructure/ReleaseNetworkSmoke.swift",
 }
 
@@ -155,8 +152,12 @@ def main() -> int:
             continue
         source = path.read_text(encoding="utf-8")
         if re.search(r"\bList\s*\{", source) and path.name != "GalleryMessagesView.swift":
-            if "appGroupedListStyle()" not in source:
-                errors.append(f"{path.relative_to(ROOT)}: 分组列表必须使用 appGroupedListStyle")
+            list_count = len(re.findall(r"\bList\s*\{", source))
+            style_count = source.count("appGroupedListStyle()")
+            if style_count < list_count:
+                errors.append(
+                    f"{path.relative_to(ROOT)}: {list_count} 个分组列表必须逐个使用 appGroupedListStyle（当前 {style_count} 个）"
+                )
 
     # 帖子和文章详情必须共用同一个分享按钮，避免只实现一侧或出现不同的系统入口。
     for detail_file in ("Course/CourseDetailView.swift", "Gallery/GalleryPosterDetailView.swift", "Paper/PaperDetailView.swift"):

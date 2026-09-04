@@ -137,6 +137,8 @@ struct GalleryAnimatedImage: UIViewRepresentable {
                     imageView.startAnimating()
                 } catch {
                     // 动图失败时保留缩略图占位，不以弹窗打断话廊浏览。
+                    imageView?.stopAnimating()
+                    imageView?.image = nil
                 }
             }
         }

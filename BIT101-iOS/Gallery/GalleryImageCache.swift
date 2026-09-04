@@ -280,6 +280,7 @@ struct GalleryCachedStillImage: View {
                 }
             } catch {
                 // 缩略图失败时保留占位，不弹窗干扰浏览。
+                image = nil
             }
         }
     }
