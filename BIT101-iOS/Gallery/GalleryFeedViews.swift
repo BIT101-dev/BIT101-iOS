@@ -31,21 +31,17 @@ struct GalleryFeedView: View {
                     }
                 } else if case let .failed(message) = feedState.status, feedState.posters.isEmpty {
                     galleryPlaceholderContainer {
-                        ContentUnavailableView {
-                            Label("加载失败", systemImage: "exclamationmark.triangle")
-                        } description: {
-                            Text(message)
-                        } actions: {
-                            Button("重试") {
-                                onRefresh()
-                            }
-                            DiagnosticRecoveryActions(title: "加载话廊失败", message: message)
-                        }
+                        AppFailureState(
+                            title: "加载失败",
+                            systemImage: "exclamationmark.triangle",
+                            message: message,
+                            onRetry: onRefresh
+                        )
                     }
                 } else {
                     LazyVStack(spacing: 0) {
                         ForEach(Array(visiblePosters.enumerated()), id: \.element.id) { index, poster in
-                            VStack(spacing: 0) {
+                            AppFeedRow(isLast: index == visiblePosters.count - 1) {
                                 GalleryPosterCard(
                                     poster: poster,
                                     onOpenPoster: { selectedPoster = poster },
@@ -54,11 +50,6 @@ struct GalleryFeedView: View {
                                     },
                                     onDelete: nil
                                 )
-
-                                if index != visiblePosters.count - 1 {
-                                    Divider()
-                                        .padding(.leading, AppDesignSystem.Feed.dividerLeading)
-                                }
                             }
                             .id(poster.id)
                             .onAppear {
@@ -207,7 +198,7 @@ struct GalleryPosterCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 10) {
-                GalleryAvatarView(imageURL: URL(string: poster.user.avatar.lowUrl.isEmpty ? poster.user.avatar.url : poster.user.avatar.lowUrl))
+                AppAvatarView(imageURL: URL(string: poster.user.avatar.lowUrl.isEmpty ? poster.user.avatar.url : poster.user.avatar.lowUrl))
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
@@ -273,14 +264,9 @@ struct GalleryPosterCard: View {
 
             if !poster.tags.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: AppDesignSystem.Tag.interItemSpacing) {
                         ForEach(poster.tags, id: \.self) { tag in
-                            Text(tag)
-                                .font(.caption.weight(.medium))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 5)
-                                .background(AppDesignSystem.Palette.highlight.opacity(0.12), in: Capsule())
-                                .foregroundStyle(AppDesignSystem.Palette.highlight)
+                            AppTagChip(title: tag, variant: .feed)
                         }
                     }
                 }
@@ -297,30 +283,6 @@ struct GalleryPosterCard: View {
     /// 把后端时间文本转成相对时间文案。
     private func relativeTimeText(_ string: String) -> String {
         GalleryDateDecoder.relativeText(from: string, fallback: "未知")
-    }
-}
-
-/// 帖子作者头像。
-///
-/// 头像统一走 `CachedRemoteImage`，避免频繁出现在信息流里的用户头像每次冷启动都重新下载。
-struct GalleryAvatarView: View {
-    let imageURL: URL?
-
-    var body: some View {
-        CachedRemoteImage(url: imageURL) { image in
-            image
-                .resizable()
-                .scaledToFill()
-        } placeholder: {
-            ZStack {
-                Circle().fill(AppDesignSystem.Palette.highlight.opacity(0.15))
-                Image(systemName: "person.fill")
-                    .foregroundStyle(AppDesignSystem.Palette.highlight)
-                    .font(.caption.weight(.bold))
-            }
-        }
-        .frame(width: 34, height: 34)
-        .clipShape(Circle())
     }
 }
 

@@ -10,208 +10,18 @@ import Combine
 import BackgroundTasks
 import UIKit
 
-/// 课表自动更新间隔设置。
+/// 学业页面共享的状态对象。
 ///
-/// `0` 表示关闭；其它值按自然日计算。该设置属于设备级偏好，而最近同步时间随课表
-/// 缓存按账号隔离，因此切换账号不会串用另一位用户的更新时间。
-enum ScheduleAutoRefreshPreferences {
-    nonisolated static let intervalDaysKey = "schedule.auto-refresh.interval-days"
-    nonisolated static let defaultIntervalDays = 7
-    nonisolated static let availableIntervals = [0, 1, 3, 7, 14, 30]
-
-    nonisolated static var intervalDays: Int {
-        get {
-            guard UserDefaults.standard.object(forKey: intervalDaysKey) != nil else {
-                return defaultIntervalDays
-            }
-            return max(UserDefaults.standard.integer(forKey: intervalDaysKey), 0)
-        }
-        set {
-            UserDefaults.standard.set(max(newValue, 0), forKey: intervalDaysKey)
-        }
-    }
-
-    nonisolated static func title(for days: Int) -> String {
-        days == 0 ? "关闭" : "每 \(days) 天"
-    }
-}
-
-/// 登录后学校数据的统一前台预热协调器。
-///
-/// 不注册开机或系统后台任务，只在 App 启动、重新回到前台、切换账号时检查：
-/// - 成绩：仅在第 16 周结束后的假期窗口内每天自动同步一次，-1 学期在 -3 周边界停止。
-/// - DDL：保持每天首次进入时同步一次。
-/// - 空教室：预热当前教学楼的数据，进入页面时可直接展示。
-/// - 课表：仅达到用户设置的间隔后刷新；失败通过壳层统一提示。
+/// 这里只负责复用页面状态，不在应用启动、回前台或切换账号时发起学校请求。
+/// 所有可能触发 WebVPN / 短信验证的学校请求都只能由用户进入对应页面后显式发起。
 @MainActor
-final class SchoolDataRefreshCoordinator: ObservableObject {
-    static let shared = SchoolDataRefreshCoordinator()
+final class SchoolDataViewModelStore: ObservableObject {
+    static let shared = SchoolDataViewModelStore()
 
     let scheduleViewModel = ScheduleViewModel()
     let scoreViewModel = ScoreViewModel()
-    @Published var alert: AppAlert?
-
-    private let ddlAttemptKeyPrefix = "schedule.ddl.silent-refresh.last-attempt"
-    private let courseAttemptKeyPrefix = "schedule.courses.auto-refresh.last-attempt"
-    private let scoreAttemptKeyPrefix = "score.auto-refresh.last-attempt"
-    private var activeTask: Task<Void, Never>?
-    private var activeRunID: UUID?
-    private var activeStudentID = ""
 
     private init() {}
-
-    func refreshOnEntry(trigger: String) {
-        #if RELEASE_NETWORK_SMOKE
-        // 专用冒烟测试会自行顺序调用真实业务服务；避免 App 生命周期预热并发发起同一批请求。
-        _ = trigger
-        #else
-        let studentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fakeCookie = LoginStorage.shared.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !studentID.isEmpty, !fakeCookie.isEmpty else {
-            // 退出登录时先停掉仍持有旧账号的预热任务，防止它在登录页继续回写错误。
-            activeTask?.cancel()
-            activeTask = nil
-            activeRunID = nil
-            activeStudentID = ""
-            scheduleViewModel.resetForCurrentAccount()
-            scoreViewModel.resetForCurrentAccount()
-            return
-        }
-
-        if activeStudentID != studentID {
-            activeTask?.cancel()
-            activeTask = nil
-            activeRunID = nil
-            activeStudentID = studentID
-            scheduleViewModel.resetForCurrentAccount()
-            scoreViewModel.resetForCurrentAccount()
-        }
-        guard activeTask == nil else { return }
-
-        let runID = UUID()
-        activeRunID = runID
-        activeTask = Task(priority: .utility) { [weak self] in
-            guard let self else { return }
-            defer {
-                if activeRunID == runID {
-                    activeTask = nil
-                    activeRunID = nil
-                }
-            }
-
-            await scheduleViewModel.loadIfNeeded()
-
-            let initialPhase = AcademicTermPolicy.activityPhase(
-                cache: scheduleViewModel.cache,
-                on: Date()
-            )
-            async let classroomRefresh: Void = refreshClassroomIfNeeded(during: initialPhase)
-            async let ddlRefresh: Void = refreshDDLIfNeeded(studentID: studentID, during: initialPhase)
-            await refreshCoursesIfNeeded(during: initialPhase)
-            await refreshScoresIfNeeded(studentID: studentID)
-            _ = await (classroomRefresh, ddlRefresh)
-            _ = trigger
-        }
-        #endif
-    }
-
-    private func refreshScoresIfNeeded(studentID: String) async {
-        let now = Date()
-        guard ScoreAutomaticRefreshPolicy.isWithinRefreshWindow(
-            cache: scheduleViewModel.cache,
-            now: now
-        ) else { return }
-
-        let key = "\(scoreAttemptKeyPrefix).\(studentID)"
-        if let lastAttempt = UserDefaults.standard.object(forKey: key) as? Date,
-           Calendar.current.isDate(lastAttempt, inSameDayAs: now)
-        {
-            return
-        }
-        // Record the attempt before starting authentication so repeated launches
-        // cannot create duplicate server work or repeated SMS challenges.
-        UserDefaults.standard.set(now, forKey: key)
-        await scoreViewModel.bootstrapIfNeeded()
-    }
-
-    private func refreshClassroomIfNeeded(during phase: AcademicActivityPhase) async {
-        guard phase != .vacation else { return }
-        await scheduleViewModel.prepareClassroomIfNeeded(showErrors: false)
-    }
-
-    private func refreshDDLIfNeeded(studentID: String, during phase: AcademicActivityPhase) async {
-        guard phase != .vacation else { return }
-        let cache = scheduleViewModel.cache
-        let hasLexueSyncHistory =
-            !cache.lexueCalendarURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-            cache.ddlEvents.contains(where: { $0.group == "lexue" })
-        guard hasLexueSyncHistory else { return }
-
-        let key = "\(ddlAttemptKeyPrefix).\(studentID)"
-        let calendar = Calendar.current
-        if let lastAttempt = UserDefaults.standard.object(forKey: key) as? Date,
-           calendar.isDate(lastAttempt, inSameDayAs: Date()) {
-            return
-        }
-        UserDefaults.standard.set(Date(), forKey: key)
-        _ = await scheduleViewModel.syncDDL(showSuccessNotice: false, showErrorNotice: false)
-    }
-
-    private func refreshCoursesIfNeeded(during phase: AcademicActivityPhase) async {
-        let intervalDays = ScheduleAutoRefreshPreferences.intervalDays
-        let cache = scheduleViewModel.cache
-        let hasExistingSchedule = !cache.currentTerm.isEmpty || !cache.courses.isEmpty
-        guard hasExistingSchedule else { return }
-
-        let now = Date()
-        let adjacentTerms = AcademicTermPolicy.adjacentTerms(on: now)
-        let targetTerm: String
-        let dueDate: Date
-
-        if phase == .vacation, let nextTerm = adjacentTerms.dropFirst().first {
-            targetTerm = nextTerm
-            let snapshot = cache.termSchedulesByTerm[nextTerm]
-            let nextStart = snapshot?.firstDay ?? AcademicTermPolicy.nextBoundary(after: now)
-            let daysUntilStart = Calendar.current.dateComponents([.day], from: now, to: nextStart).day ?? 99
-            // Weekly during the vacation, then daily in the final two weeks while
-            // schools are most likely to publish or adjust the new timetable.
-            let retryDays = daysUntilStart <= 14 ? 1 : 7
-            dueDate = Calendar.current.date(
-                byAdding: .day,
-                value: retryDays,
-                to: snapshot?.updatedAt ?? .distantPast
-            ) ?? .distantPast
-            if snapshot?.hasDisplayableData == true, now < nextStart {
-                return
-            }
-        } else {
-            targetTerm = AcademicTermPolicy.preferredCachedTerm(cache: cache, on: now)
-            let targetSnapshot = cache.termSchedulesByTerm[targetTerm]
-            let needsTermTransition = cache.currentTerm != targetTerm
-                && targetSnapshot?.hasDisplayableData != true
-            guard intervalDays > 0 || needsTermTransition else { return }
-            let retryDays = needsTermTransition ? 1 : intervalDays
-            let snapshotUpdatedAt = targetSnapshot?.updatedAt ?? cache.coursesUpdatedAt
-            dueDate = Calendar.current.date(
-                byAdding: .day,
-                value: retryDays,
-                to: snapshotUpdatedAt
-            ) ?? .distantPast
-        }
-        guard now >= dueDate else { return }
-
-        let studentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let attemptKey = "\(courseAttemptKeyPrefix).\(studentID)"
-        if let lastAttempt = UserDefaults.standard.object(forKey: attemptKey) as? Date,
-           Calendar.current.isDate(lastAttempt, inSameDayAs: now) {
-            return
-        }
-        UserDefaults.standard.set(now, forKey: attemptKey)
-
-        if let failure = await scheduleViewModel.autoRefreshCourses(terms: [targetTerm]) {
-            alert = AppAlert(title: failure.title, message: failure.message)
-        }
-    }
 }
 
 /// 统一管理应用允许的方向集合。
@@ -346,14 +156,12 @@ struct BIT101_iOSApp: App {
     @Environment(\.scenePhase) private var scenePhase
     /// 全局设置单例，负责驱动主题模式、旋转等跨页面偏好。
     @StateObject private var settings = AppSettingsStore.shared
-    @StateObject private var schoolDataRefresh = SchoolDataRefreshCoordinator.shared
     /// 保留一个 UIKit delegate 入口，用于响应方向能力查询。
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
-    /// 统一触发“共享课表快照 + Live Activity 刷新”。
+    /// 把已有本地课表缓存同步到 Widget、Watch 和 Live Activity。
     ///
-    /// 只有在启动和切号这两类场景里，主 app 才需要显式把课表缓存再导出一遍；
-    /// 其它常规课表写回路径会在 `ScheduleCacheStore.save` 内部自己完成共享快照导出。
+    /// 这条链路只读本地缓存，不访问学校/WebVPN；学校数据同步仍需用户显式操作。
     private func refreshScheduleExternalDisplays(trigger: String, syncWidgetSnapshot: Bool) {
         if syncWidgetSnapshot {
             ScheduleWidgetExporter.syncFromCurrentCache()
@@ -372,22 +180,6 @@ struct BIT101_iOSApp: App {
 
             await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(trigger: trigger)
         }
-    }
-
-    private func refreshScheduleCloudSyncIfNeeded(trigger: String) {
-        #if RELEASE_NETWORK_SMOKE
-        _ = trigger
-        #else
-        #if canImport(CloudKit)
-        Task {
-            await ScheduleCloudSyncManager.shared.refreshFromCloudIfNeeded()
-            await MainActor.run {
-                ExperimentalPreferenceCloudSync.shared.refreshFromCloudIfNeeded()
-            }
-            _ = trigger
-        }
-        #endif
-        #endif
     }
 
     /// 根场景定义。
@@ -422,18 +214,18 @@ struct BIT101_iOSApp: App {
                     // 启动后先激活 WatchConnectivity，保证 watch 端发来的“重新同步”请求有人接。
                     WatchScheduleSyncManager.shared.activateIfNeeded()
 
-                    // 启动时补做一次导出与提醒刷新，保证外部展示拿到的是当前账号的最新缓存。
+                    // 启动时只导出本地缓存并刷新外部展示，不触发学校请求。
                     refreshScheduleExternalDisplays(trigger: "app_launch_task", syncWidgetSnapshot: true)
-                    refreshScheduleCloudSyncIfNeeded(trigger: "app_launch_task")
-                    schoolDataRefresh.refreshOnEntry(trigger: "app_launch_task")
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .loginStorageDidChange)) { _ in
                     // 账号切换会让旧页面的请求和错误提示失去上下文，先清掉全局提示队列。
                     AppErrorPresenter.shared.reset()
-                    // 切换账号后，组件和灵动岛必须立即改读新账号的缓存。
+                    // 只重置内存状态，不在切号时自动访问学校；下一次用户主动操作时再请求。
+                    let schoolDataViewModels = SchoolDataViewModelStore.shared
+                    schoolDataViewModels.scheduleViewModel.resetForCurrentAccount()
+                    schoolDataViewModels.scoreViewModel.resetForCurrentAccount()
+                    // 切换账号后，组件和灵动岛必须立即改读新账号的本地缓存。
                     refreshScheduleExternalDisplays(trigger: "login_storage_changed", syncWidgetSnapshot: true)
-                    refreshScheduleCloudSyncIfNeeded(trigger: "login_storage_changed")
-                    schoolDataRefresh.refreshOnEntry(trigger: "login_storage_changed")
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .scheduleCacheDidChange)) { _ in
                     // 这里主要负责刷新 Live Activity。
@@ -445,11 +237,8 @@ struct BIT101_iOSApp: App {
         #if !RELEASE_NETWORK_SMOKE
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
-                // 应用重新回到前台时，同时补做一次 widget 快照导出与时间线刷新。
-                // 否则即便用户主动打开 app，桌面/锁屏小组件也可能继续沿用后台停留期间的旧条目。
+                // 回到前台时只重新导出本地快照与时间线，不触发学校请求。
                 refreshScheduleExternalDisplays(trigger: "scene_active", syncWidgetSnapshot: true)
-                refreshScheduleCloudSyncIfNeeded(trigger: "scene_active")
-                schoolDataRefresh.refreshOnEntry(trigger: "scene_active")
             }
         }
         #endif

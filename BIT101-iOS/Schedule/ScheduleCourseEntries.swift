@@ -7,7 +7,7 @@ import SwiftUI
 
 /// 统一压缩教室名称里的冗长楼名，提升课表卡片可读性。
 private func normalizeDisplayedClassroom(_ value: String) -> String {
-    ScheduleDisplayNormalizer.normalizeClassroom(value)
+    ScheduleDisplayNormalizer.courseCardClassroomText(value)
 }
 
 /// 对课程标题做本地展示优化。
@@ -216,10 +216,10 @@ extension CourseScheduleTabView {
 
         let title = orderedCourseGroups
             .map { normalizeDisplayedCourseTitle($0[0].name) }
-            .joined(separator: "\n\n")
+            .joined(separator: "\n")
         let subtitle = orderedCourseGroups
             .compactMap { compactWeekText($0.flatMap(\.weeks)) }
-            .joined(separator: "\n\n")
+            .joined(separator: "\n")
         let detailLines = orderedCourses.flatMap { course -> [String] in
             let weekText = compactWeekText(course.weeks) ?? "未知周次"
             return [

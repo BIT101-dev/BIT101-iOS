@@ -20,6 +20,7 @@ extension AppAlert: DiagnosticAlertPresentable {}
 extension ScheduleNotice: DiagnosticAlertPresentable {
     var allowsDiagnostics: Bool {
         guard !message.contains("课表未发布"), !message.contains("课表尚未发布") else { return false }
+        guard !title.contains("需要短信验证"), !message.contains("短信二次验证") else { return false }
         return ["失败", "错误", "异常", "无法", "超时", "未找到", "验证已失效", "加载"].contains { title.contains($0) }
     }
 }

@@ -13,7 +13,7 @@ import Combine
 ///
 /// 文章模块并入后，底部栏继续只保留“话廊”一个入口，
 /// 再通过这里的顶部栏在“话题 / 文章”之间切换。
-private enum GallerySurface: String, CaseIterable, Identifiable {
+private enum GallerySurface: String, CaseIterable, Identifiable, Hashable {
     case gallery
     case paper
 
@@ -75,18 +75,12 @@ struct GalleryRootView: View {
                 )
             }
         }
-        .safeAreaInset(edge: .top) {
-            Picker("话廊内容", selection: $selectedSurface) {
+        .safeAreaInset(edge: .top, spacing: 0) {
+            AppTopSegmentedPicker(title: "话廊内容", selection: $selectedSurface) {
                 ForEach(GallerySurface.allCases) { surface in
                     Text(surface.title).tag(surface)
                 }
             }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 12)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
-            .background(AppDesignSystem.Palette.groupedBackground)
-            .appSelectionFeedback(trigger: selectedSurface.rawValue)
         }
         .task(id: requestedPaperID) {
             guard requestedPaperID != nil else { return }
@@ -166,18 +160,16 @@ struct GalleryRootView: View {
                 }
             }
         }
-        .safeAreaInset(edge: .top) {
-            Picker("话廊分区", selection: $viewModel.selectedFeed) {
+        .safeAreaInset(edge: .top, spacing: 0) {
+            AppTopSegmentedPicker(
+                title: "话廊分区",
+                selection: $viewModel.selectedFeed,
+                variant: .stacked
+            ) {
                 ForEach(GalleryFeedKind.allCases) { feed in
                     Text(feed.title).tag(feed)
                 }
             }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 12)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
-            .background(AppDesignSystem.Palette.groupedBackground)
-            .appSelectionFeedback(trigger: viewModel.selectedFeed.rawValue)
         }
         .task {
             async let feedTask: Void = viewModel.bootstrapIfNeeded()

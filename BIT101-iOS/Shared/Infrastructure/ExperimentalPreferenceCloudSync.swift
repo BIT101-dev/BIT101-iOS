@@ -77,10 +77,6 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
             }
         }
 
-        if isEnabled {
-            cloudStore.synchronize()
-            scheduleReconciliation(for: ExperimentalPreferenceSyncDomain.allCases)
-        }
     }
 
     deinit {
@@ -115,7 +111,6 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
 
     private func reloadForCurrentAccount() {
         isEnabled = defaults.bool(forKey: enabledKey)
-        refreshFromCloudIfNeeded()
     }
 
     private func handleExternalChange(_ notification: Notification) {

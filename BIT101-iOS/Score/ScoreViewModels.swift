@@ -21,7 +21,7 @@ final class ScoreViewModel: ObservableObject {
     @Published private(set) var sortIndex: ScoreSortIndex = .courseName
     /// 当前成绩列表排序方向。
     @Published private(set) var sortOrder: ScoreSortOrder = .ascending
-    /// 是否正在后台同步基础成绩列表。
+    /// 是否正在同步基础成绩列表。
     @Published private(set) var isSyncing = false
     /// 复用现有同步提示区域展示两阶段查询进度，不额外弹窗打扰用户。
     @Published private(set) var syncStatusText = "同步中"
@@ -37,7 +37,6 @@ final class ScoreViewModel: ObservableObject {
     @Published var alert: AppAlert?
 
     private let service: any ScoreListServicing
-    private let scheduleService: (any ScheduleServicing)?
     private var isRefreshing = false
     private var didRestoreCachedRows = false
     private var didInitializeTermSelection = false
@@ -45,19 +44,15 @@ final class ScoreViewModel: ObservableObject {
     /// A refresh that reached SMS verification must retain whether the user
     /// explicitly requested a cache-bypassing detailed refresh.
     private var pendingRefreshForcesDetailed = false
-    /// 补齐成绩所涉及学期课表的静默任务；重复刷新不会再启动第二份。
-    private var scheduleCacheTask: Task<Void, Never>?
-    /// 启动时读取一次已持久化的筛选快照。
+    /// 初始化时读取一次已持久化的筛选快照。
     private var preferenceSnapshot = ScoreFilterPreferenceStore.load()
     private var preferenceObserver: NSObjectProtocol?
     private var scoreCacheObserver: NSObjectProtocol?
 
     init(
-        service: any ScoreListServicing,
-        scheduleService: (any ScheduleServicing)? = nil
+        service: any ScoreListServicing
     ) {
         self.service = service
-        self.scheduleService = scheduleService
         if
             let rawSortIndex = preferenceSnapshot?.sortIndex,
             let persistedSortIndex = ScoreSortIndex(rawValue: rawSortIndex)
@@ -102,13 +97,11 @@ final class ScoreViewModel: ObservableObject {
     }
 
     convenience init() {
-        self.init(service: ScoreService(), scheduleService: ScheduleService())
+        self.init(service: ScoreService())
     }
 
     /// 切换账号后丢弃内存态；磁盘缓存仍按新学号在下一次启动时恢复。
     func resetForCurrentAccount() {
-        scheduleCacheTask?.cancel()
-        scheduleCacheTask = nil
         rows = []
         state = .idle
         availableTerms = []
@@ -131,13 +124,16 @@ final class ScoreViewModel: ObservableObject {
         alert = nil
     }
 
-    /// 首次进入成绩页时触发一次查询。
+    /// 进入成绩页时只恢复本地缓存，不访问学校或 WebVPN。
     ///
-    /// 如果本机已有成绩缓存，先立即恢复缓存，再后台刷新完整成绩列表。
-    func bootstrapIfNeeded() async {
+    /// 真实成绩查询必须由用户点击“查询成绩”或执行下拉刷新显式触发，
+    /// 这样短信验证码只会出现在用户能立即处理的操作链路中。
+    func restoreCachedDataIfNeeded() {
         guard state == .idle else { return }
         restoreCachedRowsIfAvailable()
-        await refresh(showErrors: false, forceDetailedRefresh: false)
+        if rows.isEmpty {
+            state = .loaded
+        }
     }
 
     /// 刷新成绩列表。
@@ -268,7 +264,6 @@ final class ScoreViewModel: ObservableObject {
         let cachedRows = ScoreCacheStore.loadRows()
         let briefRows = try await service.fetchScores(detail: false, authenticatedBy: challenge)
         applyRows(briefRows)
-        startMissingScheduleCacheRefresh(for: briefRows)
         syncStatusText = "简略成绩同步完成"
 
         let detailDecision: ScoreDetailRefreshDecision = forceDetailedRefresh
@@ -311,48 +306,6 @@ final class ScoreViewModel: ObservableObject {
             }
             lastUpdatedAt = ScoreCacheStore.loadUpdatedAt()
             throw error
-        }
-    }
-
-    /// 对成绩中出现、但本机尚未缓存课表的学期做一次静默补齐。
-    ///
-    /// 该任务与详细成绩查询并行；失败或需要短信验证时不弹窗，也不会影响成绩列表。
-    private func startMissingScheduleCacheRefresh(for scoreRows: [ScoreRow]) {
-        guard let scheduleService else { return }
-        guard scheduleCacheTask == nil else { return }
-        let terms = Set(scoreRows.map(\.term).filter { !$0.isEmpty })
-        let existingTerms = Set(ScheduleCacheStore.load().cachedCoursesByTerm.keys)
-        let missingTerms = terms.subtracting(existingTerms).sorted {
-            $0.localizedStandardCompare($1) == .orderedDescending
-        }
-        guard !missingTerms.isEmpty else { return }
-
-        scheduleCacheTask = Task { [weak self] in
-            guard let self else { return }
-            defer { scheduleCacheTask = nil }
-            var fetchedCoursesByTerm: [String: [CourseRecord]] = [:]
-
-            for term in missingTerms {
-                guard !Task.isCancelled else { return }
-                do {
-                    let payload = try await scheduleService.syncCourses(term: term)
-                    fetchedCoursesByTerm[payload.term] = payload.courses
-                } catch ScheduleServiceError.secondFactorRequired(_) {
-                    // 认证服务可能发送短信；停止后续学期，避免一次静默任务重复触发验证码。
-                    break
-                } catch {
-                    // 后台补齐只用于辅助提示；任何认证或网络错误都留待用户在课表页主动处理。
-                    continue
-                }
-            }
-
-            if !fetchedCoursesByTerm.isEmpty {
-                // 网络等待期间用户可能修改课表；保存前重读最新快照，只合并学期缓存。
-                var latestCache = ScheduleCacheStore.load()
-                latestCache.cachedCoursesByTerm.merge(fetchedCoursesByTerm) { _, fetched in fetched }
-                ScheduleCacheStore.save(latestCache, source: .localWithoutCloudPush)
-                pendingCourses = calculatePendingCourses()
-            }
         }
     }
 

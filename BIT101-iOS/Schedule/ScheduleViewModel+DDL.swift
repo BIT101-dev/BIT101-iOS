@@ -23,6 +23,7 @@ extension ScheduleViewModel {
                 payload.events,
                 into: cache.ddlEvents
             )
+            cache.ddlUpdatedAt = Date()
             persist()
             if showSuccessNotice {
                 notice = ScheduleNotice(
@@ -31,12 +32,24 @@ extension ScheduleViewModel {
                 )
             }
             return true
+        } catch ScheduleServiceError.schoolSecondFactorRequired {
+            notice = ScheduleNotice(
+                title: "需要短信验证",
+                message: "学校要求短信二次验证，请先在学校登录页面完成验证后再重试。"
+            )
+            return false
         } catch {
             if showErrorNotice {
                 notice = ScheduleNotice(title: "DDL 同步失败", message: error.localizedDescription)
             }
             return false
         }
+    }
+
+    /// DDL 页面展示的最近一次成功同步时间。
+    var ddlLastUpdatedText: String {
+        guard let updatedAt = cache.ddlUpdatedAt else { return "更新时间：暂无记录" }
+        return "更新时间：\(updatedAt.formatted(.dateTime.month().day().hour().minute()))"
     }
 
     /// 强制重新抓取乐学日历订阅地址。
@@ -52,6 +65,11 @@ extension ScheduleViewModel {
             if showSuccessNotice {
                 notice = ScheduleNotice(title: "订阅链接更新成功", message: "已重新获取乐学订阅链接。")
             }
+        } catch ScheduleServiceError.schoolSecondFactorRequired {
+            notice = ScheduleNotice(
+                title: "需要短信验证",
+                message: "学校要求短信二次验证，请先在学校登录页面完成验证后再重试。"
+            )
         } catch {
             notice = ScheduleNotice(title: "订阅链接获取失败", message: error.localizedDescription)
         }

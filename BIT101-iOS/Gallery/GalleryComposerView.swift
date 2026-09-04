@@ -300,16 +300,11 @@ struct GalleryComposerView: View {
                             Button {
                                 toggleTag(tag)
                             } label: {
-                                Text(tag)
-                                    .font(.footnote.weight(.medium))
-                                    .foregroundStyle(selectedTags.contains(tag) ? Color.white : AppDesignSystem.Palette.accent)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
+                                AppTagChip(
+                                    title: tag,
+                                    variant: .selection(isSelected: selectedTags.contains(tag))
+                                )
                                     .frame(maxWidth: .infinity)
-                                    .background(
-                                        selectedTags.contains(tag) ? AppDesignSystem.Palette.accent : AppDesignSystem.Palette.accent.opacity(0.12),
-                                        in: Capsule()
-                                    )
                             }
                             .buttonStyle(.plain)
                         }
@@ -317,16 +312,8 @@ struct GalleryComposerView: View {
                         Button {
                             addCustomTagDraft()
                         } label: {
-                            Text("自定义")
-                                .font(.footnote.weight(.medium))
-                                .foregroundStyle(AppDesignSystem.Palette.accent)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
+                            AppTagChip(title: "自定义", variant: .selection(isSelected: false))
                                 .frame(maxWidth: .infinity)
-                                .background(
-                                    AppDesignSystem.Palette.accent.opacity(0.12),
-                                    in: Capsule()
-                                )
                         }
                         .buttonStyle(.plain)
                     }

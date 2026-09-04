@@ -120,12 +120,7 @@ struct GalleryPosterDetailView: View {
                 if !viewModel.poster.tags.isEmpty {
                     HStack(spacing: 8) {
                         ForEach(viewModel.poster.tags, id: \.self) { tag in
-                            Text(tag)
-                                .font(.caption.weight(.medium))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(AppDesignSystem.Palette.highlight.opacity(0.12), in: Capsule())
-                                .foregroundStyle(AppDesignSystem.Palette.highlight)
+                            AppTagChip(title: tag, variant: .detail)
                         }
                     }
                 }
@@ -242,7 +237,7 @@ struct GalleryPosterDetailView: View {
     /// 详情页顶部作者信息区域。
     private var authorSummary: some View {
         HStack(spacing: 12) {
-            GalleryAvatarView(imageURL: URL(string: viewModel.poster.user.avatar.lowUrl.isEmpty ? viewModel.poster.user.avatar.url : viewModel.poster.user.avatar.lowUrl))
+            AppAvatarView(imageURL: URL(string: viewModel.poster.user.avatar.lowUrl.isEmpty ? viewModel.poster.user.avatar.url : viewModel.poster.user.avatar.lowUrl))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(viewModel.poster.user.nickname)

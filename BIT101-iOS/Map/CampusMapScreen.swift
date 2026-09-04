@@ -90,7 +90,7 @@ struct CampusMapScreen: View {
             consumeRequestedLocationIfNeeded()
         }
         .task {
-            await scheduleViewModel.loadIfNeeded()
+            scheduleViewModel.loadIfNeeded()
             focusOnNextCourseIfPossible(animated: false)
         }
         .onChange(of: nextCourseTarget?.id) { _, _ in

@@ -55,21 +55,17 @@ struct CoursePageContent: View {
                     .background(AppDesignSystem.Palette.groupedBackground)
 
             case let .failed(message) where viewModel.state.items.isEmpty:
-                ContentUnavailableView {
-                    Label(viewModel.hasActiveSearch ? "搜索失败" : "加载失败", systemImage: "books.vertical.circle")
-                } description: {
-                    Text(message)
-                } actions: {
-                    Button("重新加载") {
+                AppFailureState(
+                    title: viewModel.hasActiveSearch ? "搜索失败" : "加载失败",
+                    systemImage: "books.vertical.circle",
+                    message: message,
+                    retryTitle: "重新加载",
+                    onRetry: {
                         Task {
                             await viewModel.refresh()
                         }
                     }
-                    DiagnosticRecoveryActions(
-                        title: viewModel.hasActiveSearch ? "搜索失败" : "加载失败",
-                        message: message
-                    )
-                }
+                )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(AppDesignSystem.Palette.groupedBackground)
 
@@ -96,8 +92,6 @@ struct CoursePageContent: View {
                     }
                 }
                 .appGroupedListStyle()
-                // 顶部分段栏已由外层 safeAreaInset 提供，列表不再叠加默认滚动上边距。
-                .contentMargins(.top, 0, for: .scrollContent)
                 .background(AppDesignSystem.Palette.groupedBackground)
                 .refreshable {
                     await viewModel.refresh()
@@ -155,15 +149,15 @@ struct CoursePageContent: View {
     private var courseSection: some View {
         if viewModel.state.items.isEmpty {
             if viewModel.hasActiveSearch {
-                ContentUnavailableView(
-                    "没有找到课程",
+                AppEmptyState(
+                    title: "没有找到课程",
                     systemImage: "magnifyingglass",
-                    description: Text("换个关键词试试。")
+                    message: "换个关键词试试。"
                 )
                 .frame(maxWidth: .infinity)
             } else {
-                ContentUnavailableView(
-                    "暂无课程",
+                AppEmptyState(
+                    title: "暂无课程",
                     systemImage: "books.vertical"
                 )
                 .frame(maxWidth: .infinity)

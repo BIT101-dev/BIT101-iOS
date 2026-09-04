@@ -100,37 +100,3 @@ nonisolated enum AcademicTermPolicy {
         return calendar.date(from: target) ?? date
     }
 }
-
-nonisolated enum ScoreAutomaticRefreshPolicy {
-    /// Automatic score refresh is useful only after week 16 and before the next
-    /// term's -3 week small-term boundary. The -1 term uses that early boundary;
-    /// the -2 term keeps its regular first-week boundary.
-    static func isWithinRefreshWindow(cache: ScheduleCache, now: Date) -> Bool {
-        guard AcademicTermPolicy.activityPhase(cache: cache, on: now) == .vacation else {
-            return false
-        }
-        let terms = AcademicTermPolicy.adjacentTerms(on: now)
-        guard let currentTerm = terms.first else { return false }
-
-        let currentSnapshot = cache.termSchedulesByTerm[currentTerm]
-        let currentFirstDay = currentSnapshot?.firstDay
-            ?? (cache.currentTerm == currentTerm ? cache.firstDay : nil)
-        guard let currentFirstDay else { return false }
-
-        let calendar = Calendar(identifier: .gregorian)
-        guard let refreshStart = calendar.date(byAdding: .day, value: 16 * 7, to: currentFirstDay) else {
-            return false
-        }
-
-        let nextTerm = terms.dropFirst().first
-        let nextTermStart = nextTerm.flatMap { cache.termSchedulesByTerm[$0]?.firstDay }
-            ?? AcademicTermPolicy.nextBoundary(after: now)
-        let refreshEnd: Date
-        if nextTerm?.hasSuffix("-1") == true {
-            refreshEnd = calendar.date(byAdding: .day, value: -3 * 7, to: nextTermStart) ?? nextTermStart
-        } else {
-            refreshEnd = nextTermStart
-        }
-        return now >= refreshStart && now < refreshEnd
-    }
-}

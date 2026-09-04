@@ -81,7 +81,7 @@ struct ScheduleDayAdjustmentContext: Identifiable {
 }
 
 /// 单日课表调整模式。
-enum ScheduleDayAdjustmentMode: String, CaseIterable, Identifiable {
+enum ScheduleDayAdjustmentMode: String, CaseIterable, Identifiable, Hashable {
     case holiday
     case transfer
 
@@ -121,13 +121,11 @@ struct DayAdjustmentSheet: View {
                 }
 
                 Section("操作") {
-                    Picker("类型", selection: $draft.mode) {
+                    AppSegmentedPicker(title: "类型", selection: $draft.mode) {
                         ForEach(ScheduleDayAdjustmentMode.allCases) { mode in
                             Text(mode.title).tag(mode)
                         }
                     }
-                    .pickerStyle(.segmented)
-                    .appSelectionFeedback(trigger: draft.mode)
 
                     if draft.mode == .transfer {
                         DatePicker("调至", selection: $draft.targetDate, displayedComponents: .date)

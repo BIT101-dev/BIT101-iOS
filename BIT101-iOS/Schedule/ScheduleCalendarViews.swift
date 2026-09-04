@@ -90,6 +90,7 @@ struct CourseScheduleCalendarView: View {
     let week: Int
     let availableWeeks: [Int]
     let displayMode: ScheduleDisplayMode
+    let cardContentMode: ScheduleCardContentMode
     let firstDay: Date
     let timeTable: [TimeSlot]
     let currentWeek: Int
@@ -109,7 +110,8 @@ struct CourseScheduleCalendarView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let cardInset: CGFloat = 1
+            let cardInset = AppDesignSystem.Schedule.courseCardInset
+            let gridLineWidth = AppDesignSystem.Schedule.gridLineWidth
             let weekSliderHeight: CGFloat = 36
             let dateHeaderHeight: CGFloat = 26
             let headerHeight: CGFloat = displayMode == .weekly ? weekSliderHeight + dateHeaderHeight : 42
@@ -219,8 +221,8 @@ struct CourseScheduleCalendarView: View {
                     ForEach(0 ... timeTable.count, id: \.self) { row in
                         Rectangle()
                             .fill(Color.secondary.opacity(row == 0 ? 0.18 : 0.12))
-                            .frame(height: 0.5)
-                            .offset(y: headerHeight + rowHeight * CGFloat(row))
+                            .frame(height: gridLineWidth)
+                            .offset(y: headerHeight + rowHeight * CGFloat(row) - gridLineWidth / 2)
                             .zIndex(-1)
                     }
                 }
@@ -229,11 +231,11 @@ struct CourseScheduleCalendarView: View {
                     Rectangle()
                         .fill(Color.secondary.opacity(column == 0 ? 0.18 : 0.12))
                         .frame(
-                            width: 0.5,
+                            width: gridLineWidth,
                             height: proxy.size.height - (displayMode == .weekly ? weekSliderHeight : 0)
                         )
                         .offset(
-                            x: leftWidth + dayWidth * CGFloat(column),
+                            x: leftWidth + dayWidth * CGFloat(column) - gridLineWidth / 2,
                             y: displayMode == .weekly ? weekSliderHeight : 0
                         )
                         .zIndex(-1)
@@ -287,7 +289,7 @@ struct CourseScheduleCalendarView: View {
                             .zIndex(layer.displayZIndex)
                         }
 
-                        CourseScheduleBlockView(entry: entry)
+                        CourseScheduleBlockView(entry: entry, contentMode: cardContentMode)
                             .contentShape(Rectangle())
                             .onTapGesture { onSelect(entry) }
                             .contextMenu {
@@ -325,7 +327,8 @@ struct CourseScheduleCalendarView: View {
             }
             .clipped()
             .background(AppDesignSystem.Palette.systemBackground)
-            .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.prominent, style: .continuous))
+            // 课表主体改用 List 分组内容的圆角；不改变其它普通卡片。
+            .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped, style: .continuous))
             .appSelectionFeedback(trigger: week)
             .appImpactFeedback(trigger: contextMenuFeedbackToken)
         }
@@ -351,48 +354,177 @@ struct CourseScheduleCalendarView: View {
 /// 课表中的单个课程 / 考试 / 自定义日程块。
 private struct CourseScheduleBlockView: View {
     let entry: ScheduleCalendarEntry
+    let contentMode: ScheduleCardContentMode
 
     var body: some View {
-        VStack(spacing: 4) {
-            Spacer(minLength: 0)
-
-            textStack(entry.title, minimumScaleFactor: 0.75)
-
-            Spacer(minLength: 0)
-
-            textStack(entry.subtitle, minimumScaleFactor: 0.7)
-        }
-        .padding(.horizontal, 2)
-        .padding(.vertical, 5)
+        contentLayout
+        .padding(AppDesignSystem.Schedule.courseContentInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder
-    private func textStack(_ value: String, minimumScaleFactor: CGFloat) -> some View {
-        let groups = value.components(separatedBy: "\n\n")
-        VStack(spacing: groups.count > 1 ? 8 : 0) {
-            ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
-                Text(group)
-                    .font(.caption2)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(nil)
-                    .minimumScaleFactor(minimumScaleFactor)
-                    .foregroundStyle(textColor)
+    private var contentLayout: some View {
+        switch contentMode {
+        case .nameAndLocation:
+            VStack(spacing: 0) {
+                if !entry.title.isEmpty {
+                    Spacer(minLength: 0)
+                    titleLabel
+                }
+                if !entry.subtitle.isEmpty {
+                    Spacer(minLength: 0)
+                    locationLabel
+                } else if !entry.title.isEmpty {
+                    Spacer(minLength: 0)
+                }
+            }
+        case .name:
+            centered(titleLabel)
+        case .location:
+            if entry.subtitle.isEmpty {
+                centered(titleLabel)
+            } else {
+                centered(locationLabel)
             }
         }
     }
 
-    private var textColor: Color {
+    private var titleLabel: some View {
+        ScheduleDenseTextLabel(
+                text: entry.title,
+                textStyle: AppDesignSystem.Schedule.courseTitleTextStyle,
+                textColor: uiTextColor,
+                numberOfLines: titleLineLimit,
+                minimumScaleFactor: AppDesignSystem.Schedule.courseTitleMinimumScaleFactor,
+                lineBreakMode: titleLineBreakMode
+        )
+        .frame(maxWidth: .infinity)
+    }
+
+    /// 仅在“名称+地点”模式下，两格课程限制名称最多两行；其它模式不人为截断。
+    private var titleLineLimit: Int {
+        contentMode == .nameAndLocation && entry.endSection - entry.startSection <= 2
+            ? AppDesignSystem.Schedule.courseTitleMaximumLinesForTwoSections
+            : 0
+    }
+
+    private var titleLineBreakMode: NSLineBreakMode {
+        titleLineLimit > 0 ? .byTruncatingTail : .byWordWrapping
+    }
+
+    private var locationLabel: some View {
+        ScheduleDenseTextLabel(
+            text: entry.subtitle,
+            textStyle: AppDesignSystem.Schedule.courseLocationTextStyle,
+            textColor: uiTextColor,
+            numberOfLines: AppDesignSystem.Schedule.courseLocationLineCount,
+            minimumScaleFactor: AppDesignSystem.Schedule.courseLocationMinimumScaleFactor,
+            lineBreakMode: .byCharWrapping,
+            lineHeightMultiple: AppDesignSystem.Schedule.courseLocationLineHeightMultiple
+        )
+        .frame(maxWidth: .infinity)
+    }
+
+    private func centered<Content: View>(_ content: Content) -> some View {
+        content
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+
+    private var uiTextColor: UIColor {
         switch entry.kind {
         case .course:
-            return .primary
+            return .label
         case .exam:
-            return AppDesignSystem.Palette.highlight
+            return UIColor(AppDesignSystem.Palette.highlight)
         case .custom:
-            return AppDesignSystem.Palette.info
+            return UIColor(AppDesignSystem.Palette.info)
         }
     }
 
+}
+
+/// 课表专用紧凑文字块，直接使用 UIKit 的字符级换行，确保不回退到词语策略。
+private struct ScheduleDenseTextLabel: UIViewRepresentable {
+    let text: String
+    let textStyle: UIFont.TextStyle
+    let textColor: UIColor
+    let numberOfLines: Int
+    let minimumScaleFactor: CGFloat
+    let lineBreakMode: NSLineBreakMode
+    let lineHeightMultiple: CGFloat
+
+    init(
+        text: String,
+        textStyle: UIFont.TextStyle,
+        textColor: UIColor,
+        numberOfLines: Int,
+        minimumScaleFactor: CGFloat,
+        lineBreakMode: NSLineBreakMode,
+        lineHeightMultiple: CGFloat = 0
+    ) {
+        self.text = text
+        self.textStyle = textStyle
+        self.textColor = textColor
+        self.numberOfLines = numberOfLines
+        self.minimumScaleFactor = minimumScaleFactor
+        self.lineBreakMode = lineBreakMode
+        self.lineHeightMultiple = lineHeightMultiple
+    }
+
+    func makeUIView(context: Context) -> DenseLabel {
+        let label = DenseLabel()
+        label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return label
+    }
+
+    func updateUIView(_ uiView: DenseLabel, context: Context) {
+        let font = UIFont.preferredFont(forTextStyle: textStyle)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = .center
+        paragraphStyle.lineBreakMode = lineBreakMode
+        paragraphStyle.lineSpacing = 0
+        paragraphStyle.paragraphSpacing = 0
+        if lineHeightMultiple > 0 {
+            paragraphStyle.lineHeightMultiple = lineHeightMultiple
+        } else {
+            paragraphStyle.minimumLineHeight = font.lineHeight
+            paragraphStyle.maximumLineHeight = font.lineHeight
+        }
+
+        uiView.attributedText = NSAttributedString(
+            string: text,
+            attributes: [
+                .font: font,
+                .foregroundColor: textColor,
+                .paragraphStyle: paragraphStyle,
+            ]
+        )
+        uiView.numberOfLines = numberOfLines
+        uiView.textAlignment = .center
+        uiView.adjustsFontForContentSizeCategory = true
+        uiView.adjustsFontSizeToFitWidth = numberOfLines == 1
+        uiView.minimumScaleFactor = minimumScaleFactor
+        uiView.allowsDefaultTighteningForTruncation = true
+    }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        uiView: DenseLabel,
+        context: Context
+    ) -> CGSize? {
+        guard let width = proposal.width else { return nil }
+        uiView.preferredMaxLayoutWidth = width
+        let measured = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        return CGSize(width: width, height: measured.height)
+    }
+
+    final class DenseLabel: UILabel {
+        override func layoutSubviews() {
+            preferredMaxLayoutWidth = bounds.width
+            super.layoutSubviews()
+        }
+    }
 }
 
 private struct CourseScheduleBackgroundView: View {
@@ -407,7 +539,7 @@ private struct CourseScheduleBackgroundView: View {
             .overlay {
                 if showBorder, entry.kind != .course {
                     AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.badge, style: .continuous)
-                        .stroke(borderColor, lineWidth: 0.8)
+                        .strokeBorder(borderColor, lineWidth: AppDesignSystem.Schedule.courseBorderWidth)
                 }
             }
     }
@@ -457,10 +589,32 @@ struct CourseScheduleFAB: View {
 /// 单独抽出来后，`Button` 和 `Menu` 可以共用同一套视觉样式，
 /// 避免“添加”按钮因为交互容器不同而出现尺寸或命中区域错位。
 struct CourseScheduleFABLabel: View {
-    let systemImage: String
+    let systemImage: String?
+    let text: String?
+
+    init(systemImage: String) {
+        self.systemImage = systemImage
+        text = nil
+    }
+
+    init(text: String) {
+        systemImage = nil
+        self.text = text
+    }
 
     var body: some View {
-        AppFloatingActionButtonLabel(systemImage: systemImage)
+        AppFloatingActionButtonSurface {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(AppDesignSystem.Typography.floatingIcon)
+                    .foregroundStyle(.primary)
+            } else if let text {
+                Text(text)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .minimumScaleFactor(0.8)
+            }
+        }
     }
 }
 

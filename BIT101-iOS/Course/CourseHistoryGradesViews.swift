@@ -25,27 +25,24 @@ struct CourseHistoryGradesSheet: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 case let .failed(message):
-                    ContentUnavailableView {
-                        Label("加载历史成绩失败", systemImage: "chart.line.uptrend.xyaxis")
-                    } description: {
-                        Text(message)
-                    } actions: {
-                        Button("重试") {
+                    AppFailureState(
+                        title: "加载历史成绩失败",
+                        systemImage: "chart.line.uptrend.xyaxis",
+                        message: message,
+                        onRetry: {
                             Task {
                                 await onRetry()
                             }
                         }
-                        .buttonStyle(.borderedProminent)
-                        DiagnosticRecoveryActions(title: "加载历史成绩失败", message: message)
-                    }
+                    )
 
                 case .loaded:
                     if grades.isEmpty {
-                        ContentUnavailableView {
-                            Label("暂无历史成绩", systemImage: "chart.line.uptrend.xyaxis")
-                        } description: {
-                            Text("当前课程还没有可展示的历史成绩统计。")
-                        }
+                        AppEmptyState(
+                            title: "暂无历史成绩",
+                            systemImage: "chart.line.uptrend.xyaxis",
+                            message: "当前课程还没有可展示的历史成绩统计。"
+                        )
                     } else {
                         List {
                             Section {

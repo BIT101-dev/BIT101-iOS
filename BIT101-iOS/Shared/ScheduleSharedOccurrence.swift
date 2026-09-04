@@ -15,12 +15,39 @@ enum ScheduleDisplayNormalizer {
 
     /// 对课程标题做本地展示优化。
     ///
-    /// 目前主要把 `体育/xx` 压缩成 `xx`。
+    /// 目前主要把 `体育/xx` 压缩成 `xx`，并把中文全角括号改成半角括号。
     static func normalizeCourseTitle(_ value: String) -> String {
-        if value.hasPrefix("体育/") {
-            return String(value.dropFirst("体育/".count))
+        let withoutSportsPrefix = value.hasPrefix("体育/")
+            ? String(value.dropFirst("体育/".count))
+            : value
+        return withoutSportsPrefix
+            .replacingOccurrences(of: "（", with: "(")
+            .replacingOccurrences(of: "）", with: ")")
+    }
+
+    /// 课程卡片使用“楼房\n教室”的紧凑地点格式；无法可靠拆分时保留压缩后的原文。
+    static func courseCardClassroomText(_ value: String) -> String {
+        let location = compactLocation(for: value)
+        guard let room = location.room,
+              !location.lightBuilding.isEmpty,
+              !room.isEmpty
+        else {
+            return location.lightText
         }
-        return value
+
+        // 教学楼后缀字母属于教室编号的一部分，例如“文萃楼I101”显示为“文萃\nI101”。
+        let building = location.lightBuilding
+        let suffix = String(building.suffix(1))
+        let buildingPrefix = String(building.dropLast())
+        if !buildingPrefix.isEmpty,
+           suffix.unicodeScalars.count == 1,
+           suffix.rangeOfCharacter(from: .letters) != nil,
+           suffix.unicodeScalars.first?.value ?? 0 < 128
+        {
+            return "\(buildingPrefix)\(suffix)\n\(room)"
+        }
+
+        return "\(building)\n\(room)"
     }
 
     /// 将地点压缩成 complication 友好的楼名 / 教室结构。
@@ -178,7 +205,8 @@ enum ScheduleDisplayNormalizer {
         }
 
         return normalized
-            .replacingOccurrences(of: " ", with: "")
+            .components(separatedBy: .whitespacesAndNewlines)
+            .joined()
             .replacingOccurrences(of: "-", with: "")
             .replacingOccurrences(of: "－", with: "")
             .replacingOccurrences(of: "—", with: "")

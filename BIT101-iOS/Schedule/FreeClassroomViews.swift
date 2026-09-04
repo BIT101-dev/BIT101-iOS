@@ -2,7 +2,7 @@ import SwiftUI
 
 /// 空教室查询页。
 ///
-/// 交互上尽量保持“选校区 -> 自动拉默认楼 -> 再选楼”的顺序，减少无效点击。
+/// 交互上尽量保持“选校区 -> 手动刷新教学楼 -> 再选楼”的顺序，减少无效点击。
 struct FreeClassroomTabView: View {
     @ObservedObject var viewModel: ScheduleViewModel
     @State private var isManuallyRefreshing = false
@@ -27,7 +27,7 @@ struct FreeClassroomTabView: View {
 
     var body: some View {
         List {
-            Section("筛选") {
+            Section {
                 Picker("校区", selection: Binding(
                     get: { viewModel.cache.selectedCampusCode },
                     set: { newValue in
@@ -85,10 +85,14 @@ struct FreeClassroomTabView: View {
                 }
             } else if viewModel.classroomAvailabilities.isEmpty {
                 Section {
-                    ContentUnavailableView(
-                        "暂无空教室结果",
+                    AppEmptyState(
+                        title: "暂无空教室结果",
                         systemImage: "building.2.crop.circle",
-                        description: Text("先选定校区和教学楼，再刷新一次。")
+                        message: "先选定校区和教学楼，再刷新一次。",
+                        actionTitle: "刷新空教室",
+                        onAction: {
+                            Task { await manualRefresh() }
+                        }
                     )
                     .frame(maxWidth: .infinity)
                 }
@@ -112,12 +116,17 @@ struct FreeClassroomTabView: View {
         }
         .appGroupedListStyle()
         .refreshable {
-            isManuallyRefreshing = true
-            defer {
-                isManuallyRefreshing = false
-            }
-            await viewModel.refreshClassroomPage()
+            await manualRefresh()
         }
+    }
+
+    private func manualRefresh() async {
+        guard !isManuallyRefreshing else { return }
+        isManuallyRefreshing = true
+        defer {
+            isManuallyRefreshing = false
+        }
+        await viewModel.refreshClassroomPage()
     }
 }
 

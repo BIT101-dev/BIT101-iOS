@@ -16,9 +16,9 @@ struct PaperSearchView: View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 if viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    PaperEmptyState(
-                        systemImage: "magnifyingglass",
+                    AppEmptyState(
                         title: "搜索文章",
+                        systemImage: "magnifyingglass",
                         message: "输入关键词后再搜索文章。"
                     )
                     .padding(.top, 48)
@@ -30,9 +30,9 @@ struct PaperSearchView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.top, 48)
                     case let .failed(message) where viewModel.state.items.isEmpty:
-                        PaperEmptyState(
-                            systemImage: "doc.text.magnifyingglass",
+                        AppFailureState(
                             title: "搜索失败",
+                            systemImage: "doc.text.magnifyingglass",
                             message: message,
                             onRetry: {
                                 Task {
@@ -43,15 +43,15 @@ struct PaperSearchView: View {
                         .padding(.top, 48)
                     default:
                         if visiblePapers.isEmpty {
-                            PaperEmptyState(
-                                systemImage: "doc.text.magnifyingglass",
+                            AppEmptyState(
                                 title: "没有找到相关文章",
+                                systemImage: "doc.text.magnifyingglass",
                                 message: "换个关键词试试。"
                             )
                             .padding(.top, 48)
                         } else {
                             ForEach(Array(visiblePapers.enumerated()), id: \.element.id) { index, paper in
-                                VStack(spacing: 0) {
+                                AppFeedRow(isLast: index == visiblePapers.count - 1) {
                                     PaperSummaryCard(
                                         paper: paper,
                                         previewMetadata: viewModel.previewMetadata(for: paper.id),
@@ -59,11 +59,6 @@ struct PaperSearchView: View {
                                             selectedPaper = paper
                                         }
                                     )
-
-                                    if index != visiblePapers.count - 1 {
-                                        Divider()
-                                            .padding(.leading, AppDesignSystem.Feed.dividerLeading)
-                                    }
                                 }
                                 .task {
                                     await viewModel.loadPreviewMetadataIfNeeded(for: paper)
@@ -85,24 +80,27 @@ struct PaperSearchView: View {
         .refreshable {
             await viewModel.performSearch()
         }
-        .safeAreaInset(edge: .top) {
-            PaperSearchBar(
-                searchText: $viewModel.searchText,
-                selectedOrder: $viewModel.selectedOrder,
-                onSubmit: {
-                    Task {
-                        await viewModel.performSearch()
+        .safeAreaInset(edge: .top, spacing: 0) {
+            AppSearchBarContainer {
+                AppOrderedSearchBar(
+                    text: $viewModel.searchText,
+                    order: $viewModel.selectedOrder,
+                    selectedOrderTitle: viewModel.selectedOrder.title,
+                    onSubmit: {
+                        Task {
+                            await viewModel.performSearch()
+                        }
+                    },
+                    onClear: {
+                        viewModel.searchText = ""
+                        viewModel.reset()
                     }
-                },
-                onClear: {
-                    viewModel.searchText = ""
-                    viewModel.reset()
+                ) {
+                    ForEach(PaperSortOrder.allCases) { order in
+                        Text(order.title).tag(order)
+                    }
                 }
-            )
-            .padding(.horizontal, 14)
-            .padding(.top, 10)
-            .padding(.bottom, 8)
-            .background(.thinMaterial)
+            }
         }
         .onChange(of: viewModel.searchText) { _, newValue in
             guard newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -138,58 +136,6 @@ struct PaperSearchView: View {
     }
 }
 
-/// 文章搜索栏。
-///
-/// 这里直接对齐话廊搜索栏的结构：左侧排序菜单，中间搜索输入，右侧清空按钮。
-/// 这样文章与话廊两个内容模块的搜索入口会更统一。
-private struct PaperSearchBar: View {
-    @Binding var searchText: String
-    @Binding var selectedOrder: PaperSortOrder
-    let onSubmit: () -> Void
-    let onClear: () -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Picker(
-                selection: Binding(
-                    get: { selectedOrder },
-                    set: { newValue in
-                        selectedOrder = newValue
-                        onSubmit()
-                    }
-                )
-            ) {
-                ForEach(PaperSortOrder.allCases) { order in
-                    Text(order.title).tag(order)
-                }
-            } label: {
-                Label(selectedOrder.title, systemImage: "arrow.up.arrow.down.circle")
-            }
-            .pickerStyle(.menu)
-            .appSelectionFeedback(trigger: selectedOrder)
-
-            TextField("在这里搜索哦", text: $searchText)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .submitLabel(.search)
-                .onSubmit(onSubmit)
-
-            Button {
-                searchText = ""
-                onClear()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.title3)
-                    .foregroundStyle(searchText.isEmpty ? Color.secondary.opacity(0.35) : AppDesignSystem.Palette.highlight)
-            }
-            .buttonStyle(.plain)
-            .disabled(searchText.isEmpty)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(AppDesignSystem.Palette.secondaryBackground, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped, style: .continuous))
-    }
-}
 
 /// 文章摘要行。
 ///

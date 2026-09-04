@@ -26,7 +26,7 @@ extension Notification.Name {
 ///
 /// 课表、DDL、空教室虽然都挂在“日程”一级页签下，但数据来源和容器差异很大，
 /// 所以先用统一枚举收敛它们的切换语义。
-enum ScheduleSection: String, CaseIterable, Identifiable {
+enum ScheduleSection: String, CaseIterable, Identifiable, Hashable {
     case courses
     case ddl
     case classroom
@@ -64,6 +64,15 @@ enum ScheduleDisplayMode: String, CaseIterable, Codable, Identifiable {
             return "全学期叠加"
         }
     }
+}
+
+/// 课程卡片在“名称”和“地点”之间切换的内容模式。
+enum ScheduleCardContentMode: String, Codable, Identifiable {
+    case nameAndLocation
+    case name
+    case location
+
+    var id: String { rawValue }
 }
 
 /// 节次与时间段的映射。
@@ -292,7 +301,7 @@ nonisolated struct ScheduleCache: Codable {
     var primaryScheduleTitle = "课表"
     var currentTerm: String = ""
     var firstDayString: String = ""
-    /// 最近一次从学校成功同步课表与考试的时间，用于按天数触发自动更新。
+    /// 最近一次从学校成功同步课表与考试的时间，用于缓存迁移和快照时间戳。
     var coursesUpdatedAt: Date = .distantPast
     var lexueCalendarURL: String = ""
     var courses: [CourseRecord] = []
@@ -303,6 +312,8 @@ nonisolated struct ScheduleCache: Codable {
     var exams: [ExamRecord] = []
     var customSchedules: [CustomScheduleRecord] = []
     var ddlEvents: [DDLEventRecord] = []
+    /// 最近一次成功同步乐学 DDL 的时间；为空表示尚未成功同步。
+    var ddlUpdatedAt: Date?
     var ddlBeforeDay = 7
     var ddlAfterDay = 3
     var selectedCampusName: String = ""
@@ -319,6 +330,7 @@ nonisolated struct ScheduleCache: Codable {
     var showCurrentTime = true
     var showExamInfo = true
     var scheduleDisplayMode: ScheduleDisplayMode = .weekly
+    var scheduleCardContentMode: ScheduleCardContentMode = .nameAndLocation
     var showCourseLiveActivityReminder = false
     var courseLiveActivityLeadMinutes = 20
     var timeTable: [TimeSlot] = TimeSlot.default
@@ -343,6 +355,7 @@ nonisolated struct ScheduleCache: Codable {
         case exams
         case customSchedules
         case ddlEvents
+        case ddlUpdatedAt
         case ddlBeforeDay
         case ddlAfterDay
         case selectedCampusName
@@ -359,6 +372,7 @@ nonisolated struct ScheduleCache: Codable {
         case showCurrentTime
         case showExamInfo
         case scheduleDisplayMode
+        case scheduleCardContentMode = "scheduleCardContentModeV2"
         case showCourseLiveActivityReminder
         case courseLiveActivityLeadMinutes
         case timeTable
@@ -396,6 +410,7 @@ nonisolated struct ScheduleCache: Codable {
         exams = try container.decodeIfPresent([ExamRecord].self, forKey: .exams) ?? []
         customSchedules = try container.decodeIfPresent([CustomScheduleRecord].self, forKey: .customSchedules) ?? []
         ddlEvents = try container.decodeIfPresent([DDLEventRecord].self, forKey: .ddlEvents) ?? []
+        ddlUpdatedAt = try container.decodeIfPresent(Date.self, forKey: .ddlUpdatedAt)
         ddlBeforeDay = try container.decodeIfPresent(Int.self, forKey: .ddlBeforeDay) ?? 7
         ddlAfterDay = try container.decodeIfPresent(Int.self, forKey: .ddlAfterDay) ?? 3
         selectedCampusName = try container.decodeIfPresent(String.self, forKey: .selectedCampusName) ?? ""
@@ -415,6 +430,8 @@ nonisolated struct ScheduleCache: Codable {
         showCurrentTime = try container.decodeIfPresent(Bool.self, forKey: .showCurrentTime) ?? true
         showExamInfo = try container.decodeIfPresent(Bool.self, forKey: .showExamInfo) ?? true
         scheduleDisplayMode = try container.decodeIfPresent(ScheduleDisplayMode.self, forKey: .scheduleDisplayMode) ?? .weekly
+        // V2 首次引入三态轮换；不读取早期开发版的两态实验值，确保默认回到名称+地点。
+        scheduleCardContentMode = try container.decodeIfPresent(ScheduleCardContentMode.self, forKey: .scheduleCardContentMode) ?? .nameAndLocation
         showCourseLiveActivityReminder = try container.decodeIfPresent(Bool.self, forKey: .showCourseLiveActivityReminder) ?? false
         courseLiveActivityLeadMinutes = min(
             max(try container.decodeIfPresent(Int.self, forKey: .courseLiveActivityLeadMinutes) ?? 20, 1),
@@ -429,7 +446,7 @@ nonisolated struct ScheduleCache: Codable {
         iCloudSyncEnabled = try container.decodeIfPresent(Bool.self, forKey: .iCloudSyncEnabled) ?? true
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .distantPast
         // 老版本没有独立的课表同步时间；迁移时以原缓存更新时间作为保守基线，
-        // 避免用户升级后的第一次启动立即触发一次意外自动更新。
+        // 保留已有缓存的时间语义。
         coursesUpdatedAt = decodedCoursesUpdatedAt ?? (courses.isEmpty ? .distantPast : updatedAt)
         if termSchedulesByTerm.isEmpty, !currentTerm.isEmpty, !courses.isEmpty {
             termSchedulesByTerm[currentTerm] = TermScheduleSnapshot(
@@ -494,7 +511,7 @@ nonisolated struct ScheduleCache: Codable {
 }
 
 /// A complete converted timetable for one semester. Only the adjacent two terms
-/// are retained by automatic synchronization.
+/// are retained by the rolling local cache.
 nonisolated struct TermScheduleSnapshot: Codable {
     let term: String
     let firstDayString: String

@@ -26,18 +26,16 @@ struct GalleryMessagesView: View {
                     ProgressView("正在加载消息")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if case let .failed(message) = currentState.status, currentState.items.isEmpty {
-                    ContentUnavailableView {
-                        Label("加载消息失败", systemImage: "bell.badge")
-                    } description: {
-                        Text(message)
-                    } actions: {
-                        Button("重试") {
+                    AppFailureState(
+                        title: "加载消息失败",
+                        systemImage: "bell.badge",
+                        message: message,
+                        onRetry: {
                             Task {
                                 await viewModel.refreshSelectedType()
                             }
                         }
-                        DiagnosticRecoveryActions(title: "加载消息失败", message: message)
-                    }
+                    )
                 } else {
                     List {
                         ForEach(Array(currentState.items.enumerated()), id: \.element.id) { index, message in
@@ -105,18 +103,12 @@ struct GalleryMessagesView: View {
                 .disabled(!viewModel.hasUnreadInCurrentType)
             }
         }
-        .safeAreaInset(edge: .top) {
-            Picker("消息分类", selection: $viewModel.selectedType) {
+        .safeAreaInset(edge: .top, spacing: 0) {
+            AppTopSegmentedPicker(title: "消息分类", selection: $viewModel.selectedType) {
                 ForEach(GalleryMessageType.allCases) { type in
                     Text(title(for: type)).tag(type)
                 }
             }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 12)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
-            .background(AppDesignSystem.Palette.groupedBackground)
-            .appSelectionFeedback(trigger: viewModel.selectedType.rawValue)
         }
         .task {
             await viewModel.bootstrapIfNeeded()
@@ -298,15 +290,13 @@ private struct GalleryMessageAvatarView: View {
 
     var body: some View {
         if user.id == 0 {
-            ZStack {
-                Circle().fill(AppDesignSystem.Palette.highlight.opacity(0.12))
-                Image(systemName: type == .system ? "bell.fill" : "person.fill")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(AppDesignSystem.Palette.highlight)
-            }
-            .frame(width: 34, height: 34)
+            AppAvatarView(
+                imageURL: nil,
+                size: AppDesignSystem.Comment.avatarSize,
+                systemImage: type == .system ? "bell.fill" : "person.fill"
+            )
         } else {
-            GalleryAvatarView(imageURL: user.avatar.preferredURL)
+            AppAvatarView(imageURL: user.avatar.preferredURL)
         }
     }
 }

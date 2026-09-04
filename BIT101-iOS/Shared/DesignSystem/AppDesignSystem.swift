@@ -42,6 +42,57 @@ enum AppDesignSystem {
         static let dividerLeading: CGFloat = 14
     }
 
+    enum TopBar {
+        /// 顶部控件和顶部列表内容共用的可调横向边距。
+        static let horizontalPadding: CGFloat = 8
+        /// 顶部内容统一贴合安全区下沿；安全区本身负责与灵动岛/状态栏保持距离。
+        static let topPadding: CGFloat = 0
+        /// 顶部控件与正文、正文与底部系统栏之间共用的内容间隙。
+        static let contentGap: CGFloat = 6
+        /// 标准顶部控件与第一个列表 Section 的间距，和分组列表 Section 间距一致。
+        static let bottomPadding: CGFloat = AppDesignSystem.Spacing.content
+        /// 单独承载更新时间 Section 的原生 List 高度。
+        static let statusListHeight: CGFloat = 58
+        static let stackedTopPadding: CGFloat = 0
+        static let stackedBottomPadding: CGFloat = 4
+    }
+
+    enum Schedule {
+        /// 课表网格线的统一宽度；课程块以此作为与网格线的对称内缩。
+        static let gridLineWidth: CGFloat = 0.5
+        static let courseCardInset: CGFloat = gridLineWidth
+        static let courseBorderWidth: CGFloat = gridLineWidth * 2
+        /// 课程块内所有方向共用的文字安全内边距。
+        static let courseContentInset: CGFloat = AppDesignSystem.Spacing.micro
+        static let courseTitleTextStyle: UIFont.TextStyle = .caption2
+        static let courseLocationTextStyle: UIFont.TextStyle = .caption2
+        static let courseTitleMaximumLinesForTwoSections = 2
+        static let courseTitleMinimumScaleFactor: CGFloat = 0.75
+        static let courseLocationLineCount = 2
+        static let courseLocationLineHeightMultiple: CGFloat = 0.8
+        static let courseLocationMinimumScaleFactor: CGFloat = 0.01
+    }
+
+    enum Search {
+        static let horizontalPadding: CGFloat = 14
+        static let verticalPadding: CGFloat = 10
+        static let controlSpacing: CGFloat = 10
+        static let chromeHorizontalPadding: CGFloat = 14
+        static let chromeTopPadding: CGFloat = 10
+        static let chromeBottomPadding: CGFloat = 8
+        static let clearButtonOpacity: CGFloat = 0.35
+    }
+
+    enum Tag {
+        static let feedHorizontalPadding: CGFloat = 8
+        static let feedVerticalPadding: CGFloat = 5
+        static let detailHorizontalPadding: CGFloat = 10
+        static let detailVerticalPadding: CGFloat = 6
+        static let selectionHorizontalPadding: CGFloat = 12
+        static let selectionVerticalPadding: CGFloat = 8
+        static let interItemSpacing: CGFloat = 8
+    }
+
     enum Detail {
         static let contentPadding: CGFloat = 18
     }
@@ -52,6 +103,15 @@ enum AppDesignSystem {
         static let emptyVerticalPadding: CGFloat = 16
         static let rowHorizontalPadding: CGFloat = 14
         static let rowVerticalPadding: CGFloat = 14
+        static let rowContentSpacing: CGFloat = 10
+        static let avatarContentSpacing: CGFloat = 10
+        static let bubbleContentSpacing: CGFloat = 6
+        static let headerSpacing: CGFloat = 8
+        static let actionSpacing: CGFloat = 10
+        static let actionTopPadding: CGFloat = 2
+        static let avatarSize: CGFloat = 34
+        static let subCommentAvatarSize: CGFloat = 28
+        static let subCommentTopPadding: CGFloat = 4
         static let subCommentIndent: CGFloat = 42
         static let dividerLeading: CGFloat = 46
     }
@@ -284,11 +344,13 @@ struct AppFloatingActionStack<Content: View>: View {
     }
 }
 
-/// 统一分组列表的系统样式和 section 间距，减少筛选区与结果区的空白漂移。
+/// 统一所有分组列表的系统样式、section 间距和横向内容边距。
 extension View {
     func appGroupedListStyle() -> some View {
         listStyle(.insetGrouped)
-            .listSectionSpacing(.compact)
+            .listSectionSpacing(AppDesignSystem.Spacing.content)
+            .contentMargins(.top, 0, for: .scrollContent)
+            .contentMargins(.horizontal, AppDesignSystem.TopBar.horizontalPadding, for: .scrollContent)
     }
 
     func appCommentSectionStyle() -> some View {

@@ -48,13 +48,11 @@ struct GalleryPosterCommentsSection: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, AppDesignSystem.Comment.progressVerticalPadding)
             case let .failed(message) where comments.isEmpty:
-                ContentUnavailableView {
-                    Label("加载评论失败", systemImage: "bubble.right.fill")
-                } description: {
-                    Text(message)
-                } actions: {
-                    DiagnosticRecoveryActions(title: "加载评论失败", message: message)
-                }
+                AppFailureState(
+                    title: "加载评论失败",
+                    systemImage: "bubble.right.fill",
+                    message: message
+                )
             default:
                 if comments.isEmpty {
                     Text(totalCommentCount == 0 ? "还没有评论" : "评论已根据社区规范隐藏")
@@ -122,42 +120,14 @@ private struct GalleryCommentRow: View {
     let onOpenUser: (GalleryUser) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            GalleryCommentBubble(
-                comment: comment,
-                isSubComment: false,
-                isLiking: likingCommentIDs.contains(comment.id),
-                onReply: {
-                    onReply(GalleryCommentReplyTarget(mainComment: comment, targetComment: comment))
-                },
-                onLike: {
-                    onLikeComment(comment)
-                },
-                onOpenImage: onOpenImage,
-                onOpenUser: {
-                    onOpenUser(comment.user)
-                }
-            )
+        AppCommentRowContainer {
+            commentBubble(comment, isSubComment: false)
 
             if !comment.sub.isEmpty {
                 VStack(spacing: 0) {
                     ForEach(Array(comment.sub.enumerated()), id: \.element.id) { index, subComment in
                         VStack(spacing: 0) {
-                            GalleryCommentBubble(
-                                comment: subComment,
-                                isSubComment: true,
-                                isLiking: likingCommentIDs.contains(subComment.id),
-                                onReply: {
-                                    onReply(GalleryCommentReplyTarget(mainComment: comment, targetComment: subComment))
-                                },
-                                onLike: {
-                                    onLikeComment(subComment)
-                                },
-                                onOpenImage: onOpenImage,
-                                onOpenUser: {
-                                    onOpenUser(subComment.user)
-                                }
-                            )
+                            commentBubble(subComment, isSubComment: true)
 
                             if index != comment.sub.count - 1 {
                                 Divider()
@@ -167,116 +137,54 @@ private struct GalleryCommentRow: View {
                     }
                 }
                 .padding(.leading, AppDesignSystem.Comment.subCommentIndent)
-                .padding(.top, 4)
-            }
-        }
-        .padding(.horizontal, AppDesignSystem.Comment.rowHorizontalPadding)
-        .padding(.vertical, AppDesignSystem.Comment.rowVerticalPadding)
-    }
-}
-
-/// 评论内容气泡。
-///
-/// 一个评论气泡内部同时包含：
-/// - 头像/昵称
-/// - 时间
-/// - 正文
-/// - 图片
-/// - 点赞按钮
-/// - 点击整块回复
-private struct GalleryCommentBubble: View {
-    let comment: GalleryComment
-    let isSubComment: Bool
-    let isLiking: Bool
-    let onReply: () -> Void
-    let onLike: () -> Void
-    let onOpenImage: (Int, [GalleryImage]) -> Void
-    let onOpenUser: () -> Void
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Group {
-                if canOpenUserProfile {
-                    Button(action: onOpenUser) {
-                        GalleryAvatarView(imageURL: URL(string: comment.user.avatar.lowUrl.isEmpty ? comment.user.avatar.url : comment.user.avatar.lowUrl))
-                            .frame(width: isSubComment ? 28 : 34, height: isSubComment ? 28 : 34)
-                    }
-                    .buttonStyle(.plain)
-                } else {
-                    GalleryAvatarView(imageURL: URL(string: comment.user.avatar.lowUrl.isEmpty ? comment.user.avatar.url : comment.user.avatar.lowUrl))
-                        .frame(width: isSubComment ? 28 : 34, height: isSubComment ? 28 : 34)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Group {
-                        if canOpenUserProfile {
-                            Button(action: onOpenUser) {
-                                Text(comment.user.nickname)
-                                    .font(isSubComment ? .subheadline.weight(.semibold) : .headline)
-                                    .lineLimit(1)
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            Text(comment.user.nickname)
-                                .font(isSubComment ? .subheadline.weight(.semibold) : .headline)
-                                .lineLimit(1)
-                        }
-                    }
-
-                    Spacer(minLength: 0)
-
-                    Text(relativeTimeText(comment.createTime))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-
-                commentText
-
-                if !comment.images.isEmpty {
-                    GalleryPosterImagesView(images: comment.images, onOpenImage: onOpenImage)
-                }
-
-                HStack(spacing: 10) {
-                    Button(action: onReply) {
-                        Label("回复", systemImage: "arrowshape.turn.up.left")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-
-                    Button(action: onLike) {
-                        Label {
-                            Text("\(comment.likeNum)")
-                                .font(.caption)
-                        } icon: {
-                            if isLiking {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else {
-                                Image(systemName: comment.like ? "hand.thumbsup.fill" : "hand.thumbsup")
-                            }
-                        }
-                        .foregroundStyle(comment.like ? AppDesignSystem.Palette.highlight : Color.secondary)
-                    }
-                    .buttonStyle(.plain)
-
-                    Spacer(minLength: 0)
-                }
-                .padding(.top, 2)
+                .padding(.top, AppDesignSystem.Comment.subCommentTopPadding)
             }
         }
     }
+    @ViewBuilder
+    private func commentBubble(_ comment: GalleryComment, isSubComment: Bool) -> some View {
+        AppCommentBubble {
+            AppCommentAvatarView(
+                imageURL: URL(string: comment.user.avatar.lowUrl.isEmpty ? comment.user.avatar.url : comment.user.avatar.lowUrl),
+                size: isSubComment
+                    ? AppDesignSystem.Comment.subCommentAvatarSize
+                    : AppDesignSystem.Comment.avatarSize
+            )
+        } content: {
+            AppCommentIdentityHeader(
+                nickname: comment.user.nickname,
+                isSubComment: isSubComment,
+                timeText: GalleryDateDecoder.relativeText(from: comment.createTime, fallback: "未知时间"),
+                onOpenProfile: canOpenUserProfile(comment) ? { onOpenUser(comment.user) } : nil
+            )
 
-    private var canOpenUserProfile: Bool {
+            commentText(for: comment)
+
+            if !comment.images.isEmpty {
+                GalleryPosterImagesView(images: comment.images, onOpenImage: onOpenImage)
+            }
+
+            AppCommentActionBar(
+                likeCount: comment.likeNum,
+                isLiked: comment.like,
+                isLiking: likingCommentIDs.contains(comment.id),
+                onReply: {
+                    onReply(GalleryCommentReplyTarget(mainComment: self.comment, targetComment: comment))
+                },
+                onLike: {
+                    onLikeComment(comment)
+                }
+            )
+        }
+    }
+
+    private func canOpenUserProfile(_ comment: GalleryComment) -> Bool {
         !comment.anonymous && comment.user.id > 0
     }
 
     @ViewBuilder
     /// 处理“回复某人”的前缀文本拼接。
-    private var commentText: some View {
+    private func commentText(for comment: GalleryComment) -> some View {
         if comment.replyUser.id != 0, !comment.replyUser.nickname.isEmpty {
             (
                 Text("回复 @\(comment.replyUser.nickname)：")
@@ -294,10 +202,6 @@ private struct GalleryCommentBubble: View {
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-
-    private func relativeTimeText(_ string: String) -> String {
-        GalleryDateDecoder.relativeText(from: string, fallback: "未知时间")
     }
 }
 

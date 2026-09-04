@@ -14,6 +14,7 @@ SOURCE_ROOT = ROOT / "BIT101-iOS"
 DESIGN_SYSTEM = SOURCE_ROOT / "Shared/DesignSystem/AppDesignSystem.swift"
 
 DIRECT_ROUNDED_RECTANGLE = re.compile(r"\bRoundedRectangle\s*\(")
+DIRECT_CORNER_RADIUS = re.compile(r"\.cornerRadius\s*\(")
 DIRECT_SYSTEM_COLOR = re.compile(
     r"\bColor\s*\(\s*(?:uiColor\s*:\s*)?\.(?:systemBackground|systemGroupedBackground|"
     r"secondarySystemBackground|secondarySystemGroupedBackground|secondarySystemFill)\s*\)"
@@ -109,6 +110,7 @@ def main() -> int:
                 errors.append(f"{relative}: 右下角操作组必须使用 AppFloatingActionStack")
         rules = (
             (DIRECT_ROUNDED_RECTANGLE, "请使用 AppDesignSystem.roundedRectangle"),
+            (DIRECT_CORNER_RADIUS, "圆角半径必须通过 AppDesignSystem.Radius 和 roundedRectangle 统一"),
             (DIRECT_SYSTEM_COLOR, "请使用 AppDesignSystem.Palette"),
             (DIRECT_ACCENT_COLOR, "请使用 AppDesignSystem.Palette.accent"),
             (DIRECT_FLOATING_SIZE, "圆形操作按钮尺寸必须使用 AppDesignSystem.Size"),
@@ -185,11 +187,32 @@ def main() -> int:
             if "appFeedCardStyle" not in feed_source:
                 errors.append(f"{feed_path.relative_to(ROOT)}: 信息流卡片必须使用公共 Feed 样式")
 
-    # 学业页顶部切换栏由外层 safeAreaInset 提供；列表不能再次叠加默认滚动上边距。
-    for page_file in ("Course/CourseRootView.swift", "Score/ScoreRootView.swift"):
+    # 所有分组列表只允许使用一个公共入口；横向边距和首屏顶部边距不得按页面分叉。
+    for page_file in (
+        "Course/CourseRootView.swift",
+        "Score/ScoreRootView.swift",
+        "Schedule/ScheduleDDLViews.swift",
+        "Schedule/FreeClassroomViews.swift",
+        "Mine/MineRootView.swift",
+    ):
         page_path = SOURCE_ROOT / page_file
-        if page_path.is_file() and "contentMargins(.top, 0, for: .scrollContent)" not in page_path.read_text(encoding="utf-8"):
-            errors.append(f"{page_path.relative_to(ROOT)}: 学业列表不能叠加顶部滚动边距")
+        if page_path.is_file() and "appGroupedListStyle()" not in page_path.read_text(encoding="utf-8"):
+            errors.append(f"{page_path.relative_to(ROOT)}: 分组列表必须使用唯一的 appGroupedListStyle 公共布局")
+
+    # 所有带顶部一级切换栏的根页必须把切换栏放进 safeAreaInset；不能用普通 VStack
+    # 让不同底部 Tab 的顶部宽度和正文起始位置各自受父容器影响。
+    for root_file in (
+        "Score/ScoreRootView.swift",
+        "Gallery/GalleryRootView.swift",
+        "Schedule/ScheduleRootView.swift",
+    ):
+        root_path = SOURCE_ROOT / root_file
+        if root_path.is_file() and ".safeAreaInset(edge: .top, spacing: 0)" not in root_path.read_text(encoding="utf-8"):
+            errors.append(f"{root_path.relative_to(ROOT)}: 顶部切换栏必须使用 spacing=0 的统一 safeAreaInset 布局")
+
+    schedule_root_path = SOURCE_ROOT / "Schedule/ScheduleRootView.swift"
+    if schedule_root_path.is_file() and ".safeAreaInset(edge: .bottom, spacing: 0)" not in schedule_root_path.read_text(encoding="utf-8"):
+        errors.append(f"{schedule_root_path.relative_to(ROOT)}: 日程内容必须使用统一的底部安全区间隙")
 
     schedule_path = SOURCE_ROOT / "Schedule/ScheduleCalendarViews.swift"
     if schedule_path.is_file():

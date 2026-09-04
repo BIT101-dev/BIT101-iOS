@@ -6,49 +6,6 @@
 import Foundation
 
 extension ScheduleViewModel {
-    /// 进入空教室页前的统一预热入口。
-    ///
-    /// 这里会做三件事：
-    /// 1. 按当前时间块重设节次筛选。
-    /// 2. 加载校区/教学楼元数据。
-    /// 3. 必要时刷新当前楼栋的空教室结果。
-    func prepareClassroomIfNeeded(showErrors: Bool = true) async {
-        guard classroomCoordinator.claimAutomaticPreparation() else { return }
-
-        applyCurrentClassroomSectionBlock()
-        let hasCachedMeta = applyCachedClassroomMetaIfAvailable()
-        if hasCachedMeta {
-            refreshClassroomMetaInBackgroundIfNeeded()
-        }
-
-        let requestID = beginClassroomRequest(clearsLoadingState: false)
-        defer {
-            finishClassroomRequestIfCurrent(requestID)
-        }
-
-        do {
-            if campuses.isEmpty || buildings.isEmpty {
-                try await loadClassroomMeta(requestID: requestID)
-            }
-
-            guard isCurrentClassroomRequest(requestID) else { return }
-
-            if selectedBuildingID.isEmpty {
-                selectedBuildingID = cache.selectedBuildingID
-            }
-
-            if classroomRecords.isEmpty, !selectedBuildingID.isEmpty {
-                try await refreshClassrooms(requestID: requestID)
-            }
-        } catch {
-            if showErrors {
-                handleClassroomRequestError(error, requestID: requestID, title: "空教室同步失败")
-            } else {
-                finishClassroomRequestIfCurrent(requestID)
-            }
-        }
-    }
-
     /// 切换空教室查询校区。
     func selectCampus(code: String) async {
         guard code != cache.selectedCampusCode else { return }
@@ -162,7 +119,34 @@ extension ScheduleViewModel {
     /// 供页面下拉刷新使用的统一入口。
     ///
     /// 会先补齐校区/教学楼元数据，再刷新当前楼栋的空教室数据。
+    /// 请求由 ViewModel 持有，因此页面离开空教室分栏时不会取消已经发出的请求。
     func refreshClassroomPage() async {
+        startClassroomPageRefresh()
+        guard let task = classroomPageTask else { return }
+        await task.value
+    }
+
+    /// 启动一次由 ViewModel 持有的空教室页面刷新。
+    ///
+    /// 进入分栏只负责触发，不把网络任务绑定到 SwiftUI 的 `.task` 生命周期；
+    /// 已有请求进行中时复用它，避免在 DDL / 空教室之间快速切换时产生悬挂状态。
+    func startClassroomPageRefresh() {
+        guard classroomPageTask == nil else { return }
+
+        let taskID = UUID()
+        classroomPageTaskID = taskID
+        classroomPageTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performClassroomPageRefresh()
+            guard self.classroomPageTaskID == taskID else { return }
+            self.classroomPageTask = nil
+            self.classroomPageTaskID = nil
+        }
+    }
+
+    /// 空教室页面刷新实现；外层负责请求任务的持有和复用。
+    private func performClassroomPageRefresh() async {
+        applyCurrentClassroomSectionBlock()
         let requestID = beginClassroomRequest()
         defer {
             finishClassroomRequestIfCurrent(requestID)
@@ -190,10 +174,6 @@ extension ScheduleViewModel {
         }
 
         try await loadBuildings(requestID: requestID)
-
-        if campuses.isEmpty {
-            refreshClassroomMetaInBackgroundIfNeeded()
-        }
     }
 
     /// 根据当前校区加载教学楼，并优先精确匹配“最近下一节课”的楼宇。
@@ -204,74 +184,6 @@ extension ScheduleViewModel {
         guard isCurrentClassroomRequest(requestID) else { throw CancellationError() }
 
         applyFetchedBuildingsForCurrentSelection(fetchedBuildings, allowsPreferredCampus: true, allowsPreferredBuilding: true)
-    }
-
-    /// 优先用上次成功获取的校区 / 教学楼元数据恢复选择器，避免进入页面时阻塞等待元数据接口。
-    @discardableResult
-    private func applyCachedClassroomMetaIfAvailable() -> Bool {
-        guard !cache.cachedClassroomCampuses.isEmpty else { return false }
-
-        campuses = cache.cachedClassroomCampuses
-        resolveSelectedCampusIfNeeded(allowsPreferredCampus: true)
-
-        let cachedBuildings = cache.cachedClassroomBuildingsByCampusCode[cache.selectedCampusCode] ?? []
-        guard !cachedBuildings.isEmpty else {
-            buildings = []
-            selectedBuildingID = ""
-            cache.selectedBuildingID = ""
-            persist()
-            return true
-        }
-
-        buildings = cachedBuildings
-        resolveSelectedBuildingIfNeeded(allowsPreferredBuilding: true)
-        return true
-    }
-
-    /// 有缓存时后台静默刷新低频变化的元数据；成功后更新缓存，失败不打扰用户。
-    private func refreshClassroomMetaInBackgroundIfNeeded() {
-        guard let token = classroomCoordinator.beginMetadataRefresh() else { return }
-
-        Task { [weak self] in
-            await self?.refreshClassroomMetaSilently(token: token)
-        }
-    }
-
-    /// 后台刷新校区 / 教学楼元数据。
-    ///
-    /// 这条链路不参与空教室结果请求代号，也不弹错误；目的只是让下一次打开页面更快、更准。
-    private func refreshClassroomMetaSilently(token: Int) async {
-        defer {
-            classroomCoordinator.finishMetadataRefresh(token)
-        }
-
-        do {
-            let fetchedCampuses = try await withClassroomRequestTimeout { [self] in
-                try await service.fetchCampuses()
-            }
-            guard classroomCoordinator.isCurrentMetadataRefresh(token) else { return }
-            applyFetchedCampuses(fetchedCampuses, allowsPreferredCampus: false)
-
-            guard !cache.selectedCampusCode.isEmpty else { return }
-
-            let fetchedBuildings = try await withClassroomRequestTimeout { [self] in
-                try await service.fetchBuildings(campusCode: cache.selectedCampusCode)
-            }
-            guard classroomCoordinator.isCurrentMetadataRefresh(token) else { return }
-            applyFetchedBuildings(fetchedBuildings, for: cache.selectedCampusCode, allowsPreferredBuilding: false)
-        } catch {
-            return
-        }
-    }
-
-    /// 写入新的校区元数据，并保持当前选择尽量稳定。
-    private func applyFetchedCampuses(_ fetchedCampuses: [CampusRecord], allowsPreferredCampus: Bool) {
-        guard !fetchedCampuses.isEmpty else { return }
-
-        campuses = fetchedCampuses
-        cache.cachedClassroomCampuses = fetchedCampuses
-        resolveSelectedCampusIfNeeded(allowsPreferredCampus: allowsPreferredCampus)
-        persist()
     }
 
     /// 写入教学楼元数据，并在未缓存校区列表时从教学楼字段反推出校区，避免首屏额外等待校区接口。
@@ -451,6 +363,23 @@ extension ScheduleViewModel {
         shouldShowInitialClassroomSpinner = false
         isLoadingClassroomMeta = false
         isLoadingClassrooms = false
+
+        if let scheduleError = error as? ScheduleServiceError {
+            if case let .secondFactorRequired(challenge) = scheduleError {
+                courseSyncCoordinator.waitForClassroomAuthentication()
+                smsChallenge = challenge
+                smsVerificationError = nil
+                return
+            }
+            if case .schoolSecondFactorRequired = scheduleError {
+                notice = ScheduleNotice(
+                    title: "需要短信验证",
+                    message: "学校要求短信二次验证，请先在学校登录页面完成验证后再重试。"
+                )
+                return
+            }
+        }
+
         notice = ScheduleNotice(title: title, message: error.localizedDescription)
     }
 
@@ -555,9 +484,7 @@ extension ScheduleViewModel {
         return Calendar.current.date(from: components)
     }
 
-    /// 按当前时间自动切换到对应的节次块筛选。
-    ///
-    /// 不是首次才做，而是每次进入空教室页都会重新计算。
+    /// 用户主动刷新空教室时，按当前时间切换到对应的节次块筛选。
     private func applyCurrentClassroomSectionBlock() {
         let sectionIDs = ClassroomAvailabilityCalculator.sectionBlock(at: currentMinutes(), in: cache.timeTable)
         guard !sectionIDs.isEmpty else { return }

@@ -56,8 +56,8 @@
 ### 2.4 学校业务的短期认证状态
 
 课表、成绩、空教室和可信成绩单通过 bit-login 使用短期 challenge，包括
-`challenge_id`、access token、短信状态、掩码手机号和有效期。教学中心是否已认证、已预热
-也必须绑定当前学号，而不是进程级永久布尔值。
+`challenge_id`、access token、短信状态、掩码手机号和有效期。教学中心是否已认证、当前
+准备状态也必须绑定当前学号，而不是进程级永久布尔值。
 
 这些值只应存在于 `ScheduleService`、`ScoreService` 和对应 ViewModel 的内存中：
 

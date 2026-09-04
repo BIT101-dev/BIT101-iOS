@@ -18,7 +18,7 @@ struct ScheduleRootView: View {
     @Binding var requestedSection: ScheduleSection?
     let onOpenAcademicCourse: (CourseNavigationRequest) -> Void
     let onOpenCourseLocation: (CampusMapLocationRequest) -> Void
-    @StateObject private var viewModel = SchoolDataRefreshCoordinator.shared.scheduleViewModel
+    @StateObject private var viewModel = SchoolDataViewModelStore.shared.scheduleViewModel
     @State private var courseTabResetSignal = 0
 
     init(
@@ -33,42 +33,43 @@ struct ScheduleRootView: View {
 
     /// 日程主页主体。
     var body: some View {
-        VStack(spacing: 0) {
+        GeometryReader { proxy in
+            ZStack {
+                selectedSectionView
+            }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .contentShape(Rectangle())
+                .simultaneousGesture(
+                    sectionSwitchGesture(
+                        topDisabledHeight: viewModel.selectedSection == .courses
+                            ? proxy.size.height * 0.25
+                            : 0
+                    )
+                )
+        }
+        .background(AppDesignSystem.Palette.groupedBackground)
+        // 与成绩、话廊共用同一套 safeAreaInset 结构；列表内容从顶部切换栏之后开始，
+        // 避免日程分栏额外产生一层 VStack 间距。
+        .safeAreaInset(edge: .top, spacing: 0) {
             ScheduleSectionTabs(
                 selectedSection: $viewModel.selectedSection,
                 courseTitle: viewModel.activeCourseScheduleTitle
             )
-                .padding(.horizontal, 10)
-                .padding(.top, 8)
-                .padding(.bottom, 8)
-
-            GeometryReader { proxy in
-                ZStack {
-                    selectedSectionView
-                }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .contentShape(Rectangle())
-                    .simultaneousGesture(
-                        sectionSwitchGesture(
-                            topDisabledHeight: viewModel.selectedSection == .courses
-                                ? proxy.size.height * 0.25
-                                : 0
-                        )
-                    )
-            }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .background(AppDesignSystem.Palette.groupedBackground)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            // 给课表、DDL、空教室统一保留到底部系统 Tab 栏的固定内容间隙。
+            Color.clear
+                .frame(height: AppDesignSystem.TopBar.contentGap)
+        }
         .toolbar(.hidden, for: .navigationBar)
         .task {
-            await viewModel.loadIfNeeded()
+            viewModel.loadIfNeeded()
         }
-        .onChange(of: viewModel.selectedSection) { _, section in
-            if section == .classroom {
-                Task {
-                    await viewModel.prepareClassroomIfNeeded()
-                }
-            }
+        .task(id: viewModel.selectedSection) {
+            guard viewModel.selectedSection == .classroom else { return }
+            // 进入空教室分栏本身就是用户的明确查询意图；从这里开始加载，
+            // 但不把同一请求放到 App 启动或回前台生命周期中。
+            viewModel.startClassroomPageRefresh()
         }
         .onAppear {
             consumeRequestedSectionIfNeeded()
@@ -170,13 +171,11 @@ private struct ScheduleSectionTabs: View {
 
     /// 日程页顶部原生分段控件。
     var body: some View {
-        Picker("日程模块", selection: $selectedSection) {
+        AppTopSegmentedPicker(title: "日程模块", selection: $selectedSection) {
             Text(courseTitle).tag(ScheduleSection.courses)
             Text(ScheduleSection.ddl.title).tag(ScheduleSection.ddl)
             Text(ScheduleSection.classroom.title).tag(ScheduleSection.classroom)
         }
-        .pickerStyle(.segmented)
-        .appSelectionFeedback(trigger: selectedSection.rawValue)
     }
 }
 

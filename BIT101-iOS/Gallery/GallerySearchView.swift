@@ -28,28 +28,38 @@ struct GallerySearchView: View {
                 }
             }
         )
-        .safeAreaInset(edge: .top) {
-            GallerySearchBar(
-                query: $viewModel.searchQuery,
-                onSubmit: {
-                    Task {
-                        await viewModel.performSearch()
+        .safeAreaInset(edge: .top, spacing: 0) {
+            AppSearchBarContainer {
+                AppOrderedSearchBar(
+                    text: $viewModel.searchQuery.text,
+                    order: $viewModel.searchQuery.order,
+                    selectedOrderTitle: viewModel.searchQuery.order.title,
+                    onSubmit: {
+                        Task {
+                            await viewModel.performSearch()
+                        }
+                    },
+                    onClear: {
+                        viewModel.searchQuery.text = ""
+                        Task {
+                            await viewModel.performSearch()
+                        }
                     }
-                },
-                onClear: {
-                    viewModel.searchQuery.text = ""
-                    Task {
-                        await viewModel.performSearch()
+                ) {
+                    ForEach(GallerySearchOrder.allCases) { order in
+                        Text(order.title).tag(order)
                     }
                 }
-            )
-            .padding(.horizontal, 14)
-            .padding(.top, 10)
-            .padding(.bottom, 8)
-            .background(.thinMaterial)
+            }
         }
         .task {
             await viewModel.bootstrapSearchIfNeeded()
+        }
+        .onChange(of: viewModel.searchQuery.order) { oldValue, newValue in
+            guard oldValue != newValue else { return }
+            Task {
+                await viewModel.performSearch()
+            }
         }
         .navigationTitle("搜索")
         .navigationBarTitleDisplayMode(.inline)
@@ -62,55 +72,4 @@ struct GallerySearchView: View {
         }
     }
 
-}
-
-/// 原生消息页。
-///
-/// Android 虽然最终落到网页，但后端已经提供独立消息接口，因此 iOS 直接走 native list。
-private struct GallerySearchBar: View {
-    @Binding var query: GallerySearchQuery
-    let onSubmit: () -> Void
-    let onClear: () -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Picker(
-                selection: Binding(
-                    get: { query.order },
-                    set: { newValue in
-                        query.order = newValue
-                        onSubmit()
-                    }
-                )
-            ) {
-                ForEach(GallerySearchOrder.allCases) { order in
-                    Text(order.title).tag(order)
-                }
-            } label: {
-                Label(query.order.title, systemImage: "arrow.up.arrow.down.circle")
-            }
-            .pickerStyle(.menu)
-            .appSelectionFeedback(trigger: query.order)
-
-            TextField("在这里搜索哦", text: $query.text)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .submitLabel(.search)
-                .onSubmit(onSubmit)
-
-            Button {
-                query.text = ""
-                onClear()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.title3)
-                    .foregroundStyle(query.text.isEmpty ? Color.secondary.opacity(0.35) : AppDesignSystem.Palette.highlight)
-            }
-            .buttonStyle(.plain)
-            .disabled(query.text.isEmpty)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(AppDesignSystem.Palette.secondaryBackground, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped, style: .continuous))
-    }
 }

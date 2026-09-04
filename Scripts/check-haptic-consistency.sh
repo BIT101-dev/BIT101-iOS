@@ -9,14 +9,10 @@ required=(
   "$haptic_file:func appImpactFeedback"
   "$haptic_file:sensoryFeedback(.impact, trigger:"
   "$root/Shared/DesignSystem/AppDesignSystem.swift:appImpactFeedback"
+  "$root/Shared/DesignSystem/AppContentControlComponents.swift:appSelectionFeedback"
   "$root/Shell/AppShellView.swift:appSelectionFeedback"
-  "$root/Schedule/ScheduleRootView.swift:appSelectionFeedback"
   "$root/Schedule/ScheduleCalendarViews.swift:appSelectionFeedback"
   "$root/Schedule/ScheduleCalendarViews.swift:appImpactFeedback"
-  "$root/Gallery/GalleryRootView.swift:appSelectionFeedback"
-  "$root/Gallery/GalleryMessagesView.swift:appSelectionFeedback"
-  "$root/Score/ScoreRootView.swift:appSelectionFeedback"
-  "$root/Paper/PaperRootView.swift:appSelectionFeedback"
   "$root/Map/CampusMapScreen.swift:appImpactFeedback"
 )
 
@@ -58,7 +54,7 @@ while IFS= read -r file; do
 done < <(
   {
     rg -l 'checkmark\.circle\.fill|checkmark\.square\.fill' "$root" --glob '*.swift' || true
-    rg -l 'toggleTag\(|selectedTags|currentTerm[[:space:]]*==[[:space:]]*term|setRating\(' "$root" --glob '*.swift' || true
+    rg -l 'toggleTag\(|selectedTags|setRating\(' "$root" --glob '*.swift' || true
   } | sort -u
 )
 

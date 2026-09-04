@@ -286,6 +286,52 @@ def documentation_findings() -> list[str]:
     return errors
 
 
+def automatic_school_fetch_findings() -> list[str]:
+    """保证启动、回前台和账号切换不会重新引入学校/WebVPN 自动请求。"""
+    errors: list[str] = []
+    forbidden_terms = (
+        "SchoolDataRefreshCoordinator",
+        "refreshOnEntry",
+        "ScheduleAutoRefreshPreferences",
+        "ScoreAutomaticRefreshPolicy",
+        "autoRefreshCourses",
+        "prepareClassroomIfNeeded",
+        "refreshClassroomMetaInBackgroundIfNeeded",
+        "claimAutomaticPreparation",
+        "schedule.auto-refresh",
+        "silent-refresh",
+    )
+    for path in swift_files():
+        source = path.read_text(encoding="utf-8")
+        for term in forbidden_terms:
+            if term in source:
+                errors.append(f"{relative(path)}: 不得重新引入学校/WebVPN 自动请求：{term}")
+
+    app_source = (ROOT / "BIT101-iOS/BIT101_iOSApp.swift").read_text(encoding="utf-8")
+    if "refreshFromCloudIfNeeded" in app_source:
+        errors.append("BIT101-iOS/BIT101_iOSApp.swift: 启动生命周期不得自动拉取 iCloud 数据")
+
+    schedule_source = (ROOT / "BIT101-iOS/Schedule/ScheduleViewModel.swift").read_text(encoding="utf-8")
+    if "ScheduleCloudSyncManager.shared.refreshFromCloudIfNeeded" in schedule_source:
+        errors.append("BIT101-iOS/Schedule/ScheduleViewModel.swift: 日程页面本地恢复不得自动拉取 iCloud")
+
+    score_source = (ROOT / "BIT101-iOS/Score/ScoreRootView.swift").read_text(encoding="utf-8")
+    if "await viewModel.bootstrapIfNeeded" in score_source:
+        errors.append("BIT101-iOS/Score/ScoreRootView.swift: 成绩页不得自动触发学校查询")
+    required_manual_markers = {
+        "BIT101-iOS/Score/ScoreRootView.swift": "restoreCachedDataIfNeeded",
+        "BIT101-iOS/Schedule/FreeClassroomViews.swift": "刷新空教室",
+        "BIT101-iOS/Schedule/ScheduleRootView.swift": "startClassroomPageRefresh",
+        "BIT101-iOS/Schedule/ScheduleViewModel+Classroom.swift": "waitForClassroomAuthentication",
+        "BIT101-iOS/Schedule/ScheduleViewModel+CourseSync.swift": ".classroomRefresh",
+    }
+    for file_name, marker in required_manual_markers.items():
+        path = ROOT / file_name
+        if path.is_file() and marker not in path.read_text(encoding="utf-8"):
+            errors.append(f"{file_name}: 缺少显式学校请求/验证码入口：{marker}")
+    return errors
+
+
 def audit_wiring_findings() -> list[str]:
     """防止新增检查脚本存在，却没有进入统一静态审计入口。"""
     errors: list[str] = []
@@ -307,6 +353,22 @@ def audit_wiring_findings() -> list[str]:
             errors.append(f"Scripts/run-static-audit.sh: 未接入 {checker}")
     if "release-network-smoke" in audit_source:
         errors.append("Scripts/run-static-audit.sh: 静态审计不得调用网络 smoke")
+
+    workflow_path = ROOT / ".github/workflows/ci.yml"
+    if not workflow_path.is_file():
+        errors.append(".github/workflows/ci.yml: CI 工作流不存在")
+    else:
+        workflow_source = workflow_path.read_text(encoding="utf-8")
+        required_ci_rules = (
+            ("Scripts/run-static-audit.sh", "CI 未执行统一静态审计"),
+            ("xcodebuild build-for-testing", "CI 未执行 build-for-testing 编译门禁"),
+            ("generic/platform=iOS", "CI 编译不得默认选择模拟器"),
+            ("SWIFT_TREAT_WARNINGS_AS_ERRORS=YES", "CI 未将 Swift 警告视为错误"),
+            ("GCC_TREAT_WARNINGS_AS_ERRORS=YES", "CI 未将 Clang 警告视为错误"),
+        )
+        for marker, message in required_ci_rules:
+            if marker not in workflow_source:
+                errors.append(f".github/workflows/ci.yml: {message}")
     return errors
 
 
@@ -314,6 +376,7 @@ def main() -> int:
     errors, review = source_findings()
     errors.extend(script_findings())
     errors.extend(documentation_findings())
+    errors.extend(automatic_school_fetch_findings())
     errors.extend(audit_wiring_findings())
     audit_doc = (ROOT / "docs/CODE_QUALITY_AUDIT.md").read_text(encoding="utf-8")
     if re.search(r"行号|行数", audit_doc):

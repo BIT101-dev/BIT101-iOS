@@ -4,6 +4,7 @@ import Foundation
 enum ScheduleAuthenticationContinuation: Equatable {
     case courseSync(term: String?)
     case availableTerms
+    case classroomRefresh
 }
 
 /// Keeps authentication continuation state out of the main schedule view model.
@@ -22,6 +23,10 @@ final class ScheduleCourseSyncCoordinator {
 
     func waitForAvailableTermsAuthentication() {
         continuation = .availableTerms
+    }
+
+    func waitForClassroomAuthentication() {
+        continuation = .classroomRefresh
     }
 
     func reset() {

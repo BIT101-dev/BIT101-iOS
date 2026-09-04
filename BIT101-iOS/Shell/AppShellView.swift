@@ -119,7 +119,7 @@ struct AppShellView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var settings = AppSettingsStore.shared
-    @ObservedObject private var schoolDataRefresh = SchoolDataRefreshCoordinator.shared
+    @ObservedObject private var schoolDataViewModels = SchoolDataViewModelStore.shared
     @ObservedObject private var promptCoordinator = AppPromptCoordinator.shared
     @State private var selectedTab: AppTab = .schedule
     @State private var requestedScheduleSection: ScheduleSection?
@@ -157,7 +157,7 @@ struct AppShellView: View {
                         ScoreRootView(requestedCourse: $requestedCourse)
                     case .map:
                         CampusMapScreen(
-                            scheduleViewModel: schoolDataRefresh.scheduleViewModel,
+                            scheduleViewModel: schoolDataViewModels.scheduleViewModel,
                             requestedLocation: requestedMapLocation
                         )
                     case .score:
@@ -206,28 +206,16 @@ struct AppShellView: View {
         .onReceive(NotificationCenter.default.publisher(for: .scheduleCacheDidChange)) { _ in
             refreshScheduleNotificationPromptIfNeeded()
         }
-        .onReceive(schoolDataRefresh.$alert.compactMap { $0 }) { alert in
-            promptCoordinator.enqueue(AppPrompt(
-                id: "school-data-\(alert.id.uuidString)",
-                title: alert.title,
-                message: alert.message,
-                actions: [
-                    AppPromptAction(id: "dismiss", title: "知道了") {
-                        schoolDataRefresh.alert = nil
-                    }
-                ]
-            ))
-        }
         .onReceive(AppDeepLinkCoordinator.shared.$pendingURL.compactMap { $0 }) { url in
             handleIncomingURL(url)
             AppDeepLinkCoordinator.shared.consume(url)
         }
-        .onReceive(schoolDataRefresh.scheduleViewModel.$notice.compactMap { $0 }) { notice in
-            schoolDataRefresh.scheduleViewModel.notice = nil
+        .onReceive(schoolDataViewModels.scheduleViewModel.$notice.compactMap { $0 }) { notice in
+            schoolDataViewModels.scheduleViewModel.notice = nil
             AppErrorPresenter.shared.present(notice)
         }
-        .onReceive(schoolDataRefresh.scheduleViewModel.$pendingCourseReplacement.compactMap { $0 }) { pending in
-            let scheduleViewModel = schoolDataRefresh.scheduleViewModel
+        .onReceive(schoolDataViewModels.scheduleViewModel.$pendingCourseReplacement.compactMap { $0 }) { pending in
+            let scheduleViewModel = schoolDataViewModels.scheduleViewModel
             promptCoordinator.enqueue(AppPrompt(
                 id: "course-replacement-\(pending.id.uuidString)",
                 title: "确认替换课表",

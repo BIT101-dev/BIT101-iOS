@@ -21,7 +21,10 @@ struct PaperSummaryCard: View {
                 .lineLimit(2)
 
             HStack(spacing: 10) {
-                PaperSummaryAvatar(previewMetadata: previewMetadata)
+                AppAvatarView(
+                    imageURL: previewMetadata?.avatarURL,
+                    tint: AppDesignSystem.Palette.neutral
+                )
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(previewMetadata?.authorName ?? "加载中")
@@ -56,64 +59,5 @@ struct PaperSummaryCard: View {
         }
         .appFeedCardStyle()
         .onTapGesture(perform: onOpen)
-    }
-}
-
-/// 文章列表项作者头像。
-private struct PaperSummaryAvatar: View {
-    let previewMetadata: PaperPreviewMetadata?
-
-    var body: some View {
-        Group {
-            if let avatarURL = previewMetadata?.avatarURL {
-                CachedRemoteImage(url: avatarURL) { image in
-                    image
-                        .resizable()
-                        .scaledToFill()
-                } placeholder: {
-                    Circle()
-                        .fill(Color.secondary.opacity(0.15))
-                }
-            } else {
-                Circle()
-                    .fill(Color.secondary.opacity(0.15))
-                    .overlay {
-                        Image(systemName: "person.fill")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-            }
-        }
-        .frame(width: 34, height: 34)
-        .clipShape(Circle())
-    }
-}
-
-struct PaperEmptyState: View {
-    let systemImage: String
-    let title: String
-    let message: String
-    let onRetry: (() -> Void)?
-
-    init(systemImage: String, title: String, message: String, onRetry: (() -> Void)? = nil) {
-        self.systemImage = systemImage
-        self.title = title
-        self.message = message
-        self.onRetry = onRetry
-    }
-
-    var body: some View {
-        ContentUnavailableView {
-            Label(title, systemImage: systemImage)
-        } description: {
-            Text(message)
-        } actions: {
-            if let onRetry {
-                Button("重试", action: onRetry)
-            }
-            if title.contains("失败") {
-                DiagnosticRecoveryActions(title: title, message: message)
-            }
-        }
     }
 }

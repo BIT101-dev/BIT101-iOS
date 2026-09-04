@@ -24,54 +24,60 @@ struct DDLScheduleTabView: View {
             AppDesignSystem.Palette.groupedBackground
                 .ignoresSafeArea(edges: .bottom)
 
-            Group {
-                if !viewModel.hasLexueCalendarURL {
-                    VStack(spacing: 16) {
-                        Button {
-                            Task {
-                                await viewModel.refreshLexueCalendarURL(showSuccessNotice: false)
-                                await viewModel.syncDDL()
-                            }
-                        } label: {
-                            HStack {
-                                if viewModel.isSyncingDDL {
-                                    ProgressView()
-                                }
-                                Text("获取乐学日程")
-                            }
+            List {
+                Section {
+                    AppRefreshStatusRow(
+                        isRefreshing: viewModel.isSyncingDDL,
+                        refreshingText: "正在刷新 DDL",
+                        lastUpdatedText: viewModel.ddlLastUpdatedText,
+                        actionTitle: "刷新",
+                        onRefresh: {
+                            Task { await refreshDDL() }
                         }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(viewModel.isSyncingDDL)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    List {
-                        if viewModel.visibleDDLEvents.isEmpty {
-                            Section {
-                                ContentUnavailableView(
-                                    "暂无 DDL",
-                                    systemImage: "list.bullet.clipboard",
-                                    description: Text("先获取乐学日程，或手动添加一条。")
-                                )
-                                .frame(maxWidth: .infinity)
-                            }
-                        } else {
-                            Section {
-                                ForEach(viewModel.visibleDDLEvents) { event in
-                                    DDLEventCard(
-                                        event: event,
-                                        remainText: viewModel.ddlRemainingText(for: event),
-                                        dueText: viewModel.ddlDueText(for: event),
-                                        tint: color(for: event),
-                                        onToggleDone: { viewModel.toggleDDLDone(event) },
-                                        onOpenDetail: { selectedEvent = event }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    .appGroupedListStyle()
+                    )
                 }
+
+                    if !viewModel.hasLexueCalendarURL {
+                        Section {
+                            AppEmptyState(
+                                title: "暂无 DDL",
+                                systemImage: "list.bullet.clipboard",
+                                message: "先获取乐学日程，或手动添加一条。",
+                                actionTitle: "获取乐学日程",
+                                onAction: {
+                                    Task { await refreshDDL() }
+                                }
+                            )
+                            .frame(maxWidth: .infinity)
+                        }
+                    } else if viewModel.visibleDDLEvents.isEmpty {
+                        Section {
+                            AppEmptyState(
+                                title: "暂无 DDL",
+                                systemImage: "list.bullet.clipboard",
+                                message: "当前没有可展示的 DDL。"
+                            )
+                            .frame(maxWidth: .infinity)
+                        }
+                    } else {
+                        Section {
+                            ForEach(viewModel.visibleDDLEvents) { event in
+                                DDLEventCard(
+                                    event: event,
+                                    remainText: viewModel.ddlRemainingText(for: event),
+                                    dueText: viewModel.ddlDueText(for: event),
+                                    tint: color(for: event),
+                                    onToggleDone: { viewModel.toggleDDLDone(event) },
+                                    onOpenDetail: { selectedEvent = event }
+                                )
+                            }
+                        }
+                    }
+            }
+            .appGroupedListStyle()
+            .scrollContentBackground(.hidden)
+            .refreshable {
+                await refreshDDL()
             }
 
             AppFloatingActionStack {
@@ -125,6 +131,16 @@ struct DDLScheduleTabView: View {
                 SettingsRootView(initialRoute: route, studentID: "", onLogout: {}, showsCloseButton: true)
             }
         }
+    }
+
+    private func refreshDDL() async {
+        guard !viewModel.isSyncingDDL else { return }
+
+        if !viewModel.hasLexueCalendarURL {
+            await viewModel.refreshLexueCalendarURL(showSuccessNotice: false)
+            guard viewModel.hasLexueCalendarURL else { return }
+        }
+        _ = await viewModel.syncDDL()
     }
 
     private func color(for event: DDLEventRecord) -> Color {

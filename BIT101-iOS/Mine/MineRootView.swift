@@ -121,13 +121,14 @@ struct MineRootView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 48)
         case let .failed(message):
-            ContentUnavailableView {
-                Label("加载失败", systemImage: "person.crop.circle.badge.exclamationmark")
-            } description: {
-                Text(message)
-            } actions: {
-                DiagnosticRecoveryActions(title: "个人信息加载失败", message: message)
-            }
+            AppFailureState(
+                title: "个人信息加载失败",
+                systemImage: "person.crop.circle.badge.exclamationmark",
+                message: message,
+                onRetry: {
+                    Task { await viewModel.refreshProfile() }
+                }
+            )
             .frame(maxWidth: .infinity)
             .padding(.vertical, 20)
         case .loaded:
@@ -233,13 +234,14 @@ struct UserProfileRootView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 48)
         case let .failed(message):
-            ContentUnavailableView {
-                Label("加载失败", systemImage: "person.crop.circle.badge.exclamationmark")
-            } description: {
-                Text(message)
-            } actions: {
-                DiagnosticRecoveryActions(title: "主页加载失败", message: message)
-            }
+            AppFailureState(
+                title: "主页加载失败",
+                systemImage: "person.crop.circle.badge.exclamationmark",
+                message: message,
+                onRetry: {
+                    Task { await viewModel.refreshProfile() }
+                }
+            )
             .frame(maxWidth: .infinity)
             .padding(.vertical, 20)
         case .loaded:
@@ -269,19 +271,20 @@ struct UserProfileRootView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 28)
         case let .failed(message) where visiblePosters.isEmpty:
-            ContentUnavailableView {
-                Label("加载帖子失败", systemImage: "text.bubble")
-            } description: {
-                Text(message)
-            } actions: {
-                DiagnosticRecoveryActions(title: "帖子加载失败", message: message)
-            }
+            AppFailureState(
+                title: "帖子加载失败",
+                systemImage: "text.bubble",
+                message: message,
+                onRetry: {
+                    Task { await viewModel.refreshPosters() }
+                }
+            )
         default:
             if visiblePosters.isEmpty {
-                ContentUnavailableView("暂无帖子", systemImage: "text.bubble")
+                AppEmptyState(title: "暂无帖子", systemImage: "text.bubble")
             } else {
                 ForEach(Array(visiblePosters.enumerated()), id: \.element.id) { index, poster in
-                    VStack(spacing: 0) {
+                    AppFeedRow(isLast: index == visiblePosters.count - 1) {
                         GalleryPosterCard(
                             poster: poster,
                             onOpenPoster: { selectedPoster = poster },
@@ -292,11 +295,6 @@ struct UserProfileRootView: View {
                         )
                         .task {
                             await viewModel.loadMorePostersIfNeeded(currentPoster: poster)
-                        }
-
-                        if index != visiblePosters.count - 1 {
-                            Divider()
-                                .padding(.leading, 14)
                         }
                     }
                     .listRowInsets(EdgeInsets())
@@ -393,21 +391,11 @@ private struct MineProfileCard: View {
     }
 
     private var profileAvatar: some View {
-        CachedRemoteImage(url: URL(string: info.user.avatar.url)) { image in
-            image
-                .resizable()
-                .scaledToFill()
-        } placeholder: {
-            Circle()
-                .fill(AppDesignSystem.Palette.info.opacity(0.14))
-                .overlay {
-                    Image(systemName: "person.fill")
-                        .foregroundStyle(AppDesignSystem.Palette.info)
-                        .font(.title2)
-                }
-        }
-        .frame(width: 78, height: 78)
-        .clipShape(Circle())
+        AppAvatarView(
+            imageURL: URL(string: info.user.avatar.url),
+            size: 78,
+            tint: AppDesignSystem.Palette.info
+        )
         .contentShape(Circle())
     }
 
@@ -433,31 +421,21 @@ private struct MineUserListView: View {
                 ProgressView("正在加载")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if case let .failed(message) = status, users.isEmpty {
-                ContentUnavailableView {
-                    Label("加载失败", systemImage: "person.2.slash")
-                } description: {
-                    Text(message)
-                } actions: {
-                    DiagnosticRecoveryActions(title: "用户列表加载失败", message: message)
-                }
+                AppFailureState(
+                    title: "用户列表加载失败",
+                    systemImage: "person.2.slash",
+                    message: message,
+                    onRetry: onRefresh
+                )
             } else {
                 List {
                     ForEach(users) { user in
                         HStack(spacing: 12) {
-                            CachedRemoteImage(url: URL(string: user.avatar.lowUrl.isEmpty ? user.avatar.url : user.avatar.lowUrl)) { image in
-                                image
-                                    .resizable()
-                                    .scaledToFill()
-                            } placeholder: {
-                                Circle()
-                                    .fill(AppDesignSystem.Palette.info.opacity(0.14))
-                                    .overlay {
-                                        Image(systemName: "person.fill")
-                                            .foregroundStyle(AppDesignSystem.Palette.info)
-                                    }
-                            }
-                            .frame(width: 46, height: 46)
-                            .clipShape(Circle())
+                            AppAvatarView(
+                                imageURL: URL(string: user.avatar.lowUrl.isEmpty ? user.avatar.url : user.avatar.lowUrl),
+                                size: 46,
+                                tint: AppDesignSystem.Palette.info
+                            )
 
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack(spacing: 6) {
@@ -540,34 +518,30 @@ private struct MinePosterListView: View {
                 ProgressView("正在加载帖子")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if case let .failed(message) = status, visiblePosters.isEmpty {
-                ContentUnavailableView {
-                    Label("加载失败", systemImage: "text.bubble")
-                } description: {
-                    Text(message)
-                } actions: {
-                    DiagnosticRecoveryActions(title: "帖子加载失败", message: message)
-                }
+                AppFailureState(
+                    title: "帖子加载失败",
+                    systemImage: "text.bubble",
+                    message: message,
+                    onRetry: onRefresh
+                )
             } else if visiblePosters.isEmpty {
-                ContentUnavailableView("暂无可显示的帖子", systemImage: "text.bubble")
+                AppEmptyState(title: "暂无可显示的帖子", systemImage: "text.bubble")
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(Array(visiblePosters.enumerated()), id: \.element.id) { index, poster in
-                            GalleryPosterCard(
-                                poster: poster,
-                                onOpenPoster: { selectedPoster = poster },
-                                onOpenImage: { index, images in
-                                    imageViewer = GalleryImageViewerState(images: images, initialIndex: index)
-                                },
-                                onDelete: { deletingPoster = poster }
-                            )
-                            .task {
-                                onLoadMore(poster)
-                            }
-
-                            if index != visiblePosters.count - 1 {
-                                Divider()
-                                    .padding(.leading, 14)
+                            AppFeedRow(isLast: index == visiblePosters.count - 1) {
+                                GalleryPosterCard(
+                                    poster: poster,
+                                    onOpenPoster: { selectedPoster = poster },
+                                    onOpenImage: { index, images in
+                                        imageViewer = GalleryImageViewerState(images: images, initialIndex: index)
+                                    },
+                                    onDelete: { deletingPoster = poster }
+                                )
+                                .task {
+                                    onLoadMore(poster)
+                                }
                             }
                         }
 

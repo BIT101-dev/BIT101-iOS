@@ -72,6 +72,12 @@ extension ScheduleViewModel {
         await syncCourses(term: term.isEmpty ? nil : term)
     }
 
+    /// 课表页面展示的最近一次成功同步时间。
+    var coursesLastUpdatedText: String {
+        guard cache.coursesUpdatedAt != .distantPast else { return "更新时间：暂无记录" }
+        return "更新时间：\(cache.coursesUpdatedAt.formatted(.dateTime.month().day().hour().minute()))"
+    }
+
     /// 加载学校接口实际返回的学期列表，不在本地补充、推算或保留接口未返回的学期。
     func loadAvailableTerms() async {
         guard !isLoadingTerms, !isSyncingCourses, smsChallenge == nil else { return }
@@ -106,6 +112,17 @@ extension ScheduleViewModel {
         defer { isSubmittingSMSCode = false }
 
         do {
+            if courseSyncCoordinator.continuation == .classroomRefresh {
+                try await service.submitSMSCodeForTeachingCenterAuthentication(
+                    normalizedCode,
+                    for: challenge
+                )
+                smsChallenge = nil
+                courseSyncCoordinator.reset()
+                await refreshClassroomPage()
+                return
+            }
+
             if courseSyncCoordinator.continuation == .availableTerms {
                 try await service.submitSMSCodeForTeachingCenterAuthentication(
                     normalizedCode,
@@ -148,10 +165,16 @@ extension ScheduleViewModel {
         let incomingCourses = payload.courses
         let existingCourses = cache.termSchedulesByTerm[payload.term]?.courses
             ?? (cache.currentTerm == payload.term ? cache.courses : [])
+        let now = Date()
         // 空响应或完全相同的响应不覆盖；已发布但课程数减少时先交给全局弹窗确认。
         switch CourseSyncReplacementPolicy.decision(existing: existingCourses, with: incomingCourses) {
         case .preserve:
-            return
+            // 请求成功但课程内容未变化时也必须刷新“最近同步时间”。否则用户会误以为
+            // 刷新按钮没有发出请求；只有空响应覆盖已有课程时继续保留原缓存内容。
+            guard !incomingCourses.isEmpty || existingCourses.isEmpty else {
+                markCourseSyncSucceeded(term: payload.term, at: now)
+                return
+            }
         case let .confirm(existingCount, incomingCount) where !forceReplaceReduced:
             pendingCourseReplacement = CourseSyncReplacementConfirmation(
                 existingCount: existingCount,
@@ -163,12 +186,28 @@ extension ScheduleViewModel {
             break
         }
 
-        let snapshot = makeTermSnapshot(from: payload)
+        let snapshot = makeTermSnapshot(from: payload, now: now)
         cache.termSchedulesByTerm[payload.term] = snapshot
         cache.cachedCoursesByTerm[payload.term] = payload.courses
         activate(snapshot)
         trimTermSnapshots(preserving: Set([payload.term]))
         selectedWeek = resolvedAutomaticWeek()
+        persist()
+    }
+
+    /// 记录一次成功的学校响应，即使课表内容与本地缓存完全一致。
+    private func markCourseSyncSucceeded(term: String, at date: Date) {
+        guard cache.currentTerm == term else { return }
+        cache.coursesUpdatedAt = date
+        if let snapshot = cache.termSchedulesByTerm[term] {
+            cache.termSchedulesByTerm[term] = TermScheduleSnapshot(
+                term: snapshot.term,
+                firstDayString: snapshot.firstDayString,
+                courses: snapshot.courses,
+                exams: snapshot.exams,
+                updatedAt: date
+            )
+        }
         persist()
     }
 
@@ -222,75 +261,6 @@ extension ScheduleViewModel {
         activate(snapshot)
         selectedWeek = resolvedAutomaticWeek()
         return true
-    }
-
-    /// 按自动更新策略静默刷新当前课表。
-    ///
-    /// 成功时直接沿用普通同步的缓存写回；失败时返回错误，由应用壳层统一弹窗，避免
-    /// 自动任务产生只能在日程页才能看到的局部提示。短信验证不会在启动时主动弹出。
-    func autoRefreshCourses(terms requestedTerms: [String]? = nil) async -> ScheduleNotice? {
-        guard !isSyncingCourses, !isLoadingTerms, !isSubmittingSMSCode, smsChallenge == nil else {
-            return nil
-        }
-
-        let terms = requestedTerms ?? AcademicTermPolicy.adjacentTerms(on: Date())
-        guard !terms.isEmpty else { return nil }
-        isSyncingCourses = true
-        syncingTerm = terms.first
-        defer {
-            isSyncingCourses = false
-            syncingTerm = nil
-        }
-
-        do {
-            var snapshots: [String: TermScheduleSnapshot] = [:]
-            var fetchedCourses: [String: [CourseRecord]] = [:]
-            for term in terms {
-                let payload = try await service.syncCourses(term: term)
-                let existingCourses = cache.termSchedulesByTerm[payload.term]?.courses
-                    ?? (cache.currentTerm == payload.term ? cache.courses : [])
-                switch CourseSyncReplacementPolicy.decision(existing: existingCourses, with: payload.courses) {
-                case .preserve:
-                    continue
-                case let .confirm(existingCount, incomingCount):
-                    pendingCourseReplacement = CourseSyncReplacementConfirmation(
-                        existingCount: existingCount,
-                        incomingCount: incomingCount,
-                        payload: payload
-                    )
-                case .replace:
-                    snapshots[payload.term] = makeTermSnapshot(from: payload)
-                    fetchedCourses[payload.term] = payload.courses
-                }
-            }
-
-            cache.termSchedulesByTerm.merge(snapshots) { _, fetched in fetched }
-            let retainedTerms = Set(AcademicTermPolicy.adjacentTerms(on: Date()))
-            cache.termSchedulesByTerm = cache.termSchedulesByTerm.filter { retainedTerms.contains($0.key) }
-            cache.cachedCoursesByTerm.merge(fetchedCourses) { _, fetched in fetched }
-
-            let preferred = AcademicTermPolicy.preferredCachedTerm(cache: cache, on: Date())
-            if let snapshot = cache.termSchedulesByTerm[preferred], snapshot.hasDisplayableData {
-                if snapshot.firstDay.map({ Date() >= $0 }) ?? true {
-                    activate(snapshot)
-                }
-            } else if let refreshedCurrent = cache.termSchedulesByTerm[cache.currentTerm] {
-                activate(refreshedCurrent)
-            }
-            selectedWeek = resolvedAutomaticWeek()
-            persist()
-            return nil
-        } catch ScheduleServiceError.secondFactorRequired {
-            return ScheduleNotice(
-                title: "课表自动更新失败",
-                message: "本次更新需要短信验证，请在课表设置中手动同步。"
-            )
-        } catch let error as ScheduleServiceError where error.isUnpublishedCourseSchedule {
-            return ScheduleNotice(title: "课表暂未发布", message: error.localizedDescription)
-        } catch {
-            if isCancellation(error) { return nil }
-            return ScheduleNotice(title: "课表自动更新失败", message: error.localizedDescription)
-        }
     }
 
 }

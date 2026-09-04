@@ -181,10 +181,10 @@ struct CustomScheduleListSheet: View {
         NavigationStack {
             List {
                 if viewModel.cache.customSchedules.isEmpty {
-                    ContentUnavailableView(
-                        "还没有自定义日程",
+                    AppEmptyState(
+                        title: "还没有自定义日程",
                         systemImage: "calendar.badge.plus",
-                        description: Text("点击右上角的加号可以先新增一个。")
+                        message: "点击右上角的加号可以先新增一个。"
                     )
                     .frame(maxWidth: .infinity)
                 } else {

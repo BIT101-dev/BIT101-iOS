@@ -34,8 +34,7 @@ struct CalendarSettingsPage: View {
         let title: String
     }
 
-    @StateObject private var viewModel = SchoolDataRefreshCoordinator.shared.scheduleViewModel
-    @State private var autoRefreshIntervalDays = ScheduleAutoRefreshPreferences.intervalDays
+    @StateObject private var viewModel = SchoolDataViewModelStore.shared.scheduleViewModel
     @State private var isShowingTimeTableEditor = false
     @State private var timeTableText = ""
     @State private var isShowingCustomSchedules = false
@@ -45,6 +44,9 @@ struct CalendarSettingsPage: View {
     @State private var isShowingEmptyScheduleExportConfirmation = false
     @State private var isShowingSharedScheduleImportGuide = false
     @State private var isShowingLiveActivityExperimentalWarning = false
+    @State private var isShowingSystemCalendarImportConfirmation = false
+    @State private var isShowingSystemCalendarDeleteConfirmation = false
+    @State private var isUpdatingSystemCalendar = false
     @State private var shouldOpenImportSheetAfterGuide = false
     @State private var exportedScheduleCode: ExportedScheduleCode?
     @State private var importDraft: ScheduleImportDraft?
@@ -106,20 +108,6 @@ struct CalendarSettingsPage: View {
                 }
                 .disabled(viewModel.isSyncingCourses || viewModel.isLoadingTerms)
 
-                Picker(selection: $autoRefreshIntervalDays) {
-                    ForEach(ScheduleAutoRefreshPreferences.availableIntervals, id: \.self) { days in
-                        Text(ScheduleAutoRefreshPreferences.title(for: days))
-                            .tag(days)
-                    }
-                } label: {
-                    Text("自动更新课表")
-                        .foregroundStyle(.tint)
-                }
-                .onChange(of: autoRefreshIntervalDays) { _, days in
-                    ScheduleAutoRefreshPreferences.intervalDays = days
-                }
-                .appSelectionFeedback(trigger: autoRefreshIntervalDays)
-
                 Button("时间表") {
                     timeTableText = viewModel.cache.timeTable.map { "\($0.start), \($0.end)" }.joined(separator: "\n")
                     isShowingTimeTableEditor = true
@@ -136,6 +124,16 @@ struct CalendarSettingsPage: View {
                 Button("导入课表") {
                     presentImportGuideIfNeeded(openImportAfterGuide: true)
                 }
+
+                Button("导入到系统日历") {
+                    isShowingSystemCalendarImportConfirmation = true
+                }
+                .disabled(isUpdatingSystemCalendar)
+
+                Button("删除已导入的日历", role: .destructive) {
+                    isShowingSystemCalendarDeleteConfirmation = true
+                }
+                .disabled(isUpdatingSystemCalendar)
 
             }
 
@@ -240,7 +238,7 @@ struct CalendarSettingsPage: View {
         }
         .appGroupedListStyle()
         .task {
-            await viewModel.loadIfNeeded()
+            viewModel.loadIfNeeded()
             if viewModel.cache.courseLiveActivityLeadMinutes != normalizedLeadMinutes {
                 viewModel.setCourseLiveActivityLeadMinutes(normalizedLeadMinutes)
             }
@@ -339,6 +337,22 @@ struct CalendarSettingsPage: View {
         } message: {
             Text("开发者和 AI 尚未完全摸清楚灵动岛的运作机理和唤醒条件。虽然做了多重兜底，但仍不能保证每节课都能按时通知。继续打开视为已知悉此风险。")
         }
+        .alert("导入当前学期到系统日历？", isPresented: $isShowingSystemCalendarImportConfirmation) {
+            Button("导入并替换本学期旧事件") {
+                importCurrentTermToSystemCalendar()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("将创建“BIT101 课表”日历；重复导入时只替换 BIT101 创建的本学期事件。")
+        }
+        .alert("删除 BIT101 导入的日历事件？", isPresented: $isShowingSystemCalendarDeleteConfirmation) {
+            Button("删除", role: .destructive) {
+                deleteImportedSystemCalendarEvents()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("只删除带 BIT101 标记的事件，不会删除你自己创建的日程。")
+        }
         .alert("导入分享课表提示", isPresented: $isShowingSharedScheduleImportGuide) {
             Button("知道了") {
                 appSettings.markSharedScheduleImportGuideSeen()
@@ -352,6 +366,38 @@ struct CalendarSettingsPage: View {
             }
         } message: {
             Text("课表可以单击以改名，左滑以删除，在日程界面上下滑可循环切换，所有小组件以自己的课表作为数据源。")
+        }
+    }
+
+    private func importCurrentTermToSystemCalendar() {
+        isUpdatingSystemCalendar = true
+        Task {
+            defer { isUpdatingSystemCalendar = false }
+            do {
+                let count = try await ScheduleSystemCalendarManager.shared.importCurrentTerm(from: viewModel.cache)
+                viewModel.notice = ScheduleNotice(
+                    title: "导入成功",
+                    message: "已向“BIT101 课表”日历写入 \(count) 节课程。"
+                )
+            } catch {
+                viewModel.notice = ScheduleNotice(title: "导入失败", message: error.localizedDescription)
+            }
+        }
+    }
+
+    private func deleteImportedSystemCalendarEvents() {
+        isUpdatingSystemCalendar = true
+        Task {
+            defer { isUpdatingSystemCalendar = false }
+            do {
+                let count = try await ScheduleSystemCalendarManager.shared.deleteAllImportedEvents()
+                viewModel.notice = ScheduleNotice(
+                    title: "删除成功",
+                    message: "已删除 \(count) 条由 BIT101 导入的日历事件。"
+                )
+            } catch {
+                viewModel.notice = ScheduleNotice(title: "删除失败", message: error.localizedDescription)
+            }
         }
     }
 

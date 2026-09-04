@@ -11,8 +11,8 @@
 
 ## 共享层
 
-- `BIT101-iOS/Shared/Infrastructure/`：提示模型、深链、更新检查、紧急更新、错误报告提交界面、键盘收起、分页、账号存储、手势、任务取消、偏好同步和网络 smoke。
-- `BIT101-iOS/Shared/DesignSystem/`：主 App 的颜色、间距、圆角、评论/建议输入组件和系统触感修饰器。
+- `BIT101-iOS/Shared/Infrastructure/`：提示模型、统一失败状态、深链、更新检查、紧急更新、错误报告提交界面、键盘收起、分页、账号存储、手势、任务取消、偏好同步和网络 smoke。
+- `BIT101-iOS/Shared/DesignSystem/`：主 App 的颜色、间距、圆角、评论/建议输入组件、搜索/segmented、更新时间公共控件和系统触感修饰器。
 - `BIT101-iOS/Shared/Networking/`：HTTP 传输、社区 API、登录 challenge 支持和安全 URL 传输。
 - `BIT101-iOS/Shared/ScheduleShared*.swift`：主 App、widget、Live Activity 共用的课表快照与 occurrence 规范。
 - `BIT101-iOS/WatchSync/WatchScheduleSyncManager.swift`：iPhone 与 Apple Watch 的课表镜像同步。

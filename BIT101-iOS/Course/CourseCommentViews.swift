@@ -39,13 +39,11 @@ struct CourseCommentsSection: View {
                     .padding(.vertical, AppDesignSystem.Comment.progressVerticalPadding)
 
             case let .failed(message) where comments.isEmpty:
-                ContentUnavailableView {
-                    Label("加载评论失败", systemImage: "bubble.right.fill")
-                } description: {
-                    Text(message)
-                } actions: {
-                    DiagnosticRecoveryActions(title: "加载评论失败", message: message)
-                }
+                AppFailureState(
+                    title: "加载评论失败",
+                    systemImage: "bubble.right.fill",
+                    message: message
+                )
 
             default:
                 if comments.isEmpty {
@@ -108,42 +106,14 @@ private struct CourseCommentRow: View {
     let onOpenUser: (GalleryUser) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            CourseCommentBubble(
-                comment: comment,
-                isSubComment: false,
-                isLiking: likingCommentIDs.contains(comment.id),
-                onReply: {
-                    onReply(CourseCommentReplyTarget(mainComment: comment, targetComment: comment))
-                },
-                onLike: {
-                    onLikeComment(comment)
-                },
-                onOpenImage: onOpenImage,
-                onOpenUser: {
-                    onOpenUser(comment.user)
-                }
-            )
+        AppCommentRowContainer {
+            commentBubble(comment, isSubComment: false)
 
             if !comment.sub.isEmpty {
                 VStack(spacing: 0) {
                     ForEach(Array(comment.sub.enumerated()), id: \.element.id) { index, subComment in
                         VStack(spacing: 0) {
-                            CourseCommentBubble(
-                                comment: subComment,
-                                isSubComment: true,
-                                isLiking: likingCommentIDs.contains(subComment.id),
-                                onReply: {
-                                    onReply(CourseCommentReplyTarget(mainComment: comment, targetComment: subComment))
-                                },
-                                onLike: {
-                                    onLikeComment(subComment)
-                                },
-                                onOpenImage: onOpenImage,
-                                onOpenUser: {
-                                    onOpenUser(subComment.user)
-                                }
-                            )
+                            commentBubble(subComment, isSubComment: true)
 
                             if index != comment.sub.count - 1 {
                                 Divider()
@@ -153,116 +123,59 @@ private struct CourseCommentRow: View {
                     }
                 }
                 .padding(.leading, AppDesignSystem.Comment.subCommentIndent)
-                .padding(.top, 4)
-            }
-        }
-        .padding(.horizontal, AppDesignSystem.Comment.rowHorizontalPadding)
-        .padding(.vertical, AppDesignSystem.Comment.rowVerticalPadding)
-    }
-}
-
-private struct CourseCommentBubble: View {
-    let comment: GalleryComment
-    let isSubComment: Bool
-    let isLiking: Bool
-    let onReply: () -> Void
-    let onLike: () -> Void
-    let onOpenImage: (Int, [GalleryImage]) -> Void
-    let onOpenUser: () -> Void
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Group {
-                if canOpenUserProfile {
-                    Button(action: onOpenUser) {
-                        CourseCommentAvatarView(
-                            imageURL: URL(string: comment.user.avatar.lowUrl.isEmpty ? comment.user.avatar.url : comment.user.avatar.lowUrl),
-                            size: isSubComment ? 28 : 34
-                        )
-                    }
-                    .buttonStyle(.plain)
-                } else {
-                    CourseCommentAvatarView(
-                        imageURL: URL(string: comment.user.avatar.lowUrl.isEmpty ? comment.user.avatar.url : comment.user.avatar.lowUrl),
-                        size: isSubComment ? 28 : 34
-                    )
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Group {
-                        if canOpenUserProfile {
-                            Button(action: onOpenUser) {
-                                Text(comment.user.nickname)
-                                    .font(isSubComment ? .subheadline.weight(.semibold) : .headline)
-                                    .lineLimit(1)
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            Text(comment.user.nickname)
-                                .font(isSubComment ? .subheadline.weight(.semibold) : .headline)
-                                .lineLimit(1)
-                        }
-                    }
-
-                    Spacer(minLength: 0)
-
-                    Text(relativeTimeText(comment.createTime))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-
-                if comment.rate > 0 {
-                    Label(CourseRatingText.text(from: comment.rate), systemImage: "star.fill")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(AppDesignSystem.Palette.highlight)
-                }
-
-                commentText
-
-                if !comment.images.isEmpty {
-                    CourseCommentImagesView(images: comment.images, onOpenImage: onOpenImage)
-                }
-
-                HStack(spacing: 10) {
-                    Button(action: onReply) {
-                        Label("回复", systemImage: "arrowshape.turn.up.left")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-
-                    Button(action: onLike) {
-                        Label {
-                            Text("\(comment.likeNum)")
-                                .font(.caption)
-                        } icon: {
-                            if isLiking {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else {
-                                Image(systemName: comment.like ? "hand.thumbsup.fill" : "hand.thumbsup")
-                            }
-                        }
-                        .foregroundStyle(comment.like ? AppDesignSystem.Palette.highlight : Color.secondary)
-                    }
-                    .buttonStyle(.plain)
-
-                    Spacer(minLength: 0)
-                }
-                .padding(.top, 2)
+                .padding(.top, AppDesignSystem.Comment.subCommentTopPadding)
             }
         }
     }
+    @ViewBuilder
+    private func commentBubble(_ comment: GalleryComment, isSubComment: Bool) -> some View {
+        AppCommentBubble {
+            AppCommentAvatarView(
+                imageURL: URL(string: comment.user.avatar.lowUrl.isEmpty ? comment.user.avatar.url : comment.user.avatar.lowUrl),
+                size: isSubComment
+                    ? AppDesignSystem.Comment.subCommentAvatarSize
+                    : AppDesignSystem.Comment.avatarSize
+            )
+        } content: {
+            AppCommentIdentityHeader(
+                nickname: comment.user.nickname,
+                isSubComment: isSubComment,
+                timeText: CourseCommentDateDecoder.relativeText(from: comment.createTime, fallback: "未知时间"),
+                onOpenProfile: canOpenUserProfile(comment) ? { onOpenUser(comment.user) } : nil
+            )
 
-    private var canOpenUserProfile: Bool {
+            if comment.rate > 0 {
+                Label(CourseRatingText.text(from: comment.rate), systemImage: "star.fill")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(AppDesignSystem.Palette.highlight)
+            }
+
+            commentText(for: comment)
+
+            if !comment.images.isEmpty {
+                CourseCommentImagesView(images: comment.images, onOpenImage: onOpenImage)
+            }
+
+            AppCommentActionBar(
+                likeCount: comment.likeNum,
+                isLiked: comment.like,
+                isLiking: likingCommentIDs.contains(comment.id),
+                onReply: {
+                    onReply(CourseCommentReplyTarget(mainComment: self.comment, targetComment: comment))
+                },
+                onLike: {
+                    onLikeComment(comment)
+                }
+            )
+        }
+    }
+
+    private func canOpenUserProfile(_ comment: GalleryComment) -> Bool {
         !comment.anonymous && comment.user.id > 0
     }
 
     @ViewBuilder
-    private var commentText: some View {
+    private func commentText(for comment: GalleryComment) -> some View {
         if comment.replyUser.id != 0, !comment.replyUser.nickname.isEmpty {
             (
                 Text("回复 @\(comment.replyUser.nickname)：")
@@ -282,32 +195,6 @@ private struct CourseCommentBubble: View {
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-
-    private func relativeTimeText(_ string: String) -> String {
-        CourseCommentDateDecoder.relativeText(from: string, fallback: "未知时间")
-    }
-}
-
-private struct CourseCommentAvatarView: View {
-    let imageURL: URL?
-    let size: CGFloat
-
-    var body: some View {
-        CachedRemoteImage(url: imageURL) { image in
-            image
-                .resizable()
-                .scaledToFill()
-        } placeholder: {
-            ZStack {
-                Circle().fill(AppDesignSystem.Palette.highlight.opacity(0.15))
-                Image(systemName: "person.fill")
-                    .foregroundStyle(AppDesignSystem.Palette.highlight)
-                    .font(.caption.weight(.bold))
-            }
-        }
-        .frame(width: size, height: size)
-        .clipShape(Circle())
     }
 }
 

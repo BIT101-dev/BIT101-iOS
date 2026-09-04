@@ -61,7 +61,7 @@ struct AppSettingsSnapshot: Codable, Equatable {
     var themeMode: AppThemeMode = .system
     /// 是否允许界面自动旋转。
     var autoRotate = false
-    /// 是否在普通帖子页面隐藏机器人帖子（机器人分栏除外）。
+    /// 是否隐藏机器人帖子（机器人分栏除外）。
     var galleryHideBotPosterInSearch = false
     /// 是否已经看过“导入分享课表”的使用提示。
     var hasSeenSharedScheduleImportGuide = false

@@ -37,6 +37,21 @@ struct ScheduleCacheMigrationTests {
         #expect(decoded.iCloudSyncEnabled)
     }
 
+    @Test("DDL sync timestamp survives cache encoding")
+    func ddlUpdatedAtRoundTrip() throws {
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_123)
+        var cache = ScheduleCache()
+        cache.ddlUpdatedAt = timestamp
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let decoded = try decoder.decode(ScheduleCache.self, from: encoder.encode(cache))
+        #expect(decoded.ddlUpdatedAt == timestamp)
+    }
+
     @Test("Reconciliation only applies a newer remote cache when allowed")
     func reconciliationPolicy() {
         let old = Date(timeIntervalSince1970: 100)
@@ -104,29 +119,21 @@ struct ScheduleClassroomCoordinatorTests {
         #expect(!coordinator.isRequestInFlight)
     }
 
-    @Test("Automatic preparation and metadata refresh are single-flight")
-    func oneTimeClaimsResetWithAccount() {
-        let coordinator = ScheduleClassroomCoordinator()
-
-        #expect(coordinator.claimAutomaticPreparation())
-        #expect(!coordinator.claimAutomaticPreparation())
-        let oldMetadataToken = coordinator.beginMetadataRefresh()
-        #expect(oldMetadataToken != nil)
-        #expect(coordinator.beginMetadataRefresh() == nil)
-
-        coordinator.reset()
-        #expect(coordinator.claimAutomaticPreparation())
-        let newMetadataToken = coordinator.beginMetadataRefresh()
-        #expect(newMetadataToken != nil)
-        #expect(oldMetadataToken != newMetadataToken)
-        #expect(!coordinator.isCurrentMetadataRefresh(oldMetadataToken!))
-        #expect(coordinator.isCurrentMetadataRefresh(newMetadataToken!))
-    }
 }
 
 @Suite("Schedule authentication continuation")
 @MainActor
 struct ScheduleCourseSyncCoordinatorTests {
+    @Test("Classroom SMS authentication has an explicit continuation")
+    func classroomAuthenticationContinuation() {
+        let coordinator = ScheduleCourseSyncCoordinator()
+
+        coordinator.waitForClassroomAuthentication()
+
+        #expect(coordinator.continuation == .classroomRefresh)
+        #expect(coordinator.courseSyncTerm == nil)
+    }
+
     @Test("SMS authentication resumes the exact suspended operation")
     func continuationPurpose() {
         let coordinator = ScheduleCourseSyncCoordinator()

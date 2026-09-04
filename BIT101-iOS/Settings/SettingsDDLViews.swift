@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct DDLSettingsPage: View {
-    @StateObject private var viewModel = SchoolDataRefreshCoordinator.shared.scheduleViewModel
+    @StateObject private var viewModel = SchoolDataViewModelStore.shared.scheduleViewModel
     @State private var pickerRoute: DDLSettingsNumberPickerRoute?
 
     var body: some View {
@@ -58,7 +58,7 @@ struct DDLSettingsPage: View {
             }
         }
         .appGroupedListStyle()
-        .task { await viewModel.loadIfNeeded() }
+        .task { viewModel.loadIfNeeded() }
         .sheet(item: $pickerRoute) { route in
             switch route {
             case .beforeDay:

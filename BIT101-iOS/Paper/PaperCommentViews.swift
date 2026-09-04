@@ -48,9 +48,9 @@ struct PaperCommentsSection: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, AppDesignSystem.Comment.progressVerticalPadding)
             case let .failed(message):
-                PaperEmptyState(
-                    systemImage: "text.bubble",
+                AppFailureState(
                     title: "加载评论失败",
+                    systemImage: "text.bubble",
                     message: message,
                     onRetry: onRetry
                 )
@@ -137,120 +137,69 @@ private struct PaperCommentRow: View {
     let onLikeComment: (GalleryComment) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            PaperCommentBubble(
-                comment: comment,
-                isSubComment: false,
-                isLiking: likingCommentIDs.contains(comment.id),
-                onReply: {
-                    onReply(.init(mainComment: comment, targetComment: comment))
-                },
-                onLikeComment: {
-                    onLikeComment(comment)
-                }
-            )
+        AppCommentRowContainer {
+            commentBubble(comment, isSubComment: false)
 
             if !comment.sub.isEmpty {
                 VStack(spacing: 0) {
                     ForEach(comment.sub) { subComment in
                         VStack(spacing: 0) {
-                            PaperCommentBubble(
-                                comment: subComment,
-                                isSubComment: true,
-                                isLiking: likingCommentIDs.contains(subComment.id),
-                                onReply: {
-                                    onReply(.init(mainComment: comment, targetComment: subComment))
-                                },
-                                onLikeComment: {
-                                    onLikeComment(subComment)
-                                }
-                            )
+                            commentBubble(subComment, isSubComment: true)
 
                             if subComment.id != comment.sub.last?.id {
                                 Divider()
-                    .padding(.leading, AppDesignSystem.Comment.subCommentIndent)
+                                    .padding(.leading, AppDesignSystem.Comment.subCommentIndent)
                             }
                         }
                     }
                 }
                 .padding(.leading, AppDesignSystem.Comment.subCommentIndent)
-                .padding(.top, 4)
+                .padding(.top, AppDesignSystem.Comment.subCommentTopPadding)
             }
         }
-        .padding(.horizontal, AppDesignSystem.Comment.rowHorizontalPadding)
-        .padding(.vertical, AppDesignSystem.Comment.rowVerticalPadding)
     }
-}
 
-private struct PaperCommentBubble: View {
-    let comment: GalleryComment
-    let isSubComment: Bool
-    let isLiking: Bool
-    let onReply: () -> Void
-    let onLikeComment: () -> Void
+    @ViewBuilder
+    private func commentBubble(_ comment: GalleryComment, isSubComment: Bool) -> some View {
+        AppCommentBubble {
+            AppCommentAvatarView(
+                imageURL: comment.user.avatar.preferredRemoteURL,
+                size: isSubComment
+                    ? AppDesignSystem.Comment.subCommentAvatarSize
+                    : AppDesignSystem.Comment.avatarSize
+            )
+        } content: {
+            AppCommentIdentityHeader(
+                nickname: comment.user.nickname,
+                isSubComment: isSubComment,
+                timeText: PaperDateText.timestampString(from: comment.updateTime),
+                onOpenProfile: nil
+            )
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 10) {
-                CachedRemoteImage(url: comment.user.avatar.preferredRemoteURL) { image in
-                    image
-                        .resizable()
-                        .scaledToFill()
-                } placeholder: {
-                    Circle()
-                        .fill(Color.secondary.opacity(0.15))
-                }
-                .frame(width: isSubComment ? 28 : 34, height: isSubComment ? 28 : 34)
-                .clipShape(Circle())
-
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(comment.user.nickname)
-                            .font(isSubComment ? .subheadline.weight(.semibold) : .headline)
-                            .lineLimit(1)
-                        Spacer(minLength: 0)
-                        Text(PaperDateText.timestampString(from: comment.updateTime))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-
-                    if !comment.replyObj.isEmpty, comment.replyUser.id > 0 {
-                        Text("回复 @\(comment.replyUser.nickname)：")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Text(comment.text)
-                        .font(isSubComment ? .subheadline : .body)
-                        .foregroundStyle(.primary)
-                        .lineSpacing(3)
-                        .multilineTextAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+            if !comment.replyObj.isEmpty, comment.replyUser.id > 0 {
+                Text("回复 @\(comment.replyUser.nickname)：")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
             }
 
-            HStack(spacing: 14) {
-                Button(action: onReply) {
-                    Label("回复", systemImage: "arrowshape.turn.up.left")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
+            Text(comment.text)
+                .font(isSubComment ? .subheadline : .body)
+                .foregroundStyle(.primary)
+                .lineSpacing(3)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            AppCommentActionBar(
+                likeCount: comment.likeNum,
+                isLiked: comment.like,
+                isLiking: likingCommentIDs.contains(comment.id),
+                onReply: {
+                    onReply(.init(mainComment: self.comment, targetComment: comment))
+                },
+                onLike: {
+                    onLikeComment(comment)
                 }
-                .buttonStyle(.plain)
-                Button {
-                    onLikeComment()
-                } label: {
-                    Label {
-                        Text("\(comment.likeNum)")
-                            .font(.caption)
-                    } icon: {
-                        Image(systemName: comment.like ? "hand.thumbsup.fill" : "hand.thumbsup")
-                    }
-                }
-                .buttonStyle(.plain)
-                .disabled(isLiking)
-            }
-            .padding(.leading, isSubComment ? 38 : 44)
+            )
         }
     }
 }

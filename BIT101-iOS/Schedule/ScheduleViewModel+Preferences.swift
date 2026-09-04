@@ -126,6 +126,19 @@ extension ScheduleViewModel {
         persist()
     }
 
+    /// 在课程名称和楼宇/房间号之间切换课程块显示内容。
+    func toggleScheduleCardContentMode() {
+        switch cache.scheduleCardContentMode {
+        case .nameAndLocation:
+            cache.scheduleCardContentMode = .name
+        case .name:
+            cache.scheduleCardContentMode = .location
+        case .location:
+            cache.scheduleCardContentMode = .nameAndLocation
+        }
+        persist()
+    }
+
     func setICloudSyncEnabled(_ value: Bool) {
         guard cache.iCloudSyncEnabled != value else { return }
         cache.iCloudSyncEnabled = value

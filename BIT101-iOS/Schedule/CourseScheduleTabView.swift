@@ -4,6 +4,9 @@
 //
 
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct CourseScheduleTabView: View {
     private struct ScheduleCodePresentation: Identifiable {
@@ -32,9 +35,7 @@ struct CourseScheduleTabView: View {
     @State private var isShowingCourseEditor = false
     @State private var courseEditorMode: CourseEditorMode = .add
     @State private var settingsRoute: SettingsRoute?
-    @State private var isShowingSystemCalendarImportConfirmation = false
-    @State private var isShowingSystemCalendarDeleteConfirmation = false
-    @State private var isUpdatingSystemCalendar = false
+    @State private var cardDisplayFeedbackToken = 0
     @State private var isShowingScheduleImport = false
     @State private var exportedSchedule: ScheduleCodePresentation?
     @State private var courseSharePresentation: CourseSharePresentation?
@@ -42,6 +43,7 @@ struct CourseScheduleTabView: View {
     @State private var isResolvingCourseShare = false
     @State private var prefetchedCourseID: String?
     @State private var prefetchedCourseResolution: ScheduleAcademicCourseResolution?
+    @State private var bottomTabBarOverlap: CGFloat?
 
     var activeSchedule: ScheduleViewModel.CourseScheduleVariant {
         viewModel.activeCourseSchedule
@@ -52,147 +54,188 @@ struct CourseScheduleTabView: View {
     }
 
     /// 课表分区主体。
+    ///
+    /// 课表页直接使用主 List 承载更新时间和表格两个 Section；不再嵌套一个只为
+    /// 模拟原生圆角的更新时间 List。
     var body: some View {
-        Group {
-            // 学校尚未发布未来学期课表时，课程接口通常会正常返回空数组，而不是 404。
-            // 只要首周日期有效，就照常展示空课表网格和右下角操作按钮，不能让“无课程”
-            // 占位页挡住周次浏览、设置以及手动添加日程的入口。
-            if let firstDay = activeSchedule.firstDay {
-                GeometryReader { proxy in
-                    ZStack(alignment: .bottomTrailing) {
-                        CourseScheduleCalendarView(
-                            entries: scheduleEntries,
-                            week: viewModel.selectedWeek,
-                            availableWeeks: weekPickerWeeks,
-                            displayMode: viewModel.cache.scheduleDisplayMode,
-                            firstDay: firstDay,
-                            timeTable: activeSchedule.timeTable,
-                            currentWeek: resolvedCurrentWeek(firstDay: firstDay),
-                            showSaturday: viewModel.cache.showSaturday,
-                            showSunday: viewModel.cache.showSunday,
-                            showHighlightToday: viewModel.cache.showHighlightToday,
-                            showDivider: viewModel.cache.showDivider,
-                            showCurrentTime: viewModel.cache.showCurrentTime,
-                            showBorder: viewModel.cache.showBorder,
-                            onSelect: { entry in
-                                selectedEntry = entry
-                            },
-                            onSelectDay: { date, weekday in
-                                guard viewModel.cache.scheduleDisplayMode == .weekly else { return }
-                                guard supportsEditingDisplayedSchedule else {
-                                    viewModel.notice = ScheduleNotice(
-                                        title: "无法调整分享课表",
-                                        message: "分享课表是只读副本。调休 / 放假只支持当前账号自己的课表，不会修改导入的分享课表。"
+        GeometryReader { proxy in
+            let listHeight = max(
+                proxy.size.height
+                    - (bottomTabBarOverlap ?? 0),
+                1
+            )
+            let calendarHeight = max(
+                listHeight
+                    - (activeSchedule.isPrimary ? AppDesignSystem.TopBar.statusListHeight : 0)
+                    - (AppDesignSystem.TopBar.contentGap * 2),
+                1
+            )
+
+            ZStack(alignment: .bottomTrailing) {
+                List {
+                    if activeSchedule.isPrimary {
+                        Section {
+                            AppRefreshStatusRow(
+                                isRefreshing: viewModel.isSyncingCourses,
+                                refreshingText: "正在刷新课表",
+                                lastUpdatedText: viewModel.coursesLastUpdatedText,
+                                actionTitle: "刷新",
+                                onRefresh: {
+                                    Task { await viewModel.syncSelectedTerm() }
+                                }
+                            )
+                        }
+                    }
+
+                    // 学校尚未发布未来学期课表时，课程接口通常会正常返回空数组，而不是 404。
+                    // 只要首周日期有效，就照常展示空课表网格和右下角操作按钮，不能让“无课程”
+                    // 占位页挡住周次浏览、设置以及手动添加日程的入口。
+                    if let firstDay = activeSchedule.firstDay {
+                        Section {
+                            CourseScheduleCalendarView(
+                                entries: scheduleEntries,
+                                week: viewModel.selectedWeek,
+                                availableWeeks: weekPickerWeeks,
+                                displayMode: viewModel.cache.scheduleDisplayMode,
+                                cardContentMode: viewModel.cache.scheduleCardContentMode,
+                                firstDay: firstDay,
+                                timeTable: activeSchedule.timeTable,
+                                currentWeek: resolvedCurrentWeek(firstDay: firstDay),
+                                showSaturday: viewModel.cache.showSaturday,
+                                showSunday: viewModel.cache.showSunday,
+                                showHighlightToday: viewModel.cache.showHighlightToday,
+                                showDivider: viewModel.cache.showDivider,
+                                showCurrentTime: viewModel.cache.showCurrentTime,
+                                showBorder: viewModel.cache.showBorder,
+                                onSelect: { entry in
+                                    selectedEntry = entry
+                                },
+                                onSelectDay: { date, weekday in
+                                    guard viewModel.cache.scheduleDisplayMode == .weekly else { return }
+                                    guard supportsEditingDisplayedSchedule else {
+                                        viewModel.notice = ScheduleNotice(
+                                            title: "无法调整分享课表",
+                                            message: "分享课表是只读副本。调休 / 放假只支持当前账号自己的课表，不会修改导入的分享课表。"
+                                        )
+                                        return
+                                    }
+                                    selectedDayAdjustmentContext = ScheduleDayAdjustmentContext(
+                                        date: date,
+                                        week: viewModel.selectedWeek,
+                                        weekday: weekday
                                     )
-                                    return
-                                }
-                                selectedDayAdjustmentContext = ScheduleDayAdjustmentContext(
-                                    date: date,
-                                    week: viewModel.selectedWeek,
-                                    weekday: weekday
-                                )
-                                dayAdjustmentDraft = ScheduleDayAdjustmentDraft(
-                                    targetDate: Calendar.current.date(byAdding: .day, value: 1, to: date) ?? date
-                                )
-                            },
-                            onSelectWeekValue: { week in
-                                viewModel.selectedWeek = week
-                            },
-                            onLongPressCourse: { entry in
-                                shareCourse(from: entry)
-                            },
-                            onPrepareCourseShare: { entry in
-                                prepareCourseShare(from: entry)
-                            },
-                            onShareSchedule: { exportScheduleCode() },
-                            onImportSchedule: { isShowingScheduleImport = true }
-                        )
-                        .padding(.horizontal, 12)
-                        .padding(.top, 8)
-                        .padding(.bottom, 10)
-
-                        AppFloatingActionStack {
-                            if viewModel.cache.scheduleDisplayMode == .weekly {
-                                CourseScheduleFAB(systemImage: "chevron.up", accessibilityLabel: "上一周") {
-                                    viewModel.previousWeek()
-                                }
-
-                                CourseScheduleFAB(systemImage: "chevron.down", accessibilityLabel: "下一周") {
-                                    viewModel.nextWeek()
-                                }
-                            }
-
-                            if supportsEditingDisplayedSchedule {
-                                Menu {
-                                    Button("添加日程") {
-                                        editingCustomScheduleID = nil
-                                        customScheduleDraft = viewModel.customScheduleDraft(for: nil)
-                                        isShowingEditSchedule = true
-                                    }
-
-                                    Button("添加课程") {
-                                        courseEditorMode = .add
-                                        courseDraft = viewModel.courseDraft(for: viewModel.selectedWeek)
-                                        isShowingCourseEditor = true
-                                    }
-                                } label: {
-                                    CourseScheduleFABLabel(systemImage: "plus")
-                                }
-                                .buttonStyle(.plain)
-                                .tint(.primary)
-                                .accessibilityLabel("添加课表内容")
-
-                                Menu {
-                                    Button(role: .destructive) {
-                                        isShowingSystemCalendarDeleteConfirmation = true
-                                    } label: {
-                                        Label("删除已导入的日历事件", systemImage: "calendar.badge.minus")
-                                    }
-
+                                    dayAdjustmentDraft = ScheduleDayAdjustmentDraft(
+                                        targetDate: Calendar.current.date(byAdding: .day, value: 1, to: date) ?? date
+                                    )
+                                },
+                                onSelectWeekValue: { week in
+                                    viewModel.selectedWeek = week
+                                },
+                                onLongPressCourse: { entry in
+                                    shareCourse(from: entry)
+                                },
+                                onPrepareCourseShare: { entry in
+                                    prepareCourseShare(from: entry)
+                                },
+                                onShareSchedule: { exportScheduleCode() },
+                                onImportSchedule: { isShowingScheduleImport = true }
+                            )
+                            .frame(height: calendarHeight)
+                            // 只让课表自身绘制白色分组背景；List 行背景不能延伸到悬浮 Tab 栏下方。
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(AppDesignSystem.Palette.groupedBackground)
+                        }
+                    } else {
+                        Section {
+                            VStack(spacing: AppDesignSystem.Spacing.section) {
+                                Text(activeSchedule.isPrimary ? "尚未设置学期起始日期" : "这份分享课表缺少起始日期")
+                                    .font(.headline)
+                                Text(activeSchedule.isPrimary ? "请先同步所选学期，或在课表设置中手动设置起始日期。" : "试试上下滑切换到别的课表，或重新导入一份分享课表。")
+                                    .foregroundStyle(.secondary)
+                                if supportsEditingDisplayedSchedule {
                                     Button {
-                                        isShowingSystemCalendarImportConfirmation = true
+                                        Task { await viewModel.syncSelectedTerm() }
                                     } label: {
-                                        Label("导入到系统日历", systemImage: "calendar.badge.plus")
+                                        HStack {
+                                            if viewModel.isSyncingCourses {
+                                                ProgressView()
+                                            }
+                                            Text("重新获取所选学期")
+                                        }
                                     }
-                                } label: {
-                                    CourseScheduleFABLabel(systemImage: "calendar")
+                                    .buttonStyle(.borderedProminent)
+                                    .disabled(viewModel.isSyncingCourses)
                                 }
-                                .buttonStyle(.plain)
-                                .tint(.primary)
-                                .disabled(isUpdatingSystemCalendar)
-                                .accessibilityLabel("系统日历操作")
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                    }
+                }
+                .appGroupedListStyle()
+                .scrollContentBackground(.hidden)
+                .scrollDisabled(true)
+                .frame(height: listHeight, alignment: .top)
+
+                AppFloatingActionStack {
+                    if viewModel.cache.scheduleDisplayMode == .weekly {
+                        CourseScheduleFAB(systemImage: "chevron.up", accessibilityLabel: "上一周") {
+                            viewModel.previousWeek()
+                        }
+
+                        CourseScheduleFAB(systemImage: "chevron.down", accessibilityLabel: "下一周") {
+                            viewModel.nextWeek()
+                        }
+                    }
+
+                    if supportsEditingDisplayedSchedule {
+                        Menu {
+                            Button("添加日程") {
+                                editingCustomScheduleID = nil
+                                customScheduleDraft = viewModel.customScheduleDraft(for: nil)
+                                isShowingEditSchedule = true
                             }
 
-                            CourseScheduleFAB(systemImage: "gearshape", accessibilityLabel: "课表设置") {
-                                settingsRoute = .calendar
+                            Button("添加课程") {
+                                courseEditorMode = .add
+                                courseDraft = viewModel.courseDraft(for: viewModel.selectedWeek)
+                                isShowingCourseEditor = true
                             }
-                        }
-                    }
-                    .frame(width: proxy.size.width, height: proxy.size.height)
-                }
-            } else {
-                VStack(spacing: 16) {
-                    Text(activeSchedule.isPrimary ? "尚未设置学期起始日期" : "这份分享课表缺少起始日期")
-                        .font(.headline)
-                    Text(activeSchedule.isPrimary ? "请先同步所选学期，或在课表设置中手动设置起始日期。" : "试试上下滑切换到别的课表，或重新导入一份分享课表。")
-                        .foregroundStyle(.secondary)
-                    if supportsEditingDisplayedSchedule {
-                        Button {
-                            Task { await viewModel.syncSelectedTerm() }
                         } label: {
-                            HStack {
-                                if viewModel.isSyncingCourses {
-                                    ProgressView()
-                                }
-                                Text("重新获取所选学期")
-                            }
+                            CourseScheduleFABLabel(systemImage: "plus")
                         }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(viewModel.isSyncingCourses)
+                        .buttonStyle(.plain)
+                        .tint(.primary)
+                        .accessibilityLabel("添加课表内容")
+
+                        Button {
+                            cardDisplayFeedbackToken &+= 1
+                            viewModel.toggleScheduleCardContentMode()
+                        } label: {
+                            CourseScheduleFABLabel(text: "名/地")
+                        }
+                        .buttonStyle(.plain)
+                        .tint(.primary)
+                        .appImpactFeedback(trigger: cardDisplayFeedbackToken)
+                        .accessibilityLabel(cardDisplayAccessibilityLabel)
+                        .accessibilityValue("名/地")
                     }
+
+                    CourseScheduleFAB(systemImage: "gearshape", accessibilityLabel: "课表设置") {
+                        settingsRoute = .calendar
+                    }
+                }
+
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
+#if canImport(UIKit)
+            .background {
+                ScheduleTabBarOverlapReader { overlap in
+                    guard bottomTabBarOverlap != overlap else { return }
+                    bottomTabBarOverlap = overlap
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+#endif
         }
         .simultaneousGesture(scheduleSwitchGesture)
         .sheet(item: $selectedEntry) { entry in
@@ -359,22 +402,6 @@ struct CourseScheduleTabView: View {
                 SettingsRootView(initialRoute: route, studentID: "", onLogout: {}, showsCloseButton: true)
             }
         }
-        .alert("导入当前学期到系统日历？", isPresented: $isShowingSystemCalendarImportConfirmation) {
-            Button("导入并替换本学期旧事件") {
-                importCurrentTermToSystemCalendar()
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("将创建“BIT101 课表”日历；重复导入时只替换 BIT101 创建的本学期事件。")
-        }
-        .alert("删除 BIT101 导入的日历事件？", isPresented: $isShowingSystemCalendarDeleteConfirmation) {
-            Button("删除", role: .destructive) {
-                deleteImportedSystemCalendarEvents()
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("只删除带 BIT101 标记的事件，不会删除你自己创建的日程。")
-        }
         .diagnosticAlert(item: $courseShareAlert)
         .onChange(of: resetSignal) { _, _ in
             dismissPresentedSheets()
@@ -407,35 +434,14 @@ struct CourseScheduleTabView: View {
         return Array(lowerBound ... upperBound).filter { $0 != 0 }
     }
 
-    private func importCurrentTermToSystemCalendar() {
-        isUpdatingSystemCalendar = true
-        Task {
-            do {
-                let count = try await ScheduleSystemCalendarManager.shared.importCurrentTerm(from: viewModel.cache)
-                viewModel.notice = ScheduleNotice(
-                    title: "导入成功",
-                    message: "已向“BIT101 课表”日历写入 \(count) 节课程。"
-                )
-            } catch {
-                viewModel.notice = ScheduleNotice(title: "导入失败", message: error.localizedDescription)
-            }
-            isUpdatingSystemCalendar = false
-        }
-    }
-
-    private func deleteImportedSystemCalendarEvents() {
-        isUpdatingSystemCalendar = true
-        Task {
-            do {
-                let count = try await ScheduleSystemCalendarManager.shared.deleteAllImportedEvents()
-                viewModel.notice = ScheduleNotice(
-                    title: "删除成功",
-                    message: "已删除 \(count) 条由 BIT101 导入的日历事件。"
-                )
-            } catch {
-                viewModel.notice = ScheduleNotice(title: "删除失败", message: error.localizedDescription)
-            }
-            isUpdatingSystemCalendar = false
+    private var cardDisplayAccessibilityLabel: String {
+        switch viewModel.cache.scheduleCardContentMode {
+        case .nameAndLocation:
+            return "显示课程名称和地点"
+        case .name:
+            return "显示课程名称"
+        case .location:
+            return "显示课程地点"
         }
     }
 
@@ -540,3 +546,94 @@ struct CourseScheduleTabView: View {
     }
 
 }
+
+#if canImport(UIKit)
+/// 读取当前 TabView 的真实底部栏重叠区域。
+///
+/// iOS 26 的 TabView 在 iPhone 上使用悬浮栏，系统 safe area 会比可见胶囊更保守；
+/// 直接把 `safeAreaInsets.bottom` 当作课表高度扣除，会在不同平台产生过大的空白。
+/// 这里读取系统栏实际 frame，不保存任何机型相关的高度常量；iPad / Mac 上如果底栏
+/// 不在当前内容底部，返回 0，让容器继续使用自身的自适应尺寸。
+private struct ScheduleTabBarOverlapReader: UIViewRepresentable {
+    let onChange: (CGFloat) -> Void
+
+    func makeUIView(context: Context) -> ProbeView {
+        ProbeView(onChange: onChange)
+    }
+
+    func updateUIView(_ uiView: ProbeView, context: Context) {
+        uiView.onChange = onChange
+        uiView.measure()
+    }
+
+    final class ProbeView: UIView {
+        var onChange: (CGFloat) -> Void
+        private var lastOverlap: CGFloat?
+
+        init(onChange: @escaping (CGFloat) -> Void) {
+            self.onChange = onChange
+            super.init(frame: .zero)
+            backgroundColor = .clear
+            isUserInteractionEnabled = false
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            measure()
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            measure()
+        }
+
+        func measure() {
+            guard let window else { return }
+            let overlap = bottomOverlap(with: window)
+            guard lastOverlap.map({ abs($0 - overlap) < 0.5 }) != true else { return }
+            lastOverlap = overlap
+            DispatchQueue.main.async { [weak self] in
+                self?.onChange(overlap)
+            }
+        }
+
+        private func bottomOverlap(with window: UIWindow) -> CGFloat {
+            guard let tabBar = findTabBarController(in: window.rootViewController)?.tabBar,
+                  !tabBar.isHidden,
+                  tabBar.window === window
+            else { return 0 }
+
+            let contentFrame = convert(bounds, to: window)
+            let tabBarFrame = tabBar.convert(tabBar.bounds, to: window)
+            guard tabBarFrame.minY >= contentFrame.minY,
+                  tabBarFrame.minY < contentFrame.maxY,
+                  tabBarFrame.maxX > contentFrame.minX,
+                  tabBarFrame.minX < contentFrame.maxX
+            else { return 0 }
+
+            return max(contentFrame.maxY - tabBarFrame.minY, 0)
+        }
+
+        private func findTabBarController(in controller: UIViewController?) -> UITabBarController? {
+            guard let controller else { return nil }
+            if let tabBarController = controller as? UITabBarController {
+                return tabBarController
+            }
+            if let presented = controller.presentedViewController,
+               let tabBarController = findTabBarController(in: presented) {
+                return tabBarController
+            }
+            for child in controller.children {
+                if let tabBarController = findTabBarController(in: child) {
+                    return tabBarController
+                }
+            }
+            return nil
+        }
+    }
+}
+#endif

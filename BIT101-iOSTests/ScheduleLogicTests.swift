@@ -261,28 +261,6 @@ struct AcademicTermPolicyTests {
         ])
     }
 
-    @Test("Automatic score refresh runs only after week 16 and before the -1 small-term boundary")
-    func scoreRefreshWindow() {
-        let cache = makeSpringToFallCache()
-
-        #expect(!ScoreAutomaticRefreshPolicy.isWithinRefreshWindow(
-            cache: cache,
-            now: shanghaiDate(2026, 6, 21)
-        ))
-        #expect(ScoreAutomaticRefreshPolicy.isWithinRefreshWindow(
-            cache: cache,
-            now: shanghaiDate(2026, 6, 22)
-        ))
-        #expect(ScoreAutomaticRefreshPolicy.isWithinRefreshWindow(
-            cache: cache,
-            now: shanghaiDate(2026, 8, 9)
-        ))
-        #expect(!ScoreAutomaticRefreshPolicy.isWithinRefreshWindow(
-            cache: cache,
-            now: shanghaiDate(2026, 8, 10)
-        ))
-    }
-
     @Test("Vacation suppresses teaching resources and ends on the next first week")
     func academicActivityPhase() {
         let cache = makeSpringToFallCache()

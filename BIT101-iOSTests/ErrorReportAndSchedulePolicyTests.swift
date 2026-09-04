@@ -65,6 +65,15 @@ final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertFalse(ScheduleNotice(title: "课表暂未发布", message: "此学年学期的课表未发布").allowsDiagnostics)
     }
 
+    func testSecondFactorNoticeDoesNotOfferErrorReporting() {
+        let notice = ScheduleNotice(
+            title: "需要短信验证",
+            message: "学校要求短信二次验证，请先在学校登录页面完成验证后再重试。"
+        )
+
+        XCTAssertFalse(notice.allowsDiagnostics)
+    }
+
     func testSchoolBusinessInspectorDoesNotRejectSuccessfulOrLegitimateEmptyResponses() {
         let success = #"{"datas":{"rows":[]},"code":"0"}"#.data(using: .utf8)!
         let nestedSuccess = #"{"datas":{"rows":[],"extParams":{"code":1}},"code":"0"}"#.data(using: .utf8)!

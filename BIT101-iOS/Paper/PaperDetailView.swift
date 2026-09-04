@@ -266,16 +266,11 @@ private struct PaperHeaderSummary: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            CachedRemoteImage(url: paper?.updateUser.avatar.preferredRemoteURL) { image in
-                image
-                    .resizable()
-                    .scaledToFill()
-            } placeholder: {
-                Circle()
-                    .fill(Color.secondary.opacity(0.15))
-            }
-            .frame(width: 38, height: 38)
-            .clipShape(Circle())
+            AppAvatarView(
+                imageURL: paper?.updateUser.avatar.preferredRemoteURL,
+                size: 38,
+                tint: AppDesignSystem.Palette.neutral
+            )
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(authorName)

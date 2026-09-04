@@ -1,6 +1,6 @@
 # BIT101-iOS 代码质量审计
 
-更新时间：2026-09-03
+更新时间：2026-09-04
 
 ## 结论
 
@@ -13,6 +13,8 @@
 - 不因文件长度机械拆分状态机和模型文件。
 - 已加入逐份源码质量扫描，覆盖 App、Widget、Watch 和测试 target；硬性规则阻止死代码、
   越过公共网络/触感入口和脚本动态临时产物，布局值、强制解包与大型文件仅生成审查候选。
+- GitHub Actions 已强制执行统一静态审计，并在 generic iOS `build-for-testing` 中将 Swift/Clang 警告视为错误。
+- 已移除启动、回前台和切换账号时的学校/WebVPN 自动预热；成绩只恢复本地缓存，查询和短信验证由用户显式操作触发。
 
 ## 已完成的结构整理
 
@@ -29,7 +31,7 @@
 | 文件 | 判断 |
 | --- | --- |
 | `Schedule/ScheduleViewModel.swift` | 日程状态、初始化、缓存投影和共享辅助方法。其余职责已移到扩展文件。 |
-| `Schedule/ScheduleViewModel+CourseSync.swift` | 课表同步、学期列表、短信验证和自动刷新。 |
+| `Schedule/ScheduleViewModel+CourseSync.swift` | 课表同步、学期列表、短信验证和显式认证续接。 |
 | `Schedule/ScheduleViewModel+Classroom.swift` | 空教室请求、元数据和筛选。 |
 | `Schedule/ScheduleViewModel+CourseEditing.swift` | 课程和自定义日程编辑。 |
 | `Schedule/ScheduleViewModel+DDL.swift` | 乐学、DDL 和相关文案。 |
@@ -63,7 +65,7 @@
 - 课表同步、学期切换和空教室请求共用教学中心会话准备入口。
 - 课程、成绩和学校请求共用 bit-login challenge 基础类型，但 `jwb`、`jwb_cjd`、教学中心会话保持隔离。
 - 空响应和完全相同的课表不会覆盖现有课程；已发布但课程数减少时先弹窗确认，替换策略有自动化测试。
-- 账号切换会取消预热任务、清理旧错误提示，设置页旧请求不会回写新会话。
+- 账号切换会取消旧请求、清理旧错误提示并重置内存状态，设置页旧请求不会回写新会话。
 - GitHub Issues 与 Cloudflare KV 报告可由 `Scripts/fetch-issues-and-reports.sh` 一次拉取。
 
 ## 仍需关注的真实风险
@@ -78,6 +80,8 @@
 
 - 主 App 的系统背景色、圆角和公共卡片集中在 `Shared/DesignSystem/AppDesignSystem.swift`。
 - 课程、帖子和文章详情页共用分享及圆形操作按钮；评论区共用间距、分割线和容器样式。
+- 头像和标签统一由公共容器加载；课程、话廊和文章共用评论头像/标题/操作/气泡结构；话廊、文章和我的帖子流共用信息流行容器；话廊和文章共用排序搜索栏；所有 segmented 页面选择统一通过公共控件。
+- 主要加载失败态统一由 `AppFailureState` 承载，保证重试和错误反馈入口不会因模块复制而漂移。
 - 周次和全学期叠加课表共用等宽网格，叠加层按课程中心排序并使用不透明课程背景隔离节次分割线。
 - 页面差异通过 `AppCardVariant` 等语义变体表达，不复制卡片结构后局部修改。
 - `Scripts/check-ui-consistency.sh` 还会检查详情页分享/操作组件、评论区样式、信息流间距和课表叠加规则。
@@ -88,7 +92,7 @@
   它补充了原有 UI、触感、组件检查未覆盖的脚本权限、死代码标记、文档失效链接、重复 import、
   强制解包候选和大型文件候选。
 - `run-static-audit.sh` 负责统一编排；源码质量检查会确认 UI、触感、组件、错误报告和文档检查仍已接入，
-  并确保静态审计不会误调用网络 smoke。
+  并确保静态审计不会误调用网络 smoke；CI 会检查该入口和 generic device 编译门禁仍然存在。
 - 解释性文案报告仅扫描列表/表单的 `Section footer` 和空状态的 `ContentUnavailableView description`；
   已由用户确认的文案进入白名单，新增文案继续提示。
 

@@ -35,13 +35,11 @@ struct AccountSettingsPage: View {
                         Text("头像")
                         Spacer()
                         PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                            CachedRemoteImage(url: URL(string: profile.user.avatar.url)) { image in
-                                image.resizable().scaledToFill()
-                            } placeholder: {
-                                Circle().fill(AppDesignSystem.Palette.info.opacity(0.15))
-                            }
-                            .frame(width: 40, height: 40)
-                            .clipShape(Circle())
+                            AppAvatarView(
+                                imageURL: URL(string: profile.user.avatar.url),
+                                size: 40,
+                                tint: AppDesignSystem.Palette.info
+                            )
                         }
                         .disabled(isUpdating)
                     }

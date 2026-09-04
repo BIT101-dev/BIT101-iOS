@@ -88,7 +88,7 @@ struct ClassroomRequestTimeoutError: LocalizedError {
 /// 1. 本地缓存恢复
 /// 2. 课表 / DDL / 空教室同步
 /// 3. 自定义日程和自定义 DDL 的本地 CRUD
-/// 4. 与设置中心共享缓存后的自动刷新
+    /// 4. 与设置中心共享缓存后的状态回写
 final class ScheduleViewModel: ObservableObject {
     /// 课表页当前正在显示的课表分身。
     ///
@@ -154,6 +154,9 @@ final class ScheduleViewModel: ObservableObject {
     var classroomRecords: [ClassroomRecord] = []
     /// 监听设置和缓存变化，用于跨页面同步。
     private var cacheObserver: NSObjectProtocol?
+    /// 由 ViewModel 持有的空教室页面请求；页面离开分栏时不应取消已经发出的请求。
+    var classroomPageTask: Task<Void, Never>?
+    var classroomPageTaskID: UUID?
 
     /// 初始化日程状态机，并监听缓存变化通知。
     init(service: any ScheduleServicing) {
@@ -183,6 +186,9 @@ final class ScheduleViewModel: ObservableObject {
 
     /// 切换账号后重置页面内存态，并从新账号的隔离缓存重新开始加载。
     func resetForCurrentAccount() {
+        classroomPageTask?.cancel()
+        classroomPageTask = nil
+        classroomPageTaskID = nil
         classroomCoordinator.reset()
         hasLoaded = false
         isLoadingCache = true
@@ -316,7 +322,7 @@ final class ScheduleViewModel: ObservableObject {
     /// 首次进入日程页时从本地磁盘恢复缓存。
     ///
     /// 日程页优先展示本地缓存，而不是一上来就强制联网同步；这样冷启动更快，也更稳定。
-    func loadIfNeeded() async {
+    func loadIfNeeded() {
         guard !hasLoaded else { return }
         hasLoaded = true
 
@@ -329,9 +335,6 @@ final class ScheduleViewModel: ObservableObject {
         if activatePreferredCachedTermIfAvailable(on: Date()) {
             persist()
         }
-        #if canImport(CloudKit)
-        await ScheduleCloudSyncManager.shared.refreshFromCloudIfNeeded()
-        #endif
         isLoadingCache = false
     }
 

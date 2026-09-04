@@ -15,7 +15,7 @@ import Foundation
 /// 3. 为本地特殊分栏（如机器人）提供统一入口。
 ///
 /// 因此即使某个 feed 不直接对应服务端 `mode`，也仍然要留在这里统一管理。
-enum GalleryFeedKind: String, CaseIterable, Identifiable {
+enum GalleryFeedKind: String, CaseIterable, Identifiable, Hashable {
     case follow
     case recommend
     case newest
@@ -88,7 +88,7 @@ enum GalleryFeedKind: String, CaseIterable, Identifiable {
 }
 
 /// 搜索页支持的排序方式。
-enum GallerySearchOrder: String, CaseIterable, Identifiable {
+enum GallerySearchOrder: String, CaseIterable, Identifiable, Hashable {
     case similar
     case like
     case newest = "new"
@@ -458,7 +458,7 @@ extension GalleryFeedState: PagedItemsState {
 ///
 /// 消息页虽然最终表现为四个分类，但服务端对它们的参数、未读数和跳转语义都不同，
 /// 因此这里集中定义标题、动作文案和状态字典 key。
-enum GalleryMessageType: String, CaseIterable, Identifiable {
+enum GalleryMessageType: String, CaseIterable, Identifiable, Hashable {
     case comment
     case like
     case follow

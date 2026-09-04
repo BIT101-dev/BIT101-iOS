@@ -48,9 +48,9 @@ struct PaperRootView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.top, 48)
                     case let .failed(message) where viewModel.state.items.isEmpty:
-                        PaperEmptyState(
-                            systemImage: "doc.text.magnifyingglass",
+                        AppFailureState(
                             title: "加载文章失败",
+                            systemImage: "doc.text.magnifyingglass",
                             message: message,
                             onRetry: {
                                 Task {
@@ -61,15 +61,15 @@ struct PaperRootView: View {
                         .padding(.top, 48)
                     default:
                         if visiblePapers.isEmpty {
-                            PaperEmptyState(
-                                systemImage: "doc.text",
+                            AppEmptyState(
                                 title: "暂无文章",
+                                systemImage: "doc.text",
                                 message: "还没有可展示的文章。"
                             )
                             .padding(.top, 48)
                         } else {
                             ForEach(Array(visiblePapers.enumerated()), id: \.element.id) { index, paper in
-                                VStack(spacing: 0) {
+                                AppFeedRow(isLast: index == visiblePapers.count - 1) {
                                     PaperSummaryCard(
                                         paper: paper,
                                         previewMetadata: viewModel.previewMetadata(for: paper.id),
@@ -77,11 +77,6 @@ struct PaperRootView: View {
                                             selectedPaper = paper
                                         }
                                     )
-
-                                    if index != visiblePapers.count - 1 {
-                                        Divider()
-                                            .padding(.leading, AppDesignSystem.Feed.dividerLeading)
-                                    }
                                 }
                                 .task {
                                     await viewModel.loadPreviewMetadataIfNeeded(for: paper)
@@ -113,18 +108,16 @@ struct PaperRootView: View {
                 }
             }
         }
-        .safeAreaInset(edge: .top) {
-            Picker("文章排序", selection: $viewModel.selectedOrder) {
+        .safeAreaInset(edge: .top, spacing: 0) {
+            AppTopSegmentedPicker(
+                title: "文章排序",
+                selection: $viewModel.selectedOrder,
+                variant: .stacked
+            ) {
                 ForEach(PaperSortOrder.allCases) { order in
                     Text(order.title).tag(order)
                 }
             }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 12)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
-            .background(AppDesignSystem.Palette.groupedBackground)
-            .appSelectionFeedback(trigger: viewModel.selectedOrder.id)
         }
         .navigationDestination(item: $selectedPaper) { paper in
             PaperDetailView(initialPaper: paper)

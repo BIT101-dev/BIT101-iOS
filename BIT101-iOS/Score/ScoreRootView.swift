@@ -3,7 +3,7 @@ import SwiftUI
 
 /// 原生成绩页状态机。
 ///
-private enum ScoreSurface: String, CaseIterable, Identifiable {
+private enum ScoreSurface: String, CaseIterable, Identifiable, Hashable {
     case score
     case course
 
@@ -23,7 +23,7 @@ private enum ScoreSurface: String, CaseIterable, Identifiable {
 ///
 /// 负责承载“成绩 / 课程”的顶部切换。
 struct ScoreRootView: View {
-    @StateObject private var scoreViewModel = SchoolDataRefreshCoordinator.shared.scoreViewModel
+    @StateObject private var scoreViewModel = SchoolDataViewModelStore.shared.scoreViewModel
     @StateObject private var courseViewModel = CourseListViewModel()
     @State private var selectedSurface: ScoreSurface = .score
     @Binding private var requestedCourse: CourseNavigationRequest?
@@ -49,18 +49,12 @@ struct ScoreRootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: selectedSurface)
-        .safeAreaInset(edge: .top) {
-            Picker("成绩内容", selection: surfaceSelection) {
+        .safeAreaInset(edge: .top, spacing: 0) {
+            AppTopSegmentedPicker(title: "成绩内容", selection: surfaceSelection) {
                 ForEach(ScoreSurface.allCases) { surface in
                     Text(surface.title).tag(surface)
                 }
             }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 12)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
-            .background(AppDesignSystem.Palette.groupedBackground)
-            .appSelectionFeedback(trigger: selectedSurface.rawValue)
         }
         .toolbar(.hidden, for: .navigationBar)
         .task(id: requestedCourse?.id) {
@@ -121,35 +115,29 @@ private struct ScoreListPage: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(AppDesignSystem.Palette.groupedBackground)
             case let .failed(message):
-                ContentUnavailableView {
-                    Label("加载失败", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(message)
-                } actions: {
-                    Button("重新查询") {
+                AppFailureState(
+                    title: "加载失败",
+                    systemImage: "exclamationmark.triangle",
+                    message: message,
+                    retryTitle: "重新查询",
+                    onRetry: {
                         Task { await viewModel.refresh() }
                     }
-                    DiagnosticRecoveryActions(title: "成绩加载失败", message: message)
-                }
+                )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(AppDesignSystem.Palette.groupedBackground)
             case .loaded:
                 List {
                     Section {
-                        HStack(spacing: 10) {
-                            if viewModel.isSyncing {
-                                ProgressView()
-                                Text(viewModel.syncStatusText)
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                Image(systemName: "clock")
-                                    .foregroundStyle(.secondary)
-                                Text(viewModel.lastUpdatedText)
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
+                        AppRefreshStatusRow(
+                            isRefreshing: viewModel.isSyncing,
+                            refreshingText: viewModel.syncStatusText,
+                            lastUpdatedText: viewModel.lastUpdatedText,
+                            actionTitle: viewModel.rows.isEmpty ? "查询成绩" : "刷新",
+                            onRefresh: {
+                                Task { await viewModel.refresh() }
                             }
-                        }
+                        )
                     }
 
                     Section {
@@ -219,10 +207,10 @@ private struct ScoreListPage: View {
 
                     Section("成绩列表") {
                         if viewModel.visibleRows.isEmpty {
-                            ContentUnavailableView(
-                                "暂无成绩",
+                            AppEmptyState(
+                                title: "暂无成绩",
                                 systemImage: "chart.bar.doc.horizontal",
-                                description: Text("请调整学期或种类筛选条件。")
+                                message: "请调整学期或种类筛选条件。"
                             )
                             .frame(maxWidth: .infinity)
                         } else {
@@ -251,8 +239,6 @@ private struct ScoreListPage: View {
                     }
                 }
                 .appGroupedListStyle()
-                // 顶部切换栏已经占用安全区，成绩内容从切换栏下方直接开始。
-                .contentMargins(.top, 0, for: .scrollContent)
                 .background(AppDesignSystem.Palette.groupedBackground)
                 .refreshable {
                     await viewModel.refresh()
@@ -260,7 +246,7 @@ private struct ScoreListPage: View {
             }
         }
         .task {
-            await viewModel.bootstrapIfNeeded()
+            viewModel.restoreCachedDataIfNeeded()
         }
         .diagnosticAlert(item: $viewModel.alert)
         .sheet(
@@ -325,16 +311,14 @@ private struct TrustedTranscriptPage: View {
                 ProgressView("正在向学校申请可信成绩单")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case let .failed(message):
-                ContentUnavailableView {
-                    Label("申请失败", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(message)
-                } actions: {
-                    Button("重试") {
+                AppFailureState(
+                    title: "申请失败",
+                    systemImage: "exclamationmark.triangle",
+                    message: message,
+                    onRetry: {
                         Task { await viewModel.apply() }
                     }
-                    DiagnosticRecoveryActions(title: "可信成绩单申请失败", message: message)
-                }
+                )
             case .loaded:
                 if !viewModel.images.isEmpty {
                     ScrollView {
