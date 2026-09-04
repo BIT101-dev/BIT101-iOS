@@ -356,10 +356,10 @@ extension View {
     func appCommentSectionStyle() -> some View {
         background(
             AppDesignSystem.Palette.systemBackground,
-            in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.prominent, style: .continuous)
+            in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.prominent)
         )
         .overlay {
-            AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.prominent, style: .continuous)
+            AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.prominent)
                 .stroke(Color.primary.opacity(0.06), lineWidth: 1)
         }
     }

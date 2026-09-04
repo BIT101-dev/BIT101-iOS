@@ -250,9 +250,7 @@ struct ScheduleService {
     /// 构造带共享 cookie 与 HTTPS 升级能力的会话。
     init() {
         let configuration = URLSessionConfiguration.default
-        configuration.httpCookieStorage = HTTPCookieStorage.shared
         configuration.httpCookieAcceptPolicy = .always
-        configuration.httpShouldSetCookies = true
         // 教学中心有两条可用链路：校外 WebVPN 与校园网直连。这里不能等待一个
         // 当前网络永远无法解析的主机恢复，否则 DNS 错误不会抛出，直连回退也无法执行。
         configuration.waitsForConnectivity = false

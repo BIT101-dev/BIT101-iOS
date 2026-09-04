@@ -573,7 +573,6 @@ private struct ScheduleTabBarOverlapReader: UIViewRepresentable {
         init(onChange: @escaping (CGFloat) -> Void) {
             self.onChange = onChange
             super.init(frame: .zero)
-            backgroundColor = .clear
             isUserInteractionEnabled = false
         }
 

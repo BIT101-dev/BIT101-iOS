@@ -229,7 +229,7 @@ private struct SettingsSensitiveValueRow: View {
                         .blur(radius: 7)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(.ultraThinMaterial, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.small, style: .continuous))
+                        .background(.ultraThinMaterial, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.small))
                 }
             }
         }

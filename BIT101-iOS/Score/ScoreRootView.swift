@@ -835,7 +835,6 @@ private struct ScoreFixedColumnRow: View {
                         .font(item.font)
                         .foregroundStyle(item.color)
                         .lineLimit(1)
-                        .truncationMode(.tail)
                         .monospacedDigit()
                         .frame(
                             width: totalWidth * item.ratio,

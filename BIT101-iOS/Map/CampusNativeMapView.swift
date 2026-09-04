@@ -54,7 +54,6 @@ struct CampusNativeMapView: UIViewRepresentable {
         mapView.showsUserLocation = true
         mapView.pointOfInterestFilter = .excludingAll
         mapView.isPitchEnabled = false
-        mapView.isRotateEnabled = true
 
         context.coordinator.syncNextCourseAnnotation(nextCourseTarget, in: mapView)
         context.coordinator.syncRequestedLocation(requestedLocation, in: mapView)

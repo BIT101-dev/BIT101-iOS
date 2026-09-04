@@ -13,7 +13,7 @@ struct WatchScheduleRootView: View {
             primaryPage
             actionsPage
         }
-        .tabViewStyle(.page(indexDisplayMode: .automatic))
+        .tabViewStyle(.page)
         .navigationTitle("课表")
         .onAppear {
             model.reload()
@@ -140,7 +140,7 @@ struct WatchScheduleRootView: View {
             }
             .buttonStyle(.bordered)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -169,6 +169,6 @@ private struct WatchScheduleEmptyStateView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 120, alignment: .center)
+        .frame(maxWidth: .infinity, minHeight: 120)
     }
 }

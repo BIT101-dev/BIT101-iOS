@@ -206,8 +206,8 @@ private struct DDLEventCard: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppDesignSystem.Palette.secondaryBackground, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped, style: .continuous))
-        .contentShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped, style: .continuous))
+        .background(AppDesignSystem.Palette.secondaryBackground, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped))
+        .contentShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped))
         .onTapGesture(perform: onOpenDetail)
     }
 

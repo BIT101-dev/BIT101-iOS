@@ -132,7 +132,7 @@ private struct SettingsIndexCard: View {
     let route: SettingsRoute
 
     var body: some View {
-        AppCard(variant: .standard) {
+        AppCard {
             HStack(spacing: AppDesignSystem.Spacing.control) {
                 Image(systemName: route.systemImage)
                     .frame(width: 24, height: 24)

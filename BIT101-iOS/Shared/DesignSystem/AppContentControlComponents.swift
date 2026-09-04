@@ -146,7 +146,7 @@ struct AppOrderedSearchBar<Order: Hashable, OrderContent: View>: View {
         .padding(.vertical, AppDesignSystem.Search.verticalPadding)
         .background(
             AppDesignSystem.Palette.secondaryBackground,
-            in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped, style: .continuous)
+            in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped)
         )
     }
 }

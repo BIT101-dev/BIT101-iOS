@@ -69,9 +69,7 @@ struct BIT101APIClient {
     /// 学校 SSO 链路里两种模式都会用到，所以在这里一次性准备好。
     init() {
         let configuration = URLSessionConfiguration.default
-        configuration.httpCookieStorage = HTTPCookieStorage.shared
         configuration.httpCookieAcceptPolicy = .always
-        configuration.httpShouldSetCookies = true
 
         session = URLSession(
             configuration: configuration,

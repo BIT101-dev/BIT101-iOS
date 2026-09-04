@@ -35,7 +35,7 @@ struct CourseCommentsSection: View {
             switch status {
             case .idle where comments.isEmpty, .loading where comments.isEmpty:
                 ProgressView("正在加载评论")
-                    .frame(maxWidth: .infinity, alignment: .center)
+                    .frame(maxWidth: .infinity)
                     .padding(.vertical, AppDesignSystem.Comment.progressVerticalPadding)
 
             case let .failed(message) where comments.isEmpty:
@@ -50,7 +50,7 @@ struct CourseCommentsSection: View {
                     Text(totalCommentCount == 0 ? "还没有评论" : "评论已根据社区规范隐藏")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
+                        .frame(maxWidth: .infinity)
                         .padding(.vertical, AppDesignSystem.Comment.emptyVerticalPadding)
                 } else {
                     LazyVStack(spacing: 0) {
@@ -185,14 +185,12 @@ private struct CourseCommentRow: View {
             )
             .font(.subheadline)
             .lineSpacing(3)
-            .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             Text(comment.text)
                 .font(.subheadline)
                 .foregroundStyle(.primary)
                 .lineSpacing(3)
-                .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }

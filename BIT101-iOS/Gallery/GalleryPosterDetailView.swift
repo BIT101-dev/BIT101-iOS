@@ -36,7 +36,6 @@ struct GalleryPosterDetailView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(viewModel.poster.title)
                         .font(.title2.weight(.bold))
-                        .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     HStack(spacing: 12) {
@@ -96,7 +95,6 @@ struct GalleryPosterDetailView: View {
 
                 Text(galleryLinkifiedText(viewModel.poster.text))
                     .font(.body)
-                    .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 if !viewModel.poster.images.isEmpty {

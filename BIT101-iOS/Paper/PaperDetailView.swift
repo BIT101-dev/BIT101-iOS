@@ -28,7 +28,6 @@ struct PaperDetailView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(viewModel.paper?.title ?? initialPaper.title)
                         .font(.title2.weight(.bold))
-                        .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     HStack(spacing: 12) {
@@ -333,7 +332,7 @@ private struct PaperContentBlockView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     GalleryCachedStillImage(url: image.preferredRemoteURL)
                     .frame(maxWidth: .infinity)
-                    .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card, style: .continuous))
+                    .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
 
                     if let caption = image.caption, !String(caption.characters).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         PaperRichTextView(text: caption, textStyle: .caption1, textColor: .secondaryLabel)
@@ -373,7 +372,6 @@ private struct PaperRichTextView: UIViewRepresentable {
         textView.isEditable = false
         textView.isScrollEnabled = false
         textView.isSelectable = true
-        textView.isUserInteractionEnabled = true
         textView.adjustsFontForContentSizeCategory = true
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0

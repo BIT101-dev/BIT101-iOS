@@ -37,7 +37,6 @@ private final class ScheduleBlankContextMenuControl: UIControl {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = .clear
         isOpaque = false
         isContextMenuInteractionEnabled = true
     }
@@ -328,7 +327,7 @@ struct CourseScheduleCalendarView: View {
             .clipped()
             .background(AppDesignSystem.Palette.systemBackground)
             // 课表主体改用 List 分组内容的圆角；不改变其它普通卡片。
-            .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped, style: .continuous))
+            .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped))
             .appSelectionFeedback(trigger: week)
             .appImpactFeedback(trigger: contextMenuFeedbackToken)
         }
@@ -427,7 +426,7 @@ private struct CourseScheduleBlockView: View {
 
     private func centered<Content: View>(_ content: Content) -> some View {
         content
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var uiTextColor: UIColor {
@@ -533,12 +532,12 @@ private struct CourseScheduleBackgroundView: View {
     let isOpaque: Bool
 
     var body: some View {
-        AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.badge, style: .continuous)
+        AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.badge)
             .fill(backgroundColor)
             .opacity(isOpaque ? 1 : (entry.backgroundLayers.count > 1 ? 0.5 : 1))
             .overlay {
                 if showBorder, entry.kind != .course {
-                    AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.badge, style: .continuous)
+                    AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.badge)
                         .strokeBorder(borderColor, lineWidth: AppDesignSystem.Schedule.courseBorderWidth)
                 }
             }
@@ -788,8 +787,6 @@ private struct LongPressLocationDetector: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UIView {
         let view = UIView(frame: .zero)
-        view.backgroundColor = .clear
-        view.isUserInteractionEnabled = true
         let longPress = UILongPressGestureRecognizer(
             target: context.coordinator,
             action: #selector(Coordinator.handle(_:))

@@ -91,11 +91,8 @@ enum NetworkSessionPool {
     /// BIT101 社区接口共享连接池、Cookie 容器和 URLCache，避免每个 Service 重建 TLS 连接。
     static let community: URLSession = {
         let configuration = URLSessionConfiguration.default
-        configuration.httpCookieStorage = HTTPCookieStorage.shared
         configuration.httpCookieAcceptPolicy = .always
-        configuration.httpShouldSetCookies = true
         configuration.waitsForConnectivity = true
-        configuration.httpMaximumConnectionsPerHost = 6
         return URLSession(configuration: configuration)
     }()
 

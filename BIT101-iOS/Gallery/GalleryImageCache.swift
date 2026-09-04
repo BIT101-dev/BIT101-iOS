@@ -258,7 +258,7 @@ struct GalleryCachedStillImage: View {
                     .resizable()
                     .aspectRatio(contentMode: contentMode)
             } else {
-                AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card, style: .continuous)
+                AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card)
                     .fill(AppDesignSystem.Palette.highlight.opacity(0.12))
                     .overlay {
                         Image(systemName: "photo")

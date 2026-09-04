@@ -54,9 +54,6 @@ struct GallerySettingsPage: View {
     private func refreshImageCacheUsage() async {
         let bytes = await GalleryImageCache.shared.usedBytes()
         let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
-        formatter.includesUnit = true
-        formatter.isAdaptive = true
         imageCacheUsageText = formatter.string(fromByteCount: bytes)
     }
 
@@ -191,9 +188,6 @@ struct AboutSettingsPage: View {
 
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useMB]
-        formatter.countStyle = .file
-        formatter.includesUnit = true
-        formatter.isAdaptive = true
         let formatted = formatter.string(fromByteCount: max(reclaimedBytes, 0))
         alert = AppAlert(title: "清理完成", message: "已清理约 \(formatted) 缓存。")
     }

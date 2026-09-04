@@ -194,7 +194,6 @@ struct GalleryPosterCard: View {
                 .font(.headline)
                 .foregroundStyle(AppDesignSystem.Palette.highlight)
                 .lineLimit(2)
-                .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 10) {
@@ -240,7 +239,6 @@ struct GalleryPosterCard: View {
             Text(galleryLinkifiedText(poster.text))
                 .font(.subheadline)
                 .lineLimit(poster.images.count <= 2 ? 4 : 3)
-                .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             if !poster.images.isEmpty {
@@ -323,7 +321,7 @@ struct GalleryPosterImagesView: View {
                         // 必须在最终格子尺寸确定后裁切。若先裁切再设宽度，图片内容仍会
                         // 按自身理想尺寸绘制到相邻格子，表现为多图互相覆盖。
                         .clipped()
-                        .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card, style: .continuous))
+                        .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)

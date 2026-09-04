@@ -16,6 +16,13 @@ private let scheduleWidgetCampusNetworkMessage = "请先获取课表"
 private let scheduleWidgetLoginMessage = "请登录"
 /// 当后续没有课程时统一使用的 widget 空态提示。
 private let scheduleWidgetRestMessage = "暂无后续课程"
+
+/// Widget 目标不能直接链接主 App 的设计系统，因此只保留本目标实际需要的间距令牌。
+private enum ScheduleWidgetLayout {
+    static let compactFollowUpSpacing: CGFloat = 8
+    static let largeFollowUpSpacing: CGFloat = 10
+}
+
 @available(iOSApplicationExtension 16.2, *)
 /// 课程提醒 Live Activity 配置。
 ///
@@ -347,7 +354,6 @@ private struct ScheduleWidgetEntryView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(0)
     }
 
     /// 锁屏长条组件。
@@ -456,7 +462,7 @@ private struct ScheduleWidgetEntryView: View {
                         .foregroundStyle(.secondary)
 
                     ForEach(Array(entry.nextOccurrences.dropFirst().prefix(1))) { occurrence in
-                        HStack(alignment: .center, spacing: 8) {
+                        HStack(spacing: ScheduleWidgetLayout.compactFollowUpSpacing) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(occurrence.title)
                                     .font(.subheadline.weight(.medium))
@@ -483,7 +489,6 @@ private struct ScheduleWidgetEntryView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(0)
     }
 
     /// 4x4 大号组件。
@@ -528,7 +533,7 @@ private struct ScheduleWidgetEntryView: View {
 
                     VStack(spacing: 8) {
                         ForEach(Array(entry.nextOccurrences.dropFirst().prefix(4))) { occurrence in
-                            HStack(alignment: .center, spacing: 10) {
+                            HStack(spacing: ScheduleWidgetLayout.largeFollowUpSpacing) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(occurrence.title)
                                         .font(.subheadline.weight(.medium))
@@ -561,7 +566,6 @@ private struct ScheduleWidgetEntryView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(0)
     }
 
     /// 大号组件主课的地点/老师摘要。

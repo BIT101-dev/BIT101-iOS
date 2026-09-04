@@ -17,7 +17,6 @@ struct PaperSummaryCard: View {
             Text(paper.title)
                 .font(.headline)
                 .foregroundStyle(.primary)
-                .multilineTextAlignment(.leading)
                 .lineLimit(2)
 
             HStack(spacing: 10) {
@@ -45,7 +44,6 @@ struct PaperSummaryCard: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
-                    .multilineTextAlignment(.leading)
             }
 
             HStack(spacing: 12) {
