@@ -5,9 +5,9 @@ root="BIT101-iOS"
 haptic_file="$root/Shared/DesignSystem/AppHapticFeedback.swift"
 required=(
   "$haptic_file:func appSelectionFeedback"
-  "$haptic_file:.sensoryFeedback(.selection, trigger:"
+  "$haptic_file:sensoryFeedback(.selection, trigger:"
   "$haptic_file:func appImpactFeedback"
-  "$haptic_file:.sensoryFeedback(.impact, trigger:"
+  "$haptic_file:sensoryFeedback(.impact, trigger:"
   "$root/Shared/DesignSystem/AppDesignSystem.swift:appImpactFeedback"
   "$root/Shell/AppShellView.swift:appSelectionFeedback"
   "$root/Schedule/ScheduleRootView.swift:appSelectionFeedback"
@@ -65,7 +65,6 @@ done < <(
 components=(
   "$root/Shared/DesignSystem/AppDesignSystem.swift:struct AppFloatingActionButton: View"
   "$root/Map/CampusMapScreen.swift:struct FloatingMapLabelButton: View"
-  "$root/Schedule/ScheduleCalendarViews.swift:struct CourseScheduleFABLabel: View"
 )
 for item in "${components[@]}"; do
   file="${item%%:*}"

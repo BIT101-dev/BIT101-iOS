@@ -483,8 +483,6 @@ private struct ScheduleFirstDayEditorPage: View {
                         date = monday
                     }
                 }
-            } footer: {
-                Text("起始日期固定为周一。选择其他日期时会自动调整到该日期所在周的周一。切换学期或重新同步时，App 会从学校校历接口重新获取。")
             }
         }
         .navigationTitle("学期起始日期")
@@ -515,10 +513,11 @@ private struct CourseLiveActivityLeadMinutesPickerPage: View {
                 Text("\(minute) 分钟")
                     .tag(minute)
             }
-        }
-        .pickerStyle(.wheel)
-        .labelsHidden()
-        .navigationTitle("提前显示阈值")
+                }
+                .pickerStyle(.wheel)
+                .labelsHidden()
+                .appSelectionFeedback(trigger: value)
+                .navigationTitle("提前显示阈值")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {

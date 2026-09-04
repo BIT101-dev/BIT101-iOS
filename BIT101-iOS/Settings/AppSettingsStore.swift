@@ -61,7 +61,7 @@ struct AppSettingsSnapshot: Codable, Equatable {
     var themeMode: AppThemeMode = .system
     /// 是否允许界面自动旋转。
     var autoRotate = false
-    /// 是否在搜索结果里也隐藏机器人帖子。
+    /// 是否在普通帖子页面隐藏机器人帖子（机器人分栏除外）。
     var galleryHideBotPosterInSearch = false
     /// 是否已经看过“导入分享课表”的使用提示。
     var hasSeenSharedScheduleImportGuide = false
@@ -69,6 +69,18 @@ struct AppSettingsSnapshot: Codable, Equatable {
     var firstOpenDate: Date?
     /// 当前账号是否已经看过“鸣谢 LINUX DO”提示。
     var hasShownLinuxDoThanksNotice = false
+
+    enum CodingKeys: String, CodingKey {
+        case homeTab
+        case pageOrder
+        case hiddenTabs
+        case themeMode
+        case autoRotate
+        case galleryHideBotPosterInSearch
+        case hasSeenSharedScheduleImportGuide
+        case firstOpenDate
+        case hasShownLinuxDoThanksNotice
+    }
 }
 
 /// 只同步真正属于用户偏好的字段；首次打开时间和一次性提示仍保留在本机。
@@ -93,7 +105,7 @@ struct AppSettingsSyncPayload: Codable, Equatable {
 @MainActor
 /// 全局设置仓库。
 ///
-/// 页面顺序、主题、画廊过滤规则等都会统一写入这里，再由具体页面按需读取。
+/// 页面顺序、主题和账号偏好都会统一写入这里，再由具体页面按需读取。
 final class AppSettingsStore: ObservableObject {
     static let shared = AppSettingsStore()
     /// 各账号设置快照在 `UserDefaults` 中使用的 key 前缀。
@@ -209,7 +221,7 @@ final class AppSettingsStore: ObservableObject {
         AppOrientationController.applyPreference(autoRotate: enabled)
     }
 
-    /// 修改搜索结果中的机器人帖子隐藏开关。
+    /// 修改普通帖子页面中的机器人帖子隐藏开关。
     func updateGallerySettings(hideBotPosterInSearch: Bool) {
         snapshot.galleryHideBotPosterInSearch = hideBotPosterInSearch
         save(syncPreferences: true)

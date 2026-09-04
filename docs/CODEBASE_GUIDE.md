@@ -13,7 +13,7 @@
 
 - `BIT101-iOS`
   主应用 target
-- `BIT101ScheduleWidget`
+- `BIT101ScheduleWidgets`
   小组件、锁屏组件、Live Activity / 灵动岛扩展 target
 - `BIT101Watch`
   Apple Watch 单 target 应用，包含应用入口、主界面与同步消费逻辑
@@ -75,7 +75,7 @@ Widget、锁屏组件、Apple Watch、Live Activity 不能直接依赖主 App �
 - `Schedule/ScheduleLiveActivityManager.swift`
 - `Shared/ScheduleSharedOccurrence.swift`
 - `WatchSync/WatchScheduleSyncManager.swift`
-- `BIT101ScheduleWidget/BIT101ScheduleWidget.swift`
+- `BIT101ScheduleWidgets/BIT101ScheduleWidgets.swift`
 
 ### 2.3 图片与头像缓存
 
@@ -281,8 +281,6 @@ Widget、锁屏组件、Apple Watch、Live Activity 不能直接依赖主 App �
 
 - `Gallery/GalleryModels.swift`
   帖子、评论、搜索、消息、用户等模型
-- `Gallery/CommunityModeration.swift`
-  本地敏感词和屏蔽规则
 - `Gallery/GalleryComposerView.swift`
   发帖页
 - `Gallery/GalleryPosterDetailViewModel.swift`
@@ -302,7 +300,6 @@ Widget、锁屏组件、Apple Watch、Live Activity 不能直接依赖主 App �
 - 搜索
 - 发帖
 - 评论
-- 本地屏蔽
 - 消息中心
 - 帖子详情跳他人主页
 
@@ -325,7 +322,7 @@ Widget、锁屏组件、Apple Watch、Live Activity 不能直接依赖主 App �
 
 - 后端推荐链路本身更重
 - 可能需要随机补帖
-- 本地还会对帖子做屏蔽或机器人过滤
+- 机器人流会按服务端标签筛选
 
 所以维护推荐流时要同时留意：
 
@@ -346,23 +343,7 @@ Widget、锁屏组件、Apple Watch、Live Activity 不能直接依赖主 App �
 - 这套已读状态不是跨设备强一致
 - 只能作为本地 UI 体验优化，而不是服务端真实消息状态
 
-### 7.4 屏蔽与敏感词
-
-当前敏感词与本地屏蔽有多层：
-
-1. 发帖前本地校验
-2. 展示前本地过滤
-3. 机器人相关显示策略
-
-维护这部分时不要混淆：
-
-- “服务端不返回”
-- “客户端不展示”
-- “搜索仍允许展示”
-
-这三者是不同层面的策略。
-
-### 7.5 文章合并入口
+### 7.4 文章合并入口
 
 “话廊”底部入口内部通过顶部分段控件承载“话题 / 文章”。文章代码位于 `Paper/`，
 负责列表、搜索、发布、编辑、详情、点赞和评论。文章正文使用本地模型解析与原生渲染，
@@ -437,8 +418,8 @@ Widget、锁屏组件、Apple Watch、Live Activity 不能直接依赖主 App �
 
 - `Schedule/ScheduleWidgetSupport.swift`
 - `Schedule/ScheduleLiveActivityManager.swift`
-- `BIT101ScheduleWidget/BIT101ScheduleWidget.swift`
-- `BIT101ScheduleWidget/BIT101ScheduleWidgetBundle.swift`
+- `BIT101ScheduleWidgets/BIT101ScheduleWidgets.swift`
+- `BIT101ScheduleWidgets/BIT101ScheduleWidgetsBundle.swift`
 - `BIT101Watch/BIT101WatchApp.swift`
 - `BIT101Watch/WatchScheduleRootView.swift`
 - `BIT101WatchWidgets/BIT101WatchScheduleWidget.swift`

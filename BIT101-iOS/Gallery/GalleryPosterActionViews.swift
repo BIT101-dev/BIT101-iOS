@@ -1,5 +1,5 @@
 //
-//  GalleryModerationViews.swift
+//  GalleryPosterActionViews.swift
 //  BIT101-iOS
 //
 //  Split from GalleryRootView.swift.
@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-/// 帖子卡片右上角的更多操作菜单。
+/// 帖子卡片右上角的更多操作菜单，只保留作者自己的删除入口。
 ///
 /// 删除帖子是条件出现的能力，因此统一放在这个菜单里按场景裁剪。
 struct GalleryPosterActionMenu: View {

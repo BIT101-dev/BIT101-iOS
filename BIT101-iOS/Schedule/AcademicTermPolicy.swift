@@ -103,7 +103,8 @@ nonisolated enum AcademicTermPolicy {
 
 nonisolated enum ScoreAutomaticRefreshPolicy {
     /// Automatic score refresh is useful only after week 16 and before the next
-    /// semester starts. Missing dates fail closed to avoid unnecessary traffic.
+    /// term's -3 week small-term boundary. The -1 term uses that early boundary;
+    /// the -2 term keeps its regular first-week boundary.
     static func isWithinRefreshWindow(cache: ScheduleCache, now: Date) -> Bool {
         guard AcademicTermPolicy.activityPhase(cache: cache, on: now) == .vacation else {
             return false
@@ -122,8 +123,14 @@ nonisolated enum ScoreAutomaticRefreshPolicy {
         }
 
         let nextTerm = terms.dropFirst().first
-        let schoolNextStart = nextTerm.flatMap { cache.termSchedulesByTerm[$0]?.firstDay }
-        let refreshEnd = schoolNextStart ?? AcademicTermPolicy.nextBoundary(after: now)
+        let nextTermStart = nextTerm.flatMap { cache.termSchedulesByTerm[$0]?.firstDay }
+            ?? AcademicTermPolicy.nextBoundary(after: now)
+        let refreshEnd: Date
+        if nextTerm?.hasSuffix("-1") == true {
+            refreshEnd = calendar.date(byAdding: .day, value: -3 * 7, to: nextTermStart) ?? nextTermStart
+        } else {
+            refreshEnd = nextTermStart
+        }
         return now >= refreshStart && now < refreshEnd
     }
 }

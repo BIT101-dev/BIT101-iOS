@@ -50,9 +50,20 @@ struct GalleryRecommendFeedBatch {
     let canLoadMore: Bool
 }
 
+private enum GalleryBotClassifier {
+    private static let keywords = ["bot", "机器人", "通知", "新闻"]
+
+    static func matches(tags: [String]) -> Bool {
+        let normalizedTags = tags.map { $0.lowercased() }
+        return normalizedTags.contains { tag in
+            keywords.contains { tag.contains($0) }
+        }
+    }
+}
+
 /// 话题模块网络层。
 ///
-/// 负责帖子流、搜索和与设置中心相关的过滤参数拼接。
+/// 负责帖子流、搜索和消息请求；机器人分栏仅按服务端标签展示，不做内容拦截。
 struct GalleryService {
     private let api: CommunityAPIClient<GalleryServiceError>
 
@@ -121,12 +132,14 @@ struct GalleryService {
 
     /// 拉取某个 feed 的帖子列表。
     ///
-    /// 普通 feed 直接映射到后端帖子接口；机器人 feed 则走本地特殊分页逻辑。
+    /// 普通 feed 直接映射到后端帖子接口；机器人 feed 走本地标签分页逻辑。
     func fetchFeed(kind: GalleryFeedKind, page: Int?) async throws -> [GalleryPoster] {
         if kind.isBotFeed {
             let batch = try await fetchBotFeed(startPage: page ?? 0)
             return batch.posters
         }
+
+        let hideBot = await shouldHideBotPosters()
 
         return try await fetchPosters(
             mode: kind.requestMode,
@@ -134,7 +147,7 @@ struct GalleryService {
             search: nil,
             uid: kind.requestUID,
             page: page,
-            hideBot: true
+            hideBot: hideBot
         )
     }
 
@@ -142,17 +155,18 @@ struct GalleryService {
     ///
     /// 首屏只请求一页，保证话题页能尽快显示；后续由 ViewModel 在后台预取更多页。
     func fetchRecommendPage(sourcePage: Int) async throws -> GalleryRecommendFeedBatch {
+        let hideBot = await shouldHideBotPosters()
         let rawPosters = try await fetchRawPosters(
             mode: nil,
             order: nil,
             search: nil,
             uid: nil,
             page: sourcePage == 0 ? nil : sourcePage,
-            hideBot: true
+            hideBot: hideBot
         )
 
         return GalleryRecommendFeedBatch(
-            posters: applyBotFilterIfNeeded(rawPosters, hideBot: true),
+            posters: applyBotFilterIfNeeded(rawPosters, hideBot: hideBot),
             nextSourcePage: sourcePage + 1,
             canLoadMore: !rawPosters.isEmpty
         )
@@ -160,23 +174,21 @@ struct GalleryService {
 
     /// 根据搜索关键词和排序条件查询帖子。
     ///
-    /// 搜索页会读取设置中的“搜索结果隐藏机器人帖子”开关，因此这里需要回主线程
-    /// 拿一份当前设置快照，再决定是否带 `hide_bot`。
+    /// 搜索页与其它普通帖子页面共用机器人隐藏设置。
     func searchPosters(query: GallerySearchQuery, page: Int?) async throws -> [GalleryPoster] {
-        let settings = await MainActor.run {
-            AppSettingsStore.loadSnapshotFromDefaults() ?? AppSettingsSnapshot()
-        }
+        let hideBot = await shouldHideBotPosters()
         return try await fetchPosters(
             mode: "search",
             order: query.order.rawValue,
             search: query.text.trimmingCharacters(in: .whitespacesAndNewlines),
             uid: -1,
             page: page,
-            hideBot: settings.galleryHideBotPosterInSearch
+            hideBot: hideBot
         )
     }
 
-    /// 机器人分栏不是服务端原生 feed，这里从“最新”帖子流里向后多抓几页，再筛出机器人帖子。
+    /// 机器人分栏不是服务端原生 feed，这里从“最新”帖子流里向后多抓几页，再筛出机器人帖子；
+    /// 该分栏不使用普通页面的隐藏设置。
     ///
     /// 机器人帖子在整体帖子流里占比并不高，所以这里采用“多抓几页 + 本地筛”的做法。
     /// 扫描上限主要是为了避免一次请求链拉得过深，影响滚动体验。
@@ -195,7 +207,7 @@ struct GalleryService {
                 page: sourcePage == 0 ? nil : sourcePage,
                 hideBot: false
             )
-            collected.append(contentsOf: posters.filter { CommunityModeration.isBotPoster(tags: $0.tags) })
+            collected.append(contentsOf: posters.filter { GalleryBotClassifier.matches(tags: $0.tags) })
             canLoadMore = !posters.isEmpty
             sourcePage += 1
         }
@@ -207,15 +219,15 @@ struct GalleryService {
         )
     }
 
-    /// 后端虽然支持 `hide_bot` 参数，但当前服务端过滤实现会漏掉机器人帖子。
-    ///
-    /// iOS 侧在保留服务端参数的同时，再补一层本地兜底，确保普通分栏不会混入机器人帖子。
     private func applyBotFilterIfNeeded(_ posters: [GalleryPoster], hideBot: Bool) -> [GalleryPoster] {
-        guard hideBot else {
-            return posters
-        }
+        guard hideBot else { return posters }
+        return posters.filter { !GalleryBotClassifier.matches(tags: $0.tags) }
+    }
 
-        return posters.filter { !CommunityModeration.isBotPoster(tags: $0.tags) }
+    private func shouldHideBotPosters() async -> Bool {
+        await MainActor.run {
+            AppSettingsStore.loadSnapshotFromDefaults()?.galleryHideBotPosterInSearch ?? false
+        }
     }
 
     /// 获取可选的帖子 claim 列表。
@@ -365,7 +377,7 @@ struct GalleryService {
 
     /// 统一拼装帖子流接口参数。
     ///
-    /// 这是普通帖子 feed 的公共入口，会在拿到服务端结果后再按设置补一层本地机器人过滤。
+    /// 这是普通帖子 feed 的公共入口。
     private func fetchPosters(
         mode: String?,
         order: String?,
@@ -385,10 +397,7 @@ struct GalleryService {
         return applyBotFilterIfNeeded(posters, hideBot: hideBot)
     }
 
-    /// 发起原始帖子流请求，不做客户端过滤，供更高层组合推荐/机器人等特殊分页语义。
-    ///
-    /// 把“原始请求”和“本地过滤”拆开，是因为推荐流和机器人流都需要基于服务端原始分页
-    /// 自己决定如何跳页、如何兜底，而不能简单复用一层已经过滤后的数组。
+    /// 发起原始帖子流请求，供推荐流和机器人分栏复用。
     private func fetchRawPosters(
         mode: String?,
         order: String?,

@@ -41,6 +41,8 @@ jobs:
       - name: Validate release against App Store
         if: github.event_name == 'workflow_dispatch' && inputs.release_check
         run: python3 Scripts/validate_versions.py --check-app-store
+      - name: Run static audit
+        run: Scripts/run-static-audit.sh
       - name: Build app and tests without a simulator
         run: >-
           xcodebuild build-for-testing
@@ -50,3 +52,5 @@ jobs:
           -destination 'generic/platform=iOS'
           -derivedDataPath build/CI
           CODE_SIGNING_ALLOWED=NO
+          SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
+          GCC_TREAT_WARNINGS_AS_ERRORS=YES

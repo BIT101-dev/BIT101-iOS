@@ -68,32 +68,46 @@ struct MineService {
         try await api.request(path: "user/followers", queryItems: [URLQueryItem(name: "page", value: String(page))])
     }
 
-    /// 获取“我的帖子”列表。
+    /// 获取“我的帖子”列表；普通帖子页面按设置隐藏机器人帖子。
     ///
     /// 服务端通过 `uid=0` 约定当前登录用户。
     func fetchMyPosters(page: Int) async throws -> [GalleryPoster] {
-        try await api.request(
+        var queryItems = [
+            URLQueryItem(name: "mode", value: "search"),
+            URLQueryItem(name: "uid", value: "0"),
+            URLQueryItem(name: "page", value: String(page)),
+        ]
+        if await shouldHideBotPosters() {
+            queryItems.append(URLQueryItem(name: "hide_bot", value: "true"))
+        }
+        return try await api.request(
             path: "posters",
-            queryItems: [
-                URLQueryItem(name: "mode", value: "search"),
-                URLQueryItem(name: "uid", value: "0"),
-                URLQueryItem(name: "page", value: String(page)),
-            ]
+            queryItems: queryItems
         )
     }
 
-    /// 获取指定用户的帖子列表。
+    /// 获取指定用户的帖子列表；普通帖子页面按设置隐藏机器人帖子。
     ///
     /// 这里沿用帖子搜索接口的 `uid` 语义，而不是单独的“用户帖子”接口。
     func fetchUserPosters(userID: Int, page: Int) async throws -> [GalleryPoster] {
-        try await api.request(
+        var queryItems = [
+            URLQueryItem(name: "mode", value: "search"),
+            URLQueryItem(name: "uid", value: String(userID)),
+            URLQueryItem(name: "page", value: String(page)),
+        ]
+        if await shouldHideBotPosters() {
+            queryItems.append(URLQueryItem(name: "hide_bot", value: "true"))
+        }
+        return try await api.request(
             path: "posters",
-            queryItems: [
-                URLQueryItem(name: "mode", value: "search"),
-                URLQueryItem(name: "uid", value: String(userID)),
-                URLQueryItem(name: "page", value: String(page)),
-            ]
+            queryItems: queryItems
         )
+    }
+
+    private func shouldHideBotPosters() async -> Bool {
+        await MainActor.run {
+            AppSettingsStore.loadSnapshotFromDefaults()?.galleryHideBotPosterInSearch ?? false
+        }
     }
 
 }

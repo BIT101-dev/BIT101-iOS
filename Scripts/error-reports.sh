@@ -2,12 +2,12 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-WORKER_DIR="$ROOT_DIR/Cloudflare/ErrorReportWorker"
+WRANGLER_DIR="$ROOT_DIR/Cloudflare/EmergencyUpdateWorker"
 NAMESPACE_ID="4c6402dfad4e406a93cc2518843803c6"
 ACTION="${1:-latest}"
 
 keys() {
-  (cd "$WORKER_DIR" && npx wrangler kv key list --remote --namespace-id "$NAMESPACE_ID")
+  (cd "$WRANGLER_DIR" && npx wrangler kv key list --remote --namespace-id "$NAMESPACE_ID")
 }
 
 latest_key() {
@@ -17,7 +17,7 @@ latest_key() {
 show_key() {
   local key="$1"
   [[ -n "$key" ]] || { echo "没有错误报告。" >&2; exit 1; }
-  (cd "$WORKER_DIR" && npx wrangler kv key get "$key" --remote --namespace-id "$NAMESPACE_ID" --text) | python3 -m json.tool
+  (cd "$WRANGLER_DIR" && npx wrangler kv key get "$key" --remote --namespace-id "$NAMESPACE_ID" --text) | python3 -m json.tool
 }
 
 case "$ACTION" in
@@ -33,7 +33,7 @@ case "$ACTION" in
   delete)
     key="${2:-}"
     [[ "$key" == report:* ]] || { echo "请提供 report: 开头的报告键。" >&2; exit 64; }
-    (cd "$WORKER_DIR" && npx wrangler kv key delete "$key" --remote --namespace-id "$NAMESPACE_ID")
+    (cd "$WRANGLER_DIR" && npx wrangler kv key delete "$key" --remote --namespace-id "$NAMESPACE_ID")
     ;;
   *)
     echo "用法: $0 {list|latest|show <key>|delete <key>}" >&2

@@ -1,6 +1,6 @@
 //
-//  BIT101ScheduleWidget.swift
-//  BIT101ScheduleWidget
+//  BIT101ScheduleWidgets.swift
+//  BIT101ScheduleWidgets
 //
 //  Created by Codex on 2026-03-28.
 //
@@ -267,8 +267,8 @@ private struct ScheduleWidgetProvider: TimelineProvider {
 /// 课程表小组件主体。
 ///
 /// 同一个 widget 同时支持桌面小组件与锁屏 accessory family。
-struct BIT101ScheduleWidget: Widget {
-    let kind = "BIT101ScheduleWidget"
+struct BIT101ScheduleWidgets: Widget {
+    let kind = "BIT101ScheduleWidgets"
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: ScheduleWidgetProvider()) { entry in

@@ -17,8 +17,8 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "A222C4EBA765A745DE78B6CF"
-               BuildableName = "BIT101ScheduleWidget.appex"
-               BlueprintName = "BIT101ScheduleWidget"
+               BuildableName = "BIT101ScheduleWidgets.appex"
+               BlueprintName = "BIT101ScheduleWidgets"
                ReferencedContainer = "container:BIT101-iOS.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>

@@ -62,7 +62,7 @@
 
 - 课表同步、学期切换和空教室请求共用教学中心会话准备入口。
 - 课程、成绩和学校请求共用 bit-login challenge 基础类型，但 `jwb`、`jwb_cjd`、教学中心会话保持隔离。
-- 空响应、缩减响应和完全相同的课表不会覆盖现有课程；替换策略有自动化测试。
+- 空响应和完全相同的课表不会覆盖现有课程；已发布但课程数减少时先弹窗确认，替换策略有自动化测试。
 - 账号切换会取消预热任务、清理旧错误提示，设置页旧请求不会回写新会话。
 - GitHub Issues 与 Cloudflare KV 报告可由 `Scripts/fetch-issues-and-reports.sh` 一次拉取。
 
@@ -87,6 +87,10 @@
 - `Scripts/check-code-quality.sh` 逐份扫描全部 Swift 文件，并固定输出 `.build/code-quality-report.txt`；
   它补充了原有 UI、触感、组件检查未覆盖的脚本权限、死代码标记、文档失效链接、重复 import、
   强制解包候选和大型文件候选。
+- `run-static-audit.sh` 负责统一编排；源码质量检查会确认 UI、触感、组件、错误报告和文档检查仍已接入，
+  并确保静态审计不会误调用网络 smoke。
+- 解释性文案报告仅扫描列表/表单的 `Section footer` 和空状态的 `ContentUnavailableView description`；
+  已由用户确认的文案进入白名单，新增文案继续提示。
 
 ## 后续顺序
 

@@ -123,7 +123,7 @@ struct PaperDetailView: View {
                 Divider()
 
                 PaperCommentsSection(
-                    comments: filteredComments,
+                    comments: viewModel.commentState.items,
                     totalCommentCount: viewModel.paper?.commentNum ?? initialPaper.commentNum,
                     status: viewModel.commentState.status,
                     isLoadingMore: viewModel.commentState.isLoadingMore,
@@ -221,10 +221,6 @@ struct PaperDetailView: View {
 
     private var paperShareURL: URL {
         URL(string: "https://open.aihelpme.dev/paper/\(initialPaper.id)")!
-    }
-
-    private var filteredComments: [GalleryComment] {
-        CommunityModeration.filterVisibleComments(viewModel.commentState.items)
     }
 
     private var inlineImages: [PaperInlineImage] {

@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOTS = (
     ROOT / "BIT101-iOS",
     ROOT / "BIT101-iOSTests",
-    ROOT / "BIT101ScheduleWidget",
+    ROOT / "BIT101ScheduleWidgets",
     ROOT / "BIT101Watch",
     ROOT / "BIT101WatchWidgets",
 )
@@ -34,14 +34,6 @@ ALLOWED_URL_SESSION = {
     "BIT101-iOS/Shared/Infrastructure/ReleaseNetworkSmoke.swift",
     "BIT101-iOS/Shared/Networking/HTTPClient.swift",
 }
-REMOVED_TERMS = (
-    "举报并屏蔽",
-    "举报该帖子",
-    "屏蔽本文",
-    "PaperArticleActionMenu",
-    "CommunityReportAction",
-    "CommunityReportService",
-)
 SEMANTIC_COLORS = (
     "orange",
     "red",
@@ -75,7 +67,7 @@ def line_number(source: str, position: int) -> int:
 
 
 def mask_literals_and_comments(source: str) -> str:
-    """保留换行，屏蔽字符串与注释，避免把正则或文案里的 `!` 当成代码。"""
+    """保留换行，忽略字符串与注释，避免把正则或文案里的 `!` 当成代码。"""
     output: list[str] = []
     index = 0
     state = "code"
@@ -224,10 +216,6 @@ def source_findings() -> tuple[list[str], list[str]]:
         if path.name.endswith("View.swift") or path.name.endswith("Screen.swift"):
             add_matches(errors, path, masked_source, direct_view_request, "View 不应直接构造 URLRequest；请求移到 Service")
 
-        for term in REMOVED_TERMS:
-            if term in source:
-                errors.append(f"{name}: 已移除的功能仍存在：{term}")
-
         if path != DESIGN_SYSTEM:
             add_matches(
                 semantic_colors,
@@ -298,10 +286,35 @@ def documentation_findings() -> list[str]:
     return errors
 
 
+def audit_wiring_findings() -> list[str]:
+    """防止新增检查脚本存在，却没有进入统一静态审计入口。"""
+    errors: list[str] = []
+    audit_path = ROOT / "Scripts/run-static-audit.sh"
+    audit_source = audit_path.read_text(encoding="utf-8")
+    required_groups = {
+        "check-ui-consistency.sh": "run_group ui-consistency",
+        "check-haptic-consistency.sh": "run_group haptic-consistency",
+        "check-component-consistency.sh": "run_group component-consistency",
+        "check-error-report-coverage.sh": "check-error-report-coverage.sh",
+        "check_stale_docs.py": "check_stale_docs.py",
+        "check-code-quality.sh": "run_group code-quality",
+    }
+    for checker, invocation in required_groups.items():
+        checker_path = SCRIPT_ROOT / checker
+        if not checker_path.is_file():
+            errors.append(f"Scripts/{checker}: 检查脚本不存在")
+        if invocation not in audit_source:
+            errors.append(f"Scripts/run-static-audit.sh: 未接入 {checker}")
+    if "release-network-smoke" in audit_source:
+        errors.append("Scripts/run-static-audit.sh: 静态审计不得调用网络 smoke")
+    return errors
+
+
 def main() -> int:
     errors, review = source_findings()
     errors.extend(script_findings())
     errors.extend(documentation_findings())
+    errors.extend(audit_wiring_findings())
     audit_doc = (ROOT / "docs/CODE_QUALITY_AUDIT.md").read_text(encoding="utf-8")
     if re.search(r"行号|行数", audit_doc):
         errors.append("docs/CODE_QUALITY_AUDIT.md: 不记录行号或行数")

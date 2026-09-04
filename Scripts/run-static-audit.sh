@@ -2,7 +2,13 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-SWIFT_FRONTEND="${DEVELOPER_DIR:-/Users/harrybit/Desktop/Xcode-beta.app/Contents/Developer}/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift-frontend"
+if [[ -n "${SWIFT_FRONTEND:-}" ]]; then
+  :
+elif SWIFT_FRONTEND="$(xcrun --find swift-frontend 2>/dev/null)"; then
+  :
+else
+  SWIFT_FRONTEND="${DEVELOPER_DIR:-/Users/harrybit/Desktop/Xcode-beta.app/Contents/Developer}/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift-frontend"
+fi
 LOG_DIR="$ROOT_DIR/.build/static-audit"
 
 mkdir -p "$LOG_DIR"
@@ -21,7 +27,7 @@ run_group() {
 }
 
 swift_parse() {
-  find "$ROOT_DIR/BIT101-iOS" "$ROOT_DIR/BIT101ScheduleWidget" \
+  find "$ROOT_DIR/BIT101-iOS" "$ROOT_DIR/BIT101ScheduleWidgets" \
     "$ROOT_DIR/BIT101Watch" "$ROOT_DIR/BIT101WatchWidgets" \
     -type f -name '*.swift' -print0 \
     | xargs -0 "$SWIFT_FRONTEND" -frontend -parse -D DEBUG
@@ -41,7 +47,7 @@ for path in sorted(root.glob("*.py")):
 PY
 }
 worker_parse() {
-  find "$ROOT_DIR/Cloudflare" "$ROOT_DIR/web" \
+  find "$ROOT_DIR/Cloudflare" \
     -path '*/node_modules' -prune -o \
     -type f -name '*.js' -exec node --check {} +
 }

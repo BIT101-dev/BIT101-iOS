@@ -1,12 +1,12 @@
 # BIT101 错误报告 Worker
 
-独立于 `open.aihelpme.dev` 的跳转 Worker。部署前请：
+独立于 `open.aihelpme.dev` 的反馈 API Worker。这里没有网页页面，网页目录不应新增 `feedback/` 副本。部署前请：
 
 Worker 已绑定独立 KV 和 `feedback.aihelpme.dev`。更新部署：
 
 ```bash
-cd Cloudflare/ErrorReportWorker
-npx wrangler deploy
+cd Cloudflare/EmergencyUpdateWorker
+npx wrangler deploy --config ../ErrorReportWorker/wrangler.jsonc
 ```
 
 接口：`POST https://feedback.aihelpme.dev/api/error-reports`。

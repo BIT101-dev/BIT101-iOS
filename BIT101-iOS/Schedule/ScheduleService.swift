@@ -24,6 +24,11 @@ enum ScheduleServiceError: LocalizedError {
     case invalidCalendarData
     case schoolResponse(String)
 
+    var isUnpublishedCourseSchedule: Bool {
+        guard case let .schoolResponse(message) = self else { return false }
+        return message.contains("课表未发布") || message.contains("课表尚未发布")
+    }
+
     var errorDescription: String? {
         switch self {
         case .notLoggedIn:

@@ -140,7 +140,7 @@ struct GalleryPosterDetailView: View {
                 Divider()
 
                 GalleryPosterCommentsSection(
-                    comments: filteredComments,
+                        comments: viewModel.commentState.items,
                     totalCommentCount: viewModel.poster.commentNum,
                     status: viewModel.commentState.status,
                     isLoadingMore: viewModel.commentState.isLoadingMore,
@@ -266,10 +266,6 @@ struct GalleryPosterDetailView: View {
 
     private func relativeTimeText(_ string: String) -> String {
         GalleryDateDecoder.relativeText(from: string, fallback: "未知时间")
-    }
-
-    private var filteredComments: [GalleryComment] {
-        CommunityModeration.filterVisibleComments(viewModel.commentState.items)
     }
 
     /// 独立跳转域名使用稳定的 `/gallery/{id}` 路由；未安装 App 时由 Worker 转至网页。

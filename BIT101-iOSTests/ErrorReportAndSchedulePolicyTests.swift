@@ -61,6 +61,8 @@ final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertEqual(response.datas.cxxszhxqkb.extParams?.code, 3)
         XCTAssertEqual(response.datas.cxxszhxqkb.extParams?.msg, "此学年学期的课表未发布")
         XCTAssertEqual(ScheduleService.schoolBusinessErrorMessage(from: data), "此学年学期的课表未发布")
+        XCTAssertTrue(ScheduleServiceError.schoolResponse("此学年学期的课表未发布").isUnpublishedCourseSchedule)
+        XCTAssertFalse(ScheduleNotice(title: "课表暂未发布", message: "此学年学期的课表未发布").allowsDiagnostics)
     }
 
     func testSchoolBusinessInspectorDoesNotRejectSuccessfulOrLegitimateEmptyResponses() {
@@ -78,6 +80,20 @@ final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertTrue(CourseSyncReplacementPolicy.shouldReplace(existing: [old], with: [old, added]))
         XCTAssertTrue(CourseSyncReplacementPolicy.shouldReplace(existing: [old], with: [added]))
         XCTAssertFalse(CourseSyncReplacementPolicy.shouldReplace(existing: [old, added], with: [old]))
+    }
+
+    func testReducedPublishedCourseResponseRequiresConfirmation() {
+        let old = course(id: "1", name: "高数")
+        let added = course(id: "2", name: "英语")
+
+        XCTAssertEqual(
+            CourseSyncReplacementPolicy.decision(existing: [old, added], with: [old]),
+            .confirm(existingCount: 2, incomingCount: 1)
+        )
+        XCTAssertEqual(
+            CourseSyncReplacementPolicy.decision(existing: [old], with: []),
+            .preserve
+        )
     }
 
     private func course(id: String, name: String) -> CourseRecord {

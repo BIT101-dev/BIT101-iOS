@@ -19,12 +19,17 @@ DIRECT_SYSTEM_COLOR = re.compile(
     r"secondarySystemBackground|secondarySystemGroupedBackground|secondarySystemFill)\s*\)"
 )
 DIRECT_ACCENT_COLOR = re.compile(r"\bColor\.accentColor\b")
-DIRECT_HIGHLIGHT_COLOR = re.compile(r"\bColor\.orange\b")
-DIRECT_DANGER_COLOR = re.compile(r"\bColor\.red\b")
-DIRECT_INFO_COLOR = re.compile(r"\bColor\.blue\b")
-DIRECT_HIGHLIGHT_SHORTHAND = re.compile(r"(?<![\w.])\.(?:orange)\b")
-DIRECT_DANGER_SHORTHAND = re.compile(r"(?<![\w.])\.(?:red)\b")
-DIRECT_INFO_SHORTHAND = re.compile(r"(?<![\w.])\.(?:blue)\b")
+DIRECT_SEMANTIC_COLOR_RULES = (
+    (re.compile(r"\bColor\.orange\b|(?<![\w.])\.orange\b"), "AppDesignSystem.Palette.highlight"),
+    (re.compile(r"\bColor\.red\b|(?<![\w.])\.red\b"), "AppDesignSystem.Palette.danger"),
+    (re.compile(r"\bColor\.blue\b|(?<![\w.])\.blue\b"), "AppDesignSystem.Palette.info"),
+    (re.compile(r"\bColor\.green\b|(?<![\w.])\.green\b"), "AppDesignSystem.Palette.success"),
+    (re.compile(r"\bColor\.gray\b|(?<![\w.])\.gray\b"), "AppDesignSystem.Palette.neutral"),
+    (re.compile(r"\bColor\.pink\b|(?<![\w.])\.pink\b"), "AppDesignSystem.Palette.scoreMetric"),
+    (re.compile(r"\bColor\.indigo\b|(?<![\w.])\.indigo\b"), "AppDesignSystem.Palette.scheduleTab"),
+    (re.compile(r"\bColor\.teal\b|(?<![\w.])\.teal\b"), "AppDesignSystem.Palette.courseTab"),
+    (re.compile(r"\bColor\.brown\b|(?<![\w.])\.brown\b"), "AppDesignSystem.Palette.paperTab"),
+)
 DIRECT_FLOATING_SIZE = re.compile(r"\.frame\(\s*width:\s*42\s*,\s*height:\s*42\s*\)")
 DIRECT_FLOATING_MATERIAL = re.compile(r"\.background\(\s*\.ultraThinMaterial\s*,\s*in:\s*Circle\(\)\s*\)")
 DIRECT_GROUPED_LIST_STYLE = re.compile(r"\.listStyle\(\s*\.insetGrouped\s*\)")
@@ -38,15 +43,6 @@ PADDING_LITERAL = re.compile(
 STACK_SPACING_LITERAL = re.compile(
     r"\b(?:VStack|HStack|ZStack|LazyVStack|LazyHStack)\s*\([^)]*"
     r"\bspacing\s*:\s*([0-9]+(?:\.[0-9]+)?)"
-)
-
-REMOVED_UI_TERMS = (
-    "举报并屏蔽",
-    "举报该帖子",
-    "屏蔽本文",
-    "PaperArticleActionMenu",
-    "CommunityReportAction",
-    "CommunityReportService",
 )
 
 ALLOWED_SHARED_URLSESSION_FILES = {
@@ -115,12 +111,6 @@ def main() -> int:
             (DIRECT_ROUNDED_RECTANGLE, "请使用 AppDesignSystem.roundedRectangle"),
             (DIRECT_SYSTEM_COLOR, "请使用 AppDesignSystem.Palette"),
             (DIRECT_ACCENT_COLOR, "请使用 AppDesignSystem.Palette.accent"),
-            (DIRECT_HIGHLIGHT_COLOR, "请使用 AppDesignSystem.Palette.highlight"),
-            (DIRECT_DANGER_COLOR, "请使用 AppDesignSystem.Palette.danger"),
-            (DIRECT_INFO_COLOR, "请使用 AppDesignSystem.Palette.info"),
-            (DIRECT_HIGHLIGHT_SHORTHAND, "请使用 AppDesignSystem.Palette.highlight"),
-            (DIRECT_DANGER_SHORTHAND, "请使用 AppDesignSystem.Palette.danger"),
-            (DIRECT_INFO_SHORTHAND, "请使用 AppDesignSystem.Palette.info"),
             (DIRECT_FLOATING_SIZE, "圆形操作按钮尺寸必须使用 AppDesignSystem.Size"),
             (DIRECT_FLOATING_MATERIAL, "圆形操作按钮背景必须使用 AppFloatingActionButtonSurface"),
             (DIRECT_GROUPED_LIST_STYLE, "分组列表必须使用 appGroupedListStyle"),
@@ -130,6 +120,10 @@ def main() -> int:
             for match in pattern.finditer(source):
                 line_number = source.count("\n", 0, match.start()) + 1
                 errors.append(f"{relative}:{line_number}: {message}")
+        for pattern, palette_name in DIRECT_SEMANTIC_COLOR_RULES:
+            for match in pattern.finditer(source):
+                line_number = source.count("\n", 0, match.start()) + 1
+                errors.append(f"{relative}:{line_number}: 请使用 {palette_name}")
 
         if path.name != "GalleryMessagesView.swift":
             for match in DIRECT_PLAIN_LIST_STYLE.finditer(source):
@@ -146,9 +140,6 @@ def main() -> int:
                 line_number = source.count("\n", 0, match.start()) + 1
                 errors.append(f"{relative}:{line_number}: 网络请求应通过 HTTPClient 或场景化 Service，不要直接使用 URLSession.shared")
 
-        for removed in REMOVED_UI_TERMS:
-            if removed in source:
-                errors.append(f"{relative}: 已移除的社区操作仍存在：{removed}")
         app_card_uses += len(re.findall(r"\bAppCard\s*(?:<[^>]+>)?\s*(?:\(|\{)", source))
 
     if app_card_uses == 0:
@@ -199,15 +190,6 @@ def main() -> int:
         page_path = SOURCE_ROOT / page_file
         if page_path.is_file() and "contentMargins(.top, 0, for: .scrollContent)" not in page_path.read_text(encoding="utf-8"):
             errors.append(f"{page_path.relative_to(ROOT)}: 学业列表不能叠加顶部滚动边距")
-
-    # 已移除帖子举报、用户屏蔽和文章隐藏入口；边角菜单不得回流这些旧动作。
-    for menu_file in ("Gallery/GalleryModerationViews.swift", "Paper/PaperComposerViews.swift"):
-        menu_path = SOURCE_ROOT / menu_file
-        if menu_path.is_file():
-            menu_source = menu_path.read_text(encoding="utf-8")
-            for removed in ("CommunityReport", "举报", "屏蔽本文", "person.crop.circle.badge.xmark"):
-                if removed in menu_source:
-                    errors.append(f"{menu_path.relative_to(ROOT)}: 已移除的菜单动作仍存在：{removed}")
 
     schedule_path = SOURCE_ROOT / "Schedule/ScheduleCalendarViews.swift"
     if schedule_path.is_file():

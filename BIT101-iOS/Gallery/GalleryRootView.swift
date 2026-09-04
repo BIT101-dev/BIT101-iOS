@@ -127,7 +127,7 @@ struct GalleryRootView: View {
                 .ignoresSafeArea(edges: .bottom)
 
             GalleryFeedView(
-                feedState: filteredState(for: viewModel.selectedFeed),
+                feedState: viewModel.state(for: viewModel.selectedFeed),
                 feedIdentity: viewModel.selectedFeed.rawValue,
                 prefetchTriggerThreshold: viewModel.selectedFeed == .recommend ? 10 : 0,
                 onRefresh: {
@@ -227,12 +227,6 @@ struct GalleryRootView: View {
         .diagnosticAlert(item: $viewModel.alert)
     }
 
-    private func filteredState(for feed: GalleryFeedKind) -> GalleryFeedState {
-        var state = viewModel.state(for: feed)
-        state.posters = filterPosters(state.posters)
-        return state
-    }
-
     /// 右下角消息按钮上的红点文案。
     ///
     /// 这里统一在入口处裁到 `99+`，避免按钮本身因为长数字撑坏布局。
@@ -269,11 +263,6 @@ struct GalleryRootView: View {
         withAnimation(.easeInOut(duration: 0.2)) {
             viewModel.selectedFeed = allFeeds[nextIndex]
         }
-    }
-
-    /// 过滤逻辑与 Android 一致：支持隐藏匿名用户，以及按 UID 黑名单过滤。
-    private func filterPosters(_ posters: [GalleryPoster]) -> [GalleryPoster] {
-        CommunityModeration.filterVisiblePosters(posters)
     }
 
     /// 网络恢复或应用回前台时，如果当前 feed 仍停在失败空态，则自动再试一次。

@@ -8,11 +8,24 @@
 import Combine
 import Foundation
 
+nonisolated enum CourseSyncReplacementDecision: Equatable {
+    case preserve
+    case replace
+    case confirm(existingCount: Int, incomingCount: Int)
+}
+
 nonisolated enum CourseSyncReplacementPolicy {
-    static func shouldReplace(existing: [CourseRecord], with incoming: [CourseRecord]) -> Bool {
-        guard !incoming.isEmpty, incoming.count >= existing.count else { return false }
+    static func decision(existing: [CourseRecord], with incoming: [CourseRecord]) -> CourseSyncReplacementDecision {
+        guard !incoming.isEmpty else { return .preserve }
+        if incoming.count < existing.count {
+            return .confirm(existingCount: existing.count, incomingCount: incoming.count)
+        }
         let existingIDs = Set(existing.map(identity))
-        return incoming.map(identity).contains { !existingIDs.contains($0) }
+        return incoming.map(identity).contains { !existingIDs.contains($0) } ? .replace : .preserve
+    }
+
+    static func shouldReplace(existing: [CourseRecord], with incoming: [CourseRecord]) -> Bool {
+        decision(existing: existing, with: incoming) == .replace
     }
 
     private static func identity(_ course: CourseRecord) -> String {
@@ -52,6 +65,13 @@ struct ScheduleNotice: Identifiable {
     let id = UUID()
     let title: String
     let message: String
+}
+
+struct CourseSyncReplacementConfirmation: Identifiable {
+    let id = UUID()
+    let existingCount: Int
+    let incomingCount: Int
+    let payload: CourseSyncPayload
 }
 
 /// 空教室页业务级超时错误。
@@ -116,6 +136,7 @@ final class ScheduleViewModel: ObservableObject {
     @Published var selectedCourseScheduleIndex = 0
     @Published var selectedBuildingID = ""
     @Published var notice: ScheduleNotice?
+    @Published var pendingCourseReplacement: CourseSyncReplacementConfirmation?
     @Published var smsChallenge: BITLoginAuthenticationChallenge?
     @Published var smsVerificationError: String?
     @Published var isSubmittingSMSCode = false
@@ -181,6 +202,7 @@ final class ScheduleViewModel: ObservableObject {
         smsVerificationError = nil
         courseSyncCoordinator.reset()
         notice = nil
+        pendingCourseReplacement = nil
         reloadFromDisk()
     }
 

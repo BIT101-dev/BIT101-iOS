@@ -4,7 +4,7 @@ umask 077
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 REPO="BIT101-dev/BIT101-iOS"
-WORKER_DIR="$ROOT_DIR/Cloudflare/ErrorReportWorker"
+WRANGLER_DIR="$ROOT_DIR/Cloudflare/EmergencyUpdateWorker"
 NAMESPACE_ID="4c6402dfad4e406a93cc2518843803c6"
 OUTPUT_DIR="$ROOT_DIR/.build/issue-report-inbox"
 CURRENT_DIR="$OUTPUT_DIR/本次"
@@ -64,7 +64,7 @@ gh issue list \
   > "$OUTPUT_DIR/github-issues.json"
 
 echo "拉取 Cloudflare 错误报告..."
-if ! (cd "$WORKER_DIR" && npx wrangler kv key list \
+if ! (cd "$WRANGLER_DIR" && npx wrangler kv key list \
   --remote \
   --prefix report: \
   --namespace-id "$NAMESPACE_ID" \
@@ -73,7 +73,7 @@ if ! (cd "$WORKER_DIR" && npx wrangler kv key list \
   exit 1
 fi
 
-python3 - "$OUTPUT_DIR/error-report-keys.json" "$STAGING_DIR" "$WORKER_DIR" "$NAMESPACE_ID" "$OUTPUT_DIR/report-keys.txt" "$SKIP_KEYS_FILE" <<'PY'
+python3 - "$OUTPUT_DIR/error-report-keys.json" "$STAGING_DIR" "$WRANGLER_DIR" "$NAMESPACE_ID" "$OUTPUT_DIR/report-keys.txt" "$SKIP_KEYS_FILE" <<'PY'
 import json
 import base64
 import pathlib
@@ -157,7 +157,7 @@ if [[ "$REPORT_COUNT" -gt 0 ]]; then
   echo "清理已拉取的 Cloudflare 错误报告..."
   while IFS= read -r key; do
     [[ -n "$key" ]] || continue
-    if ! (cd "$WORKER_DIR" && npx wrangler kv key delete "$key" \
+    if ! (cd "$WRANGLER_DIR" && npx wrangler kv key delete "$key" \
       --remote --namespace-id "$NAMESPACE_ID" >/dev/null 2> "$WRANGLER_LOG"); then
       cat "$WRANGLER_LOG" >&2
       echo "报告已保存在本地，远端未完整清理：$key" >&2

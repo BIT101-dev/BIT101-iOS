@@ -458,16 +458,9 @@ struct CourseScheduleFAB: View {
 /// 避免“添加”按钮因为交互容器不同而出现尺寸或命中区域错位。
 struct CourseScheduleFABLabel: View {
     let systemImage: String
-    @State private var feedbackToken = 0
 
     var body: some View {
         AppFloatingActionButtonLabel(systemImage: systemImage)
-            .appImpactFeedback(trigger: feedbackToken)
-            .simultaneousGesture(
-                TapGesture().onEnded {
-                    feedbackToken &+= 1
-                }
-            )
     }
 }
 

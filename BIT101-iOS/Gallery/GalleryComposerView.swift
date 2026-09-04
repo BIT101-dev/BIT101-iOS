@@ -224,7 +224,7 @@ enum ComposerDraftStore {
 
 /// 原生发帖页。
 ///
-/// 负责标题、正文、标签、声明和可见性设置，并在提交前执行本地敏感词检查。
+/// 负责标题、正文、标签、声明和可见性设置。
 struct GalleryComposerView: View {
     /// 发帖成功后的回调。
     ///
@@ -534,10 +534,10 @@ struct GalleryComposerView: View {
         }
     }
 
-    /// 在本地校验通过后提交帖子。
+    /// 完成必要字段校验后提交帖子。
     ///
     /// 提交顺序刻意设计为：
-    /// 1. 先做纯本地校验，尽量在发请求前拦掉明显错误。
+    /// 1. 先完成必要字段校验。
     /// 2. 再进入提交态，防止重复点击。
     /// 3. 服务端成功后先通知调用方刷新，再关闭当前页面。
     private func submit() async {
@@ -555,10 +555,6 @@ struct GalleryComposerView: View {
         }
         guard tags.count >= 2 else {
             alert = AppAlert(title: "发布失败", message: "请至少添加 2 个标签。")
-            return
-        }
-        if let message = CommunityModeration.validateDraft(title: trimmedTitle, text: trimmedText, tags: tags) {
-            alert = AppAlert(title: "内容不合规", message: message)
             return
         }
         guard !hasUploadingImages else {

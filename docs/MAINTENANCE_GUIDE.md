@@ -13,7 +13,7 @@
 当前工程包含四个 target：
 
 - 主 App：`BIT101-iOS`
-- iOS 扩展：`BIT101ScheduleWidget`
+- iOS 扩展：`BIT101ScheduleWidgets`
 - Watch App：`BIT101Watch`
 - Watch 扩展：`BIT101WatchWidgets`
 
@@ -142,7 +142,7 @@ bit-login 返回的 `challenge_id`、access token、短信状态和教学中心�
 相关入口：
 
 - `Schedule/ScheduleWidgetSupport.swift`
-- `BIT101ScheduleWidget/BIT101ScheduleWidget.swift`
+- `BIT101ScheduleWidgets/BIT101ScheduleWidgets.swift`
 
 ### 3.5 覆盖更新与本地数据保留
 
@@ -215,7 +215,7 @@ bit-login 返回的 `challenge_id`、access token、短信状态和教学中心�
 所以任何课表结构变化，都要同步检查：
 
 - `ScheduleWidgetSupport.swift`
-- `BIT101ScheduleWidget.swift`
+- `BIT101ScheduleWidgets.swift`
 - `ScheduleLiveActivityManager.swift`
 
 ### 5.2 修改灵动岛提醒时要注意什么

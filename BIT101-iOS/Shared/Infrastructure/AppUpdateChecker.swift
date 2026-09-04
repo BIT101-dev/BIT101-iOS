@@ -229,19 +229,22 @@ struct AppPrompt: Identifiable {
     let message: String
     let actions: [AppPromptAction]
     let onPresent: @MainActor () -> Void
+    let onDismiss: @MainActor () -> Void
 
     init(
         id: String,
         title: String,
         message: String,
         actions: [AppPromptAction],
-        onPresent: @escaping @MainActor () -> Void = {}
+        onPresent: @escaping @MainActor () -> Void = {},
+        onDismiss: @escaping @MainActor () -> Void = {}
     ) {
         self.id = id
         self.title = title
         self.message = message
         self.actions = actions
         self.onPresent = onPresent
+        self.onDismiss = onDismiss
     }
 }
 
@@ -287,6 +290,7 @@ final class AppPromptCoordinator: ObservableObject {
 
     private func finishActivePrompt() {
         guard let activePrompt else { return }
+        activePrompt.onDismiss()
         handledIDs.insert(activePrompt.id)
         self.activePrompt = nil
 

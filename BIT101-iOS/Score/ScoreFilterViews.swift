@@ -96,8 +96,6 @@ struct ScoreSortPage: View {
                 }
             } header: {
                 Text("排序方向")
-            } footer: {
-                Text("升序表示小的在上，降序表示大的在上。")
             }
         }
         .appGroupedListStyle()

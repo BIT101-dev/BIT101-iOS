@@ -257,9 +257,7 @@ struct UserProfileRootView: View {
 
     @ViewBuilder
     private var posterSection: some View {
-        // 他人主页也沿用社区本地内容过滤。
-        let visiblePosters = CommunityModeration
-            .filterVisiblePosters(viewModel.posterState.items)
+        let visiblePosters = viewModel.posterState.items
 
         switch viewModel.posterState.status {
         case .idle where visiblePosters.isEmpty:
@@ -531,12 +529,9 @@ private struct MinePosterListView: View {
 
     /// 当前真正可展示的帖子列表。
     ///
-    /// 这里同时叠加本地内容过滤和“刚删掉但服务端还没刷新回来”的过滤，
-    /// 供列表主体与 loading 判断共同复用，避免两处各自维护一套相同过滤。
+    /// 过滤掉刚删除但服务端尚未刷新回来的帖子，避免删除后短暂回闪。
     private var visiblePosters: [GalleryPoster] {
-        CommunityModeration
-            .filterVisiblePosters(posters)
-            .filter { !deletedPosterIDs.contains($0.id) }
+        posters.filter { !deletedPosterIDs.contains($0.id) }
     }
 
     var body: some View {

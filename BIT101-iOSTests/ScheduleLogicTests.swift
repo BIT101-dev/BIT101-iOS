@@ -261,7 +261,7 @@ struct AcademicTermPolicyTests {
         ])
     }
 
-    @Test("Automatic score refresh runs only after week 16 and before next term")
+    @Test("Automatic score refresh runs only after week 16 and before the -1 small-term boundary")
     func scoreRefreshWindow() {
         let cache = makeSpringToFallCache()
 
@@ -273,9 +273,13 @@ struct AcademicTermPolicyTests {
             cache: cache,
             now: shanghaiDate(2026, 6, 22)
         ))
+        #expect(ScoreAutomaticRefreshPolicy.isWithinRefreshWindow(
+            cache: cache,
+            now: shanghaiDate(2026, 8, 9)
+        ))
         #expect(!ScoreAutomaticRefreshPolicy.isWithinRefreshWindow(
             cache: cache,
-            now: shanghaiDate(2026, 8, 31)
+            now: shanghaiDate(2026, 8, 10)
         ))
     }
 

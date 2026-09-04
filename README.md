@@ -51,7 +51,6 @@
   - 搜索
   - 发帖
   - 评论
-  - 本地内容过滤
   - 消息中心
 - 文章浏览、搜索、发布、编辑与评论
 - 我的主页与他人主页
@@ -80,7 +79,7 @@
 
 - `BIT101-iOS`
   主 App 源码
-- `BIT101ScheduleWidget`
+- `BIT101ScheduleWidgets/`
   小组件、锁屏组件、Live Activity / 灵动岛扩展
 - `BIT101Watch`
   Apple Watch App（Xcode 新版单 target 结构）
@@ -88,6 +87,8 @@
   Apple Watch Smart Stack 组件扩展
 - `docs`
   仓库级文档
+- `Cloudflare`
+  所有自有 `aihelpme.dev` 资源源码：隐私 Pages、Universal Link、紧急更新和错误报告 Worker。
 
 主 App 内的核心模块：
 
@@ -100,7 +101,7 @@
 - `Map/`
   地图页与 `MapKit` 桥接
 - `Gallery/`
-  话廊 feed、搜索、发帖、详情、消息、本地屏蔽
+  话廊 feed、搜索、发帖、详情和消息
 - `Paper/`
   文章列表、搜索、发布、详情与评论
 - `Course/`
@@ -130,7 +131,7 @@
 本项目使用 Xcode 工程构建，当前包含四个 target：
 
 - 主 App：`BIT101-iOS`
-- iOS 扩展：`BIT101ScheduleWidget`
+- iOS 扩展 target：`BIT101ScheduleWidgets`（源码目录：`BIT101ScheduleWidgets/`）
 - Watch App：`BIT101Watch`
 - Watch 扩展：`BIT101WatchWidgets`
 

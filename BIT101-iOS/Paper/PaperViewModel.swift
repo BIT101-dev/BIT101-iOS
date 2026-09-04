@@ -322,10 +322,6 @@ final class PaperDetailViewModel: ObservableObject {
             alert = AppAlert(title: "发送失败", message: "评论不能为空。")
             return false
         }
-        if let message = CommunityModeration.validateCommentDraft(text: trimmed) {
-            alert = AppAlert(title: "内容不合规", message: message)
-            return false
-        }
         guard !isSubmittingComment else { return false }
 
         isSubmittingComment = true

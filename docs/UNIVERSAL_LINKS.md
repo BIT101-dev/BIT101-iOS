@@ -13,7 +13,7 @@ Cloudflare Worker 会显示一个轻量中转页，而不是立即重定向。�
 ## Cloudflare 配置
 
 线上 Worker 名称为 `bit101-open`。仓库中的可部署源码与 Wrangler 配置位于
-`web/open-worker/`，统一的自有网页资源和命令行部署说明见 [`../web/README.md`](../web/README.md)。
+`Cloudflare/OpenWorker/`，统一的自有 Cloudflare 资源和命令行部署说明见 [`../Cloudflare/README.md`](../Cloudflare/README.md)。
 
 1. 在 Cloudflare 控制台进入 **Workers & Pages**，新建一个 Worker。
 2. 部署下方代码。

@@ -16,7 +16,7 @@
 		6B9445E6F09E8957FC4C25BE /* ScheduleSharedLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CF4896F51E6C19BBE15048C /* ScheduleSharedLiveActivity.swift */; };
 		7E481656A9CBB85EA5FA51AD /* ScheduleSharedSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 498515EF1571216B6C662577 /* ScheduleSharedSnapshot.swift */; };
 		80FEE566078E573A01F25942 /* ScheduleSharedSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 498515EF1571216B6C662577 /* ScheduleSharedSnapshot.swift */; };
-		85798F727C7A8202CDFECFA1 /* BIT101ScheduleWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E4DE63842E0A7A6C0DE9F9 /* BIT101ScheduleWidget.swift */; };
+		85798F727C7A8202CDFECFA1 /* BIT101ScheduleWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E4DE63842E0A7A6C0DE9F9 /* BIT101ScheduleWidgets.swift */; };
 		86480E32AA132F273CEFA205 /* ScheduleSharedOccurrence.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2C0A347C3DFB45B555EAF0 /* ScheduleSharedOccurrence.swift */; };
 		86E934E59E093F63ED817276 /* BIT101WatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21A95B6C96CDD83709030EF8 /* BIT101WatchApp.swift */; };
 		8FD3C2B3B8C6D5E68B474DD7 /* BIT101WatchScheduleWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 819ECA98BC5A0A39D0B68FD5 /* BIT101WatchScheduleWidget.swift */; };
@@ -24,12 +24,12 @@
 		A44A833C45CA0AA37FAD6708 /* ScheduleSharedSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 498515EF1571216B6C662577 /* ScheduleSharedSnapshot.swift */; };
 		B979F16E6900E1E884772F00 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C87F2B27CDB14AC63D666139 /* Foundation.framework */; };
 		C0683505889D51D1ED727339 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F8E44554F89A8994A3C6A41E /* Assets.xcassets */; };
-		C8618324F1CB0A8EB9CB55F9 /* BIT101ScheduleWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66582305EDF75198F3070B6C /* BIT101ScheduleWidgetBundle.swift */; };
+		C8618324F1CB0A8EB9CB55F9 /* BIT101ScheduleWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66582305EDF75198F3070B6C /* BIT101ScheduleWidgetsBundle.swift */; };
 		D6E1110C49C701CB6C8B3080 /* BIT101Watch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 027903073181F16453D11398 /* BIT101Watch.app */; platformFilter = ios; };
 		E89B1AAE46D4FFA1A056C483 /* ScheduleSharedLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CF4896F51E6C19BBE15048C /* ScheduleSharedLiveActivity.swift */; };
 		E8DF51F6326A8FA9797F82E9 /* BIT101WatchWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 6C427FABBA6FB6C2CF4098BE /* BIT101WatchWidgets.appex */; };
 		F52E9C051CAF65D91825FB7A /* WatchScheduleRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6C2ACF3AF5C705FD407FBA /* WatchScheduleRootView.swift */; };
-		F65927450E15455FB026D9C1 /* BIT101ScheduleWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0382F3A6842C7256F74D4FCC /* BIT101ScheduleWidget.appex */; platformFilter = ios; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		F65927450E15455FB026D9C1 /* BIT101ScheduleWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0382F3A6842C7256F74D4FCC /* BIT101ScheduleWidgets.appex */; platformFilter = ios; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -59,7 +59,7 @@
 			containerPortal = D2FF4C8E2F729DB4000FA1C1 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = A222C4EBA765A745DE78B6CF;
-			remoteInfo = BIT101ScheduleWidget;
+			remoteInfo = BIT101ScheduleWidgets;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -70,7 +70,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				F65927450E15455FB026D9C1 /* BIT101ScheduleWidget.appex in Embed Foundation Extensions */,
+				F65927450E15455FB026D9C1 /* BIT101ScheduleWidgets.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -102,13 +102,13 @@
 /* Begin PBXFileReference section */
 		111111111111111111111112 /* BIT101-iOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "BIT101-iOSTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		027903073181F16453D11398 /* BIT101Watch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BIT101Watch.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		0382F3A6842C7256F74D4FCC /* BIT101ScheduleWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BIT101ScheduleWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		0382F3A6842C7256F74D4FCC /* BIT101ScheduleWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BIT101ScheduleWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		21A95B6C96CDD83709030EF8 /* BIT101WatchApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BIT101WatchApp.swift; sourceTree = "<group>"; };
 		3CF4896F51E6C19BBE15048C /* ScheduleSharedLiveActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScheduleSharedLiveActivity.swift; sourceTree = "<group>"; };
 		4162B327CBFEC0829F8AB242 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS11.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		498515EF1571216B6C662577 /* ScheduleSharedSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScheduleSharedSnapshot.swift; sourceTree = "<group>"; };
 		5CB43A1BB6CE6CCCBDC41D5C /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		66582305EDF75198F3070B6C /* BIT101ScheduleWidgetBundle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BIT101ScheduleWidgetBundle.swift; sourceTree = "<group>"; };
+		66582305EDF75198F3070B6C /* BIT101ScheduleWidgetsBundle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BIT101ScheduleWidgetsBundle.swift; sourceTree = "<group>"; };
 		6C427FABBA6FB6C2CF4098BE /* BIT101WatchWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BIT101WatchWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		72A1F6AF2FB00A16DDC8068E /* WatchScheduleSyncManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchScheduleSyncManager.swift; sourceTree = "<group>"; };
 		796D7A3D2666B8F0197201E6 /* BIT101WatchWidgetsBundle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BIT101WatchWidgetsBundle.swift; sourceTree = "<group>"; };
@@ -122,8 +122,8 @@
 		CF8086061B44E95B40189EB0 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		D2FF4C962F729DB4000FA1C1 /* BIT101-iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "BIT101-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		DE2C0A347C3DFB45B555EAF0 /* ScheduleSharedOccurrence.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScheduleSharedOccurrence.swift; sourceTree = "<group>"; };
-		F1E4DE63842E0A7A6C0DE9F9 /* BIT101ScheduleWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BIT101ScheduleWidget.swift; sourceTree = "<group>"; };
-		F49E2B4B4D5BE4DD9D59BDF1 /* BIT101ScheduleWidget.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = BIT101ScheduleWidget.entitlements; sourceTree = "<group>"; };
+		F1E4DE63842E0A7A6C0DE9F9 /* BIT101ScheduleWidgets.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BIT101ScheduleWidgets.swift; sourceTree = "<group>"; };
+		F49E2B4B4D5BE4DD9D59BDF1 /* BIT101ScheduleWidgets.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = BIT101ScheduleWidgets.entitlements; sourceTree = "<group>"; };
 		F8E44554F89A8994A3C6A41E /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -181,15 +181,15 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		004DE69434B9FEF2A654EB3C /* BIT101ScheduleWidget */ = {
+		004DE69434B9FEF2A654EB3C /* BIT101ScheduleWidgets */ = {
 			isa = PBXGroup;
 			children = (
-				66582305EDF75198F3070B6C /* BIT101ScheduleWidgetBundle.swift */,
-				F1E4DE63842E0A7A6C0DE9F9 /* BIT101ScheduleWidget.swift */,
+				66582305EDF75198F3070B6C /* BIT101ScheduleWidgetsBundle.swift */,
+				F1E4DE63842E0A7A6C0DE9F9 /* BIT101ScheduleWidgets.swift */,
 				96F117AE4D80C6B7B073E4F8 /* Info.plist */,
-				F49E2B4B4D5BE4DD9D59BDF1 /* BIT101ScheduleWidget.entitlements */,
+				F49E2B4B4D5BE4DD9D59BDF1 /* BIT101ScheduleWidgets.entitlements */,
 			);
-			path = BIT101ScheduleWidget;
+			path = BIT101ScheduleWidgets;
 			sourceTree = "<group>";
 		};
 		25E8641FD8E3B4363BD33FB6 /* BIT101WatchWidgets */ = {
@@ -255,7 +255,7 @@
 				111111111111111111111113 /* BIT101-iOSTests */,
 				D2FF4C972F729DB4000FA1C1 /* Products */,
 				CDE5796C86F63D4361DA19D7 /* Frameworks */,
-				004DE69434B9FEF2A654EB3C /* BIT101ScheduleWidget */,
+				004DE69434B9FEF2A654EB3C /* BIT101ScheduleWidgets */,
 				C5319C351048C6B74D7C2653 /* Shared */,
 				FB4A15B914D492D0DE350199 /* BIT101Watch */,
 				25E8641FD8E3B4363BD33FB6 /* BIT101WatchWidgets */,
@@ -268,7 +268,7 @@
 			children = (
 				D2FF4C962F729DB4000FA1C1 /* BIT101-iOS.app */,
 				111111111111111111111112 /* BIT101-iOSTests.xctest */,
-				0382F3A6842C7256F74D4FCC /* BIT101ScheduleWidget.appex */,
+				0382F3A6842C7256F74D4FCC /* BIT101ScheduleWidgets.appex */,
 				027903073181F16453D11398 /* BIT101Watch.app */,
 				6C427FABBA6FB6C2CF4098BE /* BIT101WatchWidgets.appex */,
 			);
@@ -312,9 +312,9 @@
 			productReference = 111111111111111111111112 /* BIT101-iOSTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		A222C4EBA765A745DE78B6CF /* BIT101ScheduleWidget */ = {
+		A222C4EBA765A745DE78B6CF /* BIT101ScheduleWidgets */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = F1F65253CDF96455497F6E74 /* Build configuration list for PBXNativeTarget "BIT101ScheduleWidget" */;
+			buildConfigurationList = F1F65253CDF96455497F6E74 /* Build configuration list for PBXNativeTarget "BIT101ScheduleWidgets" */;
 			buildPhases = (
 				0EF4EDC316C0A2A17A0BF63F /* Sources */,
 				4C472C2944238BC1477A9927 /* Frameworks */,
@@ -324,9 +324,9 @@
 			);
 			dependencies = (
 			);
-			name = BIT101ScheduleWidget;
-			productName = BIT101ScheduleWidget;
-			productReference = 0382F3A6842C7256F74D4FCC /* BIT101ScheduleWidget.appex */;
+			name = BIT101ScheduleWidgets;
+			productName = BIT101ScheduleWidgets;
+			productReference = 0382F3A6842C7256F74D4FCC /* BIT101ScheduleWidgets.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
 		C8AF9C40C472741950BEAF70 /* BIT101Watch */ = {
@@ -424,7 +424,7 @@
 			targets = (
 				D2FF4C952F729DB4000FA1C1 /* BIT101-iOS */,
 				111111111111111111111111 /* BIT101-iOSTests */,
-				A222C4EBA765A745DE78B6CF /* BIT101ScheduleWidget */,
+				A222C4EBA765A745DE78B6CF /* BIT101ScheduleWidgets */,
 				C8AF9C40C472741950BEAF70 /* BIT101Watch */,
 				E14C33A004A034143423AAE7 /* BIT101WatchWidgets */,
 			);
@@ -482,8 +482,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C8618324F1CB0A8EB9CB55F9 /* BIT101ScheduleWidgetBundle.swift in Sources */,
-				85798F727C7A8202CDFECFA1 /* BIT101ScheduleWidget.swift in Sources */,
+				C8618324F1CB0A8EB9CB55F9 /* BIT101ScheduleWidgetsBundle.swift in Sources */,
+				85798F727C7A8202CDFECFA1 /* BIT101ScheduleWidgets.swift in Sources */,
 				7E481656A9CBB85EA5FA51AD /* ScheduleSharedSnapshot.swift in Sources */,
 				14721303F52951498981FB7F /* ScheduleSharedOccurrence.swift in Sources */,
 				6B9445E6F09E8957FC4C25BE /* ScheduleSharedLiveActivity.swift in Sources */,
@@ -539,9 +539,9 @@
 		};
 		63B9195EB1C2E887B0BC4A6D /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			name = BIT101ScheduleWidget;
+			name = BIT101ScheduleWidgets;
 			platformFilter = ios;
-			target = A222C4EBA765A745DE78B6CF /* BIT101ScheduleWidget */;
+			target = A222C4EBA765A745DE78B6CF /* BIT101ScheduleWidgets */;
 			targetProxy = BEB0BD40BE7DACE66198E2A6 /* PBXContainerItemProxy */;
 		};
 		75D2E5411165946F2430D859 /* PBXTargetDependency */ = {
@@ -619,12 +619,12 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CLANG_ENABLE_OBJC_WEAK = NO;
-				CODE_SIGN_ENTITLEMENTS = BIT101ScheduleWidget/BIT101ScheduleWidget.entitlements;
+				CODE_SIGN_ENTITLEMENTS = BIT101ScheduleWidgets/BIT101ScheduleWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 34;
 				DEVELOPMENT_TEAM = Y2T72736G3;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = BIT101ScheduleWidget/Info.plist;
+				INFOPLIST_FILE = BIT101ScheduleWidgets/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -653,12 +653,12 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CLANG_ENABLE_OBJC_WEAK = NO;
-				CODE_SIGN_ENTITLEMENTS = BIT101ScheduleWidget/BIT101ScheduleWidget.entitlements;
+				CODE_SIGN_ENTITLEMENTS = BIT101ScheduleWidgets/BIT101ScheduleWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 34;
 				DEVELOPMENT_TEAM = Y2T72736G3;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = BIT101ScheduleWidget/Info.plist;
+				INFOPLIST_FILE = BIT101ScheduleWidgets/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -990,7 +990,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		F1F65253CDF96455497F6E74 /* Build configuration list for PBXNativeTarget "BIT101ScheduleWidget" */ = {
+		F1F65253CDF96455497F6E74 /* Build configuration list for PBXNativeTarget "BIT101ScheduleWidgets" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				9CA0EE69C55FF3495340685A /* Release */,

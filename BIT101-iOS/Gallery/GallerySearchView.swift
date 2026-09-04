@@ -13,7 +13,7 @@ struct GallerySearchView: View {
 
     var body: some View {
         GalleryFeedView(
-            feedState: filteredSearchState,
+            feedState: viewModel.searchState,
             feedIdentity: "search",
             prefetchTriggerThreshold: 0,
             onRefresh: {
@@ -62,11 +62,6 @@ struct GallerySearchView: View {
         }
     }
 
-    private var filteredSearchState: GalleryFeedState {
-        var state = viewModel.searchState
-        state.posters = CommunityModeration.filterVisiblePosters(state.posters)
-        return state
-    }
 }
 
 /// 原生消息页。

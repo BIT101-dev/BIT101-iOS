@@ -19,7 +19,7 @@ private func isGalleryCancellation(_ error: Error) -> Bool {
 @MainActor
 /// 话题页状态机。
 ///
-/// 同时管理四个 feed 和一个搜索结果页，并显式处理分页、刷新和取消错误。
+/// 同时管理五个 feed 和一个搜索结果页，并显式处理分页、刷新和取消错误。
 final class GalleryViewModel: ObservableObject {
     /// 当前选中的 feed。
     @Published var selectedFeed: GalleryFeedKind = .recommend

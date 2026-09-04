@@ -35,6 +35,8 @@ extension ScheduleViewModel {
             smsVerificationError = nil
             courseSyncCoordinator.reset()
             notice = ScheduleNotice(title: "验证已失效", message: message)
+        } catch let error as ScheduleServiceError where error.isUnpublishedCourseSchedule {
+            notice = ScheduleNotice(title: "课表暂未发布", message: error.localizedDescription)
         } catch {
             notice = ScheduleNotice(title: "课表同步失败", message: error.localizedDescription)
         }
@@ -128,6 +130,8 @@ extension ScheduleViewModel {
             smsVerificationError = nil
             courseSyncCoordinator.reset()
             notice = ScheduleNotice(title: "验证已失效", message: message)
+        } catch let error as ScheduleServiceError where error.isUnpublishedCourseSchedule {
+            notice = ScheduleNotice(title: "课表暂未发布", message: error.localizedDescription)
         } catch {
             smsVerificationError = error.localizedDescription
         }
@@ -140,13 +144,25 @@ extension ScheduleViewModel {
         courseSyncCoordinator.reset()
     }
 
-    private func applyCourseSyncPayload(_ payload: CourseSyncPayload) {
+    private func applyCourseSyncPayload(_ payload: CourseSyncPayload, forceReplaceReduced: Bool = false) {
         let incomingCourses = payload.courses
         let existingCourses = cache.termSchedulesByTerm[payload.term]?.courses
             ?? (cache.currentTerm == payload.term ? cache.courses : [])
-        // 不用空响应、缩减响应或完全相同的响应覆盖用户当前课表。
-        // 只有服务端确实返回了此前不存在的课程时，才替换本地快照。
-        guard CourseSyncReplacementPolicy.shouldReplace(existing: existingCourses, with: incomingCourses) else { return }
+        // 空响应或完全相同的响应不覆盖；已发布但课程数减少时先交给全局弹窗确认。
+        switch CourseSyncReplacementPolicy.decision(existing: existingCourses, with: incomingCourses) {
+        case .preserve:
+            return
+        case let .confirm(existingCount, incomingCount) where !forceReplaceReduced:
+            pendingCourseReplacement = CourseSyncReplacementConfirmation(
+                existingCount: existingCount,
+                incomingCount: incomingCount,
+                payload: payload
+            )
+            return
+        case .replace, .confirm:
+            break
+        }
+
         let snapshot = makeTermSnapshot(from: payload)
         cache.termSchedulesByTerm[payload.term] = snapshot
         cache.cachedCoursesByTerm[payload.term] = payload.courses
@@ -154,6 +170,13 @@ extension ScheduleViewModel {
         trimTermSnapshots(preserving: Set([payload.term]))
         selectedWeek = resolvedAutomaticWeek()
         persist()
+    }
+
+    func resolvePendingCourseReplacement(replace: Bool) {
+        guard let pending = pendingCourseReplacement else { return }
+        pendingCourseReplacement = nil
+        guard replace else { return }
+        applyCourseSyncPayload(pending.payload, forceReplaceReduced: true)
     }
 
     private func makeTermSnapshot(from payload: CourseSyncPayload, now: Date = Date()) -> TermScheduleSnapshot {
@@ -224,8 +247,21 @@ extension ScheduleViewModel {
             var fetchedCourses: [String: [CourseRecord]] = [:]
             for term in terms {
                 let payload = try await service.syncCourses(term: term)
-                snapshots[payload.term] = makeTermSnapshot(from: payload)
-                fetchedCourses[payload.term] = payload.courses
+                let existingCourses = cache.termSchedulesByTerm[payload.term]?.courses
+                    ?? (cache.currentTerm == payload.term ? cache.courses : [])
+                switch CourseSyncReplacementPolicy.decision(existing: existingCourses, with: payload.courses) {
+                case .preserve:
+                    continue
+                case let .confirm(existingCount, incomingCount):
+                    pendingCourseReplacement = CourseSyncReplacementConfirmation(
+                        existingCount: existingCount,
+                        incomingCount: incomingCount,
+                        payload: payload
+                    )
+                case .replace:
+                    snapshots[payload.term] = makeTermSnapshot(from: payload)
+                    fetchedCourses[payload.term] = payload.courses
+                }
             }
 
             cache.termSchedulesByTerm.merge(snapshots) { _, fetched in fetched }
@@ -249,6 +285,8 @@ extension ScheduleViewModel {
                 title: "课表自动更新失败",
                 message: "本次更新需要短信验证，请在课表设置中手动同步。"
             )
+        } catch let error as ScheduleServiceError where error.isUnpublishedCourseSchedule {
+            return ScheduleNotice(title: "课表暂未发布", message: error.localizedDescription)
         } catch {
             if isCancellation(error) { return nil }
             return ScheduleNotice(title: "课表自动更新失败", message: error.localizedDescription)

@@ -50,7 +50,7 @@ def validate_plists() -> None:
     plist_paths = [
         ROOT / "AppInfo.plist",
         ROOT / "BIT101Watch/Info.plist",
-        ROOT / "BIT101ScheduleWidget/Info.plist",
+        ROOT / "BIT101ScheduleWidgets/Info.plist",
         ROOT / "BIT101WatchWidgets/Info.plist",
     ]
     for path in plist_paths:
