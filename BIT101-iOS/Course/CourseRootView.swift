@@ -33,16 +33,9 @@ struct CourseRootView: View {
 /// 独立出来后，既能继续作为单独页面使用，也能被“成绩 / 课程”合并页复用。
 struct CoursePageContent: View {
     @ObservedObject var viewModel: CourseListViewModel
-    @Binding var requestedCourse: CourseNavigationRequest?
-    @State private var deepLinkedCourse: CourseSummary?
-    @State private var deepLinkAlert: AppAlert?
 
-    init(
-        viewModel: CourseListViewModel,
-        requestedCourse: Binding<CourseNavigationRequest?> = .constant(nil)
-    ) {
+    init(viewModel: CourseListViewModel) {
         self.viewModel = viewModel
-        _requestedCourse = requestedCourse
     }
 
     var body: some View {
@@ -97,78 +90,14 @@ struct CoursePageContent: View {
                 }
             }
         }
-        .toolbar(.hidden, for: .navigationBar)
         .task {
-            if requestedCourse == nil {
-                await viewModel.bootstrapIfNeeded()
-            }
+            await viewModel.bootstrapIfNeeded()
         }
         .onChange(of: viewModel.searchText) { oldValue, newValue in
             viewModel.clearSearchIfNeeded(from: oldValue, to: newValue)
         }
         .diagnosticAlert(item: $viewModel.alert)
-        .diagnosticAlert(item: $deepLinkAlert)
-        .navigationDestination(item: $deepLinkedCourse) { course in
-            CourseDetailView(initialCourse: course)
-                // 课程详情页持有自己的 StateObject；切换课程时强制按课程 ID 重建，
-                // 避免在已有详情页上复用上一门课的评论状态。
-                .id(course.id)
-        }
-        .task(id: requestedCourse?.id) {
-            await openRequestedCourseIfNeeded()
-        }
         .background(AppDesignSystem.Palette.groupedBackground)
-    }
-
-    private func openRequestedCourseIfNeeded() async {
-        guard let request = requestedCourse else { return }
-
-        if let query = request.searchQuery,
-           let results = request.searchResults
-        {
-            viewModel.applyPreparedSearch(query: query, items: results)
-        }
-
-        if let preparedCourse = request.preparedCourse {
-            deepLinkedCourse = preparedCourse
-        } else if request.hasLookupIdentity {
-            do {
-                let number = (request.lookupCourseNumber ?? "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                let name = (request.lookupCourseName ?? "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                let search = number.isEmpty ? name : number
-                guard !search.isEmpty else {
-                    throw CourseLookupError.missingIdentity
-                }
-                let candidates = try await CourseService().fetchCourses(search: search, page: 0)
-                guard let course = CourseLookupMatcher.bestMatch(
-                    courseNumber: number,
-                    courseName: name,
-                    teacher: "",
-                    candidates: candidates
-                ) else {
-                    throw CourseLookupError.notFound
-                }
-                deepLinkedCourse = course
-            } catch let error as CourseLookupError {
-                deepLinkAlert = AppAlert(title: "无法打开课程评价", message: error.localizedDescription)
-            } catch {
-                deepLinkAlert = AppAlert(title: "无法打开课程评价", message: error.localizedDescription)
-            }
-        } else {
-            do {
-                let detail = try await CourseService().fetchCourse(id: request.courseID)
-                deepLinkedCourse = CourseSummary(detail: detail)
-            } catch {
-                deepLinkAlert = AppAlert(title: "无法打开课程", message: error.localizedDescription)
-            }
-        }
-
-        // 与话题入口相同，提前改变 `.task(id:)` 的 id 会取消正在进行的网络请求。
-        if requestedCourse?.id == request.id {
-            requestedCourse = nil
-        }
     }
 
     @ViewBuilder
@@ -208,14 +137,200 @@ struct CoursePageContent: View {
     }
 }
 
-private enum CourseLookupError: LocalizedError {
+/// 日程、成绩和外部深链统一使用的课程解析流程。
+///
+/// 所有入口先通过同一个解析器确认课程，再进入同一个 `CourseDetailView`。
+struct CourseEvaluationRouteResolver {
+    private let listService: any CourseListServicing
+    private let detailService: any CourseDetailServicing
+
+    init(
+        listService: any CourseListServicing = CourseService(),
+        detailService: any CourseDetailServicing = CourseService()
+    ) {
+        self.listService = listService
+        self.detailService = detailService
+    }
+
+    func resolve(_ request: CourseNavigationRequest) async throws -> CourseNavigationRequest {
+        if request.preparedCourse != nil {
+            return request
+        }
+
+        if request.hasLookupIdentity {
+            let name = request.lookupCourseName ?? ""
+            let number = request.lookupCourseNumber ?? ""
+            let teacher = request.lookupTeacher ?? ""
+            guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !number.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else {
+                throw CourseEvaluationError.missingIdentity
+            }
+            guard let lookup = try await CourseEvaluationResolver(service: listService).resolve(
+                courseName: name,
+                courseNumber: number,
+                teacher: teacher
+            ) else {
+                throw CourseEvaluationError.notFound
+            }
+            return CourseNavigationRequest(
+                courseID: lookup.selectedCourse.id,
+                lookupCourseName: name,
+                lookupCourseNumber: number,
+                lookupTeacher: teacher,
+                preparedCourse: lookup.selectedCourse,
+                searchQuery: lookup.searchQuery,
+                searchResults: lookup.searchResults
+            )
+        }
+
+        guard request.courseID > 0 else {
+            throw CourseEvaluationError.missingIdentity
+        }
+        return CourseNavigationRequest(
+            courseID: request.courseID,
+            preparedCourse: CourseSummary(detail: try await detailService.fetchCourse(id: request.courseID))
+        )
+    }
+}
+
+/// 日程和成绩共用的课程评价检索入口。
+///
+/// 先解析，成功后才执行各自的后续路由；失败直接在当前页面展示 alert。
+struct CourseEvaluationLink: View {
+    let request: CourseNavigationRequest
+    let onResolved: (CourseNavigationRequest) -> Void
+    @State private var isResolving = false
+    @State private var alert: AppAlert?
+    @State private var diagnosticAlert: AppAlert?
+
+    init(
+        request: CourseNavigationRequest,
+        onResolved: @escaping (CourseNavigationRequest) -> Void
+    ) {
+        self.request = request
+        self.onResolved = onResolved
+    }
+
+    var body: some View {
+        Button {
+            Task { await resolveAndNavigate() }
+        } label: {
+            AppCourseEvaluationRow(isLoading: isResolving)
+        }
+        .buttonStyle(.plain)
+        .disabled(isResolving)
+        .alert(item: $alert) { alert in
+            Alert(
+                title: Text(alert.title),
+                message: Text(alert.message),
+                dismissButton: .default(Text("知道了"))
+            )
+        }
+        .diagnosticAlert(item: $diagnosticAlert)
+    }
+
+    private func resolveAndNavigate() async {
+        guard !isResolving else { return }
+        isResolving = true
+        defer { isResolving = false }
+
+        do {
+            onResolved(try await CourseEvaluationRouteResolver().resolve(request))
+        } catch {
+            if TaskCancellation.matches(error) { return }
+            if error is CourseEvaluationError {
+                alert = AppAlert(title: "无法打开课程评价", message: error.localizedDescription)
+            } else {
+                diagnosticAlert = AppAlert(title: "课程评价加载失败", message: error.localizedDescription)
+            }
+        }
+    }
+}
+
+/// 外部深链使用的课程评价目的地。
+///
+/// 外部深链已经发生导航，因此保留页面级加载/失败态；日程和成绩的普通入口
+/// 使用 `CourseEvaluationLink`，在导航前就地处理失败。
+struct CourseEvaluationDestination: View {
+    let request: CourseNavigationRequest
+    @State private var course: CourseSummary?
+    @State private var errorMessage: String?
+    @State private var expectedErrorMessage: String?
+    @State private var expectedAlert: AppAlert?
+
+    var body: some View {
+        Group {
+            if let course {
+                CourseDetailView(initialCourse: course)
+                    .id(course.id)
+            } else if let expectedErrorMessage {
+                AppEmptyState(
+                    title: "未找到课程",
+                    systemImage: "book.closed",
+                    message: expectedErrorMessage
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let errorMessage {
+                AppFailureState(
+                    title: "无法打开课程评价",
+                    systemImage: "book.closed",
+                    message: errorMessage,
+                    retryTitle: "重试",
+                    onRetry: {
+                        Task { await resolve() }
+                    }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                AppLoadingState(title: "正在加载课程评价")
+            }
+        }
+        .background(AppDesignSystem.Palette.groupedBackground)
+        .navigationTitle("课程评价")
+        .navigationBarTitleDisplayMode(.inline)
+        .alert(item: $expectedAlert) { alert in
+            Alert(
+                title: Text(alert.title),
+                message: Text(alert.message),
+                dismissButton: .default(Text("知道了"))
+            )
+        }
+        .task(id: request.id) {
+            await resolve()
+        }
+    }
+
+    private func resolve() async {
+        course = nil
+        errorMessage = nil
+        expectedErrorMessage = nil
+        expectedAlert = nil
+
+        do {
+            let resolvedRequest = try await CourseEvaluationRouteResolver().resolve(request)
+            guard let preparedCourse = resolvedRequest.preparedCourse else {
+                throw CourseEvaluationError.notFound
+            }
+            course = preparedCourse
+        } catch let error as CourseEvaluationError {
+            expectedErrorMessage = error.localizedDescription
+            expectedAlert = AppAlert(title: "无法打开课程评价", message: error.localizedDescription)
+        } catch {
+            if TaskCancellation.matches(error) { return }
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private enum CourseEvaluationError: LocalizedError {
     case missingIdentity
     case notFound
 
     var errorDescription: String? {
         switch self {
         case .missingIdentity:
-            return "成绩记录缺少课程号和课程名。"
+            return "课程记录缺少课程号和课程名。"
         case .notFound:
             return "学业课程中没有找到对应课程。"
         }

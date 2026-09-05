@@ -85,14 +85,14 @@ struct CourseSummary: Decodable, Identifiable, Equatable, Hashable {
 
 /// 从深链或其它业务页面进入课程详情时携带的导航上下文。
 ///
-/// 日程页已经取得课程搜索结果时，会把命中的教师课程和同名课程首屏一起带过来；
-/// 这样详情可以立即打开，返回列表时也无需再等待一次搜索请求。
-struct CourseNavigationRequest: Identifiable {
+/// 课程号/名称入口只携带外部身份字段，统一目的地负责检索、消歧和失败展示。
+struct CourseNavigationRequest: Identifiable, Hashable {
     let id = UUID()
     let courseID: Int
     /// 课程详情没有社区 ID 时，使用课程号/名称走统一检索匹配。
     let lookupCourseName: String?
     let lookupCourseNumber: String?
+    let lookupTeacher: String?
     let preparedCourse: CourseSummary?
     let searchQuery: String?
     let searchResults: [CourseSummary]?
@@ -105,6 +105,7 @@ struct CourseNavigationRequest: Identifiable {
         courseID: Int,
         lookupCourseName: String? = nil,
         lookupCourseNumber: String? = nil,
+        lookupTeacher: String? = nil,
         preparedCourse: CourseSummary? = nil,
         searchQuery: String? = nil,
         searchResults: [CourseSummary]? = nil
@@ -112,17 +113,19 @@ struct CourseNavigationRequest: Identifiable {
         self.courseID = courseID
         self.lookupCourseName = lookupCourseName
         self.lookupCourseNumber = lookupCourseNumber
+        self.lookupTeacher = lookupTeacher
         self.preparedCourse = preparedCourse
         self.searchQuery = searchQuery
         self.searchResults = searchResults
     }
 
     /// 从仅含教务字段的记录跳转到统一课程详情/评价页。
-    static func lookup(courseName: String, courseNumber: String) -> Self {
+    static func lookup(courseName: String, courseNumber: String, teacher: String = "") -> Self {
         Self(
             courseID: 0,
             lookupCourseName: courseName,
-            lookupCourseNumber: courseNumber
+            lookupCourseNumber: courseNumber,
+            lookupTeacher: teacher
         )
     }
 }

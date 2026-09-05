@@ -212,7 +212,7 @@ struct DeveloperSuggestionPage: View {
 
     var body: some View {
         Form {
-            AppComposerContentSection(title: "建议内容") {
+            Section("建议内容") {
                 ZStack(alignment: .topLeading) {
                     TextEditor(text: $text)
                         .frame(minHeight: 180)
@@ -228,7 +228,7 @@ struct DeveloperSuggestionPage: View {
 
             Section("图片（可选）") {
                 PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 6, matching: .images) {
-                    Label("插入图片", systemImage: "photo.badge.plus")
+                    Text("插入图片")
                 }
                 .disabled(isSubmitting || imageDrafts.count >= 6)
 
@@ -239,7 +239,8 @@ struct DeveloperSuggestionPage: View {
                                 GalleryComposerImageTile(
                                     draft: draft,
                                     onRetry: {},
-                                    onRemove: { removeImageDraft(id: draft.id) }
+                                    onRemove: { removeImageDraft(id: draft.id) },
+                                    showsPreparedSuccessIndicator: false
                                 )
                             }
                         }

@@ -16,7 +16,6 @@ struct AppRefreshStatusRow: View {
                     ProgressView()
                     Text(refreshingText)
                 } else {
-                    Image(systemName: "clock")
                     Text(lastUpdatedText)
                 }
             }

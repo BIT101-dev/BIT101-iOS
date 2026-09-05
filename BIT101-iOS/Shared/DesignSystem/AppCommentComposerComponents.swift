@@ -1,25 +1,5 @@
 import SwiftUI
 
-/// 编辑页的公共内容段，统一 section 标题和内容容器。
-struct AppComposerContentSection<Content: View>: View {
-    let title: String
-    private let content: Content
-
-    init(
-        title: String,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.title = title
-        self.content = content()
-    }
-
-    var body: some View {
-        Section(title) {
-            content
-        }
-    }
-}
-
 /// 评论输入区的公共内容段，统一匿名开关和选择触感。
 struct AppCommentComposerContentSection<Content: View>: View {
     private let title: String
@@ -37,7 +17,7 @@ struct AppCommentComposerContentSection<Content: View>: View {
     }
 
     var body: some View {
-        AppComposerContentSection(title: title) {
+        Section(title) {
             content
             Toggle("匿名评论", isOn: $anonymous)
                 .appSelectionFeedback(trigger: anonymous)

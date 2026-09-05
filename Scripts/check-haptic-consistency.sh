@@ -25,38 +25,29 @@ for item in "${required[@]}"; do
   fi
 done
 
-# 所有原生离散选择控件都必须接入公共选择触感。通过控件语法扫描，避免新增页面漏接。
+# 所有选择控件（原生和自绘）共用一条“文件登记 + 原生控件就地绑定”的规则。
+selection_files="$({
+  rg -l '\bPicker[[:space:]]*\(|\bToggle[[:space:]]*\(' "$root" --glob '*.swift' || true
+  rg -l 'checkmark\.circle\.fill|checkmark\.square\.fill|toggleTag\(|selectedTags|setRating\(' "$root" --glob '*.swift' || true
+} | sort -u)"
 while IFS= read -r file; do
+  [[ -n "$file" ]] || continue
   if ! rg -q --fixed-strings 'appSelectionFeedback' "$file"; then
     printf '[失败] 选择控件缺少公共触感修饰器：%s\n' "$file"
     exit 1
   fi
+done <<< "$selection_files"
 
-  # 每个原生选择控件都要在自身声明链上接入修饰器，避免只在同文件的另一处“碰巧”通过。
-  while IFS=: read -r line _; do
-    [[ -n "$line" ]] || continue
-    next_line="$(awk -v start="$line" 'NR > start && $0 ~ /(^|[^[:alnum:]_])(Picker|Toggle)[[:space:]]*\(/ { print NR; exit }' "$file")"
-    [[ -n "$next_line" ]] || next_line=$((line + 28))
-    end_line=$((next_line - 1))
-    if ! sed -n "${line},${end_line}p" "$file" | rg -q --fixed-strings 'appSelectionFeedback'; then
-      printf '[失败] 选择控件未直接接入公共触感：%s:%s\n' "$file" "$line"
-      exit 1
-    fi
-  done < <(rg -n '\b(Picker|Toggle)[[:space:]]*\(' "$file" || true)
-done < <(rg -l '\bPicker[[:space:]]*\(|\bToggle[[:space:]]*\(' "$root" --glob '*.swift' | sort)
-
-# 常见自绘勾选行和标签选择不使用 Picker/Toggle，也必须走同一接口。
-while IFS= read -r file; do
-  if ! rg -q --fixed-strings 'appSelectionFeedback' "$file"; then
-    printf '[失败] 自绘选择控件缺少公共触感修饰器：%s\n' "$file"
+while IFS=: read -r file line _; do
+  [[ -n "$file" && -n "$line" ]] || continue
+  next_line="$(awk -v start="$line" 'NR > start && $0 ~ /(^|[^[:alnum:]_])(Picker|Toggle)[[:space:]]*\(/ { print NR; exit }' "$file")"
+  [[ -n "$next_line" ]] || next_line=$((line + 28))
+  end_line=$((next_line - 1))
+  if ! sed -n "${line},${end_line}p" "$file" | rg -q --fixed-strings 'appSelectionFeedback'; then
+    printf '[失败] 原生选择控件未就地接入公共触感：%s:%s\n' "$file" "$line"
     exit 1
   fi
-done < <(
-  {
-    rg -l 'checkmark\.circle\.fill|checkmark\.square\.fill' "$root" --glob '*.swift' || true
-    rg -l 'toggleTag\(|selectedTags|setRating\(' "$root" --glob '*.swift' || true
-  } | sort -u
-)
+done < <(rg -n '\b(Picker|Toggle)[[:space:]]*\(' "$root" --glob '*.swift' || true)
 
 components=(
   "$root/Shared/DesignSystem/AppDesignSystem.swift:struct AppFloatingActionButton: View"

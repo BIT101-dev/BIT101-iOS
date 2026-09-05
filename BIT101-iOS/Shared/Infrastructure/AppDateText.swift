@@ -28,6 +28,23 @@ enum AppDateText {
         return relativeFormatter.localizedString(for: date, relativeTo: Date())
     }
 
+    static func dayText(from raw: String) -> String {
+        formattedText(from: raw, format: "yyyy-MM-dd")
+    }
+
+    static func timestampText(from raw: String) -> String {
+        formattedText(from: raw, format: "yyyy-MM-dd HH:mm")
+    }
+
+    private static func formattedText(from raw: String, format: String) -> String {
+        guard let date = date(from: raw) else { return raw }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        formatter.dateFormat = format
+        return formatter.string(from: date)
+    }
+
     private static func makeFormatter(_ format: String) -> DateFormatter {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")

@@ -1,15 +1,5 @@
 import SwiftUI
 
-/// 评论区统一的头像容器。
-struct AppCommentAvatarView: View {
-    let imageURL: URL?
-    let size: CGFloat
-
-    var body: some View {
-        AppAvatarView(imageURL: imageURL, size: size)
-    }
-}
-
 /// 课程、话题和文章评论区共用的标题行。
 ///
 /// 只有右侧可选操作由业务传入；标题、数量和占位关系保持完全一致。

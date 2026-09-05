@@ -221,9 +221,6 @@ struct CalendarSettingsPage: View {
                     Spacer()
                     Text("\(normalizedLeadMinutes) 分钟")
                         .foregroundStyle(.secondary)
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.tertiary)
                 }
             }
             .buttonStyle(.plain)

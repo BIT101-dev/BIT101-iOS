@@ -389,37 +389,6 @@ enum PaperContentRenderer {
     }
 }
 
-/// 文章模块统一的日期文案格式化。
-enum PaperDateText {
-    nonisolated static func dayString(from raw: String) -> String {
-        guard let date = parse(raw) else { return raw }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
-    }
-
-    nonisolated static func timestampString(from raw: String) -> String {
-        guard let date = parse(raw) else { return raw }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        return formatter.string(from: date)
-    }
-
-    private nonisolated static func parse(_ raw: String) -> Date? {
-        let parserWithFractionalSeconds = ISO8601DateFormatter()
-        parserWithFractionalSeconds.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = parserWithFractionalSeconds.date(from: raw) {
-            return date
-        }
-
-        let parserWithoutFractionalSeconds = ISO8601DateFormatter()
-        parserWithoutFractionalSeconds.formatOptions = [.withInternetDateTime]
-        return parserWithoutFractionalSeconds.date(from: raw)
-    }
-}
-
 extension GalleryImage {
     /// 文章模块里优先低清图、失败时回退原图。
     nonisolated var preferredRemoteURL: URL? {

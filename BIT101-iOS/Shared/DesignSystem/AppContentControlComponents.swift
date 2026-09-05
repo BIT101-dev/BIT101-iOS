@@ -33,15 +33,6 @@ enum AppTopSegmentedPickerVariant {
     /// 叠在另一个顶部切换栏下方时使用，避免重复累计两套顶部留白。
     case stacked
 
-    var topPadding: CGFloat {
-        switch self {
-        case .standard:
-            return AppDesignSystem.TopBar.topPadding
-        case .stacked:
-            return AppDesignSystem.TopBar.stackedTopPadding
-        }
-    }
-
     var bottomPadding: CGFloat {
         switch self {
         case .standard:
@@ -76,7 +67,7 @@ struct AppTopSegmentedPicker<Selection: Hashable, Content: View>: View {
             content
         }
         .padding(.horizontal, AppDesignSystem.TopBar.horizontalPadding)
-        .padding(.top, variant.topPadding)
+        .padding(.top, AppDesignSystem.TopBar.topPadding)
         .padding(.bottom, variant.bottomPadding)
         .frame(maxWidth: .infinity)
         .background(AppDesignSystem.Palette.groupedBackground)
@@ -112,7 +103,7 @@ struct AppOrderedSearchBar<Order: Hashable, OrderContent: View>: View {
     }
 
     var body: some View {
-        HStack(spacing: AppDesignSystem.Search.controlSpacing) {
+        HStack(spacing: AppDesignSystem.Spacing.control) {
             Picker(selection: $order) {
                 orderContent
             } label: {

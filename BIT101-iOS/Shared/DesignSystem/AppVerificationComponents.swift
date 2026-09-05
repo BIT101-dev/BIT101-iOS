@@ -56,7 +56,7 @@ struct AppSMSVerificationSheet: View {
 
                 if let errorMessage, !errorMessage.isEmpty {
                     Section {
-                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                        Text(errorMessage)
                             .foregroundStyle(AppDesignSystem.Palette.danger)
                     }
                 }

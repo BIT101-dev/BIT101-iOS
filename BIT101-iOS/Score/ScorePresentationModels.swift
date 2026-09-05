@@ -139,13 +139,6 @@ enum ScoreSortOrder: String, CaseIterable, Identifiable {
         }
     }
 
-    var systemImage: String {
-        switch self {
-        case .ascending: "arrow.up"
-        case .descending: "arrow.down"
-        }
-    }
-
     var toggled: ScoreSortOrder {
         switch self {
         case .ascending: .descending

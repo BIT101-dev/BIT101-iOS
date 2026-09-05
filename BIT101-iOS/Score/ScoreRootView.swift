@@ -36,14 +36,14 @@ struct ScoreRootView: View {
         ZStack {
             switch selectedSurface {
             case .score:
-                ScoreListPage(viewModel: scoreViewModel)
+                ScoreListPage(
+                    viewModel: scoreViewModel,
+                    onOpenCourseEvaluation: openCourseSearch
+                )
                     .simultaneousGesture(surfaceSwitchGesture)
                     .transition(.opacity)
             case .course:
-                CoursePageContent(
-                    viewModel: courseViewModel,
-                    requestedCourse: $requestedCourse
-                )
+                CoursePageContent(viewModel: courseViewModel)
                     .simultaneousGesture(surfaceSwitchGesture)
                     .transition(.opacity)
             }
@@ -57,10 +57,33 @@ struct ScoreRootView: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .task(id: requestedCourse?.id) {
-            guard requestedCourse != nil else { return }
-            selectedSurface = .course
+        .navigationDestination(item: $requestedCourse) { request in
+            if let preparedCourse = request.preparedCourse {
+                CourseDetailView(initialCourse: preparedCourse)
+                    .id(preparedCourse.id)
+            } else {
+                CourseEvaluationDestination(request: request)
+            }
         }
+        .task(id: requestedCourse?.id) {
+            guard let requestedCourse else { return }
+            selectedSurface = .course
+            prepareCourseSurface(requestedCourse)
+        }
+    }
+
+    /// 成绩没有教师字段：只进入课程搜索页，不替用户猜测具体教师。
+    private func openCourseSearch(_ request: CourseNavigationRequest) {
+        selectedSurface = .course
+        prepareCourseSurface(request)
+        requestedCourse = nil
+    }
+
+    private func prepareCourseSurface(_ request: CourseNavigationRequest) {
+        guard let query = request.searchQuery,
+              let results = request.searchResults
+        else { return }
+        courseViewModel.applyPreparedSearch(query: query, items: results)
     }
 
     /// 顶部 segmented 的受控绑定。
@@ -106,6 +129,7 @@ struct ScoreRootView: View {
 /// 保留原有“筛选 -> 统计 -> 列表”结构，只是被合并页托管。
 private struct ScoreListPage: View {
     @ObservedObject var viewModel: ScoreViewModel
+    let onOpenCourseEvaluation: (CourseNavigationRequest) -> Void
 
     var body: some View {
         Group {
@@ -143,7 +167,7 @@ private struct ScoreListPage: View {
                         NavigationLink {
                             TrustedTranscriptPage()
                         } label: {
-                            Label("申请可信成绩单", systemImage: "doc.text.image")
+                            Text("申请可信成绩单")
                         }
                         .disabled(viewModel.isSyncing)
                     }
@@ -215,7 +239,10 @@ private struct ScoreListPage: View {
                         } else {
                             ForEach(viewModel.visibleRows) { row in
                                 NavigationLink {
-                                    ScoreDetailView(row: row)
+                                    ScoreDetailView(
+                                        row: row,
+                                        onOpenCourseEvaluation: onOpenCourseEvaluation
+                                    )
                                 } label: {
                                     ScoreRowCard(row: row)
                                 }
@@ -600,30 +627,51 @@ private struct PendingScoreDetailView: View {
     }
 }
 
+private struct ScoreDetailMetaRow: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        LabeledContent(
+            title,
+            value: value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "-" : value
+        )
+    }
+}
+
 /// 成绩详情页。
 ///
 /// 由列表直接 push 进入，使用平铺信息流替代旧的抽屉式详情。
 private struct ScoreDetailView: View {
     let row: ScoreRow
+    let onOpenCourseEvaluation: (CourseNavigationRequest) -> Void
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         List {
             Section {
-                summarySection
+                Text(row.courseName.isEmpty ? "未命名课程" : row.courseName)
+                LabeledContent("成绩", value: row.score.isEmpty ? "-" : row.score)
+                LabeledContent("平均分", value: formattedAverageScore)
+                LabeledContent("学分", value: formattedCreditValue)
             }
 
             Section("课程评价") {
                 courseEvaluationLink
             }
 
+            Section("课程信息") {
+                LabeledContent("课程号", value: row.courseNumber)
+                LabeledContent("学期", value: row.term)
+                LabeledContent("课程性质", value: row.courseType)
+            }
+
             Section("详细信息") {
                 if remainingFields.isEmpty {
                     Text("暂无更多信息")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
                 } else {
                     ForEach(Array(remainingFields.enumerated()), id: \.offset) { _, field in
-                        ScoreDetailFieldRow(field: field)
+                        LabeledContent(field.key, value: field.value)
                     }
                 }
             }
@@ -633,44 +681,15 @@ private struct ScoreDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private var summarySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(row.courseName.isEmpty ? "未命名课程" : row.courseName)
-                .font(.title3.weight(.bold))
-                .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            HStack(spacing: 18) {
-                Text("成绩 \(row.score.isEmpty ? "-" : row.score)")
-                Text("均分 \(formattedAverageScore)")
-                Text(formattedCredit)
-            }
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-
-            VStack(alignment: .leading, spacing: 8) {
-                ScoreDetailMetaRow(title: "课程号", value: row.courseNumber)
-                ScoreDetailMetaRow(title: "学期", value: row.term)
-                ScoreDetailMetaRow(title: "课程性质", value: row.courseType)
-            }
-            .font(.subheadline)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
     private var courseEvaluationLink: some View {
-        NavigationLink {
-            CoursePageContent(
-                viewModel: CourseListViewModel(),
-                requestedCourse: .constant(
-                    CourseNavigationRequest.lookup(
-                        courseName: row.courseName,
-                        courseNumber: row.courseNumber
-                    )
-                )
+        CourseEvaluationLink(
+            request: .lookup(
+                courseName: row.courseName,
+                courseNumber: row.courseNumber
             )
-        } label: {
-            Label("查看课程评价", systemImage: "bubble.right")
+        ) { request in
+            dismiss()
+            onOpenCourseEvaluation(request)
         }
         .disabled(!canOpenCourseEvaluation)
     }
@@ -688,10 +707,9 @@ private struct ScoreDetailView: View {
         }
     }
 
-    private var formattedCredit: String {
+    private var formattedCreditValue: String {
         let trimmed = row.creditText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "学分 -" }
-        return "学分 \(trimmed)"
+        return trimmed.isEmpty ? "-" : trimmed
     }
 
     private var formattedAverageScore: String {
@@ -699,31 +717,5 @@ private struct ScoreDetailView: View {
         guard !trimmed.isEmpty else { return "-" }
         guard let value = Double(trimmed) else { return trimmed }
         return value.formatted(.number.precision(.fractionLength(2)))
-    }
-}
-
-private struct ScoreDetailMetaRow: View {
-    let title: String
-    let value: String
-
-    var body: some View {
-        LabeledContent(title, value: value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "-" : value)
-    }
-}
-
-private struct ScoreDetailFieldRow: View {
-    let field: ScoreField
-
-    var body: some View {
-        LabeledContent {
-            Text(field.value)
-                .font(.subheadline)
-                .foregroundStyle(.primary)
-        } label: {
-            Text(field.key)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 12)
     }
 }

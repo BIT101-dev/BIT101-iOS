@@ -130,7 +130,7 @@ private struct PaperCommentRow: View {
     @ViewBuilder
     private func commentBubble(_ comment: GalleryComment, isSubComment: Bool) -> some View {
         AppCommentBubble {
-            AppCommentAvatarView(
+            AppAvatarView(
                 imageURL: comment.user.avatar.preferredRemoteURL,
                 size: isSubComment
                     ? AppDesignSystem.Comment.subCommentAvatarSize
@@ -140,7 +140,7 @@ private struct PaperCommentRow: View {
             AppCommentIdentityHeader(
                 nickname: comment.user.nickname,
                 isSubComment: isSubComment,
-                timeText: PaperDateText.timestampString(from: comment.updateTime),
+                timeText: AppDateText.timestampText(from: comment.updateTime),
                 onOpenProfile: nil
             )
 

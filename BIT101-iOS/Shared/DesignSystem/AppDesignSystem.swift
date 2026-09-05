@@ -7,6 +7,7 @@ import UIKit
 enum AppDesignSystem {
     enum Spacing {
         static let micro: CGFloat = 2
+        static let tight: CGFloat = 6
         static let control: CGFloat = 10
         static let content: CGFloat = 12
         static let section: CGFloat = 16
@@ -56,7 +57,6 @@ enum AppDesignSystem {
         static let bottomPadding: CGFloat = AppDesignSystem.Spacing.content
         /// 单独承载更新时间 Section 的原生 List 高度。
         static let statusListHeight: CGFloat = 58
-        static let stackedTopPadding: CGFloat = 0
         static let stackedBottomPadding: CGFloat = 4
     }
 
@@ -64,7 +64,7 @@ enum AppDesignSystem {
         /// 课表网格线的统一宽度；课程块以此作为与网格线的对称内缩。
         static let gridLineWidth: CGFloat = 0.5
         static let courseCardInset: CGFloat = gridLineWidth
-        static let courseBorderWidth: CGFloat = gridLineWidth * 2
+        static let courseBorderWidth: CGFloat = 1
         /// 课程块内所有方向共用的文字安全内边距。
         static let courseContentInset: CGFloat = AppDesignSystem.Spacing.micro
         static let courseTitleTextStyle: UIFont.TextStyle = .caption2
@@ -79,7 +79,6 @@ enum AppDesignSystem {
     enum Search {
         static let horizontalPadding: CGFloat = 14
         static let verticalPadding: CGFloat = 10
-        static let controlSpacing: CGFloat = 10
         static let chromeHorizontalPadding: CGFloat = 14
         static let chromeTopPadding: CGFloat = 10
         static let chromeBottomPadding: CGFloat = 8
@@ -102,16 +101,15 @@ enum AppDesignSystem {
 
     enum Comment {
         static let sectionSpacing: CGFloat = 14
-        static let progressVerticalPadding: CGFloat = 20
         static let emptyVerticalPadding: CGFloat = 16
         static let rowHorizontalPadding: CGFloat = 14
         static let rowVerticalPadding: CGFloat = 14
-        static let rowContentSpacing: CGFloat = 10
-        static let avatarContentSpacing: CGFloat = 10
+        static let rowContentSpacing: CGFloat = AppDesignSystem.Spacing.control
+        static let avatarContentSpacing: CGFloat = AppDesignSystem.Spacing.control
         static let bubbleContentSpacing: CGFloat = 6
         static let headerSpacing: CGFloat = 8
-        static let actionSpacing: CGFloat = 10
-        static let actionTopPadding: CGFloat = 2
+        static let actionSpacing: CGFloat = AppDesignSystem.Spacing.control
+        static let actionTopPadding: CGFloat = AppDesignSystem.Spacing.micro
         static let avatarSize: CGFloat = 34
         static let subCommentAvatarSize: CGFloat = 28
         static let subCommentTopPadding: CGFloat = 4
@@ -353,6 +351,33 @@ struct AppFloatingActionStack<Content: View>: View {
         }
         .padding(.trailing, AppDesignSystem.Spacing.control)
         .padding(.bottom, AppDesignSystem.Size.floatingActionBottomInset)
+    }
+}
+
+/// 课程详情入口共用的列表行。
+///
+/// 日程课程详情和成绩详情必须使用同一份标题、图标和系统导航尾部，
+/// 业务页面只负责提供相同的导航请求或目的地。
+struct AppCourseEvaluationRow: View {
+    let isLoading: Bool
+
+    init(isLoading: Bool = false) {
+        self.isLoading = isLoading
+    }
+
+    var body: some View {
+        HStack(spacing: AppDesignSystem.Spacing.control) {
+            Text("查看课程评价")
+                .foregroundStyle(.tint)
+
+            Spacer(minLength: 0)
+            if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 }
 

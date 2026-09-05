@@ -83,10 +83,10 @@ struct ScoreSortPage: View {
             Section {
                 Button {
                     onToggleOrder()
-                } label: {
-                    HStack {
-                        Label(sortOrder.title, systemImage: sortOrder.systemImage)
-                            .foregroundStyle(.primary)
+                    } label: {
+                        HStack {
+                            Text(sortOrder.title)
+                                .foregroundStyle(.primary)
                         Spacer()
                         Text("切换")
                             .font(.subheadline)

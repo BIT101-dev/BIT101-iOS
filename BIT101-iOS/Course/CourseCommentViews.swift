@@ -97,7 +97,7 @@ private struct CourseCommentRow: View {
     @ViewBuilder
     private func commentBubble(_ comment: GalleryComment, isSubComment: Bool) -> some View {
         AppCommentBubble {
-            AppCommentAvatarView(
+            AppAvatarView(
                 imageURL: URL(string: comment.user.avatar.lowUrl.isEmpty ? comment.user.avatar.url : comment.user.avatar.lowUrl),
                 size: isSubComment
                     ? AppDesignSystem.Comment.subCommentAvatarSize

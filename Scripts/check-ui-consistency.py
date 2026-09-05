@@ -45,6 +45,23 @@ STACK_SPACING_LITERAL = re.compile(
     r"\b(?:VStack|HStack|ZStack|LazyVStack|LazyHStack)\s*\([^)]*"
     r"\bspacing\s*:\s*([0-9]+(?:\.[0-9]+)?)"
 )
+DERIVED_DESIGN_TOKEN = re.compile(
+    r"(?:\bAppDesignSystem\.[A-Za-z_][\w.]*\s*[*/]\s*[A-Za-z0-9_.]+|"
+    r"[A-Za-z0-9_.]+\s*[*/]\s*AppDesignSystem\.[A-Za-z_][\w.]*)"
+)
+REPEATED_DESIGN_TOKEN = re.compile(
+    r"(AppDesignSystem\.[A-Za-z_][\w.]*)\s*[+\-]\s*\1"
+)
+DERIVED_TOKEN_DEFINITION = re.compile(
+    r"^\s*static\s+let\s+[A-Za-z_][\w]*\s*:\s*[^=]+="
+    r"\s*[A-Za-z_][\w.]*\s*[*/]\s*[A-Za-z0-9_.]+",
+    re.MULTILINE,
+)
+REPEATED_TOKEN_DEFINITION = re.compile(
+    r"^\s*static\s+let\s+[A-Za-z_][\w]*\s*:\s*[^=]+="
+    r"\s*(\w+)\s*[+\-]\s*\1",
+    re.MULTILINE,
+)
 
 ALLOWED_SHARED_URLSESSION_FILES = {
     "BIT101-iOS/Shared/Networking/HTTPClient.swift",
@@ -87,6 +104,19 @@ def added_swift_lines() -> list[tuple[str, int, str]]:
     return additions
 
 
+def require_token(
+    errors: list[str],
+    files: tuple[str, ...],
+    token: str,
+    message: str,
+) -> None:
+    """用同一条契约检查一组同类页面，避免为每个页面复制一份规则。"""
+    for file_name in files:
+        path = SOURCE_ROOT / file_name
+        if path.is_file() and token not in path.read_text(encoding="utf-8"):
+            errors.append(f"{file_name}: {message}（缺少 {token}）")
+
+
 def main() -> int:
     if not DESIGN_SYSTEM.is_file():
         print(f"[失败] 缺少设计系统入口：{DESIGN_SYSTEM.relative_to(ROOT)}", file=sys.stderr)
@@ -95,6 +125,13 @@ def main() -> int:
     errors: list[str] = []
     app_card_uses = 0
     floating_stack_uses = 0
+    design_source = DESIGN_SYSTEM.read_text(encoding="utf-8")
+    for pattern in (DERIVED_TOKEN_DEFINITION, REPEATED_TOKEN_DEFINITION):
+        for match in pattern.finditer(design_source):
+            line_number = design_source.count("\n", 0, match.start()) + 1
+            errors.append(
+                f"{DESIGN_SYSTEM.relative_to(ROOT)}:{line_number}: 设计令牌定义不得通过比例或重复相加/相减派生"
+            )
     for path in swift_files():
         if path == DESIGN_SYSTEM:
             continue
@@ -123,6 +160,14 @@ def main() -> int:
             for match in pattern.finditer(source):
                 line_number = source.count("\n", 0, match.start()) + 1
                 errors.append(f"{relative}:{line_number}: 请使用 {palette_name}")
+
+        if path != DESIGN_SYSTEM:
+            for pattern in (DERIVED_DESIGN_TOKEN, REPEATED_DESIGN_TOKEN):
+                for match in pattern.finditer(source):
+                    line_number = source.count("\n", 0, match.start()) + 1
+                    errors.append(
+                        f"{relative}:{line_number}: 设计令牌不得通过比例或重复相加/相减二次运算；请直接使用语义令牌"
+                    )
 
         if path.name != "GalleryMessagesView.swift":
             for match in DIRECT_PLAIN_LIST_STYLE.finditer(source):
@@ -159,57 +204,34 @@ def main() -> int:
                     f"{path.relative_to(ROOT)}: {list_count} 个分组列表必须逐个使用 appGroupedListStyle（当前 {style_count} 个）"
                 )
 
-    # 帖子和文章详情必须共用同一个分享按钮，避免只实现一侧或出现不同的系统入口。
-    for detail_file in ("Course/CourseDetailView.swift", "Gallery/GalleryPosterDetailView.swift", "Paper/PaperDetailView.swift"):
-        detail_path = SOURCE_ROOT / detail_file
-        if detail_path.is_file() and "AppDetailShareLink" not in detail_path.read_text(encoding="utf-8"):
-            errors.append(f"{detail_path.relative_to(ROOT)}: 详情页必须使用 AppDetailShareLink")
-
-    for detail_file in ("Course/CourseDetailView.swift", "Gallery/GalleryPosterDetailView.swift", "Paper/PaperDetailView.swift"):
-        detail_path = SOURCE_ROOT / detail_file
-        if detail_path.is_file() and "AppDetailCircleButton" not in detail_path.read_text(encoding="utf-8"):
-            errors.append(f"{detail_path.relative_to(ROOT)}: 详情页圆形评论/点赞按钮必须使用 AppDetailCircleButton")
-
-    for comment_file in (
-        "Course/CourseCommentViews.swift",
-        "Gallery/GalleryCommentViews.swift",
-        "Paper/PaperCommentViews.swift",
-    ):
-        comment_path = SOURCE_ROOT / comment_file
-        if comment_path.is_file():
-            comment_source = comment_path.read_text(encoding="utf-8")
-            if "AppDesignSystem.Comment." not in comment_source or "appCommentSectionStyle" not in comment_source:
-                errors.append(f"{comment_path.relative_to(ROOT)}: 评论区必须使用公共间距和容器样式")
-
-    for feed_file in ("Gallery/GalleryFeedViews.swift", "Paper/PaperSummaryViews.swift"):
-        feed_path = SOURCE_ROOT / feed_file
-        if feed_path.is_file():
-            feed_source = feed_path.read_text(encoding="utf-8")
-            if "appFeedCardStyle" not in feed_source:
-                errors.append(f"{feed_path.relative_to(ROOT)}: 信息流卡片必须使用公共 Feed 样式")
-
-    # 所有分组列表只允许使用一个公共入口；横向边距和首屏顶部边距不得按页面分叉。
-    for page_file in (
-        "Course/CourseRootView.swift",
-        "Score/ScoreRootView.swift",
-        "Schedule/ScheduleDDLViews.swift",
-        "Schedule/FreeClassroomViews.swift",
-        "Mine/MineRootView.swift",
-    ):
-        page_path = SOURCE_ROOT / page_file
-        if page_path.is_file() and "appGroupedListStyle()" not in page_path.read_text(encoding="utf-8"):
-            errors.append(f"{page_path.relative_to(ROOT)}: 分组列表必须使用唯一的 appGroupedListStyle 公共布局")
-
-    # 所有带顶部一级切换栏的根页必须把切换栏放进 safeAreaInset；不能用普通 VStack
-    # 让不同底部 Tab 的顶部宽度和正文起始位置各自受父容器影响。
-    for root_file in (
-        "Score/ScoreRootView.swift",
-        "Gallery/GalleryRootView.swift",
-        "Schedule/ScheduleRootView.swift",
-    ):
-        root_path = SOURCE_ROOT / root_file
-        if root_path.is_file() and ".safeAreaInset(edge: .top, spacing: 0)" not in root_path.read_text(encoding="utf-8"):
-            errors.append(f"{root_path.relative_to(ROOT)}: 顶部切换栏必须使用 spacing=0 的统一 safeAreaInset 布局")
+    # 同类页面只声明“必须使用哪个公共结构”，检查机制本身不再为每个页面复制一套逻辑。
+    detail_files = ("Course/CourseDetailView.swift", "Gallery/GalleryPosterDetailView.swift", "Paper/PaperDetailView.swift")
+    require_token(errors, detail_files, "AppDetailShareLink", "详情页必须使用公共分享入口")
+    require_token(errors, detail_files, "AppDetailCircleButton", "详情页圆形操作必须使用公共按钮")
+    require_token(
+        errors,
+        ("Course/CourseCommentViews.swift", "Gallery/GalleryCommentViews.swift", "Paper/PaperCommentViews.swift"),
+        "AppDesignSystem.Comment.",
+        "评论区必须使用公共间距令牌",
+    )
+    require_token(
+        errors,
+        ("Course/CourseCommentViews.swift", "Gallery/GalleryCommentViews.swift", "Paper/PaperCommentViews.swift"),
+        "appCommentSectionStyle",
+        "评论区必须使用公共容器样式",
+    )
+    require_token(
+        errors,
+        ("Gallery/GalleryFeedViews.swift", "Paper/PaperSummaryViews.swift"),
+        "appFeedCardStyle",
+        "信息流卡片必须使用公共 Feed 样式",
+    )
+    require_token(
+        errors,
+        ("Score/ScoreRootView.swift", "Gallery/GalleryRootView.swift", "Schedule/ScheduleRootView.swift"),
+        ".safeAreaInset(edge: .top, spacing: 0)",
+        "顶部切换栏必须使用统一 safeAreaInset 布局",
+    )
 
     schedule_root_path = SOURCE_ROOT / "Schedule/ScheduleRootView.swift"
     if schedule_root_path.is_file() and ".safeAreaInset(edge: .bottom, spacing: 0)" not in schedule_root_path.read_text(encoding="utf-8"):

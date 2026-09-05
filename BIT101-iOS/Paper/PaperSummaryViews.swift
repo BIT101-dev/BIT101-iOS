@@ -31,7 +31,7 @@ struct PaperSummaryCard: View {
                         .foregroundStyle(.primary)
                         .lineLimit(1)
 
-                    Text(PaperDateText.timestampString(from: paper.updateTime))
+                    Text(AppDateText.timestampText(from: paper.updateTime))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -50,7 +50,7 @@ struct PaperSummaryCard: View {
                 Label("\(paper.likeNum)", systemImage: "hand.thumbsup")
                 Label("\(paper.commentNum)", systemImage: "text.bubble")
                 Spacer(minLength: 12)
-                Text(PaperDateText.dayString(from: paper.updateTime))
+                Text(AppDateText.dayText(from: paper.updateTime))
             }
             .font(.caption)
             .foregroundStyle(.secondary)

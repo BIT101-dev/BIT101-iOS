@@ -19,14 +19,14 @@
 - `AppFloatingActionButton`、`AppFloatingActionButtonSurface`、`AppFloatingActionStack`：统一右下角圆形按钮的尺寸、材质、徽标和组间距。
 - `appGroupedListStyle()`：所有分组列表唯一允许使用的公共入口，统一 inset grouped 样式、`AppDesignSystem.Spacing.content` Section 间距、8pt 横向内容边距和首屏顶部边距。
 - `appCommentSectionStyle()`：统一课程、帖子和文章的评论区容器样式。
-- `AppComposerContentSection`、`AppCommentComposerContentSection`、`AppComposerToolbar`：统一课程、话廊、文章评论和开发者建议的输入区共性及工具栏。
+- `AppCommentComposerContentSection`、`AppComposerToolbar`：统一课程、话廊、文章评论和开发者建议的输入区共性及工具栏；基础 `Section` 不再额外包装一层。
 - `AppSegmentedPicker`、`AppTopSegmentedPicker`：统一 segmented 选择控件的样式和选择触感；顶部版本统一安全区下沿、内容边缘与背景，`stacked` 变体用于连续双层顶部栏。
 - `AppDesignSystem.Schedule`：统一课表网格线、课程块与网格线的对称内缩、课程块边框、课程文字安全内边距、标题/地点字号、两格课程的标题行数限制和地点紧凑行高；地点行高使用可调的字体比例令牌；按周与全学期叠加共用同一套几何与文字布局。课程块默认显示名称+地点，并通过“名/地”按钮轮换为仅名称或仅两行地点。
 - `AppOrderedSearchBar`、`AppSearchBarContainer`：统一话廊和文章搜索的排序菜单、输入框、清空按钮、圆角背景和顶部材质。
 - `AppFeedRow`：统一话廊、文章和我的帖子流的零间距行、分割线和分割线起始位置。
 - `AppAvatarView`：统一话题、文章、我的、设置、消息和评论头像的加载、占位、裁切和尺寸；不同语义只传入尺寸与色彩参数。
 - `AppTagChip`、`AppTagChipVariant`：统一信息流、详情页和编辑页标签胶囊的间距、字体、前景色和背景色。
-- `AppCommentAvatarView`、`AppCommentIdentityHeader`、`AppCommentActionBar`、`AppCommentBubble`、`AppCommentRowContainer`：统一课程、话廊和文章评论的头像、标题、操作、气泡和行布局；业务差异只保留在内容闭包。
+- `AppAvatarView`、`AppCommentIdentityHeader`、`AppCommentActionBar`、`AppCommentBubble`、`AppCommentRowContainer`：统一课程、话廊和文章评论的头像、标题、操作、气泡和行布局；业务差异只保留在内容闭包。
 - `AppCommentThread`：统一三类评论的主评论、回复缩进和分隔线结构；单条气泡内容由业务闭包提供。
 - `AppSMSVerificationSheet`：统一课表、成绩和可信成绩单的验证码输入、错误态、焦点与提交状态；业务只传入挑战和提交文案。
 - `AppDateText`：统一社区时间字段的多格式解析和相对时间文案，课程、话廊与消息不得各自维护 formatter。

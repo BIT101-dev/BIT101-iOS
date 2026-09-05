@@ -67,7 +67,7 @@ struct CourseScheduleTabView: View {
             let calendarHeight = max(
                 listHeight
                     - (activeSchedule.isPrimary ? AppDesignSystem.TopBar.statusListHeight : 0)
-                    - (AppDesignSystem.TopBar.contentGap * 2),
+                    - AppDesignSystem.Spacing.content,
                 1
             )
 

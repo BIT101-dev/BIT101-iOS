@@ -171,16 +171,6 @@ private struct DDLEventCard: View {
     var body: some View {
         AppCard {
             HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
-                Button(action: onToggleDone) {
-                    Image(systemName: event.done ? "checkmark.circle.fill" : "circle")
-                        .font(.title3)
-                        .foregroundStyle(tint)
-                        .frame(width: AppDesignSystem.Size.touchTarget, height: AppDesignSystem.Size.touchTarget)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .appSelectionFeedback(trigger: event.done)
-
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
                     Text(event.title)
                         .font(.headline)
@@ -203,6 +193,16 @@ private struct DDLEventCard: View {
                 }
 
                 Spacer(minLength: 0)
+
+                Button(action: onToggleDone) {
+                    Image(systemName: event.done ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundStyle(tint)
+                        .frame(width: AppDesignSystem.Size.touchTarget, height: AppDesignSystem.Size.touchTarget)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .appSelectionFeedback(trigger: event.done)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }

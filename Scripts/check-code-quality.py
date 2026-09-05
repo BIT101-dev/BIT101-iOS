@@ -23,27 +23,6 @@ SOURCE_ROOTS = (
 SCRIPT_ROOT = ROOT / "Scripts"
 REPORT_PATH = ROOT / ".build/code-quality-report.txt"
 DESIGN_SYSTEM = ROOT / "BIT101-iOS/Shared/DesignSystem/AppDesignSystem.swift"
-HAPTIC_SYSTEM = ROOT / "BIT101-iOS/Shared/DesignSystem/AppHapticFeedback.swift"
-
-ALLOWED_STDOUT = {"BIT101-iOS/Shared/Infrastructure/ReleaseNetworkSmoke.swift"}
-ALLOWED_URL_SESSION = {
-    "BIT101-iOS/Shared/Infrastructure/ReleaseNetworkSmoke.swift",
-    "BIT101-iOS/Shared/Networking/HTTPClient.swift",
-}
-SEMANTIC_COLORS = (
-    "orange",
-    "red",
-    "blue",
-    "green",
-    "pink",
-    "purple",
-    "yellow",
-    "teal",
-    "indigo",
-    "brown",
-    "gray",
-)
-
 
 def relative(path: Path) -> str:
     return path.relative_to(ROOT).as_posix()
@@ -143,25 +122,12 @@ def source_findings() -> tuple[list[str], list[str]]:
     numeric_layout = re.compile(
         r"\.(?:padding|frame|offset|cornerRadius|shadow|opacity|scaleEffect|spacing)\s*\([^\n]*\d"
     )
-    direct_semantic_color = re.compile(
-        rf"(?:\bColor\.(?:{'|'.join(SEMANTIC_COLORS)})\b|"
-        rf"(?:(?:return|foregroundStyle|fill|tint)\s*\(?\s*)\.(?:{'|'.join(SEMANTIC_COLORS)})\b)"
-    )
-    direct_haptic = re.compile(
-        r"\.sensoryFeedback\(|UIFeedbackGenerator|UI(Selection|Impact|Notification)FeedbackGenerator|"
-        r"impactOccurred\(|selectionChanged\(|notificationOccurred\(|CHHapticEngine|"
-        r"AudioServicesPlaySystemSound|kSystemSoundID_Vibrate|WKInterfaceDevice.*\.play"
-    )
-    direct_rounded_rectangle = re.compile(r"\bRoundedRectangle\s*\(")
-    direct_list_style = re.compile(r"\.listStyle\(\s*\.(?:plain|insetGrouped)\s*\)|\.listSectionSpacing\(")
     direct_view_request = re.compile(r"\bURLRequest\s*\(")
     direct_cancellation_check = re.compile(r"\berror\s+is\s+CancellationError\b")
     empty_catch = re.compile(r"\bcatch\s*\{\s*\}")
 
     large_files: list[str] = []
     layout_counts: list[tuple[int, str]] = []
-    semantic_colors: list[str] = []
-
     for path in swift_files():
         source = path.read_text(encoding="utf-8")
         masked_source = mask_literals_and_comments(source)
@@ -188,42 +154,11 @@ def source_findings() -> tuple[list[str], list[str]]:
             errors.append(f"{name}: 不应保留 #if false 死代码块")
         add_matches(errors, path, masked_source, re.compile(r"\b(?:TODO|FIXME|HACK)\b"), "请清理遗留 TODO/FIXME/HACK")
 
-        if name not in ALLOWED_STDOUT and not name.startswith("BIT101-iOSTests/"):
-            add_matches(
-                errors,
-                path,
-                masked_source,
-                re.compile(r"\b(?:print|debugPrint|NSLog)\s*\("),
-                "主 App 与扩展不得直接输出日志",
-            )
-        if name not in ALLOWED_URL_SESSION:
-            add_matches(
-                errors,
-                path,
-                masked_source,
-                re.compile(r"\bURLSession\.shared\b"),
-                "网络请求必须经 HTTPClient 或场景化 Service",
-            )
-        if name != relative(HAPTIC_SYSTEM):
-            add_matches(errors, path, masked_source, direct_haptic, "触感必须使用 AppHapticFeedback 公共接口")
         if name != relative(ROOT / "BIT101-iOS/Shared/Infrastructure/TaskCancellation.swift"):
             add_matches(errors, path, masked_source, direct_cancellation_check, "任务取消必须通过 TaskCancellation.matches 统一识别")
         add_matches(errors, path, masked_source, empty_catch, "禁止静默吞掉异常；请记录诊断或显式处理错误")
-        if path != DESIGN_SYSTEM:
-            add_matches(errors, path, masked_source, direct_rounded_rectangle, "圆角必须使用 AppDesignSystem.roundedRectangle")
-            if path.name != "GalleryMessagesView.swift":
-                add_matches(errors, path, masked_source, direct_list_style, "列表样式必须使用公共设计系统修饰器")
         if path.name.endswith("View.swift") or path.name.endswith("Screen.swift"):
             add_matches(errors, path, masked_source, direct_view_request, "View 不应直接构造 URLRequest；请求移到 Service")
-
-        if path != DESIGN_SYSTEM:
-            add_matches(
-                semantic_colors,
-                path,
-                masked_source,
-                direct_semantic_color,
-                "语义颜色应从 AppDesignSystem.Palette 读取",
-            )
 
         if path != DESIGN_SYSTEM:
             count = len(numeric_layout.findall(masked_source))
@@ -235,8 +170,6 @@ def source_findings() -> tuple[list[str], list[str]]:
         if len(source.splitlines()) > 800:
             large_files.append(name)
 
-    # 设计系统本身允许定义语义颜色；业务代码不能再直接写颜色。
-    review.extend(sorted(semantic_colors))
     if layout_counts:
         review.append(
             "固定布局值候选（仅供迁移审查）："

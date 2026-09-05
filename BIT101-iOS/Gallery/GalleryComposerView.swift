@@ -62,6 +62,19 @@ struct GalleryComposerImageTile: View {
     let draft: GalleryComposerImageDraft
     let onRetry: () -> Void
     let onRemove: () -> Void
+    let showsPreparedSuccessIndicator: Bool
+
+    init(
+        draft: GalleryComposerImageDraft,
+        onRetry: @escaping () -> Void,
+        onRemove: @escaping () -> Void,
+        showsPreparedSuccessIndicator: Bool = true
+    ) {
+        self.draft = draft
+        self.onRetry = onRetry
+        self.onRemove = onRemove
+        self.showsPreparedSuccessIndicator = showsPreparedSuccessIndicator
+    }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -117,11 +130,13 @@ struct GalleryComposerImageTile: View {
             }
             .frame(height: 28)
         case .prepared:
-            Image(systemName: "checkmark.circle.fill")
-                .font(.title3)
-                .foregroundStyle(.white)
-                .padding(6)
-                .background(.black.opacity(0.35), in: Circle())
+            if showsPreparedSuccessIndicator {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(.white)
+                    .padding(AppDesignSystem.Spacing.tight)
+                    .background(.black.opacity(0.35), in: Circle())
+            }
         case .uploaded:
             HStack(spacing: 4) {
                 Image(systemName: "checkmark.circle.fill")
@@ -361,7 +376,7 @@ struct GalleryComposerView: View {
 
                 Section("图片") {
                     PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 9, matching: .images) {
-                        Label("插入图片", systemImage: "photo.badge.plus")
+                        Text("插入图片")
                     }
                     .disabled(isSubmitting)
 

@@ -19,8 +19,19 @@ composer_files=(
   "$root/Settings/SettingsRootView.swift"
 )
 
+require_component_in_files() {
+  local component="$1"
+  shift
+  local file
+  for file in "$@"; do
+    if ! rg -q --fixed-strings "$component" "$file"; then
+      printf '[失败] 同类页面未复用公共组件：%s -> %s\n' "$component" "$file"
+      exit 1
+    fi
+  done
+}
+
 for pattern in \
-  'struct AppComposerContentSection' \
   'struct AppCommentComposerContentSection' \
   'struct AppComposerToolbar'; do
   if ! rg -q --fixed-strings "$pattern" "$shared"; then
@@ -30,7 +41,6 @@ for pattern in \
 done
 
 for item in \
-  "$shared_comments:struct AppCommentAvatarView" \
   "$shared_comments:struct AppCommentSectionHeader" \
   "$shared_comments:struct AppCommentIdentityHeader" \
   "$shared_comments:struct AppCommentActionBar" \
@@ -50,7 +60,8 @@ for item in \
   "$root/Shared/DesignSystem/AppFixedColumnComponents.swift:struct AppFixedColumnItem" \
   "$root/Shared/DesignSystem/AppFixedColumnComponents.swift:struct AppFixedColumnRow" \
   "$root/Shared/DesignSystem/AppRefreshStatusComponents.swift:struct AppRefreshStatusRow" \
-  "$root/Shared/DesignSystem/AppFeedComponents.swift:struct AppFeedRow"; do
+  "$root/Shared/DesignSystem/AppFeedComponents.swift:struct AppFeedRow" \
+  "$root/Shared/DesignSystem/AppDesignSystem.swift:struct AppCourseEvaluationRow"; do
   file="${item%%:*}"
   pattern="${item#*:}"
   if ! rg -q --fixed-strings "$pattern" "$file"; then
@@ -92,57 +103,104 @@ for file in "$root/Gallery/GalleryFeedViews.swift" "$root/Paper/PaperRootView.sw
   fi
 done
 
-for file in "$root/Score/ScoreRootView.swift" "$root/Schedule/ScheduleDDLViews.swift"; do
-  if ! rg -q --fixed-strings 'AppRefreshStatusRow' "$file"; then
-    printf '[失败] 数据页面未复用更新时间/刷新公共行：%s\n' "$file"
-    exit 1
-  fi
-done
-
-for file in "$root/Course/CourseRootView.swift" "$root/Score/ScoreRootView.swift"; do
-  if ! rg -q --fixed-strings 'AppFixedColumnRow' "$file"; then
-    printf '[失败] 紧凑比例数据行必须复用公共实现：%s\n' "$file"
-    exit 1
-  fi
-done
-
-score_detail_source="$root/Score/ScoreRootView.swift"
-for marker in 'private struct ScoreDetailView: View' 'List {' 'Section("课程评价")' 'CourseNavigationRequest.lookup' '.appGroupedListStyle()'; do
-  if ! rg -q --fixed-strings "$marker" "$score_detail_source"; then
-    printf '[失败] 成绩详情必须复用原生 List 与统一课程评价入口：%s\n' "$marker"
-    exit 1
-  fi
-done
-if ! rg -q --fixed-strings 'hasLookupIdentity' "$root/Course/CourseModels.swift"; then
-  printf '[失败] 课程导航请求必须约束 ID 路由与名称/课程号检索路由不能混淆\n'
-  exit 1
-fi
-
-if ! rg -q --fixed-strings 'CourseLookupMatcher' "$root/Schedule/ScheduleAcademicCourseResolver.swift"; then
-  printf '[失败] 日程课程评价入口必须使用共享课程匹配器\n'
-  exit 1
-fi
-if ! rg -q --fixed-strings 'CourseLookupMatcher' "$root/Course/CourseRootView.swift"; then
-  printf '[失败] 成绩课程评价入口必须使用共享课程匹配器\n'
-  exit 1
-fi
-
-if ! rg -q --fixed-strings 'AppRefreshStatusRow' "$root/Schedule/CourseScheduleTabView.swift"; then
-  printf '[失败] 课表更新时间必须直接复用主 List 的公共行\n'
-  exit 1
-fi
-
-for file in \
-  "$root/Course/CourseRootView.swift" \
+require_component_in_files 'AppRefreshStatusRow' \
   "$root/Score/ScoreRootView.swift" \
   "$root/Schedule/ScheduleDDLViews.swift" \
-  "$root/Schedule/FreeClassroomViews.swift" \
-  "$root/Mine/MineRootView.swift"; do
-  if ! rg -q --fixed-strings 'appGroupedListStyle()' "$file"; then
-    printf '[失败] 分组列表必须复用唯一公共布局：%s\n' "$file"
-    exit 1
-  fi
-done
+  "$root/Schedule/CourseScheduleTabView.swift"
+require_component_in_files 'AppFixedColumnRow' \
+  "$root/Course/CourseRootView.swift" \
+  "$root/Score/ScoreRootView.swift"
+require_component_in_files 'CourseEvaluationLink' \
+  "$root/Schedule/ScheduleEntryDetailView.swift" \
+  "$root/Score/ScoreRootView.swift"
+
+# 广泛盘点列表 / 表单 / 分组中的 SF Symbol；“我的”页面是用户明确保留的例外。
+# 右侧状态图标可以保留，其余左侧或未分类图标一律阻断审计。
+python3 - "$root" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+root = Path(sys.argv[1])
+container_pattern = re.compile(r"\b(List|Form|Section)\b")
+icon_pattern = re.compile(
+    r"\b(Label\s*\([^\n]*systemImage\s*:|"
+    r"Button\s*\([^\n]*systemImage\s*:|"
+    r"NavigationLink\s*\([^\n]*systemImage\s*:|"
+    r"Image\s*\(systemName\s*:)")
+right_pattern = re.compile(r"checkmark|circle|chevron|xmark|minus|star")
+found = 0
+violations = []
+button_arrow_violations = []
+
+print("[待确认] 列表图标候选（排除 BIT101-iOS/Mine）：")
+for path in sorted(root.rglob("*.swift")):
+    if "Mine" in path.parts:
+        continue
+
+    containers = []
+    button_scopes = []
+    depth = 0
+    for line_number, line in enumerate(path.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
+        code = line.split("//", 1)[0]
+        if container_pattern.search(code) and "{" in code:
+            containers.append(depth)
+        if re.search(r"\bButton\b", code) and "{" in code:
+            button_scopes.append(depth)
+
+        match = icon_pattern.search(code)
+        if match and containers:
+            kind = "右侧/状态候选" if right_pattern.search(code) else "左侧/位置待确认"
+            print(f"  - {path}:{line_number}: {kind}: {code.strip()}")
+            found += 1
+            if not right_pattern.search(code):
+                violations.append(f"{path}:{line_number}: {code.strip()}")
+        if "chevron.right" in code and button_scopes:
+            button_arrow_violations.append(f"{path}:{line_number}: {code.strip()}")
+
+        depth += code.count("{") - code.count("}")
+        while containers and depth <= containers[-1]:
+            containers.pop()
+        while button_scopes and depth <= button_scopes[-1]:
+            button_scopes.pop()
+
+component_sources = {
+    "AppCourseEvaluationRow": root / "Shared/DesignSystem/AppDesignSystem.swift",
+    "AppRefreshStatusRow": root / "Shared/DesignSystem/AppRefreshStatusComponents.swift",
+    "DDLEventCard": root / "Schedule/ScheduleDDLViews.swift",
+}
+for component, source in component_sources.items():
+    lines = source.read_text(encoding="utf-8", errors="ignore").splitlines()
+    start = next((index for index, line in enumerate(lines) if f"struct {component}" in line), None)
+    if start is None:
+        continue
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        if re.match(r"(?:private )?(?:struct|enum|extension)\b", lines[index].strip()):
+            end = index
+            break
+    for offset, line in enumerate(lines[start:end], start + 1):
+        code = line.split("//", 1)[0]
+        if icon_pattern.search(code):
+            kind = "右侧/状态候选" if right_pattern.search(code) else "左侧/位置待确认"
+            print(f"  - {source}:{offset}: 公共组件 {component}，{kind}: {code.strip()}")
+            found += 1
+            if not right_pattern.search(code):
+                violations.append(f"{source}:{offset}: {code.strip()}")
+
+print(f"[待确认] 发现 {found} 个直接源码候选。")
+if violations:
+    print("[失败] 非 Mine 页面不得在列表/表单行直接使用未允许的左侧/未分类图标：")
+    for violation in violations:
+        print(f"  - {violation}")
+    raise SystemExit(1)
+if button_arrow_violations:
+    print("[失败] 普通 Button 不得伪装成下一级导航显示右箭头；需要下一级页面时请使用 NavigationLink：")
+    for violation in button_arrow_violations:
+        print(f"  - {violation}")
+    raise SystemExit(1)
+print("[通过] 未发现未允许的列表/表单左侧或未分类图标。")
+PY
 
 direct_states="$(rg -n 'ContentUnavailableView' "$root" --glob '*.swift' \
   | rg -v 'Shared/Infrastructure/AppStateComponents\.swift|Schedule/FreeClassroomViews\.swift' || true)"
@@ -223,7 +281,7 @@ for file in \
   "$root/Course/CourseCommentViews.swift" \
   "$root/Gallery/GalleryCommentViews.swift" \
   "$root/Paper/PaperCommentViews.swift"; do
-  for pattern in AppCommentThread AppCommentBubble AppCommentIdentityHeader AppCommentActionBar AppCommentAvatarView; do
+  for pattern in AppCommentThread AppCommentBubble AppCommentIdentityHeader AppCommentActionBar AppAvatarView; do
     if ! rg -q --fixed-strings "$pattern" "$file"; then
       printf '[失败] 评论页面未复用公共结构：%s (%s)\n' "$file" "$pattern"
       exit 1
@@ -231,10 +289,6 @@ for file in \
   done
   if rg -q 'private struct (Course|Gallery|Paper)CommentBubble|private struct CourseCommentAvatarView' "$file"; then
     printf '[失败] 评论页面重复实现气泡或头像：%s\n' "$file"
-    exit 1
-  fi
-  if rg -q 'DateFormatter|ISO8601DateFormatter|RelativeDateTimeFormatter' "$file"; then
-    printf '[失败] 评论页面不得重复实现时间解析器：%s\n' "$file"
     exit 1
   fi
 done
@@ -246,23 +300,33 @@ for file in "$root/Schedule/ScheduleRootView.swift" "$root/Score/ScoreRootView.s
   fi
 done
 
-# 社区时间格式跨课程、话廊和消息复用；旧的模块级解析器不得重新出现。
-for file in \
+# 社区/文章时间统一使用一个公共解析器；页面不得保留第二套日期解析或格式化。
+require_component_in_files 'AppDateText' \
   "$root/Course/CourseCommentViews.swift" \
   "$root/Gallery/GalleryCommentViews.swift" \
   "$root/Gallery/GalleryFeedViews.swift" \
   "$root/Gallery/GalleryMessagesView.swift" \
-  "$root/Gallery/GalleryPosterDetailView.swift"; do
-  if ! rg -q --fixed-strings 'AppDateText' "$file"; then
-    printf '[失败] 社区时间文案未复用公共解析器：%s\n' "$file"
+  "$root/Gallery/GalleryPosterDetailView.swift" \
+  "$root/Paper/PaperCommentViews.swift" \
+  "$root/Paper/PaperDetailView.swift" \
+  "$root/Paper/PaperSummaryViews.swift"
+community_date_files=(
+  "$root/Course/CourseCommentViews.swift"
+  "$root/Gallery/GalleryCommentViews.swift"
+  "$root/Gallery/GalleryFeedViews.swift"
+  "$root/Gallery/GalleryMessagesView.swift"
+  "$root/Gallery/GalleryPosterDetailView.swift"
+  "$root/Paper/PaperCommentViews.swift"
+  "$root/Paper/PaperDetailView.swift"
+  "$root/Paper/PaperSummaryViews.swift"
+)
+for file in "${community_date_files[@]}"; do
+  duplicate_date_code="$(rg -n 'DateFormatter|ISO8601DateFormatter|RelativeDateTimeFormatter|GalleryDate|CourseDate|PaperDate' "$file" || true)"
+  if [[ -n "$duplicate_date_code" ]]; then
+    printf '[失败] 同类页面不得重复实现日期解析或格式化：%s\n%s\n' "$file" "$duplicate_date_code"
     exit 1
   fi
 done
-legacy_dates="$(rg -n 'GalleryDateDecoder|CourseCommentDateDecoder' "$root" --glob '*.swift' || true)"
-if [[ -n "$legacy_dates" ]]; then
-  printf '[失败] 不得重复实现社区时间解析器：\n%s\n' "$legacy_dates"
-  exit 1
-fi
 
 # 文章和话廊搜索栏必须共享排序菜单、输入框、清空按钮和顶部材质。
 for file in "$root/Gallery/GallerySearchView.swift" "$root/Paper/PaperSearchViews.swift"; do
@@ -297,7 +361,7 @@ for file in "$root/Gallery/GalleryRootView.swift" "$root/Paper/PaperRootView.swi
   fi
 done
 
-if ! rg -q --fixed-strings 'AppDesignSystem.TopBar.contentGap' "$root/Schedule/CourseScheduleTabView.swift"; then
+if ! rg -q -e 'AppDesignSystem\.TopBar\.contentGap' -e 'AppDesignSystem\.Spacing\.content' "$root/Schedule/CourseScheduleTabView.swift"; then
   printf '[失败] 课表上下内容间隙必须使用公共约束令牌\n'
   exit 1
 fi
@@ -329,10 +393,7 @@ for file in "${composer_files[@]}"; do
   fi
 done
 
-if ! rg -q --fixed-strings 'AppComposerContentSection' "$root/Settings/SettingsRootView.swift"; then
-  printf '[失败] 开发者建议页未复用公共内容段\n'
-  exit 1
-fi
+
 
 # 匿名评论开关只能维护在公共内容段，页面不再各自复制一份。
 duplicate="$(rg -n 'Toggle\("匿名评论"' "${comment_files[@]}" || true)"

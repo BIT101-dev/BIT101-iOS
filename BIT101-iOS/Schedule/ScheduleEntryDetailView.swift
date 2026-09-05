@@ -25,7 +25,6 @@ struct ScheduleEntryDetailSheet: View {
     let onDeleteCustomSchedule: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var pendingCourseDeletion: PendingCourseDeletion?
-    @State private var isResolvingAcademicCourse = false
     @State private var academicCourseAlert: AppAlert?
 
     var body: some View {
@@ -101,30 +100,6 @@ struct ScheduleEntryDetailSheet: View {
         }
     }
 
-    @MainActor
-    private func openAcademicCourse(_ course: CourseRecord) async {
-        guard !isResolvingAcademicCourse else { return }
-
-        isResolvingAcademicCourse = true
-        defer { isResolvingAcademicCourse = false }
-        do {
-            guard let resolution = try await ScheduleAcademicCourseResolver().resolve(course) else {
-                academicCourseAlert = AppAlert(
-                    title: "没有找到此课程",
-                    message: "“\(course.name)”暂未收录在学业课程中。"
-                )
-                return
-            }
-            dismiss()
-            onOpenAcademicCourse(resolution.navigationRequest)
-        } catch {
-            academicCourseAlert = AppAlert(
-                title: "查找课程失败",
-                message: error.localizedDescription
-            )
-        }
-    }
-
     private var title: String {
         switch entry.kind {
         case .course: return "课程详情"
@@ -181,11 +156,9 @@ struct ScheduleEntryDetailSheet: View {
                 }
             }
 
-            Section("课程评价") {
-                academicCourseRow(for: group)
-            }
-
             Section {
+                academicCourseRow(for: group)
+
                 Button {
                     let places = mapPlaces(for: group)
                     guard !places.isEmpty else {
@@ -203,7 +176,7 @@ struct ScheduleEntryDetailSheet: View {
                         )
                     )
                 } label: {
-                    Label("查看上课地点", systemImage: "mappin.and.ellipse")
+                    Text("查看上课地点")
                 }
             }
 
@@ -279,32 +252,16 @@ struct ScheduleEntryDetailSheet: View {
 
     private func academicCourseRow(for group: [CourseRecord]) -> some View {
         let course = group[0]
-        return Button {
-            Task { await openAcademicCourse(course) }
-        } label: {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(ScheduleDisplayNormalizer.normalizeCourseTitle(course.name))
-                        .lineLimit(1)
-                    let teachers = unique(group.map(\.teacher).filter { !$0.isEmpty })
-                    if academicCourseGroups.count > 1, !teachers.isEmpty {
-                        Text(teachers.joined(separator: "、"))
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-                Spacer()
-                if isResolvingAcademicCourse {
-                    ProgressView()
-                } else {
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                }
-            }
+        return CourseEvaluationLink(
+            request: .lookup(
+                courseName: course.name,
+                courseNumber: course.number,
+                teacher: course.teacher
+            )
+        ) { request in
+            dismiss()
+            onOpenAcademicCourse(request)
         }
-        .disabled(isResolvingAcademicCourse)
     }
 
     private func detailLines(for group: [CourseRecord]) -> [String] {
