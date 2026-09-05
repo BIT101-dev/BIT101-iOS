@@ -97,7 +97,7 @@ private struct SettingsIndexPage: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 8) {
+            VStack(spacing: AppDesignSystem.Spacing.regular) {
                 ForEach(SettingsRoute.allCases) { route in
                     if route == .suggestion {
                         Button {
@@ -116,7 +116,7 @@ private struct SettingsIndexPage: View {
                     }
                 }
             }
-            .padding(16)
+            .padding(AppDesignSystem.Spacing.section)
         }
         .background(AppDesignSystem.Palette.groupedBackground)
         .sheet(isPresented: $isShowingSuggestion) {
@@ -133,17 +133,7 @@ private struct SettingsIndexCard: View {
 
     var body: some View {
         AppCard {
-            HStack(spacing: AppDesignSystem.Spacing.control) {
-                Image(systemName: route.systemImage)
-                    .frame(width: 24, height: 24)
-                    .foregroundStyle(.primary)
-
-                Text(route.title)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-
-                Spacer()
-            }
+            AppNavigationRowLabel(title: route.title, systemImage: route.systemImage)
         }
     }
 }
@@ -186,6 +176,7 @@ private struct DeveloperSuggestionAttachment: Encodable {
 
 private struct DeveloperSuggestionPayload: Encodable {
     let mode = "suggestion"
+    let isDevelopmentBuild = AppBuildEnvironment.isDevelopment
     let comment: String
     let errorTitle = "开发者建议"
     let errorMessage = "用户主动提交的功能建议。"
@@ -215,12 +206,12 @@ struct DeveloperSuggestionPage: View {
             Section("建议内容") {
                 ZStack(alignment: .topLeading) {
                     TextEditor(text: $text)
-                        .frame(minHeight: 180)
+                        .frame(minHeight: AppDesignSystem.Size.content.multilineEditorMinimumHeight)
                     if text.isEmpty {
                         Text("请输入你想告诉开发者的内容")
                             .foregroundStyle(.secondary)
-                            .padding(.top, 8)
-                            .padding(.leading, 5)
+                            .padding(.top, AppDesignSystem.Spacing.regular)
+                            .padding(.leading, AppDesignSystem.Spacing.tiny)
                             .allowsHitTesting(false)
                     }
                 }
@@ -234,7 +225,7 @@ struct DeveloperSuggestionPage: View {
 
                 if !imageDrafts.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
+                        HStack(spacing: AppDesignSystem.Spacing.control) {
                             ForEach(imageDrafts) { draft in
                                 GalleryComposerImageTile(
                                     draft: draft,
@@ -244,7 +235,7 @@ struct DeveloperSuggestionPage: View {
                                 )
                             }
                         }
-                        .padding(.vertical, 4)
+                        .padding(.vertical, AppDesignSystem.Spacing.tiny)
                     }
                 }
 

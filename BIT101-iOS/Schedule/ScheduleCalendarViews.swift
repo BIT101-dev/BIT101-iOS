@@ -109,11 +109,12 @@ struct CourseScheduleCalendarView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let cardInset = AppDesignSystem.Schedule.courseCardInset
-            let gridLineWidth = AppDesignSystem.Schedule.gridLineWidth
-            let weekSliderHeight: CGFloat = 36
-            let dateHeaderHeight: CGFloat = 26
-            let headerHeight: CGFloat = displayMode == .weekly ? weekSliderHeight + dateHeaderHeight : 42
+            let gridLineWidth = AppDesignSystem.Schedule.grid.lineWidth
+            let weekSliderHeight = AppDesignSystem.Schedule.weekSlider.sliderHeight
+            let dateHeaderHeight = AppDesignSystem.Schedule.weekSlider.dateHeaderHeight
+            let headerHeight = displayMode == .weekly
+                ? weekSliderHeight + dateHeaderHeight
+                : AppDesignSystem.Schedule.weekSlider.compactHeaderHeight
             let usableHeight = max(proxy.size.height - headerHeight, 1)
             let rowHeight = usableHeight / CGFloat(max(timeTable.count, 1))
             let visibleWeekdays = (1 ... 7).filter {
@@ -124,7 +125,7 @@ struct CourseScheduleCalendarView: View {
             let columnWidth = max(proxy.size.width / CGFloat(visibleWeekdays.count + 1), 1)
             let leftWidth = columnWidth
             let dayWidth = columnWidth
-            let cardWidth = max(dayWidth - cardInset * 2, 1)
+            let cardWidth = max(dayWidth - AppDesignSystem.Schedule.grid.courseCardTotalInset, 1)
             let weekDates = visibleWeekdays.compactMap {
                 Calendar.current.date(
                     byAdding: .day,
@@ -195,7 +196,7 @@ struct CourseScheduleCalendarView: View {
 
                     ForEach(Array(timeTable.enumerated()), id: \.offset) { index, slot in
                         HStack(spacing: 0) {
-                            VStack(spacing: 1) {
+                            VStack(spacing: AppDesignSystem.Schedule.grid.cellSpacing) {
                                 Text("\(index + 1)")
                                     .font(.caption2.weight(.bold))
                                     .lineLimit(1)
@@ -221,7 +222,7 @@ struct CourseScheduleCalendarView: View {
                         Rectangle()
                             .fill(Color.secondary.opacity(row == 0 ? 0.18 : 0.12))
                             .frame(height: gridLineWidth)
-                            .offset(y: headerHeight + rowHeight * CGFloat(row) - gridLineWidth / 2)
+                            .offset(y: headerHeight + rowHeight * CGFloat(row) - AppDesignSystem.Schedule.grid.lineOffset)
                             .zIndex(-1)
                     }
                 }
@@ -248,7 +249,7 @@ struct CourseScheduleCalendarView: View {
                    let index = visibleWeekdays.firstIndex(of: highlightWeekday) {
                     Rectangle()
                         .fill(AppDesignSystem.Palette.accent)
-                        .frame(width: dayWidth, height: 1.5)
+                        .frame(width: dayWidth, height: AppDesignSystem.Schedule.grid.currentTimeLineHeight)
                         .offset(
                             x: leftWidth + dayWidth * CGFloat(index),
                             y: headerHeight + rowHeight * timeLineSection
@@ -279,11 +280,15 @@ struct CourseScheduleCalendarView: View {
                             )
                             .frame(
                                 width: cardWidth,
-                                height: max(rowHeight * (layer.endSection - layer.startSection) - cardInset * 2, 1)
+                                height: max(
+                                    rowHeight * (layer.endSection - layer.startSection)
+                                        - AppDesignSystem.Schedule.grid.courseCardTotalInset,
+                                    1
+                                )
                             )
                             .offset(
                                 y: rowHeight * (layer.startSection - entry.startSection)
-                                    + cardInset
+                                    + gridLineWidth
                             )
                             .zIndex(layer.displayZIndex)
                         }
@@ -300,25 +305,36 @@ struct CourseScheduleCalendarView: View {
                             } preview: {
                                 if entry.kind == .course {
                                     Color.clear
-                                        .frame(width: 1, height: 1)
+                                        .frame(
+                                            width: AppDesignSystem.Schedule.grid.previewTriggerSize,
+                                            height: AppDesignSystem.Schedule.grid.previewTriggerSize
+                                        )
                                         .onAppear { onPrepareCourseShare(entry) }
                                 }
                             }
                         .accessibilityAddTraits(.isButton)
                         .frame(
                             width: cardWidth,
-                            height: max(rowHeight * (entry.endSection - entry.startSection) - cardInset * 2, 1)
+                            height: max(
+                                rowHeight * (entry.endSection - entry.startSection)
+                                    - AppDesignSystem.Schedule.grid.courseCardTotalInset,
+                                1
+                            )
                         )
                     }
                     .frame(
                         width: cardWidth,
-                        height: max(rowHeight * (entry.endSection - entry.startSection) - cardInset * 2, 1)
+                        height: max(
+                            rowHeight * (entry.endSection - entry.startSection)
+                                - AppDesignSystem.Schedule.grid.courseCardTotalInset,
+                            1
+                        )
                     )
                     .offset(
                         x: leftWidth + dayWidth * CGFloat(visibleWeekdays.firstIndex(of: entry.dayOfWeek) ?? 0)
-                            + cardInset,
+                            + gridLineWidth,
                         y: headerHeight + rowHeight * entry.startSection
-                            + cardInset
+                            + gridLineWidth
                     )
                     .zIndex(1)
                 }
@@ -357,7 +373,7 @@ private struct CourseScheduleBlockView: View {
 
     var body: some View {
         contentLayout
-        .padding(AppDesignSystem.Schedule.courseContentInset)
+        .padding(AppDesignSystem.Spacing.micro)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -391,10 +407,10 @@ private struct CourseScheduleBlockView: View {
     private var titleLabel: some View {
         ScheduleDenseTextLabel(
                 text: entry.title,
-                textStyle: AppDesignSystem.Schedule.courseTitleTextStyle,
+                textStyle: AppDesignSystem.Schedule.courseText.style,
                 textColor: uiTextColor,
                 numberOfLines: titleLineLimit,
-                minimumScaleFactor: AppDesignSystem.Schedule.courseTitleMinimumScaleFactor,
+                minimumScaleFactor: AppDesignSystem.Schedule.courseText.titleMinimumScaleFactor,
                 lineBreakMode: titleLineBreakMode
         )
         .frame(maxWidth: .infinity)
@@ -403,7 +419,7 @@ private struct CourseScheduleBlockView: View {
     /// 仅在“名称+地点”模式下，两格课程限制名称最多两行；其它模式不人为截断。
     private var titleLineLimit: Int {
         contentMode == .nameAndLocation && entry.endSection - entry.startSection <= 2
-            ? AppDesignSystem.Schedule.courseTitleMaximumLinesForTwoSections
+            ? AppDesignSystem.Schedule.courseText.titleMaximumLinesForTwoSections
             : 0
     }
 
@@ -414,12 +430,12 @@ private struct CourseScheduleBlockView: View {
     private var locationLabel: some View {
         ScheduleDenseTextLabel(
             text: entry.subtitle,
-            textStyle: AppDesignSystem.Schedule.courseLocationTextStyle,
+            textStyle: AppDesignSystem.Schedule.courseText.style,
             textColor: uiTextColor,
-            numberOfLines: AppDesignSystem.Schedule.courseLocationLineCount,
-            minimumScaleFactor: AppDesignSystem.Schedule.courseLocationMinimumScaleFactor,
+            numberOfLines: AppDesignSystem.Schedule.courseText.locationLineCount,
+            minimumScaleFactor: AppDesignSystem.Schedule.courseText.locationMinimumScaleFactor,
             lineBreakMode: .byCharWrapping,
-            lineHeightMultiple: AppDesignSystem.Schedule.courseLocationLineHeightMultiple
+            lineHeightMultiple: AppDesignSystem.Schedule.courseText.locationLineHeightMultiple
         )
         .frame(maxWidth: .infinity)
     }
@@ -538,7 +554,7 @@ private struct CourseScheduleBackgroundView: View {
             .overlay {
                 if showBorder, entry.kind != .course {
                     AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.badge)
-                        .strokeBorder(borderColor, lineWidth: AppDesignSystem.Schedule.courseBorderWidth)
+                        .strokeBorder(borderColor, lineWidth: AppDesignSystem.Schedule.grid.courseBorderWidth)
                 }
             }
     }
@@ -641,24 +657,35 @@ private struct ScheduleInlineWeekSlider: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let itemWidth: CGFloat = 24
-            let barHeight: CGFloat = 20
+            let itemWidth = AppDesignSystem.Schedule.weekSlider.itemWidth
+            let barHeight = AppDesignSystem.Schedule.weekSlider.barHeight
             let horizontalPadding = max((proxy.size.width - itemWidth) / 2, 0).rounded()
 
             ScrollViewReader { scrollProxy in
                 ScrollView(.horizontal) {
-                    LazyHStack(spacing: 5) {
+                    LazyHStack(spacing: AppDesignSystem.Schedule.weekSlider.itemSpacing) {
                         ForEach(weeks, id: \.self) { week in
-                            VStack(spacing: 1) {
+                            VStack(spacing: AppDesignSystem.Schedule.grid.cellSpacing) {
                                 Text(isMajorWeek(week) ? "\(week)" : "")
                                     .font(.caption2.weight(.semibold))
                                     .foregroundStyle(week == highlightedWeek ? AppDesignSystem.Palette.accent : .secondary)
-                                    .frame(height: 13)
+                                    .frame(height: AppDesignSystem.Schedule.weekSlider.labelHeight)
                                 Capsule()
                                     .fill(week == highlightedWeek ? AppDesignSystem.Palette.accent : Color.secondary.opacity(0.55))
-                                    .frame(width: week == highlightedWeek ? 4 : 3, height: isMajorWeek(week) ? barHeight : 16)
+                                    .frame(
+                                        width: week == highlightedWeek
+                                            ? AppDesignSystem.Schedule.weekSlider.selectedBarWidth
+                                            : AppDesignSystem.Schedule.weekSlider.barWidth,
+                                        height: isMajorWeek(week)
+                                            ? barHeight
+                                            : AppDesignSystem.Schedule.weekSlider.minorBarHeight
+                                    )
                             }
-                            .frame(width: itemWidth, height: 34, alignment: .top)
+                            .frame(
+                                width: itemWidth,
+                                height: AppDesignSystem.Schedule.weekSlider.itemHeight,
+                                alignment: .top
+                            )
                             .contentShape(Rectangle())
                             .id(week)
                             .onTapGesture {
@@ -669,7 +696,7 @@ private struct ScheduleInlineWeekSlider: View {
                         }
                     }
                     .scrollTargetLayout()
-                    .frame(minHeight: 34)
+                    .frame(minHeight: AppDesignSystem.Schedule.weekSlider.itemHeight)
                 }
                 .scrollIndicators(.hidden)
                 .scrollTargetBehavior(.viewAligned)

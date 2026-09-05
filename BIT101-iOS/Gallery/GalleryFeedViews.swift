@@ -179,18 +179,18 @@ struct GalleryPosterCard: View {
     let onDelete: (() -> Void)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
             Text(poster.title)
                 .font(.headline)
                 .foregroundStyle(AppDesignSystem.Palette.highlight)
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: 10) {
+            HStack(spacing: AppDesignSystem.Spacing.control) {
                 AppAvatarView(imageURL: URL(string: poster.user.avatar.lowUrl.isEmpty ? poster.user.avatar.url : poster.user.avatar.lowUrl))
 
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
+                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
+                    HStack(spacing: AppDesignSystem.Spacing.tight) {
                         Text(poster.user.nickname)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.primary)
@@ -199,8 +199,8 @@ struct GalleryPosterCard: View {
                         if !poster.user.identity.text.isEmpty {
                             Text(poster.user.identity.text)
                                 .font(.caption2.weight(.medium))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
+                                .padding(.horizontal, AppDesignSystem.Spacing.tight)
+                                .padding(.vertical, AppDesignSystem.Spacing.micro)
                                 .background(identityColor.opacity(0.15), in: Capsule())
                                 .foregroundStyle(identityColor)
                         }
@@ -235,7 +235,7 @@ struct GalleryPosterCard: View {
                 GalleryPosterImagesView(images: poster.images, onOpenImage: onOpenImage)
             }
 
-            HStack(spacing: 10) {
+            HStack(spacing: AppDesignSystem.Spacing.control) {
                 Label("\(poster.likeNum)", systemImage: "hand.thumbsup")
                 Label("\(poster.commentNum)", systemImage: "bubble.right")
 
@@ -252,9 +252,9 @@ struct GalleryPosterCard: View {
 
             if !poster.tags.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: AppDesignSystem.Tag.interItemSpacing) {
+                    HStack(spacing: AppDesignSystem.Spacing.regular) {
                         ForEach(poster.tags, id: \.self) { tag in
-                            AppTagChip(title: tag, variant: .feed)
+                            AppTagChip(title: tag, variant: .display)
                         }
                     }
                 }
@@ -290,7 +290,7 @@ struct GalleryPosterImagesView: View {
         let displayedImages = Array(images.prefix(4))
 
         GeometryReader { proxy in
-            let spacing: CGFloat = 6
+            let spacing = AppDesignSystem.Spacing.tight
             let count = max(displayedImages.count, 1)
             let totalSpacing = spacing * CGFloat(count - 1)
             let equalItemWidth = max((proxy.size.width - totalSpacing) / CGFloat(count), 0)
@@ -335,7 +335,7 @@ struct GalleryPosterImagesView: View {
             return size.width
         }
 
-        let spacing: CGFloat = 6
+        let spacing = AppDesignSystem.Spacing.tight
         let fullWidth = size.width
         let halfWidth = max((size.width - spacing) / 2, 0)
         let fullUtilization = cropUtilization(imageRatio: imageRatio, containerRatio: fullWidth / size.height)

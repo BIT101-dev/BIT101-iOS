@@ -259,7 +259,7 @@ struct GalleryCachedStillImage: View {
                     .aspectRatio(contentMode: contentMode)
             } else {
                 AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card)
-                    .fill(AppDesignSystem.Palette.highlight.opacity(0.12))
+                    .fill(AppDesignSystem.Palette.highlightSurface)
                     .overlay {
                         Image(systemName: "photo")
                             .foregroundStyle(AppDesignSystem.Palette.highlight)

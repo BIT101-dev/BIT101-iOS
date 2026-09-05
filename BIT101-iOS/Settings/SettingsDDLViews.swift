@@ -94,7 +94,7 @@ private struct DDLSettingsActionRow: View {
     var value: String? = nil
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: AppDesignSystem.Spacing.content) {
             Text(title)
                 .foregroundStyle(AppDesignSystem.Palette.accent)
 

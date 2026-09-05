@@ -49,7 +49,12 @@ struct CourseHistoryGradesSheet: View {
                                     grades: grades,
                                     hidesMakeupOutliers: hidesMakeupOutliers
                                 )
-                                    .listRowInsets(EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14))
+                                    .listRowInsets(EdgeInsets(
+                                        top: AppDesignSystem.Spacing.container,
+                                        leading: AppDesignSystem.Spacing.container,
+                                        bottom: AppDesignSystem.Spacing.container,
+                                        trailing: AppDesignSystem.Spacing.container
+                                    ))
                             }
 
                             Section {
@@ -160,7 +165,7 @@ private struct CourseHistoryGradesChart: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
             HStack(alignment: .firstTextBaseline) {
                 Text("趋势")
                     .font(.headline)
@@ -207,7 +212,7 @@ private struct CourseHistoryGradesChart: View {
             }
             .chartLegend(position: .bottom, alignment: .leading)
             .chartXSelection(value: chartSelection)
-            .frame(height: 240)
+            .frame(height: AppDesignSystem.Size.content.chartHeight)
 
             if let selectedGrade {
                 CourseHistorySelectedLegend(grade: selectedGrade)
@@ -296,12 +301,12 @@ private struct CourseHistorySelectedLegend: View {
     let grade: CourseHistoryGrade
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tight) {
             Text(grade.term)
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 10) {
+            HStack(spacing: AppDesignSystem.Spacing.control) {
                 Text("平均分 \(scoreText(grade.avgScore))")
                 Text("最高分 \(scoreText(grade.maxScore))")
                 Text("学习人数 \(studentText(grade.studentNum))")
@@ -310,7 +315,7 @@ private struct CourseHistorySelectedLegend: View {
             .foregroundStyle(.primary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, 2)
+        .padding(.top, AppDesignSystem.Spacing.micro)
     }
 
     private func scoreText(_ value: Double?) -> String {
@@ -331,17 +336,17 @@ private struct CourseHistoryGradeRow: View {
     let grade: CourseHistoryGrade
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
             Text(grade.term)
                 .font(.headline)
 
-            HStack(spacing: 10) {
+            HStack(spacing: AppDesignSystem.Spacing.control) {
                 CourseHistoryMetric(title: "平均分", value: scoreText(grade.avgScore), tint: AppDesignSystem.Palette.highlight)
-                CourseHistoryMetric(title: "最高分", value: scoreText(grade.maxScore), tint: AppDesignSystem.Palette.scoreMetric)
+                CourseHistoryMetric(title: "最高分", value: scoreText(grade.maxScore), tint: AppDesignSystem.Palette.scoreTab)
                 CourseHistoryMetric(title: "学习人数", value: studentText(grade.studentNum), tint: AppDesignSystem.Palette.info)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, AppDesignSystem.Spacing.tiny)
     }
 
     private func scoreText(_ value: Double?) -> String {
@@ -364,7 +369,7 @@ private struct CourseHistoryMetric: View {
     let tint: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
             Text(title)
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -373,7 +378,7 @@ private struct CourseHistoryMetric: View {
                 .foregroundStyle(.primary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
+        .padding(AppDesignSystem.Spacing.control)
         .background(tint.opacity(0.10), in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.badge))
     }
 }

@@ -92,7 +92,7 @@ struct GalleryComposerImageTile: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(width: 96, height: 96)
+            .frame(width: AppDesignSystem.Size.content.imageDraft, height: AppDesignSystem.Size.content.imageDraft)
             .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.sheet))
             .overlay(alignment: .bottom) {
                 overlayContent
@@ -103,10 +103,10 @@ struct GalleryComposerImageTile: View {
                     .font(.title3)
                     .foregroundStyle(.white, Color.black.opacity(0.55))
             }
-            .padding(6)
+            .padding(AppDesignSystem.Spacing.tight)
             .buttonStyle(.plain)
         }
-        .frame(width: 96, height: 96)
+        .frame(width: AppDesignSystem.Size.content.imageDraft, height: AppDesignSystem.Size.content.imageDraft)
     }
 
     @ViewBuilder
@@ -115,20 +115,20 @@ struct GalleryComposerImageTile: View {
         case .uploading:
             ZStack {
                 Rectangle()
-                    .fill(.black.opacity(0.45))
+                    .fill(AppDesignSystem.Palette.mediaOverlay)
                 ProgressView()
                     .tint(.white)
             }
-            .frame(height: 28)
+            .frame(height: AppDesignSystem.Size.control.compact)
         case .compressing:
             ZStack {
                 Rectangle()
-                    .fill(.black.opacity(0.45))
+                    .fill(AppDesignSystem.Palette.mediaOverlay)
                 Text("\(draft.progress)%")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.white)
             }
-            .frame(height: 28)
+            .frame(height: AppDesignSystem.Size.control.compact)
         case .prepared:
             if showsPreparedSuccessIndicator {
                 Image(systemName: "checkmark.circle.fill")
@@ -138,25 +138,25 @@ struct GalleryComposerImageTile: View {
                     .background(.black.opacity(0.35), in: Circle())
             }
         case .uploaded:
-            HStack(spacing: 4) {
+            HStack(spacing: AppDesignSystem.Spacing.tiny) {
                 Image(systemName: "checkmark.circle.fill")
                 Text("已上传")
             }
             .font(.caption2.weight(.semibold))
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
+            .padding(.vertical, AppDesignSystem.Spacing.tight)
             .background(.black.opacity(0.35))
         case .failed:
             Button(action: onRetry) {
-                HStack(spacing: 4) {
+                HStack(spacing: AppDesignSystem.Spacing.tiny) {
                     Image(systemName: "arrow.clockwise")
                     Text("重试")
                 }
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
+                .padding(.vertical, AppDesignSystem.Spacing.tight)
                 .background(AppDesignSystem.Palette.danger.opacity(0.82))
             }
             .buttonStyle(.plain)

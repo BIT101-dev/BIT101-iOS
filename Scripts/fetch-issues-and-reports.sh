@@ -117,7 +117,9 @@ for key in keys:
         item = {}
         report = {}
     category = "用户建议" if report.get("mode") == "suggestion" else "错误报告"
-    category_dir = staging_dir / category
+    development = report.get("isDevelopmentBuild")
+    source = "开发版" if development is True else "正式版" if development is False else "来源未知"
+    category_dir = staging_dir / source / category
     category_dir.mkdir(parents=True, exist_ok=True)
     attachments = report.get("attachments", [])
     if isinstance(attachments, list) and attachments:
@@ -192,6 +194,20 @@ def category_counts(folder):
         counts[category] += 1
     return counts
 
+def source_counts(folder):
+    counts = {"开发版": 0, "正式版": 0, "来源未知": 0}
+    if not folder.exists():
+        return counts
+    for path in folder.rglob("*.json"):
+        try:
+            report = json.loads(path.read_text(encoding="utf-8")).get("report", {})
+        except (OSError, json.JSONDecodeError):
+            continue
+        development = report.get("isDevelopmentBuild")
+        source = "开发版" if development is True else "正式版" if development is False else "来源未知"
+        counts[source] += 1
+    return counts
+
 lines = [f"GitHub Issues：{len(issues)}"]
 for issue in issues:
     lines.append(f"  #{issue['number']} [{issue['state']}] {issue['title']}  {issue['url']}")
@@ -201,17 +217,23 @@ older_count = len(list(older_dir.rglob("*.json"))) if older_dir.exists() else 0
 current_counts = category_counts(report_dir)
 previous_counts = category_counts(previous_dir)
 older_counts = category_counts(older_dir)
+current_sources = source_counts(report_dir)
+previous_sources = source_counts(previous_dir)
+older_sources = source_counts(older_dir)
 lines.append(
     f"Cloudflare 报告：本次新增 {new_report_count} 条"
-    f"（错误报告 {current_counts['错误报告']}，用户建议 {current_counts['用户建议']}）"
+    f"（错误报告 {current_counts['错误报告']}，用户建议 {current_counts['用户建议']}；"
+    f"开发版 {current_sources['开发版']}，正式版 {current_sources['正式版']}，来源未知 {current_sources['来源未知']}）"
 )
 lines.append(
     f"上次批次：{previous_count} 条"
-    f"（错误报告 {previous_counts['错误报告']}，用户建议 {previous_counts['用户建议']}）"
+    f"（错误报告 {previous_counts['错误报告']}，用户建议 {previous_counts['用户建议']}；"
+    f"开发版 {previous_sources['开发版']}，正式版 {previous_sources['正式版']}，来源未知 {previous_sources['来源未知']}）"
 )
 lines.append(
     f"上上次批次：{older_count} 条"
-    f"（错误报告 {older_counts['错误报告']}，用户建议 {older_counts['用户建议']}）"
+    f"（错误报告 {older_counts['错误报告']}，用户建议 {older_counts['用户建议']}；"
+    f"开发版 {older_sources['开发版']}，正式版 {older_sources['正式版']}，来源未知 {older_sources['来源未知']}）"
 )
 
 pathlib.Path(sys.argv[3]).write_text("\n".join(lines) + "\n", encoding="utf-8")

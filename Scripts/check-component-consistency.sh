@@ -52,6 +52,7 @@ for item in \
   "$shared_controls:struct AppTopSegmentedPicker" \
   "$shared_controls:struct AppOrderedSearchBar" \
   "$shared_controls:struct AppSearchBarContainer" \
+  "$shared_controls:struct AppNavigationRowLabel" \
   "$shared_avatar:struct AppAvatarView" \
   "$shared_tags:enum AppTagChipVariant" \
   "$shared_tags:struct AppTagChip" \
@@ -111,7 +112,8 @@ require_component_in_files 'AppFixedColumnRow' \
   "$root/Course/CourseRootView.swift" \
   "$root/Score/ScoreRootView.swift"
 require_component_in_files 'CourseEvaluationLink' \
-  "$root/Schedule/ScheduleEntryDetailView.swift" \
+  "$root/Schedule/ScheduleEntryDetailView.swift"
+require_component_in_files 'AppCourseEvaluationRow' \
   "$root/Score/ScoreRootView.swift"
 
 # 广泛盘点列表 / 表单 / 分组中的 SF Symbol；“我的”页面是用户明确保留的例外。

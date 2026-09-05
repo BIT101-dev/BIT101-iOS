@@ -20,7 +20,7 @@ struct CourseCommentsSection: View {
     let onLoadMore: (GalleryComment?) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppDesignSystem.Comment.sectionSpacing) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.container) {
             AppCommentSectionHeader(count: totalCommentCount) { EmptyView() }
 
             switch status {
@@ -40,7 +40,7 @@ struct CourseCommentsSection: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, AppDesignSystem.Comment.emptyVerticalPadding)
+                        .padding(.vertical, AppDesignSystem.Spacing.section)
                 } else {
                     LazyVStack(spacing: 0) {
                         ForEach(Array(comments.enumerated()), id: \.element.id) { index, comment in
@@ -56,7 +56,7 @@ struct CourseCommentsSection: View {
 
                                 if index != comments.count - 1 {
                                     Divider()
-                                        .padding(.leading, AppDesignSystem.Comment.dividerLeading)
+                                        .padding(.leading, AppDesignSystem.Comment.layout.dividerLeading)
                                 }
                             }
                             .onAppear {
@@ -100,8 +100,8 @@ private struct CourseCommentRow: View {
             AppAvatarView(
                 imageURL: URL(string: comment.user.avatar.lowUrl.isEmpty ? comment.user.avatar.url : comment.user.avatar.lowUrl),
                 size: isSubComment
-                    ? AppDesignSystem.Comment.subCommentAvatarSize
-                    : AppDesignSystem.Comment.avatarSize
+                    ? AppDesignSystem.Size.control.compact
+                    : AppDesignSystem.Comment.layout.avatarSize
             )
         } content: {
             AppCommentIdentityHeader(
@@ -173,7 +173,7 @@ private struct CourseCommentImagesView: View {
         if displayedImages.count == 1 {
             thumbnailButton(image: displayedImages[0], index: 0, width: 180, maxHeight: 220, aspectRatio: 1)
         } else if displayedImages.count == 2 {
-            HStack(spacing: 8) {
+            HStack(spacing: AppDesignSystem.Spacing.regular) {
                 ForEach(Array(displayedImages.enumerated()), id: \.element.id) { index, image in
                     thumbnailButton(image: image, index: index, width: nil, maxHeight: 150, aspectRatio: 1)
                 }
@@ -226,21 +226,21 @@ struct CourseCommentComposerSheet: View {
 
                 if supportsCourseRating {
                     Section("评分") {
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack(spacing: 6) {
+                        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
+                            HStack(spacing: AppDesignSystem.Spacing.tight) {
                                 ForEach(1 ... 5, id: \.self) { value in
                                     ZStack {
                                         Image(systemName: starSymbol(for: value))
                                             .font(.title3)
                                             .foregroundStyle(AppDesignSystem.Palette.highlight)
-                                            .frame(width: 28, height: 28)
+                                            .frame(width: AppDesignSystem.Size.control.compact, height: AppDesignSystem.Size.control.compact)
 
                                         HStack(spacing: 0) {
                                             Button {
                                                 setRating(for: value, isHalf: true)
                                             } label: {
                                                 Color.clear
-                                                    .frame(width: 14, height: 28)
+                                                    .frame(width: AppDesignSystem.Spacing.container, height: AppDesignSystem.Size.control.compact)
                                                     .contentShape(Rectangle())
                                             }
                                             .buttonStyle(.plain)
@@ -249,7 +249,7 @@ struct CourseCommentComposerSheet: View {
                                                 setRating(for: value, isHalf: false)
                                             } label: {
                                                 Color.clear
-                                                    .frame(width: 14, height: 28)
+                                                    .frame(width: AppDesignSystem.Spacing.container, height: AppDesignSystem.Size.control.compact)
                                                     .contentShape(Rectangle())
                                             }
                                             .buttonStyle(.plain)

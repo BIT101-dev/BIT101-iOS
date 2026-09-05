@@ -606,13 +606,13 @@ struct ScheduleExportCodeSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
+            VStack(spacing: AppDesignSystem.Spacing.section) {
                 ScrollView {
                     Text(code)
                         .font(.footnote.monospaced())
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(14)
+                        .padding(AppDesignSystem.Spacing.container)
                         .background(AppDesignSystem.Palette.secondaryGroupedBackground, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.sheet))
                 }
 
@@ -670,14 +670,14 @@ struct ScheduleImportCodeSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
+            VStack(spacing: AppDesignSystem.Spacing.section) {
                 TextEditor(text: $text)
                     .font(.footnote.monospaced())
-                    .frame(minHeight: 220)
-                    .padding(10)
+                    .frame(minHeight: AppDesignSystem.Schedule.settingsPanelMinimumHeight)
+                    .padding(AppDesignSystem.Spacing.control)
                     .background(AppDesignSystem.Palette.secondaryGroupedBackground, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.sheet))
 
-                HStack(spacing: 12) {
+                HStack(spacing: AppDesignSystem.Spacing.content) {
                     Button {
                         if let clipboard = UIPasteboard.general.string, !clipboard.isEmpty {
                             text = clipboard

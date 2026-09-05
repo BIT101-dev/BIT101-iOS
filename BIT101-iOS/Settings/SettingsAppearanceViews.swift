@@ -46,7 +46,10 @@ struct PagesSettingsPage: View {
                         } label: {
                             Image(systemName: homeTab == tab ? "checkmark.circle.fill" : "circle")
                                 .foregroundStyle(homeTab == tab ? AppDesignSystem.Palette.accent : .secondary)
-                                .frame(width: 44, height: 44)
+                                .frame(
+                                    width: AppDesignSystem.Size.control.touchTarget,
+                                    height: AppDesignSystem.Size.control.touchTarget
+                                )
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -66,7 +69,7 @@ struct PagesSettingsPage: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(editMode.isEditing ? "完成" : "编辑") {
-                    withAnimation(.easeInOut(duration: 0.2)) {
+                    withAnimation(.easeInOut) {
                         editMode = editMode.isEditing ? .inactive : .active
                     }
                 }

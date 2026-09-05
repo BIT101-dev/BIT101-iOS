@@ -17,7 +17,7 @@ struct GallerySettingsPage: View {
             }
 
             Section {
-                HStack(spacing: 12) {
+                HStack(spacing: AppDesignSystem.Spacing.content) {
                     TextField("缓存上限", value: $imageCacheLimitMB, format: .number)
                         .keyboardType(.numberPad)
                         .onChange(of: imageCacheLimitMB) { _, newValue in
@@ -73,11 +73,11 @@ struct AboutSettingsPage: View {
     var body: some View {
         List {
             Section("致谢") {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
                     Text("特别感谢 LINUX DO（L站）以及佬友们。这个 App 的诞生，离不开他们提供的免费 tokens 与无私的支持。L站倡导“真诚、友善、团结、专业，共建你我引以为荣之社区。”某种意义上，BIT101 也是在这样的氛围里，被一点点推出来的。")
                     Link("如果你也想加入，可以点击此处，向开发者发送邮件，以索要L站邀请码。", destination: AppURL.required("mailto:systemd@linux.do"))
                 }
-                .padding(.vertical, 2)
+                .padding(.vertical, AppDesignSystem.Spacing.micro)
             }
 
             Section("联系我们") {

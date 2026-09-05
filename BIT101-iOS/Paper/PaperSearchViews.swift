@@ -73,7 +73,7 @@ struct PaperSearchView: View {
                     }
                 }
             }
-            .padding(.vertical, 12)
+            .padding(.vertical, AppDesignSystem.Spacing.content)
         }
         .background(AppDesignSystem.Palette.groupedBackground)
         .refreshable {

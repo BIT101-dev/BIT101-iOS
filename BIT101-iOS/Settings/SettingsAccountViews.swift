@@ -217,7 +217,7 @@ private struct SettingsSensitiveValueRow: View {
         Button {
             isRevealed.toggle()
         } label: {
-            HStack(spacing: 10) {
+            HStack(spacing: AppDesignSystem.Spacing.control) {
                 Text(title)
                 Spacer()
                 if isRevealed {
@@ -227,8 +227,8 @@ private struct SettingsSensitiveValueRow: View {
                     Text(value)
                         .foregroundStyle(.secondary)
                         .blur(radius: 7)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
+                        .padding(.horizontal, AppDesignSystem.Spacing.tight)
+                        .padding(.vertical, AppDesignSystem.Spacing.micro)
                         .background(.ultraThinMaterial, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.small))
                 }
             }

@@ -26,6 +26,15 @@ extension ScheduleNotice: DiagnosticAlertPresentable {
 }
 extension MapNotice: DiagnosticAlertPresentable {}
 
+/// 反馈来源只区分本地 Debug 安装与正式 Release 构建，不携带用户身份。
+enum AppBuildEnvironment {
+#if DEBUG
+    static let isDevelopment = true
+#else
+    static let isDevelopment = false
+#endif
+}
+
 private nonisolated final class NetworkConnectionDescription: @unchecked Sendable {
     static let shared = NetworkConnectionDescription()
     private let monitor = NWPathMonitor()
@@ -132,6 +141,7 @@ enum ErrorReportRedactor {
 
 private struct ErrorReportPayload: Encodable {
     let mode: String
+    let isDevelopmentBuild: Bool
     let comment: String?
     let errorTitle: String
     let errorMessage: String
@@ -256,6 +266,7 @@ final class ErrorReportViewModel: ObservableObject {
         let trimmedComment = comment.trimmingCharacters(in: .whitespacesAndNewlines)
         let payload = ErrorReportPayload(
             mode: mode.rawValue,
+            isDevelopmentBuild: AppBuildEnvironment.isDevelopment,
             comment: trimmedComment.isEmpty ? nil : viewModelRedactor(trimmedComment),
             errorTitle: alert.title,
             errorMessage: viewModelRedactor(alert.message),
@@ -483,7 +494,7 @@ struct DiagnosticRecoveryActions: View {
     @State private var reportAlert: AppAlert?
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: AppDesignSystem.Spacing.control) {
             Link("查看是否有更新", destination: BIT101AppStore.url)
             Button("向开发者分享错误信息") {
                 reportAlert = AppAlert(title: title, message: message)
@@ -518,7 +529,7 @@ private struct ErrorReportSheet: View {
                 } header: {
                     Text("选择提交内容")
                 } footer: {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                         Text("本次错误")
                             .font(.headline)
                             .foregroundStyle(.primary)
@@ -540,7 +551,7 @@ private struct ErrorReportSheet: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    .padding(.top, 12)
+                    .padding(.top, AppDesignSystem.Spacing.content)
                 }
                 Section("留言（可选）") {
                     TextField("可补充问题现象或复现步骤", text: $viewModel.comment, axis: .vertical)

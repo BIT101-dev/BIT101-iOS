@@ -98,7 +98,7 @@ private struct LoginFormView: View {
                 } footer: {
                     // 页脚集中承载账号说明、风险提示和当前版本差异说明，
                     // 避免登录表单本体被次要信息挤压。
-                    VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
                         Text("使用学校统一身份认证账号密码登录。若未注册过 BIT101 账号，将自动完成注册；密码仅会经不可逆加密后传输。")
                         Text("本 App 尚处在开发中，不保证所有功能始终可用；如遇到问题，请联系 systemd@linux.do。开发者不对使用过程中造成的损失负责。")
                         Text("本 App 为了完成 Apple 的合规性审查，加入了一些风味元素，功能与安卓版有所差异。")
@@ -111,9 +111,9 @@ private struct LoginFormView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 6)
-                    .padding(.bottom, 10)
+                    .padding(.horizontal, AppDesignSystem.Spacing.section)
+                    .padding(.top, AppDesignSystem.Spacing.tight)
+                    .padding(.bottom, AppDesignSystem.Spacing.control)
                     .background(.regularMaterial)
             }
         }

@@ -139,7 +139,7 @@ struct TimeTableEditorSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
                 Text("每行格式：开始时间, 结束时间")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -151,7 +151,7 @@ struct TimeTableEditorSheet: View {
 
                 Spacer()
             }
-            .padding(16)
+            .padding(AppDesignSystem.Spacing.section)
             .navigationTitle("设置时间表")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -192,7 +192,7 @@ struct CustomScheduleListSheet: View {
                         Button {
                             selectedRecord = record
                         } label: {
-                            VStack(alignment: .leading, spacing: 4) {
+                            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
                                 Text(record.title)
                                     .foregroundStyle(.primary)
                                 Text(record.subtitle)

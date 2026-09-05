@@ -3,6 +3,14 @@ import UIKit
 @testable import BIT101_iOS
 
 final class ErrorReportAndSchedulePolicyTests: XCTestCase {
+    func testFeedbackBuildEnvironmentMatchesCompilationMode() {
+#if DEBUG
+        XCTAssertTrue(AppBuildEnvironment.isDevelopment)
+#else
+        XCTAssertFalse(AppBuildEnvironment.isDevelopment)
+#endif
+    }
+
     @MainActor
     func testGlobalKeyboardAccessory() async throws {
         let coordinator = KeyboardBackgroundTapInstaller.Coordinator()

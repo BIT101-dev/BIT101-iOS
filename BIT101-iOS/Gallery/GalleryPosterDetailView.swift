@@ -32,13 +32,13 @@ struct GalleryPosterDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.prominent) {
+                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
                     Text(viewModel.poster.title)
                         .font(.title2.weight(.bold))
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    HStack(spacing: 12) {
+                    HStack(spacing: AppDesignSystem.Spacing.content) {
                         Group {
                             if canOpenPosterUserProfile {
                                 Button {
@@ -54,7 +54,7 @@ struct GalleryPosterDetailView: View {
 
                         Spacer()
 
-                        HStack(spacing: 10) {
+                        HStack(spacing: AppDesignSystem.Spacing.control) {
                             AppDetailCircleButton {
                                 composerTarget = .poster(posterID: viewModel.poster.id)
                             } label: {
@@ -85,7 +85,7 @@ struct GalleryPosterDetailView: View {
                 }
 
                 if viewModel.poster.claim.id != 0 {
-                    HStack(spacing: 6) {
+                    HStack(spacing: AppDesignSystem.Spacing.tight) {
                         Image(systemName: "checkmark.seal")
                         Text(viewModel.poster.claim.text)
                     }
@@ -98,7 +98,7 @@ struct GalleryPosterDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 if !viewModel.poster.images.isEmpty {
-                    VStack(spacing: 10) {
+                    VStack(spacing: AppDesignSystem.Spacing.control) {
                         ForEach(Array(viewModel.poster.images.enumerated()), id: \.element.id) { index, image in
                             Button {
                                 imageViewer = GalleryImageViewerState(images: viewModel.poster.images, initialIndex: index)
@@ -116,14 +116,14 @@ struct GalleryPosterDetailView: View {
                 }
 
                 if !viewModel.poster.tags.isEmpty {
-                    HStack(spacing: 8) {
+                    HStack(spacing: AppDesignSystem.Spacing.regular) {
                         ForEach(viewModel.poster.tags, id: \.self) { tag in
-                            AppTagChip(title: tag, variant: .detail)
+                            AppTagChip(title: tag, variant: .display)
                         }
                     }
                 }
 
-                HStack(spacing: 18) {
+                HStack(spacing: AppDesignSystem.Spacing.prominent) {
                     Text("\(viewModel.poster.likeNum)赞")
                     Text("\(viewModel.poster.commentNum)评论")
                 }
@@ -166,8 +166,8 @@ struct GalleryPosterDetailView: View {
                     }
                 )
             }
-            .padding(.horizontal, AppDesignSystem.Detail.contentPadding)
-            .padding(.top, AppDesignSystem.Detail.contentPadding)
+            .padding(.horizontal, AppDesignSystem.Spacing.prominent)
+            .padding(.top, AppDesignSystem.Spacing.prominent)
         }
         .refreshable {
             await viewModel.refreshAll()
@@ -234,13 +234,13 @@ struct GalleryPosterDetailView: View {
 
     /// 详情页顶部作者信息区域。
     private var authorSummary: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: AppDesignSystem.Spacing.content) {
             AppAvatarView(imageURL: URL(string: viewModel.poster.user.avatar.lowUrl.isEmpty ? viewModel.poster.user.avatar.url : viewModel.poster.user.avatar.lowUrl))
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
                 Text(viewModel.poster.user.nickname)
                     .font(.headline)
-                HStack(spacing: 8) {
+                HStack(spacing: AppDesignSystem.Spacing.regular) {
                     Text(relativeTimeText(viewModel.poster.editTime))
                     if !viewModel.poster.public {
                         Label("仅自己可见", systemImage: "eye.slash")

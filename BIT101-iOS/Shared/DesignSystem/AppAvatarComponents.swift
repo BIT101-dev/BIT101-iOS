@@ -9,7 +9,7 @@ struct AppAvatarView: View {
 
     init(
         imageURL: URL?,
-        size: CGFloat = AppDesignSystem.Comment.avatarSize,
+        size: CGFloat = AppDesignSystem.Comment.layout.avatarSize,
         tint: Color = AppDesignSystem.Palette.highlight,
         systemImage: String = "person.fill"
     ) {

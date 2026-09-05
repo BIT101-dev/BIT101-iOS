@@ -69,7 +69,7 @@ struct AppSMSVerificationSheet: View {
                             Spacer()
                             if isSubmitting {
                                 ProgressView()
-                                    .padding(.trailing, AppDesignSystem.Verification.progressTrailingPadding)
+                                    .padding(.trailing, AppDesignSystem.Spacing.tight)
                                 Text("正在验证")
                             } else {
                                 Text(submitTitle)

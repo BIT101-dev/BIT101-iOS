@@ -31,7 +31,7 @@ struct CourseDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.prominent) {
                 summarySection
                 metricsSection
                 courseResourcesSection
@@ -65,8 +65,8 @@ struct CourseDetailView: View {
                     }
                 )
             }
-            .padding(.horizontal, AppDesignSystem.Detail.contentPadding)
-            .padding(.top, AppDesignSystem.Detail.contentPadding)
+            .padding(.horizontal, AppDesignSystem.Spacing.prominent)
+            .padding(.top, AppDesignSystem.Spacing.prominent)
         }
         .background(AppDesignSystem.Palette.groupedBackground)
         .navigationTitle("课程详情")
@@ -120,14 +120,14 @@ struct CourseDetailView: View {
     }
 
     private var summarySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
+            HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
                 Text(viewModel.resolvedName)
                     .font(.title3.weight(.bold))
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                HStack(spacing: 10) {
+                HStack(spacing: AppDesignSystem.Spacing.control) {
                     AppDetailCircleButton {
                         composerTarget = .course(courseID: initialCourse.id)
                     } label: {
@@ -156,7 +156,7 @@ struct CourseDetailView: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                 LabeledContent("课程号", value: viewModel.resolvedNumber)
                 LabeledContent("学分", value: viewModel.resolvedCreditText)
                 LabeledContent("教师", value: viewModel.resolvedTeachersName.isEmpty ? "-" : viewModel.resolvedTeachersName)
@@ -168,7 +168,7 @@ struct CourseDetailView: View {
     }
 
     private var metricsSection: some View {
-        HStack(spacing: 18) {
+        HStack(spacing: AppDesignSystem.Spacing.prominent) {
             Text("\(CourseRatingText.text(from: viewModel.resolvedRate, empty: "暂无评分"))")
             Text("\(viewModel.resolvedLikeNum)赞")
             Text("\(viewModel.resolvedCommentNum)评论")
@@ -178,7 +178,7 @@ struct CourseDetailView: View {
     }
 
     private var courseResourcesSection: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: AppDesignSystem.Spacing.content) {
             Button {
                 if let url = viewModel.sharedMaterialsURL {
                     openURL(url)
@@ -224,8 +224,11 @@ private struct CourseResourceCard: View {
                 Image(systemName: systemImage)
                     .font(.headline)
                     .foregroundStyle(AppDesignSystem.Palette.highlight)
-                    .frame(width: 34, height: 34)
-                    .background(AppDesignSystem.Palette.highlight.opacity(0.12), in: Circle())
+                    .frame(
+                        width: AppDesignSystem.Size.control.detailActionButton,
+                        height: AppDesignSystem.Size.control.detailActionButton
+                    )
+                    .background(AppDesignSystem.Palette.highlightSurface, in: Circle())
 
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
                     Text(title)

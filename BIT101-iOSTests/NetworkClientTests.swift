@@ -31,8 +31,9 @@ struct NetworkClientTests {
     @Test("HTTP errors preserve structured server messages")
     func structuredHTTPError() async throws {
         let transport = MockHTTPTransport { request in
+            let requestURL = try #require(request.url)
             let response = try #require(HTTPURLResponse(
-                url: try #require(request.url),
+                url: requestURL,
                 statusCode: 503,
                 httpVersion: nil,
                 headerFields: nil
@@ -61,8 +62,9 @@ struct NetworkClientTests {
             #expect(URLComponents(url: try #require(request.url), resolvingAgainstBaseURL: false)?.queryItems == [
                 URLQueryItem(name: "page", value: "2")
             ])
+            let requestURL = try #require(request.url)
             let response = try #require(HTTPURLResponse(
-                url: try #require(request.url),
+                url: requestURL,
                 statusCode: 200,
                 httpVersion: nil,
                 headerFields: nil
@@ -84,7 +86,7 @@ struct NetworkClientTests {
     }
 
     @Test("Required authentication fails before transport")
-    func requiredAuthentication() async {
+    func requiredAuthentication() async throws {
         let transport = MockHTTPTransport { _ in
             Issue.record("Transport must not run without authentication")
             throw TestCommunityError.invalidResponse
@@ -110,8 +112,9 @@ struct NetworkClientTests {
     func optionalAuthentication() async throws {
         let transport = MockHTTPTransport { request in
             #expect(request.value(forHTTPHeaderField: "fake-cookie") == nil)
+            let requestURL = try #require(request.url)
             let response = try #require(HTTPURLResponse(
-                url: try #require(request.url),
+                url: requestURL,
                 statusCode: 200,
                 httpVersion: nil,
                 headerFields: nil

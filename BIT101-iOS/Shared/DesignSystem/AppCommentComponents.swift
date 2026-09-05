@@ -35,7 +35,7 @@ struct AppCommentIdentityHeader: View {
     let onOpenProfile: (() -> Void)?
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.Comment.headerSpacing) {
+        HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.regular) {
             if let onOpenProfile {
                 Button(action: onOpenProfile) {
                     nicknameText
@@ -70,7 +70,7 @@ struct AppCommentActionBar: View {
     let onLike: () -> Void
 
     var body: some View {
-        HStack(spacing: AppDesignSystem.Comment.actionSpacing) {
+        HStack(spacing: AppDesignSystem.Spacing.control) {
             Button(action: onReply) {
                 Label("回复", systemImage: "arrowshape.turn.up.left")
                     .font(.caption.weight(.medium))
@@ -97,7 +97,7 @@ struct AppCommentActionBar: View {
 
             Spacer(minLength: 0)
         }
-        .padding(.top, AppDesignSystem.Comment.actionTopPadding)
+        .padding(.top, AppDesignSystem.Spacing.micro)
     }
 }
 
@@ -115,10 +115,10 @@ struct AppCommentBubble<Avatar: View, Content: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: AppDesignSystem.Comment.avatarContentSpacing) {
+        HStack(alignment: .top, spacing: AppDesignSystem.Spacing.control) {
             avatar
 
-            VStack(alignment: .leading, spacing: AppDesignSystem.Comment.bubbleContentSpacing) {
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tight) {
                 content
             }
         }
@@ -134,11 +134,10 @@ struct AppCommentRowContainer<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppDesignSystem.Comment.rowContentSpacing) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
             content
         }
-        .padding(.horizontal, AppDesignSystem.Comment.rowHorizontalPadding)
-        .padding(.vertical, AppDesignSystem.Comment.rowVerticalPadding)
+        .padding(AppDesignSystem.Spacing.container)
     }
 }
 
@@ -172,13 +171,13 @@ struct AppCommentThread<Comment: Identifiable, Content: View>: View {
 
                             if index != subcomments.count - 1 {
                                 Divider()
-                                    .padding(.leading, AppDesignSystem.Comment.subCommentIndent)
+                                    .padding(.leading, AppDesignSystem.Comment.layout.subCommentIndent)
                             }
                         }
                     }
                 }
-                .padding(.leading, AppDesignSystem.Comment.subCommentIndent)
-                .padding(.top, AppDesignSystem.Comment.subCommentTopPadding)
+                .padding(.leading, AppDesignSystem.Comment.layout.subCommentIndent)
+                .padding(.top, AppDesignSystem.Spacing.tiny)
             }
         }
     }

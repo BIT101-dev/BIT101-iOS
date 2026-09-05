@@ -111,7 +111,7 @@ final class AppSettingsStore: ObservableObject {
     /// 各账号设置快照在 `UserDefaults` 中使用的 key 前缀。
     nonisolated static let storageKeyPrefix = "app.settings.snapshot"
     /// 当前安装版本的更新内容公告；每个版本只展示一次。
-    nonisolated static let currentStartupNoticeVersion = "1.7.7"
+    nonisolated static let currentStartupNoticeVersion = "1.8.0-rc"
     /// 更新内容公告已读状态使用全局 key，避免切换账号后重复展示。
     nonisolated static let startupNoticeSeenKey = "app.startup.notice.seen.version"
     /// “鸣谢 LINUX DO”提示会在首周内按账号均匀散开弹出，避免集中到固定某一天。

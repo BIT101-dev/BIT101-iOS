@@ -50,7 +50,7 @@ struct GalleryPosterActionMenu: View {
         Image(systemName: "ellipsis.circle")
             .font(.title3)
             .foregroundStyle(.secondary)
-            .frame(width: 32, height: 32)
+            .frame(width: AppDesignSystem.Size.control.detailActionButton, height: AppDesignSystem.Size.control.detailActionButton)
     }
 }
 

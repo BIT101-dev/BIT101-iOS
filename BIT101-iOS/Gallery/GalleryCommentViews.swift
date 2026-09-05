@@ -22,7 +22,7 @@ struct GalleryPosterCommentsSection: View {
     let onLoadMore: (GalleryComment?) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppDesignSystem.Comment.sectionSpacing) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.container) {
             AppCommentSectionHeader(count: totalCommentCount) {
                 Picker("排序", selection: Binding(get: { selectedOrder }, set: onSelectOrder)) {
                     ForEach(GalleryCommentOrder.allCases) { order in
@@ -48,7 +48,7 @@ struct GalleryPosterCommentsSection: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, AppDesignSystem.Comment.emptyVerticalPadding)
+                        .padding(.vertical, AppDesignSystem.Spacing.section)
                 } else {
                     LazyVStack(spacing: 0) {
                         ForEach(Array(comments.enumerated()), id: \.element.id) { index, comment in
@@ -64,7 +64,7 @@ struct GalleryPosterCommentsSection: View {
 
                                 if index != comments.count - 1 {
                                     Divider()
-                                        .padding(.leading, AppDesignSystem.Comment.dividerLeading)
+                                        .padding(.leading, AppDesignSystem.Comment.layout.dividerLeading)
                                 }
                             }
                             .onAppear {
@@ -114,8 +114,8 @@ private struct GalleryCommentRow: View {
             AppAvatarView(
                 imageURL: URL(string: comment.user.avatar.lowUrl.isEmpty ? comment.user.avatar.url : comment.user.avatar.lowUrl),
                 size: isSubComment
-                    ? AppDesignSystem.Comment.subCommentAvatarSize
-                    : AppDesignSystem.Comment.avatarSize
+                    ? AppDesignSystem.Size.control.compact
+                    : AppDesignSystem.Comment.layout.avatarSize
             )
         } content: {
             AppCommentIdentityHeader(

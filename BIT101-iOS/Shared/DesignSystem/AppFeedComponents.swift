@@ -16,7 +16,7 @@ struct AppFeedRow<Content: View>: View {
 
             if !isLast {
                 Divider()
-                    .padding(.leading, AppDesignSystem.Feed.dividerLeading)
+                    .padding(.leading, AppDesignSystem.Spacing.container)
             }
         }
     }

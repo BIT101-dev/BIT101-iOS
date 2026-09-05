@@ -210,11 +210,13 @@ struct ScheduleEntryDetailSheet: View {
             }
 
             if index < academicCourseGroups.count - 1 {
-                Rectangle()
-                    .fill(Color.secondary.opacity(0.35))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 1)
-                    .listRowInsets(EdgeInsets(top: 12, leading: 0, bottom: 12, trailing: 0))
+                Divider()
+                    .listRowInsets(EdgeInsets(
+                        top: AppDesignSystem.Spacing.content,
+                        leading: 0,
+                        bottom: AppDesignSystem.Spacing.content,
+                        trailing: 0
+                    ))
                     .listRowBackground(Color.clear)
             }
         }

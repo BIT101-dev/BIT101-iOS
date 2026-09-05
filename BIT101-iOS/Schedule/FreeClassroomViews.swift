@@ -91,7 +91,7 @@ struct FreeClassroomTabView: View {
                 Section {
                     // 这里展示的是已经过 ViewModel 排序和筛选后的可用教室结果。
                     ForEach(viewModel.classroomAvailabilities) { classroom in
-                        HStack(spacing: 12) {
+                        HStack(spacing: AppDesignSystem.Spacing.content) {
                             Text(classroom.name)
                                 .font(.headline)
                             Spacer()
@@ -100,7 +100,7 @@ struct FreeClassroomTabView: View {
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.trailing)
                         }
-                        .padding(.vertical, 4)
+                        .padding(.vertical, AppDesignSystem.Spacing.tiny)
                     }
                 }
             }

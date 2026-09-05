@@ -153,23 +153,11 @@ struct MineRootView: View {
                     settingsRoute = route
                 }
             } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: route.systemImage)
-                        .frame(width: 24, height: 24)
-                        .foregroundStyle(.primary)
-
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(route.title)
-                            .font(.headline)
-                            .foregroundStyle(.primary)
-                    }
-
-                    Spacer()
-
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                }
+                AppNavigationRowLabel(
+                    title: route.title,
+                    systemImage: route.systemImage,
+                    showsDisclosureIndicator: true
+                )
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -348,9 +336,9 @@ private struct MineProfileCard: View {
                 profileAvatar
             }
 
-            Spacer().frame(height: 8)
+            Spacer().frame(height: AppDesignSystem.Spacing.regular)
 
-            HStack(spacing: 8) {
+            HStack(spacing: AppDesignSystem.Spacing.regular) {
                 Text(info.user.nickname)
                     .font(.title3.weight(.bold))
 
@@ -361,20 +349,20 @@ private struct MineProfileCard: View {
                 }
             }
 
-            Spacer().frame(height: 6)
+            Spacer().frame(height: AppDesignSystem.Spacing.tight)
 
             Text(info.user.motto.isEmpty ? "空简介" : info.user.motto)
                 .font(.body)
 
-            Spacer().frame(height: 10)
+            Spacer().frame(height: AppDesignSystem.Spacing.control)
 
-            HStack(spacing: 18) {
+            HStack(spacing: AppDesignSystem.Spacing.prominent) {
                 MineStatButton(number: "\(info.followerNum)", title: "粉丝", action: onOpenFollowers)
                 MineStatButton(number: "\(info.followingNum)", title: "关注", action: onOpenFollowings)
                 MineStatButton(number: posterCountText, title: "帖子", action: onOpenPosters)
             }
         }
-        .padding(.top, 10)
+        .padding(.top, AppDesignSystem.Spacing.control)
     }
 
     private var profileAvatar: some View {
@@ -416,15 +404,15 @@ private struct MineUserListView: View {
             } else {
                 List {
                     ForEach(users) { user in
-                        HStack(spacing: 12) {
+                        HStack(spacing: AppDesignSystem.Spacing.content) {
                             AppAvatarView(
                                 imageURL: URL(string: user.avatar.lowUrl.isEmpty ? user.avatar.url : user.avatar.lowUrl),
                                 size: 46,
                                 tint: AppDesignSystem.Palette.info
                             )
 
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack(spacing: 6) {
+                            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
+                                HStack(spacing: AppDesignSystem.Spacing.tight) {
                                     Text(user.nickname)
                                         .font(.headline)
 
@@ -628,7 +616,7 @@ private struct MineStatButton: View {
     }
 
     private var content: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: AppDesignSystem.Spacing.tiny) {
             Text(number)
                 .font(.headline.weight(.bold))
                 .foregroundStyle(.primary)

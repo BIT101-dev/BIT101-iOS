@@ -344,7 +344,7 @@ private struct CourseSearchRow: View {
     let onClear: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: AppDesignSystem.Spacing.control) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
 
@@ -371,7 +371,7 @@ private struct CourseListRow: View {
     let course: CourseSummary
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tight) {
             AppFixedColumnRow(
                 items: [
                     AppFixedColumnItem(
@@ -395,7 +395,7 @@ private struct CourseListRow: View {
                         alignment: .trailing
                     ),
                 ],
-                height: AppDesignSystem.Size.compactPrimaryRowHeight
+                height: AppDesignSystem.Size.compactRow.primaryHeight
             )
 
             AppFixedColumnRow(
@@ -420,7 +420,7 @@ private struct CourseListRow: View {
                         alignment: .trailing
                     ),
                 ],
-                height: AppDesignSystem.Size.compactSecondaryRowHeight
+                height: AppDesignSystem.Size.compactRow.secondaryHeight
             )
         }
     }

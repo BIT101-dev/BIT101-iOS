@@ -24,18 +24,18 @@ struct PaperDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.prominent) {
+                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
                     Text(viewModel.paper?.title ?? initialPaper.title)
                         .font(.title2.weight(.bold))
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    HStack(spacing: 12) {
+                    HStack(spacing: AppDesignSystem.Spacing.content) {
                         PaperHeaderSummary(paper: viewModel.paper, fallback: initialPaper)
 
                         Spacer()
 
-                        HStack(spacing: 10) {
+                        HStack(spacing: AppDesignSystem.Spacing.control) {
                             AppDetailCircleButton {
                                 composerTarget = .paper(paperID: initialPaper.id)
                             } label: {
@@ -64,7 +64,7 @@ struct PaperDetailView: View {
                 }
 
                 if !contentBlocks.isEmpty {
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.section) {
                         ForEach(contentBlocks) { block in
                             PaperContentBlockView(
                                 block: block,
@@ -86,7 +86,7 @@ struct PaperDetailView: View {
                     Button {
                         Task { await viewModel.likePaper() }
                     } label: {
-                        HStack(spacing: 8) {
+                        HStack(spacing: AppDesignSystem.Spacing.regular) {
                             if viewModel.isLikingPaper {
                                 ProgressView()
                                     .controlSize(.small)
@@ -98,10 +98,10 @@ struct PaperDetailView: View {
                                 .fontWeight(.semibold)
                         }
                         .foregroundStyle(isPaperLiked ? Color.white : AppDesignSystem.Palette.highlight)
-                        .padding(.horizontal, 22)
-                        .frame(minHeight: 44)
+                        .padding(.horizontal, AppDesignSystem.Spacing.prominent)
+                .frame(minHeight: AppDesignSystem.Size.control.touchTarget)
                         .background(
-                            isPaperLiked ? AppDesignSystem.Palette.highlight : AppDesignSystem.Palette.highlight.opacity(0.12),
+                            isPaperLiked ? AppDesignSystem.Palette.highlight : AppDesignSystem.Palette.highlightSurface,
                             in: Capsule()
                         )
                     }
@@ -110,9 +110,9 @@ struct PaperDetailView: View {
                     .accessibilityLabel(isPaperLiked ? "取消点赞" : "点赞文章")
                     Spacer()
                 }
-                .padding(.top, 6)
+                .padding(.top, AppDesignSystem.Spacing.tight)
 
-                HStack(spacing: 18) {
+                HStack(spacing: AppDesignSystem.Spacing.prominent) {
                     Text("\(paperLikeCount)赞")
                     Text("\(viewModel.paper?.commentNum ?? initialPaper.commentNum)评论")
                 }
@@ -149,8 +149,8 @@ struct PaperDetailView: View {
                     }
                 )
             }
-            .padding(.horizontal, AppDesignSystem.Detail.contentPadding)
-            .padding(.vertical, AppDesignSystem.Detail.contentPadding)
+            .padding(.horizontal, AppDesignSystem.Spacing.prominent)
+            .padding(.vertical, AppDesignSystem.Spacing.prominent)
         }
         .background(AppDesignSystem.Palette.groupedBackground)
         .refreshable {
@@ -264,14 +264,14 @@ private struct PaperHeaderSummary: View {
     let fallback: PaperSummary
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: AppDesignSystem.Spacing.control) {
             AppAvatarView(
                 imageURL: paper?.updateUser.avatar.preferredRemoteURL,
                 size: 38,
                 tint: AppDesignSystem.Palette.neutral
             )
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
                 Text(authorName)
                     .font(.subheadline.weight(.semibold))
                 Text(AppDateText.timestampText(from: paper?.updateTime ?? fallback.updateTime))
@@ -302,22 +302,22 @@ private struct PaperContentBlockView: View {
         case let .paragraph(_, text):
             PaperRichTextView(text: text, textStyle: .body, textColor: .label)
         case let .quote(_, text, caption):
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                 PaperRichTextView(text: text, textStyle: .body, textColor: .label)
                 if let caption, !String(caption.characters).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     PaperRichTextView(text: caption, textStyle: .caption1, textColor: .secondaryLabel)
                 }
             }
-            .padding(.leading, 14)
+            .padding(.leading, AppDesignSystem.Spacing.container)
             .overlay(alignment: .leading) {
                 Capsule()
                     .fill(AppDesignSystem.Palette.highlight)
-                    .frame(width: 4)
+                    .frame(width: AppDesignSystem.Spacing.tiny)
             }
         case let .list(_, items, ordered):
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                 ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                    HStack(alignment: .top, spacing: 8) {
+                    HStack(alignment: .top, spacing: AppDesignSystem.Spacing.regular) {
                         Text(ordered ? "\(index + 1)." : "•")
                             .font(.body.weight(.semibold))
                             .foregroundStyle(.secondary)
@@ -329,7 +329,7 @@ private struct PaperContentBlockView: View {
             Button {
                 onOpenImage(image)
             } label: {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                     GalleryCachedStillImage(url: image.preferredRemoteURL)
                     .frame(maxWidth: .infinity)
                     .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))

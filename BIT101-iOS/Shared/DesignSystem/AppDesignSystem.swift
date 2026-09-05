@@ -7,10 +7,14 @@ import UIKit
 enum AppDesignSystem {
     enum Spacing {
         static let micro: CGFloat = 2
+        static let tiny: CGFloat = 4
         static let tight: CGFloat = 6
+        static let regular: CGFloat = 8
         static let control: CGFloat = 10
         static let content: CGFloat = 12
+        static let container: CGFloat = 14
         static let section: CGFloat = 16
+        static let prominent: CGFloat = 18
     }
 
     enum Radius {
@@ -23,112 +27,149 @@ enum AppDesignSystem {
     }
 
     enum Size {
-        static let floatingActionButton: CGFloat = 42
-        static let floatingIcon: CGFloat = 16
-        static let detailActionButton: CGFloat = 34
-        static let badgeMinimum: CGFloat = 18
-        static let badgePadding: CGFloat = 4
-        static let wideBadgePadding: CGFloat = 5
-        static let badgeOffset: CGFloat = 5
-        static let floatingActionBottomInset: CGFloat = 20
-        static let touchTarget: CGFloat = 44
-        static let compactPrimaryRowHeight: CGFloat = 22
-        static let compactSecondaryRowHeight: CGFloat = 20
+        struct FloatingActionMetrics {
+            let button: CGFloat
+            let icon: CGFloat
+            let badgeMinimum: CGFloat
+            let wideBadgePadding: CGFloat
+            let badgeOffset: CGFloat
+            let bottomInset: CGFloat
+            let contentInset: CGFloat
+        }
+
+        struct ControlMetrics {
+            let detailActionButton: CGFloat
+            let navigationIcon: CGFloat
+            let compact: CGFloat
+            let touchTarget: CGFloat
+        }
+
+        struct ContentMetrics {
+            let multilineEditorMinimumHeight: CGFloat
+            let imageDraft: CGFloat
+            let chartHeight: CGFloat
+            let unreadIndicator: CGFloat
+            let messageDividerLeading: CGFloat
+            let refreshStatusListHeight: CGFloat
+        }
+
+        struct CompactRowMetrics {
+            let primaryHeight: CGFloat
+            let secondaryHeight: CGFloat
+        }
+
+        static let floatingAction = FloatingActionMetrics(
+            button: 42,
+            icon: 16,
+            badgeMinimum: 18,
+            wideBadgePadding: 5,
+            badgeOffset: 5,
+            bottomInset: 20,
+            contentInset: 84
+        )
+        static let control = ControlMetrics(
+            detailActionButton: 34,
+            navigationIcon: 24,
+            compact: 28,
+            touchTarget: 44
+        )
+        static let content = ContentMetrics(
+            multilineEditorMinimumHeight: 180,
+            imageDraft: 96,
+            chartHeight: 240,
+            unreadIndicator: 7,
+            messageDividerLeading: 52,
+            refreshStatusListHeight: 58
+        )
+        static let compactRow = CompactRowMetrics(primaryHeight: 22, secondaryHeight: 20)
     }
 
     enum Typography {
-        static let floatingIcon = Font.system(size: Size.floatingIcon, weight: .semibold)
+        static let floatingIcon = Font.system(size: Size.floatingAction.icon, weight: .semibold)
         static let floatingLabel = Font.system(size: 17, weight: .bold, design: .rounded)
     }
 
-    enum Feed {
-        static let cardPadding: CGFloat = 14
-        static let dividerLeading: CGFloat = 14
-    }
-
-    enum TopBar {
-        /// 顶部控件和顶部列表内容共用的可调横向边距。
-        static let horizontalPadding: CGFloat = 8
-        /// 顶部内容统一贴合安全区下沿；安全区本身负责与灵动岛/状态栏保持距离。
-        static let topPadding: CGFloat = 0
-        /// 顶部控件与正文、正文与底部系统栏之间共用的内容间隙。
-        static let contentGap: CGFloat = 6
-        /// 标准顶部控件与第一个列表 Section 的间距，和分组列表 Section 间距一致。
-        static let bottomPadding: CGFloat = AppDesignSystem.Spacing.content
-        /// 单独承载更新时间 Section 的原生 List 高度。
-        static let statusListHeight: CGFloat = 58
-        static let stackedBottomPadding: CGFloat = 4
-    }
-
     enum Schedule {
-        /// 课表网格线的统一宽度；课程块以此作为与网格线的对称内缩。
-        static let gridLineWidth: CGFloat = 0.5
-        static let courseCardInset: CGFloat = gridLineWidth
-        static let courseBorderWidth: CGFloat = 1
-        /// 课程块内所有方向共用的文字安全内边距。
-        static let courseContentInset: CGFloat = AppDesignSystem.Spacing.micro
-        static let courseTitleTextStyle: UIFont.TextStyle = .caption2
-        static let courseLocationTextStyle: UIFont.TextStyle = .caption2
-        static let courseTitleMaximumLinesForTwoSections = 2
-        static let courseTitleMinimumScaleFactor: CGFloat = 0.75
-        static let courseLocationLineCount = 2
-        static let courseLocationLineHeightMultiple: CGFloat = 0.8
-        static let courseLocationMinimumScaleFactor: CGFloat = 0.01
-    }
+        struct GridMetrics {
+            let lineWidth: CGFloat
+            let cellSpacing: CGFloat
+            let currentTimeLineHeight: CGFloat
+            let previewTriggerSize: CGFloat
+            let lineOffset: CGFloat
+            let courseCardTotalInset: CGFloat
+            let courseBorderWidth: CGFloat
+        }
 
-    enum Search {
-        static let horizontalPadding: CGFloat = 14
-        static let verticalPadding: CGFloat = 10
-        static let chromeHorizontalPadding: CGFloat = 14
-        static let chromeTopPadding: CGFloat = 10
-        static let chromeBottomPadding: CGFloat = 8
-        static let clearButtonOpacity: CGFloat = 0.35
-    }
+        struct WeekSliderMetrics {
+            let itemSpacing: CGFloat
+            let itemWidth: CGFloat
+            let itemHeight: CGFloat
+            let labelHeight: CGFloat
+            let barHeight: CGFloat
+            let minorBarHeight: CGFloat
+            let selectedBarWidth: CGFloat
+            let barWidth: CGFloat
+            let sliderHeight: CGFloat
+            let dateHeaderHeight: CGFloat
+            let compactHeaderHeight: CGFloat
+        }
 
-    enum Tag {
-        static let feedHorizontalPadding: CGFloat = 8
-        static let feedVerticalPadding: CGFloat = 5
-        static let detailHorizontalPadding: CGFloat = 10
-        static let detailVerticalPadding: CGFloat = 6
-        static let selectionHorizontalPadding: CGFloat = 12
-        static let selectionVerticalPadding: CGFloat = 8
-        static let interItemSpacing: CGFloat = 8
-    }
+        struct CourseTextMetrics {
+            let style: UIFont.TextStyle
+            let titleMaximumLinesForTwoSections: Int
+            let titleMinimumScaleFactor: CGFloat
+            let locationLineCount: Int
+            let locationLineHeightMultiple: CGFloat
+            let locationMinimumScaleFactor: CGFloat
+        }
 
-    enum Detail {
-        static let contentPadding: CGFloat = 18
+        static let grid = GridMetrics(
+            lineWidth: 0.5,
+            cellSpacing: 1,
+            currentTimeLineHeight: 1.5,
+            previewTriggerSize: 1,
+            lineOffset: 0.25,
+            courseCardTotalInset: 1,
+            courseBorderWidth: 1
+        )
+        static let weekSlider = WeekSliderMetrics(
+            itemSpacing: 5,
+            itemWidth: 24,
+            itemHeight: 34,
+            labelHeight: 13,
+            barHeight: 20,
+            minorBarHeight: 16,
+            selectedBarWidth: 4,
+            barWidth: 3,
+            sliderHeight: 36,
+            dateHeaderHeight: 26,
+            compactHeaderHeight: 42
+        )
+        static let courseText = CourseTextMetrics(
+            style: .caption2,
+            titleMaximumLinesForTwoSections: 2,
+            titleMinimumScaleFactor: 0.75,
+            locationLineCount: 2,
+            locationLineHeightMultiple: 0.8,
+            locationMinimumScaleFactor: 0.01
+        )
+        static let settingsPanelMinimumHeight: CGFloat = 220
     }
 
     enum Comment {
-        static let sectionSpacing: CGFloat = 14
-        static let emptyVerticalPadding: CGFloat = 16
-        static let rowHorizontalPadding: CGFloat = 14
-        static let rowVerticalPadding: CGFloat = 14
-        static let rowContentSpacing: CGFloat = AppDesignSystem.Spacing.control
-        static let avatarContentSpacing: CGFloat = AppDesignSystem.Spacing.control
-        static let bubbleContentSpacing: CGFloat = 6
-        static let headerSpacing: CGFloat = 8
-        static let actionSpacing: CGFloat = AppDesignSystem.Spacing.control
-        static let actionTopPadding: CGFloat = AppDesignSystem.Spacing.micro
-        static let avatarSize: CGFloat = 34
-        static let subCommentAvatarSize: CGFloat = 28
-        static let subCommentTopPadding: CGFloat = 4
-        static let subCommentIndent: CGFloat = 42
-        static let dividerLeading: CGFloat = 46
-    }
+        struct LayoutMetrics {
+            let avatarSize: CGFloat
+            let subCommentIndent: CGFloat
+            let dividerLeading: CGFloat
+        }
 
-    /// 加载、空态和失败态的公共布局语义；不借用某个业务模块的参数。
-    enum State {
-        static let inlineVerticalPadding: CGFloat = Spacing.content
-    }
-
-    enum Verification {
-        static let progressTrailingPadding: CGFloat = 6
+        static let layout = LayoutMetrics(avatarSize: 34, subCommentIndent: 42, dividerLeading: 46)
     }
 
     enum Palette {
         static let accent = Color.accentColor
         static let highlight = Color.orange
+        static let highlightSurface = Color.orange.opacity(0.12)
         static let danger = Color.red
         static let info = Color.blue
         static let success = Color.green
@@ -138,12 +179,12 @@ enum AppDesignSystem {
         static let mapTab = Color.green
         static let scoreTab = Color.pink
         static let paperTab = Color.brown
-        static let scoreMetric = Color.pink
         static let systemBackground = Color(uiColor: .systemBackground)
         static let groupedBackground = Color(uiColor: .systemGroupedBackground)
         static let secondaryBackground = Color(uiColor: .secondarySystemBackground)
         static let secondaryGroupedBackground = Color(uiColor: .secondarySystemGroupedBackground)
         static let secondaryFill = Color(uiColor: .secondarySystemFill)
+        static let mediaOverlay = Color.black.opacity(0.45)
     }
 
     static func roundedRectangle(
@@ -242,10 +283,10 @@ struct AppDetailCircleButton<Label: View>: View {
         Button(action: action) {
             label
                 .frame(
-                    width: AppDesignSystem.Size.detailActionButton,
-                    height: AppDesignSystem.Size.detailActionButton
+                    width: AppDesignSystem.Size.control.detailActionButton,
+                    height: AppDesignSystem.Size.control.detailActionButton
                 )
-                .background(AppDesignSystem.Palette.highlight.opacity(0.12), in: Circle())
+                .background(AppDesignSystem.Palette.highlightSurface, in: Circle())
         }
         .buttonStyle(.plain)
     }
@@ -284,14 +325,14 @@ struct AppFloatingActionButton: View {
                         .font(.caption2.weight(.bold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, badgeText.count > 2
-                            ? AppDesignSystem.Size.wideBadgePadding
-                            : AppDesignSystem.Size.badgePadding)
+                            ? AppDesignSystem.Size.floatingAction.wideBadgePadding
+                            : AppDesignSystem.Spacing.tiny)
                         .frame(
-                            minWidth: AppDesignSystem.Size.badgeMinimum,
-                            minHeight: AppDesignSystem.Size.badgeMinimum
+                            minWidth: AppDesignSystem.Size.floatingAction.badgeMinimum,
+                            minHeight: AppDesignSystem.Size.floatingAction.badgeMinimum
                         )
                         .background(AppDesignSystem.Palette.danger, in: Capsule())
-                        .offset(x: AppDesignSystem.Size.badgeOffset, y: -AppDesignSystem.Size.badgeOffset)
+                        .offset(x: AppDesignSystem.Size.floatingAction.badgeOffset, y: -AppDesignSystem.Size.floatingAction.badgeOffset)
                 }
             }
         }
@@ -328,8 +369,8 @@ struct AppFloatingActionButtonSurface<Content: View>: View {
     var body: some View {
         content
             .frame(
-                width: AppDesignSystem.Size.floatingActionButton,
-                height: AppDesignSystem.Size.floatingActionButton
+                width: AppDesignSystem.Size.floatingAction.button,
+                height: AppDesignSystem.Size.floatingAction.button
             )
             .background(fill ?? .clear, in: Circle())
             .background(.ultraThinMaterial, in: Circle())
@@ -350,7 +391,7 @@ struct AppFloatingActionStack<Content: View>: View {
             content
         }
         .padding(.trailing, AppDesignSystem.Spacing.control)
-        .padding(.bottom, AppDesignSystem.Size.floatingActionBottomInset)
+        .padding(.bottom, AppDesignSystem.Size.floatingAction.bottomInset)
     }
 }
 
@@ -387,7 +428,7 @@ extension View {
         listStyle(.insetGrouped)
             .listSectionSpacing(AppDesignSystem.Spacing.content)
             .contentMargins(.top, 0, for: .scrollContent)
-            .contentMargins(.horizontal, AppDesignSystem.TopBar.horizontalPadding, for: .scrollContent)
+            .contentMargins(.horizontal, AppDesignSystem.Spacing.regular, for: .scrollContent)
     }
 
     func appCommentSectionStyle() -> some View {
@@ -402,7 +443,7 @@ extension View {
     }
 
     func appFeedCardStyle() -> some View {
-        padding(AppDesignSystem.Feed.cardPadding)
+        padding(AppDesignSystem.Spacing.container)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(AppDesignSystem.Palette.systemBackground)
             .contentShape(Rectangle())

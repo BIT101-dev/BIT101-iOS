@@ -59,7 +59,7 @@ struct ScheduleRootView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             // 给课表、DDL、空教室统一保留到底部系统 Tab 栏的固定内容间隙。
             Color.clear
-                .frame(height: AppDesignSystem.TopBar.contentGap)
+                .frame(height: AppDesignSystem.Spacing.tight)
         }
         .toolbar(.hidden, for: .navigationBar)
         .task {
@@ -140,7 +140,7 @@ struct ScheduleRootView: View {
         let nextIndex = currentIndex + step
         guard allSections.indices.contains(nextIndex) else { return }
 
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(.easeInOut) {
             viewModel.selectedSection = allSections[nextIndex]
         }
     }
@@ -149,7 +149,7 @@ struct ScheduleRootView: View {
     private func consumeRequestedSectionIfNeeded() {
         guard let requestedSection else { return }
 
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(.easeInOut) {
             viewModel.selectedSection = requestedSection
             if requestedSection == .courses {
                 // 从小组件、锁屏组件或灵动岛回到课表时，发一个“回首页”信号，

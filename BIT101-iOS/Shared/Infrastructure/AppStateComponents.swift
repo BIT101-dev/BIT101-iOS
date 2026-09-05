@@ -28,7 +28,7 @@ struct AppInlineLoadingState: View {
             }
             Spacer()
         }
-        .padding(.vertical, AppDesignSystem.State.inlineVerticalPadding)
+        .padding(.vertical, AppDesignSystem.Spacing.content)
     }
 }
 

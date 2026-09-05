@@ -198,7 +198,7 @@ private struct DDLEventCard: View {
                     Image(systemName: event.done ? "checkmark.circle.fill" : "circle")
                         .font(.title3)
                         .foregroundStyle(tint)
-                        .frame(width: AppDesignSystem.Size.touchTarget, height: AppDesignSystem.Size.touchTarget)
+                        .frame(width: AppDesignSystem.Size.control.touchTarget, height: AppDesignSystem.Size.control.touchTarget)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)

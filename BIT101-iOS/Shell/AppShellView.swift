@@ -103,12 +103,12 @@ enum AppTab: String, Identifiable, Codable {
 ///
 /// 壳层只关心两件事：按照设置中心决定展示哪些 tab，以及把退出登录回调继续往下传。
 struct AppShellView: View {
-    private static let startupNoticeTitle = "1.7.7 版本更新"
+    private static let startupNoticeTitle = "1.8.0 RC 版本更新"
     private static let startupNoticeBody = """
-    课表支持全学期叠加查看、重叠课程分层显示和更顺滑的周次切换。
-    课程详情可查看上课地点并跳转地图，支持长按课程或空白处分享。
-    建议反馈支持图片、草稿恢复与更清晰的错误信息提交流程。
-    优化错误提示、课表同步和整体使用体验。
+    课程与课表：统一课程检索、评价入口、学期同步和验证码续接。
+    课表展示：整理周次、重叠课程、DDL、空教室和相关导航。
+    界面组件：合并评论、信息流、搜索、头像、标签和状态视图。
+    稳定性与反馈：完善错误分类、网络检查和开发版/正式版来源标记。
     """
     private static let linuxDoThanksTitle = "特别鸣谢 LINUX DO"
     private static let linuxDoThanksBody = "特别感谢 LINUX DO（L站）以及佬友们。这个 App 的诞生，离不开他们提供的免费 tokens 与无私的支持。L站倡导“真诚、友善、团结、专业，共建你我引以为荣之社区。”某种意义上，BIT101 也是在这样的氛围里，被一点点推出来的。\n\n如果你也想加入，可以向开发者发送邮件索要 L 站邀请码：systemd@linux.do"

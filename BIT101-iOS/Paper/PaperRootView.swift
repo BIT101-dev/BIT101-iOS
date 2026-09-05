@@ -88,7 +88,7 @@ struct PaperRootView: View {
                         }
                 }
             }
-            .padding(.bottom, 84)
+            .padding(.bottom, AppDesignSystem.Size.floatingAction.contentInset)
             }
             .refreshable {
                 await viewModel.refresh()
@@ -217,7 +217,7 @@ struct PaperRootView: View {
         let lastIndex = allOrders.index(before: allOrders.endIndex)
 
         if (currentIndex == 0 && step == -1) || (currentIndex == lastIndex && step == 1) {
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(.easeInOut) {
                 selectedGallerySurfaceRawValue = "gallery"
             }
             return
@@ -226,7 +226,7 @@ struct PaperRootView: View {
         let nextIndex = currentIndex + step
         guard allOrders.indices.contains(nextIndex) else { return }
 
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(.easeInOut) {
             viewModel.selectedOrder = allOrders[nextIndex]
         }
     }

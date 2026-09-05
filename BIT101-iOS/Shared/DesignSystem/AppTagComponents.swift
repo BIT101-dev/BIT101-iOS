@@ -2,29 +2,26 @@ import SwiftUI
 
 /// 信息流、详情页和编辑页共用的标签胶囊变体。
 enum AppTagChipVariant {
-    case feed
-    case detail
+    case display
     case selection(isSelected: Bool)
 
     var horizontalPadding: CGFloat {
         switch self {
-        case .feed: return AppDesignSystem.Tag.feedHorizontalPadding
-        case .detail: return AppDesignSystem.Tag.detailHorizontalPadding
-        case .selection: return AppDesignSystem.Tag.selectionHorizontalPadding
+        case .display: return AppDesignSystem.Spacing.control
+        case .selection: return AppDesignSystem.Spacing.content
         }
     }
 
     var verticalPadding: CGFloat {
         switch self {
-        case .feed: return AppDesignSystem.Tag.feedVerticalPadding
-        case .detail: return AppDesignSystem.Tag.detailVerticalPadding
-        case .selection: return AppDesignSystem.Tag.selectionVerticalPadding
+        case .display: return AppDesignSystem.Spacing.tight
+        case .selection: return AppDesignSystem.Spacing.regular
         }
     }
 
     var font: Font {
         switch self {
-        case .feed, .detail:
+        case .display:
             return .caption.weight(.medium)
         case .selection:
             return .footnote.weight(.medium)
@@ -48,7 +45,7 @@ struct AppTagChip: View {
 
     private var foregroundColor: Color {
         switch variant {
-        case .feed, .detail:
+        case .display:
             return AppDesignSystem.Palette.highlight
         case let .selection(isSelected):
             return isSelected ? .white : AppDesignSystem.Palette.accent
@@ -57,8 +54,8 @@ struct AppTagChip: View {
 
     private var backgroundColor: Color {
         switch variant {
-        case .feed, .detail:
-            return AppDesignSystem.Palette.highlight.opacity(0.12)
+        case .display:
+            return AppDesignSystem.Palette.highlightSurface
         case let .selection(isSelected):
             return isSelected
                 ? AppDesignSystem.Palette.accent

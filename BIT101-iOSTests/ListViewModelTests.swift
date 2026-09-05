@@ -79,6 +79,18 @@ struct CourseListViewModelTests {
         #expect(service.requests.map { "\($0.search):\($0.page)" } == ["高等数学:1"])
     }
 
+    @Test("Score entry searches directly without rejecting an empty course name")
+    @MainActor
+    func searchesDirectlyFromScoreEntry() async {
+        let service = ServiceStub(pages: [0: .success([])])
+        let viewModel = CourseListViewModel(service: service)
+
+        await viewModel.search(for: "")
+
+        #expect(service.requests.map { "\($0.search):\($0.page)" } == [":0"])
+        #expect(viewModel.state.status == .loaded)
+    }
+
     private func course(id: Int) throws -> CourseSummary {
         try JSONDecoder().decode(CourseSummary.self, from: Data("""
         {"id":\(id),"name":"课程\(id)","number":"C-\(id)","credit":2,

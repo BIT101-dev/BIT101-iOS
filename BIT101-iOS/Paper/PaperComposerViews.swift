@@ -103,7 +103,7 @@ struct PaperCommentComposerSheet: View {
             List {
                 AppCommentComposerContentSection(title: target.title, anonymous: $anonymous) {
                     TextEditor(text: $text)
-                        .frame(minHeight: 180)
+                        .frame(minHeight: AppDesignSystem.Size.content.multilineEditorMinimumHeight)
                 }
             }
             .appGroupedListStyle()
@@ -133,8 +133,8 @@ private struct PaperActionPillButtonStyle: ButtonStyle {
         configuration.label
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(accentColor)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.horizontal, AppDesignSystem.Spacing.container)
+            .padding(.vertical, AppDesignSystem.Spacing.control)
             .background(AppDesignSystem.Palette.secondaryGroupedBackground, in: Capsule())
             .opacity(configuration.isPressed ? 0.75 : 1)
     }

@@ -1,5 +1,35 @@
 import SwiftUI
 
+/// 设置入口等导航行共用的图标、标题和可选披露标记。
+struct AppNavigationRowLabel: View {
+    let title: String
+    let systemImage: String
+    var showsDisclosureIndicator = false
+
+    var body: some View {
+        HStack(spacing: AppDesignSystem.Spacing.control) {
+            Image(systemName: systemImage)
+                .frame(
+                    width: AppDesignSystem.Size.control.navigationIcon,
+                    height: AppDesignSystem.Size.control.navigationIcon
+                )
+                .foregroundStyle(.primary)
+
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(.primary)
+
+            Spacer()
+
+            if showsDisclosureIndicator {
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+}
+
 /// 统一应用内的 segmented 控件基础样式和选择触感。
 struct AppSegmentedPicker<Selection: Hashable, Content: View>: View {
     let title: String
@@ -36,9 +66,9 @@ enum AppTopSegmentedPickerVariant {
     var bottomPadding: CGFloat {
         switch self {
         case .standard:
-            return AppDesignSystem.TopBar.bottomPadding
+            return AppDesignSystem.Spacing.content
         case .stacked:
-            return AppDesignSystem.TopBar.stackedBottomPadding
+            return AppDesignSystem.Spacing.tiny
         }
     }
 }
@@ -66,8 +96,7 @@ struct AppTopSegmentedPicker<Selection: Hashable, Content: View>: View {
         AppSegmentedPicker(title: title, selection: $selection) {
             content
         }
-        .padding(.horizontal, AppDesignSystem.TopBar.horizontalPadding)
-        .padding(.top, AppDesignSystem.TopBar.topPadding)
+        .padding(.horizontal, AppDesignSystem.Spacing.regular)
         .padding(.bottom, variant.bottomPadding)
         .frame(maxWidth: .infinity)
         .background(AppDesignSystem.Palette.groupedBackground)
@@ -124,17 +153,13 @@ struct AppOrderedSearchBar<Order: Hashable, OrderContent: View>: View {
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.title3)
-                    .foregroundStyle(
-                        text.isEmpty
-                            ? AppDesignSystem.Palette.neutral.opacity(AppDesignSystem.Search.clearButtonOpacity)
-                            : AppDesignSystem.Palette.highlight
-                    )
+                    .foregroundStyle(AppDesignSystem.Palette.highlight)
             }
             .buttonStyle(.plain)
             .disabled(text.isEmpty)
         }
-        .padding(.horizontal, AppDesignSystem.Search.horizontalPadding)
-        .padding(.vertical, AppDesignSystem.Search.verticalPadding)
+        .padding(.horizontal, AppDesignSystem.Spacing.container)
+        .padding(.vertical, AppDesignSystem.Spacing.control)
         .background(
             AppDesignSystem.Palette.secondaryBackground,
             in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped)
@@ -152,9 +177,9 @@ struct AppSearchBarContainer<Content: View>: View {
 
     var body: some View {
         content
-            .padding(.horizontal, AppDesignSystem.Search.chromeHorizontalPadding)
-            .padding(.top, AppDesignSystem.Search.chromeTopPadding)
-            .padding(.bottom, AppDesignSystem.Search.chromeBottomPadding)
+            .padding(.horizontal, AppDesignSystem.Spacing.container)
+            .padding(.top, AppDesignSystem.Spacing.control)
+            .padding(.bottom, AppDesignSystem.Spacing.regular)
             .background(.thinMaterial)
     }
 }

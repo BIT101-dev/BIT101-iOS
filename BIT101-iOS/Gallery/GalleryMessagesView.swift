@@ -52,7 +52,7 @@ struct GalleryMessagesView: View {
 
                                 if index != currentState.items.count - 1 {
                                     Divider()
-                                        .padding(.leading, 52)
+                                        .padding(.leading, AppDesignSystem.Size.content.messageDividerLeading)
                                 }
                             }
                             .listRowInsets(EdgeInsets())
@@ -175,7 +175,7 @@ struct GalleryMessagesView: View {
         let nextIndex = currentIndex + step
         guard allTypes.indices.contains(nextIndex) else { return }
 
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(.easeInOut) {
             viewModel.selectedType = allTypes[nextIndex]
         }
     }
@@ -216,15 +216,15 @@ private struct GalleryMessageRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
             GalleryMessageAvatarView(user: message.fromUser, type: type)
 
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tight) {
+                HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.regular) {
                     if isUnread {
                         Circle()
                             .fill(AppDesignSystem.Palette.highlight)
-                            .frame(width: 7, height: 7)
+                            .frame(width: AppDesignSystem.Size.content.unreadIndicator, height: AppDesignSystem.Size.content.unreadIndicator)
                     }
 
                     Text(message.fromUser.displayName)
@@ -256,11 +256,11 @@ private struct GalleryMessageRow: View {
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tertiary)
-                    .padding(.top, 2)
+                    .padding(.top, AppDesignSystem.Spacing.micro)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, AppDesignSystem.Spacing.container)
+        .padding(.vertical, AppDesignSystem.Spacing.content)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(isUnread ? AppDesignSystem.Palette.highlight.opacity(0.06) : AppDesignSystem.Palette.systemBackground)
         .contentShape(Rectangle())
@@ -286,7 +286,7 @@ private struct GalleryMessageAvatarView: View {
         if user.id == 0 {
             AppAvatarView(
                 imageURL: nil,
-                size: AppDesignSystem.Comment.avatarSize,
+                size: AppDesignSystem.Comment.layout.avatarSize,
                 systemImage: type == .system ? "bell.fill" : "person.fill"
             )
         } else {

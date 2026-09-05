@@ -59,6 +59,13 @@ final class CourseListViewModel: ObservableObject {
         alert = nil
     }
 
+    /// 接收成绩页的课程名并直接搜索，不再先解析成唯一课程详情。
+    func search(for query: String) async {
+        hasBootstrapped = true
+        searchText = query
+        await refresh()
+    }
+
     func bootstrapIfNeeded() async {
         guard !hasBootstrapped else { return }
         hasBootstrapped = true

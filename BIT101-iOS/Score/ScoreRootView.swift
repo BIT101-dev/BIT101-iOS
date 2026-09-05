@@ -38,7 +38,7 @@ struct ScoreRootView: View {
             case .score:
                 ScoreListPage(
                     viewModel: scoreViewModel,
-                    onOpenCourseEvaluation: openCourseSearch
+                    onSearchCourse: openCourseSearch
                 )
                     .simultaneousGesture(surfaceSwitchGesture)
                     .transition(.opacity)
@@ -48,7 +48,7 @@ struct ScoreRootView: View {
                     .transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: selectedSurface)
+        .animation(.easeInOut, value: selectedSurface)
         .safeAreaInset(edge: .top, spacing: 0) {
             AppTopSegmentedPicker(title: "成绩内容", selection: surfaceSelection) {
                 ForEach(ScoreSurface.allCases) { surface in
@@ -73,10 +73,12 @@ struct ScoreRootView: View {
     }
 
     /// 成绩没有教师字段：只进入课程搜索页，不替用户猜测具体教师。
-    private func openCourseSearch(_ request: CourseNavigationRequest) {
+    private func openCourseSearch(_ courseName: String) {
         selectedSurface = .course
-        prepareCourseSurface(request)
         requestedCourse = nil
+        Task {
+            await courseViewModel.search(for: courseName)
+        }
     }
 
     private func prepareCourseSurface(_ request: CourseNavigationRequest) {
@@ -118,7 +120,7 @@ struct ScoreRootView: View {
     private func switchSurface(to surface: ScoreSurface) {
         guard surface != selectedSurface else { return }
 
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(.easeInOut) {
             selectedSurface = surface
         }
     }
@@ -129,7 +131,7 @@ struct ScoreRootView: View {
 /// 保留原有“筛选 -> 统计 -> 列表”结构，只是被合并页托管。
 private struct ScoreListPage: View {
     @ObservedObject var viewModel: ScoreViewModel
-    let onOpenCourseEvaluation: (CourseNavigationRequest) -> Void
+    let onSearchCourse: (String) -> Void
 
     var body: some View {
         Group {
@@ -241,7 +243,7 @@ private struct ScoreListPage: View {
                                 NavigationLink {
                                     ScoreDetailView(
                                         row: row,
-                                        onOpenCourseEvaluation: onOpenCourseEvaluation
+                                        onSearchCourse: onSearchCourse
                                     )
                                 } label: {
                                     ScoreRowCard(row: row)
@@ -348,7 +350,7 @@ private struct TrustedTranscriptPage: View {
             case .loaded:
                 if !viewModel.images.isEmpty {
                     ScrollView {
-                        LazyVStack(spacing: 12) {
+                        LazyVStack(spacing: AppDesignSystem.Spacing.content) {
                             ForEach(Array(viewModel.images.enumerated()), id: \.offset) { index, image in
                                 Button {
                                     imageViewer = GalleryImageViewerState(
@@ -423,7 +425,7 @@ private struct ScoreRowCard: View {
 
     /// 列表态成绩卡片的紧凑布局。
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tight) {
             AppFixedColumnRow(
                 items: [
                     AppFixedColumnItem(
@@ -446,7 +448,7 @@ private struct ScoreRowCard: View {
                         alignment: .trailing
                     ),
                 ],
-                height: AppDesignSystem.Size.compactPrimaryRowHeight
+                height: AppDesignSystem.Size.compactRow.primaryHeight
             )
 
             AppFixedColumnRow(
@@ -471,10 +473,10 @@ private struct ScoreRowCard: View {
                         alignment: .trailing
                     ),
                 ],
-                height: AppDesignSystem.Size.compactSecondaryRowHeight
+                height: AppDesignSystem.Size.compactRow.secondaryHeight
             )
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, AppDesignSystem.Spacing.tiny)
     }
 
     /// 学分字段在列表里的展示格式。
@@ -500,7 +502,7 @@ private struct PendingScoreRowCard: View {
     let course: CourseRecord
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tight) {
             AppFixedColumnRow(
                 items: [
                     AppFixedColumnItem(
@@ -523,7 +525,7 @@ private struct PendingScoreRowCard: View {
                         alignment: .trailing
                     ),
                 ],
-                height: AppDesignSystem.Size.compactPrimaryRowHeight
+                height: AppDesignSystem.Size.compactRow.primaryHeight
             )
 
             AppFixedColumnRow(
@@ -548,10 +550,10 @@ private struct PendingScoreRowCard: View {
                         alignment: .trailing
                     ),
                 ],
-                height: AppDesignSystem.Size.compactSecondaryRowHeight
+                height: AppDesignSystem.Size.compactRow.secondaryHeight
             )
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, AppDesignSystem.Spacing.tiny)
     }
 }
 
@@ -564,13 +566,13 @@ private struct PendingScoreDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.prominent) {
+                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
                     Text(course.name.isEmpty ? "未命名课程" : course.name)
                         .font(.title3.weight(.bold))
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    HStack(spacing: 18) {
+                    HStack(spacing: AppDesignSystem.Spacing.prominent) {
                         Text("成绩 -")
                         Text("均分 -")
                         Text(course.credit > 0 ? "学分 \(course.credit)" : "学分 -")
@@ -578,7 +580,7 @@ private struct PendingScoreDetailView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                         ScoreDetailMetaRow(title: "课程号", value: course.number)
                         ScoreDetailMetaRow(title: "学期", value: course.term)
                         ScoreDetailMetaRow(title: "课程性质", value: course.type)
@@ -588,7 +590,7 @@ private struct PendingScoreDetailView: View {
 
                 Divider()
 
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                     Text("课程信息")
                         .font(.headline)
                     ScoreDetailMetaRow(title: "教师", value: course.teacher)
@@ -602,9 +604,9 @@ private struct PendingScoreDetailView: View {
                     }
                 }
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 18)
-            .padding(.bottom, 24)
+            .padding(.horizontal, AppDesignSystem.Spacing.prominent)
+            .padding(.top, AppDesignSystem.Spacing.prominent)
+            .padding(.bottom, AppDesignSystem.Spacing.prominent)
         }
         .background(AppDesignSystem.Palette.groupedBackground)
         .navigationTitle("成绩详情")
@@ -644,7 +646,7 @@ private struct ScoreDetailMetaRow: View {
 /// 由列表直接 push 进入，使用平铺信息流替代旧的抽屉式详情。
 private struct ScoreDetailView: View {
     let row: ScoreRow
-    let onOpenCourseEvaluation: (CourseNavigationRequest) -> Void
+    let onSearchCourse: (String) -> Void
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -682,21 +684,13 @@ private struct ScoreDetailView: View {
     }
 
     private var courseEvaluationLink: some View {
-        CourseEvaluationLink(
-            request: .lookup(
-                courseName: row.courseName,
-                courseNumber: row.courseNumber
-            )
-        ) { request in
+        Button {
             dismiss()
-            onOpenCourseEvaluation(request)
+            onSearchCourse(row.courseName)
+        } label: {
+            AppCourseEvaluationRow()
         }
-        .disabled(!canOpenCourseEvaluation)
-    }
-
-    private var canOpenCourseEvaluation: Bool {
-        !row.courseName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || !row.courseNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        .buttonStyle(.plain)
     }
 
     private var remainingFields: [ScoreField] {

@@ -243,7 +243,7 @@ struct GalleryRootView: View {
         let lastIndex = allFeeds.index(before: allFeeds.endIndex)
 
         if (currentIndex == 0 && step == -1) || (currentIndex == lastIndex && step == 1) {
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(.easeInOut) {
                 selectedSurface = .paper
             }
             return
@@ -252,7 +252,7 @@ struct GalleryRootView: View {
         let nextIndex = currentIndex + step
         guard allFeeds.indices.contains(nextIndex) else { return }
 
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(.easeInOut) {
             viewModel.selectedFeed = allFeeds[nextIndex]
         }
     }

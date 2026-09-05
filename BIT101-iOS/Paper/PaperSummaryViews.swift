@@ -13,19 +13,19 @@ struct PaperSummaryCard: View {
     let onOpen: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
             Text(paper.title)
                 .font(.headline)
                 .foregroundStyle(.primary)
                 .lineLimit(2)
 
-            HStack(spacing: 10) {
+            HStack(spacing: AppDesignSystem.Spacing.control) {
                 AppAvatarView(
                     imageURL: previewMetadata?.avatarURL,
                     tint: AppDesignSystem.Palette.neutral
                 )
 
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
                     Text(previewMetadata?.authorName ?? "加载中")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
@@ -46,7 +46,7 @@ struct PaperSummaryCard: View {
                     .lineLimit(3)
             }
 
-            HStack(spacing: 12) {
+            HStack(spacing: AppDesignSystem.Spacing.content) {
                 Label("\(paper.likeNum)", systemImage: "hand.thumbsup")
                 Label("\(paper.commentNum)", systemImage: "text.bubble")
                 Spacer(minLength: 12)
