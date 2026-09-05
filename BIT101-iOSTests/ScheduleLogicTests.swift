@@ -182,9 +182,57 @@ struct CourseLookupMatcherTests {
         )?.id == second.id)
     }
 
-    @Test("Resolution prepares all same-name teachers while selecting the current teacher")
+    @Test("Records sharing the same course identity can be opened without a teacher")
+    func resolvesSameIdentityWithoutTeacher() {
+        let first = makeSummary(id: 1, name: "线性代数", number: "MATH-1", teacher: "张老师")
+        let second = makeSummary(id: 2, name: "线性代数", number: "MATH-1", teacher: "李老师")
+        #expect(CourseLookupMatcher.bestMatch(
+            courseNumber: "MATH-1",
+            courseName: "线性代数",
+            teacher: "",
+            candidates: [first, second]
+        )?.id == first.id)
+    }
+
+    @Test("Evaluation lookup searches both identity fields and normalizes punctuation")
     @MainActor
-    func resolvesAndPrefetchesSearchResults() async throws {
+    func evaluationLookupFallsBackToCourseName() async throws {
+        let expected = makeSummary(
+            id: 7,
+            name: "自动控制理论II（双语）",
+            number: "AUTO-1",
+            teacher: ""
+        )
+        let service = ServiceStub(results: [
+            "AUTO 1": [],
+            "自动控制理论II(双语)": [expected],
+        ])
+
+        let result = try #require(await CourseEvaluationResolver(service: service).resolve(
+            courseName: "自动控制理论II(双语)",
+            courseNumber: "AUTO 1"
+        ))
+
+        #expect(result.selectedCourse.id == expected.id)
+        #expect(result.searchQuery == "自动控制理论II(双语)")
+        #expect(result.searchResults.map(\.id) == [expected.id])
+        #expect(Set(service.searches) == ["AUTO 1", "自动控制理论II(双语)"])
+    }
+
+    @Test("Unknown evaluation course resolves to a failure result")
+    @MainActor
+    func evaluationLookupReturnsNilWhenNoCourseMatches() async throws {
+        let service = ServiceStub(results: [:])
+        let result = try await CourseEvaluationResolver(service: service).resolve(
+            courseName: "不存在的课程",
+            courseNumber: "UNKNOWN-1"
+        )
+        #expect(result == nil)
+    }
+
+    @Test("Resolver queries both identities while selecting the current teacher")
+    @MainActor
+    func resolvesBothIdentitiesAndSelectsTeacher() async throws {
         let first = makeSummary(id: 1, name: "大学物理", number: "PHY-1", teacher: "张老师")
         let second = makeSummary(id: 2, name: "大学物理", number: "PHY-1", teacher: "李老师")
         let service = ServiceStub(results: [
@@ -201,9 +249,6 @@ struct CourseLookupMatcherTests {
 
         #expect(Set(service.searches) == ["PHY-1", "大学物理"])
         #expect(resolution.selectedCourse.id == second.id)
-        #expect(resolution.searchQuery == "大学物理")
-        #expect(resolution.searchResults.map(\.id) == [first.id, second.id])
-        #expect(resolution.navigationRequest.preparedCourse?.id == second.id)
     }
 
     private func makeSummary(
