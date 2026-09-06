@@ -30,6 +30,12 @@ extension ScheduleViewModel {
             courseSyncCoordinator.waitForCourseAuthentication(term: term)
             smsChallenge = challenge
             smsVerificationError = nil
+        } catch let error as ScheduleServiceError where error.isSchoolTransportFailure {
+            courseSyncCoordinator.reset()
+            notice = ScheduleNotice(
+                title: "学校服务连接失败",
+                message: error.schoolTransportFailureMessage
+            )
         } catch ScheduleServiceError.challengeInvalid(let message) {
             smsChallenge = nil
             smsVerificationError = nil
@@ -93,6 +99,12 @@ extension ScheduleViewModel {
             courseSyncCoordinator.waitForAvailableTermsAuthentication()
             smsChallenge = challenge
             smsVerificationError = nil
+        } catch let error as ScheduleServiceError where error.isSchoolTransportFailure {
+            courseSyncCoordinator.reset()
+            notice = ScheduleNotice(
+                title: "学校服务连接失败",
+                message: error.schoolTransportFailureMessage
+            )
         } catch {
             if isCancellation(error) { return }
             hasLoadedAvailableTerms = true
@@ -147,6 +159,14 @@ extension ScheduleViewModel {
         } catch ScheduleServiceError.secondFactorRequired(let challenge) {
             smsChallenge = challenge
             smsVerificationError = "请输入最新收到的短信验证码。"
+        } catch let error as ScheduleServiceError where error.isSchoolTransportFailure {
+            smsChallenge = nil
+            smsVerificationError = nil
+            courseSyncCoordinator.reset()
+            notice = ScheduleNotice(
+                title: "学校服务连接失败",
+                message: error.schoolTransportFailureMessage
+            )
         } catch ScheduleServiceError.challengeInvalid(let message) {
             smsChallenge = nil
             smsVerificationError = nil

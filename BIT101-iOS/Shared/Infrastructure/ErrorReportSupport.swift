@@ -96,6 +96,36 @@ actor NetworkDiagnosticStore {
     }
 
     func recent() -> [NetworkDiagnosticRecord] { Array(records.suffix(10)) }
+
+    /// 返回最近一次学校网页请求的安全外链；去除 query 和 fragment，避免把 ticket、token
+    /// 等一次性认证参数带到 Safari。API 请求和 BIT101 自有接口不作为网页入口。
+    func latestSchoolServicePageURL() -> URL? {
+        let schoolHosts = Set([
+            "sso.bit.edu.cn",
+            "webvpn.bit.edu.cn",
+            "jxzxehall.bit.edu.cn",
+            "jxzxehallapp.bit.edu.cn"
+        ])
+
+        for record in records.reversed() {
+            let bodyIndicatesFailure = record.responseBody?.localizedCaseInsensitiveContains("error") == true
+                || record.responseBody?.localizedCaseInsensitiveContains("certificate") == true
+            let failed = record.error != nil || (record.statusCode ?? 200) >= 400 || bodyIndicatesFailure
+            guard failed else { continue }
+            guard let url = URL(string: record.url),
+                  let host = url.host?.lowercased(),
+                  schoolHosts.contains(host)
+            else { continue }
+
+            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            components?.query = nil
+            components?.fragment = nil
+            if let pageURL = components?.url {
+                return pageURL
+            }
+        }
+        return nil
+    }
 }
 
 enum ErrorReportRedactor {
@@ -320,6 +350,9 @@ private struct AppErrorPresentation: Identifiable {
     let title: String
     let message: String
     let allowsDiagnostics: Bool
+    let schoolServiceURL: URL?
+
+    var allowsSchoolServiceLink: Bool { allowsDiagnostics && schoolServiceURL != nil }
 
     static var versionText: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
@@ -353,10 +386,17 @@ final class AppErrorPresenter {
     }
 
     func present(_ alert: any DiagnosticAlertPresentable) {
-        queue.append(AppErrorPresentation(
-            title: alert.title, message: alert.message, allowsDiagnostics: alert.allowsDiagnostics
-        ))
-        presentNextIfPossible()
+        Task { @MainActor [weak self] in
+            let schoolServiceURL = await NetworkDiagnosticStore.shared.latestSchoolServicePageURL()
+            guard let self else { return }
+            queue.append(AppErrorPresentation(
+                title: alert.title,
+                message: alert.message,
+                allowsDiagnostics: alert.allowsDiagnostics,
+                schoolServiceURL: schoolServiceURL
+            ))
+            presentNextIfPossible()
+        }
     }
 
     private func presentNextIfPossible() {
@@ -383,6 +423,14 @@ final class AppErrorPresenter {
             controller.addAction(UIAlertAction(title: "向开发者分享错误信息", style: .default) { [weak self] _ in
                 self?.presentReportSheet(for: item)
             })
+            if item.allowsSchoolServiceLink {
+                controller.addAction(UIAlertAction(title: "万一学校服务 g 了？", style: .default) { [weak self] _ in
+                    if let schoolServiceURL = item.schoolServiceURL {
+                        UIApplication.shared.open(schoolServiceURL)
+                    }
+                    self?.finishAlert()
+                })
+            }
         }
         let dismissAction = UIAlertAction(title: "知道了", style: .cancel) { [weak self] _ in
             self?.finishAlert()
@@ -492,13 +540,21 @@ struct DiagnosticRecoveryActions: View {
     let title: String
     let message: String
     @State private var reportAlert: AppAlert?
+    @State private var schoolServiceURL: URL?
 
     var body: some View {
         VStack(spacing: AppDesignSystem.Spacing.control) {
             Link("查看是否有更新", destination: BIT101AppStore.url)
+            if let schoolServiceURL {
+                Link("万一学校服务 g 了？", destination: schoolServiceURL)
+                    .foregroundStyle(.secondary)
+            }
             Button("向开发者分享错误信息") {
                 reportAlert = AppAlert(title: title, message: message)
             }
+        }
+        .task {
+            schoolServiceURL = await NetworkDiagnosticStore.shared.latestSchoolServicePageURL()
         }
         .sheet(item: $reportAlert) { ErrorReportSheet(alert: $0) }
     }

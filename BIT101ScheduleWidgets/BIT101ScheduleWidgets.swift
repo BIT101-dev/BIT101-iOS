@@ -66,6 +66,9 @@ struct CourseReminderLiveActivityWidget: Widget {
             }
             .padding(12)
             .activityBackgroundTint(.clear)
+            // 锁屏 Live Activity 的内容区域不会继承 Dynamic Island 的 widgetURL，
+            // 需要在这里单独声明，否则点击锁屏提醒不会回到主 App。
+            .widgetURL(URL(string: "bit101://schedule/courses"))
         } dynamicIsland: { context in
             DynamicIsland {
                 // 展开态左侧：只显示“课程/日程”类型，尽量贴近 demo 的低密度布局。

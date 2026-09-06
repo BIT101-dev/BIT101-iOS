@@ -93,9 +93,11 @@ Scripts/build-install-device.sh
 Scripts/capture-screenshot-device.sh
 ```
 
-截图固定写入 `.build/latest-screenshot.png`；也可以传入设备 ID 和 Developer 目录。
+截图固定写入 `.build/screenshot.png`；也可以传入设备 ID 和 Developer 目录。
 
 脚本会自动寻找可用的 iPhone 真机；未连接或未信任时给出提示并退出。它只执行 Debug 构建、安装和启动，不执行 Archive。需要时也可传入设备 ID 和 Developer 目录。
+
+产物纪律：同一性质只保留一个固定路径；构建、测试、截图和 Smoke 结果都覆盖既有路径，不得手动复制出第二份。文件名只使用类别名，不加 `latest`、设备名、时间、UUID 或序号；临时的 DerivedData、截图和日志在验证结束后清理。Finder 自动生成的 `.DS_Store` 是被 `.gitignore` 忽略的系统元数据，不由脚本读取、删除或审计。
 
 ### Watch 与 iOS 构建说明
 

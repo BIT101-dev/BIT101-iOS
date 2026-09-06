@@ -17,6 +17,7 @@ enum ScheduleServiceError: LocalizedError {
     case challengeInvalid(String)
     case teachingCenterSessionExpired
     case authenticationFailed(String)
+    case schoolTransportFailure
     case schoolSecondFactorRequired
     case invalidResponse
     case invalidLexuePage
@@ -27,6 +28,32 @@ enum ScheduleServiceError: LocalizedError {
     var isUnpublishedCourseSchedule: Bool {
         guard case let .schoolResponse(message) = self else { return false }
         return message.contains("课表未发布") || message.contains("课表尚未发布")
+    }
+
+    /// 学校统一认证后端可能把 WebVPN/TLS 故障作为 challenge 的失败消息返回。
+    /// 这类消息不能被误判为“验证码已失效”。
+    var isSchoolTransportFailure: Bool {
+        switch self {
+        case .schoolTransportFailure:
+            return true
+        case let .challengeInvalid(message), let .authenticationFailed(message):
+            return Self.looksLikeTransportFailure(message)
+        default:
+            return false
+        }
+    }
+
+    var schoolTransportFailureMessage: String {
+        "学校统一认证服务暂时无法建立安全连接，请稍后重试。"
+    }
+
+    private static func looksLikeTransportFailure(_ message: String) -> Bool {
+        let value = message.lowercased()
+        return value.contains("ssl")
+            || value.contains("certificate")
+            || value.contains("证书")
+            || value.contains("httpsconnectionpool")
+            || value.contains("tls")
     }
 
     var errorDescription: String? {
@@ -41,6 +68,8 @@ enum ScheduleServiceError: LocalizedError {
             return "学校会话自动恢复失败，请稍后重试；无需退出 App 或重新登录。"
         case let .authenticationFailed(message):
             return message
+        case .schoolTransportFailure:
+            return schoolTransportFailureMessage
         case .schoolSecondFactorRequired:
             return "学校统一身份认证要求短信二次验证。"
         case .invalidResponse:

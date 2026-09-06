@@ -137,8 +137,14 @@ extension ScheduleService {
                 accepting: 100 ..< 600
             )
             return (result.data, result.response)
-        } catch is HTTPClientError {
-            throw ScheduleServiceError.invalidResponse
+        } catch {
+            if isCertificateValidationError(error) {
+                throw ScheduleServiceError.schoolTransportFailure
+            }
+            if error is HTTPClientError {
+                throw ScheduleServiceError.invalidResponse
+            }
+            throw error
         }
     }
 

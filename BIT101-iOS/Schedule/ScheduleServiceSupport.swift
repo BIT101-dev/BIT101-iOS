@@ -20,3 +20,27 @@ func isHostResolutionError(_ error: Error) -> Bool {
     }
     return false
 }
+
+/// 判断 URLSession 是否因 TLS 证书校验失败而拒绝连接。
+func isCertificateValidationError(_ error: Error) -> Bool {
+    var current: NSError? = error as NSError
+    var visited = Set<ObjectIdentifier>()
+
+    while let candidate = current {
+        let identifier = ObjectIdentifier(candidate)
+        guard visited.insert(identifier).inserted else { break }
+
+        if candidate.domain == NSURLErrorDomain,
+           [
+               NSURLErrorServerCertificateHasBadDate,
+               NSURLErrorServerCertificateUntrusted,
+               NSURLErrorServerCertificateHasUnknownRoot,
+               NSURLErrorServerCertificateNotYetValid
+           ].contains(candidate.code)
+        {
+            return true
+        }
+        current = candidate.userInfo[NSUnderlyingErrorKey] as? NSError
+    }
+    return false
+}

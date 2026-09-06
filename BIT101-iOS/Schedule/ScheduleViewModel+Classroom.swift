@@ -378,6 +378,13 @@ extension ScheduleViewModel {
                 )
                 return
             }
+            if scheduleError.isSchoolTransportFailure {
+                notice = ScheduleNotice(
+                    title: "学校服务连接失败",
+                    message: scheduleError.schoolTransportFailureMessage
+                )
+                return
+            }
         }
 
         notice = ScheduleNotice(title: title, message: error.localizedDescription)

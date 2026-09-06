@@ -82,6 +82,19 @@ final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertFalse(notice.allowsDiagnostics)
     }
 
+    func testCertificateFailureIsNotPresentedAsExpiredVerification() {
+        let error = ScheduleServiceError.challengeInvalid(
+            "HTTPSConnectionPool(host='webvpn.bit.edu.cn'): SSLCertVerificationError: certificate has expired"
+        )
+
+        XCTAssertTrue(error.isSchoolTransportFailure)
+        let notice = ScheduleNotice(
+            title: "学校服务连接失败",
+            message: error.schoolTransportFailureMessage
+        )
+        XCTAssertTrue(notice.allowsDiagnostics)
+    }
+
     func testSchoolBusinessInspectorDoesNotRejectSuccessfulOrLegitimateEmptyResponses() {
         let success = Data(#"{"datas":{"rows":[]},"code":"0"}"#.utf8)
         let nestedSuccess = Data(#"{"datas":{"rows":[],"extParams":{"code":1}},"code":"0"}"#.utf8)
