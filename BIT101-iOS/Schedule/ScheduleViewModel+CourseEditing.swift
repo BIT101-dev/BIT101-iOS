@@ -209,7 +209,7 @@ extension ScheduleViewModel {
             throw scheduleValidationError("当前课表缺少首周日期，无法调课。")
         }
 
-        let calendar = Calendar.current
+        let calendar = ScheduleDateCodec.calendar
         let start = calendar.startOfDay(for: firstDay)
         let target = calendar.startOfDay(for: date)
         let dayOffset = calendar.dateComponents([.day], from: start, to: target).day ?? 0

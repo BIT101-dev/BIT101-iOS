@@ -14,7 +14,7 @@ struct AccountSettingsPage: View {
 
     @State private var profile: MineUserInfo?
     @State private var isCheckingLogin = false
-    @State private var isLoggedIn = true
+    @State private var isLoggedIn = !LoginStorage.shared.fakeCookie.isEmpty
     @State private var isUpdating = false
     @State private var showNicknameEditor = false
     @State private var showMottoEditor = false
@@ -37,7 +37,7 @@ struct AccountSettingsPage: View {
                         PhotosPicker(selection: $selectedPhoto, matching: .images) {
                             AppAvatarView(
                                 imageURL: URL(string: profile.user.avatar.url),
-                                size: 40,
+                                size: AppDesignSystem.Size.avatar.account,
                                 tint: AppDesignSystem.Palette.info
                             )
                         }
@@ -96,7 +96,10 @@ struct AccountSettingsPage: View {
         }
         .appGroupedListStyle()
         .task {
-            guard !LoginStorage.shared.fakeCookie.isEmpty else { return }
+            guard !LoginStorage.shared.fakeCookie.isEmpty else {
+                isLoggedIn = false
+                return
+            }
             await loadProfile()
         }
         .onChange(of: selectedPhoto) { _, newValue in
@@ -126,8 +129,12 @@ struct AccountSettingsPage: View {
     }
 
     /// 页面加载当前登录用户资料卡。
-    private func loadProfile() async {
-        let sessionCookie = LoginStorage.shared.fakeCookie
+    private func loadProfile(for expectedSessionCookie: String? = nil) async {
+        let sessionCookie = expectedSessionCookie ?? LoginStorage.shared.fakeCookie
+        guard !sessionCookie.isEmpty else {
+            isLoggedIn = false
+            return
+        }
         do {
             let loadedProfile = try await service.fetchMyInfo()
             guard isCurrentSession(sessionCookie) else { return }
@@ -171,7 +178,7 @@ struct AccountSettingsPage: View {
                 avatarMid: profile.user.avatar.mid
             )
             guard isCurrentSession(sessionCookie) else { return }
-            await loadProfile()
+            await loadProfile(for: sessionCookie)
             guard isCurrentSession(sessionCookie) else { return }
             showNicknameEditor = false
             showMottoEditor = false
@@ -184,6 +191,7 @@ struct AccountSettingsPage: View {
     /// 服务上传并绑定新头像。
     private func updateAvatar(with item: PhotosPickerItem) async {
         guard let profile else { return }
+        defer { selectedPhoto = nil }
         let sessionCookie = LoginStorage.shared.fakeCookie
         isUpdating = true
         defer { isUpdating = false }
@@ -201,7 +209,7 @@ struct AccountSettingsPage: View {
                 avatarMid: image.mid
             )
             guard isCurrentSession(sessionCookie) else { return }
-            await loadProfile()
+            await loadProfile(for: sessionCookie)
         } catch {
             guard shouldPresentError(error, for: sessionCookie) else { return }
             alert = AppAlert(title: "头像更新失败", message: error.localizedDescription)

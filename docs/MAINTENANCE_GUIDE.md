@@ -48,18 +48,14 @@
 
 ### 2.2 命令行构建
 
-当前仓库常用的命令行构建命令如下：
+当前仓库常用的真机构建、装机和启动命令如下：
 
 ```bash
-xcodebuild \
-  -project BIT101-iOS.xcodeproj \
-  -scheme BIT101-iOS \
-  -configuration Debug \
-  -destination 'generic/platform=iOS' \
-  build
+DEVELOPER_DIR=/Users/harrybit/Desktop/Xcode-beta.app/Contents/Developer \
+Scripts/build-install-device.sh
 ```
 
-命令行未发现可用真机时，使用 `generic/platform=iOS` 作为构建目标。
+脚本自动选择已连接的 iPhone 真机，完成构建、安装和启动。
 
 当前工程使用 Xcode 27 的单 Watch App target 结构。完整构建 `BIT101-iOS` scheme 时，
 依赖图同时构建并嵌入 iOS widget、Watch App 和 Watch widget；旧式

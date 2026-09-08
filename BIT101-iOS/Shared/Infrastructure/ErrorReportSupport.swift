@@ -129,7 +129,7 @@ actor NetworkDiagnosticStore {
             components?.query = nil
             components?.fragment = nil
             if let pageURL = components?.url {
-                return pageURL
+                return HTTPSURLUpgrade.upgradedURL(from: pageURL)
             }
         }
         return nil
@@ -300,7 +300,7 @@ final class ErrorReportViewModel: ObservableObject {
             mode: mode.rawValue,
             isDevelopmentBuild: AppBuildEnvironment.isDevelopment,
             comment: trimmedComment.isEmpty ? nil : viewModelRedactor(trimmedComment),
-            errorTitle: alert.title,
+            errorTitle: viewModelRedactor(alert.title),
             errorMessage: viewModelRedactor(alert.message),
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?",
             build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?",
@@ -326,6 +326,7 @@ final class ErrorReportViewModel: ObservableObject {
     private func sanitizedURL(_ string: String) -> String {
         guard var components = URLComponents(string: string) else { return ErrorReportRedactor.forced(string) }
         components.query = components.queryItems?.map { "\($0.name)=[REDACTED]" }.joined(separator: "&")
+        components.fragment = nil
         return ErrorReportRedactor.forced(components.string ?? string)
     }
 

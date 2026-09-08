@@ -63,6 +63,7 @@ enum ScoreCacheStore {
     /// 一次成功的简略比较更新可见的新鲜度时间戳，并保留缓存中更完整的成绩行。
     static func markChecked() {
         updatedAtStore.save(Date())
+        ExperimentalPreferenceCloudSync.shared.localValueDidChange(in: .scoreCache)
     }
 
     static func loadUpdatedAt() -> Date? {

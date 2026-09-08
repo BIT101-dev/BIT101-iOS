@@ -52,7 +52,7 @@ struct ExtendedInfrastructureTests {
         #expect(!isHostResolutionError(URLError(.notConnectedToInternet)))
     }
 
-    @Test("HTTPS upgrade leaves path and query unchanged")
+    @Test("HTTPS upgrade preserves path query and fragment")
     func httpsUpgradePreservesComponents() throws {
         let source = try #require(URL(string: "http://example.com/a/b?q=1#fragment"))
         let upgraded = HTTPSURLUpgrade.upgradedURL(from: source)
@@ -67,7 +67,7 @@ struct ExtendedInfrastructureTests {
         #expect(TimeSlot.formatMinutes(510) == "08:30")
     }
 
-    @Test("Relative DDL editor keeps completion state separate from sync")
+    @Test("DDL editor toggles completion and preserves missing ID")
     func ddlCompletionState() {
         let event = DDLEventRecord(
             id: "event",

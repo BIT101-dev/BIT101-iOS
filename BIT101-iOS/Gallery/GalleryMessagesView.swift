@@ -37,38 +37,50 @@ struct GalleryMessagesView: View {
                     )
                 } else {
                     List {
-                        ForEach(Array(currentState.items.enumerated()), id: \.element.id) { index, message in
-                            VStack(spacing: 0) {
-                                GalleryMessageRow(
-                                    type: viewModel.selectedType,
-                                    message: message,
-                                    isUnread: viewModel.isUnread(message, in: viewModel.selectedType),
-                                    onOpenPoster: {
-                                        Task {
-                                            await openMessage(message)
-                                        }
-                                    }
-                                )
-
-                                if index != currentState.items.count - 1 {
-                                    Divider()
-                                        .padding(.leading, AppDesignSystem.Size.content.messageDividerLeading)
-                                }
-                            }
+                        if currentState.items.isEmpty {
+                            AppEmptyState(
+                                title: "暂无消息",
+                                systemImage: "bell",
+                                message: "当前分类还没有可展示的消息。"
+                            )
+                            .frame(maxWidth: .infinity)
                             .listRowInsets(EdgeInsets())
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
-                            .onAppear {
-                                Task {
-                                    await viewModel.loadMoreIfNeeded(for: viewModel.selectedType, currentMessage: message)
+                        } else {
+                            ForEach(Array(currentState.items.enumerated()), id: \.element.id) { index, message in
+                                VStack(spacing: 0) {
+                                    GalleryMessageRow(
+                                        type: viewModel.selectedType,
+                                        message: message,
+                                        isUnread: viewModel.isUnread(message, in: viewModel.selectedType),
+                                        onOpenPoster: {
+                                            Task {
+                                                await openMessage(message)
+                                            }
+                                        }
+                                    )
+
+                                    if index != currentState.items.count - 1 {
+                                        Divider()
+                                            .padding(.leading, AppDesignSystem.Size.content.messageDividerLeading)
+                                    }
+                                }
+                                .listRowInsets(EdgeInsets())
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
+                                .onAppear {
+                                    Task {
+                                        await viewModel.loadMoreIfNeeded(for: viewModel.selectedType, currentMessage: message)
+                                    }
                                 }
                             }
-                        }
 
-                        if currentState.isLoadingMore {
-                            AppInlineLoadingState()
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
+                            if currentState.isLoadingMore {
+                                AppInlineLoadingState()
+                                    .listRowSeparator(.hidden)
+                                    .listRowBackground(Color.clear)
+                            }
                         }
                     }
                     .listStyle(.plain)

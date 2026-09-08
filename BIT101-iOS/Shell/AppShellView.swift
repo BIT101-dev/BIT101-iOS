@@ -38,7 +38,7 @@ enum AppTab: String, Identifiable, Codable {
         case .map:
             return "地图"
         case .score:
-            return "学业"
+            return "成绩"
         case .gallery:
             return "话廊"
         case .mine:

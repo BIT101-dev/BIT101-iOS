@@ -28,13 +28,21 @@ struct GalleryFeedView: View {
                     galleryPlaceholderContainer {
                         AppInlineLoadingState("正在加载话廊")
                     }
-                } else if case let .failed(message) = feedState.status, feedState.posters.isEmpty {
+                } else if case let .failed(message) = feedState.status, visiblePosters.isEmpty {
                     galleryPlaceholderContainer {
                         AppFailureState(
                             title: "加载失败",
                             systemImage: "exclamationmark.triangle",
                             message: message,
                             onRetry: onRefresh
+                        )
+                    }
+                } else if visiblePosters.isEmpty {
+                    galleryPlaceholderContainer {
+                        AppEmptyState(
+                            title: feedIdentity == "search" ? "没有找到相关话题" : "暂无话题",
+                            systemImage: "bubble.left.and.bubble.right",
+                            message: feedIdentity == "search" ? "换个关键词试试。" : "当前分区还没有可展示的话题。"
                         )
                     }
                 } else {

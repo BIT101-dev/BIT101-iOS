@@ -33,38 +33,56 @@ enum ScheduleCourseEditor {
 
         var weeks = Set<Int>()
         for segment in segments {
-            if segment.contains("-") {
-                let bounds = segment
-                    .split(separator: "-")
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            let value = String(segment)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let firstRangeSeparatorIndex: String.Index? = {
+                let searchStart = value.first == "-"
+                    ? value.index(after: value.startIndex)
+                    : value.startIndex
+                return value[searchStart...].firstIndex {
+                    "-－—~～至".contains($0)
+                }
+            }()
+
+            if let separatorIndex = firstRangeSeparatorIndex {
+                let lowerText = value[..<separatorIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+                let upperText = value[value.index(after: separatorIndex)...]
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
                 guard
-                    bounds.count == 2,
-                    let lower = Int(bounds[0]),
-                    let upper = Int(bounds[1]),
-                    lower > 0,
+                    let lower = Int(lowerText),
+                    let upper = Int(upperText),
+                    lower != 0,
+                    upper != 0,
                     upper >= lower
                 else {
                     throw invalidWeeksError
                 }
-                weeks.formUnion(lower ... upper)
-            } else {
-                guard let week = Int(segment), week > 0 else {
-                    throw invalidWeeksError
-                }
-                weeks.insert(week)
+                weeks.formUnion((lower ... upper).filter { $0 != 0 })
+                continue
             }
+
+            guard let week = Int(value), week != 0 else {
+                throw invalidWeeksError
+            }
+            weeks.insert(week)
         }
         return weeks.sorted()
     }
 
     static func formatWeeks(_ weeks: [Int]) -> String {
-        let weeks = Array(Set(weeks.filter { $0 > 0 })).sorted()
+        let weeks = Array(Set(weeks.filter { $0 != 0 })).sorted()
         guard !weeks.isEmpty else { return "" }
 
+        let negativeWeeks = weeks.filter { $0 < 0 }.map(String.init)
+        let positiveWeeks = weeks.filter { $0 > 0 }
         var ranges: [String] = []
-        var lower = weeks[0]
-        var upper = weeks[0]
-        for week in weeks.dropFirst() {
+        guard let firstPositiveWeek = positiveWeeks.first else {
+            return negativeWeeks.joined(separator: ",")
+        }
+
+        var lower = firstPositiveWeek
+        var upper = firstPositiveWeek
+        for week in positiveWeeks.dropFirst() {
             if week == upper + 1 {
                 upper = week
             } else {
@@ -74,7 +92,7 @@ enum ScheduleCourseEditor {
             }
         }
         ranges.append(lower == upper ? "\(lower)" : "\(lower)-\(upper)")
-        return ranges.joined(separator: ",")
+        return (negativeWeeks + ranges).joined(separator: ",")
     }
 
     static func resolve(_ draft: CourseDraft, fixedWeeks: [Int]? = nil) throws -> ResolvedDraft {

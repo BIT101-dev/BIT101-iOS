@@ -62,7 +62,11 @@ struct ScoreFilterPage: View {
     }
 
     private var toggleAllTitle: String {
-        selectedValues.count == options.count ? "全不选" : "全选"
+        allOptionsSelected ? "全不选" : "全选"
+    }
+
+    private var allOptionsSelected: Bool {
+        !options.isEmpty && Set(options).isSubset(of: selectedValues)
     }
 }
 

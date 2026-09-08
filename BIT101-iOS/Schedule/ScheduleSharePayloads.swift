@@ -30,18 +30,6 @@ struct ScheduleExportPayload {
         self.courses = courses
     }
 
-    init(cache: ScheduleCache, exportedAt: Date = Date()) {
-        self.exportedAt = exportedAt
-        self.currentTerm = cache.currentTerm
-        self.firstDayString = cache.firstDayString
-        self.timeTable = cache.timeTable
-        self.courses = cache.courses
-    }
-
-    /// 导出是否具备最基本的课表内容。
-    var isEmpty: Bool {
-        courses.isEmpty
-    }
 }
 
 private func makeExpandedPayload(
@@ -211,12 +199,6 @@ struct ScheduleExportCompactPayloadV2: Codable {
         self.courses = cache.courses.map(CompactCourse.init(course:))
     }
 
-    init(payload: ScheduleExportPayload) {
-        self.courses = payload.courses.map(CompactCourse.init(course:))
-    }
-
-    var isEmpty: Bool { courses.isEmpty }
-
     /// V2 使用导入侧本机环境生成统一的课表载荷。
     func expandedPayload(using cache: ScheduleCache, importedAt: Date = Date()) -> ScheduleExportPayload {
         makeExpandedPayload(
@@ -344,8 +326,6 @@ struct ScheduleExportCompactPayloadV3: Codable {
     init(cache: ScheduleCache) {
         courses = cache.courses.map(CompactCourse.init(course:))
     }
-
-    var isEmpty: Bool { courses.isEmpty }
 
     func expandedPayload(using cache: ScheduleCache, importedAt: Date = Date()) -> ScheduleExportPayload {
         makeExpandedPayload(

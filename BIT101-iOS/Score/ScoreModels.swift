@@ -59,7 +59,7 @@ struct ScoreRow: Codable, Identifiable {
 
     /// 此属性将学分转换为数值，统计逻辑用该数值计算加权结果。
     var numericCredit: Double? {
-        Double(creditText)
+        Double(creditText.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }
 
@@ -139,7 +139,7 @@ struct ScoreSummary {
         var fallbackRows: [ScoreRow] = []
 
         for row in rows {
-            let courseNumber = row.courseNumber
+            let courseNumber = row.courseNumber.trimmingCharacters(in: .whitespacesAndNewlines)
             if courseNumber.isEmpty {
                 fallbackRows.append(row)
                 continue
@@ -194,7 +194,8 @@ struct ScoreSummary {
 
     /// 将成绩转换为统计用百分制数值。
     private static func scoreValue(from raw: String) -> Double {
-        gradeMapping(from: raw)?.score ?? Double(raw) ?? 0
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return gradeMapping(from: trimmed)?.score ?? Double(trimmed) ?? 0
     }
 
     /// 此方法将成绩转换为 GPA。
@@ -203,7 +204,7 @@ struct ScoreSummary {
             return mapping.gpa
         }
 
-        let score = Double(raw) ?? 0
+        let score = Double(raw.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
         if score < 60 { return 0 }
         // 百分制使用学校公布的连续公式；等级制由上方的等级映射处理。
         return 4 - 3 * (100 - score) * (100 - score) / 1600

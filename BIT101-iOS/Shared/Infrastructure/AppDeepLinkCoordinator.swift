@@ -13,18 +13,18 @@ enum AppDeepLinkRoute: Equatable {
         let routeHead: String
         let routeTail: String?
 
-        if scheme == "https" || scheme == "http" {
+        if scheme == "https" {
             guard url.host?.lowercased() == "open.aihelpme.dev" else { return nil }
             routeHead = pathComponents.first ?? ""
             routeTail = pathComponents.dropFirst().first
         } else {
             guard scheme == "bit101" else { return nil }
-            routeHead = url.host ?? pathComponents.first ?? ""
+            routeHead = (url.host ?? pathComponents.first ?? "").lowercased()
             routeTail = url.host == nil ? pathComponents.dropFirst().first : pathComponents.first
         }
 
-        switch routeHead {
-        case "schedule" where routeTail == "courses":
+        switch routeHead.lowercased() {
+        case "schedule" where routeTail?.lowercased() == "courses":
             self = .scheduleCourses
         case "paper":
             guard let routeTail, let id = Int(routeTail) else { return nil }

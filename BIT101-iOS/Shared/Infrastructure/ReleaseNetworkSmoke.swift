@@ -83,9 +83,8 @@ struct ReleaseNetworkSmokeReport: Codable {
 /// ReleaseNetworkSmokeReportStore 保存网络冒烟报告。
 enum ReleaseNetworkSmokeReportStore {
     private static let directoryName = "NetworkSmoke"
-    private static let filePrefix = "release-network-smoke"
 
-    static func fileURL(runID _: String) -> URL? {
+    static var fileURL: URL? {
         guard let containerURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: ScheduleSharedContainer.identifier
         ) else {
@@ -95,11 +94,11 @@ enum ReleaseNetworkSmokeReportStore {
         return containerURL
             .appending(path: "Library", directoryHint: .isDirectory)
             .appending(path: directoryName, directoryHint: .isDirectory)
-            .appending(path: "\(filePrefix).json")
+            .appending(path: "release-network-smoke.json")
     }
 
     static func write(_ report: ReleaseNetworkSmokeReport) throws {
-        guard let fileURL = fileURL(runID: report.runID) else {
+        guard let fileURL else {
             throw ScheduleExternalSnapshotStoreError.sharedContainerUnavailable
         }
 
@@ -107,17 +106,6 @@ enum ReleaseNetworkSmokeReportStore {
             at: fileURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        let directory = fileURL.deletingLastPathComponent()
-        let oldReports = (try? FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: nil
-        )) ?? []
-        for oldReport in oldReports
-            where oldReport.lastPathComponent.hasPrefix("\(filePrefix)-")
-        {
-            try? FileManager.default.removeItem(at: oldReport)
-        }
-
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601

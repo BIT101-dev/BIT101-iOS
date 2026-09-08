@@ -108,7 +108,7 @@ enum ScheduleSystemCalendarError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .permissionDenied:
-            return "BIT101 没有完整日历访问权限。请在系统设置的“隐私与安全性－日历”中允许后重试。"
+            return "当前日历账户的写入权限需要调整。请在系统设置的“隐私与安全性－日历”中开启 BIT101 权限，并确认 iCloud 或本地日历账户处于可写状态。"
         case .noWritableCalendarSource:
             return "未找到可以写入的系统日历账户。请先在“日历”App 中启用 iCloud 或本地日历。"
         case .missingSchedule:
@@ -162,97 +162,105 @@ final class ScheduleSystemCalendarManager {
         }
 
         try await requireFullAccess()
-        let calendar = try writableBIT101Calendar()
-        try removeImportedEvents(
-            term: cache.currentTerm,
-            calendar: calendar,
-            startDate: first.startDate.addingTimeInterval(-24 * 60 * 60),
-            endDate: last.endDate.addingTimeInterval(24 * 60 * 60)
-        )
+        do {
+            let calendar = try writableBIT101Calendar()
+            try removeImportedEvents(
+                term: cache.currentTerm,
+                calendar: calendar,
+                startDate: first.startDate.addingTimeInterval(-24 * 60 * 60),
+                endDate: last.endDate.addingTimeInterval(24 * 60 * 60)
+            )
 
-        var savedEvents: [EKEvent] = []
-        for draft in drafts {
-            let event = EKEvent(eventStore: eventStore)
-            event.calendar = calendar
-            event.title = draft.title
-            event.location = draft.location
-            event.notes = draft.notes
-            event.startDate = draft.startDate
-            event.endDate = draft.endDate
-            event.timeZone = ScheduleSharedDateCodec.calendar.timeZone
-            event.url = markerURL(id: draft.markerID, term: cache.currentTerm)
-            try eventStore.save(event, span: .thisEvent, commit: false)
-            savedEvents.append(event)
+            var savedEvents: [EKEvent] = []
+            for draft in drafts {
+                let event = EKEvent(eventStore: eventStore)
+                event.calendar = calendar
+                event.title = draft.title
+                event.location = draft.location
+                event.notes = draft.notes
+                event.startDate = draft.startDate
+                event.endDate = draft.endDate
+                event.timeZone = ScheduleSharedDateCodec.calendar.timeZone
+                event.url = markerURL(id: draft.markerID, term: cache.currentTerm)
+                try eventStore.save(event, span: .thisEvent, commit: false)
+                savedEvents.append(event)
+            }
+            try eventStore.commit()
+            let eventIdentifiers = savedEvents.compactMap(\.eventIdentifier)
+
+            var batches = loadBatches().filter { $0.term != cache.currentTerm }
+            batches.append(ImportedBatch(
+                term: cache.currentTerm,
+                calendarIdentifier: calendar.calendarIdentifier,
+                eventIdentifiers: eventIdentifiers,
+                startDate: first.startDate.addingTimeInterval(-24 * 60 * 60),
+                endDate: last.endDate.addingTimeInterval(24 * 60 * 60)
+            ))
+            saveBatches(batches)
+            return drafts.count
+        } catch let error as EKError where error.code == .eventNotPermitted {
+            throw ScheduleSystemCalendarError.permissionDenied
         }
-        try eventStore.commit()
-        let eventIdentifiers = savedEvents.compactMap(\.eventIdentifier)
-
-        var batches = loadBatches().filter { $0.term != cache.currentTerm }
-        batches.append(ImportedBatch(
-            term: cache.currentTerm,
-            calendarIdentifier: calendar.calendarIdentifier,
-            eventIdentifiers: eventIdentifiers,
-            startDate: first.startDate.addingTimeInterval(-24 * 60 * 60),
-            endDate: last.endDate.addingTimeInterval(24 * 60 * 60)
-        ))
-        saveBatches(batches)
-        return drafts.count
     }
 
     func deleteAllImportedEvents() async throws -> Int {
         try await requireFullAccess()
 
-        let batches = loadBatches()
-        var eventsByIdentifier: [String: EKEvent] = [:]
+        do {
+            let batches = loadBatches()
+            var eventsByIdentifier: [String: EKEvent] = [:]
 
-        for batch in batches {
-            for identifier in batch.eventIdentifiers {
-                if let event = eventStore.event(withIdentifier: identifier), isBIT101Event(event) {
-                    eventsByIdentifier[identifier] = event
+            for batch in batches {
+                for identifier in batch.eventIdentifiers {
+                    if let event = eventStore.event(withIdentifier: identifier), isBIT101Event(event) {
+                        eventsByIdentifier[identifier] = event
+                    }
+                }
+                for event in taggedEvents(
+                    calendars: calendarForBatch(batch).map { [$0] },
+                    startDate: batch.startDate,
+                    endDate: batch.endDate,
+                    term: nil
+                ) {
+                    eventsByIdentifier[event.eventIdentifier] = event
                 }
             }
-            for event in taggedEvents(
-                calendars: calendarForBatch(batch).map { [$0] },
-                startDate: batch.startDate,
-                endDate: batch.endDate,
-                term: nil
-            ) {
-                eventsByIdentifier[event.eventIdentifier] = event
+
+            // 本地批次记录缺失时，专用日历中的事件 URL 仍可用于识别 BIT101 事件。
+            if let calendar = existingBIT101Calendar() {
+                let lowerBound = ScheduleSharedDateCodec.calendar.date(
+                    byAdding: .year,
+                    value: -10,
+                    to: Date()
+                ) ?? Date.distantPast
+                let upperBound = ScheduleSharedDateCodec.calendar.date(
+                    byAdding: .year,
+                    value: 10,
+                    to: Date()
+                ) ?? Date.distantFuture
+                for event in taggedEvents(
+                    calendars: [calendar],
+                    startDate: lowerBound,
+                    endDate: upperBound,
+                    term: nil
+                ) {
+                    eventsByIdentifier[event.eventIdentifier] = event
+                }
             }
-        }
 
-        // 本地批次记录缺失时，专用日历中的事件 URL 仍可用于识别 BIT101 事件。
-        if let calendar = existingBIT101Calendar() {
-            let lowerBound = ScheduleSharedDateCodec.calendar.date(
-                byAdding: .year,
-                value: -10,
-                to: Date()
-            ) ?? Date.distantPast
-            let upperBound = ScheduleSharedDateCodec.calendar.date(
-                byAdding: .year,
-                value: 10,
-                to: Date()
-            ) ?? Date.distantFuture
-            for event in taggedEvents(
-                calendars: [calendar],
-                startDate: lowerBound,
-                endDate: upperBound,
-                term: nil
-            ) {
-                eventsByIdentifier[event.eventIdentifier] = event
+            guard !eventsByIdentifier.isEmpty else {
+                throw ScheduleSystemCalendarError.noImportedEvents
             }
-        }
 
-        guard !eventsByIdentifier.isEmpty else {
-            throw ScheduleSystemCalendarError.noImportedEvents
+            for event in eventsByIdentifier.values {
+                try eventStore.remove(event, span: .thisEvent, commit: false)
+            }
+            try eventStore.commit()
+            saveBatches([])
+            return eventsByIdentifier.count
+        } catch let error as EKError where error.code == .eventNotPermitted {
+            throw ScheduleSystemCalendarError.permissionDenied
         }
-
-        for event in eventsByIdentifier.values {
-            try eventStore.remove(event, span: .thisEvent, commit: false)
-        }
-        try eventStore.commit()
-        saveBatches([])
-        return eventsByIdentifier.count
     }
 
     private func requireFullAccess() async throws {

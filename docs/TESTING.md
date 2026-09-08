@@ -11,7 +11,7 @@
 - 验证流程排除 `simctl boot`、Simulator destination 以及任何会隐式启动模拟器的自动化操作。
 - 构建、测试、安装和运行验证统一使用当前已连接并受信任的真机。
 - 真机可用性是验证前提；真机不可用时停止验证并说明设备状态，验证环境保持真机要求。
-- 编译检查使用 generic device destination；执行前确认命令的 destination 指向 generic device。
+- 编译、装机和启动统一通过 `Scripts/build-install-device.sh` 使用已连接真机完成。
 - 维护者、CI 脚本和自动化代理遵循同一设备要求。
 
 ## 本地工具链
@@ -23,16 +23,18 @@ export DEVELOPER_DIR=/Users/harrybit/Desktop/Xcode-beta.app/Contents/Developer
 xcodebuild -version
 ```
 
-本仓库保留系统 `xcode-select` 原配置。执行任何构建或测试前，先确认 destination 是 generic device 或当前连接的真机。
+本仓库保留系统 `xcode-select` 原配置。执行构建或测试前，先确认当前连接的真机状态。
 
 ## 编译测试包
 
 ```sh
+DEVICE_ID='<xcode-device-id>'
+
 xcodebuild build-for-testing \
   -project BIT101-iOS.xcodeproj \
   -scheme BIT101-iOS \
   -configuration Debug \
-  -destination 'generic/platform=iOS' \
+  -destination "platform=iOS,id=$DEVICE_ID" \
   -derivedDataPath build/Tests \
   -allowProvisioningUpdates
 ```
@@ -54,7 +56,7 @@ xcodebuild test \
   -allowProvisioningUpdates
 ```
 
-2026-08-09 的历史基线为 **40 项测试全部通过，0 条编译警告/错误**；当前默认测试 Target 有 **95 项自动化用例**（89 项 Swift Testing、6 项 XCTest）。另有 5 项只在专用条件下运行的 smoke 用例。测试覆盖范围包括：
+2026-08-09 的历史基线为 **40 项测试全部通过，0 条编译警告/错误**；当前默认测试 Target 有 **110 项自动化用例**（100 项 Swift Testing、10 项 XCTest）。另有 27 项扩展测试与 5 项专用 smoke 用例。测试覆盖范围包括：
 
 - 取消错误、页码分页、账号隔离 Codable 快照
 - HTTP/社区请求构造和错误映射
@@ -67,21 +69,7 @@ xcodebuild test \
 
 ## 真机验证
 
-连接并信任设备后，先用 `xcodebuild -showdestinations` 获取 Xcode 设备 ID。工程已配置自动签名：
-
-```sh
-xcodebuild build \
-  -project BIT101-iOS.xcodeproj \
-  -scheme BIT101-iOS \
-  -configuration Debug \
-  -destination 'platform=iOS,id=<xcode-device-id>' \
-  -derivedDataPath build/DeviceReview \
-  -allowProvisioningUpdates
-```
-
-构建后可用 `xcrun devicectl device install app` 和 `device process launch` 安装、启动开发包。真机检查至少确认主 App 与 widget extension 可正常启动；登录、学校接口、通知、Live Activity 或深链场景按 `MODULE_PLAYBOOK.md` 完成人工交互回归。
-
-也可以直接运行免参数的一键脚本：
+连接并信任设备后，直接运行一键真机脚本：
 
 ```sh
 Scripts/build-install-device.sh
@@ -95,18 +83,18 @@ Scripts/capture-screenshot-device.sh
 
 截图固定写入 `.build/screenshot.png`；脚本支持传入设备 ID 和 Developer 目录。
 
-脚本会自动寻找可用的 iPhone 真机；设备未连接或未信任时给出提示并退出。脚本执行内容限于 Debug 构建、安装和启动，Archive 属于脚本执行范围外。
+脚本会自动寻找可用的 iPhone 真机；设备未连接或未信任时给出提示并退出。脚本执行内容包含 Debug 真机构建、安装和启动，发布归档由发布流程负责。
 
 产物路径：同一性质保持一个固定路径；构建、测试、截图和 Smoke 结果都覆盖既有路径，产物目录中每类结果保留一份。文件名格式为类别名，`latest`、设备名、时间、UUID 和序号作为额外修饰语排除；临时的 DerivedData、截图和日志在验证结束后清理。Finder 自动生成的 `.DS_Store` 属于 `.gitignore` 忽略的系统元数据，脚本处理范围外。
 
 ### Watch 与 iOS 构建说明
 
-1. 发布使用 Xcode Archive 或 `xcodebuild archive`。
+1. 发布验证使用发布专用流程；维护构建采用具体真机脚本。
 2. Debug 装机使用具体 iPhone 设备 ID。
 3. Watch 单独使用 watchOS scheme/destination 构建。
-4. 正式发布可行性通过发布构建结果判断；generic iOS Debug 构建结果用于调试验证。
+4. 正式发布可行性通过发布构建结果判断；iOS 真机 Debug 构建结果用于调试验证。
 
-Xcode 27 Beta 在 generic iOS Debug 构建中可能把嵌入的 Watch target 按 iOS SDK 处理，触发 Watch 图标或 watchOS API 报错；当前验证保留现有 Watch 图标和 Watch 代码。
+Xcode 27 Beta 的 Watch target 通过具体真机构建目标保持 watchOS SDK 边界；Watch 图标和 Watch 代码沿用跨 target 契约。
 
 ## CI 门禁
 
@@ -139,7 +127,7 @@ Scripts/release-network-smoke-school.sh
 
 CI 和其它自动化沿用同一模拟器排除要求。无真机 destination 的环境执行范围限于静态检查，静态检查保持无模拟器依赖；真机构建、测试、Widget 时间线和 Live Activity 时序按 `MODULE_PLAYBOOK.md` 人工验证。
 
-CI 先运行 `Scripts/run-static-audit.sh`，再以 generic iOS 目标执行 `build-for-testing`；Swift 和 Clang 警告均按错误处理，构建 destination 统一为 generic iOS。版本门禁由 `Scripts/validate_versions.py` 提供，检查所有 Target/Configuration 的公开版本与 Build 是否一致、格式是否合法，以及相对 PR 基准是否倒退。在 GitHub Actions 手动运行 `iOS CI` 并打开 `release_check`，流程还会确认准备发布的公开版本高于 App Store 当前版本。
+CI 先运行 `Scripts/run-static-audit.sh`，再以 Release 配置执行 `build-for-testing`；Swift 和 Clang 警告均按错误处理，CI 保持无模拟器依赖。版本门禁由 `Scripts/validate_versions.py` 提供，检查所有 Target/Configuration 的公开版本与 Build 是否一致、格式是否合法，以及相对 PR 基准是否倒退。在 GitHub Actions 手动运行 `iOS CI` 并打开 `release_check`，流程还会确认准备发布的公开版本高于 App Store 当前版本。
 
 ## iCloud 跨设备双向 Smoke
 
@@ -191,7 +179,7 @@ xcodebuild build \
 5. 卸载 Debug 包以清除其 `UserDefaults` 后重装，再断网启动；查询失败静默处理，登录和主界面保持可用。
 6. 最后安装正常 `1.7.1` Debug 包；线上版本与本地版本相同时，更新提醒状态为不显示。
 
-自动化测试覆盖数字版本比较、24 小时查询节流、24 小时展示冷却、更新内容缓存、失败静默和“忽略此版本”。真机可用性恢复前，验证范围限于 static/generic-device 编译；实际弹窗和 App Store 跳转在真机恢复后执行。
+自动化测试覆盖数字版本比较、24 小时查询节流、24 小时展示冷却、更新内容缓存、失败静默和“忽略此版本”。真机可用性恢复前，验证范围限于静态检查与 CI Release 编译门禁；实际弹窗和 App Store 跳转在真机恢复后执行。
 
 ## 学期滚动缓存与手动同步
 
@@ -239,7 +227,7 @@ Scripts/run-extended-tests.sh
 报告直接通过当前 Wrangler 登录读取远端 KV，管理网页不参与流程。
 `Scripts/fetch-issues-and-reports.sh` 会用当前 GitHub CLI 和 Wrangler 登录状态，一次拉取未关闭的仓库 Issues 与 Cloudflare KV 报告，保存到 `.build/issue-report-inbox` 并输出简要汇总。错误报告按 `本次/上次/上上次` 保留三批，并按 `开发版/正式版/来源未知` 和 `错误报告/用户建议` 分类；Debug 构建提交 `isDevelopmentBuild: true`，Release 构建提交 `false`，旧报告归入来源未知。输出本次详情，只输出上两批数量。本次没有新报告时显示最近一批详情。完整拉取成功后只清理本次已拉取的 Cloudflare 报告，失败时保留远端数据。完整报告仅保存在本机，仓库保持不变。
 
-`run-static-audit.sh` 仅执行静态检查；学校接口连接、网络 smoke 和 Archive 均在执行范围外。它按 Swift、Shell、Python、Worker、Git、文档、UI、触感、组件和源码质量规则输出结果；源码质量报告固定覆盖 `.build/code-quality-report.txt`。CI 强制执行这一入口，并额外阻止警告进入构建门禁。
+`run-static-audit.sh` 执行静态检查；学校接口连接、网络 smoke 和发布归档由独立流程负责。它按 Swift、Shell、Python、Worker、Git、文档、UI、触感、组件和源码质量规则输出结果；源码质量报告固定覆盖 `.build/code-quality-report.txt`。CI 强制执行这一入口，并额外阻止警告进入构建门禁。
 
 UI 契约检查由 `check-ui-consistency.py` 统一维护：页面和公共组件按目录模式、页面后缀及公共组件用法自动发现，再套用同类契约；`check-component-consistency.sh` 的职责是转发到统一检查器，业务文件清单由统一检查器维护。新增同类页面沿用现有检查逻辑，契约表登记的必要平台/功能例外可跳过规则。
 

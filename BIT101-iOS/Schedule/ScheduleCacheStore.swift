@@ -34,27 +34,25 @@ enum ScheduleCacheStore {
     ///
     /// 路径按当前学号区分账号缓存。
     private static var fileURL: URL {
-        let directory = AppFileDirectories.applicationSupport
-            .appending(path: "BIT101-iOS", directoryHint: .isDirectory)
-            .appending(path: currentAccountIdentifier(), directoryHint: .isDirectory)
-        return directory.appending(path: "schedule-cache.json")
+        cacheFileURL(for: currentAccountIdentifier())
     }
 
     /// 把当前学号转换成目录名。
     static func currentAccountIdentifier() -> String {
-        let raw = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let raw = rawAccountIdentifier()
         if raw.isEmpty {
             return "__default__"
         }
 
         let invalid = CharacterSet.alphanumerics.inverted
-        return raw.components(separatedBy: invalid).joined(separator: "_")
+        guard raw.rangeOfCharacter(from: invalid) != nil else { return raw }
+        return "__encoded__" + raw.utf8.map { String(format: "%02X", $0) }.joined()
     }
 
     /// 读取当前账号的缓存快照。
     static func load() -> ScheduleCache {
         guard
-            let data = try? Data(contentsOf: fileURL),
+            let data = cacheData(),
             let cache = try? decoder.decode(ScheduleCache.self, from: data)
         else {
             return ScheduleCache()
@@ -95,17 +93,18 @@ enum ScheduleCacheStore {
     ///
     /// 清空操作定位当前账号目录，并保留其它账号目录。
     static func clear() {
-        let url = fileURL
-        let directory = url.deletingLastPathComponent()
-
         do {
-            if FileManager.default.fileExists(atPath: url.path) {
-                try FileManager.default.removeItem(at: url)
+            for url in cacheURLs() {
+                if FileManager.default.fileExists(atPath: url.path) {
+                    try FileManager.default.removeItem(at: url)
+                }
             }
 
-            if FileManager.default.fileExists(atPath: directory.path),
-               (try? FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty) == true {
-                try FileManager.default.removeItem(at: directory)
+            for directory in Set(cacheURLs().map(\.deletingLastPathComponent)) {
+                if FileManager.default.fileExists(atPath: directory.path),
+                   (try? FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty) == true {
+                    try FileManager.default.removeItem(at: directory)
+                }
             }
 
             ScheduleWidgetExporter.syncFromCurrentCache()
@@ -113,6 +112,40 @@ enum ScheduleCacheStore {
         } catch {
             logger.error("清理课表缓存失败：\(String(describing: error), privacy: .public)")
         }
+    }
+
+    private static func rawAccountIdentifier() -> String {
+        LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func cacheData() -> Data? {
+        if let data = try? Data(contentsOf: fileURL) {
+            return data
+        }
+
+        let legacyURL = cacheFileURL(for: legacyAccountIdentifier())
+        guard legacyURL != fileURL else { return nil }
+        return try? Data(contentsOf: legacyURL)
+    }
+
+    private static func cacheURLs() -> [URL] {
+        let current = fileURL
+        let legacy = cacheFileURL(for: legacyAccountIdentifier())
+        return current == legacy ? [current] : [current, legacy]
+    }
+
+    private static func cacheFileURL(for accountIdentifier: String) -> URL {
+        let directory = AppFileDirectories.applicationSupport
+            .appending(path: "BIT101-iOS", directoryHint: .isDirectory)
+            .appending(path: accountIdentifier, directoryHint: .isDirectory)
+        return directory.appending(path: "schedule-cache.json")
+    }
+
+    private static func legacyAccountIdentifier() -> String {
+        let raw = rawAccountIdentifier()
+        if raw.isEmpty { return "__default__" }
+        let invalid = CharacterSet.alphanumerics.inverted
+        return raw.components(separatedBy: invalid).joined(separator: "_")
     }
 
     /// 在主线程广播“课表缓存已变化”。

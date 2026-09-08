@@ -130,7 +130,7 @@ struct GalleryAnimatedImage: UIViewRepresentable {
                         at: file,
                         reduceMotion: UIAccessibility.isReduceMotionEnabled
                     )
-                    guard !Task.isCancelled, self?.currentURL == url, let imageView else { return }
+                    guard !Task.isCancelled, self?.currentURL == url, let decoded, let imageView else { return }
                     imageView.image = decoded
                     imageView.startAnimating()
                 } catch {

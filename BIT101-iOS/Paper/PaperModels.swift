@@ -292,13 +292,7 @@ enum PaperContentRenderer {
             return [.paragraph(id: UUID().uuidString, text: AttributedString(trimmed))]
         }
 
-        let blocks = rawBlocks.compactMap(makeBlock(from:))
-        if blocks.isEmpty {
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return [] }
-            return [.paragraph(id: UUID().uuidString, text: AttributedString(trimmed))]
-        }
-        return blocks
+        return rawBlocks.compactMap(makeBlock(from:))
     }
 
     /// 把后端 HTML 片段转换成 SwiftUI 可展示的富文本。
@@ -365,14 +359,10 @@ enum PaperContentRenderer {
             let ordered = (data["style"] as? String) == "ordered"
             return .list(id: id, items: items.map(attributedText(from:)), ordered: ordered)
         case "image":
-            guard
-                let file = data["file"] as? [String: Any],
-                let url = file["url"] as? String,
-                !url.isEmpty
-            else {
-                return nil
-            }
+            guard let file = data["file"] as? [String: Any] else { return nil }
+            let url = (file["url"] as? String) ?? ""
             let lowURL = (file["low_url"] as? String) ?? ""
+            guard !url.isEmpty || !lowURL.isEmpty else { return nil }
             let rawCaption = (data["caption"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let caption = rawCaption.isEmpty ? nil : attributedText(from: rawCaption)
             return .image(id: id, image: PaperInlineImage(id: id, url: url, lowURL: lowURL, caption: caption))

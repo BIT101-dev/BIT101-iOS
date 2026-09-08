@@ -489,7 +489,7 @@ final class ScheduleLiveActivityManager {
                 identifier: Self.notificationIdentifier(studentID: studentID, index: index),
                 content: fallbackNotificationContent(for: occurrence),
                 trigger: UNCalendarNotificationTrigger(
-                    dateMatching: Calendar.current.dateComponents(
+                    dateMatching: ScheduleDateCodec.calendar.dateComponents(
                         [.year, .month, .day, .hour, .minute, .second],
                         from: triggerDate
                     ),

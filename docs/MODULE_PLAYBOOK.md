@@ -1,6 +1,6 @@
 # BIT101-iOS 模块维护清单
 
-更新时间：2026-09-02
+更新时间：2026-09-08
 
 每个模块列出相关文件、风险和验证项。
 
@@ -149,7 +149,7 @@
 
 - 主 App 快照、桌面组件、锁屏组件、Live Activity 和 Watch 内容保持一致。
 - Watch target 使用 watchOS destination 单独构建。
-- 旧式 target 结构保持现状；Watch 发布判断以 watchOS destination 单独构建结果为准，`generic iOS Debug` 结果与 Watch 发布判断分离。
+- 旧式 target 结构保持现状；Watch 发布判断以 watchOS destination 单独构建结果为准，iOS 真机构建结果与 Watch 发布判断分离。
 
 ## 8. 跨模块修改顺序
 

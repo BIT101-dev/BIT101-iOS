@@ -124,7 +124,7 @@ struct CourseScheduleTabView: View {
                                         weekday: weekday
                                     )
                                     dayAdjustmentDraft = ScheduleDayAdjustmentDraft(
-                                        targetDate: Calendar.current.date(byAdding: .day, value: 1, to: date) ?? date
+                                        targetDate: ScheduleDateCodec.calendar.date(byAdding: .day, value: 1, to: date) ?? date
                                     )
                                 },
                                 onSelectWeekValue: { week in

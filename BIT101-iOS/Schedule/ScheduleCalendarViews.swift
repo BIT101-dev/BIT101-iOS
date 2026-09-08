@@ -127,7 +127,7 @@ struct CourseScheduleCalendarView: View {
             let dayWidth = columnWidth
             let cardWidth = max(dayWidth - AppDesignSystem.Schedule.grid.courseCardTotalInset, 1)
             let weekDates = visibleWeekdays.compactMap {
-                Calendar.current.date(
+                ScheduleDateCodec.calendar.date(
                     byAdding: .day,
                     value: ($0 - 1) + ScheduleWeekCodec.weekOffset(forWeekNumber: week) * 7,
                     to: firstDay
@@ -361,7 +361,7 @@ struct CourseScheduleCalendarView: View {
     }
 
     private func currentTimeText() -> String {
-        let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
+        let components = ScheduleDateCodec.calendar.dateComponents([.hour, .minute], from: Date())
         return String(format: "%02d:%02d", components.hour ?? 0, components.minute ?? 0)
     }
 }
@@ -900,9 +900,9 @@ func convertTimeToSection(timeText: String, timeTable: [TimeSlot]) -> CGFloat {
 
 /// 根据首周日期计算课表页当前周次。
 func resolvedCurrentWeek(firstDay: Date) -> Int {
-    let start = Calendar.current.startOfDay(for: firstDay)
-    let today = Calendar.current.startOfDay(for: Date())
-    let diff = Calendar.current.dateComponents([.day], from: start, to: today).day ?? 0
+    let start = ScheduleDateCodec.calendar.startOfDay(for: firstDay)
+    let today = ScheduleDateCodec.calendar.startOfDay(for: Date())
+    let diff = ScheduleDateCodec.calendar.dateComponents([.day], from: start, to: today).day ?? 0
     return ScheduleWeekCodec.weekNumber(forDayOffset: diff)
 }
 

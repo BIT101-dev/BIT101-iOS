@@ -185,12 +185,22 @@ struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
 enum MultipartFormData {
     static func jpegFile(data: Data, filename: String, fieldName: String = "file") -> (body: Data, contentType: String) {
         let boundary = "Boundary-\(UUID().uuidString)"
+        let safeFieldName = escapedHeaderParameter(fieldName)
+        let safeFilename = escapedHeaderParameter(filename)
         var body = Data()
         body.append(Data("--\(boundary)\r\n".utf8))
-        body.append(Data("Content-Disposition: form-data; name=\"\(fieldName)\"; filename=\"\(filename)\"\r\n".utf8))
+        body.append(Data("Content-Disposition: form-data; name=\"\(safeFieldName)\"; filename=\"\(safeFilename)\"\r\n".utf8))
         body.append(Data("Content-Type: image/jpeg\r\n\r\n".utf8))
         body.append(data)
         body.append(Data("\r\n--\(boundary)--\r\n".utf8))
         return (body, "multipart/form-data; boundary=\(boundary)")
+    }
+
+    private static func escapedHeaderParameter(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\r", with: "")
+            .replacingOccurrences(of: "\n", with: "")
     }
 }

@@ -33,9 +33,18 @@ struct WatchScheduleRootView: View {
     private var primaryPage: some View {
         ScrollView {
             if model.contentState == .ready, let next = model.nextOccurrence {
-                LazyVStack(alignment: .leading) {
-                    VStack(alignment: .leading) {
-                        HStack(alignment: .firstTextBaseline) {
+                LazyVStack(
+                    alignment: .leading,
+                    spacing: ScheduleExternalDesignSystem.Spacing.watchPrimary
+                ) {
+                    VStack(
+                        alignment: .leading,
+                        spacing: ScheduleExternalDesignSystem.Spacing.watchHeader
+                    ) {
+                        HStack(
+                            alignment: .firstTextBaseline,
+                            spacing: ScheduleExternalDesignSystem.Spacing.watchHeader
+                        ) {
                             Text(next.isCurrent(at: model.referenceDate) ? "正在上课" : "下一节")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -64,20 +73,26 @@ struct WatchScheduleRootView: View {
 
                     if model.upcomingOccurrences.count > 1 {
                         Divider()
-                            .padding(.vertical, 2)
+                            .padding(.vertical, ScheduleExternalDesignSystem.Spacing.watchDivider)
 
                         Text("后续课节")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
 
                         ForEach(model.upcomingOccurrences.dropFirst()) { occurrence in
-                            VStack(alignment: .leading) {
-                                HStack(alignment: .firstTextBaseline) {
+                            VStack(
+                                alignment: .leading,
+                                spacing: ScheduleExternalDesignSystem.Spacing.watchFollowUp
+                            ) {
+                                HStack(
+                                    alignment: .firstTextBaseline,
+                                    spacing: ScheduleExternalDesignSystem.Spacing.watchHeader
+                                ) {
                                     Text(occurrence.relativeDayText(referenceDate: model.referenceDate))
                                         .font(.caption2.weight(.medium))
                                         .foregroundStyle(.secondary)
 
-                                    Spacer(minLength: 4)
+                                    Spacer(minLength: ScheduleExternalDesignSystem.Spacing.watchMinimumSpacer)
 
                                     Text(occurrence.rangeText)
                                         .font(.caption2.weight(.medium))
@@ -94,7 +109,7 @@ struct WatchScheduleRootView: View {
                                         .lineLimit(1)
                                 }
                             }
-                            .padding(.vertical, 2)
+                            .padding(.vertical, ScheduleExternalDesignSystem.Spacing.watchFollowUp)
                         }
                     }
                 }
@@ -103,6 +118,16 @@ struct WatchScheduleRootView: View {
                 WatchScheduleEmptyStateView(message: "请先在手机上登录")
             } else if model.contentState == .rest {
                 WatchScheduleEmptyStateView(message: "暂无后续课程")
+            } else if model.contentState == .invalid {
+                WatchScheduleEmptyStateView(
+                    message: "请在手机上重新同步课表",
+                    actionTitle: model.refreshButtonTitle,
+                    feedbackText: model.refreshFeedbackText,
+                    isActionDisabled: model.isRefreshing,
+                    action: {
+                        model.requestRefresh()
+                    }
+                )
             } else {
                 WatchScheduleEmptyStateView(
                     message: "打开手机 App 同步课表",
@@ -118,7 +143,7 @@ struct WatchScheduleRootView: View {
     }
 
     private var actionsPage: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: ScheduleExternalDesignSystem.Spacing.watchActions) {
             Text("操作")
                 .font(.headline)
 
@@ -151,7 +176,7 @@ private struct WatchScheduleEmptyStateView: View {
     var action: (() -> Void)? = nil
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: ScheduleExternalDesignSystem.Spacing.watchEmpty) {
             Text(message)
                 .font(.headline)
                 .multilineTextAlignment(.center)
@@ -168,6 +193,9 @@ private struct WatchScheduleEmptyStateView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 120)
+        .frame(
+            maxWidth: .infinity,
+            minHeight: ScheduleExternalDesignSystem.Size.watchEmptyMinimumHeight
+        )
     }
 }

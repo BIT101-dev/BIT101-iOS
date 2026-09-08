@@ -1,12 +1,12 @@
 # BIT101-iOS 代码质量审计
 
-更新时间：2026-09-04
+更新时间：2026-09-08
 
 ## 审计结果
 
-- 默认真机测试共 95 项：89 项 Swift Testing、6 项 XCTest。
+- 默认真机测试共 110 项：100 项 Swift Testing、10 项 XCTest。
 - `RELEASE_NETWORK_SMOKE`、`ICLOUD_CROSS_DEVICE_SMOKE` 和 `EXTENDED_AUTOMATION` 为专用测试，测试范围与默认测试和 Release 包分离。
-- `EXTENDED_AUTOMATION` 另有 27 项本地自动化测试，按课程表、基础设施、登录三组运行。
+- `EXTENDED_AUTOMATION` 另有 27 项本地自动化测试，按课程表、基础设施、登录三组运行；iCloud 跨设备和 Release 网络 smoke 另有 5 项专用用例。
 - 审查结果显示，已删除功能和旧接口处于测试断言范围外。
 - 维护手册与源码职责已在本轮同步；`stale-docs` 检查负责提示长期未编辑文档。
 - 已将网络 smoke runner 从 `BIT101_iOSApp.swift` 移到独立文件。
@@ -14,7 +14,7 @@
   公共网络/触感入口越界和脚本动态临时产物；布局值、强制解包与大型文件生成审查候选。
 - 首屏/列表/滚动状态已统一使用公共状态组件；课程与成绩的比例列已统一使用公共数据行；
   日程与成绩的课程评价跳转共用课程匹配器和 CoursePageContent。
-- GitHub Actions 已强制执行统一静态审计，并在 generic iOS `build-for-testing` 中将 Swift/Clang 警告视为错误。
+- GitHub Actions 已强制执行统一静态审计，并在 Release `build-for-testing` 门禁中将 Swift/Clang 警告视为错误。
 - 启动、回前台和切换账号的路径移除学校/WebVPN 自动预热；成绩恢复路径采用本地缓存，查询和短信验证由用户显式操作触发。
 
 ## 已完成的结构整理
@@ -101,7 +101,7 @@
   它覆盖脚本权限、死代码标记、文档失效链接、重复 import、强制解包候选和大型文件候选，
   延伸原有 UI、触感和组件检查范围。
 - `run-static-audit.sh` 统一编排检查；源码质量检查核对 UI、触感、组件、错误报告和文档检查的接入状态，
-  静态审计与网络 smoke 保持调用隔离；CI 检查该入口和 generic device 编译门禁的存在状态。
+  静态审计与网络 smoke 保持调用隔离；CI 检查该入口和 Release 编译门禁的存在状态。
 - 解释性文案报告扫描范围为列表/表单的 `Section footer` 和空状态的 `ContentUnavailableView description`；
   已由用户确认的文案进入白名单，新增文案继续提示。
 

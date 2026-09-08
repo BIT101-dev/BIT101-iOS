@@ -12,6 +12,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = ROOT / "BIT101-iOS"
 DESIGN_SYSTEM = SOURCE_ROOT / "Shared/DesignSystem/AppDesignSystem.swift"
+DESIGN_SYSTEM_SOURCES = {
+    DESIGN_SYSTEM,
+    SOURCE_ROOT / "Shared/ScheduleSharedSnapshot.swift",
+}
 
 DIRECT_ROUNDED_RECTANGLE = re.compile(r"\bRoundedRectangle\s*\(")
 DIRECT_CORNER_RADIUS = re.compile(r"\.cornerRadius\s*\(")
@@ -323,7 +327,7 @@ def main() -> int:
                 f"{DESIGN_SYSTEM.relative_to(ROOT)}:{line_number}: 设计令牌定义不得通过比例或重复相加/相减派生"
             )
     for path in swift_files():
-        if path == DESIGN_SYSTEM:
+        if path in DESIGN_SYSTEM_SOURCES:
             continue
         relative = path.relative_to(ROOT)
         source_relative = path.relative_to(SOURCE_ROOT).as_posix()
@@ -371,7 +375,7 @@ def main() -> int:
                     f"{relative}:{line_number}: {label} 必须使用 AppDesignSystem.Spacing 或专用语义令牌"
                 )
 
-        if path != DESIGN_SYSTEM:
+        if path not in DESIGN_SYSTEM_SOURCES:
             for pattern in (DERIVED_DESIGN_TOKEN, REPEATED_DESIGN_TOKEN):
                 for match in pattern.finditer(source):
                     line_number = source.count("\n", 0, match.start()) + 1

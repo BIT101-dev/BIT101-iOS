@@ -163,14 +163,20 @@ private struct GalleryQuickLookPresenter: UIViewControllerRepresentable {
             switch request.source {
             case let .local(images):
                 var prepared: [MutableQuickLookItem] = []
-                for image in images {
+                var sourceIndexes: [Int] = []
+                for (index, image) in images.enumerated() {
                     try Task.checkCancellation()
                     guard let data = image.pngData() else { continue }
                     let file = try await GalleryImageCache.shared.localFile(data: data)
                     prepared.append(MutableQuickLookItem(url: file))
+                    sourceIndexes.append(index)
                 }
                 guard !prepared.isEmpty else { throw QuickLookPreparationError.noImages }
-                return (prepared, min(max(request.initialIndex, 0), prepared.count - 1))
+                let requestedIndex = min(max(request.initialIndex, 0), images.count - 1)
+                let preparedIndex = sourceIndexes.firstIndex(of: requestedIndex)
+                    ?? sourceIndexes.firstIndex(where: { $0 > requestedIndex })
+                    ?? prepared.count - 1
+                return (prepared, preparedIndex)
 
             case let .remote(images):
                 guard !images.isEmpty else { throw QuickLookPreparationError.noImages }

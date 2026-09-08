@@ -5,6 +5,7 @@ struct GallerySettingsPage: View {
     @ObservedObject private var settings = AppSettingsStore.shared
     @State private var imageCacheLimitMB = GalleryImageCachePreferences.limitMB
     @State private var imageCacheUsageText = "计算中"
+    @State private var imageCacheUsageGeneration = 0
 
     var body: some View {
         List {
@@ -52,7 +53,10 @@ struct GallerySettingsPage: View {
 
     /// 该方法异步统计话廊图片缓存，并按系统文件大小格式更新设置页。
     private func refreshImageCacheUsage() async {
+        imageCacheUsageGeneration &+= 1
+        let generation = imageCacheUsageGeneration
         let bytes = await GalleryImageCache.shared.usedBytes()
+        guard generation == imageCacheUsageGeneration else { return }
         let formatter = ByteCountFormatter()
         imageCacheUsageText = formatter.string(fromByteCount: bytes)
     }
@@ -97,7 +101,7 @@ struct AboutSettingsPage: View {
                         Text(mitLicenseText)
                             .font(.system(.footnote, design: .monospaced))
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding()
+                            .padding(AppDesignSystem.Spacing.section)
                             .textSelection(.enabled)
                     }
                     .navigationTitle("开源声明")

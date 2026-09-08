@@ -22,12 +22,12 @@ extension CourseScheduleTabView {
         }
 
         // 课表网格按当前周展示，课程、考试和自定义日程统一转换为日历块模型。
-        let weekStart = Calendar.current.date(
+        let weekStart = ScheduleDateCodec.calendar.date(
             byAdding: .day,
             value: ScheduleWeekCodec.weekOffset(forWeekNumber: viewModel.selectedWeek) * 7,
             to: firstDay
         ) ?? firstDay
-        let weekEnd = Calendar.current.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart
+        let weekEnd = ScheduleDateCodec.calendar.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart
 
         let courseEntries: [ScheduleCalendarEntry]
         switch viewModel.cache.scheduleDisplayMode {

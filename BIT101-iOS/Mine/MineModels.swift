@@ -40,7 +40,7 @@ enum MineLoadStatus: Equatable {
 /// 粉丝、关注、帖子列表共用的分页状态。
 ///
 /// 关注列表、粉丝列表和帖子列表使用不同的元素类型，分页语义保持一致。
-/// 这个泛型状态结构统一复用分页状态。
+/// `PagedItemsState` 提供页码和列表更新；`MineLoadStatus` 保留我的模块的页面状态。
 struct MinePagedState<Item> {
     /// 当前已加载的列表项。
     var items: [Item] = []

@@ -24,9 +24,9 @@ git config core.hooksPath .githooks
 SKIP_STALE_DOCS_CHECK=1 git commit ...
 ```
 
-1. 验证流程禁止启动、使用或创建 iOS / watchOS 模拟器；没有已连接真机时停止验证。
-2. 使用 generic device 或已连接真机运行 `xcodebuild build-for-testing`。
-3. 仅在已连接真机上运行受影响的单元测试。
+1. 验证流程使用已连接并受信任的 iOS / watchOS 真机。
+2. 编译、装机和启动统一运行 `Scripts/build-install-device.sh`。
+3. 用户明确指定测试时，在已连接真机上运行受影响的单元测试。
 4. 按 `docs/MODULE_PLAYBOOK.md` 人工验证受影响页面。
 5. 缓存、状态或模块边界变化时同步更新文档。
 6. UI 改动按需运行 `Scripts/check-ui-consistency.sh`，确认改动使用公共设计系统。

@@ -48,7 +48,7 @@ jobs:
           xcodebuild build-for-testing
           -project BIT101-iOS.xcodeproj
           -scheme BIT101-iOS
-          -configuration Debug
+          -configuration Release
           -destination 'generic/platform=iOS'
           -derivedDataPath build/CI
           CODE_SIGNING_ALLOWED=NO

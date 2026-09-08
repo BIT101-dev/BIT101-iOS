@@ -4,14 +4,9 @@ import SwiftUI
 import WidgetKit
 
 private let scheduleWidgetSyncMessage = "请先获取课表"
+private let scheduleWidgetInvalidMessage = "请重新同步课表"
 private let scheduleWidgetLoginMessage = "请登录"
 private let scheduleWidgetRestMessage = "暂无后续课程"
-
-/// Widget target 与主 App 设计系统分属不同链接边界；这里声明本 target 使用的间距令牌。
-private enum ScheduleWidgetLayout {
-    static let compactFollowUpSpacing: CGFloat = 8
-    static let largeFollowUpSpacing: CGFloat = 10
-}
 
 /// 课程提醒 Live Activity 配置。
 ///
@@ -24,8 +19,8 @@ private enum ScheduleWidgetLayout {
 struct CourseReminderLiveActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: CourseReminderActivityAttributes.self) { context in
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+            VStack(alignment: .leading, spacing: ScheduleExternalDesignSystem.Spacing.liveActivityCard) {
+                HStack(alignment: .firstTextBaseline, spacing: ScheduleExternalDesignSystem.Spacing.liveActivityHeader) {
                     Text(context.state.kindText)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -51,7 +46,7 @@ struct CourseReminderLiveActivityWidget: Widget {
                     style: .large
                 )
             }
-            .padding(12)
+            .padding(ScheduleExternalDesignSystem.Size.liveActivityContent)
             .activityBackgroundTint(.clear)
             // 锁屏内容区域需要单独声明 widgetURL，点击后返回主 App。
             .widgetURL(URL(string: "bit101://schedule/courses"))
@@ -62,7 +57,7 @@ struct CourseReminderLiveActivityWidget: Widget {
                     Text(context.state.kindText)
                         .font(.caption)
                         .lineLimit(1)
-                        .padding(.leading, 6)
+                        .padding(.leading, ScheduleExternalDesignSystem.Spacing.liveActivityRegion)
                 }
                 // 展开态右侧展示倒计时。
                 DynamicIslandExpandedRegion(.trailing) {
@@ -70,7 +65,7 @@ struct CourseReminderLiveActivityWidget: Widget {
                         targetDate: context.state.countdownTargetDate,
                         style: .expanded
                     )
-                    .padding(.trailing, 6)
+                    .padding(.trailing, ScheduleExternalDesignSystem.Spacing.liveActivityRegion)
                 }
                 // 展开态中间展示单行标题。
                 DynamicIslandExpandedRegion(.center) {
@@ -142,14 +137,14 @@ private struct LiveActivityTimerText: View {
         case .expanded:
             timerText
                 .multilineTextAlignment(.trailing)
-                .frame(width: 42)
+                .frame(width: ScheduleExternalDesignSystem.Size.liveActivityExpandedTimerWidth)
                 .font(.caption2)
                 .lineLimit(1)
         case .compact:
             // 紧凑态保持固定宽度，倒计时文本长度变化时维持 Dynamic Island 宽度。
             timerText
                 .multilineTextAlignment(.center)
-                .frame(width: 40)
+                .frame(width: ScheduleExternalDesignSystem.Size.liveActivityCompactTimerWidth)
                 .font(.caption2)
                 .lineLimit(1)
         }
@@ -158,9 +153,7 @@ private struct LiveActivityTimerText: View {
     /// 使用原生倒计时文本；目标时刻到达后由 activity 调度层结束提醒。
     @ViewBuilder
     private var timerText: some View {
-        if Date() < targetDate {
-            Text(targetDate, style: .timer)
-        }
+        Text(targetDate, style: .timer)
     }
 }
 
@@ -216,8 +209,10 @@ private struct ScheduleWidgetProvider: TimelineProvider {
         let resolved = ScheduleOccurrenceResolver.loadResolvedSnapshot(now: now, limit: 6)
 
         switch resolved.contentState {
-        case .missing, .invalid:
+        case .missing:
             return emptyEntry(message: scheduleWidgetSyncMessage, date: now)
+        case .invalid:
+            return emptyEntry(message: scheduleWidgetInvalidMessage, date: now)
         case .loggedOut:
             return emptyEntry(message: scheduleWidgetLoginMessage, date: now)
         case .rest:
@@ -296,7 +291,7 @@ private struct ScheduleWidgetEntryView: View {
 
     @ViewBuilder
     private func scheduleHeader(for occurrence: ScheduleExternalOccurrence) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
+        HStack(alignment: .firstTextBaseline, spacing: ScheduleExternalDesignSystem.Spacing.widgetHeader) {
             Text(courseStatusText(for: occurrence))
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -311,15 +306,15 @@ private struct ScheduleWidgetEntryView: View {
 
     /// 2x2 小号组件。
     private var smallBody: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: ScheduleExternalDesignSystem.Spacing.widgetSmallContent) {
             if let first = entry.nextOccurrences.first {
                 scheduleHeader(for: first)
 
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: ScheduleExternalDesignSystem.Spacing.widgetSmallContent) {
                     Text(first.title)
                         .font(.headline)
                         .lineLimit(2)
-                        .minimumScaleFactor(0.75)
+                        .minimumScaleFactor(ScheduleExternalDesignSystem.Scale.widgetSmallTitle)
 
                     Text(first.rangeText)
                         .font(.subheadline.weight(.medium))
@@ -345,8 +340,8 @@ private struct ScheduleWidgetEntryView: View {
     @ViewBuilder
     private var accessoryRectangularBody: some View {
         if let first = entry.nextOccurrences.first {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
+            VStack(alignment: .leading, spacing: ScheduleExternalDesignSystem.Spacing.widgetAccessoryContent) {
+                HStack(alignment: .firstTextBaseline, spacing: ScheduleExternalDesignSystem.Spacing.widgetAccessoryHeader) {
                     Text(courseStatusText(for: first))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -392,20 +387,20 @@ private struct ScheduleWidgetEntryView: View {
             AccessoryWidgetBackground()
 
             if let first = entry.nextOccurrences.first {
-                VStack(spacing: 1) {
+                VStack(spacing: ScheduleExternalDesignSystem.Spacing.widgetCircular) {
                     Image(systemName: first.isCurrent() ? "play.circle.fill" : "calendar.badge.clock")
                         .font(.caption2)
                     Text(circularCountdownText(for: first))
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .font(.system(size: ScheduleExternalDesignSystem.Typography.widgetCircularCount, weight: .semibold, design: .rounded))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.6)
+                        .minimumScaleFactor(ScheduleExternalDesignSystem.Scale.widgetCircularCount)
                 }
             } else {
-                VStack(spacing: 1) {
+                VStack(spacing: ScheduleExternalDesignSystem.Spacing.widgetCircular) {
                     Image(systemName: "calendar")
                         .font(.caption2)
                     Text(circularEmptyText)
-                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .font(.system(size: ScheduleExternalDesignSystem.Typography.widgetCircularEmpty, weight: .medium, design: .rounded))
                 }
             }
         }
@@ -413,15 +408,15 @@ private struct ScheduleWidgetEntryView: View {
 
     /// 2x4 中号组件。
     private var mediumBody: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: ScheduleExternalDesignSystem.Spacing.widgetMediumContent) {
             if let first = entry.nextOccurrences.first {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: ScheduleExternalDesignSystem.Spacing.widgetMediumMain) {
                     scheduleHeader(for: first)
 
                     Text(first.title)
                         .font(.headline)
                         .lineLimit(2)
-                        .minimumScaleFactor(0.82)
+                        .minimumScaleFactor(ScheduleExternalDesignSystem.Scale.widgetMediumTitle)
 
                     Text("\(first.rangeText)\(first.classroom.isEmpty ? "" : " · \(first.classroom)")")
                         .font(.subheadline)
@@ -435,17 +430,20 @@ private struct ScheduleWidgetEntryView: View {
                         .foregroundStyle(.secondary)
 
                     ForEach(Array(entry.nextOccurrences.dropFirst().prefix(1))) { occurrence in
-                        HStack(spacing: ScheduleWidgetLayout.compactFollowUpSpacing) {
-                            VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: ScheduleExternalDesignSystem.Spacing.widgetMediumMain) {
+                            VStack(alignment: .leading, spacing: ScheduleExternalDesignSystem.Spacing.widgetFollowUp) {
                                 Text(occurrence.title)
                                     .font(.subheadline.weight(.medium))
                                     .lineLimit(1)
-                                    .minimumScaleFactor(0.82)
+                                    .minimumScaleFactor(ScheduleExternalDesignSystem.Scale.widgetMediumTitle)
 
-                                Text(occurrence.classroom)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
+                                let meta = secondaryMetaText(for: occurrence)
+                                if !meta.isEmpty {
+                                    Text(meta)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
                             }
 
                             Spacer(minLength: 0)
@@ -466,15 +464,15 @@ private struct ScheduleWidgetEntryView: View {
 
     /// 4x4 大号组件。
     private var largeBody: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: ScheduleExternalDesignSystem.Spacing.widgetLargeContent) {
             if let first = entry.nextOccurrences.first {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: ScheduleExternalDesignSystem.Spacing.widgetLargeMain) {
                     scheduleHeader(for: first)
 
                     Text(first.title)
                         .font(.title3)
                         .lineLimit(2)
-                        .minimumScaleFactor(0.82)
+                        .minimumScaleFactor(ScheduleExternalDesignSystem.Scale.widgetLargeTitle)
 
                     Text(first.rangeText)
                         .font(.headline.weight(.medium))
@@ -494,14 +492,14 @@ private struct ScheduleWidgetEntryView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    VStack(spacing: 8) {
+                    VStack(spacing: ScheduleExternalDesignSystem.Spacing.widgetLargeFollowUp) {
                         ForEach(Array(entry.nextOccurrences.dropFirst().prefix(4))) { occurrence in
-                            HStack(spacing: ScheduleWidgetLayout.largeFollowUpSpacing) {
-                                VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: ScheduleExternalDesignSystem.Spacing.widgetLargeFollowUp) {
+                                VStack(alignment: .leading, spacing: ScheduleExternalDesignSystem.Spacing.widgetFollowUp) {
                                     Text(occurrence.title)
                                         .font(.subheadline.weight(.medium))
                                         .lineLimit(1)
-                                        .minimumScaleFactor(0.82)
+                                        .minimumScaleFactor(ScheduleExternalDesignSystem.Scale.widgetLargeTitle)
 
                                     let meta = secondaryMetaText(for: occurrence)
                                     if !meta.isEmpty {
@@ -568,11 +566,16 @@ private struct ScheduleWidgetEntryView: View {
 
     /// 课表为空或后续课程为空时显示统一空态。
     private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: ScheduleExternalDesignSystem.Spacing.widgetEmpty) {
             Text(entry.message ?? scheduleWidgetRestMessage)
                 .font(.subheadline.weight(.medium))
             if entry.message == scheduleWidgetSyncMessage {
                 Text("打开 App 同步课表后，这里会显示下一节课。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if entry.message == scheduleWidgetInvalidMessage {
+                Text("打开 App 重新同步课表后，这里会显示下一节课。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -591,12 +594,21 @@ private struct ScheduleWidgetEntryView: View {
             return scheduleWidgetLoginMessage
         case scheduleWidgetSyncMessage:
             return "请先同步课表"
+        case scheduleWidgetInvalidMessage:
+            return "请重新同步"
         default:
             return "暂无课程"
         }
     }
 
     private var circularEmptyText: String {
-        entry.message == scheduleWidgetLoginMessage ? scheduleWidgetLoginMessage : "无课"
+        switch entry.message {
+        case scheduleWidgetLoginMessage:
+            return scheduleWidgetLoginMessage
+        case scheduleWidgetInvalidMessage:
+            return "重同步"
+        default:
+            return "无课"
+        }
     }
 }

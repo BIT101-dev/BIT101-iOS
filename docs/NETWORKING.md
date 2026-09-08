@@ -63,4 +63,4 @@ smoke 属于该例外范围。
 - snake_case JSON 解码
 - multipart 文件字段契约
 
-修改共享网络层时至少运行 `build-for-testing` 和测试 Target。修改学校认证链路后还必须做真机同步冒烟验证。
+共享网络层修改完成后，使用授权的真机构建流程验证；`NetworkClientTests` 与学校同步冒烟纳入获得明确授权的验证阶段。

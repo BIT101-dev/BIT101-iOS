@@ -164,9 +164,9 @@ struct AppCommentThread<Comment: Identifiable, Content: View>: View {
             content(comment, false)
 
             if !subcomments.isEmpty {
-                VStack(spacing: 0) {
+                VStack(spacing: AppDesignSystem.Spacing.none) {
                     ForEach(Array(subcomments.enumerated()), id: \.element.id) { index, subcomment in
-                        VStack(spacing: 0) {
+                        VStack(spacing: AppDesignSystem.Spacing.none) {
                             content(subcomment, true)
 
                             if index != subcomments.count - 1 {

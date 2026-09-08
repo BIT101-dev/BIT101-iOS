@@ -102,6 +102,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     ///
     /// session 可达时使用 `sendMessage` 完成前台即时往返；session 不可达时，
     /// `applicationContext` 以 best-effort 方式传递请求。
+    /// completion 返回即时快照落地结果或请求入队结果。
     func requestLatestSnapshotFromPhone(
         completion: @escaping (Result<Void, WatchScheduleSyncError>) -> Void = { _ in }
     ) {
@@ -126,6 +127,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
                         Self.logger.notice("Immediate watch sync failed; queueing a context request: \(String(describing: error), privacy: .public)")
                         do {
                             try session.updateApplicationContext(WatchScheduleTransferProtocol.requestContext)
+                            completion(.success(()))
                         } catch {
                             Self.logger.error("Failed to queue the watch schedule request: \(String(describing: error), privacy: .public)")
                             completion(.failure(.transferFailed))
@@ -138,6 +140,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
 
         do {
             try session.updateApplicationContext(WatchScheduleTransferProtocol.requestContext)
+            completion(.success(()))
         } catch {
             Self.logger.error("Failed to queue the watch schedule request: \(String(describing: error), privacy: .public)")
             completion(.failure(.transferFailed))

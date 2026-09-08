@@ -243,6 +243,8 @@ enum ComposerDraftStore {
 ///
 /// 负责标题、正文、标签、声明和可见性设置。
 struct GalleryComposerView: View {
+    private static let maximumImageCount = 9
+
     /// 发帖成功后的回调。
     ///
     /// 调用方通常会在这里刷新当前 feed，并在必要时切回用户刚发帖的分栏。
@@ -263,6 +265,8 @@ struct GalleryComposerView: View {
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     /// 已经加入发帖草稿的图片列表。
     @State private var imageDrafts: [GalleryComposerImageDraft] = []
+    /// 当前批量读取图片并加入上传队列。
+    @State private var isAddingImages = false
     /// 是否匿名发布。
     @State private var anonymous = false
     /// 是否公开出现在信息流中。
@@ -376,10 +380,10 @@ struct GalleryComposerView: View {
                 }
 
                 Section("图片") {
-                    PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 9, matching: .images) {
+                    PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: Self.maximumImageCount, matching: .images) {
                         Text("插入图片")
                     }
-                    .disabled(isSubmitting)
+                    .disabled(isSubmitting || isAddingImages || imageDrafts.count >= Self.maximumImageCount)
 
                     if hasUploadingImages {
                         Text("图片上传中，上传完成后即可一并发布。")
@@ -631,9 +635,14 @@ struct GalleryComposerView: View {
     ///
     /// 图片按选择顺序逐张加入队列并上传，缩略图排列保持选择顺序。
     private func addImages(from items: [PhotosPickerItem]) async {
+        guard !isAddingImages else { return }
+        isAddingImages = true
+        defer { isAddingImages = false }
         defer { selectedPhotoItems = [] }
+        let remaining = max(0, Self.maximumImageCount - imageDrafts.count)
+        guard remaining > 0 else { return }
 
-        for item in items {
+        for item in items.prefix(remaining) {
             await addImage(from: item)
         }
     }

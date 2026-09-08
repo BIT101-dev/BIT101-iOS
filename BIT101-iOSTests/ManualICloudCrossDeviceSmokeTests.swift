@@ -66,6 +66,9 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
                 && scores?.payload.rows.count == coordination.phoneScoreCount
         }
         guard uploaded else {
+            AppSettingsStore.shared.setAutoRotate(original)
+            manager.setEnabled(coordination.phoneSyncWasEnabled)
+            removeCoordination(account: account)
             XCTFail("手机数据未在限定时间内上传到 iCloud KVS")
             return
         }
@@ -124,7 +127,12 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
             return AppSettingsStore.shared.autoRotate == coordination.originalAutoRotate
                 && ScoreCacheStore.loadRows()?.count == coordination.phoneScoreCount
         }
-        XCTAssertTrue(received, "手机未收到 Mac 写回的设置或成绩缓存")
+        guard received else {
+            manager.setEnabled(coordination.phoneSyncWasEnabled)
+            removeCoordination(account: coordination.account)
+            XCTFail("手机未收到 Mac 写回的设置或成绩缓存")
+            return
+        }
 
         manager.setEnabled(coordination.phoneSyncWasEnabled)
         removeCoordination(account: coordination.account)
@@ -158,7 +166,13 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
             result = value
             return true
         }
-        XCTAssertTrue(received, "未收到跨设备 Smoke 协调状态：\(stage.rawValue)")
+        guard received else {
+            throw NSError(
+                domain: "ICloudCrossDeviceSmokeTests",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "未收到跨设备 Smoke 协调状态：\(stage.rawValue)"]
+            )
+        }
         return try XCTUnwrap(result)
     }
 

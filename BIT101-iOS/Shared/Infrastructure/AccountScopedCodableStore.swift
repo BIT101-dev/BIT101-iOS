@@ -1,4 +1,10 @@
 import Foundation
+import OSLog
+
+private let accountScopedStoreLogger = Logger(
+    subsystem: "BIT101-dev.BIT101-iOS",
+    category: "AccountScopedStore"
+)
 
 /// AccountScopedCodableStore 使用稳定前缀和账号后缀生成账号隔离的 Codable 快照存储键。
 struct AccountScopedCodableStore<Value: Codable> {
@@ -18,12 +24,25 @@ struct AccountScopedCodableStore<Value: Codable> {
 
     func load() -> Value? {
         guard let data = defaults.data(forKey: storageKey) else { return nil }
-        return try? JSONDecoder().decode(Value.self, from: data)
+        do {
+            return try JSONDecoder().decode(Value.self, from: data)
+        } catch {
+            accountScopedStoreLogger.error(
+                "Failed to decode account-scoped value keyPrefix=\(keyPrefix, privacy: .public) error=\(String(describing: error), privacy: .public)"
+            )
+            return nil
+        }
     }
 
     func save(_ value: Value) {
-        guard let data = try? JSONEncoder().encode(value) else { return }
-        defaults.set(data, forKey: storageKey)
+        do {
+            let data = try JSONEncoder().encode(value)
+            defaults.set(data, forKey: storageKey)
+        } catch {
+            accountScopedStoreLogger.error(
+                "Failed to encode account-scoped value keyPrefix=\(keyPrefix, privacy: .public) error=\(String(describing: error), privacy: .public)"
+            )
+        }
     }
 
     func remove() {

@@ -158,8 +158,11 @@ struct CalendarSettingsPage: View {
             }
             .onDelete { offsets in
                 let schedules = viewModel.cache.sharedSchedules
-                for index in offsets {
-                    viewModel.deleteSharedSchedule(id: schedules[index].id)
+                let ids = offsets.compactMap { index in
+                    schedules.indices.contains(index) ? schedules[index].id : nil
+                }
+                for id in ids {
+                    viewModel.deleteSharedSchedule(id: id)
                 }
             }
         }
@@ -609,7 +612,7 @@ struct ScheduleExportCodeSheet: View {
                 }
                 .buttonStyle(.borderedProminent)
             }
-            .padding()
+            .padding(AppDesignSystem.Spacing.section)
             .navigationTitle("分享课表")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -690,7 +693,7 @@ struct ScheduleImportCodeSheet: View {
                     .buttonStyle(.borderedProminent)
                 }
             }
-            .padding()
+            .padding(AppDesignSystem.Spacing.section)
             .navigationTitle("导入课表")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

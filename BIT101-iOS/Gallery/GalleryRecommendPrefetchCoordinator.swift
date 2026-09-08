@@ -51,7 +51,13 @@ final class GalleryRecommendPrefetchCoordinator {
     func takePage(for page: Int) async throws -> GalleryPrefetchedPage {
         let expectedGeneration = generation
         let task = task(for: page, generation: expectedGeneration)
-        let result = try await task.value
+        let result: GalleryPrefetchedPage
+        do {
+            result = try await task.value
+        } catch {
+            pageTasks[page] = nil
+            throw error
+        }
         guard generation == expectedGeneration else { throw CancellationError() }
         // Retain nearby completed tasks. A background chain that already awaits the
         // same page can resume after foreground pagination and request that source

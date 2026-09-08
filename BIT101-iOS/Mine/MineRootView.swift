@@ -367,7 +367,7 @@ private struct MineProfileCard: View {
     private var profileAvatar: some View {
         AppAvatarView(
             imageURL: URL(string: info.user.avatar.url),
-            size: 78,
+            size: AppDesignSystem.Size.avatar.profile,
             tint: AppDesignSystem.Palette.info
         )
         .contentShape(Circle())
@@ -406,7 +406,7 @@ private struct MineUserListView: View {
                         HStack(spacing: AppDesignSystem.Spacing.content) {
                             AppAvatarView(
                                 imageURL: URL(string: user.avatar.lowUrl.isEmpty ? user.avatar.url : user.avatar.lowUrl),
-                                size: 46,
+                                size: AppDesignSystem.Size.avatar.list,
                                 tint: AppDesignSystem.Palette.info
                             )
 

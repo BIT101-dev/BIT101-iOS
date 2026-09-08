@@ -333,9 +333,9 @@ final class ScheduleViewModel: ObservableObject {
     func resolvedAutomaticWeek() -> Int {
         guard let firstDay = cache.firstDay else { return 1 }
 
-        let start = Calendar.current.startOfDay(for: firstDay)
-        let today = Calendar.current.startOfDay(for: Date())
-        let diff = Calendar.current.dateComponents([.day], from: start, to: today).day ?? 0
+        let start = ScheduleDateCodec.calendar.startOfDay(for: firstDay)
+        let today = ScheduleDateCodec.calendar.startOfDay(for: Date())
+        let diff = ScheduleDateCodec.calendar.dateComponents([.day], from: start, to: today).day ?? 0
         return ScheduleAutomaticWeekPolicy.clamped(
             ScheduleWeekCodec.weekNumber(forDayOffset: diff)
         )

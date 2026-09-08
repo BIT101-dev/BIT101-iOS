@@ -271,7 +271,7 @@ private struct PaperHeaderSummary: View {
         HStack(spacing: AppDesignSystem.Spacing.control) {
             AppAvatarView(
                 imageURL: paper?.updateUser.avatar.preferredRemoteURL,
-                size: 38,
+                size: AppDesignSystem.Size.avatar.articleDetail,
                 tint: AppDesignSystem.Palette.neutral
             )
 

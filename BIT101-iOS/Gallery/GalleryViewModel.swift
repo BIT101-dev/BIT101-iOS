@@ -41,6 +41,8 @@ final class GalleryViewModel: ObservableObject {
 
     private let service: any GalleryFeedServicing
     private let recommendPrefetch: GalleryRecommendPrefetchCoordinator
+    private var refreshGenerations: [GalleryFeedKind: Int] = [:]
+    private var searchGeneration = 0
 
     init(service: any GalleryFeedServicing) {
         self.service = service
@@ -70,6 +72,8 @@ final class GalleryViewModel: ObservableObject {
         if previousState.status == .loading {
             return
         }
+        let generation = (refreshGenerations[feed] ?? 0) &+ 1
+        refreshGenerations[feed] = generation
         if feed == .recommend {
             recommendPrefetch.reset()
         }
@@ -83,6 +87,7 @@ final class GalleryViewModel: ObservableObject {
         do {
             if feed.isBotFeed {
                 let batch = try await service.fetchBotFeed(startPage: 0)
+                guard refreshGenerations[feed] == generation else { return }
                 setState(for: feed) {
                     $0.posters = batch.posters
                     $0.status = .loaded
@@ -93,7 +98,9 @@ final class GalleryViewModel: ObservableObject {
                 if feed == .recommend {
                     // 推荐流首屏拉取一个源页，先展示结果；更多源页交给后台预取。
                     let batch = try await service.fetchRecommendPage(sourcePage: 0)
+                    guard refreshGenerations[feed] == generation else { return }
                     let uniquePosters = await deduplicateInBackground(batch.posters)
+                    guard refreshGenerations[feed] == generation else { return }
                     setState(for: feed) {
                         $0.posters = uniquePosters
                         $0.status = .loaded
@@ -105,7 +112,9 @@ final class GalleryViewModel: ObservableObject {
                     }
                 } else {
                     let posters = try await service.fetchFeed(kind: feed, page: nil)
+                    guard refreshGenerations[feed] == generation else { return }
                     let uniquePosters = await deduplicateInBackground(posters)
+                    guard refreshGenerations[feed] == generation else { return }
                     setState(for: feed) {
                         $0.posters = uniquePosters
                         $0.status = .loaded
@@ -115,6 +124,7 @@ final class GalleryViewModel: ObservableObject {
                 }
             }
         } catch {
+            guard refreshGenerations[feed] == generation else { return }
             if isGalleryCancellation(error) {
                 // 列表复用、tab 切换或手动重刷时，SwiftUI/URLSession 都可能主动取消旧任务。
                 // 取消状态保持原列表，界面维持当前状态。
@@ -161,6 +171,7 @@ final class GalleryViewModel: ObservableObject {
     /// 普通 feed 直接请求下一页；推荐 feed 则优先消费本地预取页，必要时继续向后跳过空页。
     func loadMoreIfNeeded(for feed: GalleryFeedKind, currentPoster: GalleryPoster?) async {
         guard let currentPoster else { return }
+        let generation = refreshGenerations[feed] ?? 0
         let state = state(for: feed)
 
         guard
@@ -175,7 +186,9 @@ final class GalleryViewModel: ObservableObject {
         do {
             if feed.isBotFeed {
                 let batch = try await service.fetchBotFeed(startPage: state.nextPage)
+                guard refreshGenerations[feed] == generation else { return }
                 let mergedPosters = await mergeUniqueInBackground(existing: state.posters, incoming: batch.posters)
+                guard refreshGenerations[feed] == generation else { return }
                 setState(for: feed) {
                     $0.posters = mergedPosters
                     $0.isLoadingMore = false
@@ -192,6 +205,7 @@ final class GalleryViewModel: ObservableObject {
                 while attempt < 3, canLoadMore, mergedPosters.count == state.posters.count {
                     let batch: GalleryPrefetchedPage
                     batch = try await recommendPrefetch.takePage(for: nextPage)
+                    guard refreshGenerations[feed] == generation else { return }
 
                     mergedPosters = await mergeUniqueInBackground(existing: mergedPosters, incoming: batch.posters)
                     nextPage = batch.nextPage
@@ -199,6 +213,7 @@ final class GalleryViewModel: ObservableObject {
                     attempt += 1
                 }
 
+                guard refreshGenerations[feed] == generation else { return }
                 setState(for: feed) {
                     $0.posters = mergedPosters
                     $0.isLoadingMore = false
@@ -210,7 +225,9 @@ final class GalleryViewModel: ObservableObject {
                 }
             } else {
                 let posters = try await service.fetchFeed(kind: feed, page: state.nextPage)
+                guard refreshGenerations[feed] == generation else { return }
                 let mergedPosters = await mergeUniqueInBackground(existing: state.posters, incoming: posters)
+                guard refreshGenerations[feed] == generation else { return }
                 let nextPage = state.nextPage + 1
                 setState(for: feed) {
                     $0.posters = mergedPosters
@@ -220,6 +237,7 @@ final class GalleryViewModel: ObservableObject {
                 }
             }
         } catch {
+            guard refreshGenerations[feed] == generation else { return }
             if isGalleryCancellation(error) {
                 setState(for: feed) { $0.isLoadingMore = false }
                 return
@@ -233,6 +251,8 @@ final class GalleryViewModel: ObservableObject {
     ///
     /// 搜索前会先裁剪首尾空白，确保排序和关键词状态保持一致。
     func performSearch() async {
+        searchGeneration &+= 1
+        let generation = searchGeneration
         let trimmed = searchQuery.text.trimmingCharacters(in: .whitespacesAndNewlines)
         searchQuery.text = trimmed
         let previousState = searchState
@@ -241,9 +261,12 @@ final class GalleryViewModel: ObservableObject {
 
         do {
             let posters = try await service.searchPosters(query: searchQuery, page: nil)
+            guard searchGeneration == generation else { return }
             searchState.applyFirstPage(await deduplicateInBackground(posters))
+            guard searchGeneration == generation else { return }
             searchState.status = .loaded
         } catch {
+            guard searchGeneration == generation else { return }
             if isGalleryCancellation(error) {
                 searchState = previousState
                 return
@@ -259,6 +282,7 @@ final class GalleryViewModel: ObservableObject {
     /// 搜索结果按需加载；无关键词时保持预取请求链路空闲。
     func loadMoreSearchResultsIfNeeded(currentPoster: GalleryPoster?) async {
         guard let currentPoster else { return }
+        let generation = searchGeneration
 
         guard
             searchState.status == .loaded,
@@ -271,11 +295,14 @@ final class GalleryViewModel: ObservableObject {
 
         do {
             let posters = try await service.searchPosters(query: searchQuery, page: searchState.nextPage)
+            guard searchGeneration == generation else { return }
             searchState.posters = await mergeUniqueInBackground(existing: searchState.posters, incoming: posters)
+            guard searchGeneration == generation else { return }
             searchState.isLoadingMore = false
             searchState.nextPage += 1
             searchState.canLoadMore = !posters.isEmpty
         } catch {
+            guard searchGeneration == generation else { return }
             if isGalleryCancellation(error) {
                 searchState.isLoadingMore = false
                 return

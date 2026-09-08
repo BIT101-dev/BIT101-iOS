@@ -3,7 +3,8 @@ import Foundation
 extension Notification.Name {
     /// 共享课表快照更新通知。
     ///
-    /// Watch App 当前页和 Watch Widget 可在所属进程监听这条通知，在本地镜像更新后刷新视图。
+    /// 当前进程的 Watch App 页面和 Watch Widget 监听这条通知，在本地镜像更新后刷新视图。
+    /// iPhone 与 Watch 的跨进程更新通过 App Group 文件和 WatchConnectivity 传递。
     static let scheduleExternalSnapshotDidChange = Notification.Name("BIT101.ScheduleExternalSnapshotDidChange")
 }
 
@@ -16,6 +17,66 @@ enum ScheduleSharedContainer {
     static let directoryName = "Widgets"
     /// Widget 已使用这个文件名。当前继续保留它，兼容已有快照读取路径。
     static let snapshotFileName = "schedule-widget-snapshot.json"
+}
+
+/// 外部课表展示 target 共用的 UI 设计令牌。
+///
+/// 该层保持 Foundation 依赖，让 iOS Widget、watch App 和 watch Widget 共享数值。
+nonisolated enum ScheduleExternalDesignSystem {
+    enum Spacing {
+        static let liveActivityCard: CGFloat = 6
+        static let liveActivityHeader: CGFloat = 8
+        static let liveActivityRegion: CGFloat = 6
+        static let widgetHeader: CGFloat = 6
+        static let widgetSmallContent: CGFloat = 6
+        static let widgetAccessoryContent: CGFloat = 3
+        static let widgetAccessoryHeader: CGFloat = 6
+        static let widgetCircular: CGFloat = 1
+        static let widgetMediumContent: CGFloat = 8
+        static let widgetMediumMain: CGFloat = 4
+        static let widgetFollowUp: CGFloat = 2
+        static let widgetLargeContent: CGFloat = 10
+        static let widgetLargeMain: CGFloat = 6
+        static let widgetLargeFollowUp: CGFloat = 8
+        static let widgetEmpty: CGFloat = 6
+        static let watchPrimary: CGFloat = 8
+        static let watchHeader: CGFloat = 8
+        static let watchDivider: CGFloat = 2
+        static let watchFollowUp: CGFloat = 2
+        static let watchActions: CGFloat = 10
+        static let watchEmpty: CGFloat = 8
+        static let watchMinimumSpacer: CGFloat = 4
+    }
+
+    enum Size {
+        static let liveActivityContent: CGFloat = 12
+        static let liveActivityExpandedTimerWidth: CGFloat = 42
+        static let liveActivityCompactTimerWidth: CGFloat = 40
+        static let watchEmptyMinimumHeight: CGFloat = 120
+    }
+
+    enum Typography {
+        static let widgetCircularCount: CGFloat = 10
+        static let widgetCircularEmpty: CGFloat = 9
+        static let watchCircularBuilding: CGFloat = 14
+        static let watchCircularRoom: CGFloat = 16
+        static let watchCorner: CGFloat = 14
+        static let watchCornerStatus: CGFloat = 13
+    }
+
+    enum Scale {
+        static let widgetSmallTitle: CGFloat = 0.75
+        static let widgetMediumTitle: CGFloat = 0.82
+        static let widgetLargeTitle: CGFloat = 0.82
+        static let widgetCircularCount: CGFloat = 0.6
+        static let watchCircularBuilding: CGFloat = 0.55
+        static let watchCircularRoom: CGFloat = 0.45
+        static let watchCorner: CGFloat = 0.45
+        static let watchCornerStatus: CGFloat = 0.5
+        static let watchRectangularTitle: CGFloat = 0.7
+        static let watchRectangularRange: CGFloat = 0.7
+        static let watchRectangularLocation: CGFloat = 0.7
+    }
 }
 
 /// 对外部展示层暴露的精简节次模型。

@@ -87,6 +87,7 @@ actor ScheduleCloudSyncManager {
             logDebug("skip push: iCloud sync disabled")
             return
         }
+        guard await hasAvailableCloudAccount() else { return }
         do {
             try await upsert(remoteWith: localCache)
         } catch {
@@ -95,6 +96,7 @@ actor ScheduleCloudSyncManager {
     }
 
     private func reconcile(localCache: ScheduleCache, allowCloudApply: Bool) async {
+        guard await hasAvailableCloudAccount() else { return }
         guard let recordID = await currentRecordID() else {
             logDebug("skip reconcile: current student id is empty")
             return
@@ -106,7 +108,10 @@ actor ScheduleCloudSyncManager {
 
         do {
             let remoteRecord = try await container.privateCloudDatabase.record(for: recordID)
-            guard let remoteCache = decodeCache(from: remoteRecord) else {
+            guard let remoteCache = decodeCache(
+                from: remoteRecord,
+                expectedStudentID: await currentStudentID()
+            ) else {
                 logError("reconcile abort: remote payload decode failed record=\(recordID.recordName)")
                 return
             }
@@ -138,7 +143,7 @@ actor ScheduleCloudSyncManager {
                 logDebug("reconcile no-op: remote not newer and local not newer")
             }
         } catch let error as CKError {
-            if error.code == .unknownItem || error.code == .serverRejectedRequest {
+            if error.code == .unknownItem {
                 logDebug("remote record unavailable (\(error.code.rawValue)); uploading initial local cache")
                 var initialUpload = localCache
                 if initialUpload.updatedAt == .distantPast {
@@ -168,7 +173,7 @@ actor ScheduleCloudSyncManager {
         do {
             record = try await container.privateCloudDatabase.record(for: recordID)
             logDebug("upsert fetched existing remote record")
-        } catch let error as CKError where error.code == .unknownItem || error.code == .serverRejectedRequest {
+        } catch let error as CKError where error.code == .unknownItem {
             record = CKRecord(recordType: recordType, recordID: recordID)
             logDebug("upsert will create new remote record after fetch error code=\(error.code.rawValue)")
         }
@@ -181,11 +186,31 @@ actor ScheduleCloudSyncManager {
         logDebug("upsert saved remote record successfully")
     }
 
-    private func decodeCache(from record: CKRecord) -> ScheduleCache? {
+    private func decodeCache(from record: CKRecord, expectedStudentID: String) -> ScheduleCache? {
+        if let storedStudentID = record[FieldKey.studentID] as? String,
+           storedStudentID != expectedStudentID
+        {
+            logError("reconcile abort: remote student id mismatch")
+            return nil
+        }
         if let payloadJSON = record[FieldKey.payloadJSON] as? String {
             return try? decoder.decode(ScheduleCache.self, from: Data(payloadJSON.utf8))
         }
         return nil
+    }
+
+    private func hasAvailableCloudAccount() async -> Bool {
+        do {
+            let status = try await container.accountStatus()
+            guard status == .available else {
+                logDebug("skip cloud operation: iCloud account status=\(status.rawValue)")
+                return false
+            }
+            return true
+        } catch {
+            logError("cloud account status query failed: \(describe(error))")
+            return false
+        }
     }
 
     private func currentRecordID() async -> CKRecord.ID? {

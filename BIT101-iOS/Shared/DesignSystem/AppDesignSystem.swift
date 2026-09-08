@@ -60,6 +60,10 @@ enum AppDesignSystem {
         }
 
         struct AvatarMetrics {
+            let articleDetail: CGFloat
+            let account: CGFloat
+            let list: CGFloat
+            let profile: CGFloat
             let placeholderOpacity: CGFloat
             let largeIconThreshold: CGFloat
         }
@@ -93,6 +97,10 @@ enum AppDesignSystem {
         )
         static let compactRow = CompactRowMetrics(primaryHeight: 22, secondaryHeight: 20)
         static let avatar = AvatarMetrics(
+            articleDetail: 38,
+            account: 40,
+            list: 46,
+            profile: 78,
             placeholderOpacity: 0.15,
             largeIconThreshold: 64
         )
@@ -200,6 +208,7 @@ enum AppDesignSystem {
         static let secondaryBackground = Color(uiColor: .secondarySystemBackground)
         static let secondaryGroupedBackground = Color(uiColor: .secondarySystemGroupedBackground)
         static let secondaryFill = Color(uiColor: .secondarySystemFill)
+        static let subtleBorder = Color.primary.opacity(0.06)
         static let mediaOverlay = Color.black.opacity(0.45)
     }
 
@@ -459,7 +468,7 @@ extension View {
         )
         .overlay {
             AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.prominent)
-                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+                .stroke(AppDesignSystem.Palette.subtleBorder, lineWidth: 1)
         }
     }
 

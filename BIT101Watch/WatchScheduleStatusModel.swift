@@ -143,7 +143,6 @@ final class WatchScheduleStatusModel: ObservableObject {
                 switch result {
                 case .success:
                     self.reload()
-                    self.finishRefresh(as: .succeeded)
                 case .failure:
                     self.finishRefresh(as: .failed)
                 }

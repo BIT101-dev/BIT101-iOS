@@ -11,18 +11,23 @@ problems = []
 schedule_notice_presenters = 0
 for path in root.rglob("*.swift"):
     text = path.read_text(encoding="utf-8")
-    schedule_notice_presenters += text.count("schoolDataRefresh.scheduleViewModel.$notice")
+    schedule_notice_presenters += len(re.findall(r"\.scheduleViewModel\.\$notice\.compactMap", text))
     if ".diagnosticAlert(item: $viewModel.notice)" in text:
         problems.append(f"{path}: 日程共享错误不得在子页面重复展示")
     if path.name != "ErrorReportSupport.swift":
         position = 0
         while (start := text.find(".alert(item:", position)) >= 0:
+            binding_match = re.search(r"\.alert\(item:\s*\$(\w+)", text[start:])
+            binding = binding_match.group(1) if binding_match else ""
             opening = text.find("{", start)
             depth, end = 1, opening + 1
             while end < len(text) and depth:
                 depth += (text[end] == "{") - (text[end] == "}")
                 end += 1
             block = text[start:end]
+            if binding == "expectedAlert" or (binding == "alert" and "$diagnosticAlert" in text):
+                position = end
+                continue
             if ".title" in block and ".message" in block and "primaryButton" not in block:
                 line = text.count("\n", 0, start) + 1
                 problems.append(f"{path}:{line}: AppAlert 未使用 diagnosticAlert")

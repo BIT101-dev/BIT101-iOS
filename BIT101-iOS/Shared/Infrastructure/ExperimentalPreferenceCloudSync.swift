@@ -47,6 +47,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     private let cloudStore: NSUbiquitousKeyValueStore
     private var cloudObserver: NSObjectProtocol?
     private var accountObserver: NSObjectProtocol?
+    private var reconciliationTask: Task<Void, Never>?
 
     private init(
         defaults: UserDefaults = .standard,
@@ -79,6 +80,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     }
 
     deinit {
+        reconciliationTask?.cancel()
         if let cloudObserver { NotificationCenter.default.removeObserver(cloudObserver) }
         if let accountObserver { NotificationCenter.default.removeObserver(accountObserver) }
     }
@@ -87,7 +89,11 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         guard isEnabled != enabled else { return }
         defaults.set(enabled, forKey: enabledKey)
         isEnabled = enabled
-        guard enabled else { return }
+        guard enabled else {
+            reconciliationTask?.cancel()
+            reconciliationTask = nil
+            return
+        }
 
         cloudStore.synchronize()
         scheduleReconciliation(for: ExperimentalPreferenceSyncDomain.allCases)
@@ -109,7 +115,11 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     }
 
     private func reloadForCurrentAccount() {
+        reconciliationTask?.cancel()
         isEnabled = defaults.bool(forKey: enabledKey)
+        guard isEnabled else { return }
+        cloudStore.synchronize()
+        scheduleReconciliation(for: ExperimentalPreferenceSyncDomain.allCases)
     }
 
     private func handleExternalChange(_ notification: Notification) {
@@ -125,10 +135,14 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     /// 否则在同步应用偏好并触发另一域写回时会造成 libdispatch 递归加锁崩溃。
     private func scheduleReconciliation(for domains: [ExperimentalPreferenceSyncDomain]) {
         guard !domains.isEmpty else { return }
-        Task { @MainActor [weak self] in
+        reconciliationTask?.cancel()
+        reconciliationTask = Task { @MainActor [weak self] in
             await Task.yield()
-            guard let self, self.isEnabled else { return }
-            domains.forEach(self.reconcile(domain:))
+            guard let self, !Task.isCancelled, self.isEnabled else { return }
+            for domain in domains {
+                guard !Task.isCancelled, self.isEnabled else { return }
+                self.reconcile(domain: domain)
+            }
         }
     }
 

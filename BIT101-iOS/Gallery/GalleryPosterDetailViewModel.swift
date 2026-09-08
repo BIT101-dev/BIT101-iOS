@@ -115,6 +115,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     /// 固定的帖子 ID。后续刷新都基于它重新请求详情。
     private let posterID: Int
     private let service: any GalleryPosterDetailServicing
+    private var refreshGeneration = 0
     /// 当前详情页对应的帖子对象 ID 字符串。
     ///
     /// 评论和帖子点赞接口都使用同一套 `poster{id}` 语义，由这个属性统一生成，
@@ -147,6 +148,10 @@ final class GalleryPosterDetailViewModel: ObservableObject {
 
     /// 并行刷新帖子详情和评论列表。
     func refreshAll() async {
+        refreshGeneration &+= 1
+        let generation = refreshGeneration
+        let previousPosterStatus = posterStatus
+        let previousCommentState = commentState
         posterStatus = .loading
         resetCommentStateForRefresh()
 
@@ -158,20 +163,26 @@ final class GalleryPosterDetailViewModel: ObservableObject {
         }
 
         let resolvedPosterResult = await posterResult
-        let resolvedCommentResult = await commentResult
+        guard refreshGeneration == generation else { return }
+        handlePosterResult(resolvedPosterResult, previousStatus: previousPosterStatus)
 
-        handlePosterResult(resolvedPosterResult)
-        handleCommentRefreshResult(resolvedCommentResult)
+        let resolvedCommentResult = await commentResult
+        guard refreshGeneration == generation else { return }
+        handleCommentRefreshResult(resolvedCommentResult, previousState: previousCommentState)
     }
 
     /// 仅刷新评论区，不重新请求帖子正文。
     func refreshComments() async {
+        refreshGeneration &+= 1
+        let generation = refreshGeneration
+        let previousState = commentState
         resetCommentStateForRefresh()
 
         let result = await loadResult { [self] in
             try await self.service.fetchComments(objectID: self.posterObjectID, order: self.commentOrder, page: nil)
         }
-        handleCommentRefreshResult(result)
+        guard refreshGeneration == generation else { return }
+        handleCommentRefreshResult(result, previousState: previousState)
     }
 
     /// 当滚动到尾部附近时触发评论分页。
@@ -179,6 +190,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     /// 评论分页使用“最后几条触发”策略，评论列表接近尾部时请求下一页。
     func loadMoreCommentsIfNeeded(currentComment: GalleryComment?) async {
         guard let currentComment else { return }
+        let generation = refreshGeneration
         guard commentState.status == .loaded,
               commentState.shouldLoadMore(currentID: currentComment.id)
         else { return }
@@ -192,8 +204,10 @@ final class GalleryPosterDetailViewModel: ObservableObject {
 
         switch result {
         case let .success(comments):
+            guard refreshGeneration == generation else { return }
             commentState.appendPage(comments)
         case let .failure(error):
+            guard refreshGeneration == generation else { return }
             if isCancellation(error) {
                 return
             }
@@ -297,15 +311,18 @@ final class GalleryPosterDetailViewModel: ObservableObject {
 
     /// 统一处理帖子详情请求结果。
     ///
-    /// 取消请求时保持“已加载”状态，页面快速切换时静默处理网络取消。
-    private func handlePosterResult(_ result: Result<GalleryPosterDetail, Error>) {
+    /// 取消请求时恢复刷新前状态，页面快速切换时静默处理网络取消。
+    private func handlePosterResult(
+        _ result: Result<GalleryPosterDetail, Error>,
+        previousStatus: GalleryFeedStatus
+    ) {
         switch result {
         case let .success(poster):
             self.poster = poster
             posterStatus = .loaded
         case let .failure(error):
             if isCancellation(error) {
-                posterStatus = .loaded
+                posterStatus = previousStatus
                 return
             }
             posterStatus = .failed(error.localizedDescription)
@@ -314,15 +331,17 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     }
 
     /// 统一处理“刷新第一页评论”的结果。
-    private func handleCommentRefreshResult(_ result: Result<[GalleryComment], Error>) {
+    private func handleCommentRefreshResult(
+        _ result: Result<[GalleryComment], Error>,
+        previousState: GalleryCommentState
+    ) {
         switch result {
         case let .success(comments):
             commentState.applyFirstPage(comments)
             commentState.status = .loaded
         case let .failure(error):
             if isCancellation(error) {
-                commentState.status = .idle
-                commentState.isLoadingMore = false
+                commentState = previousState
                 return
             }
             commentState.status = .failed(error.localizedDescription)

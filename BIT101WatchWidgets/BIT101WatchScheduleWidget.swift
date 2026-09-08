@@ -3,6 +3,7 @@ import WidgetKit
 
 /// 镜像同步前使用的提示文案。
 private let watchScheduleWidgetSyncMessage = "打开手机 App 同步课表"
+private let watchScheduleWidgetInvalidMessage = "请在手机上重新同步课表"
 /// Watch 端需要登录时使用的提示文案。
 private let watchScheduleWidgetLoginMessage = "请先登录"
 /// 后续课程为空时使用的提示文案。
@@ -45,6 +46,7 @@ private struct WatchScheduleDisplaySummary {
 
 private enum WatchScheduleEntryStatus {
     case sync
+    case invalid
     case loggedOut
     case rest
 
@@ -52,6 +54,8 @@ private enum WatchScheduleEntryStatus {
         switch message {
         case watchScheduleWidgetSyncMessage:
             self = .sync
+        case watchScheduleWidgetInvalidMessage:
+            self = .invalid
         case watchScheduleWidgetLoginMessage:
             self = .loggedOut
         default:
@@ -63,6 +67,8 @@ private enum WatchScheduleEntryStatus {
         switch self {
         case .sync:
             return "同步"
+        case .invalid:
+            return "重同步"
         case .loggedOut:
             return "登录"
         case .rest:
@@ -74,6 +80,8 @@ private enum WatchScheduleEntryStatus {
         switch self {
         case .sync:
             return "待同步"
+        case .invalid:
+            return "需同步"
         case .loggedOut:
             return "未登录"
         case .rest:
@@ -129,8 +137,10 @@ private struct WatchScheduleProvider: TimelineProvider {
         let resolved = ScheduleOccurrenceResolver.loadResolvedSnapshot(now: now, limit: 32)
 
         switch resolved.contentState {
-        case .missing, .invalid:
+        case .missing:
             return WatchScheduleEntry(date: now, nextOccurrence: nil, message: watchScheduleWidgetSyncMessage)
+        case .invalid:
+            return WatchScheduleEntry(date: now, nextOccurrence: nil, message: watchScheduleWidgetInvalidMessage)
         case .loggedOut:
             return WatchScheduleEntry(date: now, nextOccurrence: nil, message: watchScheduleWidgetLoginMessage)
         case .rest:
@@ -205,21 +215,21 @@ private struct WatchScheduleCircularView: View {
 
     var body: some View {
         if let summary = entry.displaySummary {
-            VStack(spacing: 0) {
+            VStack(spacing: ScheduleExternalDesignSystem.Spacing.widgetCircular) {
                 Text(summary.location.maxBuilding)
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .font(.system(size: ScheduleExternalDesignSystem.Typography.watchCircularBuilding, weight: .semibold, design: .rounded))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.55)
+                    .minimumScaleFactor(ScheduleExternalDesignSystem.Scale.watchCircularBuilding)
 
                 Text(summary.location.room ?? " ")
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .font(.system(size: ScheduleExternalDesignSystem.Typography.watchCircularRoom, weight: .bold, design: .rounded))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.45)
+                    .minimumScaleFactor(ScheduleExternalDesignSystem.Scale.watchCircularRoom)
             }
             .multilineTextAlignment(.center)
         } else {
             Text(entry.status.circularText)
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .font(.system(size: ScheduleExternalDesignSystem.Typography.watchCircularBuilding, weight: .semibold, design: .rounded))
                 .multilineTextAlignment(.center)
         }
     }
@@ -231,18 +241,18 @@ private struct WatchScheduleCornerView: View {
     var body: some View {
         if let summary = entry.displaySummary {
             Text(summary.location.maxText)
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .font(.system(size: ScheduleExternalDesignSystem.Typography.watchCorner, weight: .semibold, design: .rounded))
                 .lineLimit(1)
-                .minimumScaleFactor(0.45)
+                .minimumScaleFactor(ScheduleExternalDesignSystem.Scale.watchCorner)
                 .widgetCurvesContent()
                 .widgetLabel {
                     Text("\(summary.dateText) \(summary.rangeText)")
                 }
         } else {
             Text(entry.status.cornerText)
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .font(.system(size: ScheduleExternalDesignSystem.Typography.watchCornerStatus, weight: .semibold, design: .rounded))
                 .lineLimit(1)
-                .minimumScaleFactor(0.5)
+                .minimumScaleFactor(ScheduleExternalDesignSystem.Scale.watchCornerStatus)
         }
     }
 }
@@ -264,8 +274,8 @@ private struct WatchScheduleRectangularView: View {
 
     var body: some View {
         if let summary = entry.displaySummary {
-            VStack(alignment: .leading) {
-                HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: ScheduleExternalDesignSystem.Spacing.watchPrimary) {
+                HStack(alignment: .firstTextBaseline, spacing: ScheduleExternalDesignSystem.Spacing.watchHeader) {
                     Text("下一节")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -280,24 +290,24 @@ private struct WatchScheduleRectangularView: View {
                 Text(summary.courseTitle.isEmpty ? summary.location.lightText : summary.courseTitle)
                     .font(.headline.weight(.semibold))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                    .minimumScaleFactor(ScheduleExternalDesignSystem.Scale.watchRectangularTitle)
 
-                HStack(alignment: .firstTextBaseline) {
+                HStack(alignment: .firstTextBaseline, spacing: ScheduleExternalDesignSystem.Spacing.watchHeader) {
                     Text(summary.rangeText)
                         .font(.headline.weight(.semibold))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+                        .minimumScaleFactor(ScheduleExternalDesignSystem.Scale.watchRectangularRange)
 
-                    Spacer(minLength: 4)
+                    Spacer(minLength: ScheduleExternalDesignSystem.Spacing.watchMinimumSpacer)
 
                     Text(summary.location.lightText)
                         .font(.headline.weight(.semibold))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+                        .minimumScaleFactor(ScheduleExternalDesignSystem.Scale.watchRectangularLocation)
                 }
             }
         } else {
-            VStack(alignment: .leading) {
+            VStack(alignment: .leading, spacing: ScheduleExternalDesignSystem.Spacing.watchPrimary) {
                 Text(entry.message ?? watchScheduleWidgetRestMessage)
                     .font(.headline)
                     .fixedSize(horizontal: false, vertical: true)

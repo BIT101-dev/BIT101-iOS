@@ -5,9 +5,20 @@ BIT101 分享链接使用独立域名：
 - `https://open.aihelpme.dev/gallery/{id}`
 - `https://open.aihelpme.dev/course/{id}`
 
+应用端 `AppDeepLinkRoute` 同时解析 `paper`、`gallery`、`course` 和 `schedule/courses` 的 `bit101://` 路由。Paper 文章分享链接沿用 `https://open.aihelpme.dev/paper/{id}`，中转 Worker 当前维护 `gallery` 与 `course` 页面路由，Paper 文章网页中转归属部署侧路由配置。
+
 App 已安装且关联域名配置生效时，iOS 会在用户打开分享链接时打开对应详情。微信、QQ 等内置浏览器可能不触发 Universal Link。
 Cloudflare Worker 在这些场景展示中转页，并提供 `bit101://` App 入口和 `https://bit101.cn` 对应网页入口。该 Worker 与现有的
 `privacy.aihelpme.dev` Pages 项目独立运行，隐私页面继续由该项目提供。
+
+App 自定义 URL Scheme 还支持以下入口：
+
+- `bit101://schedule/courses`：打开日程中的课表分栏。
+- `bit101://paper/{id}`：打开文章详情。
+- `bit101://gallery/{id}`：打开话题详情。
+- `bit101://course/{id}`：打开课程详情。
+
+上述路由由 `Shared/Infrastructure/AppDeepLinkCoordinator.swift` 解析，登录状态恢复后由 `Shell/AppShellView.swift` 分发到对应模块。
 
 ## Cloudflare 配置
 

@@ -11,7 +11,7 @@
 - `AppDesignSystem.Spacing`：常用语义间距。
 - `AppDesignSystem.Comment.layout`：评论头像、回复缩进与分割线布局；信息流和详情页通过公共组件复用 `Spacing` 与 `Size`，令牌由设计系统集中维护。
 - `AppDesignSystem.Radius`：常用圆角。
-- `AppDesignSystem.Palette`：`accent`、`highlight`、`highlightForeground`、`danger`、`info` 以及系统背景色和填充色。
+- `AppDesignSystem.Palette`：`accent`、`highlight`、`highlightForeground`、`danger`、`info`、`subtleBorder` 以及系统背景色和填充色。
 - `AppDesignSystem.roundedRectangle(_:)`：统一圆角形状。
 - `AppCard`：统一卡片容器。
 - `AppCardVariant`：`standard`、`compact`、`secondaryGrouped` 三种明确变体。
@@ -19,10 +19,10 @@
 - `AppFloatingActionButton`、`AppFloatingActionButtonSurface`、`AppFloatingActionStack`：统一右下角圆形按钮的尺寸、材质、徽标和组间距。
 - `appGroupedListStyle()`：所有分组列表共用的唯一公共入口，统一 inset grouped 样式、`AppDesignSystem.Spacing.content` Section 间距、8pt 横向内容边距和首屏顶部边距。
 - `appCommentSectionStyle()`：统一课程、帖子和文章的评论区容器样式。
-- `AppCommentComposerContentSection`、`AppComposerToolbar`：统一课程、话廊、文章评论和开发者建议的输入区共性及工具栏；基础 `Section` 直接承载输入区。
+- `AppCommentComposerContentSection`、`AppComposerToolbar`：统一课程、话廊和文章评论的输入区共性及工具栏；开发者建议复用 `AppComposerToolbar` 与图片草稿组件，正文输入保留建议场景的专用结构。
 - `AppSegmentedPicker`、`AppTopSegmentedPicker`：统一 segmented 选择控件的样式和选择触感；顶部版本统一安全区下沿、内容边缘与背景，`stacked` 变体用于连续双层顶部栏。
 - `AppDesignSystem.Schedule`：统一课表网格线、课程块与网格线的对称内缩、课程块边框、课程文字安全内边距、标题/地点字号、两格课程的标题行数限制和地点紧凑行高；地点行高使用可调的字体比例令牌；按周与全学期叠加共用同一套几何与文字布局。课程块默认显示名称+地点，并通过“名/地”按钮轮换为仅名称或仅两行地点。
-- `AppDesignSystem.Size.avatar`：统一头像占位透明度和大图标阈值。
+- `AppDesignSystem.Size.avatar`：统一文章详情、账号设置、用户列表和个人资料头像尺寸，以及头像占位透明度和大图标阈值。
 - `AppDesignSystem.Size.sheet`：统一 DDL 数值选择 sheet 高度。
 - `AppOrderedSearchBar`、`AppSearchBarContainer`：统一话廊和文章搜索的排序菜单、输入框、清空按钮、圆角背景和顶部材质。
 - `AppFeedRow`：统一话廊、文章和我的帖子流的零间距行、分割线和分割线起始位置。
@@ -37,10 +37,11 @@
 - `AppLoadingState`、`AppInlineLoadingState`、`AppScrollStateContainer`：统一首屏、列表内和滚动页状态的布局；页面通过这些组件承载状态，进度条保持单层包裹，页面上下留白遵循与机型无关的统一规则。
 - `AppFixedColumnItem`、`AppFixedColumnRow`：课程与成绩列表共用的比例列数据行；列内容由业务传入，几何和截断规则集中在公共组件内。
 - `AppRefreshStatusRow`：统一成绩、课表、DDL 等数据页面的最近更新时间、同步状态和手动刷新入口；所有更新时间直接放进页面主 List 的 Section。
+- `ScheduleExternalDesignSystem`：统一桌面 Widget、Live Activity、Apple Watch App 和 Watch Widget 的间距、尺寸、字体数值与缩放比例；该边界保持 Foundation 依赖，跨 target 共享课表展示参数。
 
 `AppHapticFeedback.swift` 提供 `appSelectionFeedback(trigger:)` 和 `appImpactFeedback(trigger:)`，分别用于离散切换和操作按钮；实际是否输出由系统决定。右下角公共按钮、地图校区按钮、课表菜单按钮和空白处长按菜单均接入触感。所有 `Picker`、`Toggle`、自绘勾选行和全选/全不选入口也接入选择触感。`Scripts/check-haptic-consistency.sh` 扫描这些控件、提醒遗漏，并将公共接口之外的触感实现判为失败。
 
-课程、话廊和文章评论页面使用公共评论输入组件；开发者建议复用公共内容段和编辑工具栏；评分、图片和文本编辑器等业务差异通过页面内容区保留。
+课程、话廊和文章评论页面使用公共评论输入组件；开发者建议复用 `AppComposerToolbar` 与图片草稿组件；评分、图片和文本编辑器等业务差异通过页面内容区保留。
 `Scripts/check-component-consistency.sh` 会检查这些页面的公共组件复用情况；匿名开关、提交栏、搜索栏、segmented 控件和评论结构沿用公共实现。
 
 页面使用设计系统中的颜色、圆角和卡片结构。出现不同语义时，先增加命名清晰的令牌或变体，再在页面使用。
@@ -86,7 +87,7 @@ Scripts/check-ui-consistency.sh
 - 所有分组列表使用唯一的 `appGroupedListStyle()`，列表样式、横向间距和 section 间距由公共入口统一提供；消息中心使用 plain 列表作为唯一例外。
 - 新增的固定 UI 间距使用设计令牌；检查覆盖工作区新增行，历史代码保留原状。
 - 详情页必须共用分享与圆形操作按钮，评论区必须共用间距和容器样式，信息流卡片必须共用 Feed 间距。
-- 学业页的顶部切换栏使用公共顶部选择控件与系统安全区布局；学业页分组列表复用公共横向边距和单层滚动上边距。课表布局使用现有 `Spacing`、`Schedule` 与 `Radius` 令牌，`TopBar.contentGap` 保持移除状态。
+- 成绩页的顶部切换栏使用公共顶部选择控件与系统安全区布局；成绩页分组列表复用公共横向边距和单层滚动上边距。课表布局使用现有 `Spacing`、`Schedule` 与 `Radius` 令牌，`TopBar.contentGap` 保持移除状态。
 - 课表周次滑块和日期栏必须使用可区分的语义背景色；周次与全学期叠加共用等宽列、课程层级和网格线遮罩规则。
 - 主 App 的诊断输出由网络 smoke 实现负责；`print`、`debugPrint` 和 `NSLog` 保持在该实现的调用边界内。
 - 业务页面将网络请求交给 `HTTPClient` 或场景化 Service；`URLSession.shared` 保持在业务页面调用边界之外，会话与错误处理沿用统一入口。

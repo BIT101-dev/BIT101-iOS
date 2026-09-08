@@ -316,7 +316,7 @@ extension ScheduleViewModel {
 
     /// 当前时间在一天中的分钟偏移。
     private func currentMinutes() -> Int {
-        let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
+        let components = ScheduleDateCodec.calendar.dateComponents([.hour, .minute], from: Date())
         return (components.hour ?? 0) * 60 + (components.minute ?? 0)
     }
 
@@ -460,7 +460,7 @@ extension ScheduleViewModel {
     /// 把课程的教学周/星期/节次时间拼成真实日期时间。
     private func combineCourseDate(firstDay: Date, week: Int, weekday: Int, time: String) -> Date? {
         let dayOffset = ScheduleWeekCodec.weekOffset(forWeekNumber: week) * 7 + (weekday - 1)
-        guard let day = Calendar.current.date(byAdding: .day, value: dayOffset, to: firstDay) else {
+        guard let day = ScheduleDateCodec.calendar.date(byAdding: .day, value: dayOffset, to: firstDay) else {
             return nil
         }
 
@@ -469,11 +469,11 @@ extension ScheduleViewModel {
             return nil
         }
 
-        var components = Calendar.current.dateComponents([.year, .month, .day], from: day)
+        var components = ScheduleDateCodec.calendar.dateComponents([.year, .month, .day], from: day)
         components.hour = hour
         components.minute = minute
         components.second = 0
-        return Calendar.current.date(from: components)
+        return ScheduleDateCodec.calendar.date(from: components)
     }
 
     /// 用户主动刷新空教室时，按当前时间切换到对应的节次块筛选。

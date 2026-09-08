@@ -34,7 +34,7 @@ nonisolated enum CourseLookupMatcher {
                 return match
             }
 
-            // 后端个别旧课程没有教师字段；只在课程号唯一且候选教师也为空时安全回退。
+            // 后端个别旧课程没有教师字段；课程号唯一且候选教师为空时执行安全回退。
             if sameNumber.count == 1,
                normalizedTeacher(sameNumber[0].teachersName).isEmpty
             {
@@ -46,8 +46,7 @@ nonisolated enum CourseLookupMatcher {
         if sameNumber.count == 1 { return sameNumber[0] }
         if sameName.count == 1 { return sameName[0] }
 
-        // 成绩接口通常没有教师字段：当同一课程号和课程名对应多个教师记录时，
-        // 仍按同一门可评价课程处理，并按候选顺序取第一条；不同课程号的同名课仍保持歧义失败。
+        // 成绩接口通常没有教师字段；课程号和课程名相同的记录按候选顺序进入详情。
         let sameIdentity = sameNumber.filter { numberCourse in
             sameName.contains(where: { $0.id == numberCourse.id })
         }
