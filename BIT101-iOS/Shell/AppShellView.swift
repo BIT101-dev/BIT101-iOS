@@ -85,12 +85,11 @@ enum AppTab: String, Identifiable, Codable {
 struct AppShellView: View {
     private static let startupNoticeTitle = "1.8.0 版本更新"
     private static let startupNoticeBody = """
-    课程与课表：统一课程检索、课程评价入口、学期同步和验证码续接。
-    课表体验：优化周次、重叠课程、DDL、空教室、日历和课程地点导航。
-    成绩与登录：支持可信成绩单、短期认证会话，并改进异常状态提示。
-    社区与界面：统一评论、信息流、搜索、头像、标签和状态组件。
-    设备协同：完善 Widget、Apple Watch、灵动岛和 Universal Links 的课表同步。
-    稳定性：改进错误分类、反馈入口、缓存复用和开发版/正式版来源标记。
+    日程更好用：课程、待办、空教室和上课地点查看更清晰。
+    查成绩更安心：登录、查成绩和成绩单查看更稳定，遇到问题时提示更明白。
+    社区更顺手：发帖、评论、搜索、图片和个人主页体验更统一。
+    多设备同步更及时：桌面小组件、Apple Watch 和灵动岛上的课表信息更可靠。
+    另外还修复了一些问题，让页面加载和日常使用更流畅。
     """
     private static let linuxDoThanksTitle = "特别鸣谢 LINUX DO"
     private static let linuxDoThanksBody = "特别感谢 LINUX DO（L站）以及佬友们。这个 App 的诞生，离不开他们提供的免费 tokens 与无私的支持。L站倡导“真诚、友善、团结、专业，共建你我引以为荣之社区。”某种意义上，BIT101 也是在这样的氛围里，被一点点推出来的。\n\n如果你也想加入，可以向开发者发送邮件索要 L 站邀请码：systemd@linux.do"
