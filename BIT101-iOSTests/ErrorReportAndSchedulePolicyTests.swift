@@ -29,7 +29,6 @@ final class ErrorReportAndSchedulePolicyTests: XCTestCase {
 
         XCTAssertTrue(textField.becomeFirstResponder())
         await Task.yield()
-        XCTAssertNotNil(textField.inputAccessoryView)
         XCTAssertTrue(textField.inputAccessoryView is UIToolbar)
 
         _ = coordinator
@@ -57,7 +56,7 @@ final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertEqual(ScheduleAutomaticWeekPolicy.clamped(20), 20)
         XCTAssertEqual(ScheduleAutomaticWeekPolicy.clamped(25), 20)
 
-        // 手动翻页没有学期或课程周数上限。
+        // 手动翻页支持超出学期与课程周数范围的周次。
         XCTAssertEqual(ScheduleWeekCodec.nextWeek(after: 25), 26)
         XCTAssertEqual(ScheduleWeekCodec.previousWeek(before: -12), -13)
     }

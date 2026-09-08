@@ -7,10 +7,9 @@
 
 import Foundation
 
-
 /// 日程同步过程中的统一错误。
 ///
-/// 这层错误枚举主要服务 UI 展示；更底层的接口差异、字段缺失等问题会在这里统一折叠成少量用户可理解的文案。
+/// 该枚举承接 UI 展示所需的错误；接口差异和字段缺失在此归并为少量用户可理解的文案。
 enum ScheduleServiceError: LocalizedError {
     case notLoggedIn
     case secondFactorRequired(BITLoginAuthenticationChallenge)
@@ -31,7 +30,7 @@ enum ScheduleServiceError: LocalizedError {
     }
 
     /// 学校统一认证后端可能把 WebVPN/TLS 故障作为 challenge 的失败消息返回。
-    /// 这类消息不能被误判为“验证码已失效”。
+    /// 此类消息归入学校传输失败，验证码失效分支保留给 challenge 无效响应。
     var isSchoolTransportFailure: Bool {
         switch self {
         case .schoolTransportFailure:
@@ -88,7 +87,7 @@ enum ScheduleServiceError: LocalizedError {
 
 /// 同步课程表和考试后的组合结果。
 ///
-/// 课程、考试和首周日期来自不同接口，但在“同步课表”这个业务动作里必须一起更新，所以组合成一个返回体。
+/// 课程、考试和首周日期来自不同接口；“同步课表”按一个业务动作一起更新，返回体集中承载三类数据。
 struct CourseSyncPayload {
     let term: String
     let firstDayString: String
@@ -98,10 +97,10 @@ struct CourseSyncPayload {
 
 /// 校正上半学期中由小学期产生的周次整体偏移。
 ///
-/// 教务接口的 `SKZC` 有时仍以完整校历计数，而 `YPSJDD` 已按小学期重新从第 1 周
-/// 标注。这里唯一允许的修正是全局减 3 周；证据不足或不是恰好 3 周时完全不改动。
+/// 教务接口的 `SKZC` 有时沿用完整校历计数，`YPSJDD` 按小学期重新从第 1 周标注。
+/// 代码仅在证据确认偏移为 3 周时全局减 3 周，其他情况保留原数据。
 nonisolated enum SmallTermWeekNormalizer {
-    /// 结果只有两种：`0` 表示不变，`3` 表示全局减 3 周。
+    /// 结果包含两种状态：`0` 表示不变，`3` 表示全局减 3 周。
     static let correctionOffset = 3
 
     struct Result {
@@ -142,8 +141,8 @@ nonisolated enum SmallTermWeekNormalizer {
         for group in groups.values {
             let raw = group.rawWeeks.sorted()
             let described = group.describedWeeks.sorted()
-            // 个别短课只返回一周，或使用 -2/-1 这种开学前周次；它们不足以证明
-            // 全学期偏移，不能因为一个异常组让所有课程都放弃校正。
+            // 个别短课返回一周，或使用 -2/-1 这类开学前周次；这类组从全学期叠加候选中排除
+            // 偏移判定，其他证据组继续参与校正。
             guard raw.count == described.count, raw.count >= 2,
                   described.allSatisfy({ $0 > 0 })
             else { continue }
@@ -216,12 +215,12 @@ nonisolated enum SmallTermWeekNormalizer {
     }
 
     private static func shiftingWeeks(of course: CourseRecord, by delta: Int) -> CourseRecord {
-        course.replacingWeeks(course.weeks.map { $0 + delta })
+        course.replacingWeeks(course.weeks.map { $0 < 1 ? $0 : $0 + delta })
     }
 }
 
-/// 教务接口把同一门课的多个上课安排合并到 `YPSJDD`，但每一行的 `SKXQ`、节次和教室
-/// 只对应其中一项。把描述拆回行级周次，避免把某一行的周次错误复制到同课的其它星期。
+/// 教务接口把同一门课的多个上课安排合并到 `YPSJDD`，每行的 `SKXQ`、节次和教室对应一项安排。
+/// 解析器按行恢复周次，各星期使用对应行的周次。
 nonisolated enum CourseScheduleRowParser {
     private struct Occurrence {
         let weeks: Set<Int>
@@ -259,8 +258,12 @@ nonisolated enum CourseScheduleRowParser {
             result.formUnion(occurrence.weeks)
         }
         let currentWeeks = Set(course.weeks)
-        // 若缓存仍是原始坐标，且当前结果无法证明已经与描述处于同一坐标系，保持原值；
-        // 小学期的整体 -3 由 SmallTermWeekNormalizer 统一完成。
+        guard !describedWeeks.isEmpty else { return course.weeks }
+        if describedWeeks.allSatisfy({ $0 < 0 }) {
+            return describedWeeks.sorted()
+        }
+        // 解析器在描述周次属于当前课程周次集合时收窄，坐标系证据不足时保留原值。
+        // 小学期整体 -3 由 SmallTermWeekNormalizer 统一处理。
         guard describedWeeks.isSubset(of: currentWeeks) else { return course.weeks }
         return course.weeks.filter { describedWeeks.contains($0) }
     }
@@ -352,12 +355,13 @@ struct ScheduleService {
     struct CookieResponse: Decodable {
         let data: [String: String]
     }
+
     /// 构造带共享 cookie 与 HTTPS 升级能力的会话。
     init() {
         let configuration = URLSessionConfiguration.default
         configuration.httpCookieAcceptPolicy = .always
-        // 教学中心有两条可用链路：校外 WebVPN 与校园网直连。这里不能等待一个
-        // 当前网络永远无法解析的主机恢复，否则 DNS 错误不会抛出，直连回退也无法执行。
+        // 教学中心提供校外 WebVPN 与校园网直连两条链路。配置关闭连接等待，让当前网络
+        // 未解析主机及时返回 DNS 错误，直连回退继续执行。
         configuration.waitsForConnectivity = false
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 60

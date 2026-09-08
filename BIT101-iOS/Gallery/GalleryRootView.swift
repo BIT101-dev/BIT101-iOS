@@ -11,8 +11,7 @@ import Combine
 
 /// “话廊”底部页内部的一级内容分区。
 ///
-/// 文章模块并入后，底部栏继续只保留“话廊”一个入口，
-/// 再通过这里的顶部栏在“话题 / 文章”之间切换。
+/// 底部栏保留“话廊”入口，顶部栏负责在“话题 / 文章”之间切换。
 private enum GallerySurface: String, CaseIterable, Identifiable, Hashable {
     case gallery
     case paper
@@ -75,7 +74,7 @@ struct GalleryRootView: View {
                 )
             }
         }
-        .safeAreaInset(edge: .top, spacing: 0) {
+        .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             AppTopSegmentedPicker(title: "话廊内容", selection: $selectedSurface) {
                 ForEach(GallerySurface.allCases) { surface in
                     Text(surface.title).tag(surface)
@@ -84,10 +83,6 @@ struct GalleryRootView: View {
         }
         .task(id: requestedPaperID) {
             guard requestedPaperID != nil else { return }
-            selectedSurface = .paper
-        }
-        .onChange(of: requestedPaperID) { _, newValue in
-            guard newValue != nil else { return }
             selectedSurface = .paper
         }
         .task(id: requestedPosterID) {
@@ -160,7 +155,7 @@ struct GalleryRootView: View {
                 }
             }
         }
-        .safeAreaInset(edge: .top, spacing: 0) {
+        .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             AppTopSegmentedPicker(
                 title: "话廊分区",
                 selection: $viewModel.selectedFeed,
@@ -221,7 +216,7 @@ struct GalleryRootView: View {
 
     /// 右下角消息按钮上的红点文案。
     ///
-    /// 这里统一在入口处裁到 `99+`，避免按钮本身因为长数字撑坏布局。
+    /// 入口处将数量限制为 `99+`，防止长数字撑开按钮布局。
     private var messageBadgeText: String? {
         let count = messageViewModel.totalUnreadCount
         guard count > 0 else { return nil }
@@ -230,8 +225,7 @@ struct GalleryRootView: View {
 
     /// feed 左右轻扫切换手势。
     ///
-    /// 这里没有使用系统 pager，而是保留当前“底部全覆盖 + 顶部 segmented”的布局，
-    /// 通过横向拖拽手势做轻量切换。
+    /// 当前布局使用底部全覆盖内容、顶部 segmented 和横向拖拽手势完成分区切换。
     private var feedSwitchGesture: some Gesture {
         makeHorizontalSwitchGesture(onStep: switchFeed)
     }
@@ -257,9 +251,9 @@ struct GalleryRootView: View {
         }
     }
 
-    /// 网络恢复或应用回前台时，如果当前 feed 仍停在失败空态，则自动再试一次。
+    /// 网络恢复或应用回前台时，失败且列表为空的当前 feed 自动重试。
     ///
-    /// 这里故意只处理“失败且列表为空”的情况，避免用户已经在正常列表里阅读时被后台自动刷新打断。
+    /// 正常列表保留当前阅读内容，自动重试覆盖失败且列表为空的状态。
     private func retryCurrentFeedIfNeeded() async {
         guard networkObserver.isReachable else { return }
 
@@ -272,8 +266,8 @@ struct GalleryRootView: View {
 
 /// 轻量网络可达性观察器。
 ///
-/// 这里不做全局联网状态管理，只负责把“网络从不可用恢复为可用”的边界事件抛给话廊页。
-/// 话廊失败态收到这个事件后，会尝试自动重拉当前 feed。
+/// 观察器维护话廊页的可达性状态，并发出“网络从不可用恢复为可用”的边界事件。
+/// 话廊失败态收到事件后，自动重拉当前 feed。
 @MainActor
 final class GalleryNetworkObserver: ObservableObject {
     @Published private(set) var isReachable = true
@@ -295,14 +289,3 @@ final class GalleryNetworkObserver: ObservableObject {
         monitor.cancel()
     }
 }
-
-/// 单个 feed 的列表页。
-///
-/// 这个视图同时承担了：
-/// 1. 列表展示
-/// 2. 下拉刷新
-/// 3. 预取和分页触发
-/// 4. 刷新后滚动位置恢复
-/// 5. 帖子详情、看图等二级交互入口
-///
-/// 因此它是 `GalleryRootView` 中最关键的子视图。

@@ -11,8 +11,8 @@ import SwiftUI
 
 /// 日程页根视图。
 ///
-/// 顶部是系统 segmented，正文按当前分区单独渲染。
-/// 这样能避免分页容器影响底部玻璃效果，同时保留轻扫切换体验。
+/// 顶部使用公共 segmented，正文按当前分区单独渲染。
+/// 页面正文保持独立布局，底部玻璃效果稳定，轻扫切换继续可用。
 struct ScheduleRootView: View {
     /// 壳层深链请求的目标分栏，例如从小组件点进来直接落到课表。
     @Binding var requestedSection: ScheduleSection?
@@ -37,20 +37,20 @@ struct ScheduleRootView: View {
             ZStack {
                 selectedSectionView
             }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .contentShape(Rectangle())
-                .simultaneousGesture(
-                    sectionSwitchGesture(
-                        topDisabledHeight: viewModel.selectedSection == .courses
-                            ? proxy.size.height * 0.25
-                            : 0
-                    )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                sectionSwitchGesture(
+                    topDisabledHeight: viewModel.selectedSection == .courses
+                        ? proxy.size.height * 0.25
+                        : 0
                 )
+            )
         }
         .background(AppDesignSystem.Palette.groupedBackground)
-        // 与成绩、话廊共用同一套 safeAreaInset 结构；列表内容从顶部切换栏之后开始，
-        // 避免日程分栏额外产生一层 VStack 间距。
-        .safeAreaInset(edge: .top, spacing: 0) {
+        // 与成绩、话廊共用同一套 safeAreaInset 结构。列表内容从顶部切换栏之后开始，
+        // 日程分栏保持单层 VStack 间距。
+        .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             ScheduleSectionTabs(
                 selectedSection: $viewModel.selectedSection,
                 courseTitle: viewModel.activeCourseScheduleTitle
@@ -67,8 +67,8 @@ struct ScheduleRootView: View {
         }
         .task(id: viewModel.selectedSection) {
             guard viewModel.selectedSection == .classroom else { return }
-            // 进入空教室分栏本身就是用户的明确查询意图；从这里开始加载，
-            // 但不把同一请求放到 App 启动或回前台生命周期中。
+            // 进入空教室分栏表示用户发起明确查询；查询从这里开始加载，
+            // App 启动和回前台生命周期保持独立。
             viewModel.startClassroomPageRefresh()
         }
         .onAppear {
@@ -120,7 +120,7 @@ struct ScheduleRootView: View {
 
     /// 轻扫切换课表 / DDL / 空教室的手势。
     ///
-    /// 课表上方四分之一保留给周次滑动条，避免误触分区切换；其余区域支持横向轻扫。
+    /// 课表上方四分之一专用于周次滑动条，剩余区域支持横向轻扫切换分区。
     private func sectionSwitchGesture(topDisabledHeight: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 24, coordinateSpace: .local)
             .onEnded { value in
@@ -163,14 +163,14 @@ struct ScheduleRootView: View {
     }
 }
 
-/// 顶部胶囊切换条。
+/// 顶部公共分段切换条。
 ///
-/// 保持成单独子视图后，根视图可以专注处理路由和副作用，而不是把 segmented 样式细节塞在一起。
+/// 根视图专注处理路由和副作用，segmented 样式细节由子视图承载。
 private struct ScheduleSectionTabs: View {
     @Binding var selectedSection: ScheduleSection
     let courseTitle: String
 
-    /// 日程页顶部原生分段控件。
+    /// 日程页顶部公共分段控件。
     var body: some View {
         AppTopSegmentedPicker(title: "日程模块", selection: $selectedSection) {
             Text(courseTitle).tag(ScheduleSection.courses)
@@ -179,7 +179,3 @@ private struct ScheduleSectionTabs: View {
         }
     }
 }
-
-/// 课表分页。
-///
-/// 负责周视图课表、悬浮操作按钮、自定义日程编辑以及跳转到共享设置中心。

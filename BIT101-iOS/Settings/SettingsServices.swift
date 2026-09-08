@@ -7,13 +7,13 @@
 
 import Foundation
 
-/// 设置中心网络层的统一错误。
+/// 设置中心网络层使用的错误类型。
 enum SettingsServiceError: LocalizedError {
     case notLoggedIn
     case invalidResponse
     case uploadFailed
 
-    /// 给设置页直接展示的错误文案。
+    /// 设置页直接展示此错误文案。
     var errorDescription: String? {
         switch self {
         case .notLoggedIn:
@@ -31,20 +31,20 @@ extension SettingsServiceError: CommunityAPIServiceError {
     static var communityInvalidResponse: Self { .invalidResponse }
 }
 
-/// 设置中心会复用到的网络请求集合。
+/// 设置中心复用的网络服务。
 ///
-/// 账号信息、头像上传、登录状态检查和版本检查都集中在这里，避免页面层直接拼请求。
+/// 此服务处理账号资料、头像上传和登录状态检查，设置页面通过此服务发起请求。
 struct SettingsNetworkService {
     private let api: CommunityAPIClient<SettingsServiceError>
 
     /// 初始化设置中心网络层。
     ///
-    /// 头像上传和资料修改都依赖 fake-cookie，因此这里与主 app 共用登录态存储。
+    /// 头像上传和资料修改依赖 fake-cookie；此服务与主 App 共用登录态存储。
     init(storage: LoginStorage = .shared, httpClient: HTTPClient = .community) {
         api = CommunityAPIClient(storage: storage, httpClient: httpClient, errorDomain: "BIT101.Settings")
     }
 
-    /// 拉取当前登录用户自己的资料。
+    /// 拉取当前登录用户资料。
     ///
     /// 账号设置页复用这条接口。
     func fetchMyInfo() async throws -> MineUserInfo {
@@ -53,7 +53,7 @@ struct SettingsNetworkService {
 
     /// 更新昵称、签名和头像。
     ///
-    /// 接口要求整份资料一起提交，因此调用方需要自行传入“未改动但仍需保留”的旧值。
+    /// 接口要求整份资料一起提交；调用方传入“未改动但仍需保留”的旧值。
     func updateUser(nickname: String?, motto: String?, avatarMid: String?) async throws {
         let body = try api.encode([
             "nickname": nickname,
@@ -63,9 +63,9 @@ struct SettingsNetworkService {
         try await api.requestVoid(path: "user/info", method: "PUT", body: body)
     }
 
-    /// 上传头像图片，返回服务端生成的图片资源对象。
+    /// 上传头像并返回服务端生成的图片资源对象。
     ///
-    /// 上传成功后还需要再调用一次 `updateUser`，把返回的 `mid` 绑定到用户资料里。
+    /// 上传成功后，调用方再次调用 `updateUser`，将返回的 `mid` 绑定到用户资料。
     func uploadAvatar(data: Data, filename: String = "avatar.jpg") async throws -> GalleryImage {
         let multipart = MultipartFormData.jpegFile(data: data, filename: filename)
         do {
@@ -82,9 +82,8 @@ struct SettingsNetworkService {
 
     /// 检查当前登录状态是否仍然有效。
     ///
-    /// 这里直接复用登录模块的后台校验逻辑，不额外复制一套登录判断链路。
+    /// 此方法复用登录模块的后台校验逻辑，`LoginService` 统一维护登录判断链路。
     func checkLogin() async throws -> Bool {
         try await LoginService().checkLogin() != nil
     }
-
 }

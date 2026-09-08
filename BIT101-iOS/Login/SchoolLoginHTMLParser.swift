@@ -5,9 +5,9 @@
 
 import Foundation
 
-/// 从学校 CAS 登录页 HTML 中抽取 salt 和 execution。
+/// 从学校 CAS 登录页 HTML 中提取 salt 和 execution。
 ///
-/// 学校登录页不是稳定 API，因此这层解析需要尽量宽松，只抽真正必要的几个字段。
+/// 学校登录页结构可能变化。解析提取必要字段，并兼容字段周围的属性和空白。
 enum SchoolLoginHTMLParser {
     /// 从学校 CAS 登录页 HTML 中提取 salt、execution 和“是否已登录”状态。
     static func parse(html: String) -> SchoolLoginContext {

@@ -7,7 +7,6 @@
 
 import SwiftUI
 
-
 /// 新增课程弹层。
 ///
 /// 这是纯本地课程的补录入口，主要用于补一周里的临时课或手动修正课表。
@@ -110,7 +109,7 @@ struct AddEditCustomScheduleSheet: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
-          }
+            }
             .navigationTitle(isEditing ? "修改自定义日程" : "添加自定义日程")
             .navigationBarTitleDisplayMode(.inline)
             .onChange(of: draft.beginTime) { _, newValue in
@@ -131,7 +130,7 @@ struct AddEditCustomScheduleSheet: View {
 
 /// 时间表编辑器。
 ///
-/// 这是一个偏工程化的入口，允许直接批量编辑整份节次表文本。
+/// 支持直接批量编辑整份节次表文本。
 struct TimeTableEditorSheet: View {
     @Binding var text: String
     let onSubmit: () -> Void
@@ -147,6 +146,7 @@ struct TimeTableEditorSheet: View {
                 AppCard(variant: .compact) {
                     TextEditor(text: $text)
                         .font(.system(.body, design: .monospaced))
+                        .frame(minHeight: AppDesignSystem.Size.content.multilineEditorMinimumHeight)
                 }
 
                 Spacer()
@@ -168,7 +168,7 @@ struct TimeTableEditorSheet: View {
 
 /// 自定义日程列表页。
 ///
-/// 从课表页右下角加号新增的是单条自定义日程；这张列表页则负责管理全部已有自定义日程。
+/// 课表页右下角加号创建单条自定义日程；此列表页管理全部已有自定义日程。
 struct CustomScheduleListSheet: View {
     @ObservedObject var viewModel: ScheduleViewModel
     @Environment(\.dismiss) private var dismiss
@@ -195,9 +195,11 @@ struct CustomScheduleListSheet: View {
                             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
                                 Text(record.title)
                                     .foregroundStyle(.primary)
-                                Text(record.subtitle)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
+                                if !record.subtitle.isEmpty {
+                                    Text(record.subtitle)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
                                 Text("\(record.dateString)  \(record.beginTime)-\(record.endTime)")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)

@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// 紧凑数据行的列定义。
+/// AppFixedColumnItem 定义紧凑数据行的一列文本及其显示参数。
 ///
-/// 课程列表和成绩列表都需要“比例列 + 单行截断 + 数字等宽”的结构，
-/// 这里统一几何实现；具体列含义仍由业务页面传入。
+/// 课程列表和成绩列表使用比例列、单行截断和等宽数字。
+/// AppFixedColumnRow 统一列宽、截断规则和数字显示；业务页面传入列含义。
 struct AppFixedColumnItem {
     let text: String
     let ratio: CGFloat
@@ -26,7 +26,7 @@ struct AppFixedColumnItem {
     }
 }
 
-/// 按比例分配可用宽度的紧凑数据行。
+/// AppFixedColumnRow 按比例分配可用宽度，并使用指定高度显示单行列文本。
 struct AppFixedColumnRow: View {
     let items: [AppFixedColumnItem]
     let height: CGFloat
@@ -34,7 +34,8 @@ struct AppFixedColumnRow: View {
     var body: some View {
         GeometryReader { proxy in
             HStack(spacing: AppDesignSystem.Spacing.none) {
-                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                ForEach(items.indices, id: \.self) { index in
+                    let item = items[index]
                     Text(item.text)
                         .font(item.font)
                         .foregroundStyle(item.color)

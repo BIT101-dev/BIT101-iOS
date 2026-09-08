@@ -1,21 +1,21 @@
 import SwiftUI
 import WidgetKit
 
-/// 手表侧还没有收到任何镜像时的提示文案。
-private let watchScheduleWidgetCampusNetworkMessage = "打开手机 App 同步课表"
-/// 用户尚未在手机侧登录时的提示文案。
+/// 镜像同步前使用的提示文案。
+private let watchScheduleWidgetSyncMessage = "打开手机 App 同步课表"
+/// Watch 端需要登录时使用的提示文案。
 private let watchScheduleWidgetLoginMessage = "请先登录"
-/// 当前没有任何下一节课时的提示文案。
+/// 后续课程为空时使用的提示文案。
 private let watchScheduleWidgetRestMessage = "暂无后续课程"
 
-/// 手表 complication 使用的时间线条目。
+/// Apple Watch complication 的时间线条目。
 private struct WatchScheduleEntry: TimelineEntry {
     let date: Date
     let nextOccurrence: ScheduleExternalOccurrence?
     let message: String?
 }
 
-/// complication 视图统一消费的展示摘要。
+/// Apple Watch complication 使用的展示摘要。
 private struct WatchScheduleDisplaySummary {
     let location: ScheduleCompactLocation
     let startTimeText: String
@@ -43,48 +43,70 @@ private struct WatchScheduleDisplaySummary {
     }
 }
 
+private enum WatchScheduleEntryStatus {
+    case sync
+    case loggedOut
+    case rest
+
+    init(message: String?) {
+        switch message {
+        case watchScheduleWidgetSyncMessage:
+            self = .sync
+        case watchScheduleWidgetLoginMessage:
+            self = .loggedOut
+        default:
+            self = .rest
+        }
+    }
+
+    var circularText: String {
+        switch self {
+        case .sync:
+            return "同步"
+        case .loggedOut:
+            return "登录"
+        case .rest:
+            return "无课"
+        }
+    }
+
+    var cornerText: String {
+        switch self {
+        case .sync:
+            return "待同步"
+        case .loggedOut:
+            return "未登录"
+        case .rest:
+            return "无课"
+        }
+    }
+}
+
 private extension WatchScheduleEntry {
     var displaySummary: WatchScheduleDisplaySummary? {
         guard let nextOccurrence else { return nil }
         return WatchScheduleDisplaySummary(occurrence: nextOccurrence)
     }
 
-    var circularStatusText: String {
-        switch message {
-        case watchScheduleWidgetCampusNetworkMessage:
-            return "同步"
-        case watchScheduleWidgetLoginMessage:
-            return "登录"
-        default:
-            return "无课"
-        }
-    }
-
-    var cornerStatusText: String {
-        switch message {
-        case watchScheduleWidgetCampusNetworkMessage:
-            return "待同步"
-        case watchScheduleWidgetLoginMessage:
-            return "未登录"
-        default:
-            return "无课"
-        }
+    var status: WatchScheduleEntryStatus {
+        WatchScheduleEntryStatus(message: message)
     }
 }
 
-/// 负责把共享快照转换成 watch widget 时间线。
+/// 把共享快照转换为 Apple Watch widget 时间线。
 private struct WatchScheduleProvider: TimelineProvider {
     func placeholder(in context: Context) -> WatchScheduleEntry {
-        WatchScheduleEntry(
-            date: Date(),
+        let now = Date()
+        return WatchScheduleEntry(
+            date: now,
             nextOccurrence: ScheduleExternalOccurrence(
                 id: "preview",
                 title: "高等数学",
                 classroom: "综合教学楼A101",
                 teacher: "张老师",
-                startDate: Date().addingTimeInterval(20 * 60),
-                endDate: Date().addingTimeInterval(110 * 60),
-                displayUntilDate: Date().addingTimeInterval(110 * 60)
+                startDate: now.addingTimeInterval(20 * 60),
+                endDate: now.addingTimeInterval(110 * 60),
+                displayUntilDate: now.addingTimeInterval(110 * 60)
             ),
             message: nil
         )
@@ -100,15 +122,15 @@ private struct WatchScheduleProvider: TimelineProvider {
         completion(Timeline(entries: [entry], policy: .after(refreshDate)))
     }
 
-    /// 从本地共享快照生成当前条目。
+    /// 从共享快照生成当前条目。
     ///
-    /// complication 统一只展示“下一节课”，不展示当前正在上的课。
+    /// 时间线以当前时刻之后的课程作为展示对象。
     private func loadEntry(now: Date = Date()) -> WatchScheduleEntry {
         let resolved = ScheduleOccurrenceResolver.loadResolvedSnapshot(now: now, limit: 32)
 
         switch resolved.contentState {
         case .missing, .invalid:
-            return WatchScheduleEntry(date: now, nextOccurrence: nil, message: watchScheduleWidgetCampusNetworkMessage)
+            return WatchScheduleEntry(date: now, nextOccurrence: nil, message: watchScheduleWidgetSyncMessage)
         case .loggedOut:
             return WatchScheduleEntry(date: now, nextOccurrence: nil, message: watchScheduleWidgetLoginMessage)
         case .rest:
@@ -123,11 +145,11 @@ private struct WatchScheduleProvider: TimelineProvider {
         }
     }
 
-    /// complication 需要在“课程开始”和“日期跨天”时刷新。
+    /// 时间线在课程开始和跨日时刷新。
     ///
-    /// 如果昨天晚上展示“明天 8:00”，但时间线一直等到 8:00 才刷新，
-    /// 午夜到上课前这段时间就会继续显示“明天”。因此这里把下一个午夜也作为刷新点，
-    /// 让 watch 离开手机时仍能用本地镜像把“明天”修正为“今天”。
+    /// 晚间条目显示“明天 8:00”时，时间线若等到 8:00 才刷新，
+    /// 午夜到上课前会继续显示“明天”。因此下一个午夜也作为刷新点，
+    /// 让 Watch 离开手机时继续用本地镜像把“明天”更新为“今天”。
     private func nextRefreshDate(for entry: WatchScheduleEntry) -> Date {
         ScheduleTimelineRefreshPlanner.nextRefreshDate(
             for: entry.nextOccurrence.map { [$0] } ?? [],
@@ -138,7 +160,7 @@ private struct WatchScheduleProvider: TimelineProvider {
     }
 }
 
-/// 提供给 Apple Watch complication 与 Smart Stack 的课表卡片。
+/// 提供 Apple Watch complication 和 Smart Stack 课表卡片。
 struct BIT101WatchScheduleWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "BIT101WatchScheduleWidget", provider: WatchScheduleProvider()) { entry in
@@ -156,7 +178,7 @@ struct BIT101WatchScheduleWidget: Widget {
     }
 }
 
-/// 根据 family 分发不同的 complication 视图。
+/// 按 widget family 分发 complication 视图。
 private struct WatchScheduleEntryView: View {
     @Environment(\.widgetFamily) private var family
 
@@ -196,7 +218,7 @@ private struct WatchScheduleCircularView: View {
             }
             .multilineTextAlignment(.center)
         } else {
-            Text(entry.circularStatusText)
+            Text(entry.status.circularText)
                 .font(.system(size: 14, weight: .semibold, design: .rounded))
                 .multilineTextAlignment(.center)
         }
@@ -217,7 +239,7 @@ private struct WatchScheduleCornerView: View {
                     Text("\(summary.dateText) \(summary.rangeText)")
                 }
         } else {
-            Text(entry.cornerStatusText)
+            Text(entry.status.cornerText)
                 .font(.system(size: 13, weight: .semibold, design: .rounded))
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
@@ -279,7 +301,7 @@ private struct WatchScheduleRectangularView: View {
                 Text(entry.message ?? watchScheduleWidgetRestMessage)
                     .font(.headline)
                     .fixedSize(horizontal: false, vertical: true)
-                if entry.message == watchScheduleWidgetCampusNetworkMessage {
+                if case .sync = entry.status {
                     Text("先打开手机 App。")
                         .font(.caption)
                         .foregroundStyle(.secondary)

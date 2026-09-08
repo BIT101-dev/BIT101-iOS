@@ -25,8 +25,7 @@ enum CourseRatingText {
     }
 
     nonisolated static func text(from raw: Int, empty: String = "未评分") -> String {
-        guard raw > 0 else { return empty }
-        return String(format: "%.1f/5", value(from: raw))
+        text(from: Double(raw), empty: empty)
     }
 }
 

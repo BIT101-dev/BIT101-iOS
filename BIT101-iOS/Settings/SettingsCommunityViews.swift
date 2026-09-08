@@ -50,7 +50,7 @@ struct GallerySettingsPage: View {
         }
     }
 
-    /// 在后台统计话廊图片缓存，并以系统文件大小格式回写设置页。
+    /// 该方法异步统计话廊图片缓存，并按系统文件大小格式更新设置页。
     private func refreshImageCacheUsage() async {
         let bytes = await GalleryImageCache.shared.usedBytes()
         let formatter = ByteCountFormatter()
@@ -59,9 +59,7 @@ struct GallerySettingsPage: View {
 
 }
 
-/// 关于页。
-///
-/// 这里集中放版本、致谢、联系方式、开源声明以及本地数据清理入口。
+/// 关于页显示致谢、联系方式、ICP备案、开源声明和本地数据清理入口。
 struct AboutSettingsPage: View {
     let onLogout: () -> Void
 
@@ -120,6 +118,7 @@ struct AboutSettingsPage: View {
                     }
                 }
                 .disabled(isClearingCaches || isResettingLocalData)
+                .appImpactFeedback(trigger: isClearingCaches)
 
                 Button(role: .destructive) {
                     isShowingResetConfirmation = true
@@ -134,6 +133,7 @@ struct AboutSettingsPage: View {
                     }
                 }
                 .disabled(isResettingLocalData || isClearingCaches)
+                .appImpactFeedback(trigger: isResettingLocalData)
             }
         }
         .appGroupedListStyle()
@@ -148,7 +148,7 @@ struct AboutSettingsPage: View {
         }
     }
 
-    /// 清空本地所有用户数据，并退回登录页。
+    /// 该方法清空本地用户数据，并调用登录态回调切换到登录页。
     @MainActor
     private func resetAllLocalData() async {
         guard !isResettingLocalData else { return }
@@ -156,8 +156,8 @@ struct AboutSettingsPage: View {
         defer { isResettingLocalData = false }
 
         LoginStorage.shared.clearAllLocalData()
-        // 先让根状态机退出主壳层，再执行可能耗时的网页数据清理。否则清掉公告已读标记后，
-        // AppShell 仍可能在 clearWebData 等待期间短暂弹出版本公告，随后才被登录页替换。
+        // 根状态机先退出主壳层，网页数据清理随后执行。清除公告已读标记后，AppShell 在
+        // clearWebData 等待期间仍可能弹出版本公告，登录页随后替换 AppShell。
         onLogout()
         ScheduleCacheStore.clear()
         clearUserDefaults()
@@ -167,7 +167,7 @@ struct AboutSettingsPage: View {
         AppSettingsStore.shared.resetToDefaults()
     }
 
-    /// 清空 bundle 对应的 `UserDefaults` 域。
+    /// 该方法清空应用 bundle 对应的 `UserDefaults` 域。
     @MainActor
     private func clearCaches() async {
         guard !isClearingCaches, !isResettingLocalData else { return }
@@ -198,7 +198,7 @@ struct AboutSettingsPage: View {
         }
     }
 
-    /// 清空常见本地目录里的缓存与文稿。
+    /// 该方法清空文稿、应用支持、缓存和临时目录中的内容。
     private func clearFileSystemCaches() {
         let manager = FileManager.default
         let directories: [FileManager.SearchPathDirectory] = [
@@ -215,7 +215,7 @@ struct AboutSettingsPage: View {
         deleteContents(of: manager.temporaryDirectory, using: manager)
     }
 
-    /// 删除某个目录下的可见内容。
+    /// 该方法删除目录中的可见内容，保留隐藏内容。
     private func deleteContents(of directory: URL, using manager: FileManager) {
         guard let urls = try? manager.contentsOfDirectory(
             at: directory,
@@ -253,7 +253,7 @@ struct AboutSettingsPage: View {
         return total
     }
 
-    /// 清空 `WKWebView` 相关站点数据。
+    /// 该方法清空 `WKWebView` 站点数据。
     private func clearWebData() async {
         let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
         await withCheckedContinuation { continuation in

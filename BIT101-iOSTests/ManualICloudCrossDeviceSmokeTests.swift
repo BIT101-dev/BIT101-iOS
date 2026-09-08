@@ -3,10 +3,10 @@ import Foundation
 import XCTest
 @testable import BIT101_iOS
 
-/// Opt-in real-device/Mac Catalyst smoke tests.
+/// Runs opt-in real-device and Mac Catalyst smoke tests.
 ///
-/// These tests are excluded at compile time unless the dedicated script adds
-/// `ICLOUD_CROSS_DEVICE_SMOKE`; they never enter the app or a Release build.
+/// The dedicated script compiles this file with `ICLOUD_CROSS_DEVICE_SMOKE`.
+/// The app target and Release builds exclude these tests.
 @MainActor
 final class ICloudCrossDeviceSmokeTests: XCTestCase {
     private enum Stage: String, Codable {
@@ -28,7 +28,7 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
     private let cloud = NSUbiquitousKeyValueStore.default
     private let manager = ExperimentalPreferenceCloudSync.shared
 
-    func testPhoneUpload() async throws {
+    func testPhoneUpload() async {
         let account = ScheduleCacheStore.currentAccountIdentifier()
         guard account != "guest", account != "__default__" else {
             XCTFail("请先在真机登录账号")
@@ -131,8 +131,8 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
         print("ICLOUD_SMOKE_PHONE_VERIFIED token=\(coordination.token) scores=\(coordination.phoneScoreCount)")
     }
 
-    /// 脚本异常退出时调用；尽量恢复手机设置与实验开关，并清除协调标记。
-    func testCleanup() async throws {
+    /// 脚本异常退出后，测试在当前账号存在协调状态时恢复手机设置、实验开关并清除协调标记。
+    func testCleanup() async {
         let account = ScheduleCacheStore.currentAccountIdentifier()
         guard let coordination = loadCoordination(account: account) else { return }
 

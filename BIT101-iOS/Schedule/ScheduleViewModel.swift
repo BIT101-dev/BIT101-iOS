@@ -38,8 +38,9 @@ nonisolated enum CourseSyncReplacementPolicy {
 
 /// 周视图的自动定位范围。
 ///
-/// 手动翻页不使用这个范围；它只保护冷启动、学期切换和同步等
-/// “按今天计算周次”的入口，避免首周日期异常时跳到过远的周次。
+/// 自动定位结果落在这个范围内，手动翻页沿用完整周次范围。
+/// 冷启动、学期切换和同步等按今天计算周次的入口使用这个范围，
+/// 首周日期异常时，自动定位仍落在限定周次内。
 nonisolated enum ScheduleAutomaticWeekPolicy {
     static let minimumWeek = -12
     static let maximumWeek = 20
@@ -57,10 +58,9 @@ extension Int {
     }
 }
 
-
 /// 日程页统一使用的提示模型。
 ///
-/// 日程模块内部的同步、保存、空教室查询等动作都会通过这个统一提示模型把错误抛给视图层。
+/// 日程模块的同步、保存和空教室查询动作通过这个提示模型向视图层传递错误。
 struct ScheduleNotice: Identifiable {
     let id = UUID()
     let title: String
@@ -88,11 +88,11 @@ struct ClassroomRequestTimeoutError: LocalizedError {
 /// 1. 本地缓存恢复
 /// 2. 课表 / DDL / 空教室同步
 /// 3. 自定义日程和自定义 DDL 的本地 CRUD
-    /// 4. 与设置中心共享缓存后的状态回写
+/// 4. 与设置中心共享缓存后的状态回写
 final class ScheduleViewModel: ObservableObject {
     /// 课表页当前正在显示的课表分身。
     ///
-    /// 主课表仍然来自当前账号缓存；导入的课表则作为只读分身挂在后面，供上下滑循环切换。
+    /// 主课表来自当前账号缓存；导入的课表作为只读分身追加到列表，供上下滑循环切换。
     struct CourseScheduleVariant: Identifiable, Equatable {
         let id: String
         let title: String
@@ -129,7 +129,7 @@ final class ScheduleViewModel: ObservableObject {
     @Published var isLoadingClassrooms = false
     /// 当前教学楼最近一次成功刷新空教室结果的时间。
     @Published var classroomLastUpdatedAt: Date?
-    /// 首次进入空教室页且尚无结果时，是否显示一个无文案的加载指示。
+    /// 首次进入空教室页且结果数组为空时，加载指示器显示为无文案状态。
     @Published var shouldShowInitialClassroomSpinner = false
     @Published var campuses: [CampusRecord] = []
     @Published var buildings: [BuildingRecord] = []
@@ -156,7 +156,7 @@ final class ScheduleViewModel: ObservableObject {
     var classroomRecords: [ClassroomRecord] = []
     /// 监听设置和缓存变化，用于跨页面同步。
     private var cacheObserver: NSObjectProtocol?
-    /// 由 ViewModel 持有的空教室页面请求；页面离开分栏时不应取消已经发出的请求。
+    /// ViewModel 持有空教室页面请求；请求在页面离开分栏后继续执行。
     var classroomPageTask: Task<Void, Never>?
     var classroomPageTaskID: UUID?
 
@@ -170,7 +170,7 @@ final class ScheduleViewModel: ObservableObject {
         ) { [weak self] _ in
             guard let self else { return }
             MainActor.assumeIsolated {
-                // 设置中心修改课表显示项后，这里直接从磁盘重载，避免页面和设置页双向手搓同步。
+                // 设置中心修改课表显示项后，ViewModel 从磁盘重新载入缓存，页面与设置页共享同一份持久化状态。
                 self.reloadFromDisk()
             }
         }
@@ -217,8 +217,8 @@ final class ScheduleViewModel: ObservableObject {
 
     /// 构造日程模块统一使用的本地校验错误。
     ///
-    /// 这类错误都属于“用户输入不合法”或“本地配置格式不正确”，
-    /// 不需要为每个分支再重复写一遍相同的 domain / code。
+    /// 这类错误表示用户输入校验状态或本地配置格式校验状态为失败。
+    /// 各分支共用同一组 domain / code。
     func scheduleValidationError(_ message: String) -> NSError {
         NSError(
             domain: "BIT101.Schedule",
@@ -256,7 +256,9 @@ final class ScheduleViewModel: ObservableObject {
     var courseSchedules: [CourseScheduleVariant] {
         let primary = CourseScheduleVariant(
             id: "__primary__",
-            title: cache.primaryScheduleTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "课表" : cache.primaryScheduleTitle,
+            title: cache.primaryScheduleTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "课表"
+                : cache.primaryScheduleTitle,
             isPrimary: true,
             currentTerm: cache.currentTerm,
             firstDayString: cache.firstDayString,
@@ -286,20 +288,6 @@ final class ScheduleViewModel: ObservableObject {
     /// 当前正在展示的那一份课表。
     var activeCourseSchedule: CourseScheduleVariant {
         let variants = courseSchedules
-        guard !variants.isEmpty else {
-            return CourseScheduleVariant(
-                id: "__primary__",
-                title: "我的课表",
-                isPrimary: true,
-                currentTerm: "",
-                firstDayString: "",
-                timeTable: cache.timeTable,
-                courses: [],
-                exams: [],
-                customSchedules: []
-            )
-        }
-
         let normalizedIndex = min(max(selectedCourseScheduleIndex, 0), variants.count - 1)
         return variants[normalizedIndex]
     }
@@ -324,15 +312,15 @@ final class ScheduleViewModel: ObservableObject {
 
     /// 首次进入日程页时从本地磁盘恢复缓存。
     ///
-    /// 日程页优先展示本地缓存，而不是一上来就强制联网同步；这样冷启动更快，也更稳定。
+    /// 日程页先展示本地缓存，联网同步由用户主动触发；冷启动直接进入缓存内容。
     func loadIfNeeded() {
         guard !hasLoaded else { return }
         hasLoaded = true
 
-        // 页面先读本地缓存，确保一打开就有内容，避免每次冷启动都重新同步。
-        // `loadIfNeeded` 在进程生命周期内只成功执行一次，因此这里按今天定位；
-        // 自动定位结果会保护在第 -12 至 +20 周，手动翻页仍不受此限制：
-        // 杀后台后的冷启动会回到今日；仅切换页面或前后台切换不会打断用户正在浏览的周次。
+        // 页面先读本地缓存，打开时直接展示已有内容；冷启动的联网同步由用户主动触发。
+        // 进程生命周期内，`loadIfNeeded` 成功执行一次；这里按今天定位；
+        // 自动定位结果落在第 -12 至 +20 周，手动翻页沿用完整周次范围：
+        // 杀后台后的冷启动回到今日；页面切换和前后台切换保留用户正在浏览的周次。
         reloadFromDisk()
         selectedWeek = resolvedAutomaticWeek()
         if activatePreferredCachedTermIfAvailable(on: Date()) {

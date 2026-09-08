@@ -1,5 +1,3 @@
-import Foundation
-
 /// 页码分页列表共享的最小状态契约。
 protocol PagedItemsState {
     associatedtype Item
@@ -33,18 +31,34 @@ extension PagedItemsState {
     }
 }
 
+private func shouldLoadMoreItems<Item: Identifiable>(
+    items: [Item],
+    currentID: Item.ID,
+    isLoadingMore: Bool,
+    canLoadMore: Bool,
+    preloadCount: Int
+) -> Bool where Item.ID: Equatable {
+    !isLoadingMore &&
+        canLoadMore &&
+        items.suffix(preloadCount).contains(where: { $0.id == currentID })
+}
+
 extension PagedItemsState where Item: Identifiable, Item.ID: Equatable {
     func shouldLoadMore(currentID: Item.ID, preloadCount: Int = 4) -> Bool {
-        !isLoadingMore &&
-            canLoadMore &&
-            items.suffix(preloadCount).contains(where: { $0.id == currentID })
+        shouldLoadMoreItems(
+            items: items,
+            currentID: currentID,
+            isLoadingMore: isLoadingMore,
+            canLoadMore: canLoadMore,
+            preloadCount: preloadCount
+        )
     }
 }
 
 /// 使用“最后一项 ID”作为游标的分页列表状态契约。
 ///
-/// 消息中心和页码列表的分页协议不同，但加载更多的状态转移完全相同；
-/// 这里只抽出游标分页需要的公共部分，不强行把后端游标伪装成页码。
+/// 消息中心和页码列表使用不同分页协议，加载更多的状态转移保持一致；
+/// 此处抽出游标分页需要的公共部分，页码和后端游标保留各自表示。
 protocol CursorPagedItemsState {
     associatedtype Item: Identifiable
     associatedtype Cursor: Equatable where Item.ID == Cursor
@@ -57,9 +71,13 @@ protocol CursorPagedItemsState {
 
 extension CursorPagedItemsState {
     func shouldLoadMore(currentID: Item.ID, preloadCount: Int = 4) -> Bool {
-        !isLoadingMore &&
-            canLoadMore &&
-            items.suffix(preloadCount).contains(where: { $0.id == currentID })
+        shouldLoadMoreItems(
+            items: items,
+            currentID: currentID,
+            isLoadingMore: isLoadingMore,
+            canLoadMore: canLoadMore,
+            preloadCount: preloadCount
+        )
     }
 
     mutating func resetCursorPagination() {

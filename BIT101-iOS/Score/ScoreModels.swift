@@ -1,8 +1,8 @@
 import Foundation
 
-/// 成绩页加载状态。
+/// 此枚举表示成绩页加载状态。
 ///
-/// 与其它模块一致，这里统一成四态，便于成绩页根视图只根据一个状态枚举驱动空态、错误态和加载态。
+/// 成绩页根视图根据此枚举区分空闲、加载、已加载和失败状态。
 enum ScoreLoadState: Equatable {
     case idle
     case loading
@@ -10,25 +10,24 @@ enum ScoreLoadState: Equatable {
     case failed(String)
 }
 
-/// 单个成绩字段。
+/// 此结构表示单个成绩字段。
 ///
-/// 服务端返回的是二维表，这里先把表头和值压成键值对，便于详情页复用。
+/// 服务端以二维表返回成绩；模型将表头和值保存为键值对，详情页复用这些字段。
 struct ScoreField: Codable, Hashable {
     let key: String
     let value: String
 }
 
-/// 成绩表中的一行课程记录。
+/// 此结构表示成绩表中的一行课程记录。
 ///
-/// 保留原始表头和值的对应关系，同时提供常用字段的便捷访问器。
+/// 模型保留原始表头和值的对应关系，并提供常用字段访问器。
 struct ScoreRow: Codable, Identifiable {
     let id: String
     let values: [ScoreField]
 
     /// 使用表头和值数组构造单行成绩记录。
     ///
-    /// 之所以不直接依赖固定字段顺序，是因为成绩代理接口本质上返回的是一个“二维表”，
-    /// 表头变化时这里仍能靠键名访问保持一定韧性。
+    /// 模型按表头名称建立字段映射；接口字段顺序变化时，访问器仍按键名读取字段。
     init(index: Int, headers: [String], values: [String]) {
         let pairs = zip(headers, values).map { ScoreField(key: $0, value: $1) }
         self.values = pairs
@@ -39,7 +38,7 @@ struct ScoreRow: Codable, Identifiable {
         id = identifier
     }
 
-    /// 按原始表头读取任意字段，详情页会直接遍历这个访问层。
+    /// 此下标器按原始表头读取任意字段，详情页使用它读取字段。
     subscript(_ key: String) -> String {
         values.first(where: { $0.key == key })?.value ?? ""
     }
@@ -58,7 +57,7 @@ struct ScoreRow: Codable, Identifiable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// 学分的数值化表示，供统计时直接参与加权计算。
+    /// 此属性将学分转换为数值，统计逻辑用该数值计算加权结果。
     var numericCredit: Double? {
         Double(creditText)
     }
@@ -70,8 +69,7 @@ enum ScoreDetailRefreshDecision: Equatable {
     case reuseRateLimitedCache
 }
 
-/// Decides whether the expensive per-course detail crawl is still useful after
-/// the inexpensive score list has been refreshed.
+/// 成绩简略列表更新后，此策略根据缓存和录入状态决定逐课程详情查询。
 enum ScoreDetailRefreshPolicy {
     static let incompleteRetryInterval: TimeInterval = 24 * 60 * 60
     private static let ignoredBriefKeys: Set<String> = ["序号", "操作栏"]
@@ -124,9 +122,9 @@ enum ScoreDetailRefreshPolicy {
     }
 }
 
-/// 成绩统计摘要。
+/// 此结构表示成绩统计摘要。
 ///
-/// 统计逻辑与网页端保持接近：同一课程编号只取最高成绩参与加权计算。
+/// 统计逻辑参考网页端：同一课程编号对应多条记录时，选择最高成绩参与加权计算。
 struct ScoreSummary {
     let selectedCourseCount: Int
     let totalCredit: Double
@@ -135,7 +133,7 @@ struct ScoreSummary {
 
     /// 从筛选后的成绩列表生成统计摘要。
     ///
-    /// 同一课程编号出现多次时，只取最高分参与总学分和加权成绩计算。
+    /// 同一课程编号出现多次时，统计逻辑选择最高分参与总学分和加权成绩计算。
     static func make(from rows: [ScoreRow]) -> ScoreSummary {
         var bestRowsByCourse: [String: ScoreRow] = [:]
         var fallbackRows: [ScoreRow] = []
@@ -176,42 +174,38 @@ struct ScoreSummary {
         )
     }
 
-    /// 把网页端可能返回的等级描述映射为数值成绩。
-    private static func scoreValue(from raw: String) -> Double {
+    /// 将网页端等级描述映射为百分制成绩和 GPA。
+    private static func gradeMapping(from raw: String) -> (score: Double, gpa: Double)? {
         switch raw.trimmingCharacters(in: .whitespacesAndNewlines) {
         case "优秀":
-            return 95
+            return (95, 4)
         case "良好":
-            return 85
+            return (85, 3.6)
         case "中等":
-            return 75
+            return (75, 2.8)
         case "及格":
-            return 65
+            return (65, 1.7)
         case "不及格":
-            return 0
+            return (0, 0)
         default:
-            return Double(raw) ?? 0
+            return nil
         }
     }
 
-    /// 把成绩映射成 GPA。
+    /// 将成绩转换为统计用百分制数值。
+    private static func scoreValue(from raw: String) -> Double {
+        gradeMapping(from: raw)?.score ?? Double(raw) ?? 0
+    }
+
+    /// 此方法将成绩转换为 GPA。
     private static func gpaValue(from raw: String) -> Double {
-        switch raw.trimmingCharacters(in: .whitespacesAndNewlines) {
-        case "优秀":
-            return 4
-        case "良好":
-            return 3.6
-        case "中等":
-            return 2.8
-        case "及格":
-            return 1.7
-        case "不及格":
-            return 0
-        default:
-            let score = Double(raw) ?? 0
-            if score < 60 { return 0 }
-            // 百分制使用学校公布的连续公式；等级制由上面的官方映射处理。
-            return 4 - 3 * (100 - score) * (100 - score) / 1600
+        if let mapping = gradeMapping(from: raw) {
+            return mapping.gpa
         }
+
+        let score = Double(raw) ?? 0
+        if score < 60 { return 0 }
+        // 百分制使用学校公布的连续公式；等级制由上方的等级映射处理。
+        return 4 - 3 * (100 - score) * (100 - score) / 1600
     }
 }

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 页面级首屏加载状态统一的进度样式和可用空间约束。
+/// AppLoadingState 为页面级首屏加载状态提供统一的进度样式和可用空间约束。
 struct AppLoadingState: View {
     let title: String
 
@@ -10,7 +10,7 @@ struct AppLoadingState: View {
     }
 }
 
-/// 列表分区和滚动内容中的加载状态，避免每个模块重复包一层居中布局。
+/// AppInlineLoadingState 为列表分区和滚动内容提供统一的加载状态与居中布局。
 struct AppInlineLoadingState: View {
     let title: String?
 
@@ -32,7 +32,7 @@ struct AppInlineLoadingState: View {
     }
 }
 
-/// 滚动页的首屏状态容器。通过容器提出的高度居中，不依赖某个设备的上下留白数值。
+/// AppScrollStateContainer 通过容器提供的垂直空间居中呈现滚动页首屏状态，并适配不同设备的可用高度。
 struct AppScrollStateContainer<Content: View>: View {
     private let content: Content
 
@@ -51,7 +51,7 @@ struct AppScrollStateContainer<Content: View>: View {
     }
 }
 
-/// 加载失败状态统一的图标、重试入口和诊断入口。
+/// AppFailureState 统一提供加载失败状态的图标、重试入口和诊断入口。
 struct AppFailureState: View {
     let title: String
     let systemImage: String
@@ -87,7 +87,7 @@ struct AppFailureState: View {
     }
 }
 
-/// 无数据状态统一的图标、说明和可选操作入口。
+/// AppEmptyState 统一提供无数据状态的图标、说明和可选操作入口。
 struct AppEmptyState: View {
     let title: String
     let systemImage: String

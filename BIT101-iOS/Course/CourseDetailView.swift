@@ -5,10 +5,8 @@
 //  Created by Codex on 2026-04-02.
 //
 
-import Charts
 import SwiftUI
 
-/// 课程详情页。
 struct CourseDetailView: View {
     private struct UserRoute: Identifiable, Hashable {
         let userID: Int
@@ -38,7 +36,7 @@ struct CourseDetailView: View {
                 Divider()
 
                 CourseCommentsSection(
-                            comments: viewModel.commentState.items,
+                    comments: viewModel.commentState.items,
                     totalCommentCount: viewModel.resolvedCommentNum,
                     status: viewModel.commentState.status,
                     isLoadingMore: viewModel.commentState.isLoadingMore,
@@ -166,7 +164,7 @@ struct CourseDetailView: View {
 
     private var metricsSection: some View {
         HStack(spacing: AppDesignSystem.Spacing.prominent) {
-            Text("\(CourseRatingText.text(from: viewModel.resolvedRate, empty: "暂无评分"))")
+            Text(CourseRatingText.text(from: viewModel.resolvedRate, empty: "暂无评分"))
             Text("\(viewModel.resolvedLikeNum)赞")
             Text("\(viewModel.resolvedCommentNum)评论")
         }
@@ -204,7 +202,7 @@ struct CourseDetailView: View {
         }
     }
 
-    /// 独立跳转域名使用稳定的 `/course/{id}` 路由；未安装 App 时由 Worker 转至网页。
+    /// 使用稳定的 `/course/{id}` 路由；未安装 App 时由 Worker 转至网页。
     private var courseShareURL: URL {
         AppURL.required("https://open.aihelpme.dev/course/\(initialCourse.id)")
     }

@@ -55,7 +55,7 @@ struct ScheduleEntryDetailSheet: View {
                     Section("编辑") {
                         Text(isOverviewMode
                             ? "全学期叠加仅用于查看；请切换为按周显示后再编辑课程。"
-                            : "分享课表是只读副本，不能调课、删除课程或做调休 / 放假。")
+                            : "分享课表是只读副本，调课、删除课程和调休 / 放假操作面向当前账号自己的课表。")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -84,7 +84,7 @@ struct ScheduleEntryDetailSheet: View {
             .alert(item: $pendingCourseDeletion) { target in
                 Alert(
                     title: Text("确认删除"),
-                    message: Text(target.message(entry: entry, currentWeek: currentWeek)),
+                    message: Text(target.message),
                     primaryButton: .destructive(Text("删除")) {
                         switch target {
                         case .occurrence:
@@ -125,7 +125,7 @@ struct ScheduleEntryDetailSheet: View {
             }
         }
 
-        func message(entry: ScheduleCalendarEntry, currentWeek: Int) -> String {
+        var message: String {
             switch self {
             case let .occurrence(_, courseName, week):
                 return "你要删除的是第\(week)周的一节课：\(courseName)"
@@ -213,9 +213,9 @@ struct ScheduleEntryDetailSheet: View {
                 Divider()
                     .listRowInsets(EdgeInsets(
                         top: AppDesignSystem.Spacing.content,
-                        leading: 0,
+                        leading: AppDesignSystem.Spacing.none,
                         bottom: AppDesignSystem.Spacing.content,
-                        trailing: 0
+                        trailing: AppDesignSystem.Spacing.none
                     ))
                     .listRowBackground(Color.clear)
             }

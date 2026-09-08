@@ -88,7 +88,7 @@ actor ScheduleCloudSyncManager {
             return
         }
         do {
-            _ = try await upsert(remoteWith: localCache)
+            try await upsert(remoteWith: localCache)
         } catch {
             logError("push latest local cache failed: \(describe(error))")
         }
@@ -100,9 +100,8 @@ actor ScheduleCloudSyncManager {
             return
         }
 
-        let accountStatus = await accountStatusText()
         logDebug(
-            "reconcile start record=\(recordID.recordName) accountStatus=\(accountStatus) localUpdatedAt=\(debugDate(localCache.updatedAt)) allowCloudApply=\(allowCloudApply)"
+            "reconcile start record=\(recordID.recordName) localUpdatedAt=\(debugDate(localCache.updatedAt)) allowCloudApply=\(allowCloudApply)"
         )
 
         do {
@@ -134,7 +133,7 @@ actor ScheduleCloudSyncManager {
                 return
             case .uploadLocal:
                 logDebug("local cache newer than remote; uploading local copy")
-                _ = try? await upsert(remoteWith: localCache)
+                try? await upsert(remoteWith: localCache)
             case .noChange:
                 logDebug("reconcile no-op: remote not newer and local not newer")
             }
@@ -146,7 +145,7 @@ actor ScheduleCloudSyncManager {
                     initialUpload.updatedAt = Date()
                 }
                 do {
-                    _ = try await upsert(remoteWith: initialUpload)
+                    try await upsert(remoteWith: initialUpload)
                 } catch {
                     logError("initial upload after unknownItem failed: \(describe(error))")
                 }
@@ -158,7 +157,7 @@ actor ScheduleCloudSyncManager {
         }
     }
 
-    private func upsert(remoteWith cache: ScheduleCache) async throws -> CKRecord {
+    private func upsert(remoteWith cache: ScheduleCache) async throws {
         guard let recordID = await currentRecordID() else {
             throw CKError(.badContainer)
         }
@@ -174,13 +173,12 @@ actor ScheduleCloudSyncManager {
             logDebug("upsert will create new remote record after fetch error code=\(error.code.rawValue)")
         }
 
-        let payloadJSON = try await encodeCache(cache)
+        let payloadJSON = try encodeCache(cache)
         record[FieldKey.studentID] = await currentStudentID() as CKRecordValue
         record[FieldKey.updatedAt] = cache.updatedAt as CKRecordValue
         record[FieldKey.payloadJSON] = payloadJSON as CKRecordValue
-        let saved = try await container.privateCloudDatabase.save(record)
+        _ = try await container.privateCloudDatabase.save(record)
         logDebug("upsert saved remote record successfully")
-        return saved
     }
 
     private func decodeCache(from record: CKRecord) -> ScheduleCache? {
@@ -203,28 +201,12 @@ actor ScheduleCloudSyncManager {
         }
     }
 
-    private func encodeCache(_ cache: ScheduleCache) async throws -> String {
+    private func encodeCache(_ cache: ScheduleCache) throws -> String {
         let data = try encoder.encode(cache)
         guard let json = String(data: data, encoding: .utf8) else {
             throw CocoaError(.fileReadInapplicableStringEncoding)
         }
         return json
-    }
-
-    private func accountStatusText() async -> String {
-        do {
-            let status = try await container.accountStatus()
-            return switch status {
-            case .available: "available"
-            case .couldNotDetermine: "couldNotDetermine"
-            case .noAccount: "noAccount"
-            case .restricted: "restricted"
-            case .temporarilyUnavailable: "temporarilyUnavailable"
-            @unknown default: "unknown"
-            }
-        } catch {
-            return "error:\(describe(error))"
-        }
     }
 
     private func debugDate(_ date: Date) -> String {

@@ -2,13 +2,13 @@ import Foundation
 
 /// 课表导出文件的精简载荷。
 ///
-/// 导出课表的目标是分享排课本身，而不是同步整份本地缓存，因此这里只保留：
+/// 课表导出用于分享排课信息，载荷保留：
 /// - 学期
 /// - 首周
 /// - 时间表
 /// - 课程
 ///
-/// 不包含 DDL、考试、自定义日程和个人显示偏好，避免把本地私有设置一起带出去。
+/// DDL、考试、自定义日程和个人显示偏好继续保留在本机。
 struct ScheduleExportPayload {
     let exportedAt: Date
     let currentTerm: String
@@ -44,15 +44,61 @@ struct ScheduleExportPayload {
     }
 }
 
+private func makeExpandedPayload(
+    importedAt: Date,
+    cache: ScheduleCache,
+    courses: [CourseRecord]
+) -> ScheduleExportPayload {
+    ScheduleExportPayload(
+        exportedAt: importedAt,
+        currentTerm: cache.currentTerm,
+        firstDayString: cache.firstDayString,
+        timeTable: cache.timeTable,
+        courses: courses
+    )
+}
+
+private func makeExpandedCourse(
+    term: String,
+    name: String,
+    teacher: String,
+    classroom: String,
+    weeks: [Int],
+    weekday: Int,
+    startSection: Int,
+    endSection: Int,
+    credit: Int
+) -> CourseRecord {
+    CourseRecord(
+        id: UUID().uuidString,
+        term: term,
+        name: name,
+        teacher: teacher,
+        classroom: classroom,
+        description: "",
+        weeks: weeks,
+        weekday: weekday,
+        startSection: startSection,
+        endSection: endSection,
+        campus: "",
+        number: "",
+        credit: credit,
+        hour: 0,
+        type: "",
+        category: "",
+        department: ""
+    )
+}
+
 /// 课表分享编码的紧凑载荷 V2。
 ///
-/// 该协议保留用于导入较早的紧凑分享码；当前导出端已经升级到 V3。
+/// 该载荷服务于较早紧凑分享码的导入，当前导出端使用 V3。
 ///
 /// ## 设计约束
 /// - 继续复用现有外层包装：`lzfse + base64`
-/// - 仍然使用 JSON 作为“压缩前明文”，避免引入完全自定义协议
-/// - 但 JSON 改成**纯数组结构**，去掉冗余 key
-/// - 只分享“排课骨架”，不分享本机运行环境
+/// - 压缩前数据继续使用 JSON，保留现有协议结构
+/// - JSON 使用**纯数组结构**，字段含义由固定位置表达
+/// - 载荷范围限定为“排课骨架”，运行环境继续由本机维护
 ///
 /// ## 当前正式定义
 /// 最外层布局固定为：
@@ -70,10 +116,10 @@ struct ScheduleExportPayload {
 /// 其中：
 /// - 第 0 项永远是格式版本号 `2`
 /// - 第 1 项是课程数组
-/// - 每一门课都按固定顺序编码成 7 项数组，不再携带字段名
+/// - 每一门课都按固定顺序编码成 7 项数组，字段含义由位置表达
 ///
-/// ## 明确不包含的内容
-/// V2 **故意不携带**以下信息：
+/// ## 导入时使用的本机信息
+/// V2 载荷范围限定为课程排布，导入时从本机缓存读取以下信息：
 /// - 首周日期
 /// - 时间表
 /// - 考试
@@ -81,8 +127,8 @@ struct ScheduleExportPayload {
 /// - 自定义日程
 /// - 课表显示偏好
 ///
-/// 原因是分享课表的目标只是复用“课程排布”，而不是复制发送方的整套本地环境。
-/// 当前产品里，用户在能导入/查看分享课表之前，必然已经先同步过自己的课表；
+/// 分享课表复用“课程排布”，发送方的本地环境留在发送方。
+/// 当前产品流程要求用户在导入或查看分享课表前先同步自己的课表；
 /// 因此导入时可直接复用本机现有的：
 /// - `currentTerm`
 /// - `firstDayString`
@@ -136,34 +182,25 @@ struct ScheduleExportCompactPayloadV2: Codable {
             )
         }
 
-        /// 把极简课程重新扩展成完整的 `CourseRecord`。
+        /// 把极简课程扩展成完整的 `CourseRecord`。
         ///
-        /// 这里会显式使用导入侧本机已经存在的课表环境作为补全来源。
+        /// 导入使用本机现有课表环境补全字段。
         /// 当前策略是：
         /// - `term` 复用本机当前学期
         /// - 其余未分享字段统一回填为空或 0
         ///
-        /// 之所以保留这个还原入口，即使当前还没正式启用 V2，也是为了让
-        /// “协议定义” 和 “未来导入如何落地” 写在同一个地方，避免以后切换时遗漏。
+        /// V2 作为兼容导入格式保留，协议定义和导入落地逻辑放在同一处，格式切换时可以沿用同一入口。
         func expandedCourse(term: String) -> CourseRecord {
-            CourseRecord(
-                id: UUID().uuidString,
+            makeExpandedCourse(
                 term: term,
                 name: name,
                 teacher: teacher,
                 classroom: classroom,
-                description: "",
                 weeks: weeks,
                 weekday: weekday,
                 startSection: startSection,
                 endSection: endSection,
-                campus: "",
-                number: "",
-                credit: 0,
-                hour: 0,
-                type: "",
-                category: "",
-                department: ""
+                credit: 0
             )
         }
     }
@@ -180,13 +217,11 @@ struct ScheduleExportCompactPayloadV2: Codable {
 
     var isEmpty: Bool { courses.isEmpty }
 
-    /// 用导入侧的本机环境，把 V2 还原成统一的课表载荷。
+    /// V2 使用导入侧本机环境生成统一的课表载荷。
     func expandedPayload(using cache: ScheduleCache, importedAt: Date = Date()) -> ScheduleExportPayload {
-        ScheduleExportPayload(
-            exportedAt: importedAt,
-            currentTerm: cache.currentTerm,
-            firstDayString: cache.firstDayString,
-            timeTable: cache.timeTable,
+        makeExpandedPayload(
+            importedAt: importedAt,
+            cache: cache,
             courses: courses.map { $0.expandedCourse(term: cache.currentTerm) }
         )
     }
@@ -237,7 +272,6 @@ struct ScheduleExportCompactPayloadV2: Codable {
         }
     }
 }
-
 
 /// 课表分享编码的紧凑载荷 V3。
 ///
@@ -291,24 +325,16 @@ struct ScheduleExportCompactPayloadV3: Codable {
         }
 
         func expandedCourse(term: String) -> CourseRecord {
-            CourseRecord(
-                id: UUID().uuidString,
+            makeExpandedCourse(
                 term: term,
                 name: name,
                 teacher: teacher,
                 classroom: classroom,
-                description: "",
                 weeks: weeks,
                 weekday: weekday,
                 startSection: startSection,
                 endSection: endSection,
-                campus: "",
-                number: "",
-                credit: credit,
-                hour: 0,
-                type: "",
-                category: "",
-                department: ""
+                credit: credit
             )
         }
     }
@@ -322,11 +348,9 @@ struct ScheduleExportCompactPayloadV3: Codable {
     var isEmpty: Bool { courses.isEmpty }
 
     func expandedPayload(using cache: ScheduleCache, importedAt: Date = Date()) -> ScheduleExportPayload {
-        ScheduleExportPayload(
-            exportedAt: importedAt,
-            currentTerm: cache.currentTerm,
-            firstDayString: cache.firstDayString,
-            timeTable: cache.timeTable,
+        makeExpandedPayload(
+            importedAt: importedAt,
+            cache: cache,
             courses: courses.map { $0.expandedCourse(term: cache.currentTerm) }
         )
     }
@@ -382,7 +406,7 @@ enum ScheduleShareCodeError: LocalizedError, Equatable {
     }
 }
 
-/// 课表分享码的唯一编解码入口；默认导出 V3，导入继续兼容 V2/V3。
+/// 课表分享码统一由此编解码；默认导出 V3，导入继续兼容 V2/V3。
 enum ScheduleShareCodeCodec {
     static let latestVersion = 3
     static let supportedPrefixes = ["BIT101SCH2:", "BIT101SCH3:"]
@@ -419,7 +443,6 @@ enum ScheduleShareCodeCodec {
         }
 
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
         switch prefix {
         case "BIT101SCH2:":
             return try decoder.decode(ScheduleExportCompactPayloadV2.self, from: jsonData)

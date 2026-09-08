@@ -8,38 +8,44 @@
 import Combine
 import Foundation
 
-/// “我的”列表分页触发条件。
+/// “我的”模块统一识别取消错误。
 ///
-/// 只有滚动到尾部附近、当前不在加载中且服务端仍有更多数据时，才允许继续翻页。
-/// “我的”模块统一使用的取消错误判断。
-///
-/// 页面切换、下拉刷新和任务复用时都可能触发取消，这里集中兼容 Swift Concurrency 与 URLSession 两类信号。
+/// 页面切换、下拉刷新和任务复用都可能触发取消。此处兼容 Swift Concurrency 与 URLSession 的取消信号。
 private func isMineCancellation(_ error: Error) -> Bool {
     TaskCancellation.matches(error)
 }
 
-/// 把分页状态重置到“重新拉第一页”的初始状态。
+/// 为第一页加载准备分页状态。
 ///
-/// “我的”模块里多个列表都沿用同一套分页状态结构，因此第一页刷新前的状态清空逻辑也完全一致。
+/// 多个列表使用同一套分页状态结构，第一页刷新前统一设置加载状态并重置分页。
 private func resetMinePagedState<Item>(_ state: inout MinePagedState<Item>) {
     state.status = .loading
     state.resetPagination()
 }
 
-/// 用新拉回来的第一页结果覆盖分页状态。
-///
-/// “我的”模块多个列表第一页刷新成功后的回写逻辑完全一致，因此集中成一个 helper，
-/// 避免每个刷新函数都各自维护同样一套字段赋值。
+/// 将第一页结果写入分页状态并标记加载完成。
 private func applyMinePagedRefreshResult<Item>(_ items: [Item], to state: inout MinePagedState<Item>) {
     state.applyFirstPage(items)
     state.status = .loaded
 }
 
-/// 将新加载的一页结果追加到已有分页状态中。
-///
-/// 关注、粉丝、帖子三类列表在“加载更多成功”时的状态推进规则相同，因此统一收口。
+/// 将新加载的一页结果追加到现有分页状态。
 private func appendMinePagedPage<Item>(_ items: [Item], to state: inout MinePagedState<Item>) {
     state.appendPage(items)
+}
+
+/// 生成资料卡展示的帖子数摘要。
+///
+/// 分页结果的数量后缀 `+` 表示当前页后续可能还有更多帖子。
+private func minePosterCountText(for state: MinePagedState<GalleryPoster>) -> String {
+    switch state.status {
+    case .idle, .loading:
+        return "..."
+    case .loaded:
+        return state.canLoadMore ? "\(state.items.count)+" : "\(state.items.count)"
+    case .failed:
+        return "0"
+    }
 }
 
 @MainActor
@@ -60,7 +66,7 @@ final class MineViewModel: ObservableObject {
     @Published var alert: AppAlert?
 
     private let service: any MineOverviewServicing
-    /// 防止主页首次加载逻辑重复执行。
+    /// 记录主页首次加载流程的执行状态。
     private var hasBootstrapped = false
 
     init(service: any MineOverviewServicing) {
@@ -71,9 +77,9 @@ final class MineViewModel: ObservableObject {
         self.init(service: MineService())
     }
 
-    /// 首次进入“我的”页时预加载资料卡和帖子数。
+    /// 首次进入“我的”页时加载资料卡和第一页帖子。
     ///
-    /// 粉丝和关注列表保持按需进入时再加载，避免首页启动就拉太多接口。
+    /// 首页启动流程先请求资料卡和帖子；粉丝和关注列表在对应页面进入时加载。
     func bootstrapIfNeeded() async {
         guard !hasBootstrapped else { return }
         hasBootstrapped = true
@@ -82,22 +88,13 @@ final class MineViewModel: ObservableObject {
     }
 
     /// 资料卡里展示的帖子数摘要。
-    ///
-    /// 服务端没有总数字段时，用 `+` 表示当前页后面可能还有更多。
     var posterCountText: String {
-        switch posterState.status {
-        case .idle, .loading:
-            return "..."
-        case .loaded:
-            return posterState.canLoadMore ? "\(posterState.items.count)+" : "\(posterState.items.count)"
-        case .failed:
-            return "0"
-        }
+        minePosterCountText(for: posterState)
     }
 
     /// 刷新个人资料卡。
     ///
-    /// 如果页面上已经有旧资料，刷新失败时保留旧内容，只弹出提示。
+    /// 页面已有旧资料时，刷新失败保留旧内容并弹出提示。
     func refreshProfile() async {
         let hadUserInfo = userInfo != nil || profileStatus == .loaded
         if !hadUserInfo {
@@ -127,7 +124,7 @@ final class MineViewModel: ObservableObject {
 
     /// 重新拉取粉丝第一页。
     ///
-    /// 这里采用“整页重置再请求”的策略，因为粉丝/关注量通常不大，简单可靠比局部 diff 更重要。
+    /// 粉丝和关注量通常不大，刷新时重置分页状态并请求第一页。
     func refreshFollowers() async {
         let previousState = followerState
         resetMinePagedState(&followerState)
@@ -205,7 +202,7 @@ final class MineViewModel: ObservableObject {
 
     /// 重新拉取“我的帖子”第一页。
     ///
-    /// 如果当前已经有旧帖子，则刷新失败时会保留旧内容并只弹提示，避免整个页面回退成空态。
+    /// 页面已有旧帖子时，刷新失败保留旧内容并弹出提示，页面继续显示原有列表。
     func refreshPosters() async {
         let hadPosters = !posterState.items.isEmpty || posterState.status == .loaded
         if !hadPosters {
@@ -271,7 +268,7 @@ final class UserProfileViewModel: ObservableObject {
 
     private let userID: Int
     private let service: any UserProfileServicing
-    /// 防止首次加载逻辑重复执行。
+    /// 记录首次加载流程的执行状态。
     private var hasBootstrapped = false
 
     init(userID: Int, service: any UserProfileServicing) {
@@ -283,9 +280,9 @@ final class UserProfileViewModel: ObservableObject {
         self.init(userID: userID, service: MineService())
     }
 
-    /// 首次进入主页时预加载资料和第一页帖子。
+    /// 首次进入主页时加载资料和第一页帖子。
     ///
-    /// 他人主页和“我的”页不同，没有粉丝/关注分页，因此这里只并发拉资料与帖子两块内容。
+    /// 他人主页的首屏内容由资料和帖子组成，资料与帖子请求在 `refreshAll()` 中并发执行。
     func bootstrapIfNeeded() async {
         guard !hasBootstrapped else { return }
         hasBootstrapped = true
@@ -294,19 +291,10 @@ final class UserProfileViewModel: ObservableObject {
 
     /// 资料卡里展示的帖子数摘要。
     var posterCountText: String {
-        switch posterState.status {
-        case .idle, .loading:
-            return "..."
-        case .loaded:
-            return posterState.canLoadMore ? "\(posterState.items.count)+" : "\(posterState.items.count)"
-        case .failed:
-            return "0"
-        }
+        minePosterCountText(for: posterState)
     }
 
-    /// 同时刷新资料卡和帖子列表。
-    ///
-    /// 资料卡和帖子列表相互独立，因此这里并发请求，缩短进入主页后的首屏等待时间。
+    /// 并发刷新资料卡和帖子列表，缩短进入主页后的首屏等待时间。
     func refreshAll() async {
         async let infoTask: Void = refreshProfile()
         async let posterTask: Void = refreshPosters()

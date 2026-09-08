@@ -100,20 +100,26 @@ extension ScheduleService {
             request.httpBody = formBody(body)
         }
 
+        return try await sendStringResponse(
+            request,
+            requiresTeachingCenterSession: requiresTeachingCenterSession
+        )
+    }
+
+    func sendStringRequest(_ request: URLRequest) async throws -> String {
+        try await sendStringResponse(request, requiresTeachingCenterSession: false)
+    }
+
+    private func sendStringResponse(
+        _ request: URLRequest,
+        requiresTeachingCenterSession: Bool
+    ) async throws -> String {
         let (data, response) = try await sendRequest(request)
         if requiresTeachingCenterSession,
            isTeachingCenterAuthenticationFailure(data: data, response: response)
         {
             throw ScheduleServiceError.teachingCenterSessionExpired
         }
-        guard (200 ..< 400).contains(response.statusCode) else {
-            throw httpError(response.statusCode)
-        }
-        return String(decoding: data, as: UTF8.self)
-    }
-
-    func sendStringRequest(_ request: URLRequest) async throws -> String {
-        let (data, response) = try await sendRequest(request)
         guard (200 ..< 400).contains(response.statusCode) else {
             throw httpError(response.statusCode)
         }

@@ -1,5 +1,3 @@
-import Foundation
-
 protocol LoginServicing {
     var savedStudentID: String { get }
     var savedPassword: String { get }

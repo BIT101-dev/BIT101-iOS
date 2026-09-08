@@ -6,8 +6,6 @@
 //
 
 import SwiftUI
-import Network
-import Combine
 
 /// 文章模块根视图。
 ///
@@ -37,11 +35,10 @@ struct PaperRootView: View {
                 .ignoresSafeArea(edges: .bottom)
 
             ScrollView {
-                LazyVStack(spacing: 0) {
+                LazyVStack(spacing: AppDesignSystem.Spacing.none) {
                     switch viewModel.state.status {
-                    case .idle where viewModel.state.items.isEmpty:
-                        AppInlineLoadingState("正在加载文章")
-                    case .loading where viewModel.state.items.isEmpty:
+                    case .idle where viewModel.state.items.isEmpty,
+                         .loading where viewModel.state.items.isEmpty:
                         AppInlineLoadingState("正在加载文章")
                     case let .failed(message) where viewModel.state.items.isEmpty:
                         AppScrollStateContainer {
@@ -57,7 +54,7 @@ struct PaperRootView: View {
                             )
                         }
                     default:
-                        if visiblePapers.isEmpty {
+                        if viewModel.state.items.isEmpty {
                             AppScrollStateContainer {
                                 AppEmptyState(
                                     title: "暂无文章",
@@ -66,8 +63,8 @@ struct PaperRootView: View {
                                 )
                             }
                         } else {
-                            ForEach(Array(visiblePapers.enumerated()), id: \.element.id) { index, paper in
-                                AppFeedRow(isLast: index == visiblePapers.count - 1) {
+                            ForEach(Array(viewModel.state.items.enumerated()), id: \.element.id) { index, paper in
+                                AppFeedRow(isLast: index == viewModel.state.items.count - 1) {
                                     PaperSummaryCard(
                                         paper: paper,
                                         previewMetadata: viewModel.previewMetadata(for: paper.id),
@@ -78,7 +75,7 @@ struct PaperRootView: View {
                                 }
                                 .task {
                                     await viewModel.loadPreviewMetadataIfNeeded(for: paper)
-                                    await viewModel.loadMoreIfNeeded(currentPaper: paginationProbePaper(currentPaper: paper))
+                                    await viewModel.loadMoreIfNeeded(currentPaper: paper)
                                 }
                             }
 
@@ -105,7 +102,7 @@ struct PaperRootView: View {
                 }
             }
         }
-        .safeAreaInset(edge: .top, spacing: 0) {
+        .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             AppTopSegmentedPicker(
                 title: "文章排序",
                 selection: $viewModel.selectedOrder,
@@ -141,9 +138,6 @@ struct PaperRootView: View {
         }
         .task(id: requestedPaperID) {
             consumeDeepLinkedPaperIfNeeded(requestedPaperID)
-        }
-        .onChange(of: requestedPaperID) { _, newValue in
-            consumeDeepLinkedPaperIfNeeded(newValue)
         }
         .onChange(of: viewModel.selectedOrder) { oldValue, newValue in
             guard oldValue != newValue else { return }
@@ -185,15 +179,6 @@ struct PaperRootView: View {
         let state = viewModel.state
         guard case .failed = state.status, state.items.isEmpty else { return }
         await viewModel.refresh()
-    }
-
-    /// 当前真正应显示在文章首页的列表。
-    private var visiblePapers: [PaperSummary] { viewModel.state.items }
-
-    /// 分页触发继续参考原始数据尾部，避免过滤后的列表提前停止加载。
-    private func paginationProbePaper(currentPaper: PaperSummary) -> PaperSummary {
-        guard currentPaper.id == visiblePapers.last?.id else { return currentPaper }
-        return viewModel.state.items.last ?? currentPaper
     }
 
     /// 发文成功后统一切回默认列表条件，并重新拉文章列表。

@@ -1,8 +1,5 @@
-import Combine
 import SwiftUI
 
-/// 原生成绩页状态机。
-///
 private enum ScoreSurface: String, CaseIterable, Identifiable, Hashable {
     case score
     case course
@@ -19,9 +16,9 @@ private enum ScoreSurface: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
-/// 原生成绩与课程合并主页。
+/// 成绩与课程合并主页。
 ///
-/// 负责承载“成绩 / 课程”的顶部切换。
+/// 页面提供“成绩 / 课程”的顶部切换。
 struct ScoreRootView: View {
     @StateObject private var scoreViewModel = SchoolDataViewModelStore.shared.scoreViewModel
     @StateObject private var courseViewModel = CourseListViewModel()
@@ -49,7 +46,7 @@ struct ScoreRootView: View {
             }
         }
         .animation(.easeInOut, value: selectedSurface)
-        .safeAreaInset(edge: .top, spacing: 0) {
+        .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             AppTopSegmentedPicker(title: "成绩内容", selection: surfaceSelection) {
                 ForEach(ScoreSurface.allCases) { surface in
                     Text(surface.title).tag(surface)
@@ -72,7 +69,7 @@ struct ScoreRootView: View {
         }
     }
 
-    /// 成绩没有教师字段：只进入课程搜索页，不替用户猜测具体教师。
+    /// 成绩记录缺少教师字段时，页面进入课程搜索页，由用户选择具体教师。
     private func openCourseSearch(_ courseName: String) {
         selectedSurface = .course
         requestedCourse = nil
@@ -88,9 +85,9 @@ struct ScoreRootView: View {
         courseViewModel.applyPreparedSearch(query: query, items: results)
     }
 
-    /// 顶部 segmented 的受控绑定。
+    /// 页面使用受控绑定切换顶部 segmented 分区。
     ///
-    /// 统一把点击切换和滑动切换都收束到同一条动画路径里。
+    /// 点击和滑动切换都调用同一条分区切换路径并播放动画。
     private var surfaceSelection: Binding<ScoreSurface> {
         Binding(
             get: { selectedSurface },
@@ -100,12 +97,12 @@ struct ScoreRootView: View {
         )
     }
 
-    /// 当前页的左右轻扫切换手势。
+    /// 该手势使用左右轻扫切换分区。
     private var surfaceSwitchGesture: some Gesture {
         makeHorizontalSwitchGesture(onStep: switchSurface)
     }
 
-    /// 把当前分区切到相邻页。
+    /// 该方法按步长将当前分区切换到相邻分区。
     private func switchSurface(step: Int) {
         let allSurfaces = ScoreSurface.allCases
         guard let currentIndex = allSurfaces.firstIndex(of: selectedSurface) else { return }
@@ -116,7 +113,7 @@ struct ScoreRootView: View {
         switchSurface(to: allSurfaces[nextIndex])
     }
 
-    /// 切换到指定分区，并统一施加渐变动画。
+    /// 该方法切换指定分区并播放渐变动画。
     private func switchSurface(to surface: ScoreSurface) {
         guard surface != selectedSurface else { return }
 
@@ -126,9 +123,9 @@ struct ScoreRootView: View {
     }
 }
 
-/// 成绩列表子页。
+/// 成绩列表页面。
 ///
-/// 保留原有“筛选 -> 统计 -> 列表”结构，只是被合并页托管。
+/// 页面展示筛选、统计和成绩列表。
 private struct ScoreListPage: View {
     @ObservedObject var viewModel: ScoreViewModel
     let onSearchCourse: (String) -> Void
@@ -221,13 +218,13 @@ private struct ScoreListPage: View {
                     }
 
                     Section("统计") {
-                        ScoreSummaryRow(title: "已出分", value: "\(viewModel.summary.selectedCourseCount)")
+                        LabeledContent("已出分", value: "\(viewModel.summary.selectedCourseCount)")
                         if let pendingCourseCount = viewModel.pendingCourseCount {
-                            ScoreSummaryRow(title: "未出分", value: "\(pendingCourseCount)")
+                            LabeledContent("未出分", value: "\(pendingCourseCount)")
                         }
-                        ScoreSummaryRow(title: "总学分", value: format(decimal: viewModel.summary.totalCredit))
-                        ScoreSummaryRow(title: "加权平均分", value: format(optionalDecimal: viewModel.summary.weightedAverageScore))
-                        ScoreSummaryRow(title: "加权 GPA", value: format(optionalDecimal: viewModel.summary.weightedAverageGPA))
+                        LabeledContent("总学分", value: formatScoreDecimal(viewModel.summary.totalCredit))
+                        LabeledContent("加权平均分", value: formatOptionalScore(viewModel.summary.weightedAverageScore))
+                        LabeledContent("加权 GPA", value: formatOptionalScore(viewModel.summary.weightedAverageGPA))
                     }
 
                     Section("成绩列表") {
@@ -246,7 +243,7 @@ private struct ScoreListPage: View {
                                         onSearchCourse: onSearchCourse
                                     )
                                 } label: {
-                                    ScoreRowCard(row: row)
+                                    ScoreListRowCard(row: row)
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -259,7 +256,7 @@ private struct ScoreListPage: View {
                                 NavigationLink {
                                     PendingScoreDetailView(course: course)
                                 } label: {
-                                    PendingScoreRowCard(course: course)
+                                    ScoreListRowCard(course: course)
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -297,18 +294,7 @@ private struct ScoreListPage: View {
         }
     }
 
-    /// 统一格式化可选小数，没有值时显示占位符。
-    private func format(optionalDecimal value: Double?) -> String {
-        guard let value else { return "-" }
-        return format(decimal: value)
-    }
-
-    /// 统一格式化成绩统计里的数值。
-    private func format(decimal value: Double) -> String {
-        value.formatted(.number.precision(.fractionLength(2)))
-    }
-
-    /// 根据当前筛选状态生成一行摘要文本。
+    /// 该方法根据当前筛选状态生成摘要文本。
     private func selectionDescription(selected: Set<String>, all: [String]) -> String {
         guard !all.isEmpty else { return "-" }
         if selected.count == all.count {
@@ -345,7 +331,14 @@ private struct TrustedTranscriptPage: View {
                     }
                 )
             case .loaded:
-                if !viewModel.images.isEmpty {
+                if viewModel.images.isEmpty {
+                    AppEmptyState(
+                        title: "暂无可信成绩单",
+                        systemImage: "doc.text",
+                        message: "学校暂未返回成绩单图片。"
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
                     ScrollView {
                         LazyVStack(spacing: AppDesignSystem.Spacing.content) {
                             ForEach(Array(viewModel.images.enumerated()), id: \.offset) { index, image in
@@ -373,7 +366,7 @@ private struct TrustedTranscriptPage: View {
         .toolbar(.visible, for: .navigationBar)
         .background(AppDesignSystem.Palette.groupedBackground)
         .task {
-            // 从成绩页点进来就立即申请，不再增加一次确认操作。
+            // 页面从成绩页进入后立即申请可信成绩单，入口直接执行申请操作。
             await viewModel.apply()
         }
         .gallerySystemImagePreview(item: $imageViewer)
@@ -401,44 +394,74 @@ private struct TrustedTranscriptPage: View {
     }
 }
 
-/// 统计区单行展示。
+/// 成绩列表行卡片。
 ///
-/// 只是一个轻量包装，让统计 section 的几行 `LabeledContent` 看起来更统一。
-private struct ScoreSummaryRow: View {
-    let title: String
-    let value: String
+/// 已出分和未出分课程共用两行列布局，初始化器提供各自的显示字段。
+private struct ScoreListRowCard: View {
+    let courseName: String
+    let creditText: String
+    let termText: String
+    let scoreText: String
+    let averageScoreText: String
+    let courseTypeText: String
 
-    /// 统计项的单行展示。
-    var body: some View {
-        LabeledContent(title, value: value)
+    private init(
+        courseName: String,
+        creditText: String,
+        termText: String,
+        scoreText: String,
+        averageScoreText: String,
+        courseTypeText: String
+    ) {
+        self.courseName = courseName
+        self.creditText = creditText
+        self.termText = termText
+        self.scoreText = scoreText
+        self.averageScoreText = averageScoreText
+        self.courseTypeText = courseTypeText
     }
-}
 
-/// 成绩卡片。
-///
-/// 列表页使用更紧凑的两行布局，详情页再看完整字段。
-private struct ScoreRowCard: View {
-    let row: ScoreRow
+    init(row: ScoreRow) {
+        let credit = row.creditText.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.init(
+            courseName: row.courseName.isEmpty ? "未命名课程" : row.courseName,
+            creditText: credit.isEmpty ? "-" : "\(credit)分",
+            termText: row.term.isEmpty ? "-" : row.term,
+            scoreText: row.score.isEmpty ? "-" : row.score,
+            averageScoreText: formatScoreText(row.averageScore),
+            courseTypeText: row.courseType.isEmpty ? "-" : row.courseType
+        )
+    }
 
-    /// 列表态成绩卡片的紧凑布局。
+    init(course: CourseRecord) {
+        self.init(
+            courseName: course.name.isEmpty ? "未命名课程" : course.name,
+            creditText: course.credit > 0 ? "\(course.credit)分" : "-",
+            termText: course.term.isEmpty ? "-" : course.term,
+            scoreText: "-",
+            averageScoreText: "-",
+            courseTypeText: course.type.isEmpty ? "-" : course.type
+        )
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tight) {
             AppFixedColumnRow(
                 items: [
                     AppFixedColumnItem(
-                        text: row.courseName.isEmpty ? "未命名课程" : row.courseName,
+                        text: courseName,
                         ratio: 0.55,
                         font: .headline,
                         color: .primary,
                     ),
                     AppFixedColumnItem(
-                        text: formattedCredit,
+                        text: creditText,
                         ratio: 0.15,
                         font: .caption,
                         color: .secondary,
                     ),
                     AppFixedColumnItem(
-                        text: row.term.isEmpty ? "-" : row.term,
+                        text: termText,
                         ratio: 0.3,
                         font: .caption,
                         color: .secondary,
@@ -451,96 +474,19 @@ private struct ScoreRowCard: View {
             AppFixedColumnRow(
                 items: [
                     AppFixedColumnItem(
-                        text: "成绩 \(row.score.isEmpty ? "-" : row.score)",
+                        text: "成绩 \(scoreText)",
                         ratio: 0.25,
                         font: .subheadline.weight(.semibold),
                         color: .primary
                     ),
                     AppFixedColumnItem(
-                        text: "均分 \(formattedAverageScore)",
+                        text: "均分 \(averageScoreText)",
                         ratio: 0.45,
                         font: .subheadline.weight(.semibold),
                         color: .primary,
                     ),
                     AppFixedColumnItem(
-                        text: row.courseType.isEmpty ? "-" : row.courseType,
-                        ratio: 0.3,
-                        font: .caption,
-                        color: .secondary,
-                        alignment: .trailing
-                    ),
-                ],
-                height: AppDesignSystem.Size.compactRow.secondaryHeight
-            )
-        }
-        .padding(.vertical, AppDesignSystem.Spacing.tiny)
-    }
-
-    /// 学分字段在列表里的展示格式。
-    private var formattedCredit: String {
-        let trimmed = row.creditText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "-" }
-        return "\(trimmed)分"
-    }
-
-    /// 均分字段统一保留两位小数。
-    private var formattedAverageScore: String {
-        let trimmed = row.averageScore.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "-" }
-        guard let value = Double(trimmed) else { return trimmed }
-        return value.formatted(.number.precision(.fractionLength(2)))
-    }
-}
-
-/// “未出分”分区中的课程占位卡片。
-///
-/// 列宽和已出分课程保持一致，但在列表层级上单独归入“未出分”分区。
-private struct PendingScoreRowCard: View {
-    let course: CourseRecord
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tight) {
-            AppFixedColumnRow(
-                items: [
-                    AppFixedColumnItem(
-                        text: course.name.isEmpty ? "未命名课程" : course.name,
-                        ratio: 0.55,
-                        font: .headline,
-                        color: .primary
-                    ),
-                    AppFixedColumnItem(
-                        text: course.credit > 0 ? "\(course.credit)分" : "-",
-                        ratio: 0.15,
-                        font: .caption,
-                        color: .secondary
-                    ),
-                    AppFixedColumnItem(
-                        text: course.term.isEmpty ? "-" : course.term,
-                        ratio: 0.3,
-                        font: .caption,
-                        color: .secondary,
-                        alignment: .trailing
-                    ),
-                ],
-                height: AppDesignSystem.Size.compactRow.primaryHeight
-            )
-
-            AppFixedColumnRow(
-                items: [
-                    AppFixedColumnItem(
-                        text: "成绩 -",
-                        ratio: 0.25,
-                        font: .subheadline.weight(.semibold),
-                        color: .primary
-                    ),
-                    AppFixedColumnItem(
-                        text: "均分 -",
-                        ratio: 0.45,
-                        font: .subheadline.weight(.semibold),
-                        color: .primary
-                    ),
-                    AppFixedColumnItem(
-                        text: course.type.isEmpty ? "-" : course.type,
+                        text: courseTypeText,
                         ratio: 0.3,
                         font: .caption,
                         color: .secondary,
@@ -556,8 +502,7 @@ private struct PendingScoreRowCard: View {
 
 /// 未出分课程详情页。
 ///
-/// 数据来自对应学期的课表缓存，因此展示课表能够确认的课程信息；成绩和均分在
-/// 教务系统发布前统一显示为横杠。
+/// 页面依据对应学期课表缓存展示课程信息；教务系统发布成绩前，成绩和均分显示为横杠。
 private struct PendingScoreDetailView: View {
     let course: CourseRecord
 
@@ -640,7 +585,7 @@ private struct ScoreDetailMetaRow: View {
 
 /// 成绩详情页。
 ///
-/// 由列表直接 push 进入，使用平铺信息流替代旧的抽屉式详情。
+/// 页面以分组列表展示成绩、课程评价、课程信息和其它字段。
 private struct ScoreDetailView: View {
     let row: ScoreRow
     let onSearchCourse: (String) -> Void
@@ -704,9 +649,22 @@ private struct ScoreDetailView: View {
     }
 
     private var formattedAverageScore: String {
-        let trimmed = row.averageScore.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "-" }
-        guard let value = Double(trimmed) else { return trimmed }
-        return value.formatted(.number.precision(.fractionLength(2)))
+        formatScoreText(row.averageScore)
     }
+}
+
+private func formatScoreDecimal(_ value: Double) -> String {
+    value.formatted(.number.precision(.fractionLength(2)))
+}
+
+private func formatOptionalScore(_ value: Double?) -> String {
+    guard let value else { return "-" }
+    return formatScoreDecimal(value)
+}
+
+private func formatScoreText(_ value: String) -> String {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return "-" }
+    guard let value = Double(trimmed) else { return trimmed }
+    return formatScoreDecimal(value)
 }

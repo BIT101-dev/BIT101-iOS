@@ -1,5 +1,21 @@
 import SwiftUI
 
+private struct ScoreSelectionRow: View {
+    let title: String
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: AppDesignSystem.Spacing.control) {
+            Text(title)
+                .foregroundStyle(.primary)
+            Spacer()
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(isSelected ? AppDesignSystem.Palette.accent : .secondary)
+        }
+        .contentShape(Rectangle())
+    }
+}
+
 /// 学期和课程种类复用的多选筛选页。
 struct ScoreFilterPage: View {
     let title: String
@@ -20,14 +36,10 @@ struct ScoreFilterPage: View {
                     Button {
                         toggle(option)
                     } label: {
-                        HStack(spacing: AppDesignSystem.Spacing.control) {
-                            Text(option)
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            Image(systemName: selectedValues.contains(option) ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(selectedValues.contains(option) ? AppDesignSystem.Palette.accent : .secondary)
-                        }
-                        .contentShape(Rectangle())
+                        ScoreSelectionRow(
+                            title: option,
+                            isSelected: selectedValues.contains(option)
+                        )
                     }
                     .buttonStyle(.plain)
                 }
@@ -67,14 +79,10 @@ struct ScoreSortPage: View {
                     Button {
                         sortIndex = index
                     } label: {
-                        HStack(spacing: AppDesignSystem.Spacing.control) {
-                            Text(index.title)
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            Image(systemName: sortIndex == index ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(sortIndex == index ? AppDesignSystem.Palette.accent : .secondary)
-                        }
-                        .contentShape(Rectangle())
+                        ScoreSelectionRow(
+                            title: index.title,
+                            isSelected: sortIndex == index
+                        )
                     }
                     .buttonStyle(.plain)
                 }
@@ -83,10 +91,10 @@ struct ScoreSortPage: View {
             Section {
                 Button {
                     onToggleOrder()
-                    } label: {
-                        HStack(spacing: AppDesignSystem.Spacing.control) {
-                            Text(sortOrder.title)
-                                .foregroundStyle(.primary)
+                } label: {
+                    HStack(spacing: AppDesignSystem.Spacing.control) {
+                        Text(sortOrder.title)
+                            .foregroundStyle(.primary)
                         Spacer()
                         Text("切换")
                             .font(.subheadline)

@@ -8,9 +8,9 @@
 import Combine
 import Foundation
 
-/// 判断文章模块请求是否只是任务取消。
-private func isPaperRequestCancellation(_ error: Error) -> Bool {
-    TaskCancellation.matches(error)
+private func normalizedPaperSearchText(_ text: String) -> String? {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
 }
 
 private extension PaperListState {
@@ -57,7 +57,7 @@ final class PaperListViewModel: ObservableObject {
             state.applyFirstPage(papers)
             state.status = .loaded
         } catch {
-            if isPaperRequestCancellation(error) {
+            if TaskCancellation.matches(error) {
                 state = previousState
                 return
             }
@@ -81,14 +81,12 @@ final class PaperListViewModel: ObservableObject {
             )
             state.appendPage(papers)
         } catch {
-            if isPaperRequestCancellation(error) { return }
+            if TaskCancellation.matches(error) { return }
             alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
     }
 
-    /// 为文章列表按需补拉作者预览信息。
-    ///
-    /// 文章列表接口缺少作者字段，因此只在行即将显示时请求一次详情，并把作者信息缓存在内存里。
+    /// 文章作者信息由详情接口提供；文章行展示前请求详情，并将成功返回的作者预览信息缓存在内存中。
     func loadPreviewMetadataIfNeeded(for paper: PaperSummary) async {
         guard previewMetadataByPaperID[paper.id] == nil else { return }
         guard !previewLoadingIDs.contains(paper.id) else { return }
@@ -100,7 +98,7 @@ final class PaperListViewModel: ObservableObject {
             let detail = try await service.fetchPaper(id: paper.id)
             previewMetadataByPaperID[paper.id] = detail.previewMetadata
         } catch {
-            if isPaperRequestCancellation(error) { return }
+            return
         }
     }
 
@@ -109,15 +107,14 @@ final class PaperListViewModel: ObservableObject {
     }
 
     private var trimmedSearchText: String? {
-        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        normalizedPaperSearchText(searchText)
     }
 }
 
 @MainActor
 /// 文章搜索状态机。
 ///
-/// 搜索页不复用主列表状态，避免“在搜索页里搜索”直接污染文章首页当前正在看的列表。
+/// 搜索页维护独立的文章列表状态，主列表保留首页当前列表。
 final class PaperSearchViewModel: ObservableObject {
     @Published private(set) var state = PaperListState()
     @Published private(set) var previewMetadataByPaperID: [Int: PaperPreviewMetadata] = [:]
@@ -150,7 +147,7 @@ final class PaperSearchViewModel: ObservableObject {
             state.applyFirstPage(papers)
             state.status = .loaded
         } catch {
-            if isPaperRequestCancellation(error) {
+            if TaskCancellation.matches(error) {
                 state = previousState
                 return
             }
@@ -174,12 +171,12 @@ final class PaperSearchViewModel: ObservableObject {
             )
             state.appendPage(papers)
         } catch {
-            if isPaperRequestCancellation(error) { return }
+            if TaskCancellation.matches(error) { return }
             alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
     }
 
-    /// 搜索结果页和文章首页一样，按需补拉作者预览元数据。
+    /// 搜索结果页按需请求文章详情，并缓存作者预览元数据。
     func loadPreviewMetadataIfNeeded(for paper: PaperSummary) async {
         guard previewMetadataByPaperID[paper.id] == nil else { return }
         guard !previewLoadingIDs.contains(paper.id) else { return }
@@ -191,7 +188,7 @@ final class PaperSearchViewModel: ObservableObject {
             let detail = try await service.fetchPaper(id: paper.id)
             previewMetadataByPaperID[paper.id] = detail.previewMetadata
         } catch {
-            if isPaperRequestCancellation(error) { return }
+            return
         }
     }
 
@@ -204,8 +201,7 @@ final class PaperSearchViewModel: ObservableObject {
     }
 
     private var trimmedSearchText: String? {
-        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        normalizedPaperSearchText(searchText)
     }
 }
 
@@ -282,12 +278,12 @@ final class PaperDetailViewModel: ObservableObject {
         case let .success(comments):
             commentState.appendPage(comments)
         case let .failure(error):
-            if isPaperRequestCancellation(error) { return }
+            if TaskCancellation.matches(error) { return }
             alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
     }
 
-    /// 切换评论排序时只刷新评论区，避免整篇文章正文跟着闪动。
+    /// 切换评论排序时刷新评论区，文章正文保持当前内容。
     func setCommentOrder(_ order: GalleryCommentOrder) async {
         guard commentOrder != order else { return }
         commentOrder = order
@@ -305,7 +301,7 @@ final class PaperDetailViewModel: ObservableObject {
                 self.paper = paper.updatingLike(result.like, likeNum: result.likeNum)
             }
         } catch {
-            if isPaperRequestCancellation(error) { return }
+            if TaskCancellation.matches(error) { return }
             alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
     }
@@ -319,7 +315,7 @@ final class PaperDetailViewModel: ObservableObject {
             let result = try await service.sendLike(objectID: "comment\(comment.id)")
             commentState.items = commentState.items.updatingLike(for: comment.id, like: result.like, likeNum: result.likeNum)
         } catch {
-            if isPaperRequestCancellation(error) { return }
+            if TaskCancellation.matches(error) { return }
             alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
     }
@@ -346,7 +342,7 @@ final class PaperDetailViewModel: ObservableObject {
             await refreshAll()
             return true
         } catch {
-            if isPaperRequestCancellation(error) { return false }
+            if TaskCancellation.matches(error) { return false }
             alert = AppAlert(title: "发送失败", message: error.localizedDescription)
             return false
         }
@@ -359,7 +355,7 @@ final class PaperDetailViewModel: ObservableObject {
             contentBlocks = PaperContentRenderer.blocks(from: paper.content)
             paperStatus = .loaded
         case let .failure(error):
-            if isPaperRequestCancellation(error) {
+            if TaskCancellation.matches(error) {
                 paperStatus = .loaded
                 return
             }
@@ -374,7 +370,7 @@ final class PaperDetailViewModel: ObservableObject {
             commentState.applyFirstPage(comments)
             commentState.status = .loaded
         case let .failure(error):
-            if isPaperRequestCancellation(error) {
+            if TaskCancellation.matches(error) {
                 commentState.status = .idle
                 commentState.isLoadingMore = false
                 return

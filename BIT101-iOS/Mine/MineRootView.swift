@@ -9,8 +9,7 @@ import SwiftUI
 
 /// “我的”页内部导航。
 ///
-/// 这里仅收敛“我的主页内部会继续 push 的三个子列表”，设置页单独走另一条路由，
-/// 避免把两类导航状态混在一起。
+/// 这里承载“我的主页”内部 push 的三个子列表，设置页使用独立路由，保持导航状态分离。
 private enum MineRoute: Hashable, Identifiable {
     case followers
     case followings
@@ -22,7 +21,7 @@ private enum MineRoute: Hashable, Identifiable {
 
 /// “我的”页根视图。
 ///
-/// 顶部结构尽量向 Android 对齐，但交互仍然走 iOS 的导航和列表风格。
+/// 页面包含资料卡、入口列表和子页面，交互使用 iOS 导航和列表样式。
 struct MineRootView: View {
     /// 兜底学号，用于传给设置页的账号区域。
     let fallbackStudentID: String
@@ -34,12 +33,12 @@ struct MineRootView: View {
     @State private var route: MineRoute?
     /// 设置页内部路由。
     @State private var settingsRoute: SettingsRoute?
-    /// 建议使用独立抽屉呈现，避免进入设置导航栈。
+    /// 建议入口通过独立 sheet 呈现，设置入口使用设置导航路由。
     @State private var isShowingSuggestion = false
 
     /// “我的”主页主体。
     ///
-    /// 主页面本身只展示资料卡和设置入口；更长的列表内容都拆到子页面里，避免主页滚动层级过深。
+    /// 主页面展示资料卡和设置入口，列表内容进入子页面，保持主页层级清晰。
     var body: some View {
         List {
             Section {
@@ -139,7 +138,7 @@ struct MineRootView: View {
 
     /// 设置入口列表。
     ///
-    /// 这些入口最终都会跳进同一个 `SettingsRootView`，这里只负责展示“入口列表”这一层。
+    /// 入口最终都进入同一个 `SettingsRootView`，这里负责展示入口列表和选择路由。
     private var settingsSection: some View {
         ForEach(SettingsRoute.allCases) { route in
             Button {
@@ -163,7 +162,7 @@ struct MineRootView: View {
 
 /// 他人主页。
 ///
-/// 复用“我的”页已有资料卡和话题卡片样式，避免再做一套单独的用户页皮肤。
+/// 复用“我的”页的资料卡和话题卡片样式，统一用户主页的视觉表现。
 struct UserProfileRootView: View {
     let userID: Int
 
@@ -236,12 +235,9 @@ struct UserProfileRootView: View {
     private var posterSection: some View {
         let visiblePosters = viewModel.posterState.items
 
-        switch viewModel.posterState.status {
-        case .idle where visiblePosters.isEmpty:
+        if isInitialPosterLoading {
             AppInlineLoadingState("正在加载帖子")
-        case .loading where visiblePosters.isEmpty:
-            AppInlineLoadingState("正在加载帖子")
-        case let .failed(message) where visiblePosters.isEmpty:
+        } else if case let .failed(message) = viewModel.posterState.status, visiblePosters.isEmpty {
             AppFailureState(
                 title: "帖子加载失败",
                 systemImage: "text.bubble",
@@ -250,7 +246,7 @@ struct UserProfileRootView: View {
                     Task { await viewModel.refreshPosters() }
                 }
             )
-        default:
+        } else {
             if visiblePosters.isEmpty {
                 AppEmptyState(title: "暂无帖子", systemImage: "text.bubble")
             } else {
@@ -273,12 +269,22 @@ struct UserProfileRootView: View {
                     .listRowBackground(Color.clear)
                 }
 
-                    if viewModel.posterState.isLoadingMore {
+                if viewModel.posterState.isLoadingMore {
                     AppInlineLoadingState()
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
                 }
             }
+        }
+    }
+
+    private var isInitialPosterLoading: Bool {
+        guard viewModel.posterState.items.isEmpty else { return false }
+        switch viewModel.posterState.status {
+        case .idle, .loading:
+            return true
+        default:
+            return false
         }
     }
 
@@ -290,8 +296,7 @@ struct UserProfileRootView: View {
 
 /// 个人信息卡片。
 ///
-/// “我的主页”和“他人主页”都共用这张卡片，因此这里只负责纯展示，
-/// 不直接耦合导航和页面级状态。
+/// “我的主页”和“他人主页”共用这张卡片，组件负责纯展示，导航和页面状态由上层传入。
 private struct MineProfileCard: View {
     let info: MineUserInfo
     let posterCountText: String
@@ -375,7 +380,7 @@ private struct MineProfileCard: View {
 
 /// 粉丝 / 关注 列表页。
 ///
-/// 这个页面只关心一类用户数组的展示与分页，因此通过闭包把刷新和加载更多回传给上层 ViewModel。
+/// 页面展示一类用户数组，刷新和分页操作由上层 ViewModel 传入。
 private struct MineUserListView: View {
     let title: String
     let users: [GalleryUser]
@@ -452,7 +457,7 @@ private struct MineUserListView: View {
 
 /// 我的帖子列表页。
 ///
-/// 直接复用话题卡片与详情实现，避免“我的帖子”和“话题详情”之间出现两套视觉和交互逻辑。
+/// 复用话题卡片与详情实现，统一“我的帖子”和“话题详情”的视觉和交互逻辑。
 private struct MinePosterListView: View {
     let posters: [GalleryPoster]
     let status: MineLoadStatus
@@ -468,7 +473,7 @@ private struct MinePosterListView: View {
 
     /// 当前真正可展示的帖子列表。
     ///
-    /// 过滤掉刚删除但服务端尚未刷新回来的帖子，避免删除后短暂回闪。
+    /// 过滤服务端刷新前已删除的帖子，保持删除后的列表状态。
     private var visiblePosters: [GalleryPoster] {
         posters.filter { !deletedPosterIDs.contains($0.id) }
     }
@@ -509,7 +514,7 @@ private struct MinePosterListView: View {
                             AppInlineLoadingState()
                         }
                     }
-                    }
+                }
             }
         }
         .task {
@@ -526,9 +531,7 @@ private struct MinePosterListView: View {
                     poster: poster,
                     onDeleted: {
                         deletedPosterIDs.insert(poster.id)
-                        Task {
-                            onRefresh()
-                        }
+                        onRefresh()
                     }
                 )
             }
@@ -584,7 +587,7 @@ private struct MinePosterListView: View {
 
 /// 我的页资料卡上的统计按钮。
 ///
-/// 同一套组件同时兼容“可点”和“纯展示”两种状态：有 action 时就是按钮，没有 action 时就是静态文案。
+/// action 存在时渲染按钮，缺少 action 时渲染静态文案。
 private struct MineStatButton: View {
     let number: String
     let title: String
@@ -617,7 +620,7 @@ private struct MineStatButton: View {
 
 /// 我的页使用的颜色解码工具。
 ///
-/// 用户身份颜色来自服务端十六进制字符串，因此在“我的”模块里单独保留一个轻量解码器。
+/// 处理服务端提供的十六进制用户身份颜色。
 private enum MineColorDecoder {
     static func color(from hex: String) -> Color? {
         let sanitized = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)

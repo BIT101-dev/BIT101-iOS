@@ -41,10 +41,10 @@ extension ScheduleService {
         }
     }
 
-    /// 只完成短信认证，不附带任何课表操作。
+    /// 完成短信认证，由调用方继续处理课表操作。
     ///
-    /// 加载学期列表触发验证时使用此入口，认证成功后由 ViewModel 自动继续加载列表，
-    /// 避免仅仅打开学期页却顺手把课表切回学校当前学期。
+    /// 学期列表加载触发验证时使用此入口。认证成功后由 ViewModel 自动继续加载列表，
+    /// 课表继续使用用户已选学期。
     func submitSMSCodeForTeachingCenterAuthentication(
         _ code: String,
         for challenge: BITLoginAuthenticationChallenge
@@ -125,13 +125,14 @@ extension ScheduleService {
         } catch ScheduleServiceError.authenticationFailed(let message)
             where isTransientAuthenticationFailure(message)
         {
-            // bit-login 到 WebVPN 的单次请求可能被学校侧 25 秒读超时打断；没有拿到
-            // challenge 的情况下安全地退避并重试一次，避免把瞬时抖动直接暴露给用户。
+            // bit-login 到 WebVPN 的单次请求可能被学校侧 25 秒读超时打断。
+            // 认证请求等待 2 秒后重试一次，处理瞬时认证失败。
             try await Task.sleep(for: .seconds(2))
             try await requestTeachingCenterCookies(body: body, accessToken: nil)
         } catch ScheduleServiceError.challengeInvalid(let message)
             where isTransientAuthenticationFailure(message)
         {
+            // challenge 短暂失效时等待 2 秒，再次请求教学中心 Cookie。
             try await Task.sleep(for: .seconds(2))
             try await requestTeachingCenterCookies(body: body, accessToken: nil)
         }
@@ -278,9 +279,9 @@ extension ScheduleService {
         teachingCenterState.markAuthenticated(for: studentID)
     }
 
-    /// 只查询学校标记的当前学期，不拉完整课表。
+    /// 查询学校标记的当前学期编码。
     ///
-    /// 主要用于空教室页只需要学期编码但不需要整份课表时的轻量查询。
+    /// 空教室页通过此入口获取学期编码，保持请求轻量。
     func fetchCurrentTermOnly() async throws -> String {
         try await withPreparedTeachingCenterSession {
             return try await fetchCurrentTerm()

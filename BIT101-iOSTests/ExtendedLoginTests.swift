@@ -9,16 +9,28 @@ struct ExtendedLoginTests {
         let savedStudentID: String
         let savedPassword: String
         let hasCachedSession: Bool
+        let bootstrapError: Error?
         var loginResult: Result<String, Error> = .success("1120260001")
         private(set) var loginCalls: [(String, String)] = []
 
-        init(studentID: String = "1120260001", password: String = "saved", hasCachedSession: Bool = false) {
+        init(
+            studentID: String = "1120260001",
+            password: String = "saved",
+            hasCachedSession: Bool = false,
+            bootstrapError: Error? = nil
+        ) {
             savedStudentID = studentID
             savedPassword = password
             self.hasCachedSession = hasCachedSession
+            self.bootstrapError = bootstrapError
         }
 
-        func checkLogin() async throws -> String? { nil }
+        func checkLogin() async throws -> String? {
+            if let bootstrapError {
+                throw bootstrapError
+            }
+            return nil
+        }
 
         func login(studentID: String, password: String) async throws -> String {
             loginCalls.append((studentID, password))
@@ -85,26 +97,13 @@ struct ExtendedLoginTests {
     @Test("Cached login remains available through transient bootstrap failure")
     @MainActor
     func transientBootstrapFailure() async {
-        let service = BootstrapFailureService()
+        let service = ServiceStub(hasCachedSession: true, bootstrapError: URLError(.timedOut))
         let viewModel = LoginViewModel(service: service)
 
         await viewModel.bootstrapIfNeeded()
 
         #expect(viewModel.screenState == .signedIn(studentID: "1120260001"))
         #expect(viewModel.alert == nil)
-    }
-
-    private final class BootstrapFailureService: LoginServicing {
-        let savedStudentID = "1120260001"
-        let savedPassword = "saved"
-        let hasCachedSession = true
-
-        func checkLogin() async throws -> String? {
-            throw URLError(.timedOut)
-        }
-
-        func login(studentID: String, password: String) async throws -> String { studentID }
-        func logout() {}
     }
 }
 #endif

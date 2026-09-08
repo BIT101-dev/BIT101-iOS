@@ -4,6 +4,14 @@ import Network
 import SwiftUI
 import UIKit
 
+private enum DiagnosticAlertRules {
+    static let diagnosticTitleMarkers = ["失败", "错误", "异常", "无法", "超时", "未找到", "验证已失效", "加载"]
+
+    static func allowsDiagnostics(for title: String) -> Bool {
+        diagnosticTitleMarkers.contains { title.contains($0) }
+    }
+}
+
 protocol DiagnosticAlertPresentable: Identifiable {
     var title: String { get }
     var message: String { get }
@@ -12,7 +20,7 @@ protocol DiagnosticAlertPresentable: Identifiable {
 
 extension DiagnosticAlertPresentable {
     var allowsDiagnostics: Bool {
-        ["失败", "错误", "异常", "无法", "超时", "未找到", "验证已失效", "加载"].contains { title.contains($0) }
+        DiagnosticAlertRules.allowsDiagnostics(for: title)
     }
 }
 
@@ -21,12 +29,12 @@ extension ScheduleNotice: DiagnosticAlertPresentable {
     var allowsDiagnostics: Bool {
         guard !message.contains("课表未发布"), !message.contains("课表尚未发布") else { return false }
         guard !title.contains("需要短信验证"), !message.contains("短信二次验证") else { return false }
-        return ["失败", "错误", "异常", "无法", "超时", "未找到", "验证已失效", "加载"].contains { title.contains($0) }
+        return DiagnosticAlertRules.allowsDiagnostics(for: title)
     }
 }
 extension MapNotice: DiagnosticAlertPresentable {}
 
-/// 反馈来源只区分本地 Debug 安装与正式 Release 构建，不携带用户身份。
+/// 反馈载荷标记本地 Debug 安装或正式 Release 构建，用户身份字段保持空缺。
 enum AppBuildEnvironment {
 #if DEBUG
     static let isDevelopment = true
@@ -97,8 +105,8 @@ actor NetworkDiagnosticStore {
 
     func recent() -> [NetworkDiagnosticRecord] { Array(records.suffix(10)) }
 
-    /// 返回最近一次学校网页请求的安全外链；去除 query 和 fragment，避免把 ticket、token
-    /// 等一次性认证参数带到 Safari。API 请求和 BIT101 自有接口不作为网页入口。
+    /// 返回最近一次学校网页请求的安全外链；URL 移除 query 和 fragment，ticket、token
+    /// 等一次性认证参数留在诊断记录中。网页入口限定为学校网页请求。
     func latestSchoolServicePageURL() -> URL? {
         let schoolHosts = Set([
             "sso.bit.edu.cn",
@@ -139,13 +147,10 @@ enum ErrorReportRedactor {
         var output = value
         for name in protectedNames {
             let escaped = NSRegularExpression.escapedPattern(for: name)
-            let patterns = [
-                "(?i)(\"\(escaped)\"\\s*:\\s*\")[^\"]*(\")",
-                "(?i)(\\b\(escaped)\\s*[=:]\\s*)[^&\\s,;]+"
-            ]
-            for pattern in patterns {
-                output = output.replacingOccurrences(of: pattern, with: "$1[REDACTED]$2", options: .regularExpression)
-            }
+            let jsonPattern = "(?i)(\"\(escaped)\"\\s*:\\s*\")[^\"]*(\")"
+            let keyValuePattern = "(?i)(\\b\(escaped)\\s*[=:]\\s*)[^&\\s,;]+"
+            output = output.replacingOccurrences(of: jsonPattern, with: "$1[REDACTED]$2", options: .regularExpression)
+            output = output.replacingOccurrences(of: keyValuePattern, with: "$1[REDACTED]", options: .regularExpression)
         }
         let credentials = [LoginStorage.shared.currentPassword, LoginStorage.shared.fakeCookie]
             .filter { !$0.isEmpty }
@@ -157,13 +162,13 @@ enum ErrorReportRedactor {
         var output = forced(value)
         let studentID = LoginStorage.shared.currentStudentID
         if !studentID.isEmpty { output = output.replacingOccurrences(of: studentID, with: "[REDACTED]") }
-        let patterns = [
-            "(?i)(\\b(?:student_?id|username|name|phone|mobile)\\s*[=:：]\\s*)[^&\\s,;]+",
-            "(?i)(\"(?:student_?id|username|name|phone|mobile)\"\\s*:\\s*\")[^\"]*(\")",
-            "(?<!\\d)\\d{8,12}(?!\\d)"
+        let patterns: [(pattern: String, replacement: String)] = [
+            ("(?i)(\\b(?:student_?id|username|name|phone|mobile)\\s*[=:：]\\s*)[^&\\s,;]+", "$1[REDACTED]"),
+            ("(?i)(\"(?:student_?id|username|name|phone|mobile)\"\\s*:\\s*\")[^\"]*(\")", "$1[REDACTED]$2"),
+            ("(?<!\\d)\\d{8,12}(?!\\d)", "[REDACTED]")
         ]
         for pattern in patterns {
-            output = output.replacingOccurrences(of: pattern, with: "$1[REDACTED]$2", options: .regularExpression)
+            output = output.replacingOccurrences(of: pattern.pattern, with: pattern.replacement, options: .regularExpression)
         }
         return output
     }
@@ -184,13 +189,10 @@ private struct ErrorReportPayload: Encodable {
 }
 
 private enum FeedbackSubmissionError: LocalizedError {
-    case invalidResponse
     case server(statusCode: Int, message: String?)
 
     var errorDescription: String? {
         switch self {
-        case .invalidResponse:
-            return "服务器返回了无法识别的响应。"
         case let .server(statusCode, message):
             if let message, !message.isEmpty {
                 return "服务器响应异常（HTTP \(statusCode)）：\(message)"
@@ -328,7 +330,7 @@ final class ErrorReportViewModel: ObservableObject {
     }
 
     private func redactHeaders(_ headers: [String: String]) -> [String: String] {
-        headers.mapValues(ErrorReportRedactor.forced).mapValues { ErrorReportRedactor.forced($0) }
+        headers.mapValues(ErrorReportRedactor.forced)
             .reduce(into: [:]) { result, pair in
                 let key = pair.key
                 result[key] = ["authorization", "cookie", "set-cookie"].contains(key.lowercased()) ? "[REDACTED]" : pair.value
@@ -363,20 +365,24 @@ private struct AppErrorPresentation: Identifiable {
 
 extension AppErrorPresentation: DiagnosticAlertPresentable {}
 
-/// 统一从当前最顶层 UIViewController 呈现原生 Alert，避免根视图的 `.alert` 被 Sheet 挡住。
+/// 统一从当前最顶层 UIViewController 呈现原生 Alert，让 Alert 在 Sheet 之上显示。
 @MainActor
 final class AppErrorPresenter {
     static let shared = AppErrorPresenter()
     private var queue: [AppErrorPresentation] = []
     private var isPresenting = false
     private var reportDelegate: ReportPresentationDelegate?
+    private weak var reportController: UIViewController?
+    private var presentationGeneration = 0
 
     private init() {}
 
-    /// 账号切换后丢弃旧账号遗留的错误，避免退出登录后旧请求的提示出现在登录页。
-    @MainActor
+    /// 账号切换后清空旧账号错误，让登录页保持当前账号状态。
     func reset() {
+        presentationGeneration += 1
         queue.removeAll()
+        reportController?.dismiss(animated: false)
+        reportController = nil
         reportDelegate = nil
         isPresenting = false
 
@@ -386,9 +392,10 @@ final class AppErrorPresenter {
     }
 
     func present(_ alert: any DiagnosticAlertPresentable) {
+        let generation = presentationGeneration
         Task { @MainActor [weak self] in
             let schoolServiceURL = await NetworkDiagnosticStore.shared.latestSchoolServicePageURL()
-            guard let self else { return }
+            guard let self, self.presentationGeneration == generation else { return }
             queue.append(AppErrorPresentation(
                 title: alert.title,
                 message: alert.message,
@@ -441,10 +448,16 @@ final class AppErrorPresenter {
     }
 
     private func presentReportSheet(for item: AppErrorPresentation) {
+        presentReportSheet(for: item, generation: presentationGeneration)
+    }
+
+    private func presentReportSheet(for item: AppErrorPresentation, generation: Int) {
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
-            guard let self, let presenter = Self.topViewController(), !(presenter is UIAlertController) else {
-                self?.retryReportSheet(for: item); return
+            guard let self, self.presentationGeneration == generation else { return }
+            guard let presenter = Self.topViewController(), !(presenter is UIAlertController) else {
+                retryReportSheet(for: item, generation: generation)
+                return
             }
             let controller = UIHostingController(rootView: ErrorReportSheet(alert: item) { [weak self] in
                 self?.finishReportSheet()
@@ -452,15 +465,17 @@ final class AppErrorPresenter {
             controller.modalPresentationStyle = .pageSheet
             let delegate = ReportPresentationDelegate { [weak self] in self?.finishReportSheet() }
             reportDelegate = delegate
+            reportController = controller
             controller.presentationController?.delegate = delegate
             presenter.present(controller, animated: true)
         }
     }
 
-    private func retryReportSheet(for item: AppErrorPresentation) {
+    private func retryReportSheet(for item: AppErrorPresentation, generation: Int) {
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
-            self?.presentReportSheet(for: item)
+            guard let self, self.presentationGeneration == generation else { return }
+            self.presentReportSheet(for: item, generation: generation)
         }
     }
 
@@ -472,17 +487,22 @@ final class AppErrorPresenter {
     private func finishReportSheet() {
         guard isPresenting else { return }
         isPresenting = false
+        reportController = nil
         reportDelegate = nil
+        let generation = presentationGeneration
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
-            self?.presentNextIfPossible()
+            guard let self, self.presentationGeneration == generation else { return }
+            self.presentNextIfPossible()
         }
     }
 
     private func retryPresentation() {
+        let generation = presentationGeneration
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
-            self?.presentNextIfPossible()
+            guard let self, self.presentationGeneration == generation else { return }
+            self.presentNextIfPossible()
         }
     }
 
@@ -649,7 +669,7 @@ private struct ErrorReportSheet: View {
                     .foregroundColor(.secondary)
                 + Text("系统会自动隐藏密码、Cookie、Token、姓名、学号等敏感字段。")
                     .bold()
-                    .foregroundColor(.accentColor)
+                    .foregroundStyle(AppDesignSystem.Palette.accent)
             )
             .font(.footnote)
         } else {
@@ -658,7 +678,7 @@ private struct ErrorReportSheet: View {
                     .foregroundColor(.secondary)
                 + Text("可能包含学号、姓名、课程、成绩等个人信息。")
                     .bold()
-                    .foregroundColor(.accentColor)
+                    .foregroundStyle(AppDesignSystem.Palette.accent)
                 + Text("密码、Cookie、Token 等认证信息仍会强制脱敏。")
                     .bold()
                     .foregroundColor(.secondary)

@@ -1,6 +1,6 @@
 import Foundation
 
-/// 业务模块共享的轻量页面提示模型。
+/// AppAlert 为业务模块提供页面提示数据。
 struct AppAlert: Identifiable {
     let id = UUID()
     let title: String

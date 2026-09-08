@@ -5,15 +5,14 @@ BIT101 分享链接使用独立域名：
 - `https://open.aihelpme.dev/gallery/{id}`
 - `https://open.aihelpme.dev/course/{id}`
 
-安装 App 时由 iOS 打开对应详情。微信、QQ 等内置浏览器可能不触发 Universal Link，所以
-Cloudflare Worker 会显示一个轻量中转页，而不是立即重定向。用户可在中转页尝试用
-`bit101://` 打开 App，或者继续访问 `https://bit101.cn` 的对应网页。该 Worker 与现有的
-`privacy.aihelpme.dev` Pages 项目互相独立，不会改动隐私页面。
+App 已安装且关联域名配置生效时，iOS 会在用户打开分享链接时打开对应详情。微信、QQ 等内置浏览器可能不触发 Universal Link。
+Cloudflare Worker 在这些场景展示中转页，并提供 `bit101://` App 入口和 `https://bit101.cn` 对应网页入口。该 Worker 与现有的
+`privacy.aihelpme.dev` Pages 项目独立运行，隐私页面继续由该项目提供。
 
 ## Cloudflare 配置
 
 线上 Worker 名称为 `bit101-open`。仓库中的可部署源码与 Wrangler 配置位于
-`Cloudflare/OpenWorker/`，统一的自有 Cloudflare 资源和命令行部署说明见 [`../Cloudflare/README.md`](../Cloudflare/README.md)。
+`Cloudflare/OpenWorker/`，Cloudflare 资源和命令行部署说明见 [`../Cloudflare/README.md`](../Cloudflare/README.md)。
 
 1. 在 Cloudflare 控制台进入 **Workers & Pages**，新建一个 Worker。
 2. 部署下方代码。
@@ -138,8 +137,8 @@ function landingPage(url, route, id) {
   </main>
   <script>
     (() => {
-      // 每个浏览器历史记录项只尝试一次：返回或刷新不会重试；用户再次点开同一链接
-      // 会形成新的记录项，所以仍会自动尝试。
+      // 每个浏览器历史记录项触发一次自动尝试；用户再次点开同一链接会形成新的记录项，
+      // 新记录继续自动尝试。
       const previousState = history.state && typeof history.state === "object"
         ? history.state
         : {};
@@ -200,17 +199,16 @@ export default {
 
 ## 必须满足
 
-- `https://open.aihelpme.dev/.well-known/apple-app-site-association` 必须直接返回 HTTP 200，不能跳转。
-- AASA 文件名没有 `.json` 扩展名，响应类型为 `application/json`。
+- 访问 `https://open.aihelpme.dev/.well-known/apple-app-site-association` 时，服务直接返回 HTTP 200。
+- AASA 文件名为 `apple-app-site-association`，响应类型为 `application/json`。
 - Apple Developer 后台的 App ID 必须启用 Associated Domains，并重新生成开发及发布描述文件。
 - 部署 AASA 后重新安装 App，再从“信息”“备忘录”等外部 App 点击分享链接验证。
-- AASA 会被 Apple CDN 缓存，配置变更不一定立即生效。
+- AASA 会被 Apple CDN 缓存，配置变更的生效时间可能延后。
 
 Cloudflare 免费套餐足以承担此跳转页和 AASA JSON。
 
-## 为什么不能直接 302
+## 直接 302 时的行为
 
-Universal Link 是否唤起 App，是 iOS 在网络请求之前决定的。微信、QQ 或用户在浏览器地址栏
-粘贴链接时，系统可能选择继续访问网页；若 Worker 此时直接 302 到 `bit101.cn`，原始关联域名
-会丢失，之后选择“在浏览器打开”也只会停在网页。中转页保留 `open.aihelpme.dev`，并提供
-自定义 URL Scheme 按钮作为这些场景的二次唤起入口。
+iOS 在网络请求前决定 Universal Link 是否唤起 App。用户从微信、QQ 或浏览器地址栏粘贴链接时，系统可能继续访问网页。
+Worker 直接 302 到 `bit101.cn` 时，原始关联域名会丢失。用户之后选择“在浏览器打开”时，页面仍停留在网页。
+中转页保留 `open.aihelpme.dev`，并提供自定义 URL Scheme 按钮，供这些场景再次尝试唤起 App。

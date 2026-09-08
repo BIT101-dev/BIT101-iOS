@@ -125,34 +125,40 @@ struct AccountSettingsPage: View {
         .diagnosticAlert(item: $alert)
     }
 
-    /// 拉取当前登录用户资料卡。
+    /// 页面加载当前登录用户资料卡。
     private func loadProfile() async {
         let sessionCookie = LoginStorage.shared.fakeCookie
         do {
-            profile = try await service.fetchMyInfo()
+            let loadedProfile = try await service.fetchMyInfo()
+            guard isCurrentSession(sessionCookie) else { return }
+            profile = loadedProfile
             isLoggedIn = true
         } catch {
-            guard !shouldIgnore(error: error, sessionCookie: sessionCookie) else { return }
+            guard shouldPresentError(error, for: sessionCookie) else { return }
             alert = AppAlert(title: "加载失败", message: error.localizedDescription)
         }
     }
 
-    /// 触发一次显式登录状态检查。
+    /// 用户操作触发一次显式登录状态检查。
     private func checkLogin() async {
         let sessionCookie = LoginStorage.shared.fakeCookie
         isCheckingLogin = true
         defer { isCheckingLogin = false }
         do {
-            isLoggedIn = try await service.checkLogin()
+            let loginState = try await service.checkLogin()
+            guard isCurrentSession(sessionCookie)
+                || (!loginState && LoginStorage.shared.fakeCookie.isEmpty)
+            else { return }
+            isLoggedIn = loginState
         } catch {
-            guard !shouldIgnore(error: error, sessionCookie: sessionCookie) else { return }
+            guard shouldPresentError(error, for: sessionCookie) else { return }
             alert = AppAlert(title: "检查失败", message: error.localizedDescription)
         }
     }
 
-    /// 更新昵称或签名。
+    /// 服务提交昵称或签名。
     ///
-    /// 接口要求整份资料一起提交，所以未改动字段也要回填旧值。
+    /// 接口要求整份资料一起提交，页面沿用当前资料中的未修改字段。
     private func updateProfile(nickname: String?, motto: String?) async {
         guard let profile else { return }
         let sessionCookie = LoginStorage.shared.fakeCookie
@@ -164,16 +170,18 @@ struct AccountSettingsPage: View {
                 motto: motto ?? profile.user.motto,
                 avatarMid: profile.user.avatar.mid
             )
+            guard isCurrentSession(sessionCookie) else { return }
             await loadProfile()
+            guard isCurrentSession(sessionCookie) else { return }
             showNicknameEditor = false
             showMottoEditor = false
         } catch {
-            guard !shouldIgnore(error: error, sessionCookie: sessionCookie) else { return }
+            guard shouldPresentError(error, for: sessionCookie) else { return }
             alert = AppAlert(title: "更新失败", message: error.localizedDescription)
         }
     }
 
-    /// 上传并绑定新头像。
+    /// 服务上传并绑定新头像。
     private func updateAvatar(with item: PhotosPickerItem) async {
         guard let profile else { return }
         let sessionCookie = LoginStorage.shared.fakeCookie
@@ -184,30 +192,35 @@ struct AccountSettingsPage: View {
             guard let data = try await item.loadTransferable(type: Data.self) else {
                 throw SettingsServiceError.uploadFailed
             }
+            guard isCurrentSession(sessionCookie) else { return }
             let image = try await service.uploadAvatar(data: data)
+            guard isCurrentSession(sessionCookie) else { return }
             try await service.updateUser(
                 nickname: profile.user.nickname,
                 motto: profile.user.motto,
                 avatarMid: image.mid
             )
+            guard isCurrentSession(sessionCookie) else { return }
             await loadProfile()
         } catch {
-            guard !shouldIgnore(error: error, sessionCookie: sessionCookie) else { return }
+            guard shouldPresentError(error, for: sessionCookie) else { return }
             alert = AppAlert(title: "头像更新失败", message: error.localizedDescription)
         }
     }
 
-    /// 退出或切换账号后，旧请求的失败不能再回写到新账号界面。
-    private func shouldIgnore(error: Error, sessionCookie: String) -> Bool {
-        TaskCancellation.matches(error)
-            || sessionCookie.isEmpty
-            || LoginStorage.shared.fakeCookie != sessionCookie
+    /// 页面在当前账号且请求未取消时展示请求错误。
+    private func shouldPresentError(_ error: Error, for sessionCookie: String) -> Bool {
+        !TaskCancellation.matches(error) && isCurrentSession(sessionCookie)
+    }
+
+    private func isCurrentSession(_ sessionCookie: String) -> Bool {
+        !sessionCookie.isEmpty && LoginStorage.shared.fakeCookie == sessionCookie
     }
 }
 
-/// 设置页里用于按需显示学号、UID 这类敏感标识。
+/// 设置页按需显示学号、UID 等敏感标识。
 ///
-/// 默认做轻度模糊，点击后再完全展开，避免在公共场合一眼暴露账号信息。
+/// 页面默认模糊账号标识，用户点击后显示完整值；公共场合查看设置时，账号标识保持模糊状态。
 private struct SettingsSensitiveValueRow: View {
     let title: String
     let value: String

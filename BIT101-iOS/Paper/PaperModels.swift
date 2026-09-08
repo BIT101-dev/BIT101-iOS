@@ -6,13 +6,12 @@
 //
 
 import Foundation
-import SwiftUI
 import UIKit
 
 /// 文章列表支持的排序方式。
 ///
-/// 后端原生支持“更新时间 / 点赞数 / 评论数”三种排序；
-/// 这里把 UI 标题和接口参数集中起来，避免视图层自己判断 query string。
+/// 后端原生支持“更新时间 / 点赞数 / 评论数”三种排序。
+/// 此处集中定义 UI 标题和接口参数，视图层直接读取统一值。
 enum PaperSortOrder: CaseIterable, Identifiable, Hashable {
     case newest
     case like
@@ -45,7 +44,7 @@ enum PaperSortOrder: CaseIterable, Identifiable, Hashable {
 
 /// 文章列表项。
 ///
-/// 文章列表只需要摘要信息，因此保持成轻量模型，避免为了列表页解完整正文。
+/// 文章列表按摘要字段解码，模型保持轻量。
 struct PaperSummary: Decodable, Identifiable, Hashable {
     let id: Int
     let title: String
@@ -57,8 +56,8 @@ struct PaperSummary: Decodable, Identifiable, Hashable {
 
 /// 文章列表预览所需的作者摘要。
 ///
-/// 文章列表接口本身不返回作者信息，因此列表页会按需补拉单篇文章详情，
-/// 再把真正需要显示的最小作者字段压缩进这一层，避免视图层直接依赖完整详情模型。
+/// 文章列表接口本身不返回作者信息。
+/// 列表页按需补拉单篇文章详情，并将显示所需的作者字段整理到这一层，视图层读取该摘要。
 struct PaperPreviewMetadata: Equatable, Hashable {
     let authorID: Int?
     let authorName: String
@@ -103,13 +102,13 @@ struct PaperDetail: Decodable, Identifiable, Hashable {
         )
     }
 
-    /// 把详情里的作者信息压缩成列表预览可直接使用的最小摘要。
+    /// 生成列表预览使用的作者摘要。
     var previewMetadata: PaperPreviewMetadata {
         PaperPreviewMetadata(
             authorID: anonymous ? nil : updateUser.id,
             authorName: anonymous ? "匿名者" : updateUser.nickname,
-            // 文章详情页会继续展示服务端返回的头像地址；列表预览这里也保持一致，
-            // 避免匿名文章在列表里被错误地强制回退成空头像。
+            // 文章详情页展示服务端返回的头像地址，列表预览沿用同一地址。
+            // 匿名文章也保留该地址，列表头像与详情保持一致。
             avatarURL: updateUser.avatar.preferredRemoteURL,
             anonymous: anonymous
         )
@@ -191,8 +190,8 @@ enum PaperCommentComposerTarget: Identifiable, Equatable {
 
 /// Editor.js 正文块。
 ///
-/// 网页端文章正文目前存的是 Editor.js JSON。
-/// iOS 端先覆盖最常见的块类型，未知块静默忽略，避免为了上线阅读能力引入 WebView。
+/// 网页端文章正文当前使用 Editor.js JSON。
+/// iOS 端覆盖最常见的块类型，未知块静默忽略，阅读页面使用本地渲染路径。
 enum PaperContentBlock: Identifiable {
     case header(id: String, text: AttributedString, level: Int)
     case paragraph(id: String, text: AttributedString)
@@ -224,16 +223,14 @@ struct PaperInlineImage: Identifiable, Hashable {
     }
 
     var preferredRemoteURL: URL? {
-        let raw = lowURL.isEmpty ? url : lowURL
-        guard !raw.isEmpty else { return nil }
-        return URL(string: raw)
+        makePreferredRemoteURL(lowURL: lowURL, originalURL: url)
     }
 }
 
 /// 文章编辑器正文序列化辅助。
 ///
-/// 当前 iOS 端先提供“纯文本编辑 -> 最小 Editor.js JSON”的本地转换，
-/// 这样网页端和 iOS 端都能按同一种正文格式读取，不需要为了发文章退回 WebView。
+/// 当前 iOS 端提供“纯文本编辑 -> 最小 Editor.js JSON”的本地转换。
+/// 网页端和 iOS 端使用同一种正文格式读取，文章发布沿用本地转换流程。
 enum PaperEditorContentBuilder {
     private struct Root: Encodable {
         let time: Int64
@@ -307,7 +304,7 @@ enum PaperContentRenderer {
     /// 把后端 HTML 片段转换成 SwiftUI 可展示的富文本。
     ///
     /// Editor.js 段落和列表项里会混入 `<a>`、`<b>`、`<i>`、`<br>` 等标记。
-    /// 这里交给系统 HTML 解析，让正文保持本地渲染而不是回退到 WebView。
+    /// 系统 HTML 解析将这些标记转换为 SwiftUI 可展示的富文本，正文沿用本地渲染路径。
     nonisolated static func attributedText(from html: String) -> AttributedString {
         let normalizedHTML = html
             .replacingOccurrences(of: "&nbsp;", with: " ")
@@ -390,10 +387,14 @@ enum PaperContentRenderer {
 }
 
 extension GalleryImage {
-    /// 文章模块里优先低清图、失败时回退原图。
+    /// 文章模块优先使用低清图地址，低清图地址为空时使用原图地址。
     nonisolated var preferredRemoteURL: URL? {
-        let raw = lowUrl.isEmpty ? url : lowUrl
-        guard !raw.isEmpty else { return nil }
-        return URL(string: raw)
+        makePreferredRemoteURL(lowURL: lowUrl, originalURL: url)
     }
+}
+
+private nonisolated func makePreferredRemoteURL(lowURL: String, originalURL: String) -> URL? {
+    let rawURL = lowURL.isEmpty ? originalURL : lowURL
+    guard !rawURL.isEmpty else { return nil }
+    return URL(string: rawURL)
 }

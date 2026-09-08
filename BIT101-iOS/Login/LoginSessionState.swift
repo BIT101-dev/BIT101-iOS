@@ -8,7 +8,7 @@ import Security
 
 /// 本地保存的登录凭据。
 ///
-/// 这里只保存“足以静默重登学校 SSO”的最小信息组合，不额外混入 fake-cookie 等会话态。
+/// 这里保存足以静默重登学校 SSO 的最小信息组合；fake-cookie 等会话态保持在结构外。
 struct StoredCredentials {
     let studentID: String
     let password: String
@@ -16,9 +16,8 @@ struct StoredCredentials {
 
 /// 教学中心 WebVPN 会话的进程内状态。
 ///
-/// 这里不再使用“成功一次后永久为 true”的静态布尔值，而是把状态绑定到具体学号，
-/// 并且每次使用前同时检查对应 Cookie 是否仍然存在。网络层发现会话失效时可以显式
-/// 调用 `invalidate`，下一次请求就会重新经过 bit-login。
+/// 状态绑定具体学号，每次使用前检查对应 Cookie。网络层发现会话失效时调用 `invalidate`，
+/// 下一次请求重新经过 bit-login。
 final class TeachingCenterSessionState {
     static let shared = TeachingCenterSessionState()
 
@@ -45,8 +44,8 @@ final class TeachingCenterSessionState {
             return false
         }
 
-        // App 重启后内存标记会消失，但系统 Cookie 仍可能有效。登录流程在切换账号前会
-        // 清掉学校 Cookie，因此这里可以把现存 Cookie 重新绑定到当前保存的学号。
+        // App 重启后系统 Cookie 仍可能有效。登录流程在切换账号前清除学校 Cookie，因此
+        // 这里可以把现存 Cookie 重新绑定到当前保存的学号。
         if authenticatedStudentID == nil {
             authenticatedStudentID = studentID
         }
@@ -89,23 +88,19 @@ final class TeachingCenterSessionState {
     func isPrepared(for studentID: String) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        let routeIsUsable =
-            (authenticatedStudentID == studentID && hasWebVPNCookie)
-            || isDirectPreferredLocked(for: studentID, now: Date())
-        return routeIsUsable && preparedStudentID == studentID
+        return hasUsableRouteLocked(for: studentID, now: Date())
+            && preparedStudentID == studentID
     }
 
     func markPrepared(for studentID: String) {
         lock.lock()
-        if (authenticatedStudentID == studentID && hasWebVPNCookie)
-            || isDirectPreferredLocked(for: studentID, now: Date())
-        {
+        defer { lock.unlock() }
+        if hasUsableRouteLocked(for: studentID, now: Date()) {
             preparedStudentID = studentID
         }
-        lock.unlock()
     }
 
-    /// 使内存状态失效，并按需只删除教学中心/WebVPN 域的 Cookie。
+    /// 使内存状态失效；传入 `true` 时删除教学中心/WebVPN 域的 Cookie。
     func invalidate(clearCookies: Bool = true) {
         lock.lock()
         authenticatedStudentID = nil
@@ -122,7 +117,7 @@ final class TeachingCenterSessionState {
         ])
     }
 
-    /// 退出、重新登录或切换账号时清理学校身份相关 Cookie，但不影响其他网站 Cookie。
+    /// 退出、重新登录或切换账号时清理学校身份相关 Cookie，其他网站 Cookie 保持不变。
     func clearSchoolAuthenticationCookies() {
         invalidate(clearCookies: false)
         deleteCookies(matching: [
@@ -147,6 +142,11 @@ final class TeachingCenterSessionState {
         directStudentID == studentID && (directPreferenceUntil ?? .distantPast) > now
     }
 
+    private func hasUsableRouteLocked(for studentID: String, now: Date) -> Bool {
+        (authenticatedStudentID == studentID && hasWebVPNCookie)
+            || isDirectPreferredLocked(for: studentID, now: now)
+    }
+
     private func deleteCookies(matching domains: Set<String>) {
         cookieStorage.cookies?.forEach { cookie in
             let domain = normalizedDomain(cookie.domain)
@@ -163,8 +163,8 @@ final class TeachingCenterSessionState {
 
 /// 从学校登录页里解析出来的必要上下文。
 ///
-/// 学校 CAS 登录页并不是一个稳定 JSON 接口，而是一段 HTML，所以这里先把后续登录真正
-/// 需要的字段提炼成一个小结构体，供业务层继续往下传。
+/// 学校 CAS 登录页返回 HTML，不提供稳定 JSON 接口。本结构提取后续登录所需字段，
+/// 供业务层继续传递。
 struct SchoolLoginContext {
     let salt: String?
     let execution: String?

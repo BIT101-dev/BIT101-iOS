@@ -10,8 +10,7 @@ import Foundation
 
 /// 地图页支持的校区预设。
 ///
-/// 校园地图当前不是自由搜索式地图，而是围绕几个固定校区跳转，
-/// 所以把中心点和默认半径都内置在预设里。
+/// 校园地图围绕几个固定校区跳转，预设保存中心点和默认半径。
 enum CampusPreset: String, CaseIterable, Identifiable {
     case liangxiang
     case zhongguancun
@@ -29,7 +28,7 @@ enum CampusPreset: String, CaseIterable, Identifiable {
         }
     }
 
-    /// VoiceOver 和其它需要完整语义的界面使用的校区名。
+    /// 为 VoiceOver 和其他需要完整语义的界面提供校区名。
     var displayName: String {
         switch self {
         case .liangxiang:
@@ -43,7 +42,7 @@ enum CampusPreset: String, CaseIterable, Identifiable {
     var coordinate: CLLocationCoordinate2D {
         switch self {
         case .liangxiang:
-            // 预先校准到当前系统地图坐标系，避免每次进入地图都再做转换。
+            // 坐标预先校准到当前系统地图坐标系，地图进入时直接使用。
             return CLLocationCoordinate2D(latitude: 39.73027614839699, longitude: 116.17276949062236)
         case .zhongguancun:
             return CLLocationCoordinate2D(latitude: 39.95966806175981, longitude: 116.31597988552478)
@@ -61,10 +60,10 @@ enum CampusPreset: String, CaseIterable, Identifiable {
     }
 }
 
-/// 课程地点匹配和“下一节课”地图标记使用的校园地点。
+/// 用于课程地点匹配和“下一节课”地图标记的校园地点。
 ///
-/// 显示名可在不同校区重复（如“体育馆”）；匹配时会同时检查校区，
-/// 因此不会把同名建筑导航到另一个校区。
+/// 同一显示名可出现在不同校区（如“体育馆”）；匹配同时检查校区，
+/// 同名建筑保持各自校区的导航归属。
 struct CampusMapPlace: Equatable, Identifiable {
     let campus: CampusPreset
     let name: String
@@ -82,7 +81,7 @@ struct CampusMapPlace: Equatable, Identifiable {
 
 /// 从课程详情页临时带到地图页的上课地点请求。
 ///
-/// 只存在于当前进程内，不写入设置或课表缓存；应用冷启动后自然清空。
+/// 请求生命周期限定在当前进程，设置和课表缓存保持独立；应用冷启动后请求自然清空。
 struct CampusMapLocationRequest: Equatable, Identifiable {
     let id = UUID()
     let courseName: String
@@ -140,10 +139,10 @@ enum CampusMapPlaceCatalog {
         CampusMapPlace(campus: .liangxiang, name: "综教B", latitude: 39.733184, longitude: 116.171878),
     ]
 
-    /// 把教务课表中的“教室号”归并到建筑级地图地点。
+    /// 将教务课表中的“教室号”归并到建筑级地图地点。
     ///
-    /// 课表会返回 `文萃楼I203`、`3号楼314` 这类带门牌号文本；地图只保存
-    /// 建筑坐标。匹配时同时使用校区，允许两个校区都显示“体育馆”而不串址。
+    /// 课表返回 `文萃楼I203`、`3号楼314` 这类带门牌号文本；地图地点以建筑坐标表示。
+    /// 匹配同时使用校区，两个校区的“体育馆”保持各自的地点归属。
     static func place(campusName: String, classroom: String) -> CampusMapPlace? {
         let normalizedClassroom = classroom
             .replacingOccurrences(of: " ", with: "")
@@ -225,7 +224,7 @@ enum CampusMapPlaceCatalog {
         return nil
     }
 
-    /// 避免把 `11号楼` 误识别成 `1号楼`。
+    /// 按完整楼号匹配，区分 `11号楼` 和 `1号楼`。
     private static func containsNumberedBuilding(_ number: Int, in classroom: String) -> Bool {
         classroom.range(
             of: #"(?:^|[^0-9])\#(number)号(?:教学)?楼"#,

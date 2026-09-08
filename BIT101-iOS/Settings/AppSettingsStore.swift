@@ -18,8 +18,8 @@ extension Notification.Name {
 
 /// 应用层主题模式。
 ///
-/// 这里是持久化层使用的主题枚举，而不是直接暴露 SwiftUI 的 `ColorScheme`，
-/// 这样可以安全存储到 `UserDefaults`，也能保留“跟随系统”这一语义。
+/// 持久化层使用这个主题枚举；`colorScheme` 提供 SwiftUI 的 `ColorScheme` 映射。
+/// 枚举使用 `String` 原始值和 `Codable`，可安全存入 `UserDefaults`，`system` 保留“跟随系统”语义。
 enum AppThemeMode: String, CaseIterable, Identifiable, Codable {
     case system
     case light
@@ -49,13 +49,13 @@ enum AppThemeMode: String, CaseIterable, Identifiable, Codable {
 
 /// 持久化到 `UserDefaults` 的设置快照。
 ///
-/// 这是整个 app 的“设置真相来源”。UI 层只改这里，真正的读写、账号隔离和默认值全由这份快照承接。
+/// 设置快照统一承接 UI 层的修改、读写、账号隔离和默认值。
 struct AppSettingsSnapshot: Codable, Equatable {
     /// 用户主动指定的主题模式。
     var themeMode: AppThemeMode = .system
     /// 是否允许界面自动旋转。
     var autoRotate = false
-    /// 是否隐藏机器人帖子（机器人分栏除外）。
+    /// 普通帖子页面按开关隐藏机器人帖子，机器人分栏保持显示。
     var galleryHideBotPosterInSearch = false
     /// 是否已经看过“导入分享课表”的使用提示。
     var hasSeenSharedScheduleImportGuide = false
@@ -74,7 +74,7 @@ struct AppSettingsSnapshot: Codable, Equatable {
     }
 }
 
-/// 只同步真正属于用户偏好的字段；首次打开时间和一次性提示仍保留在本机。
+/// 同步载荷包含用户偏好字段；首次打开时间和一次性提示状态保留在本机。
 struct AppSettingsSyncPayload: Codable, Equatable {
     var themeMode: AppThemeMode
     var autoRotate: Bool
@@ -88,18 +88,18 @@ struct AppSettingsSyncPayload: Codable, Equatable {
 }
 
 @MainActor
-/// 全局设置仓库。
+/// 应用设置仓库。
 ///
 /// 主题和账号偏好都会统一写入这里，再由具体页面按需读取。
 final class AppSettingsStore: ObservableObject {
     static let shared = AppSettingsStore()
     /// 各账号设置快照在 `UserDefaults` 中使用的 key 前缀。
     nonisolated static let storageKeyPrefix = "app.settings.snapshot"
-    /// 当前安装版本的更新内容公告；每个版本只展示一次。
+    /// 当前安装版本的更新内容版本号；每个版本展示一次。
     nonisolated static let currentStartupNoticeVersion = "1.8.0"
-    /// 更新内容公告已读状态使用全局 key，避免切换账号后重复展示。
+    /// 更新内容公告已读状态保存在全局 key，账号切换后继续复用该状态。
     nonisolated static let startupNoticeSeenKey = "app.startup.notice.seen.version"
-    /// “鸣谢 LINUX DO”提示会在首周内按账号均匀散开弹出，避免集中到固定某一天。
+    /// “鸣谢 LINUX DO”提示按账号映射到首周内的延迟天数，分散弹出时间。
     nonisolated static let linuxDoThanksNoticeSpreadDays = 7
     private static let encoder = JSONEncoder()
     private static let decoder = JSONDecoder()
@@ -130,7 +130,7 @@ final class AppSettingsStore: ObservableObject {
         }
     }
 
-    /// 以下计算属性用于给视图层提供只读入口，避免页面直接改写 snapshot。
+    /// 以下计算属性为视图层提供读取入口；设置方法集中处理 snapshot 写入。
     var themeMode: AppThemeMode { snapshot.themeMode }
     var autoRotate: Bool { snapshot.autoRotate }
     var galleryHideBotPosterInSearch: Bool { snapshot.galleryHideBotPosterInSearch }
@@ -196,7 +196,7 @@ final class AppSettingsStore: ObservableObject {
         save(syncPreferences: true)
     }
 
-    /// 应用来自 iCloud 的用户偏好，同时保留当前设备的一次性提示与规则确认状态。
+    /// 应用来自 iCloud 的用户偏好，并保留当前设备的一次性提示状态。
     func applySyncedPreferences(_ payload: AppSettingsSyncPayload) {
         snapshot.themeMode = payload.themeMode
         snapshot.autoRotate = payload.autoRotate
@@ -207,7 +207,8 @@ final class AppSettingsStore: ObservableObject {
 
     /// 从 `UserDefaults` 加载设置快照。
     ///
-    /// 账号切换通知会重新触发这里，因此这里不做任何副作用操作，只负责恢复快照。
+    /// 账号切换通知会重新触发这里。缺少快照或 `firstOpenDate` 时，这里补齐默认值并保存快照；
+    /// 已有快照直接恢复。
     private func load() {
         guard let snapshot = Self.loadSnapshotFromDefaults() else {
             self.snapshot = AppSettingsSnapshot()
@@ -224,7 +225,7 @@ final class AppSettingsStore: ObservableObject {
 
     /// 把当前快照写回 `UserDefaults`。
     ///
-    /// 所有设置入口最终都汇总到这里落盘，保证同一账号只维护一份快照。
+    /// 设置快照编码后通过这里写回 `UserDefaults`；当前账号使用 `currentStorageKey`。
     private func save(syncPreferences: Bool = false) {
         if let data = try? Self.encoder.encode(snapshot) {
             defaults.set(data, forKey: currentStorageKey)
@@ -234,7 +235,7 @@ final class AppSettingsStore: ObservableObject {
         }
     }
 
-    /// 提供给非主线程读取的只读快照加载入口。
+    /// 提供设置快照的静态读取入口。
     static func loadSnapshotFromDefaults() -> AppSettingsSnapshot? {
         loadSnapshotFromDefaults(for: currentAccountIdentifier())
     }
@@ -259,7 +260,7 @@ final class AppSettingsStore: ObservableObject {
         "\(storageKeyPrefix).\(accountID)"
     }
 
-    /// 读取当前账号标识；未登录时统一回退到默认分区。
+    /// 读取当前账号标识；学号为空时使用默认分区。
     private static func currentAccountIdentifier() -> String {
         let raw = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
         return raw.isEmpty ? "__default__" : raw
@@ -267,7 +268,7 @@ final class AppSettingsStore: ObservableObject {
 
     /// 按账号稳定地映射到首周内的某一天。
     ///
-    /// 这样第一次打开当天也可能弹出，同时整体分布比固定“第 7 天”更均匀。
+    /// 哈希结果让首次打开当天有机会弹出，并把提示时间分散到 7 天。
     private static func linuxDoThanksNoticeDelayDays(for accountID: String) -> Int {
         guard linuxDoThanksNoticeSpreadDays > 0 else { return 0 }
 
@@ -278,5 +279,4 @@ final class AppSettingsStore: ObservableObject {
         }
         return Int(hash % UInt64(linuxDoThanksNoticeSpreadDays))
     }
-
 }

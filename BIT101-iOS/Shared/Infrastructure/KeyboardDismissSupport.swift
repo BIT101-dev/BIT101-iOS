@@ -13,7 +13,7 @@ private enum AppKeyboard {
     }
 }
 
-/// 给整个 App 统一补齐键盘完成按钮和点击空白处收起。
+/// 修饰器为视图安装键盘完成按钮，并为窗口安装键盘收起手势。
 private struct KeyboardDismissSupportModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
@@ -27,7 +27,7 @@ extension View {
     }
 }
 
-/// 在主窗口统一安装键盘附件和不拦截页面操作的空白点击手势。
+/// 安装器为当前窗口安装键盘附件和保留页面操作的键盘收起手势。
 struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 

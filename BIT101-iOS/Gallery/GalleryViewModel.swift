@@ -10,7 +10,7 @@ import Foundation
 
 /// 文件内统一使用的取消错误判断。
 ///
-/// 话廊模块大量使用 Swift Concurrency 和 URLSession；二者的取消错误类型并不完全一致，
+/// 话廊模块大量使用 Swift Concurrency 和 URLSession；二者的取消错误类型存在差异，
 /// 因此在文件级收敛成一个 helper，避免每个调用点重复写同样的判断。
 private func isGalleryCancellation(_ error: Error) -> Bool {
     TaskCancellation.matches(error)
@@ -64,7 +64,7 @@ final class GalleryViewModel: ObservableObject {
 
     /// 从第一页重新拉取指定 feed。
     ///
-    /// 取消错误会恢复旧快照，避免 tab 快速切换时把 UI 误判成失败。
+    /// 取消错误会恢复旧快照，保持 tab 快速切换时的当前 UI 状态。
     func refresh(feed: GalleryFeedKind) async {
         let previousState = state(for: feed)
         if previousState.status == .loading {
@@ -91,7 +91,7 @@ final class GalleryViewModel: ObservableObject {
                 }
             } else {
                 if feed == .recommend {
-                    // 推荐流首屏只拉一个源页，先尽快展示；更多源页交给后台预取。
+                    // 推荐流首屏拉取一个源页，先展示结果；更多源页交给后台预取。
                     let batch = try await service.fetchRecommendPage(sourcePage: 0)
                     let uniquePosters = await deduplicateInBackground(batch.posters)
                     setState(for: feed) {
@@ -117,7 +117,7 @@ final class GalleryViewModel: ObservableObject {
         } catch {
             if isGalleryCancellation(error) {
                 // 列表复用、tab 切换或手动重刷时，SwiftUI/URLSession 都可能主动取消旧任务。
-                // 这种情况不是用户可感知的失败，不应该弹错误框。
+                // 取消状态保持原列表，界面维持当前状态。
                 setState(for: feed) {
                     $0.posters = previousState.posters
                     $0.status = previousState.posters.isEmpty ? .idle : .loaded
@@ -138,8 +138,7 @@ final class GalleryViewModel: ObservableObject {
 
     /// 推荐流在接近尾部时提前预取，但真正 append 仍然等到最后一条出现。
     ///
-    /// 这样做的目的是把网络等待藏到用户还没滚到底的时候，同时避免“提前 append 新内容”
-    /// 破坏当前位置和滚动条比例。
+    /// 后台预取把网络等待放到用户接近尾部之前；延迟追加保持当前位置和滚动条比例。
     func prefetchIfNeeded(for feed: GalleryFeedKind, currentPoster: GalleryPoster?) async {
         guard feed == .recommend else { return }
         guard let currentPoster else { return }
@@ -189,7 +188,7 @@ final class GalleryViewModel: ObservableObject {
                 var canLoadMore = state.canLoadMore
                 var attempt = 0
 
-                // 推荐流允许在一次分页里向后多试几页，直到真正拿到能展示的新帖子。
+                // 推荐流允许在一次分页里继续请求后续页面，直到得到可展示的新帖子。
                 while attempt < 3, canLoadMore, mergedPosters.count == state.posters.count {
                     let batch: GalleryPrefetchedPage
                     batch = try await recommendPrefetch.takePage(for: nextPage)
@@ -257,7 +256,7 @@ final class GalleryViewModel: ObservableObject {
 
     /// 搜索结果页的分页加载。
     ///
-    /// 搜索结果不做预取，保持实现简单并避免无关键词时产生多余请求。
+    /// 搜索结果按需加载；无关键词时保持预取请求链路空闲。
     func loadMoreSearchResultsIfNeeded(currentPoster: GalleryPoster?) async {
         guard let currentPoster else { return }
 
@@ -297,9 +296,9 @@ final class GalleryViewModel: ObservableObject {
         await performSearch()
     }
 
-    /// 统一回写单个 feed 的可变状态，避免多个调用点直接操作字典。
+    /// 集中处理单个 feed 状态的读取、修改和回写。
     ///
-    /// `GalleryFeedState` 是值类型，如果散落在多个地方直接改字典，很容易漏掉回写。
+    /// `GalleryFeedState` 是值类型，状态修改需要显式回写字典。
     private func setState(for feed: GalleryFeedKind, mutate: (inout GalleryFeedState) -> Void) {
         var state = feedStates[feed] ?? GalleryFeedState()
         mutate(&state)
@@ -308,7 +307,7 @@ final class GalleryViewModel: ObservableObject {
 
     /// 推荐流可能出现重复帖子，这里按帖子 ID 去重后再拼接。
     ///
-    /// 去重和拼接放到后台队列执行，是为了避免大数组操作阻塞主线程滚动。
+    /// 去重和拼接放到后台队列执行，让大数组操作离开主线程滚动流程。
     private func mergeUniqueInBackground(existing: [GalleryPoster], incoming: [GalleryPoster]) async -> [GalleryPoster] {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
@@ -317,7 +316,7 @@ final class GalleryViewModel: ObservableObject {
         }
     }
 
-    /// 首屏列表也走同一套去重逻辑，但放到后台队列执行，避免刷新时卡主滚动。
+    /// 首屏列表也走同一套去重逻辑，并放到后台队列执行，保持刷新时的滚动响应。
     private func deduplicateInBackground(_ posters: [GalleryPoster]) async -> [GalleryPoster] {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
@@ -346,7 +345,7 @@ final class GalleryViewModel: ObservableObject {
 
 /// 本地保存的消息已读快照。
 ///
-/// 服务端只有分类未读数，没有逐条已读状态，这里按账号做一层“伪新消息”持久化。
+/// 服务端提供分类未读数，客户端按账号保存逐条消息的“伪新消息”状态。
 struct GalleryMessageReadSnapshot: Codable, Equatable {
     var latestIDsByType: [String: [Int]] = [:]
     var seenIDsByType: [String: [Int]] = [:]
@@ -354,7 +353,7 @@ struct GalleryMessageReadSnapshot: Codable, Equatable {
 
 /// 本地消息已读仓库。
 ///
-/// 只记录“当前分类最新一批消息”和“已被用户手动标记已读的消息”，不申请系统通知。
+    /// 记录“当前分类最新一批消息”和“已被用户手动标记已读的消息”；系统通知申请保持独立。
 final class GalleryMessageReadStore {
     static let shared = GalleryMessageReadStore()
 
@@ -398,7 +397,7 @@ final class GalleryMessageReadStore {
 
     /// 用服务端给出的未读数量，重建当前分类的“候选新消息”集合。
     ///
-    /// 当服务端未读数为 0 时，不主动覆盖本地结果，避免用户刚打开列表时就把视觉上的新消息全抹掉。
+    /// 当服务端未读数为 0 时保留本地结果，让用户打开列表后继续看到当前的新消息样式。
     func replaceLatestIDs(_ ids: [Int], unreadCount: Int, for type: GalleryMessageType) {
         guard unreadCount > 0 else { return }
 
@@ -479,7 +478,7 @@ final class GalleryMessageViewModel: ObservableObject {
     private let readStore: GalleryMessageReadStore
     private var readStateObserver: NSObjectProtocol?
 
-    /// 允许注入服务和已读仓库，方便后续测试。
+    /// 集中初始化服务和已读仓库，供构造器复用。
     private init(service: any GalleryMessageServicing, readStore: GalleryMessageReadStore) {
         self.service = service
         self.readStore = readStore
@@ -538,7 +537,7 @@ final class GalleryMessageViewModel: ObservableObject {
 
     /// 单独刷新消息按钮上的未读红点。
     ///
-    /// 未读摘要失败不弹错误，因为它只是悬浮按钮角标，不应该打断主流程。
+    /// 未读摘要用于悬浮按钮角标；请求失败时保持当前状态，错误提示继续留空。
     func refreshUnreadCounts() async {
         do {
             unreadCounts = try await service.fetchMessageUnreadCounts()
@@ -554,7 +553,7 @@ final class GalleryMessageViewModel: ObservableObject {
 
     /// 从第一页重新拉取指定消息分类。
     ///
-    /// 首次分页会顺手清空该分类未读数，所以这里在成功后同步刷新摘要。
+    /// 首次分页会清空该分类未读数，成功后同步刷新摘要。
     func refresh(type: GalleryMessageType) async {
         let previousState = state(for: type)
         if previousState.status == .loading {
@@ -615,7 +614,7 @@ final class GalleryMessageViewModel: ObservableObject {
 
     /// 将当前分类里已加载到页面上的消息全部标记为已读。
     ///
-    /// 这是一个纯本地动作，不额外请求服务端；服务端真正的分类未读清零发生在首次拉列表时。
+    /// 操作写入本地；服务端分类未读数在首次拉列表时清零。
     func markCurrentTypeAsRead() {
         let ids = state(for: selectedType).items.map(\.id)
         guard !ids.isEmpty else { return }
@@ -631,7 +630,7 @@ final class GalleryMessageViewModel: ObservableObject {
 
     /// 当滚动到尾部附近时触发分页加载。
     ///
-    /// 消息列表分页继续沿用 `last_id` 语义；新页直接追加到末尾，不做额外预取。
+    /// 消息列表分页继续沿用 `last_id` 语义；新页追加到末尾，消息分页按需加载。
     func loadMoreIfNeeded(for type: GalleryMessageType, currentMessage: GalleryMessage?) async {
         guard let currentMessage else { return }
         let state = state(for: type)

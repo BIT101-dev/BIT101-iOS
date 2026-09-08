@@ -1,10 +1,3 @@
-//
-//  CourseDetailViewModel.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-04-02.
-//
-
 import Combine
 import Foundation
 
@@ -78,7 +71,6 @@ enum CourseCommentComposerTarget: Identifiable, Equatable {
 }
 
 @MainActor
-/// 课程详情状态机。
 final class CourseDetailViewModel: ObservableObject {
     @Published private(set) var course: CourseDetail?
     @Published private(set) var status: CourseDetailLoadStatus = .idle

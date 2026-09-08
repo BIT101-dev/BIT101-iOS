@@ -85,9 +85,9 @@ struct PaperCommentsSection: View {
     }
 }
 
-/// 文章模块的轻量网络可达性观察器。
+/// 文章模块使用的网络可达性观察器。
 ///
-/// 这里只服务“失败后自动再试”的体验兜底，不承担全局联网状态管理。
+/// 用于文章模块失败后的自动重试，网络可达性状态限定在文章模块。
 @MainActor
 final class PaperNetworkObserver: ObservableObject {
     @Published private(set) var isReachable = true

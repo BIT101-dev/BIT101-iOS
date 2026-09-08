@@ -134,7 +134,7 @@ actor GalleryImageCache {
 
     /// 当前话廊图片缓存实际占用的磁盘空间。
     ///
-    /// 只统计统一图片缓存目录，不把 URLCache 或其他模块的缓存混入设置页数值。
+    /// 统计统一图片缓存目录；URLCache 与其他模块的缓存维持独立。
     func usedBytes() -> Int64 {
         guard let children = try? fileManager.contentsOfDirectory(
             at: directory,

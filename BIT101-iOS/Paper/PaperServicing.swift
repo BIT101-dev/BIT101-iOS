@@ -1,5 +1,3 @@
-import Foundation
-
 protocol PaperListServicing {
     func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary]
     func fetchPaper(id: Int) async throws -> PaperDetail

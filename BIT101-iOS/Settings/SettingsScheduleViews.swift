@@ -2,8 +2,6 @@
 //  SettingsScheduleViews.swift
 //  BIT101-iOS
 //
-//  Split from SettingsRootView.swift.
-//
 
 import SwiftUI
 import UIKit
@@ -17,9 +15,8 @@ struct CalendarSettingsPage: View {
         let code: String
     }
 
-    private struct ScheduleImportDraft: Identifiable {
+    private struct ImportSheetPresentation: Identifiable {
         let id = UUID()
-        var text = ""
     }
 
     private struct RenamingScheduleTarget: Identifiable {
@@ -49,7 +46,7 @@ struct CalendarSettingsPage: View {
     @State private var isUpdatingSystemCalendar = false
     @State private var shouldOpenImportSheetAfterGuide = false
     @State private var exportedScheduleCode: ExportedScheduleCode?
-    @State private var importDraft: ScheduleImportDraft?
+    @State private var importSheetPresentation: ImportSheetPresentation?
     @State private var renamingScheduleTarget: RenamingScheduleTarget?
 
     private var normalizedLeadMinutes: Int {
@@ -161,12 +158,8 @@ struct CalendarSettingsPage: View {
             }
             .onDelete { offsets in
                 let schedules = viewModel.cache.sharedSchedules
-                var ids: [String] = []
-                for index in offsets where schedules.indices.contains(index) {
-                    ids.append(schedules[index].id)
-                }
-                for id in ids {
-                        viewModel.deleteSharedSchedule(id: id)
+                for index in offsets {
+                    viewModel.deleteSharedSchedule(id: schedules[index].id)
                 }
             }
         }
@@ -293,9 +286,9 @@ struct CalendarSettingsPage: View {
         .sheet(item: $exportedScheduleCode) { payload in
             ScheduleExportCodeSheet(code: payload.code)
         }
-        .sheet(item: $importDraft) { draft in
+        .sheet(item: $importSheetPresentation) { _ in
             ScheduleImportCodeSheet(
-                initialText: draft.text,
+                initialText: "",
                 onImport: { text in
                     try importScheduleCode(text)
                 }
@@ -335,13 +328,13 @@ struct CalendarSettingsPage: View {
                 }
             )
         }
-        .alert("你尚未获取课表", isPresented: $isShowingEmptyScheduleExportConfirmation) {
+        .alert("当前课表为空", isPresented: $isShowingEmptyScheduleExportConfirmation) {
             Button("取消", role: .cancel) {}
             Button("确定") {
                 exportScheduleCode(allowEmptyCourseData: true)
             }
         } message: {
-            Text("你尚未获取课表，仍要分享？")
+            Text("当前课表为空，仍要分享？")
         }
         .alert("实验性功能提醒", isPresented: $isShowingLiveActivityExperimentalWarning) {
             Button("取消", role: .cancel) {}
@@ -349,7 +342,7 @@ struct CalendarSettingsPage: View {
                 viewModel.setShowCourseLiveActivityReminder(true)
             }
         } message: {
-            Text("开发者和 AI 尚未完全摸清楚灵动岛的运作机理和唤醒条件。虽然做了多重兜底，但仍不能保证每节课都能按时通知。继续打开视为已知悉此风险。")
+            Text("灵动岛提醒使用多重保护逻辑，并遵循系统唤醒条件；部分课程提醒可能延后或缺失。继续打开表示你已了解这项限制。")
         }
         .alert("导入当前学期到系统日历？", isPresented: $isShowingSystemCalendarImportConfirmation) {
             Button("导入并替换本学期旧事件") {
@@ -357,7 +350,7 @@ struct CalendarSettingsPage: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("将创建“BIT101 课表”日历；重复导入时只替换 BIT101 创建的本学期事件。")
+            Text("导入会创建“BIT101 课表”日历；重复导入会替换本学期中带 BIT101 标记的事件。")
         }
         .alert("删除 BIT101 导入的日历事件？", isPresented: $isShowingSystemCalendarDeleteConfirmation) {
             Button("删除", role: .destructive) {
@@ -365,13 +358,13 @@ struct CalendarSettingsPage: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("只删除带 BIT101 标记的事件，不会删除你自己创建的日程。")
+            Text("删除操作会移除带 BIT101 标记的事件，保留你自己创建的日程。")
         }
         .alert("导入分享课表提示", isPresented: $isShowingSharedScheduleImportGuide) {
             Button("知道了") {
                 appSettings.markSharedScheduleImportGuideSeen()
                 if shouldOpenImportSheetAfterGuide {
-                    importDraft = ScheduleImportDraft()
+                    importSheetPresentation = ImportSheetPresentation()
                 }
                 shouldOpenImportSheetAfterGuide = false
             }
@@ -379,7 +372,7 @@ struct CalendarSettingsPage: View {
                 shouldOpenImportSheetAfterGuide = false
             }
         } message: {
-            Text("课表可以单击以改名，左滑以删除，在日程界面上下滑可循环切换，所有小组件以自己的课表作为数据源。")
+            Text("单击课表名称可改名，左滑可删除；在日程界面上下滑可循环切换课表；每个小组件使用自己的课表作为数据源。")
         }
     }
 
@@ -435,43 +428,38 @@ struct CalendarSettingsPage: View {
         }
     }
 
-    /// 首次导入前先展示一次使用提示；只有真正看过这条提示后，设置页才会出现“重新观看提示”入口。
+    /// 导入前展示一次使用提示；用户确认后，设置页显示“重新观看提示”入口。
     private func presentImportGuideIfNeeded(openImportAfterGuide: Bool, forceShow: Bool = false) {
         shouldOpenImportSheetAfterGuide = openImportAfterGuide
 
         if forceShow || !appSettings.hasSeenSharedScheduleImportGuide {
             isShowingSharedScheduleImportGuide = true
         } else if openImportAfterGuide {
-            importDraft = ScheduleImportDraft()
+            importSheetPresentation = ImportSheetPresentation()
         }
     }
 
     /// 解析并导入一份压缩编码的课表。
     ///
     /// 当前支持两套格式：
-    /// - `BIT101SCH2:<base64(lzfse(json(compactPayload))))>`：V2 精简数组载荷
-    /// - `BIT101SCH3:<base64(lzfse(json(compactPayload))))>`：V3 精简数组载荷，额外包含学分
+    /// - `BIT101SCH2:<base64(lzfse(json(compactPayload)))>`：V2 精简数组载荷
+    /// - `BIT101SCH3:<base64(lzfse(json(compactPayload)))>`：V3 精简数组载荷，额外包含学分
     ///
-    /// UI 保持不变，只在导入端根据版本前缀切换解析器。
+    /// 导入端根据版本前缀选择解析器，UI 使用同一导入窗口。
     private func importScheduleCode(_ text: String) throws {
         let payload = try ScheduleShareCodeCodec.decode(text, using: viewModel.cache)
         try viewModel.importSharedSchedule(payload)
-        viewModel.notice = ScheduleNotice(title: "导入成功", message: "分享的课表已导入。考试、DDL 与自定义日程不会随导入覆盖。")
+        viewModel.notice = ScheduleNotice(title: "导入成功", message: "分享课表已导入。考试、DDL 与自定义日程保持当前内容。")
     }
-
 }
 
 /// 课表学期选择页。
 ///
-/// 这里只展示学校接口实际返回的学期，不在本地追加、推算或生成任何选项。
-/// 学期选择先独立落盘；课表、考试和首周的同步失败只提示错误，不回滚学期选择。
+/// 学期选项完全来自学校接口返回值。
+/// 学期选择先独立保存；课表、考试和首周同步失败时显示错误，保留已选学期。
 private struct ScheduleTermPickerPage: View {
     @ObservedObject var viewModel: ScheduleViewModel
     @State private var selectionFeedbackToken = 0
-
-    private var displayedTerms: [String] {
-        viewModel.availableTerms
-    }
 
     var body: some View {
         List {
@@ -483,7 +471,7 @@ private struct ScheduleTermPickerPage: View {
                         Spacer()
                     }
                 } else {
-                    ForEach(displayedTerms, id: \.self) { term in
+                    ForEach(viewModel.availableTerms, id: \.self) { term in
                         Button {
                             selectionFeedbackToken &+= 1
                             Task { await viewModel.syncCourses(term: term) }
@@ -505,7 +493,6 @@ private struct ScheduleTermPickerPage: View {
                     }
                 }
             }
-
         }
         .appGroupedListStyle()
         .appSelectionFeedback(trigger: selectionFeedbackToken)
@@ -518,10 +505,9 @@ private struct ScheduleTermPickerPage: View {
             await viewModel.loadAvailableTerms()
         }
     }
-
 }
 
-/// 手动覆盖当前学期第一周日期的兜底页面。
+/// 手动覆盖当前学期第一周日期的页面。
 private struct ScheduleFirstDayEditorPage: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var date: Date
@@ -572,11 +558,11 @@ private struct CourseLiveActivityLeadMinutesPickerPage: View {
                 Text("\(minute) 分钟")
                     .tag(minute)
             }
-                }
-                .pickerStyle(.wheel)
-                .labelsHidden()
-                .appSelectionFeedback(trigger: value)
-                .navigationTitle("提前显示阈值")
+        }
+        .pickerStyle(.wheel)
+        .labelsHidden()
+        .appSelectionFeedback(trigger: value)
+        .navigationTitle("提前显示阈值")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
@@ -590,13 +576,12 @@ private struct CourseLiveActivityLeadMinutesPickerPage: View {
                 }
             }
         }
-        .presentationDetents([.height(260)])
     }
 }
 
 /// 导出的课表压缩编码预览页。
 ///
-/// 这里先让用户看见完整编码，再决定是否复制，方便后续用在聊天、iMessage 或手动导入场景。
+/// 文本区域显示完整编码，用户可复制、分享或手动导入。
 struct ScheduleExportCodeSheet: View {
     let code: String
 
@@ -648,11 +633,10 @@ struct ScheduleExportCodeSheet: View {
 
 /// 导入课表压缩编码窗口。
 ///
-/// 这里支持两种动作：
+/// 导入窗口提供两种入口：
 /// - 手动粘贴/编辑编码
-/// - 一键从剪贴板读取
+/// - 从剪贴板读取编码
 struct ScheduleImportCodeSheet: View {
-    let initialText: String
     let onImport: (String) throws -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -662,7 +646,6 @@ struct ScheduleImportCodeSheet: View {
     @State private var unsupportedFormatVersion: Int?
 
     init(initialText: String, onImport: @escaping (String) throws -> Void) {
-        self.initialText = initialText
         self.onImport = onImport
         _text = State(initialValue: initialText)
     }
@@ -739,10 +722,9 @@ struct ScheduleImportCodeSheet: View {
 
 /// 课表重命名窗口。
 ///
-/// 主课表和分享课表都共用这一套简单编辑器。
+/// 主课表和分享课表共用这个重命名编辑器。
 private struct ScheduleRenameSheet: View {
     let title: String
-    let initialName: String
     let onSubmit: (String) throws -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -751,7 +733,6 @@ private struct ScheduleRenameSheet: View {
 
     init(title: String, initialName: String, onSubmit: @escaping (String) throws -> Void) {
         self.title = title
-        self.initialName = initialName
         self.onSubmit = onSubmit
         _text = State(initialValue: initialName)
     }
@@ -786,7 +767,3 @@ private struct ScheduleRenameSheet: View {
         }
     }
 }
-
-/// DDL 设置页。
-///
-/// 这页只负责 DDL 同步和显示窗口配置，不再混入新增/编辑入口。

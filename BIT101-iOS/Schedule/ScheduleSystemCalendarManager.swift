@@ -1,7 +1,7 @@
 import EventKit
 import Foundation
 
-/// 写入系统日历前的纯数据模型，便于在不访问 EventKit 的情况下验证日期计算。
+/// 保存写入系统日历前的数据，支持独立于 EventKit 的日期计算验证。
 nonisolated struct ScheduleSystemCalendarEventDraft: Equatable {
     let markerID: String
     let title: String
@@ -121,8 +121,8 @@ enum ScheduleSystemCalendarError: LocalizedError {
 
 /// 系统日历导入、更新与删除协调器。
 ///
-/// 每条事件同时保存 EventKit identifier 和 `bit101://calendar-course/...` URL 标记：
-/// identifier 用于快速删除；URL 标记用于日历同步导致 identifier 变化后的兜底识别。
+/// 每条事件保存 EventKit identifier 和 `bit101://calendar-course/...` URL 标记。
+/// identifier 用于快速删除；URL 标记用于日历同步改变 identifier 后识别事件。
 @MainActor
 final class ScheduleSystemCalendarManager {
     static let shared = ScheduleSystemCalendarManager()
@@ -221,7 +221,7 @@ final class ScheduleSystemCalendarManager {
             }
         }
 
-        // 本地标识被清理后，仍可在专用日历中根据机器 URL 找回 BIT101 事件。
+        // 本地批次记录缺失时，专用日历中的事件 URL 仍可用于识别 BIT101 事件。
         if let calendar = existingBIT101Calendar() {
             let lowerBound = ScheduleSharedDateCodec.calendar.date(
                 byAdding: .year,
@@ -331,7 +331,7 @@ final class ScheduleSystemCalendarManager {
             }
         }
 
-        // 即使本地 batch 元数据丢失，仍可通过事件 URL 中的机器标记识别并替换。
+        // 事件 URL 中的机器标记用于在本地 batch 元数据缺失时识别并替换事件。
         for event in taggedEvents(
             calendars: [calendar],
             startDate: startDate,

@@ -4,8 +4,8 @@ import UIKit
 
 /// GIF 原图的后台帧解码器。
 ///
-/// 首页仍然自动播放动图，但下载后的逐帧 ImageIO 解码不再发生在 MainActor。串行 actor
-/// 也避免快速滑过多个 GIF 时同时创建大量帧，最近解码结果则由有上限的内存缓存复用。
+/// 首页继续自动播放动图，下载后的逐帧 ImageIO 解码在独立 actor 中执行。
+/// 串行 actor 将快速滑过多个 GIF 的帧创建排队，有上限的内存缓存复用最近解码结果。
 private actor GalleryAnimatedImageDecoder {
     static let shared = GalleryAnimatedImageDecoder()
 
@@ -44,8 +44,8 @@ private actor GalleryAnimatedImageDecoder {
             guard !Task.isCancelled else { return nil }
             guard let cgImage = CGImageSourceCreateImageAtIndex(source, index, nil) else { continue }
             let delay = frameDelay(source: source, index: index)
-            // `UIImage.animatedImage` 为每帧分配相同时长；按 20ms 时间片复制帧，
-            // 在保留原始节奏的同时限制单帧最多复制 10 次，避免异常 GIF 膨胀内存。
+            // `UIImage.animatedImage` 为每帧分配相同时长；按 20ms 时间片复制帧，保留原始节奏，
+            // 单帧最多复制 10 次，限制异常 GIF 的内存占用。
             let repeats = min(max(Int((delay / 0.02).rounded()), 1), 10)
             let frame = UIImage(cgImage: cgImage)
             frames.append(contentsOf: repeatElement(frame, count: repeats))
@@ -73,8 +73,8 @@ private actor GalleryAnimatedImageDecoder {
 
 /// 使用 `UIImageView` 播放话廊中的 GIF 动图。
 ///
-/// SwiftUI 的 `AsyncImage` 只会显示 GIF 首帧，因此仅对明确的 GIF 原图切换到
-/// UIKit 播放器。视图离开屏幕后任务会取消，`UIImageView` 也会停止播放。
+/// SwiftUI 的 `AsyncImage` 显示 GIF 首帧，GIF 原图由 UIKit 播放器处理。
+/// 视图离开屏幕后取消任务并停止 `UIImageView` 播放。
 struct GalleryAnimatedImage: UIViewRepresentable {
     let url: URL
     let isActive: Bool
@@ -108,8 +108,6 @@ struct GalleryAnimatedImage: UIViewRepresentable {
 
     static func dismantleUIView(_ imageView: UIImageView, coordinator: Coordinator) {
         coordinator.cancel(imageView: imageView)
-        imageView.stopAnimating()
-        imageView.image = nil
     }
 
     @MainActor
@@ -136,7 +134,8 @@ struct GalleryAnimatedImage: UIViewRepresentable {
                     imageView.image = decoded
                     imageView.startAnimating()
                 } catch {
-                    // 动图失败时保留缩略图占位，不以弹窗打断话廊浏览。
+                    guard !Task.isCancelled, self?.currentURL == url else { return }
+                    // 动图失败时清除播放器状态，话廊继续浏览。
                     imageView?.stopAnimating()
                     imageView?.image = nil
                 }
@@ -154,8 +153,8 @@ struct GalleryAnimatedImage: UIViewRepresentable {
     }
 }
 
-/// 只让仍处于 LazyVStack 活跃区域的 GIF 播放。快速划过后立即停止旧播放器和解码任务，
-/// 避免屏幕外多张动图继续消耗 CPU/GPU。
+/// 播放处于 LazyVStack 活跃区域的 GIF，快速划过后立即停止旧播放器和解码任务。
+/// 屏幕外的动图保持停止，降低 CPU/GPU 消耗。
 struct GalleryAutoplayingImage: View {
     let url: URL
     var contentMode: ContentMode = .fit

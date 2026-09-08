@@ -118,7 +118,6 @@ struct ScheduleClassroomCoordinatorTests {
         #expect(coordinator.finish(second.id))
         #expect(!coordinator.isRequestInFlight)
     }
-
 }
 
 @Suite("Schedule authentication continuation")

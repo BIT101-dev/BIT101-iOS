@@ -2,8 +2,7 @@ import SwiftUI
 
 /// watch 主页面。
 ///
-/// 展示顺序保持极简：先给出“当前/下一节”的摘要，再向下列出后续课节，
-/// 让用户抬腕后能先看到最关键的信息，继续滚动时再看完整一些的安排。
+/// 页面先展示当前或下一节摘要，再列出后续课节。
 struct WatchScheduleRootView: View {
     @ObservedObject var model: WatchScheduleStatusModel
     @State private var isShowingClearConfirmation = false
@@ -71,7 +70,7 @@ struct WatchScheduleRootView: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
 
-                        ForEach(Array(model.upcomingOccurrences.dropFirst())) { occurrence in
+                        ForEach(model.upcomingOccurrences.dropFirst()) { occurrence in
                             VStack(alignment: .leading) {
                                 HStack(alignment: .firstTextBaseline) {
                                     Text(occurrence.relativeDayText(referenceDate: model.referenceDate))

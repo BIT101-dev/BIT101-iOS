@@ -11,16 +11,18 @@ struct GallerySearchView: View {
     @ObservedObject var viewModel: GalleryViewModel
     @Environment(\.dismiss) private var dismiss
 
+    private func triggerSearch() {
+        Task {
+            await viewModel.performSearch()
+        }
+    }
+
     var body: some View {
         GalleryFeedView(
             feedState: viewModel.searchState,
             feedIdentity: "search",
             prefetchTriggerThreshold: 0,
-            onRefresh: {
-                Task {
-                    await viewModel.performSearch()
-                }
-            },
+            onRefresh: triggerSearch,
             onPrefetch: { _ in },
             onLoadMore: { poster in
                 Task {
@@ -28,22 +30,16 @@ struct GallerySearchView: View {
                 }
             }
         )
-        .safeAreaInset(edge: .top, spacing: 0) {
+        .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             AppSearchBarContainer {
                 AppOrderedSearchBar(
                     text: $viewModel.searchQuery.text,
                     order: $viewModel.searchQuery.order,
                     selectedOrderTitle: viewModel.searchQuery.order.title,
-                    onSubmit: {
-                        Task {
-                            await viewModel.performSearch()
-                        }
-                    },
+                    onSubmit: triggerSearch,
                     onClear: {
                         viewModel.searchQuery.text = ""
-                        Task {
-                            await viewModel.performSearch()
-                        }
+                        triggerSearch()
                     }
                 ) {
                     ForEach(GallerySearchOrder.allCases) { order in
@@ -55,11 +51,8 @@ struct GallerySearchView: View {
         .task {
             await viewModel.bootstrapSearchIfNeeded()
         }
-        .onChange(of: viewModel.searchQuery.order) { oldValue, newValue in
-            guard oldValue != newValue else { return }
-            Task {
-                await viewModel.performSearch()
-            }
+        .onChange(of: viewModel.searchQuery.order) { _, _ in
+            triggerSearch()
         }
         .navigationTitle("搜索")
         .navigationBarTitleDisplayMode(.inline)
@@ -71,5 +64,4 @@ struct GallerySearchView: View {
             }
         }
     }
-
 }

@@ -56,7 +56,7 @@ struct ScoreService {
         }
     }
 
-    /// 可信成绩单使用独立的 `jwb_cjd` 登录服务，不能复用普通成绩查询的 jwb challenge。
+    /// 可信成绩单使用独立的 `jwb_cjd` 登录服务，普通成绩查询使用 `jwb` challenge。
     private struct TranscriptRequest: Encodable {
         let username: String?
         let password: String?
@@ -85,7 +85,7 @@ struct ScoreService {
     private let storage: LoginStorage
     private let session: URLSession
     private static let requestTimeoutSeconds: TimeInterval = 25
-    /// 统一认证首次启动 OCR/下游会话时可能明显慢于普通 HTTP 请求，不能共用 25 秒单请求超时。
+    /// 统一认证首次启动 OCR/下游会话时长可能超过普通 HTTP 请求，使用 90 秒认证等待时限。
     private static let authenticationWaitSeconds: TimeInterval = 90
     private let endpointBaseURL: URL
 
@@ -93,10 +93,12 @@ struct ScoreService {
         self.storage = storage
         session = NetworkSessionPool.scoreAuthentication
 
+        let configuredURLString = (Bundle.main.object(forInfoDictionaryKey: "BIT101BitLoginURL") as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         if
-            let configured = Bundle.main.object(forInfoDictionaryKey: "BIT101BitLoginURL") as? String,
-            let url = URL(string: configured.trimmingCharacters(in: .whitespacesAndNewlines)),
-            !configured.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let configuredURLString,
+            let url = URL(string: configuredURLString),
+            !configuredURLString.isEmpty
         {
             endpointBaseURL = url
         } else {
@@ -147,7 +149,7 @@ struct ScoreService {
         return challenge
     }
 
-    /// 使用已经认证的会话查询成绩，避免两个阶段重复统一身份认证。
+    /// 使用已经认证的会话查询成绩，让简略成绩与详细成绩共享一次统一身份认证。
     func fetchScores(
         detail: Bool,
         authenticatedBy challenge: BITLoginAuthenticationChallenge
@@ -155,7 +157,7 @@ struct ScoreService {
         try await finishAuthentication(challenge, detail: detail)
     }
 
-    /// 只完成短信认证；认证后的同一 challenge 仍可连续查询简略及详细成绩。
+    /// 完成短信认证，并返回可继续查询简略及详细成绩的 challenge 状态。
     func submitScoreSMSCode(
         _ code: String,
         for challenge: BITLoginAuthenticationChallenge
@@ -262,7 +264,7 @@ struct ScoreService {
 
         guard (200 ..< 300).contains(response.statusCode) else {
             // 已完成认证后，学校生成成绩单的页面偶尔会暂时返回 5xx。复用同一个 challenge
-            // 多试几次不会重复登录或重复发送短信，也比让用户从头申请安全、快速。
+            // 进行重试，沿用已完成的认证与短信状态，保持当前申请流程连续。
             if
                 authorization != nil,
                 remainingTransientRetries > 0,
@@ -297,8 +299,8 @@ struct ScoreService {
 
     /// 使用成绩单系统 Cookie 读取申请结果页，并下载其中全部分页图片。
     ///
-    /// bit-login 的图片接口历史上只返回第一张图片；直接解析学校结果页才能在成绩较多时
-    /// 保留第二页及后续页面。Cookie 与图片都仅存在于临时内存会话中。
+    /// bit-login 的图片接口历史上提供首张图片；解析学校结果页可以在成绩较多时
+    /// 获取第二页及后续页面。Cookie 与图片的生命周期属于临时内存会话。
     private func downloadTranscriptPages(cookieString: String) async throws -> [Data] {
         guard !cookieString.isEmpty else { throw ScoreServiceError.invalidResponse }
 
@@ -379,7 +381,7 @@ struct ScoreService {
         detail: Bool
     ) async throws -> [ScoreRow] {
         var request = URLRequest(url: endpointBaseURL.appending(path: "api/jwb/bit101/score"))
-        // 完整模式需要学校端逐门补全均分与排名，不应被普通单请求的 25 秒上限截断。
+        // 完整模式需要学校端逐门补全均分与排名，使用独立的 90 秒请求时限。
         request.timeoutInterval = detail
             ? Self.authenticationWaitSeconds
             : Self.requestTimeoutSeconds
@@ -445,7 +447,7 @@ struct ScoreService {
         _ initialPayload: BITLoginChallengePayload,
         accessToken: String
     ) async throws -> BITLoginAuthenticationChallenge {
-        // 与 Android/Web 端保持一致；1 秒轮询会在认证完成后额外平白等待最多近 1 秒。
+        // 轮询间隔采用 350ms，与 Android/Web 端保持一致，服务端完成认证后由下一次轮询继续处理。
         let payload = try await BITLoginChallengeSupport.pollUntilActionable(
             initialPayload,
             timeout: Self.authenticationWaitSeconds,

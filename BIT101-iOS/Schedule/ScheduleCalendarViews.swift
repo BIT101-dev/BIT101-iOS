@@ -276,8 +276,7 @@ struct CourseScheduleCalendarView: View {
                             // 课程背景使用不透明系统色，网格线保持在卡片后方。
                             CourseScheduleBackgroundView(
                                 entry: entry,
-                                showBorder: showBorder,
-                                isOpaque: entry.kind == .course
+                                showBorder: showBorder
                             )
                             .frame(
                                 width: cardWidth,
@@ -343,7 +342,7 @@ struct CourseScheduleCalendarView: View {
             }
             .clipped()
             .background(AppDesignSystem.Palette.systemBackground)
-            // 课表主体改用 List 分组内容的圆角；不改变其它普通卡片。
+            // 课表主体沿用 List 分组内容的圆角；其它卡片使用各自样式。
             .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped))
             .appSelectionFeedback(trigger: week)
             .appImpactFeedback(trigger: contextMenuFeedbackToken)
@@ -417,7 +416,7 @@ private struct CourseScheduleBlockView: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// 仅在“名称+地点”模式下，两格课程限制名称最多两行；其它模式不人为截断。
+    /// “名称+地点”模式下，两格课程显示名称最多两行；其它模式使用默认行数。
     private var titleLineLimit: Int {
         contentMode == .nameAndLocation && entry.endSection - entry.startSection <= 2
             ? AppDesignSystem.Schedule.courseText.titleMaximumLinesForTwoSections
@@ -459,7 +458,7 @@ private struct CourseScheduleBlockView: View {
 
 }
 
-/// 课表专用紧凑文字块，直接使用 UIKit 的字符级换行，确保不回退到词语策略。
+/// 课表专用紧凑文字块，使用 UIKit 的字符级换行策略。
 private struct ScheduleDenseTextLabel: UIViewRepresentable {
     let text: String
     let textStyle: UIFont.TextStyle
@@ -546,12 +545,11 @@ private struct ScheduleDenseTextLabel: UIViewRepresentable {
 private struct CourseScheduleBackgroundView: View {
     let entry: ScheduleCalendarEntry
     let showBorder: Bool
-    let isOpaque: Bool
 
     var body: some View {
         AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.badge)
             .fill(backgroundColor)
-            .opacity(isOpaque ? 1 : (entry.backgroundLayers.count > 1 ? 0.5 : 1))
+            .opacity(entry.kind == .course || entry.backgroundLayers.count <= 1 ? 1 : 0.5)
             .overlay {
                 if showBorder, entry.kind != .course {
                     AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.badge)
@@ -563,9 +561,7 @@ private struct CourseScheduleBackgroundView: View {
     private var backgroundColor: Color {
         switch entry.kind {
         case .course:
-            return isOpaque
-                ? AppDesignSystem.Palette.secondaryBackground
-                : AppDesignSystem.Palette.secondaryFill.opacity(0.95)
+            return AppDesignSystem.Palette.secondaryBackground
         case .exam:
             return AppDesignSystem.Palette.highlight.opacity(0.22)
         case .custom:
@@ -602,8 +598,7 @@ struct CourseScheduleFAB: View {
 
 /// 课表页悬浮圆形按钮的统一外观。
 ///
-/// 单独抽出来后，`Button` 和 `Menu` 可以共用同一套视觉样式，
-/// 避免“添加”按钮因为交互容器不同而出现尺寸或命中区域错位。
+/// `Button` 和 `Menu` 共用同一套视觉样式，保持“添加”按钮的尺寸和命中区域一致。
 struct CourseScheduleFABLabel: View {
     let systemImage: String?
     let text: String?
@@ -652,7 +647,7 @@ private struct ScheduleInlineWeekSlider: View {
         self.currentWeek = currentWeek
         self.highlightedWeek = highlightedWeek
         self.onSelectWeek = onSelectWeek
-        // 先等滚动内容完成首轮布局，再设置选中项；直接在初始化阶段绑定滚动位置会落在半个刻度。
+        // 等待滚动内容完成首轮布局，再设置选中项，使选中项对齐完整刻度。
         _selectedWeek = State(initialValue: nil)
     }
 
@@ -747,7 +742,7 @@ private struct ScheduleInlineWeekSlider: View {
         week == 1 || week % 5 == 0
     }
 
-    /// 首次布局完成后再次定位到完整周次项，避免冷启动时停在半个刻度。
+    /// 首次布局完成后再次定位到完整周次项，使冷启动时的选中项对齐完整刻度。
     private func alignSelection(using proxy: ScrollViewProxy, to target: Int? = nil) {
         guard let target = target ?? selectedWeek else { return }
         DispatchQueue.main.async {
@@ -799,67 +794,9 @@ private final class CourseShareItemSource: NSObject, UIActivityItemSource {
     }
 }
 
-/// 使用 UIKit 手势识别器保留真实长按坐标，不影响课程块原有的点击手势。
-private struct LongPressLocationDetector: UIViewRepresentable {
-    let onTap: (() -> Void)?
-    let onEnded: (CGPoint) -> Void
-
-    init(onTap: (() -> Void)? = nil, onEnded: @escaping (CGPoint) -> Void) {
-        self.onTap = onTap
-        self.onEnded = onEnded
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onEnded: onEnded)
-    }
-
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView(frame: .zero)
-        let longPress = UILongPressGestureRecognizer(
-            target: context.coordinator,
-            action: #selector(Coordinator.handle(_:))
-        )
-        longPress.minimumPressDuration = 0.5
-        longPress.cancelsTouchesInView = false
-        view.addGestureRecognizer(longPress)
-        if onTap != nil {
-            let tap = UITapGestureRecognizer(
-                target: context.coordinator,
-                action: #selector(Coordinator.handleTap(_:))
-            )
-            tap.require(toFail: longPress)
-            view.addGestureRecognizer(tap)
-        }
-        return view
-    }
-
-    func updateUIView(_ view: UIView, context: Context) {
-        context.coordinator.onEnded = onEnded
-        context.coordinator.onTap = onTap
-    }
-
-    final class Coordinator: NSObject {
-        var onTap: (() -> Void)?
-        var onEnded: (CGPoint) -> Void
-
-        init(onEnded: @escaping (CGPoint) -> Void) {
-            self.onEnded = onEnded
-        }
-
-        @objc func handle(_ recognizer: UILongPressGestureRecognizer) {
-            guard recognizer.state == .began else { return }
-            onEnded(recognizer.location(in: recognizer.view))
-        }
-
-        @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
-            onTap?()
-        }
-    }
-}
-
 /// 课表网格内部统一使用的条目类型。
 ///
-/// 课程、考试、自定义日程最终都会投影成同一种“日历块”，但颜色和详情逻辑不同。
+/// 课程、考试和自定义日程统一投影为日历块，并分别使用对应的颜色和详情逻辑。
 enum ScheduleCalendarKind {
     case course
     case exam
@@ -868,7 +805,7 @@ enum ScheduleCalendarKind {
 
 /// 供课表网格渲染的统一条目模型。
 ///
-/// 这是课表 UI 层内部使用的适配模型，不直接持久化。
+/// 这是课表 UI 层内部的适配模型，数据生命周期止于展示流程。
 struct ScheduleCalendarEntry: Identifiable {
     let id: String
     let sourceID: String
@@ -969,7 +906,7 @@ func resolvedCurrentWeek(firstDay: Date) -> Int {
     return ScheduleWeekCodec.weekNumber(forDayOffset: diff)
 }
 
-/// 处理同一天中互相重叠的日历块，避免后插入的块把前一个块完全遮住。
+/// 处理同一天中互相重叠的日历块，为先前条目保留可见区域。
 func normalize(entries: [ScheduleCalendarEntry]) -> [ScheduleCalendarEntry] {
     let sorted = entries.sorted { lhs, rhs in
         if lhs.dayOfWeek == rhs.dayOfWeek {

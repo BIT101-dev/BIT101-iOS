@@ -9,7 +9,7 @@ import Foundation
 
 /// “我的”页接口层错误。
 ///
-/// 这里故意只保留少量、面向 UI 的错误分类；更底层的 HTTP 状态码会在必要时转成通用 NSError。
+/// 错误枚举保留面向 UI 的少量分类；底层 HTTP 状态码在必要时转换为通用 NSError。
 enum MineServiceError: LocalizedError {
     case notLoggedIn
     case invalidResponse
@@ -34,10 +34,10 @@ extension MineServiceError: CommunityAPIServiceError {
 /// 这层只负责“我的”和“他人主页”会共用到的资料卡、关注关系和帖子列表请求，
 /// 不承载任何页面状态，也不做分页拼接。
 struct MineService {
-    /// 个人主页相关接口根地址。
+    /// “我的”页请求使用的社区 API 客户端。
     private let api: CommunityAPIClient<MineServiceError>
 
-    /// 初始化带 fake-cookie 的会话。
+    /// 初始化社区 API 客户端。
     ///
     /// “我的”页和话题页共用同一份登录存储，因此这里沿用系统 cookie 容器。
     init(storage: LoginStorage = .shared, httpClient: HTTPClient = .community) {
@@ -46,7 +46,7 @@ struct MineService {
 
     /// 获取当前登录用户自己的资料卡信息。
     ///
-    /// 服务端以 `0` 作为“当前用户”的占位 ID，所以“我的主页”和“他人主页”需要分别走不同接口路径。
+    /// 服务端以 `0` 表示当前用户；指定用户通过实际 ID 查询。
     func fetchMyInfo() async throws -> MineUserInfo {
         try await api.request(path: "user/info/0")
     }
@@ -72,24 +72,17 @@ struct MineService {
     ///
     /// 服务端通过 `uid=0` 约定当前登录用户。
     func fetchMyPosters(page: Int) async throws -> [GalleryPoster] {
-        var queryItems = [
-            URLQueryItem(name: "mode", value: "search"),
-            URLQueryItem(name: "uid", value: "0"),
-            URLQueryItem(name: "page", value: String(page)),
-        ]
-        if await shouldHideBotPosters() {
-            queryItems.append(URLQueryItem(name: "hide_bot", value: "true"))
-        }
-        return try await api.request(
-            path: "posters",
-            queryItems: queryItems
-        )
+        try await fetchPosters(userID: 0, page: page)
     }
 
     /// 获取指定用户的帖子列表；普通帖子页面按设置隐藏机器人帖子。
     ///
-    /// 这里沿用帖子搜索接口的 `uid` 语义，而不是单独的“用户帖子”接口。
+    /// 这里复用帖子搜索接口的 `uid` 语义，用户帖子接口保持独立路径。
     func fetchUserPosters(userID: Int, page: Int) async throws -> [GalleryPoster] {
+        try await fetchPosters(userID: userID, page: page)
+    }
+
+    private func fetchPosters(userID: Int, page: Int) async throws -> [GalleryPoster] {
         var queryItems = [
             URLQueryItem(name: "mode", value: "search"),
             URLQueryItem(name: "uid", value: String(userID)),
@@ -109,5 +102,4 @@ struct MineService {
             AppSettingsStore.loadSnapshotFromDefaults()?.galleryHideBotPosterInSearch ?? false
         }
     }
-
 }

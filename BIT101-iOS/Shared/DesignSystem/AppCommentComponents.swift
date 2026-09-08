@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// 课程、话题和文章评论区共用的标题行。
+/// 课程、话题和文章评论区共用这个标题行。
 ///
-/// 只有右侧可选操作由业务传入；标题、数量和占位关系保持完全一致。
+/// 业务传入右侧可选操作；组件保持标题、数量和占位关系完全一致。
 struct AppCommentSectionHeader<Trailing: View>: View {
     let count: Int
     private let trailing: Trailing
@@ -27,7 +27,7 @@ struct AppCommentSectionHeader<Trailing: View>: View {
     }
 }
 
-/// 评论区统一的昵称与时间标题行。
+/// 评论区使用这个标题行展示昵称和时间。
 struct AppCommentIdentityHeader: View {
     let nickname: String
     let isSubComment: Bool
@@ -61,7 +61,7 @@ struct AppCommentIdentityHeader: View {
     }
 }
 
-/// 评论区统一的回复和点赞操作行。
+/// 评论区使用这个操作行展示回复和点赞操作。
 struct AppCommentActionBar: View {
     let likeCount: Int
     let isLiked: Bool
@@ -101,7 +101,7 @@ struct AppCommentActionBar: View {
     }
 }
 
-/// 评论气泡统一的头像、内容列间距。
+/// 评论气泡使用统一的头像和内容列间距。
 struct AppCommentBubble<Avatar: View, Content: View>: View {
     private let avatar: Avatar
     private let content: Content
@@ -125,7 +125,7 @@ struct AppCommentBubble<Avatar: View, Content: View>: View {
     }
 }
 
-/// 评论主项统一的内容间距和内边距。
+/// 评论主项使用统一的内容间距和内边距。
 struct AppCommentRowContainer<Content: View>: View {
     private let content: Content
 
@@ -141,9 +141,9 @@ struct AppCommentRowContainer<Content: View>: View {
     }
 }
 
-/// 评论主项与嵌套回复共用的线程结构。
+/// 评论主项和嵌套回复使用这个线程结构。
 ///
-/// 课程、话题和文章只提供单条气泡内容；回复缩进、分隔线和上下层级由这里统一维护。
+/// 课程、话题和文章提供单条气泡内容；组件统一维护回复缩进、分隔线和上下层级。
 struct AppCommentThread<Comment: Identifiable, Content: View>: View {
     let comment: Comment
     let subcomments: [Comment]
@@ -171,7 +171,7 @@ struct AppCommentThread<Comment: Identifiable, Content: View>: View {
 
                             if index != subcomments.count - 1 {
                                 Divider()
-                                    .padding(.leading, AppDesignSystem.Comment.layout.subCommentIndent)
+                                    .padding(.leading, AppDesignSystem.Comment.layout.dividerLeading)
                             }
                         }
                     }

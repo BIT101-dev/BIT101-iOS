@@ -25,8 +25,8 @@ enum ScoreFilterPreferenceStore {
         sortOrder: ScoreSortOrder
     ) {
         let snapshot = ScoreFilterPreferenceSnapshot(
-            selectedTerms: Array(selectedTerms),
-            selectedCourseTypes: Array(selectedCourseTypes),
+            selectedTerms: selectedTerms.sorted(),
+            selectedCourseTypes: selectedCourseTypes.sorted(),
             sortIndex: sortIndex.rawValue,
             sortOrder: sortOrder.rawValue
         )
@@ -34,7 +34,7 @@ enum ScoreFilterPreferenceStore {
         ExperimentalPreferenceCloudSync.shared.localValueDidChange(in: .scoreFilters)
     }
 
-    /// 写入来自 iCloud 的筛选偏好，不再次触发上传。
+    /// 将 iCloud 筛选偏好写入本地存储，并发布本地筛选变更通知。
     static func applySynced(_ snapshot: ScoreFilterPreferenceSnapshot) {
         store.save(snapshot)
         NotificationCenter.default.post(name: .scoreFilterPreferencesDidChange, object: nil)
@@ -99,15 +99,11 @@ enum ScoreSortIndex: String, CaseIterable, Identifiable {
     }
 
     private func numericComparableValue(from raw: String) -> Double? {
-        let trimmed = normalizedText(raw)
-        guard !trimmed.isEmpty else { return nil }
-        return Double(trimmed)
+        Double(normalizedText(raw))
     }
 
     private func scoreComparableValue(from raw: String) -> Double? {
         let trimmed = normalizedText(raw)
-        guard !trimmed.isEmpty else { return nil }
-
         switch trimmed {
         case "优秀": return 95
         case "良好": return 85

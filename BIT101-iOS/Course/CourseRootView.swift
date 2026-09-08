@@ -1,15 +1,8 @@
-//
-//  CourseRootView.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-04-02.
-//
-
 import SwiftUI
 
 /// 课程页根视图。
 ///
-/// 当前版本提供课程浏览和详情入口。
+/// 提供课程浏览和详情入口。
 struct CourseRootView: View {
     @StateObject private var viewModel: CourseListViewModel
 
@@ -30,13 +23,9 @@ struct CourseRootView: View {
 
 /// 课程页具体内容。
 ///
-/// 独立出来后，既能继续作为单独页面使用，也能被“成绩 / 课程”合并页复用。
+/// 课程列表内容，供独立页面和“成绩 / 课程”合并页使用。
 struct CoursePageContent: View {
     @ObservedObject var viewModel: CourseListViewModel
-
-    init(viewModel: CourseListViewModel) {
-        self.viewModel = viewModel
-    }
 
     var body: some View {
         Group {
@@ -70,16 +59,11 @@ struct CoursePageContent: View {
                                 Task {
                                     await viewModel.submitSearch()
                                 }
-                            },
-                            onClear: {
-                                let previousText = viewModel.searchText
-                                viewModel.searchText = ""
-                                viewModel.clearSearchIfNeeded(from: previousText, to: viewModel.searchText)
                             }
                         )
                     }
 
-                    Section{
+                    Section {
                         courseSection
                     }
                 }
@@ -193,7 +177,7 @@ struct CourseEvaluationRouteResolver {
 
 /// 日程和成绩共用的课程评价检索入口。
 ///
-/// 先解析，成功后才执行各自的后续路由；失败直接在当前页面展示 alert。
+/// 解析成功后进入后续路由，解析失败时在当前页面展示 alert。
 struct CourseEvaluationLink: View {
     let request: CourseNavigationRequest
     let onResolved: (CourseNavigationRequest) -> Void
@@ -247,8 +231,8 @@ struct CourseEvaluationLink: View {
 
 /// 外部深链使用的课程评价目的地。
 ///
-/// 外部深链已经发生导航，因此保留页面级加载/失败态；日程和成绩的普通入口
-/// 使用 `CourseEvaluationLink`，在导航前就地处理失败。
+/// 外部深链在导航后加载课程并显示失败状态；日程和成绩入口使用
+/// `CourseEvaluationLink`，在导航前处理失败。
 struct CourseEvaluationDestination: View {
     let request: CourseNavigationRequest
     @State private var course: CourseSummary?
@@ -338,7 +322,6 @@ private enum CourseEvaluationError: LocalizedError {
 private struct CourseSearchRow: View {
     @Binding var text: String
     let onSubmit: () -> Void
-    let onClear: () -> Void
 
     var body: some View {
         HStack(spacing: AppDesignSystem.Spacing.control) {
@@ -352,7 +335,9 @@ private struct CourseSearchRow: View {
                 .onSubmit(onSubmit)
 
             if !text.isEmpty {
-                Button(action: onClear) {
+                Button {
+                    text = ""
+                } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.body)
                         .foregroundStyle(.secondary)

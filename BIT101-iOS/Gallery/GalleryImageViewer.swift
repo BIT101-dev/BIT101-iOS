@@ -179,7 +179,8 @@ private struct GalleryQuickLookPresenter: UIViewControllerRepresentable {
                 let prepared = images.map { _ in MutableQuickLookItem(url: placeholder) }
 
                 let initialImage = images[initialIndex]
-                if let highURL = originalURL(for: initialImage),
+                let highURL = originalURL(for: initialImage)
+                if let highURL,
                    let high = await GalleryImageCache.shared.cachedFile(for: highURL, variant: .original) {
                     prepared[initialIndex].url = high
                 } else if let lowURL = thumbnailURL(for: initialImage) {
@@ -195,7 +196,7 @@ private struct GalleryQuickLookPresenter: UIViewControllerRepresentable {
                         // 这种缓存确实缺失的场景才兜底下载当前缩略图。
                         try await GalleryImageCache.shared.file(for: lowURL, variant: .thumbnail)
                     }
-                } else if let highURL = originalURL(for: initialImage) {
+                } else if let highURL {
                     prepared[initialIndex].url = try await GalleryImageCache.shared.file(
                         for: highURL,
                         variant: .original
@@ -258,8 +259,8 @@ private struct GalleryQuickLookPresenter: UIViewControllerRepresentable {
         /// 用当前低清画面的快照盖住 Quick Look 重新载入文件时的短暂空白，再快速淡出。
         ///
         /// Quick Look 没有公开的渐进式换图接口，直接 `refreshCurrentPreviewItem()` 会由
-        /// 系统重建当前预览，偶尔出现明显闪白。这里不改变系统预览器本身，只为这次刷新
-        /// 加一层不接收触摸的旧画面快照，让低清到高清更接近一次轻微交叉渐变。
+        /// 系统重建当前预览时偶尔出现明显闪白。系统预览器保持原样；刷新时叠加一层
+        /// 不接收触摸的旧画面快照，让低清到高清更接近一次轻微交叉渐变。
         private func refreshCurrentPreviewItemSmoothly() {
             guard let controller = previewController else { return }
             guard let snapshot = controller.view.snapshotView(afterScreenUpdates: false) else {

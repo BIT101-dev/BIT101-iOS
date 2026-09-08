@@ -33,10 +33,7 @@ extension ScheduleViewModel {
             }
             return true
         } catch ScheduleServiceError.schoolSecondFactorRequired {
-            notice = ScheduleNotice(
-                title: "需要短信验证",
-                message: "学校要求短信二次验证，请先在学校登录页面完成验证后再重试。"
-            )
+            presentDDLSecondFactorNotice()
             return false
         } catch {
             if isCancellation(error) { return false }
@@ -67,10 +64,7 @@ extension ScheduleViewModel {
                 notice = ScheduleNotice(title: "订阅链接更新成功", message: "已重新获取乐学订阅链接。")
             }
         } catch ScheduleServiceError.schoolSecondFactorRequired {
-            notice = ScheduleNotice(
-                title: "需要短信验证",
-                message: "学校要求短信二次验证，请先在学校登录页面完成验证后再重试。"
-            )
+            presentDDLSecondFactorNotice()
         } catch {
             if isCancellation(error) { return }
             notice = ScheduleNotice(title: "订阅链接获取失败", message: error.localizedDescription)
@@ -150,7 +144,7 @@ extension ScheduleViewModel {
 
     /// DDL 颜色语义。
     ///
-    /// 这里返回字符串而不是 `Color`，是为了让 View 层自己决定具体颜色映射。
+    /// 这里返回字符串；View 层根据业务语义选择具体颜色映射。
     func ddlTint(for event: DDLEventRecord) -> String {
         if event.done {
             return "gray"
@@ -166,6 +160,13 @@ extension ScheduleViewModel {
         }
 
         return "green"
+    }
+
+    private func presentDDLSecondFactorNotice() {
+        notice = ScheduleNotice(
+            title: "需要短信验证",
+            message: "学校要求短信二次验证，请先在学校登录页面完成验证后再重试。"
+        )
     }
 
 }

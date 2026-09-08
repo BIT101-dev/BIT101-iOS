@@ -94,7 +94,7 @@ struct GalleryCommentReplyTarget {
 
 /// 单条评论及其子评论预览。
 ///
-/// 主评论和子评论共用同一套气泡视图，只是在这一层决定是否渲染嵌套结构。
+/// 主评论和子评论共用同一套气泡视图；这一层决定是否渲染嵌套结构。
 private struct GalleryCommentRow: View {
     let comment: GalleryComment
     let likingCommentIDs: Set<Int>
@@ -149,8 +149,8 @@ private struct GalleryCommentRow: View {
         !comment.anonymous && comment.user.id > 0
     }
 
-    @ViewBuilder
     /// 处理“回复某人”的前缀文本拼接。
+    @ViewBuilder
     private func commentText(for comment: GalleryComment) -> some View {
         if comment.replyUser.id != 0, !comment.replyUser.nickname.isEmpty {
             (
@@ -172,8 +172,7 @@ private struct GalleryCommentRow: View {
 
 /// 评论发送弹层。
 ///
-/// 评论输入单独做成 sheet，而不是直接贴在详情页底部，是为了避免和 tab bar、抽屉详情、
-/// 键盘安全区互相打架。
+/// 评论输入放在独立 sheet 中，避免与 tab bar、抽屉详情和键盘安全区发生布局冲突。
 struct GalleryCommentComposerSheet: View {
     let target: GalleryCommentComposerTarget
     let isSubmitting: Bool
@@ -208,8 +207,3 @@ struct GalleryCommentComposerSheet: View {
         }
     }
 }
-
-/// 搜索页。
-///
-/// 搜索结果页直接复用 `GalleryFeedView`，只是在顶部额外挂一个搜索栏，
-/// 这样搜索结果的分页、详情和看图逻辑都不需要重复实现。

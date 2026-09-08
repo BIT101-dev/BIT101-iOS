@@ -55,8 +55,7 @@ struct CourseScheduleTabView: View {
 
     /// 课表分区主体。
     ///
-    /// 课表页直接使用主 List 承载更新时间和表格两个 Section；不再嵌套一个只为
-    /// 模拟原生圆角的更新时间 List。
+    /// 课表页使用主 List 承载更新时间和表格两个 Section，更新时间与表格共享同一个列表。
     var body: some View {
         GeometryReader { proxy in
             let listHeight = max(
@@ -87,9 +86,9 @@ struct CourseScheduleTabView: View {
                         }
                     }
 
-                    // 学校尚未发布未来学期课表时，课程接口通常会正常返回空数组，而不是 404。
-                    // 只要首周日期有效，就照常展示空课表网格和右下角操作按钮，不能让“无课程”
-                    // 占位页挡住周次浏览、设置以及手动添加日程的入口。
+                    // 学校尚未发布未来学期课表时，课程接口通常正常返回空数组。
+                    // 首周日期有效时，页面展示空课表网格和右下角操作按钮，周次浏览、设置以及
+                    // 手动添加日程入口保持可用。
                     if let firstDay = activeSchedule.firstDay {
                         Section {
                             CourseScheduleCalendarView(
@@ -115,7 +114,7 @@ struct CourseScheduleTabView: View {
                                     guard supportsEditingDisplayedSchedule else {
                                         viewModel.notice = ScheduleNotice(
                                             title: "无法调整分享课表",
-                                            message: "分享课表是只读副本。调休 / 放假只支持当前账号自己的课表，不会修改导入的分享课表。"
+                                            message: "分享课表是只读副本。调休 / 放假操作面向当前账号自己的课表，导入的分享课表保持原样。"
                                         )
                                         return
                                     }
@@ -141,7 +140,7 @@ struct CourseScheduleTabView: View {
                                 onImportSchedule: { isShowingScheduleImport = true }
                             )
                             .frame(height: calendarHeight)
-                            // 只让课表自身绘制白色分组背景；List 行背景不能延伸到悬浮 Tab 栏下方。
+                            // 课表自身绘制白色分组背景；List 行背景保持在悬浮 Tab 栏上方。
                             .listRowInsets(EdgeInsets())
                             .listRowBackground(AppDesignSystem.Palette.groupedBackground)
                         }
@@ -259,9 +258,7 @@ struct CourseScheduleTabView: View {
                 },
                 onEditCourseOccurrence: { courseID in
                     guard let course = activeSchedule.courses.first(where: { $0.id == courseID }) else { return }
-                    let week = course.weeks.contains(viewModel.selectedWeek)
-                        ? viewModel.selectedWeek
-                        : (course.weeks.first ?? viewModel.selectedWeek)
+                    let week = preferredCourseWeek(from: course.weeks)
                     editingCourseID = course.id
                     courseEditorMode = .editOccurrence(week: week)
                     courseDraft = viewModel.courseDraft(for: course, week: week, editsOccurrenceOnly: true)
@@ -278,9 +275,7 @@ struct CourseScheduleTabView: View {
                 },
                 onDeleteCourseOccurrence: { courseID in
                     guard let course = activeSchedule.courses.first(where: { $0.id == courseID }) else { return }
-                    let week = course.weeks.contains(viewModel.selectedWeek)
-                        ? viewModel.selectedWeek
-                        : (course.weeks.first ?? viewModel.selectedWeek)
+                    let week = preferredCourseWeek(from: course.weeks)
                     viewModel.deleteCourseOccurrence(id: course.id, week: week)
                     selectedEntry = nil
                 },
@@ -312,12 +307,14 @@ struct CourseScheduleTabView: View {
                         } else {
                             try viewModel.addCustomSchedule(customScheduleDraft)
                         }
+                        editingCustomScheduleID = nil
                         isShowingEditSchedule = false
                     } catch {
-                        viewModel.notice = ScheduleNotice(title: "保存失败", message: error.localizedDescription)
+                        presentSaveError(error)
                     }
                 },
                 onDismiss: {
+                    editingCustomScheduleID = nil
                     isShowingEditSchedule = false
                 }
             )
@@ -348,7 +345,7 @@ struct CourseScheduleTabView: View {
                         editingCourseID = nil
                         isShowingCourseEditor = false
                     } catch {
-                        viewModel.notice = ScheduleNotice(title: "保存失败", message: error.localizedDescription)
+                        presentSaveError(error)
                     }
                 },
                 onDismiss: {
@@ -375,7 +372,7 @@ struct CourseScheduleTabView: View {
                         }
                         selectedDayAdjustmentContext = nil
                     } catch {
-                        viewModel.notice = ScheduleNotice(title: "保存失败", message: error.localizedDescription)
+                        presentSaveError(error)
                     }
                 },
                 onDismiss: {
@@ -410,8 +407,8 @@ struct CourseScheduleTabView: View {
 
     /// 收起课表分栏当前打开的抽屉和设置页。
     ///
-    /// 这里不重建整个分栏，而是直接走各个 sheet 的正常关闭路径，
-    /// 这样系统会复用原生下滑关闭动画，避免出现“闪现消失”。
+    /// 这里保留当前分栏实例，直接走各个 sheet 的正常关闭路径；系统复用原生下滑关闭动画，
+    /// 关闭过程保持连续。
     private func dismissPresentedSheets() {
         selectedEntry = nil
         settingsRoute = nil
@@ -443,6 +440,16 @@ struct CourseScheduleTabView: View {
         case .location:
             return "显示课程地点"
         }
+    }
+
+    private func preferredCourseWeek(from weeks: [Int]) -> Int {
+        weeks.contains(viewModel.selectedWeek)
+            ? viewModel.selectedWeek
+            : (weeks.first ?? viewModel.selectedWeek)
+    }
+
+    private func presentSaveError(_ error: Error) {
+        viewModel.notice = ScheduleNotice(title: "保存失败", message: error.localizedDescription)
     }
 
     private func exportScheduleCode() {
@@ -527,7 +534,7 @@ struct CourseScheduleTabView: View {
 
     /// 课表之间的上下滑循环切换。
     ///
-    /// 只在“课表”分区内启用，和上方一级分栏的左右滑切换分开处理。
+    /// 手势在“课表”分区内处理上下滑循环切换，与上方一级分栏的左右滑切换保持独立。
     private var scheduleSwitchGesture: some Gesture {
         DragGesture(minimumDistance: 24, coordinateSpace: .local)
             .onEnded { value in
@@ -550,10 +557,9 @@ struct CourseScheduleTabView: View {
 #if canImport(UIKit)
 /// 读取当前 TabView 的真实底部栏重叠区域。
 ///
-/// iOS 26 的 TabView 在 iPhone 上使用悬浮栏，系统 safe area 会比可见胶囊更保守；
-/// 直接把 `safeAreaInsets.bottom` 当作课表高度扣除，会在不同平台产生过大的空白。
-/// 这里读取系统栏实际 frame，不保存任何机型相关的高度常量；iPad / Mac 上如果底栏
-/// 不在当前内容底部，返回 0，让容器继续使用自身的自适应尺寸。
+/// iOS 26 的 TabView 在 iPhone 上使用悬浮栏，系统 safe area 覆盖范围大于可见胶囊；
+/// 课表高度使用系统栏实际 frame 计算，以保持不同平台的内容空间一致。
+/// iPad / Mac 上底栏位于当前内容底部之外时返回 0，容器使用自身的自适应尺寸。
 private struct ScheduleTabBarOverlapReader: UIViewRepresentable {
     let onChange: (CGFloat) -> Void
 

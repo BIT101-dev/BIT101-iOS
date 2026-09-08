@@ -10,7 +10,7 @@ import Foundation
 extension ScheduleService {
     /// 查询空教室页可选校区列表。
     ///
-    /// 这一步相当于空教室查询的元数据预热，不涉及具体教室占用。
+    /// 此请求加载空教室查询的元数据；教室占用由后续查询返回。
     func fetchCampuses() async throws -> [CampusRecord] {
         try await withPreparedTeachingCenterSession {
             return try await fetchCampusesDirect()
@@ -35,7 +35,7 @@ extension ScheduleService {
         }
     }
 
-    /// 所有教学中心读操作共用的完整入口：先恢复可用路线，再完成一次会话预热。
+    /// 教学中心读操作先选择可用路线，再执行一次会话预热。
     func withPreparedTeachingCenterSession<T>(
         operation: () async throws -> T
     ) async throws -> T {
@@ -47,9 +47,9 @@ extension ScheduleService {
 
     /// 所有教学中心业务请求共用的会话入口。
     ///
-    /// 首次请求前确保存在与当前账号绑定的 WebVPN Cookie；如果业务请求明确返回登录页、
-    /// 401/403 或其他会话失效信号，只清理教学中心状态并重新走 bit-login。当前最多执行
-    /// 两轮恢复（共三次业务尝试），之后直接向上抛出，避免无限认证循环。
+    /// 首次请求前确保存在与当前账号绑定的 WebVPN Cookie。业务请求明确返回登录页、
+    /// 401/403 或其他会话失效信号时，清理范围限定为教学中心状态，再重新走 bit-login。
+    /// 认证尝试上限为两轮恢复（共三次业务尝试），超出上限后向上抛出。
     func withTeachingCenterSessionRetry<T>(
         operation: () async throws -> T
     ) async throws -> T {
@@ -63,13 +63,10 @@ extension ScheduleService {
         } catch {
             guard shouldAttemptDirectTeachingCenterFallback(for: error) else { throw error }
 
-            // 部分校园网 DNS 无法解析 bit-login 或 WebVPN 域名。此时学校教学中心本身
-            // 位于校内可直连，改用本机已有的学校 SSO 会话，不让 WebVPN 的 DNS 故障
-            // 阻断课表和空教室功能。
+            // 部分校园网 DNS 对 bit-login 或 WebVPN 域名解析失败。学校教学中心位于校内并
+            // 支持直连，此时改用本机已有的学校 SSO 会话继续课表和空教室请求。
             teachingCenterState.invalidate()
-            guard try await LoginService().restoreSchoolSessionIfNeeded() != nil else {
-                throw ScheduleServiceError.notLoggedIn
-            }
+            try await ensureSchoolSession()
             teachingCenterState.markDirectPreferred(for: studentID)
             return try await operation()
         }
@@ -82,14 +79,12 @@ extension ScheduleService {
         do {
             return try await operation()
         } catch ScheduleServiceError.teachingCenterSessionExpired {
-            guard try await LoginService().restoreSchoolSessionIfNeeded() != nil else {
-                throw ScheduleServiceError.notLoggedIn
-            }
+            try await ensureSchoolSession()
             return try await operation()
         }
     }
 
-    /// 校园网环境下，WebVPN 域名无法解析和 bit-login 网关超时都不应阻断校内直连。
+    /// 校园网环境下，WebVPN 域名解析失败或 bit-login 网关超时时，继续使用校内直连。
     func shouldAttemptDirectTeachingCenterFallback(for error: Error) -> Bool {
         if isHostResolutionError(error) {
             return true
@@ -132,8 +127,8 @@ extension ScheduleService {
 
     /// 确保学校 SSO 会话仍然有效；过期时使用 Keychain 凭据静默恢复。
     ///
-    /// BIT101 社区登录态与学校 SSO 相互独立。这里只检查社区 fake-cookie 会让乐学请求
-    /// 在学校 Cookie 过期后直接拿到 CAS 登录页，因此必须调用学校会话专用恢复入口。
+    /// BIT101 社区登录态与学校 SSO 相互独立。社区 fake-cookie 只表示社区登录态；学校 Cookie
+    /// 过期后，乐学请求会直接拿到 CAS 登录页，因此这里调用学校会话专用恢复入口。
     func ensureSchoolSession() async throws {
         guard try await LoginService().restoreSchoolSessionIfNeeded() != nil else {
             throw ScheduleServiceError.notLoggedIn
@@ -235,7 +230,7 @@ extension ScheduleService {
 
     /// 拉取指定目标学期的课程表。
     ///
-    /// 这里会把学校接口里稀疏且命名古老的字段，统一规整成 iOS 端自己的 `CourseRecord`。
+    /// 将学校接口中的课表字段转换为 iOS 端的 `CourseRecord`。
     func fetchCourses(term: String) async throws -> [CourseRecord] {
         let response: CourseResponse = try await sendJSONRequest(
             path: "/jwapp/sys/wdkbby/modules/xskcb/cxxszhxqkb.do",

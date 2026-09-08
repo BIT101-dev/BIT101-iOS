@@ -1,20 +1,14 @@
 import Foundation
 
-/// 空教室列表里的教室名自然升序比较器。
+/// 按教室名自然升序排列空教室，空名称排在末尾，名称相同时按 `id` 排序。
 ///
-/// 这里使用 `localizedStandardCompare`，让 `101 -> 102 -> 103` 这类教室名
-/// 按人类直觉排序，而不是简单字典序。
+/// `localizedStandardCompare` 为 `101 -> 102 -> 103` 这类教室名提供人类直觉排序。
 func classroomNameAscending(_ lhs: ClassroomAvailability, _ rhs: ClassroomAvailability) -> Bool {
     let lhsName = lhs.name.trimmingCharacters(in: .whitespacesAndNewlines)
     let rhsName = rhs.name.trimmingCharacters(in: .whitespacesAndNewlines)
 
-    switch (lhsName.isEmpty, rhsName.isEmpty) {
-    case (true, false):
-        return false
-    case (false, true):
-        return true
-    default:
-        break
+    if lhsName.isEmpty != rhsName.isEmpty {
+        return !lhsName.isEmpty
     }
 
     let nameOrder = lhsName.localizedStandardCompare(rhsName)
@@ -24,4 +18,3 @@ func classroomNameAscending(_ lhs: ClassroomAvailability, _ rhs: ClassroomAvaila
 
     return lhs.id.localizedStandardCompare(rhs.id) == .orderedAscending
 }
-

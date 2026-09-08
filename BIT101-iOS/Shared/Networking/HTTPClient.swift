@@ -27,7 +27,7 @@ enum HTTPClientError: LocalizedError {
     }
 }
 
-/// 只负责发送请求和校验 HTTP 协议层，不包含任何业务认证规则。
+/// 处理请求发送和 HTTP 协议层校验；业务认证规则由上层 Service 处理。
 struct HTTPClient {
     let transport: any HTTPTransport
 
@@ -88,7 +88,7 @@ struct HTTPClient {
 }
 
 enum NetworkSessionPool {
-    /// BIT101 社区接口共享连接池、Cookie 容器和 URLCache，避免每个 Service 重建 TLS 连接。
+    /// BIT101 社区接口共享连接池、Cookie 容器和 URLCache，供各 Service 复用 TLS 连接。
     static let community: URLSession = {
         let configuration = URLSessionConfiguration.default
         configuration.httpCookieAcceptPolicy = .always
@@ -104,7 +104,7 @@ enum NetworkSessionPool {
         return URLSession(configuration: configuration)
     }()
 
-    /// 可信成绩单图片只使用内存态 ephemeral 会话，不进入共享磁盘缓存。
+    /// 可信成绩单图片使用内存态 ephemeral 会话，并与共享磁盘缓存隔离。
     static let sensitiveDownloads: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 25

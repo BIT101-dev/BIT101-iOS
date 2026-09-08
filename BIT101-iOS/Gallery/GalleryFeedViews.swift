@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import UIKit
 
 struct GalleryFeedView: View {
     let feedState: GalleryFeedState
@@ -70,8 +69,7 @@ struct GalleryFeedView: View {
                     .scrollTargetLayout()
                 }
             }
-            // 系统滚动定位只在顶部目标发生变化时更新一次，不再让每张卡片通过
-            // GeometryReader 在每个滚动帧上报坐标字典。
+            // 系统滚动定位在顶部目标发生变化时更新一次；卡片复用统一定位状态。
             .scrollPosition(id: $currentTopPosterID, anchor: .top)
             .background(AppDesignSystem.Palette.groupedBackground)
             .id(feedIdentity)
@@ -82,7 +80,6 @@ struct GalleryFeedView: View {
             .onChange(of: visiblePosterIDs) { _, newIDs in
                 restoreScrollPositionIfNeeded(with: proxy, availableIDs: newIDs)
             }
-            .background(AppDesignSystem.Palette.groupedBackground)
             .navigationDestination(item: $selectedPoster) { poster in
                 GalleryPosterDetailView(
                     poster: poster,
@@ -126,8 +123,7 @@ struct GalleryFeedView: View {
 
     /// 进入可见列表尾部若干条时触发的预取集合。
     ///
-    /// 预取只负责后台准备下一页，不直接把数据拼到列表里，这样可以降低滚动条比例
-    /// 和当前位置突然变化带来的“跳走”感。
+    /// 预取负责后台准备下一页；列表追加由末尾触发，滚动条比例和当前位置保持稳定。
     private var prefetchTriggerPosterID: Int? {
         guard prefetchTriggerThreshold > 0, !visiblePosters.isEmpty else { return nil }
         return visiblePosters[max(visiblePosters.count - prefetchTriggerThreshold, 0)].id
@@ -276,11 +272,10 @@ struct GalleryPosterCard: View {
 
 /// 帖子图片网格。
 ///
-/// 首页最多展示四张图，统一放进固定高度的横向图片区。
+/// 首页最多展示四张图，图片组使用等高横向布局；单图根据原图比例在整行或半行宽度中
+/// 选择裁切利用率更高的尺寸。
 ///
-/// 若图片区总尺寸为 `y × x`，则一至四张图的单格宽度依次为
-/// `y`、`y / 2`、`y / 3`、`y / 4`，高度始终为 `x`。每张图中心裁切填满格子，
-/// 原始比例仍由点开后的系统预览完整呈现。
+/// 多图时各图片等宽排列，每张图中心裁切填满格子；原始比例仍由点开后的系统预览完整呈现。
 struct GalleryPosterImagesView: View {
     let images: [GalleryImage]
     let onOpenImage: (Int, [GalleryImage]) -> Void
@@ -316,16 +311,9 @@ struct GalleryPosterImagesView: View {
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
         }
-        // 图片组始终横向铺满卡片，整组高度固定为约四分之一屏幕。
+        // 图片组横向铺满卡片，高度占外层容器的四分之一。
         .frame(maxWidth: .infinity)
-        .frame(height: groupHeight)
-    }
-
-    /// 使用设备固定坐标空间而不是 App 当前兼容坐标的 `bounds`，确保高度真的是
-    /// 整块设备屏幕的四分之一；横竖屏切换也不改变这条基准。
-    private var groupHeight: CGFloat {
-        let screen = UIScreen.main.fixedCoordinateSpace.bounds
-        return max(screen.width, screen.height) * 0.25
+        .containerRelativeFrame(.vertical, count: 4, spacing: AppDesignSystem.Spacing.none)
     }
 
     /// 单图在“整行”和“双图单格”两种常用尺寸中选择裁切利用率更高的一种。
@@ -440,11 +428,3 @@ struct GalleryPosterThumbnail: View {
     }
 
 }
-
-/// 帖子详情页。
-///
-/// 详情页是一个相对完整的“二级页面壳层”：
-/// - 顶部帖子正文和互动按钮
-/// - 评论列表与排序
-/// - 删帖、看图、评论输入
-/// - 点击作者或评论作者跳到用户主页

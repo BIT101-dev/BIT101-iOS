@@ -1,28 +1,26 @@
 import Foundation
 
 extension Notification.Name {
-    /// 共享课表快照已更新。
+    /// 共享课表快照更新通知。
     ///
-    /// watch app 当前页、watch widget 以及未来可能出现的其它外部展示层
-    /// 都可以监听这条通知，在本地镜像更新后立即刷新视图。
+    /// Watch App 当前页和 Watch Widget 可在所属进程监听这条通知，在本地镜像更新后刷新视图。
     static let scheduleExternalSnapshotDidChange = Notification.Name("BIT101.ScheduleExternalSnapshotDidChange")
 }
 
 /// 课表外部展示能力共用的 App Group 标识。
 ///
-/// 当前桌面/锁屏 widget 会直接读取这份共享快照；
-/// 后续如果接入 watch 端，也应优先复用这一层抽象，而不是重新约定一套字段名。
+/// 桌面/锁屏 Widget、Live Activity、Apple Watch App 和 Smart Stack 共用这份共享快照；
+/// 各外部展示层复用这一层抽象，保持容器标识和文件路径一致。
 enum ScheduleSharedContainer {
     static let identifier = "group.BIT101-dev.BIT101-iOS.shared"
     static let directoryName = "Widgets"
-    /// 历史上 widget 已经使用这个文件名；当前保留它，避免平滑演进时出现读取断层。
+    /// Widget 已使用这个文件名。当前继续保留它，兼容已有快照读取路径。
     static let snapshotFileName = "schedule-widget-snapshot.json"
 }
 
 /// 对外部展示层暴露的精简节次模型。
 ///
-/// 它有意不直接复用主 app 的 `TimeSlot`，
-/// 这样未来 watch / widget / 其它扩展都能只依赖这一份更稳定的契约。
+/// 该模型独立于主 App 的 `TimeSlot`，供 Watch、Widget 和 Live Activity 依赖。
 struct ScheduleExternalTimeSlotSnapshot: Codable, Hashable {
     let id: Int
     let start: String
@@ -43,11 +41,11 @@ struct ScheduleExternalCourseSnapshot: Codable, Hashable {
     let endSection: Int
 }
 
-/// 主 app 导出、widget / watch 读取的统一课表快照。
+/// 主 App 导出、Widget、Live Activity 和 Watch 读取的统一课表快照。
 ///
-/// 这份结构是跨 target 的稳定边界：
-/// - 主 app 负责从完整缓存裁剪出可共享的最小信息
-/// - 外部展示层只依赖这里，而不反向耦合主 app 内部状态机
+/// 这份结构定义跨 target 的稳定边界：
+/// - 主 App 从完整缓存裁剪出可共享的最小信息
+/// - Widget、Live Activity 和 Watch 依赖这份快照，与主 App 状态机保持解耦
 struct ScheduleExternalSnapshot: Codable, Hashable {
     let generatedAt: Date
     let isLoggedIn: Bool
@@ -94,8 +92,8 @@ struct ScheduleExternalSnapshot: Codable, Hashable {
 
 /// `ScheduleExternalSnapshot` 的统一传输编解码器。
 ///
-/// 磁盘快照和 WatchConnectivity 必须使用相同的日期策略。每次调用创建独立的
-/// encoder / decoder，也避免多个并发消费方共享可变 Foundation 编码器。
+/// 磁盘快照和 WatchConnectivity 采用相同的日期策略。每次调用创建独立的
+/// encoder / decoder，隔离并发消费方的可变 Foundation 编码器。
 enum ScheduleExternalSnapshotCodec {
     static func encode(
         _ snapshot: ScheduleExternalSnapshot,
@@ -143,8 +141,8 @@ enum ScheduleExternalSnapshotStoreError: Error {
 
 /// 跨 target 共享快照的磁盘仓库。
 ///
-/// 当前主 app 会写入它，widget 读取它；
-/// 后续接入 watch 时，也应优先复用这里，而不是再手搓一套路径拼接与编解码逻辑。
+/// 主 App 写入这份快照，Widget、Live Activity 和 Watch 读取这份快照；
+/// 各 target 复用这里的路径拼接与编解码逻辑。
 enum ScheduleExternalSnapshotStore {
     @discardableResult
     static func save(_ snapshot: ScheduleExternalSnapshot) -> Bool {

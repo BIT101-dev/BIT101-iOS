@@ -2,7 +2,7 @@
 //  PaperDetailView.swift
 //  BIT101-iOS
 //
-//  Split from PaperRootView.swift.
+//  This view was split from PaperRootView.swift.
 //
 
 import SwiftUI
@@ -45,7 +45,7 @@ struct PaperDetailView: View {
                             }
 
                             AppDetailCircleButton {
-                                Task { await viewModel.likePaper() }
+                                likePaper()
                             } label: {
                                 Group {
                                     if viewModel.isLikingPaper {
@@ -84,7 +84,7 @@ struct PaperDetailView: View {
                 HStack(spacing: AppDesignSystem.Spacing.control) {
                     Spacer()
                     Button {
-                        Task { await viewModel.likePaper() }
+                        likePaper()
                     } label: {
                         HStack(spacing: AppDesignSystem.Spacing.regular) {
                             if viewModel.isLikingPaper {
@@ -99,7 +99,7 @@ struct PaperDetailView: View {
                         }
                         .foregroundStyle(isPaperLiked ? Color.white : AppDesignSystem.Palette.highlight)
                         .padding(.horizontal, AppDesignSystem.Spacing.prominent)
-                .frame(minHeight: AppDesignSystem.Size.control.touchTarget)
+                        .frame(minHeight: AppDesignSystem.Size.control.touchTarget)
                         .background(
                             isPaperLiked ? AppDesignSystem.Palette.highlight : AppDesignSystem.Palette.highlightSurface,
                             in: Capsule()
@@ -231,7 +231,7 @@ struct PaperDetailView: View {
         }
     }
 
-    /// 文章正文或评论停在失败态时，在网络恢复或回前台后自动补拉。
+    /// 文章正文或评论处于失败态时，在网络恢复或回到前台后重新请求。
     private func retryDetailIfNeeded() async {
         guard networkObserver.isReachable else { return }
 
@@ -253,9 +253,13 @@ struct PaperDetailView: View {
 
         if shouldRetryPaper {
             await viewModel.refreshAll()
-        } else if shouldRetryComments {
+        } else {
             await viewModel.refreshComments()
         }
+    }
+
+    private func likePaper() {
+        Task { await viewModel.likePaper() }
     }
 }
 
@@ -304,7 +308,7 @@ private struct PaperContentBlockView: View {
         case let .quote(_, text, caption):
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                 PaperRichTextView(text: text, textStyle: .body, textColor: .label)
-                if let caption, !String(caption.characters).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if let caption, containsVisibleText(caption) {
                     PaperRichTextView(text: caption, textStyle: .caption1, textColor: .secondaryLabel)
                 }
             }
@@ -334,7 +338,7 @@ private struct PaperContentBlockView: View {
                     .frame(maxWidth: .infinity)
                     .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
 
-                    if let caption = image.caption, !String(caption.characters).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    if let caption = image.caption, containsVisibleText(caption) {
                         PaperRichTextView(text: caption, textStyle: .caption1, textColor: .secondaryLabel)
                     }
                 }
@@ -355,12 +359,16 @@ private struct PaperContentBlockView: View {
             return .body
         }
     }
+
+    private func containsVisibleText(_ text: AttributedString) -> Bool {
+        !String(text.characters).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 }
 
 /// 用系统原生 `UITextView` 展示文章富文本。
 ///
-/// 这样可以保留 HTML 导入后的粗体、斜体、链接等格式，同时把颜色和默认字体族
-/// 重新映射到系统动态颜色与系统字体，避免深色模式下出现固定黑字。
+/// `UITextView` 保留 HTML 导入后的粗体、斜体、链接等格式。组件将颜色和默认字体族
+/// 映射为系统动态颜色与系统字体，适配深色模式。
 private struct PaperRichTextView: UIViewRepresentable {
     let text: AttributedString
     let textStyle: UIFont.TextStyle
@@ -376,7 +384,7 @@ private struct PaperRichTextView: UIViewRepresentable {
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
         textView.dataDetectorTypes = []
-        textView.linkTextAttributes = [.foregroundColor: UIColor.systemOrange]
+        textView.linkTextAttributes = [.foregroundColor: UIColor(AppDesignSystem.Palette.highlight)]
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return textView
     }
@@ -411,11 +419,6 @@ private struct PaperRichTextView: UIViewRepresentable {
 
             mutable.addAttribute(.font, value: normalizedFont, range: range)
             mutable.addAttribute(.foregroundColor, value: textColor, range: range)
-        }
-
-        if mutable.length == 0 {
-            mutable.addAttribute(.font, value: baseFont, range: fullRange)
-            mutable.addAttribute(.foregroundColor, value: textColor, range: fullRange)
         }
 
         return mutable

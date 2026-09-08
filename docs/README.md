@@ -1,83 +1,50 @@
 # BIT101-iOS 文档目录
 
-`docs/` 目录的目标是把“能跑的代码”补成“能接手的工程”。
+`docs/` 目录记录项目结构、模块边界、数据存储、网络链路和维护流程，供项目接手与后续维护时查阅。
 
 当前文档基线对应 `1.8.0 (35)`，已包含学校新版 bit-login challenge、学期切换、可信成绩单、错误反馈、日历集成、
 Universal Links，以及 Xcode 27 单 Watch App target 结构。
 
 ## 1.8.0 更新内容
 
-- 日程更好用：课程、待办、空教室和上课地点查看更清晰。
-- 查成绩更安心：登录、查成绩和成绩单查看更稳定，遇到问题时提示更明白。
-- 社区更顺手：发帖、评论、搜索、图片和个人主页体验更统一。
-- 多设备同步更及时：桌面小组件、Apple Watch 和灵动岛上的课表信息更可靠。
-- 修复一些问题，让页面加载和日常使用更流畅。
+- 日程：课程、待办、空教室和上课地点查看更清晰。
+- 成绩：登录、查成绩和成绩单查看更稳定，问题提示更清晰。
+- 社区：发帖、评论、搜索、图片和个人主页的使用体验更统一。
+- 同步：桌面小组件、Apple Watch 和灵动岛上的课表信息更及时、更可靠。
+- 修复部分问题，页面加载和日常使用更流畅。
 
-如果你是第一次进入这个仓库，建议从这里开始，而不是直接闯进某个大文件。
+首次进入仓库时，按下面的顺序阅读。
 
 ## 阅读顺序
 
 1. [`ARCHITECTURE.md`](ARCHITECTURE.md)
-   先建立对整体结构、模块边界和 target 协作方式的认识。
+   了解系统边界、整体结构、模块边界，以及主 App、widget、Apple Watch、Live Activity 和 target 的协作关系。
 2. [`CODEBASE_GUIDE.md`](CODEBASE_GUIDE.md)
-   再看代码库导览，理解各模块职责和关键约束。
+   了解各模块的职责、数据流和关键维护约束。
 3. [`STATE_AND_STORAGE.md`](STATE_AND_STORAGE.md)
-   如果你要改缓存、设置、账号隔离、小组件数据源，这份最重要。
+   修改缓存、设置、账号隔离或小组件数据源时，先读这份，确认状态存储位置和新状态存放规则。
 4. [`NETWORKING.md`](NETWORKING.md)
-   如果你要改接口、认证、会话复用或排查网络耗时，先看这份。
+   修改接口、认证、会话复用或排查网络耗时前，先读这份，确认 HTTP、社区 API、共享会话和学校认证链路的边界。
 5. [`MODULE_PLAYBOOK.md`](MODULE_PLAYBOOK.md)
-   如果你准备改具体模块，先看对应模块的维护清单和验证建议。
+   修改具体模块时，查看对应模块的维护清单、常见风险和验证建议。
 6. [`MAINTENANCE_GUIDE.md`](MAINTENANCE_GUIDE.md)
-   如果你准备长期维护、构建、签名、真机调试，这份最重要。
+   长期维护、构建、签名或真机调试时，先读工程维护、账号隔离、小组件和排障说明。
 7. [`CODE_QUALITY_AUDIT.md`](CODE_QUALITY_AUDIT.md)
-   如果你准备继续清理大文件、收重复逻辑或评估哪些 UI 是刻意桥接实现，先看这份。
+   清理大文件、整理重复逻辑或评估刻意保留的 UI 桥接实现时，先读代码清理重点、逐份源码审查、检查脚本覆盖范围和后续清理优先位置。
 8. [`FILE_INDEX.md`](FILE_INDEX.md)
-   如果你已经知道自己要改什么，只是不知道文件在哪，从这里查最快。
+   知道修改目标但不知道文件位置时，从这里查找全部 Swift 源码文件及其职责。
 9. [`DESIGN_SYSTEM.md`](DESIGN_SYSTEM.md)
-   如果你要复用或调整 UI 样式，先看这里，避免重新定义颜色、间距和公共组件。
+   复用或调整 UI 样式时，先看 UI 设计令牌、公共卡片组件、显式变体和自动检查入口，沿用现有颜色、间距和公共组件。
 10. [`TESTING.md`](TESTING.md)
-   说明测试 Target、本地命令和 CI 门禁。
+   查看测试 Target、本地命令和 CI 门禁，了解如何编译和运行测试及 CI 覆盖范围。
 
-## 每份文档的定位
+## 按任务查阅
 
-- `ARCHITECTURE.md`
-  讲系统边界、主 App / widget / Apple Watch / Live Activity 的协作关系。
-- `CODEBASE_GUIDE.md`
-  讲当前代码库里各模块的职责、数据流和维护约束。
-- `STATE_AND_STORAGE.md`
-  讲状态到底落在哪里，以及如何判断一个新状态该放哪。
-- `NETWORKING.md`
-  讲 HTTP、社区 API、共享会话和学校认证链路之间的边界。
-- `MODULE_PLAYBOOK.md`
-  讲“改某个模块时先看什么、最容易坏什么、改完该验什么”。
-- `MAINTENANCE_GUIDE.md`
-  讲工程维护、构建、真机、账号隔离、小组件和排障建议。
-- `CODE_QUALITY_AUDIT.md`
-  讲当前代码清理的落点、逐份源码审查、检查脚本覆盖范围，以及后续继续收口时该优先看哪里。
-- `FILE_INDEX.md`
-  讲全部 Swift 源码文件及其职责。
-- `DESIGN_SYSTEM.md`
-  讲 UI 设计令牌、公共卡片组件、显式变体和自动检查入口。
-- `TESTING.md`
-  讲如何编译和运行测试，以及 CI 覆盖范围。
-
-## 建议使用方式
-
-如果你是：
-
-- 想理解整个项目
-  先读 `ARCHITECTURE.md`
-- 想改某个模块
-  先读 `MODULE_PLAYBOOK.md`
-- 想查某份文件
-  直接看 `FILE_INDEX.md`
-- 想改缓存或账号隔离
-  优先看 `STATE_AND_STORAGE.md`
-- 想确认覆盖更新会不会清掉本地数据
-  优先看 `STATE_AND_STORAGE.md` 和 `MAINTENANCE_GUIDE.md`
-- 想排查构建、签名、扩展问题
-  优先看 `MAINTENANCE_GUIDE.md`
-- 想改 Apple Watch 课表、Smart Stack 或跨 target 共享快照
-  优先看 `ARCHITECTURE.md`、`CODEBASE_GUIDE.md` 和 `FILE_INDEX.md`
-- 想继续清理大文件或桥接实现
-  优先看 `CODE_QUALITY_AUDIT.md`
+- 理解整个项目：`ARCHITECTURE.md`
+- 修改某个模块：`MODULE_PLAYBOOK.md`
+- 查找文件：`FILE_INDEX.md`
+- 修改缓存或账号隔离：`STATE_AND_STORAGE.md`
+- 确认覆盖更新是否会清掉本地数据：`STATE_AND_STORAGE.md` 和 `MAINTENANCE_GUIDE.md`
+- 排查构建、签名或扩展问题：`MAINTENANCE_GUIDE.md`
+- 修改 Apple Watch 课表、Smart Stack 或跨 target 共享快照：`ARCHITECTURE.md`、`CODEBASE_GUIDE.md` 和 `FILE_INDEX.md`
+- 继续清理大文件或桥接实现：`CODE_QUALITY_AUDIT.md`

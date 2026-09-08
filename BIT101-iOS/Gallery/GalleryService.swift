@@ -33,8 +33,8 @@ extension GalleryServiceError: CommunityAPIServiceError {
 
 /// 机器人分栏的分页结果。
 ///
-/// 机器人流并不是后端原生 feed，而是 iOS 侧“从最新流抓几页再本地筛”得到的结果，
-/// 因此需要额外记录“源分页已经推进到哪一页”。
+/// 机器人流没有对应的后端 feed。iOS 从最新流读取源页并在本地按标签筛选，
+/// 因此需要记录源分页已经推进到哪一页。
 struct GalleryBotFeedBatch {
     let posters: [GalleryPoster]
     let nextSourcePage: Int
@@ -43,7 +43,7 @@ struct GalleryBotFeedBatch {
 
 /// 推荐分栏的分页结果。
 ///
-/// 推荐流会额外跳过那些“服务端返回了内容，但本地过滤后为空”的页，避免列表错误地停在半路。
+/// 推荐流会跳过本地过滤后为空的源页，继续读取下一源页。
 struct GalleryRecommendFeedBatch {
     let posters: [GalleryPoster]
     let nextSourcePage: Int
@@ -63,7 +63,7 @@ private enum GalleryBotClassifier {
 
 /// 话题模块网络层。
 ///
-/// 负责帖子流、搜索和消息请求；机器人分栏仅按服务端标签展示，不做内容拦截。
+/// 负责帖子流、搜索和消息请求；机器人分栏使用服务端标签分类，正文筛选保持关闭。
 struct GalleryService {
     private let api: CommunityAPIClient<GalleryServiceError>
 
@@ -91,10 +91,9 @@ struct GalleryService {
         }
     }
 
-    /// 发帖接口返回的最小结果。
+    /// 发帖接口返回的帖子 ID。
     private struct CreatePosterResponse: Decodable {
         let id: Int
-        let msg: String
     }
 
     /// 发评论接口请求体。
@@ -103,7 +102,7 @@ struct GalleryService {
         let text: String
         let replyObj: String?
         let replyUid: Int?
-        let anonymous: Bool?
+        let anonymous: Bool
         let imageMids: [String]
 
         /// 对齐后端 snake_case 字段名。
@@ -187,8 +186,8 @@ struct GalleryService {
         )
     }
 
-    /// 机器人分栏不是服务端原生 feed，这里从“最新”帖子流里向后多抓几页，再筛出机器人帖子；
-    /// 该分栏不使用普通页面的隐藏设置。
+    /// 机器人分栏使用最新帖子流作为源页，向后读取多页并筛出机器人帖子；
+    /// 该分栏沿用独立的隐藏设置语义。
     ///
     /// 机器人帖子在整体帖子流里占比并不高，所以这里采用“多抓几页 + 本地筛”的做法。
     /// 扫描上限主要是为了避免一次请求链拉得过深，影响滚动体验。
@@ -320,7 +319,7 @@ struct GalleryService {
 
     /// 对帖子或评论执行点赞操作。
     ///
-    /// 后端统一把帖子点赞和评论点赞收口到同一个接口，因此这里只需要传对象 ID。
+    /// 后端使用同一个接口处理帖子和评论的点赞，因此这里只传对象 ID。
     func like(objectID: String) async throws -> GalleryLikeResult {
         try await api.request(
             path: "reaction/like",
@@ -358,8 +357,8 @@ struct GalleryService {
 
     /// 获取消息中心各分类的未读数。
     ///
-    /// 服务端目前只提供分类未读数，不提供逐条 read 状态，因此消息页的“伪新消息”
-    /// 需要先依赖这里的结果。
+    /// 服务端目前提供分类未读数，逐条 read 状态由消息页本地伪新消息机制补充；
+    /// 消息页先读取这里的结果。
     func fetchMessageUnreadCounts() async throws -> GalleryMessageUnreadCounts {
         try await api.request(path: "messages/unread_nums")
     }

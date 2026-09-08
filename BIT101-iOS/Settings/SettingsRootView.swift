@@ -5,16 +5,15 @@
 //  Created by Codex on 2026-03-24.
 //
 
+import ImageIO
 import PhotosUI
 import SwiftUI
-import ImageIO
-import WebKit
 
 let mitLicenseText = "MIT License Copyright (c) 2026 BIT101 Contributors Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
 
-/// 设置中心支持的一级菜单。
+/// 此枚举定义设置中心的一级菜单。
 ///
-/// “设置首页卡片”与“从其它页面直达某一设置子页”都依赖这个枚举作为统一路由源。
+/// 设置首页卡片和其它页面的设置深链共用此枚举。
 enum SettingsRoute: String, CaseIterable, Identifiable {
     case account
     case theme
@@ -51,9 +50,9 @@ enum SettingsRoute: String, CaseIterable, Identifiable {
     }
 }
 
-/// 全局设置中心入口。
+/// 此视图展示设置中心的一级入口。
 ///
-/// “我的”页右上角设置、课程表页齿轮、DDL 页齿轮都应当汇入这里。
+/// “我的”页右上角设置、课程表页齿轮和 DDL 页齿轮均进入此视图。
 struct SettingsRootView: View {
     let initialRoute: SettingsRoute?
     let studentID: String
@@ -84,9 +83,9 @@ struct SettingsRootView: View {
     }
 }
 
-/// 设置首页，负责列出全部一级菜单。
+/// 此页面列出全部设置一级菜单。
 ///
-/// 这里仍然保留卡片式入口，而不是直接用 `List`，是为了和“我的”页的入口风格区分开。
+/// 此页面使用卡片式入口，与“我的”页保持风格区分。
 private struct SettingsIndexPage: View {
     let studentID: String
     let onLogout: () -> Void
@@ -124,7 +123,7 @@ private struct SettingsIndexPage: View {
     }
 }
 
-/// 设置首页卡片样式。
+/// 此视图展示设置首页卡片。
 private struct SettingsIndexCard: View {
     let route: SettingsRoute
 
@@ -135,9 +134,9 @@ private struct SettingsIndexCard: View {
     }
 }
 
-/// 根据 route 分发到具体设置页面。
+/// 此视图根据 `route` 展示对应的设置页面。
 ///
-/// 这一层的意义是把“路由选择”和“具体页面实现”解耦，便于其它模块直接按 route 深链进来。
+/// 其它模块通过 `route` 进入对应的设置页面。
 private struct SettingsRoutePage: View {
     let route: SettingsRoute
     let studentID: String
@@ -184,7 +183,7 @@ private struct DeveloperSuggestionPayload: Encodable {
     let attachments: [DeveloperSuggestionAttachment]
 }
 
-/// 向开发者提交功能建议，复用错误反馈 Worker 与邮件通知链路。
+/// 此页面向开发者提交功能建议，并复用错误反馈 Worker 与邮件通知链路。
 struct DeveloperSuggestionPage: View {
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
@@ -224,7 +223,7 @@ struct DeveloperSuggestionPage: View {
                             ForEach(imageDrafts) { draft in
                                 GalleryComposerImageTile(
                                     draft: draft,
-                                    onRetry: {},
+                                    onRetry: { retryImageDraft(id: draft.id) },
                                     onRemove: { removeImageDraft(id: draft.id) },
                                     showsPreparedSuccessIndicator: false
                                 )
@@ -233,54 +232,52 @@ struct DeveloperSuggestionPage: View {
                         .padding(.vertical, AppDesignSystem.Spacing.tiny)
                     }
                 }
-
             }
-
         }
-            .navigationTitle("我想和开发者提建议")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                AppComposerToolbar(
-                    isSubmitting: isSubmitting,
-                    submitTitle: "提交",
-                    submittingTitle: "提交中",
-                    isSubmitDisabled: text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                    onCancel: {
-                        requestDismiss()
-                    },
-                    onSubmit: {
-                        Task { await submit() }
-                    }
-                )
-            }
-            .onChange(of: selectedPhotoItems) { _, newValue in
-                guard !newValue.isEmpty else { return }
-                Task { await addImages(from: newValue) }
-            }
-            .onAppear { checkDraftOnAppear() }
-            .alert("保存草稿？", isPresented: $isShowingDraftAlert) {
-                Button("保存草稿") {
-                    saveDraft()
-                    dismiss()
+        .navigationTitle("我想和开发者提建议")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            AppComposerToolbar(
+                isSubmitting: isSubmitting,
+                submitTitle: "提交",
+                submittingTitle: "提交中",
+                isSubmitDisabled: text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                onCancel: {
+                    requestDismiss()
+                },
+                onSubmit: {
+                    Task { await submit() }
                 }
-                Button("不保存") {
-                    ComposerDraftStore.removeSuggestion()
-                    dismiss()
-                }
-            } message: {
-                Text("保存后下次打开时可以加载草稿。")
+            )
+        }
+        .onChange(of: selectedPhotoItems) { _, newValue in
+            guard !newValue.isEmpty else { return }
+            Task { await addImages(from: newValue) }
+        }
+        .onAppear { checkDraftOnAppear() }
+        .alert("保存草稿？", isPresented: $isShowingDraftAlert) {
+            Button("保存草稿") {
+                saveDraft()
+                dismiss()
             }
-            .alert("加载草稿？", isPresented: $isShowingDraftRestoreAlert) {
-                Button("加载草稿") {
-                    loadSavedDraft()
-                }
-                Button("不加载") {
-                    ComposerDraftStore.removeSuggestion()
-                }
-            } message: {
-                Text("发现上次保存的建议草稿。")
+            Button("不保存") {
+                ComposerDraftStore.removeSuggestion()
+                dismiss()
             }
-            .diagnosticAlert(item: $alert)
+        } message: {
+            Text("保存后下次打开时可以加载草稿。")
+        }
+        .alert("加载草稿？", isPresented: $isShowingDraftRestoreAlert) {
+            Button("加载草稿") {
+                loadSavedDraft()
+            }
+            Button("不加载") {
+                ComposerDraftStore.removeSuggestion()
+            }
+        } message: {
+            Text("发现上次保存的建议草稿。")
+        }
+        .diagnosticAlert(item: $alert)
     }
 
     @MainActor
@@ -288,7 +285,7 @@ struct DeveloperSuggestionPage: View {
         guard !isSubmitting else { return }
         let suggestion = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !suggestion.isEmpty else { return }
-        guard !hasUploadingImages else {
+        guard !hasProcessingImages else {
             alert = AppAlert(title: "提交失败", message: "图片仍在处理中，请稍候。")
             return
         }
@@ -380,6 +377,13 @@ struct DeveloperSuggestionPage: View {
         let drafts = imageDrafts.filter { $0.status.isCompressing }
         guard !drafts.isEmpty else { return }
 
+        let results = await compressImageDrafts(drafts)
+        applyCompressionResults(results, showsFailureAlert: false)
+    }
+
+    private func compressImageDrafts(
+        _ drafts: [GalleryComposerImageDraft]
+    ) async -> [(GalleryComposerImageDraft.ID, Data?)] {
         var results: [(GalleryComposerImageDraft.ID, Data?)] = []
         var completedCount = 0
         await withTaskGroup(of: (GalleryComposerImageDraft.ID, Data?).self) { group in
@@ -400,18 +404,30 @@ struct DeveloperSuggestionPage: View {
                 }
             }
         }
+        return results
+    }
 
+    private func applyCompressionResults(
+        _ results: [(GalleryComposerImageDraft.ID, Data?)],
+        showsFailureAlert: Bool
+    ) {
+        var failed = false
         imageDrafts = imageDrafts.map { draft in
             guard let result = results.first(where: { $0.0 == draft.id }) else { return draft }
             guard let data = result.1 else {
-                var failed = draft
-                failed.status = .failed("图片无法处理")
-                return failed
+                failed = true
+                var failedDraft = draft
+                failedDraft.status = .failed("图片无法处理")
+                return failedDraft
             }
-            var prepared = draft
-            prepared.uploadData = data
-            prepared.status = .prepared
-            return prepared
+            var preparedDraft = draft
+            preparedDraft.uploadData = data
+            preparedDraft.status = .prepared
+            return preparedDraft
+        }
+
+        if showsFailureAlert && failed {
+            alert = AppAlert(title: "图片添加失败", message: "部分图片无法处理，请删除后重新选择。")
         }
     }
 
@@ -419,12 +435,8 @@ struct DeveloperSuggestionPage: View {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !imageDrafts.isEmpty
     }
 
-    private var hasUploadingImages: Bool {
-        imageDrafts.contains {
-            if case .uploading = $0.status { return true }
-            if case .compressing = $0.status { return true }
-            return false
-        }
+    private var hasProcessingImages: Bool {
+        imageDrafts.contains { $0.status.isCompressing }
     }
 
     private func addImages(from items: [PhotosPickerItem]) async {
@@ -457,51 +469,30 @@ struct DeveloperSuggestionPage: View {
         }
         imageDrafts.append(contentsOf: drafts)
 
-        var compressed: [(GalleryComposerImageDraft.ID, Data?)] = []
-        var completedCount = 0
-        await withTaskGroup(of: (GalleryComposerImageDraft.ID, Data?).self) { group in
-            for draft in drafts {
-                group.addTask {
-                    (draft.id, try? SuggestionImageCompressor.compress(draft.previewData))
-                }
-            }
-            for await result in group {
-                compressed.append(result)
-                completedCount += 1
-                let progress = Int((Double(completedCount) / Double(drafts.count) * 100).rounded())
-                imageDrafts = imageDrafts.map { draft in
-                    guard draft.status.isCompressing else { return draft }
-                    var updated = draft
-                    updated.progress = progress
-                    return updated
-                }
-            }
-        }
-
-        var failed = false
-        imageDrafts = imageDrafts.map { draft in
-            guard let result = compressed.first(where: { $0.0 == draft.id }) else { return draft }
-            guard let data = result.1 else {
-                failed = true
-                var failedDraft = draft
-                failedDraft.status = .failed("图片无法处理")
-                return failedDraft
-            }
-            var preparedDraft = draft
-            preparedDraft.uploadData = data
-            preparedDraft.status = .prepared
-            return preparedDraft
-        }
-
-        if failed {
-            alert = AppAlert(title: "图片添加失败", message: "部分图片无法处理，请删除后重新选择。")
-        }
+        let compressed = await compressImageDrafts(drafts)
+        applyCompressionResults(compressed, showsFailureAlert: true)
     }
 
     private func removeImageDraft(id: GalleryComposerImageDraft.ID) {
         imageDrafts.removeAll { $0.id == id }
     }
 
+    private func retryImageDraft(id: GalleryComposerImageDraft.ID) {
+        guard !isSubmitting,
+              let draft = imageDrafts.first(where: { $0.id == id }),
+              case .failed = draft.status else { return }
+
+        var retryingDraft = draft
+        retryingDraft.progress = 0
+        retryingDraft.uploadData = nil
+        retryingDraft.status = .compressing
+        imageDrafts = imageDrafts.map { $0.id == id ? retryingDraft : $0 }
+
+        Task {
+            let results = await compressImageDrafts([retryingDraft])
+            applyCompressionResults(results, showsFailureAlert: true)
+        }
+    }
 }
 
 private extension GalleryComposerImageDraft.Status {
@@ -560,7 +551,3 @@ private enum SuggestionImageCompressor {
         }
     }
 }
-
-/// 账号设置页。
-///
-/// 包含个人资料编辑、头像上传、登录状态检查和退出登录。

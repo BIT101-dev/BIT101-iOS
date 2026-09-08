@@ -6,12 +6,12 @@
 import Foundation
 
 extension ScheduleViewModel {
-    /// 课表周次左移一周。手动浏览不受课程最后一周限制。
+    /// 课表周次左移一周。手动浏览允许超过课程最后一周。
     func previousWeek() {
         selectedWeek = ScheduleWeekCodec.previousWeek(before: selectedWeek)
     }
 
-    /// 课表周次右移一周。手动浏览不受课程最后一周限制。
+    /// 课表周次右移一周。手动浏览允许超过课程最后一周。
     func nextWeek() {
         selectedWeek = ScheduleWeekCodec.nextWeek(after: selectedWeek)
     }
@@ -21,10 +21,21 @@ extension ScheduleViewModel {
         selectedWeek = resolvedAutomaticWeek()
     }
 
+    private func validatedScheduleTitle(_ title: String) throws -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw scheduleValidationError("课表名称不能为空。")
+        }
+        guard trimmed.count <= scheduleNameCharacterLimit else {
+            throw scheduleValidationError("课表名称最多 8 个字符。")
+        }
+        return trimmed
+    }
+
     /// 手动修正当前课表的第一周起始日期。
     ///
-    /// 正常切换学期时会自动使用学校按学期返回的第一周日期；这里只作为学校数据尚未更新
-    /// 或临时校历调整时的覆盖入口。
+    /// 学期切换使用学校按学期返回的第一周日期；学校数据更新前或临时校历调整时，
+    /// 可通过此入口覆盖日期。
     func setFirstDay(_ date: Date) {
         cache.firstDayString = ScheduleDateCodec.formatDate(ScheduleDateCodec.monday(containing: date))
         selectedWeek = resolvedAutomaticWeek()
@@ -33,7 +44,7 @@ extension ScheduleViewModel {
 
     /// 在“我的课表”和导入课表之间循环切换。
     ///
-    /// 这里故意做成 loop 语义：无论向上还是向下滑，到边界后都回卷。
+    /// 采用 loop 语义：向上或向下滑动到边界后回卷。
     func cycleCourseSchedule(step: Int) {
         let variants = courseSchedules
         guard variants.count > 1 else { return }
@@ -45,26 +56,14 @@ extension ScheduleViewModel {
 
     /// 重命名当前账号自己的课表。
     func renamePrimarySchedule(to title: String) throws {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            throw scheduleValidationError("课表名称不能为空。")
-        }
-        guard trimmed.count <= scheduleNameCharacterLimit else {
-            throw scheduleValidationError("课表名称最多 8 个字符。")
-        }
+        let trimmed = try validatedScheduleTitle(title)
         cache.primaryScheduleTitle = trimmed
         persist()
     }
 
     /// 重命名一份导入的分享课表。
     func renameSharedSchedule(id: String, to title: String) throws {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            throw scheduleValidationError("课表名称不能为空。")
-        }
-        guard trimmed.count <= scheduleNameCharacterLimit else {
-            throw scheduleValidationError("课表名称最多 8 个字符。")
-        }
+        let trimmed = try validatedScheduleTitle(title)
         guard let index = cache.sharedSchedules.firstIndex(where: { $0.id == id }) else { return }
         cache.sharedSchedules[index].title = trimmed
         persist()
@@ -77,13 +76,13 @@ extension ScheduleViewModel {
         persist()
     }
 
-    /// 设置是否显示周六课程。
+    /// 设置周六课程显示。
     func setShowSaturday(_ value: Bool) {
         cache.showSaturday = value
         persist()
     }
 
-    /// 设置是否显示周日课程。
+    /// 设置周日课程显示。
     func setShowSunday(_ value: Bool) {
         cache.showSunday = value
         persist()
@@ -95,25 +94,25 @@ extension ScheduleViewModel {
         persist()
     }
 
-    /// 设置是否高亮今天对应的课程列。
+    /// 设置今天对应的课程列高亮显示。
     func setShowHighlightToday(_ value: Bool) {
         cache.showHighlightToday = value
         persist()
     }
 
-    /// 设置是否显示课表网格分割线。
+    /// 设置课表网格分割线显示。
     func setShowDivider(_ value: Bool) {
         cache.showDivider = value
         persist()
     }
 
-    /// 设置是否显示当前时间线。
+    /// 设置当前时间线显示。
     func setShowCurrentTime(_ value: Bool) {
         cache.showCurrentTime = value
         persist()
     }
 
-    /// 设置是否在课表网格中显示考试块。
+    /// 设置课表网格中的考试块显示。
     func setShowExamInfo(_ value: Bool) {
         cache.showExamInfo = value
         persist()
@@ -143,20 +142,19 @@ extension ScheduleViewModel {
         guard cache.iCloudSyncEnabled != value else { return }
         cache.iCloudSyncEnabled = value
 
+        persist(source: .localWithoutCloudPush)
+
+        #if canImport(CloudKit)
         if value {
-            persist(source: .localWithoutCloudPush)
-            #if canImport(CloudKit)
             let localCache = cache
             Task {
                 await ScheduleCloudSyncManager.shared.reconcileAfterEnabling(localCache: localCache)
             }
-            #endif
-        } else {
-            persist(source: .localWithoutCloudPush)
         }
+        #endif
     }
 
-    /// 设置是否启用课程提醒 Live Activity。
+    /// 设置课程提醒 Live Activity 启用状态。
     func setShowCourseLiveActivityReminder(_ value: Bool) {
         cache.showCourseLiveActivityReminder = value
         persist()

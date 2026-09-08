@@ -18,7 +18,7 @@ struct MapNotice: Identifiable {
 
 /// 地图页定位控制器。
 ///
-/// 统一封装定位授权状态、请求当前位置和错误提示，避免视图层直接跟 `CLLocationManager` 打交道。
+/// 封装定位授权状态、当前位置请求和错误提示。视图层通过控制器访问 `CLLocationManager`。
 @MainActor
 final class CampusLocationController: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published private(set) var authorizationStatus: CLAuthorizationStatus
@@ -34,7 +34,7 @@ final class CampusLocationController: NSObject, ObservableObject, CLLocationMana
         manager.desiredAccuracy = kCLLocationAccuracyBest
     }
 
-    /// 当前定位权限是否足够直接请求位置。
+    /// 表示当前定位权限足以直接请求位置。
     var isAuthorized: Bool {
         authorizationStatus == .authorizedAlways || authorizationStatus == .authorizedWhenInUse
     }
@@ -59,7 +59,7 @@ final class CampusLocationController: NSObject, ObservableObject, CLLocationMana
         }
     }
 
-    /// 当定位权限变化时，必要时自动继续完成一次挂起的定位请求。
+    /// 更新定位授权状态，并在授权后继续请求当前位置。
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authorizationStatus = manager.authorizationStatus
         if isAuthorized {
@@ -67,12 +67,12 @@ final class CampusLocationController: NSObject, ObservableObject, CLLocationMana
         }
     }
 
-    /// 位置回调当前只作为契约保留，聚焦动作交给地图桥接层自己读取系统位置。
+    /// 位置回调保留 `CLLocationManagerDelegate` 契约，地图桥接层自行读取系统位置。
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        // `requestLocation()` 依赖这个 delegate 回调存在；这里不再向外发布坐标，只保留契约。
+        // `requestLocation()` 通过此 delegate 回调返回；坐标由地图桥接层读取。
     }
 
-    /// 过滤掉常见的瞬时错误，只把真正需要用户感知的问题弹出来。
+    /// 过滤常见的瞬时错误，并为需要用户处理的错误显示提示。
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         let nsError = error as NSError
         if nsError.domain == kCLErrorDomain,

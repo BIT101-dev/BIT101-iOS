@@ -39,10 +39,10 @@ nonisolated enum AcademicTermPolicy {
     /// September fallback boundary (for example, August 31).
     static func preferredCachedTerm(cache: ScheduleCache, on date: Date) -> String {
         let terms = adjacentTerms(on: date)
-        guard terms.count == 2 else { return preferredTerm(on: date) }
         // A user may explicitly fetch and select the upcoming semester before
-        // its first week begins. Smart switching is only allowed to advance a
-        // timetable; it must not undo that explicit selection on every launch.
+        // its first week begins. Smart switching advances the timetable after
+        // the selected term starts and preserves that explicit selection before
+        // that date.
         if cache.currentTerm == terms[1] {
             return terms[1]
         }
@@ -55,17 +55,16 @@ nonisolated enum AcademicTermPolicy {
     }
 
     /// Distinguishes teaching time from the post-week-16/pre-next-term vacation.
-    /// Unknown data intentionally preserves the old behavior instead of silently
-    /// disabling useful refreshes for a user whose timetable has never synced.
+    /// Unknown data preserves the old behavior and keeps useful refreshes available
+    /// when a user's timetable has never synced.
     static func activityPhase(cache: ScheduleCache, on date: Date) -> AcademicActivityPhase {
         let terms = adjacentTerms(on: date)
-        guard let currentTerm = terms.first else { return .unknown }
+        let currentTerm = terms[0]
         let currentStart = cache.termSchedulesByTerm[currentTerm]?.firstDay
             ?? (cache.currentTerm == currentTerm ? cache.firstDay : nil)
         guard let currentStart else { return .unknown }
 
-        if let nextTerm = terms.dropFirst().first,
-           let nextStart = cache.termSchedulesByTerm[nextTerm]?.firstDay,
+        if let nextStart = cache.termSchedulesByTerm[terms[1]]?.firstDay,
            date >= nextStart
         {
             return .teaching

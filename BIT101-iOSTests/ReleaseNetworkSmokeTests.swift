@@ -4,8 +4,8 @@ import XCTest
 
 /// 发布前真机网络冒烟测试。
 ///
-/// 这份测试仅作为共享 runner 的回归壳层；正式 App 的当前登录态冒烟由同一份 runner
-/// 通过 `bit101://network-smoke/...` 在主进程内执行。
+/// 测试根据编译条件或 `BIT101_NETWORK_SMOKE_SCOPE` 选择 smoke 范围，调用共享 runner。
+/// 正式 App 的当前登录态冒烟通过 `bit101://network-smoke/...` 在主进程内触发同一 runner。
 @MainActor
 final class ReleaseNetworkSmokeTests: XCTestCase {
     private var scope: NetworkSmokeScope {
@@ -20,7 +20,7 @@ final class ReleaseNetworkSmokeTests: XCTestCase {
 #endif
     }
 
-    func testReadOnlyUserNetworkFlows() async throws {
+    func testReadOnlyUserNetworkFlows() async {
         let report = await ReleaseNetworkSmokeRunner().run(scope: scope)
         XCTAssertTrue(report.passed, report.failureMessage)
     }

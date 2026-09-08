@@ -4,9 +4,9 @@ import Foundation
 
 #if DEBUG || RELEASE_NETWORK_SMOKE
 
-/// 发布前网络冒烟的范围。
+/// NetworkSmokeScope 表示发布前网络冒烟执行的范围。
 ///
-/// 这里与脚本入口保持同名同义，方便正式 App、测试宿主和命令行脚本复用同一套探针。
+/// NetworkSmokeScope 使用与脚本入口一致的名称和语义；正式 App、测试宿主和命令行脚本复用同一组探针。
 enum NetworkSmokeScope: String, Codable {
     case all
     case bit101
@@ -40,7 +40,8 @@ enum NetworkSmokeScope: String, Codable {
                 || name.hasPrefix("成绩")
                 || name.hasPrefix("可信成绩单")
         case .transcript:
-            return name == "可信成绩单接口"
+            return name == "BIT101 登录状态"
+                || name == "可信成绩单接口"
         case .schedule:
             return name == "BIT101 登录状态"
                 || name == "当前学期"
@@ -50,7 +51,7 @@ enum NetworkSmokeScope: String, Codable {
     }
 }
 
-/// 冒烟结果的持久化报告。
+/// ReleaseNetworkSmokeReport 保存一次网络冒烟执行的结果。
 struct ReleaseNetworkSmokeReport: Codable {
     let runID: String
     let scope: NetworkSmokeScope
@@ -79,7 +80,7 @@ struct ReleaseNetworkSmokeReport: Codable {
     }
 }
 
-/// 冒烟报告的本地落盘位置。
+/// ReleaseNetworkSmokeReportStore 保存网络冒烟报告。
 enum ReleaseNetworkSmokeReportStore {
     private static let directoryName = "NetworkSmoke"
     private static let filePrefix = "release-network-smoke"
@@ -125,7 +126,7 @@ enum ReleaseNetworkSmokeReportStore {
     }
 }
 
-/// `bit101://network-smoke/...` 触发参数。
+/// ReleaseNetworkSmokeLaunchRequest 解析 `bit101://network-smoke/...` 触发参数。
 struct ReleaseNetworkSmokeLaunchRequest {
     let scope: NetworkSmokeScope
     let runID: String
@@ -154,7 +155,7 @@ struct ReleaseNetworkSmokeLaunchRequest {
     }
 }
 
-/// 发布前网络冒烟执行器。
+/// ReleaseNetworkSmokeRunner 在当前进程执行发布前网络探针。
 ///
 /// 这份实现同时服务于：
 /// - 真机上的正式 App：通过 `bit101://network-smoke/...` 在当前进程内复用会话执行；
@@ -177,7 +178,6 @@ final class ReleaseNetworkSmokeRunner {
                 return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
             }
             print("NETWORK_SMOKE_PASS name=BIT101 登录状态 elapsed=\(Self.duration(Date().timeIntervalSince(loginStartedAt)))")
-            _ = signedInStudentID
         } catch {
             recordFailure("BIT101 登录状态", error.localizedDescription, scope: scope, elapsed: Date().timeIntervalSince(loginStartedAt))
             return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
@@ -185,7 +185,7 @@ final class ReleaseNetworkSmokeRunner {
 
         let gallery = GalleryService()
         _ = await probe("open.aihelpme.dev 首页", scope: scope) {
-            try await Self.fetchWebPage("https://open.aihelpme.dev")
+            try await Self.fetchDataCount(urlString: "https://open.aihelpme.dev")
         }
         let posters = await probe("话廊最新列表", scope: scope) {
             try await gallery.fetchFeed(kind: .newest, page: nil)
@@ -203,11 +203,11 @@ final class ReleaseNetworkSmokeRunner {
             }
             if let image = poster.images.first ?? Optional(poster.user.avatar) {
                 _ = await probe("话廊图片下载", scope: scope) {
-                    try await Self.download(urlString: image.lowUrl.isEmpty ? image.url : image.lowUrl)
+                    try await Self.fetchDataCount(urlString: image.lowUrl.isEmpty ? image.url : image.lowUrl)
                 }
             }
             _ = await probe("话廊网页详情", scope: scope) {
-                try await Self.fetchWebPage("https://open.aihelpme.dev/gallery/\(poster.id)")
+                try await Self.fetchDataCount(urlString: "https://open.aihelpme.dev/gallery/\(poster.id)")
             }
         } else {
             recordFailure("话廊最新列表", "服务器返回空列表，无法继续验证详情与图片", scope: scope)
@@ -242,7 +242,7 @@ final class ReleaseNetworkSmokeRunner {
                 try await courses.fetchCourseHistories(number: course.number)
             }
             _ = await probe("学业课程网页详情", scope: scope) {
-                try await Self.fetchWebPage("https://open.aihelpme.dev/course/\(course.id)")
+                try await Self.fetchDataCount(urlString: "https://open.aihelpme.dev/course/\(course.id)")
             }
         } else {
             recordFailure("学业课程列表", "服务器返回空列表，无法继续验证课程详情", scope: scope)
@@ -278,8 +278,7 @@ final class ReleaseNetworkSmokeRunner {
             _ = await probe("用户帖子", scope: scope) { try await mine.fetchUserPosters(userID: myInfo.user.id, page: 0) }
         }
 
-        // 可信成绩单最容易受当前会话状态影响，因此放在学校链路最前面，尽量贴近
-        // 用户手动点“申请可信成绩单”时的行为。
+        // 可信成绩单探针位于学校相关探针的首段，模拟用户手动点击“申请可信成绩单”的路径。
         let scoreService = ScoreService()
         _ = await probe("可信成绩单接口", scope: scope) {
             try await scoreService.fetchTrustedTranscriptPages()
@@ -325,8 +324,8 @@ final class ReleaseNetworkSmokeRunner {
             }
         }
 
-        // 成绩页与可信成绩单同样属于学校网络链路；短信二次验证时记录为
-        // AUTH_BLOCKED，而不是误判为网络故障。
+        // 成绩页与可信成绩单同属学校网络链路；短信二次验证时记录为 AUTH_BLOCKED，
+        // 区分认证阻塞与网络故障。
         let scoreChallenge = await probe("成绩认证接口", scope: scope) {
             try await scoreService.startScoreChallenge()
         }
@@ -340,11 +339,11 @@ final class ReleaseNetworkSmokeRunner {
         }
 
         _ = await probe("App Store 更新接口", scope: scope) {
-            try await Self.fetchWebPage("https://itunes.apple.com/lookup?id=6761147125&country=cn")
+            try await Self.fetchDataCount(urlString: "https://itunes.apple.com/lookup?id=6761147125&country=cn")
         }
         _ = await probe("紧急更新配置接口", scope: scope) {
-            try await Self.fetchWebPage(
-                "https://update.aihelpme.dev/emergency-update.json"
+            try await Self.fetchDataCount(
+                urlString: "https://update.aihelpme.dev/emergency-update.json"
             )
         }
         _ = await probe("feedback.aihelpme.dev 写入恢复", scope: scope) {
@@ -428,12 +427,7 @@ final class ReleaseNetworkSmokeRunner {
         }
     }
 
-    private nonisolated static func download(urlString: String) async throws -> Int {
-        guard let url = URL(string: urlString) else { throw URLError(.badURL) }
-        return try await fetch(url).count
-    }
-
-    private nonisolated static func fetchWebPage(_ urlString: String) async throws -> Int {
+    private nonisolated static func fetchDataCount(urlString: String) async throws -> Int {
         guard let url = URL(string: urlString) else { throw URLError(.badURL) }
         return try await fetch(url).count
     }

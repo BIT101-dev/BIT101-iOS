@@ -62,11 +62,11 @@ struct BIT101APIClient {
     private let noRedirectDelegate = NoRedirectURLSessionDelegate()
     private let redirectDelegate = HTTPSUpgradingRedirectDelegate()
 
-    /// 构造两套会话：
+    /// 初始化两套会话：
     /// 1. 正常跟随重定向
     /// 2. 手动接管 302
     ///
-    /// 学校 SSO 链路里两种模式都会用到，所以在这里一次性准备好。
+    /// 学校 SSO 链路需要这两种模式。
     init() {
         let configuration = URLSessionConfiguration.default
         configuration.httpCookieAcceptPolicy = .always
@@ -91,7 +91,7 @@ struct BIT101APIClient {
 
     /// 拉取学校登录页并解析出后续登录所需上下文。
     ///
-    /// 这里不会做任何缓存，因为学校 CAS 的 salt/execution 都是一次性的。
+    /// 学校 CAS 的 salt/execution 只用于当前请求，函数直接解析响应。
     func fetchSchoolLoginContext() async throws -> SchoolLoginContext {
         var request = URLRequest(url: schoolBaseURL.appending(path: "cas/login"))
         request.httpMethod = "GET"
@@ -115,7 +115,7 @@ struct BIT101APIClient {
 
     /// 提交学校 CAS 登录表单。
     ///
-    /// 返回值只表示学校侧认证是否成功，不代表 BIT101 自己已经完成注册或登录。
+    /// 返回值表示学校侧认证结果；BIT101 注册或登录状态由后续流程确定。
     func loginSchool(studentID: String, password: String, salt: String, execution: String) async throws -> Bool {
         let encryptedPassword = try LoginCrypto.encryptPassword(password, saltBase64: salt)
         let encryptedCaptchaPayload = try LoginCrypto.encryptPassword("{}", saltBase64: salt)
@@ -141,7 +141,7 @@ struct BIT101APIClient {
         let (data, response) = try await sendRequest(request, followRedirects: false)
 
         if (300 ..< 400).contains(response.statusCode) {
-            // 正确密码时学校会进入一串 SSO 成功跳转；如果这里不补走，后续教务和乐学接口仍然拿不到学校 cookie。
+            // 正确密码时学校会进入一串 SSO 成功跳转；继续访问跳转链后，教务和乐学接口才能获得学校 cookie。
             if let location = response.value(forHTTPHeaderField: "Location") {
                 try await finishSchoolLoginRedirectChain(from: location, relativeTo: requestURL)
             }
@@ -158,14 +158,13 @@ struct BIT101APIClient {
 
     /// 手动补走学校侧 SSO 的 302 链路，确保相关学校 cookie 真正落盘。
     ///
-    /// 如果缺了这一步，后续看起来像“学校登录成功了”，但教务/乐学接口依赖的学校 cookie
-    /// 实际上还没完整写入，会导致部分功能在进入主界面后再失败。
+    /// 这一步继续访问跳转链并完成学校 cookie 写入；教务和乐学接口在进入主界面后依赖这些 cookie。
     private func finishSchoolLoginRedirectChain(from location: String, relativeTo baseURL: URL) async throws {
         guard var nextURL = HTTPSURLUpgrade.resolvedURL(from: location, relativeTo: baseURL) else {
             return
         }
 
-        // 学校成功页通常会经历多次 302，这里手动接管，避免被 ATS 卡在中间的 HTTP 地址上。
+        // 学校成功页通常会经历多次 302，这里手动接管并将中间 HTTP 地址升级为 HTTPS，满足 ATS 要求。
         for _ in 0 ..< 8 {
             var request = URLRequest(url: nextURL)
             request.httpMethod = "GET"
@@ -179,10 +178,10 @@ struct BIT101APIClient {
                 continue
             }
 
-            // 新版统一认证把登录成功后的浏览器落点改成了一个前端 gate 路由。
-            // CAS 会话 Cookie 已在上一步 302 时写入；该路由对普通 URLSession GET
-            // 返回 401，但这并不代表刚完成的用户名密码认证失败。真正的业务系统
-            // 会在下一次带 service 参数访问 CAS 时继续完成票据跳转。
+            // 新版统一认证把登录成功后的浏览器落点改成了前端 gate 路由。
+            // CAS 会话 Cookie 在上一步 302 时写入；普通 URLSession GET 访问该路由
+            // 返回 401，用户名密码认证仍已完成。后续带 service 参数访问 CAS 时，业务系统
+            // 继续完成票据跳转。
             if Self.isAcceptedSchoolLoginCompletion(
                 statusCode: response.statusCode,
                 url: nextURL,
@@ -240,7 +239,7 @@ struct BIT101APIClient {
         )
     }
 
-    /// 以“登录模式”完成 BIT101 自身注册/登录。
+    /// 使用“登录模式”完成 BIT101 自身注册/登录。
     func register(password: String, token: String, code: String) async throws -> RegisterResponse {
         try await sendJSONRequest(
             url: bit101BaseURL.appending(path: "user/register"),
@@ -254,7 +253,7 @@ struct BIT101APIClient {
         )
     }
 
-    /// 检查 BIT101 自己的 fake-cookie 是否仍然有效。
+    /// 检查 BIT101 自己的 fake-cookie 有效性。
     func checkBIT101Login(fakeCookie: String) async throws -> Bool {
         guard !fakeCookie.isEmpty else {
             return false
@@ -275,20 +274,9 @@ struct BIT101APIClient {
         }
     }
 
-    /// 发送普通字符串请求，主要用于学校 HTML 页面。
-    private func sendStringRequest(_ request: URLRequest) async throws -> String {
-        let (data, response) = try await sendRequest(request, followRedirects: true)
-
-        guard (200 ..< 400).contains(response.statusCode) else {
-            throw errorForStatusCode(response.statusCode)
-        }
-
-        return String(decoding: data, as: UTF8.self)
-    }
-
     /// 发送 JSON 请求并自动解码响应体。
     ///
-    /// 登录链路里的 BIT101 自有接口都走这条路径：编码 body、发送请求、检查状态码、解码响应。
+    /// BIT101 登录接口均在此编码请求体、发送请求、检查状态码并解码响应。
     private func sendJSONRequest<Body: Encodable, Response: Decodable>(
         url: URL,
         method: String,
@@ -312,8 +300,6 @@ struct BIT101APIClient {
     }
 
     /// 根据是否允许跟随重定向，选择合适的 `URLSession` 并统一做 HTTPS 升级。
-    ///
-    /// 这里是整个登录链路里最核心的网络入口，学校接口和 BIT101 接口最终都从这里出。
     private func sendRequest(_ request: URLRequest, followRedirects: Bool) async throws -> (Data, HTTPURLResponse) {
         let data: Data
         let response: URLResponse
@@ -348,7 +334,7 @@ struct BIT101APIClient {
 
     /// 把表单字段编码成 `application/x-www-form-urlencoded` 数据。
     ///
-    /// 学校 CAS 登录表单不收 JSON，因此需要保留这条传统表单编码路径。
+    /// 学校 CAS 登录表单使用 `application/x-www-form-urlencoded`，这条编码路径继续保留。
     private func formBody(_ fields: [(String, String)]) -> Data {
         let encoded = fields
             .map { key, value in

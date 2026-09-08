@@ -8,7 +8,7 @@ import Security
 
 /// 登录状态存储。
 ///
-/// 学号和密码进 Keychain，fake-cookie 和登录标记进 `UserDefaults`，学校 cookie 放系统 `HTTPCookieStorage`。
+/// 学号和密码存入 Keychain，fake-cookie 和登录标记存入 `UserDefaults`，学校 cookie 由系统 `HTTPCookieStorage` 管理。
 final class LoginStorage {
     static let shared = LoginStorage()
 
@@ -30,7 +30,7 @@ final class LoginStorage {
 
     /// 通知全局“当前账号相关数据已变化”。
     ///
-    /// 课表缓存、小组件、设置隔离等都依赖这条通知做账号切换刷新。
+    /// 账号切换时，课表缓存、小组件和设置隔离通过这条通知刷新。
     private func notifyAccountChanged() {
         NotificationCenter.default.post(name: .loginStorageDidChange, object: nil)
     }
@@ -64,8 +64,8 @@ final class LoginStorage {
 
     /// 保存登录成功后的本地会话。
     ///
-    /// 这里既保存可长期复用的账号密码，也保存当前 fake-cookie。这样应用重启后既可以
-    /// 直接乐观进入主界面，又能在后台必要时静默重登学校 SSO。
+    /// 这里保存可长期复用的账号密码和当前 fake-cookie。
+    /// 应用重启后可以直接进入主界面，并在需要时于后台静默重登学校 SSO。
     func saveLoginState(studentID: String, password: String, fakeCookie: String) throws {
         try saveKeychainValue(studentID, account: KeychainAccount.studentID)
         try saveKeychainValue(password, account: KeychainAccount.password)
@@ -73,13 +73,13 @@ final class LoginStorage {
         notifyAccountChanged()
     }
 
-    /// 清理当前会话，并清掉已保存密码，但保留学号，方便下次重新输入。
+    /// 清除当前会话和已保存密码，保留学号供下次输入。
     ///
-    /// 这是“退出登录但不清空学号”的语义，主要用于发现远端会话失效时快速回到未登录态。
+    /// 这是“退出登录并保留学号”的语义，适用于远端会话失效后快速回到未登录态。
     func clearSession() {
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
 
-        // 只清理学校身份相关域，避免把 App 内其他服务或调试环境的 Cookie 一并删除。
+        // 清理学校身份相关域，保留 App 内其他服务和调试环境的 Cookie。
         TeachingCenterSessionState.shared.clearSchoolAuthenticationCookies()
         deleteKeychainValue(account: KeychainAccount.password)
         notifyAccountChanged()
@@ -87,28 +87,29 @@ final class LoginStorage {
 
     /// 删除客户端本地保存的所有登录相关数据。
     ///
-    /// 这是更彻底的“清文稿与数据”语义，会同时抹掉 Keychain 中的账号密码。
+    /// 这是清除全部本地登录数据的语义，同时删除 Keychain 中的学号和密码。
     func clearAllLocalData() {
-        defaults.removeObject(forKey: DefaultsKey.fakeCookie)
-        TeachingCenterSessionState.shared.clearSchoolAuthenticationCookies()
-        deleteKeychainValue(account: KeychainAccount.studentID)
-        deleteKeychainValue(account: KeychainAccount.password)
+        clearPersistedLoginData()
         notifyAccountChanged()
     }
 
-    /// 检测“卸载重装后的首次启动”，并在登录页读取本地凭据前清掉残留 Keychain。
+    /// 检测“卸载重装后的首次启动”，并在登录页读取本地凭据前删除 Keychain 中的残留凭据。
     ///
-    /// `UserDefaults` 会在卸载时被系统清掉，而 Keychain 通常会保留。
-    /// 因此只要发现安装标记缺失，就说明这是一次全新安装或重装后的首次启动，
-    /// 需要把上一个安装遗留的学号密码一起抹掉，避免登录界面先闪出旧账号。
+    /// 卸载时系统会清除 `UserDefaults`，Keychain 通常会保留数据。
+    /// 发现安装标记缺失时，当前启动属于全新安装或重装后的首次启动。
+    /// 此时删除上一个安装遗留的学号和密码，避免登录界面先显示旧账号。
     private func purgePersistedCredentialsIfNeededAfterReinstall() {
         guard !defaults.bool(forKey: DefaultsKey.installationMarker) else { return }
 
+        clearPersistedLoginData()
+        defaults.set(true, forKey: DefaultsKey.installationMarker)
+    }
+
+    private func clearPersistedLoginData() {
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
         TeachingCenterSessionState.shared.clearSchoolAuthenticationCookies()
         deleteKeychainValue(account: KeychainAccount.studentID)
         deleteKeychainValue(account: KeychainAccount.password)
-        defaults.set(true, forKey: DefaultsKey.installationMarker)
     }
 
     private func saveKeychainValue(_ value: String, account: String) throws {

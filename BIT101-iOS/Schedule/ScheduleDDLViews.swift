@@ -7,10 +7,9 @@
 
 import SwiftUI
 
-
 /// DDL 分页。
 ///
-/// DDL 页当前走最原生的 `List(.insetGrouped)`，与成绩和空教室保持一致。
+/// DDL 页使用 `appGroupedListStyle()`，与成绩和空教室保持一致。
 struct DDLScheduleTabView: View {
     @ObservedObject var viewModel: ScheduleViewModel
     @State private var selectedEvent: DDLEventRecord?
@@ -37,54 +36,54 @@ struct DDLScheduleTabView: View {
                     )
                 }
 
-                    if !viewModel.hasLexueCalendarURL {
-                        Section {
-                            AppEmptyState(
-                                title: "暂无 DDL",
-                                systemImage: "list.bullet.clipboard",
-                                message: "先获取乐学日程，或手动添加一条。",
-                                actionTitle: "获取乐学日程",
-                                onAction: {
-                                    Task { await refreshDDL() }
-                                }
-                            )
-                            .frame(maxWidth: .infinity)
-                        }
-                    } else if viewModel.visibleDDLEvents.isEmpty {
-                        Section {
-                            AppEmptyState(
-                                title: "暂无 DDL",
-                                systemImage: "list.bullet.clipboard",
-                                message: "当前没有可展示的 DDL。"
-                            )
-                            .frame(maxWidth: .infinity)
-                        }
-                    } else {
-                        Section {
-                            ForEach(viewModel.visibleDDLEvents) { event in
-                                DDLEventCard(
-                                    event: event,
-                                    remainText: viewModel.ddlRemainingText(for: event),
-                                    dueText: viewModel.ddlDueText(for: event),
-                                    tint: color(for: event),
-                                    onToggleDone: { viewModel.toggleDDLDone(event) },
-                                    onOpenDetail: { selectedEvent = event }
-                                )
+                if !viewModel.hasLexueCalendarURL {
+                    Section {
+                        AppEmptyState(
+                            title: "暂无 DDL",
+                            systemImage: "list.bullet.clipboard",
+                            message: "先获取乐学日程，或手动添加一条。",
+                            actionTitle: "获取乐学日程",
+                            onAction: {
+                                Task { await refreshDDL() }
                             }
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+                } else if viewModel.visibleDDLEvents.isEmpty {
+                    Section {
+                        AppEmptyState(
+                            title: "暂无 DDL",
+                            systemImage: "list.bullet.clipboard",
+                            message: "当前没有可展示的 DDL。"
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+                } else {
+                    Section {
+                        ForEach(viewModel.visibleDDLEvents) { event in
+                            DDLEventCard(
+                                event: event,
+                                remainText: viewModel.ddlRemainingText(for: event),
+                                dueText: viewModel.ddlDueText(for: event),
+                                tint: color(for: event),
+                                onToggleDone: { viewModel.toggleDDLDone(event) },
+                                onOpenDetail: { selectedEvent = event }
+                            )
                         }
                     }
+                }
             }
             .appGroupedListStyle()
             .scrollContentBackground(.hidden)
 
             AppFloatingActionStack {
-                CourseScheduleFAB(systemImage: "plus", accessibilityLabel: "添加待办") {
+                AppFloatingActionButton(systemImage: "plus", accessibilityLabel: "添加待办") {
                     editingEventID = nil
                     draft = DDLDraft()
                     isShowingEditor = true
                 }
 
-                CourseScheduleFAB(systemImage: "gearshape", accessibilityLabel: "待办设置") {
+                AppFloatingActionButton(systemImage: "gearshape", accessibilityLabel: "待办设置") {
                     settingsRoute = .ddl
                 }
             }
@@ -156,7 +155,7 @@ struct DDLScheduleTabView: View {
 
 /// DDL 列表卡片。
 ///
-/// DDL 虽然放在 `List` 里，但单条仍保留卡片式内容区，以便容纳剩余时间、详情摘要和完成按钮。
+/// DDL 列表使用 `List` 承载 `AppCard`，卡片内容包含剩余时间、详情摘要和完成按钮。
 private struct DDLEventCard: View {
     let event: DDLEventRecord
     let remainText: String
@@ -213,7 +212,7 @@ private struct DDLEventCard: View {
 
 /// DDL 详情页。
 ///
-/// 乐学同步项只允许查看，不允许编辑和删除；手动项才会出现编辑/删除按钮。
+/// 乐学同步项处于只读状态；手动项显示编辑和删除按钮。
 private struct DDLEventDetailSheet: View {
     let event: DDLEventRecord
     let remainText: String
@@ -270,7 +269,7 @@ private struct DDLEventDetailSheet: View {
 
 /// 自定义 DDL 编辑页。
 ///
-/// 这里同时服务新增和编辑两种场景，仅靠 `isEditing` 调整标题文案。
+/// 新增和编辑共用此页面；`isEditing` 决定标题文案。
 private struct DDLEditSheet: View {
     @Binding var draft: DDLDraft
     let isEditing: Bool

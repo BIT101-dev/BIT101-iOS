@@ -1,6 +1,6 @@
 import Foundation
 
-/// 用稳定前缀和账号后缀隔离 Codable 快照，避免各业务模块重复拼接存储键。
+/// AccountScopedCodableStore 使用稳定前缀和账号后缀生成账号隔离的 Codable 快照存储键。
 struct AccountScopedCodableStore<Value: Codable> {
     private let keyPrefix: String
     private let defaults: UserDefaults

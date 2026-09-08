@@ -1,7 +1,7 @@
 import Combine
 import Foundation
 
-/// 小体积用户偏好的实验性 iCloud 同步域。
+/// 用户偏好和成绩缓存的实验性 iCloud 同步域。
 nonisolated enum ExperimentalPreferenceSyncDomain: String, CaseIterable {
     case appSettings = "app-settings"
     case scoreFilters = "score-filters"
@@ -9,7 +9,7 @@ nonisolated enum ExperimentalPreferenceSyncDomain: String, CaseIterable {
     case galleryMessageRead = "gallery-message-read"
 }
 
-/// 每个同步域独立携带修改时间，避免一个偏好的改动覆盖其它域。
+/// 每个同步域独立携带修改时间，避免一个域的改动覆盖其它域。
 nonisolated struct ExperimentalPreferenceSyncEnvelope<Payload: Codable>: Codable {
     let updatedAt: Date
     let payload: Payload
@@ -34,7 +34,7 @@ nonisolated enum ExperimentalPreferenceSyncPolicy {
     }
 }
 
-/// 使用 iCloud Key-Value Store 同步设置、成绩筛选偏好和消息已读状态。
+/// 使用 iCloud Key-Value Store 同步设置、成绩筛选偏好、成绩缓存和消息已读状态。
 ///
 /// 开关只保存在当前设备并按学号隔离，默认关闭；同步内容按域独立做时间戳冲突决策。
 @MainActor
@@ -76,7 +76,6 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
                 self.reloadForCurrentAccount()
             }
         }
-
     }
 
     deinit {
@@ -225,7 +224,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         }
     }
 
-    /// 升级前已经存在的成绩没有实验同步时间戳；云端为空时优先保留并上传本机成绩。
+    /// 升级前已有的成绩缓存没有实验同步时间戳；云端为空时优先保留并上传本机成绩。
     private func preserveLegacyLocalScoreCacheIfNeeded(_ localPayload: ScoreCacheSyncPayload) {
         guard !localPayload.rows.isEmpty else { return }
         let domain = ExperimentalPreferenceSyncDomain.scoreCache

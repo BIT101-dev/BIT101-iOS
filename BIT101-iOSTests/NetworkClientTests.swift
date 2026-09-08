@@ -41,12 +41,9 @@ struct NetworkClientTests {
             return (Data(#"{"message":"稍后重试"}"#.utf8), response)
         }
 
-        await #expect(throws: HTTPClientError.self) {
-            _ = try await HTTPClient(transport: transport).send(URLRequest(url: try #require(URL(string: "https://example.com"))))
-        }
-
+        let request = URLRequest(url: try #require(URL(string: "https://example.com")))
         do {
-            _ = try await HTTPClient(transport: transport).send(URLRequest(url: try #require(URL(string: "https://example.com"))))
+            _ = try await HTTPClient(transport: transport).send(request)
             Issue.record("Expected an HTTP error")
         } catch let error as HTTPClientError {
             #expect(error.errorDescription == "稍后重试")
@@ -102,7 +99,6 @@ struct NetworkClientTests {
             let _: UserPayload = try await api.request(path: "users")
             Issue.record("Expected authentication to fail")
         } catch TestCommunityError.notLoggedIn {
-            // Expected.
         } catch {
             Issue.record("Unexpected error: \(error)")
         }

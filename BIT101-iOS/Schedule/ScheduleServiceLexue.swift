@@ -8,19 +8,18 @@
 import Foundation
 
 extension ScheduleService {
-    /// 同步乐学 DDL，并尽量复用已缓存的订阅地址。
+    /// 同步乐学 DDL，复用已缓存的订阅地址。
     ///
-    /// 订阅 URL 一般比较稳定，因此优先复用缓存；只有缓存不存在时才回退到网页抓取。
+    /// 订阅 URL 通常稳定，优先复用缓存；缓存为空时从网页抓取。
     func syncDDLEvents(existingEvents: [DDLEventRecord], storedURL: String) async throws -> DDLSyncPayload {
         try await ensureSchoolSession()
 
-        // 乐学同步允许复用已缓存的订阅链接，只有没有链接时才回到网页里重新抓取。
         let finalURL = try await resolveLexueCalendarURL(storedURL: storedURL)
         let remoteEvents = try await fetchLexueEvents(urlString: finalURL)
 
         let existingDoneMap = Dictionary(uniqueKeysWithValues: existingEvents.map { ($0.id, $0.done) })
         let merged = remoteEvents.map { event in
-            return DDLEventRecord(
+            DDLEventRecord(
                 id: event.id,
                 group: event.group,
                 title: event.title,
@@ -41,8 +40,7 @@ extension ScheduleService {
 
     /// 解析乐学日历订阅 URL。
     ///
-    /// 乐学页面会把真正的订阅链接埋在 HTML 中，而且可能混用 `webcal://`、`http://` 与 HTML 转义，
-    /// 所以这里要做一整套兜底提取。
+    /// 乐学页面可能使用 `webcal://`、`http://` 和 HTML 转义表示订阅链接。
     private func resolveLexueCalendarURL(storedURL: String) async throws -> String {
         if !storedURL.isEmpty {
             return storedURL
@@ -91,7 +89,7 @@ extension ScheduleService {
             throw ScheduleServiceError.invalidCalendarURL
         }
 
-        return HTTPSURLUpgrade.upgradedURLString(from: fullURL)
+        return fullURL
     }
 
     /// CAS 在切换网络或判定风险较高时可能直接进入短信二次认证页。
@@ -104,7 +102,7 @@ extension ScheduleService {
 
     /// 下载并解析乐学 ICS 数据。
     private func fetchLexueEvents(urlString: String) async throws -> [DDLEventRecord] {
-        // 订阅链接可能以 webcal:// 或 http:// 返回，这里统一标准化后再拉取 ICS。
+        // 订阅链接可能使用 webcal:// 或 http://，请求前统一升级为 HTTPS。
         let secureURLString = HTTPSURLUpgrade.upgradedURLString(from: urlString)
 
         guard let url = URL(string: secureURLString) else {
@@ -116,11 +114,11 @@ extension ScheduleService {
         return try ScheduleICSParser.parse(ics)
     }
 
-    /// 用正则从乐学页面里尝试提取订阅链接。
+    /// 从乐学页面提取订阅链接。
     private func extractCalendarURL(from html: String, pattern: String) -> String? {
         html.captureGroups(pattern: pattern, options: [.dotMatchesLineSeparators]).first
             .map { rawURLString in
-                // 乐学页面可能把参数里的 & 转义成 &amp;，不先还原就会打成 404。
+                // 乐学页面可能把参数中的 & 转义为 &amp;，请求前需要还原。
                 let urlString = decodeHTML(urlString: rawURLString)
 
                 if urlString.lowercased().hasPrefix("webcal://") {

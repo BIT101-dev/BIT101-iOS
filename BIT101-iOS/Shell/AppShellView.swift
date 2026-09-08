@@ -79,9 +79,9 @@ enum AppTab: String, Identifiable, Codable {
     }
 }
 
-/// 登录后真正进入的应用壳层。
+/// 登录后的应用壳层。
 ///
-/// 壳层只关心两件事：按照设置中心决定展示哪些 tab，以及把退出登录回调继续往下传。
+/// 壳层负责底部 tab、跨模块路由、全局提示和退出登录回调。
 struct AppShellView: View {
     private static let startupNoticeTitle = "1.8.0 版本更新"
     private static let startupNoticeBody = """
@@ -108,15 +108,15 @@ struct AppShellView: View {
     @State private var requestedPosterID: Int?
     @State private var requestedCourse: CourseNavigationRequest?
     @State private var requestedMapLocation: CampusMapLocationRequest?
-    /// 系统全屏控制器关闭时壳层可能再次收到 `onAppear`，不能因此重置当前 tab。
+    /// 系统全屏控制器关闭时壳层可能再次收到 `onAppear`；状态初始化按单次流程执行，当前 tab 保持不变。
     @State private var didInitializeSelectedTab = false
 
     /// 登录后的应用壳层主体。
     ///
-    /// 这里同时承担：
+    /// 这里负责：
     /// 1. 底部 tab 容器
-    /// 2. 版本更新内容与一次性使用提示
-    /// 3. 小组件/深链路由分发
+    /// 2. 启动公告与运行时提示
+    /// 3. 小组件和深链路由分发
     var body: some View {
         TabView(selection: tabSelection) {
             ForEach(AppTab.allCases) { tab in
@@ -237,7 +237,7 @@ struct AppShellView: View {
 
         switch route {
         case .scheduleCourses:
-            selectedTab = .schedule
+            selectTab(.schedule)
             requestedScheduleSection = .courses
         case let .paper(paperID):
             selectTab(.gallery)
@@ -253,12 +253,12 @@ struct AppShellView: View {
 
     /// 统一刷新“灵动岛提醒的通知权限提示”状态。
     ///
-    /// 这层检查不能只放在 `onAppear`：
-    /// - 用户可能刚从系统设置改完通知权限返回
-    /// - 用户可能刚在课表设置里打开了灵动岛提醒
-    /// - 用户也可能在前后台切换后才需要重新评估 fallback 能力
+    /// 这层检查由 `onAppear`、回前台和课表缓存变化共同触发：
+    /// - 用户可以从系统设置修改通知权限后返回
+    /// - 用户可以在课表设置里打开灵动岛提醒
+    /// - 前后台切换会重新评估 fallback 能力
     ///
-    /// 因此这里把提示状态集中收口，供 onAppear / 回前台 / 课表缓存变化共同复用。
+    /// 提示状态集中在这里处理，多个入口共享同一套判断。
     private func refreshScheduleNotificationPromptIfNeeded() {
         Task {
             let authorizationState = await ScheduleLiveActivityManager.shared.notificationAuthorizationStateForReminderFallback()

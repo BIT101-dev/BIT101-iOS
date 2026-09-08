@@ -38,7 +38,6 @@ struct ExperimentalPreferenceCloudSyncTests {
 struct LoginBootstrapTests {
     private final class LoginServiceStub: LoginServicing {
         enum CheckResult {
-            case signedIn(String)
             case signedOut
             case failed
         }
@@ -60,7 +59,6 @@ struct LoginBootstrapTests {
 
         func checkLogin() async throws -> String? {
             switch checkResult {
-            case let .signedIn(studentID): studentID
             case .signedOut: nil
             case .failed: throw URLError(.notConnectedToInternet)
             }

@@ -1,6 +1,19 @@
 import Foundation
 
-/// Cloudflare 远程配置命中的紧急功能更新提醒。
+private enum EmergencyUpdateURLPolicy {
+    nonisolated static let endpointHost = "update.aihelpme.dev"
+    nonisolated static let appStoreHost = "apps.apple.com"
+
+    nonisolated static func acceptsHTTPS(_ url: URL, host: String) -> Bool {
+        guard url.scheme?.lowercased() == "https",
+              url.host?.lowercased() == host,
+              url.port == nil || url.port == 443
+        else { return false }
+        return true
+    }
+}
+
+/// 应用在 Cloudflare 远程配置命中条件时展示紧急功能更新提醒。
 struct EmergencyUpdateNotice: Decodable, Equatable, Identifiable {
     let schemaVersion: Int
     let enabled: Bool
@@ -20,10 +33,10 @@ struct EmergencyUpdateNotice: Decodable, Equatable, Identifiable {
 
     var id: String { noticeID }
 
-    /// 远程配置不能把用户引向任意网站；非法地址统一回退到 BIT101 的 App Store 页面。
+    /// 应用接受 HTTPS 的 apps.apple.com 地址、默认端口或 443 端口以及 BIT101 App ID；其余地址回退到 BIT101AppStore.url。
     var safeUpdateURL: URL {
         if let updateURL,
-           updateURL.host?.lowercased() == "apps.apple.com",
+           EmergencyUpdateURLPolicy.acceptsHTTPS(updateURL, host: EmergencyUpdateURLPolicy.appStoreHost),
            updateURL.path.contains("id6761147125")
         {
             return updateURL
@@ -32,7 +45,7 @@ struct EmergencyUpdateNotice: Decodable, Equatable, Identifiable {
     }
 }
 
-/// 启动时异步读取紧急更新配置；失败静默，不阻塞 App 首屏。
+/// 应用启动时异步读取紧急更新配置；update.aihelpme.dev 的 HTTPS 默认端口或 443 端口满足端点条件，其余输入、请求错误与无效内容返回 nil，首屏保持可用。
 @MainActor
 final class EmergencyUpdateChecker {
     typealias DataLoader = (URLRequest) async throws -> (Data, URLResponse)
@@ -59,7 +72,10 @@ final class EmergencyUpdateChecker {
                 let raw = Bundle.main.object(forInfoDictionaryKey: "BIT101EmergencyUpdateURL") as? String,
                 !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             else { return nil }
-            return URL(string: raw)
+            guard let url = URL(string: raw),
+                  EmergencyUpdateURLPolicy.acceptsHTTPS(url, host: EmergencyUpdateURLPolicy.endpointHost)
+            else { return nil }
+            return url
         },
         loadData: @escaping DataLoader = { request in
             let response = try await HTTPClient.shared.send(request, accepting: 100 ..< 600)
@@ -106,7 +122,7 @@ final class EmergencyUpdateChecker {
         }
     }
 
-    /// 只允许忽略到本地日历的当天结束；不能永久屏蔽某条紧急提醒。
+    /// 应用按本地日历日期保存忽略状态；日期变化后同一提醒重新参与判断。
     func ignoreForToday(noticeID: String) {
         defaults.set(noticeID, forKey: Self.ignoredNoticeKey)
         defaults.set(now(), forKey: Self.ignoredDateKey)

@@ -1,8 +1,8 @@
 import Foundation
 
-/// App 持久化文件共用的系统目录入口。
+/// App 持久化文件使用的 `Application Support` 目录。
 ///
-/// 业务仓库只追加自己的子目录，不重复取数组首项或各自处理目录不可用的边界。
+/// 调用方从此 URL 追加业务子目录。系统目录查询返回空结果时，访问 `applicationSupport` 触发 `preconditionFailure`。
 enum AppFileDirectories {
     static var applicationSupport: URL {
         guard let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {

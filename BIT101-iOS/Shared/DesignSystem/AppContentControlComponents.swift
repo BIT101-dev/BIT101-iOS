@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 设置入口等导航行共用的图标、标题和可选披露标记。
+/// AppNavigationRowLabel 为设置入口等导航行提供图标、标题和可选披露标记。
 struct AppNavigationRowLabel: View {
     let title: String
     let systemImage: String
@@ -30,7 +30,7 @@ struct AppNavigationRowLabel: View {
     }
 }
 
-/// 统一应用内的 segmented 控件基础样式和选择触感。
+/// AppSegmentedPicker 为应用内 segmented 控件提供统一的基础样式和选择触感。
 struct AppSegmentedPicker<Selection: Hashable, Content: View>: View {
     let title: String
     @Binding var selection: Selection
@@ -56,11 +56,11 @@ struct AppSegmentedPicker<Selection: Hashable, Content: View>: View {
     }
 }
 
-/// 顶部 segmented 控件的垂直层级变体。
+/// AppTopSegmentedPickerVariant 表示顶部 segmented 控件的层级变体。
 enum AppTopSegmentedPickerVariant {
-    /// 页面唯一顶部切换栏使用的标准高度。
+    /// 页面唯一的顶部切换栏使用标准底部留白。
     case standard
-    /// 叠在另一个顶部切换栏下方时使用，避免重复累计两套顶部留白。
+    /// 顶部切换栏叠在另一条顶部切换栏下方时使用紧凑底部留白，连续切换栏共享顶部内容间距。
     case stacked
 
     var bottomPadding: CGFloat {
@@ -73,7 +73,7 @@ enum AppTopSegmentedPickerVariant {
     }
 }
 
-/// 统一承载页面顶部 segmented 控件的安全区内边距和背景。
+/// AppTopSegmentedPicker 为页面顶部 segmented 控件提供水平内边距、底部留白和分组背景。
 struct AppTopSegmentedPicker<Selection: Hashable, Content: View>: View {
     let title: String
     @Binding var selection: Selection
@@ -103,7 +103,7 @@ struct AppTopSegmentedPicker<Selection: Hashable, Content: View>: View {
     }
 }
 
-/// 话廊和文章共用的带排序菜单搜索栏。
+/// AppOrderedSearchBar 为话廊和文章提供带排序菜单的搜索栏。
 struct AppOrderedSearchBar<Order: Hashable, OrderContent: View>: View {
     @Binding var text: String
     @Binding var order: Order
@@ -157,6 +157,7 @@ struct AppOrderedSearchBar<Order: Hashable, OrderContent: View>: View {
             }
             .buttonStyle(.plain)
             .disabled(text.isEmpty)
+            .accessibilityLabel("清除搜索")
         }
         .padding(.horizontal, AppDesignSystem.Spacing.container)
         .padding(.vertical, AppDesignSystem.Spacing.control)
@@ -167,7 +168,7 @@ struct AppOrderedSearchBar<Order: Hashable, OrderContent: View>: View {
     }
 }
 
-/// 统一搜索栏在页面顶部安全区中的外层材质和内边距。
+/// AppSearchBarContainer 为页面顶部搜索栏提供外层材质和内边距。
 struct AppSearchBarContainer<Content: View>: View {
     private let content: Content
 

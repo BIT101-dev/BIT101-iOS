@@ -22,7 +22,7 @@ enum WatchScheduleRefreshState: Equatable {
     }
 }
 
-/// 把系统单例与时间来源包在边界之外，状态模型可以用纯内存依赖测试。
+/// 状态模型通过依赖闭包接入系统单例和时间来源，便于使用纯内存依赖测试。
 @MainActor
 struct WatchScheduleStatusDependencies {
     var now: () -> Date
@@ -42,7 +42,7 @@ struct WatchScheduleStatusDependencies {
     )
 }
 
-/// watch 主页面状态模型，只协调本地快照、时间推进和显式同步。
+/// watch 主页面状态模型协调共享快照、时间推进和镜像同步。
 @MainActor
 final class WatchScheduleStatusModel: ObservableObject {
     private static let maxVisibleOccurrences = 50
@@ -107,9 +107,9 @@ final class WatchScheduleStatusModel: ObservableObject {
         refreshState = .syncing
         requestLatestSnapshot(reportResult: true)
         reload()
-        refreshFeedbackTask = Task { @MainActor in
+        refreshFeedbackTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(4))
-            guard !Task.isCancelled, self.refreshState == .syncing else { return }
+            guard !Task.isCancelled, let self, self.refreshState == .syncing else { return }
             self.finishRefresh(as: .failed)
         }
     }
@@ -138,7 +138,7 @@ final class WatchScheduleStatusModel: ObservableObject {
     private func requestLatestSnapshot(reportResult: Bool) {
         dependencies.requestLatestSnapshot { [weak self] result in
             guard reportResult else { return }
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 guard let self, self.refreshState == .syncing else { return }
                 switch result {
                 case .success:
@@ -154,19 +154,19 @@ final class WatchScheduleStatusModel: ObservableObject {
     private func finishRefresh(as state: WatchScheduleRefreshState) {
         refreshFeedbackTask?.cancel()
         refreshState = state
-        refreshFeedbackTask = Task { @MainActor in
+        refreshFeedbackTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(1.6))
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, let self else { return }
             self.refreshState = .idle
         }
     }
 
     private func startForegroundRefresh() {
         guard foregroundRefreshTask == nil else { return }
-        foregroundRefreshTask = Task { @MainActor in
+        foregroundRefreshTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(Self.foregroundRefreshInterval))
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, let self else { return }
                 self.reload()
             }
         }

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 昵称和个性签名复用的文本编辑弹层。
+/// SettingsTextEditSheet 提供昵称和个性签名共用的文本编辑弹层。
 struct SettingsTextEditSheet: View {
     let title: String
     @Binding var text: String

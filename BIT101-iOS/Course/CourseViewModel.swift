@@ -8,13 +8,13 @@
 import Combine
 import Foundation
 
-/// 判断课程请求是否只是被任务取消，避免把切页或重复触发刷新误报成失败。
+/// 识别课程请求的任务取消状态，切页或重复刷新时跳过失败提示。
 private func isCourseRequestCancellation(_ error: Error) -> Bool {
     TaskCancellation.matches(error)
 }
 
 private extension CoursePagedState {
-    /// 进入首屏刷新时重置分页游标。
+    /// 开始首屏刷新并重置分页游标。
     mutating func prepareForRefresh() {
         status = .loading
         resetPagination()
@@ -22,7 +22,7 @@ private extension CoursePagedState {
 }
 
 @MainActor
-/// 课程列表状态机。
+/// 管理课程列表的加载、刷新和分页状态。
 final class CourseListViewModel: ObservableObject {
     @Published private(set) var state = CoursePagedState()
     @Published var searchText = ""
@@ -47,10 +47,10 @@ final class CourseListViewModel: ObservableObject {
         !normalizedSearchText.isEmpty
     }
 
-    /// 接收其它页面已经并行预取好的课程搜索首屏。
+    /// 写入其他页面并行预取的课程搜索首屏。
     ///
-    /// 同时写入搜索词和分页状态，用户从详情返回时可以立即浏览同名课程的其它教师，
-    /// 后续滚动仍从 page 1 继续正常分页。
+    /// 同时写入搜索词和分页状态，详情返回后可立即浏览同名课程的其他教师，
+    /// 后续滚动从 page 1 继续分页。
     func applyPreparedSearch(query: String, items: [CourseSummary]) {
         hasBootstrapped = true
         searchText = query
@@ -59,7 +59,7 @@ final class CourseListViewModel: ObservableObject {
         alert = nil
     }
 
-    /// 接收成绩页的课程名并直接搜索，不再先解析成唯一课程详情。
+    /// 接收成绩页的课程名并直接搜索同名课程。
     func search(for query: String) async {
         hasBootstrapped = true
         searchText = query

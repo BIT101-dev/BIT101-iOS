@@ -54,7 +54,7 @@ enum ClassroomAvailabilityCalculator {
             isFreeNow = true
             statusText = "空闲到明天"
             detailText = ""
-        } else if let nextFree = nextFreeStart(for: record, in: timeTable, after: nowMinutes) {
+        } else if let nextFree = nextFreeStart(in: timeTable, busy: busy, after: nowMinutes) {
             isFreeNow = false
             statusText = "\(durationText(minutes: nextFree - nowMinutes)) 后空闲"
             detailText = TimeSlot.formatMinutes(nextFree)
@@ -150,11 +150,10 @@ enum ClassroomAvailabilityCalculator {
     }
 
     private static func nextFreeStart(
-        for record: ClassroomRecord,
         in timeTable: [TimeSlot],
+        busy: Set<Int>,
         after minutes: Int
     ) -> Int? {
-        let busy = Set(record.busyTimeCodes)
         for slot in timeTable where slot.endMinutes > minutes && !busy.contains(slot.id) {
             return max(minutes, slot.startMinutes)
         }

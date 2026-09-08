@@ -2,9 +2,6 @@
 //  CourseHistoryGradesViews.swift
 //  BIT101-iOS
 //
-//  Split from CourseDetailView.swift.
-//
-
 import Charts
 import SwiftUI
 
@@ -131,8 +128,7 @@ private struct CourseHistoryGradesChart: View {
                     CourseHistoryGradeChartPoint(
                         term: grade.term,
                         series: "平均分",
-                        normalizedValue: avgScore / 100,
-                        displayValue: scoreText(avgScore)
+                        normalizedValue: avgScore / 100
                     )
                 )
             }
@@ -141,8 +137,7 @@ private struct CourseHistoryGradesChart: View {
                     CourseHistoryGradeChartPoint(
                         term: grade.term,
                         series: "最高分",
-                        normalizedValue: maxScore / 100,
-                        displayValue: scoreText(maxScore)
+                        normalizedValue: maxScore / 100
                     )
                 )
             }
@@ -151,8 +146,7 @@ private struct CourseHistoryGradesChart: View {
                     CourseHistoryGradeChartPoint(
                         term: grade.term,
                         series: "学习人数",
-                        normalizedValue: Double(studentNum) / Double(maxStudentNum),
-                        displayValue: "\(studentNum)"
+                        normalizedValue: Double(studentNum) / Double(maxStudentNum)
                     )
                 )
             }
@@ -226,13 +220,6 @@ private struct CourseHistoryGradesChart: View {
         }
     }
 
-    private func scoreText(_ value: Double) -> String {
-        if value.rounded() == value {
-            return String(format: "%.0f", value)
-        }
-        return String(format: "%.1f", value)
-    }
-
     private func shouldShowYearLabel(for term: String) -> Bool {
         guard let index = chartGrades.firstIndex(where: { $0.term == term }) else { return false }
         guard index > 0 else { return true }
@@ -249,10 +236,9 @@ private struct CourseHistoryGradesChart: View {
         return String(yearPrefix.suffix(2))
     }
 
-    /// 用学习人数判断疑似补考学期。
+    /// 用学习人数筛出疑似补考学期。
     ///
-    /// 正常开课人数通常接近课程历史人数分布的上半区，补考 / 重修批次会显著偏低。
-    /// 因此直接用上四分位数的一半作为阈值，比传统 IQR 下界更适合“屏蔽所有补考学期”这个业务目标。
+    /// 至少有 3 个有效学习人数且上四分位数不低于 8 时，低于 max(3, Q3 × 0.25) 的学期会被视为异常值。
     private func makeupOutlierTerms(in grades: [CourseHistoryGrade]) -> Set<String> {
         let samples = grades.compactMap { grade -> (term: String, count: Int)? in
             guard let count = grade.studentNum, count > 0 else { return nil }
@@ -290,7 +276,6 @@ private struct CourseHistoryGradeChartPoint: Identifiable {
     let term: String
     let series: String
     let normalizedValue: Double
-    let displayValue: String
 
     var id: String {
         "\(term)-\(series)"
@@ -307,28 +292,15 @@ private struct CourseHistorySelectedLegend: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: AppDesignSystem.Spacing.control) {
-                Text("平均分 \(scoreText(grade.avgScore))")
-                Text("最高分 \(scoreText(grade.maxScore))")
-                Text("学习人数 \(studentText(grade.studentNum))")
+                Text("平均分 \(courseHistoryScoreText(grade.avgScore))")
+                Text("最高分 \(courseHistoryScoreText(grade.maxScore))")
+                Text("学习人数 \(courseHistoryStudentText(grade.studentNum))")
             }
             .font(.caption.weight(.medium))
             .foregroundStyle(.primary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, AppDesignSystem.Spacing.micro)
-    }
-
-    private func scoreText(_ value: Double?) -> String {
-        guard let value else { return "-" }
-        if value.rounded() == value {
-            return String(format: "%.0f", value)
-        }
-        return String(format: "%.1f", value)
-    }
-
-    private func studentText(_ value: Int?) -> String {
-        guard let value else { return "-" }
-        return "\(value)"
     }
 }
 
@@ -341,25 +313,12 @@ private struct CourseHistoryGradeRow: View {
                 .font(.headline)
 
             HStack(spacing: AppDesignSystem.Spacing.control) {
-                CourseHistoryMetric(title: "平均分", value: scoreText(grade.avgScore), tint: AppDesignSystem.Palette.highlight)
-                CourseHistoryMetric(title: "最高分", value: scoreText(grade.maxScore), tint: AppDesignSystem.Palette.scoreTab)
-                CourseHistoryMetric(title: "学习人数", value: studentText(grade.studentNum), tint: AppDesignSystem.Palette.info)
+                CourseHistoryMetric(title: "平均分", value: courseHistoryScoreText(grade.avgScore), tint: AppDesignSystem.Palette.highlight)
+                CourseHistoryMetric(title: "最高分", value: courseHistoryScoreText(grade.maxScore), tint: AppDesignSystem.Palette.scoreTab)
+                CourseHistoryMetric(title: "学习人数", value: courseHistoryStudentText(grade.studentNum), tint: AppDesignSystem.Palette.info)
             }
         }
         .padding(.vertical, AppDesignSystem.Spacing.tiny)
-    }
-
-    private func scoreText(_ value: Double?) -> String {
-        guard let value else { return "-" }
-        if value.rounded() == value {
-            return String(format: "%.0f", value)
-        }
-        return String(format: "%.1f", value)
-    }
-
-    private func studentText(_ value: Int?) -> String {
-        guard let value else { return "-" }
-        return "\(value)"
     }
 }
 
@@ -383,6 +342,15 @@ private struct CourseHistoryMetric: View {
     }
 }
 
-/// 课程评论区。
-///
-/// 这里沿用帖子详情的列表式排版，把评论数量、空态和分页加载统一收口在一个组件里。
+private func courseHistoryScoreText(_ value: Double?) -> String {
+    guard let value else { return "-" }
+    if value.rounded() == value {
+        return String(format: "%.0f", value)
+    }
+    return String(format: "%.1f", value)
+}
+
+private func courseHistoryStudentText(_ value: Int?) -> String {
+    guard let value else { return "-" }
+    return "\(value)"
+}

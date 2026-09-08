@@ -26,11 +26,15 @@ struct AppAvatarView: View {
                 .scaledToFill()
         } placeholder: {
             Circle()
-                .fill(tint.opacity(0.15))
+                .fill(tint.opacity(AppDesignSystem.Size.avatar.placeholderOpacity))
                 .overlay {
                     Image(systemName: systemImage)
                         .foregroundStyle(tint)
-                        .font(size >= 64 ? .title2 : .caption.weight(.bold))
+                        .font(
+                            size >= AppDesignSystem.Size.avatar.largeIconThreshold
+                                ? .title2
+                                : .caption.weight(.bold)
+                        )
                 }
         }
         .frame(width: size, height: size)

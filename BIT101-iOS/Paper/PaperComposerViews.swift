@@ -9,8 +9,8 @@ import SwiftUI
 
 /// 文章发布页。
 ///
-/// 当前先提供最小原生编辑器：标题、简介、正文、匿名开关。
-/// 正文会在提交前包装成最小 Editor.js JSON，避免和网页端内容格式割裂。
+/// 当前提供原生编辑器，支持标题、简介、正文和匿名开关。
+/// 提交前将正文包装为最小 Editor.js JSON，与网页端内容格式保持一致。
 struct PaperComposerView: View {
     let onCreated: () -> Void
 
@@ -99,15 +99,13 @@ struct PaperCommentComposerSheet: View {
     @State private var anonymous = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            List {
-                AppCommentComposerContentSection(title: target.title, anonymous: $anonymous) {
-                    TextEditor(text: $text)
-                        .frame(minHeight: AppDesignSystem.Size.content.multilineEditorMinimumHeight)
-                }
+        List {
+            AppCommentComposerContentSection(title: target.title, anonymous: $anonymous) {
+                TextEditor(text: $text)
+                    .frame(minHeight: AppDesignSystem.Size.content.multilineEditorMinimumHeight)
             }
-            .appGroupedListStyle()
         }
+        .appGroupedListStyle()
         .navigationTitle(target.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -123,19 +121,5 @@ struct PaperCommentComposerSheet: View {
                 }
             )
         }
-    }
-}
-
-private struct PaperActionPillButtonStyle: ButtonStyle {
-    let accentColor: Color
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(accentColor)
-            .padding(.horizontal, AppDesignSystem.Spacing.container)
-            .padding(.vertical, AppDesignSystem.Spacing.control)
-            .background(AppDesignSystem.Palette.secondaryGroupedBackground, in: Capsule())
-            .opacity(configuration.isPressed ? 0.75 : 1)
     }
 }

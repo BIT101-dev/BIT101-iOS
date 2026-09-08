@@ -4,7 +4,10 @@ import Testing
 
 private func shanghaiDate(_ year: Int, _ month: Int, _ day: Int) -> Date {
     var calendar = Calendar(identifier: .gregorian)
-    calendar.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? .current
+    guard let timeZone = TimeZone(identifier: "Asia/Shanghai") else {
+        preconditionFailure("Asia/Shanghai time zone unavailable")
+    }
+    calendar.timeZone = timeZone
     guard let date = calendar.date(from: DateComponents(year: year, month: month, day: day)) else {
         preconditionFailure("Invalid test date")
     }
@@ -14,7 +17,7 @@ private func shanghaiDate(_ year: Int, _ month: Int, _ day: Int) -> Date {
 @Suite("System calendar schedule export")
 struct ScheduleSystemCalendarEventBuilderTests {
     @Test("Course weeks expand into exact class dates and timetable bounds")
-    func expandsCourseOccurrences() throws {
+    func expandsCourseOccurrences() {
         let course = CourseRecord(
             id: "course-a",
             term: "2026-2027-1",
@@ -498,6 +501,20 @@ struct CourseScheduleRowParserTests {
         #expect(narrowed[0].weeks == [-1])
         #expect(narrowed[1].weeks == [-2, -1])
         #expect(narrowed[2].weeks == [-1])
+    }
+
+    @Test("Negative week description wins over shifted raw flag")
+    func restoresNegativeWeekFromDescription() {
+        let course = makeCourse(
+            id: "negative",
+            description: "-2周 星期三 6-9节 文萃楼M227",
+            weeks: [-1],
+            weekday: 3
+        )
+
+        let narrowed = CourseScheduleRowParser.narrowedCourses([course])
+
+        #expect(narrowed[0].weeks == [-2])
     }
 
     private func makeCourse(

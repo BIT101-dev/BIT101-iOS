@@ -2,7 +2,7 @@
 //  PaperSummaryViews.swift
 //  BIT101-iOS
 //
-//  Split from PaperRootView.swift.
+//  PaperSummaryCard moved from PaperRootView.swift.
 //
 
 import SwiftUI
@@ -36,7 +36,7 @@ struct PaperSummaryCard: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Spacer(minLength: 12)
+                Spacer(minLength: AppDesignSystem.Spacing.content)
             }
 
             if !paper.intro.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -49,7 +49,7 @@ struct PaperSummaryCard: View {
             HStack(spacing: AppDesignSystem.Spacing.content) {
                 Label("\(paper.likeNum)", systemImage: "hand.thumbsup")
                 Label("\(paper.commentNum)", systemImage: "text.bubble")
-                Spacer(minLength: 12)
+                Spacer(minLength: AppDesignSystem.Spacing.content)
                 Text(AppDateText.dayText(from: paper.updateTime))
             }
             .font(.caption)

@@ -2,9 +2,6 @@
 //  ScheduleCacheStore.swift
 //  BIT101-iOS
 //
-//  Extracted from ScheduleModels.swift to keep persistence separate from domain models.
-//
-
 import Foundation
 import OSLog
 
@@ -35,7 +32,7 @@ enum ScheduleCacheStore {
 
     /// 当前账号对应的缓存文件路径。
     ///
-    /// 课表、DDL 和灵动岛设置都已按账号隔离，所以路径会带当前学号。
+    /// 路径按当前学号区分账号缓存。
     private static var fileURL: URL {
         let directory = AppFileDirectories.applicationSupport
             .appending(path: "BIT101-iOS", directoryHint: .isDirectory)
@@ -43,7 +40,7 @@ enum ScheduleCacheStore {
         return directory.appending(path: "schedule-cache.json")
     }
 
-    /// 把当前学号转换成安全的目录名。
+    /// 把当前学号转换成目录名。
     static func currentAccountIdentifier() -> String {
         let raw = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
         if raw.isEmpty {
@@ -66,7 +63,7 @@ enum ScheduleCacheStore {
         return cache
     }
 
-    /// 写回缓存，并同步触发小组件导出和全局变更通知。
+    /// 写回缓存，并导出小组件快照、发送全局变更通知。
     static func save(_ cache: ScheduleCache, source: SaveSource = .local) {
         let url = fileURL
         let directory = url.deletingLastPathComponent()
@@ -96,7 +93,7 @@ enum ScheduleCacheStore {
 
     /// 清空当前账号的日程缓存。
     ///
-    /// 这里不会碰其它账号目录，避免多账号切换后互相误删数据。
+    /// 清空操作定位当前账号目录，并保留其它账号目录。
     static func clear() {
         let url = fileURL
         let directory = url.deletingLastPathComponent()
@@ -120,8 +117,7 @@ enum ScheduleCacheStore {
 
     /// 在主线程广播“课表缓存已变化”。
     ///
-    /// 保存与清空缓存后都需要发这条通知，因此集中收口，避免两个入口各自重复写一遍
-    /// `DispatchQueue.main.async + post`。
+    /// 保存与清空缓存后都要发送这条通知，两个入口共用这一实现。
     private static func postCacheDidChange() {
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .scheduleCacheDidChange, object: nil)

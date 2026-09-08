@@ -39,17 +39,15 @@ struct GalleryPosterDetailView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     HStack(spacing: AppDesignSystem.Spacing.content) {
-                        Group {
-                            if canOpenPosterUserProfile {
-                                Button {
-                                    userRoute = UserRoute(userID: viewModel.poster.user.id)
-                                } label: {
-                                    authorSummary
-                                }
-                                .buttonStyle(.plain)
-                            } else {
+                        if canOpenPosterUserProfile {
+                            Button {
+                                userRoute = UserRoute(userID: viewModel.poster.user.id)
+                            } label: {
                                 authorSummary
                             }
+                            .buttonStyle(.plain)
+                        } else {
+                            authorSummary
                         }
 
                         Spacer()
@@ -133,7 +131,7 @@ struct GalleryPosterDetailView: View {
                 Divider()
 
                 GalleryPosterCommentsSection(
-                        comments: viewModel.commentState.items,
+                    comments: viewModel.commentState.items,
                     totalCommentCount: viewModel.poster.commentNum,
                     status: viewModel.commentState.status,
                     isLoadingMore: viewModel.commentState.isLoadingMore,
@@ -232,7 +230,6 @@ struct GalleryPosterDetailView: View {
         }
     }
 
-    /// 详情页顶部作者信息区域。
     private var authorSummary: some View {
         HStack(spacing: AppDesignSystem.Spacing.content) {
             AppAvatarView(imageURL: URL(string: viewModel.poster.user.avatar.lowUrl.isEmpty ? viewModel.poster.user.avatar.url : viewModel.poster.user.avatar.lowUrl))
@@ -241,7 +238,7 @@ struct GalleryPosterDetailView: View {
                 Text(viewModel.poster.user.nickname)
                     .font(.headline)
                 HStack(spacing: AppDesignSystem.Spacing.regular) {
-                    Text(relativeTimeText(viewModel.poster.editTime))
+                    Text(AppDateText.relativeText(from: viewModel.poster.editTime, fallback: "未知时间"))
                     if !viewModel.poster.public {
                         Label("仅自己可见", systemImage: "eye.slash")
                     }
@@ -252,13 +249,8 @@ struct GalleryPosterDetailView: View {
         }
     }
 
-    /// 当前帖子作者是否允许跳转到用户主页。
     private var canOpenPosterUserProfile: Bool {
         !viewModel.poster.anonymous && viewModel.poster.user.id > 0
-    }
-
-    private func relativeTimeText(_ string: String) -> String {
-        AppDateText.relativeText(from: string, fallback: "未知时间")
     }
 
     /// 独立跳转域名使用稳定的 `/gallery/{id}` 路由；未安装 App 时由 Worker 转至网页。
@@ -267,8 +259,3 @@ struct GalleryPosterDetailView: View {
     }
 
 }
-
-/// 评论区主体。
-///
-/// 这里只负责“评论列表如何展示”，不直接持有评论请求逻辑；请求和排序状态由上层
-/// `GalleryPosterDetailViewModel` 驱动，再通过闭包把操作回传上去。

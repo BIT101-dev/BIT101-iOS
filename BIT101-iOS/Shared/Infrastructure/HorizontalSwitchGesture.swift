@@ -6,8 +6,10 @@ func makeHorizontalSwitchGesture(onStep: @escaping (Int) -> Void) -> some Gestur
         .onEnded { value in
             let horizontal = value.translation.width
             let vertical = value.translation.height
+            let horizontalDistance = abs(horizontal)
+            let verticalDistance = abs(vertical)
 
-            guard abs(horizontal) > abs(vertical), abs(horizontal) >= 56 else { return }
+            guard horizontalDistance > verticalDistance, horizontalDistance >= 56 else { return }
             onStep(horizontal < 0 ? 1 : -1)
         }
 }

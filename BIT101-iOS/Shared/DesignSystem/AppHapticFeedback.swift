@@ -5,7 +5,7 @@
 
 import SwiftUI
 
-/// 为离散选择统一请求系统触感；是否实际输出由系统和设备设置决定。
+/// `View` 通过统一入口请求离散选择和操作动作的系统触感；系统根据设备能力和设置决定是否输出。
 extension View {
     func appSelectionFeedback<Trigger: Equatable>(trigger: Trigger) -> some View {
         sensoryFeedback(.selection, trigger: trigger)

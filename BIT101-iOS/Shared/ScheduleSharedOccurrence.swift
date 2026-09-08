@@ -2,18 +2,18 @@ import Foundation
 
 /// 日程相关跨 target 共用的展示规范化工具。
 ///
-/// 当前主要收口两类“看起来一样、但之前散落在多处”的规则：
+/// 当前收口两类分散的展示规则：
 /// - 教室名称缩写
 /// - 课程标题压缩
 ///
-/// 这样主 App、widget、watch、Live Activity 后续只需要维护这一份展示约定。
+/// 主 App、Widget、Watch、Live Activity 共用这份展示约定。
 enum ScheduleDisplayNormalizer {
-    /// 压缩教室名称里的冗长楼名，提升小屏与卡片场景下的可读性。
+    /// 压缩教室名称里的冗长楼名，适配小屏与卡片场景。
     static func normalizeClassroom(_ value: String) -> String {
         compactLocation(for: value).lightText
     }
 
-    /// 对课程标题做本地展示优化。
+    /// 规范课程标题的本地展示文本。
     ///
     /// 目前主要把 `体育/xx` 压缩成 `xx`，并把中文全角括号改成半角括号。
     static func normalizeCourseTitle(_ value: String) -> String {
@@ -25,7 +25,7 @@ enum ScheduleDisplayNormalizer {
             .replacingOccurrences(of: "）", with: ")")
     }
 
-    /// 课程卡片使用“楼房\n教室”的紧凑地点格式；无法可靠拆分时保留压缩后的原文。
+    /// 课程卡片使用“楼房\n教室”的紧凑地点格式；位置包含楼名和教室号时按两行展示，其他情况使用压缩后的原文。
     static func courseCardClassroomText(_ value: String) -> String {
         let location = compactLocation(for: value)
         guard let room = location.room,
@@ -35,7 +35,7 @@ enum ScheduleDisplayNormalizer {
             return location.lightText
         }
 
-        // 教学楼后缀字母属于教室编号的一部分，例如“文萃楼I101”显示为“文萃\nI101”。
+        // 教学楼后缀字母与楼名保持同一行，房间号另起一行，例如“文萃楼I101”显示为“文萃I\n101”。
         let building = location.lightBuilding
         let suffix = String(building.suffix(1))
         let buildingPrefix = String(building.dropLast())
@@ -50,7 +50,7 @@ enum ScheduleDisplayNormalizer {
         return "\(building)\n\(room)"
     }
 
-    /// 将地点压缩成 complication 友好的楼名 / 教室结构。
+    /// 提供跨 target 展示所需的简洁文本、完整文本、楼名和教室号。
     static func compactLocation(for value: String) -> ScheduleCompactLocation {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -170,13 +170,7 @@ enum ScheduleDisplayNormalizer {
     }()
 
     private static let knownBuildingPairs: [(light: String, max: String)] = {
-        var pairs = locationAbbreviationRules.map { ($0.light, $0.max) }
-        pairs.append(("综教A", "综A"))
-        pairs.append(("综教B", "综B"))
-        for suffix in UInt8(ascii: "A")...UInt8(ascii: "M") {
-            let letter = String(UnicodeScalar(suffix))
-            pairs.append(("文萃\(letter)", "文\(letter)"))
-        }
+        let pairs = locationAbbreviationRules.map { ($0.light, $0.max) }
         return Array(Set(pairs.map { "\($0.0)\u{0}\($0.1)" }))
             .map { token in
                 let parts = token.split(separator: "\u{0}", maxSplits: 1).map(String.init)
@@ -231,7 +225,7 @@ enum ScheduleDisplayNormalizer {
     }
 }
 
-/// complication 展示时使用的地点结构。
+/// 跨 target 展示使用的地点结构。
 struct ScheduleCompactLocation: Hashable {
     let lightText: String
     let maxText: String
@@ -240,12 +234,11 @@ struct ScheduleCompactLocation: Hashable {
     let room: String?
 }
 
-/// 日程相关跨 target 共用的日期编解码与时间组合工具。
+/// 日程相关跨 target 共用的日期编解码与时间组合规则。
 ///
-/// 共享层、小组件、watch、Live Activity 都依赖同一套“日期字符串 / 节次时间 -> 绝对时间”
-/// 的规则，因此把重叠部分统一收口到这里，避免多个模块各自维护一份。
+/// 共享层、Widget、Watch、Live Activity 使用同一套“日期字符串 / 节次时间 -> 绝对时间”规则。
 enum ScheduleSharedDateCodec {
-    /// 固定使用公历，避免系统日历设置影响周数计算。
+    /// 日历固定为公历，周数计算使用统一时区。
     static let calendar: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 8 * 3600) ?? .current
@@ -297,7 +290,8 @@ enum ScheduleSharedDateCodec {
     }
 
     static func combine(firstDay: Date, week: Int, weekday: Int, time: String) -> Date? {
-        let dayOffset = (week - 1) * 7 + (weekday - 1)
+        let weekOffset = week > 0 ? week - 1 : week
+        let dayOffset = weekOffset * 7 + (weekday - 1)
         guard let day = calendar.date(byAdding: .day, value: dayOffset, to: firstDay) else {
             return nil
         }
@@ -320,8 +314,8 @@ enum ScheduleSharedDateCodec {
 
 /// 跨外部展示层共用的课程实例。
 ///
-/// 它是把“周次 + 星期 + 节次”展开后的最终结果：
-/// 拿到它之后，widget / watch / Live Activity 都可以直接做排序、展示和倒计时。
+/// 结构保存“周次 + 星期 + 节次”展开后的最终结果。
+/// Widget、Watch 和 Live Activity 直接使用它进行排序、展示和倒计时。
 struct ScheduleExternalOccurrence: Identifiable, Hashable {
     let id: String
     let title: String
@@ -367,12 +361,12 @@ struct ScheduleExternalOccurrence: Identifiable, Hashable {
 
 /// 外部展示层使用的“快照 + 未来课程”解析结果。
 ///
-/// watch app、watch widget 等消费方经常会重复做三件事：
+/// Widget、Watch App 和 Watch Widget 读取共享快照后执行三步：
 /// 1. 读取共享快照
 /// 2. 推导未来课程
 /// 3. 取出第一节作为“当前 / 下一节”
 ///
-/// 这里把这套胶水逻辑收成一个轻量结果，避免各端各写一遍。
+/// 解析结果统一提供快照、未来课程和“当前 / 下一节”候选。
 struct ScheduleExternalResolvedSnapshot {
     let snapshot: ScheduleExternalSnapshot?
     let upcomingOccurrences: [ScheduleExternalOccurrence]
@@ -385,8 +379,7 @@ struct ScheduleExternalResolvedSnapshot {
 
 /// 外部课表展示层共同消费的业务状态。
 ///
-/// 文案仍由各端决定，但状态含义必须一致，避免同一份损坏快照在手机 Widget 显示
-/// “请同步”，在 Watch 上却显示“今天没课”。
+/// 各端自行决定文案，同一份损坏快照在 Widget 与 Watch 中统一映射为 invalid。
 enum ScheduleExternalContentState: Equatable {
     case missing
     case loggedOut
@@ -429,7 +422,7 @@ enum ScheduleTimelineRefreshPlanner {
 
 /// 共享快照到课程 occurrence 的统一解析器。
 ///
-/// 当前 widget 与未来 watch 端都应该复用它，避免各自维护一套“首周 + 周次 + 节次 -> 实际上课时间”的推导逻辑。
+/// Widget、Watch App 和 Watch Widget 共用“首周 + 周次 + 节次 -> 实际上课时间”的推导逻辑。
 enum ScheduleOccurrenceResolver {
     static let defaultCurrentCourseDisplayDuration: TimeInterval = 5 * 60
 
@@ -510,8 +503,7 @@ enum ScheduleOccurrenceResolver {
 
     /// 从一份共享快照解析外部展示层真正关心的最小状态。
     ///
-    /// `limit` 允许 watch 这类小屏设备只保留前若干节候选，
-    /// 从而在不改变 UI 的前提下减少重复切片与状态分发逻辑。
+    /// `limit` 让 Watch 这类小屏设备保留前若干节候选，统一 UI 所需的切片与状态分发。
     static func resolvedSnapshot(
         from snapshot: ScheduleExternalSnapshot?,
         now: Date = Date(),
@@ -542,7 +534,7 @@ enum ScheduleOccurrenceResolver {
             )
         }
 
-        // 已同步的空学期是有效业务结果，不能与“从未获取课表”混为 invalid。
+        // 已同步的空学期属于有效业务结果，空课程快照映射为 rest。
         guard !snapshot.courses.isEmpty else {
             return ScheduleExternalResolvedSnapshot(
                 snapshot: snapshot,
@@ -551,7 +543,7 @@ enum ScheduleOccurrenceResolver {
             )
         }
 
-        // 只有真正需要解析课程时，缺失节次表才是损坏快照。
+        // 课程列表包含内容时，缺失节次表表示损坏快照。
         guard !snapshot.timeTable.isEmpty else {
             return ScheduleExternalResolvedSnapshot(
                 snapshot: snapshot,

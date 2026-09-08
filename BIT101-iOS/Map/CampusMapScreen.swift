@@ -112,7 +112,7 @@ struct CampusMapScreen: View {
         .diagnosticAlert(item: $locationController.notice)
     }
 
-    /// 读取课程详情传入的临时地点请求，不写入本地持久化。
+    /// 读取课程详情传入的临时地点请求。请求包含地点时，更新持久化的选中校区并聚焦对应校区。
     private func consumeRequestedLocationIfNeeded() {
         guard let requestedLocation,
               activeRequestedLocation?.id != requestedLocation.id else { return }
@@ -142,7 +142,7 @@ struct CampusMapScreen: View {
         }
     }
 
-    /// 交给系统地图提供步行导航；App 内地图只负责校园定位，不重复实现转向播报。
+    /// 交给系统地图提供步行导航；App 内地图聚焦校园定位，转向播报由系统处理。
     private func openDirections(to place: CampusMapPlace) {
         let placemark = MKPlacemark(coordinate: place.coordinate)
         let destination = MKMapItem(placemark: placemark)

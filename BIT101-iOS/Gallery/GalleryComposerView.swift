@@ -3,18 +3,17 @@ import OSLog
 import SwiftUI
 import UIKit
 
-/// 一条尚未提交的自定义标签输入行。
+/// 一条自定义标签输入行草稿。
 ///
-/// 发帖页允许用户临时追加多条输入框，因此需要一个稳定 `id` 区分每一行。
-private struct GalleryCustomTagDraft: Identifiable, Equatable {
+/// 发帖页允许用户临时追加多条输入框，每行使用稳定 `id` 区分。
+private struct GalleryCustomTagDraft: Identifiable {
     let id = UUID()
     var text = ""
 }
 
-/// 发帖页里一张待上传或已上传完成的图片草稿。
+/// 发帖页的一张图片草稿，记录预览和上传状态。
 ///
-/// Android 端的实现是“先上传得到服务端图片对象，再带 `mid` 发帖”。iOS 这里沿用同样的链路，
-/// 因此页面需要显式维护上传状态，而不是只记录一个本地 `UIImage`。
+/// Android 端先上传得到服务端图片对象，再带 `mid` 发帖。iOS 保持这条链路，页面保存上传状态。
 struct GalleryComposerImageDraft: Identifiable {
     enum Status {
         case uploading
@@ -45,7 +44,7 @@ struct GalleryComposerImageDraft: Identifiable {
         self.status = status
     }
 
-    /// 只有上传成功后，图片才会拿到可提交给发帖接口的 `mid`。
+    /// 上传成功的图片会拿到可提交给发帖接口的 `mid`。
     var uploadedImage: GalleryImage? {
         guard case .uploaded(let image) = status else { return nil }
         return image
@@ -54,10 +53,10 @@ struct GalleryComposerImageDraft: Identifiable {
 
 /// 发帖页图片缩略图条目。
 ///
-/// 这里保留 Android 类似的交互语义：
+/// 图片状态对应以下交互：
 /// - 上传中显示进度
 /// - 失败时允许重试
-/// - 任意状态都允许删除
+/// - 每种状态都提供删除操作
 struct GalleryComposerImageTile: View {
     let draft: GalleryComposerImageDraft
     let onRetry: () -> Void
@@ -225,7 +224,7 @@ enum ComposerDraftStore {
             let data = try JSONEncoder().encode(value)
             try data.write(to: directoryURL.appendingPathComponent(filename), options: .atomic)
         } catch {
-            // 草稿保存失败不应阻止用户退出，但必须留下可诊断记录。
+            // 草稿保存失败允许用户退出，日志保留诊断信息。
             logger.error("保存草稿失败：\(String(describing: error), privacy: .public)")
         }
     }
@@ -260,7 +259,7 @@ struct GalleryComposerView: View {
     @State private var customTagDrafts: [GalleryCustomTagDraft] = []
     /// 当前通过图片选择器选中的图片集合。
     ///
-    /// 系统 `PhotosPicker` 支持一次选择多张图，这里直接保留整批结果，再逐张加入上传队列。
+    /// 系统 `PhotosPicker` 支持一次选择多张图，页面保留整批结果并逐张加入上传队列。
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     /// 已经加入发帖草稿的图片列表。
     @State private var imageDrafts: [GalleryComposerImageDraft] = []
@@ -287,7 +286,7 @@ struct GalleryComposerView: View {
 
     /// 内置的推荐标签。
     ///
-    /// 这里沿用 Android/Web 的高频场景标签，目的是让首次发帖时不必完全依赖用户自己输入。
+    /// 这些标签沿用 Android/Web 的高频场景标签，帮助首次发帖快速选标签。
     private static let suggestedTags = [
         "水",
         "活动",
@@ -300,7 +299,7 @@ struct GalleryComposerView: View {
 
     /// 发帖表单主体。
     ///
-    /// 结构尽量贴近网页端，但改成更适合 iOS 的原生 `Form` 交互。
+    /// 表单结构参考网页端，交互采用原生 `Form`。
     var body: some View {
         NavigationStack {
             Form {
@@ -311,9 +310,12 @@ struct GalleryComposerView: View {
                 }
 
                 Section("标签") {
-                    // 标签入口保留“两排按钮 + 自定义单独追加输入框”的结构，
-                    // 这样既能快速选常用标签，也不会把自定义输入塞进同一行里挤压布局。
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 8)], alignment: .leading, spacing: 8) {
+                    // 标签入口分开呈现预置标签按钮和自定义输入行，常用标签保持快捷选择。
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 64), spacing: AppDesignSystem.Spacing.regular)],
+                        alignment: .leading,
+                        spacing: AppDesignSystem.Spacing.regular
+                    ) {
                         ForEach(Self.suggestedTags, id: \.self) { tag in
                             Button {
                                 toggleTag(tag)
@@ -338,8 +340,7 @@ struct GalleryComposerView: View {
                     .appSelectionFeedback(trigger: selectedTags)
 
                     if !customTagDrafts.isEmpty {
-                        // 每条自定义标签都用单独输入行，避免旧版“统一输入框 + 行内删除”
-                        // 在移动端上编辑体验混乱。
+                        // 每条自定义标签使用独立输入行，输入和删除操作分开呈现。
                         ForEach($customTagDrafts) { $draft in
                             HStack(spacing: AppDesignSystem.Spacing.control) {
                                 TextField("自定义标签", text: $draft.text)
@@ -360,7 +361,7 @@ struct GalleryComposerView: View {
                 }
 
                 Section("发布设置") {
-                    // 声明列表由服务端控制，便于后续和网页端保持一致。
+                    // 声明列表由服务端返回，页面与网页端保持一致。
                     Picker("声明", selection: $selectedClaimID) {
                         ForEach(claims) { claim in
                             Text(claim.text).tag(claim.id)
@@ -475,9 +476,9 @@ struct GalleryComposerView: View {
         text = draft.text
         selectedTags = draft.selectedTags
         customTagDrafts = draft.customTags.map { tag in
-            var draft = GalleryCustomTagDraft()
-            draft.text = tag
-            return draft
+            var tagDraft = GalleryCustomTagDraft()
+            tagDraft.text = tag
+            return tagDraft
         }
         anonymous = draft.anonymous
         isPublic = draft.isPublic
@@ -505,7 +506,7 @@ struct GalleryComposerView: View {
 
     /// 当前是否仍有图片在上传中。
     ///
-    /// 上传中的图片不能提交，否则会出现 Android 端同样会拦掉的 “upload image error” 场景。
+    /// `.uploading` 状态会阻止提交；Android 端的对应错误为 “upload image error”。
     private var hasUploadingImages: Bool {
         imageDrafts.contains {
             if case .uploading = $0.status {
@@ -517,8 +518,7 @@ struct GalleryComposerView: View {
 
     /// 首次进入时拉取可选 claim 列表。
     ///
-    /// 这里故意吞掉接口失败：声明列表加载失败不应该阻止用户发帖，
-    /// 页面会继续使用默认的“无声明”占位。
+    /// 声明列表加载失败时继续发帖，页面保留默认的“无声明”占位。
     private func loadClaimsIfNeeded() async {
         guard !isLoadingClaims else { return }
         isLoadingClaims = true
@@ -533,18 +533,16 @@ struct GalleryComposerView: View {
                 }
             }
         } catch {
-            if selectedClaimID == 0 {
-                selectedClaimID = claims.first?.id ?? 0
-            }
+            return
         }
     }
 
     /// 完成必要字段校验后提交帖子。
     ///
-    /// 提交顺序刻意设计为：
-    /// 1. 先完成必要字段校验。
-    /// 2. 再进入提交态，防止重复点击。
-    /// 3. 服务端成功后先通知调用方刷新，再关闭当前页面。
+    /// 提交按以下顺序执行：
+    /// 1. 校验必要字段。
+    /// 2. 设置提交状态，阻止重复点击。
+    /// 3. 服务端成功后通知调用方刷新，再关闭当前页面。
     private func submit() async {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -596,7 +594,7 @@ struct GalleryComposerView: View {
 
     /// 切换预置标签的选中状态。
     ///
-    /// 预置标签和自定义标签是两套来源，因此这里只处理预置集合本身，不直接碰自定义输入行。
+    /// 预置标签和自定义标签来源独立，这里操作预置标签集合。
     private func toggleTag(_ tag: String) {
         if selectedTags.contains(tag) {
             selectedTags.removeAll { $0 == tag }
@@ -607,8 +605,7 @@ struct GalleryComposerView: View {
 
     /// 添加一个新的预置标签，同时负责去重和数量上限。
     ///
-    /// 数量上限与最终提交限制保持一致，这样用户在编辑阶段就能感知规则，
-    /// 不必等到点击“发布”时才发现标签超限。
+    /// 数量上限与最终提交限制一致，编辑阶段直接应用上限。
     private func addTag(_ tag: String) {
         let normalized = tag.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return }
@@ -619,8 +616,7 @@ struct GalleryComposerView: View {
 
     /// 追加一条新的自定义标签输入行。
     ///
-    /// 这里用“预置标签数 + 输入行数”共同限制上限，是为了避免用户先连点十几次
-    /// “自定义”，最后再发现无法提交。
+    /// “预置标签数 + 输入行数”共同限制上限，连续添加“自定义”时立即应用上限。
     private func addCustomTagDraft() {
         guard selectedTags.count + customTagDrafts.count < 10 else { return }
         customTagDrafts.append(GalleryCustomTagDraft())
@@ -633,8 +629,7 @@ struct GalleryComposerView: View {
 
     /// 从图片选择器批量追加图片并逐张开始上传。
     ///
-    /// 这里故意按顺序处理：图片最终仍然会很快并发上传完，但顺序更稳定，
-    /// 发帖页里的缩略图排列也更接近用户在系统相册里点选的顺序。
+    /// 图片按选择顺序逐张加入队列并上传，缩略图排列保持选择顺序。
     private func addImages(from items: [PhotosPickerItem]) async {
         defer { selectedPhotoItems = [] }
 
@@ -645,7 +640,6 @@ struct GalleryComposerView: View {
 
     /// 从图片选择器追加一张新图并立即开始上传。
     private func addImage(from item: PhotosPickerItem) async {
-
         do {
             guard let data = try await item.loadTransferable(type: Data.self) else {
                 throw GalleryServiceError.uploadFailed
@@ -666,27 +660,6 @@ struct GalleryComposerView: View {
         } catch {
             alert = AppAlert(title: "图片添加失败", message: error.localizedDescription)
         }
-    }
-
-    /// 失败图片的重试上传。
-    private func retryImageUpload(id: GalleryComposerImageDraft.ID) async {
-        guard var draft = imageDrafts.first(where: { $0.id == id }) else { return }
-        draft.status = .uploading
-        replaceImageDraft(draft)
-
-        do {
-            let image = try await service.uploadImage(data: draft.previewData, filename: draft.filename)
-            draft.status = .uploaded(image)
-        } catch {
-            draft.status = .failed(error.localizedDescription)
-        }
-
-        replaceImageDraft(draft)
-    }
-
-    /// 删除一张草稿图片。
-    private func removeImageDraft(id: GalleryComposerImageDraft.ID) {
-        imageDrafts.removeAll { $0.id == id }
     }
 
     /// 按 `id` 回写图片草稿。

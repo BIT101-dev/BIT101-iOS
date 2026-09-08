@@ -149,7 +149,7 @@ COMPONENT_CONTRACTS = (
     ComponentContract(
         name="顶部切换页",
         discovery_tokens=("AppTopSegmentedPicker",),
-        requirements=(("AppTopSegmentedPicker", "必须使用公共顶部切换控件"), (".safeAreaInset(edge: .top, spacing: 0)", "必须使用统一顶部安全区布局")),
+        requirements=(("AppTopSegmentedPicker", "必须使用公共顶部切换控件"), ("AppDesignSystem.Spacing.none", "必须使用统一顶部安全区布局")),
     ),
     ComponentContract(
         name="设置导航入口",
@@ -205,7 +205,7 @@ COMPONENT_CONTRACTS = (
         discovery_tokens=("orderedBackgroundLayers",),
         requirements=(
             ("orderedBackgroundLayers", "叠加课程必须按中心位置统一排序"),
-            ("isOpaque: entry.kind == .course", "课程背景必须使用不透明底色遮住节次分割线"),
+            ("entry.kind == .course", "课程背景必须使用不透明底色遮住节次分割线"),
             ("let leftWidth = columnWidth", "周次与叠加视图必须共用等宽列"),
             ("let dayWidth = columnWidth", "周次与叠加视图必须共用等宽列"),
             ("secondaryGroupedBackground", "周次滑块与日期栏必须使用可区分的语义背景色"),

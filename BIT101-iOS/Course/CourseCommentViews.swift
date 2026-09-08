@@ -2,8 +2,6 @@
 //  CourseCommentViews.swift
 //  BIT101-iOS
 //
-//  Split from CourseDetailView.swift.
-//
 
 import SwiftUI
 
@@ -75,7 +73,7 @@ struct CourseCommentsSection: View {
     }
 }
 
-/// 表示“主评论 + 当前真正回复目标”的成对上下文。
+/// 保存回复所属的主评论和当前目标评论。
 struct CourseCommentReplyTarget {
     let mainComment: GalleryComment
     let targetComment: GalleryComment
@@ -168,7 +166,7 @@ private struct CourseCommentImagesView: View {
     let onOpenImage: (Int, [GalleryImage]) -> Void
 
     var body: some View {
-        let displayedImages = images.count <= 2 ? images : Array(images.prefix(images.count == 3 ? 3 : 4))
+        let displayedImages = Array(images.prefix(4))
 
         if displayedImages.count == 1 {
             thumbnailButton(image: displayedImages[0], index: 0, width: 180, maxHeight: 220, aspectRatio: 1)
@@ -179,7 +177,13 @@ private struct CourseCommentImagesView: View {
                 }
             }
         } else {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: min(displayedImages.count, 4)), spacing: 8) {
+            LazyVGrid(
+                columns: Array(
+                    repeating: GridItem(.flexible(), spacing: AppDesignSystem.Spacing.regular),
+                    count: displayedImages.count
+                ),
+                spacing: AppDesignSystem.Spacing.regular
+            ) {
                 ForEach(Array(displayedImages.enumerated()), id: \.element.id) { index, image in
                     thumbnailButton(image: image, index: index, width: nil, maxHeight: 78, aspectRatio: 1)
                 }
@@ -202,9 +206,9 @@ private struct CourseCommentImagesView: View {
     }
 }
 
-/// 课程评论输入抽屉。
+/// 课程评论输入表单。
 ///
-/// 课程顶层评论支持 0.5 星颗粒度的评分；回复评论时则退化成纯文本回复。
+/// 顶层课程评论支持 0.5 星评分；回复只提交文本。
 struct CourseCommentComposerSheet: View {
     let target: CourseCommentComposerTarget
     let isSubmitting: Bool
@@ -213,7 +217,7 @@ struct CourseCommentComposerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var anonymous = false
-    /// 课程评论评分直接保存为后端原始 10 分制整数，便于支持 0.5 星颗粒度。
+    /// 评分状态使用后端 10 分制整数；奇数值表示半星。
     @State private var rating = 0
 
     var body: some View {

@@ -11,12 +11,12 @@ protocol CommunityAPIServiceError: Error {
     static var communityInvalidResponse: Self { get }
 }
 
-/// `Decodable` 元类型只用于后台队列同步调用 `JSONDecoder`，生命周期由调用栈保证。
+/// `CommunityDecodableType` 将 `Decodable` 元类型包装为 `Sendable` 值并传入后台 `JSONDecoder` 调用；异步闭包在解码完成前持有该值。
 private struct CommunityDecodableType<Response: Decodable>: @unchecked Sendable {
     let value: Response.Type
 }
 
-/// BIT101 社区后端的统一认证、URL、状态码和 JSON 边界。
+/// `CommunityAPIClient` 统一处理 BIT101 社区后端的认证、URL、HTTP 状态码和 JSON 边界。
 struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
     private let baseURL: URL
     private let httpClient: HTTPClient
@@ -109,7 +109,7 @@ struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         try JSONEncoder().encode(body)
     }
 
-    /// 社区列表响应可能包含大量帖子和嵌套图片；解码不应占用 MainActor 的滚动帧。
+    /// `decodeResponse` 将包含大量帖子和嵌套图片的社区列表响应交给后台队列解码，MainActor 继续处理滚动帧。
     private nonisolated static func decodeResponse<Response: Decodable>(
         _ type: Response.Type,
         from data: Data
@@ -153,12 +153,13 @@ struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
             request.setValue(resolvedContentType, forHTTPHeaderField: "Content-Type")
         }
 
-        let fakeCookie = fakeCookieProvider()
         switch authentication {
         case .required:
+            let fakeCookie = fakeCookieProvider()
             guard !fakeCookie.isEmpty else { throw Failure.communityNotLoggedIn }
             request.setValue(fakeCookie, forHTTPHeaderField: "fake-cookie")
         case .optional:
+            let fakeCookie = fakeCookieProvider()
             if !fakeCookie.isEmpty {
                 request.setValue(fakeCookie, forHTTPHeaderField: "fake-cookie")
             }

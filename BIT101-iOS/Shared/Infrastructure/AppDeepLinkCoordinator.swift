@@ -41,7 +41,7 @@ enum AppDeepLinkRoute: Equatable {
     }
 }
 
-/// 保留冷启动时先于登录壳层到达的 URL，待登录状态恢复后再消费。
+/// 暂存等待登录状态恢复后处理的 URL，由调用方负责消费。
 @MainActor
 final class AppDeepLinkCoordinator: ObservableObject {
     static let shared = AppDeepLinkCoordinator()

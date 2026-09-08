@@ -1,6 +1,6 @@
 import Foundation
 
-/// One source page retained by the recommendation prefetch pipeline.
+/// Recommendation results and pagination state for one source page.
 struct GalleryPrefetchedPage {
     let page: Int
     let posters: [GalleryPoster]
@@ -8,8 +8,7 @@ struct GalleryPrefetchedPage {
     let canLoadMore: Bool
 }
 
-/// Owns recommendation-page tasks so foreground pagination and background
-/// prefetch always share one request for the same source page.
+/// Shares source-page tasks between foreground pagination and background prefetch.
 @MainActor
 final class GalleryRecommendPrefetchCoordinator {
     private let service: any GalleryFeedServicing
@@ -54,10 +53,10 @@ final class GalleryRecommendPrefetchCoordinator {
         let task = task(for: page, generation: expectedGeneration)
         let result = try await task.value
         guard generation == expectedGeneration else { throw CancellationError() }
-        // Keep the just-consumed task briefly. A background chain that was already
-        // awaiting the same page can resume after foreground pagination and ask for
-        // that source page again; retaining the completed task prevents a duplicate
-        // network request. Older pages are pruned to keep memory bounded.
+        // Retain nearby completed tasks. A background chain that already awaits the
+        // same page can resume after foreground pagination and request that source
+        // page again; retaining the completed task prevents a duplicate network
+        // request. Older pages are pruned to bound memory.
         pageTasks = pageTasks.filter { $0.key >= page - 2 }
         return result
     }

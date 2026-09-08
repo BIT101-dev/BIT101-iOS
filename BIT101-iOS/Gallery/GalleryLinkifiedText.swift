@@ -1,8 +1,7 @@
 import Foundation
-import SwiftUI
 import UIKit
 
-/// `Text` 需要值类型 `AttributedString`，用对象盒才能交给 `NSCache` 管理。
+/// SwiftUI `Text` 以值类型 `AttributedString` 接收文本，`NSCache` 通过对象盒保存解析结果。
 private final class GalleryAttributedStringBox: NSObject {
     let value: AttributedString
 
@@ -13,7 +12,7 @@ private final class GalleryAttributedStringBox: NSObject {
 
 /// 信息流正文链接解析缓存。
 ///
-/// 卡片在 LazyVStack 中反复出现时，正文内容并没有变化；复用解析结果可避免快速滚动时
+/// 卡片在 LazyVStack 中重复出现时，同一正文复用解析结果，避免快速滚动时
 /// 重复创建 `NSDataDetector` 并扫描整段文字。
 private enum GalleryLinkifiedTextCache {
     static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
@@ -26,8 +25,8 @@ private enum GalleryLinkifiedTextCache {
 
 /// 将话廊正文中的普通网址转换成系统可点击链接。
 ///
-/// 使用系统 `NSDataDetector` 而不是自行维护正则，可以兼容 `https://`、`http://`
-/// 和常见的 `www.` 地址，同时不会改变用户原本输入的显示文字。
+/// 使用系统 `NSDataDetector` 解析链接，兼容 `https://`、`http://` 和常见的 `www.` 地址，
+/// 同时保留用户原本输入的显示文字。
 func galleryLinkifiedText(_ text: String) -> AttributedString {
     let key = text as NSString
     if let cached = GalleryLinkifiedTextCache.values.object(forKey: key) {

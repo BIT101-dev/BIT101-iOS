@@ -3,7 +3,7 @@ import UIKit
 
 /// App 内部 UI 的唯一基础样式来源。
 ///
-/// 业务页面只选择语义化的间距、圆角、颜色和卡片变体；不在页面里重新定义同一套值。
+/// 业务页面选择语义化的间距、圆角、颜色和卡片变体，公共值由本系统统一定义。
 enum AppDesignSystem {
     enum Spacing {
         static let none: CGFloat = 0
@@ -59,6 +59,15 @@ enum AppDesignSystem {
             let secondaryHeight: CGFloat
         }
 
+        struct AvatarMetrics {
+            let placeholderOpacity: CGFloat
+            let largeIconThreshold: CGFloat
+        }
+
+        struct SheetMetrics {
+            let ddlNumericPickerHeight: CGFloat
+        }
+
         static let floatingAction = FloatingActionMetrics(
             button: 42,
             icon: 16,
@@ -83,6 +92,11 @@ enum AppDesignSystem {
             refreshStatusListHeight: 58
         )
         static let compactRow = CompactRowMetrics(primaryHeight: 22, secondaryHeight: 20)
+        static let avatar = AvatarMetrics(
+            placeholderOpacity: 0.15,
+            largeIconThreshold: 64
+        )
+        static let sheet = SheetMetrics(ddlNumericPickerHeight: 240)
     }
 
     enum Typography {
@@ -171,6 +185,7 @@ enum AppDesignSystem {
         static let accent = Color.accentColor
         static let highlight = Color.orange
         static let highlightSurface = Color.orange.opacity(0.12)
+        static let highlightForeground = Color.white
         static let danger = Color.red
         static let info = Color.blue
         static let success = Color.green
@@ -196,7 +211,7 @@ enum AppDesignSystem {
     }
 }
 
-/// 公共卡片容器。页面只通过变体表达布局差异，避免复制背景、圆角和内边距。
+/// 公共卡片容器。页面通过变体表达布局差异，背景、圆角和内边距由组件统一处理。
 enum AppCardVariant {
     case standard
     case compact
@@ -256,7 +271,7 @@ struct AppCard<Content: View>: View {
     }
 }
 
-/// 帖子与文章详情页共用的系统分享按钮。
+/// 课程、帖子和文章详情页共用的系统分享按钮。
 struct AppDetailShareLink: View {
     let item: URL
     let subject: String
@@ -344,7 +359,7 @@ struct AppFloatingActionButton: View {
     }
 }
 
-/// 菜单标签也复用圆形操作按钮主体，避免 `Button` 和 `Menu` 尺寸漂移。
+/// 菜单标签复用圆形操作按钮主体，`Button` 和 `Menu` 保持相同的尺寸。
 struct AppFloatingActionButtonLabel: View {
     let systemImage: String
 
@@ -398,8 +413,7 @@ struct AppFloatingActionStack<Content: View>: View {
 
 /// 课程详情入口共用的列表行。
 ///
-/// 日程课程详情和成绩详情必须使用同一份标题、图标和系统导航尾部，
-/// 业务页面只负责提供相同的导航请求或目的地。
+/// 日程和成绩详情共用标题与加载态；导航行为由外层容器负责。
 struct AppCourseEvaluationRow: View {
     let isLoading: Bool
 

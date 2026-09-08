@@ -5,9 +5,9 @@
 
 import Foundation
 
-/// 正则捕获工具。
+/// 返回字符串中首个匹配结果的捕获组。
 ///
-/// 这里只提供最小能力：返回首个命中的捕获组数组，供乐学和学校页面解析复用。
+/// 正则表达式没有捕获组时返回完整匹配；正则表达式无效或未找到匹配时返回空数组。
 extension String {
     func captureGroups(pattern: String, options: NSRegularExpression.Options = []) -> [String] {
         guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else {

@@ -12,7 +12,7 @@ import Foundation
 import os
 import UserNotifications
 
-/// 内部使用的临时结构，用于逻辑计算。
+/// 提醒计算使用的课表实例。
 private struct CourseReminderOccurrence {
     let kindText: String
     let title: String
@@ -39,19 +39,19 @@ final class ScheduleLiveActivityManager {
 
     private init() {}
 
-    /// 核心刷新逻辑。
+    /// 刷新当前课表提醒。
     ///
     /// 这条链路只做三件事：
     /// 1. 读取当前账号的课表缓存与提醒设置
     /// 2. 计算“此刻是否应该存在一个课前提醒”
     /// 3. 把计算结果同步给 ActivityKit
     ///
-    /// 它不会在这里直接操心展示层细节；展示样式全部交给 widget extension。
+    /// 展示样式由 widget extension 负责。
     func refreshFromCurrentCache(trigger: String = "unspecified") async {
         logger.debug("refreshFromCurrentCache trigger=\(trigger, privacy: .public)")
 
-        // 退出登录或远端登录态失效后，fake-cookie 会被清掉，但账号密码和课表缓存仍可能保留。
-        // 课程提醒只应服务于“当前真实已登录”的账号，因此这里把会话有效性作为前置门槛。
+        // 退出登录或远端登录态失效后，fake-cookie 会被清掉；账号密码和课表缓存可能继续保留。
+        // 课程提醒服务当前已登录账号，会话有效性是前置条件。
         guard !LoginStorage.shared.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             logger.debug("fake-cookie missing; treating session as signed out and ending all activities")
             await clearFallbackNotifications()
@@ -83,7 +83,7 @@ final class ScheduleLiveActivityManager {
 
         logger.debug("resolved occurrences count=\(occurrences.count, privacy: .public) leadMinutes=\(leadMinutes, privacy: .public)")
 
-        // 只在“进入提醒窗口但尚未开始”的课前阶段选择一条提醒对象。
+        // 在“进入提醒窗口但尚未开始”的课前阶段选择一条提醒对象。
         let now = Date()
         let currentOccurrence = occurrences.first { occ in
             let displayWindowStart = effectiveDisplayWindowStart(for: occ, among: occurrences, leadMinutes: leadMinutes)
@@ -98,9 +98,8 @@ final class ScheduleLiveActivityManager {
             logger.debug("selected occurrence is nil for current time=\(Self.debugDateFormatter.string(from: now), privacy: .public)")
         }
 
-        // 先安排下一次自动唤醒，再同步当前状态。
-        // 这样即便 app 后续一直留在后台，也能在“进入提醒窗口”或“提醒该结束了”
-        // 这两个边界点主动重新计算一次。
+        // 先安排下一次自动唤醒和提醒结束任务，再同步当前状态。
+        // app 持续处于后台时，任务会在“进入提醒窗口”和“提醒该结束了”两个边界点重新计算。
         scheduleNextRefresh(for: occurrences, leadMinutes: leadMinutes)
         scheduleEndForDisplayedOccurrence(currentOccurrence)
 
@@ -109,8 +108,8 @@ final class ScheduleLiveActivityManager {
 
     /// 首次开启提醒时申请本地通知权限。
     ///
-    /// 本地通知只作为“Activity 没起来时的兜底”，因此这里不强行要求用户必须授权；
-    /// 但如果用户允许，就能在 app 没被唤醒时按同一规则收到课前通知。
+    /// 本地通知作为 Activity 未启动时的兜底。授权由用户决定；授权后，app 未被唤醒时
+    /// 仍能按同一规则发送课前通知。
     func requestNotificationAuthorizationIfNeeded() async -> Bool {
         let settings = await notificationCenter.notificationSettings()
 
@@ -131,9 +130,9 @@ final class ScheduleLiveActivityManager {
         }
     }
 
-    /// 读取“课前提醒 fallback 通知”当前是否需要向用户发出权限提示。
+    /// 返回课前提醒 fallback 通知的权限状态。
     ///
-    /// 只有在已开启灵动岛提醒时才检查通知权限；否则通知 fallback 对当前用户没有意义。
+    /// 灵动岛提醒开启时检查通知权限；关闭时返回 `allowed`。
     func notificationAuthorizationStateForReminderFallback() async -> NotificationAuthorizationState {
         let cache = ScheduleCacheStore.load()
         guard cache.showCourseLiveActivityReminder else {
@@ -155,20 +154,20 @@ final class ScheduleLiveActivityManager {
 
     /// 将当前计算出的提醒对象同步到 ActivityKit。
     ///
-    /// 规则很明确：
-    /// - 没有提醒对象：结束现有 activity
-    /// - 有提醒对象且内容没变：什么都不做
-    /// - 有提醒对象且内容变了：更新现有 activity
-    /// - 当前没有 activity：新建一个 activity
+    /// 规则：
+    /// - 提醒对象为空：结束现有 activity
+    /// - 提醒对象存在且内容未变：保留现有 activity
+    /// - 提醒对象存在且内容变化：更新现有 activity
+    /// - activity 不存在：创建新的 activity
     ///
-    /// 另外，activity 还带有 `studentID`，这是为了避免切号后复用到上一个账号的提醒。
+    /// activity 同时记录 `studentID`，用于切号后避免复用上一账号的提醒。
     private func syncActivity(with occurrence: CourseReminderOccurrence?) async {
         let studentID = LoginStorage.shared.currentStudentID
         let activities = Activity<CourseReminderActivityAttributes>.activities
         let activeActivity = activities.first
         logger.debug("syncActivity activeCount=\(activities.count, privacy: .public) currentStudentID=\(studentID, privacy: .private(mask: .hash))")
 
-        // 1. 如果当前没有课要上，直接关掉现有的活动
+        // 当前没有提醒对象时结束现有活动。
         guard let occ = occurrence else {
             if let activity = activeActivity {
                 logger.debug("ending activity id=\(activity.id, privacy: .public) because occurrence is nil")
@@ -195,7 +194,7 @@ final class ScheduleLiveActivityManager {
             logger.debug(
                 "active activity id=\(activity.id, privacy: .public) state=\(Self.describe(activity.content.state), privacy: .private) next=\(Self.describe(newState), privacy: .private)"
             )
-            // 情况 A：账号换了，必须重开
+            // 账号变化时结束旧 activity 并创建新 activity。
             if activity.attributes.studentID != studentID {
                 logger.debug("student changed old=\(activity.attributes.studentID, privacy: .private(mask: .hash)) new=\(studentID, privacy: .private(mask: .hash)); ending and requesting new activity")
                 await activity.end(nil, dismissalPolicy: .immediate)
@@ -203,33 +202,31 @@ final class ScheduleLiveActivityManager {
                 return
             }
 
-            // 情况 B：内容已经是一样的了，不要去捅系统，防止 UI 闪烁
+            // 内容未变化时跳过更新，避免 UI 闪烁。
             if activity.content.state == newState {
                 logger.debug("skipping update because content state is unchanged")
                 return
             }
 
-            // 情况 C：核心改进点。使用 update 保证灵动岛不会因为“重连”而乱跳
+            // 内容变化时使用 update，保留当前灵动岛状态。
             logger.debug("updating activity id=\(activity.id, privacy: .public)")
             await activity.update(content)
         } else {
-            // 情况 D：当前没活动，新开一个
+            // 当前没有 activity 时创建新的 activity。
             await requestActivity(attributes: attributes, content: content, reason: "no_active_activity")
         }
     }
 
-    /// 预排期下一次刷新。
+    /// 安排下一次刷新。
     ///
-    /// 这里不做高频轮询，只盯两个边界：
+    /// 刷新任务关注两个边界：
     /// - 某条课/日程进入提醒窗口
-    /// - 某条课/日程正式开始，提醒应当消失
+    /// - 某条课/日程正式开始，提醒结束
     private func scheduleNextRefresh(for occurrences: [CourseReminderOccurrence], leadMinutes: Int) {
         scheduledRefreshTask?.cancel()
 
         let now = Date()
-        let refreshPoints = futureRefreshPoints(for: occurrences, leadMinutes: leadMinutes, now: now)
-
-        guard let nextDate = refreshPoints.first else {
+        guard let nextDate = nextFutureRefreshPoint(for: occurrences, leadMinutes: leadMinutes, now: now) else {
             logger.debug("scheduleNextRefresh: no future refresh point")
             return
         }
@@ -244,9 +241,9 @@ final class ScheduleLiveActivityManager {
         }
     }
 
-    /// 为当前展示的提醒额外安排一个“到点立即结束”的任务。
+    /// 为当前展示的提醒安排到点结束任务。
     ///
-    /// 这层任务和常规 refresh 并存，目的是尽量避免用户看到倒计时过零后还挂着旧提醒。
+    /// 该任务与常规 refresh 并存，用于在倒计时到点时结束旧提醒。
     private func scheduleEndForDisplayedOccurrence(_ occurrence: CourseReminderOccurrence?) {
         scheduledEndTask?.cancel()
         scheduledEndTask = nil
@@ -292,8 +289,8 @@ final class ScheduleLiveActivityManager {
 
     /// 根据下一次提醒边界，给 BGAppRefreshTask 提供一个建议的最早启动时间。
     ///
-    /// 这不是精确定时器，只是告诉系统“从这个时间点开始，如果你要给我后台时间，请尽量早一点给”。
-    /// 为了提高命中率，这里会比真实边界稍微提前 5 分钟申请。
+    /// 该值表示系统可开始安排后台时间的最早时刻，实际启动时间由系统后台调度策略决定。
+    /// 申请时间比真实边界提前 5 分钟。
     func preferredBackgroundRefreshBeginDate() -> Date? {
         let fakeCookie = LoginStorage.shared.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !fakeCookie.isEmpty else { return nil }
@@ -304,14 +301,12 @@ final class ScheduleLiveActivityManager {
         let leadMinutes = cache.courseLiveActivityLeadMinutes
         let occurrences = resolveOccurrences(from: cache)
         let now = Date()
-        let refreshPoints = futureRefreshPoints(for: occurrences, leadMinutes: leadMinutes, now: now)
-
-        guard let nextPoint = refreshPoints.first else { return nil }
+        guard let nextPoint = nextFutureRefreshPoint(for: occurrences, leadMinutes: leadMinutes, now: now) else { return nil }
         let desiredBeginDate = nextPoint.addingTimeInterval(-5 * 60)
         return max(now.addingTimeInterval(60), desiredBeginDate)
     }
 
-    /// 删除当前账号的所有课前提醒 fallback 通知。
+    /// 删除已排期和已送达的课前提醒 fallback 通知。
     func clearFallbackNotifications() async {
         let prefix = Self.notificationIdentifierPrefix
         let pendingIdentifiers = await pendingFallbackNotificationIdentifiers(prefix: prefix)
@@ -327,13 +322,13 @@ final class ScheduleLiveActivityManager {
 
     // MARK: - 数据解析逻辑
 
-    /// 把课表缓存解析成未来仍然有效的提醒候选。
+    /// 把课表缓存解析成仍然有效的提醒候选。
     ///
     /// 这里同时覆盖：
     /// - 常规课程
     /// - 自定义日程
     ///
-    /// 并且只保留“结束时间仍晚于现在”的实例，避免过期数据继续参与提醒筛选。
+    /// 结果保留结束时间晚于当前时间的实例。
     private func resolveOccurrences(from cache: ScheduleCache) -> [CourseReminderOccurrence] {
         let now = Date()
         let slotMap = Dictionary(uniqueKeysWithValues: cache.timeTable.map { ($0.id, $0) })
@@ -384,9 +379,9 @@ final class ScheduleLiveActivityManager {
 
     /// 计算某条提醒的实际显示起点。
     ///
-    /// 默认规则是“开课前 `leadMinutes` 分钟开始提醒”。但如果上一条课/日程尚未结束，
-    /// 并且下一条已经落入提醒窗口，则会把起点后移到“上一条结束前 5 分钟”，避免
-    /// 在还在上上一节课时过早弹出下一节提醒。
+    /// 默认规则是“开课前 `leadMinutes` 分钟开始提醒”。如果上一条课/日程尚未结束，
+    /// 下一条已经落入提醒窗口时，起点后移到“上一条结束前 5 分钟”，避免
+    /// 用户仍在上一条课程期间收到下一条提醒。
     private func effectiveDisplayWindowStart(
         for occurrence: CourseReminderOccurrence,
         among occurrences: [CourseReminderOccurrence],
@@ -405,7 +400,7 @@ final class ScheduleLiveActivityManager {
         return max(naturalStart, adjustedStart)
     }
 
-    /// 统一创建 activity，避免多个分支重复写同一套 request + logging。
+    /// 各分支复用同一套 activity 请求和日志。
     private func requestActivity(
         attributes: CourseReminderActivityAttributes,
         content: ActivityContent<CourseReminderActivityAttributes.ContentState>,
@@ -425,34 +420,33 @@ final class ScheduleLiveActivityManager {
         "\(displayTimeFormatter.string(from: start))-\(displayTimeFormatter.string(from: end))"
     }
 
-    /// 计算后续仍值得关注的刷新边界点。
+    /// 计算下一条刷新边界。
     ///
-    /// 当前调度只关心两个时刻：
+    /// 调度关注两个时刻：
     /// 1. 某条提醒进入可展示窗口
     /// 2. 某条提醒正式开始，现有提醒应结束
     ///
-    /// 这套边界会同时被“本地 Task.sleep 调度”和“BGAppRefresh 建议时间”复用，
-    /// 因此集中成一个 helper，避免两边各自维护同一套时间计算。
-    private func futureRefreshPoints(
+    /// 本地 Task.sleep 调度和 BGAppRefresh 建议时间共用这套计算。
+    private func nextFutureRefreshPoint(
         for occurrences: [CourseReminderOccurrence],
         leadMinutes: Int,
         now: Date
-    ) -> [Date] {
-        occurrences
+    ) -> Date? {
+        let earliestAllowedDate = now.addingTimeInterval(1)
+        return occurrences
             .flatMap { occurrence in
                 [
                     effectiveDisplayWindowStart(for: occurrence, among: occurrences, leadMinutes: leadMinutes),
                     occurrence.startDate,
                 ]
             }
-            .filter { $0 > now.addingTimeInterval(1) }
-            .sorted()
+            .filter { $0 > earliestAllowedDate }
+            .min()
     }
 
     /// 按与 Live Activity 相同的规则预排本地通知。
     ///
-    /// 这里不尝试判断“未来那一刻 Activity 是否一定会成功启动”，而是把通知作为兜底层：
-    /// 一旦 app 后台未被唤醒、Activity 没能准时出现，用户仍能在同一提醒窗口收到本地通知。
+    /// 本地通知作为 fallback：app 后台未被唤醒或 Activity 未按时出现时，用户仍能在同一提醒窗口收到通知。
     private func syncFallbackNotifications(
         for occurrences: [CourseReminderOccurrence],
         leadMinutes: Int,
@@ -583,8 +577,8 @@ import Foundation
 
 /// Mac Catalyst 不支持 ActivityKit。
 ///
-/// 当前这条提醒链路只服务 iPhone/iPad 的锁屏与灵动岛；在 Catalyst 下先提供一个
-/// 与 iOS 同签名的空实现，让项目能顺利编译并查看原生界面，而不强行移植提醒能力。
+/// 这条提醒链路服务 iPhone/iPad 的锁屏与灵动岛。Catalyst 版本提供与 iOS 同签名的
+/// 空实现，保持项目编译和原生界面预览。
 @MainActor
 final class ScheduleLiveActivityManager {
     static let shared = ScheduleLiveActivityManager()
@@ -597,19 +591,19 @@ final class ScheduleLiveActivityManager {
 
     private init() {}
 
-    /// Catalyst 下不支持锁屏/灵动岛提醒，直接空操作。
+    /// Catalyst 下锁屏和灵动岛提醒保持空操作。
     func refreshFromCurrentCache(trigger: String = "unspecified") async {}
 
-    /// Catalyst 版不走本地通知兜底，也不弹权限请求。
+    /// Catalyst 版将本地通知权限请求视为已完成。
     func requestNotificationAuthorizationIfNeeded() async -> Bool { true }
 
-    /// 为了避免 Mac 预览时不断弹出“请开启通知”，这里固定视为允许。
+    /// Mac 预览固定使用允许状态，避免反复弹出“请开启通知”。
     func notificationAuthorizationStateForReminderFallback() async -> NotificationAuthorizationState { .allowed }
 
-    /// Catalyst 下没有 Activity 可结束，直接空操作。
+    /// Catalyst 下没有 Activity，保持空操作。
     func endAllActivities() async {}
 
-    /// Catalyst 下不注册 BGAppRefreshTask 链路。
+    /// Catalyst 下保持 BGAppRefreshTask 链路关闭。
     func preferredBackgroundRefreshBeginDate() -> Date? { nil }
 }
 

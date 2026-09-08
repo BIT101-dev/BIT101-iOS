@@ -59,10 +59,10 @@ enum ScheduleICSParser {
 
     static func decodeValue(_ value: String) -> String {
         value
-            .replacingOccurrences(of: #"\\n"#, with: "\n", options: .regularExpression)
-            .replacingOccurrences(of: #"\\,"#, with: ",", options: .regularExpression)
-            .replacingOccurrences(of: #"\\;"#, with: ";", options: .regularExpression)
-            .replacingOccurrences(of: #"\\\\"#, with: "\\", options: .regularExpression)
+            .replacingOccurrences(of: "\\n", with: "\n")
+            .replacingOccurrences(of: "\\,", with: ",")
+            .replacingOccurrences(of: "\\;", with: ";")
+            .replacingOccurrences(of: "\\\\", with: "\\")
     }
 
     private static let utcDateTimeFormatter = formatter(timeZone: .gmt, format: "yyyyMMdd'T'HHmmss'Z'")

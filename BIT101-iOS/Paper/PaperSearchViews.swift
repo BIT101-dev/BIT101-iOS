@@ -41,7 +41,7 @@ struct PaperSearchView: View {
                             )
                         }
                     default:
-                        if visiblePapers.isEmpty {
+                        if viewModel.state.items.isEmpty {
                             AppScrollStateContainer {
                                 AppEmptyState(
                                     title: "没有找到相关文章",
@@ -50,8 +50,8 @@ struct PaperSearchView: View {
                                 )
                             }
                         } else {
-                            ForEach(Array(visiblePapers.enumerated()), id: \.element.id) { index, paper in
-                                AppFeedRow(isLast: index == visiblePapers.count - 1) {
+                            ForEach(Array(viewModel.state.items.enumerated()), id: \.element.id) { index, paper in
+                                AppFeedRow(isLast: index == viewModel.state.items.count - 1) {
                                     PaperSummaryCard(
                                         paper: paper,
                                         previewMetadata: viewModel.previewMetadata(for: paper.id),
@@ -62,7 +62,7 @@ struct PaperSearchView: View {
                                 }
                                 .task {
                                     await viewModel.loadPreviewMetadataIfNeeded(for: paper)
-                                    await viewModel.loadMoreIfNeeded(currentPaper: paginationProbePaper(currentPaper: paper))
+                                    await viewModel.loadMoreIfNeeded(currentPaper: paper)
                                 }
                             }
 
@@ -79,7 +79,7 @@ struct PaperSearchView: View {
         .refreshable {
             await viewModel.performSearch()
         }
-        .safeAreaInset(edge: .top, spacing: 0) {
+        .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             AppSearchBarContainer {
                 AppOrderedSearchBar(
                     text: $viewModel.searchText,
@@ -127,16 +127,4 @@ struct PaperSearchView: View {
         .diagnosticAlert(item: $viewModel.alert)
     }
 
-    private var visiblePapers: [PaperSummary] { viewModel.state.items }
-
-    private func paginationProbePaper(currentPaper: PaperSummary) -> PaperSummary {
-        guard currentPaper.id == visiblePapers.last?.id else { return currentPaper }
-        return viewModel.state.items.last ?? currentPaper
-    }
 }
-
-
-/// 文章摘要行。
-///
-/// 视觉上和话廊信息流对齐：使用整行白底，而不是独立圆角卡片。
-/// 这样文章、话题两个内容流在同一层级切换时不会显得割裂。

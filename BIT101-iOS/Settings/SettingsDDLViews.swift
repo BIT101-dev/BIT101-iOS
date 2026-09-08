@@ -80,7 +80,7 @@ struct DDLSettingsPage: View {
     }
 }
 
-/// DDL 设置页里可弹出编辑抽屉的数值项。
+/// DDL 设置页的数值选择路由。
 private enum DDLSettingsNumberPickerRoute: String, Identifiable {
     case beforeDay
     case afterDay
@@ -88,7 +88,7 @@ private enum DDLSettingsNumberPickerRoute: String, Identifiable {
     var id: String { rawValue }
 }
 
-/// DDL 设置页按钮行。
+/// DDL 设置页的按钮行。
 private struct DDLSettingsActionRow: View {
     let title: String
     var value: String? = nil
@@ -109,10 +109,9 @@ private struct DDLSettingsActionRow: View {
     }
 }
 
-/// DDL 设置页数值选择抽屉。
+/// DDL 设置页的数值选择弹窗。
 private struct DDLSettingsNumberPickerSheet: View {
     let title: String
-    let initialValue: Int
     let onSubmit: (Int) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -120,7 +119,6 @@ private struct DDLSettingsNumberPickerSheet: View {
 
     init(title: String, initialValue: Int, onSubmit: @escaping (Int) -> Void) {
         self.title = title
-        self.initialValue = initialValue
         self.onSubmit = onSubmit
         _value = State(initialValue: initialValue)
     }
@@ -154,11 +152,7 @@ private struct DDLSettingsNumberPickerSheet: View {
                 }
             }
         }
-        .presentationDetents([.height(240)])
+        .presentationDetents([.height(AppDesignSystem.Size.sheet.ddlNumericPickerHeight)])
         .presentationDragIndicator(.visible)
     }
 }
-
-/// 画廊设置页。
-///
-/// 集中管理机器人帖子显示和本地图片缓存。

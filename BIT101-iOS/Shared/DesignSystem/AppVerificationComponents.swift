@@ -2,8 +2,8 @@ import SwiftUI
 
 /// 课表、成绩和可信成绩单共用的短信验证码面板。
 ///
-/// 验证码输入、清洗、焦点、错误展示和提交状态必须保持一致；业务只提供挑战对象、
-/// 提交文案和继续操作，不得在页面内复制这套表单。
+/// 验证码输入、清洗、焦点、错误展示和提交状态采用统一实现；业务传入挑战对象、
+/// 提交文案、取消操作和提交操作。
 struct AppSMSVerificationSheet: View {
     let challenge: BITLoginAuthenticationChallenge
     let isSubmitting: Bool

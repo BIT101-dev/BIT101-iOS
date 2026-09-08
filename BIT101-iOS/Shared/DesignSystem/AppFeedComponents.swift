@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 信息流统一的行容器和分割线。
+/// AppFeedRow 为信息流提供零间距行容器，并为非末行显示缩进分割线。
 struct AppFeedRow<Content: View>: View {
     let isLast: Bool
     private let content: Content
@@ -11,7 +11,7 @@ struct AppFeedRow<Content: View>: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: AppDesignSystem.Spacing.none) {
             content
 
             if !isLast {

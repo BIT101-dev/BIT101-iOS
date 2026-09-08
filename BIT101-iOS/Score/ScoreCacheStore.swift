@@ -1,6 +1,6 @@
 import Foundation
 
-/// 成绩 iCloud 同步快照；保留详细字段及本地新鲜度，避免新设备立即重复查询。
+/// 成绩 iCloud 同步快照，保留详细字段和本地新鲜度，使新设备直接复用已有数据。
 struct ScoreCacheSyncPayload: Codable {
     var rows: [ScoreRow]
     var updatedAt: Date?
@@ -9,14 +9,14 @@ struct ScoreCacheSyncPayload: Codable {
 
 /// 成绩缓存仓库。
 ///
-/// 按学号隔离，避免切换账号后串用上一位用户的成绩。
-/// 保留历史 key 以兼容既有安装；新的完整查询会自动覆盖旧的基础数据。
+/// 按学号隔离，切换账号后读取当前账号的成绩。
+/// 保留历史 key 兼容既有安装；新的完整查询覆盖旧的基础数据。
 enum ScoreCacheStore {
-    /// Hosted tests run inside the installed app and otherwise share its standard defaults.
-    /// Keep stub responses away from the signed-in user's real score cache.
+    /// Hosted tests run inside the installed app and share its standard defaults.
+    /// Stub responses use a dedicated account namespace, while the signed-in user's score cache remains separate.
     private static var cacheAccountIdentifier: String {
 #if ICLOUD_CROSS_DEVICE_SMOKE
-        // The opt-in cross-device smoke must inspect the signed-in account's real cache.
+        // ICLOUD_CROSS_DEVICE_SMOKE reads the signed-in account's real cache.
         return LoginStorage.shared.currentStudentID
 #elseif DEBUG
         let environment = ProcessInfo.processInfo.environment
@@ -27,7 +27,7 @@ enum ScoreCacheStore {
         }
         return LoginStorage.shared.currentStudentID
 #else
-        // Release builds contain no XCTest detection or test-only namespace strings.
+        // Release builds resolve the account identifier from LoginStorage and compile without the XCTest detection branch.
         return LoginStorage.shared.currentStudentID
 #endif
     }
@@ -51,22 +51,16 @@ enum ScoreCacheStore {
 
     static func save(rows: [ScoreRow]) {
         guard !rows.isEmpty else { return }
-        store.save(rows)
-        updatedAtStore.save(Date())
-        ExperimentalPreferenceCloudSync.shared.localValueDidChange(in: .scoreCache)
+        persist(rows: rows, updatedAt: Date())
     }
 
     static func saveDetailed(rows: [ScoreRow]) {
         guard !rows.isEmpty else { return }
         let now = Date()
-        store.save(rows)
-        updatedAtStore.save(now)
-        detailedUpdatedAtStore.save(now)
-        ExperimentalPreferenceCloudSync.shared.localValueDidChange(in: .scoreCache)
+        persist(rows: rows, updatedAt: now, detailedUpdatedAt: now)
     }
 
-    /// A successful brief comparison refreshes the visible freshness timestamp
-    /// without replacing the richer cached rows.
+    /// 一次成功的简略比较更新可见的新鲜度时间戳，并保留缓存中更完整的成绩行。
     static func markChecked() {
         updatedAtStore.save(Date())
     }
@@ -87,9 +81,9 @@ enum ScoreCacheStore {
         )
     }
 
-    /// 写入来自 iCloud 的成绩缓存，不回传云端，也不触发学校服务器请求。
+    /// 写入来自 iCloud 的成绩缓存，完成云端到本地的单向落地；该操作仅更新本地缓存和变更通知。
     static func applySynced(_ payload: ScoreCacheSyncPayload) {
-        // 空云端快照不清除本机已有成绩，避免首次启用实验功能时由空设备反向覆盖。
+        // 空云端快照保留本机已有成绩，首次启用实验功能时继续使用本机缓存。
         guard !payload.rows.isEmpty else { return }
         store.save(payload.rows)
         if let updatedAt = payload.updatedAt {
@@ -103,6 +97,19 @@ enum ScoreCacheStore {
             detailedUpdatedAtStore.remove()
         }
         NotificationCenter.default.post(name: .scoreCacheDidChange, object: nil)
+    }
+
+    private static func persist(
+        rows: [ScoreRow],
+        updatedAt: Date,
+        detailedUpdatedAt: Date? = nil
+    ) {
+        store.save(rows)
+        updatedAtStore.save(updatedAt)
+        if let detailedUpdatedAt {
+            detailedUpdatedAtStore.save(detailedUpdatedAt)
+        }
+        ExperimentalPreferenceCloudSync.shared.localValueDidChange(in: .scoreCache)
     }
 }
 

@@ -2,7 +2,7 @@ import Combine
 import Foundation
 import UIKit
 
-/// 查询完整成绩，并负责缓存恢复、筛选同步、统计汇总以及错误提示。
+/// 管理完整成绩查询、缓存恢复、筛选同步、统计汇总和错误提示。
 @MainActor
 final class ScoreViewModel: ObservableObject {
     /// 全量成绩数据。
@@ -23,11 +23,11 @@ final class ScoreViewModel: ObservableObject {
     @Published private(set) var sortOrder: ScoreSortOrder = .ascending
     /// 是否正在同步基础成绩列表。
     @Published private(set) var isSyncing = false
-    /// 复用现有同步提示区域展示两阶段查询进度，不额外弹窗打扰用户。
+    /// 两阶段查询进度使用现有同步提示区域展示，查询过程保持页面内反馈。
     @Published private(set) var syncStatusText = "同步中"
-    /// 最近一次成功写入成绩缓存的时间；失败刷新不会改动它。
+    /// 最近一次成功写入成绩缓存的时间；刷新失败时保留该时间。
     @Published private(set) var lastUpdatedAt: Date?
-    /// 已缓存课表可确认的未出分课程；缺少同学期课表时为 nil。
+    /// 已缓存课表可确认的未出分课程；对应学期课表缺失时返回 nil。
     @Published private(set) var pendingCourses: [CourseRecord]?
     /// 当前等待用户输入短信验证码的短期认证挑战。
     @Published private(set) var smsChallenge: BITLoginAuthenticationChallenge?
@@ -41,8 +41,7 @@ final class ScoreViewModel: ObservableObject {
     private var didRestoreCachedRows = false
     private var didInitializeTermSelection = false
     private var didInitializeCourseTypeSelection = false
-    /// A refresh that reached SMS verification must retain whether the user
-    /// explicitly requested a cache-bypassing detailed refresh.
+    /// 经短信验证的刷新保留用户主动要求的详细成绩刷新策略。
     private var pendingRefreshForcesDetailed = false
     /// 初始化时读取一次已持久化的筛选快照。
     private var preferenceSnapshot = ScoreFilterPreferenceStore.load()
@@ -100,7 +99,7 @@ final class ScoreViewModel: ObservableObject {
         self.init(service: ScoreService())
     }
 
-    /// 切换账号后丢弃内存态；磁盘缓存仍按新学号在下一次启动时恢复。
+    /// 切换账号后重置内存状态；下一次启动按新学号恢复磁盘缓存。
     func resetForCurrentAccount() {
         rows = []
         state = .idle
@@ -124,10 +123,9 @@ final class ScoreViewModel: ObservableObject {
         alert = nil
     }
 
-    /// 进入成绩页时只恢复本地缓存，不访问学校或 WebVPN。
+    /// 进入成绩页时恢复本地缓存；学校和 WebVPN 请求由用户操作触发。
     ///
-    /// 真实成绩查询必须由用户点击“查询成绩”或执行下拉刷新显式触发，
-    /// 这样短信验证码只会出现在用户能立即处理的操作链路中。
+    /// “查询成绩”和下拉刷新触发真实成绩查询，短信验证码在当前操作链路中展示。
     func restoreCachedDataIfNeeded() {
         guard state == .idle else { return }
         restoreCachedRowsIfAvailable()
@@ -138,7 +136,7 @@ final class ScoreViewModel: ObservableObject {
 
     /// 刷新成绩列表。
     ///
-    /// 若页面已经有内容，则走非破坏性刷新，避免下拉刷新时先把列表清空。
+    /// 页面已有内容时在原列表上刷新数据。
     func refresh(
         showErrors: Bool = true,
         forceDetailedRefresh: Bool = true
@@ -174,7 +172,7 @@ final class ScoreViewModel: ObservableObject {
             smsChallenge = nil
             smsVerificationError = nil
             pendingRefreshForcesDetailed = false
-            if hadContent || !rows.isEmpty {
+            if hadContent {
                 state = .loaded
                 if showErrors {
                     alert = AppAlert(title: "验证已失效", message: message)
@@ -191,7 +189,7 @@ final class ScoreViewModel: ObservableObject {
                 return
             }
 
-            if hadContent || !rows.isEmpty {
+            if hadContent {
                 state = .loaded
                 if showErrors {
                     alert = AppAlert(title: "成绩刷新失败", message: error.localizedDescription)
@@ -260,10 +258,10 @@ final class ScoreViewModel: ObservableObject {
         }
     }
 
-    /// 用同一个认证会话先取简略列表，仅在缓存不足或发生变化时补充详细字段。
+    /// 使用同一个认证会话先获取简略列表；详细缓存满足复用条件时沿用缓存，其余情况获取详细字段。
     ///
-    /// 简略结果到达后立即驱动页面；若成绩未变化且详细缓存可复用，则不发起昂贵的
-    /// 逐课程详情请求。确需详情时，“简略成绩同步完成”文案至少展示半秒。
+    /// 简略结果到达后立即更新页面；缓存满足复用条件时沿用缓存，详细信息需要更新时再发起请求。
+    /// 详细请求的状态文案至少展示半秒。
     private func synchronizeScores(
         authenticatedBy challenge: BITLoginAuthenticationChallenge,
         forceDetailedRefresh: Bool
@@ -305,8 +303,7 @@ final class ScoreViewModel: ObservableObject {
             if let cachedRows,
                ScoreDetailRefreshPolicy.briefRowsMatchCache(briefRows, cachedRows: cachedRows)
             {
-                // The brief list is unchanged, so preserve richer cached fields
-                // when a due detail refresh happens to fail.
+                // 简略成绩保持一致时，详细刷新失败会继续使用缓存中的完整字段。
                 applyRows(cachedRows)
             } else {
                 ScoreCacheStore.save(rows: briefRows)
@@ -316,7 +313,7 @@ final class ScoreViewModel: ObservableObject {
         }
     }
 
-    /// 用户关闭验证码面板后丢弃内存中的短期令牌；服务端会自行清理过期挑战。
+    /// 用户关闭验证码面板后释放内存中的短期令牌，服务端清理过期挑战。
     func dismissSMSChallenge() {
         guard !isSubmittingSMSCode else { return }
         smsChallenge = nil
@@ -329,7 +326,7 @@ final class ScoreViewModel: ObservableObject {
 
     /// 当前筛选条件下实际可见的成绩。
     ///
-    /// 成绩列表和统计摘要都基于这份过滤结果，而不是直接基于全量 `rows`。
+    /// 成绩列表和统计摘要均基于这份过滤结果，全量 `rows` 作为原始数据源。
     var filteredRows: [ScoreRow] {
         rows.filter { row in
             let matchesTerm = selectedTerms.contains(row.term)
@@ -373,7 +370,7 @@ final class ScoreViewModel: ObservableObject {
 
     /// 根据本机已缓存的同学期课表，估算仍未出分的去重课程数。
     ///
-    /// 没有对应学期缓存时返回 `nil`，避免把“不知道”误显示成 0。
+    /// 对应学期缓存缺失时返回 `nil`，页面据此区分未知状态与 0。
     private func calculatePendingCourses() -> [CourseRecord]? {
         let scoreTerms = Set(rows.map(\.term).filter { !$0.isEmpty })
             .intersection(selectedTerms)
@@ -401,10 +398,9 @@ final class ScoreViewModel: ObservableObject {
                     || (!name.isEmpty && scoredNames.contains("\(term)|\(name)"))
                 guard !hasScore else { continue }
 
+                guard !name.isEmpty || !number.isEmpty else { continue }
                 let identity = !number.isEmpty ? "\(term)|n|\(number)" : "\(term)|t|\(name)"
-                if !name.isEmpty || !number.isEmpty {
-                    pendingByIdentity[identity] = pendingByIdentity[identity] ?? course
-                }
+                pendingByIdentity[identity] = pendingByIdentity[identity] ?? course
             }
         }
         return pendingByIdentity.values.sorted { lhs, rhs in
@@ -423,17 +419,17 @@ final class ScoreViewModel: ObservableObject {
 
     /// 当前排序偏好的人类可读摘要。
     var sortDescription: String {
-        return "\(sortIndex.title) · \(sortOrder.title)"
+        "\(sortIndex.title) · \(sortOrder.title)"
     }
 
-    /// 替换学期筛选结果，并自动剔除已不存在的选项。
+    /// 更新学期筛选结果，并保留现有选项中的有效值。
     func setSelectedTerms(_ values: Set<String>) {
         selectedTerms = values.intersection(Set(availableTerms))
         pendingCourses = calculatePendingCourses()
         persistFilterPreferences()
     }
 
-    /// 替换课程性质筛选结果，并自动剔除已不存在的选项。
+    /// 更新课程性质筛选结果，并保留现有选项中的有效值。
     func setSelectedCourseTypes(_ values: Set<String>) {
         selectedCourseTypes = values.intersection(Set(availableCourseTypes))
         persistFilterPreferences()
@@ -481,7 +477,7 @@ final class ScoreViewModel: ObservableObject {
         applyRows(rows)
     }
 
-    /// iCloud 成绩缓存到达时立即刷新当前页面，只读缓存，不访问学校服务器。
+    /// iCloud 成绩缓存到达时立即刷新当前页面，页面继续使用本地缓存数据。
     private func applySyncedScoreCacheIfAvailable() {
         guard let cachedRows = ScoreCacheStore.loadRows(), !cachedRows.isEmpty else { return }
         didRestoreCachedRows = true
@@ -507,7 +503,7 @@ final class ScoreViewModel: ObservableObject {
 
     /// 刷新可选项后，同步修正当前筛选集合。
     ///
-    /// 首次进入时优先恢复本地偏好；后续刷新时则只做求交集，剔除已经不存在的旧选项。
+    /// 首次进入时恢复本地偏好；后续刷新时把当前筛选限制在现有选项范围内。
     private func synchronizeFilters() {
         let termSet = Set(availableTerms)
         let typeSet = Set(availableCourseTypes)
@@ -537,7 +533,7 @@ final class ScoreViewModel: ObservableObject {
         persistFilterPreferences()
     }
 
-    /// iCloud 拉取完成后立即更新已存在的成绩页面，不必等到重启 App。
+    /// iCloud 拉取完成后立即更新已存在的成绩页面。
     private func applyPersistedFilterPreferences() {
         preferenceSnapshot = ScoreFilterPreferenceStore.load()
         guard let preferenceSnapshot else { return }
@@ -577,7 +573,7 @@ final class ScoreViewModel: ObservableObject {
             .lowercased()
     }
 
-    /// 把当前筛选结果写回本地偏好。
+    /// 保存当前筛选结果到本地偏好。
     private func persistFilterPreferences() {
         guard didInitializeTermSelection, didInitializeCourseTypeSelection else { return }
         ScoreFilterPreferenceStore.save(
@@ -594,9 +590,10 @@ final class ScoreViewModel: ObservableObject {
     }
 }
 
-/// 可信成绩单申请使用与普通成绩查询相互独立的状态机。
+/// 可信成绩单申请使用独立于普通成绩查询的状态机。
 ///
-/// 学校返回的图片地址是短期地址，图片也只保留在内存中；退出页面后不会写入成绩缓存或图片缓存。
+/// 学校返回的图片地址属于短期地址，成绩单图片保存范围为当前申请页面的内存状态。
+/// 成绩缓存和图片缓存保存各自数据。
 @MainActor
 final class TrustedTranscriptViewModel: ObservableObject {
     enum State: Equatable {
@@ -673,7 +670,7 @@ final class TrustedTranscriptViewModel: ObservableObject {
             state = .idle
             smsVerificationError = "请输入最新收到的短信验证码。"
         } catch {
-            // 普通错误（尤其是错误验证码）留在输入面板内展示，允许用户直接改正后重试。
+            // 普通错误（尤其是错误验证码）继续显示在输入面板，用户可以修改验证码后重试。
             if TaskCancellation.matches(error) {
                 state = .idle
                 return
@@ -682,6 +679,7 @@ final class TrustedTranscriptViewModel: ObservableObject {
         }
     }
 
+    /// 关闭短信验证面板并将申请状态更新为失败。
     func dismissSMSChallenge() {
         guard !isSubmittingSMSCode else { return }
         smsChallenge = nil
@@ -698,8 +696,3 @@ final class TrustedTranscriptViewModel: ObservableObject {
         state = .loaded
     }
 }
-
-/// “成绩”底部页内部的一级内容分区。
-///
-/// 课程模块并入后，底部栏只保留“成绩”一个入口，
-/// 再通过这里的顶部栏在“成绩 / 课程”之间切换。

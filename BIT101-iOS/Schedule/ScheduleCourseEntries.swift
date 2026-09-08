@@ -10,7 +10,7 @@ private func normalizeDisplayedClassroom(_ value: String) -> String {
     ScheduleDisplayNormalizer.courseCardClassroomText(value)
 }
 
-/// 对课程标题做本地展示优化。
+/// 将课程标题转换为展示文本。
 private func normalizeDisplayedCourseTitle(_ value: String) -> String {
     ScheduleDisplayNormalizer.normalizeCourseTitle(value)
 }
@@ -21,7 +21,7 @@ extension CourseScheduleTabView {
             return []
         }
 
-        // 课表网格只关心当前周，所以先把课程、考试和自定义日程全部压平成同一套日历块模型。
+        // 课表网格按当前周展示，课程、考试和自定义日程统一转换为日历块模型。
         let weekStart = Calendar.current.date(
             byAdding: .day,
             value: ScheduleWeekCodec.weekOffset(forWeekNumber: viewModel.selectedWeek) * 7,
@@ -146,7 +146,7 @@ extension CourseScheduleTabView {
         )
     }
 
-    /// 全学期模式合并重叠课程，文字使用并集范围，背景保留每条记录的原始范围。
+    /// 全学期模式合并重叠课程，文字展示合并后的周次范围，背景保留每条记录的原始范围。
     func makeAllWeeksCourseEntries(from courses: [CourseRecord]) -> [ScheduleCalendarEntry] {
         let grouped = Dictionary(grouping: courses, by: scheduleCourseIdentity)
         let entries = courses.map { course in
@@ -276,6 +276,4 @@ extension CourseScheduleTabView {
         ranges.append(start == end ? "\(start)" : "\(start)-\(end)")
         return ranges.joined(separator: "\n")
     }
-
-
 }

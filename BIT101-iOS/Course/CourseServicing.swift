@@ -1,5 +1,3 @@
-import Foundation
-
 protocol CourseListServicing {
     func fetchCourses(search: String, page: Int) async throws -> [CourseSummary]
 }

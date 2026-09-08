@@ -5,10 +5,10 @@
 
 import Foundation
 
-/// 课程编辑表单的纯校验与周次编解码。
+/// 课程编辑草稿校验、周次编解码和课程记录变换。
 ///
-/// 与持久化和 UI 状态解耦后，新增、整课编辑和单次调课共享同一套规则，
-/// 也可以在不创建 `ScheduleViewModel` 的情况下直接测试边界输入。
+/// 新增、整课编辑和单次调课共享同一套规则，
+/// 边界输入可以独立于 `ScheduleViewModel` 测试。
 enum ScheduleCourseEditor {
     struct ResolvedDraft: Equatable {
         let title: String

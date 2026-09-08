@@ -2,8 +2,8 @@ import Foundation
 
 /// 课程评价入口共用的课程匹配规则。
 ///
-/// 日程课程和成绩记录都只有课程号/课程名等外部标识，最终必须通过同一套
-/// 去格式化、教师消歧和唯一性判断，才能进入同一个课程详情与评价页面。
+/// 日程课程和成绩记录使用课程号、课程名等外部标识匹配候选课程；匹配过程统一清理
+/// 格式、消除教师歧义并判断唯一性，结果进入同一个课程详情与评价页面。
 nonisolated enum CourseLookupMatcher {
     static func bestMatch(
         courseNumber: String,
@@ -46,15 +46,12 @@ nonisolated enum CourseLookupMatcher {
         if sameNumber.count == 1 { return sameNumber[0] }
         if sameName.count == 1 { return sameName[0] }
 
-        // 成绩接口通常没有教师字段：当同一课程号和课程名只是因教师记录被拆成多行时，
-        // 它们仍然代表同一门可评价课程，可以稳定取第一条；不同课程号的同名课仍保持歧义失败。
+        // 成绩接口通常没有教师字段：当同一课程号和课程名对应多个教师记录时，
+        // 仍按同一门可评价课程处理，并按候选顺序取第一条；不同课程号的同名课仍保持歧义失败。
         let sameIdentity = sameNumber.filter { numberCourse in
             sameName.contains(where: { $0.id == numberCourse.id })
         }
-        if sameIdentity.count > 1,
-           Set(sameIdentity.map { normalizedIdentifier($0.number) }).count == 1,
-           Set(sameIdentity.map { normalizedText($0.name) }).count == 1
-        {
+        if sameIdentity.count > 1 {
             return sameIdentity[0]
         }
         return nil
@@ -124,7 +121,7 @@ nonisolated enum CourseLookupMatcher {
 ///
 /// 课程号和课程名都要检索：教务成绩里的课程号可能是学校侧别名，课程名也可能存在
 /// 全角标点、空格或括号差异。两路结果统一去重后再交给 `CourseLookupMatcher`，避免
-/// 日程与成绩详情各自只搜一个字段而把同一门课程误判为“找不到”。
+/// 日程与成绩详情分别依赖各自字段；两路结果统一检索与消歧，避免同一课程被判定为“找不到”。
 struct CourseEvaluationLookupResult {
     let selectedCourse: CourseSummary
     let searchQuery: String

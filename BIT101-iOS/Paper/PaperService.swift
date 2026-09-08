@@ -29,7 +29,7 @@ extension PaperServiceError: CommunityAPIServiceError {
 
 /// 文章模块网络层。
 ///
-/// 文章列表和详情接口独立于话廊，但点赞、评论仍然沿用同一套 reaction 接口。
+/// 文章列表和详情接口独立于话廊。文章点赞和评论沿用 reaction 接口。
 struct PaperService {
     private let api: CommunityAPIClient<PaperServiceError>
 
@@ -115,7 +115,7 @@ struct PaperService {
 
     /// 点赞或取消点赞评论。
     ///
-    /// 文章详情里的评论同样通过 reaction 接口处理，所以这里开放一个最小通用入口。
+    /// 文章详情评论通过 reaction 接口处理。这个方法为评论点赞提供通用入口。
     func sendLike(objectID: String) async throws -> GalleryLikeResult {
         try await api.request(
             path: "reaction/like",

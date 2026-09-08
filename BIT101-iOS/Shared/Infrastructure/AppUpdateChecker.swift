@@ -42,13 +42,13 @@ private struct AppStoreLookupResponse: Decodable {
 }
 
 enum AppVersionComparison {
-    /// App Store 公开版本号按数字段比较，避免把 `1.10` 错判为小于 `1.9`。
+    /// App Store 公开版本号按数字段比较，`1.10` 按数值顺序位于 `1.9` 之后。
     static func isNewer(_ candidate: String, than installed: String) -> Bool {
         candidate.compare(installed, options: .numeric) == .orderedDescending
     }
 }
 
-/// 负责 24 小时查询节流、结果缓存以及“忽略本版本”持久化。
+/// App Store 更新检查器保存查询结果、忽略版本和展示冷却状态，并按 24 小时节流查询。
 @MainActor
 final class AppUpdateChecker {
     typealias DataLoader = (URLRequest) async throws -> (Data, URLResponse)
@@ -84,7 +84,7 @@ final class AppUpdateChecker {
         self.loadData = loadData
 
         #if DEBUG
-        // 真机更新提醒 smoke 专用；仅显式传入启动环境变量时清除提醒门禁，Release 不包含。
+        // 真机更新提醒 smoke 使用；显式传入启动环境变量时清除提醒门禁；Release 构建使用常规检查流程。
         if ProcessInfo.processInfo.environment["BIT101_UPDATE_PROMPT_SMOKE_RESET"] == "1" {
             [
                 Self.lastAttemptKey,
@@ -107,7 +107,7 @@ final class AppUpdateChecker {
             }
         }
 
-        // 无论请求成功或失败都算一次查询，避免网络异常时每次启动反复请求 Apple。
+        // 查询发起时立即记录时间，成功和失败结果都进入 24 小时查询门禁。
         defaults.set(currentDate, forKey: Self.lastAttemptKey)
 
         do {
@@ -117,7 +117,7 @@ final class AppUpdateChecker {
             }
             return eligibleRelease(from: release)
         } catch {
-            // 查询失败不打断启动；若曾有可信缓存，仍可继续使用它进行纯本地判断。
+            // 查询失败时启动流程继续；存在可信缓存时，流程继续使用缓存完成本地判断。
             return eligibleRelease(from: cachedRelease())
         }
     }
@@ -126,7 +126,7 @@ final class AppUpdateChecker {
         defaults.set(version, forKey: Self.ignoredVersionKey)
     }
 
-    /// 在弹窗安排展示时立即记账，保证无论用户选择哪个按钮，24 小时内都不会再次出现。
+    /// 弹窗安排展示时立即记录时间和版本；各操作共用 24 小时展示冷却。
     func markPresented(version: String) {
         defaults.set(now(), forKey: Self.lastPresentedAtKey)
         defaults.set(version, forKey: Self.lastPresentedVersionKey)
@@ -134,7 +134,7 @@ final class AppUpdateChecker {
 
     private func fetchLatestRelease() async throws -> AppStoreRelease {
         // Apple Lookup CDN 可能按 User-Agent 返回已过期版本；每次受 24 小时门禁控制的
-        // 查询追加唯一参数，避免 CFNetwork 命中 CDN 中仍停留在上一版本的响应。
+        // 查询追加唯一参数，配合缓存策略请求最新响应。
         var components = URLComponents(url: Self.lookupURL, resolvingAgainstBaseURL: false)
         let existingQueryItems = components?.queryItems ?? []
         components?.queryItems = existingQueryItems + [
@@ -221,7 +221,7 @@ struct AppPromptAction: Identifiable {
     }
 }
 
-/// 应用级原生弹窗请求。所有启动弹窗只能经由同一个协调器展示。
+/// 应用级原生弹窗请求。启动弹窗统一由同一个协调器展示。
 struct AppPrompt: Identifiable {
     let id: String
     let title: String
@@ -247,7 +247,7 @@ struct AppPrompt: Identifiable {
     }
 }
 
-/// 应用唯一的弹窗队列，同一时刻只向 SwiftUI 提交一个 `.alert`。
+/// 应用级弹窗队列。SwiftUI 在同一时刻展示一个 `.alert`。
 @MainActor
 final class AppPromptCoordinator: ObservableObject {
     static let shared = AppPromptCoordinator()
@@ -293,8 +293,7 @@ final class AppPromptCoordinator: ObservableObject {
         handledIDs.insert(activePrompt.id)
         self.activePrompt = nil
 
-        // 测试或无动画宿主可以显式关闭退场等待；此时同步推进，避免把队列语义
-        // 绑定到主线程任务何时获得调度。
+        // 测试或动画已关闭的宿主显式关闭退场等待时，队列立即推进；队列行为直接由当前调用决定。
         if advanceDelay == .zero {
             presentNextIfPossible()
             return
@@ -315,12 +314,12 @@ final class AppPromptCoordinator: ObservableObject {
         let prompt = queue.removeFirst()
         queuedIDs.remove(prompt.id)
         activePrompt = prompt
-        // 只有轮到这一项成为唯一活动弹窗时才记为已经展示。
+        // 这一项成为唯一活动弹窗后，组件记录展示状态。
         prompt.onPresent()
     }
 }
 
-/// 把查询状态收束在 App 根节点，避免登录页和登录后壳层各自重复请求。
+/// App 根节点统一管理更新查询状态，登录页和登录后壳层共用同一条查询流程。
 @MainActor
 final class AppUpdatePromptCoordinator {
     static let shared = AppUpdatePromptCoordinator()
@@ -342,7 +341,7 @@ final class AppUpdatePromptCoordinator {
         case appStore(AppStoreRelease)
     }
 
-    /// 两项检查并行启动，但只有紧急配置确认未命中后才允许交付 App Store 弹窗。
+    /// 两项检查并行启动；紧急检查产生通知时交付紧急弹窗，其他结果交付 App Store 弹窗。
     func noticeToPresentAtLaunch() async -> LaunchNotice? {
         guard !didCheckThisLaunch else { return nil }
         didCheckThisLaunch = true

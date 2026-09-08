@@ -1,14 +1,13 @@
 # 自有 Cloudflare 资源
 
-本目录只维护 iOS 项目维护者拥有的 `aihelpme.dev` 资源。BIT101/101 相关域名不在可管理范围内。
+本目录的管理对象为 iOS 项目维护者拥有的 `aihelpme.dev` 资源。BIT101/101 相关域名的管理范围独立于本目录。
 
-`feedback.aihelpme.dev` 没有独立网页，只有接收 App 错误报告和用户建议的 Worker API；后端源码在
-`Cloudflare/ErrorReportWorker/worker.js`，App 内提交界面在
+`feedback.aihelpme.dev` 的资源类型为 Worker API，接口功能为接收 App 错误报告和用户建议；独立网页入口状态为空。后端源码位于
+`Cloudflare/ErrorReportWorker/worker.js`，App 内提交界面位于
 `BIT101-iOS/Shared/Infrastructure/ErrorReportSupport.swift` 与
 `BIT101-iOS/Settings/SettingsRootView.swift`。
 
-报告读取脚本复用 `EmergencyUpdateWorker/node_modules` 中已安装的 Wrangler，避免每次在
-`ErrorReportWorker` 目录重新下载 Wrangler。
+报告读取脚本调用 `EmergencyUpdateWorker/node_modules` 中已安装的 Wrangler；`ErrorReportWorker` 目录的每次执行沿用该安装。
 
 ## 资源对应关系
 
@@ -19,13 +18,13 @@
 | `update.aihelpme.dev` | Worker + KV | `bit101-emergency-update` | `Cloudflare/EmergencyUpdateWorker/` |
 | `feedback.aihelpme.dev` | Worker + KV | `bit101-error-reports` | `Cloudflare/ErrorReportWorker/` |
 
-2026-08-31 已通过 Wrangler 确认：当前 OAuth 登录可以读取并部署 `privacy-policy` Pages 项目和
-`bit101-open` Worker，并具有 Pages、Workers、KV 与 Worker Routes 写入权限。因此在授权未过期
-或未被撤销时，可以从此电脑部署四项资源，无需每次进入 Cloudflare 网页。
+2026-08-31，Wrangler OAuth 登录状态确认可读取并部署 `privacy-policy` Pages 项目和
+`bit101-open` Worker；当前登录状态具有 Pages、Workers、KV 与 Worker Routes 写入权限。授权保持有效且未被撤销、
+Cloudflare 账号保持一致时，此电脑通过 Wrangler 部署四项资源，部署入口采用命令行。
 
 ## 部署
 
-仓库当前使用 `Cloudflare/EmergencyUpdateWorker` 中安装的 Wrangler：
+仓库调用 `Cloudflare/EmergencyUpdateWorker` 中安装的 Wrangler：
 
 ```sh
 # 隐私政策 Pages
@@ -44,10 +43,11 @@
   npx wrangler deploy --config ../ErrorReportWorker/wrangler.jsonc)
 ```
 
-以上命令都会直接修改线上资源，只有在用户明确要求部署时才能执行。若 Wrangler 授权过期、被撤销
-或 Cloudflare 账号发生变化，仍需重新执行 `npx wrangler login`。
+以上命令直接修改线上资源。部署动作的触发条件为用户明确要求部署。Wrangler 授权处于有效状态且
+Cloudflare 账号保持一致时，命令可直接运行；授权过期、授权撤销或 Cloudflare 账号变化时，先执行
+`npx wrangler login`。
 
-## 最近部署验证
+## 部署验证记录
 
 2026-08-31 已从本仓库完成一次命令行部署并验证：
 
@@ -57,11 +57,11 @@
 
 ## 目录约定
 
-每个自有域名的部署配置和源码都放在 `Cloudflare/` 下的一个项目目录中：
+每个自有域名对应的部署配置和源码位于 `Cloudflare/` 下的独立项目目录：
 
 - `PrivacyPolicy/`：隐私政策 Pages。
 - `OpenWorker/`：Universal Link 跳转 Worker。
 - `EmergencyUpdateWorker/`：紧急更新 Worker。
 - `ErrorReportWorker/`：反馈 API Worker。
 
-不再使用顶层 `web/` 目录，也不为反馈 API 新建网页副本。
+顶层 `web/` 目录状态为停用；反馈 API 项目的网页副本创建策略为关闭。

@@ -22,10 +22,7 @@ enum CourseEditorMode: Equatable {
     }
 
     var locksWeeks: Bool {
-        if case .editOccurrence = self {
-            return true
-        }
-        return false
+        fixedWeek != nil
     }
 
     var fixedWeek: Int? {

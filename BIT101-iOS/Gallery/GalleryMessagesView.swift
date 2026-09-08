@@ -73,7 +73,6 @@ struct GalleryMessagesView: View {
                     }
                     .listStyle(.plain)
                     .scrollContentBackground(.hidden)
-                    .background(AppDesignSystem.Palette.groupedBackground)
                     .refreshable {
                         await viewModel.refreshSelectedType()
                     }
@@ -98,7 +97,7 @@ struct GalleryMessagesView: View {
                 .disabled(!viewModel.hasUnreadInCurrentType)
             }
         }
-        .safeAreaInset(edge: .top, spacing: 0) {
+        .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             AppTopSegmentedPicker(title: "消息分类", selection: $viewModel.selectedType) {
                 ForEach(GalleryMessageType.allCases) { type in
                     Text(title(for: type)).tag(type)
@@ -138,7 +137,7 @@ struct GalleryMessagesView: View {
         viewModel.state(for: viewModel.selectedType)
     }
 
-    /// 网络恢复或回到前台时，如果当前消息分类仍停在失败空态，则自动补拉一次。
+    /// 网络恢复或回到前台时，当前消息分类处于失败状态且消息为空时自动刷新一次。
     private func retryCurrentTypeIfNeeded() async {
         guard networkObserver.isReachable else { return }
         let state = currentState
@@ -182,8 +181,8 @@ struct GalleryMessagesView: View {
 
     /// 打开单条消息。
     ///
-    /// 当前服务端消息对象并不保证目标帖子仍然存在，所以这里先尝试拉详情；
-    /// 若帖子已删除，则弹本地提示而不是把用户带进一个“对象不存在”的错误页。
+    /// 服务端返回的消息对象可能关联已删除帖子，因此先请求帖子详情。
+    /// 帖子已删除时显示本地提示，避免进入“对象不存在”的错误页。
     private func openMessage(_ message: GalleryMessage) async {
         viewModel.markMessageAsRead(message, in: viewModel.selectedType)
 
@@ -203,8 +202,8 @@ struct GalleryMessagesView: View {
 
 /// 单条消息行。
 ///
-/// 这里的“新消息”样式是本地伪未读：基于服务端分类未读数推断最新前 N 条，
-/// 不申请系统通知，也不依赖服务端逐条 read 字段。
+/// 新消息样式使用本地伪未读：客户端根据服务端分类未读数标记最新前 N 条。
+/// 系统通知和服务端逐条 read 字段均不参与这项样式。
 private struct GalleryMessageRow: View {
     let type: GalleryMessageType
     let message: GalleryMessage
@@ -234,7 +233,7 @@ private struct GalleryMessageRow: View {
 
                     Spacer(minLength: 0)
 
-                    Text(relativeTimeText(message.updateTime))
+                    Text(AppDateText.relativeText(from: message.updateTime, fallback: "未知时间"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -262,22 +261,18 @@ private struct GalleryMessageRow: View {
         .padding(.horizontal, AppDesignSystem.Spacing.container)
         .padding(.vertical, AppDesignSystem.Spacing.content)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isUnread ? AppDesignSystem.Palette.highlight.opacity(0.06) : AppDesignSystem.Palette.systemBackground)
+        .background(isUnread ? AppDesignSystem.Palette.highlightSurface : AppDesignSystem.Palette.systemBackground)
         .contentShape(Rectangle())
         .onTapGesture {
             guard canOpenPoster else { return }
             onOpenPoster()
         }
     }
-
-    private func relativeTimeText(_ string: String) -> String {
-        AppDateText.relativeText(from: string, fallback: "未知时间")
-    }
 }
 
 /// 消息头像。
 ///
-/// 系统消息没有真实用户头像，因此需要根据消息类型回退到一个语义图标。
+/// 系统消息使用消息类型对应的语义图标作为头像回退。
 private struct GalleryMessageAvatarView: View {
     let user: GalleryMessageUser
     let type: GalleryMessageType

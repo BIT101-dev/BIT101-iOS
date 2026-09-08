@@ -26,7 +26,7 @@ extension ScheduleViewModel {
         cache.selectedBuildingID = ""
         buildings = cache.cachedClassroomBuildingsByCampusCode[code] ?? []
         if !buildings.isEmpty {
-            resolveSelectedBuildingIfNeeded(allowsPreferredBuilding: true)
+            resolveSelectedBuildingIfNeeded()
         }
         classroomRecords = []
         classroomAvailabilities = []
@@ -34,7 +34,6 @@ extension ScheduleViewModel {
 
         do {
             try await loadBuildings(requestID: requestID)
-            guard isCurrentClassroomRequest(requestID) else { return }
             if !selectedBuildingID.isEmpty {
                 try await refreshClassrooms(requestID: requestID)
             }
@@ -89,12 +88,8 @@ extension ScheduleViewModel {
 
     /// 当前教学楼的空教室状态刷新实现。
     ///
-    /// 所有公开入口都会先分配 `requestID`，旧请求返回时不允许再回写 loading、结果或错误弹窗。
+    /// 网络刷新入口先分配 `requestID`，UI 回写资格始终归属于最新请求。
     private func refreshClassrooms(requestID: Int) async throws {
-        defer {
-            finishClassroomRequestIfCurrent(requestID)
-        }
-
         if cache.currentTerm.isEmpty {
             let term = try await withClassroomRequestTimeout { [self] in
                 try await service.fetchCurrentTermOnly()
@@ -126,7 +121,7 @@ extension ScheduleViewModel {
     /// 供页面顶部刷新按钮使用的统一入口。
     ///
     /// 会先补齐校区/教学楼元数据，再刷新当前楼栋的空教室数据。
-    /// 请求由 ViewModel 持有，因此页面离开空教室分栏时不会取消已经发出的请求。
+    /// ViewModel 持有请求任务，页面离开空教室分栏后请求继续执行。
     func refreshClassroomPage() async {
         startClassroomPageRefresh()
         guard let task = classroomPageTask else { return }
@@ -135,8 +130,8 @@ extension ScheduleViewModel {
 
     /// 启动一次由 ViewModel 持有的空教室页面刷新。
     ///
-    /// 进入分栏只负责触发，不把网络任务绑定到 SwiftUI 的 `.task` 生命周期；
-    /// 已有请求进行中时复用它，避免在 DDL / 空教室之间快速切换时产生悬挂状态。
+    /// 分栏进入动作负责触发，网络任务由 ViewModel 持有；已有请求进行中时复用它，
+    /// 让 DDL / 空教室快速切换保持同一请求状态。
     func startClassroomPageRefresh() {
         guard classroomPageTask == nil else { return }
 
@@ -190,17 +185,16 @@ extension ScheduleViewModel {
         }
         guard isCurrentClassroomRequest(requestID) else { throw CancellationError() }
 
-        applyFetchedBuildingsForCurrentSelection(fetchedBuildings, allowsPreferredCampus: true, allowsPreferredBuilding: true)
+        applyFetchedBuildingsForCurrentSelection(fetchedBuildings)
     }
 
     /// 写入教学楼元数据，并在未缓存校区列表时从教学楼字段反推出校区，避免首屏额外等待校区接口。
-    private func applyFetchedBuildingsForCurrentSelection(
-        _ fetchedBuildings: [BuildingRecord],
-        allowsPreferredCampus: Bool,
-        allowsPreferredBuilding: Bool
-    ) {
+    private func applyFetchedBuildingsForCurrentSelection(_ fetchedBuildings: [BuildingRecord]) {
         guard !fetchedBuildings.isEmpty else {
-            applyFetchedBuildings([], for: cache.selectedCampusCode, allowsPreferredBuilding: allowsPreferredBuilding)
+            buildings = fetchedBuildings
+            cache.cachedClassroomBuildingsByCampusCode[cache.selectedCampusCode] = fetchedBuildings
+            resolveSelectedBuildingIfNeeded()
+            persist()
             return
         }
 
@@ -223,7 +217,7 @@ extension ScheduleViewModel {
             }
         }
 
-        resolveSelectedCampusIfNeeded(allowsPreferredCampus: allowsPreferredCampus)
+        resolveSelectedCampusIfNeeded()
 
         let selectedCampusBuildings: [BuildingRecord]
         if !cache.selectedCampusCode.isEmpty, let campusBuildings = grouped[cache.selectedCampusCode] {
@@ -236,24 +230,12 @@ extension ScheduleViewModel {
         if !cache.selectedCampusCode.isEmpty {
             cache.cachedClassroomBuildingsByCampusCode[cache.selectedCampusCode] = selectedCampusBuildings
         }
-        resolveSelectedBuildingIfNeeded(allowsPreferredBuilding: allowsPreferredBuilding)
-        persist()
-    }
-
-    /// 写入某个校区下的教学楼元数据，并保持当前选择尽量稳定。
-    private func applyFetchedBuildings(
-        _ fetchedBuildings: [BuildingRecord],
-        for campusCode: String,
-        allowsPreferredBuilding: Bool
-    ) {
-        buildings = fetchedBuildings
-        cache.cachedClassroomBuildingsByCampusCode[campusCode] = fetchedBuildings
-        resolveSelectedBuildingIfNeeded(allowsPreferredBuilding: allowsPreferredBuilding)
+        resolveSelectedBuildingIfNeeded()
         persist()
     }
 
     /// 在校区列表变化后修正选中校区。
-    private func resolveSelectedCampusIfNeeded(allowsPreferredCampus: Bool) {
+    private func resolveSelectedCampusIfNeeded() {
         let validCampusCodes = Set(campuses.map(\.code))
 
         if validCampusCodes.contains(cache.selectedCampusCode) {
@@ -261,7 +243,7 @@ extension ScheduleViewModel {
             return
         }
 
-        if allowsPreferredCampus, let preferredCampus = preferredCampus(from: campuses) {
+        if let preferredCampus = preferredCampus(from: campuses) {
             cache.selectedCampusCode = preferredCampus.code
             cache.selectedCampusName = preferredCampus.name
             return
@@ -272,7 +254,7 @@ extension ScheduleViewModel {
     }
 
     /// 在教学楼列表变化后修正选中教学楼。
-    private func resolveSelectedBuildingIfNeeded(allowsPreferredBuilding: Bool) {
+    private func resolveSelectedBuildingIfNeeded() {
         let validBuildingIDs = Set(buildings.map(\.buildingCode))
         let cachedBuildingID = cache.selectedBuildingID
 
@@ -286,7 +268,7 @@ extension ScheduleViewModel {
             return
         }
 
-        if allowsPreferredBuilding, let preferredBuildingID = preferredBuildingID(from: buildings), validBuildingIDs.contains(preferredBuildingID) {
+        if let preferredBuildingID = preferredBuildingID(from: buildings), validBuildingIDs.contains(preferredBuildingID) {
             selectedBuildingID = preferredBuildingID
             cache.selectedBuildingID = selectedBuildingID
             return
@@ -338,14 +320,12 @@ extension ScheduleViewModel {
         return (components.hour ?? 0) * 60 + (components.minute ?? 0)
     }
 
-    /// 开始一轮新的空教室请求，并让所有旧请求失去 UI 回写资格。
-    private func beginClassroomRequest(clearsLoadingState: Bool = true) -> Int {
+    /// 开始一轮新的空教室请求，UI 回写资格始终归属于最新请求。
+    private func beginClassroomRequest() -> Int {
         let request = classroomCoordinator.beginRequest(hasVisibleResults: !classroomAvailabilities.isEmpty)
         shouldShowInitialClassroomSpinner = request.shouldShowInitialSpinner
-        if clearsLoadingState {
-            isLoadingClassroomMeta = false
-            isLoadingClassrooms = false
-        }
+        isLoadingClassroomMeta = false
+        isLoadingClassrooms = false
         return request.id
     }
 
@@ -356,17 +336,15 @@ extension ScheduleViewModel {
 
     /// 统一处理空教室链路错误。
     ///
-    /// 只有当前最新请求可以关闭 loading 和弹窗；旧请求失败会被静默丢弃。
+    /// 当前最新请求负责关闭 loading 和弹窗；旧请求结果统一忽略 UI 回写。
     private func handleClassroomRequestError(_ error: Error, requestID: Int, title: String) {
         guard isCurrentClassroomRequest(requestID) else { return }
 
         if isCancellation(error) {
-            classroomCoordinator.finish(requestID)
             shouldShowInitialClassroomSpinner = false
             return
         }
 
-        classroomCoordinator.finish(requestID)
         shouldShowInitialClassroomSpinner = false
         isLoadingClassroomMeta = false
         isLoadingClassrooms = false
@@ -404,7 +382,7 @@ extension ScheduleViewModel {
         shouldShowInitialClassroomSpinner = false
     }
 
-    /// 给单个空教室网络请求加超时，避免学校接口长期挂起。
+    /// 给单个空教室网络请求设置等待上限，限制学校接口的等待时长。
     private func withClassroomRequestTimeout<T: Sendable>(
         operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
@@ -413,7 +391,7 @@ extension ScheduleViewModel {
 
     /// 从“最近下一节课”的教室名推导最匹配的教学楼。
     ///
-    /// 规则是：永远先做精确匹配，精确失败后才退回前缀匹配，再不行才回退缓存。
+    /// 规则按精确匹配、前缀匹配排序；两类匹配均未命中时返回 `nil`。
     private func preferredBuildingID(from buildings: [BuildingRecord]) -> String? {
         guard let course = nextUpcomingCourse() else { return nil }
         let candidates = ClassroomAvailabilityCalculator.buildingCandidates(from: course.classroom)

@@ -24,8 +24,7 @@ extension Notification.Name {
 
 /// 日程页的一级分栏。
 ///
-/// 课表、DDL、空教室虽然都挂在“日程”一级页签下，但数据来源和容器差异很大，
-/// 所以先用统一枚举收敛它们的切换语义。
+/// 课表、DDL、空教室都挂在“日程”一级页签下，统一使用这个枚举表示分栏切换。
 enum ScheduleSection: String, CaseIterable, Identifiable, Hashable {
     case courses
     case ddl
@@ -133,7 +132,7 @@ nonisolated struct TimeSlot: Codable, Hashable, Identifiable {
 
 /// 课表课程记录。
 ///
-/// 这是 iOS 端落盘后的统一课程模型，教务接口、缓存、小组件、灵动岛都围绕它工作。
+/// 这是 iOS 端保存后的统一课程模型，教务接口、缓存、小组件、灵动岛都围绕它工作。
 struct CourseRecord: Codable, Identifiable, Hashable {
     let id: String
     let term: String
@@ -196,7 +195,7 @@ struct CourseRecord: Codable, Identifiable, Hashable {
 
 /// 手动新增课程时使用的草稿模型。
 ///
-/// 课程本体仍然落成 `CourseRecord`，草稿只服务于表单输入和本地校验。
+/// 课程本体使用 `CourseRecord` 保存，草稿用于表单输入和本地校验。
 struct CourseDraft: Equatable {
     var title = ""
     var teacher = ""
@@ -209,7 +208,7 @@ struct CourseDraft: Equatable {
 
 /// 考试记录。
 ///
-/// 当前考试数据主要在课表页下方和锁屏/桌面未来扩展中复用，所以保留完整字段。
+/// 考试数据用于课表页展示，模型保留完整字段，供扩展按需复用。
 struct ExamRecord: Codable, Identifiable, Hashable {
     let id: String
     let term: String
@@ -226,7 +225,7 @@ struct ExamRecord: Codable, Identifiable, Hashable {
 
 /// DDL 列表项。
 ///
-/// 乐学同步数据和手动新建数据都落成这一种本地记录。
+/// 乐学同步数据和手动新建数据都使用这一种本地记录。
 struct DDLEventRecord: Codable, Identifiable, Hashable {
     let id: String
     var group: String
@@ -238,7 +237,7 @@ struct DDLEventRecord: Codable, Identifiable, Hashable {
 
 /// 手动新增 / 编辑 DDL 时使用的草稿模型。
 ///
-/// 草稿模型不直接落盘，只服务于表单编辑过程。
+/// 草稿模型用于表单编辑过程。
 struct DDLDraft: Equatable {
     var title = ""
     var dueAt = Date()
@@ -247,7 +246,7 @@ struct DDLDraft: Equatable {
 
 /// 自定义课程块记录。
 ///
-/// 用于补充学校接口之外的个人日程，后续也会参与灵动岛“下一项”判断。
+/// 用于补充学校接口之外的个人日程，也参与灵动岛“下一项”判断。
 struct CustomScheduleRecord: Codable, Identifiable, Hashable {
     let id: String
     var title: String
@@ -270,7 +269,7 @@ struct CustomScheduleDraft: Equatable {
 
 /// 空教室查询使用的校区记录。
 ///
-/// 这是服务端返回的元数据模型，不直接参与排课运算，只负责驱动选择器。
+/// 这是服务端返回的元数据模型，仅驱动选择器。
 struct CampusRecord: Codable, Identifiable, Hashable {
     let id: String
     let name: String
@@ -330,7 +329,7 @@ nonisolated struct ScheduleCache: Codable {
     var courses: [CourseRecord] = []
     /// 已成功同步过的各学期课表快照，供成绩页本地判断尚未出分的课程。
     var cachedCoursesByTerm: [String: [CourseRecord]] = [:]
-    /// Current and next semester as complete, already-converted offline snapshots.
+    /// 当前学期和下一学期的完整转换快照，滚动本地缓存保留相邻两个学期。
     var termSchedulesByTerm: [String: TermScheduleSnapshot] = [:]
     var exams: [ExamRecord] = []
     var customSchedules: [CustomScheduleRecord] = []
@@ -363,7 +362,7 @@ nonisolated struct ScheduleCache: Codable {
 
     /// 首周日期的解码结果，便于课表直接计算当前周数。
     var firstDay: Date? {
-        Self.parseFirstDay(firstDayString)
+        Self.parseScheduleFirstDay(firstDayString)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -426,7 +425,7 @@ nonisolated struct ScheduleCache: Codable {
             [String: TermScheduleSnapshot].self,
             forKey: .termSchedulesByTerm
         ) ?? [:]
-        // 从旧版单学期缓存平滑迁移；升级不会丢失用户已经保存的课表。
+        // 将旧版单学期缓存迁移到按学期保存，保留用户已经保存的课表。
         if cachedCoursesByTerm.isEmpty, !currentTerm.isEmpty, !courses.isEmpty {
             cachedCoursesByTerm[currentTerm] = courses
         }
@@ -453,7 +452,7 @@ nonisolated struct ScheduleCache: Codable {
         showCurrentTime = try container.decodeIfPresent(Bool.self, forKey: .showCurrentTime) ?? true
         showExamInfo = try container.decodeIfPresent(Bool.self, forKey: .showExamInfo) ?? true
         scheduleDisplayMode = try container.decodeIfPresent(ScheduleDisplayMode.self, forKey: .scheduleDisplayMode) ?? .weekly
-        // V2 首次引入三态轮换；不读取早期开发版的两态实验值，确保默认回到名称+地点。
+        // V2 使用独立存储键，早期开发版的两态实验值按默认值处理，默认显示名称+地点。
         scheduleCardContentMode = try container.decodeIfPresent(ScheduleCardContentMode.self, forKey: .scheduleCardContentMode) ?? .nameAndLocation
         showCourseLiveActivityReminder = try container.decodeIfPresent(Bool.self, forKey: .showCourseLiveActivityReminder) ?? false
         courseLiveActivityLeadMinutes = min(
@@ -468,7 +467,7 @@ nonisolated struct ScheduleCache: Codable {
         }
         iCloudSyncEnabled = try container.decodeIfPresent(Bool.self, forKey: .iCloudSyncEnabled) ?? true
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .distantPast
-        // 老版本没有独立的课表同步时间；迁移时以原缓存更新时间作为保守基线，
+        // 老版本只保存原缓存更新时间；迁移时以该时间作为保守基线，
         // 保留已有缓存的时间语义。
         coursesUpdatedAt = decodedCoursesUpdatedAt ?? (courses.isEmpty ? .distantPast : updatedAt)
         if termSchedulesByTerm.isEmpty, !currentTerm.isEmpty, !courses.isEmpty {
@@ -481,10 +480,10 @@ nonisolated struct ScheduleCache: Codable {
             )
         }
 
-        // 旧版已经落盘的 `-1` 小学期课表也在解码时确定性迁移。校正后的数据再次
-        // 解码会得到 offset=0，因此不会重复平移；其它学期不会进入该规则。
-        // `cachedCoursesByTerm` 没有首周日期，但仍可能保存旧的原始周次；它只需
-        // 迁移课程周次和行级安排，日期继续保持为空。
+        // 旧版已保存的 `-1` 小学期课表在解码时确定性迁移。校正后的数据再次
+        // 解码会得到 offset=0，后续解码保持周次不变；该迁移规则适用于 `-1` 小学期。
+        // `cachedCoursesByTerm` 只保存课程，可能包含旧的原始周次；迁移仅校正课程周次
+        // 和行级安排，日期保持为空。
         let migrationTerms = Set(termSchedulesByTerm.keys).union(cachedCoursesByTerm.keys)
         for term in migrationTerms {
             let snapshot = termSchedulesByTerm[term]
@@ -517,17 +516,13 @@ nonisolated struct ScheduleCache: Codable {
         }
     }
 
-    /// 把课表标题裁到统一长度上限。
-    ///
-    /// 这里不额外做空值兜底，调用方如果需要“默认标题”，应先给出默认值再传入。
+    /// 把课表标题裁到统一长度上限。调用方先提供默认标题，再传入需要裁切的文本。
     private static func clampedScheduleTitle(_ title: String) -> String {
         String(title.trimmingCharacters(in: .whitespacesAndNewlines).prefix(scheduleNameCharacterLimit))
     }
 
-    /// 非隔离地解析 `yyyy-MM-dd`，供 `Codable` 和云同步 actor 使用。
-    ///
-    /// 这里不用 `DateFormatter`，避免默认 MainActor 隔离下在非隔离编解码路径里访问共享 formatter。
-    private static func parseFirstDay(_ string: String) -> Date? {
+    /// 解析 `yyyy-MM-dd` 首周日期，供缓存和学期快照共用。
+    fileprivate static func parseScheduleFirstDay(_ string: String) -> Date? {
         let parts = string.split(separator: "-").compactMap { Int($0) }
         guard parts.count == 3 else { return nil }
 
@@ -544,8 +539,7 @@ nonisolated struct ScheduleCache: Codable {
     }
 }
 
-/// A complete converted timetable for one semester. Only the adjacent two terms
-/// are retained by the rolling local cache.
+/// 一个学期的完整课表快照。滚动本地缓存保留相邻的两个学期。
 nonisolated struct TermScheduleSnapshot: Codable {
     let term: String
     let firstDayString: String
@@ -554,17 +548,7 @@ nonisolated struct TermScheduleSnapshot: Codable {
     let updatedAt: Date
 
     var firstDay: Date? {
-        let parts = firstDayString.split(separator: "-").compactMap { Int($0) }
-        guard parts.count == 3 else { return nil }
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 8 * 3600) ?? .current
-        return calendar.date(from: DateComponents(
-            calendar: calendar,
-            timeZone: calendar.timeZone,
-            year: parts[0],
-            month: parts[1],
-            day: parts[2]
-        ))
+        ScheduleCache.parseScheduleFirstDay(firstDayString)
     }
 
     var hasDisplayableData: Bool {
@@ -574,7 +558,7 @@ nonisolated struct TermScheduleSnapshot: Codable {
 
 /// 导入到本地后的分享课表记录。
 ///
-/// 这类课表只承担“查看与切换”的职责，不参与提醒、DDL、空教室偏好等当前账号私有逻辑。
+/// 这类课表用于查看与切换；提醒、DDL、空教室偏好继续使用当前账号的私有课表逻辑。
 struct SharedScheduleRecord: Codable, Identifiable, Hashable {
     let id: String
     var title: String
@@ -606,9 +590,9 @@ struct SharedScheduleRecord: Codable, Identifiable, Hashable {
 
 /// 课程表和 DDL 共用的日期编解码工具。
 ///
-/// 日程模块内部有多种日期展示形式，因此集中维护一组格式器，避免各页面各自创建。
+/// 日程模块内部有多种日期展示形式，各页面共用这些格式器。
 enum ScheduleDateCodec {
-    /// 固定使用公历，避免系统日历设置影响周数计算。
+    /// 采用固定公历计算周数，独立于系统日历设置。
     static let calendar = ScheduleSharedDateCodec.calendar
 
     private static let dateTimeFormatter: DateFormatter = {
@@ -700,7 +684,7 @@ enum ScheduleDateCodec {
 
 /// 课表周次与首周偏移的双向转换。
 ///
-/// 产品周次不使用“第 0 周”：第一周之前紧邻的一周记作第 -1 周，再往前是第 -2 周。
+/// 产品周次从第 1 周开始编号，第一周之前依次使用第 -1 周、第 -2 周。
 enum ScheduleWeekCodec {
     static func weekNumber(forDayOffset dayOffset: Int) -> Int {
         let quotient = dayOffset / 7

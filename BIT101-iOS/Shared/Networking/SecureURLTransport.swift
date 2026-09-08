@@ -1,6 +1,6 @@
 import Foundation
 
-/// 学校系统偶发把 HTTPS 重定向回 HTTP；所有学校网络链路统一在这里恢复安全地址。
+/// 学校系统偶发将 HTTPS 重定向到 HTTP；所有学校网络链路统一在这里升级为 HTTPS。
 enum HTTPSURLUpgrade {
     nonisolated static func upgradedURL(from url: URL) -> URL {
         guard url.scheme?.lowercased() == "http" else { return url }
@@ -25,7 +25,7 @@ enum HTTPSURLUpgrade {
     }
 }
 
-/// 需要手动检查 Location 的认证请求使用这套禁止自动重定向的会话 delegate。
+/// 认证请求手动检查 `Location`；这套 delegate 终止自动重定向。
 final class NoRedirectURLSessionDelegate: NSObject, URLSessionTaskDelegate {
     func urlSession(
         _ session: URLSession,
@@ -38,7 +38,7 @@ final class NoRedirectURLSessionDelegate: NSObject, URLSessionTaskDelegate {
     }
 }
 
-/// 正常跟随重定向，但阻止学校历史地址把请求降级为明文 HTTP。
+/// 正常跟随重定向；学校历史地址中的明文 HTTP 目标在这里升级为 HTTPS。
 final class HTTPSUpgradingRedirectDelegate: NSObject, URLSessionTaskDelegate {
     func urlSession(
         _ session: URLSession,

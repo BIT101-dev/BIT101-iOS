@@ -7,9 +7,9 @@
 
 import SwiftUI
 
-/// 帖子卡片右上角的更多操作菜单，只保留作者自己的删除入口。
+/// 帖子卡片右上角的更多操作菜单提供作者删除入口。
 ///
-/// 删除帖子是条件出现的能力，因此统一放在这个菜单里按场景裁剪。
+/// 菜单按当前帖子场景条件显示删除入口。
 struct GalleryPosterActionMenu: View {
     let onDelete: (() -> Void)?
     @State private var isPresentingFallbackActions = false
@@ -53,7 +53,3 @@ struct GalleryPosterActionMenu: View {
             .frame(width: AppDesignSystem.Size.control.detailActionButton, height: AppDesignSystem.Size.control.detailActionButton)
     }
 }
-
-/// 搜索输入框。
-///
-/// 输入框本体、自定义排序按钮和清空按钮都集中在这里，避免搜索页本身承载过多细节。

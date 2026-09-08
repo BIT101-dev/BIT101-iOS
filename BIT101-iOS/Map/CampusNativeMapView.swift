@@ -31,7 +31,7 @@ struct MapFocusRequest: Equatable {
 
 /// MapKit 与 SwiftUI 之间的桥接层。
 ///
-/// 原生地图、相机定位和下一节课标记都在这里落地。
+/// 原生地图、相机定位和下一节课标记由该桥接层负责。
 struct CampusNativeMapView: UIViewRepresentable {
     let focusRequest: MapFocusRequest
     let centerOnUserRequestID: UUID?
@@ -44,7 +44,7 @@ struct CampusNativeMapView: UIViewRepresentable {
 
     /// 创建并初始化原生 `MKMapView`。
     ///
-    /// 之所以不使用纯 SwiftUI `Map`，是因为这里需要更细粒度地控制相机和定位回调。
+    /// 这里需要独立控制相机和定位回调，因此使用原生 `MapKit`。
     func makeUIView(context: Context) -> MKMapView {
         let mapView = MKMapView(frame: .zero)
         mapView.delegate = context.coordinator
@@ -107,7 +107,7 @@ struct CampusNativeMapView: UIViewRepresentable {
         private weak var nextCourseAnnotation: CampusPlaceAnnotation?
         private var requestedLocationAnnotations: [CampusPlaceAnnotation] = []
 
-        /// 地图只保留下一节课的一个 pin；课程变化时原地替换，不残留校对标记。
+        /// 地图保留下一节课的一个标记；课程变化时原地替换当前标记，旧标记随更新移除。
         func syncNextCourseAnnotation(_ target: UpcomingCourseMapTarget?, in mapView: MKMapView) {
             guard lastCourseTargetID != target?.id else { return }
 
@@ -126,7 +126,7 @@ struct CampusNativeMapView: UIViewRepresentable {
             nextCourseAnnotation = annotation
         }
 
-        /// 同步课程详情临时传入的上课地点 pin；请求只在当前进程内保留。
+        /// 同步课程详情临时传入的上课地点标记；请求只在当前进程内保留。
         @discardableResult
         func syncRequestedLocation(_ request: CampusMapLocationRequest?, in mapView: MKMapView) -> Bool {
             guard lastRequestedLocationID != request?.id else { return false }
@@ -150,7 +150,7 @@ struct CampusNativeMapView: UIViewRepresentable {
             return true
         }
 
-        /// 聚焦到课程详情传入的第一个上课地点；清空请求时恢复到校区视角。
+        /// 聚焦到课程详情传入的第一个上课地点；没有地点时保持当前相机。
         func focus(on place: CampusMapPlace?, in mapView: MKMapView, animated: Bool) {
             guard let place else { return }
             mapView.setUserTrackingMode(.none, animated: false)
@@ -163,7 +163,7 @@ struct CampusNativeMapView: UIViewRepresentable {
             mapView.setCamera(camera, animated: animated)
         }
 
-        /// 为下一节课地点提供可点开课程信息的原生 marker。
+        /// 为下一节课和课程详情地点提供原生地图标记。
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
             guard let placeAnnotation = annotation as? CampusPlaceAnnotation else {
                 return nil

@@ -60,10 +60,7 @@ struct AppUpdateCheckerTests {
             return
         }
         #expect(notice.maximumAffectedBuild == 31)
-        let secondNotice = await coordinator.noticeToPresentAtLaunch()
-        if secondNotice != nil {
-            Issue.record("The launch coordinator must only return one notice")
-        }
+        #expect(await coordinator.noticeToPresentAtLaunch() == nil)
     }
 
     @Test("Builds newer than the emergency threshold are unaffected")

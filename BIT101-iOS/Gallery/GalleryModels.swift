@@ -7,14 +7,9 @@
 
 import Foundation
 
-/// 画廊首页的几个 feed。
+/// 画廊首页的 feed 类型。
 ///
-/// 这个枚举同时承担三件事：
-/// 1. 驱动顶部分类 UI。
-/// 2. 映射后端请求参数。
-/// 3. 为本地特殊分栏（如机器人）提供统一入口。
-///
-/// 因此即使某个 feed 不直接对应服务端 `mode`，也仍然要留在这里统一管理。
+/// feed 类型统一提供顶部分类、请求参数和本地机器人分栏定义。
 enum GalleryFeedKind: String, CaseIterable, Identifiable, Hashable {
     case follow
     case recommend
@@ -41,9 +36,9 @@ enum GalleryFeedKind: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    /// 对应后端 `mode` 参数。
+    /// 返回 feed 对应的后端 `mode` 参数。
     ///
-    /// 推荐流走默认接口参数，因此返回 `nil`。
+    /// 推荐流使用默认接口参数，机器人流由本地过滤处理。
     var requestMode: String? {
         switch self {
         case .follow:
@@ -69,9 +64,9 @@ enum GalleryFeedKind: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    /// 某些 feed 还需要显式带 `uid` 才能得到正确语义。
+    /// 返回 feed 请求所需的 `uid` 参数。
     ///
-    /// 这里主要用于“最新”流复用搜索接口时避开“我的帖子”语义。
+    /// 最新流复用搜索接口并使用 `-1`，保持公开帖子语义。
     var requestUID: Int? {
         switch self {
         case .newest:
@@ -81,7 +76,7 @@ enum GalleryFeedKind: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    /// 机器人流不直接依赖后端 feed 语义，而是本地从公开帖子流中筛机器人标签。
+    /// 机器人流从公开帖子流中本地筛选机器人标签。
     var isBotFeed: Bool {
         self == .bot
     }
@@ -109,19 +104,17 @@ enum GallerySearchOrder: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
-/// 搜索栏当前查询条件。
+/// 搜索页的文本和排序条件。
 ///
-/// 保持成一个值类型结构，而不是把搜索文字和排序分开放在多个状态里，
-/// 这样搜索页切换排序、恢复输入框状态或做去抖时更容易整体传递。
+/// 值类型便于整体传递查询条件，并保留排序和输入框状态。
 struct GallerySearchQuery: Equatable {
     var text = ""
     var order: GallerySearchOrder = .newest
 }
 
-/// 图片资源模型。
+/// 图片资源。
 ///
-/// 后端图片字段会同时给出原图和低清图。列表场景通常优先加载低清图，
-/// 而点进大图浏览时再切原图。
+/// 后端同时返回原图和低清图。列表优先使用低清图，大图浏览使用原图。
 struct GalleryImage: Decodable, Identifiable, Hashable {
     let mid: String
     let url: String
@@ -133,8 +126,7 @@ struct GalleryImage: Decodable, Identifiable, Hashable {
 
 /// 用户身份标签。
 ///
-/// 用户身份决定了昵称旁边的彩色 badge 样式，所以这里保留服务端完整字段，
-/// 方便后续如果要做更丰富的身份展示，不必再次改模型层。
+/// 模型保留服务端返回的完整字段，供昵称旁的 badge 和身份展示使用。
 struct GalleryIdentity: Decodable, Hashable {
     let id: Int
     let color: String
@@ -144,9 +136,9 @@ struct GalleryIdentity: Decodable, Hashable {
     let deleteTime: String?
 }
 
-/// 话题用户模型。
+/// 话廊用户模型。
 ///
-/// 这是帖子、评论、消息等多个模块共享的基础用户结构。
+/// 帖子、评论等话廊模块共用这份基础用户结构。
 struct GalleryUser: Decodable, Identifiable, Hashable {
     let id: Int
     let createTime: String
@@ -158,17 +150,15 @@ struct GalleryUser: Decodable, Identifiable, Hashable {
 
 /// 帖子所属 claim。
 ///
-/// claim 可以理解成帖子声明/归属标签，既会影响发帖页 `Picker`，
-/// 也会出现在帖子卡片和详情里，因此单独抽成模型复用。
+/// claim 用于发帖选择、帖子卡片和详情展示。
 struct GalleryClaim: Codable, Hashable, Identifiable {
     let id: Int
     let text: String
 }
 
-/// 话题帖子模型。
+/// 信息流帖子卡片模型。
 ///
-/// 该模型对应信息流里的轻量帖子卡片数据。只包含列表渲染必需字段，
-/// 不包含当前用户是否已点赞、是否为本人帖子等详情态字段。
+/// 模型包含列表渲染所需字段，详情状态由 `GalleryPosterDetail` 提供。
 struct GalleryPoster: Decodable, Identifiable, Hashable {
     let anonymous: Bool
     let claim: GalleryClaim
@@ -188,7 +178,7 @@ struct GalleryPoster: Decodable, Identifiable, Hashable {
 
 /// 帖子详情模型。
 ///
-/// 相比列表项，详情额外带有当前用户的点赞状态、归属判断和插件字段。
+/// 详情包含当前用户的点赞、归属和插件字段。
 struct GalleryPosterDetail: Decodable, Identifiable, Hashable {
     let anonymous: Bool
     let claim: GalleryClaim
@@ -208,71 +198,7 @@ struct GalleryPosterDetail: Decodable, Identifiable, Hashable {
     let updateTime: String
     let user: GalleryUser
 
-    init(
-        anonymous: Bool,
-        claim: GalleryClaim,
-        commentNum: Int,
-        createTime: String,
-        editTime: String,
-        id: Int,
-        images: [GalleryImage],
-        like: Bool,
-        likeNum: Int,
-        own: Bool,
-        plugins: String,
-        public: Bool,
-        tags: [String],
-        text: String,
-        title: String,
-        updateTime: String,
-        user: GalleryUser
-    ) {
-        self.anonymous = anonymous
-        self.claim = claim
-        self.commentNum = commentNum
-        self.createTime = createTime
-        self.editTime = editTime
-        self.id = id
-        self.images = images
-        self.like = like
-        self.likeNum = likeNum
-        self.own = own
-        self.plugins = plugins
-        self.public = `public`
-        self.tags = tags
-        self.text = text
-        self.title = title
-        self.updateTime = updateTime
-        self.user = user
-    }
-
-    /// 根据列表卡片快速构造一个“缺省详情对象”。
-    ///
-    /// 这个初始化器主要服务于占位展示：例如从消息页点开帖子详情时，
-    /// 可以先拿列表已有信息构出一个临时详情，再异步替换成真正的后端详情。
-    init(poster: GalleryPoster) {
-        self.init(
-            anonymous: poster.anonymous,
-            claim: poster.claim,
-            commentNum: poster.commentNum,
-            createTime: poster.createTime,
-            editTime: poster.editTime,
-            id: poster.id,
-            images: poster.images,
-            like: false,
-            likeNum: poster.likeNum,
-            own: false,
-            plugins: "[]",
-            public: poster.public,
-            tags: poster.tags,
-            text: poster.text,
-            title: poster.title,
-            updateTime: poster.updateTime,
-            user: poster.user
-        )
-    }
-
-    /// 把详情模型降级成列表卡片模型，供“我的帖子”等场景复用。
+    /// 将详情模型转换为列表卡片模型，供“我的帖子”等列表复用。
     var asPoster: GalleryPoster {
         GalleryPoster(
             anonymous: anonymous,
@@ -292,10 +218,7 @@ struct GalleryPosterDetail: Decodable, Identifiable, Hashable {
         )
     }
 
-    /// 复制一份帖子详情，并替换当前用户对帖子的点赞状态。
-    ///
-    /// 详情页点赞后优先本地乐观更新，不必重新拉整份详情；因此这里保留一个
-    /// 不改动其它字段的轻量复制接口。
+    /// 返回替换点赞状态和数量的详情副本。
     func updatingLike(_ like: Bool, likeNum: Int) -> GalleryPosterDetail {
         GalleryPosterDetail(
             anonymous: anonymous,
@@ -317,10 +240,36 @@ struct GalleryPosterDetail: Decodable, Identifiable, Hashable {
             user: user
         )
     }
-
 }
 
-/// 评论列表支持的排序方式。
+extension GalleryPosterDetail {
+    /// 根据列表卡片构造占位详情。
+    ///
+    /// 消息页可以先展示卡片数据，详情请求完成后替换对象。
+    init(poster: GalleryPoster) {
+        self.init(
+            anonymous: poster.anonymous,
+            claim: poster.claim,
+            commentNum: poster.commentNum,
+            createTime: poster.createTime,
+            editTime: poster.editTime,
+            id: poster.id,
+            images: poster.images,
+            like: false,
+            likeNum: poster.likeNum,
+            own: false,
+            plugins: "[]",
+            public: poster.public,
+            tags: poster.tags,
+            text: poster.text,
+            title: poster.title,
+            updateTime: poster.updateTime,
+            user: poster.user
+        )
+    }
+}
+
+/// 评论列表的排序方式。
 enum GalleryCommentOrder: String, CaseIterable, Identifiable {
     case newest = "new"
     case oldest = "old"
@@ -342,9 +291,9 @@ enum GalleryCommentOrder: String, CaseIterable, Identifiable {
     }
 }
 
-/// 话题评论模型。
+/// 话廊评论模型。
 ///
-/// 后端返回的顶层评论和子评论结构一致，所以这里递归持有 `sub`。
+/// 顶层评论和子评论使用同一结构，`sub` 保存子评论树。
 struct GalleryComment: Decodable, Identifiable, Hashable {
     let id: Int
     let obj: String
@@ -363,9 +312,7 @@ struct GalleryComment: Decodable, Identifiable, Hashable {
     let text: String
     let sub: [GalleryComment]
 
-    /// 复制评论并替换其子评论列表。
-    ///
-    /// 主要用于本地过滤后重建仍然可见的评论树。
+    /// 返回替换子评论列表的评论副本。
     nonisolated func replacingSubComments(_ sub: [GalleryComment]) -> GalleryComment {
         GalleryComment(
             id: id,
@@ -387,7 +334,7 @@ struct GalleryComment: Decodable, Identifiable, Hashable {
         )
     }
 
-    /// 复制评论并替换当前用户对该评论的点赞状态。
+    /// 返回替换点赞状态和数量的评论副本。
     func updatingLike(_ like: Bool, likeNum: Int) -> GalleryComment {
         GalleryComment(
             id: id,
@@ -410,19 +357,17 @@ struct GalleryComment: Decodable, Identifiable, Hashable {
     }
 }
 
-/// 点赞接口返回的最新状态。
+/// 点赞接口返回的点赞状态和数量。
 ///
-/// 该接口只回最新点赞状态和点赞数，因此单独保留一个极小模型，
-/// 避免把完整帖子详情或评论详情绑死到点赞接口上。
+/// 点赞请求只返回这两个字段，模型保持接口边界。
 struct GalleryLikeResult: Decodable {
     let like: Bool
     let likeNum: Int
 }
 
-/// 单个 feed 的加载状态。
+/// 单个 feed 的整体加载状态。
 ///
-/// `GalleryFeedStatus` 只描述“当前这批数据的整体状态”，不负责分页过程中的细节，
-/// 分页时的 `isLoadingMore` 会放在 `GalleryFeedState` 里单独管理。
+/// 分页加载状态由 `GalleryFeedState.isLoadingMore` 管理。
 enum GalleryFeedStatus: Equatable {
     case idle
     case loading
@@ -430,10 +375,9 @@ enum GalleryFeedStatus: Equatable {
     case failed(String)
 }
 
-/// 单个 feed 的完整状态快照。
+/// 单个 feed 的状态快照。
 ///
-/// 视图层之所以直接持有整个状态结构，而不是把字段分散成多个数组和布尔值，
-/// 是为了让不同 feed 的状态可以统一放进字典里按枚举键管理。
+/// 列表、加载状态和分页信息按 feed 键统一存放。
 struct GalleryFeedState {
     /// 当前已经加载到客户端的帖子列表。
     var posters: [GalleryPoster] = []
@@ -454,10 +398,9 @@ extension GalleryFeedState: PagedItemsState {
     }
 }
 
-/// 消息中心支持的消息类型。
+/// 消息中心的消息类型。
 ///
-/// 消息页虽然最终表现为四个分类，但服务端对它们的参数、未读数和跳转语义都不同，
-/// 因此这里集中定义标题、动作文案和状态字典 key。
+/// 类型集中提供标题、动作文案和状态字典键。
 enum GalleryMessageType: String, CaseIterable, Identifiable, Hashable {
     case comment
     case like
@@ -498,7 +441,7 @@ enum GalleryMessageType: String, CaseIterable, Identifiable, Hashable {
 
 /// 消息发送者头像。
 ///
-/// 消息接口里的 `from_user` 可能为空对象，因此这里单独做成宽松解码。
+/// 消息接口里的 `from_user` 可能为空对象，字段按可选值解码并使用空字符串默认值。
 struct GalleryMessageAvatar: Decodable, Hashable {
     let url: String
     let lowUrl: String
@@ -519,9 +462,9 @@ struct GalleryMessageAvatar: Decodable, Hashable {
         lowUrl = try container.decodeIfPresent(String.self, forKey: .lowUrl) ?? ""
     }
 
-    /// 优先返回低清地址，失败时回退到原图地址。
+    /// 返回低清地址，低清地址为空时使用原图地址。
     ///
-    /// 消息列表里的头像体积通常很小，先用低清地址能减少冷启动和滚动时的解码压力。
+    /// 消息列表头像尺寸较小，低清地址可以减少图片数据量。
     var preferredURL: URL? {
         let raw = lowUrl.isEmpty ? url : lowUrl
         guard !raw.isEmpty else { return nil }
@@ -531,7 +474,7 @@ struct GalleryMessageAvatar: Decodable, Hashable {
 
 /// 消息发送者。
 ///
-/// 系统消息会返回空用户对象，因此昵称和头像都需要兜底。
+/// 系统消息返回空用户对象，字段提供展示默认值。
 struct GalleryMessageUser: Decodable, Hashable {
     let id: Int
     let nickname: String
@@ -556,10 +499,9 @@ struct GalleryMessageUser: Decodable, Hashable {
         avatar = try container.decodeIfPresent(GalleryMessageAvatar.self, forKey: .avatar) ?? GalleryMessageAvatar()
     }
 
-    /// 供消息列表直接展示的发信人名称。
+    /// 返回消息列表展示名称。
     ///
-    /// 当后端返回的是系统消息或残缺用户对象时，这里统一收敛成可展示文案，
-    /// 避免视图层到处写“如果为空就显示系统消息/未知用户”的分支。
+    /// `id` 为 0 时返回系统消息，昵称为空时返回未知用户。
     var displayName: String {
         if id == 0 {
             return "系统消息"
@@ -568,10 +510,9 @@ struct GalleryMessageUser: Decodable, Hashable {
     }
 }
 
-/// 各消息分类未读数。
+/// 各消息分类的未读数。
 ///
-/// 服务端只提供分类级别未读数，不提供逐条 read 状态，因此这份模型会被视图模型
-/// 用来推断“最新前 N 条伪未读”。
+/// 服务端返回分类未读数，ViewModel 基于数量推断最新前 N 条的本地伪未读状态。
 struct GalleryMessageUnreadCounts: Decodable, Equatable {
     var comment: Int
     var follow: Int
@@ -600,7 +541,7 @@ struct GalleryMessageUnreadCounts: Decodable, Equatable {
         system = try container.decodeIfPresent(Int.self, forKey: .system) ?? 0
     }
 
-    /// 读取单个消息类型的未读数。
+    /// 返回消息类型对应的未读数。
     func unreadCount(for type: GalleryMessageType) -> Int {
         switch type {
         case .comment:
@@ -617,8 +558,7 @@ struct GalleryMessageUnreadCounts: Decodable, Equatable {
 
 /// 单条消息模型。
 ///
-/// 当前消息页是原生实现，但服务端仍然沿用 Web 端时期的 `obj/link_obj` 字段命名。
-/// 因此这里额外提供了解析目标帖子 ID 的 helper，避免视图层知道这些历史细节。
+/// 服务端沿用 Web 端的 `obj/link_obj` 字段命名。helper 从字段中解析目标帖子 ID。
 struct GalleryMessage: Decodable, Identifiable, Hashable {
     let fromUser: GalleryMessageUser
     let id: Int
@@ -627,7 +567,7 @@ struct GalleryMessage: Decodable, Identifiable, Hashable {
     let text: String
     let updateTime: String
 
-    /// 从消息对象里解析目标帖子 ID，供点按消息后跳到帖子详情。
+    /// 解析消息指向的帖子 ID。
     var linkedPosterID: Int? {
         Self.posterID(from: linkObj) ?? Self.posterID(from: obj)
     }
@@ -640,8 +580,7 @@ struct GalleryMessage: Decodable, Identifiable, Hashable {
 
 /// 单个消息分类的列表状态。
 ///
-/// 与 feed 状态类似，这里把列表数据、分页游标和加载态收拢在一起，
-/// 方便按消息类型做字典化管理。
+/// 列表、分页游标和加载状态按消息类型统一存放。
 struct GalleryMessageListState {
     /// 当前已经加载到客户端的消息列表。
     var items: [GalleryMessage] = []
@@ -658,21 +597,21 @@ struct GalleryMessageListState {
 extension GalleryMessageListState: CursorPagedItemsState {}
 
 private extension GalleryImage {
-    /// 供占位 UI 构造出的空图片模型。
+    /// 返回占位 UI 使用的空图片模型。
     static var placeholder: GalleryImage {
         GalleryImage(mid: "", url: "", lowUrl: "")
     }
 }
 
 private extension GalleryIdentity {
-    /// 供占位用户使用的空身份模型。
+    /// 返回占位用户使用的空身份模型。
     static var placeholder: GalleryIdentity {
         GalleryIdentity(id: 0, color: "#FF9500", text: "", createTime: "", updateTime: "", deleteTime: nil)
     }
 }
 
 extension GalleryUser {
-    /// 供消息页跳转帖子详情时构造占位卡片。
+    /// 构造消息页跳转帖子详情时使用的占位用户。
     static func placeholder(id: Int = 0, nickname: String = "加载中") -> GalleryUser {
         GalleryUser(
             id: id,
@@ -686,14 +625,14 @@ extension GalleryUser {
 }
 
 extension GalleryClaim {
-    /// 供占位帖子使用的空 claim。
+    /// 返回占位帖子使用的空 claim。
     static var placeholder: GalleryClaim {
         GalleryClaim(id: 0, text: "")
     }
 }
 
 extension GalleryPoster {
-    /// 消息页在还未重新拉取帖子详情前使用的占位帖子。
+    /// 构造消息页详情请求完成前使用的占位帖子。
     static func placeholder(id: Int, title: String = "正在打开帖子") -> GalleryPoster {
         GalleryPoster(
             anonymous: false,
