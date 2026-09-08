@@ -20,7 +20,7 @@ struct ScoreFilterPage: View {
                     Button {
                         toggle(option)
                     } label: {
-                        HStack {
+                        HStack(spacing: AppDesignSystem.Spacing.control) {
                             Text(option)
                                 .foregroundStyle(.primary)
                             Spacer()
@@ -67,7 +67,7 @@ struct ScoreSortPage: View {
                     Button {
                         sortIndex = index
                     } label: {
-                        HStack {
+                        HStack(spacing: AppDesignSystem.Spacing.control) {
                             Text(index.title)
                                 .foregroundStyle(.primary)
                             Spacer()
@@ -84,7 +84,7 @@ struct ScoreSortPage: View {
                 Button {
                     onToggleOrder()
                     } label: {
-                        HStack {
+                        HStack(spacing: AppDesignSystem.Spacing.control) {
                             Text(sortOrder.title)
                                 .foregroundStyle(.primary)
                         Spacer()

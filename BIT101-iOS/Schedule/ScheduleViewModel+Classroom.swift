@@ -6,6 +6,12 @@
 import Foundation
 
 extension ScheduleViewModel {
+    /// 空教室页面展示的最近一次成功刷新时间。
+    var classroomLastUpdatedText: String {
+        guard let updatedAt = classroomLastUpdatedAt else { return "更新时间：暂无记录" }
+        return "更新时间：\(updatedAt.formatted(.dateTime.month().day().hour().minute()))"
+    }
+
     /// 切换空教室查询校区。
     func selectCampus(code: String) async {
         guard code != cache.selectedCampusCode else { return }
@@ -113,10 +119,11 @@ extension ScheduleViewModel {
         guard isCurrentClassroomRequest(requestID) else { throw CancellationError() }
 
         classroomRecords = records
+        classroomLastUpdatedAt = Date()
         refreshClassroomAvailabilities()
     }
 
-    /// 供页面下拉刷新使用的统一入口。
+    /// 供页面顶部刷新按钮使用的统一入口。
     ///
     /// 会先补齐校区/教学楼元数据，再刷新当前楼栋的空教室数据。
     /// 请求由 ViewModel 持有，因此页面离开空教室分栏时不会取消已经发出的请求。

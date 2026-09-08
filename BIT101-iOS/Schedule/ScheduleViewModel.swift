@@ -127,6 +127,8 @@ final class ScheduleViewModel: ObservableObject {
     @Published var isLoadingClassroomMeta = false
     /// 是否正在加载空教室结果。
     @Published var isLoadingClassrooms = false
+    /// 当前教学楼最近一次成功刷新空教室结果的时间。
+    @Published var classroomLastUpdatedAt: Date?
     /// 首次进入空教室页且尚无结果时，是否显示一个无文案的加载指示。
     @Published var shouldShowInitialClassroomSpinner = false
     @Published var campuses: [CampusRecord] = []
@@ -196,6 +198,7 @@ final class ScheduleViewModel: ObservableObject {
         isSyncingDDL = false
         isLoadingClassroomMeta = false
         isLoadingClassrooms = false
+        classroomLastUpdatedAt = nil
         shouldShowInitialClassroomSpinner = false
         campuses = []
         buildings = []

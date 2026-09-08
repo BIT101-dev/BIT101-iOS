@@ -83,7 +83,7 @@ private struct LoginFormView: View {
                         focusedField = nil
                         Task { await viewModel.login() }
                     } label: {
-                        HStack {
+                        HStack(spacing: AppDesignSystem.Spacing.control) {
                             Spacer()
                             if viewModel.isSubmitting {
                                 ProgressView()

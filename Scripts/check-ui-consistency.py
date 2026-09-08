@@ -42,6 +42,10 @@ DIRECT_LIST_SECTION_SPACING = re.compile(r"\.listSectionSpacing\(")
 DIRECT_STDOUT_LOG = re.compile(r"\b(?:print|debugPrint|NSLog)\s*\(")
 DIRECT_SHARED_URLSESSION = re.compile(r"\bURLSession\.shared\b")
 DIRECT_ANIMATION_DURATION = re.compile(r"\b(?:withAnimation|animation)\s*\([^\n]*\bduration\s*:")
+DIRECT_BARE_HSTACK = re.compile(r"\bHStack\s*\{")
+DIRECT_HSTACK_LITERAL = re.compile(
+    r"\bHStack\s*\([^)]*\bspacing\s*:\s*[0-9]+(?:\.[0-9]+)?"
+)
 DIRECT_DATE_FORMATTER = re.compile(
     r"\b(?:DateFormatter|ISO8601DateFormatter|RelativeDateTimeFormatter)\s*\("
 )
@@ -91,78 +95,114 @@ STDOUT_EXCEPTIONS = {"Shared/Infrastructure/ReleaseNetworkSmoke.swift"}
 
 
 @dataclass(frozen=True)
-class PageContract:
-    """按路径类别或公共组件用法自动发现页面，并统一声明复用要求。"""
+class ComponentContract:
+    """按页面角色和公共组件用法自动发现同类 UI 的复用契约。"""
 
     name: str
     requirements: tuple[tuple[str, str], ...]
     path_globs: tuple[str, ...] = ()
     discovery_tokens: tuple[str, ...] = ()
+    any_tokens: tuple[str, ...] = ()
 
 
-PAGE_CONTRACTS = (
-    PageContract(
+COMPONENT_GROUPS = (
+    ("评论", ("AppCommentSectionHeader", "AppCommentIdentityHeader", "AppCommentActionBar", "AppCommentBubble", "AppCommentRowContainer", "AppCommentThread")),
+    ("评论编辑", ("AppCommentComposerContentSection", "AppComposerToolbar")),
+    ("内容控制", ("AppSegmentedPicker", "AppTopSegmentedPicker", "AppOrderedSearchBar", "AppSearchBarContainer", "AppNavigationRowLabel")),
+    ("头像标签", ("AppAvatarView", "AppTagChip")),
+    ("状态", ("AppLoadingState", "AppInlineLoadingState", "AppScrollStateContainer", "AppFailureState", "AppEmptyState")),
+    ("数据行", ("AppFixedColumnItem", "AppFixedColumnRow", "AppRefreshStatusRow", "AppFeedRow", "AppCourseEvaluationRow")),
+    ("验证码", ("AppSMSVerificationSheet",)),
+)
+
+
+COMPONENT_CONTRACTS = (
+    ComponentContract(
         name="详情页",
-        path_globs=("Course/*DetailView.swift", "Gallery/*DetailView.swift", "Paper/*DetailView.swift"),
         discovery_tokens=("AppDetailShareLink", "AppDetailCircleButton"),
         requirements=(
             ("AppDetailShareLink", "必须使用公共分享入口"),
             ("AppDetailCircleButton", "圆形操作必须使用公共按钮"),
         ),
     ),
-    PageContract(
+    ComponentContract(
         name="评论区",
-        path_globs=("*/*CommentViews.swift",),
-        discovery_tokens=("AppCommentThread", "AppCommentSectionHeader", "appCommentSectionStyle"),
-        requirements=(
-            ("AppDesignSystem.Comment.", "必须使用公共间距令牌"),
-            ("appCommentSectionStyle", "必须使用公共容器样式"),
-            ("AppCommentThread", "必须使用公共线程结构"),
-            ("AppCommentBubble", "必须使用公共气泡结构"),
-            ("AppCommentIdentityHeader", "必须使用公共身份标题"),
-            ("AppCommentActionBar", "必须使用公共操作行"),
-            ("AppAvatarView", "必须使用公共头像"),
-            ("AppDateText", "必须使用公共日期文本"),
-            ("AppFailureState", "必须使用公共失败状态"),
-        ),
+        path_globs=("**/*CommentViews.swift",),
+        requirements=tuple((token, "必须使用评论公共结构") for token in (
+            "AppDesignSystem.Comment.", "appCommentSectionStyle",
+            "AppCommentThread", "AppCommentBubble", "AppCommentIdentityHeader",
+            "AppCommentActionBar", "AppAvatarView", "AppDateText", "AppFailureState",
+        )),
     ),
-    PageContract(
+    ComponentContract(
         name="评论编辑页",
         path_globs=("Course/*CommentViews.swift", "Gallery/*CommentViews.swift", "Paper/*ComposerViews.swift"),
         discovery_tokens=("AppCommentComposerContentSection",),
-        requirements=(
-            ("AppCommentComposerContentSection", "必须使用公共内容段"),
-            ("AppComposerToolbar", "必须使用公共工具栏"),
-        ),
+        requirements=(("AppCommentComposerContentSection", "必须使用公共内容段"), ("AppComposerToolbar", "必须使用公共工具栏")),
     ),
-    PageContract(
+    ComponentContract(
         name="排序搜索页",
+        path_globs=("**/*SearchView.swift", "**/*SearchViews.swift"),
         discovery_tokens=("AppOrderedSearchBar", "AppSearchBarContainer"),
-        requirements=(
-            ("AppOrderedSearchBar", "必须使用公共搜索栏"),
-            ("AppSearchBarContainer", "必须使用公共顶部容器"),
-        ),
+        requirements=(("AppOrderedSearchBar", "必须使用公共搜索栏"), ("AppSearchBarContainer", "必须使用公共顶部容器")),
     ),
-    PageContract(
-        name="设置导航入口",
-        path_globs=("Mine/*RootView.swift", "Settings/*RootView.swift"),
-        requirements=(("AppNavigationRowLabel", "必须使用公共图标标题行"),),
-    ),
-    PageContract(
-        name="信息流卡片",
-        path_globs=("Gallery/*FeedViews.swift", "Paper/*SummaryViews.swift"),
-        discovery_tokens=("appFeedCardStyle",),
-        requirements=(("appFeedCardStyle", "必须使用公共 Feed 样式"),),
-    ),
-    PageContract(
+    ComponentContract(
         name="顶部切换页",
         discovery_tokens=("AppTopSegmentedPicker",),
-        requirements=((".safeAreaInset(edge: .top, spacing: 0)", "必须使用统一 safeAreaInset 布局"),),
+        requirements=(("AppTopSegmentedPicker", "必须使用公共顶部切换控件"), (".safeAreaInset(edge: .top, spacing: 0)", "必须使用统一顶部安全区布局")),
     ),
-    # 课表网格属于必要的业务特例，但仍与其他类别共用同一契约机制。
-    PageContract(
+    ComponentContract(
+        name="设置导航入口",
+        path_globs=("**/Mine/*RootView.swift", "**/Settings/*RootView.swift"),
+        requirements=(("AppNavigationRowLabel", "必须使用公共图标标题行"),),
+    ),
+    ComponentContract(
+        name="资料卡宽屏布局",
+        discovery_tokens=("struct MineProfileCard",),
+        requirements=((".frame(maxWidth: .infinity, alignment: .center)", "资料卡必须扩展并保持居中"),),
+    ),
+    ComponentContract(
+        name="信息流卡片",
+        path_globs=("**/*FeedViews.swift", "**/*SummaryViews.swift"),
+        requirements=(("appFeedCardStyle", "必须使用公共 Feed 样式"),),
+    ),
+    ComponentContract(
+        name="首屏状态页",
+        path_globs=(
+            "**/Course/*RootView.swift", "**/Course/*HistoryGradesViews.swift", "**/Gallery/*MessagesView.swift",
+            "**/Mine/*RootView.swift", "**/Score/*RootView.swift", "**/Paper/*RootView.swift", "**/Paper/*SearchViews.swift",
+        ),
+        any_tokens=("AppLoadingState", "AppInlineLoadingState"),
+        requirements=(("AppFailureState", "必须使用公共失败状态"),),
+    ),
+    ComponentContract(
+        name="滚动信息流",
+        path_globs=("**/Gallery/*FeedViews.swift", "**/Paper/*RootView.swift", "**/Paper/*SearchViews.swift"),
+        requirements=(("AppScrollStateContainer", "必须使用公共滚动状态容器"),),
+    ),
+    ComponentContract(
+        name="刷新数据页",
+        path_globs=("**/Score/*RootView.swift", "**/Schedule/*DDLViews.swift", "**/Schedule/*ScheduleTabView.swift"),
+        requirements=(("AppRefreshStatusRow", "必须使用公共刷新状态行"),),
+    ),
+    ComponentContract(
+        name="比例数据页",
+        path_globs=("**/Course/*RootView.swift", "**/Score/*RootView.swift"),
+        requirements=(("AppFixedColumnRow", "必须使用公共比例数据行"),),
+    ),
+    ComponentContract(
+        name="验证码页面",
+        path_globs=("**/Schedule/*RootView.swift", "**/Score/*RootView.swift", "**/Settings/*ScheduleViews.swift"),
+        requirements=(("AppSMSVerificationSheet", "必须使用公共验证码面板"),),
+    ),
+    ComponentContract(
+        name="标签页面",
+        path_globs=("**/Gallery/*FeedViews.swift", "**/Gallery/*PosterDetailView.swift", "**/Gallery/*ComposerView.swift"),
+        requirements=(("AppTagChip", "必须使用公共标签组件"),),
+    ),
+    ComponentContract(
         name="课表网格",
-        path_globs=("Schedule/*CalendarViews.swift",),
+        discovery_tokens=("orderedBackgroundLayers",),
         requirements=(
             ("orderedBackgroundLayers", "叠加课程必须按中心位置统一排序"),
             ("isOpaque: entry.kind == .course", "课程背景必须使用不透明底色遮住节次分割线"),
@@ -171,9 +211,9 @@ PAGE_CONTRACTS = (
             ("secondaryGroupedBackground", "周次滑块与日期栏必须使用可区分的语义背景色"),
         ),
     ),
-    PageContract(
+    ComponentContract(
         name="日程根页",
-        path_globs=("Schedule/*RootView.swift",),
+        discovery_tokens=("ScheduleSectionTabs",),
         requirements=((".safeAreaInset(edge: .bottom, spacing: 0)", "内容必须使用统一的底部安全区间隙"),),
     ),
 )
@@ -183,27 +223,88 @@ def swift_files() -> list[Path]:
     return sorted(SOURCE_ROOT.rglob("*.swift"))
 
 
-def contract_files(contract: PageContract) -> list[Path]:
-    """以目录类别和已采用的公共组件发现成员；新增同类文件无需修改检查逻辑。"""
-    paths = {path for pattern in contract.path_globs for path in SOURCE_ROOT.glob(pattern)}
-    if contract.discovery_tokens:
-        for path in swift_files():
-            if path.parent == DESIGN_SYSTEM.parent:
-                continue
-            source = path.read_text(encoding="utf-8")
-            if any(token in source for token in contract.discovery_tokens):
-                paths.add(path)
-    return sorted(path for path in paths if path.is_file())
+def check_component_contracts(errors: list[str]) -> None:
+    sources = {path: path.read_text(encoding="utf-8") for path in swift_files()}
+    declarations = "\n".join(sources.values())
 
+    # 公共组件清单只声明语义名称；来源文件由源码声明自动发现，不再维护文件名映射。
+    for group, symbols in COMPONENT_GROUPS:
+        for symbol in symbols:
+            if not re.search(rf"\b(?:struct|enum|class|protocol)\s+{re.escape(symbol)}\b", declarations):
+                errors.append(f"公共组件组「{group}」缺少 {symbol}")
 
-def check_page_contracts(errors: list[str]) -> None:
-    for contract in PAGE_CONTRACTS:
-        for path in contract_files(contract):
-            source = path.read_text(encoding="utf-8")
+    for contract in COMPONENT_CONTRACTS:
+        members = set()
+        for pattern in contract.path_globs:
+            members.update(SOURCE_ROOT.glob(pattern))
+        for path, source in sources.items():
+            if contract.discovery_tokens and path.parent != DESIGN_SYSTEM.parent and any(token in source for token in contract.discovery_tokens):
+                members.add(path)
+        for path in sorted(path for path in members if path.is_file()):
+            source = sources[path]
+            relative = path.relative_to(ROOT)
+            if contract.any_tokens and not any(token in source for token in contract.any_tokens):
+                errors.append(f"{relative}: {contract.name}缺少首屏状态公共组件")
             for token, message in contract.requirements:
                 if token not in source:
-                    relative = path.relative_to(SOURCE_ROOT)
                     errors.append(f"{relative}: {contract.name}{message}（缺少 {token}）")
+
+    # 页面级公共规则：只按语义模式发现，不按业务文件名列白名单。
+    for path, source in sources.items():
+        if "View" not in path.stem:
+            continue
+        if re.search(r"\b(List|Form|Section)\b", source) and "ContentUnavailableView" in source:
+            if "AppFailureState" not in source and "AppEmptyState" not in source:
+                errors.append(f"{path.relative_to(ROOT)}: 页面状态必须使用公共空态/失败态组件")
+        if re.search(r"\b(?:Gallery|Paper|Course|Mine|Settings)\b", str(path)) and re.search(r"avatar", source, re.IGNORECASE):
+            if "AppAvatarView" not in source and "AppAvatarComponents.swift" not in str(path):
+                errors.append(f"{path.relative_to(ROOT)}: 头像页面必须使用 AppAvatarView")
+        if re.search(r"DateFormatter|ISO8601DateFormatter|RelativeDateTimeFormatter", source):
+            if any(module in path.parts for module in ("Course", "Gallery", "Paper")) and "AppDateText.swift" not in str(path):
+                errors.append(f"{path.relative_to(ROOT)}: 社区页面日期必须使用 AppDateText")
+
+    # 列表/表单内的图标按位置审计：状态、右侧导航和交互控件可保留，
+    # 其它左侧图标必须先进入公共组件契约。
+    container_pattern = re.compile(r"\b(List|Form|Section)\b")
+    icon_pattern = re.compile(
+        r"\b(Label\s*\([^\n]*systemImage\s*:|Button\s*\([^\n]*systemImage\s*:|"
+        r"NavigationLink\s*\([^\n]*systemImage\s*:|Image\s*\(systemName\s*:)")
+    right_pattern = re.compile(r"checkmark|circle|chevron|xmark|minus|star")
+    for path, source in sources.items():
+        if "Mine" in path.parts:
+            continue
+        containers = []
+        depth = 0
+        for line_number, line in enumerate(source.splitlines(), 1):
+            code = line.split("//", 1)[0]
+            if container_pattern.search(code) and "{" in code:
+                containers.append(depth)
+            match = icon_pattern.search(code)
+            if match and containers and not right_pattern.search(code):
+                errors.append(f"{path.relative_to(ROOT)}:{line_number}: 列表/表单左侧图标必须通过公共组件提供")
+            depth += code.count("{") - code.count("}")
+            while containers and depth <= containers[-1]:
+                containers.pop()
+
+    direct_states = [
+        f"{path.relative_to(ROOT)}:{index + 1}: {line.strip()}"
+        for path, source in sources.items()
+        for index, line in enumerate(source.splitlines())
+        if "ContentUnavailableView" in line and "AppStateComponents.swift" not in str(path)
+        and "Schedule/FreeClassroomViews.swift" not in str(path)
+    ]
+    errors.extend(f"页面不得直接实现空态/失败态：{item}" for item in direct_states)
+
+
+def component_main() -> int:
+    errors: list[str] = []
+    check_component_contracts(errors)
+    if errors:
+        print("[失败] component-consistency：")
+        print("\n".join(errors))
+        return 1
+    print(f"[通过] component-consistency（自动发现 {len(swift_files())} 个 Swift 文件）")
+    return 0
 
 
 def main() -> int:
@@ -243,6 +344,8 @@ def main() -> int:
             (DIRECT_GROUPED_LIST_STYLE, "分组列表必须使用 appGroupedListStyle"),
             (DIRECT_LIST_SECTION_SPACING, "列表 section 间距必须通过 appGroupedListStyle 统一"),
             (DIRECT_ANIMATION_DURATION, "优先使用系统动画时长，不要在页面单独指定 duration"),
+            (DIRECT_BARE_HSTACK, "HStack 必须显式使用 AppDesignSystem.Spacing 语义间距"),
+            (DIRECT_HSTACK_LITERAL, "HStack 间距必须使用 AppDesignSystem.Spacing 语义令牌"),
             (DIRECT_FRAME_LITERAL, "固定 frame 尺寸必须使用 AppDesignSystem.Size 或专用语义令牌"),
             (DIRECT_EDGE_INSETS_LITERAL, "EdgeInsets 必须使用 AppDesignSystem.Spacing"),
             (DIRECT_LOCAL_CGFLOAT_LITERAL, "页面布局常量必须提升为设计系统语义令牌"),
@@ -318,8 +421,6 @@ def main() -> int:
                     f"{path.relative_to(ROOT)}: {list_count} 个分组列表必须逐个使用 appGroupedListStyle（当前 {style_count} 个）"
                 )
 
-    check_page_contracts(errors)
-
     if errors:
         print("[失败] UI 一致性检查：")
         print("\n".join(errors))
@@ -330,4 +431,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(component_main() if "--components" in sys.argv[1:] else main())

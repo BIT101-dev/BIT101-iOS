@@ -110,7 +110,7 @@ struct AboutSettingsPage: View {
                 Button {
                     Task { await clearCaches() }
                 } label: {
-                    HStack {
+                    HStack(spacing: AppDesignSystem.Spacing.control) {
                         Text("清理缓存")
                         Spacer()
                         if isClearingCaches {
@@ -124,7 +124,7 @@ struct AboutSettingsPage: View {
                 Button(role: .destructive) {
                     isShowingResetConfirmation = true
                 } label: {
-                    HStack {
+                    HStack(spacing: AppDesignSystem.Spacing.control) {
                         Text("删除所有文稿与数据")
                         Spacer()
                         if isResettingLocalData {

@@ -51,12 +51,6 @@ enum AppThemeMode: String, CaseIterable, Identifiable, Codable {
 ///
 /// 这是整个 app 的“设置真相来源”。UI 层只改这里，真正的读写、账号隔离和默认值全由这份快照承接。
 struct AppSettingsSnapshot: Codable, Equatable {
-    /// 启动后默认选中的 tab。
-    var homeTab: AppTab = .schedule
-    /// 底部栏页面顺序。
-    var pageOrder: [AppTab] = AppTab.allCases
-    /// 被用户隐藏的 tab。
-    var hiddenTabs: [AppTab] = []
     /// 用户主动指定的主题模式。
     var themeMode: AppThemeMode = .system
     /// 是否允许界面自动旋转。
@@ -71,9 +65,6 @@ struct AppSettingsSnapshot: Codable, Equatable {
     var hasShownLinuxDoThanksNotice = false
 
     enum CodingKeys: String, CodingKey {
-        case homeTab
-        case pageOrder
-        case hiddenTabs
         case themeMode
         case autoRotate
         case galleryHideBotPosterInSearch
@@ -85,17 +76,11 @@ struct AppSettingsSnapshot: Codable, Equatable {
 
 /// 只同步真正属于用户偏好的字段；首次打开时间和一次性提示仍保留在本机。
 struct AppSettingsSyncPayload: Codable, Equatable {
-    var homeTab: AppTab
-    var pageOrder: [AppTab]
-    var hiddenTabs: [AppTab]
     var themeMode: AppThemeMode
     var autoRotate: Bool
     var galleryHideBotPosterInSearch: Bool
 
     init(snapshot: AppSettingsSnapshot) {
-        homeTab = snapshot.homeTab
-        pageOrder = snapshot.pageOrder
-        hiddenTabs = snapshot.hiddenTabs
         themeMode = snapshot.themeMode
         autoRotate = snapshot.autoRotate
         galleryHideBotPosterInSearch = snapshot.galleryHideBotPosterInSearch
@@ -105,7 +90,7 @@ struct AppSettingsSyncPayload: Codable, Equatable {
 @MainActor
 /// 全局设置仓库。
 ///
-/// 页面顺序、主题和账号偏好都会统一写入这里，再由具体页面按需读取。
+/// 主题和账号偏好都会统一写入这里，再由具体页面按需读取。
 final class AppSettingsStore: ObservableObject {
     static let shared = AppSettingsStore()
     /// 各账号设置快照在 `UserDefaults` 中使用的 key 前缀。
@@ -146,9 +131,6 @@ final class AppSettingsStore: ObservableObject {
     }
 
     /// 以下计算属性用于给视图层提供只读入口，避免页面直接改写 snapshot。
-    var homeTab: AppTab { snapshot.homeTab }
-    var pageOrder: [AppTab] { snapshot.pageOrder }
-    var hiddenTabs: [AppTab] { snapshot.hiddenTabs }
     var themeMode: AppThemeMode { snapshot.themeMode }
     var autoRotate: Bool { snapshot.autoRotate }
     var galleryHideBotPosterInSearch: Bool { snapshot.galleryHideBotPosterInSearch }
@@ -170,42 +152,6 @@ final class AppSettingsStore: ObservableObject {
             to: firstOpenDate
         ) ?? firstOpenDate
         return Date() >= dueDate
-    }
-
-    /// 当前真正可见的底部页面集合。
-    var visibleTabs: [AppTab] {
-        snapshot.pageOrder.filter { tab in
-            tab == .mine || !snapshot.hiddenTabs.contains(tab)
-        }
-    }
-
-    /// 修改默认启动页。
-    func setHomeTab(_ tab: AppTab) {
-        snapshot.homeTab = normalizedHomeTab(tab)
-        save(syncPreferences: true)
-    }
-
-    /// 保存底部栏顺序。
-    func setPageOrder(_ tabs: [AppTab]) {
-        snapshot.pageOrder = normalizePageOrder(tabs)
-        save(syncPreferences: true)
-    }
-
-    /// 保存被隐藏的 tab 集合。
-    func setHiddenTabs(_ tabs: [AppTab]) {
-        snapshot.hiddenTabs = tabs.filter { $0 != .mine && $0 != .paper && $0 != .course }
-        if snapshot.hiddenTabs.contains(snapshot.homeTab) {
-            snapshot.homeTab = visibleTabs.first ?? .schedule
-        }
-        save(syncPreferences: true)
-    }
-
-    /// 重置页面顺序和默认页设置。
-    func resetPageSettings() {
-        snapshot.pageOrder = AppTab.allCases
-        snapshot.hiddenTabs = []
-        snapshot.homeTab = .schedule
-        save(syncPreferences: true)
     }
 
     /// 修改固定主题模式。
@@ -252,12 +198,6 @@ final class AppSettingsStore: ObservableObject {
 
     /// 应用来自 iCloud 的用户偏好，同时保留当前设备的一次性提示与规则确认状态。
     func applySyncedPreferences(_ payload: AppSettingsSyncPayload) {
-        snapshot.homeTab = normalizedHomeTab(payload.homeTab)
-        snapshot.pageOrder = normalizePageOrder(payload.pageOrder)
-        snapshot.hiddenTabs = payload.hiddenTabs.filter { $0 != .mine && $0 != .paper && $0 != .course }
-        if snapshot.hiddenTabs.contains(snapshot.homeTab) {
-            snapshot.homeTab = visibleTabs.first ?? .schedule
-        }
         snapshot.themeMode = payload.themeMode
         snapshot.autoRotate = payload.autoRotate
         snapshot.galleryHideBotPosterInSearch = payload.galleryHideBotPosterInSearch
@@ -276,9 +216,6 @@ final class AppSettingsStore: ObservableObject {
             return
         }
         self.snapshot = snapshot
-        self.snapshot.homeTab = normalizedHomeTab(self.snapshot.homeTab)
-        self.snapshot.pageOrder = normalizePageOrder(self.snapshot.pageOrder)
-        self.snapshot.hiddenTabs = self.snapshot.hiddenTabs.filter { $0 != .mine && $0 != .paper && $0 != .course }
         if self.snapshot.firstOpenDate == nil {
             self.snapshot.firstOpenDate = Date()
             save()
@@ -342,32 +279,4 @@ final class AppSettingsStore: ObservableObject {
         return Int(hash % UInt64(linuxDoThanksNoticeSpreadDays))
     }
 
-    /// 修正页面顺序，避免重复、缺失和旧版本快照造成的异常。
-    private func normalizePageOrder(_ tabs: [AppTab]) -> [AppTab] {
-        // 防止重复 tab、缺失 tab 或旧版本快照导致页面顺序异常。
-        var ordered: [AppTab] = []
-        for tab in tabs where tab != .paper && tab != .course && !ordered.contains(tab) {
-            ordered.append(tab)
-        }
-        for tab in AppTab.allCases where !ordered.contains(tab) {
-            ordered.append(tab)
-        }
-        if let mineIndex = ordered.firstIndex(of: .mine), mineIndex != ordered.count - 1 {
-            let mineTab = ordered.remove(at: mineIndex)
-            ordered.append(mineTab)
-        }
-        return ordered
-    }
-
-    /// 把旧版本已下线的 tab 映射到新的入口。
-    private func normalizedHomeTab(_ tab: AppTab) -> AppTab {
-        switch tab {
-        case .paper:
-            return .gallery
-        case .course:
-            return .score
-        default:
-            return tab
-        }
-    }
 }

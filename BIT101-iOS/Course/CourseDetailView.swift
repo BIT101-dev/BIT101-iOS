@@ -84,9 +84,6 @@ struct CourseDetailView: View {
         .navigationDestination(item: $userRoute) { route in
             UserProfileRootView(userID: route.userID)
         }
-        .refreshable {
-            await viewModel.refresh()
-        }
         .task {
             await viewModel.bootstrapIfNeeded()
         }

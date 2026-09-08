@@ -51,10 +51,6 @@ struct MineRootView: View {
             }
         }
         .appGroupedListStyle()
-        .refreshable {
-            await viewModel.refreshProfile()
-            await viewModel.refreshPosters()
-        }
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(item: $route) { destination in
             switch destination {
@@ -192,9 +188,6 @@ struct UserProfileRootView: View {
             }
         }
         .appGroupedListStyle()
-        .refreshable {
-            await viewModel.refreshAll()
-        }
         .navigationTitle(navigationTitle)
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -363,6 +356,7 @@ private struct MineProfileCard: View {
             }
         }
         .padding(.top, AppDesignSystem.Spacing.control)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private var profileAvatar: some View {
@@ -438,9 +432,6 @@ private struct MineUserListView: View {
                     }
                 }
                 .appGroupedListStyle()
-                .refreshable {
-                    onRefresh()
-                }
             }
         }
         .task {
@@ -518,10 +509,7 @@ private struct MinePosterListView: View {
                             AppInlineLoadingState()
                         }
                     }
-                }
-                .refreshable {
-                    onRefresh()
-                }
+                    }
             }
         }
         .task {

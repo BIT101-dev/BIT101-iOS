@@ -169,6 +169,29 @@ struct CourseRecord: Codable, Identifiable, Hashable {
 
         return "\(start.start)-\(end.end)"
     }
+
+    /// 只替换周次，供学校行解析和小学期整体校正共用。
+    nonisolated func replacingWeeks(_ weeks: [Int]) -> CourseRecord {
+        CourseRecord(
+            id: id,
+            term: term,
+            name: name,
+            teacher: teacher,
+            classroom: classroom,
+            description: description,
+            weeks: weeks,
+            weekday: weekday,
+            startSection: startSection,
+            endSection: endSection,
+            campus: campus,
+            number: number,
+            credit: credit,
+            hour: hour,
+            type: type,
+            category: category,
+            department: department
+        )
+    }
 }
 
 /// 手动新增课程时使用的草稿模型。
@@ -460,25 +483,36 @@ nonisolated struct ScheduleCache: Codable {
 
         // 旧版已经落盘的 `-1` 小学期课表也在解码时确定性迁移。校正后的数据再次
         // 解码会得到 offset=0，因此不会重复平移；其它学期不会进入该规则。
-        for (term, snapshot) in termSchedulesByTerm {
+        // `cachedCoursesByTerm` 没有首周日期，但仍可能保存旧的原始周次；它只需
+        // 迁移课程周次和行级安排，日期继续保持为空。
+        let migrationTerms = Set(termSchedulesByTerm.keys).union(cachedCoursesByTerm.keys)
+        for term in migrationTerms {
+            let snapshot = termSchedulesByTerm[term]
+            let sourceCourses = snapshot?.courses ?? cachedCoursesByTerm[term] ?? []
+            guard !sourceCourses.isEmpty else { continue }
             let normalized = SmallTermWeekNormalizer.normalize(
                 term: term,
-                firstDayString: snapshot.firstDayString,
-                courses: snapshot.courses
+                firstDayString: snapshot?.firstDayString
+                    ?? (term == currentTerm ? firstDayString : ""),
+                courses: sourceCourses
             )
-            guard normalized.offset > 0 else { continue }
-            let migrated = TermScheduleSnapshot(
-                term: term,
-                firstDayString: normalized.firstDayString,
-                courses: normalized.courses,
-                exams: snapshot.exams,
-                updatedAt: snapshot.updatedAt
-            )
-            termSchedulesByTerm[term] = migrated
-            cachedCoursesByTerm[term] = normalized.courses
+            let narrowedCourses = CourseScheduleRowParser.narrowedCourses(normalized.courses)
+            guard normalized.offset == SmallTermWeekNormalizer.correctionOffset
+                || narrowedCourses != sourceCourses
+            else { continue }
+            if let snapshot {
+                termSchedulesByTerm[term] = TermScheduleSnapshot(
+                    term: term,
+                    firstDayString: normalized.firstDayString,
+                    courses: narrowedCourses,
+                    exams: snapshot.exams,
+                    updatedAt: snapshot.updatedAt
+                )
+            }
+            cachedCoursesByTerm[term] = narrowedCourses
             if currentTerm == term {
                 firstDayString = normalized.firstDayString
-                courses = normalized.courses
+                courses = narrowedCourses
             }
         }
     }

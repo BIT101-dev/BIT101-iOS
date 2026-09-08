@@ -99,9 +99,11 @@ struct CourseSyncPayload {
 /// 校正上半学期中由小学期产生的周次整体偏移。
 ///
 /// 教务接口的 `SKZC` 有时仍以完整校历计数，而 `YPSJDD` 已按小学期重新从第 1 周
-/// 标注。只有 `-1` 学期允许校正，并且必须由所有可解析课程共同证明同一个偏移量；
-/// 这样不会把普通学期或单条异常数据误判成小学期。
+/// 标注。这里唯一允许的修正是全局减 3 周；证据不足或不是恰好 3 周时完全不改动。
 nonisolated enum SmallTermWeekNormalizer {
+    /// 结果只有两种：`0` 表示不变，`3` 表示全局减 3 周。
+    static let correctionOffset = 3
+
     struct Result {
         let firstDayString: String
         let courses: [CourseRecord]
@@ -136,27 +138,30 @@ nonisolated enum SmallTermWeekNormalizer {
         guard !groups.isEmpty else { return unchanged }
 
         var offsets = Set<Int>()
+        var evidenceCount = 0
         for group in groups.values {
             let raw = group.rawWeeks.sorted()
             let described = group.describedWeeks.sorted()
-            guard raw.count == described.count, raw.count >= 2 else { return unchanged }
+            // 个别短课只返回一周，或使用 -2/-1 这种开学前周次；它们不足以证明
+            // 全学期偏移，不能因为一个异常组让所有课程都放弃校正。
+            guard raw.count == described.count, raw.count >= 2,
+                  described.allSatisfy({ $0 > 0 })
+            else { continue }
             let differences = Set(zip(raw, described).map(-))
-            guard differences.count == 1, let difference = differences.first else { return unchanged }
+            guard differences.count == 1, let difference = differences.first else { continue }
             offsets.insert(difference)
+            evidenceCount += 1
         }
 
-        guard offsets.count == 1,
-              let offset = offsets.first,
-              (1 ... 8).contains(offset),
-              courses.allSatisfy({ $0.weeks.allSatisfy { $0 > offset } }),
-              let firstDay = parseDate(firstDayString),
-              let shiftedFirstDay = calendar.date(byAdding: .day, value: offset * 7, to: firstDay)
-        else { return unchanged }
+        guard offsets == Set([correctionOffset]), evidenceCount >= 2 else { return unchanged }
+
+        let shiftedFirstDay = parseDate(firstDayString)
+            .flatMap { calendar.date(byAdding: .day, value: correctionOffset * 7, to: $0) }
 
         return Result(
-            firstDayString: formatDate(shiftedFirstDay),
-            courses: courses.map { shiftingWeeks(of: $0, by: -offset) },
-            offset: offset
+            firstDayString: shiftedFirstDay.map(formatDate) ?? firstDayString,
+            courses: courses.map { shiftingWeeks(of: $0, by: -correctionOffset) },
+            offset: correctionOffset
         )
     }
 
@@ -188,8 +193,8 @@ nonisolated enum SmallTermWeekNormalizer {
         )
     }
 
-    private static func weeksDescribed(in text: String) -> Set<Int> {
-        let pattern = #"(\d{1,2})\s*(?:[-－—~～至]\s*(\d{1,2}))?\s*周"#
+    static func weeksDescribed(in text: String) -> Set<Int> {
+        let pattern = #"(-?\d{1,2})\s*(?:[-－—~～至]\s*(-?\d{1,2}))?\s*周"#
         guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
         let range = NSRange(text.startIndex..., in: text)
         var result = Set<Int>()
@@ -211,25 +216,98 @@ nonisolated enum SmallTermWeekNormalizer {
     }
 
     private static func shiftingWeeks(of course: CourseRecord, by delta: Int) -> CourseRecord {
-        CourseRecord(
-            id: course.id,
-            term: course.term,
-            name: course.name,
-            teacher: course.teacher,
-            classroom: course.classroom,
-            description: course.description,
-            weeks: course.weeks.map { $0 + delta },
-            weekday: course.weekday,
-            startSection: course.startSection,
-            endSection: course.endSection,
-            campus: course.campus,
-            number: course.number,
-            credit: course.credit,
-            hour: course.hour,
-            type: course.type,
-            category: course.category,
-            department: course.department
-        )
+        course.replacingWeeks(course.weeks.map { $0 + delta })
+    }
+}
+
+/// 教务接口把同一门课的多个上课安排合并到 `YPSJDD`，但每一行的 `SKXQ`、节次和教室
+/// 只对应其中一项。把描述拆回行级周次，避免把某一行的周次错误复制到同课的其它星期。
+nonisolated enum CourseScheduleRowParser {
+    private struct Occurrence {
+        let weeks: Set<Int>
+        let weekday: Int
+        let startSection: Int
+        let endSection: Int
+        let classroom: String
+    }
+
+    static func narrowedCourses(_ courses: [CourseRecord]) -> [CourseRecord] {
+        courses.map { course in
+            let weeks = narrowedWeeks(for: course)
+            return weeks == course.weeks ? course : course.replacingWeeks(weeks)
+        }
+    }
+
+    private static func narrowedWeeks(for course: CourseRecord) -> [Int] {
+        let occurrences = occurrences(in: course.description)
+        guard !occurrences.isEmpty else { return course.weeks }
+
+        let sameTime = occurrences.filter {
+            $0.weekday == course.weekday
+                && $0.startSection == course.startSection
+                && $0.endSection == course.endSection
+        }
+        guard !sameTime.isEmpty else { return course.weeks }
+
+        let exact = sameTime.filter {
+            normalizedClassroom($0.classroom) == normalizedClassroom(course.classroom)
+        }
+        let matched = exact.isEmpty && sameTime.count == 1 ? sameTime : exact
+        guard !matched.isEmpty else { return course.weeks }
+
+        let describedWeeks = matched.reduce(into: Set<Int>()) { result, occurrence in
+            result.formUnion(occurrence.weeks)
+        }
+        let currentWeeks = Set(course.weeks)
+        // 若缓存仍是原始坐标，且当前结果无法证明已经与描述处于同一坐标系，保持原值；
+        // 小学期的整体 -3 由 SmallTermWeekNormalizer 统一完成。
+        guard describedWeeks.isSubset(of: currentWeeks) else { return course.weeks }
+        return course.weeks.filter { describedWeeks.contains($0) }
+    }
+
+    private static func occurrences(in text: String) -> [Occurrence] {
+        let pattern = #"((?:-?\d{1,2}\s*(?:[-－—~～至]\s*-?\d{1,2})?\s*周)(?:\s*,\s*(?:-?\d{1,2}\s*(?:[-－—~～至]\s*-?\d{1,2})?\s*周))*)\s*星期([一二三四五六日天])\s*第?(\d{1,2})\s*节?\s*[-－—~～至]\s*第?(\d{1,2})\s*节\s*(.*?)(?=,\s*-?\d{1,2}\s*(?:[-－—~～至]\s*-?\d{1,2})?\s*周|$)"#
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(text.startIndex..., in: text)
+        return expression.matches(in: text, range: range).compactMap { match in
+            guard
+                let weeksRange = Range(match.range(at: 1), in: text),
+                let weekdayRange = Range(match.range(at: 2), in: text),
+                let startRange = Range(match.range(at: 3), in: text),
+                let endRange = Range(match.range(at: 4), in: text),
+                let classroomRange = Range(match.range(at: 5), in: text),
+                let startSection = Int(text[startRange]),
+                let endSection = Int(text[endRange]),
+                let weekday = weekday(from: String(text[weekdayRange]))
+            else { return nil }
+
+            return Occurrence(
+                weeks: SmallTermWeekNormalizer.weeksDescribed(in: String(text[weeksRange])),
+                weekday: weekday,
+                startSection: startSection,
+                endSection: endSection,
+                classroom: String(text[classroomRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+    }
+
+    private static func weekday(from value: String) -> Int? {
+        switch value {
+        case "一": return 1
+        case "二": return 2
+        case "三": return 3
+        case "四": return 4
+        case "五": return 5
+        case "六": return 6
+        case "日", "天": return 7
+        default: return nil
+        }
+    }
+
+    private static func normalizedClassroom(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .filter { !$0.isWhitespace }
     }
 }
 

@@ -76,9 +76,6 @@ struct DDLScheduleTabView: View {
             }
             .appGroupedListStyle()
             .scrollContentBackground(.hidden)
-            .refreshable {
-                await refreshDDL()
-            }
 
             AppFloatingActionStack {
                 CourseScheduleFAB(systemImage: "plus", accessibilityLabel: "添加待办") {

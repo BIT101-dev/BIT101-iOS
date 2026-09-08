@@ -341,7 +341,7 @@ struct GalleryComposerView: View {
                         // 每条自定义标签都用单独输入行，避免旧版“统一输入框 + 行内删除”
                         // 在移动端上编辑体验混乱。
                         ForEach($customTagDrafts) { $draft in
-                            HStack {
+                            HStack(spacing: AppDesignSystem.Spacing.control) {
                                 TextField("自定义标签", text: $draft.text)
                                     .textInputAutocapitalization(.never)
                                     .autocorrectionDisabled()

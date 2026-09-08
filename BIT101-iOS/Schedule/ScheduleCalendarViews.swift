@@ -156,7 +156,7 @@ struct CourseScheduleCalendarView: View {
                         .frame(height: weekSliderHeight)
                         .background(AppDesignSystem.Palette.secondaryGroupedBackground)
 
-                        HStack(spacing: 0) {
+                        HStack(spacing: AppDesignSystem.Spacing.none) {
                             Text("第\(week)周")
                                 .font(.caption2.weight(.semibold))
                                 .foregroundStyle(.primary)
@@ -179,7 +179,7 @@ struct CourseScheduleCalendarView: View {
                             }
                         }
                     } else {
-                        HStack(spacing: 0) {
+                        HStack(spacing: AppDesignSystem.Spacing.none) {
                             Color.clear
                                 .frame(width: leftWidth, height: headerHeight)
                                 .background(AppDesignSystem.Palette.secondaryGroupedBackground)
@@ -195,7 +195,7 @@ struct CourseScheduleCalendarView: View {
                     }
 
                     ForEach(Array(timeTable.enumerated()), id: \.offset) { index, slot in
-                        HStack(spacing: 0) {
+                        HStack(spacing: AppDesignSystem.Spacing.none) {
                             VStack(spacing: AppDesignSystem.Schedule.grid.cellSpacing) {
                                 Text("\(index + 1)")
                                     .font(.caption2.weight(.bold))
@@ -254,6 +254,7 @@ struct CourseScheduleCalendarView: View {
                             x: leftWidth + dayWidth * CGFloat(index),
                             y: headerHeight + rowHeight * timeLineSection
                     )
+                    .zIndex(2)
                 }
 
                 VStack(spacing: 0) {

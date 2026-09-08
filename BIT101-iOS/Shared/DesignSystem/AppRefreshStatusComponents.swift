@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 成绩、DDL 等数据页统一的最近更新时间与手动刷新行。
+/// 课表、成绩、DDL、空教室等数据页统一的最近更新时间与手动刷新行。
 struct AppRefreshStatusRow: View {
     let isRefreshing: Bool
     let refreshingText: String

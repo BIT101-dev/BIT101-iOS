@@ -242,6 +242,8 @@ Scripts/run-extended-tests.sh
 
 `run-static-audit.sh` 只做静态检查，不连接学校接口，不运行网络 smoke，不执行 Archive。它按 Swift、Shell、Python、Worker、Git、文档、UI、触感、组件和源码质量规则输出结果；源码质量报告固定覆盖 `.build/code-quality-report.txt`。CI 会强制执行这一入口，并额外阻止警告进入构建门禁。
 
+UI 契约检查由 `check-ui-consistency.py` 统一维护：页面和公共组件按目录模式、页面后缀及公共组件用法自动发现，再套用同类契约；`check-component-consistency.sh` 不再列出业务文件，只转发到统一检查器。新增同类页面不需要复制检查逻辑，只有登记在契约表中的必要平台/功能例外可以跳过规则。
+
 ## 扩展自动化测试
 
 扩展测试使用 `EXTENDED_AUTOMATION` 条件编译，默认测试和 Release 包不会包含这些用例。运行：

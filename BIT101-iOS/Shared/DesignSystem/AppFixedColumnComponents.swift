@@ -33,7 +33,7 @@ struct AppFixedColumnRow: View {
 
     var body: some View {
         GeometryReader { proxy in
-            HStack(spacing: 0) {
+            HStack(spacing: AppDesignSystem.Spacing.none) {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                     Text(item.text)
                         .font(item.font)

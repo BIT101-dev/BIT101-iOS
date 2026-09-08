@@ -97,7 +97,7 @@ struct CalendarSettingsPage: View {
             Button {
                 Task { await viewModel.syncSelectedTerm() }
             } label: {
-                HStack {
+                HStack(spacing: AppDesignSystem.Spacing.control) {
                     Text("重新同步课表与考试")
                     Spacer()
                     if viewModel.isSyncingCourses {
@@ -215,7 +215,7 @@ struct CalendarSettingsPage: View {
                 guard viewModel.cache.showCourseLiveActivityReminder else { return }
                 isShowingLiveActivityLeadMinutesPicker = true
             } label: {
-                HStack {
+                HStack(spacing: AppDesignSystem.Spacing.control) {
                     Text("提前显示阈值")
                         .foregroundStyle(.primary)
                     Spacer()
@@ -448,8 +448,7 @@ struct CalendarSettingsPage: View {
 
     /// 解析并导入一份压缩编码的课表。
     ///
-    /// 当前支持三套格式：
-    /// - `BIT101SCH1:<base64(lzfse(json(payload))))>`：V1 完整 JSON 载荷
+    /// 当前支持两套格式：
     /// - `BIT101SCH2:<base64(lzfse(json(compactPayload))))>`：V2 精简数组载荷
     /// - `BIT101SCH3:<base64(lzfse(json(compactPayload))))>`：V3 精简数组载荷，额外包含学分
     ///
@@ -478,7 +477,7 @@ private struct ScheduleTermPickerPage: View {
         List {
             Section("选择学期") {
                 if !viewModel.hasLoadedAvailableTerms {
-                    HStack {
+                    HStack(spacing: AppDesignSystem.Spacing.control) {
                         Spacer()
                         ProgressView()
                         Spacer()
@@ -489,7 +488,7 @@ private struct ScheduleTermPickerPage: View {
                             selectionFeedbackToken &+= 1
                             Task { await viewModel.syncCourses(term: term) }
                         } label: {
-                            HStack {
+                            HStack(spacing: AppDesignSystem.Spacing.control) {
                                 Text(term)
                                     .foregroundStyle(.primary)
                                 Spacer()

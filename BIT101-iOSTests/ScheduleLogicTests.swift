@@ -423,6 +423,42 @@ struct SmallTermWeekNormalizerTests {
         #expect(result.courses == courses)
     }
 
+    @Test("Pre-start week outliers do not disable the common offset")
+    func ignoresPreStartOutliers() {
+        let courses = [
+            makeCourse(id: "a", description: "1-5周 星期一", weeks: Array(4 ... 8)),
+            makeCourse(id: "b", description: "7-12周 星期二", weeks: Array(10 ... 15)),
+            makeCourse(id: "c", description: "-2周 星期三,-1周 星期四", weeks: [1, 2])
+        ]
+        let result = SmallTermWeekNormalizer.normalize(
+            term: "2026-2027-1",
+            firstDayString: "2026-08-31",
+            courses: courses
+        )
+
+        #expect(result.offset == 3)
+        #expect(result.firstDayString == "2026-09-21")
+        #expect(result.courses[0].weeks == Array(1 ... 5))
+        #expect(result.courses[2].weeks == [-2, -1])
+    }
+
+    @Test("Offsets other than three weeks leave every course unchanged")
+    func rejectsNonThreeWeekOffset() {
+        let courses = [
+            makeCourse(id: "a", description: "1-5周 星期一", weeks: Array(3 ... 7)),
+            makeCourse(id: "b", description: "7-12周 星期二", weeks: Array(9 ... 14))
+        ]
+        let result = SmallTermWeekNormalizer.normalize(
+            term: "2026-2027-1",
+            firstDayString: "2026-08-31",
+            courses: courses
+        )
+
+        #expect(result.offset == 0)
+        #expect(result.firstDayString == "2026-08-31")
+        #expect(result.courses == courses)
+    }
+
     private func makeCourse(id: String, description: String, weeks: [Int]) -> CourseRecord {
         CourseRecord(
             id: id,
@@ -437,6 +473,52 @@ struct SmallTermWeekNormalizerTests {
             endSection: 2,
             campus: "",
             number: id,
+            credit: 1,
+            hour: 16,
+            type: "",
+            category: "",
+            department: ""
+        )
+    }
+}
+
+@Suite("Course row schedule parsing")
+struct CourseScheduleRowParserTests {
+    @Test("Aggregated descriptions keep only the row's matching weeks")
+    func narrowsWeeksToMatchingRow() {
+        let description = "-2周 星期四 6-9节 文萃楼M227,-1周 星期四 6-9节 文萃楼M227,-1周 星期二 6-9节 文萃楼M227,-1周 星期五 6-9节 文萃楼M227"
+        let courses = [
+            makeCourse(id: "tue", description: description, weeks: [-2, -1], weekday: 2),
+            makeCourse(id: "thu", description: description, weeks: [-2, -1], weekday: 4),
+            makeCourse(id: "fri", description: description, weeks: [-2, -1], weekday: 5),
+        ]
+
+        let narrowed = CourseScheduleRowParser.narrowedCourses(courses)
+
+        #expect(narrowed[0].weeks == [-1])
+        #expect(narrowed[1].weeks == [-2, -1])
+        #expect(narrowed[2].weeks == [-1])
+    }
+
+    private func makeCourse(
+        id: String,
+        description: String,
+        weeks: [Int],
+        weekday: Int
+    ) -> CourseRecord {
+        CourseRecord(
+            id: id,
+            term: "2026-2027-1",
+            name: "文献检索",
+            teacher: "",
+            classroom: "文萃楼M227",
+            description: description,
+            weeks: weeks,
+            weekday: weekday,
+            startSection: 6,
+            endSection: 9,
+            campus: "",
+            number: "100960001",
             credit: 1,
             hour: 16,
             type: "",

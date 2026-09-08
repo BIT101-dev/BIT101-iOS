@@ -11,19 +11,11 @@ import UIKit
 
 /// 应用底部 Tab 的稳定标识。
 ///
-/// 页面设置和启动默认页都依赖这个枚举持久化。
+/// 底部导航使用固定顺序。
 enum AppTab: String, Identifiable, Codable {
     case schedule
-    /// 仅用于兼容旧版本持久化出来的页面顺序和默认页配置。
-    ///
-    /// 课程入口现已并入“成绩”页顶部的二级栏位，不再作为独立底部 tab 展示。
-    case course
     case map
     case gallery
-    /// 仅用于兼容旧版本持久化出来的页面顺序和默认页配置。
-    ///
-    /// 文章入口现已并入“话廊”页顶部的二级栏位，不再作为独立底部 tab 展示。
-    case paper
     case score = "home"
     case mine
 
@@ -43,16 +35,12 @@ enum AppTab: String, Identifiable, Codable {
         switch self {
         case .schedule:
             return "日程"
-        case .course:
-            return "课程"
         case .map:
             return "地图"
         case .score:
             return "学业"
         case .gallery:
             return "话廊"
-        case .paper:
-            return "文章"
         case .mine:
             return "我的"
         }
@@ -63,16 +51,12 @@ enum AppTab: String, Identifiable, Codable {
         switch self {
         case .schedule:
             return "calendar"
-        case .course:
-            return "books.vertical"
         case .map:
             return "map"
         case .score:
             return "chart.bar.doc.horizontal"
         case .gallery:
             return "bubble.left.and.bubble.right"
-        case .paper:
-            return "doc.text"
         case .mine:
             return "person.crop.circle"
         }
@@ -83,16 +67,12 @@ enum AppTab: String, Identifiable, Codable {
         switch self {
         case .schedule:
             return AppDesignSystem.Palette.scheduleTab
-        case .course:
-            return AppDesignSystem.Palette.courseTab
         case .map:
             return AppDesignSystem.Palette.mapTab
         case .score:
             return AppDesignSystem.Palette.scoreTab
         case .gallery:
             return AppDesignSystem.Palette.highlight
-        case .paper:
-            return AppDesignSystem.Palette.paperTab
         case .mine:
             return AppDesignSystem.Palette.info
         }
@@ -138,7 +118,7 @@ struct AppShellView: View {
     /// 3. 小组件/深链路由分发
     var body: some View {
         TabView(selection: tabSelection) {
-            ForEach(settings.visibleTabs) { tab in
+            ForEach(AppTab.allCases) { tab in
                 NavigationStack {
                     switch tab {
                     case .schedule:
@@ -153,8 +133,6 @@ struct AppShellView: View {
                                 selectTab(.map)
                             }
                         )
-                    case .course:
-                        ScoreRootView(requestedCourse: $requestedCourse)
                     case .map:
                         CampusMapScreen(
                             scheduleViewModel: schoolDataViewModels.scheduleViewModel,
@@ -163,11 +141,6 @@ struct AppShellView: View {
                     case .score:
                         ScoreRootView(requestedCourse: $requestedCourse)
                     case .gallery:
-                        GalleryRootView(
-                            requestedPaperID: $requestedPaperID,
-                            requestedPosterID: $requestedPosterID
-                        )
-                    case .paper:
                         GalleryRootView(
                             requestedPaperID: $requestedPaperID,
                             requestedPosterID: $requestedPosterID
@@ -187,17 +160,12 @@ struct AppShellView: View {
         .onAppear {
             if !didInitializeSelectedTab {
                 didInitializeSelectedTab = true
-                let initial = settings.visibleTabs.contains(settings.homeTab) ? settings.homeTab : (settings.visibleTabs.first ?? .schedule)
+                let initial = AppTab.allCases.first ?? .schedule
                 if selectedTab != initial {
                     selectTab(initial)
                 }
             }
             enqueueStartupPromptsIfNeeded()
-        }
-        .onChange(of: settings.snapshot) { _, _ in
-            if !settings.visibleTabs.contains(selectedTab) {
-                selectedTab = settings.visibleTabs.first ?? .schedule
-            }
         }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active else { return }

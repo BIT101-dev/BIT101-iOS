@@ -9,8 +9,7 @@ import Foundation
 /// - 课程
 ///
 /// 不包含 DDL、考试、自定义日程和个人显示偏好，避免把本地私有设置一起带出去。
-struct ScheduleExportPayload: Codable {
-    let formatVersion: Int
+struct ScheduleExportPayload {
     let exportedAt: Date
     let currentTerm: String
     let firstDayString: String
@@ -18,14 +17,12 @@ struct ScheduleExportPayload: Codable {
     let courses: [CourseRecord]
 
     init(
-        formatVersion: Int,
         exportedAt: Date,
         currentTerm: String,
         firstDayString: String,
         timeTable: [TimeSlot],
         courses: [CourseRecord]
     ) {
-        self.formatVersion = formatVersion
         self.exportedAt = exportedAt
         self.currentTerm = currentTerm
         self.firstDayString = firstDayString
@@ -34,7 +31,6 @@ struct ScheduleExportPayload: Codable {
     }
 
     init(cache: ScheduleCache, exportedAt: Date = Date()) {
-        self.formatVersion = 1
         self.exportedAt = exportedAt
         self.currentTerm = cache.currentTerm
         self.firstDayString = cache.firstDayString
@@ -50,7 +46,7 @@ struct ScheduleExportPayload: Codable {
 
 /// 课表分享编码的紧凑载荷 V2。
 ///
-/// 该协议保留用于导入旧分享码；当前导出端已经升级到 V3。
+/// 该协议保留用于导入较早的紧凑分享码；当前导出端已经升级到 V3。
 ///
 /// ## 设计约束
 /// - 继续复用现有外层包装：`lzfse + base64`
@@ -93,7 +89,7 @@ struct ScheduleExportPayload: Codable {
 /// - `timeTable`
 ///
 /// ## 兼容策略
-/// 新版默认导出 `BIT101SCH3`；导入端继续支持 `BIT101SCH1`、`BIT101SCH2` 和 `BIT101SCH3`。
+/// 新版默认导出 `BIT101SCH3`；导入端继续支持 `BIT101SCH2` 和 `BIT101SCH3`。
 /// 低版本客户端如果尚未支持 V2，会无法导入新版分享码，因此高版本兜底提示仍然保留。
 struct ScheduleExportCompactPayloadV2: Codable {
     static let formatVersion = 2
@@ -184,13 +180,9 @@ struct ScheduleExportCompactPayloadV2: Codable {
 
     var isEmpty: Bool { courses.isEmpty }
 
-    /// 用导入侧的本机环境，把 V2 重新还原成 V1 等价载荷。
-    ///
-    /// 这不是说未来一定要先“V2 -> V1 -> SharedScheduleRecord”两跳转换，
-    /// 而是为了把 V2 缺失字段的补全规则先写清楚，避免真正启用时出现歧义。
+    /// 用导入侧的本机环境，把 V2 还原成统一的课表载荷。
     func expandedPayload(using cache: ScheduleCache, importedAt: Date = Date()) -> ScheduleExportPayload {
         ScheduleExportPayload(
-            formatVersion: 1,
             exportedAt: importedAt,
             currentTerm: cache.currentTerm,
             firstDayString: cache.firstDayString,
@@ -331,7 +323,6 @@ struct ScheduleExportCompactPayloadV3: Codable {
 
     func expandedPayload(using cache: ScheduleCache, importedAt: Date = Date()) -> ScheduleExportPayload {
         ScheduleExportPayload(
-            formatVersion: 1,
             exportedAt: importedAt,
             currentTerm: cache.currentTerm,
             firstDayString: cache.firstDayString,
@@ -391,10 +382,10 @@ enum ScheduleShareCodeError: LocalizedError, Equatable {
     }
 }
 
-/// 课表分享码的唯一编解码入口；默认导出 V3，导入继续兼容 V1/V2/V3。
+/// 课表分享码的唯一编解码入口；默认导出 V3，导入继续兼容 V2/V3。
 enum ScheduleShareCodeCodec {
     static let latestVersion = 3
-    static let supportedPrefixes = ["BIT101SCH1:", "BIT101SCH2:", "BIT101SCH3:"]
+    static let supportedPrefixes = ["BIT101SCH2:", "BIT101SCH3:"]
 
     static func encodeLatest(cache: ScheduleCache) throws -> String {
         let payload = ScheduleExportCompactPayloadV3(cache: cache)
@@ -430,8 +421,6 @@ enum ScheduleShareCodeCodec {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         switch prefix {
-        case "BIT101SCH1:":
-            return try decoder.decode(ScheduleExportPayload.self, from: jsonData)
         case "BIT101SCH2:":
             return try decoder.decode(ScheduleExportCompactPayloadV2.self, from: jsonData)
                 .expandedPayload(using: cache)

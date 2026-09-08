@@ -81,7 +81,7 @@ struct PaperDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                HStack {
+                HStack(spacing: AppDesignSystem.Spacing.control) {
                     Spacer()
                     Button {
                         Task { await viewModel.likePaper() }

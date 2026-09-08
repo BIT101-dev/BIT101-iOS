@@ -91,11 +91,12 @@ extension ScheduleService {
             firstDayString: firstDayString,
             courses: courses
         )
+        let narrowedCourses = CourseScheduleRowParser.narrowedCourses(normalized.courses)
 
         return CourseSyncPayload(
             term: term,
             firstDayString: normalized.firstDayString,
-            courses: normalized.courses,
+            courses: narrowedCourses,
             exams: exams
         )
     }

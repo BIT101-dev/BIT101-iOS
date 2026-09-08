@@ -235,7 +235,7 @@ struct CourseCommentComposerSheet: View {
                                             .foregroundStyle(AppDesignSystem.Palette.highlight)
                                             .frame(width: AppDesignSystem.Size.control.compact, height: AppDesignSystem.Size.control.compact)
 
-                                        HStack(spacing: 0) {
+                                        HStack(spacing: AppDesignSystem.Spacing.none) {
                                             Button {
                                                 setRating(for: value, isHalf: true)
                                             } label: {

@@ -17,7 +17,6 @@ let mitLicenseText = "MIT License Copyright (c) 2026 BIT101 Contributors Permiss
 /// “设置首页卡片”与“从其它页面直达某一设置子页”都依赖这个枚举作为统一路由源。
 enum SettingsRoute: String, CaseIterable, Identifiable {
     case account
-    case pages
     case theme
     case calendar
     case ddl
@@ -30,7 +29,6 @@ enum SettingsRoute: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .account: return "账号设置"
-        case .pages: return "页面设置"
         case .theme: return "外观设置"
         case .calendar: return "课程表设置"
         case .ddl: return "DDL设置"
@@ -43,7 +41,6 @@ enum SettingsRoute: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .account: return "person.crop.circle"
-        case .pages: return "square.grid.2x2"
         case .theme: return "paintpalette"
         case .calendar: return "calendar.badge.clock"
         case .ddl: return "list.bullet.clipboard"
@@ -150,8 +147,6 @@ private struct SettingsRoutePage: View {
         switch route {
         case .account:
             AccountSettingsPage(studentID: studentID, onLogout: onLogout)
-        case .pages:
-            PagesSettingsPage()
         case .theme:
             ThemeSettingsPage()
         case .calendar:

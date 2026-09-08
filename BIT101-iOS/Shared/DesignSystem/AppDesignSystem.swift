@@ -6,6 +6,7 @@ import UIKit
 /// 业务页面只选择语义化的间距、圆角、颜色和卡片变体；不在页面里重新定义同一套值。
 enum AppDesignSystem {
     enum Spacing {
+        static let none: CGFloat = 0
         static let micro: CGFloat = 2
         static let tiny: CGFloat = 4
         static let tight: CGFloat = 6
@@ -429,6 +430,12 @@ extension View {
             .listSectionSpacing(AppDesignSystem.Spacing.content)
             .contentMargins(.top, 0, for: .scrollContent)
             .contentMargins(.horizontal, AppDesignSystem.Spacing.regular, for: .scrollContent)
+            .listRowInsets(EdgeInsets(
+                top: AppDesignSystem.Spacing.tight,
+                leading: AppDesignSystem.Spacing.content,
+                bottom: AppDesignSystem.Spacing.tight,
+                trailing: AppDesignSystem.Spacing.content
+            ))
     }
 
     func appCommentSectionStyle() -> some View {

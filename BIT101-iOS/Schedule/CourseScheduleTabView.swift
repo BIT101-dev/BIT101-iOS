@@ -156,7 +156,7 @@ struct CourseScheduleTabView: View {
                                     Button {
                                         Task { await viewModel.syncSelectedTerm() }
                                     } label: {
-                                        HStack {
+                                        HStack(spacing: AppDesignSystem.Spacing.control) {
                                             if viewModel.isSyncingCourses {
                                                 ProgressView()
                                             }

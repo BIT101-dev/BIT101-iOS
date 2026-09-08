@@ -31,7 +31,7 @@ struct AccountSettingsPage: View {
         List {
             if let profile {
                 Section("个人信息") {
-                    HStack {
+                    HStack(spacing: AppDesignSystem.Spacing.control) {
                         Text("头像")
                         Spacer()
                         PhotosPicker(selection: $selectedPhoto, matching: .images) {
@@ -78,7 +78,7 @@ struct AccountSettingsPage: View {
                 Button {
                     Task { await checkLogin() }
                 } label: {
-                    HStack {
+                    HStack(spacing: AppDesignSystem.Spacing.control) {
                         Text("登录状态检查")
                         Spacer()
                         if isCheckingLogin {
@@ -236,7 +236,3 @@ private struct SettingsSensitiveValueRow: View {
         .buttonStyle(.plain)
     }
 }
-
-/// 页面设置页。
-///
-/// 负责底部 tab 的显示顺序、默认页和可见性配置。

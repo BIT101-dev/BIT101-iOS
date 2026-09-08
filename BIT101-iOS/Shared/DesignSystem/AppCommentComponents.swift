@@ -13,7 +13,7 @@ struct AppCommentSectionHeader<Trailing: View>: View {
     }
 
     var body: some View {
-        HStack {
+        HStack(spacing: AppDesignSystem.Spacing.control) {
             Text("评论")
                 .font(.headline)
 

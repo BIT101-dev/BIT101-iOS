@@ -85,9 +85,6 @@ struct CoursePageContent: View {
                 }
                 .appGroupedListStyle()
                 .background(AppDesignSystem.Palette.groupedBackground)
-                .refreshable {
-                    await viewModel.refresh()
-                }
             }
         }
         .task {

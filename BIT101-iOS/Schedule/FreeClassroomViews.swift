@@ -5,14 +5,11 @@ import SwiftUI
 /// 交互上尽量保持“选校区 -> 手动刷新教学楼 -> 再选楼”的顺序，减少无效点击。
 struct FreeClassroomTabView: View {
     @ObservedObject var viewModel: ScheduleViewModel
-    @State private var isManuallyRefreshing = false
 
-    private var shouldShowClassroomLoadingState: Bool {
-        !isManuallyRefreshing && (
-            viewModel.shouldShowInitialClassroomSpinner ||
-            viewModel.isLoadingClassroomMeta ||
-            viewModel.isLoadingClassrooms
-        )
+    private var isClassroomRefreshing: Bool {
+        viewModel.shouldShowInitialClassroomSpinner
+            || viewModel.isLoadingClassroomMeta
+            || viewModel.isLoadingClassrooms
     }
 
     private var classroomLoadingText: String {
@@ -27,6 +24,18 @@ struct FreeClassroomTabView: View {
 
     var body: some View {
         List {
+            Section {
+                AppRefreshStatusRow(
+                    isRefreshing: isClassroomRefreshing,
+                    refreshingText: classroomLoadingText,
+                    lastUpdatedText: viewModel.classroomLastUpdatedText,
+                    actionTitle: "刷新",
+                    onRefresh: {
+                        Task { await manualRefresh() }
+                    }
+                )
+            }
+
             Section {
                 Picker("校区", selection: Binding(
                     get: { viewModel.cache.selectedCampusCode },
@@ -69,12 +78,7 @@ struct FreeClassroomTabView: View {
                 }
             }
 
-            if viewModel.classroomAvailabilities.isEmpty, shouldShowClassroomLoadingState {
-                Section {
-                    AppInlineLoadingState(classroomLoadingText)
-                        .frame(maxWidth: .infinity)
-                }
-            } else if viewModel.classroomAvailabilities.isEmpty {
+            if viewModel.classroomAvailabilities.isEmpty, !isClassroomRefreshing {
                 Section {
                     AppEmptyState(
                         title: "暂无空教室结果",
@@ -106,17 +110,9 @@ struct FreeClassroomTabView: View {
             }
         }
         .appGroupedListStyle()
-        .refreshable {
-            await manualRefresh()
-        }
     }
 
     private func manualRefresh() async {
-        guard !isManuallyRefreshing else { return }
-        isManuallyRefreshing = true
-        defer {
-            isManuallyRefreshing = false
-        }
         await viewModel.refreshClassroomPage()
     }
 }
@@ -141,7 +137,7 @@ struct ClassroomSectionFilterPage: View {
                     Button {
                         toggle(slot.id)
                     } label: {
-                            HStack {
+                            HStack(spacing: AppDesignSystem.Spacing.control) {
                                 Text("第\(slot.id)节")
                                 .foregroundStyle(.primary)
                             Spacer()
