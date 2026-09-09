@@ -4,7 +4,7 @@ import UIKit
 /// App 内部 UI 的唯一基础样式来源。
 ///
 /// 业务页面选择语义化的间距、圆角、颜色和卡片变体，公共值由本系统统一定义。
-enum AppDesignSystem {
+extension AppDesignSystem {
     enum Spacing {
         static let none: CGFloat = 0
         static let micro: CGFloat = 2
@@ -19,12 +19,12 @@ enum AppDesignSystem {
     }
 
     enum Radius {
-        static let small: CGFloat = 8
-        static let badge: CGFloat = 10
-        static let card: CGFloat = 12
-        static let sheet: CGFloat = 14
-        static let grouped: CGFloat = 16
-        static let prominent: CGFloat = 18
+        nonisolated static let small: CGFloat = 8
+        nonisolated static let badge: CGFloat = 10
+        nonisolated static let card: CGFloat = 12
+        nonisolated static let sheet: CGFloat = 14
+        nonisolated static let grouped: CGFloat = 16
+        nonisolated static let prominent: CGFloat = 18
     }
 
     enum Size {
@@ -74,7 +74,7 @@ enum AppDesignSystem {
 
         static let floatingAction = FloatingActionMetrics(
             button: 42,
-            icon: 16,
+            icon: Primitives.FontSize.prominent,
             badgeMinimum: 18,
             wideBadgePadding: 5,
             badgeOffset: 5,
@@ -108,8 +108,18 @@ enum AppDesignSystem {
     }
 
     enum Typography {
-        static let floatingIcon = Font.system(size: Size.floatingAction.icon, weight: .semibold)
-        static let floatingLabel = Font.system(size: 17, weight: .bold, design: .rounded)
+        /// 主体可读内容；跟随当前平台的系统正文基线和动态字体设置。
+        static let body = Font.body
+        /// 主体内容中的强调文字。
+        static let bodyEmphasis = Font.body.weight(.semibold)
+        /// 次级说明文字。
+        static let secondary = Font.subheadline
+        /// 次级说明中的强调文字。
+        static let secondaryEmphasis = Font.subheadline.weight(.semibold)
+        static let floatingIconSize: CGFloat = Size.floatingAction.icon
+        static let floatingLabelSize: CGFloat = Primitives.FontSize.prominent
+        static let floatingIcon = Font.system(size: floatingIconSize, weight: .semibold)
+        static let floatingLabel = Font.system(size: floatingLabelSize, weight: .bold, design: .rounded)
     }
 
     enum Schedule {
@@ -212,6 +222,7 @@ enum AppDesignSystem {
         static let mediaOverlay = Color.black.opacity(0.45)
     }
 
+    @MainActor
     static func roundedRectangle(
         _ radius: CGFloat = Radius.card,
         style: RoundedCornerStyle = .continuous

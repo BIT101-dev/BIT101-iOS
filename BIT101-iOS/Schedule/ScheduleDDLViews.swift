@@ -174,13 +174,13 @@ private struct DDLEventCard: View {
 
                     if !displayText.isEmpty {
                         Text(displayText)
-                            .font(.subheadline)
+                            .font(AppDesignSystem.Typography.body)
                             .foregroundStyle(.secondary)
                             .lineLimit(3)
                     }
 
                     Text(remainText)
-                        .font(.subheadline)
+                        .font(AppDesignSystem.Typography.body)
                         .foregroundStyle(tint)
 
                     Text(dueText)

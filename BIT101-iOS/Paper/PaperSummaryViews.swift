@@ -27,7 +27,7 @@ struct PaperSummaryCard: View {
 
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
                     Text(previewMetadata?.authorName ?? "加载中")
-                        .font(.subheadline.weight(.semibold))
+                        .font(AppDesignSystem.Typography.bodyEmphasis)
                         .foregroundStyle(.primary)
                         .lineLimit(1)
 
@@ -41,7 +41,7 @@ struct PaperSummaryCard: View {
 
             if !paper.intro.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text(paper.intro)
-                    .font(.subheadline)
+                    .font(AppDesignSystem.Typography.body)
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
             }

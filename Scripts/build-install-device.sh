@@ -6,6 +6,38 @@ PROJECT="$ROOT_DIR/BIT101-iOS.xcodeproj"
 DERIVED_DATA="$ROOT_DIR/build/DeviceInstall"
 source "$ROOT_DIR/Scripts/device-support.sh"
 
+if [[ "${BIT101_INSTALL_TARGET:-iPhone}" == "macCatalyst" ]]; then
+  mkdir -p "$DERIVED_DATA"
+  BUILD_OVERRIDES=()
+  if [[ -n "${BIT101_MARKETING_VERSION:-}" ]]; then
+    BUILD_OVERRIDES+=("MARKETING_VERSION=$BIT101_MARKETING_VERSION")
+  fi
+  if [[ -n "${BIT101_BUILD_NUMBER:-}" ]]; then
+    BUILD_OVERRIDES+=("CURRENT_PROJECT_VERSION=$BIT101_BUILD_NUMBER")
+  fi
+
+  echo "使用 Mac Catalyst Release 构建并安装..."
+  xcodebuild build \
+    -quiet \
+    -project "$PROJECT" \
+    -scheme BIT101-iOS \
+    -configuration Release \
+    -destination "platform=macOS,variant=Mac Catalyst" \
+    -derivedDataPath "$DERIVED_DATA" \
+    "${BUILD_OVERRIDES[@]}" \
+    -allowProvisioningUpdates
+
+  APP_PATH="$DERIVED_DATA/Build/Products/Release-maccatalyst/BIT101-iOS.app"
+  INSTALL_PATH="$HOME/Applications/BIT101-iOS.app"
+  mkdir -p "$HOME/Applications"
+  rm -rf "$INSTALL_PATH"
+  ditto "$APP_PATH" "$INSTALL_PATH"
+  echo "安装完成：$INSTALL_PATH"
+  open "$INSTALL_PATH"
+  echo "启动完成。"
+  exit 0
+fi
+
 if [[ $# -eq 0 ]]; then
   bit101_require_device "$PROJECT" || {
     echo "用法：直接运行 Scripts/build-install-device.sh，无需参数。" >&2

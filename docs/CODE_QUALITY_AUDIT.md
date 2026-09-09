@@ -12,6 +12,8 @@
 - 已将网络 smoke runner 从 `BIT101_iOSApp.swift` 移到独立文件。
 - 已加入逐份源码质量扫描，覆盖 App、Widget、Watch 和测试 target；硬性规则拦截死代码、
   公共网络/触感入口越界和脚本动态临时产物；布局值、强制解包与大型文件生成审查候选。
+- 字体审计检查 `Font.system(size:)`、`UIFont.systemFont(ofSize:)` 和 `Font.custom`；字号集中在
+  `AppDesignSystem` 及其跨 target 令牌层，业务页面使用系统语义字体。
 - 首屏/列表/滚动状态已统一使用公共状态组件；课程与成绩的比例列已统一使用公共数据行；
   日程与成绩的课程评价跳转共用课程匹配器和 CoursePageContent。
 - GitHub Actions 已强制执行统一静态审计，并在 Release `build-for-testing` 门禁中将 Swift/Clang 警告视为错误。
@@ -88,6 +90,7 @@
 - 课表缓存和发帖草稿共用 `AppFileDirectories`；保存失败记录诊断，空 `catch` 已移除。
 - 头像和标签统一由公共容器加载；课程、话廊和文章共用评论头像/标题/操作/气泡结构；话廊、文章和我的帖子流共用信息流行容器；话廊和文章共用排序搜索栏；所有 segmented 页面选择统一通过公共控件。
 - 主要加载失败态统一由 `AppFailureState` 承载；重试和错误反馈入口沿用同一组件结构。
+- 正文统一使用 `AppDesignSystem.Typography.body`；正文强调使用 `bodyEmphasis`；次级说明保留 `secondary` 层级；平台字体基线由 SwiftUI 语义字体适配。
 - 周次和全学期叠加课表共用等宽网格，叠加层按课程中心排序并使用不透明课程背景隔离节次分割线。
 - 页面差异通过 `AppCardVariant` 等语义变体表达，卡片结构保持共用。
 - `Scripts/check-ui-consistency.sh` 检查详情页分享/操作组件、评论区样式、信息流间距和课表叠加规则。

@@ -265,7 +265,7 @@ private struct CourseHistorySelectedLegend: View {
                 Text("最高分 \(courseHistoryScoreText(grade.maxScore))")
                 Text("学习人数 \(courseHistoryStudentText(grade.studentNum))")
             }
-            .font(.caption.weight(.medium))
+            .font(AppDesignSystem.Typography.bodyEmphasis)
             .foregroundStyle(.primary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -302,7 +302,7 @@ private struct CourseHistoryMetric: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Text(value)
-                .font(.subheadline.weight(.semibold))
+                .font(AppDesignSystem.Typography.bodyEmphasis)
                 .foregroundStyle(.primary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

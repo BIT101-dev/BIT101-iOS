@@ -45,7 +45,7 @@ struct GalleryPosterCommentsSection: View {
             default:
                 if comments.isEmpty {
                     Text(totalCommentCount == 0 ? "还没有评论" : "评论已根据社区规范隐藏")
-                        .font(.subheadline)
+                        .font(AppDesignSystem.Typography.body)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, AppDesignSystem.Spacing.section)
@@ -158,12 +158,12 @@ private struct GalleryCommentRow: View {
                     .foregroundStyle(.secondary) +
                     Text(galleryLinkifiedText(comment.text))
             )
-            .font(.subheadline)
+            .font(AppDesignSystem.Typography.body)
             .lineSpacing(3)
             .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             Text(galleryLinkifiedText(comment.text))
-                .font(.subheadline)
+                .font(AppDesignSystem.Typography.body)
                 .lineSpacing(3)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

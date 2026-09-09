@@ -5,6 +5,22 @@
 
 import Foundation
 
+private struct LoginServerResponseError: LocalizedError {
+    let statusCode: Int
+    let message: String?
+
+    var indicatesCredentialFailure: Bool {
+        BIT101APIClient.isCredentialFailureMessage(message)
+    }
+
+    var errorDescription: String? {
+        guard let message, !message.isEmpty else {
+            return "请求失败，HTTP 状态码 \(statusCode)。"
+        }
+        return "服务器响应异常（HTTP \(statusCode)）：\(message)"
+    }
+}
+
 /// WebVPN 校验初始化请求体。
 struct WebVPNVerifyInitRequest: Encodable {
     let sid: String
@@ -225,18 +241,31 @@ struct BIT101APIClient {
 
     /// 提交 WebVPN 校验。
     func webVPNVerify(studentID: String, password: String, execution: String, cookie: String, salt: String) async throws -> WebVPNVerifyResponse {
-        try await sendJSONRequest(
-            url: bit101BaseURL.appending(path: "user/webvpn_verify"),
-            method: "POST",
-            body: WebVPNVerifyRequest(
-                sid: studentID,
-                password: password,
-                execution: execution,
-                cookie: cookie,
-                salt: salt,
-                captcha: ""
+        do {
+            return try await sendJSONRequest(
+                url: bit101BaseURL.appending(path: "user/webvpn_verify"),
+                method: "POST",
+                body: WebVPNVerifyRequest(
+                    sid: studentID,
+                    password: password,
+                    execution: execution,
+                    cookie: cookie,
+                    salt: salt,
+                    captcha: ""
+                )
             )
-        )
+        } catch let error as LoginServerResponseError where error.indicatesCredentialFailure {
+            throw LoginServiceError.invalidCredentials
+        }
+    }
+
+    static func isCredentialFailureMessage(_ message: String?) -> Bool {
+        guard let message else { return false }
+        let normalized = message.lowercased()
+        return normalized.contains("统一身份认证失败")
+            || normalized.contains("用户名或密码")
+            || normalized.contains("账号或密码")
+            || normalized.contains("password") && normalized.contains("invalid")
     }
 
     /// 使用“登录模式”完成 BIT101 自身注册/登录。
@@ -289,7 +318,10 @@ struct BIT101APIClient {
 
         let (data, response) = try await sendRequest(request, followRedirects: true)
         guard (200 ..< 300).contains(response.statusCode) else {
-            throw errorForStatusCode(response.statusCode)
+            throw LoginServerResponseError(
+                statusCode: response.statusCode,
+                message: responseMessage(from: data)
+            )
         }
 
         do {
@@ -297,6 +329,24 @@ struct BIT101APIClient {
         } catch {
             throw LoginServiceError.invalidServerResponse
         }
+    }
+
+    private func responseMessage(from data: Data) -> String? {
+        guard
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return nil
+        }
+
+        for key in ["msg", "message", "error"] {
+            if let value = object[key] as? String {
+                let message = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !message.isEmpty {
+                    return String(message.prefix(200))
+                }
+            }
+        }
+        return nil
     }
 
     /// 根据是否允许跟随重定向，选择合适的 `URLSession` 并统一做 HTTPS 升级。

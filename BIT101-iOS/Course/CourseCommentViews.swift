@@ -35,7 +35,7 @@ struct CourseCommentsSection: View {
             default:
                 if comments.isEmpty {
                     Text(totalCommentCount == 0 ? "还没有评论" : "评论已根据社区规范隐藏")
-                        .font(.subheadline)
+                        .font(AppDesignSystem.Typography.body)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, AppDesignSystem.Spacing.section)
@@ -148,12 +148,12 @@ private struct CourseCommentRow: View {
                     Text(comment.text)
                     .foregroundStyle(.primary)
             )
-            .font(.subheadline)
+            .font(AppDesignSystem.Typography.body)
             .lineSpacing(3)
             .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             Text(comment.text)
-                .font(.subheadline)
+                .font(AppDesignSystem.Typography.body)
                 .foregroundStyle(.primary)
                 .lineSpacing(3)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -264,7 +264,7 @@ struct CourseCommentComposerSheet: View {
                                 Spacer()
 
                                 Text(rating == 0 ? "不评分" : CourseRatingText.text(from: rating, empty: "不评分"))
-                                    .font(.subheadline.weight(.medium))
+                                    .font(AppDesignSystem.Typography.bodyEmphasis)
                                     .foregroundStyle(rating == 0 ? Color.secondary : AppDesignSystem.Palette.highlight)
                             }
 

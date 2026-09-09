@@ -14,6 +14,14 @@
 - 编译、装机和启动统一通过 `Scripts/build-install-device.sh` 使用已连接真机完成。
 - 维护者、CI 脚本和自动化代理遵循同一设备要求。
 
+Mac Catalyst Release 装机使用同一脚本：
+
+```sh
+BIT101_INSTALL_TARGET=macCatalyst Scripts/build-install-device.sh
+```
+
+应用安装到 `~/Applications/BIT101-iOS.app` 并自动启动。
+
 ## 本地工具链
 
 工程当前使用 Xcode 27 Beta。Xcode 27 Beta 未设为系统默认开发者目录时，所有命令显式指定开发者目录：

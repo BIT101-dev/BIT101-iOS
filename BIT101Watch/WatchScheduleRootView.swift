@@ -35,15 +35,15 @@ struct WatchScheduleRootView: View {
             if model.contentState == .ready, let next = model.nextOccurrence {
                 LazyVStack(
                     alignment: .leading,
-                    spacing: ScheduleExternalDesignSystem.Spacing.watchPrimary
+                    spacing: AppDesignSystem.External.Spacing.watchPrimary
                 ) {
                     VStack(
                         alignment: .leading,
-                        spacing: ScheduleExternalDesignSystem.Spacing.watchHeader
+                        spacing: AppDesignSystem.External.Spacing.watchHeader
                     ) {
                         HStack(
                             alignment: .firstTextBaseline,
-                            spacing: ScheduleExternalDesignSystem.Spacing.watchHeader
+                            spacing: AppDesignSystem.External.Spacing.watchHeader
                         ) {
                             Text(next.isCurrent(at: model.referenceDate) ? "正在上课" : "下一节")
                                 .font(.caption)
@@ -73,7 +73,7 @@ struct WatchScheduleRootView: View {
 
                     if model.upcomingOccurrences.count > 1 {
                         Divider()
-                            .padding(.vertical, ScheduleExternalDesignSystem.Spacing.watchDivider)
+                            .padding(.vertical, AppDesignSystem.External.Spacing.watchDivider)
 
                         Text("后续课节")
                             .font(.caption.weight(.semibold))
@@ -82,17 +82,17 @@ struct WatchScheduleRootView: View {
                         ForEach(model.upcomingOccurrences.dropFirst()) { occurrence in
                             VStack(
                                 alignment: .leading,
-                                spacing: ScheduleExternalDesignSystem.Spacing.watchFollowUp
+                                spacing: AppDesignSystem.External.Spacing.watchFollowUp
                             ) {
                                 HStack(
                                     alignment: .firstTextBaseline,
-                                    spacing: ScheduleExternalDesignSystem.Spacing.watchHeader
+                                    spacing: AppDesignSystem.External.Spacing.watchHeader
                                 ) {
                                     Text(occurrence.relativeDayText(referenceDate: model.referenceDate))
                                         .font(.caption2.weight(.medium))
                                         .foregroundStyle(.secondary)
 
-                                    Spacer(minLength: ScheduleExternalDesignSystem.Spacing.watchMinimumSpacer)
+                                    Spacer(minLength: AppDesignSystem.External.Spacing.watchMinimumSpacer)
 
                                     Text(occurrence.rangeText)
                                         .font(.caption2.weight(.medium))
@@ -109,7 +109,7 @@ struct WatchScheduleRootView: View {
                                         .lineLimit(1)
                                 }
                             }
-                            .padding(.vertical, ScheduleExternalDesignSystem.Spacing.watchFollowUp)
+                            .padding(.vertical, AppDesignSystem.External.Spacing.watchFollowUp)
                         }
                     }
                 }
@@ -143,7 +143,7 @@ struct WatchScheduleRootView: View {
     }
 
     private var actionsPage: some View {
-        VStack(spacing: ScheduleExternalDesignSystem.Spacing.watchActions) {
+        VStack(spacing: AppDesignSystem.External.Spacing.watchActions) {
             Text("操作")
                 .font(.headline)
 
@@ -176,7 +176,7 @@ private struct WatchScheduleEmptyStateView: View {
     var action: (() -> Void)? = nil
 
     var body: some View {
-        VStack(spacing: ScheduleExternalDesignSystem.Spacing.watchEmpty) {
+        VStack(spacing: AppDesignSystem.External.Spacing.watchEmpty) {
             Text(message)
                 .font(.headline)
                 .multilineTextAlignment(.center)
@@ -195,7 +195,7 @@ private struct WatchScheduleEmptyStateView: View {
         }
         .frame(
             maxWidth: .infinity,
-            minHeight: ScheduleExternalDesignSystem.Size.watchEmptyMinimumHeight
+            minHeight: AppDesignSystem.External.Size.watchEmptyMinimumHeight
         )
     }
 }

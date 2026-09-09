@@ -277,7 +277,7 @@ private struct PaperHeaderSummary: View {
 
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
                 Text(authorName)
-                    .font(.subheadline.weight(.semibold))
+                    .font(AppDesignSystem.Typography.bodyEmphasis)
                 Text(AppDateText.timestampText(from: paper?.updateTime ?? fallback.updateTime))
                     .font(.caption)
                     .foregroundStyle(.secondary)

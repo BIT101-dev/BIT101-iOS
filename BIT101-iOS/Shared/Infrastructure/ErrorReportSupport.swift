@@ -8,7 +8,8 @@ private enum DiagnosticAlertRules {
     static let diagnosticTitleMarkers = ["失败", "错误", "异常", "无法", "超时", "未找到", "验证已失效", "加载"]
 
     static func allowsDiagnostics(for title: String) -> Bool {
-        diagnosticTitleMarkers.contains { title.contains($0) }
+        guard title != "学号或密码错误" else { return false }
+        return diagnosticTitleMarkers.contains { title.contains($0) }
     }
 }
 
@@ -629,7 +630,7 @@ private struct ErrorReportSheet: View {
                             .font(.headline)
                             .foregroundStyle(.primary)
                         Text(viewModel.alert.message)
-                            .font(.body)
+                            .font(AppDesignSystem.Typography.body)
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
                         Text("包含最近 \(viewModel.diagnostics.count) 条网络记录")

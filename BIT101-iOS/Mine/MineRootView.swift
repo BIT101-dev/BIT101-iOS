@@ -350,7 +350,7 @@ private struct MineProfileCard: View {
             Spacer().frame(height: AppDesignSystem.Spacing.tight)
 
             Text(info.user.motto.isEmpty ? "空简介" : info.user.motto)
-                .font(.body)
+                .font(AppDesignSystem.Typography.body)
 
             Spacer().frame(height: AppDesignSystem.Spacing.control)
 

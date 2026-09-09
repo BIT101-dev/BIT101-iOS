@@ -96,7 +96,7 @@ final class AppSettingsStore: ObservableObject {
     /// 各账号设置快照在 `UserDefaults` 中使用的 key 前缀。
     nonisolated static let storageKeyPrefix = "app.settings.snapshot"
     /// 当前安装版本的更新内容版本号；每个版本展示一次。
-    nonisolated static let currentStartupNoticeVersion = "1.8.0"
+    nonisolated static let currentStartupNoticeVersion = "1.8.1"
     /// 更新内容公告已读状态保存在全局 key，账号切换后继续复用该状态。
     nonisolated static let startupNoticeSeenKey = "app.startup.notice.seen.version"
     /// 历史成绩疑似补考学期筛选使用全局 key，账号切换后继续复用该状态。

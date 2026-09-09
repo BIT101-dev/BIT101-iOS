@@ -92,7 +92,7 @@ struct GalleryPosterDetailView: View {
                 }
 
                 Text(galleryLinkifiedText(viewModel.poster.text))
-                    .font(.body)
+                    .font(AppDesignSystem.Typography.body)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 if !viewModel.poster.images.isEmpty {

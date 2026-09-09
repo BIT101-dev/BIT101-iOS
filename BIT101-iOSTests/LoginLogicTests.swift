@@ -53,4 +53,11 @@ struct LoginLogicTests {
             try LoginCrypto.encryptPassword("password", saltBase64: "not base64")
         }
     }
+
+    @Test("Credential failure responses use the dedicated login error")
+    func recognizesCredentialFailureResponse() {
+        #expect(BIT101APIClient.isCredentialFailureMessage("统一身份认证失败Orz"))
+        #expect(BIT101APIClient.isCredentialFailureMessage("用户名或密码错误"))
+        #expect(!BIT101APIClient.isCredentialFailureMessage("服务暂时不可用"))
+    }
 }

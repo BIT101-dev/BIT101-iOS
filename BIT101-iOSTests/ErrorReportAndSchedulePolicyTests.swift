@@ -81,6 +81,15 @@ final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertFalse(notice.allowsDiagnostics)
     }
 
+    func testCredentialFailureDoesNotOfferErrorReporting() {
+        let alert = AppAlert(
+            title: "学号或密码错误",
+            message: LoginServiceError.invalidCredentials.localizedDescription
+        )
+
+        XCTAssertFalse(alert.allowsDiagnostics)
+    }
+
     func testCalendarPermissionNoticeOffersSystemSettings() {
         XCTAssertTrue(ScheduleSystemCalendarError.permissionDenied.shouldOpenSettings)
         XCTAssertTrue(ScheduleSystemCalendarError.noWritableCalendarSource.shouldOpenSettings)

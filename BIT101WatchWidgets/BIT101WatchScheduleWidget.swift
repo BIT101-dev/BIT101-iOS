@@ -215,21 +215,21 @@ private struct WatchScheduleCircularView: View {
 
     var body: some View {
         if let summary = entry.displaySummary {
-            VStack(spacing: ScheduleExternalDesignSystem.Spacing.widgetCircular) {
+            VStack(spacing: AppDesignSystem.External.Spacing.widgetCircular) {
                 Text(summary.location.maxBuilding)
-                    .font(.system(size: ScheduleExternalDesignSystem.Typography.watchCircularBuilding, weight: .semibold, design: .rounded))
+                    .font(.system(size: AppDesignSystem.External.Typography.watchCircularBuilding, weight: .semibold, design: .rounded))
                     .lineLimit(1)
-                    .minimumScaleFactor(ScheduleExternalDesignSystem.Scale.watchCircularBuilding)
+                    .minimumScaleFactor(AppDesignSystem.External.Scale.watchCircularBuilding)
 
                 Text(summary.location.room ?? " ")
-                    .font(.system(size: ScheduleExternalDesignSystem.Typography.watchCircularRoom, weight: .bold, design: .rounded))
+                    .font(.system(size: AppDesignSystem.External.Typography.watchCircularRoom, weight: .bold, design: .rounded))
                     .lineLimit(1)
-                    .minimumScaleFactor(ScheduleExternalDesignSystem.Scale.watchCircularRoom)
+                    .minimumScaleFactor(AppDesignSystem.External.Scale.watchCircularRoom)
             }
             .multilineTextAlignment(.center)
         } else {
             Text(entry.status.circularText)
-                .font(.system(size: ScheduleExternalDesignSystem.Typography.watchCircularBuilding, weight: .semibold, design: .rounded))
+                .font(.system(size: AppDesignSystem.External.Typography.watchCircularBuilding, weight: .semibold, design: .rounded))
                 .multilineTextAlignment(.center)
         }
     }
@@ -241,18 +241,18 @@ private struct WatchScheduleCornerView: View {
     var body: some View {
         if let summary = entry.displaySummary {
             Text(summary.location.maxText)
-                .font(.system(size: ScheduleExternalDesignSystem.Typography.watchCorner, weight: .semibold, design: .rounded))
+                .font(.system(size: AppDesignSystem.External.Typography.watchCorner, weight: .semibold, design: .rounded))
                 .lineLimit(1)
-                .minimumScaleFactor(ScheduleExternalDesignSystem.Scale.watchCorner)
+                .minimumScaleFactor(AppDesignSystem.External.Scale.watchCorner)
                 .widgetCurvesContent()
                 .widgetLabel {
                     Text("\(summary.dateText) \(summary.rangeText)")
                 }
         } else {
             Text(entry.status.cornerText)
-                .font(.system(size: ScheduleExternalDesignSystem.Typography.watchCornerStatus, weight: .semibold, design: .rounded))
+                .font(.system(size: AppDesignSystem.External.Typography.watchCornerStatus, weight: .semibold, design: .rounded))
                 .lineLimit(1)
-                .minimumScaleFactor(ScheduleExternalDesignSystem.Scale.watchCornerStatus)
+                .minimumScaleFactor(AppDesignSystem.External.Scale.watchCornerStatus)
         }
     }
 }
@@ -274,8 +274,8 @@ private struct WatchScheduleRectangularView: View {
 
     var body: some View {
         if let summary = entry.displaySummary {
-            VStack(alignment: .leading, spacing: ScheduleExternalDesignSystem.Spacing.watchPrimary) {
-                HStack(alignment: .firstTextBaseline, spacing: ScheduleExternalDesignSystem.Spacing.watchHeader) {
+            VStack(alignment: .leading, spacing: AppDesignSystem.External.Spacing.watchPrimary) {
+                HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.External.Spacing.watchHeader) {
                     Text("下一节")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -290,24 +290,24 @@ private struct WatchScheduleRectangularView: View {
                 Text(summary.courseTitle.isEmpty ? summary.location.lightText : summary.courseTitle)
                     .font(.headline.weight(.semibold))
                     .lineLimit(1)
-                    .minimumScaleFactor(ScheduleExternalDesignSystem.Scale.watchRectangularTitle)
+                    .minimumScaleFactor(AppDesignSystem.External.Scale.watchRectangularTitle)
 
-                HStack(alignment: .firstTextBaseline, spacing: ScheduleExternalDesignSystem.Spacing.watchHeader) {
+                HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.External.Spacing.watchHeader) {
                     Text(summary.rangeText)
                         .font(.headline.weight(.semibold))
                         .lineLimit(1)
-                        .minimumScaleFactor(ScheduleExternalDesignSystem.Scale.watchRectangularRange)
+                        .minimumScaleFactor(AppDesignSystem.External.Scale.watchRectangularRange)
 
-                    Spacer(minLength: ScheduleExternalDesignSystem.Spacing.watchMinimumSpacer)
+                    Spacer(minLength: AppDesignSystem.External.Spacing.watchMinimumSpacer)
 
                     Text(summary.location.lightText)
                         .font(.headline.weight(.semibold))
                         .lineLimit(1)
-                        .minimumScaleFactor(ScheduleExternalDesignSystem.Scale.watchRectangularLocation)
+                        .minimumScaleFactor(AppDesignSystem.External.Scale.watchRectangularLocation)
                 }
             }
         } else {
-            VStack(alignment: .leading, spacing: ScheduleExternalDesignSystem.Spacing.watchPrimary) {
+            VStack(alignment: .leading, spacing: AppDesignSystem.External.Spacing.watchPrimary) {
                 Text(entry.message ?? watchScheduleWidgetRestMessage)
                     .font(.headline)
                     .fixedSize(horizontal: false, vertical: true)

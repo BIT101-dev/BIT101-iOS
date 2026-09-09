@@ -124,8 +124,9 @@ final class LoginViewModel: ObservableObject {
             if isLoginCancellation(error) {
                 return
             }
+            let loginError = error as? LoginServiceError
             alert = AppAlert(
-                title: "登录失败",
+                title: loginError?.isCredentialFailure == true ? "学号或密码错误" : "登录失败",
                 message: error.localizedDescription
             )
             screenState = .signedOut

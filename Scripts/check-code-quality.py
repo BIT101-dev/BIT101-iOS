@@ -23,6 +23,10 @@ SOURCE_ROOTS = (
 SCRIPT_ROOT = ROOT / "Scripts"
 REPORT_PATH = ROOT / ".build/code-quality-report.txt"
 DESIGN_SYSTEM = ROOT / "BIT101-iOS/Shared/DesignSystem/AppDesignSystem.swift"
+FONT_DESIGN_SYSTEMS = {
+    DESIGN_SYSTEM,
+    ROOT / "BIT101-iOS/Shared/ScheduleSharedSnapshot.swift",
+}
 
 def relative(path: Path) -> str:
     return path.relative_to(ROOT).as_posix()
@@ -125,6 +129,13 @@ def source_findings() -> tuple[list[str], list[str]]:
     direct_view_request = re.compile(r"\bURLRequest\s*\(")
     direct_cancellation_check = re.compile(r"\berror\s+is\s+CancellationError\b")
     empty_catch = re.compile(r"\bcatch\s*\{\s*\}")
+    swift_explicit_font_size = re.compile(
+        r"(?:\bFont\.system|\.system)\s*\(\s*size\s*:\s*(?P<value>[^,\)\n]+)"
+    )
+    ui_explicit_font_size = re.compile(
+        r"\bUIFont\.systemFont\s*\(\s*ofSize\s*:\s*(?P<value>[^,\)\n]+)"
+    )
+    custom_font = re.compile(r"\bFont\.custom\s*\(")
 
     large_files: list[str] = []
     layout_counts: list[tuple[int, str]] = []
@@ -159,6 +170,29 @@ def source_findings() -> tuple[list[str], list[str]]:
         add_matches(errors, path, masked_source, empty_catch, "禁止静默吞掉异常；请记录诊断或显式处理错误")
         if path.name.endswith("View.swift") or path.name.endswith("Screen.swift"):
             add_matches(errors, path, masked_source, direct_view_request, "View 不应直接构造 URLRequest；请求移到 Service")
+
+        if path not in FONT_DESIGN_SYSTEMS:
+            for match in swift_explicit_font_size.finditer(masked_source):
+                value = match.group("value").strip()
+                if "AppDesignSystem." not in value and "ScheduleExternalDesignSystem." not in value:
+                    errors.append(
+                        f"{name}:{line_number(masked_source, match.start())}: "
+                        f"字体字号必须使用设计系统令牌或系统语义字体：{value}"
+                    )
+            for match in ui_explicit_font_size.finditer(masked_source):
+                value = match.group("value").strip()
+                if "AppDesignSystem." not in value and "ScheduleExternalDesignSystem." not in value:
+                    errors.append(
+                        f"{name}:{line_number(masked_source, match.start())}: "
+                        f"UIFont 字号必须使用设计系统令牌或系统语义字体：{value}"
+                    )
+            add_matches(
+                errors,
+                path,
+                masked_source,
+                custom_font,
+                "字体必须使用系统语义字体或设计系统令牌；Font.custom 进入人工审查",
+            )
 
         if path != DESIGN_SYSTEM:
             count = len(numeric_layout.findall(masked_source))

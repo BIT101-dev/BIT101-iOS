@@ -239,7 +239,7 @@ private struct GalleryMessageRow: View {
                     }
 
                     Text(message.fromUser.displayName)
-                        .font(.subheadline.weight(.semibold))
+                        .font(AppDesignSystem.Typography.bodyEmphasis)
                         .foregroundStyle(.primary)
                         .lineLimit(1)
 
@@ -251,12 +251,12 @@ private struct GalleryMessageRow: View {
                 }
 
                 Text(type.actionText(for: message))
-                    .font(.subheadline)
+                    .font(AppDesignSystem.Typography.body)
                     .foregroundStyle(.primary)
 
                 if !message.text.isEmpty {
                     Text(message.text)
-                        .font(.caption)
+                        .font(AppDesignSystem.Typography.body)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                         .frame(maxWidth: .infinity, alignment: .leading)

@@ -19,11 +19,20 @@ enum ScheduleSharedContainer {
     static let snapshotFileName = "schedule-widget-snapshot.json"
 }
 
-/// 外部课表展示 target 共用的 UI 设计令牌。
+/// AppDesignSystem 的跨 target 令牌层。
 ///
 /// 该层保持 Foundation 依赖，让 iOS Widget、watch App 和 watch Widget 共享数值。
-nonisolated enum ScheduleExternalDesignSystem {
-    enum Spacing {
+nonisolated enum AppDesignSystem {
+    enum Primitives {
+        enum FontSize {
+            static let compact: CGFloat = 10
+            static let emphasis: CGFloat = 14
+            static let prominent: CGFloat = 16
+        }
+    }
+
+    enum External {
+        enum Spacing {
         static let liveActivityCard: CGFloat = 6
         static let liveActivityHeader: CGFloat = 8
         static let liveActivityRegion: CGFloat = 6
@@ -46,25 +55,25 @@ nonisolated enum ScheduleExternalDesignSystem {
         static let watchActions: CGFloat = 10
         static let watchEmpty: CGFloat = 8
         static let watchMinimumSpacer: CGFloat = 4
-    }
+        }
 
-    enum Size {
+        enum Size {
         static let liveActivityContent: CGFloat = 12
         static let liveActivityExpandedTimerWidth: CGFloat = 42
         static let liveActivityCompactTimerWidth: CGFloat = 40
         static let watchEmptyMinimumHeight: CGFloat = 120
-    }
+        }
 
-    enum Typography {
-        static let widgetCircularCount: CGFloat = 10
-        static let widgetCircularEmpty: CGFloat = 9
-        static let watchCircularBuilding: CGFloat = 14
-        static let watchCircularRoom: CGFloat = 16
-        static let watchCorner: CGFloat = 14
-        static let watchCornerStatus: CGFloat = 13
-    }
+        enum Typography {
+        static let widgetCircularCount = AppDesignSystem.Primitives.FontSize.compact
+        static let widgetCircularEmpty = AppDesignSystem.Primitives.FontSize.compact
+        static let watchCircularBuilding = AppDesignSystem.Primitives.FontSize.emphasis
+        static let watchCircularRoom = AppDesignSystem.Primitives.FontSize.prominent
+        static let watchCorner = AppDesignSystem.Primitives.FontSize.emphasis
+        static let watchCornerStatus = AppDesignSystem.Primitives.FontSize.emphasis
+        }
 
-    enum Scale {
+        enum Scale {
         static let widgetSmallTitle: CGFloat = 0.75
         static let widgetMediumTitle: CGFloat = 0.82
         static let widgetLargeTitle: CGFloat = 0.82
@@ -76,6 +85,7 @@ nonisolated enum ScheduleExternalDesignSystem {
         static let watchRectangularTitle: CGFloat = 0.7
         static let watchRectangularRange: CGFloat = 0.7
         static let watchRectangularLocation: CGFloat = 0.7
+        }
     }
 }
 

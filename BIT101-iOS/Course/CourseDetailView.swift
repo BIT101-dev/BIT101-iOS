@@ -157,7 +157,7 @@ struct CourseDetailView: View {
                 LabeledContent("教师", value: viewModel.resolvedTeachersName.isEmpty ? "-" : viewModel.resolvedTeachersName)
                 LabeledContent("教师号", value: viewModel.resolvedTeachersNumber.isEmpty ? "-" : viewModel.resolvedTeachersNumber)
             }
-            .font(.subheadline)
+            .font(AppDesignSystem.Typography.body)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -227,7 +227,7 @@ private struct CourseResourceCard: View {
 
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
                     Text(title)
-                        .font(.subheadline.weight(.semibold))
+                        .font(AppDesignSystem.Typography.bodyEmphasis)
                         .foregroundStyle(.primary)
                     Text(subtitle)
                         .font(.caption)

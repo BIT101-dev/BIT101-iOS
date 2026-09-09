@@ -519,7 +519,7 @@ private struct PendingScoreDetailView: View {
                         Text("均分 -")
                         Text(course.credit > 0 ? "学分 \(course.credit)" : "学分 -")
                     }
-                    .font(.subheadline)
+                    .font(AppDesignSystem.Typography.body)
                     .foregroundStyle(.secondary)
 
                     VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
@@ -527,7 +527,7 @@ private struct PendingScoreDetailView: View {
                         ScoreDetailMetaRow(title: "学期", value: course.term)
                         ScoreDetailMetaRow(title: "课程性质", value: course.type)
                     }
-                    .font(.subheadline)
+                    .font(AppDesignSystem.Typography.body)
                 }
 
                 Divider()

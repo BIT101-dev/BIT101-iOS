@@ -196,7 +196,7 @@ struct GalleryPosterCard: View {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
                     HStack(spacing: AppDesignSystem.Spacing.tight) {
                         Text(poster.user.nickname)
-                            .font(.subheadline.weight(.semibold))
+                            .font(AppDesignSystem.Typography.bodyEmphasis)
                             .foregroundStyle(.primary)
                             .lineLimit(1)
 
@@ -231,7 +231,7 @@ struct GalleryPosterCard: View {
             }
 
             Text(galleryLinkifiedText(poster.text))
-                .font(.subheadline)
+                .font(AppDesignSystem.Typography.body)
                 .lineLimit(poster.images.count <= 2 ? 4 : 3)
                 .frame(maxWidth: .infinity, alignment: .leading)
 

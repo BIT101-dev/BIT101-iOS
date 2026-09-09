@@ -175,10 +175,16 @@ struct SchoolLoginContext {
 enum LoginServiceError: LocalizedError {
     case invalidSchoolLoginPage
     case schoolLoginFailed
+    case invalidCredentials
     case unableToRestoreSchoolSession
     case invalidServerResponse
     case keychainWriteFailed(OSStatus)
     case keychainReadFailed(OSStatus)
+
+    var isCredentialFailure: Bool {
+        if case .invalidCredentials = self { return true }
+        return false
+    }
 
     var errorDescription: String? {
         switch self {
@@ -186,6 +192,8 @@ enum LoginServiceError: LocalizedError {
             return "学校登录页结构发生变化，暂时无法完成登录。"
         case .schoolLoginFailed:
             return "学校统一身份认证登录失败，请检查学号和密码。"
+        case .invalidCredentials:
+            return "学号或密码错误，请检查后重试。"
         case .unableToRestoreSchoolSession:
             return "学校登录状态已过期，且缺少可用于静默恢复的本地凭据。"
         case .invalidServerResponse:

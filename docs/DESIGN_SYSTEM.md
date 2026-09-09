@@ -6,7 +6,9 @@
 
 ## 唯一来源
 
-`BIT101-iOS/Shared/DesignSystem/AppDesignSystem.swift` 是主 App 的基础样式入口：
+`AppDesignSystem` 是全项目的视觉令牌入口；SwiftUI 组件位于
+`BIT101-iOS/Shared/DesignSystem/AppDesignSystem.swift`，跨 target 令牌位于
+`BIT101-iOS/Shared/ScheduleSharedSnapshot.swift`：
 
 - `AppDesignSystem.Spacing`：常用语义间距。
 - `AppDesignSystem.Comment.layout`：评论头像、回复缩进与分割线布局；信息流和详情页通过公共组件复用 `Spacing` 与 `Size`，令牌由设计系统集中维护。
@@ -37,7 +39,9 @@
 - `AppLoadingState`、`AppInlineLoadingState`、`AppScrollStateContainer`：统一首屏、列表内和滚动页状态的布局；页面通过这些组件承载状态，进度条保持单层包裹，页面上下留白遵循与机型无关的统一规则。
 - `AppFixedColumnItem`、`AppFixedColumnRow`：课程与成绩列表共用的比例列数据行；列内容由业务传入，几何和截断规则集中在公共组件内。
 - `AppRefreshStatusRow`：统一成绩、课表、DDL 等数据页面的最近更新时间、同步状态和手动刷新入口；所有更新时间直接放进页面主 List 的 Section。
-- `ScheduleExternalDesignSystem`：统一桌面 Widget、Live Activity、Apple Watch App 和 Watch Widget 的间距、尺寸、字体数值与缩放比例；该边界保持 Foundation 依赖，跨 target 共享课表展示参数。
+- `AppDesignSystem.External`：统一桌面 Widget、Live Activity、Apple Watch App 和 Watch Widget 的间距、尺寸、字体数值与缩放比例；该层保持 Foundation 依赖，跨 target 共享课表展示参数。
+- `AppDesignSystem.Typography`：统一正文、正文强调、次级说明、浮动按钮以及跨 target 固定字号令牌。
+- `AppDesignSystem.Primitives.FontSize`：统一跨组件固定字号基础值，当前为 `compact = 10`、`emphasis = 14`、`prominent = 16`。
 
 `AppHapticFeedback.swift` 提供 `appSelectionFeedback(trigger:)` 和 `appImpactFeedback(trigger:)`，分别用于离散切换和操作按钮；实际是否输出由系统决定。右下角公共按钮、地图校区按钮、课表菜单按钮和空白处长按菜单均接入触感。所有 `Picker`、`Toggle`、自绘勾选行和全选/全不选入口也接入选择触感。`Scripts/check-haptic-consistency.sh` 扫描这些控件、提醒遗漏，并将公共接口之外的触感实现判为失败。
 
@@ -92,5 +96,7 @@ Scripts/check-ui-consistency.sh
 - 主 App 的诊断输出由网络 smoke 实现负责；`print`、`debugPrint` 和 `NSLog` 保持在该实现的调用边界内。
 - 业务页面将网络请求交给 `HTTPClient` 或场景化 Service；`URLSession.shared` 保持在业务页面调用边界之外，会话与错误处理沿用统一入口。
 - 公共卡片容器保留实际调用。
+- 字体字号使用 `AppDesignSystem.Typography` 或系统语义字体；`Font.system(size:)`、
+  `UIFont.systemFont(ofSize:)` 和 `Font.custom` 进入字体审计。
 
 编译和真机检查作为独立验证保留。该检查采用手动触发，发布前或进行大范围 UI 调整时显式执行。
