@@ -256,6 +256,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         let envelope = ExperimentalPreferenceSyncEnvelope(updatedAt: updatedAt, payload: payload)
         guard let data = try? JSONEncoder().encode(envelope) else { return }
         cloudStore.set(data, forKey: cloudKey(for: domain))
+        cloudStore.synchronize()
     }
 
     private func remoteEnvelope<Payload: Codable>(

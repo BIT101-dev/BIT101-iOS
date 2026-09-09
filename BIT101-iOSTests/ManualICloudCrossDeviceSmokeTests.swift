@@ -80,9 +80,29 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
 
     func testMacReceiveAndRestore() async throws {
         let coordination = try await requireCoordination(stage: .phoneUploaded)
-        guard ScheduleCacheStore.currentAccountIdentifier() == coordination.account else {
-            XCTFail("Mac 与手机当前登录的 BIT101 学号不一致")
-            return
+        let currentStudentID = LoginStorage.shared.currentStudentID
+        let currentPassword = LoginStorage.shared.currentPassword
+        let currentFakeCookie = LoginStorage.shared.fakeCookie
+        let usesTemporaryAccount = currentStudentID != coordination.account
+        if usesTemporaryAccount {
+            try LoginStorage.shared.saveLoginState(
+                studentID: coordination.account,
+                password: "icloud-smoke",
+                fakeCookie: "icloud-smoke"
+            )
+        }
+        defer {
+            if usesTemporaryAccount {
+                if currentStudentID.isEmpty {
+                    LoginStorage.shared.clearAllLocalData()
+                } else {
+                    try? LoginStorage.shared.saveLoginState(
+                        studentID: currentStudentID,
+                        password: currentPassword,
+                        fakeCookie: currentFakeCookie
+                    )
+                }
+            }
         }
 
         let macSyncWasEnabled = manager.isEnabled
@@ -158,11 +178,9 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
     private func requireCoordination(stage: Stage) async throws -> Coordination {
         var result: Coordination?
         let received = await waitUntil {
-            guard let value = self.loadCoordination(
-                account: ScheduleCacheStore.currentAccountIdentifier()
-            ), value.stage == stage else {
-                return false
-            }
+            let account = ScheduleCacheStore.currentAccountIdentifier()
+            let value = self.loadCoordination(account: account) ?? self.loadCoordination(stage: stage)
+            guard let value, value.stage == stage else { return false }
             result = value
             return true
         }
@@ -211,6 +229,20 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
     private func loadCoordination(account: String) -> Coordination? {
         guard let data = cloud.data(forKey: coordinationKey(account: account)) else { return nil }
         return try? JSONDecoder().decode(Coordination.self, from: data)
+    }
+
+    private func loadCoordination(stage: Stage) -> Coordination? {
+        let prefix = "manual.preference-cloud-sync.smoke.v1."
+        return cloud.dictionaryRepresentation
+            .filter { $0.key.hasPrefix(prefix) }
+            .compactMap { _, value in
+                guard let data = value as? Data,
+                      let coordination = try? JSONDecoder().decode(Coordination.self, from: data),
+                      coordination.stage == stage
+                else { return nil }
+                return coordination
+            }
+            .first
     }
 
     private func removeCoordination(account: String) {

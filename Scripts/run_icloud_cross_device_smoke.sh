@@ -21,6 +21,7 @@ else
 fi
 
 common_args=(
+  -quiet
   -project "$PROJECT"
   -scheme BIT101-iOS
   -configuration Debug
@@ -30,10 +31,15 @@ common_args=(
 
 run_phone_test() {
   local method="$1"
-  xcodebuild test "${common_args[@]}" \
-    -destination "platform=iOS,id=$DEVICE_ID" \
-    -derivedDataPath "$DERIVED_ROOT/Phone" \
-    "-only-testing:$TEST_CLASS/$method"
+  local log="$DERIVED_ROOT/phone-$method.log"
+  if ! xcodebuild test "${common_args[@]}" \
+      -destination "platform=iOS,id=$DEVICE_ID" \
+      -derivedDataPath "$DERIVED_ROOT/Phone" \
+      "-only-testing:$TEST_CLASS/$method" > "$log" 2>&1
+  then
+    tail -n 80 "$log" >&2
+    return 1
+  fi
 }
 
 cleanup() {
@@ -46,11 +52,16 @@ echo "[1/3] 真机上传设置与成绩缓存"
 run_phone_test testPhoneUpload
 
 echo "[2/3] Mac Catalyst 接收手机数据并写回原设置"
-xcodebuild test "${common_args[@]}" \
-  -destination 'platform=macOS,variant=Mac Catalyst' \
-  -derivedDataPath "$DERIVED_ROOT/Mac" \
-  ONLY_ACTIVE_ARCH=YES ARCHS=arm64 \
-  "-only-testing:$TEST_CLASS/testMacReceiveAndRestore"
+MAC_LOG="$DERIVED_ROOT/mac-testMacReceiveAndRestore.log"
+if ! xcodebuild test "${common_args[@]}" \
+    -destination 'platform=macOS,variant=Mac Catalyst' \
+    -derivedDataPath "$DERIVED_ROOT/Mac" \
+    ONLY_ACTIVE_ARCH=YES ARCHS=arm64 \
+    "-only-testing:$TEST_CLASS/testMacReceiveAndRestore" > "$MAC_LOG" 2>&1
+then
+  tail -n 80 "$MAC_LOG" >&2
+  exit 1
+fi
 
 echo "[3/3] 真机接收 Mac 写回并清理"
 run_phone_test testPhoneVerifyAndCleanup

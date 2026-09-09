@@ -198,7 +198,7 @@ final class ScheduleSystemCalendarManager {
             ))
             saveBatches(batches)
             return drafts.count
-        } catch let error as EKError where error.code == .eventNotPermitted {
+        } catch let error as EKError where Self.isCalendarWritePermissionError(error) {
             throw ScheduleSystemCalendarError.permissionDenied
         }
     }
@@ -258,7 +258,7 @@ final class ScheduleSystemCalendarManager {
             try eventStore.commit()
             saveBatches([])
             return eventsByIdentifier.count
-        } catch let error as EKError where error.code == .eventNotPermitted {
+        } catch let error as EKError where Self.isCalendarWritePermissionError(error) {
             throw ScheduleSystemCalendarError.permissionDenied
         }
     }
@@ -277,6 +277,19 @@ final class ScheduleSystemCalendarManager {
             return
         @unknown default:
             throw ScheduleSystemCalendarError.permissionDenied
+        }
+    }
+
+    private static func isCalendarWritePermissionError(_ error: EKError) -> Bool {
+        switch error.code {
+        case .calendarReadOnly,
+             .sourceDoesNotAllowCalendarAddDelete,
+             .sourceDoesNotAllowEvents,
+             .calendarDoesNotAllowEvents,
+             .eventStoreNotAuthorized:
+            return true
+        default:
+            return false
         }
     }
 

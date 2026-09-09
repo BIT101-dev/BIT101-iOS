@@ -100,7 +100,7 @@ enum ScheduleCacheStore {
                 }
             }
 
-            for directory in Set(cacheURLs().map(\.deletingLastPathComponent)) {
+            for directory in Set(cacheURLs().map { $0.deletingLastPathComponent() }) {
                 if FileManager.default.fileExists(atPath: directory.path),
                    (try? FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty) == true {
                     try FileManager.default.removeItem(at: directory)
