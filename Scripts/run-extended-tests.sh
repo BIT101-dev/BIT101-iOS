@@ -44,6 +44,27 @@ run_group() {
   echo "[通过] $group"
 }
 
+run_default_tests() {
+  local log="$DERIVED_ROOT/default-tests.log"
+  echo "[默认测试] BIT101-iOSTests"
+  if ! xcodebuild test -quiet \
+    -project "$PROJECT" \
+    -scheme BIT101-iOS \
+    -configuration Debug \
+    -destination "platform=iOS,id=$DEVICE_ID" \
+    -derivedDataPath "$DERIVED_ROOT" \
+    -collect-test-diagnostics never \
+    "-only-testing:$TEST_BUNDLE" \
+    -allowProvisioningUpdates > "$log" 2>&1
+  then
+    echo "默认测试失败" >&2
+    tail -n 80 "$log" >&2
+    exit 1
+  fi
+  echo "[通过] BIT101-iOSTests"
+}
+
+run_default_tests
 run_group ExtendedSchedulePolicyTests
 run_group ExtendedInfrastructureTests
 run_group ExtendedLoginTests

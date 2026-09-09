@@ -25,36 +25,15 @@ xcodebuild -version
 
 本仓库保留系统 `xcode-select` 原配置。执行构建或测试前，先确认当前连接的真机状态。
 
-## 编译测试包
+## 运行真机自动化测试
+
+连接并信任真机后，直接运行现有测试脚本：
 
 ```sh
-DEVICE_ID='<xcode-device-id>'
-
-xcodebuild build-for-testing \
-  -project BIT101-iOS.xcodeproj \
-  -scheme BIT101-iOS \
-  -configuration Debug \
-  -destination "platform=iOS,id=$DEVICE_ID" \
-  -derivedDataPath build/Tests \
-  -allowProvisioningUpdates
+Scripts/run-extended-tests.sh
 ```
 
-## 运行真机测试
-
-连接并信任真机后，通过 `xcodebuild -showdestinations` 获取设备 ID：
-
-```sh
-DEVICE_ID='<xcode-device-id>'
-
-xcodebuild test \
-  -project BIT101-iOS.xcodeproj \
-  -scheme BIT101-iOS \
-  -configuration Debug \
-  -destination "platform=iOS,id=$DEVICE_ID" \
-  -derivedDataPath build/Tests \
-  -collect-test-diagnostics never \
-  -allowProvisioningUpdates
-```
+该脚本依次运行默认测试 Target 和 27 项扩展测试，详细失败日志写入 `.build/extended-automation`。
 
 2026-08-09 的历史基线为 **40 项测试全部通过，0 条编译警告/错误**；当前默认测试 Target 有 **110 项自动化用例**（100 项 Swift Testing、10 项 XCTest）。另有 27 项扩展测试与 5 项专用 smoke 用例。测试覆盖范围包括：
 
