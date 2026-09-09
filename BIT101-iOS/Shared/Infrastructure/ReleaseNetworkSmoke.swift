@@ -15,6 +15,10 @@ enum NetworkSmokeScope: String, Codable {
     case schedule
 
     func includes(_ name: String) -> Bool {
+        if name == "课程历史缓存验证" {
+            return true
+        }
+
         switch self {
         case .all:
             return true
@@ -51,6 +55,42 @@ enum NetworkSmokeScope: String, Codable {
     }
 }
 
+enum NetworkSmokeCapture: String, Codable {
+    case none
+    case courseHistory
+    case cachedCourseHistory
+}
+
+struct CourseHistoryAuditSample: Codable, Equatable {
+    let courseID: Int
+    let courseName: String
+    let courseNumber: String
+    let teachersName: String
+    let grades: [CourseHistoryGrade]
+}
+
+struct CourseHistoryAuditMetrics: Codable, Equatable {
+    let courseCount: Int
+    let gradeCount: Int
+    let labeledGradeCount: Int
+    let uncertainGradeCount: Int
+    let predictedCandidateCount: Int
+    let truePositive: Int
+    let falsePositive: Int
+    let falseNegative: Int
+    let trueNegative: Int
+
+    var precision: Double {
+        let denominator = truePositive + falsePositive
+        return denominator == 0 ? 0 : Double(truePositive) / Double(denominator)
+    }
+
+    var recall: Double {
+        let denominator = truePositive + falseNegative
+        return denominator == 0 ? 0 : Double(truePositive) / Double(denominator)
+    }
+}
+
 /// ReleaseNetworkSmokeReport 保存一次网络冒烟执行的结果。
 struct ReleaseNetworkSmokeReport: Codable {
     let runID: String
@@ -60,6 +100,8 @@ struct ReleaseNetworkSmokeReport: Codable {
     let passed: Bool
     let failures: [String]
     let authenticationBlockers: [String]
+    let courseHistorySamples: [CourseHistoryAuditSample]
+    let courseHistoryAuditMetrics: CourseHistoryAuditMetrics?
 
     var elapsed: TimeInterval {
         finishedAt.timeIntervalSince(startedAt)
@@ -83,6 +125,7 @@ struct ReleaseNetworkSmokeReport: Codable {
 /// ReleaseNetworkSmokeReportStore 保存网络冒烟报告。
 enum ReleaseNetworkSmokeReportStore {
     private static let directoryName = "NetworkSmoke"
+    static let cachedFixtureFileName = "course-history-audit-fixture.json"
 
     static var fileURL: URL? {
         guard let containerURL = FileManager.default.containerURL(
@@ -112,12 +155,20 @@ enum ReleaseNetworkSmokeReportStore {
         let data = try encoder.encode(report)
         try data.write(to: fileURL, options: [.atomic])
     }
+
+    static func readCachedCourseHistoryFixture() throws -> CourseHistoryAuditFixture {
+        let fileURL = FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appending(path: cachedFixtureFileName)
+        return try JSONDecoder().decode(CourseHistoryAuditFixture.self, from: Data(contentsOf: fileURL))
+    }
 }
 
 /// ReleaseNetworkSmokeLaunchRequest 解析 `bit101://network-smoke/...` 触发参数。
 struct ReleaseNetworkSmokeLaunchRequest {
     let scope: NetworkSmokeScope
     let runID: String
+    let capture: NetworkSmokeCapture
 
     init?(url: URL) {
         guard url.scheme?.lowercased() == "bit101",
@@ -133,8 +184,11 @@ struct ReleaseNetworkSmokeLaunchRequest {
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         let runID = components?.queryItems?.first(where: { $0.name == "run" })?.value?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let capture = components?.queryItems?.first(where: { $0.name == "capture" })?.value
+            .flatMap(NetworkSmokeCapture.init(rawValue:)) ?? .none
 
         self.scope = pathScope
+        self.capture = capture
         if let runID, !runID.isEmpty {
             self.runID = runID
         } else {
@@ -152,10 +206,18 @@ struct ReleaseNetworkSmokeLaunchRequest {
 final class ReleaseNetworkSmokeRunner {
     private var failures: [String] = []
     private var authenticationBlockers: [String] = []
+    private var courseHistorySamples: [CourseHistoryAuditSample] = []
+    private var courseHistoryAuditMetrics: CourseHistoryAuditMetrics?
 
-    func run(scope: NetworkSmokeScope, runID: String = UUID().uuidString) async -> ReleaseNetworkSmokeReport {
+    func run(
+        scope: NetworkSmokeScope,
+        runID: String = UUID().uuidString,
+        capture: NetworkSmokeCapture = .none
+    ) async -> ReleaseNetworkSmokeReport {
         failures = []
         authenticationBlockers = []
+        courseHistorySamples = []
+        courseHistoryAuditMetrics = nil
         let startedAt = Date()
 
         let loginStartedAt = Date()
@@ -172,6 +234,15 @@ final class ReleaseNetworkSmokeRunner {
         }
 
         let gallery = GalleryService()
+        let courses = CourseService()
+        if capture == .cachedCourseHistory {
+            validateCachedCourseHistoryFixture(scope: scope)
+        }
+        if capture == .courseHistory {
+            courseHistorySamples = await captureCourseHistorySamples(using: courses, scope: scope)
+            return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
+        }
+
         _ = await probe("open.aihelpme.dev 首页", scope: scope) {
             try await Self.fetchDataCount(urlString: "https://open.aihelpme.dev")
         }
@@ -215,7 +286,6 @@ final class ReleaseNetworkSmokeRunner {
             }
         }
 
-        let courses = CourseService()
         let courseRows = await probe("学业课程列表", scope: scope) {
             try await courses.fetchCourses(search: "", page: 0)
         } ?? []
@@ -341,6 +411,141 @@ final class ReleaseNetworkSmokeRunner {
         return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
     }
 
+    private func validateCachedCourseHistoryFixture(scope: NetworkSmokeScope) {
+        do {
+            let fixture = try ReleaseNetworkSmokeReportStore.readCachedCourseHistoryFixture()
+            var mismatches: [String] = []
+            let expectedGradeCount = fixture.courses.reduce(0) { $0 + $1.grades.count }
+            var uncertainGradeCount = 0
+            var predictedCandidateCount = 0
+            var truePositive = 0
+            var falsePositive = 0
+            var falseNegative = 0
+            var trueNegative = 0
+
+            if fixture.sampledCourseCount != fixture.courses.count {
+                mismatches.append("课程数量元数据与缓存内容不一致")
+            }
+            if fixture.sampledGradeCount != expectedGradeCount {
+                mismatches.append("学期记录数量元数据与缓存内容不一致")
+            }
+
+            for course in fixture.courses {
+                let grades = course.grades.map(\.courseHistoryGrade)
+                let hiddenTerms = CourseHistoryMakeupPolicy.hiddenTerms(in: grades)
+                predictedCandidateCount += hiddenTerms.count
+                for grade in course.grades {
+                    let predicted = hiddenTerms.contains(grade.term)
+                    switch grade.manualLabel {
+                    case "likely_makeup":
+                        truePositive += predicted ? 1 : 0
+                        falseNegative += predicted ? 0 : 1
+                    case "likely_formal":
+                        trueNegative += predicted ? 0 : 1
+                        falsePositive += predicted ? 1 : 0
+                    case "uncertain":
+                        uncertainGradeCount += 1
+                    default:
+                        mismatches.append("\(course.courseNumber) \(grade.term) 的人工标签无法识别")
+                    }
+                }
+            }
+
+            courseHistoryAuditMetrics = CourseHistoryAuditMetrics(
+                courseCount: fixture.courses.count,
+                gradeCount: expectedGradeCount,
+                labeledGradeCount: truePositive + falsePositive + falseNegative + trueNegative,
+                uncertainGradeCount: uncertainGradeCount,
+                predictedCandidateCount: predictedCandidateCount,
+                truePositive: truePositive,
+                falsePositive: falsePositive,
+                falseNegative: falseNegative,
+                trueNegative: trueNegative
+            )
+
+            if mismatches.isEmpty {
+                print(
+                    "NETWORK_SMOKE_PASS name=课程历史缓存验证 "
+                        + "courses=\(fixture.courses.count) grades=\(expectedGradeCount) "
+                        + "predicted=\(predictedCandidateCount) "
+                        + "precision=\(String(format: "%.1f%%", courseHistoryAuditMetrics?.precision ?? 0)) "
+                        + "recall=\(String(format: "%.1f%%", courseHistoryAuditMetrics?.recall ?? 0))"
+                )
+            } else {
+                recordFailure(
+                    "课程历史缓存验证",
+                    mismatches.joined(separator: "；"),
+                    scope: scope
+                )
+            }
+        } catch {
+            recordFailure("课程历史缓存验证", error.localizedDescription, scope: scope)
+        }
+    }
+
+    private func captureCourseHistorySamples(
+        using courses: CourseService,
+        scope: NetworkSmokeScope
+    ) async -> [CourseHistoryAuditSample] {
+        let startedAt = Date()
+        var courseRows: [CourseSummary] = []
+        for page in 0 ..< 8 {
+            do {
+                let pageRows = try await courses.fetchCourses(search: "", page: page)
+                guard !pageRows.isEmpty else { break }
+                courseRows.append(contentsOf: pageRows)
+            } catch {
+                recordFailure("学业课程历史数据采样课程列表", error.localizedDescription, scope: scope)
+                break
+            }
+        }
+
+        var seenNumbers = Set<String>()
+        let candidates = courseRows.filter { course in
+            let number = course.number.trimmingCharacters(in: .whitespacesAndNewlines)
+            return !number.isEmpty && seenNumbers.insert(number).inserted
+        }
+
+        var samples: [CourseHistoryAuditSample] = []
+        var requestFailures = 0
+        for course in candidates.prefix(80) {
+            do {
+                let grades = try await courses.fetchCourseHistories(number: course.number)
+                guard !grades.isEmpty else { continue }
+                samples.append(
+                    CourseHistoryAuditSample(
+                        courseID: course.id,
+                        courseName: course.name,
+                        courseNumber: course.number,
+                        teachersName: course.teachersName,
+                        grades: grades
+                    )
+                )
+            } catch {
+                requestFailures += 1
+                if Self.isAuthenticationBlocked(error) {
+                    recordAuthenticationBlocker(
+                        "学业课程历史数据采样",
+                        error.localizedDescription,
+                        scope: scope,
+                        elapsed: Date().timeIntervalSince(startedAt)
+                    )
+                    break
+                }
+            }
+        }
+
+        if samples.isEmpty, failures.isEmpty, authenticationBlockers.isEmpty {
+            recordFailure("学业课程历史数据采样", "课程历史接口返回空数据", scope: scope)
+        }
+        print(
+            "NETWORK_SMOKE_PASS name=学业课程历史数据采样 "
+                + "courses=\(candidates.prefix(80).count) samples=\(samples.count) "
+                + "request_failures=\(requestFailures) elapsed=\(Self.duration(Date().timeIntervalSince(startedAt)))"
+        )
+        return samples
+    }
+
     private func finishReport(runID: String, scope: NetworkSmokeScope, startedAt: Date) async -> ReleaseNetworkSmokeReport {
         let report = ReleaseNetworkSmokeReport(
             runID: runID,
@@ -349,7 +554,9 @@ final class ReleaseNetworkSmokeRunner {
             finishedAt: Date(),
             passed: failures.isEmpty && authenticationBlockers.isEmpty,
             failures: failures,
-            authenticationBlockers: authenticationBlockers
+            authenticationBlockers: authenticationBlockers,
+            courseHistorySamples: courseHistorySamples,
+            courseHistoryAuditMetrics: courseHistoryAuditMetrics
         )
         print(report.summaryLine)
         if !report.passed {

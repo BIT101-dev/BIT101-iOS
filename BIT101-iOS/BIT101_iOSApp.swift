@@ -174,10 +174,20 @@ struct BIT101_iOSApp: App {
     var body: some Scene {
         WindowGroup {
             #if RELEASE_NETWORK_SMOKE
-            // 冒烟模式只挂载测试宿主，避免登录校验、首页 `.task` 或启动请求
+            // 冒烟模式挂载测试宿主，登录校验、首页 `.task` 和启动请求
             // 与顺序网络探针并发。
             Color.clear
                 .accessibilityIdentifier("release-network-smoke-host")
+                .onOpenURL { url in
+                    guard let smokeRequest = ReleaseNetworkSmokeLaunchRequest(url: url) else { return }
+                    Task {
+                        _ = await ReleaseNetworkSmokeRunner().run(
+                            scope: smokeRequest.scope,
+                            runID: smokeRequest.runID,
+                            capture: smokeRequest.capture
+                        )
+                    }
+                }
             #else
             ContentView()
                 .appKeyboardDismissSupport()

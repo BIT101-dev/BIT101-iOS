@@ -62,16 +62,16 @@ Scripts/capture-screenshot-device.sh
 
 截图固定写入 `.build/screenshot.png`；脚本支持传入设备 ID 和 Developer 目录。
 
-脚本会自动寻找可用的 iPhone 真机；设备未连接或未信任时给出提示并退出。脚本执行内容包含 Debug 真机构建、安装和启动，发布归档由发布流程负责。
+脚本会自动寻找可用的 iPhone 真机；设备未连接或未信任时给出提示并退出。脚本执行内容包含 Release 真机构建、安装和启动，发布归档由发布流程负责。
 
 产物路径：同一性质保持一个固定路径；构建、测试、截图和 Smoke 结果都覆盖既有路径，产物目录中每类结果保留一份。文件名格式为类别名，`latest`、设备名、时间、UUID 和序号作为额外修饰语排除；临时的 DerivedData、截图和日志在验证结束后清理。Finder 自动生成的 `.DS_Store` 属于 `.gitignore` 忽略的系统元数据，脚本处理范围外。
 
 ### Watch 与 iOS 构建说明
 
 1. 发布验证使用发布专用流程；维护构建采用具体真机脚本。
-2. Debug 装机使用具体 iPhone 设备 ID。
+2. Release 装机使用具体 iPhone 设备 ID。
 3. Watch 单独使用 watchOS scheme/destination 构建。
-4. 正式发布可行性通过发布构建结果判断；iOS 真机 Debug 构建结果用于调试验证。
+4. 正式发布可行性通过发布构建结果判断；iOS 真机 Release 构建结果用于设备验证。
 
 Xcode 27 Beta 的 Watch target 通过具体真机构建目标保持 watchOS SDK 边界；Watch 图标和 Watch 代码沿用跨 target 契约。
 
@@ -84,9 +84,8 @@ Xcode 27 Beta 的 Watch target 通过具体真机构建目标保持 watchOS SDK 
 
 ### 正式 App 网络冒烟说明
 
-`release-network-smoke.sh` 使用 Debug 构建；smoke runner 和触发路由仅编译入 Debug 构建，App Store Release 构建内容排除这两项；
-它会先做一次本地构建检查，然后直接向
-当前已安装并运行中的正式 App 发送 `bit101://network-smoke/<scope>?run=<uuid>`，
+`release-network-smoke.sh` 使用 Release 构建和专用 `RELEASE_NETWORK_SMOKE` 条件；smoke runner 和触发路由编译入该专用构建，App Store Release 构建内容排除这两项；
+它会先构建并安装专用宿主，然后向该宿主发送 `bit101://network-smoke/<scope>?run=<uuid>`，
 在同一进程内触发探针。BIT101 自有反馈 Worker 的测试数据会在同一请求内写入、读取并删除，
 邮件发送量为零，远端报告保留量为零。会话来源为正式 App 当前保存的登录态、Cookie 与缓存。
 
@@ -101,6 +100,27 @@ Scripts/release-network-smoke-school.sh
 ```
 
 仍可传入设备 ID 和 Developer 目录覆盖自动发现结果。
+
+### 课程历史统计验证数据
+
+`BIT101-iOSTests/CourseHistoryAuditFixture.json` 保存一次真机采样的 73 门课程、537 条学期记录，包含原始字段和逐条人工标签。
+人工标签由四组 Luna xhigh agent 盲化阅读后汇总；`likely_makeup`、`likely_formal`、`uncertain` 三类标签与算法预测字段分开保存。
+体育_防身术的 `2019-2020-1` 学期人数为 48，按正式学期样本保留。
+当前人工修订结果为 `likely_makeup=56`、`likely_formal=481`、`uncertain=0`。
+
+当前保守候选基线为：人数 `≤ 20` 的学期保持展示；其余记录使用 `log10` 人数单侧 Tukey `3×IQR` 外围下界，并要求平均分低于同组 Q1。
+参数在全部课程之间统一，课程级分组结果用于观察跨课程稳定性。
+
+`release-network-smoke.sh` 默认把该缓存写入真机应用文档目录，并在网络探针启动时完成缓存验证；缓存文件保持在开发目录中，普通 Smoke 运行持续复用这份数据。
+普通 Smoke 运行保持 Git fixture 原样；收到更新测试数据指令后再人工复核并替换 fixture。
+更新采样数据时显式执行：
+
+```sh
+BIT101_NETWORK_SMOKE_CAPTURE=courseHistory Scripts/release-network-smoke-bit101.sh
+```
+
+采样报告写入 `.build/release-network-smoke/report/release-network-smoke.json`；人工复核完成后再更新 Git 中的 fixture。
+Smoke 报告同步输出当前算法对确定标签的 precision、recall、TP、FP 和 FN，指标用于算法选择和回归跟踪。
 
 可信成绩单归入学校链路；当前冒烟范围为 `all`、`bit101` 和 `school` 三个值，重新认证入口归入对应范围。
 
@@ -130,34 +150,24 @@ Mac Catalyst 测试会依据协调状态加载手机账号上下文，流程结�
 
 ## App Store 更新提醒真机测试
 
-工程版本号保持原值，验证使用真机。手机重新连接后，用命令行构建参数临时覆盖 Debug 包的公开版本，例如把本机伪装成 `1.7.0`：
+工程版本号保持原值，验证使用真机。手机重新连接后，通过真机脚本临时覆盖验证包的公开版本，例如把本机伪装成 `1.7.0`：
 
 ```sh
-DEVICE_ID='<xcode-device-id>'
-
-xcodebuild build \
-  -project BIT101-iOS.xcodeproj \
-  -scheme BIT101-iOS \
-  -configuration Debug \
-  -destination "platform=iOS,id=$DEVICE_ID" \
-  -derivedDataPath build/UpdatePromptTest \
-  -allowProvisioningUpdates \
-  MARKETING_VERSION=1.7.0 \
-  CURRENT_PROJECT_VERSION=9001
+BIT101_MARKETING_VERSION=1.7.0 \
+BIT101_BUILD_NUMBER=9001 \
+Scripts/build-install-device.sh
 ```
 
-把 `build/UpdatePromptTest/Build/Products/Debug-iphoneos/BIT101-iOS.app` 安装到真机后，依次验证：
+脚本会把 Release 验证包安装到真机并启动，随后依次验证：
 
-首次 smoke 可通过 `devicectl` 仅为该次 Debug 启动传入
-`BIT101_UPDATE_PROMPT_SMOKE_RESET=1`，清除更新提醒自身的查询、忽略与展示门禁；该入口受
-`#if DEBUG` 保护，Release 构建排除该入口，登录、课表和其它用户数据保持不变。
+更新提醒专用入口使用开发验证条件编译，Release 验证包沿用正常应用启动流程，登录、课表和其它用户数据保持不变。
 
 1. 首次启动显示“发现新版本 1.7.1”，正文与 App Store 的开发者更新内容一致，三个操作均可见。
 2. 点击“前往 App Store”，确认打开 BIT101 的中国区 App Store 页面。
 3. 点击“本次忽略”，弹窗应立即关闭；强制退出并重新启动后，24 小时内提醒次数和网络查询次数均保持不变。
 4. 点击“忽略此版本”，弹窗应立即关闭；超过 24 小时后 `1.7.1` 保持忽略状态，更高版本可以再次出现。
-5. 卸载 Debug 包以清除其 `UserDefaults` 后重装，再断网启动；查询失败静默处理，登录和主界面保持可用。
-6. 最后安装正常 `1.7.1` Debug 包；线上版本与本地版本相同时，更新提醒状态为不显示。
+5. 清理验证包的 `UserDefaults` 后重新安装，再断网启动；查询失败静默处理，登录和主界面保持可用。
+6. 最后安装正常 `1.7.1` Release 包；线上版本与本地版本相同时，更新提醒状态为不显示。
 
 自动化测试覆盖数字版本比较、24 小时查询节流、24 小时展示冷却、更新内容缓存、失败静默和“忽略此版本”。真机可用性恢复前，验证范围限于静态检查与 CI Release 编译门禁；实际弹窗和 App Store 跳转在真机恢复后执行。
 
@@ -191,6 +201,24 @@ xcodebuild build \
 - 简略列表未变化但仍存在“否”时，详细查询按账号限制为 24 小时最多一次。
 - 主动下拉刷新优先级最高，直接绕过详细缓存并完整查询简略与详细成绩。
 
+## 课程历史分类可视化
+
+使用开发目录缓存生成交互式审查页面：
+
+```sh
+python3 Scripts/visualize-course-history-audit.py
+```
+
+页面写入 `.build/course-history-audit.html`，支持上一门、下一门、课程下拉选择和课程筛选；页面聚焦后使用左右方向键切换课程，Home / End 跳转到首尾课程。
+
+启用网页手工标注和自动覆写：
+
+```sh
+python3 Scripts/visualize-course-history-audit.py --serve
+```
+
+浏览器打开 `http://127.0.0.1:8765/`；逐条修改人工标签后，页面自动覆写 `BIT101-iOSTests/CourseHistoryAuditFixture.json`，课程级标签和标签计数同步更新。
+
 ## 错误报告
 
 ```sh
@@ -205,7 +233,7 @@ Scripts/run-extended-tests.sh
 
 覆盖检查确保用户可见的错误弹窗和主要失败占位页保留 App Store 与错误报告入口。
 报告直接通过当前 Wrangler 登录读取远端 KV，管理网页不参与流程。
-`Scripts/fetch-issues-and-reports.sh` 会用当前 GitHub CLI 和 Wrangler 登录状态，一次拉取未关闭的仓库 Issues 与 Cloudflare KV 报告，保存到 `.build/issue-report-inbox` 并输出简要汇总。错误报告按 `本次/上次/上上次` 保留三批，并按 `开发版/正式版/来源未知` 和 `错误报告/用户建议` 分类；Debug 构建提交 `isDevelopmentBuild: true`，Release 构建提交 `false`，旧报告归入来源未知。输出本次详情，只输出上两批数量。本次没有新报告时显示最近一批详情。完整拉取成功后只清理本次已拉取的 Cloudflare 报告，失败时保留远端数据。完整报告仅保存在本机，仓库保持不变。
+`Scripts/fetch-issues-and-reports.sh` 会用当前 GitHub CLI 和 Wrangler 登录状态，一次拉取未关闭的仓库 Issues 与 Cloudflare KV 报告，保存到 `.build/issue-report-inbox` 并输出简要汇总。错误报告按 `本次/上次/上上次` 保留三批，并按 `开发版/正式版/来源未知` 和 `错误报告/用户建议` 分类；开发验证包提交 `isDevelopmentBuild: true`，Release 构建提交 `false`，旧报告归入来源未知。输出本次详情，只输出上两批数量。本次没有新报告时显示最近一批详情。完整拉取成功后只清理本次已拉取的 Cloudflare 报告，失败时保留远端数据。完整报告仅保存在本机，仓库保持不变。
 
 `run-static-audit.sh` 执行静态检查；学校接口连接、网络 smoke 和发布归档由独立流程负责。它按 Swift、Shell、Python、Worker、Git、文档、UI、触感、组件和源码质量规则输出结果；源码质量报告固定覆盖 `.build/code-quality-report.txt`。CI 强制执行这一入口，并额外阻止警告进入构建门禁。
 

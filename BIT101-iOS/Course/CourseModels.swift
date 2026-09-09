@@ -216,7 +216,7 @@ struct CourseDetail: Decodable, Equatable {
 /// 单门课程的历史成绩统计。
 ///
 /// Web 端称为“历史记录”，iOS 端在详情页展示为“历史成绩”。
-struct CourseHistoryGrade: Decodable, Identifiable, Equatable {
+struct CourseHistoryGrade: Codable, Identifiable, Equatable {
     let term: String
     let avgScore: Double?
     let maxScore: Double?
@@ -231,12 +231,145 @@ struct CourseHistoryGrade: Decodable, Identifiable, Equatable {
         case studentNum
     }
 
+    init(term: String, avgScore: Double?, maxScore: Double?, studentNum: Int?) {
+        self.term = term
+        self.avgScore = avgScore
+        self.maxScore = maxScore
+        self.studentNum = studentNum
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         term = try container.decode(String.self, forKey: .term)
         avgScore = container.decodeFlexibleDoubleIfPresent(forKeys: [.avgScore])
         maxScore = container.decodeFlexibleDoubleIfPresent(forKeys: [.maxScore])
         studentNum = container.decodeFlexibleIntIfPresent(forKeys: [.studentNum])
+    }
+}
+
+struct CourseHistoryAuditFixture: Codable {
+    let schemaVersion: Int
+    let algorithmVersion: String
+    let manualLabelMethod: String
+    let manualLabelCounts: [String: Int]
+    let sampledCourseCount: Int
+    let sampledGradeCount: Int
+    let courses: [CourseHistoryAuditFixtureCourse]
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case algorithmVersion = "algorithm_version"
+        case manualLabelMethod = "manual_label_method"
+        case manualLabelCounts = "manual_label_counts"
+        case sampledCourseCount = "sampled_course_count"
+        case sampledGradeCount = "sampled_grade_count"
+        case courses
+    }
+}
+
+struct CourseHistoryAuditFixtureCourse: Codable {
+    let courseID: Int
+    let courseName: String
+    let courseNumber: String
+    let teachersName: String
+    let manualReviewLabel: String
+    let manualNote: String?
+    let predictedHiddenTerms: Set<String>
+    let grades: [CourseHistoryAuditFixtureGrade]
+
+    private enum CodingKeys: String, CodingKey {
+        case courseID = "course_id"
+        case courseName = "course_name"
+        case courseNumber = "course_number"
+        case teachersName = "teachers_name"
+        case manualReviewLabel = "manual_review_label"
+        case manualNote = "manual_note"
+        case predictedHiddenTerms = "predicted_hidden_terms"
+        case grades
+    }
+}
+
+struct CourseHistoryAuditFixtureGrade: Codable {
+    let term: String
+    let avgScore: Double
+    let maxScore: Double
+    let studentNum: Int
+    let predictedLabel: String
+    let manualLabel: String
+
+    private enum CodingKeys: String, CodingKey {
+        case term
+        case avgScore = "avg_score"
+        case maxScore = "max_score"
+        case studentNum = "student_num"
+        case predictedLabel = "predicted_label"
+        case manualLabel = "manual_label"
+    }
+
+    var courseHistoryGrade: CourseHistoryGrade {
+        CourseHistoryGrade(
+            term: term,
+            avgScore: avgScore,
+            maxScore: maxScore,
+            studentNum: studentNum
+        )
+    }
+}
+
+enum CourseHistoryMakeupPolicy {
+    private static let minimumSampleCount = 4
+    private static let smallCourseMaximumStudentCount = 20
+    private static let tukeyFenceMultiplier = 3.0
+    private static let averageScoreQuantile = 0.25
+
+    /// 将学习人数转换为对数后使用单侧 Tukey 外围下界识别乘性异常值。
+    ///
+    /// 数据达到 4 个有效学期时计算 Q1、Q3 和 3×IQR；人数 ≤ 20 的学期保持展示，平均分处于课程下四分位数的记录进入统计候选集合。
+    static func hiddenTerms(in grades: [CourseHistoryGrade]) -> Set<String> {
+        let samples = grades.compactMap { grade -> (term: String, count: Int, averageScore: Double)? in
+            guard
+                let count = grade.studentNum,
+                count > smallCourseMaximumStudentCount,
+                let averageScore = grade.avgScore
+            else {
+                return nil
+            }
+            return (grade.term, count, averageScore)
+        }
+        guard samples.count >= minimumSampleCount else { return [] }
+
+        let logCounts = samples.map { log10(Double($0.count)) }.sorted()
+        let lowerQuartile = percentile(0.25, values: logCounts)
+        let upperQuartile = percentile(0.75, values: logCounts)
+        let lowerFence = lowerQuartile - tukeyFenceMultiplier * (upperQuartile - lowerQuartile)
+        let averageScores = samples.map(\.averageScore).sorted()
+        let averageScoreFence = percentile(averageScoreQuantile, values: averageScores)
+
+        return Set(samples.compactMap { sample in
+            let logCount = log10(Double(sample.count))
+            guard
+                logCount < lowerFence,
+                sample.averageScore < averageScoreFence
+            else {
+                return nil
+            }
+            return sample.term
+        })
+    }
+
+    private static func percentile(_ percentile: Double, values: [Double]) -> Double {
+        guard !values.isEmpty else { return 0 }
+        guard values.count > 1 else { return values[0] }
+
+        let position = percentile * Double(values.count - 1)
+        let lowerIndex = Int(floor(position))
+        let upperIndex = Int(ceil(position))
+        guard lowerIndex != upperIndex else {
+            return values[lowerIndex]
+        }
+
+        let weight = position - Double(lowerIndex)
+        return values[lowerIndex] * (1 - weight) + values[upperIndex] * weight
     }
 }
 

@@ -1,0 +1,5263 @@
+{
+  "schema_version": 2,
+  "capture_run_id": "fab030ae-8cc3-4d37-aa7b-560186165c34",
+  "captured_at": "2026-09-09T01:13:50Z",
+  "sampled_course_count": 73,
+  "sampled_grade_count": 537,
+  "courses": [
+    {
+      "course_id": 1271,
+      "course_name": "计算机专业基础实习",
+      "course_number": "100073003",
+      "teachers_name": "宿红毅",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2018-2019-1",
+          "avg_score": 86.607,
+          "max_score": 98,
+          "student_num": 214,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-1",
+          "avg_score": 85.964,
+          "max_score": 99,
+          "student_num": 248,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-1",
+          "avg_score": 86.168,
+          "max_score": 98,
+          "student_num": 411,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-1",
+          "avg_score": 86.305,
+          "max_score": 98,
+          "student_num": 692,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 86.457,
+          "max_score": 98,
+          "student_num": 541,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 87.673,
+          "max_score": 98,
+          "student_num": 398,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 87.324,
+          "max_score": 96,
+          "student_num": 377,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 11799,
+      "course_name": "有机奇妙探秘：有趣材料的合成与应用",
+      "course_number": "99900788",
+      "teachers_name": "尹平,黄河,吉维肖",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2023-2024-2",
+          "avg_score": 91.294,
+          "max_score": 98,
+          "student_num": 17,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 92.8,
+          "max_score": 97,
+          "student_num": 20,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 10026,
+      "course_name": "体育_防身术",
+      "course_number": "100320050",
+      "teachers_name": "樊卓益",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2017-2018-2",
+          "avg_score": 89.683,
+          "max_score": 100,
+          "student_num": 82,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-1",
+          "avg_score": 87.299,
+          "max_score": 100,
+          "student_num": 87,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-2",
+          "avg_score": 89.165,
+          "max_score": 99,
+          "student_num": 85,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-1",
+          "avg_score": 89.167,
+          "max_score": 97,
+          "student_num": 48,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 90.353,
+          "max_score": 95,
+          "student_num": 68,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-1",
+          "avg_score": 84.624,
+          "max_score": 97,
+          "student_num": 258,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 85.847,
+          "max_score": 100,
+          "student_num": 202,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-1",
+          "avg_score": 85.748,
+          "max_score": 99,
+          "student_num": 206,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 85.093,
+          "max_score": 100,
+          "student_num": 162,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 88,
+          "max_score": 100,
+          "student_num": 129,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 88.76,
+          "max_score": 100,
+          "student_num": 242,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 85.74,
+          "max_score": 100,
+          "student_num": 231,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 86.2,
+          "max_score": 100,
+          "student_num": 230,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 89.121,
+          "max_score": 100,
+          "student_num": 99,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 88.879,
+          "max_score": 100,
+          "student_num": 91,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal",
+      "manual_note": "2019-2020-1=48，人数偏小但仍具正式小班形态；整门课程各学期保持 likely_formal。"
+    },
+    {
+      "course_id": 5109,
+      "course_name": "国际公法（双语）",
+      "course_number": "102230018",
+      "teachers_name": "杨宽,杨成铭",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2017-2018-2",
+          "avg_score": 79.729,
+          "max_score": 92,
+          "student_num": 59,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-2",
+          "avg_score": 84.4,
+          "max_score": 96,
+          "student_num": 55,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 88.536,
+          "max_score": 96,
+          "student_num": 69,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 83.713,
+          "max_score": 95,
+          "student_num": 80,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 87.056,
+          "max_score": 95,
+          "student_num": 71,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 84.221,
+          "max_score": 97,
+          "student_num": 95,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 84.732,
+          "max_score": 96,
+          "student_num": 82,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 86.151,
+          "max_score": 96,
+          "student_num": 93,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 9611,
+      "course_name": "微积分A II",
+      "course_number": "100172201",
+      "teachers_name": "刘爽",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2016-2017-2",
+          "avg_score": 75.181,
+          "max_score": 100,
+          "student_num": 1366,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2017-2018-1",
+          "avg_score": 33,
+          "max_score": 33,
+          "student_num": 1,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2017-2018-2",
+          "avg_score": 70.867,
+          "max_score": 99,
+          "student_num": 1358,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-1",
+          "avg_score": 70.636,
+          "max_score": 97,
+          "student_num": 11,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2018-2019-2",
+          "avg_score": 69.781,
+          "max_score": 100,
+          "student_num": 689,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-1",
+          "avg_score": 56,
+          "max_score": 61,
+          "student_num": 3,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 79.884,
+          "max_score": 98,
+          "student_num": 267,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 72.918,
+          "max_score": 99,
+          "student_num": 400,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 74.781,
+          "max_score": 99,
+          "student_num": 475,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 74.034,
+          "max_score": 100,
+          "student_num": 442,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 53.208,
+          "max_score": 69,
+          "student_num": 24,
+          "predicted_label": "statisticalCandidate",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 72.462,
+          "max_score": 99,
+          "student_num": 502,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 63.333,
+          "max_score": 77,
+          "student_num": 15,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 77.421,
+          "max_score": 100,
+          "student_num": 437,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+        "2023-2024-1"
+      ],
+      "manual_review_label": "mixed"
+    },
+    {
+      "course_id": 13146,
+      "course_name": "核心英语",
+      "course_number": "100245208",
+      "teachers_name": "宋利辉",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2024-2025-1",
+          "avg_score": 78.665,
+          "max_score": 95,
+          "student_num": 468,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 80.1,
+          "max_score": 95,
+          "student_num": 853,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 5919,
+      "course_name": "电子技术课程设计",
+      "course_number": "100063207",
+      "teachers_name": "王波,金英,郝艾芳,金锋,刘伟",
+      "review_label": "statisticalCandidate",
+      "grades": [
+        {
+          "term": "2018-2019-1",
+          "avg_score": 83.662,
+          "max_score": 96,
+          "student_num": 225,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-1",
+          "avg_score": 84.497,
+          "max_score": 94,
+          "student_num": 318,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 70,
+          "max_score": 70,
+          "student_num": 1,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2020-2021-1",
+          "avg_score": 84.408,
+          "max_score": 95,
+          "student_num": 346,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-1",
+          "avg_score": 83.744,
+          "max_score": 94,
+          "student_num": 305,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 86.918,
+          "max_score": 93,
+          "student_num": 293,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 86.318,
+          "max_score": 92,
+          "student_num": 267,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 87.035,
+          "max_score": 95,
+          "student_num": 287,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "mixed"
+    },
+    {
+      "course_id": 4151,
+      "course_name": "模拟电子技术基础B实验",
+      "course_number": "100063213",
+      "teachers_name": "王波",
+      "review_label": "statisticalCandidate",
+      "grades": [
+        {
+          "term": "2017-2018-1",
+          "avg_score": 61,
+          "max_score": 61,
+          "student_num": 1,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2017-2018-2",
+          "avg_score": 83.429,
+          "max_score": 95,
+          "student_num": 28,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2018-2019-1",
+          "avg_score": 80.723,
+          "max_score": 99,
+          "student_num": 332,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-2",
+          "avg_score": 88.343,
+          "max_score": 95,
+          "student_num": 35,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2019-2020-1",
+          "avg_score": 81.275,
+          "max_score": 100,
+          "student_num": 713,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-1",
+          "avg_score": 81.863,
+          "max_score": 98,
+          "student_num": 80,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 83.184,
+          "max_score": 100,
+          "student_num": 565,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 79.131,
+          "max_score": 98,
+          "student_num": 596,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 77.654,
+          "max_score": 100,
+          "student_num": 685,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 83.608,
+          "max_score": 100,
+          "student_num": 378,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 82.569,
+          "max_score": 100,
+          "student_num": 369,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "mixed"
+    },
+    {
+      "course_id": 10586,
+      "course_name": "俄罗斯经典艺术作品赏析（中俄双语）",
+      "course_number": "99911254",
+      "teachers_name": "姜明",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2023-2024-1",
+          "avg_score": 94.217,
+          "max_score": 100,
+          "student_num": 46,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 97.25,
+          "max_score": 100,
+          "student_num": 44,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 96.589,
+          "max_score": 100,
+          "student_num": 73,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 94.92,
+          "max_score": 100,
+          "student_num": 87,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 3179,
+      "course_name": "体育_排舞",
+      "course_number": "100320048",
+      "teachers_name": "刘海英",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2017-2018-2",
+          "avg_score": 92.68,
+          "max_score": 100,
+          "student_num": 75,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-1",
+          "avg_score": 90.295,
+          "max_score": 99,
+          "student_num": 44,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-2",
+          "avg_score": 92.449,
+          "max_score": 99,
+          "student_num": 49,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-1",
+          "avg_score": 89.449,
+          "max_score": 100,
+          "student_num": 49,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 93.912,
+          "max_score": 99,
+          "student_num": 34,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-1",
+          "avg_score": 91.828,
+          "max_score": 97,
+          "student_num": 29,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 94.424,
+          "max_score": 100,
+          "student_num": 33,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-1",
+          "avg_score": 92.643,
+          "max_score": 100,
+          "student_num": 28,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 93.484,
+          "max_score": 100,
+          "student_num": 31,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 93.875,
+          "max_score": 100,
+          "student_num": 32,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 89.882,
+          "max_score": 100,
+          "student_num": 34,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 91.065,
+          "max_score": 99,
+          "student_num": 31,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 91.739,
+          "max_score": 99,
+          "student_num": 46,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 94.548,
+          "max_score": 100,
+          "student_num": 31,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 5458,
+      "course_name": "中国近现代史纲要",
+      "course_number": "100270013",
+      "teachers_name": "杨才林",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2016-2017-2",
+          "avg_score": 86.8,
+          "max_score": 91,
+          "student_num": 5,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2017-2018-2",
+          "avg_score": 78.905,
+          "max_score": 92,
+          "student_num": 21,
+          "predicted_label": "statisticalCandidate",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2018-2019-2",
+          "avg_score": 85.543,
+          "max_score": 99,
+          "student_num": 3865,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-1",
+          "avg_score": 60,
+          "max_score": 60,
+          "student_num": 1,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 88.125,
+          "max_score": 100,
+          "student_num": 3892,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 87.439,
+          "max_score": 100,
+          "student_num": 3802,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 88.318,
+          "max_score": 99,
+          "student_num": 3884,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 86.53,
+          "max_score": 99,
+          "student_num": 3857,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 85.312,
+          "max_score": 98,
+          "student_num": 3723,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 86.138,
+          "max_score": 99,
+          "student_num": 3739,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+        "2017-2018-2"
+      ],
+      "manual_review_label": "mixed"
+    },
+    {
+      "course_id": 13913,
+      "course_name": "机械工程基础I",
+      "course_number": "100031152",
+      "teachers_name": "郭威佳",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2016-2017-1",
+          "avg_score": 75.149,
+          "max_score": 94,
+          "student_num": 175,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2016-2017-2",
+          "avg_score": 76.452,
+          "max_score": 91,
+          "student_num": 93,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2017-2018-1",
+          "avg_score": 76.866,
+          "max_score": 97,
+          "student_num": 253,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2017-2018-2",
+          "avg_score": 77.747,
+          "max_score": 100,
+          "student_num": 91,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-1",
+          "avg_score": 74.821,
+          "max_score": 93,
+          "student_num": 123,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-2",
+          "avg_score": 85.39,
+          "max_score": 100,
+          "student_num": 277,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-1",
+          "avg_score": 73.161,
+          "max_score": 100,
+          "student_num": 112,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 84.47,
+          "max_score": 100,
+          "student_num": 296,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 75.543,
+          "max_score": 100,
+          "student_num": 552,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 90.088,
+          "max_score": 100,
+          "student_num": 514,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 87.642,
+          "max_score": 100,
+          "student_num": 721,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 84.993,
+          "max_score": 99,
+          "student_num": 677,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 81.797,
+          "max_score": 98,
+          "student_num": 1194,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 6877,
+      "course_name": "智能机电系统应用工程实践",
+      "course_number": "100036336",
+      "teachers_name": "李忠新",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2021-2022-2",
+          "avg_score": 85.372,
+          "max_score": 94,
+          "student_num": 288,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 87.773,
+          "max_score": 98,
+          "student_num": 581,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 87.578,
+          "max_score": 97,
+          "student_num": 548,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 7252,
+      "course_name": "大学物理AⅠ",
+      "course_number": "100180111",
+      "teachers_name": "马杰",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2015-2016-2",
+          "avg_score": 56.333,
+          "max_score": 77,
+          "student_num": 21,
+          "predicted_label": "statisticalCandidate",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2016-2017-2",
+          "avg_score": 70.279,
+          "max_score": 99,
+          "student_num": 2723,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2017-2018-1",
+          "avg_score": 60,
+          "max_score": 60,
+          "student_num": 1,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2017-2018-2",
+          "avg_score": 76.826,
+          "max_score": 100,
+          "student_num": 2632,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-1",
+          "avg_score": 63.8,
+          "max_score": 86,
+          "student_num": 15,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2018-2019-2",
+          "avg_score": 69.89,
+          "max_score": 99,
+          "student_num": 2535,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-1",
+          "avg_score": 69.75,
+          "max_score": 91,
+          "student_num": 8,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 82.427,
+          "max_score": 100,
+          "student_num": 2684,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-1",
+          "avg_score": 95,
+          "max_score": 95,
+          "student_num": 2,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 74.037,
+          "max_score": 100,
+          "student_num": 2757,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 79.013,
+          "max_score": 100,
+          "student_num": 2741,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 73.75,
+          "max_score": 83,
+          "student_num": 4,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 76.055,
+          "max_score": 99,
+          "student_num": 2732,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 75.326,
+          "max_score": 100,
+          "student_num": 2555,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 60,
+          "max_score": 60,
+          "student_num": 1,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 76.504,
+          "max_score": 98,
+          "student_num": 2389,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+        "2015-2016-2"
+      ],
+      "manual_review_label": "mixed"
+    },
+    {
+      "course_id": 14285,
+      "course_name": "数学分析II",
+      "course_number": "100171019",
+      "teachers_name": "杨建伟,黄佳习",
+      "review_label": "statisticalCandidate",
+      "grades": [
+        {
+          "term": "2018-2019-2",
+          "avg_score": 70.728,
+          "max_score": 99,
+          "student_num": 974,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-1",
+          "avg_score": 60,
+          "max_score": 60,
+          "student_num": 2,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 75.686,
+          "max_score": 100,
+          "student_num": 889,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 73.604,
+          "max_score": 100,
+          "student_num": 1077,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 72.079,
+          "max_score": 100,
+          "student_num": 1044,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 72.523,
+          "max_score": 97,
+          "student_num": 1242,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 70.582,
+          "max_score": 98,
+          "student_num": 1178,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 60,
+          "max_score": 60,
+          "student_num": 1,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 65.69,
+          "max_score": 100,
+          "student_num": 1612,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "mixed"
+    },
+    {
+      "course_id": 9985,
+      "course_name": "习近平新时代中国特色社会主义思想概论",
+      "course_number": "100270030",
+      "teachers_name": "祝猛昌",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2020-2021-1",
+          "avg_score": 86,
+          "max_score": 86,
+          "student_num": 1,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 85.7,
+          "max_score": 99,
+          "student_num": 3912,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 60,
+          "max_score": 60,
+          "student_num": 18,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 85.65,
+          "max_score": 98,
+          "student_num": 3783,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 82.824,
+          "max_score": 100,
+          "student_num": 3746,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "mixed"
+    },
+    {
+      "course_id": 3504,
+      "course_name": "信号与系统A",
+      "course_number": "100025101",
+      "teachers_name": "张振海",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2017-2018-2",
+          "avg_score": 77.387,
+          "max_score": 98,
+          "student_num": 31,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-1",
+          "avg_score": 29.25,
+          "max_score": 60,
+          "student_num": 4,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2018-2019-2",
+          "avg_score": 86.233,
+          "max_score": 98,
+          "student_num": 30,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 85.742,
+          "max_score": 100,
+          "student_num": 132,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 76.429,
+          "max_score": 100,
+          "student_num": 21,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 82.886,
+          "max_score": 100,
+          "student_num": 35,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 85.854,
+          "max_score": 100,
+          "student_num": 41,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 88.928,
+          "max_score": 100,
+          "student_num": 69,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 79.828,
+          "max_score": 99,
+          "student_num": 64,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "mixed"
+    },
+    {
+      "course_id": 1884,
+      "course_name": "应用多元统计",
+      "course_number": "100171303",
+      "teachers_name": "王岩华",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2018-2019-1",
+          "avg_score": 93.819,
+          "max_score": 98,
+          "student_num": 83,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-1",
+          "avg_score": 87.849,
+          "max_score": 95,
+          "student_num": 93,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-1",
+          "avg_score": 91.591,
+          "max_score": 95,
+          "student_num": 66,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-1",
+          "avg_score": 91.333,
+          "max_score": 95,
+          "student_num": 90,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 91.56,
+          "max_score": 98,
+          "student_num": 50,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 89.667,
+          "max_score": 95,
+          "student_num": 75,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 90.25,
+          "max_score": 95,
+          "student_num": 40,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 14302,
+      "course_name": "微分流形",
+      "course_number": "100171125",
+      "teachers_name": "唐修棣",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2024-2025-2",
+          "avg_score": 78.192,
+          "max_score": 99,
+          "student_num": 26,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 4636,
+      "course_name": "偏微分方程数值解",
+      "course_number": "100171208",
+      "teachers_name": "季霞",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2018-2019-2",
+          "avg_score": 78.786,
+          "max_score": 99,
+          "student_num": 42,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 84.677,
+          "max_score": 98,
+          "student_num": 31,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 88.63,
+          "max_score": 100,
+          "student_num": 27,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 84.861,
+          "max_score": 100,
+          "student_num": 36,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 94.579,
+          "max_score": 100,
+          "student_num": 19,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 82.37,
+          "max_score": 98,
+          "student_num": 27,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 77.708,
+          "max_score": 97,
+          "student_num": 24,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 10895,
+      "course_name": "数学模型",
+      "course_number": "100171043",
+      "teachers_name": "王宏洲",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2023-2024-1",
+          "avg_score": 76.438,
+          "max_score": 87,
+          "student_num": 16,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 83.368,
+          "max_score": 92,
+          "student_num": 19,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 10650,
+      "course_name": "软件工程综合实践",
+      "course_number": "100083020",
+      "teachers_name": "陈朔鹰,王崇文",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2022-2023-1",
+          "avg_score": 85.714,
+          "max_score": 97,
+          "student_num": 126,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 86.412,
+          "max_score": 98,
+          "student_num": 119,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 85.908,
+          "max_score": 96,
+          "student_num": 109,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 12703,
+      "course_name": "C语言程序设计",
+      "course_number": "100070006",
+      "teachers_name": "史树敏",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2015-2016-2",
+          "avg_score": 70,
+          "max_score": 70,
+          "student_num": 1,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2016-2017-2",
+          "avg_score": 73.074,
+          "max_score": 100,
+          "student_num": 585,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2017-2018-2",
+          "avg_score": 74.314,
+          "max_score": 99,
+          "student_num": 560,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-1",
+          "avg_score": 87.629,
+          "max_score": 100,
+          "student_num": 35,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2018-2019-2",
+          "avg_score": 79.804,
+          "max_score": 96,
+          "student_num": 56,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2020-2021-1",
+          "avg_score": 82.877,
+          "max_score": 98,
+          "student_num": 122,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 73.598,
+          "max_score": 100,
+          "student_num": 1205,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 46.5,
+          "max_score": 60,
+          "student_num": 4,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 71.436,
+          "max_score": 100,
+          "student_num": 776,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 8,
+          "max_score": 8,
+          "student_num": 1,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 75.014,
+          "max_score": 100,
+          "student_num": 690,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 78.667,
+          "max_score": 100,
+          "student_num": 1178,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 76.657,
+          "max_score": 100,
+          "student_num": 770,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "mixed"
+    },
+    {
+      "course_id": 14768,
+      "course_name": "医学工程伦理：创新、风险与责任",
+      "course_number": "99901211",
+      "teachers_name": "辛怡",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2024-2025-2",
+          "avg_score": 96,
+          "max_score": 100,
+          "student_num": 8,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 8751,
+      "course_name": "体育_初级游泳",
+      "course_number": "100320056",
+      "teachers_name": "黄春雷",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2019-2020-1",
+          "avg_score": 87.881,
+          "max_score": 100,
+          "student_num": 227,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 90.399,
+          "max_score": 100,
+          "student_num": 271,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-1",
+          "avg_score": 88.231,
+          "max_score": 100,
+          "student_num": 316,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 89.701,
+          "max_score": 100,
+          "student_num": 361,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-1",
+          "avg_score": 87.386,
+          "max_score": 100,
+          "student_num": 485,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 90.674,
+          "max_score": 100,
+          "student_num": 794,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 89.046,
+          "max_score": 100,
+          "student_num": 659,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 87.99,
+          "max_score": 100,
+          "student_num": 607,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 89.218,
+          "max_score": 100,
+          "student_num": 376,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 89.87,
+          "max_score": 100,
+          "student_num": 529,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 14544,
+      "course_name": "中华优秀传统文化",
+      "course_number": "100270031",
+      "teachers_name": "孙利,郭丽萍,王文娟,安学勇",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2024-2025-2",
+          "avg_score": 86.357,
+          "max_score": 94,
+          "student_num": 207,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 9812,
+      "course_name": "民事诉讼法",
+      "course_number": "100230006",
+      "teachers_name": "周建华",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2020-2021-2",
+          "avg_score": 71.813,
+          "max_score": 91,
+          "student_num": 16,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 81.707,
+          "max_score": 96,
+          "student_num": 75,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 77.744,
+          "max_score": 90,
+          "student_num": 78,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 77.195,
+          "max_score": 93,
+          "student_num": 87,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 81.336,
+          "max_score": 97,
+          "student_num": 107,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 6053,
+      "course_name": "项目管理与经济决策",
+      "course_number": "100090004",
+      "teachers_name": "杨万荣",
+      "review_label": "statisticalCandidate",
+      "grades": [
+        {
+          "term": "2021-2022-1",
+          "avg_score": 88.183,
+          "max_score": 96,
+          "student_num": 153,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 87.339,
+          "max_score": 96,
+          "student_num": 186,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 85,
+          "max_score": 85,
+          "student_num": 1,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 87.994,
+          "max_score": 95,
+          "student_num": 162,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 90.184,
+          "max_score": 99,
+          "student_num": 158,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "mixed"
+    },
+    {
+      "course_id": 3151,
+      "course_name": "体育_拳击",
+      "course_number": "100320025",
+      "teachers_name": "黄春雷",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2017-2018-2",
+          "avg_score": 87.11,
+          "max_score": 98,
+          "student_num": 246,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-1",
+          "avg_score": 87.287,
+          "max_score": 94,
+          "student_num": 261,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-2",
+          "avg_score": 85.86,
+          "max_score": 96,
+          "student_num": 292,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-1",
+          "avg_score": 85.711,
+          "max_score": 96,
+          "student_num": 346,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 89.913,
+          "max_score": 99,
+          "student_num": 263,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-1",
+          "avg_score": 88.624,
+          "max_score": 99,
+          "student_num": 165,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 87.885,
+          "max_score": 100,
+          "student_num": 235,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-1",
+          "avg_score": 88.333,
+          "max_score": 100,
+          "student_num": 406,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 90.285,
+          "max_score": 100,
+          "student_num": 463,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 89.112,
+          "max_score": 100,
+          "student_num": 554,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 88.549,
+          "max_score": 100,
+          "student_num": 490,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 88.723,
+          "max_score": 100,
+          "student_num": 426,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 90.195,
+          "max_score": 100,
+          "student_num": 385,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 89.304,
+          "max_score": 100,
+          "student_num": 309,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 89.234,
+          "max_score": 100,
+          "student_num": 367,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 11836,
+      "course_name": "普通化学实验",
+      "course_number": "100191003",
+      "teachers_name": "赵娣",
+      "review_label": "statisticalCandidate",
+      "grades": [
+        {
+          "term": "2017-2018-2",
+          "avg_score": 61,
+          "max_score": 61,
+          "student_num": 1,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2018-2019-2",
+          "avg_score": 84.995,
+          "max_score": 96,
+          "student_num": 565,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 83.063,
+          "max_score": 97,
+          "student_num": 521,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 87.975,
+          "max_score": 98,
+          "student_num": 158,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-1",
+          "avg_score": 83.276,
+          "max_score": 97,
+          "student_num": 29,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 87.101,
+          "max_score": 98,
+          "student_num": 228,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 85.233,
+          "max_score": 94,
+          "student_num": 30,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 88.273,
+          "max_score": 98,
+          "student_num": 165,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 87.5,
+          "max_score": 98,
+          "student_num": 74,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 88.797,
+          "max_score": 99,
+          "student_num": 241,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 87.113,
+          "max_score": 96,
+          "student_num": 71,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 89.177,
+          "max_score": 98,
+          "student_num": 175,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "mixed"
+    },
+    {
+      "course_id": 5286,
+      "course_name": "大学英语（艺术班）IV",
+      "course_number": "100245404",
+      "teachers_name": "栗欣",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2017-2018-2",
+          "avg_score": 71.91,
+          "max_score": 95,
+          "student_num": 100,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-2",
+          "avg_score": 70.082,
+          "max_score": 95,
+          "student_num": 97,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 75.99,
+          "max_score": 92,
+          "student_num": 96,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 72.72,
+          "max_score": 95,
+          "student_num": 100,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 81.277,
+          "max_score": 96,
+          "student_num": 101,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 72.089,
+          "max_score": 92,
+          "student_num": 101,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 79.78,
+          "max_score": 98,
+          "student_num": 100,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 78.798,
+          "max_score": 96,
+          "student_num": 109,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 14834,
+      "course_name": "现代谱估计导论",
+      "course_number": "100055416",
+      "teachers_name": "徐友根",
+      "review_label": "statisticalCandidate",
+      "grades": [
+        {
+          "term": "2018-2019-2",
+          "avg_score": 92.85,
+          "max_score": 100,
+          "student_num": 20,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 95.64,
+          "max_score": 99,
+          "student_num": 25,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 90.656,
+          "max_score": 100,
+          "student_num": 32,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 93.438,
+          "max_score": 99,
+          "student_num": 16,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 100,
+          "max_score": 100,
+          "student_num": 1,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 86.857,
+          "max_score": 93,
+          "student_num": 7,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "mixed"
+    },
+    {
+      "course_id": 7709,
+      "course_name": "武器系统概论",
+      "course_number": "100022215",
+      "teachers_name": "李杰,杨成伟",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2021-2022-1",
+          "avg_score": 81.829,
+          "max_score": 97,
+          "student_num": 211,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 86.46,
+          "max_score": 98,
+          "student_num": 198,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 87.345,
+          "max_score": 99,
+          "student_num": 200,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 87.279,
+          "max_score": 99,
+          "student_num": 172,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 6396,
+      "course_name": "债权法",
+      "course_number": "100230008",
+      "teachers_name": "姜雪莲",
+      "review_label": "statisticalCandidate",
+      "grades": [
+        {
+          "term": "2016-2017-2",
+          "avg_score": 81.439,
+          "max_score": 97,
+          "student_num": 57,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-1",
+          "avg_score": 79.742,
+          "max_score": 97,
+          "student_num": 62,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-2",
+          "avg_score": 60,
+          "max_score": 60,
+          "student_num": 1,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2019-2020-1",
+          "avg_score": 81.985,
+          "max_score": 93,
+          "student_num": 68,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-1",
+          "avg_score": 79.066,
+          "max_score": 95,
+          "student_num": 61,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-1",
+          "avg_score": 71.6,
+          "max_score": 90,
+          "student_num": 70,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 79.627,
+          "max_score": 94,
+          "student_num": 102,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 83.282,
+          "max_score": 95,
+          "student_num": 78,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 83.394,
+          "max_score": 98,
+          "student_num": 99,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "mixed"
+    },
+    {
+      "course_id": 5046,
+      "course_name": "中西方传统文化",
+      "course_number": "99900609",
+      "teachers_name": "王颖",
+      "review_label": "statisticalCandidate",
+      "grades": [
+        {
+          "term": "2013-2014-1",
+          "avg_score": 89.013,
+          "max_score": 95,
+          "student_num": 79,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2014-2015-1",
+          "avg_score": 85.331,
+          "max_score": 94,
+          "student_num": 127,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2016-2017-2",
+          "avg_score": 83.974,
+          "max_score": 95,
+          "student_num": 76,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2017-2018-2",
+          "avg_score": 84.447,
+          "max_score": 91,
+          "student_num": 76,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-2",
+          "avg_score": 88.288,
+          "max_score": 95,
+          "student_num": 111,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 88.088,
+          "max_score": 92,
+          "student_num": 34,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 91,
+          "max_score": 91,
+          "student_num": 1,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2021-2022-1",
+          "avg_score": 87.475,
+          "max_score": 93,
+          "student_num": 80,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 87.949,
+          "max_score": 93,
+          "student_num": 99,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 87.816,
+          "max_score": 95,
+          "student_num": 76,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 88.818,
+          "max_score": 96,
+          "student_num": 66,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "mixed"
+    },
+    {
+      "course_id": 7599,
+      "course_name": "能源材料与二次电池",
+      "course_number": "99901639",
+      "teachers_name": "李博权,张学强",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2021-2022-2",
+          "avg_score": 95.667,
+          "max_score": 97,
+          "student_num": 3,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 89.474,
+          "max_score": 98,
+          "student_num": 19,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 94,
+          "max_score": 97,
+          "student_num": 2,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 91.333,
+          "max_score": 97,
+          "student_num": 12,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 93.692,
+          "max_score": 98,
+          "student_num": 13,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 91.286,
+          "max_score": 97,
+          "student_num": 14,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 93.273,
+          "max_score": 97,
+          "student_num": 11,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 7528,
+      "course_name": "毛泽东思想和中国特色社会主义理论体系概论",
+      "course_number": "100270022",
+      "teachers_name": "孙雪凡",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2015-2016-2",
+          "avg_score": 78.5,
+          "max_score": 80,
+          "student_num": 2,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2017-2018-2",
+          "avg_score": 78,
+          "max_score": 82,
+          "student_num": 3,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2018-2019-2",
+          "avg_score": 68.444,
+          "max_score": 91,
+          "student_num": 9,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 87.099,
+          "max_score": 99,
+          "student_num": 3827,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 84.122,
+          "max_score": 100,
+          "student_num": 3856,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 87.499,
+          "max_score": 100,
+          "student_num": 3831,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 86.012,
+          "max_score": 100,
+          "student_num": 4007,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 86.118,
+          "max_score": 98,
+          "student_num": 3639,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 86.845,
+          "max_score": 99,
+          "student_num": 3692,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "mixed"
+    },
+    {
+      "course_id": 8296,
+      "course_name": "数学分析I",
+      "course_number": "100171018",
+      "teachers_name": "吴瑞军",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2017-2018-1",
+          "avg_score": 66.5,
+          "max_score": 73,
+          "student_num": 2,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2018-2019-1",
+          "avg_score": 79.044,
+          "max_score": 99,
+          "student_num": 985,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-2",
+          "avg_score": 60,
+          "max_score": 60,
+          "student_num": 2,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2019-2020-1",
+          "avg_score": 76.596,
+          "max_score": 99,
+          "student_num": 891,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 65.333,
+          "max_score": 70,
+          "student_num": 3,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2020-2021-1",
+          "avg_score": 74.695,
+          "max_score": 100,
+          "student_num": 1168,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-1",
+          "avg_score": 79.531,
+          "max_score": 99,
+          "student_num": 1183,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 73.912,
+          "max_score": 99,
+          "student_num": 1325,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 60,
+          "max_score": 60,
+          "student_num": 2,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 69.619,
+          "max_score": 95,
+          "student_num": 1297,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 73.485,
+          "max_score": 95,
+          "student_num": 1673,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "mixed"
+    },
+    {
+      "course_id": 5914,
+      "course_name": "电子工艺实习",
+      "course_number": "100062206",
+      "teachers_name": "王波",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2021-2022-1",
+          "avg_score": 85.974,
+          "max_score": 95,
+          "student_num": 272,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 84.377,
+          "max_score": 95,
+          "student_num": 353,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 85.532,
+          "max_score": 97,
+          "student_num": 342,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 86.415,
+          "max_score": 94,
+          "student_num": 313,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 14436,
+      "course_name": "国际英语沟通",
+      "course_number": "100245211",
+      "teachers_name": "stetson shaunda lynn",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2024-2025-1",
+          "avg_score": 85.77,
+          "max_score": 98,
+          "student_num": 209,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 87.143,
+          "max_score": 98,
+          "student_num": 490,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 7713,
+      "course_name": "专业综合实验-工力-课程设计",
+      "course_number": "100023131",
+      "teachers_name": "武海军",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2022-2023-1",
+          "avg_score": 89.3,
+          "max_score": 93,
+          "student_num": 20,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 91.278,
+          "max_score": 94,
+          "student_num": 18,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 87.8,
+          "max_score": 94,
+          "student_num": 25,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 11070,
+      "course_name": "当代中国社会热点问题研究",
+      "course_number": "99911037",
+      "teachers_name": "郑佳然",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2023-2024-1",
+          "avg_score": 88.444,
+          "max_score": 95,
+          "student_num": 27,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 94,
+          "max_score": 98,
+          "student_num": 25,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 7365,
+      "course_name": "科幻文学",
+      "course_number": "99901622",
+      "teachers_name": "曲楠",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2021-2022-2",
+          "avg_score": 91.18,
+          "max_score": 99,
+          "student_num": 50,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 92.445,
+          "max_score": 98,
+          "student_num": 110,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 91.118,
+          "max_score": 99,
+          "student_num": 110,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 92.825,
+          "max_score": 99,
+          "student_num": 120,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 94.45,
+          "max_score": 100,
+          "student_num": 60,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 93.131,
+          "max_score": 100,
+          "student_num": 61,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 94.295,
+          "max_score": 100,
+          "student_num": 61,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 8505,
+      "course_name": "敢闯会创：大学生创新创业实务",
+      "course_number": "99911149",
+      "teachers_name": "张晨宇",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2022-2023-1",
+          "avg_score": 93.083,
+          "max_score": 96,
+          "student_num": 36,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 93.379,
+          "max_score": 96,
+          "student_num": 29,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 92.583,
+          "max_score": 96,
+          "student_num": 24,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 92.261,
+          "max_score": 96,
+          "student_num": 46,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 4975,
+      "course_name": "计算机和网络安全",
+      "course_number": "99901010",
+      "teachers_name": "杨德全,张剑",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2017-2018-2",
+          "avg_score": 77.097,
+          "max_score": 96,
+          "student_num": 31,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-2",
+          "avg_score": 86.903,
+          "max_score": 95,
+          "student_num": 31,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 86.276,
+          "max_score": 93,
+          "student_num": 29,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 90.067,
+          "max_score": 98,
+          "student_num": 30,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 94.708,
+          "max_score": 98,
+          "student_num": 24,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 89.5,
+          "max_score": 96,
+          "student_num": 14,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 90.889,
+          "max_score": 97,
+          "student_num": 9,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 92.391,
+          "max_score": 98,
+          "student_num": 46,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 11083,
+      "course_name": "数据法学",
+      "course_number": "100230081",
+      "teachers_name": "裴轶",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2023-2024-1",
+          "avg_score": 93.138,
+          "max_score": 99,
+          "student_num": 29,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 90.854,
+          "max_score": 100,
+          "student_num": 41,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 9266,
+      "course_name": "数字图像智能处理",
+      "course_number": "100055460",
+      "teachers_name": "王裕沛",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2022-2023-2",
+          "avg_score": 91.2,
+          "max_score": 99,
+          "student_num": 5,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 82.789,
+          "max_score": 97,
+          "student_num": 19,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 88.818,
+          "max_score": 98,
+          "student_num": 33,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 8789,
+      "course_name": "大学生心理素质发展",
+      "course_number": "100930005",
+      "teachers_name": "苏瑞锐",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2022-2023-1",
+          "avg_score": 89.494,
+          "max_score": 99,
+          "student_num": 3859,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 89.644,
+          "max_score": 100,
+          "student_num": 3728,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 60,
+          "max_score": 60,
+          "student_num": 2,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "mixed"
+    },
+    {
+      "course_id": 4011,
+      "course_name": "移动通信",
+      "course_number": "100057407",
+      "teachers_name": "张万成",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2018-2019-2",
+          "avg_score": 78.466,
+          "max_score": 98,
+          "student_num": 58,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 90.901,
+          "max_score": 99,
+          "student_num": 71,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 89.051,
+          "max_score": 98,
+          "student_num": 39,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 91.514,
+          "max_score": 98,
+          "student_num": 35,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 91.75,
+          "max_score": 99,
+          "student_num": 4,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 82.821,
+          "max_score": 98,
+          "student_num": 39,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 81.8,
+          "max_score": 100,
+          "student_num": 20,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "mixed"
+    },
+    {
+      "course_id": 14029,
+      "course_name": "FPGA数字系统设计",
+      "course_number": "100055474",
+      "teachers_name": "谢宜壮",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2024-2025-2",
+          "avg_score": 99,
+          "max_score": 100,
+          "student_num": 36,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 2482,
+      "course_name": "舞台与影视表演艺术",
+      "course_number": "99900998",
+      "teachers_name": "余凤霞",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2017-2018-2",
+          "avg_score": 94.346,
+          "max_score": 98,
+          "student_num": 26,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-1",
+          "avg_score": 92.357,
+          "max_score": 95,
+          "student_num": 14,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-2",
+          "avg_score": 95.2,
+          "max_score": 98,
+          "student_num": 15,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-1",
+          "avg_score": 96.773,
+          "max_score": 98,
+          "student_num": 22,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-1",
+          "avg_score": 94.219,
+          "max_score": 98,
+          "student_num": 32,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 94.533,
+          "max_score": 98,
+          "student_num": 30,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-1",
+          "avg_score": 93.194,
+          "max_score": 97,
+          "student_num": 31,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 95.105,
+          "max_score": 98,
+          "student_num": 19,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 94.889,
+          "max_score": 97,
+          "student_num": 18,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 94.944,
+          "max_score": 97,
+          "student_num": 18,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 95.375,
+          "max_score": 96,
+          "student_num": 16,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 92.889,
+          "max_score": 96,
+          "student_num": 18,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 92.278,
+          "max_score": 94,
+          "student_num": 18,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 93.105,
+          "max_score": 96,
+          "student_num": 19,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 3376,
+      "course_name": "CAE技术基础",
+      "course_number": "100016032",
+      "teachers_name": "贺媛媛",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2018-2019-2",
+          "avg_score": 88.058,
+          "max_score": 97,
+          "student_num": 52,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 88.884,
+          "max_score": 96,
+          "student_num": 43,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 92.529,
+          "max_score": 97,
+          "student_num": 17,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 85,
+          "max_score": 93,
+          "student_num": 2,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 91.286,
+          "max_score": 95,
+          "student_num": 7,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 84.818,
+          "max_score": 98,
+          "student_num": 11,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "mixed"
+    },
+    {
+      "course_id": 2345,
+      "course_name": "日本经济问题研究",
+      "course_number": "99901464",
+      "teachers_name": "朱然",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2020-2021-1",
+          "avg_score": 95.519,
+          "max_score": 98,
+          "student_num": 27,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 97.026,
+          "max_score": 99,
+          "student_num": 39,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-1",
+          "avg_score": 94.3,
+          "max_score": 98,
+          "student_num": 20,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 95.829,
+          "max_score": 99,
+          "student_num": 41,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 95.682,
+          "max_score": 99,
+          "student_num": 44,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 95.273,
+          "max_score": 99,
+          "student_num": 99,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 89.025,
+          "max_score": 99,
+          "student_num": 81,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 753,
+      "course_name": "精密机械课程设计",
+      "course_number": "100041062",
+      "teachers_name": "王冬晓",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2019-2020-1",
+          "avg_score": 81.442,
+          "max_score": 95,
+          "student_num": 52,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-1",
+          "avg_score": 82.265,
+          "max_score": 100,
+          "student_num": 49,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-1",
+          "avg_score": 84.615,
+          "max_score": 99,
+          "student_num": 39,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 84.895,
+          "max_score": 100,
+          "student_num": 38,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 91.556,
+          "max_score": 100,
+          "student_num": 63,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 91.113,
+          "max_score": 100,
+          "student_num": 53,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 8945,
+      "course_name": "飞行控制系统的原型系统技术A",
+      "course_number": "100015024",
+      "teachers_name": "贺云涛",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2018-2019-1",
+          "avg_score": 86.727,
+          "max_score": 92,
+          "student_num": 22,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-2",
+          "avg_score": 86.706,
+          "max_score": 95,
+          "student_num": 68,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 78.955,
+          "max_score": 92,
+          "student_num": 67,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-1",
+          "avg_score": 86.48,
+          "max_score": 90,
+          "student_num": 25,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 84.121,
+          "max_score": 95,
+          "student_num": 33,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-1",
+          "avg_score": 86.667,
+          "max_score": 91,
+          "student_num": 12,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 80.283,
+          "max_score": 98,
+          "student_num": 53,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 95.1,
+          "max_score": 100,
+          "student_num": 30,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 90.758,
+          "max_score": 97,
+          "student_num": 33,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 91.692,
+          "max_score": 97,
+          "student_num": 26,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "mixed"
+    },
+    {
+      "course_id": 15622,
+      "course_name": "物权法",
+      "course_number": "100230007",
+      "teachers_name": "吴光荣",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2016-2017-2",
+          "avg_score": 77.138,
+          "max_score": 96,
+          "student_num": 58,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-1",
+          "avg_score": 77.683,
+          "max_score": 96,
+          "student_num": 63,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-1",
+          "avg_score": 80.265,
+          "max_score": 96,
+          "student_num": 68,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-1",
+          "avg_score": 85.15,
+          "max_score": 96,
+          "student_num": 60,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-1",
+          "avg_score": 79.732,
+          "max_score": 96,
+          "student_num": 71,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 85.51,
+          "max_score": 96,
+          "student_num": 102,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 80.667,
+          "max_score": 94,
+          "student_num": 84,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 82.609,
+          "max_score": 96,
+          "student_num": 92,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 10863,
+      "course_name": "机器学习与人工智能",
+      "course_number": "100160220",
+      "teachers_name": "郭晋",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2018-2019-1",
+          "avg_score": 86.4,
+          "max_score": 94,
+          "student_num": 15,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-1",
+          "avg_score": 86.723,
+          "max_score": 98,
+          "student_num": 47,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-1",
+          "avg_score": 83.618,
+          "max_score": 97,
+          "student_num": 34,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-1",
+          "avg_score": 77.698,
+          "max_score": 98,
+          "student_num": 43,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 84.767,
+          "max_score": 98,
+          "student_num": 43,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 80.158,
+          "max_score": 98,
+          "student_num": 38,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 7411,
+      "course_name": "跨文化口语交际II",
+      "course_number": "100241135",
+      "teachers_name": "TASKINEN JESSICACOLLEEN",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2020-2021-2",
+          "avg_score": 86.129,
+          "max_score": 96,
+          "student_num": 31,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 85.038,
+          "max_score": 91,
+          "student_num": 26,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 84.667,
+          "max_score": 93,
+          "student_num": 36,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 85.419,
+          "max_score": 95,
+          "student_num": 43,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 8537,
+      "course_name": "数字时代的女性权益保护",
+      "course_number": "99911136",
+      "teachers_name": "裴轶",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2022-2023-1",
+          "avg_score": 87.402,
+          "max_score": 99,
+          "student_num": 97,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 94.072,
+          "max_score": 100,
+          "student_num": 111,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 96.355,
+          "max_score": 100,
+          "student_num": 124,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 4695,
+      "course_name": "数学实验",
+      "course_number": "99900276",
+      "teachers_name": "王宏洲",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2006-2007-1",
+          "avg_score": 75.787,
+          "max_score": 95,
+          "student_num": 61,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2007-2008-1",
+          "avg_score": 88.653,
+          "max_score": 97,
+          "student_num": 75,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2008-2009-1",
+          "avg_score": 82.675,
+          "max_score": 99,
+          "student_num": 40,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2009-2010-1",
+          "avg_score": 92.553,
+          "max_score": 100,
+          "student_num": 38,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2012-2013-2",
+          "avg_score": 82.413,
+          "max_score": 99,
+          "student_num": 63,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2013-2014-1",
+          "avg_score": 83.846,
+          "max_score": 93,
+          "student_num": 39,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2014-2015-1",
+          "avg_score": 82.733,
+          "max_score": 97,
+          "student_num": 45,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2015-2016-2",
+          "avg_score": 88.088,
+          "max_score": 94,
+          "student_num": 34,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2016-2017-2",
+          "avg_score": 81.787,
+          "max_score": 97,
+          "student_num": 155,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2017-2018-1",
+          "avg_score": 89.829,
+          "max_score": 97,
+          "student_num": 35,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2017-2018-2",
+          "avg_score": 84.964,
+          "max_score": 98,
+          "student_num": 139,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-1",
+          "avg_score": 80.543,
+          "max_score": 97,
+          "student_num": 35,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-2",
+          "avg_score": 82.966,
+          "max_score": 95,
+          "student_num": 58,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 84.904,
+          "max_score": 100,
+          "student_num": 157,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-1",
+          "avg_score": 86.286,
+          "max_score": 99,
+          "student_num": 175,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 86.673,
+          "max_score": 100,
+          "student_num": 208,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-1",
+          "avg_score": 83.667,
+          "max_score": 99,
+          "student_num": 198,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 83.071,
+          "max_score": 99,
+          "student_num": 98,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 85.338,
+          "max_score": 99,
+          "student_num": 74,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 85.48,
+          "max_score": 97,
+          "student_num": 50,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 85.845,
+          "max_score": 100,
+          "student_num": 110,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 88.487,
+          "max_score": 99,
+          "student_num": 39,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 87.818,
+          "max_score": 97,
+          "student_num": 22,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 79.776,
+          "max_score": 99,
+          "student_num": 76,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 9752,
+      "course_name": "金融学概论",
+      "course_number": "99911181",
+      "teachers_name": "马明",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2022-2023-2",
+          "avg_score": 92.957,
+          "max_score": 98,
+          "student_num": 23,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 91.554,
+          "max_score": 98,
+          "student_num": 56,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 93.24,
+          "max_score": 99,
+          "student_num": 179,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 89.757,
+          "max_score": 99,
+          "student_num": 226,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 2983,
+      "course_name": "古都与文化",
+      "course_number": "99901227",
+      "teachers_name": "张祖群",
+      "review_label": "statisticalCandidate",
+      "grades": [
+        {
+          "term": "2018-2019-2",
+          "avg_score": 94.211,
+          "max_score": 99,
+          "student_num": 19,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-1",
+          "avg_score": 95.034,
+          "max_score": 99,
+          "student_num": 29,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 94.938,
+          "max_score": 98,
+          "student_num": 16,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-1",
+          "avg_score": 97,
+          "max_score": 98,
+          "student_num": 4,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 94.2,
+          "max_score": 96,
+          "student_num": 60,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-1",
+          "avg_score": 96.034,
+          "max_score": 99,
+          "student_num": 58,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 95.271,
+          "max_score": 99,
+          "student_num": 59,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 94.825,
+          "max_score": 99,
+          "student_num": 63,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 94.846,
+          "max_score": 98,
+          "student_num": 65,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 96.538,
+          "max_score": 99,
+          "student_num": 78,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 95.842,
+          "max_score": 99,
+          "student_num": 76,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 94.894,
+          "max_score": 99,
+          "student_num": 47,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 94.408,
+          "max_score": 99,
+          "student_num": 49,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "mixed"
+    },
+    {
+      "course_id": 7585,
+      "course_name": "力学超构材料概论",
+      "course_number": "99911069",
+      "teachers_name": "董浩文",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2021-2022-2",
+          "avg_score": 100,
+          "max_score": 100,
+          "student_num": 1,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 95.25,
+          "max_score": 99,
+          "student_num": 4,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 98.857,
+          "max_score": 100,
+          "student_num": 7,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 85.4,
+          "max_score": 98,
+          "student_num": 10,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 6380,
+      "course_name": "20世纪西方音乐（网络课堂）",
+      "course_number": "99901510",
+      "teachers_name": "刘畅",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2020-2021-1",
+          "avg_score": 81.837,
+          "max_score": 100,
+          "student_num": 86,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 84.648,
+          "max_score": 100,
+          "student_num": 71,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-1",
+          "avg_score": 87.823,
+          "max_score": 100,
+          "student_num": 113,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 3528,
+      "course_name": "微系统设计与制造（全英文）",
+      "course_number": "101027103",
+      "teachers_name": "冯跃",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2018-2019-2",
+          "avg_score": 84.842,
+          "max_score": 95,
+          "student_num": 19,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 85.515,
+          "max_score": 91,
+          "student_num": 33,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 77.75,
+          "max_score": 93,
+          "student_num": 28,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 84.818,
+          "max_score": 93,
+          "student_num": 22,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 86.25,
+          "max_score": 99,
+          "student_num": 24,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 83.636,
+          "max_score": 93,
+          "student_num": 22,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 83.765,
+          "max_score": 94,
+          "student_num": 17,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 3140,
+      "course_name": "体育_乒乓球",
+      "course_number": "100320014",
+      "teachers_name": "陈鲜阳",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2017-2018-2",
+          "avg_score": 85.288,
+          "max_score": 100,
+          "student_num": 531,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-1",
+          "avg_score": 84.827,
+          "max_score": 100,
+          "student_num": 307,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-2",
+          "avg_score": 83.394,
+          "max_score": 100,
+          "student_num": 528,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-1",
+          "avg_score": 84.581,
+          "max_score": 100,
+          "student_num": 489,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 90.493,
+          "max_score": 100,
+          "student_num": 335,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-1",
+          "avg_score": 83.333,
+          "max_score": 99,
+          "student_num": 366,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 85.169,
+          "max_score": 100,
+          "student_num": 343,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-1",
+          "avg_score": 84.258,
+          "max_score": 100,
+          "student_num": 302,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 88.336,
+          "max_score": 100,
+          "student_num": 217,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 85.761,
+          "max_score": 100,
+          "student_num": 490,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 83.059,
+          "max_score": 100,
+          "student_num": 444,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 84.932,
+          "max_score": 100,
+          "student_num": 324,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 84.498,
+          "max_score": 100,
+          "student_num": 209,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 85.63,
+          "max_score": 100,
+          "student_num": 181,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 85.083,
+          "max_score": 99,
+          "student_num": 108,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 15866,
+      "course_name": "体育_跆拳道",
+      "course_number": "100320023",
+      "teachers_name": "彭龙烨",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2017-2018-2",
+          "avg_score": 89.289,
+          "max_score": 100,
+          "student_num": 83,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-1",
+          "avg_score": 88.93,
+          "max_score": 96,
+          "student_num": 86,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-2",
+          "avg_score": 89.365,
+          "max_score": 100,
+          "student_num": 85,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-1",
+          "avg_score": 90.745,
+          "max_score": 99,
+          "student_num": 47,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 89.824,
+          "max_score": 95,
+          "student_num": 68,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-1",
+          "avg_score": 87.938,
+          "max_score": 95,
+          "student_num": 65,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 89.552,
+          "max_score": 100,
+          "student_num": 67,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-1",
+          "avg_score": 86.632,
+          "max_score": 99,
+          "student_num": 68,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 89.125,
+          "max_score": 100,
+          "student_num": 64,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 85.323,
+          "max_score": 95,
+          "student_num": 31,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 87.667,
+          "max_score": 100,
+          "student_num": 36,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 85.532,
+          "max_score": 96,
+          "student_num": 62,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 84.281,
+          "max_score": 93,
+          "student_num": 32,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 86.5,
+          "max_score": 98,
+          "student_num": 30,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 12658,
+      "course_name": "电路与模拟电子技术",
+      "course_number": "100062113",
+      "teachers_name": "江泽民",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2023-2024-1",
+          "avg_score": 68.904,
+          "max_score": 98,
+          "student_num": 156,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 60,
+          "max_score": 60,
+          "student_num": 1,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 69.351,
+          "max_score": 97,
+          "student_num": 208,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 60,
+          "max_score": 60,
+          "student_num": 1,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "mixed"
+    },
+    {
+      "course_id": 2614,
+      "course_name": "国际谈判与争议解决",
+      "course_number": "99901381",
+      "teachers_name": "魏求月",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2019-2020-1",
+          "avg_score": 95.5,
+          "max_score": 98,
+          "student_num": 2,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 94.75,
+          "max_score": 99,
+          "student_num": 12,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-1",
+          "avg_score": 92.429,
+          "max_score": 96,
+          "student_num": 7,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 94,
+          "max_score": 98,
+          "student_num": 10,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-1",
+          "avg_score": 95.091,
+          "max_score": 96,
+          "student_num": 11,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 93.714,
+          "max_score": 95,
+          "student_num": 7,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 94.375,
+          "max_score": 98,
+          "student_num": 16,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 92.19,
+          "max_score": 99,
+          "student_num": 42,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 93.667,
+          "max_score": 99,
+          "student_num": 21,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 93.214,
+          "max_score": 97,
+          "student_num": 14,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 94.273,
+          "max_score": 98,
+          "student_num": 11,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 7672,
+      "course_name": "绿色能源飞行器总体设计",
+      "course_number": "99900816",
+      "teachers_name": "张晓辉",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2016-2017-1",
+          "avg_score": 85.367,
+          "max_score": 95,
+          "student_num": 30,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2017-2018-1",
+          "avg_score": 87.5,
+          "max_score": 93,
+          "student_num": 30,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-1",
+          "avg_score": 88.29,
+          "max_score": 94,
+          "student_num": 31,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 90,
+          "max_score": 94,
+          "student_num": 19,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 92.294,
+          "max_score": 96,
+          "student_num": 17,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 93.333,
+          "max_score": 100,
+          "student_num": 18,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-1",
+          "avg_score": 92.55,
+          "max_score": 98,
+          "student_num": 20,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 89.105,
+          "max_score": 93,
+          "student_num": 19,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-1",
+          "avg_score": 91.5,
+          "max_score": 99,
+          "student_num": 18,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 95,
+          "max_score": 96,
+          "student_num": 2,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2024-2025-1",
+          "avg_score": 94.889,
+          "max_score": 100,
+          "student_num": 18,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 90.211,
+          "max_score": 100,
+          "student_num": 19,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "mixed"
+    },
+    {
+      "course_id": 9280,
+      "course_name": "嵌入式系统原理与应用",
+      "course_number": "103051318",
+      "teachers_name": "李海",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2022-2023-2",
+          "avg_score": 89.23,
+          "max_score": 99,
+          "student_num": 61,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 89.16,
+          "max_score": 100,
+          "student_num": 75,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 90.337,
+          "max_score": 98,
+          "student_num": 98,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    },
+    {
+      "course_id": 14100,
+      "course_name": "机器学习初步",
+      "course_number": "100074302",
+      "teachers_name": "礼欣",
+      "review_label": "statisticalCandidate",
+      "grades": [
+        {
+          "term": "2018-2019-2",
+          "avg_score": 82.435,
+          "max_score": 92,
+          "student_num": 46,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-1",
+          "avg_score": 60,
+          "max_score": 60,
+          "student_num": 1,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_makeup"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 86.588,
+          "max_score": 98,
+          "student_num": 80,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 81.431,
+          "max_score": 95,
+          "student_num": 202,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 84.136,
+          "max_score": 98,
+          "student_num": 302,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 82.829,
+          "max_score": 98,
+          "student_num": 76,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 85.718,
+          "max_score": 97,
+          "student_num": 71,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 85.222,
+          "max_score": 98,
+          "student_num": 135,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "mixed"
+    },
+    {
+      "course_id": 4280,
+      "course_name": "网络与通信",
+      "course_number": "100074408",
+      "teachers_name": "李凡",
+      "review_label": "keptVisible",
+      "grades": [
+        {
+          "term": "2017-2018-2",
+          "avg_score": 79.58,
+          "max_score": 99,
+          "student_num": 119,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2018-2019-2",
+          "avg_score": 83.782,
+          "max_score": 99,
+          "student_num": 124,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2019-2020-2",
+          "avg_score": 84.181,
+          "max_score": 98,
+          "student_num": 160,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2020-2021-2",
+          "avg_score": 80.833,
+          "max_score": 94,
+          "student_num": 204,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2021-2022-2",
+          "avg_score": 80.933,
+          "max_score": 97,
+          "student_num": 163,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2022-2023-2",
+          "avg_score": 81.5,
+          "max_score": 99,
+          "student_num": 130,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2023-2024-2",
+          "avg_score": 85.325,
+          "max_score": 100,
+          "student_num": 123,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        },
+        {
+          "term": "2024-2025-2",
+          "avg_score": 86.302,
+          "max_score": 98,
+          "student_num": 96,
+          "predicted_label": "keptVisible",
+          "manual_label": "likely_formal"
+        }
+      ],
+      "predicted_hidden_terms": [
+
+      ],
+      "manual_review_label": "likely_formal"
+    }
+  ],
+  "algorithm_version": "log10_tukey_outer_3_iqr_avg_q1_keep_gt_20",
+  "manual_label_method": "四组 Luna xhigh agent 盲化复核；用户决定将 uncertain 初始归入 likely_makeup；网页支持逐条修复",
+  "manual_label_counts": {
+    "likely_formal": 481,
+    "uncertain": 0,
+    "likely_makeup": 56
+  },
+  "algorithm_label_method": "student_num ≤ 20 保持展示；其余数据使用 log10 人数单侧 Tukey 3×IQR，并要求平均分低于同组 Q1"
+}

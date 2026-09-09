@@ -2,6 +2,125 @@ import Foundation
 import Testing
 @testable import BIT101_iOS
 
+private final class CourseHistoryAuditFixtureBundleMarker: NSObject {}
+
+@Suite("Course history makeup policy")
+struct CourseHistoryMakeupPolicyTests {
+    @Test("Reviewed course history fixture drives the recorded prediction")
+    func reviewedFixture() throws {
+        let fixture = try loadFixture()
+
+        #expect(fixture.schemaVersion == 2)
+        if fixture.algorithmVersion != "log10_tukey_outer_3_iqr_avg_q1_keep_gt_20" {
+            Issue.record("算法版本：\(fixture.algorithmVersion)")
+        }
+        #expect(fixture.algorithmVersion == "log10_tukey_outer_3_iqr_avg_q1_keep_gt_20")
+        #expect(fixture.sampledCourseCount == fixture.courses.count)
+        #expect(fixture.sampledGradeCount == fixture.courses.reduce(0) { $0 + $1.grades.count })
+        #expect(fixture.manualLabelCounts["likely_formal"] == 481)
+        #expect(fixture.manualLabelCounts["likely_makeup"] == 56)
+        #expect(fixture.manualLabelCounts["uncertain"] == 0)
+
+        for course in fixture.courses {
+            let grades = course.grades.map(\.courseHistoryGrade)
+            let predictedTerms = CourseHistoryMakeupPolicy.hiddenTerms(in: grades)
+            if predictedTerms != course.predictedHiddenTerms {
+                Issue.record("\(course.courseNumber) 预测：\(predictedTerms) fixture：\(course.predictedHiddenTerms)")
+            }
+            #expect(predictedTerms == course.predictedHiddenTerms)
+
+            let manualLabels = Set(course.grades.map(\.manualLabel))
+            let expectedCourseLabel = manualLabels.count == 1 ? (manualLabels.first ?? "mixed") : "mixed"
+            if course.manualReviewLabel != expectedCourseLabel {
+                Issue.record("\(course.courseNumber) 人工课程标签：\(course.manualReviewLabel) 计算：\(expectedCourseLabel)")
+            }
+            #expect(course.manualReviewLabel == expectedCourseLabel)
+            for grade in course.grades {
+                let expectedPredictedLabel = course.predictedHiddenTerms.contains(grade.term)
+                    ? "statisticalCandidate"
+                    : "keptVisible"
+                #expect(grade.predictedLabel == expectedPredictedLabel)
+                #expect(["likely_formal", "likely_makeup", "uncertain"].contains(grade.manualLabel))
+            }
+        }
+
+        let target = try #require(fixture.courses.first { $0.courseID == 10026 })
+        #expect(target.predictedHiddenTerms.isEmpty)
+        #expect(target.manualReviewLabel == "likely_formal")
+    }
+
+    @Test("A moderately smaller official term stays visible")
+    func keepsFormalSmallTerm() {
+        let grades = [
+            grade(term: "2017-2018-2", studentNum: 82),
+            grade(term: "2018-2019-1", studentNum: 87),
+            grade(term: "2018-2019-2", studentNum: 85),
+            grade(term: "2019-2020-1", studentNum: 48),
+            grade(term: "2019-2020-2", studentNum: 68),
+            grade(term: "2020-2021-1", studentNum: 258),
+            grade(term: "2020-2021-2", studentNum: 202),
+            grade(term: "2021-2022-1", studentNum: 206),
+            grade(term: "2021-2022-2", studentNum: 162),
+            grade(term: "2022-2023-1", studentNum: 129),
+            grade(term: "2022-2023-2", studentNum: 242),
+            grade(term: "2023-2024-1", studentNum: 231),
+            grade(term: "2023-2024-2", studentNum: 230),
+            grade(term: "2024-2025-1", studentNum: 99),
+            grade(term: "2024-2025-2", studentNum: 91)
+        ]
+
+        #expect(CourseHistoryMakeupPolicy.hiddenTerms(in: grades).isEmpty)
+    }
+
+    @Test("A separated low sample can be marked as a statistical candidate")
+    func marksSeparatedLowSample() {
+        let grades = [
+            CourseHistoryGrade(term: "2021-2022-1", avgScore: 85, maxScore: 100, studentNum: 200),
+            grade(term: "2021-2022-2", studentNum: 210),
+            grade(term: "2022-2023-1", studentNum: 205),
+            grade(term: "2022-2023-2", studentNum: 215),
+            CourseHistoryGrade(term: "2023-2024-1", avgScore: 60, maxScore: 70, studentNum: 21)
+        ]
+
+        #expect(CourseHistoryMakeupPolicy.hiddenTerms(in: grades) == Set(["2023-2024-1"]))
+    }
+
+    @Test("A count at or below 20 stays visible inside a large course")
+    func preservesSmallCount() {
+        let grades = [
+            grade(term: "2021-2022-1", studentNum: 20),
+            grade(term: "2021-2022-2", studentNum: 200),
+            grade(term: "2022-2023-1", studentNum: 205),
+            grade(term: "2022-2023-2", studentNum: 210)
+        ]
+
+        #expect(!CourseHistoryMakeupPolicy.hiddenTerms(in: grades).contains("2021-2022-1"))
+    }
+
+    @Test("A small course stays fully visible")
+    func evaluatesSmallCourseDistribution() {
+        let grades = [
+            grade(term: "2022-2023-1", studentNum: 2),
+            grade(term: "2022-2023-2", studentNum: 3),
+            grade(term: "2023-2024-1", studentNum: 4),
+            grade(term: "2023-2024-2", studentNum: 3)
+        ]
+
+        #expect(CourseHistoryMakeupPolicy.hiddenTerms(in: grades).isEmpty)
+    }
+
+    private func grade(term: String, studentNum: Int) -> CourseHistoryGrade {
+        CourseHistoryGrade(term: term, avgScore: 85, maxScore: 100, studentNum: studentNum)
+    }
+
+    private func loadFixture() throws -> CourseHistoryAuditFixture {
+        let bundle = Bundle(for: CourseHistoryAuditFixtureBundleMarker.self)
+        let url = try #require(bundle.url(forResource: "CourseHistoryAuditFixture", withExtension: "json"))
+        let data = try Data(contentsOf: url)
+        return try JSONDecoder().decode(CourseHistoryAuditFixture.self, from: data)
+    }
+}
+
 @Suite("Schedule cache migration and reconciliation")
 struct ScheduleCacheMigrationTests {
     private struct LegacyCache: Encodable {

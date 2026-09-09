@@ -11,7 +11,7 @@ struct CourseHistoryGradesSheet: View {
     let onRetry: () async -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var hidesMakeupOutliers = true
+    @ObservedObject private var appSettings = AppSettingsStore.shared
 
     var body: some View {
         NavigationStack {
@@ -44,7 +44,7 @@ struct CourseHistoryGradesSheet: View {
                             Section {
                                 CourseHistoryGradesChart(
                                     grades: grades,
-                                    hidesMakeupOutliers: hidesMakeupOutliers
+                                    hidesMakeupOutliers: appSettings.hidesCourseHistoryMakeupOutliers
                                 )
                                     .listRowInsets(EdgeInsets(
                                         top: AppDesignSystem.Spacing.container,
@@ -55,8 +55,11 @@ struct CourseHistoryGradesSheet: View {
                             }
 
                             Section {
-                                Toggle("智能屏蔽补考学期", isOn: $hidesMakeupOutliers)
-                                    .appSelectionFeedback(trigger: hidesMakeupOutliers)
+                                Toggle("隐藏疑似补考学期", isOn: Binding(
+                                    get: { appSettings.hidesCourseHistoryMakeupOutliers },
+                                    set: appSettings.setHidesCourseHistoryMakeupOutliers
+                                ))
+                                    .appSelectionFeedback(trigger: appSettings.hidesCourseHistoryMakeupOutliers)
                             }
 
                             Section {
@@ -95,7 +98,7 @@ private struct CourseHistoryGradesChart: View {
 
     private var chartGrades: [CourseHistoryGrade] {
         guard hidesMakeupOutliers else { return sortedGrades }
-        let hiddenTerms = makeupOutlierTerms(in: sortedGrades)
+        let hiddenTerms = CourseHistoryMakeupPolicy.hiddenTerms(in: sortedGrades)
         return sortedGrades.filter { !hiddenTerms.contains($0.term) }
     }
 
@@ -155,7 +158,7 @@ private struct CourseHistoryGradesChart: View {
     }
 
     private var hiddenMakeupOutlierCount: Int {
-        hidesMakeupOutliers ? makeupOutlierTerms(in: sortedGrades).count : 0
+        hidesMakeupOutliers ? CourseHistoryMakeupPolicy.hiddenTerms(in: sortedGrades).count : 0
     }
 
     var body: some View {
@@ -213,7 +216,7 @@ private struct CourseHistoryGradesChart: View {
             }
 
             if hiddenMakeupOutlierCount > 0 {
-                Text("已从图表中屏蔽 \(hiddenMakeupOutlierCount) 个疑似补考学期。")
+                Text("已从图表中隐藏 \(hiddenMakeupOutlierCount) 个疑似补考学期。")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -236,40 +239,6 @@ private struct CourseHistoryGradesChart: View {
         return String(yearPrefix.suffix(2))
     }
 
-    /// 用学习人数筛出疑似补考学期。
-    ///
-    /// 至少有 3 个有效学习人数且上四分位数不低于 8 时，低于 max(3, Q3 × 0.25) 的学期会被视为异常值。
-    private func makeupOutlierTerms(in grades: [CourseHistoryGrade]) -> Set<String> {
-        let samples = grades.compactMap { grade -> (term: String, count: Int)? in
-            guard let count = grade.studentNum, count > 0 else { return nil }
-            return (grade.term, count)
-        }
-        guard samples.count >= 3 else { return [] }
-
-        let counts = samples.map(\.count).sorted()
-        let q3 = percentile(0.75, values: counts)
-        guard q3 >= 8 else { return [] }
-        let lowerFence = max(3, q3 * 0.25)
-
-        return Set(samples.compactMap { sample in
-            Double(sample.count) < lowerFence ? sample.term : nil
-        })
-    }
-
-    private func percentile(_ percentile: Double, values: [Int]) -> Double {
-        guard !values.isEmpty else { return 0 }
-        guard values.count > 1 else { return Double(values[0]) }
-
-        let position = percentile * Double(values.count - 1)
-        let lowerIndex = Int(floor(position))
-        let upperIndex = Int(ceil(position))
-        guard lowerIndex != upperIndex else {
-            return Double(values[lowerIndex])
-        }
-
-        let weight = position - Double(lowerIndex)
-        return Double(values[lowerIndex]) * (1 - weight) + Double(values[upperIndex]) * weight
-    }
 }
 
 private struct CourseHistoryGradeChartPoint: Identifiable {

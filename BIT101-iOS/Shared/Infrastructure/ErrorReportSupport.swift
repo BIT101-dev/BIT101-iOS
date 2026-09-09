@@ -354,6 +354,7 @@ private struct AppErrorPresentation: Identifiable {
     let message: String
     let allowsDiagnostics: Bool
     let schoolServiceURL: URL?
+    let shouldOpenSettings: Bool
 
     var allowsSchoolServiceLink: Bool { allowsDiagnostics && schoolServiceURL != nil }
 
@@ -401,7 +402,8 @@ final class AppErrorPresenter {
                 title: alert.title,
                 message: alert.message,
                 allowsDiagnostics: alert.allowsDiagnostics,
-                schoolServiceURL: schoolServiceURL
+                schoolServiceURL: schoolServiceURL,
+                shouldOpenSettings: (alert as? ScheduleNotice)?.shouldOpenSettings ?? false
             ))
             presentNextIfPossible()
         }
@@ -422,6 +424,18 @@ final class AppErrorPresenter {
             ? "\(item.message)\n\n版本 \(AppErrorPresentation.versionText)"
             : item.message
         let controller = UIAlertController(title: item.title, message: message, preferredStyle: .alert)
+        var settingsAction: UIAlertAction?
+
+        if item.shouldOpenSettings {
+            let action = UIAlertAction(title: "打开系统设置", style: .default) { [weak self] _ in
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+                self?.finishAlert()
+            }
+            settingsAction = action
+            controller.addAction(action)
+        }
 
         if item.allowsDiagnostics {
             controller.addAction(UIAlertAction(title: "查看是否有更新", style: .default) { [weak self] _ in
@@ -444,7 +458,7 @@ final class AppErrorPresenter {
             self?.finishAlert()
         }
         controller.addAction(dismissAction)
-        controller.preferredAction = dismissAction
+        controller.preferredAction = settingsAction ?? dismissAction
         presenter.present(controller, animated: true)
     }
 

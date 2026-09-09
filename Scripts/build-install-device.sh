@@ -22,17 +22,25 @@ else
 fi
 
 mkdir -p "$DERIVED_DATA"
+BUILD_OVERRIDES=()
+if [[ -n "${BIT101_MARKETING_VERSION:-}" ]]; then
+  BUILD_OVERRIDES+=("MARKETING_VERSION=$BIT101_MARKETING_VERSION")
+fi
+if [[ -n "${BIT101_BUILD_NUMBER:-}" ]]; then
+  BUILD_OVERRIDES+=("CURRENT_PROJECT_VERSION=$BIT101_BUILD_NUMBER")
+fi
 echo "使用 iPhone 真机构建并安装（不执行 Archive）..."
 xcodebuild build \
   -quiet \
   -project "$PROJECT" \
   -scheme BIT101-iOS \
-  -configuration Debug \
+  -configuration Release \
   -destination "platform=iOS,id=$BIT101_XCODE_DEVICE_ID" \
   -derivedDataPath "$DERIVED_DATA" \
+  "${BUILD_OVERRIDES[@]}" \
   -allowProvisioningUpdates
 
-APP_PATH="$DERIVED_DATA/Build/Products/Debug-iphoneos/BIT101-iOS.app"
+APP_PATH="$DERIVED_DATA/Build/Products/Release-iphoneos/BIT101-iOS.app"
 xcrun devicectl device install app \
   --device "$BIT101_DEVICETCL_DEVICE_ID" \
   "$APP_PATH" >/dev/null

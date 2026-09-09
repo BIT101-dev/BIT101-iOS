@@ -65,6 +65,13 @@ struct ScheduleNotice: Identifiable {
     let id = UUID()
     let title: String
     let message: String
+    let shouldOpenSettings: Bool
+
+    init(title: String, message: String, shouldOpenSettings: Bool = false) {
+        self.title = title
+        self.message = message
+        self.shouldOpenSettings = shouldOpenSettings
+    }
 }
 
 struct CourseSyncReplacementConfirmation: Identifiable {

@@ -81,6 +81,17 @@ final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertFalse(notice.allowsDiagnostics)
     }
 
+    func testCalendarPermissionNoticeOffersSystemSettings() {
+        XCTAssertTrue(ScheduleSystemCalendarError.permissionDenied.shouldOpenSettings)
+        XCTAssertTrue(ScheduleSystemCalendarError.noWritableCalendarSource.shouldOpenSettings)
+        XCTAssertFalse(ScheduleSystemCalendarError.missingSchedule.shouldOpenSettings)
+        XCTAssertTrue(ScheduleNotice(
+            title: "导入失败",
+            message: "日历权限需要调整。",
+            shouldOpenSettings: true
+        ).shouldOpenSettings)
+    }
+
     func testCertificateFailureIsNotPresentedAsExpiredVerification() {
         let error = ScheduleServiceError.challengeInvalid(
             "HTTPSConnectionPool(host='webvpn.bit.edu.cn'): SSLCertVerificationError: certificate has expired"

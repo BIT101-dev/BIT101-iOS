@@ -105,6 +105,15 @@ enum ScheduleSystemCalendarError: LocalizedError {
     case missingSchedule
     case noImportedEvents
 
+    var shouldOpenSettings: Bool {
+        switch self {
+        case .permissionDenied, .noWritableCalendarSource:
+            return true
+        case .missingSchedule, .noImportedEvents:
+            return false
+        }
+    }
+
     var errorDescription: String? {
         switch self {
         case .permissionDenied:

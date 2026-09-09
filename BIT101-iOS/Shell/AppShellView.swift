@@ -226,7 +226,8 @@ struct AppShellView: View {
             Task {
                 _ = await ReleaseNetworkSmokeRunner().run(
                     scope: smokeRequest.scope,
-                    runID: smokeRequest.runID
+                    runID: smokeRequest.runID,
+                    capture: smokeRequest.capture
                 )
             }
             return

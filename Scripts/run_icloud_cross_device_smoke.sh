@@ -24,8 +24,9 @@ common_args=(
   -quiet
   -project "$PROJECT"
   -scheme BIT101-iOS
-  -configuration Debug
+  -configuration Release
   "SWIFT_ACTIVE_COMPILATION_CONDITIONS=$CONDITIONS"
+  ENABLE_TESTABILITY=YES
   -collect-test-diagnostics never
 )
 

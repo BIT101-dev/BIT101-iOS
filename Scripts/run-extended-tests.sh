@@ -29,11 +29,12 @@ run_group() {
   if ! xcodebuild test -quiet \
     -project "$PROJECT" \
     -scheme BIT101-iOS \
-    -configuration Debug \
+    -configuration Release \
     -destination "platform=iOS,id=$DEVICE_ID" \
     -derivedDataPath "$DERIVED_ROOT" \
     -collect-test-diagnostics never \
     "SWIFT_ACTIVE_COMPILATION_CONDITIONS=$CONDITIONS" \
+    ENABLE_TESTABILITY=YES \
     "-only-testing:$TEST_BUNDLE/$group" \
     -allowProvisioningUpdates > "$log" 2>&1
   then
@@ -50,10 +51,12 @@ run_default_tests() {
   if ! xcodebuild test -quiet \
     -project "$PROJECT" \
     -scheme BIT101-iOS \
-    -configuration Debug \
+    -configuration Release \
     -destination "platform=iOS,id=$DEVICE_ID" \
     -derivedDataPath "$DERIVED_ROOT" \
     -collect-test-diagnostics never \
+    "SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG" \
+    ENABLE_TESTABILITY=YES \
     "-only-testing:$TEST_BUNDLE" \
     -allowProvisioningUpdates > "$log" 2>&1
   then

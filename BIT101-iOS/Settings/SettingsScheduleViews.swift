@@ -390,7 +390,11 @@ struct CalendarSettingsPage: View {
                     message: "已向“BIT101 课表”日历写入 \(count) 节课程。"
                 )
             } catch {
-                viewModel.notice = ScheduleNotice(title: "导入失败", message: error.localizedDescription)
+                viewModel.notice = ScheduleNotice(
+                    title: "导入失败",
+                    message: error.localizedDescription,
+                    shouldOpenSettings: (error as? ScheduleSystemCalendarError)?.shouldOpenSettings ?? false
+                )
             }
         }
     }
@@ -406,7 +410,11 @@ struct CalendarSettingsPage: View {
                     message: "已删除 \(count) 条由 BIT101 导入的日历事件。"
                 )
             } catch {
-                viewModel.notice = ScheduleNotice(title: "删除失败", message: error.localizedDescription)
+                viewModel.notice = ScheduleNotice(
+                    title: "删除失败",
+                    message: error.localizedDescription,
+                    shouldOpenSettings: (error as? ScheduleSystemCalendarError)?.shouldOpenSettings ?? false
+                )
             }
         }
     }

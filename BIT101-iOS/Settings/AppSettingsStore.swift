@@ -90,7 +90,7 @@ struct AppSettingsSyncPayload: Codable, Equatable {
 @MainActor
 /// 应用设置仓库。
 ///
-/// 主题和账号偏好都会统一写入这里，再由具体页面按需读取。
+/// 主题、账号偏好和全局筛选偏好都会统一写入这里，再由具体页面按需读取。
 final class AppSettingsStore: ObservableObject {
     static let shared = AppSettingsStore()
     /// 各账号设置快照在 `UserDefaults` 中使用的 key 前缀。
@@ -99,12 +99,15 @@ final class AppSettingsStore: ObservableObject {
     nonisolated static let currentStartupNoticeVersion = "1.8.0"
     /// 更新内容公告已读状态保存在全局 key，账号切换后继续复用该状态。
     nonisolated static let startupNoticeSeenKey = "app.startup.notice.seen.version"
+    /// 历史成绩疑似补考学期筛选使用全局 key，账号切换后继续复用该状态。
+    nonisolated static let courseHistoryHidesMakeupOutliersKey = "app.settings.courseHistory.hidesMakeupOutliers"
     /// “鸣谢 LINUX DO”提示按账号映射到首周内的延迟天数，分散弹出时间。
     nonisolated static let linuxDoThanksNoticeSpreadDays = 7
     private static let encoder = JSONEncoder()
     private static let decoder = JSONDecoder()
 
     @Published private(set) var snapshot = AppSettingsSnapshot()
+    @Published private(set) var hidesCourseHistoryMakeupOutliers = true
 
     private let defaults = UserDefaults.standard
     private var accountObserver: NSObjectProtocol?
@@ -173,6 +176,12 @@ final class AppSettingsStore: ObservableObject {
         save(syncPreferences: true)
     }
 
+    /// 修改历史成绩中的疑似补考学期隐藏开关。
+    func setHidesCourseHistoryMakeupOutliers(_ enabled: Bool) {
+        hidesCourseHistoryMakeupOutliers = enabled
+        defaults.set(enabled, forKey: Self.courseHistoryHidesMakeupOutliersKey)
+    }
+
     /// 标记当前安装版本的更新内容已经展示。
     func markCurrentStartupNoticeSeen() {
         defaults.set(Self.currentStartupNoticeVersion, forKey: Self.startupNoticeSeenKey)
@@ -193,6 +202,7 @@ final class AppSettingsStore: ObservableObject {
     /// 把设置恢复到默认值。
     func resetToDefaults() {
         snapshot = AppSettingsSnapshot()
+        setHidesCourseHistoryMakeupOutliers(true)
         save(syncPreferences: true)
     }
 
@@ -210,6 +220,7 @@ final class AppSettingsStore: ObservableObject {
     /// 账号切换通知会重新触发这里。缺少快照或 `firstOpenDate` 时，这里补齐默认值并保存快照；
     /// 已有快照直接恢复。
     private func load() {
+        loadCourseHistoryPreference()
         guard let snapshot = Self.loadSnapshotFromDefaults() else {
             self.snapshot = AppSettingsSnapshot()
             self.snapshot.firstOpenDate = Date()
@@ -220,6 +231,16 @@ final class AppSettingsStore: ObservableObject {
         if self.snapshot.firstOpenDate == nil {
             self.snapshot.firstOpenDate = Date()
             save()
+        }
+    }
+
+    /// 读取全局历史成绩筛选偏好；首次使用时默认开启并立即持久化。
+    private func loadCourseHistoryPreference() {
+        if let storedValue = defaults.object(forKey: Self.courseHistoryHidesMakeupOutliersKey) as? Bool {
+            hidesCourseHistoryMakeupOutliers = storedValue
+        } else {
+            hidesCourseHistoryMakeupOutliers = true
+            defaults.set(true, forKey: Self.courseHistoryHidesMakeupOutliersKey)
         }
     }
 

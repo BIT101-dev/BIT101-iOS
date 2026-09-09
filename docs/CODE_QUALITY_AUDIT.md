@@ -48,7 +48,7 @@
 | `Gallery/GalleryModels.swift` | 话廊数据模型和分页状态，职责单一。 |
 | `Gallery/GalleryViewModel.swift` | 信息流、搜索、消息状态，推荐预取已独立。 |
 | `BIT101_iOSApp.swift` | 应用生命周期和全局副作用。 |
-| `Shared/Infrastructure/ReleaseNetworkSmoke.swift` | 编译范围限定为 Debug/专用 smoke 条件，与应用生命周期分离。 |
+| `Shared/Infrastructure/ReleaseNetworkSmoke.swift` | 编译范围限定为 Release/专用 smoke 条件，与应用生命周期分离。 |
 
 文件拆分依据独立生命周期、独立测试边界或高频冲突；文件长度单独作为观察指标。
 
