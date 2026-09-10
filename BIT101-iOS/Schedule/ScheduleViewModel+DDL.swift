@@ -36,6 +36,21 @@ extension ScheduleViewModel {
         } catch ScheduleServiceError.schoolSecondFactorRequired {
             presentDDLSecondFactorNotice()
             return false
+        } catch let error as LoginServiceError {
+            switch error {
+            case .schoolSMSCodeInvalid:
+                notice = ScheduleNotice(title: "验证码错误", message: error.localizedDescription)
+                return false
+            case .schoolSMSUnavailable:
+                notice = ScheduleNotice(title: "短信验证失败", message: error.localizedDescription)
+                return false
+            default:
+                break
+            }
+            if showErrorNotice {
+                notice = ScheduleNotice(title: "DDL 同步失败", message: error.localizedDescription)
+            }
+            return false
         } catch {
             if isCancellation(error) { return false }
             if showErrorNotice {
@@ -68,6 +83,15 @@ extension ScheduleViewModel {
             }
         } catch ScheduleServiceError.schoolSecondFactorRequired {
             presentDDLSecondFactorNotice()
+        } catch let error as LoginServiceError {
+            switch error {
+            case .schoolSMSCodeInvalid:
+                notice = ScheduleNotice(title: "验证码错误", message: error.localizedDescription)
+            case .schoolSMSUnavailable:
+                notice = ScheduleNotice(title: "短信验证失败", message: error.localizedDescription)
+            default:
+                notice = ScheduleNotice(title: "订阅链接获取失败", message: error.localizedDescription)
+            }
         } catch {
             if isCancellation(error) { return }
             notice = ScheduleNotice(title: "订阅链接获取失败", message: error.localizedDescription)
