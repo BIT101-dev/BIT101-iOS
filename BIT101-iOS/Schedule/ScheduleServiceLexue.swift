@@ -141,6 +141,29 @@ extension ScheduleService {
             requiresTeachingCenterSession: false
         )
 
+        if let context = SchoolLoginHTMLParser.parseSecondFactorPage(
+            html: calendarHTML,
+            baseURL: schoolSSOBaseURL
+        ) {
+            guard secondFactorRetryCount == 0 else {
+                throw ScheduleServiceError.schoolSecondFactorRequired
+            }
+            guard smsDeliveryMode == .preflight || schoolSMSCodeHandler != nil else {
+                throw ScheduleServiceError.schoolSecondFactorRequired
+            }
+            try await completeSchoolSecondFactor(
+                context,
+                handler: schoolSMSCodeHandler,
+                smsDeliveryMode: smsDeliveryMode
+            )
+            return try await resolveLexueCalendarURL(
+                storedURL: "",
+                schoolSMSCodeHandler: schoolSMSCodeHandler,
+                smsDeliveryMode: smsDeliveryMode,
+                secondFactorRetryCount: secondFactorRetryCount + 1
+            )
+        }
+
         let fullURL =
             extractCalendarURL(from: calendarHTML, pattern: #"class=["'][^"']*calendarurl[^"']*["'][^>]*>[\s\S]*?(https?://[^<"'\s]+)"#) ??
             extractCalendarURL(from: calendarHTML, pattern: #"class=["'][^"']*calendarurl[^"']*["'][^>]*>[\s\S]*?(webcal://[^<"'\s]+)"#) ??
@@ -341,8 +364,13 @@ extension ScheduleService {
         guard (200 ..< 300).contains(response.statusCode) else {
             throw LoginServiceError.schoolSMSUnavailable("短信验证码发送失败。")
         }
-        if let code = responseCode(from: data), code != 200 {
-            throw LoginServiceError.schoolSMSUnavailable(responseMessage(from: data) ?? "短信验证码发送失败。")
+        let code = responseCode(from: data)
+        let message = responseMessage(from: data)
+        let codeRemainsValid = message?.contains("验证码") == true
+            && message?.contains("有效期内") == true
+            && message?.contains("重复发送") == true
+        guard code == 200 || codeRemainsValid else {
+            throw LoginServiceError.schoolSMSUnavailable(message ?? "短信验证码发送失败。")
         }
     }
 
@@ -351,7 +379,7 @@ extension ScheduleService {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(schoolSSOBaseURL.absoluteString, forHTTPHeaderField: "Origin")
-        request.setValue(schoolSSOBaseURL.appending(path: "/").absoluteString, forHTTPHeaderField: "Referer")
+        request.setValue(schoolSSOBaseURL.appending(path: "cas/").absoluteString, forHTTPHeaderField: "Referer")
         for (field, value) in LoginCrypto.schoolProtectedHeaders() {
             request.setValue(value, forHTTPHeaderField: field)
         }
@@ -365,7 +393,7 @@ extension ScheduleService {
         guard (200 ..< 300).contains(response.statusCode) else {
             throw LoginServiceError.schoolSMSCodeInvalid(responseMessage(from: data) ?? "短信验证码错误或已失效，请重新发起验证。")
         }
-        if let responseCode = responseCode(from: data), responseCode != 200 {
+        guard responseCode(from: data) == 200 else {
             throw LoginServiceError.schoolSMSCodeInvalid(responseMessage(from: data) ?? "短信验证码错误或已失效，请重新发起验证。")
         }
     }
@@ -381,6 +409,11 @@ extension ScheduleService {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         for key in ["message", "msg", "errorMessage"] {
             if let message = root[key] as? String, !message.isEmpty { return message }
+        }
+        if let nested = root["data"] as? [String: Any] {
+            for key in ["message", "msg", "errorMessage"] {
+                if let message = nested[key] as? String, !message.isEmpty { return message }
+            }
         }
         return nil
     }
