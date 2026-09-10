@@ -69,10 +69,11 @@ struct LoginLogicTests {
         <input id="user-object-id" value="user-object-value" />
         <form action="/cas/login"></form>
         """
+        let baseURL = try #require(URL(string: "https://sso.bit.edu.cn/cas/login"))
         let context = try #require(
             SchoolLoginHTMLParser.parseSecondFactorPage(
                 html: html,
-                baseURL: try #require(URL(string: "https://sso.bit.edu.cn/cas/login"))
+                baseURL: baseURL
             )
         )
 
