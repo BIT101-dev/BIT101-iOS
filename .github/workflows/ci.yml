@@ -41,6 +41,8 @@ jobs:
       - name: Validate release against App Store
         if: github.event_name == 'workflow_dispatch' && inputs.release_check
         run: python3 Scripts/validate_versions.py --check-app-store
+      - name: Install static audit tools
+        run: brew install ripgrep
       - name: Run static audit
         run: Scripts/run-static-audit.sh
       - name: Build app and tests without a simulator

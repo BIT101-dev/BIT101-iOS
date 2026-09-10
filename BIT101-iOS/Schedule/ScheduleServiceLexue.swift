@@ -35,7 +35,10 @@ extension ScheduleService {
         schoolSMSCodeHandler: SchoolSMSCodeHandler?,
         smsDeliveryMode: SchoolSMSDeliveryMode
     ) async throws -> DDLSyncPayload {
-        try await ensureSchoolSession()
+        try await ensureSchoolSession(
+            schoolSMSCodeHandler: schoolSMSCodeHandler,
+            smsDeliveryMode: smsDeliveryMode
+        )
 
         let finalURL = try await resolveLexueCalendarURL(
             storedURL: storedURL,
@@ -75,7 +78,10 @@ extension ScheduleService {
         schoolSMSCodeHandler: SchoolSMSCodeHandler?,
         smsDeliveryMode: SchoolSMSDeliveryMode
     ) async throws -> String {
-        try await ensureSchoolSession()
+        try await ensureSchoolSession(
+            schoolSMSCodeHandler: schoolSMSCodeHandler,
+            smsDeliveryMode: smsDeliveryMode
+        )
         return try await resolveLexueCalendarURL(
             storedURL: "",
             schoolSMSCodeHandler: schoolSMSCodeHandler,
@@ -181,7 +187,7 @@ extension ScheduleService {
         return fullURL
     }
 
-    private func completeSchoolSecondFactor(
+    func completeSchoolSecondFactor(
         _ context: SchoolSecondFactorContext,
         handler: SchoolSMSCodeHandler?,
         smsDeliveryMode: SchoolSMSDeliveryMode

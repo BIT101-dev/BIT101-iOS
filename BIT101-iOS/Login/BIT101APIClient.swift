@@ -170,6 +170,12 @@ struct BIT101APIClient {
         }
 
         let html = String(decoding: data, as: UTF8.self)
+        if let context = SchoolLoginHTMLParser.parseSecondFactorPage(
+            html: html,
+            baseURL: schoolBaseURL
+        ) {
+            throw LoginServiceError.schoolSMSRequired(context)
+        }
         return !html.contains("用户名密码")
     }
 

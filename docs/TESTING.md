@@ -251,7 +251,7 @@ Scripts/run-extended-tests.sh
 
 覆盖检查确保用户可见的错误弹窗和主要失败占位页保留 App Store 与错误报告入口。
 报告直接通过当前 Wrangler 登录读取远端 KV，管理网页不参与流程。
-`Scripts/fetch-issues-and-reports.sh` 会用当前 GitHub CLI 和 Wrangler 登录状态，一次拉取未关闭的仓库 Issues 与 Cloudflare KV 报告，保存到 `.build/issue-report-inbox` 并输出简要汇总。错误报告按 `本次/上次/上上次` 保留三批，并按 `开发版/正式版/来源未知` 和 `错误报告/用户建议` 分类；开发验证包提交 `isDevelopmentBuild: true`，Release 构建提交 `false`，旧报告归入来源未知。输出本次详情，只输出上两批数量。本次没有新报告时显示最近一批详情。完整拉取成功后只清理本次已拉取的 Cloudflare 报告，失败时保留远端数据。完整报告仅保存在本机，仓库保持不变。
+`Scripts/fetch-issues-and-reports.sh` 会用当前 GitHub CLI 和 Wrangler 登录状态，一次拉取未关闭的仓库 Issues、GitHub Actions 失败运行与 Cloudflare KV 报告，保存到 `.build/issue-report-inbox` 并输出简要汇总。GitHub CI 失败运行写入 `github-ci.json`，包含运行元数据与失败日志尾部。错误报告按 `本次/上次/上上次` 保留三批，并按 `开发版/正式版/来源未知` 和 `错误报告/用户建议` 分类；开发验证包提交 `isDevelopmentBuild: true`，Release 构建提交 `false`，旧报告归入来源未知。输出本次详情，只输出上两批数量。本次没有新报告时显示最近一批详情。完整拉取成功后只清理本次已拉取的 Cloudflare 报告，失败时保留远端数据。完整报告仅保存在本机，仓库保持不变。
 
 `run-static-audit.sh` 执行静态检查；学校接口连接、网络 smoke 和发布归档由独立流程负责。它按 Swift、Shell、Python、Worker、Git、文档、UI、触感、组件和源码质量规则输出结果；源码质量报告固定覆盖 `.build/code-quality-report.txt`。CI 强制执行这一入口，并额外阻止警告进入构建门禁。
 

@@ -192,7 +192,7 @@ enum LoginServiceError: LocalizedError {
     case invalidSchoolLoginPage
     case schoolLoginFailed
     case invalidCredentials
-    case schoolSMSRequired
+    case schoolSMSRequired(SchoolSecondFactorContext)
     case schoolSMSCodeInvalid(String)
     case schoolSMSUnavailable(String)
     case unableToRestoreSchoolSession

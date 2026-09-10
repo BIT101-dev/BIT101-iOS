@@ -13,6 +13,8 @@ OLDER_DIR="$OUTPUT_DIR/上上次"
 STAGING_DIR="$OUTPUT_DIR/.incoming"
 WRANGLER_LOG="$OUTPUT_DIR/wrangler.log"
 SKIP_KEYS_FILE="$OUTPUT_DIR/.skip-report-keys"
+CI_RUNS_PATH="$OUTPUT_DIR/github-ci-runs.json"
+CI_REPORT_PATH="$OUTPUT_DIR/github-ci.json"
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "未找到 GitHub CLI：请先安装 gh 并完成 gh auth login。" >&2
@@ -22,7 +24,7 @@ fi
 mkdir -p "$OUTPUT_DIR"
 rm -rf "$STAGING_DIR" "$OUTPUT_DIR/error-reports"
 mkdir -p "$STAGING_DIR"
-rm -f "$OUTPUT_DIR/github-issues.json" "$OUTPUT_DIR/error-report-keys.json" "$OUTPUT_DIR/summary.txt" "$OUTPUT_DIR/report-keys.txt"
+rm -f "$OUTPUT_DIR/github-issues.json" "$OUTPUT_DIR/error-report-keys.json" "$OUTPUT_DIR/summary.txt" "$OUTPUT_DIR/report-keys.txt" "$CI_RUNS_PATH" "$CI_REPORT_PATH"
 
 python3 - "$CURRENT_DIR" "$PREVIOUS_DIR" "$OLDER_DIR" "$SKIP_KEYS_FILE" <<'PY'
 from pathlib import Path
@@ -62,6 +64,56 @@ gh issue list \
   --limit 100 \
   --json number,title,state,author,createdAt,updatedAt,url,labels \
   > "$OUTPUT_DIR/github-issues.json"
+
+echo "拉取 GitHub CI 失败记录..."
+if ! gh run list \
+  --repo "$REPO" \
+  --status failure \
+  --limit 20 \
+  --json databaseId,workflowName,displayTitle,status,conclusion,event,headBranch,headSha,createdAt,updatedAt,url \
+  > "$CI_RUNS_PATH"; then
+  echo "GitHub CI 失败记录拉取失败。" >&2
+  exit 1
+fi
+
+python3 - "$CI_RUNS_PATH" "$CI_REPORT_PATH" "$REPO" <<'PY'
+import json
+import pathlib
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
+
+runs_path = pathlib.Path(sys.argv[1])
+output_path = pathlib.Path(sys.argv[2])
+repo = sys.argv[3]
+runs = json.loads(runs_path.read_text(encoding="utf-8"))
+
+def fetch_log(run):
+    result = subprocess.run(
+        [
+            "gh", "run", "view", str(run["databaseId"]),
+            "--repo", repo,
+            "--log-failed",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    item = dict(run)
+    if result.returncode == 0:
+        item["failedLogTail"] = result.stdout[-30000:]
+    else:
+        item["failedLogError"] = result.stderr.strip()
+    return item
+
+with ThreadPoolExecutor(max_workers=4) as executor:
+    enriched = list(executor.map(fetch_log, runs))
+
+output_path.write_text(
+    json.dumps(enriched, ensure_ascii=False, indent=2) + "\n",
+    encoding="utf-8",
+)
+PY
 
 echo "拉取 Cloudflare 错误报告..."
 if ! (cd "$WRANGLER_DIR" && npx wrangler kv key list \
@@ -204,7 +256,7 @@ else
   rmdir "$STAGING_DIR"
 fi
 
-python3 - "$OUTPUT_DIR/github-issues.json" "$CURRENT_DIR" "$OUTPUT_DIR/summary.txt" "$REPORT_COUNT" "$PREVIOUS_DIR" "$OLDER_DIR" <<'PY'
+python3 - "$OUTPUT_DIR/github-issues.json" "$CURRENT_DIR" "$OUTPUT_DIR/summary.txt" "$REPORT_COUNT" "$PREVIOUS_DIR" "$OLDER_DIR" "$CI_REPORT_PATH" <<'PY'
 import json
 import pathlib
 import sys
@@ -214,6 +266,8 @@ report_dir = pathlib.Path(sys.argv[2])
 new_report_count = int(sys.argv[4])
 previous_dir = pathlib.Path(sys.argv[5])
 older_dir = pathlib.Path(sys.argv[6])
+ci_path = pathlib.Path(sys.argv[7])
+ci_runs = json.loads(ci_path.read_text(encoding="utf-8")) if ci_path.exists() else []
 
 def category_counts(folder):
     counts = {"错误报告": 0, "用户建议": 0}
@@ -246,6 +300,13 @@ lines = [f"GitHub Issues：{len(issues)}"]
 for issue in issues:
     lines.append(f"  #{issue['number']} [{issue['state']}] {issue['title']}  {issue['url']}")
 lines.append("")
+lines.append(f"GitHub CI：{len(ci_runs)} 条失败运行")
+for run in ci_runs:
+    lines.append(
+        f"  #{run.get('databaseId')} [{run.get('workflowName')}] "
+        f"{run.get('displayTitle')}  {run.get('url')}"
+    )
+lines.append("")
 previous_count = len(list(previous_dir.rglob("*.json"))) if previous_dir.exists() else 0
 older_count = len(list(older_dir.rglob("*.json"))) if older_dir.exists() else 0
 current_counts = category_counts(report_dir)
@@ -274,5 +335,5 @@ pathlib.Path(sys.argv[3]).write_text("\n".join(lines) + "\n", encoding="utf-8")
 print(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"), end="")
 PY
 
-rm -f "$WRANGLER_LOG" "$OUTPUT_DIR/report-keys.txt" "$SKIP_KEYS_FILE"
+rm -f "$WRANGLER_LOG" "$OUTPUT_DIR/report-keys.txt" "$SKIP_KEYS_FILE" "$CI_RUNS_PATH"
 echo "本地报告目录：$OUTPUT_DIR"

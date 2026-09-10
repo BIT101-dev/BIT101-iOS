@@ -129,9 +129,27 @@ extension ScheduleService {
     ///
     /// BIT101 社区登录态与学校 SSO 相互独立。社区 fake-cookie 只表示社区登录态；学校 Cookie
     /// 过期后，乐学请求会直接拿到 CAS 登录页，因此这里调用学校会话专用恢复入口。
-    func ensureSchoolSession() async throws {
-        guard try await LoginService().restoreSchoolSessionIfNeeded() != nil else {
-            throw ScheduleServiceError.notLoggedIn
+    func ensureSchoolSession(
+        schoolSMSCodeHandler: SchoolSMSCodeHandler? = nil,
+        smsDeliveryMode: SchoolSMSDeliveryMode = .send
+    ) async throws {
+        do {
+            guard try await LoginService().restoreSchoolSessionIfNeeded() != nil else {
+                throw ScheduleServiceError.notLoggedIn
+            }
+        } catch let error as LoginServiceError {
+            guard case let .schoolSMSRequired(context) = error else { throw error }
+            guard smsDeliveryMode == .preflight || schoolSMSCodeHandler != nil else {
+                throw ScheduleServiceError.schoolSecondFactorRequired
+            }
+            try await completeSchoolSecondFactor(
+                context,
+                handler: schoolSMSCodeHandler,
+                smsDeliveryMode: smsDeliveryMode
+            )
+            guard try await LoginService().restoreSchoolSessionIfNeeded() != nil else {
+                throw ScheduleServiceError.notLoggedIn
+            }
         }
     }
 
