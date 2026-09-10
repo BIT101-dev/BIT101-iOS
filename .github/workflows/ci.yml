@@ -54,5 +54,6 @@ jobs:
           -destination 'generic/platform=iOS'
           -derivedDataPath build/CI
           CODE_SIGNING_ALLOWED=NO
+          ENABLE_TESTABILITY=YES
           SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
           GCC_TREAT_WARNINGS_AS_ERRORS=YES
