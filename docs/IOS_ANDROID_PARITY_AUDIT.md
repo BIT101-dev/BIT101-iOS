@@ -42,11 +42,13 @@ iOS 模块：`Course`、`Gallery`、`Login`、`Map`、`Mine`、`Paper`、`Schedu
 - iOS 统一会话刷新、并发锁、失败分类和一次重试策略待补齐
 - 验证：401、并发请求、刷新成功、刷新失败、登录态清理
 
-### P1：普通学校登录短信验证
+### P1：学校 SSO 静默恢复短信入口
 
 - Android：`86736e8`、`a910e33`、`69e0921`；`SchoolLoginService.kt`、`DefaultLoginRepo.kt`
-- iOS：短信链路集中在 `ScheduleServiceLexue.swift`，`LoginService.swift` 和 `LoginServicing.swift` 的普通学校登录协议缺少短信回调入口
-- DDL 页面已有原生短信链路，普通登录和学校静默恢复入口待补齐
+- iOS 非 DDL 教学中心已有 `BITLoginAuthenticationChallenge` 与 `AppSMSVerificationSheet`，课表、考试、空教室、成绩链路使用该机制
+- iOS App 登录页使用 `LoginService.login()` 的 `webVPNVerify` 流程
+- 当前审计项聚焦 `LoginService.restoreSchoolSessionIfNeeded()` → `BIT101APIClient.loginSchool()` 的 CAS 会话恢复路径；该路径缺少学校 SSO 短信回调
+- DDL 页面已有 `SchoolSMSCodeRequest` 与 `AppSchoolSMSVerificationSheet`
 
 ### P1：DDL Smoke 真实短信闭环
 
@@ -169,7 +171,7 @@ Android API 侧已确认以下接口，iOS 当前 Service 检索结果待补齐�
 
 ## 第一轮优先级
 
-1. 普通学校登录短信闭环
+1. 学校 SSO 静默恢复短信入口
 2. 社区 401 统一刷新与重试
 3. DDL 真实短信闭环
 4. 帖子编辑、举报、关注、隐藏用户、评论媒体与操作菜单
