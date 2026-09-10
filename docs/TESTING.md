@@ -132,7 +132,7 @@ BIT101_NETWORK_SMOKE_CAPTURE=courseHistory Scripts/release-network-smoke-bit101.
 Smoke 报告记录 `executedProbes`、`skippedProbes` 和 `schoolSMSCoverage`。`ddl` 范围要求 BIT101 登录状态、乐学订阅地址、乐学 DDL 下载三项探针进入执行列表；短信输入 UI 状态采用真机手动验证。
 
 采样报告写入 `.build/release-network-smoke/report/release-network-smoke.json`；人工复核完成后再更新 Git 中的 fixture。
-Smoke 报告同步输出当前算法对确定标签的 precision、recall、TP、FP 和 FN，指标用于算法选择和回归跟踪。
+Smoke 报告同步输出当前算法对确定标签的 precision、recall、TP、FP 和 FN；确定标签出现 FP 或 FN 时，课程历史缓存验证进入失败状态。
 
 可信成绩单归入学校链路；当前冒烟范围为 `all`、`bit101`、`school`、`transcript`、`schedule` 和 `ddl`。局部开发使用对应范围，开发结束后运行全量 Smoke。例如，开发 DDL 链路时使用 `ddl` 范围：
 

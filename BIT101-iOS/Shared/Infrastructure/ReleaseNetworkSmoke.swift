@@ -490,6 +490,14 @@ final class ReleaseNetworkSmokeRunner {
                 trueNegative: trueNegative
             )
 
+            if truePositive + falsePositive + falseNegative + trueNegative > 0,
+               falsePositive > 0 || falseNegative > 0
+            {
+                mismatches.append(
+                    "算法预测与人工标签不一致：FP=\(falsePositive)，FN=\(falseNegative)"
+                )
+            }
+
             if mismatches.isEmpty {
                 print(
                     "NETWORK_SMOKE_PASS name=课程历史缓存验证 "
