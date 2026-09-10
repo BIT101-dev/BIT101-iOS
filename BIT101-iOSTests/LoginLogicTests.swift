@@ -60,4 +60,24 @@ struct LoginLogicTests {
         #expect(BIT101APIClient.isCredentialFailureMessage("用户名或密码错误"))
         #expect(!BIT101APIClient.isCredentialFailureMessage("服务暂时不可用"))
     }
+
+    @Test("School second-factor pages expose a resumable form context")
+    func parsesSchoolSecondFactorPage() throws {
+        let html = """
+        <div id="secondSmsLoginForm"></div>
+        <span id="login-page-flowkey">execution-value</span>
+        <input id="user-object-id" value="user-object-value" />
+        <form action="/cas/login"></form>
+        """
+        let context = try #require(
+            SchoolLoginHTMLParser.parseSecondFactorPage(
+                html: html,
+                baseURL: try #require(URL(string: "https://sso.bit.edu.cn/cas/login"))
+            )
+        )
+
+        #expect(context.execution == "execution-value")
+        #expect(context.userObjectID == "user-object-value")
+        #expect(context.formAction.absoluteString == "https://sso.bit.edu.cn/cas/login")
+    }
 }

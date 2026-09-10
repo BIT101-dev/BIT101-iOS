@@ -127,10 +127,18 @@ Scripts/release-network-smoke-school.sh
 BIT101_NETWORK_SMOKE_CAPTURE=courseHistory Scripts/release-network-smoke-bit101.sh
 ```
 
+学校范围 Smoke 的乐学 DDL 探针会先完成短信手机号预检；学校触发短信验证时记录为 `auth_blocked`，短信发送状态保持关闭，界面验证码继续由真机流程验证。
+
 采样报告写入 `.build/release-network-smoke/report/release-network-smoke.json`；人工复核完成后再更新 Git 中的 fixture。
 Smoke 报告同步输出当前算法对确定标签的 precision、recall、TP、FP 和 FN，指标用于算法选择和回归跟踪。
 
-可信成绩单归入学校链路；当前冒烟范围为 `all`、`bit101` 和 `school` 三个值，重新认证入口归入对应范围。
+可信成绩单归入学校链路；当前冒烟范围为 `all`、`bit101`、`school`、`transcript`、`schedule` 和 `ddl`。可以只进行部分测试，以加快局部开发进度，但是在开发结束后必须进行全量测试。例如，开发 DDL 链路时使用 `ddl` 范围：
+
+```sh
+BIT101_NETWORK_SMOKE_SCOPE=ddl Scripts/release-network-smoke.sh
+```
+
+发布前再运行完整 `all` 范围，重新认证入口归入对应范围。
 
 CI 和其它自动化沿用同一模拟器排除要求。无真机 destination 的环境执行范围限于静态检查，静态检查保持无模拟器依赖；真机构建、测试、Widget 时间线和 Live Activity 时序按 `MODULE_PLAYBOOK.md` 人工验证。
 

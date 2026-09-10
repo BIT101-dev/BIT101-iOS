@@ -12,8 +12,12 @@ protocol ScheduleServicing {
         for challenge: BITLoginAuthenticationChallenge
     ) async throws
     func fetchCurrentTermOnly() async throws -> String
-    func syncDDLEvents(existingEvents: [DDLEventRecord], storedURL: String) async throws -> DDLSyncPayload
-    func refreshLexueCalendarURL() async throws -> String
+    func syncDDLEvents(
+        existingEvents: [DDLEventRecord],
+        storedURL: String,
+        schoolSMSCodeHandler: SchoolSMSCodeHandler?
+    ) async throws -> DDLSyncPayload
+    func refreshLexueCalendarURL(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> String
     func fetchCampuses() async throws -> [CampusRecord]
     func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord]
     func fetchClassrooms(buildingID: String, term: String) async throws -> [ClassroomRecord]

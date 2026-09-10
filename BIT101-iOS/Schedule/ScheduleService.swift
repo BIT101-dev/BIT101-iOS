@@ -333,6 +333,7 @@ struct ScheduleService {
     let schoolBaseURL = AppURL.required("https://jxzxehallapp.bit.edu.cn")
     let webVPNSchoolBaseURL = AppURL.required("https://webvpn.bit.edu.cn/https/77726476706e69737468656265737421faef5b842238695c720999bcd6572a216b231105adc27d")
     let bitLoginBaseURL = AppURL.required("https://login.bit101.flwfdd.xyz")
+    let schoolSSOBaseURL = AppURL.required("https://sso.bit.edu.cn")
     let lexueBaseURL = AppURL.required("https://lexue.bit.edu.cn")
     let storage = LoginStorage.shared
     let teachingCenterState = TeachingCenterSessionState.shared

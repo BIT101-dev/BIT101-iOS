@@ -101,3 +101,53 @@ struct AppSMSVerificationSheet: View {
         return "学校统一身份认证要求二次验证，验证码已发送至绑定手机。可点击键盘上方建议自动填充。"
     }
 }
+
+/// 学校 SSO 网页短信二次验证面板。
+struct AppSchoolSMSVerificationSheet: View {
+    let request: SchoolSMSCodeRequest
+    let onCancel: () -> Void
+    let onSubmit: (String) -> Void
+
+    @State private var code = ""
+    @FocusState private var isCodeFieldFocused: Bool
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("短信验证码", text: $code)
+                        .keyboardType(.numberPad)
+                        .textContentType(.oneTimeCode)
+                        .multilineTextAlignment(.center)
+                        .font(.title2.monospacedDigit())
+                        .focused($isCodeFieldFocused)
+                        .onChange(of: code) { _, newValue in
+                            let digits = String(newValue.filter(\.isNumber).prefix(8))
+                            if digits != newValue { code = digits }
+                        }
+                } header: {
+                    Text("输入验证码")
+                } footer: {
+                    Text("验证码已发送至 \(request.maskedPhone)，可点击键盘上方建议自动填充。")
+                }
+
+                Section {
+                    Button("验证并继续") {
+                        onSubmit(code)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .disabled(!(4 ... 8).contains(code.count))
+                }
+            }
+            .navigationTitle("短信验证")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消", action: onCancel)
+                }
+            }
+            .onAppear { isCodeFieldFocused = true }
+        }
+        .presentationDetents([.medium])
+    }
+}

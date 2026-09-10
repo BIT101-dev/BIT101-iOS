@@ -16,7 +16,8 @@ extension ScheduleViewModel {
         do {
             let payload = try await service.syncDDLEvents(
                 existingEvents: cache.ddlEvents,
-                storedURL: cache.lexueCalendarURL
+                storedURL: cache.lexueCalendarURL,
+                schoolSMSCodeHandler: makeSchoolSMSCodeHandler()
             )
             cache.lexueCalendarURL = payload.url
             cache.ddlEvents = ScheduleDDLEditor.mergingSyncedEvents(
@@ -58,7 +59,9 @@ extension ScheduleViewModel {
         defer { isSyncingDDL = false }
 
         do {
-            cache.lexueCalendarURL = try await service.refreshLexueCalendarURL()
+            cache.lexueCalendarURL = try await service.refreshLexueCalendarURL(
+                schoolSMSCodeHandler: makeSchoolSMSCodeHandler()
+            )
             persist()
             if showSuccessNotice {
                 notice = ScheduleNotice(title: "订阅链接更新成功", message: "已重新获取乐学订阅链接。")

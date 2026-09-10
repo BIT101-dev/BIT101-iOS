@@ -13,6 +13,7 @@ enum NetworkSmokeScope: String, Codable {
     case school
     case transcript
     case schedule
+    case ddl
 
     func includes(_ name: String) -> Bool {
         if name == "课程历史缓存验证" {
@@ -51,6 +52,10 @@ enum NetworkSmokeScope: String, Codable {
                 || name == "当前学期"
                 || name == "切换学期列表"
                 || name == "课表、考试与首周同步"
+        case .ddl:
+            return name == "BIT101 登录状态"
+                || name == "乐学日历订阅地址"
+                || name == "乐学 DDL 下载"
         }
     }
 }
@@ -374,11 +379,19 @@ final class ReleaseNetworkSmokeRunner {
         }
 
         let calendarURL = await probe("乐学日历订阅地址", scope: scope) {
-            try await schedule.refreshLexueCalendarURL()
+            try await schedule.refreshLexueCalendarURL(
+                schoolSMSCodeHandler: nil,
+                smsDeliveryMode: .preflight
+            )
         }
         if let calendarURL {
             _ = await probe("乐学 DDL 下载", scope: scope) {
-                try await schedule.syncDDLEvents(existingEvents: [], storedURL: calendarURL)
+                try await schedule.syncDDLEvents(
+                    existingEvents: [],
+                    storedURL: calendarURL,
+                    schoolSMSCodeHandler: nil,
+                    smsDeliveryMode: .preflight
+                )
             }
         }
 

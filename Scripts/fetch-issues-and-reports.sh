@@ -79,6 +79,7 @@ import base64
 import pathlib
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 keys_path = pathlib.Path(sys.argv[1])
 staging_dir = pathlib.Path(sys.argv[2])
@@ -95,11 +96,10 @@ keys = [
 ]
 keys_output.write_text("\n".join(keys) + ("\n" if keys else ""), encoding="utf-8")
 
-for key in keys:
-    filename = key.replace(":", "_") + ".json"
+def fetch(key):
     result = subprocess.run(
         [
-            "npx", "wrangler", "kv", "key", "get", key,
+            "npx", "--no-install", "wrangler", "kv", "key", "get", key,
             "--remote", "--namespace-id", namespace_id, "--text",
         ],
         cwd=worker_dir,
@@ -107,8 +107,16 @@ for key in keys:
         capture_output=True,
         text=True,
     )
+    return key, result
+
+with ThreadPoolExecutor(max_workers=4) as executor:
+    fetched = list(executor.map(fetch, keys))
+
+for key, result in fetched:
+    filename = key.replace(":", "_") + ".json"
     if result.returncode:
-        print(f"读取报告失败：{key}", file=sys.stderr)
+        detail = result.stderr.strip()
+        print(f"读取报告失败：{key}{f'：{detail}' if detail else ''}", file=sys.stderr)
         sys.exit(result.returncode or 1)
     try:
         item = json.loads(result.stdout)
@@ -157,15 +165,41 @@ if [[ "$REPORT_COUNT" -gt 0 ]]; then
   mv "$STAGING_DIR" "$CURRENT_DIR"
 
   echo "清理已拉取的 Cloudflare 错误报告..."
-  while IFS= read -r key; do
-    [[ -n "$key" ]] || continue
-    if ! (cd "$WRANGLER_DIR" && npx wrangler kv key delete "$key" \
-      --remote --namespace-id "$NAMESPACE_ID" >/dev/null 2> "$WRANGLER_LOG"); then
-      cat "$WRANGLER_LOG" >&2
-      echo "报告已保存在本地，远端未完整清理：$key" >&2
-      exit 1
-    fi
-  done < "$OUTPUT_DIR/report-keys.txt"
+  if ! python3 - "$WRANGLER_DIR" "$NAMESPACE_ID" "$OUTPUT_DIR/report-keys.txt" <<'PY'
+import pathlib
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
+
+worker_dir = pathlib.Path(sys.argv[1])
+namespace_id = sys.argv[2]
+keys = [line.strip() for line in pathlib.Path(sys.argv[3]).read_text(encoding="utf-8").splitlines() if line.strip()]
+
+def delete(key):
+    return key, subprocess.run(
+        [
+            "npx", "--no-install", "wrangler", "kv", "key", "delete", key,
+            "--remote", "--namespace-id", namespace_id,
+        ],
+        cwd=worker_dir,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+with ThreadPoolExecutor(max_workers=4) as executor:
+    deleted = list(executor.map(delete, keys))
+
+for key, result in deleted:
+    if result.returncode:
+        detail = result.stderr.strip()
+        print(f"清理报告失败：{key}{f'：{detail}' if detail else ''}", file=sys.stderr)
+        sys.exit(result.returncode or 1)
+PY
+  then
+    echo "报告已保存在本地，远端清理状态待复核。" >&2
+    exit 1
+  fi
 else
   rmdir "$STAGING_DIR"
 fi

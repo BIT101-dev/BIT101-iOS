@@ -29,8 +29,8 @@ SMOKE_SCOPE="${BIT101_NETWORK_SMOKE_SCOPE:-all}"
 SMOKE_CAPTURE="${BIT101_NETWORK_SMOKE_CAPTURE:-cachedCourseHistory}"
 
 case "$SMOKE_SCOPE" in
-  all|bit101|school|transcript|schedule) ;;
-  *) echo "BIT101_NETWORK_SMOKE_SCOPE 必须是 all、bit101、school、transcript 或 schedule。" >&2; exit 64 ;;
+  all|bit101|school|transcript|schedule|ddl) ;;
+  *) echo "BIT101_NETWORK_SMOKE_SCOPE 必须是 all、bit101、school、transcript、schedule 或 ddl。" >&2; exit 64 ;;
 esac
 case "$SMOKE_CAPTURE" in
   ""|courseHistory|cachedCourseHistory) ;;

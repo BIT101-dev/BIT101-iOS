@@ -14,6 +14,22 @@ struct StoredCredentials {
     let password: String
 }
 
+/// 学校统一身份认证请求短信验证码时交给界面层的交互上下文。
+struct SchoolSMSCodeRequest: Identifiable {
+    let id = UUID()
+    let maskedPhone: String
+    let purpose: String
+}
+
+typealias SchoolSMSCodeHandler = @MainActor (SchoolSMSCodeRequest) async throws -> String
+
+/// 学校 CAS 短信验证页的最小提交上下文。
+struct SchoolSecondFactorContext {
+    let execution: String
+    let formAction: URL
+    let userObjectID: String
+}
+
 /// 教学中心 WebVPN 会话的进程内状态。
 ///
 /// 状态绑定具体学号，每次使用前检查对应 Cookie。网络层发现会话失效时调用 `invalidate`，
@@ -176,6 +192,9 @@ enum LoginServiceError: LocalizedError {
     case invalidSchoolLoginPage
     case schoolLoginFailed
     case invalidCredentials
+    case schoolSMSRequired
+    case schoolSMSCodeInvalid(String)
+    case schoolSMSUnavailable(String)
     case unableToRestoreSchoolSession
     case invalidServerResponse
     case keychainWriteFailed(OSStatus)
@@ -194,6 +213,12 @@ enum LoginServiceError: LocalizedError {
             return "学校统一身份认证登录失败，请检查学号和密码。"
         case .invalidCredentials:
             return "学号或密码错误，请检查后重试。"
+        case .schoolSMSRequired:
+            return "学校统一身份认证需要短信验证。"
+        case let .schoolSMSCodeInvalid(message):
+            return message
+        case let .schoolSMSUnavailable(message):
+            return message
         case .unableToRestoreSchoolSession:
             return "学校登录状态已过期，且缺少可用于静默恢复的本地凭据。"
         case .invalidServerResponse:

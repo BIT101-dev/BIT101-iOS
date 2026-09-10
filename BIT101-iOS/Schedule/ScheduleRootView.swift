@@ -98,6 +98,22 @@ struct ScheduleRootView: View {
                 }
             )
         }
+        .sheet(
+            item: Binding(
+                get: { viewModel.schoolSMSCodeRequest },
+                set: { request in
+                    if request == nil {
+                        viewModel.dismissSchoolSMSCode()
+                    }
+                }
+            )
+        ) { request in
+            AppSchoolSMSVerificationSheet(
+                request: request,
+                onCancel: viewModel.dismissSchoolSMSCode,
+                onSubmit: viewModel.submitSchoolSMSCode
+            )
+        }
     }
 
     /// 根据当前分区切换渲染不同内容页。

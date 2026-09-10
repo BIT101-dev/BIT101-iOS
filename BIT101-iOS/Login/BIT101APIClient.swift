@@ -68,6 +68,7 @@ struct RegisterResponse: Decodable {
 /// 既负责学校 CAS，也负责 BIT101 自己的 `webvpn_verify` / `register` 接口。
 struct BIT101APIClient {
     static let shared = BIT101APIClient()
+    static let browserUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
     private let schoolBaseURL = AppURL.required("https://sso.bit.edu.cn")
     private let bit101BaseURL = AppURL.required("https://bit101.flwfdd.xyz")
 

@@ -149,6 +149,7 @@ final class ScheduleViewModel: ObservableObject {
     @Published var smsChallenge: BITLoginAuthenticationChallenge?
     @Published var smsVerificationError: String?
     @Published var isSubmittingSMSCode = false
+    @Published var schoolSMSCodeRequest: SchoolSMSCodeRequest?
     /// 学校提供的可切换学期列表。
     @Published var availableTerms: [String] = []
     @Published var isLoadingTerms = false
@@ -159,6 +160,7 @@ final class ScheduleViewModel: ObservableObject {
     let classroomCoordinator = ScheduleClassroomCoordinator()
     let courseSyncCoordinator = ScheduleCourseSyncCoordinator()
     private var hasLoaded = false
+    private var schoolSMSContinuation: CheckedContinuation<String, Error>?
     /// 当前教学楼最近一次拉下来的原始空教室记录。
     var classroomRecords: [ClassroomRecord] = []
     /// 监听设置和缓存变化，用于跨页面同步。
@@ -216,10 +218,39 @@ final class ScheduleViewModel: ObservableObject {
         selectedBuildingID = ""
         smsChallenge = nil
         smsVerificationError = nil
+        schoolSMSCodeRequest = nil
+        schoolSMSContinuation?.resume(throwing: CancellationError())
+        schoolSMSContinuation = nil
         courseSyncCoordinator.reset()
         notice = nil
         pendingCourseReplacement = nil
         reloadFromDisk()
+    }
+
+    func submitSchoolSMSCode(_ code: String) {
+        let normalized = code.filter(\.isNumber)
+        guard (4 ... 8).contains(normalized.count) else { return }
+        let continuation = schoolSMSContinuation
+        schoolSMSContinuation = nil
+        schoolSMSCodeRequest = nil
+        continuation?.resume(returning: normalized)
+    }
+
+    func dismissSchoolSMSCode() {
+        let continuation = schoolSMSContinuation
+        schoolSMSContinuation = nil
+        schoolSMSCodeRequest = nil
+        continuation?.resume(throwing: CancellationError())
+    }
+
+    func makeSchoolSMSCodeHandler() -> SchoolSMSCodeHandler {
+        { @MainActor [weak self] request in
+            guard let self else { throw CancellationError() }
+            self.schoolSMSCodeRequest = request
+            return try await withCheckedThrowingContinuation { continuation in
+                self.schoolSMSContinuation = continuation
+            }
+        }
     }
 
     /// 构造日程模块统一使用的本地校验错误。

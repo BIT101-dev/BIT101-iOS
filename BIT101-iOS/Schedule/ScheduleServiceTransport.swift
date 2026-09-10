@@ -204,7 +204,7 @@ extension ScheduleService {
     }
 
     /// 把字段组装成 `application/x-www-form-urlencoded` 表单体。
-    private func formBody(_ fields: [(String, String)]) -> Data {
+    func formBody(_ fields: [(String, String)]) -> Data {
         let encoded = fields.map { key, value in
             "\(urlEncode(key))=\(urlEncode(value))"
         }
