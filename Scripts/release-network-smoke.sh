@@ -15,7 +15,15 @@ else
     exit 64
   fi
   DEVICE_ID="$1"
-  export DEVELOPER_DIR="${2:-${DEVELOPER_DIR:-/Users/harrybit/Desktop/Xcode-beta.app/Contents/Developer}}"
+  if [[ -n "${2:-}" ]]; then
+    export DEVELOPER_DIR="$2"
+  elif [[ -n "${DEVELOPER_DIR:-}" ]]; then
+    export DEVELOPER_DIR="$DEVELOPER_DIR"
+  elif [[ -d "/Users/harrybit/Desktop/Xcode.app/Contents/Developer" ]]; then
+    export DEVELOPER_DIR="/Users/harrybit/Desktop/Xcode.app/Contents/Developer"
+  else
+    export DEVELOPER_DIR="/Users/harrybit/Desktop/Xcode-beta.app/Contents/Developer"
+  fi
   DEVICETCL_DEVICE_ID="$DEVICE_ID"
 fi
 
@@ -51,7 +59,12 @@ LOCAL_REPORT_PATH="$REPORT_DIR/release-network-smoke.json"
 rm -f "$LOG_FILE" "$BUILD_LOG" "$LOCAL_REPORT_PATH"
 
 restore_normal_app() {
-  DEVELOPER_DIR="$DEVELOPER_DIR" "$ROOT_DIR/Scripts/build-install-device.sh" >/dev/null 2>&1 || true
+  local smoke_status=$?
+  if ! DEVELOPER_DIR="$DEVELOPER_DIR" "$ROOT_DIR/Scripts/build-install-device.sh" >/dev/null 2>&1; then
+    echo "恢复正常 App 失败，当前设备可能仍运行网络采样宿主。" >&2
+    [[ $smoke_status -eq 0 ]] && smoke_status=1
+  fi
+  return $smoke_status
 }
 trap restore_normal_app EXIT
 
@@ -153,10 +166,15 @@ auth_blocked = report.get("authenticationBlockers", [])
 scope = report.get("scope")
 run_id = report.get("runID")
 metrics = report.get("courseHistoryAuditMetrics")
+executed = report.get("executedProbes", [])
+skipped = report.get("skippedProbes", [])
+sms_coverage = report.get("schoolSMSCoverage", "unknown")
 
 print(
     f"发布前网络冒烟结果: passed={passed} scope={scope} "
-    f"run_id={run_id} failures={len(failures)} auth_blocked={len(auth_blocked)}"
+    f"run_id={run_id} failures={len(failures)} auth_blocked={len(auth_blocked)} "
+    f"skipped={len(skipped)} "
+    f"executed={len(executed)} sms_coverage={sms_coverage}"
 )
 if metrics:
     true_positive = metrics.get('truePositive', 0)

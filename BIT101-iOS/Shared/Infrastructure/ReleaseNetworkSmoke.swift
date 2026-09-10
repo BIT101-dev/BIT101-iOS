@@ -17,7 +17,7 @@ enum NetworkSmokeScope: String, Codable {
 
     func includes(_ name: String) -> Bool {
         if name == "课程历史缓存验证" {
-            return true
+            return self == .all || self == .bit101
         }
 
         switch self {
@@ -107,13 +107,16 @@ struct ReleaseNetworkSmokeReport: Codable {
     let authenticationBlockers: [String]
     let courseHistorySamples: [CourseHistoryAuditSample]
     let courseHistoryAuditMetrics: CourseHistoryAuditMetrics?
+    let executedProbes: [String]
+    let skippedProbes: [String]
+    let schoolSMSCoverage: String
 
     var elapsed: TimeInterval {
         finishedAt.timeIntervalSince(startedAt)
     }
 
     var summaryLine: String {
-        "NETWORK_SMOKE_SUMMARY run_id=\(runID) scope=\(scope.rawValue) passed=\(passed) failures=\(failures.count) auth_blocked=\(authenticationBlockers.count) elapsed=\(Self.duration(elapsed))"
+        "NETWORK_SMOKE_SUMMARY run_id=\(runID) scope=\(scope.rawValue) passed=\(passed) failures=\(failures.count) auth_blocked=\(authenticationBlockers.count) executed=\(executedProbes.count) sms_coverage=\(schoolSMSCoverage) elapsed=\(Self.duration(elapsed))"
     }
 
     var failureMessage: String {
@@ -180,17 +183,22 @@ struct ReleaseNetworkSmokeLaunchRequest {
               url.host?.lowercased() == "network-smoke"
         else { return nil }
 
-        let pathScope = url.pathComponents
+        guard let pathScopeValue = (url.pathComponents
             .filter { $0 != "/" }
-            .first
-            .flatMap(NetworkSmokeScope.init(rawValue:))
-            ?? .all
+            .first) else { return nil }
+        guard let pathScope = NetworkSmokeScope(rawValue: pathScopeValue) else { return nil }
 
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         let runID = components?.queryItems?.first(where: { $0.name == "run" })?.value?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let capture = components?.queryItems?.first(where: { $0.name == "capture" })?.value
-            .flatMap(NetworkSmokeCapture.init(rawValue:)) ?? .none
+        let captureValue = components?.queryItems?.first(where: { $0.name == "capture" })?.value
+        let capture: NetworkSmokeCapture
+        if let captureValue {
+            guard let parsedCapture = NetworkSmokeCapture(rawValue: captureValue) else { return nil }
+            capture = parsedCapture
+        } else {
+            capture = .none
+        }
 
         self.scope = pathScope
         self.capture = capture
@@ -213,6 +221,8 @@ final class ReleaseNetworkSmokeRunner {
     private var authenticationBlockers: [String] = []
     private var courseHistorySamples: [CourseHistoryAuditSample] = []
     private var courseHistoryAuditMetrics: CourseHistoryAuditMetrics?
+    private var executedProbes: [String] = []
+    private var skippedProbes: [String] = []
 
     func run(
         scope: NetworkSmokeScope,
@@ -223,8 +233,11 @@ final class ReleaseNetworkSmokeRunner {
         authenticationBlockers = []
         courseHistorySamples = []
         courseHistoryAuditMetrics = nil
+        executedProbes = []
+        skippedProbes = []
         let startedAt = Date()
 
+        executedProbes.append("BIT101 登录状态")
         let loginStartedAt = Date()
         do {
             let loginResult = try await LoginService().checkLogin()
@@ -240,10 +253,10 @@ final class ReleaseNetworkSmokeRunner {
 
         let gallery = GalleryService()
         let courses = CourseService()
-        if capture == .cachedCourseHistory {
+        if capture == .cachedCourseHistory, scope.includes("课程历史缓存验证") {
             validateCachedCourseHistoryFixture(scope: scope)
         }
-        if capture == .courseHistory {
+        if capture == .courseHistory, scope.includes("课程历史缓存验证") {
             courseHistorySamples = await captureCourseHistorySamples(using: courses, scope: scope)
             return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
         }
@@ -425,6 +438,7 @@ final class ReleaseNetworkSmokeRunner {
     }
 
     private func validateCachedCourseHistoryFixture(scope: NetworkSmokeScope) {
+        executedProbes.append("课程历史缓存验证")
         do {
             let fixture = try ReleaseNetworkSmokeReportStore.readCachedCourseHistoryFixture()
             var mismatches: [String] = []
@@ -560,6 +574,23 @@ final class ReleaseNetworkSmokeRunner {
     }
 
     private func finishReport(runID: String, scope: NetworkSmokeScope, startedAt: Date) async -> ReleaseNetworkSmokeReport {
+        if scope == .ddl {
+            let required = ["BIT101 登录状态", "乐学日历订阅地址", "乐学 DDL 下载"]
+            let missing = required.filter { !executedProbes.contains($0) }
+            if !missing.isEmpty, authenticationBlockers.isEmpty {
+                let line = "[DDL Smoke 覆盖] 必需探针缺失：" + missing.joined(separator: "、")
+                failures.append(line)
+                print("NETWORK_SMOKE_FAIL \(line)")
+            }
+        }
+
+        let schoolSMSCoverage: String
+        switch scope {
+        case .all, .school, .ddl:
+            schoolSMSCoverage = "preflight_only"
+        default:
+            schoolSMSCoverage = "not_run"
+        }
         let report = ReleaseNetworkSmokeReport(
             runID: runID,
             scope: scope,
@@ -569,7 +600,10 @@ final class ReleaseNetworkSmokeRunner {
             failures: failures,
             authenticationBlockers: authenticationBlockers,
             courseHistorySamples: courseHistorySamples,
-            courseHistoryAuditMetrics: courseHistoryAuditMetrics
+            courseHistoryAuditMetrics: courseHistoryAuditMetrics,
+            executedProbes: executedProbes,
+            skippedProbes: skippedProbes,
+            schoolSMSCoverage: schoolSMSCoverage
         )
         print(report.summaryLine)
         if !report.passed {
@@ -585,9 +619,11 @@ final class ReleaseNetworkSmokeRunner {
         operation: () async throws -> Value
     ) async -> Value? {
         guard scope.includes(name) else {
+            skippedProbes.append(name)
             print("NETWORK_SMOKE_SKIP name=\(name) scope=\(scope.rawValue)")
             return nil
         }
+        executedProbes.append(name)
         let startedAt = Date()
         do {
             let value = try await operation()

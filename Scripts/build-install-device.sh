@@ -50,7 +50,15 @@ else
   fi
   BIT101_XCODE_DEVICE_ID="$1"
   BIT101_DEVICETCL_DEVICE_ID="$1"
-  export DEVELOPER_DIR="${2:-${DEVELOPER_DIR:-/Users/harrybit/Desktop/Xcode-beta.app/Contents/Developer}}"
+  if [[ -n "${2:-}" ]]; then
+    export DEVELOPER_DIR="$2"
+  elif [[ -n "${DEVELOPER_DIR:-}" ]]; then
+    export DEVELOPER_DIR="$DEVELOPER_DIR"
+  elif [[ -d "/Users/harrybit/Desktop/Xcode.app/Contents/Developer" ]]; then
+    export DEVELOPER_DIR="/Users/harrybit/Desktop/Xcode.app/Contents/Developer"
+  else
+    export DEVELOPER_DIR="/Users/harrybit/Desktop/Xcode-beta.app/Contents/Developer"
+  fi
 fi
 
 mkdir -p "$DERIVED_DATA"

@@ -119,7 +119,7 @@ Scripts/release-network-smoke-school.sh
 当前保守候选基线为：人数 `≤ 20` 的学期保持展示；其余记录使用 `log10` 人数单侧 Tukey `3×IQR` 外围下界，并要求平均分低于同组 Q1。
 参数在全部课程之间统一，课程级分组结果用于观察跨课程稳定性。
 
-`release-network-smoke.sh` 默认把该缓存写入真机应用文档目录，并在网络探针启动时完成缓存验证；缓存文件保持在开发目录中，普通 Smoke 运行持续复用这份数据。
+`release-network-smoke.sh` 默认把该缓存写入真机应用文档目录；`all` 和 `bit101` 范围启动时完成缓存验证，`school`、`transcript`、`schedule`、`ddl` 范围保持业务链路聚焦。缓存文件保持在开发目录中，普通 Smoke 运行持续复用这份数据。
 普通 Smoke 运行保持 Git fixture 原样；收到更新测试数据指令后再人工复核并替换 fixture。
 更新采样数据时显式执行：
 
@@ -129,10 +129,12 @@ BIT101_NETWORK_SMOKE_CAPTURE=courseHistory Scripts/release-network-smoke-bit101.
 
 学校范围 Smoke 的乐学 DDL 探针会先完成短信手机号预检；学校触发短信验证时记录为 `auth_blocked`，短信发送状态保持关闭，界面验证码继续由真机流程验证。
 
+Smoke 报告记录 `executedProbes`、`skippedProbes` 和 `schoolSMSCoverage`。`ddl` 范围要求 BIT101 登录状态、乐学订阅地址、乐学 DDL 下载三项探针进入执行列表；短信输入 UI 状态采用真机手动验证。
+
 采样报告写入 `.build/release-network-smoke/report/release-network-smoke.json`；人工复核完成后再更新 Git 中的 fixture。
 Smoke 报告同步输出当前算法对确定标签的 precision、recall、TP、FP 和 FN，指标用于算法选择和回归跟踪。
 
-可信成绩单归入学校链路；当前冒烟范围为 `all`、`bit101`、`school`、`transcript`、`schedule` 和 `ddl`。可以只进行部分测试，以加快局部开发进度，但是在开发结束后必须进行全量测试。例如，开发 DDL 链路时使用 `ddl` 范围：
+可信成绩单归入学校链路；当前冒烟范围为 `all`、`bit101`、`school`、`transcript`、`schedule` 和 `ddl`。局部开发使用对应范围，开发结束后运行全量 Smoke。例如，开发 DDL 链路时使用 `ddl` 范围：
 
 ```sh
 BIT101_NETWORK_SMOKE_SCOPE=ddl Scripts/release-network-smoke.sh
