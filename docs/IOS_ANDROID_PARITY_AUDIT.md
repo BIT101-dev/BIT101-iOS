@@ -5,8 +5,7 @@
 - 开始提交：`2f54df7`
 - Android 基线：`6d79f18`
 - 审计方式：Android 与 iOS git 提交、模块、服务、UI、测试入口交叉阅读
-- 并行审计：4 个 Luna xhigh 请求，3 个有效结果已汇总
-- 第 4 个请求返回异常 agent 标识，结果排除在结论之外
+- 并行审计：4 个 Luna xhigh 请求，4 个有效结果已汇总
 - 当前阶段：第一轮高置信度结果完成
 
 ## 记录格式
@@ -119,6 +118,29 @@ iOS 模块：`Course`、`Gallery`、`Login`、`Map`、`Mine`、`Paper`、`Schedu
 - iOS：`ScheduleService.swift:333-337` 使用固定 `lexueBaseURL`；课表链路具备 WebVPN/直连回退，DDL 链路采用固定直连地址
 - 验证：校外网络、校园网、WebVPN DNS 异常、直连回退、登录态恢复
 
+### P2：话廊横向滑动设置
+
+- Android：`128b339`、`GallerySettingPage.kt:80-86`
+- iOS：`GalleryRootView` 固定启用横向手势，设置层缺少开关
+
+### P2：空教室过滤设置
+
+- Android：`128b339`、`FreeClassroomSettingPage.kt:108-124`
+- iOS：`FreeClassroomViews.swift` 已有校区、教学楼、节次筛选；隐藏非空教室和空闲分钟阈值待补齐
+
+### P2：更新检查控制
+
+- Android：`AboutPage.kt:80-93` 提供手动检查与自动检查控制
+- iOS：`AppUpdateChecker.swift:100-122` 执行自动检查，关于页缺少对应控制项
+
+### Smoke 与测试覆盖差异
+
+- iOS Smoke 当前覆盖网络读链路，写操作、帖子编辑、举报、设置修改采用独立人工验证
+- DDL 短信报告保持 `schoolSMSCoverage=preflight_only`
+- iOS `LoginLogicTests.swift`、`RefactorSafetyTests.swift` 覆盖解析与状态机；手机号获取、短信发送、校验、CAS 表单提交缺少 mock HTTP 闭环测试
+- iOS 缺少发帖、编辑、举报、隐藏用户、页面配置、更新设置、日志导出的 UI 回归入口
+- Android 侧已有 `SmsCodeRequestHubTest`、`DefaultLoginRepoTest`、`SchoolCookieStoreTest`
+
 ### API 能力差异待确认
 
 Android API 侧已确认以下接口，iOS 当前 Service 检索结果待补齐或待确认 UI 使用范围：
@@ -154,3 +176,12 @@ Android API 侧已确认以下接口，iOS 当前 Service 检索结果待补齐�
 5. BIT101 内置网页入口
 6. DDL WebVPN / 直连策略
 7. 页面自定义、日志导出、单条日历导入
+
+## 待人工确认
+
+- BIT101 内置 Web 页面是否属于当前产品必需功能
+- iOS 帖子编辑与举报的产品优先级
+- 话廊屏蔽设置是否要求跨端一致
+- 空教室阈值是否纳入 iOS 设计系统
+- 更新检查是否需要用户开关
+- 地图缩放设置是否形成独立功能差异
