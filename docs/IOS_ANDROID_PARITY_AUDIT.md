@@ -35,11 +35,11 @@ iOS 模块：`Course`、`Gallery`、`Login`、`Map`、`Mine`、`Paper`、`Schedu
 
 ## 审计结果
 
-### P1：社区认证刷新与重试
+### P1：社区认证刷新与重试（代码已补齐）
 
 - Android：`f975d5d`、`5320289`、`f113265`；`DefaultAPIManager.kt:43-84`、`DefaultLoginRepo.kt:61-160`
 - iOS：`CommunityAPIClient.swift:170-180` 将 401 映射为登录错误；教学中心在 `ScheduleServiceTeachingCenter.swift:53-125` 维护独立恢复
-- iOS 统一会话刷新、并发锁、失败分类和一次重试策略待补齐
+- `fd20fe6` 已加入统一社区 401 刷新、并发复用、失败分类和单次重试；`NetworkClientTests.swift` 增加 401 重试覆盖
 - 验证：401、并发请求、刷新成功、刷新失败、登录态清理
 
 ### P1：学校 SSO 静默恢复短信入口（代码已补齐）
@@ -172,12 +172,11 @@ Android API 侧已确认以下接口，iOS 当前 Service 检索结果待补齐�
 
 ## 第一轮优先级
 
-1. 社区 401 统一刷新与重试
-2. DDL 真实短信闭环
-3. 帖子编辑、举报、关注、隐藏用户、评论媒体与操作菜单
-4. BIT101 内置网页入口
-5. DDL WebVPN / 直连策略
-6. 页面自定义、日志导出、单条日历导入
+1. DDL 真实短信闭环
+2. 帖子编辑、举报、关注、隐藏用户、评论媒体与操作菜单
+3. BIT101 内置网页入口
+4. DDL WebVPN / 直连策略
+5. 页面自定义、日志导出、单条日历导入
 
 ## 待人工确认
 
