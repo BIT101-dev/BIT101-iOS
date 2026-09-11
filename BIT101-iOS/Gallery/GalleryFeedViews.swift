@@ -20,6 +20,7 @@ struct GalleryFeedView: View {
     @State private var currentTopPosterID: Int?
     @State private var pendingRestorePosterID: Int?
     @State private var lastPrefetchTriggerPosterID: Int?
+    @State private var reportTarget: GalleryReportTarget?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -55,7 +56,8 @@ struct GalleryFeedView: View {
                                     onOpenImage: { index, images in
                                         imageViewer = GalleryImageViewerState(images: images, initialIndex: index)
                                     },
-                                    onDelete: nil
+                                    onDelete: nil,
+                                    onReport: { reportTarget = .poster(poster.id) }
                                 )
                             }
                             .id(poster.id)
@@ -98,6 +100,9 @@ struct GalleryFeedView: View {
                 )
             }
             .gallerySystemImagePreview(item: $imageViewer)
+            .sheet(item: $reportTarget) { target in
+                GalleryReportSheet(target: target) {}
+            }
         }
     }
 
@@ -181,6 +186,7 @@ struct GalleryPosterCard: View {
     let onOpenPoster: () -> Void
     let onOpenImage: (Int, [GalleryImage]) -> Void
     let onDelete: (() -> Void)?
+    let onReport: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
@@ -220,9 +226,10 @@ struct GalleryPosterCard: View {
 
                 Spacer()
 
-                if onDelete != nil {
+                if onDelete != nil || onReport != nil {
                     GalleryPosterActionMenu(
-                        onDelete: onDelete
+                        onDelete: onDelete,
+                        onReport: onReport
                     )
                     // 右上角菜单需要吞掉点击，避免父卡片的 onTapGesture 同时触发进详情。
                     .contentShape(Rectangle())

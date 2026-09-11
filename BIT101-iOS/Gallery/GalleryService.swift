@@ -12,6 +12,7 @@ enum GalleryServiceError: LocalizedError {
     case notLoggedIn
     case invalidResponse
     case uploadFailed
+    case reportFailed
 
     /// 给 UI 直接展示的错误文案。
     var errorDescription: String? {
@@ -22,6 +23,8 @@ enum GalleryServiceError: LocalizedError {
             return "服务器返回了无法识别的数据。"
         case .uploadFailed:
             return "图片上传失败。"
+        case .reportFailed:
+            return "举报提交失败。"
         }
     }
 }
@@ -119,6 +122,17 @@ struct GalleryService {
     /// 点赞接口请求体。
     private struct LikeRequest: Encodable {
         let obj: String
+    }
+
+    private struct ReportRequest: Encodable {
+        let obj: String
+        let text: String
+        let typeID: Int
+
+        enum CodingKeys: String, CodingKey {
+            case obj, text
+            case typeID = "type_id"
+        }
     }
 
     /// 构造带共享 cookie 策略的服务实例。
@@ -297,6 +311,26 @@ struct GalleryService {
     /// 删除接口没有复杂返回体，只以 HTTP 成功与否为准。
     func deletePoster(id: Int) async throws {
         try await api.requestVoid(path: "posters/\(id)", method: "DELETE")
+    }
+
+    /// 获取社区内容举报类型。
+    func fetchReportTypes() async throws -> [GalleryReportType] {
+        try await api.request(path: "manage/report_types")
+    }
+
+    /// 提交帖子或评论举报。
+    func report(objectID: String, typeID: Int, text: String) async throws {
+        do {
+            try await api.requestVoid(
+                path: "manage/reports",
+                method: "POST",
+                body: try api.encode(ReportRequest(obj: objectID, text: text, typeID: typeID))
+            )
+        } catch let error as GalleryServiceError {
+            throw error
+        } catch {
+            throw GalleryServiceError.reportFailed
+        }
     }
 
     /// 拉取帖子或评论对象下的评论列表。

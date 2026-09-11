@@ -18,6 +18,7 @@ struct GalleryPosterDetailView: View {
     @State private var composerTarget: GalleryCommentComposerTarget?
     @State private var userRoute: UserRoute?
     @State private var isShowingDeleteConfirmation = false
+    @State private var reportTarget: GalleryReportTarget?
     let onDeleted: (() -> Void)?
 
     init(
@@ -150,6 +151,9 @@ struct GalleryPosterDetailView: View {
                             await viewModel.likeComment(comment)
                         }
                     },
+                    onReportComment: { comment in
+                        reportTarget = .comment(comment.id)
+                    },
                     onOpenImage: { index, images in
                         imageViewer = GalleryImageViewerState(images: images, initialIndex: index)
                     },
@@ -184,13 +188,14 @@ struct GalleryPosterDetailView: View {
                     accessibilityLabel: "分享话题"
                 )
 
-                if viewModel.poster.own {
-                    GalleryPosterActionMenu(
-                        onDelete: {
-                            isShowingDeleteConfirmation = true
-                        }
-                    )
-                }
+                GalleryPosterActionMenu(
+                    onDelete: viewModel.poster.own ? {
+                        isShowingDeleteConfirmation = true
+                    } : nil,
+                    onReport: {
+                        reportTarget = .poster(viewModel.poster.id)
+                    }
+                )
             }
         }
         .task {
@@ -209,6 +214,9 @@ struct GalleryPosterDetailView: View {
                     }
                 }
             }
+        }
+        .sheet(item: $reportTarget) { target in
+            GalleryReportSheet(target: target) {}
         }
         .diagnosticAlert(item: $viewModel.alert)
         .alert(

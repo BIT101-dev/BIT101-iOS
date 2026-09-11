@@ -398,6 +398,37 @@ extension GalleryFeedState: PagedItemsState {
     }
 }
 
+struct GalleryReportType: Decodable, Identifiable, Hashable {
+    let id: Int
+    let text: String
+}
+
+enum GalleryReportTarget: Identifiable, Hashable {
+    case poster(Int)
+    case comment(Int)
+
+    var id: String {
+        switch self {
+        case let .poster(id): return "poster-\(id)"
+        case let .comment(id): return "comment-\(id)"
+        }
+    }
+
+    var objectID: String {
+        switch self {
+        case let .poster(id): return "poster\(id)"
+        case let .comment(id): return "comment\(id)"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .poster: return "举报帖子"
+        case .comment: return "举报评论"
+        }
+    }
+}
+
 /// 消息中心的消息类型。
 ///
 /// 类型集中提供标题、动作文案和状态字典键。

@@ -29,4 +29,9 @@ protocol GalleryPosterDetailServicing {
     func deletePoster(id: Int) async throws
 }
 
-extension GalleryService: GalleryFeedServicing, GalleryMessageServicing, GalleryPosterDetailServicing {}
+protocol GalleryReportServicing {
+    func fetchReportTypes() async throws -> [GalleryReportType]
+    func report(objectID: String, typeID: Int, text: String) async throws
+}
+
+extension GalleryService: GalleryFeedServicing, GalleryMessageServicing, GalleryPosterDetailServicing, GalleryReportServicing {}

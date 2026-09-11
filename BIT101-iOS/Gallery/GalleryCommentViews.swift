@@ -17,6 +17,7 @@ struct GalleryPosterCommentsSection: View {
     let onSelectOrder: (GalleryCommentOrder) -> Void
     let onReply: (GalleryCommentReplyTarget) -> Void
     let onLikeComment: (GalleryComment) -> Void
+    let onReportComment: (GalleryComment) -> Void
     let onOpenImage: (Int, [GalleryImage]) -> Void
     let onOpenUser: (GalleryUser) -> Void
     let onLoadMore: (GalleryComment?) -> Void
@@ -58,6 +59,7 @@ struct GalleryPosterCommentsSection: View {
                                     likingCommentIDs: likingCommentIDs,
                                     onReply: onReply,
                                     onLikeComment: onLikeComment,
+                                    onReportComment: onReportComment,
                                     onOpenImage: onOpenImage,
                                     onOpenUser: onOpenUser
                                 )
@@ -100,6 +102,7 @@ private struct GalleryCommentRow: View {
     let likingCommentIDs: Set<Int>
     let onReply: (GalleryCommentReplyTarget) -> Void
     let onLikeComment: (GalleryComment) -> Void
+    let onReportComment: (GalleryComment) -> Void
     let onOpenImage: (Int, [GalleryImage]) -> Void
     let onOpenUser: (GalleryUser) -> Void
 
@@ -142,6 +145,11 @@ private struct GalleryCommentRow: View {
                     onLikeComment(comment)
                 }
             )
+        }
+        .contextMenu {
+            Button("举报评论", systemImage: "exclamationmark.bubble") {
+                onReportComment(comment)
+            }
         }
     }
 

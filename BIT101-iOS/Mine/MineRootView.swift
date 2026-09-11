@@ -258,7 +258,8 @@ struct UserProfileRootView: View {
                             onOpenImage: { index, images in
                                 imageViewer = GalleryImageViewerState(images: images, initialIndex: index)
                             },
-                            onDelete: nil
+                            onDelete: nil,
+                            onReport: nil
                         )
                         .task {
                             await viewModel.loadMorePostersIfNeeded(currentPoster: poster)
@@ -502,7 +503,8 @@ private struct MinePosterListView: View {
                                     onOpenImage: { index, images in
                                         imageViewer = GalleryImageViewerState(images: images, initialIndex: index)
                                     },
-                                    onDelete: { deletingPoster = poster }
+                                    onDelete: { deletingPoster = poster },
+                                    onReport: nil
                                 )
                                 .task {
                                     onLoadMore(poster)
