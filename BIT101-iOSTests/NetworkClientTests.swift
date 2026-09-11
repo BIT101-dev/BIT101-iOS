@@ -131,6 +131,45 @@ struct NetworkClientTests {
         #expect(payload.displayName == "Guest")
     }
 
+    @Test("Community 401 refreshes the session and retries once")
+    func community401RefreshesAndRetries() async throws {
+        final class State {
+            var cookie = "expired-token"
+            var requestCount = 0
+        }
+
+        let state = State()
+        let transport = MockHTTPTransport { request in
+            state.requestCount += 1
+            let requestURL = try #require(request.url)
+            let statusCode = state.requestCount == 1 ? 401 : 200
+            if state.requestCount == 2 {
+                #expect(request.value(forHTTPHeaderField: "fake-cookie") == "refreshed-token")
+            }
+            let response = try #require(HTTPURLResponse(
+                url: requestURL,
+                statusCode: statusCode,
+                httpVersion: nil,
+                headerFields: nil
+            ))
+            let body = statusCode == 200
+                ? Data(#"{"display_name":"BIT101"}"#.utf8)
+                : Data(#"{"message":"expired"}"#.utf8)
+            return (body, response)
+        }
+        let api = CommunityAPIClient<TestCommunityError>(
+            httpClient: HTTPClient(transport: transport),
+            baseURL: try #require(URL(string: "https://example.com")),
+            errorDomain: "Test",
+            fakeCookieProvider: { state.cookie },
+            refreshHandler: { _ in state.cookie = "refreshed-token" }
+        )
+
+        let payload: UserPayload = try await api.request(path: "users")
+        #expect(payload == UserPayload(displayName: "BIT101"))
+        #expect(state.requestCount == 2)
+    }
+
     @Test("Multipart payload keeps the backend file contract")
     func multipartPayload() {
         let multipart = MultipartFormData.jpegFile(

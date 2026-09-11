@@ -11,6 +11,41 @@ protocol CommunityAPIServiceError: Error {
     static var communityInvalidResponse: Self { get }
 }
 
+@MainActor
+private final class CommunitySessionRefreshCoordinator {
+    static let shared = CommunitySessionRefreshCoordinator()
+
+    private var refreshTask: Task<Void, Error>?
+
+    private init() {}
+
+    func refreshIfNeeded(observedCookie: String, storage: LoginStorage) async throws {
+        guard storage.fakeCookie == observedCookie else { return }
+        if let refreshTask {
+            try await refreshTask.value
+            return
+        }
+
+        let task = Task { @MainActor in
+            guard let credentials = try storage.loadCredentials() else {
+                throw LoginServiceError.unableToRestoreSchoolSession
+            }
+            _ = try await LoginService(storage: storage).login(
+                studentID: credentials.studentID,
+                password: credentials.password
+            )
+        }
+        refreshTask = task
+        do {
+            try await task.value
+            refreshTask = nil
+        } catch {
+            refreshTask = nil
+            throw error
+        }
+    }
+}
+
 /// `CommunityDecodableType` 将 `Decodable` 元类型包装为 `Sendable` 值并传入后台 `JSONDecoder` 调用；异步闭包在解码完成前持有该值。
 private struct CommunityDecodableType<Response: Decodable>: @unchecked Sendable {
     let value: Response.Type
@@ -21,6 +56,7 @@ struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
     private let baseURL: URL
     private let httpClient: HTTPClient
     private let fakeCookieProvider: () -> String
+    private let refreshHandler: (String) async throws -> Void
     private let errorDomain: String
 
     init(
@@ -30,6 +66,12 @@ struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         errorDomain: String
     ) {
         fakeCookieProvider = { storage.fakeCookie }
+        refreshHandler = { observedCookie in
+            try await CommunitySessionRefreshCoordinator.shared.refreshIfNeeded(
+                observedCookie: observedCookie,
+                storage: storage
+            )
+        }
         self.httpClient = httpClient
         self.baseURL = baseURL
         self.errorDomain = errorDomain
@@ -39,12 +81,14 @@ struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         httpClient: HTTPClient,
         baseURL: URL,
         errorDomain: String,
-        fakeCookieProvider: @escaping () -> String
+        fakeCookieProvider: @escaping () -> String,
+        refreshHandler: @escaping (String) async throws -> Void = { _ in }
     ) {
         self.httpClient = httpClient
         self.baseURL = baseURL
         self.errorDomain = errorDomain
         self.fakeCookieProvider = fakeCookieProvider
+        self.refreshHandler = refreshHandler
     }
 
     func request<Response: Decodable>(
@@ -169,6 +213,31 @@ struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
 
         do {
             return try await httpClient.send(request)
+        } catch let HTTPClientError.unacceptableStatus(code, _) where code == 401 && authentication == .required {
+            do {
+                try await refreshHandler(fakeCookieProvider())
+            } catch {
+                throw Failure.communityNotLoggedIn
+            }
+
+            let refreshedCookie = fakeCookieProvider()
+            guard !refreshedCookie.isEmpty else {
+                throw Failure.communityNotLoggedIn
+            }
+            request.setValue(refreshedCookie, forHTTPHeaderField: "fake-cookie")
+
+            do {
+                return try await httpClient.send(request)
+            } catch let HTTPClientError.unacceptableStatus(retryCode, retryMessage) {
+                if retryCode == 401 { throw Failure.communityNotLoggedIn }
+                throw NSError(
+                    domain: errorDomain,
+                    code: retryCode,
+                    userInfo: [NSLocalizedDescriptionKey: retryMessage ?? "请求失败，HTTP 状态码 \(retryCode)。"]
+                )
+            } catch is HTTPClientError {
+                throw Failure.communityInvalidResponse
+            }
         } catch let HTTPClientError.unacceptableStatus(code, message) {
             if code == 401 { throw Failure.communityNotLoggedIn }
             throw NSError(
