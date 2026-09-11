@@ -64,10 +64,11 @@ iOS 模块：`Course`、`Gallery`、`Login`、`Map`、`Mine`、`Paper`、`Schedu
 - iOS：`GalleryPosterActionViews.swift:40-46`、`GalleryService.swift:288-300` 当前覆盖删除、详情和创建；帖子更新接口与编辑入口待补齐
 - 验证：本人帖子标题、正文、图片、标签、声明、匿名、可见性修改后重新加载
 
-### P1：帖子与评论举报
+### P1：帖子与评论举报（代码已补齐）
 
 - Android：`ManageRepo.kt`、`ReportScreen.kt`、`NavDest.Report`、`0cdfec9`
-- iOS：话题操作覆盖分享、删除、复制；社区内容举报路由与 Service 待补齐
+- `81ba80a` 已加入 `manage/report_types`、`manage/reports`、帖子菜单、评论上下文菜单和举报表单
+- 真机加载举报类型、提交成功、失败提示仍需验证
 - 验证：帖子举报、评论举报、举报类型加载、提交反馈、失败提示
 
 ### P1：他人主页关注
@@ -173,7 +174,7 @@ Android API 侧已确认以下接口，iOS 当前 Service 检索结果待补齐�
 ## 第一轮优先级
 
 1. DDL 真实短信闭环
-2. 帖子编辑、举报、关注、隐藏用户、评论媒体与操作菜单
+2. 帖子编辑、关注、隐藏用户、评论媒体与操作菜单
 3. BIT101 内置网页入口
 4. DDL WebVPN / 直连策略
 5. 页面自定义、日志导出、单条日历导入
