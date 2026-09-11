@@ -401,6 +401,16 @@ extension GalleryFeedState: PagedItemsState {
 struct GalleryReportType: Decodable, Identifiable, Hashable {
     let id: Int
     let text: String
+
+    static let fallback: [GalleryReportType] = [
+        GalleryReportType(id: 1, text: "政治敏感"),
+        GalleryReportType(id: 2, text: "色情低俗"),
+        GalleryReportType(id: 3, text: "人身攻击"),
+        GalleryReportType(id: 4, text: "侵犯隐私"),
+        GalleryReportType(id: 5, text: "散布谣言"),
+        GalleryReportType(id: 6, text: "滥用产品"),
+        GalleryReportType(id: 7, text: "其他")
+    ]
 }
 
 enum GalleryReportTarget: Identifiable, Hashable {

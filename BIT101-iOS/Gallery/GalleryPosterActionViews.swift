@@ -146,10 +146,12 @@ struct GalleryReportSheet: View {
 
     private func loadReportTypes() async {
         do {
-            reportTypes = try await service.fetchReportTypes()
+            let remoteTypes = try await service.fetchReportTypes()
+            reportTypes = remoteTypes.isEmpty ? GalleryReportType.fallback : remoteTypes
             selectedTypeID = reportTypes.first?.id
         } catch {
-            errorMessage = error.localizedDescription
+            reportTypes = GalleryReportType.fallback
+            selectedTypeID = reportTypes.first?.id
         }
         isLoading = false
     }
