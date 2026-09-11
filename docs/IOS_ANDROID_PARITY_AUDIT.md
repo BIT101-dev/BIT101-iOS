@@ -42,13 +42,14 @@ iOS 模块：`Course`、`Gallery`、`Login`、`Map`、`Mine`、`Paper`、`Schedu
 - iOS 统一会话刷新、并发锁、失败分类和一次重试策略待补齐
 - 验证：401、并发请求、刷新成功、刷新失败、登录态清理
 
-### P1：学校 SSO 静默恢复短信入口
+### P1：学校 SSO 静默恢复短信入口（代码已补齐）
 
 - Android：`86736e8`、`a910e33`、`69e0921`；`SchoolLoginService.kt`、`DefaultLoginRepo.kt`
 - iOS 非 DDL 教学中心已有 `BITLoginAuthenticationChallenge` 与 `AppSMSVerificationSheet`，课表、考试、空教室、成绩链路使用该机制
 - iOS App 登录页使用 `LoginService.login()` 的 `webVPNVerify` 流程
-- 当前审计项聚焦 `LoginService.restoreSchoolSessionIfNeeded()` → `BIT101APIClient.loginSchool()` 的 CAS 会话恢复路径；该路径缺少学校 SSO 短信回调
+- `e2de22d` 已为 `LoginService.restoreSchoolSessionIfNeeded()` → `BIT101APIClient.loginSchool()` 的 CAS 会话恢复路径接入学校 SSO 短信回调
 - DDL 页面已有 `SchoolSMSCodeRequest` 与 `AppSchoolSMSVerificationSheet`
+- 真机触发恢复场景、输入验证码、完成 CAS 回流仍属于验证项
 
 ### P1：DDL Smoke 真实短信闭环
 
@@ -171,13 +172,12 @@ Android API 侧已确认以下接口，iOS 当前 Service 检索结果待补齐�
 
 ## 第一轮优先级
 
-1. 学校 SSO 静默恢复短信入口
-2. 社区 401 统一刷新与重试
-3. DDL 真实短信闭环
-4. 帖子编辑、举报、关注、隐藏用户、评论媒体与操作菜单
-5. BIT101 内置网页入口
-6. DDL WebVPN / 直连策略
-7. 页面自定义、日志导出、单条日历导入
+1. 社区 401 统一刷新与重试
+2. DDL 真实短信闭环
+3. 帖子编辑、举报、关注、隐藏用户、评论媒体与操作菜单
+4. BIT101 内置网页入口
+5. DDL WebVPN / 直连策略
+6. 页面自定义、日志导出、单条日历导入
 
 ## 待人工确认
 
