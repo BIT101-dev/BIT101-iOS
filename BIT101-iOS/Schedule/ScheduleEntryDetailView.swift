@@ -162,7 +162,7 @@ struct ScheduleEntryDetailSheet: View {
                 Button {
                     let places = mapPlaces(for: group)
                     guard !places.isEmpty else {
-                        academicCourseAlert = AppAlert(
+                        academicCourseAlert = AppAlert.userInput(
                             title: "没有找到上课地点",
                             message: "这门课的教室暂时无法匹配到校园地图。"
                         )

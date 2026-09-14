@@ -66,7 +66,7 @@ struct PaperComposerView: View {
         let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmedTitle.isEmpty, !trimmedIntro.isEmpty, !trimmedContent.isEmpty else {
-            alert = AppAlert(title: "发布失败", message: "标题、简介和正文都不能为空。")
+            alert = AppAlert.userInput(title: "发布失败", message: "标题、简介和正文都不能为空。")
             return
         }
 

@@ -7,7 +7,7 @@ import Foundation
 /// - 课程标题压缩
 ///
 /// 主 App、Widget、Watch、Live Activity 共用这份展示约定。
-enum ScheduleDisplayNormalizer {
+nonisolated enum ScheduleDisplayNormalizer {
     /// 压缩教室名称里的冗长楼名，适配小屏与卡片场景。
     static func normalizeClassroom(_ value: String) -> String {
         compactLocation(for: value).lightText

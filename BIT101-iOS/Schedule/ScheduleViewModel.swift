@@ -66,11 +66,35 @@ struct ScheduleNotice: Identifiable {
     let title: String
     let message: String
     let shouldOpenSettings: Bool
+    let allowsDiagnostics: Bool
 
-    init(title: String, message: String, shouldOpenSettings: Bool = false) {
+    init(
+        title: String,
+        message: String,
+        shouldOpenSettings: Bool = false,
+        allowsDiagnostics: Bool = true
+    ) {
         self.title = title
         self.message = message
         self.shouldOpenSettings = shouldOpenSettings
+        self.allowsDiagnostics = allowsDiagnostics
+    }
+
+    static func userInput(
+        title: String,
+        message: String,
+        shouldOpenSettings: Bool = false
+    ) -> ScheduleNotice {
+        ScheduleNotice(
+            title: title,
+            message: message,
+            shouldOpenSettings: shouldOpenSettings,
+            allowsDiagnostics: false
+        )
+    }
+
+    static func informational(title: String, message: String) -> ScheduleNotice {
+        ScheduleNotice(title: title, message: message, allowsDiagnostics: false)
     }
 }
 

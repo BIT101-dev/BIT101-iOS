@@ -142,6 +142,7 @@ private struct ScoreListPage: View {
                     systemImage: "exclamationmark.triangle",
                     message: message,
                     retryTitle: "重新查询",
+                    allowsDiagnostics: viewModel.allowsDiagnostics,
                     onRetry: {
                         Task { await viewModel.refresh() }
                     }
@@ -326,6 +327,7 @@ private struct TrustedTranscriptPage: View {
                     title: "申请失败",
                     systemImage: "exclamationmark.triangle",
                     message: message,
+                    allowsDiagnostics: viewModel.allowsDiagnostics,
                     onRetry: {
                         Task { await viewModel.apply() }
                     }

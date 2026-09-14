@@ -27,7 +27,7 @@ extension ScheduleViewModel {
             cache.ddlUpdatedAt = Date()
             persist()
             if showSuccessNotice {
-                notice = ScheduleNotice(
+                notice = ScheduleNotice.informational(
                     title: "DDL 同步成功",
                     message: payload.events.isEmpty ? "已更新成功，当前没有乐学日程。" : "已更新成功，共同步 \(payload.events.count) 条乐学日程。"
                 )
@@ -39,7 +39,7 @@ extension ScheduleViewModel {
         } catch let error as LoginServiceError {
             switch error {
             case .schoolSMSCodeInvalid:
-                notice = ScheduleNotice(title: "验证码错误", message: error.localizedDescription)
+                notice = ScheduleNotice.userInput(title: "验证码错误", message: error.localizedDescription)
                 return false
             case .schoolSMSUnavailable:
                 notice = ScheduleNotice(title: "短信验证失败", message: error.localizedDescription)
@@ -79,14 +79,14 @@ extension ScheduleViewModel {
             )
             persist()
             if showSuccessNotice {
-                notice = ScheduleNotice(title: "订阅链接更新成功", message: "已重新获取乐学订阅链接。")
+                notice = ScheduleNotice.informational(title: "订阅链接更新成功", message: "已重新获取乐学订阅链接。")
             }
         } catch ScheduleServiceError.schoolSecondFactorRequired {
             presentDDLSecondFactorNotice()
         } catch let error as LoginServiceError {
             switch error {
             case .schoolSMSCodeInvalid:
-                notice = ScheduleNotice(title: "验证码错误", message: error.localizedDescription)
+                notice = ScheduleNotice.userInput(title: "验证码错误", message: error.localizedDescription)
             case .schoolSMSUnavailable:
                 notice = ScheduleNotice(title: "短信验证失败", message: error.localizedDescription)
             default:
@@ -190,7 +190,7 @@ extension ScheduleViewModel {
     }
 
     private func presentDDLSecondFactorNotice() {
-        notice = ScheduleNotice(
+        notice = ScheduleNotice.userInput(
             title: "需要短信验证",
             message: "学校要求短信二次验证，请先在学校登录页面完成验证后再重试。"
         )

@@ -102,6 +102,7 @@ struct CourseDetailView: View {
             CourseHistoryGradesSheet(
                 grades: viewModel.historyGrades,
                 status: viewModel.historyGradeStatus,
+                allowsDiagnostics: viewModel.historyGradesAllowsDiagnostics,
                 onRetry: {
                     await viewModel.reloadHistoryGrades()
                 }
@@ -178,7 +179,7 @@ struct CourseDetailView: View {
                 if let url = viewModel.sharedMaterialsURL {
                     openURL(url)
                 } else {
-                    viewModel.alert = AppAlert(title: "无法打开共享资料", message: "课程名称或课程号为空。")
+                    viewModel.alert = AppAlert.userInput(title: "无法打开共享资料", message: "课程名称或课程号为空。")
                 }
             } label: {
                 CourseResourceCard(

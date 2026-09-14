@@ -357,7 +357,7 @@ final class PaperDetailViewModel: ObservableObject {
     func submitComment(text: String, anonymous: Bool, target: PaperCommentComposerTarget) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            alert = AppAlert(title: "发送失败", message: "评论不能为空。")
+            alert = AppAlert.userInput(title: "发送失败", message: "评论不能为空。")
             return false
         }
         guard !isSubmittingComment else { return false }

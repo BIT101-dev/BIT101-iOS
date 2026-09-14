@@ -101,6 +101,8 @@ final class AppSettingsStore: ObservableObject {
     nonisolated static let startupNoticeSeenKey = "app.startup.notice.seen.version"
     /// 历史成绩疑似补考学期筛选使用全局 key，账号切换后继续复用该状态。
     nonisolated static let courseHistoryHidesMakeupOutliersKey = "app.settings.courseHistory.hidesMakeupOutliers"
+    /// App Store 自动更新检查使用全局 key，账号切换后继续复用该状态。
+    nonisolated static let automaticUpdateChecksEnabledKey = "app.settings.automatic-update-checks.enabled"
     /// “鸣谢 LINUX DO”提示按账号映射到首周内的延迟天数，分散弹出时间。
     nonisolated static let linuxDoThanksNoticeSpreadDays = 7
     private static let encoder = JSONEncoder()
@@ -108,6 +110,7 @@ final class AppSettingsStore: ObservableObject {
 
     @Published private(set) var snapshot = AppSettingsSnapshot()
     @Published private(set) var hidesCourseHistoryMakeupOutliers = true
+    @Published private(set) var automaticUpdateChecksEnabled = true
 
     private let defaults = UserDefaults.standard
     private var accountObserver: NSObjectProtocol?
@@ -182,6 +185,12 @@ final class AppSettingsStore: ObservableObject {
         defaults.set(enabled, forKey: Self.courseHistoryHidesMakeupOutliersKey)
     }
 
+    /// 修改启动时的 App Store 自动检查开关。
+    func setAutomaticUpdateChecksEnabled(_ enabled: Bool) {
+        automaticUpdateChecksEnabled = enabled
+        defaults.set(enabled, forKey: Self.automaticUpdateChecksEnabledKey)
+    }
+
     /// 标记当前安装版本的更新内容已经展示。
     func markCurrentStartupNoticeSeen() {
         defaults.set(Self.currentStartupNoticeVersion, forKey: Self.startupNoticeSeenKey)
@@ -203,6 +212,7 @@ final class AppSettingsStore: ObservableObject {
     func resetToDefaults() {
         snapshot = AppSettingsSnapshot()
         setHidesCourseHistoryMakeupOutliers(true)
+        setAutomaticUpdateChecksEnabled(true)
         save(syncPreferences: true)
     }
 
@@ -221,6 +231,7 @@ final class AppSettingsStore: ObservableObject {
     /// 已有快照直接恢复。
     private func load() {
         loadCourseHistoryPreference()
+        loadAutomaticUpdatePreference()
         guard let snapshot = Self.loadSnapshotFromDefaults() else {
             self.snapshot = AppSettingsSnapshot()
             self.snapshot.firstOpenDate = Date()
@@ -241,6 +252,16 @@ final class AppSettingsStore: ObservableObject {
         } else {
             hidesCourseHistoryMakeupOutliers = true
             defaults.set(true, forKey: Self.courseHistoryHidesMakeupOutliersKey)
+        }
+    }
+
+    /// 读取启动时的 App Store 自动检查开关；首次使用时默认开启并立即持久化。
+    private func loadAutomaticUpdatePreference() {
+        if let storedValue = defaults.object(forKey: Self.automaticUpdateChecksEnabledKey) as? Bool {
+            automaticUpdateChecksEnabled = storedValue
+        } else {
+            automaticUpdateChecksEnabled = true
+            defaults.set(true, forKey: Self.automaticUpdateChecksEnabledKey)
         }
     }
 

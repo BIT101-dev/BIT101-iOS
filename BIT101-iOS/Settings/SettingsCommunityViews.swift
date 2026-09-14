@@ -67,10 +67,13 @@ struct GallerySettingsPage: View {
 struct AboutSettingsPage: View {
     let onLogout: () -> Void
 
+    @Environment(\.openURL) private var openURL
+    @ObservedObject private var settings = AppSettingsStore.shared
     @State private var alert: AppAlert?
     @State private var isResettingLocalData = false
     @State private var isClearingCaches = false
     @State private var isShowingResetConfirmation = false
+    @State private var isCheckingForUpdates = false
 
     var body: some View {
         List {
@@ -106,6 +109,28 @@ struct AboutSettingsPage: View {
                     }
                     .navigationTitle("开源声明")
                 }
+            }
+
+            Section("版本更新") {
+                Toggle("自动检查更新", isOn: Binding(
+                    get: { settings.automaticUpdateChecksEnabled },
+                    set: settings.setAutomaticUpdateChecksEnabled
+                ))
+                .appSelectionFeedback(trigger: settings.automaticUpdateChecksEnabled)
+
+                Button {
+                    Task { await checkForUpdates() }
+                } label: {
+                    HStack {
+                        Text("检查更新")
+                        Spacer()
+                        if isCheckingForUpdates {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                    }
+                }
+                .disabled(isCheckingForUpdates)
             }
 
             Section("调试") {
@@ -152,6 +177,49 @@ struct AboutSettingsPage: View {
         }
     }
 
+    @MainActor
+    private func checkForUpdates() async {
+        guard !isCheckingForUpdates else { return }
+        isCheckingForUpdates = true
+        defer { isCheckingForUpdates = false }
+
+        do {
+            switch try await AppUpdatePromptCoordinator.shared.checkManually() {
+            case let .update(release):
+                AppPromptCoordinator.shared.enqueue(AppPrompt(
+                    id: "manual-app-update-\(release.version)",
+                    title: "发现新版本 \(release.version)",
+                    message: release.updateMessage,
+                    actions: [
+                        AppPromptAction(
+                            id: "open-store",
+                            title: "前往 App Store",
+                            isDefault: true
+                        ) {
+                            openURL(release.appStoreURL)
+                        },
+                        AppPromptAction(id: "dismiss", title: "本次忽略") {},
+                        AppPromptAction(id: "ignore-version", title: "忽略此版本") {
+                            AppUpdatePromptCoordinator.shared.ignore(version: release.version)
+                        }
+                    ],
+                    onPresent: {
+                        AppUpdatePromptCoordinator.shared.markPresented(version: release.version)
+                    }
+                ))
+            case .current:
+                let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+                let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+                alert = AppAlert(
+                    title: "已是最新版本",
+                    message: "当前版本：\(version) (\(build))"
+                )
+            }
+        } catch {
+            alert = AppAlert(title: "检查更新失败", message: error.localizedDescription)
+        }
+    }
+
     /// 该方法清空本地用户数据，并调用登录态回调切换到登录页。
     @MainActor
     private func resetAllLocalData() async {
@@ -193,7 +261,7 @@ struct AboutSettingsPage: View {
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useMB]
         let formatted = formatter.string(fromByteCount: max(reclaimedBytes, 0))
-        alert = AppAlert(title: "清理完成", message: "已清理约 \(formatted) 缓存。")
+        alert = AppAlert.informational(title: "清理完成", message: "已清理约 \(formatted) 缓存。")
     }
 
     private func clearUserDefaults() {

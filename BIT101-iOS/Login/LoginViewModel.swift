@@ -103,12 +103,12 @@ final class LoginViewModel: ObservableObject {
         let trimmedStudentID = studentID.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmedStudentID.isEmpty else {
-            alert = AppAlert(title: "学号不能为空", message: "请输入学校统一身份认证使用的学号。")
+            alert = AppAlert.userInput(title: "学号不能为空", message: "请输入学校统一身份认证使用的学号。")
             return
         }
 
         guard !password.isEmpty else {
-            alert = AppAlert(title: "密码不能为空", message: "请输入学校统一身份认证使用的密码。")
+            alert = AppAlert.userInput(title: "密码不能为空", message: "请输入学校统一身份认证使用的密码。")
             return
         }
 
@@ -125,10 +125,14 @@ final class LoginViewModel: ObservableObject {
                 return
             }
             let loginError = error as? LoginServiceError
-            alert = AppAlert(
-                title: loginError?.isCredentialFailure == true ? "学号或密码错误" : "登录失败",
-                message: error.localizedDescription
-            )
+            if loginError?.isCredentialFailure == true {
+                alert = AppAlert.userInput(
+                    title: "学号或密码错误",
+                    message: error.localizedDescription
+                )
+            } else {
+                alert = AppAlert(title: "登录失败", message: error.localizedDescription)
+            }
             screenState = .signedOut
         }
     }

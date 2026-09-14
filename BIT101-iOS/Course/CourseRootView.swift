@@ -221,7 +221,7 @@ struct CourseEvaluationLink: View {
         } catch {
             if TaskCancellation.matches(error) { return }
             if error is CourseEvaluationError {
-                alert = AppAlert(title: "无法打开课程评价", message: error.localizedDescription)
+                alert = AppAlert.userInput(title: "无法打开课程评价", message: error.localizedDescription)
             } else {
                 diagnosticAlert = AppAlert(title: "课程评价加载失败", message: error.localizedDescription)
             }

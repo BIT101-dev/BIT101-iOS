@@ -58,12 +58,14 @@ struct AppFailureState: View {
     let message: String
     let retryTitle: String
     let onRetry: (() -> Void)?
+    let allowsDiagnostics: Bool
 
     init(
         title: String,
         systemImage: String,
         message: String,
         retryTitle: String = "重试",
+        allowsDiagnostics: Bool = true,
         onRetry: (() -> Void)? = nil
     ) {
         self.title = title
@@ -71,6 +73,7 @@ struct AppFailureState: View {
         self.message = message
         self.retryTitle = retryTitle
         self.onRetry = onRetry
+        self.allowsDiagnostics = allowsDiagnostics
     }
 
     var body: some View {
@@ -82,7 +85,9 @@ struct AppFailureState: View {
             if let onRetry {
                 Button(retryTitle, action: onRetry)
             }
-            DiagnosticRecoveryActions(title: title, message: message)
+            if allowsDiagnostics {
+                DiagnosticRecoveryActions(title: title, message: message)
+            }
         }
     }
 }

@@ -40,9 +40,9 @@ extension ScheduleViewModel {
             smsChallenge = nil
             smsVerificationError = nil
             courseSyncCoordinator.reset()
-            notice = ScheduleNotice(title: "验证已失效", message: message)
+            notice = ScheduleNotice.userInput(title: "验证已失效", message: message)
         } catch let error as ScheduleServiceError where error.isUnpublishedCourseSchedule {
-            notice = ScheduleNotice(title: "课表暂未发布", message: error.localizedDescription)
+            notice = ScheduleNotice.userInput(title: "课表暂未发布", message: error.localizedDescription)
         } catch {
             if isCancellation(error) { return }
             notice = ScheduleNotice(title: "课表同步失败", message: error.localizedDescription)
@@ -105,6 +105,9 @@ extension ScheduleViewModel {
                 title: "学校服务连接失败",
                 message: error.schoolTransportFailureMessage
             )
+        } catch ScheduleServiceError.challengeInvalid(let message) {
+            courseSyncCoordinator.reset()
+            notice = ScheduleNotice.userInput(title: "验证已失效", message: message)
         } catch {
             if isCancellation(error) { return }
             hasLoadedAvailableTerms = true
@@ -165,9 +168,9 @@ extension ScheduleViewModel {
             smsChallenge = nil
             smsVerificationError = nil
             courseSyncCoordinator.reset()
-            notice = ScheduleNotice(title: "验证已失效", message: message)
+            notice = ScheduleNotice.userInput(title: "验证已失效", message: message)
         } catch let error as ScheduleServiceError where error.isUnpublishedCourseSchedule {
-            notice = ScheduleNotice(title: "课表暂未发布", message: error.localizedDescription)
+            notice = ScheduleNotice.userInput(title: "课表暂未发布", message: error.localizedDescription)
         } catch {
             if isCancellation(error) { return }
             smsVerificationError = error.localizedDescription
@@ -195,7 +198,7 @@ extension ScheduleViewModel {
             guard !incomingCourses.isEmpty || existingCourses.isEmpty else {
                 markCourseSyncSucceeded(term: payload.term, at: now)
                 if coursesAreIdentical {
-                    notice = ScheduleNotice(
+                    notice = ScheduleNotice.informational(
                         title: "课表已是最新",
                         message: "本次获取结果与本地课程内容完全一致。"
                     )
@@ -221,7 +224,7 @@ extension ScheduleViewModel {
         selectedWeek = resolvedAutomaticWeek()
         persist()
         if coursesAreIdentical {
-            notice = ScheduleNotice(
+            notice = ScheduleNotice.informational(
                 title: "课表已是最新",
                 message: "本次获取结果与本地课程内容完全一致。"
             )

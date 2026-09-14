@@ -31,6 +31,11 @@ struct AppStoreRelease: Codable, Equatable, Identifiable {
     }
 }
 
+enum AppStoreUpdateCheckResult: Equatable {
+    case update(AppStoreRelease)
+    case current
+}
+
 private struct AppStoreLookupResponse: Decodable {
     struct Result: Decodable {
         let version: String
@@ -112,14 +117,24 @@ final class AppUpdateChecker {
 
         do {
             let release = try await fetchLatestRelease()
-            if let encoded = try? JSONEncoder().encode(release) {
-                defaults.set(encoded, forKey: Self.cachedReleaseKey)
-            }
+            cache(release)
             return eligibleRelease(from: release)
         } catch {
             // 查询失败时启动流程继续；存在可信缓存时，流程继续使用缓存完成本地判断。
             return eligibleRelease(from: cachedRelease())
         }
+    }
+
+    /// 手动检查跳过自动检查的时间门禁和展示门禁，使用同一条 App Store 查询链路。
+    func checkManually() async throws -> AppStoreUpdateCheckResult {
+        defaults.set(now(), forKey: Self.lastAttemptKey)
+        let release = try await fetchLatestRelease()
+        cache(release)
+
+        guard AppVersionComparison.isNewer(release.version, than: installedVersion()) else {
+            return .current
+        }
+        return .update(release)
     }
 
     func ignore(version: String) {
@@ -173,6 +188,12 @@ final class AppUpdateChecker {
     private func cachedRelease() -> AppStoreRelease? {
         guard let data = defaults.data(forKey: Self.cachedReleaseKey) else { return nil }
         return try? JSONDecoder().decode(AppStoreRelease.self, from: data)
+    }
+
+    private func cache(_ release: AppStoreRelease) {
+        if let encoded = try? JSONEncoder().encode(release) {
+            defaults.set(encoded, forKey: Self.cachedReleaseKey)
+        }
     }
 
     private func eligibleRelease(from release: AppStoreRelease?) -> AppStoreRelease? {
@@ -346,12 +367,24 @@ final class AppUpdatePromptCoordinator {
         guard !didCheckThisLaunch else { return nil }
         didCheckThisLaunch = true
 
-        let storeTask = Task { await checker.releaseToPresentAtLaunch() }
+        let storeTask: Task<AppStoreRelease?, Never>?
+        if AppSettingsStore.shared.automaticUpdateChecksEnabled {
+            storeTask = Task { await checker.releaseToPresentAtLaunch() }
+        } else {
+            storeTask = nil
+        }
         if let emergency = await emergencyChecker.noticeToPresentAtLaunch() {
-            storeTask.cancel()
+            storeTask?.cancel()
             return .emergency(emergency)
         }
-        return await storeTask.value.map(LaunchNotice.appStore)
+        if let storeTask {
+            return await storeTask.value.map(LaunchNotice.appStore)
+        }
+        return nil
+    }
+
+    func checkManually() async throws -> AppStoreUpdateCheckResult {
+        try await checker.checkManually()
     }
 
     func markPresented(version: String) {

@@ -260,7 +260,7 @@ struct CalendarSettingsPage: View {
                         try viewModel.setTimeTable(from: timeTableText)
                         isShowingTimeTableEditor = false
                     } catch {
-                        viewModel.notice = ScheduleNotice(title: "设置失败", message: error.localizedDescription)
+                        viewModel.notice = ScheduleNotice.userInput(title: "设置失败", message: error.localizedDescription)
                     }
                 }
             )
@@ -385,16 +385,23 @@ struct CalendarSettingsPage: View {
             defer { isUpdatingSystemCalendar = false }
             do {
                 let count = try await ScheduleSystemCalendarManager.shared.importCurrentTerm(from: viewModel.cache)
-                viewModel.notice = ScheduleNotice(
+                viewModel.notice = ScheduleNotice.informational(
                     title: "导入成功",
                     message: "已向“BIT101 课表”日历写入 \(count) 节课程。"
                 )
             } catch {
-                viewModel.notice = ScheduleNotice(
-                    title: "导入失败",
-                    message: error.localizedDescription,
-                    shouldOpenSettings: (error as? ScheduleSystemCalendarError)?.shouldOpenSettings ?? false
-                )
+                if let calendarError = error as? ScheduleSystemCalendarError {
+                    viewModel.notice = ScheduleNotice.userInput(
+                        title: "导入失败",
+                        message: calendarError.localizedDescription,
+                        shouldOpenSettings: calendarError.shouldOpenSettings
+                    )
+                } else {
+                    viewModel.notice = ScheduleNotice(
+                        title: "导入失败",
+                        message: error.localizedDescription
+                    )
+                }
             }
         }
     }
@@ -405,16 +412,23 @@ struct CalendarSettingsPage: View {
             defer { isUpdatingSystemCalendar = false }
             do {
                 let count = try await ScheduleSystemCalendarManager.shared.deleteAllImportedEvents()
-                viewModel.notice = ScheduleNotice(
+                viewModel.notice = ScheduleNotice.informational(
                     title: "删除成功",
                     message: "已删除 \(count) 条由 BIT101 导入的日历事件。"
                 )
             } catch {
-                viewModel.notice = ScheduleNotice(
-                    title: "删除失败",
-                    message: error.localizedDescription,
-                    shouldOpenSettings: (error as? ScheduleSystemCalendarError)?.shouldOpenSettings ?? false
-                )
+                if let calendarError = error as? ScheduleSystemCalendarError {
+                    viewModel.notice = ScheduleNotice.userInput(
+                        title: "删除失败",
+                        message: calendarError.localizedDescription,
+                        shouldOpenSettings: calendarError.shouldOpenSettings
+                    )
+                } else {
+                    viewModel.notice = ScheduleNotice(
+                        title: "删除失败",
+                        message: error.localizedDescription
+                    )
+                }
             }
         }
     }
@@ -460,7 +474,7 @@ struct CalendarSettingsPage: View {
     private func importScheduleCode(_ text: String) throws {
         let payload = try ScheduleShareCodeCodec.decode(text, using: viewModel.cache)
         try viewModel.importSharedSchedule(payload)
-        viewModel.notice = ScheduleNotice(title: "导入成功", message: "分享课表已导入。考试、DDL 与自定义日程保持当前内容。")
+        viewModel.notice = ScheduleNotice.informational(title: "导入成功", message: "分享课表已导入。考试、DDL 与自定义日程保持当前内容。")
     }
 }
 
@@ -689,16 +703,17 @@ struct ScheduleImportCodeSheet: View {
                             if case let .unsupportedNewerFormat(version) = error {
                                 unsupportedFormatVersion = version
                             } else {
-                                localAlert = AppAlert(title: "导入失败", message: error.localizedDescription)
+                                localAlert = AppAlert.userInput(title: "导入失败", message: error.localizedDescription)
                             }
                         } catch {
-                            localAlert = AppAlert(title: "导入失败", message: error.localizedDescription)
+                            localAlert = AppAlert.userInput(title: "导入失败", message: error.localizedDescription)
                         }
                     } label: {
                         Label("导入", systemImage: "square.and.arrow.down")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
             .padding(AppDesignSystem.Spacing.section)
@@ -769,7 +784,7 @@ private struct ScheduleRenameSheet: View {
                             try onSubmit(text)
                             dismiss()
                         } catch {
-                            localAlert = AppAlert(title: "保存失败", message: error.localizedDescription)
+                            localAlert = AppAlert.userInput(title: "保存失败", message: error.localizedDescription)
                         }
                     }
                 }

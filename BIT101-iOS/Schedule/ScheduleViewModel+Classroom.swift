@@ -357,7 +357,7 @@ extension ScheduleViewModel {
                 return
             }
             if case .schoolSecondFactorRequired = scheduleError {
-                notice = ScheduleNotice(
+                notice = ScheduleNotice.userInput(
                     title: "需要短信验证",
                     message: "学校要求短信二次验证，请先在学校登录页面完成验证后再重试。"
                 )
@@ -368,6 +368,10 @@ extension ScheduleViewModel {
                     title: "学校服务连接失败",
                     message: scheduleError.schoolTransportFailureMessage
                 )
+                return
+            }
+            if case .challengeInvalid = scheduleError {
+                notice = ScheduleNotice.userInput(title: title, message: scheduleError.localizedDescription)
                 return
             }
         }

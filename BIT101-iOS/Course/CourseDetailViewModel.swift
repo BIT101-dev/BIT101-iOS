@@ -78,6 +78,7 @@ final class CourseDetailViewModel: ObservableObject {
     @Published private(set) var commentState = GalleryCommentState()
     @Published private(set) var historyGrades: [CourseHistoryGrade] = []
     @Published private(set) var historyGradeStatus: CourseHistoryGradeLoadStatus = .idle
+    @Published private(set) var historyGradesAllowsDiagnostics = true
     @Published private(set) var likingCommentIDs: Set<Int> = []
     @Published private(set) var isSubmittingComment = false
     @Published var alert: AppAlert?
@@ -224,10 +225,12 @@ final class CourseDetailViewModel: ObservableObject {
     func reloadHistoryGrades() async {
         let number = resolvedNumber.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !number.isEmpty else {
+            historyGradesAllowsDiagnostics = false
             historyGradeStatus = .failed("课程号为空，无法加载历史成绩。")
             return
         }
 
+        historyGradesAllowsDiagnostics = true
         historyGradeStatus = .loading
         let result = await loadResult { [self] in
             try await self.service.fetchCourseHistories(number: number)
@@ -283,7 +286,7 @@ final class CourseDetailViewModel: ObservableObject {
     func submitComment(text: String, anonymous: Bool, rate: Int?, target: CourseCommentComposerTarget) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            alert = AppAlert(title: "发送失败", message: "评论不能为空。")
+            alert = AppAlert.userInput(title: "发送失败", message: "评论不能为空。")
             return false
         }
         guard !isSubmittingComment else { return false }

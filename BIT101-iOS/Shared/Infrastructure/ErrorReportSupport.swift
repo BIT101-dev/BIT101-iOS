@@ -4,35 +4,14 @@ import Network
 import SwiftUI
 import UIKit
 
-private enum DiagnosticAlertRules {
-    static let diagnosticTitleMarkers = ["失败", "错误", "异常", "无法", "超时", "未找到", "验证已失效", "加载"]
-
-    static func allowsDiagnostics(for title: String) -> Bool {
-        guard title != "学号或密码错误" else { return false }
-        return diagnosticTitleMarkers.contains { title.contains($0) }
-    }
-}
-
 protocol DiagnosticAlertPresentable: Identifiable {
     var title: String { get }
     var message: String { get }
     var allowsDiagnostics: Bool { get }
 }
 
-extension DiagnosticAlertPresentable {
-    var allowsDiagnostics: Bool {
-        DiagnosticAlertRules.allowsDiagnostics(for: title)
-    }
-}
-
 extension AppAlert: DiagnosticAlertPresentable {}
-extension ScheduleNotice: DiagnosticAlertPresentable {
-    var allowsDiagnostics: Bool {
-        guard !message.contains("课表未发布"), !message.contains("课表尚未发布") else { return false }
-        guard !title.contains("需要短信验证"), !message.contains("短信二次验证") else { return false }
-        return DiagnosticAlertRules.allowsDiagnostics(for: title)
-    }
-}
+extension ScheduleNotice: DiagnosticAlertPresentable {}
 extension MapNotice: DiagnosticAlertPresentable {}
 
 /// 反馈载荷标记本地 Debug 安装或正式 Release 构建，用户身份字段保持空缺。

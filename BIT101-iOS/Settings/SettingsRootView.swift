@@ -286,14 +286,14 @@ struct DeveloperSuggestionPage: View {
         let suggestion = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !suggestion.isEmpty else { return }
         guard !hasProcessingImages else {
-            alert = AppAlert(title: "提交失败", message: "图片仍在处理中，请稍候。")
+            alert = AppAlert.userInput(title: "提交失败", message: "图片仍在处理中，请稍候。")
             return
         }
         guard imageDrafts.allSatisfy({
             if case .prepared = $0.status { return true }
             return false
         }) else {
-            alert = AppAlert(title: "提交失败", message: "有图片未处理完成，请删除后重新选择。")
+            alert = AppAlert.userInput(title: "提交失败", message: "有图片未处理完成，请删除后重新选择。")
             return
         }
 
@@ -427,7 +427,7 @@ struct DeveloperSuggestionPage: View {
         }
 
         if showsFailureAlert && failed {
-            alert = AppAlert(title: "图片添加失败", message: "部分图片无法处理，请删除后重新选择。")
+            alert = AppAlert.userInput(title: "图片添加失败", message: "部分图片无法处理，请删除后重新选择。")
         }
     }
 

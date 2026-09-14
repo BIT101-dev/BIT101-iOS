@@ -1,5 +1,9 @@
 # 测试与持续集成
 
+## 项目责任边界
+
+用户负责 BIT101 iOS 客户端、iOS 扩展和 iOS 真机装机验证。Android 客户端、Web 前端和服务端由对应主体维护；本项目对这些系统执行接口阅读、功能对照与问题记录，改动、构建、安装、部署与上线动作转交对应维护主体。
+
 ## 网络冒烟测试授权边界
 
 网络侧冒烟测试仅在用户明确指示后执行。构建、静态检查和本地离线验证属于独立操作；执行范围仍按当前任务要求决定。
@@ -186,6 +190,7 @@ Scripts/build-install-device.sh
 4. 点击“忽略此版本”，弹窗应立即关闭；超过 24 小时后 `1.7.1` 保持忽略状态，更高版本可以再次出现。
 5. 清理验证包的 `UserDefaults` 后重新安装，再断网启动；查询失败静默处理，登录和主界面保持可用。
 6. 最后安装正常 `1.7.1` Release 包；线上版本与本地版本相同时，更新提醒状态为不显示。
+7. 关于页的“自动检查更新”默认开启；关闭后重启应用，启动流程跳过 App Store 自动查询；点击“检查更新”仍可主动查询并展示新版本或“已是最新版本”。
 
 自动化测试覆盖数字版本比较、24 小时查询节流、24 小时展示冷却、更新内容缓存、失败静默和“忽略此版本”。真机可用性恢复前，验证范围限于静态检查与 CI Release 编译门禁；实际弹窗和 App Store 跳转在真机恢复后执行。
 
@@ -207,6 +212,7 @@ Scripts/build-install-device.sh
 
 - 验证入口限定为真机的“我的－设置－课程表设置”，验证设备为真机。
 - 首次导入应请求完整日历权限，并创建“BIT101 课表”日历；课程日期、起止时间、地点应与当前学期一致。
+- 日历事件的地点文本包含校区和教室；命中地图建筑目录时，同时写入 `EKStructuredLocation` 坐标。良乡校区与中关村校区分别验证，地图目录暂无匹配的地点保留文本地点。
 - 同一学期连续导入两次，事件数量保持单份；第二次应替换带 `bit101://calendar-course/` 标记的旧事件。
 - “删除已导入的日历事件”限定为 BIT101 标记事件，用户自己创建的日程保持不变。
 - 拒绝权限、无课表或没有已导入事件时，系统给出可理解的错误提示并继续运行。
@@ -239,6 +245,8 @@ python3 Scripts/visualize-course-history-audit.py --serve
 
 ## 错误报告
 
+用户错误处理规则：用户错误归入普通提示，错误报告范围限定为软件、网络、服务器、解析和数据链路故障。
+
 ```sh
 Scripts/check-error-report-coverage.sh
 Scripts/error-reports.sh list
@@ -251,7 +259,9 @@ Scripts/run-extended-tests.sh
 
 覆盖检查确保用户可见的错误弹窗和主要失败占位页保留 App Store 与错误报告入口。
 报告直接通过当前 Wrangler 登录读取远端 KV，管理网页不参与流程。
-`Scripts/fetch-issues-and-reports.sh` 会用当前 GitHub CLI 和 Wrangler 登录状态，一次拉取未关闭的仓库 Issues、GitHub Actions 失败运行与 Cloudflare KV 报告，保存到 `.build/issue-report-inbox` 并输出简要汇总。GitHub CI 失败运行写入 `github-ci.json`，包含运行元数据与失败日志尾部。错误报告按 `本次/上次/上上次` 保留三批，并按 `开发版/正式版/来源未知` 和 `错误报告/用户建议` 分类；开发验证包提交 `isDevelopmentBuild: true`，Release 构建提交 `false`，旧报告归入来源未知。输出本次详情，只输出上两批数量。本次没有新报告时显示最近一批详情。完整拉取成功后只清理本次已拉取的 Cloudflare 报告，失败时保留远端数据。完整报告仅保存在本机，仓库保持不变。
+`Scripts/fetch-issues-and-reports.sh` 会用当前 GitHub CLI 和 Wrangler 登录状态，一次拉取未关闭的仓库 Issues、GitHub Actions 失败运行与 Cloudflare KV 报告，保存到 `.build/issue-report-inbox` 并输出简要汇总。GitHub Issues 使用 REST 接口，GitHub API 暂时不可用时继续拉取 Cloudflare 报告；GitHub CI 失败运行写入 `github-ci.json`，包含运行元数据与失败日志尾部。错误报告按 `本次/上次/上上次` 保留三批，并按 `开发版/正式版/来源未知` 和 `错误报告/用户建议` 分类；开发验证包提交 `isDevelopmentBuild: true`，Release 构建提交 `false`，旧报告归入来源未知。输出本次详情、上两批数量。本次没有新报告时显示最近一批详情。完整拉取成功后只清理本次已拉取的 Cloudflare 报告，失败时保留远端数据。完整报告仅保存在本机，仓库保持不变。
+
+用户输入校验提示采用 `AppAlert.userInput` 或 `ScheduleNotice.userInput`，保留页面提示并关闭错误报告入口。页面失败状态通过 `AppFailureState.allowsDiagnostics` 控制诊断入口。空字段、标签数量、空评论、验证码输入、图片处理状态、无效分享数据、本地日程格式、日历权限和可信成绩单短信验证取消等用户操作提示归入此类；网络请求、服务器响应和数据解析故障继续提供错误报告入口。
 
 `run-static-audit.sh` 执行静态检查；学校接口连接、网络 smoke 和发布归档由独立流程负责。它按 Swift、Shell、Python、Worker、Git、文档、UI、触感、组件和源码质量规则输出结果；源码质量报告固定覆盖 `.build/code-quality-report.txt`。CI 强制执行这一入口，并额外阻止警告进入构建门禁。
 

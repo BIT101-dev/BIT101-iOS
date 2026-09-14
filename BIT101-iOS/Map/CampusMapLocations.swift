@@ -11,7 +11,7 @@ import Foundation
 /// 地图页支持的校区预设。
 ///
 /// 校园地图围绕几个固定校区跳转，预设保存中心点和默认半径。
-enum CampusPreset: String, CaseIterable, Identifiable {
+nonisolated enum CampusPreset: String, CaseIterable, Identifiable {
     case liangxiang
     case zhongguancun
 
@@ -94,7 +94,7 @@ struct CampusMapLocationRequest: Equatable, Identifiable {
 }
 
 /// 清洗后的中关村、良乡校园地点坐标。
-enum CampusMapPlaceCatalog {
+nonisolated enum CampusMapPlaceCatalog {
     static let all: [CampusMapPlace] = [
         CampusMapPlace(campus: .zhongguancun, name: "1号楼", latitude: 39.960329831, longitude: 116.321710584),
         CampusMapPlace(campus: .zhongguancun, name: "3号楼", latitude: 39.960124, longitude: 116.318328),

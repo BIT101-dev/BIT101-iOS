@@ -17,6 +17,7 @@ final class ScoreViewModel: ObservableObject {
     @Published private(set) var selectedTerms: Set<String> = []
     /// 当前选中的课程性质集合。
     @Published private(set) var selectedCourseTypes: Set<String> = []
+    @Published private(set) var allowsDiagnostics = true
     /// 当前成绩列表排序索引。
     @Published private(set) var sortIndex: ScoreSortIndex = .courseName
     /// 当前成绩列表排序方向。
@@ -107,6 +108,7 @@ final class ScoreViewModel: ObservableObject {
         availableCourseTypes = []
         selectedTerms = []
         selectedCourseTypes = []
+        allowsDiagnostics = true
         pendingCourses = nil
         smsChallenge = nil
         smsVerificationError = nil
@@ -149,6 +151,7 @@ final class ScoreViewModel: ObservableObject {
         isRefreshing = true
         pendingRefreshForcesDetailed = forceDetailedRefresh
         isSyncing = true
+        allowsDiagnostics = true
         syncStatusText = "同步简略成绩中"
         if !hadContent {
             state = .loading
@@ -175,12 +178,13 @@ final class ScoreViewModel: ObservableObject {
             if hadContent {
                 state = .loaded
                 if showErrors {
-                    alert = AppAlert(title: "验证已失效", message: message)
+                    alert = AppAlert.userInput(title: "验证已失效", message: message)
                 }
             } else {
+                allowsDiagnostics = false
                 state = .failed(message)
                 if showErrors {
-                    alert = AppAlert(title: "验证已失效", message: message)
+                    alert = AppAlert.userInput(title: "验证已失效", message: message)
                 }
             }
         } catch {
@@ -245,10 +249,11 @@ final class ScoreViewModel: ObservableObject {
             smsChallenge = nil
             smsVerificationError = nil
             pendingRefreshForcesDetailed = false
+            allowsDiagnostics = false
             if rows.isEmpty {
                 state = .failed(message)
             }
-            alert = AppAlert(title: "验证已失效", message: message)
+            alert = AppAlert.userInput(title: "验证已失效", message: message)
         } catch {
             if isCancellation(error) {
                 state = rows.isEmpty ? .idle : .loaded
@@ -319,6 +324,7 @@ final class ScoreViewModel: ObservableObject {
         smsChallenge = nil
         smsVerificationError = nil
         pendingRefreshForcesDetailed = false
+        allowsDiagnostics = false
         if rows.isEmpty {
             state = .failed("需要完成短信验证才能查询成绩。")
         }
@@ -608,6 +614,7 @@ final class TrustedTranscriptViewModel: ObservableObject {
     @Published private(set) var smsChallenge: BITLoginAuthenticationChallenge?
     @Published private(set) var smsVerificationError: String?
     @Published private(set) var isSubmittingSMSCode = false
+    @Published private(set) var allowsDiagnostics = true
 
     private let service: any TrustedTranscriptServicing
 
@@ -624,6 +631,7 @@ final class TrustedTranscriptViewModel: ObservableObject {
         guard state != .loading, !isSubmittingSMSCode, smsChallenge == nil else { return }
         images = []
         smsVerificationError = nil
+        allowsDiagnostics = true
         state = .loading
 
         do {
@@ -634,6 +642,7 @@ final class TrustedTranscriptViewModel: ObservableObject {
             state = .idle
         } catch ScoreServiceError.challengeInvalid(let message) {
             smsChallenge = nil
+            allowsDiagnostics = false
             state = .failed(message)
         } catch {
             if TaskCancellation.matches(error) {
@@ -664,6 +673,7 @@ final class TrustedTranscriptViewModel: ObservableObject {
             try loadImages(from: pages)
         } catch ScoreServiceError.challengeInvalid(let message) {
             smsChallenge = nil
+            allowsDiagnostics = false
             state = .failed(message)
         } catch ScoreServiceError.secondFactorRequired(let challenge) {
             smsChallenge = challenge
@@ -684,6 +694,7 @@ final class TrustedTranscriptViewModel: ObservableObject {
         guard !isSubmittingSMSCode else { return }
         smsChallenge = nil
         smsVerificationError = nil
+        allowsDiagnostics = false
         state = .failed("已取消短信验证，未申请可信成绩单。")
     }
 

@@ -58,12 +58,13 @@ output.write_text("\n".join(sorted(keys)) + ("\n" if keys else ""), encoding="ut
 PY
 
 echo "拉取 GitHub Issues..."
-gh issue list \
-  --repo "$REPO" \
-  --state open \
-  --limit 100 \
-  --json number,title,state,author,createdAt,updatedAt,url,labels \
-  > "$OUTPUT_DIR/github-issues.json"
+if ! gh api \
+  "repos/$REPO/issues?state=open&per_page=100" \
+  --jq '[.[] | select(.pull_request == null)]' \
+  > "$OUTPUT_DIR/github-issues.json"; then
+  echo "GitHub Issues 拉取失败，继续拉取其余报告。" >&2
+  printf '[]\n' > "$OUTPUT_DIR/github-issues.json"
+fi
 
 echo "拉取 GitHub CI 失败记录..."
 if ! gh run list \
@@ -72,8 +73,8 @@ if ! gh run list \
   --limit 20 \
   --json databaseId,workflowName,displayTitle,status,conclusion,event,headBranch,headSha,createdAt,updatedAt,url \
   > "$CI_RUNS_PATH"; then
-  echo "GitHub CI 失败记录拉取失败。" >&2
-  exit 1
+  echo "GitHub CI 失败记录拉取失败，继续拉取 Cloudflare 报告。" >&2
+  printf '[]\n' > "$CI_RUNS_PATH"
 fi
 
 python3 - "$CI_RUNS_PATH" "$CI_REPORT_PATH" "$REPO" <<'PY'

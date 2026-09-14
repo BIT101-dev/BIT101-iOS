@@ -116,7 +116,7 @@ struct DDLScheduleTabView: View {
                         }
                         isShowingEditor = false
                     } catch {
-                        viewModel.notice = ScheduleNotice(title: "保存失败", message: error.localizedDescription)
+                        viewModel.notice = ScheduleNotice.userInput(title: "保存失败", message: error.localizedDescription)
                     }
                 },
                 onDismiss: { isShowingEditor = false }

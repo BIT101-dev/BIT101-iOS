@@ -553,19 +553,19 @@ struct GalleryComposerView: View {
         let tags = combinedTags()
 
         guard !trimmedTitle.isEmpty else {
-            alert = AppAlert(title: "发布失败", message: "标题不能为空。")
+            alert = AppAlert.userInput(title: "发布失败", message: "标题不能为空。")
             return
         }
         guard !trimmedText.isEmpty else {
-            alert = AppAlert(title: "发布失败", message: "正文不能为空。")
+            alert = AppAlert.userInput(title: "发布失败", message: "正文不能为空。")
             return
         }
         guard tags.count >= 2 else {
-            alert = AppAlert(title: "发布失败", message: "请至少添加 2 个标签。")
+            alert = AppAlert.userInput(title: "发布失败", message: "请至少添加 2 个标签。")
             return
         }
         guard !hasUploadingImages else {
-            alert = AppAlert(title: "发布失败", message: "图片仍在上传，请稍候。")
+            alert = AppAlert.userInput(title: "发布失败", message: "图片仍在上传，请稍候。")
             return
         }
 

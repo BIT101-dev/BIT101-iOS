@@ -207,7 +207,7 @@ struct GalleryMessagesView: View {
             if TaskCancellation.matches(error) {
                 return
             }
-            localAlert = AppAlert(title: "无法打开", message: "相关帖子不存在或已删除。")
+            localAlert = AppAlert.userInput(title: "无法打开", message: "相关帖子不存在或已删除。")
         }
     }
 }

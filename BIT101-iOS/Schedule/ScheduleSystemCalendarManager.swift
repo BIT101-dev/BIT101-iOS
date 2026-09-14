@@ -1,11 +1,19 @@
 import EventKit
 import Foundation
 
+/// 系统日历可识别的校园建筑坐标。
+nonisolated struct ScheduleSystemCalendarStructuredLocation: Equatable {
+    let title: String
+    let latitude: Double
+    let longitude: Double
+}
+
 /// 保存写入系统日历前的数据，支持独立于 EventKit 的日期计算验证。
 nonisolated struct ScheduleSystemCalendarEventDraft: Equatable {
     let markerID: String
     let title: String
     let location: String
+    let structuredLocation: ScheduleSystemCalendarStructuredLocation?
     let notes: String
     let startDate: Date
     let endDate: Date
@@ -46,11 +54,22 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
                     course.number.isEmpty ? nil : "课程编号：\(dataDetectorSafeCourseNumber(course.number))",
                     course.description.isEmpty ? nil : course.description,
                 ].compactMap { $0 }
+                let structuredLocation = CampusMapPlaceCatalog.place(
+                    campusName: course.campus,
+                    classroom: course.classroom
+                ).map {
+                    ScheduleSystemCalendarStructuredLocation(
+                        title: "北京理工大学 · \($0.campus.displayName) · \($0.name)",
+                        latitude: $0.latitude,
+                        longitude: $0.longitude
+                    )
+                }
 
                 return ScheduleSystemCalendarEventDraft(
                     markerID: "\(course.id)-w\(week)",
                     title: course.name,
-                    location: course.classroom,
+                    location: displayLocation(campus: course.campus, classroom: course.classroom),
+                    structuredLocation: structuredLocation,
                     notes: noteLines.joined(separator: "\n"),
                     startDate: startDate,
                     endDate: endDate
@@ -61,6 +80,18 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
             if lhs.startDate != rhs.startDate { return lhs.startDate < rhs.startDate }
             return lhs.title < rhs.title
         }
+    }
+
+    /// 组合校区和教室文本；教室字段已包含校区时沿用原始教室文本。
+    private static func displayLocation(campus: String, classroom: String) -> String {
+        let campusText = campus.trimmingCharacters(in: .whitespacesAndNewlines)
+        let classroomText = classroom.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !campusText.isEmpty else { return classroomText }
+        guard !classroomText.isEmpty else { return campusText }
+        guard !classroomText.contains(campusText.replacingOccurrences(of: "校区", with: "")) else {
+            return classroomText
+        }
+        return "\(campusText) · \(classroomText)"
     }
 
     /// 在连续数字之间插入不可见的 word joiner，保留视觉内容，同时阻止系统日历
@@ -186,6 +217,14 @@ final class ScheduleSystemCalendarManager {
                 event.calendar = calendar
                 event.title = draft.title
                 event.location = draft.location
+                if let draftLocation = draft.structuredLocation {
+                    let structuredLocation = EKStructuredLocation(title: draftLocation.title)
+                    structuredLocation.geoLocation = CLLocation(
+                        latitude: draftLocation.latitude,
+                        longitude: draftLocation.longitude
+                    )
+                    event.structuredLocation = structuredLocation
+                }
                 event.notes = draft.notes
                 event.startDate = draft.startDate
                 event.endDate = draft.endDate

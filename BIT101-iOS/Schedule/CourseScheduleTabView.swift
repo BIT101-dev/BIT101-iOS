@@ -112,7 +112,7 @@ struct CourseScheduleTabView: View {
                                 onSelectDay: { date, weekday in
                                     guard viewModel.cache.scheduleDisplayMode == .weekly else { return }
                                     guard supportsEditingDisplayedSchedule else {
-                                        viewModel.notice = ScheduleNotice(
+                                        viewModel.notice = ScheduleNotice.userInput(
                                             title: "无法调整分享课表",
                                             message: "分享课表是只读副本。调休 / 放假操作面向当前账号自己的课表，导入的分享课表保持原样。"
                                         )
@@ -449,12 +449,12 @@ struct CourseScheduleTabView: View {
     }
 
     private func presentSaveError(_ error: Error) {
-        viewModel.notice = ScheduleNotice(title: "保存失败", message: error.localizedDescription)
+        viewModel.notice = ScheduleNotice.userInput(title: "保存失败", message: error.localizedDescription)
     }
 
     private func exportScheduleCode() {
         guard !viewModel.cache.courses.isEmpty else {
-            viewModel.notice = ScheduleNotice(title: "无法分享课表", message: "你尚未获取课表。")
+            viewModel.notice = ScheduleNotice.userInput(title: "无法分享课表", message: "你尚未获取课表。")
             return
         }
 
@@ -470,7 +470,7 @@ struct CourseScheduleTabView: View {
     private func importScheduleCode(_ text: String) throws {
         let payload = try ScheduleShareCodeCodec.decode(text, using: viewModel.cache)
         try viewModel.importSharedSchedule(payload)
-        viewModel.notice = ScheduleNotice(title: "导入成功", message: "分享的课表已导入。考试、DDL 与自定义日程不会随导入覆盖。")
+        viewModel.notice = ScheduleNotice.informational(title: "导入成功", message: "分享的课表已导入。考试、DDL 与自定义日程不会随导入覆盖。")
     }
 
     @MainActor
@@ -479,7 +479,7 @@ struct CourseScheduleTabView: View {
         guard let sourceID = entry.resolvedSourceIDs.first,
               let course = activeSchedule.courses.first(where: { $0.id == sourceID })
         else {
-            courseShareAlert = AppAlert(title: "没有找到此课程", message: "课表中的课程记录已不存在。")
+            courseShareAlert = AppAlert.userInput(title: "没有找到此课程", message: "课表中的课程记录已不存在。")
             return
         }
 
@@ -495,14 +495,14 @@ struct CourseScheduleTabView: View {
                     resolution = try await ScheduleAcademicCourseResolver().resolve(course)
                 }
                 guard let resolution else {
-                    courseShareAlert = AppAlert(
+                    courseShareAlert = AppAlert.userInput(
                         title: "没有找到此课程",
                         message: "“\(course.name)”暂未收录在学业课程中。"
                     )
                     return
                 }
                 guard let url = URL(string: "https://open.aihelpme.dev/course/\(resolution.selectedCourse.id)") else {
-                    courseShareAlert = AppAlert(title: "分享失败", message: "课程分享链接无效。")
+                    courseShareAlert = AppAlert.userInput(title: "分享失败", message: "课程分享链接无效。")
                     return
                 }
                 courseSharePresentation = CourseSharePresentation(

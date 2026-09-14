@@ -135,7 +135,8 @@ iOS 模块：`Course`、`Gallery`、`Login`、`Map`、`Mine`、`Paper`、`Schedu
 ### P2：更新检查控制
 
 - Android：`AboutPage.kt:80-93` 提供手动检查与自动检查控制
-- iOS：`AppUpdateChecker.swift:100-122` 执行自动检查，关于页缺少对应控制项
+- iOS：`AppUpdateChecker.swift` 保留启动时 24 小时自动检查；`AboutSettingsPage` 提供默认开启的自动检查开关和手动检查按钮，手动检查跳过时间门禁并复用 App Store 查询链路
+- 状态：代码已补齐
 
 ### Smoke 与测试覆盖差异
 

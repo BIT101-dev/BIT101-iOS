@@ -14,6 +14,17 @@ struct MapNotice: Identifiable {
     let id = UUID()
     let title: String
     let message: String
+    let allowsDiagnostics: Bool
+
+    init(title: String, message: String, allowsDiagnostics: Bool = true) {
+        self.title = title
+        self.message = message
+        self.allowsDiagnostics = allowsDiagnostics
+    }
+
+    static func userInput(title: String, message: String) -> MapNotice {
+        MapNotice(title: title, message: message, allowsDiagnostics: false)
+    }
 }
 
 /// 地图页定位控制器。
@@ -47,12 +58,12 @@ final class CampusLocationController: NSObject, ObservableObject, CLLocationMana
         case .authorizedAlways, .authorizedWhenInUse:
             manager.requestLocation()
         case .denied, .restricted:
-            notice = MapNotice(
+            notice = MapNotice.userInput(
                 title: "定位不可用",
                 message: "请在系统设置中允许 BIT101 使用定位后，再尝试回到我的位置。"
             )
         @unknown default:
-            notice = MapNotice(
+            notice = MapNotice.userInput(
                 title: "定位不可用",
                 message: "当前定位状态无法识别。"
             )

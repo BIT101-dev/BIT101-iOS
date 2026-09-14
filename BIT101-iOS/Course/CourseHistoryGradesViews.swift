@@ -8,6 +8,7 @@ import SwiftUI
 struct CourseHistoryGradesSheet: View {
     let grades: [CourseHistoryGrade]
     let status: CourseHistoryGradeLoadStatus
+    let allowsDiagnostics: Bool
     let onRetry: () async -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -25,6 +26,7 @@ struct CourseHistoryGradesSheet: View {
                         title: "加载历史成绩失败",
                         systemImage: "chart.line.uptrend.xyaxis",
                         message: message,
+                        allowsDiagnostics: allowsDiagnostics,
                         onRetry: {
                             Task {
                                 await onRetry()
