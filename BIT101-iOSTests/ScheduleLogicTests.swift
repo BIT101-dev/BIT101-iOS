@@ -52,8 +52,45 @@ struct ScheduleSystemCalendarEventBuilderTests {
         let endComponents = ScheduleSharedDateCodec.calendar.dateComponents([.hour, .minute], from: drafts[1].endDate)
         #expect(startComponents.hour == 9 && startComponents.minute == 55)
         #expect(endComponents.hour == 11 && endComponents.minute == 30)
-        #expect(drafts[1].location == "综教A101")
+        #expect(drafts[1].location == "良乡校区 · 综教A101")
+        #expect(drafts[1].structuredLocation?.title == "北京理工大学 · 良乡校区 · 综教A")
+        #expect(drafts[1].structuredLocation?.latitude == 39.733193)
+        #expect(drafts[1].structuredLocation?.longitude == 116.170654)
         #expect(drafts[1].notes.contains("教师：测试教师"))
+    }
+
+    @Test("Structured calendar locations distinguish the Zhongguancun campus")
+    func structuredLocationUsesCampusAndBuilding() {
+        let course = CourseRecord(
+            id: "course-zhongguancun",
+            term: "2026-2027-1",
+            name: "测试课",
+            teacher: "",
+            classroom: "中关村校区主楼133",
+            description: "",
+            weeks: [1],
+            weekday: 1,
+            startSection: 1,
+            endSection: 2,
+            campus: "中关村校区",
+            number: "",
+            credit: 0,
+            hour: 0,
+            type: "",
+            category: "",
+            department: ""
+        )
+
+        let draft = ScheduleSystemCalendarEventBuilder.makeDrafts(
+            courses: [course],
+            firstDay: shanghaiDate(2026, 9, 7),
+            timeTable: TimeSlot.default
+        ).first
+
+        #expect(draft?.location == "中关村校区主楼133")
+        #expect(draft?.structuredLocation?.title == "北京理工大学 · 中关村校区 · 主楼")
+        #expect(draft?.structuredLocation?.latitude == 39.9597)
+        #expect(draft?.structuredLocation?.longitude == 116.321642)
     }
 
     @Test("Courses with missing timetable sections are skipped")

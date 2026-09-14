@@ -69,11 +69,11 @@ final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertEqual(response.datas.cxxszhxqkb.extParams?.msg, "此学年学期的课表未发布")
         XCTAssertEqual(ScheduleService.schoolBusinessErrorMessage(from: data), "此学年学期的课表未发布")
         XCTAssertTrue(ScheduleServiceError.schoolResponse("此学年学期的课表未发布").isUnpublishedCourseSchedule)
-        XCTAssertFalse(ScheduleNotice(title: "课表暂未发布", message: "此学年学期的课表未发布").allowsDiagnostics)
+        XCTAssertFalse(ScheduleNotice.userInput(title: "课表暂未发布", message: "此学年学期的课表未发布").allowsDiagnostics)
     }
 
     func testSecondFactorNoticeDoesNotOfferErrorReporting() {
-        let notice = ScheduleNotice(
+        let notice = ScheduleNotice.userInput(
             title: "需要短信验证",
             message: "学校要求短信二次验证，请先在学校登录页面完成验证后再重试。"
         )
@@ -82,12 +82,41 @@ final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     }
 
     func testCredentialFailureDoesNotOfferErrorReporting() {
-        let alert = AppAlert(
+        let alert = AppAlert.userInput(
             title: "学号或密码错误",
             message: LoginServiceError.invalidCredentials.localizedDescription
         )
 
         XCTAssertFalse(alert.allowsDiagnostics)
+    }
+
+    func testUserInputAlertDoesNotOfferErrorReporting() {
+        let alert = AppAlert.userInput(title: "发布失败", message: "请至少添加 2 个标签。")
+
+        XCTAssertFalse(alert.allowsDiagnostics)
+    }
+
+    func testUserInputScheduleNoticeDoesNotOfferErrorReporting() {
+        let notice = ScheduleNotice.userInput(title: "验证码错误", message: "验证码不正确，请重试。")
+
+        XCTAssertFalse(notice.allowsDiagnostics)
+    }
+
+    func testUserCancelledTranscriptVerificationDoesNotOfferErrorReporting() {
+        let viewModel = TrustedTranscriptViewModel(service: StubTrustedTranscriptService())
+
+        viewModel.dismissSMSChallenge()
+
+        XCTAssertFalse(viewModel.allowsDiagnostics)
+    }
+
+    private struct StubTrustedTranscriptService: TrustedTranscriptServicing {
+        func fetchTrustedTranscriptPages() async throws -> [Data] { [] }
+
+        func submitTranscriptSMSCode(
+            _ code: String,
+            for challenge: BITLoginAuthenticationChallenge
+        ) async throws -> [Data] { [] }
     }
 
     func testCalendarPermissionNoticeOffersSystemSettings() {

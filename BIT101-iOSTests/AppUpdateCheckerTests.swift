@@ -229,6 +229,49 @@ struct AppUpdateCheckerTests {
         #expect(requestCount == 1)
     }
 
+    @Test("Manual lookup bypasses the automatic 24-hour query gate")
+    func manualLookupBypassesAutomaticQueryGate() async throws {
+        let context = try TestContext()
+        defer { context.cleanUp() }
+        var requestCount = 0
+
+        let checker = AppUpdateChecker(
+            defaults: context.defaults,
+            now: { context.now },
+            installedVersion: { "1.7.0" },
+            loadData: { request in
+                requestCount += 1
+                return try Self.lookupResponse(for: try #require(request.url))
+            }
+        )
+
+        _ = await checker.releaseToPresentAtLaunch()
+        let result = try await checker.checkManually()
+
+        #expect(result == .update(AppStoreRelease(
+            version: "1.7.1",
+            releaseNotes: "修复问题并优化体验。",
+            trackViewURL: URL(string: "https://apps.apple.com/cn/app/bit101/id6761147125?uo=4")
+        )))
+        #expect(requestCount == 2)
+    }
+
+    @Test("Manual lookup reports the installed version as current")
+    func manualLookupReportsCurrentVersion() async throws {
+        let context = try TestContext()
+        defer { context.cleanUp() }
+        let checker = AppUpdateChecker(
+            defaults: context.defaults,
+            installedVersion: { "1.7.1" },
+            loadData: { request in
+                try Self.lookupResponse(for: try #require(request.url), version: "1.7.1")
+            }
+        )
+
+        let result = try await checker.checkManually()
+        #expect(result == .current)
+    }
+
     private static func lookupResponse(
         for url: URL,
         version: String = "1.7.1"
