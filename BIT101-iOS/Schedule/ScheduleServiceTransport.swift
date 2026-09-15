@@ -60,7 +60,12 @@ extension ScheduleService {
                 let trimmed = message?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 if !trimmed.isEmpty {
                     if let success = dictionary["success"] as? Bool, !success { return trimmed }
-                    if let code = normalizedBusinessCode(dictionary["code"]), ![0, 1, 200].contains(code) {
+                    let reportsSuccess = (dictionary["success"] as? Bool) == true
+                        || businessMessageIndicatesSuccess(trimmed)
+                    if let code = normalizedBusinessCode(dictionary["code"]),
+                       ![0, 1, 200].contains(code),
+                       !reportsSuccess
+                    {
                         return trimmed
                     }
                 }
@@ -76,6 +81,13 @@ extension ScheduleService {
         }
 
         return inspect(root)
+    }
+
+    private nonisolated static func businessMessageIndicatesSuccess(_ message: String) -> Bool {
+        let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let failureMarkers = ["失败", "不成功", "错误", "异常", "未发布", "尚未发布", "无效", "不可用"]
+        guard !failureMarkers.contains(where: normalized.contains) else { return false }
+        return normalized.contains("成功") || normalized == "success" || normalized == "ok"
     }
 
     private nonisolated static func normalizedBusinessCode(_ value: Any?) -> Int? {

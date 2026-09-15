@@ -49,10 +49,14 @@ extension CourseScheduleTabView {
             }
 
             let weekday = ScheduleDateCodec.weekdayIndex(from: examDate)
+            let startMinutes = TimeSlot.parseMinutes(exam.beginTime)
+            let endMinutes = TimeSlot.parseMinutes(exam.endTime)
             let startSection = convertTimeToSection(timeText: exam.beginTime, timeTable: activeSchedule.timeTable)
             let endSection = convertTimeToSection(timeText: exam.endTime, timeTable: activeSchedule.timeTable)
 
-            guard endSection > startSection + 0.05 else {
+            guard endMinutes > startMinutes,
+                  calendarAxisMode == .linear || endSection > startSection + 0.05
+            else {
                 return nil
             }
 
@@ -63,6 +67,8 @@ extension CourseScheduleTabView {
                 dayOfWeek: weekday,
                 startSection: startSection,
                 endSection: endSection,
+                startMinutes: startMinutes,
+                endMinutes: endMinutes,
                 title: "(考试)\n\(exam.name)",
                 subtitle: normalizeDisplayedClassroom(exam.classroom),
                 detailLines: [
@@ -86,9 +92,13 @@ extension CourseScheduleTabView {
             }
 
             let weekday = ScheduleDateCodec.weekdayIndex(from: date)
+            let startMinutes = TimeSlot.parseMinutes(schedule.beginTime)
+            let endMinutes = TimeSlot.parseMinutes(schedule.endTime)
             let startSection = convertTimeToSection(timeText: schedule.beginTime, timeTable: activeSchedule.timeTable)
             let endSection = convertTimeToSection(timeText: schedule.endTime, timeTable: activeSchedule.timeTable)
-            guard endSection > startSection + 0.05 else {
+            guard endMinutes > startMinutes,
+                  calendarAxisMode == .linear || endSection > startSection + 0.05
+            else {
                 return nil
             }
 
@@ -99,6 +109,8 @@ extension CourseScheduleTabView {
                 dayOfWeek: weekday,
                 startSection: startSection,
                 endSection: endSection,
+                startMinutes: startMinutes,
+                endMinutes: endMinutes,
                 title: schedule.title,
                 subtitle: schedule.subtitle,
                 detailLines: [
@@ -112,6 +124,9 @@ extension CourseScheduleTabView {
         }
 
         let entries = courseEntries + examEntries + customEntries
+        if calendarAxisMode == .linear {
+            return entries
+        }
         return viewModel.cache.scheduleDisplayMode == .allWeeks
             ? entries
             : normalize(entries: entries)
@@ -133,6 +148,8 @@ extension CourseScheduleTabView {
             dayOfWeek: course.weekday,
             startSection: CGFloat(course.startSection - 1),
             endSection: CGFloat(course.endSection),
+            startMinutes: activeSchedule.timeTable.first(where: { $0.id == course.startSection })?.startMinutes,
+            endMinutes: activeSchedule.timeTable.first(where: { $0.id == course.endSection })?.endMinutes,
             title: normalizeDisplayedCourseTitle(course.name),
             subtitle: subtitleParts.joined(separator: "\n"),
             detailLines: [
@@ -238,6 +255,8 @@ extension CourseScheduleTabView {
             dayOfWeek: entries[0].dayOfWeek,
             startSection: entries.map(\.startSection).min() ?? entries[0].startSection,
             endSection: entries.map(\.endSection).max() ?? entries[0].endSection,
+            startMinutes: entries.compactMap(\.startMinutes).min(),
+            endMinutes: entries.compactMap(\.endMinutes).max(),
             title: title,
             subtitle: subtitle,
             detailLines: detailLines,

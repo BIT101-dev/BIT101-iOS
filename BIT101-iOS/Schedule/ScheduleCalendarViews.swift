@@ -90,6 +90,8 @@ struct CourseScheduleCalendarView: View {
     let availableWeeks: [Int]
     let displayMode: ScheduleDisplayMode
     let cardContentMode: ScheduleCardContentMode
+    let axisMode: ScheduleCalendarAxisMode
+    @Binding var axisZoomScale: CGFloat
     let firstDay: Date
     let timeTable: [TimeSlot]
     let currentWeek: Int
@@ -107,7 +109,39 @@ struct CourseScheduleCalendarView: View {
     let onShareSchedule: () -> Void
     let onImportSchedule: () -> Void
 
+    @ViewBuilder
     var body: some View {
+        if axisMode == .linear {
+            LinearScheduleCalendarView(
+                entries: entries,
+                week: week,
+                availableWeeks: availableWeeks,
+                displayMode: displayMode,
+                cardContentMode: cardContentMode,
+                firstDay: firstDay,
+                timeTable: timeTable,
+                currentWeek: currentWeek,
+                showSaturday: showSaturday,
+                showSunday: showSunday,
+                showHighlightToday: showHighlightToday,
+                showDivider: showDivider,
+                showCurrentTime: showCurrentTime,
+                showBorder: showBorder,
+                zoomScale: $axisZoomScale,
+                onSelect: onSelect,
+                onSelectDay: onSelectDay,
+                onSelectWeekValue: onSelectWeekValue,
+                onLongPressCourse: onLongPressCourse,
+                onPrepareCourseShare: onPrepareCourseShare,
+                onShareSchedule: onShareSchedule,
+                onImportSchedule: onImportSchedule
+            )
+        } else {
+            quantizedBody
+        }
+    }
+
+    private var quantizedBody: some View {
         GeometryReader { proxy in
             let gridLineWidth = AppDesignSystem.Schedule.grid.lineWidth
             let weekSliderHeight = AppDesignSystem.Schedule.weekSlider.sliderHeight
@@ -366,83 +400,613 @@ struct CourseScheduleCalendarView: View {
     }
 }
 
+/// 线性时间轴视图。
+private struct LinearScheduleCalendarView: View {
+    let entries: [ScheduleCalendarEntry]
+    let week: Int
+    let availableWeeks: [Int]
+    let displayMode: ScheduleDisplayMode
+    let cardContentMode: ScheduleCardContentMode
+    let firstDay: Date
+    let timeTable: [TimeSlot]
+    let currentWeek: Int
+    let showSaturday: Bool
+    let showSunday: Bool
+    let showHighlightToday: Bool
+    let showDivider: Bool
+    let showCurrentTime: Bool
+    let showBorder: Bool
+    @Binding var zoomScale: CGFloat
+    let onSelect: (ScheduleCalendarEntry) -> Void
+    let onSelectDay: (Date, Int) -> Void
+    let onSelectWeekValue: (Int) -> Void
+    let onLongPressCourse: (ScheduleCalendarEntry) -> Void
+    let onPrepareCourseShare: (ScheduleCalendarEntry) -> Void
+    let onShareSchedule: () -> Void
+    let onImportSchedule: () -> Void
+
+    var body: some View {
+        GeometryReader { proxy in
+            let weekSliderHeight = AppDesignSystem.Schedule.weekSlider.sliderHeight
+            let dateHeaderHeight = AppDesignSystem.Schedule.weekSlider.dateHeaderHeight
+            let headerHeight = displayMode == .weekly
+                ? weekSliderHeight + dateHeaderHeight
+                : AppDesignSystem.Schedule.weekSlider.compactHeaderHeight
+
+            VStack(spacing: AppDesignSystem.Spacing.none) {
+                LinearScheduleHeader(
+                    week: week,
+                    availableWeeks: availableWeeks,
+                    displayMode: displayMode,
+                    firstDay: firstDay,
+                    showSaturday: showSaturday,
+                    showSunday: showSunday,
+                    onSelectDay: onSelectDay,
+                    onSelectWeekValue: onSelectWeekValue
+                )
+
+                LinearTimelineScrollContainer(
+                    configuration: LinearScheduleCalendarConfiguration(
+                        entries: entries,
+                        timeTable: timeTable,
+                        displayMode: displayMode,
+                        cardContentMode: cardContentMode,
+                        currentWeek: currentWeek,
+                        week: week,
+                        showSaturday: showSaturday,
+                        showSunday: showSunday,
+                        showHighlightToday: showHighlightToday,
+                        showDivider: showDivider,
+                        showCurrentTime: showCurrentTime,
+                        showBorder: showBorder,
+                        onSelect: onSelect,
+                        onLongPressCourse: onLongPressCourse,
+                        onPrepareCourseShare: onPrepareCourseShare,
+                        onShareSchedule: onShareSchedule,
+                        onImportSchedule: onImportSchedule
+                    ),
+                    zoomScale: $zoomScale
+                )
+                .frame(height: max(proxy.size.height - headerHeight, 1))
+            }
+            .background(AppDesignSystem.Palette.systemBackground)
+            .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped))
+        }
+    }
+}
+
+private struct LinearScheduleHeader: View {
+    private static let monthDayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 8 * 3600)
+        formatter.dateFormat = "M.d"
+        return formatter
+    }()
+
+    let week: Int
+    let availableWeeks: [Int]
+    let displayMode: ScheduleDisplayMode
+    let firstDay: Date
+    let showSaturday: Bool
+    let showSunday: Bool
+    let onSelectDay: (Date, Int) -> Void
+    let onSelectWeekValue: (Int) -> Void
+
+    var body: some View {
+        let visibleWeekdays = visibleWeekdayValues
+        let weekDates = visibleWeekdays.compactMap {
+            ScheduleDateCodec.calendar.date(
+                byAdding: .day,
+                value: ($0 - 1) + ScheduleWeekCodec.weekOffset(forWeekNumber: week) * 7,
+                to: firstDay
+            )
+        }
+        VStack(spacing: AppDesignSystem.Spacing.none) {
+            if displayMode == .weekly {
+                ScheduleInlineWeekSlider(
+                    weeks: availableWeeks,
+                    currentWeek: week,
+                    highlightedWeek: resolvedCurrentWeek(firstDay: firstDay),
+                    onSelectWeek: onSelectWeekValue
+                )
+                .frame(maxWidth: .infinity)
+                .frame(height: AppDesignSystem.Schedule.weekSlider.sliderHeight)
+                .background(AppDesignSystem.Palette.secondaryGroupedBackground)
+
+                GeometryReader { proxy in
+                    let dayWidth = max(proxy.size.width / CGFloat(visibleWeekdays.count + 1), 1)
+                    HStack(spacing: AppDesignSystem.Spacing.none) {
+                        Text("第\(week)周")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .frame(width: dayWidth, height: AppDesignSystem.Schedule.weekSlider.dateHeaderHeight)
+                            .background(AppDesignSystem.Palette.secondaryGroupedBackground)
+
+                        ForEach(Array(weekDates.enumerated()), id: \.offset) { index, date in
+                            Button {
+                                onSelectDay(date, visibleWeekdays[index])
+                            } label: {
+                                Text(Self.monthDayFormatter.string(from: date))
+                                    .font(.caption2)
+                                    .foregroundStyle(.primary)
+                                    .frame(width: dayWidth, height: AppDesignSystem.Schedule.weekSlider.dateHeaderHeight)
+                                    .background(AppDesignSystem.Palette.secondaryGroupedBackground)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(height: AppDesignSystem.Schedule.weekSlider.dateHeaderHeight)
+            } else {
+                GeometryReader { proxy in
+                    let dayWidth = max(proxy.size.width / CGFloat(visibleWeekdays.count + 1), 1)
+                    HStack(spacing: AppDesignSystem.Spacing.none) {
+                        Color.clear
+                            .frame(width: dayWidth, height: AppDesignSystem.Schedule.weekSlider.compactHeaderHeight)
+                            .background(AppDesignSystem.Palette.secondaryGroupedBackground)
+
+                        ForEach(visibleWeekdays, id: \.self) { weekday in
+                            Text(weekdayTitle(weekday))
+                                .font(.caption2)
+                                .foregroundStyle(.primary)
+                                .frame(width: dayWidth, height: AppDesignSystem.Schedule.weekSlider.compactHeaderHeight)
+                                .background(AppDesignSystem.Palette.secondaryGroupedBackground)
+                        }
+                    }
+                }
+                .frame(height: AppDesignSystem.Schedule.weekSlider.compactHeaderHeight)
+            }
+        }
+    }
+
+    private var visibleWeekdayValues: [Int] {
+        (1 ... 7).filter {
+            if $0 == 6 { return showSaturday }
+            if $0 == 7 { return showSunday }
+            return true
+        }
+    }
+
+    private func weekdayTitle(_ weekday: Int) -> String {
+        let titles = ["一", "二", "三", "四", "五", "六", "日"]
+        guard titles.indices.contains(weekday - 1) else { return "?" }
+        return "周\(titles[weekday - 1])"
+    }
+}
+
+private struct LinearScheduleCalendarConfiguration {
+    let entries: [ScheduleCalendarEntry]
+    let timeTable: [TimeSlot]
+    let displayMode: ScheduleDisplayMode
+    let cardContentMode: ScheduleCardContentMode
+    let currentWeek: Int
+    let week: Int
+    let showSaturday: Bool
+    let showSunday: Bool
+    let showHighlightToday: Bool
+    let showDivider: Bool
+    let showCurrentTime: Bool
+    let showBorder: Bool
+    let onSelect: (ScheduleCalendarEntry) -> Void
+    let onLongPressCourse: (ScheduleCalendarEntry) -> Void
+    let onPrepareCourseShare: (ScheduleCalendarEntry) -> Void
+    let onShareSchedule: () -> Void
+    let onImportSchedule: () -> Void
+}
+
+private struct LinearTimelineScrollContainer: UIViewRepresentable {
+    let configuration: LinearScheduleCalendarConfiguration
+    @Binding var zoomScale: CGFloat
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(configuration: configuration, zoomScale: $zoomScale)
+    }
+
+    func makeUIView(context: Context) -> LinearTimelineScrollView {
+        let scrollView = LinearTimelineScrollView()
+        context.coordinator.install(in: scrollView)
+        scrollView.setScale(zoomScale, preserveVisibleCenter: false)
+        return scrollView
+    }
+
+    func updateUIView(_ uiView: LinearTimelineScrollView, context: Context) {
+        context.coordinator.configuration = configuration
+        context.coordinator.updateContent()
+        if !uiView.isZooming, abs(uiView.timelineScale - zoomScale) > 0.001 {
+            uiView.setScale(zoomScale, preserveVisibleCenter: true)
+        }
+    }
+
+    @MainActor
+    final class Coordinator {
+        var configuration: LinearScheduleCalendarConfiguration
+        var zoomScale: Binding<CGFloat>
+        var hostingController: UIHostingController<LinearScheduleCanvasView>?
+
+        init(configuration: LinearScheduleCalendarConfiguration, zoomScale: Binding<CGFloat>) {
+            self.configuration = configuration
+            self.zoomScale = zoomScale
+        }
+
+        func install(in scrollView: LinearTimelineScrollView) {
+            let controller = UIHostingController(
+                rootView: LinearScheduleCanvasView(configuration: configuration)
+            )
+            controller.view.backgroundColor = .clear
+            controller.view.isOpaque = false
+            hostingController = controller
+            scrollView.installCanvas(controller.view)
+            scrollView.onScaleChange = { [weak self] scale in
+                self?.zoomScale.wrappedValue = scale
+            }
+        }
+
+        func updateContent() {
+            hostingController?.rootView = LinearScheduleCanvasView(configuration: configuration)
+        }
+    }
+}
+
+private final class LinearTimelineScrollView: UIScrollView, UIScrollViewDelegate {
+    var onScaleChange: ((CGFloat) -> Void)?
+    var timelineScale: CGFloat { zoomScale }
+
+    private let zoomContainer = UIView()
+    private weak var canvasView: UIView?
+    private var viewportSize = CGSize.zero
+    private var hasInitialPosition = false
+    private var pendingScale = ScheduleCalendarAxisMode.defaultLinearZoomScale
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        delegate = self
+        minimumZoomScale = ScheduleTimelineViewport.minimumScale
+        maximumZoomScale = ScheduleTimelineViewport.maximumScale
+        bouncesZoom = false
+        alwaysBounceVertical = true
+        alwaysBounceHorizontal = false
+        isDirectionalLockEnabled = true
+        showsHorizontalScrollIndicator = false
+        contentInsetAdjustmentBehavior = .never
+        backgroundColor = .clear
+        zoomContainer.backgroundColor = .clear
+        zoomContainer.clipsToBounds = false
+        addSubview(zoomContainer)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func installCanvas(_ view: UIView) {
+        canvasView?.removeFromSuperview()
+        canvasView = view
+        view.layer.anchorPoint = .zero
+        view.layer.position = .zero
+        zoomContainer.addSubview(view)
+        updateCanvasGeometry()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        if viewportSize != bounds.size {
+            let previousHeight = viewportSize.height
+            let centerRatio = previousHeight > 0
+                ? (contentOffset.y + previousHeight / 2) / max(previousHeight * zoomScale, 1)
+                : 0
+            viewportSize = bounds.size
+            zoomContainer.bounds = CGRect(origin: .zero, size: viewportSize)
+            zoomContainer.center = CGPoint(x: viewportSize.width / 2, y: viewportSize.height / 2)
+            updateCanvasGeometry()
+
+            if previousHeight > 0 {
+                let nextOffset = centerRatio * viewportSize.height * zoomScale - viewportSize.height / 2
+                setVerticalOffset(nextOffset)
+            }
+        }
+
+        if !hasInitialPosition {
+            hasInitialPosition = true
+            setZoomScale(ScheduleTimelineViewport.clampedScale(pendingScale), animated: false)
+            updateCanvasGeometry()
+            let initial = ScheduleTimelineViewport.initial(
+                viewportHeight: viewportSize.height,
+                scale: zoomScale,
+                currentMinute: currentMinute()
+            )
+            setContentOffset(CGPoint(x: 0, y: initial.offsetY), animated: false)
+        }
+    }
+
+    func setScale(_ value: CGFloat, preserveVisibleCenter: Bool) {
+        let resolvedScale = ScheduleTimelineViewport.clampedScale(value)
+        pendingScale = resolvedScale
+        guard bounds.height > 0 else {
+            setNeedsLayout()
+            return
+        }
+        let centerRatio = (contentOffset.y + bounds.height / 2)
+            / max(bounds.height * zoomScale, 1)
+        setZoomScale(resolvedScale, animated: false)
+        updateCanvasGeometry()
+        if preserveVisibleCenter {
+            let nextOffset = centerRatio * bounds.height * resolvedScale - bounds.height / 2
+            setVerticalOffset(nextOffset)
+        }
+    }
+
+    func viewForZooming(in scrollView: UIScrollView) -> UIView? {
+        zoomContainer
+    }
+
+    func scrollViewDidZoom(_ scrollView: UIScrollView) {
+        updateCanvasGeometry()
+        clampHorizontalOffset()
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        clampHorizontalOffset()
+    }
+
+    func scrollViewDidEndZooming(
+        _ scrollView: UIScrollView,
+        with view: UIView?,
+        atScale scale: CGFloat
+    ) {
+        pendingScale = scale
+        onScaleChange?(scale)
+    }
+
+    private func updateCanvasGeometry() {
+        guard viewportSize.width > 0, viewportSize.height > 0 else { return }
+        let scale = max(zoomScale, 0.001)
+        let canvasSize = CGSize(
+            width: viewportSize.width,
+            height: viewportSize.height * scale
+        )
+        canvasView?.bounds = CGRect(origin: .zero, size: canvasSize)
+        canvasView?.layer.position = .zero
+        canvasView?.transform = CGAffineTransform(scaleX: 1 / scale, y: 1 / scale)
+        canvasView?.setNeedsLayout()
+    }
+
+    private func setVerticalOffset(_ value: CGFloat) {
+        let maximumOffset = max(bounds.height * zoomScale - bounds.height, 0)
+        contentOffset = CGPoint(x: 0, y: min(max(value, 0), maximumOffset))
+    }
+
+    private func clampHorizontalOffset() {
+        if abs(contentOffset.x) > 0.5 {
+            contentOffset.x = 0
+        }
+    }
+
+    private func currentMinute() -> Int {
+        let components = ScheduleDateCodec.calendar.dateComponents([.hour, .minute], from: Date())
+        return min(
+            max((components.hour ?? 12) * 60 + (components.minute ?? 0), 0),
+            24 * 60
+        )
+    }
+}
+
+private struct LinearScheduleCanvasView: View {
+    let configuration: LinearScheduleCalendarConfiguration
+
+    var body: some View {
+        GeometryReader { proxy in
+            let visibleWeekdays = visibleWeekdayValues
+            let columnWidth = max(proxy.size.width / CGFloat(visibleWeekdays.count + 1), 1)
+            let contentHeight = proxy.size.height
+            let timelineStart = 0
+            let timelineEnd = 24 * 60
+
+            ZStack(alignment: .topLeading) {
+                timelineGrid(
+                    visibleWeekdays: visibleWeekdays,
+                    leftWidth: columnWidth,
+                    dayWidth: columnWidth,
+                    contentHeight: contentHeight,
+                    timelineStart: timelineStart,
+                    timelineEnd: timelineEnd
+                )
+
+                ScheduleBlankContextMenuView(
+                    onBegan: {},
+                    onShare: configuration.onShareSchedule,
+                    onImport: configuration.onImportSchedule
+                )
+                .frame(width: proxy.size.width, height: contentHeight)
+
+                ForEach(configuration.entries.filter { visibleWeekdays.contains($0.dayOfWeek) }) { entry in
+                    entryView(
+                        entry,
+                        leftWidth: columnWidth,
+                        dayWidth: columnWidth,
+                        contentHeight: contentHeight,
+                        timelineStart: timelineStart,
+                        timelineEnd: timelineEnd
+                    )
+                }
+            }
+            .frame(width: proxy.size.width, height: contentHeight)
+        }
+    }
+
+    private var visibleWeekdayValues: [Int] {
+        (1 ... 7).filter {
+            if $0 == 6 { return configuration.showSaturday }
+            if $0 == 7 { return configuration.showSunday }
+            return true
+        }
+    }
+
+    private func timelineGrid(
+        visibleWeekdays: [Int],
+        leftWidth: CGFloat,
+        dayWidth: CGFloat,
+        contentHeight: CGFloat,
+        timelineStart: Int,
+        timelineEnd: Int
+    ) -> some View {
+        ZStack(alignment: .topLeading) {
+            if configuration.showHighlightToday,
+               configuration.currentWeek == configuration.week,
+               let index = visibleWeekdays.firstIndex(of: ScheduleDateCodec.weekdayIndex(from: Date())) {
+                Rectangle()
+                    .fill(AppDesignSystem.Palette.accent.opacity(0.10))
+                    .frame(width: dayWidth, height: contentHeight)
+                    .offset(x: leftWidth + dayWidth * CGFloat(index))
+            }
+
+            ForEach(Array(stride(from: timelineStart + 60, through: timelineEnd - 60, by: 60)), id: \.self) { minute in
+                let y = yPosition(
+                    for: minute,
+                    contentHeight: contentHeight,
+                    start: timelineStart,
+                    end: timelineEnd
+                )
+                Rectangle()
+                    .fill(Color.secondary.opacity(configuration.showDivider ? 0.14 : 0.08))
+                    .frame(width: leftWidth + dayWidth * CGFloat(visibleWeekdays.count), height: 0.5)
+                    .offset(y: y)
+
+                Text(TimeSlot.formatMinutes(minute))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .frame(width: leftWidth, alignment: .center)
+                    .offset(y: y - 8)
+            }
+
+            ForEach(0 ... visibleWeekdays.count, id: \.self) { column in
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.14))
+                    .frame(width: 0.5, height: contentHeight)
+                    .offset(x: leftWidth + dayWidth * CGFloat(column))
+            }
+
+            if configuration.showCurrentTime,
+               configuration.currentWeek == configuration.week,
+               let index = visibleWeekdays.firstIndex(of: ScheduleDateCodec.weekdayIndex(from: Date())) {
+                Rectangle()
+                    .fill(AppDesignSystem.Palette.accent)
+                    .frame(width: dayWidth, height: AppDesignSystem.Schedule.grid.currentTimeLineHeight)
+                    .offset(
+                        x: leftWidth + dayWidth * CGFloat(index),
+                        y: yPosition(
+                            for: currentMinute,
+                            contentHeight: contentHeight,
+                            start: timelineStart,
+                            end: timelineEnd
+                        )
+                    )
+                    .zIndex(2)
+            }
+        }
+    }
+
+    private func entryView(
+        _ entry: ScheduleCalendarEntry,
+        leftWidth: CGFloat,
+        dayWidth: CGFloat,
+        contentHeight: CGFloat,
+        timelineStart: Int,
+        timelineEnd: Int
+    ) -> some View {
+        let start = entry.startMinutes ?? fallbackMinute(for: entry.startSection, start: timelineStart, end: timelineEnd)
+        let end = max(
+            entry.endMinutes ?? fallbackMinute(for: entry.endSection, start: timelineStart, end: timelineEnd),
+            start + 1
+        )
+        let startY = yPosition(
+            for: start,
+            contentHeight: contentHeight,
+            start: timelineStart,
+            end: timelineEnd
+        )
+        let endY = yPosition(
+            for: min(end, timelineEnd),
+            contentHeight: contentHeight,
+            start: timelineStart,
+            end: timelineEnd
+        )
+        let cardWidth = max(dayWidth - AppDesignSystem.Schedule.grid.courseCardTotalInset, 1)
+        let cardHeight = max(endY - startY - AppDesignSystem.Schedule.grid.courseCardTotalInset, 18)
+
+        return ZStack(alignment: .topLeading) {
+            CourseScheduleBackgroundView(entry: entry, showBorder: configuration.showBorder)
+                .frame(width: cardWidth, height: cardHeight)
+
+            CourseScheduleBlockView(entry: entry, contentMode: configuration.cardContentMode)
+                .contentShape(Rectangle())
+                .onTapGesture { configuration.onSelect(entry) }
+                .contextMenu {
+                    if entry.kind == .course {
+                        Button("分享课程", systemImage: "square.and.arrow.up") {
+                            configuration.onLongPressCourse(entry)
+                        }
+                    }
+                } preview: {
+                    if entry.kind == .course {
+                        Color.clear
+                            .frame(
+                                width: AppDesignSystem.Schedule.grid.previewTriggerSize,
+                                height: AppDesignSystem.Schedule.grid.previewTriggerSize
+                            )
+                            .onAppear { configuration.onPrepareCourseShare(entry) }
+                    }
+                }
+                .accessibilityAddTraits(.isButton)
+                .frame(width: cardWidth, height: cardHeight)
+        }
+        .frame(width: cardWidth, height: cardHeight)
+        .offset(
+            x: leftWidth + dayWidth * CGFloat(visibleWeekdayValues.firstIndex(of: entry.dayOfWeek) ?? 0) + 0.5,
+            y: startY + 0.5
+        )
+        .zIndex(entry.kind == .custom ? 1.5 : 1)
+    }
+
+    private func fallbackMinute(for section: CGFloat, start: Int, end: Int) -> Int {
+        start + Int((section / CGFloat(max(configuration.timeTable.count, 1))) * CGFloat(end - start))
+    }
+
+    private func yPosition(
+        for minute: Int,
+        contentHeight: CGFloat,
+        start: Int,
+        end: Int
+    ) -> CGFloat {
+        let ratio = CGFloat(min(max(minute, start), end) - start) / CGFloat(max(end - start, 1))
+        return contentHeight * ratio
+    }
+
+    private var currentMinute: Int {
+        let components = ScheduleDateCodec.calendar.dateComponents([.hour, .minute], from: Date())
+        return min(max((components.hour ?? 12) * 60 + (components.minute ?? 0), 0), 24 * 60)
+    }
+}
+
 /// 课表中的单个课程 / 考试 / 自定义日程块。
 private struct CourseScheduleBlockView: View {
     let entry: ScheduleCalendarEntry
     let contentMode: ScheduleCardContentMode
 
     var body: some View {
-        contentLayout
+        ScheduleCardTextView(
+            title: entry.title,
+            location: entry.subtitle,
+            contentMode: contentMode,
+            textStyle: AppDesignSystem.Schedule.courseText.style,
+            textColor: uiTextColor
+        )
         .padding(AppDesignSystem.Spacing.micro)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    @ViewBuilder
-    private var contentLayout: some View {
-        switch contentMode {
-        case .nameAndLocation:
-            VStack(spacing: 0) {
-                if !entry.title.isEmpty {
-                    Spacer(minLength: 0)
-                    titleLabel
-                }
-                if !entry.subtitle.isEmpty {
-                    Spacer(minLength: 0)
-                    locationLabel
-                } else if !entry.title.isEmpty {
-                    Spacer(minLength: 0)
-                }
-            }
-        case .name:
-            centered(titleLabel)
-        case .location:
-            if entry.subtitle.isEmpty {
-                centered(titleLabel)
-            } else {
-                centered(locationLabel)
-            }
-        }
-    }
-
-    private var titleLabel: some View {
-        ScheduleDenseTextLabel(
-                text: entry.title,
-                textStyle: AppDesignSystem.Schedule.courseText.style,
-                textColor: uiTextColor,
-                numberOfLines: titleLineLimit,
-                minimumScaleFactor: AppDesignSystem.Schedule.courseText.titleMinimumScaleFactor,
-                lineBreakMode: titleLineBreakMode
-        )
-        .frame(maxWidth: .infinity)
-    }
-
-    /// “名称+地点”模式下，两格课程显示名称最多两行；其它模式使用默认行数。
-    private var titleLineLimit: Int {
-        contentMode == .nameAndLocation && entry.endSection - entry.startSection <= 2
-            ? AppDesignSystem.Schedule.courseText.titleMaximumLinesForTwoSections
-            : 0
-    }
-
-    private var titleLineBreakMode: NSLineBreakMode {
-        titleLineLimit > 0 ? .byTruncatingTail : .byWordWrapping
-    }
-
-    private var locationLabel: some View {
-        ScheduleDenseTextLabel(
-            text: entry.subtitle,
-            textStyle: AppDesignSystem.Schedule.courseText.style,
-            textColor: uiTextColor,
-            numberOfLines: AppDesignSystem.Schedule.courseText.locationLineCount,
-            minimumScaleFactor: AppDesignSystem.Schedule.courseText.locationMinimumScaleFactor,
-            lineBreakMode: .byCharWrapping,
-            lineHeightMultiple: AppDesignSystem.Schedule.courseText.locationLineHeightMultiple
-        )
-        .frame(maxWidth: .infinity)
-    }
-
-    private func centered<Content: View>(_ content: Content) -> some View {
-        content
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
     }
 
     private var uiTextColor: UIColor {
@@ -458,86 +1022,230 @@ private struct CourseScheduleBlockView: View {
 
 }
 
-/// 课表专用紧凑文字块，使用 UIKit 的字符级换行策略。
-private struct ScheduleDenseTextLabel: UIViewRepresentable {
-    let text: String
+/// 课表卡片为名称和地点分配独立文字区域。
+private struct ScheduleCardTextView: UIViewRepresentable {
+    let title: String
+    let location: String
+    let contentMode: ScheduleCardContentMode
     let textStyle: UIFont.TextStyle
     let textColor: UIColor
-    let numberOfLines: Int
-    let minimumScaleFactor: CGFloat
-    let lineBreakMode: NSLineBreakMode
-    let lineHeightMultiple: CGFloat
 
-    init(
-        text: String,
-        textStyle: UIFont.TextStyle,
-        textColor: UIColor,
-        numberOfLines: Int,
-        minimumScaleFactor: CGFloat,
-        lineBreakMode: NSLineBreakMode,
-        lineHeightMultiple: CGFloat = 0
-    ) {
-        self.text = text
-        self.textStyle = textStyle
-        self.textColor = textColor
-        self.numberOfLines = numberOfLines
-        self.minimumScaleFactor = minimumScaleFactor
-        self.lineBreakMode = lineBreakMode
-        self.lineHeightMultiple = lineHeightMultiple
+    func makeUIView(context: Context) -> AdaptiveCardTextView {
+        AdaptiveCardTextView()
     }
 
-    func makeUIView(context: Context) -> DenseLabel {
-        let label = DenseLabel()
-        label.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        return label
-    }
-
-    func updateUIView(_ uiView: DenseLabel, context: Context) {
-        let font = UIFont.preferredFont(forTextStyle: textStyle)
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.alignment = .center
-        paragraphStyle.lineBreakMode = lineBreakMode
-        paragraphStyle.lineSpacing = 0
-        paragraphStyle.paragraphSpacing = 0
-        if lineHeightMultiple > 0 {
-            paragraphStyle.lineHeightMultiple = lineHeightMultiple
-        } else {
-            paragraphStyle.minimumLineHeight = font.lineHeight
-            paragraphStyle.maximumLineHeight = font.lineHeight
-        }
-
-        uiView.attributedText = NSAttributedString(
-            string: text,
-            attributes: [
-                .font: font,
-                .foregroundColor: textColor,
-                .paragraphStyle: paragraphStyle,
-            ]
+    func updateUIView(_ uiView: AdaptiveCardTextView, context: Context) {
+        uiView.configure(
+            title: title,
+            location: location,
+            contentMode: contentMode,
+            font: UIFont.preferredFont(forTextStyle: textStyle),
+            textColor: textColor
         )
-        uiView.numberOfLines = numberOfLines
-        uiView.textAlignment = .center
-        uiView.adjustsFontForContentSizeCategory = true
-        uiView.adjustsFontSizeToFitWidth = numberOfLines == 1
-        uiView.minimumScaleFactor = minimumScaleFactor
-        uiView.allowsDefaultTighteningForTruncation = true
     }
 
     func sizeThatFits(
         _ proposal: ProposedViewSize,
-        uiView: DenseLabel,
+        uiView: AdaptiveCardTextView,
         context: Context
     ) -> CGSize? {
-        guard let width = proposal.width else { return nil }
-        uiView.preferredMaxLayoutWidth = width
-        let measured = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
-        return CGSize(width: width, height: measured.height)
+        guard let width = proposal.width, let height = proposal.height else { return nil }
+        return CGSize(width: width, height: height)
     }
 
-    final class DenseLabel: UILabel {
+    final class AdaptiveCardTextView: UIView {
+        private let titleLabel = UILabel()
+        private let locationLabel = UILabel()
+        private var title = ""
+        private var location = ""
+        private var scheduleContentMode = ScheduleCardContentMode.nameAndLocation
+        private var baseFont = UIFont.preferredFont(forTextStyle: .caption2)
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            clipsToBounds = true
+            [titleLabel, locationLabel].forEach { label in
+                label.textAlignment = .center
+                label.adjustsFontForContentSizeCategory = true
+                label.adjustsFontSizeToFitWidth = false
+                label.allowsDefaultTighteningForTruncation = true
+                label.clipsToBounds = true
+                addSubview(label)
+            }
+            titleLabel.lineBreakMode = .byTruncatingTail
+            locationLabel.lineBreakMode = .byCharWrapping
+            locationLabel.numberOfLines = 0
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        func configure(
+            title: String,
+            location: String,
+            contentMode: ScheduleCardContentMode,
+            font: UIFont,
+            textColor: UIColor
+        ) {
+            self.title = title
+            self.location = location
+            scheduleContentMode = contentMode
+            baseFont = font
+            titleLabel.textColor = textColor
+            locationLabel.textColor = textColor
+            setNeedsLayout()
+        }
+
         override func layoutSubviews() {
-            preferredMaxLayoutWidth = bounds.width
             super.layoutSubviews()
+            guard bounds.width > 0, bounds.height > 0 else { return }
+
+            switch scheduleContentMode {
+            case .name:
+                layoutTitle(text: title, in: bounds)
+                hideLocation()
+            case .location:
+                hideTitle()
+                layoutLocation(text: location.isEmpty ? title : location, in: bounds)
+            case .nameAndLocation:
+                layoutCombined()
+            }
+        }
+
+        private func layoutCombined() {
+            guard !location.isEmpty else {
+                layoutTitle(text: title, in: bounds)
+                hideLocation()
+                return
+            }
+            guard !title.isEmpty else {
+                hideTitle()
+                layoutLocation(text: location, in: bounds)
+                return
+            }
+
+            let gap = AppDesignSystem.Schedule.grid.cellSpacing
+            let preferredLocationHeight = measuredHeight(
+                text: location,
+                font: baseFont,
+                width: bounds.width
+            )
+            let preferredTitleLineHeight = baseFont.lineHeight
+            let roomForTitle = bounds.height - preferredLocationHeight - gap
+            let locationMaximumHeight = roomForTitle >= preferredTitleLineHeight
+                ? preferredLocationHeight
+                : bounds.height
+            let locationFont = fittingFont(
+                text: location,
+                width: bounds.width,
+                maximumHeight: locationMaximumHeight
+            )
+            let locationHeight = min(
+                measuredHeight(text: location, font: locationFont, width: bounds.width),
+                bounds.height
+            )
+            let titleAvailableHeight = max(bounds.height - locationHeight - gap, 0)
+            let titleHeight = layoutTitle(
+                text: title,
+                in: CGRect(x: 0, y: 0, width: bounds.width, height: titleAvailableHeight)
+            )
+            let actualGap = titleHeight > 0 ? gap : 0
+            let contentHeight = titleHeight + actualGap + locationHeight
+            let originY = max((bounds.height - contentHeight) / 2, 0)
+            titleLabel.frame.origin.y = originY
+            configureLocationLabel(text: location, font: locationFont)
+            locationLabel.frame = CGRect(
+                x: 0,
+                y: originY + titleHeight + actualGap,
+                width: bounds.width,
+                height: locationHeight
+            )
+        }
+
+        @discardableResult
+        private func layoutTitle(text: String, in rect: CGRect) -> CGFloat {
+            guard !text.isEmpty, rect.height >= baseFont.lineHeight else {
+                hideTitle()
+                return 0
+            }
+            titleLabel.isHidden = false
+            titleLabel.text = text
+            titleLabel.font = baseFont
+            titleLabel.preferredMaxLayoutWidth = rect.width
+            titleLabel.numberOfLines = max(Int(floor(rect.height / baseFont.lineHeight)), 1)
+            let measured = titleLabel.sizeThatFits(rect.size)
+            let height = min(ceil(measured.height), rect.height)
+            titleLabel.frame = CGRect(
+                x: rect.minX,
+                y: rect.minY + max((rect.height - height) / 2, 0),
+                width: rect.width,
+                height: height
+            )
+            return height
+        }
+
+        private func layoutLocation(text: String, in rect: CGRect) {
+            guard !text.isEmpty else {
+                hideLocation()
+                return
+            }
+            let font = fittingFont(text: text, width: rect.width, maximumHeight: rect.height)
+            configureLocationLabel(text: text, font: font)
+            let height = min(measuredHeight(text: text, font: font, width: rect.width), rect.height)
+            locationLabel.frame = CGRect(
+                x: rect.minX,
+                y: rect.minY + max((rect.height - height) / 2, 0),
+                width: rect.width,
+                height: height
+            )
+        }
+
+        private func configureLocationLabel(text: String, font: UIFont) {
+            locationLabel.isHidden = false
+            locationLabel.text = text
+            locationLabel.font = font
+            locationLabel.preferredMaxLayoutWidth = bounds.width
+        }
+
+        private func fittingFont(text: String, width: CGFloat, maximumHeight: CGFloat) -> UIFont {
+            guard maximumHeight > 0 else { return baseFont }
+            if measuredHeight(text: text, font: baseFont, width: width) <= maximumHeight {
+                return baseFont
+            }
+
+            var lowerBound: CGFloat = 1
+            var upperBound = baseFont.pointSize
+            for _ in 0 ..< 10 {
+                let candidateSize = (lowerBound + upperBound) / 2
+                let candidate = baseFont.withSize(candidateSize)
+                if measuredHeight(text: text, font: candidate, width: width) <= maximumHeight {
+                    lowerBound = candidateSize
+                } else {
+                    upperBound = candidateSize
+                }
+            }
+            return baseFont.withSize(lowerBound)
+        }
+
+        private func measuredHeight(text: String, font: UIFont, width: CGFloat) -> CGFloat {
+            let rect = (text as NSString).boundingRect(
+                with: CGSize(width: width, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: [.font: font],
+                context: nil
+            )
+            return ceil(rect.height)
+        }
+
+        private func hideTitle() {
+            titleLabel.isHidden = true
+            titleLabel.frame = .zero
+        }
+
+        private func hideLocation() {
+            locationLabel.isHidden = true
+            locationLabel.frame = .zero
         }
     }
 }
@@ -814,6 +1522,8 @@ struct ScheduleCalendarEntry: Identifiable {
     let dayOfWeek: Int
     let startSection: CGFloat
     let endSection: CGFloat
+    let startMinutes: Int?
+    let endMinutes: Int?
     let title: String
     let subtitle: String
     let detailLines: [String]
@@ -827,6 +1537,8 @@ struct ScheduleCalendarEntry: Identifiable {
         dayOfWeek: Int,
         startSection: CGFloat,
         endSection: CGFloat,
+        startMinutes: Int? = nil,
+        endMinutes: Int? = nil,
         title: String,
         subtitle: String,
         detailLines: [String],
@@ -839,6 +1551,8 @@ struct ScheduleCalendarEntry: Identifiable {
         self.dayOfWeek = dayOfWeek
         self.startSection = startSection
         self.endSection = endSection
+        self.startMinutes = startMinutes
+        self.endMinutes = endMinutes
         self.title = title
         self.subtitle = subtitle
         self.detailLines = detailLines
@@ -930,6 +1644,8 @@ func normalize(entries: [ScheduleCalendarEntry]) -> [ScheduleCalendarEntry] {
                             dayOfWeek: entry.dayOfWeek,
                             startSection: last.endSection,
                             endSection: entry.endSection,
+                            startMinutes: entry.startMinutes,
+                            endMinutes: entry.endMinutes,
                             title: entry.title,
                             subtitle: entry.subtitle,
                             detailLines: entry.detailLines,

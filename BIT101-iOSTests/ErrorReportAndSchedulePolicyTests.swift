@@ -146,8 +146,12 @@ final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     func testSchoolBusinessInspectorDoesNotRejectSuccessfulOrLegitimateEmptyResponses() {
         let success = Data(#"{"datas":{"rows":[]},"code":"0"}"#.utf8)
         let nestedSuccess = Data(#"{"datas":{"rows":[],"extParams":{"code":1}},"code":"0"}"#.utf8)
+        let alternateSuccessCode = Data(
+            #"{"datas":{"rows":[],"extParams":{"code":2,"msg":"查询成功"}},"code":"0"}"#.utf8
+        )
         XCTAssertNil(ScheduleService.schoolBusinessErrorMessage(from: success))
         XCTAssertNil(ScheduleService.schoolBusinessErrorMessage(from: nestedSuccess))
+        XCTAssertNil(ScheduleService.schoolBusinessErrorMessage(from: alternateSuccessCode))
     }
 
     func testCourseReplacementRequiresNewCourseAndNoStrictReduction() {

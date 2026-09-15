@@ -149,11 +149,6 @@ extension AppDesignSystem {
 
         struct CourseTextMetrics {
             let style: UIFont.TextStyle
-            let titleMaximumLinesForTwoSections: Int
-            let titleMinimumScaleFactor: CGFloat
-            let locationLineCount: Int
-            let locationLineHeightMultiple: CGFloat
-            let locationMinimumScaleFactor: CGFloat
         }
 
         static let grid = GridMetrics(
@@ -179,12 +174,7 @@ extension AppDesignSystem {
             compactHeaderHeight: 42
         )
         static let courseText = CourseTextMetrics(
-            style: .caption2,
-            titleMaximumLinesForTwoSections: 2,
-            titleMinimumScaleFactor: 0.75,
-            locationLineCount: 2,
-            locationLineHeightMultiple: 0.8,
-            locationMinimumScaleFactor: 0.01
+            style: .caption2
         )
         static let settingsPanelMinimumHeight: CGFloat = 220
     }

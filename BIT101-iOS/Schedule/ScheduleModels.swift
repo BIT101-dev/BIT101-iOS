@@ -74,6 +74,102 @@ enum ScheduleCardContentMode: String, Codable, Identifiable {
     var id: String { rawValue }
 }
 
+/// 课表纵轴的时间表达方式。
+enum ScheduleCalendarAxisMode: String, CaseIterable, Identifiable {
+    case quantized
+    case linear
+
+    static let defaultLinearZoomScale: CGFloat = CGFloat(24) / CGFloat(13)
+
+    var id: String { rawValue }
+
+    var accessibilityLabel: String {
+        switch self {
+        case .quantized:
+            return "简洁节次时间轴"
+        case .linear:
+            return "详细线性时间轴"
+        }
+    }
+
+    var next: Self {
+        switch self {
+        case .quantized:
+            return .linear
+        case .linear:
+            return .quantized
+        }
+    }
+}
+
+/// 线性时间轴的缩放与滚动几何模型。
+struct ScheduleTimelineViewport: Equatable {
+    static let minimumScale: CGFloat = 1
+    static let maximumScale: CGFloat = 3
+
+    let viewportHeight: CGFloat
+    let scale: CGFloat
+    let offsetY: CGFloat
+
+    init(viewportHeight: CGFloat, scale: CGFloat, offsetY: CGFloat) {
+        self.viewportHeight = max(viewportHeight, 0)
+        self.scale = Self.clampedScale(scale)
+        self.offsetY = Self.clampedOffset(
+            offsetY,
+            viewportHeight: self.viewportHeight,
+            scale: self.scale
+        )
+    }
+
+    var contentHeight: CGFloat {
+        viewportHeight * scale
+    }
+
+    static func initial(
+        viewportHeight: CGFloat,
+        scale: CGFloat,
+        currentMinute: Int
+    ) -> Self {
+        let resolvedScale = clampedScale(scale)
+        let contentHeight = max(viewportHeight, 0) * resolvedScale
+        let minute = min(max(currentMinute, 0), 24 * 60)
+        let offset = CGFloat(minute) / CGFloat(24 * 60) * contentHeight - viewportHeight / 2
+        return Self(viewportHeight: viewportHeight, scale: resolvedScale, offsetY: offset)
+    }
+
+    func zoomed(
+        to proposedScale: CGFloat,
+        initialAnchorY: CGFloat,
+        currentAnchorY: CGFloat
+    ) -> Self {
+        guard contentHeight > 0 else {
+            return Self(viewportHeight: viewportHeight, scale: proposedScale, offsetY: 0)
+        }
+        let anchorY = min(max(initialAnchorY, 0), viewportHeight)
+        let currentY = min(max(currentAnchorY, 0), viewportHeight)
+        let anchoredRatio = (offsetY + anchorY) / contentHeight
+        let resolvedScale = Self.clampedScale(proposedScale)
+        let nextContentHeight = viewportHeight * resolvedScale
+        return Self(
+            viewportHeight: viewportHeight,
+            scale: resolvedScale,
+            offsetY: anchoredRatio * nextContentHeight - currentY
+        )
+    }
+
+    static func clampedScale(_ value: CGFloat) -> CGFloat {
+        min(max(value, minimumScale), maximumScale)
+    }
+
+    private static func clampedOffset(
+        _ value: CGFloat,
+        viewportHeight: CGFloat,
+        scale: CGFloat
+    ) -> CGFloat {
+        min(max(value, 0), max(viewportHeight * scale - viewportHeight, 0))
+    }
+}
+
 /// 节次与时间段的映射。
 ///
 /// `TimeSlot` 是课表、空教室、当前时间线、小组件和灵动岛共同依赖的基础模型。

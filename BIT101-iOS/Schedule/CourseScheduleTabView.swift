@@ -44,9 +44,15 @@ struct CourseScheduleTabView: View {
     @State private var prefetchedCourseID: String?
     @State private var prefetchedCourseResolution: ScheduleAcademicCourseResolution?
     @State private var bottomTabBarOverlap: CGFloat?
+    @AppStorage("schedule.calendar.axisMode") private var storedCalendarAxisMode = ScheduleCalendarAxisMode.quantized.rawValue
+    @State private var calendarAxisZoomScale: CGFloat = ScheduleCalendarAxisMode.defaultLinearZoomScale
 
     var activeSchedule: ScheduleViewModel.CourseScheduleVariant {
         viewModel.activeCourseSchedule
+    }
+
+    var calendarAxisMode: ScheduleCalendarAxisMode {
+        ScheduleCalendarAxisMode(rawValue: storedCalendarAxisMode) ?? .quantized
     }
 
     private var supportsEditingDisplayedSchedule: Bool {
@@ -97,6 +103,8 @@ struct CourseScheduleTabView: View {
                                 availableWeeks: weekPickerWeeks,
                                 displayMode: viewModel.cache.scheduleDisplayMode,
                                 cardContentMode: viewModel.cache.scheduleCardContentMode,
+                                axisMode: calendarAxisMode,
+                                axisZoomScale: $calendarAxisZoomScale,
                                 firstDay: firstDay,
                                 timeTable: activeSchedule.timeTable,
                                 currentWeek: resolvedCurrentWeek(firstDay: firstDay),
@@ -218,6 +226,17 @@ struct CourseScheduleTabView: View {
                         .accessibilityLabel(cardDisplayAccessibilityLabel)
                         .accessibilityValue("名/地")
                     }
+
+                    Button {
+                        storedCalendarAxisMode = calendarAxisMode.next.rawValue
+                        calendarAxisZoomScale = ScheduleCalendarAxisMode.defaultLinearZoomScale
+                    } label: {
+                        CourseScheduleFABLabel(text: "节/时")
+                    }
+                    .buttonStyle(.plain)
+                    .tint(.primary)
+                    .accessibilityLabel(calendarAxisMode.accessibilityLabel)
+                    .accessibilityValue(calendarAxisMode == .quantized ? "节次" : "时间")
 
                     CourseScheduleFAB(systemImage: "gearshape", accessibilityLabel: "课表设置") {
                         settingsRoute = .calendar
