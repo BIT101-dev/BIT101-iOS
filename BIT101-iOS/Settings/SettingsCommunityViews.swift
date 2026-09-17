@@ -10,7 +10,7 @@ struct GallerySettingsPage: View {
 
     var body: some View {
         List {
-            Section("机器人") {
+            Section {
                 Toggle("隐藏机器人帖子", isOn: Binding(
                     get: { settings.galleryHideBotPosterInSearch },
                     set: { settings.updateGallerySettings(hideBotPosterInSearch: $0) }
