@@ -194,7 +194,7 @@ extension ScheduleViewModel {
         switch CourseSyncReplacementPolicy.decision(existing: existingCourses, with: incomingCourses) {
         case .preserve:
             // 请求成功且课程内容一致时刷新“最近同步时间”，并提示本次同步结果。
-            // 空响应到达已有课程时沿用原缓存内容。
+            // 首周日期或考试安排发生变化时同步元数据，课程数组沿用现有内容。
             guard !incomingCourses.isEmpty || existingCourses.isEmpty else {
                 markCourseSyncSucceeded(term: payload.term, at: now)
                 if coursesAreIdentical {
@@ -205,6 +205,39 @@ extension ScheduleViewModel {
                 }
                 return
             }
+            let existingSnapshot = cache.termSchedulesByTerm[payload.term]
+            let existingFirstDayString = existingSnapshot?.firstDayString
+                ?? (cache.currentTerm == payload.term ? cache.firstDayString : "")
+            let existingExams = existingSnapshot?.exams
+                ?? (cache.currentTerm == payload.term ? cache.exams : [])
+            let metadataChanged = existingFirstDayString != payload.firstDayString
+                || existingExams != payload.exams
+            if metadataChanged {
+                let snapshot = TermScheduleSnapshot(
+                    term: payload.term,
+                    firstDayString: payload.firstDayString,
+                    courses: existingCourses,
+                    exams: payload.exams,
+                    updatedAt: now
+                )
+                cache.termSchedulesByTerm[payload.term] = snapshot
+                cache.cachedCoursesByTerm[payload.term] = existingCourses
+                if cache.currentTerm == payload.term {
+                    activate(snapshot)
+                    selectedWeek = resolvedAutomaticWeek()
+                }
+                trimTermSnapshots(preserving: Set([payload.term]))
+                persist()
+            } else {
+                markCourseSyncSucceeded(term: payload.term, at: now)
+            }
+            if coursesAreIdentical {
+                notice = ScheduleNotice.informational(
+                    title: "课表已是最新",
+                    message: "本次获取结果与本地课程内容完全一致。"
+                )
+            }
+            return
         case let .confirm(existingCount, incomingCount) where !forceReplaceReduced:
             pendingCourseReplacement = CourseSyncReplacementConfirmation(
                 existingCount: existingCount,

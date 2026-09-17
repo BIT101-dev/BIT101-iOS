@@ -302,6 +302,85 @@ struct CourseScheduleTabView: View {
                     viewModel.deleteCourse(id: courseID)
                     selectedEntry = nil
                 },
+                onImportCourseOccurrence: { courseID, week in
+                    guard let course = activeSchedule.courses.first(where: { $0.id == courseID }),
+                          let firstDay = activeSchedule.firstDay else { return }
+                    let drafts = ScheduleSystemCalendarEventBuilder.makeDrafts(
+                        courses: [course],
+                        firstDay: firstDay,
+                        timeTable: activeSchedule.timeTable
+                    ).filter { $0.markerID == "\(course.id)-w\(week)" }
+                    Task {
+                        do {
+                            let count = try await ScheduleSystemCalendarManager.shared.importDrafts(
+                                drafts,
+                                term: activeSchedule.currentTerm
+                            )
+                            courseShareAlert = AppAlert.informational(
+                                title: "已导入系统日历",
+                                message: "已导入 \(count) 个日历事件。"
+                            )
+                        } catch {
+                            courseShareAlert = AppAlert(title: "导入日历失败", message: error.localizedDescription)
+                        }
+                    }
+                },
+                onImportCourse: { courseID in
+                    guard let course = activeSchedule.courses.first(where: { $0.id == courseID }),
+                          let firstDay = activeSchedule.firstDay else { return }
+                    let relatedCourses = activeSchedule.courses.filter {
+                        scheduleCourseIdentity($0) == scheduleCourseIdentity(course)
+                    }
+                    let drafts = ScheduleSystemCalendarEventBuilder.makeDrafts(
+                        courses: relatedCourses,
+                        firstDay: firstDay,
+                        timeTable: activeSchedule.timeTable
+                    )
+                    Task {
+                        do {
+                            let count = try await ScheduleSystemCalendarManager.shared.importDrafts(
+                                drafts,
+                                term: activeSchedule.currentTerm
+                            )
+                            courseShareAlert = AppAlert.informational(
+                                title: "已导入系统日历",
+                                message: "已导入 \(count) 个日历事件。"
+                            )
+                        } catch {
+                            courseShareAlert = AppAlert(title: "导入日历失败", message: error.localizedDescription)
+                        }
+                    }
+                },
+                onDeleteCalendarMarkers: { markerIDs in
+                    Task {
+                        do {
+                            let result = try await ScheduleSystemCalendarManager.shared.deleteImportedEvents(markerIDs: markerIDs)
+                            courseShareAlert = calendarMutationAlert(result)
+                        } catch {
+                            courseShareAlert = AppAlert(title: "移除日历失败", message: error.localizedDescription)
+                        }
+                    }
+                },
+                onDeleteCalendarCourse: { courseID in
+                    guard let course = activeSchedule.courses.first(where: { $0.id == courseID }),
+                          let firstDay = activeSchedule.firstDay else { return }
+                    let relatedCourses = activeSchedule.courses.filter {
+                        scheduleCourseIdentity($0) == scheduleCourseIdentity(course)
+                    }
+                    let drafts = ScheduleSystemCalendarEventBuilder.makeDrafts(
+                        courses: relatedCourses,
+                        firstDay: firstDay,
+                        timeTable: activeSchedule.timeTable
+                    )
+                    Task {
+                        do {
+                            let result = try await ScheduleSystemCalendarManager.shared.deleteImportedEvents(drafts: drafts)
+                            courseShareAlert = calendarMutationAlert(result)
+                        } catch {
+                            courseShareAlert = AppAlert(title: "移除日历失败", message: error.localizedDescription)
+                        }
+                    }
+                },
                 onEditCustomSchedule: {
                     if let schedule = viewModel.cache.customSchedules.first(where: { $0.id == entry.sourceID }) {
                         editingCustomScheduleID = schedule.id
@@ -469,6 +548,21 @@ struct CourseScheduleTabView: View {
 
     private func presentSaveError(_ error: Error) {
         viewModel.notice = ScheduleNotice.userInput(title: "保存失败", message: error.localizedDescription)
+    }
+
+    private func calendarMutationAlert(_ result: ScheduleSystemCalendarMutationResult) -> AppAlert {
+        switch result {
+        case let .changed(count):
+            return AppAlert.informational(
+                title: "已移除系统日历事件",
+                message: "已移除 \(count) 个日历事件。"
+            )
+        case .noOp:
+            return AppAlert.informational(
+                title: "无需移除",
+                message: "系统日历中没有匹配的 BIT101 事件。"
+            )
+        }
     }
 
     private func exportScheduleCode() {

@@ -32,8 +32,8 @@ case "$SMOKE_SCOPE" in
   *) echo "BIT101_NETWORK_SMOKE_SCOPE 必须是 all、bit101、school、transcript、schedule 或 ddl。" >&2; exit 64 ;;
 esac
 case "$SMOKE_CAPTURE" in
-  ""|courseHistory|cachedCourseHistory) ;;
-  *) echo "BIT101_NETWORK_SMOKE_CAPTURE 必须为空、courseHistory 或 cachedCourseHistory。" >&2; exit 64 ;;
+  ""|courseHistory|cachedCourseHistory|scheduleCache|rawCourseResponse) ;;
+  *) echo "BIT101_NETWORK_SMOKE_CAPTURE 参数无效。" >&2; exit 64 ;;
 esac
 
 mkdir -p "$DERIVED_DATA" "$REPORT_DIR"
@@ -44,10 +44,12 @@ if [[ -n "$SMOKE_CAPTURE" ]]; then
   SMOKE_URL="${SMOKE_URL}&capture=${SMOKE_CAPTURE}"
 fi
 REMOTE_REPORT_PATH="Library/NetworkSmoke/release-network-smoke.json"
+REMOTE_RAW_COURSE_PATH="Library/NetworkSmoke/raw-course-response.json"
 REMOTE_FIXTURE_PATH="course-history-audit-fixture.json"
 LOCAL_FIXTURE_PATH="$ROOT_DIR/BIT101-iOSTests/CourseHistoryAuditFixture.json"
 LOCAL_REPORT_PATH="$REPORT_DIR/release-network-smoke.json"
-rm -f "$LOG_FILE" "$BUILD_LOG" "$LOCAL_REPORT_PATH"
+LOCAL_RAW_COURSE_PATH="$REPORT_DIR/raw-course-response.json"
+rm -f "$LOG_FILE" "$BUILD_LOG" "$LOCAL_REPORT_PATH" "$LOCAL_RAW_COURSE_PATH"
 
 restore_normal_app() {
   local smoke_status=$?
@@ -142,6 +144,19 @@ PY
   fi
   sleep 2
 done
+
+if [[ "$SMOKE_CAPTURE" == "rawCourseResponse" ]]; then
+  if ! xcrun devicectl device copy from \
+    --device "$DEVICETCL_DEVICE_ID" \
+    --domain-type appGroupDataContainer \
+    --domain-identifier "$APP_GROUP_ID" \
+    --source "$REMOTE_RAW_COURSE_PATH" \
+    --destination "$LOCAL_RAW_COURSE_PATH" >/dev/null 2>&1; then
+    echo "未读取到原始课表响应：$REMOTE_RAW_COURSE_PATH" | tee -a "$LOG_FILE" >&2
+    exit 1
+  fi
+  echo "原始课表响应已保存：$LOCAL_RAW_COURSE_PATH" | tee -a "$LOG_FILE"
+fi
 
 python3 - "$LOCAL_REPORT_PATH" <<'PY' | tee -a "$LOG_FILE"
 import json

@@ -411,11 +411,19 @@ struct CalendarSettingsPage: View {
         Task {
             defer { isUpdatingSystemCalendar = false }
             do {
-                let count = try await ScheduleSystemCalendarManager.shared.deleteAllImportedEvents()
-                viewModel.notice = ScheduleNotice.informational(
-                    title: "删除成功",
-                    message: "已删除 \(count) 条由 BIT101 导入的日历事件。"
-                )
+                let result = try await ScheduleSystemCalendarManager.shared.deleteAllImportedEvents()
+                switch result {
+                case let .changed(count):
+                    viewModel.notice = ScheduleNotice.informational(
+                        title: "删除成功",
+                        message: "已删除 \(count) 条由 BIT101 导入的日历事件。"
+                    )
+                case .noOp:
+                    viewModel.notice = ScheduleNotice.informational(
+                        title: "无需删除",
+                        message: "系统日历中没有由 BIT101 导入的事件。"
+                    )
+                }
             } catch {
                 if let calendarError = error as? ScheduleSystemCalendarError {
                     viewModel.notice = ScheduleNotice.userInput(

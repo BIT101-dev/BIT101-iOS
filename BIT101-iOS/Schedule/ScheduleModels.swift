@@ -416,7 +416,13 @@ struct ClassroomAvailability: Identifiable, Hashable {
 /// - 课表显示设置
 /// - 灵动岛提醒设置
 nonisolated struct ScheduleCache: Codable {
+    /// 课程周次已经按学校响应的行级周次完成解析。
+    ///
+    /// 缓存解码会依据这个版本决定是否运行旧版迁移逻辑，保持行级周次结构。
+    private static let courseScheduleParserVersion = 2
+
     var primaryScheduleTitle = "课表"
+    var storedCourseScheduleParserVersion = Self.courseScheduleParserVersion
     var currentTerm: String = ""
     var firstDayString: String = ""
     /// 最近一次从学校成功同步课表与考试的时间，用于缓存迁移和快照时间戳。
@@ -463,6 +469,7 @@ nonisolated struct ScheduleCache: Codable {
 
     private enum CodingKeys: String, CodingKey {
         case primaryScheduleTitle
+        case storedCourseScheduleParserVersion
         case currentTerm
         case firstDayString
         case coursesUpdatedAt
@@ -506,6 +513,10 @@ nonisolated struct ScheduleCache: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         currentTerm = try container.decodeIfPresent(String.self, forKey: .currentTerm) ?? ""
+        let decodedCourseScheduleParserVersion = try container.decodeIfPresent(
+            Int.self,
+            forKey: .storedCourseScheduleParserVersion
+        ) ?? 1
         primaryScheduleTitle = Self.clampedScheduleTitle(
             try container.decodeIfPresent(String.self, forKey: .primaryScheduleTitle) ?? "课表"
         )
@@ -591,7 +602,12 @@ nonisolated struct ScheduleCache: Codable {
                     ?? (term == currentTerm ? firstDayString : ""),
                 courses: sourceCourses
             )
-            let narrowedCourses = CourseScheduleRowParser.narrowedCourses(normalized.courses)
+            let narrowedCourses: [CourseRecord]
+            if decodedCourseScheduleParserVersion < Self.courseScheduleParserVersion {
+                narrowedCourses = CourseScheduleRowParser.narrowedCourses(normalized.courses)
+            } else {
+                narrowedCourses = normalized.courses
+            }
             guard normalized.offset == SmallTermWeekNormalizer.correctionOffset
                 || narrowedCourses != sourceCourses
             else { continue }

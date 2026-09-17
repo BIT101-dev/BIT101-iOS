@@ -91,6 +91,9 @@ enum ScheduleServiceError: LocalizedError {
 struct CourseSyncPayload {
     let term: String
     let firstDayString: String
+    let sourceFirstDayString: String
+    let normalizationOffset: Int
+    let rawWeeksByCourse: [[Int]]
     let courses: [CourseRecord]
     let exams: [ExamRecord]
 }
@@ -112,7 +115,8 @@ nonisolated enum SmallTermWeekNormalizer {
     static func normalize(
         term: String,
         firstDayString: String,
-        courses: [CourseRecord]
+        courses: [CourseRecord],
+        rawWeeksByCourse: [[Int]]? = nil
     ) -> Result {
         let unchanged = Result(firstDayString: firstDayString, courses: courses, offset: 0)
         guard term.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("-1"),
@@ -124,13 +128,14 @@ nonisolated enum SmallTermWeekNormalizer {
             var describedWeeks = Set<Int>()
         }
 
+        let sourceRawWeeks = rawWeeksByCourse?.count == courses.count ? rawWeeksByCourse : nil
         var groups: [String: CourseGroup] = [:]
-        for course in courses {
+        for (index, course) in courses.enumerated() {
             let described = weeksDescribed(in: course.description)
             guard !described.isEmpty else { continue }
             let key = "\(course.number)|\(course.name)|\(course.description)"
             var group = groups[key, default: CourseGroup()]
-            group.rawWeeks.formUnion(course.weeks)
+            group.rawWeeks.formUnion(sourceRawWeeks?[index] ?? course.weeks)
             group.describedWeeks.formUnion(described)
             groups[key] = group
         }
@@ -159,7 +164,9 @@ nonisolated enum SmallTermWeekNormalizer {
 
         return Result(
             firstDayString: shiftedFirstDay.map(formatDate) ?? firstDayString,
-            courses: courses.map { shiftingWeeks(of: $0, by: -correctionOffset) },
+            courses: sourceRawWeeks == nil
+                ? courses.map { shiftingWeeks(of: $0, by: -correctionOffset) }
+                : courses,
             offset: correctionOffset
         )
     }

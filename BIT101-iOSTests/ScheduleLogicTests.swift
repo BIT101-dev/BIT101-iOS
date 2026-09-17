@@ -636,6 +636,74 @@ struct SmallTermWeekNormalizerTests {
 
 @Suite("Course row schedule parsing")
 struct CourseScheduleRowParserTests {
+    @Test("School row weeks and identities come from ZCMC")
+    func decodesRowSpecificWeeksFromCourseResponse() throws {
+        let data = Data("""
+        {
+            "datas": {
+                "cxxszhxqkb": {
+                    "rows": [
+                        {
+                            "XNXQDM": "2026-2027-1",
+                            "KCM": "文献检索",
+                            "KCH": "100960001",
+                            "JASMC": "文萃楼M227",
+                            "SKXQ": 4,
+                            "KSJC": 6,
+                            "JSJC": 9,
+                            "SKZC": "001000000000000000000",
+                            "ZCMC": "-1周",
+                            "YPSJDD": "-2周 星期四 6-9节 文萃楼M227,-1周 星期四 6-9节 文萃楼M227"
+                        },
+                        {
+                            "XNXQDM": "2026-2027-1",
+                            "KCM": "文献检索",
+                            "KCH": "100960001",
+                            "JASMC": "文萃楼M227",
+                            "SKXQ": 4,
+                            "KSJC": 6,
+                            "JSJC": 9,
+                            "SKZC": "010000000000000000000",
+                            "ZCMC": "-2周",
+                            "YPSJDD": "-2周 星期四 6-9节 文萃楼M227,-1周 星期四 6-9节 文萃楼M227"
+                        }
+                    ]
+                }
+            }
+        }
+        """.utf8)
+        let response = try JSONDecoder().decode(CourseResponse.self, from: data)
+        let courses = response.courseRecords
+
+        #expect(courses.map(\.weeks) == [[-1], [-2]])
+        #expect(Set(courses.map(\.id)).count == 2)
+
+        let evidenceCourses = courses + [
+            makeCourse(
+                id: "evidence-a",
+                description: "1-2周 星期一",
+                weeks: [1, 2],
+                weekday: 1
+            ),
+            makeCourse(
+                id: "evidence-b",
+                description: "1-2周 星期二",
+                weeks: [1, 2],
+                weekday: 2
+            )
+        ]
+        let normalized = SmallTermWeekNormalizer.normalize(
+            term: "2026-2027-1",
+            firstDayString: "2026-08-31",
+            courses: evidenceCourses,
+            rawWeeksByCourse: [[-1], [-2], [4, 5], [4, 5]]
+        )
+
+        #expect(normalized.offset == 3)
+        #expect(normalized.firstDayString == "2026-09-21")
+        #expect(normalized.courses.prefix(2).map(\.weeks) == [[-1], [-2]])
+    }
+
     @Test("Aggregated descriptions keep only the row's matching weeks")
     func narrowsWeeksToMatchingRow() {
         let description = "-2周 星期四 6-9节 文萃楼M227,-1周 星期四 6-9节 文萃楼M227,-1周 星期二 6-9节 文萃楼M227,-1周 星期五 6-9节 文萃楼M227"

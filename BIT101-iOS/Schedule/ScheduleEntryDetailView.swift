@@ -21,6 +21,10 @@ struct ScheduleEntryDetailSheet: View {
     let onEditCourse: (String) -> Void
     let onDeleteCourseOccurrence: (String) -> Void
     let onDeleteCourse: (String) -> Void
+    let onImportCourseOccurrence: (String, Int) -> Void
+    let onImportCourse: (String) -> Void
+    let onDeleteCalendarMarkers: (Set<String>) -> Void
+    let onDeleteCalendarCourse: (String) -> Void
     let onEditCustomSchedule: () -> Void
     let onDeleteCustomSchedule: () -> Void
     @Environment(\.dismiss) private var dismiss
@@ -190,9 +194,6 @@ struct ScheduleEntryDetailSheet: View {
                         dismiss()
                         onEditCourse(first.id)
                     }
-                }
-
-                Section {
                     Button("删除这节课", role: .destructive) {
                         pendingCourseDeletion = .occurrence(
                             courseID: first.id,
@@ -205,6 +206,21 @@ struct ScheduleEntryDetailSheet: View {
                             courseID: first.id,
                             courseName: ScheduleDisplayNormalizer.normalizeCourseTitle(first.name)
                         )
+                    }
+                }
+
+                Section {
+                    Button("导入这节课到日历") {
+                        onImportCourseOccurrence(first.id, mutationWeek(for: group))
+                    }
+                    Button("导入这门课到日历") {
+                        onImportCourse(first.id)
+                    }
+                    Button("移除这节课日历事件", role: .destructive) {
+                        onDeleteCalendarMarkers(["\(first.id)-w\(mutationWeek(for: group))"])
+                    }
+                    Button("移除这门课日历事件", role: .destructive) {
+                        onDeleteCalendarCourse(first.id)
                     }
                 }
             }

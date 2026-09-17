@@ -156,6 +156,50 @@ struct ScheduleCacheMigrationTests {
         #expect(decoded.iCloudSyncEnabled)
     }
 
+    @Test("Parsed row-specific negative weeks survive cache decoding")
+    func rowSpecificNegativeWeeksSurviveCacheDecoding() throws {
+        let course = CourseRecord(
+            id: "negative-row",
+            term: "2026-2027-1",
+            name: "文献检索",
+            teacher: "",
+            classroom: "文萃楼M227",
+            description: "-2周 星期四 6-9节 文萃楼M227,-1周 星期四 6-9节 文萃楼M227",
+            weeks: [-1],
+            weekday: 4,
+            startSection: 6,
+            endSection: 9,
+            campus: "",
+            number: "100960001",
+            credit: 1,
+            hour: 16,
+            type: "",
+            category: "",
+            department: ""
+        )
+        var cache = ScheduleCache()
+        cache.currentTerm = course.term
+        cache.courses = [course]
+        cache.cachedCoursesByTerm[course.term] = [course]
+        cache.termSchedulesByTerm[course.term] = TermScheduleSnapshot(
+            term: course.term,
+            firstDayString: "2026-08-31",
+            courses: [course],
+            exams: [],
+            updatedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(ScheduleCache.self, from: encoder.encode(cache))
+
+        #expect(decoded.courses.first?.weeks == [-1])
+        #expect(decoded.cachedCoursesByTerm[course.term]?.first?.weeks == [-1])
+        #expect(decoded.termSchedulesByTerm[course.term]?.courses.first?.weeks == [-1])
+    }
+
     @Test("DDL sync timestamp survives cache encoding")
     func ddlUpdatedAtRoundTrip() throws {
         let timestamp = Date(timeIntervalSince1970: 1_700_000_123)

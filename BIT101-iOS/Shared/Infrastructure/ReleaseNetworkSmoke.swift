@@ -64,6 +64,29 @@ enum NetworkSmokeCapture: String, Codable {
     case none
     case courseHistory
     case cachedCourseHistory
+    case scheduleCache
+    case rawCourseResponse
+}
+
+struct ScheduleCacheAuditCourse: Codable {
+    let id: String
+    let name: String
+    let number: String
+    let teacher: String
+    let classroom: String
+    let weeks: [Int]
+    let weekday: Int
+    let startSection: Int
+    let endSection: Int
+}
+
+struct ScheduleCacheAuditSnapshot: Codable {
+    let currentTerm: String
+    let firstDayString: String
+    let sourceFirstDayString: String
+    let normalizationOffset: Int
+    let courseCount: Int
+    let courses: [ScheduleCacheAuditCourse]
 }
 
 struct CourseHistoryAuditSample: Codable, Equatable {
@@ -107,6 +130,7 @@ struct ReleaseNetworkSmokeReport: Codable {
     let authenticationBlockers: [String]
     let courseHistorySamples: [CourseHistoryAuditSample]
     let courseHistoryAuditMetrics: CourseHistoryAuditMetrics?
+    let scheduleCache: ScheduleCacheAuditSnapshot?
     let executedProbes: [String]
     let skippedProbes: [String]
     let schoolSMSCoverage: String
@@ -134,6 +158,8 @@ struct ReleaseNetworkSmokeReport: Codable {
 enum ReleaseNetworkSmokeReportStore {
     private static let directoryName = "NetworkSmoke"
     static let cachedFixtureFileName = "course-history-audit-fixture.json"
+    static let rawCourseResponseFileName = "raw-course-response.json"
+    private static let rawCourseCaptureKey = "release-network-smoke.capture.raw-course-response"
 
     static var fileURL: URL? {
         guard let containerURL = FileManager.default.containerURL(
@@ -162,6 +188,32 @@ enum ReleaseNetworkSmokeReportStore {
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(report)
         try data.write(to: fileURL, options: [.atomic])
+    }
+
+    static var rawCourseCaptureEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: rawCourseCaptureKey) }
+        set { UserDefaults.standard.set(newValue, forKey: rawCourseCaptureKey) }
+    }
+
+    static func clearRawCourseResponse() {
+        guard let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: ScheduleSharedContainer.identifier
+        ) else { return }
+        let fileURL = containerURL
+            .appending(path: "Library/NetworkSmoke", directoryHint: .isDirectory)
+            .appending(path: rawCourseResponseFileName)
+        try? FileManager.default.removeItem(at: fileURL)
+    }
+
+    static func writeRawCourseResponse(_ data: Data) {
+        guard rawCourseCaptureEnabled,
+              let containerURL = FileManager.default.containerURL(
+                  forSecurityApplicationGroupIdentifier: ScheduleSharedContainer.identifier
+              )
+        else { return }
+        let directory = containerURL.appending(path: "Library/NetworkSmoke", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? data.write(to: directory.appending(path: rawCourseResponseFileName), options: .atomic)
     }
 
     static func readCachedCourseHistoryFixture() throws -> CourseHistoryAuditFixture {
@@ -221,6 +273,7 @@ final class ReleaseNetworkSmokeRunner {
     private var authenticationBlockers: [String] = []
     private var courseHistorySamples: [CourseHistoryAuditSample] = []
     private var courseHistoryAuditMetrics: CourseHistoryAuditMetrics?
+    private var scheduleCache: ScheduleCacheAuditSnapshot?
     private var executedProbes: [String] = []
     private var skippedProbes: [String] = []
 
@@ -233,6 +286,11 @@ final class ReleaseNetworkSmokeRunner {
         authenticationBlockers = []
         courseHistorySamples = []
         courseHistoryAuditMetrics = nil
+        scheduleCache = nil
+        ReleaseNetworkSmokeReportStore.rawCourseCaptureEnabled = capture == .rawCourseResponse
+        if capture == .rawCourseResponse {
+            ReleaseNetworkSmokeReportStore.clearRawCourseResponse()
+        }
         executedProbes = []
         skippedProbes = []
         let startedAt = Date()
@@ -260,7 +318,6 @@ final class ReleaseNetworkSmokeRunner {
             courseHistorySamples = await captureCourseHistorySamples(using: courses, scope: scope)
             return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
         }
-
         _ = await probe("open.aihelpme.dev 首页", scope: scope) {
             try await Self.fetchDataCount(urlString: "https://open.aihelpme.dev")
         }
@@ -366,8 +423,13 @@ final class ReleaseNetworkSmokeRunner {
             try await schedule.fetchAvailableTerms()
         } ?? []
         if let term = terms.first {
-            _ = await probe("课表、考试与首周同步", scope: scope) {
-                try await schedule.syncCourses(term: term)
+            let syncPayload = await probe("课表、考试与首周同步", scope: scope) {
+                let payload = try await schedule.syncCourses(term: term)
+                try Self.validateCourseSyncPayload(payload)
+                return payload
+            }
+            if capture == .scheduleCache, let syncPayload {
+                scheduleCache = captureScheduleCache(from: syncPayload)
             }
 
             let campuses = await probe("空教室校区列表", scope: scope) {
@@ -390,7 +452,6 @@ final class ReleaseNetworkSmokeRunner {
         } else {
             recordFailure("切换学期列表", "服务器返回空列表，无法继续验证课表与空教室", scope: scope)
         }
-
         let calendarURL = await probe("乐学日历订阅地址", scope: scope) {
             try await schedule.refreshLexueCalendarURL(
                 schoolSMSCodeHandler: nil,
@@ -609,6 +670,7 @@ final class ReleaseNetworkSmokeRunner {
             authenticationBlockers: authenticationBlockers,
             courseHistorySamples: courseHistorySamples,
             courseHistoryAuditMetrics: courseHistoryAuditMetrics,
+            scheduleCache: scheduleCache,
             executedProbes: executedProbes,
             skippedProbes: skippedProbes,
             schoolSMSCoverage: schoolSMSCoverage
@@ -619,6 +681,106 @@ final class ReleaseNetworkSmokeRunner {
         }
         try? ReleaseNetworkSmokeReportStore.write(report)
         return report
+    }
+
+    private func captureScheduleCache(from payload: CourseSyncPayload) -> ScheduleCacheAuditSnapshot {
+        let courses = payload.courses.map {
+            ScheduleCacheAuditCourse(
+                id: $0.id,
+                name: $0.name,
+                number: $0.number,
+                teacher: $0.teacher,
+                classroom: $0.classroom,
+                weeks: $0.weeks,
+                weekday: $0.weekday,
+                startSection: $0.startSection,
+                endSection: $0.endSection
+            )
+        }
+        return ScheduleCacheAuditSnapshot(
+            currentTerm: payload.term,
+            firstDayString: payload.firstDayString,
+            sourceFirstDayString: payload.sourceFirstDayString,
+            normalizationOffset: payload.normalizationOffset,
+            courseCount: courses.count,
+            courses: courses
+        )
+    }
+
+    private nonisolated static func validateCourseSyncPayload(_ payload: CourseSyncPayload) throws {
+        let expectedOffset = inferredWeekOffset(for: payload)
+        guard payload.normalizationOffset == expectedOffset else {
+            throw NSError(
+                domain: "BIT101.NetworkSmoke",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "课表周次偏移证据与归一化结果不一致。"]
+            )
+        }
+
+        let calendar = Calendar(identifier: .gregorian)
+        guard let sourceDate = scheduleDate(payload.sourceFirstDayString),
+              let normalizedDate = scheduleDate(payload.firstDayString)
+        else { return }
+        let dayDelta = calendar.dateComponents([.day], from: sourceDate, to: normalizedDate).day ?? 0
+        guard dayDelta == expectedOffset * 7 else {
+            throw NSError(
+                domain: "BIT101.NetworkSmoke",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "课表首周日期与周次偏移结果不一致。"]
+            )
+        }
+    }
+
+    private nonisolated static func inferredWeekOffset(for payload: CourseSyncPayload) -> Int {
+        guard payload.term.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("-1"),
+              payload.rawWeeksByCourse.count == payload.courses.count
+        else { return 0 }
+
+        struct Group {
+            var rawWeeks = Set<Int>()
+            var displayWeeks = Set<Int>()
+        }
+
+        var groups: [String: Group] = [:]
+        for (index, course) in payload.courses.enumerated() {
+            let key = "\(course.number)|\(course.name)|\(course.description)"
+            var group = groups[key, default: Group()]
+            group.rawWeeks.formUnion(payload.rawWeeksByCourse[index])
+            group.displayWeeks.formUnion(course.weeks)
+            groups[key] = group
+        }
+
+        var offsets = Set<Int>()
+        var evidenceCount = 0
+        for group in groups.values {
+            let raw = group.rawWeeks.sorted()
+            let display = group.displayWeeks.sorted()
+            guard raw.count == display.count,
+                  raw.count >= 2,
+                  display.allSatisfy({ $0 > 0 })
+            else { continue }
+            let differences = Set(zip(raw, display).map(-))
+            guard differences.count == 1, let offset = differences.first else { continue }
+            offsets.insert(offset)
+            evidenceCount += 1
+        }
+
+        guard offsets.count == 1, evidenceCount >= 2 else { return 0 }
+        return offsets.first ?? 0
+    }
+
+    private nonisolated static func scheduleDate(_ value: String) -> Date? {
+        let parts = value.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 8 * 3600) ?? .current
+        return calendar.date(from: DateComponents(
+            calendar: calendar,
+            timeZone: calendar.timeZone,
+            year: parts[0],
+            month: parts[1],
+            day: parts[2]
+        ))
     }
 
     private func probe<Value>(

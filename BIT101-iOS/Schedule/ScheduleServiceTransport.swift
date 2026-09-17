@@ -28,6 +28,11 @@ extension ScheduleService {
         }
 
         let (data, response) = try await sendRequest(request)
+#if RELEASE_NETWORK_SMOKE
+        if path.contains("cxxszhxqkb.do") {
+            ReleaseNetworkSmokeReportStore.writeRawCourseResponse(data)
+        }
+#endif
         if isTeachingCenterAuthenticationFailure(data: data, response: response) {
             throw ScheduleServiceError.teachingCenterSessionExpired
         }

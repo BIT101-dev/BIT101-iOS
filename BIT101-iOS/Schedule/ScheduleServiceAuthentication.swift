@@ -82,21 +82,24 @@ extension ScheduleService {
     private func fetchCourseSyncPayload(term requestedTerm: String? = nil) async throws -> CourseSyncPayload {
         let normalizedTerm = requestedTerm?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let term = normalizedTerm.isEmpty ? try await fetchCurrentTerm() : normalizedTerm
-        async let coursesTask = fetchCourses(term: term)
+        async let coursesTask = fetchParsedCourses(term: term)
         async let examsTask = fetchExams(term: term)
         async let firstDayTask = fetchFirstDayString(term: term)
-        let (courses, exams, firstDayString) = try await (coursesTask, examsTask, firstDayTask)
+        let (parsedCourses, exams, firstDayString) = try await (coursesTask, examsTask, firstDayTask)
+        let courses = parsedCourses.map(\.course)
         let normalized = SmallTermWeekNormalizer.normalize(
             term: term,
             firstDayString: firstDayString,
-            courses: courses
+            courses: courses,
+            rawWeeksByCourse: parsedCourses.map(\.rawWeeks)
         )
-        let narrowedCourses = CourseScheduleRowParser.narrowedCourses(normalized.courses)
-
         return CourseSyncPayload(
             term: term,
             firstDayString: normalized.firstDayString,
-            courses: narrowedCourses,
+            sourceFirstDayString: firstDayString,
+            normalizationOffset: normalized.offset,
+            rawWeeksByCourse: parsedCourses.map(\.rawWeeks),
+            courses: normalized.courses,
             exams: exams
         )
     }

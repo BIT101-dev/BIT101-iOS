@@ -255,6 +255,11 @@ extension ScheduleService {
     ///
     /// 将学校接口中的课表字段转换为 iOS 端的 `CourseRecord`。
     func fetchCourses(term: String) async throws -> [CourseRecord] {
+        try await fetchParsedCourses(term: term).map(\.course)
+    }
+
+    /// 拉取课程行及其周次证据，供同步流程计算小学期偏移。
+    func fetchParsedCourses(term: String) async throws -> [CourseResponse.ParsedCourse] {
         let response: CourseResponse = try await sendJSONRequest(
             path: "/jwapp/sys/wdkbby/modules/xskcb/cxxszhxqkb.do",
             method: "POST",
@@ -276,31 +281,7 @@ extension ScheduleService {
             throw ScheduleServiceError.invalidResponse
         }
 
-        return result.rows.map { row in
-            let weeks = (row.rawWeeks ?? "").enumerated().compactMap { index, flag in
-                flag == "1" ? index + 1 : nil
-            }
-
-            return CourseRecord(
-                id: "\(row.term ?? "")-\(row.courseNumber ?? "")-\(row.weekday ?? 0)-\(row.startSection ?? 0)-\(row.endSection ?? 0)-\(row.classroom ?? "")",
-                term: row.term ?? "",
-                name: row.name ?? "",
-                teacher: row.teacher ?? "",
-                classroom: row.classroom ?? "",
-                description: row.scheduleDescription ?? "",
-                weeks: weeks,
-                weekday: row.weekday ?? 0,
-                startSection: row.startSection ?? 0,
-                endSection: row.endSection ?? 0,
-                campus: row.campus ?? "",
-                number: row.courseNumber ?? "",
-                credit: row.credit ?? 0,
-                hour: row.hour ?? 0,
-                type: row.type ?? "",
-                category: row.category ?? "",
-                department: row.department ?? ""
-            )
-        }
+        return response.parsedCourses
     }
 
     /// 拉取指定目标学期的考试安排。
