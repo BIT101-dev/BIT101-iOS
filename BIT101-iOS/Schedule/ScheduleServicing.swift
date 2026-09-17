@@ -18,6 +18,7 @@ protocol ScheduleServicing {
         schoolSMSCodeHandler: SchoolSMSCodeHandler?
     ) async throws -> DDLSyncPayload
     func refreshLexueCalendarURL(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> String
+    func prepareTeachingCenterAccess() async throws
     func fetchCampuses() async throws -> [CampusRecord]
     func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord]
     func fetchClassrooms(buildingID: String, term: String) async throws -> [ClassroomRecord]

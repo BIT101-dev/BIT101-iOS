@@ -237,6 +237,18 @@ struct ScheduleClassroomCoordinatorTests {
         #expect(coordinator.finish(second.id))
         #expect(!coordinator.isRequestInFlight)
     }
+
+    @Test("Authentication time is outside the classroom request deadline")
+    func authenticationUsesIndependentDeadline() async throws {
+        let coordinator = ScheduleClassroomCoordinator(timeoutNanoseconds: 5_000_000)
+        let value = try await coordinator.withAuthenticationThenTimeout {
+            try await Task.sleep(for: .milliseconds(20))
+        } operation: {
+            42
+        }
+
+        #expect(value == 42)
+    }
 }
 
 @Suite("Schedule authentication continuation")

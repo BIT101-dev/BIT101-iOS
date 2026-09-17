@@ -105,11 +105,25 @@ struct FreeClassroomTabView: View {
                                 .multilineTextAlignment(.trailing)
                         }
                         .padding(.vertical, AppDesignSystem.Spacing.tiny)
+                        .listRowBackground(classroomBackground(for: classroom))
                     }
                 }
             }
         }
         .appGroupedListStyle()
+    }
+
+    private func classroomBackground(for classroom: ClassroomAvailability) -> Color {
+        switch ClassroomAvailabilityCalculator.sectionMatch(
+            freeSections: classroom.freeSections,
+            selectedSections: viewModel.cache.selectedClassroomSectionIDs,
+            timeTable: viewModel.cache.timeTable
+        ) {
+        case .full:
+            return AppDesignSystem.Palette.accentSurface
+        case .partial, .none:
+            return AppDesignSystem.Palette.secondaryGroupedBackground
+        }
     }
 }
 

@@ -155,7 +155,7 @@ extension ScheduleViewModel {
         }
 
         do {
-            if campuses.isEmpty || buildings.isEmpty {
+            if needsCompleteClassroomCampusCatalog || buildings.isEmpty {
                 try await loadClassroomMeta(requestID: requestID)
             }
 
@@ -175,63 +175,44 @@ extension ScheduleViewModel {
             }
         }
 
+        let fetchedCampuses = try await withClassroomRequestTimeout { [self] in
+            try await service.fetchCampuses()
+        }
+        guard isCurrentClassroomRequest(requestID) else { throw CancellationError() }
+        guard !fetchedCampuses.isEmpty else { throw ScheduleServiceError.invalidResponse }
+
+        campuses = fetchedCampuses
+        cache.cachedClassroomCampuses = fetchedCampuses
+        resolveSelectedCampusIfNeeded()
+        persist()
+
         try await loadBuildings(requestID: requestID)
     }
 
     /// 根据当前校区加载教学楼，并优先精确匹配“最近下一节课”的楼宇。
     private func loadBuildings(requestID: Int) async throws {
+        let campusCode = cache.selectedCampusCode.isEmpty ? nil : cache.selectedCampusCode
         let fetchedBuildings = try await withClassroomRequestTimeout { [self] in
-            try await service.fetchBuildings(campusCode: cache.selectedCampusCode.isEmpty ? nil : cache.selectedCampusCode)
+            try await service.fetchBuildings(campusCode: campusCode)
         }
         guard isCurrentClassroomRequest(requestID) else { throw CancellationError() }
 
         applyFetchedBuildingsForCurrentSelection(fetchedBuildings)
     }
 
-    /// 写入教学楼元数据，并在未缓存校区列表时从教学楼字段反推出校区，避免首屏额外等待校区接口。
+    /// 写入当前校区的教学楼元数据。
     private func applyFetchedBuildingsForCurrentSelection(_ fetchedBuildings: [BuildingRecord]) {
-        guard !fetchedBuildings.isEmpty else {
-            buildings = fetchedBuildings
-            cache.cachedClassroomBuildingsByCampusCode[cache.selectedCampusCode] = fetchedBuildings
-            resolveSelectedBuildingIfNeeded()
-            persist()
-            return
-        }
-
-        let grouped = Dictionary(grouping: fetchedBuildings, by: \.campusCode)
-        for (campusCode, campusBuildings) in grouped where !campusCode.isEmpty {
-            cache.cachedClassroomBuildingsByCampusCode[campusCode] = campusBuildings
-        }
-
-        if campuses.isEmpty {
-            let generatedCampuses = grouped.compactMap { campusCode, campusBuildings -> CampusRecord? in
-                guard !campusCode.isEmpty else { return nil }
-                let campusName = campusBuildings.first?.campusName.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                return CampusRecord(id: campusCode, name: campusName.isEmpty ? campusCode : campusName, code: campusCode)
-            }
-            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-
-            if !generatedCampuses.isEmpty {
-                campuses = generatedCampuses
-                cache.cachedClassroomCampuses = generatedCampuses
-            }
-        }
-
-        resolveSelectedCampusIfNeeded()
-
-        let selectedCampusBuildings: [BuildingRecord]
-        if !cache.selectedCampusCode.isEmpty, let campusBuildings = grouped[cache.selectedCampusCode] {
-            selectedCampusBuildings = campusBuildings
-        } else {
-            selectedCampusBuildings = fetchedBuildings
-        }
-
-        buildings = selectedCampusBuildings
+        buildings = fetchedBuildings
         if !cache.selectedCampusCode.isEmpty {
-            cache.cachedClassroomBuildingsByCampusCode[cache.selectedCampusCode] = selectedCampusBuildings
+            cache.cachedClassroomBuildingsByCampusCode[cache.selectedCampusCode] = fetchedBuildings
         }
         resolveSelectedBuildingIfNeeded()
         persist()
+    }
+
+    /// 单一校区通常来自旧版按已选校区请求教学楼后生成的不完整目录。
+    private var needsCompleteClassroomCampusCatalog: Bool {
+        campuses.count <= 1
     }
 
     /// 在校区列表变化后修正选中校区。
@@ -390,7 +371,12 @@ extension ScheduleViewModel {
     private func withClassroomRequestTimeout<T: Sendable>(
         operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
-        try await classroomCoordinator.withTimeout(operation: operation)
+        try await classroomCoordinator.withAuthenticationThenTimeout(
+            authentication: { [service] in
+                try await service.prepareTeachingCenterAccess()
+            },
+            operation: operation
+        )
     }
 
     /// 从“最近下一节课”的教室名推导最匹配的教学楼。

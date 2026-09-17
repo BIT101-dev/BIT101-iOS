@@ -885,7 +885,7 @@ private struct LinearScheduleCanvasView: View {
             ForEach(0 ... visibleWeekdays.count, id: \.self) { column in
                 Rectangle()
                     .fill(Color.secondary.opacity(0.14))
-                    .frame(width: 0.5, height: contentHeight)
+                    .frame(width: AppDesignSystem.Schedule.grid.lineWidth, height: contentHeight)
                     .offset(x: leftWidth + dayWidth * CGFloat(column))
             }
 

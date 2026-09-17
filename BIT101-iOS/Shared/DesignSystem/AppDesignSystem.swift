@@ -176,7 +176,16 @@ extension AppDesignSystem {
         static let courseText = CourseTextMetrics(
             style: .caption2
         )
+        static let timelineMinimumScale: CGFloat = 1
+        static let timelineMaximumScale: CGFloat = 3
         static let settingsPanelMinimumHeight: CGFloat = 220
+    }
+
+    enum Gallery {
+        static let thumbnailHeightContainerCount = 4
+        static let thumbnailPortraitAspectRatio = 1 / CGFloat(2).squareRoot()
+        static let thumbnailLandscapeAspectRatio = CGFloat(2).squareRoot()
+        static let overflowOverlayOpacity: CGFloat = 0.45
     }
 
     enum Comment {
@@ -191,6 +200,7 @@ extension AppDesignSystem {
 
     enum Palette {
         static let accent = Color.accentColor
+        static let accentSurface = Color.accentColor.opacity(0.14)
         static let highlight = Color.orange
         static let highlightSurface = Color.orange.opacity(0.12)
         static let highlightForeground = Color.white

@@ -19,6 +19,7 @@ struct GalleryPosterDetailView: View {
     @State private var userRoute: UserRoute?
     @State private var isShowingDeleteConfirmation = false
     @State private var reportTarget: GalleryReportTarget?
+    @State private var imageAspectRatios: [Int: CGFloat] = [:]
     let onDeleted: (() -> Void)?
 
     init(
@@ -104,13 +105,26 @@ struct GalleryPosterDetailView: View {
                             } label: {
                                 GalleryPosterThumbnail(
                                     image: image,
-                                    width: nil,
-                                    maxHeight: 320,
-                                    aspectRatio: 1.6
+                                    contentMode: .fit,
+                                    onAspectRatioResolved: { ratio in
+                                        guard ratio > 0, imageAspectRatios[index] != ratio else { return }
+                                        imageAspectRatios[index] = ratio
+                                    }
                                 )
+                                .aspectRatio(
+                                    imageAspectRatios[index]
+                                        ?? AppDesignSystem.Gallery.thumbnailLandscapeAspectRatio,
+                                    contentMode: .fit
+                                )
+                                .frame(maxWidth: .infinity)
+                                .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
                             }
                             .buttonStyle(.plain)
+                            .frame(maxWidth: .infinity)
                         }
+                    }
+                    .onChange(of: viewModel.poster.images) { _, _ in
+                        imageAspectRatios = [:]
                     }
                 }
 

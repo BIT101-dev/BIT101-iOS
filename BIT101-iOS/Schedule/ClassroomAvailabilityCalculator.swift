@@ -5,6 +5,12 @@
 
 import Foundation
 
+enum ClassroomSectionMatch {
+    case full
+    case partial
+    case none
+}
+
 /// 把学校接口的教室占用数据转换为可展示状态的纯计算器。
 enum ClassroomAvailabilityCalculator {
     static func availabilities(
@@ -107,6 +113,19 @@ enum ClassroomAvailabilityCalculator {
         let selected = normalizedSections(selectedSections, in: timeTable)
         guard !selected.isEmpty else { return "" }
         return sectionsText(freeSections.filter(Set(selected).contains))
+    }
+
+    static func sectionMatch(
+        freeSections: [Int],
+        selectedSections: [Int],
+        timeTable: [TimeSlot]
+    ) -> ClassroomSectionMatch {
+        let selected = Set(normalizedSections(selectedSections, in: timeTable))
+        guard !selected.isEmpty else { return .none }
+        let free = Set(freeSections)
+        if selected.isSubset(of: free) { return .full }
+        if !selected.isDisjoint(with: free) { return .partial }
+        return .none
     }
 
     static func sectionBlock(at minutes: Int, in timeTable: [TimeSlot]) -> [Int] {

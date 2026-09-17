@@ -104,8 +104,8 @@ enum ScheduleCalendarAxisMode: String, CaseIterable, Identifiable {
 
 /// 线性时间轴的缩放与滚动几何模型。
 struct ScheduleTimelineViewport: Equatable {
-    static let minimumScale: CGFloat = 1
-    static let maximumScale: CGFloat = 3
+    static var minimumScale: CGFloat { AppDesignSystem.Schedule.timelineMinimumScale }
+    static var maximumScale: CGFloat { AppDesignSystem.Schedule.timelineMaximumScale }
 
     let viewportHeight: CGFloat
     let scale: CGFloat

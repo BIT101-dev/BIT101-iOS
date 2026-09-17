@@ -8,6 +8,11 @@
 import Foundation
 
 extension ScheduleService {
+    /// 完成教学中心认证与接口预热，业务请求计时从此阶段完成后开始。
+    func prepareTeachingCenterAccess() async throws {
+        try await withPreparedTeachingCenterSession {}
+    }
+
     /// 查询空教室页可选校区列表。
     ///
     /// 此请求加载空教室查询的元数据；教室占用由后续查询返回。

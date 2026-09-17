@@ -239,7 +239,7 @@ struct GalleryService {
 
     private func shouldHideBotPosters() async -> Bool {
         await MainActor.run {
-            AppSettingsStore.loadSnapshotFromDefaults()?.galleryHideBotPosterInSearch ?? false
+            AppSettingsStore.loadSnapshotFromDefaults()?.galleryHideBotPosterInSearch ?? true
         }
     }
 

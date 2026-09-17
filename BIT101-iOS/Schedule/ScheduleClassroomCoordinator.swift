@@ -62,4 +62,12 @@ final class ScheduleClassroomCoordinator {
             return value
         }
     }
+
+    func withAuthenticationThenTimeout<T>(
+        authentication: () async throws -> Void,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T where T: Sendable {
+        try await authentication()
+        return try await withTimeout(operation: operation)
+    }
 }

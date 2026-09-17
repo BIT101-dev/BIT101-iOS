@@ -56,7 +56,7 @@ struct AppSettingsSnapshot: Codable, Equatable {
     /// 是否允许界面自动旋转。
     var autoRotate = false
     /// 普通帖子页面按开关隐藏机器人帖子，机器人分栏保持显示。
-    var galleryHideBotPosterInSearch = false
+    var galleryHideBotPosterInSearch = true
     /// 是否已经看过“导入分享课表”的使用提示。
     var hasSeenSharedScheduleImportGuide = false
     /// 当前账号第一次进入 app 的时间。
@@ -103,6 +103,8 @@ final class AppSettingsStore: ObservableObject {
     nonisolated static let courseHistoryHidesMakeupOutliersKey = "app.settings.courseHistory.hidesMakeupOutliers"
     /// App Store 自动更新检查使用全局 key，账号切换后继续复用该状态。
     nonisolated static let automaticUpdateChecksEnabledKey = "app.settings.automatic-update-checks.enabled"
+    /// 机器人帖子隐藏默认值按账号完成一次迁移。
+    nonisolated static let galleryBotFilterDefaultMigrationKeyPrefix = "app.settings.gallery-hide-bot-default"
     /// “鸣谢 LINUX DO”提示按账号映射到首周内的延迟天数，分散弹出时间。
     nonisolated static let linuxDoThanksNoticeSpreadDays = 7
     private static let encoder = JSONEncoder()
@@ -235,10 +237,16 @@ final class AppSettingsStore: ObservableObject {
         guard let snapshot = Self.loadSnapshotFromDefaults() else {
             self.snapshot = AppSettingsSnapshot()
             self.snapshot.firstOpenDate = Date()
+            defaults.set(true, forKey: galleryBotFilterDefaultMigrationKey)
             save()
             return
         }
         self.snapshot = snapshot
+        if defaults.object(forKey: galleryBotFilterDefaultMigrationKey) == nil {
+            self.snapshot.galleryHideBotPosterInSearch = true
+            defaults.set(true, forKey: galleryBotFilterDefaultMigrationKey)
+            save(syncPreferences: true)
+        }
         if self.snapshot.firstOpenDate == nil {
             self.snapshot.firstOpenDate = Date()
             save()
@@ -295,6 +303,10 @@ final class AppSettingsStore: ObservableObject {
 
     private var currentStorageKey: String {
         Self.storageKey(for: Self.currentAccountIdentifier())
+    }
+
+    private var galleryBotFilterDefaultMigrationKey: String {
+        "\(Self.galleryBotFilterDefaultMigrationKeyPrefix).\(Self.currentAccountIdentifier())"
     }
 
     /// 按账号生成设置快照的存储 key。

@@ -121,7 +121,7 @@ struct AboutSettingsPage: View {
                 Button {
                     Task { await checkForUpdates() }
                 } label: {
-                    HStack {
+                    HStack(spacing: AppDesignSystem.Spacing.control) {
                         Text("检查更新")
                         Spacer()
                         if isCheckingForUpdates {

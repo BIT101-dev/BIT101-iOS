@@ -287,84 +287,155 @@ struct GalleryPosterCard: View {
 
 /// 帖子图片网格。
 ///
-/// 首页最多展示四张图，图片组使用等高横向布局；单图根据原图比例在整行或半行宽度中
-/// 选择裁切利用率更高的尺寸。
-///
-/// 多图时各图片等宽排列，每张图中心裁切填满格子；原始比例仍由点开后的系统预览完整呈现。
+/// 图片组使用单行比例格带，基础格保持竖向 1:√2。
 struct GalleryPosterImagesView: View {
+    private struct Allocation: Identifiable {
+        let index: Int
+        let width: CGFloat
+
+        var id: Int { index }
+    }
+
+    private struct LayoutPlan {
+        let allocations: [Allocation]
+        let hiddenImageCount: Int
+    }
+
     let images: [GalleryImage]
     let onOpenImage: (Int, [GalleryImage]) -> Void
-    @State private var singleImageAspectRatio: CGFloat?
+    @State private var imageAspectRatios: [Int: CGFloat] = [:]
 
     var body: some View {
-        let displayedImages = Array(images.prefix(4))
-
         GeometryReader { proxy in
             let spacing = AppDesignSystem.Spacing.tight
-            let count = max(displayedImages.count, 1)
-            let totalSpacing = spacing * CGFloat(count - 1)
-            let equalItemWidth = max((proxy.size.width - totalSpacing) / CGFloat(count), 0)
-            let itemWidth = displayedImages.count == 1
-                ? preferredSingleImageWidth(in: proxy.size)
-                : equalItemWidth
+            let plan = layoutPlan(in: proxy.size, spacing: spacing)
 
             HStack(spacing: spacing) {
-                // 同一帖子内的图片 `mid` 偶尔可能为空或重复，不能拿它作为拼贴格子的
-                // SwiftUI 身份，否则双图会被合并成一个视图。索引在当前前四张内稳定且唯一。
-                ForEach(Array(displayedImages.enumerated()), id: \.offset) { index, image in
-                    thumbnailButton(
-                        image: image,
-                        index: index,
-                        reportsAspectRatio: displayedImages.count == 1
-                    )
-                        .frame(width: itemWidth, height: proxy.size.height)
-                        // 必须在最终格子尺寸确定后裁切。若先裁切再设宽度，图片内容仍会
-                        // 按自身理想尺寸绘制到相邻格子，表现为多图互相覆盖。
+                ForEach(plan.allocations) { allocation in
+                    Button {
+                        onOpenImage(allocation.index, images)
+                    } label: {
+                        ZStack {
+                            GalleryPosterThumbnail(
+                                image: images[allocation.index],
+                                contentMode: .fill,
+                                onAspectRatioResolved: { ratio in
+                                    guard ratio > 0, imageAspectRatios[allocation.index] != ratio else { return }
+                                    imageAspectRatios[allocation.index] = ratio
+                                }
+                            )
+
+                            if allocation.index == plan.allocations.last?.index,
+                               plan.hiddenImageCount > 0 {
+                                Color.black.opacity(AppDesignSystem.Gallery.overflowOverlayOpacity)
+                                Text("+\(plan.hiddenImageCount)")
+                                    .font(.headline)
+                                    .foregroundStyle(.white)
+                            }
+                        }
+                        .frame(width: allocation.width, height: proxy.size.height)
                         .clipped()
                         .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
         }
-        // 图片组横向铺满卡片，高度占外层容器的四分之一。
         .frame(maxWidth: .infinity)
-        .containerRelativeFrame(.vertical, count: 4, spacing: AppDesignSystem.Spacing.none)
+        .containerRelativeFrame(
+            .vertical,
+            count: AppDesignSystem.Gallery.thumbnailHeightContainerCount,
+            spacing: AppDesignSystem.Spacing.none
+        )
+        .onChange(of: images) { _, _ in
+            imageAspectRatios = [:]
+        }
     }
 
-    /// 单图在“整行”和“双图单格”两种常用尺寸中选择裁切利用率更高的一种。
-    /// 利用率表示中心裁切后仍能保留的原图面积比例，范围为 0...1。
-    private func preferredSingleImageWidth(in size: CGSize) -> CGFloat {
-        guard let imageRatio = singleImageAspectRatio, size.height > 0 else {
-            return size.width
+    private func layoutPlan(in size: CGSize, spacing: CGFloat) -> LayoutPlan {
+        guard !images.isEmpty, size.width > 0, size.height > 0 else {
+            return LayoutPlan(allocations: [], hiddenImageCount: 0)
         }
 
-        let spacing = AppDesignSystem.Spacing.tight
-        let fullWidth = size.width
-        let halfWidth = max((size.width - spacing) / 2, 0)
-        let fullUtilization = cropUtilization(imageRatio: imageRatio, containerRatio: fullWidth / size.height)
-        let halfUtilization = cropUtilization(imageRatio: imageRatio, containerRatio: halfWidth / size.height)
-        return halfUtilization > fullUtilization ? halfWidth : fullWidth
-    }
-
-    private func cropUtilization(imageRatio: CGFloat, containerRatio: CGFloat) -> CGFloat {
-        guard imageRatio > 0, containerRatio > 0 else { return 0 }
-        return min(imageRatio / containerRatio, containerRatio / imageRatio)
-    }
-
-    private func thumbnailButton(image: GalleryImage, index: Int, reportsAspectRatio: Bool) -> some View {
-        Button {
-            onOpenImage(index, images)
-        } label: {
-            GalleryPosterThumbnail(
-                image: image,
-                contentMode: .fill,
-                onAspectRatioResolved: reportsAspectRatio ? { ratio in
-                    guard singleImageAspectRatio != ratio else { return }
-                    singleImageAspectRatio = ratio
-                } : nil
+        let targetRatio = AppDesignSystem.Gallery.thumbnailPortraitAspectRatio
+        let targetWidth = size.height * targetRatio
+        let estimatedCount = max((size.width + spacing) / max(targetWidth + spacing, 1), 1)
+        let lowerCount = max(Int(floor(estimatedCount)), 1)
+        let upperCount = max(Int(ceil(estimatedCount)), 1)
+        let candidateCounts = lowerCount == upperCount ? [lowerCount] : [lowerCount, upperCount]
+        let divisionCount = candidateCounts.min { lhs, rhs in
+            divisionError(
+                count: lhs,
+                width: size.width,
+                height: size.height,
+                spacing: spacing,
+                targetRatio: targetRatio
+            ) < divisionError(
+                count: rhs,
+                width: size.width,
+                height: size.height,
+                spacing: spacing,
+                targetRatio: targetRatio
             )
+        } ?? 1
+        let cellWidth = max(
+            (size.width - CGFloat(divisionCount - 1) * spacing) / CGFloat(divisionCount),
+            1
+        )
+
+        var remainingCells = divisionCount
+        var allocations: [Allocation] = []
+        for index in images.indices where remainingCells > 0 {
+            let imageRatio = imageAspectRatios[index] ?? targetRatio
+            let span = (1 ... remainingCells).min { lhs, rhs in
+                spanError(
+                    span: lhs,
+                    imageRatio: imageRatio,
+                    cellWidth: cellWidth,
+                    height: size.height,
+                    spacing: spacing
+                ) < spanError(
+                    span: rhs,
+                    imageRatio: imageRatio,
+                    cellWidth: cellWidth,
+                    height: size.height,
+                    spacing: spacing
+                )
+            } ?? 1
+            let width = CGFloat(span) * cellWidth + CGFloat(span - 1) * spacing
+            allocations.append(Allocation(index: index, width: width))
+            remainingCells -= span
         }
-        .buttonStyle(.plain)
+
+        return LayoutPlan(
+            allocations: allocations,
+            hiddenImageCount: max(images.count - allocations.count, 0)
+        )
+    }
+
+    private func divisionError(
+        count: Int,
+        width: CGFloat,
+        height: CGFloat,
+        spacing: CGFloat,
+        targetRatio: CGFloat
+    ) -> CGFloat {
+        let cellWidth = (width - CGFloat(count - 1) * spacing) / CGFloat(count)
+        let ratio = max(cellWidth / height, 0.001)
+        return abs(log(ratio / targetRatio))
+    }
+
+    private func spanError(
+        span: Int,
+        imageRatio: CGFloat,
+        cellWidth: CGFloat,
+        height: CGFloat,
+        spacing: CGFloat
+    ) -> CGFloat {
+        let occupiedWidth = CGFloat(span) * cellWidth + CGFloat(span - 1) * spacing
+        let occupiedRatio = max(occupiedWidth / height, 0.001)
+        return abs(log(occupiedRatio / max(imageRatio, 0.001)))
     }
 }
 
@@ -390,7 +461,7 @@ struct GalleryPosterThumbnail: View {
         self.onAspectRatioResolved = onAspectRatioResolved
     }
 
-    /// 保留详情页和课程评论原有尺寸语义；主页拼贴使用上面的精简初始化器。
+    /// 保留课程评论原有尺寸语义；话廊图片使用上面的自适应初始化器。
     init(image: GalleryImage, width: CGFloat?, maxHeight: CGFloat?, aspectRatio: CGFloat) {
         self.image = image
         self.width = width
