@@ -40,30 +40,43 @@ extension ScheduleService {
             smsDeliveryMode: smsDeliveryMode
         )
 
-        let finalURL = try await resolveLexueCalendarURL(
-            storedURL: storedURL,
-            schoolSMSCodeHandler: schoolSMSCodeHandler,
-            smsDeliveryMode: smsDeliveryMode
-        )
-        let remoteEvents = try await fetchLexueEvents(
-            urlString: finalURL,
-            schoolSMSCodeHandler: schoolSMSCodeHandler,
-            smsDeliveryMode: smsDeliveryMode
-        )
+        var lastError: Error?
+        for (index, baseURL) in lexueRouteBaseURLs(storedURL: storedURL).enumerated() {
+            do {
+                let finalURL = try await resolveLexueCalendarURL(
+                    storedURL: index == 0 ? storedURL : "",
+                    baseURL: baseURL,
+                    schoolSMSCodeHandler: schoolSMSCodeHandler,
+                    smsDeliveryMode: smsDeliveryMode
+                )
+                let remoteEvents = try await fetchLexueEvents(
+                    urlString: finalURL,
+                    schoolSMSCodeHandler: schoolSMSCodeHandler,
+                    smsDeliveryMode: smsDeliveryMode
+                )
 
-        let existingDoneMap = Dictionary(uniqueKeysWithValues: existingEvents.map { ($0.id, $0.done) })
-        let merged = remoteEvents.map { event in
-            DDLEventRecord(
-                id: event.id,
-                group: event.group,
-                title: event.title,
-                text: event.text,
-                dueAt: event.dueAt,
-                done: existingDoneMap[event.id] ?? event.done
-            )
+                let existingDoneMap = Dictionary(uniqueKeysWithValues: existingEvents.map { ($0.id, $0.done) })
+                let merged = remoteEvents.map { event in
+                    DDLEventRecord(
+                        id: event.id,
+                        group: event.group,
+                        title: event.title,
+                        text: event.text,
+                        dueAt: event.dueAt,
+                        done: existingDoneMap[event.id] ?? event.done
+                    )
+                }
+                if baseURL == lexueBaseURL {
+                    let studentID = storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+                    teachingCenterState.markDirectPreferred(for: studentID)
+                }
+                return DDLSyncPayload(url: finalURL, events: merged)
+            } catch {
+                lastError = error
+                guard shouldRetryLexueRoute(after: error) else { throw error }
+            }
         }
-
-        return DDLSyncPayload(url: finalURL, events: merged)
+        throw lastError ?? ScheduleServiceError.invalidLexuePage
     }
 
     /// 强制重新抓取乐学订阅地址。
@@ -82,11 +95,21 @@ extension ScheduleService {
             schoolSMSCodeHandler: schoolSMSCodeHandler,
             smsDeliveryMode: smsDeliveryMode
         )
-        return try await resolveLexueCalendarURL(
-            storedURL: "",
-            schoolSMSCodeHandler: schoolSMSCodeHandler,
-            smsDeliveryMode: smsDeliveryMode
-        )
+        var lastError: Error?
+        for baseURL in lexueRouteBaseURLs(storedURL: "") {
+            do {
+                return try await resolveLexueCalendarURL(
+                    storedURL: "",
+                    baseURL: baseURL,
+                    schoolSMSCodeHandler: schoolSMSCodeHandler,
+                    smsDeliveryMode: smsDeliveryMode
+                )
+            } catch {
+                lastError = error
+                guard shouldRetryLexueRoute(after: error) else { throw error }
+            }
+        }
+        throw lastError ?? ScheduleServiceError.invalidLexuePage
     }
 
     /// 解析乐学日历订阅 URL。
@@ -94,6 +117,7 @@ extension ScheduleService {
     /// 乐学页面可能使用 `webcal://`、`http://` 和 HTML 转义表示订阅链接。
     private func resolveLexueCalendarURL(
         storedURL: String,
+        baseURL: URL,
         schoolSMSCodeHandler: SchoolSMSCodeHandler?,
         smsDeliveryMode: SchoolSMSDeliveryMode,
         secondFactorRetryCount: Int = 0
@@ -103,7 +127,7 @@ extension ScheduleService {
         }
 
         let indexHTML = try await sendStringRequest(
-            baseURL: lexueBaseURL,
+            baseURL: baseURL,
             path: "/",
             requiresTeachingCenterSession: false
         )
@@ -125,6 +149,7 @@ extension ScheduleService {
                 )
                 return try await resolveLexueCalendarURL(
                     storedURL: "",
+                    baseURL: baseURL,
                     schoolSMSCodeHandler: schoolSMSCodeHandler,
                     smsDeliveryMode: smsDeliveryMode,
                     secondFactorRetryCount: secondFactorRetryCount + 1
@@ -134,7 +159,7 @@ extension ScheduleService {
         }
 
         let calendarHTML = try await sendStringRequest(
-            baseURL: lexueBaseURL,
+            baseURL: baseURL,
             path: "/calendar/export.php",
             method: "POST",
             body: [
@@ -164,6 +189,7 @@ extension ScheduleService {
             )
             return try await resolveLexueCalendarURL(
                 storedURL: "",
+                baseURL: baseURL,
                 schoolSMSCodeHandler: schoolSMSCodeHandler,
                 smsDeliveryMode: smsDeliveryMode,
                 secondFactorRetryCount: secondFactorRetryCount + 1
@@ -185,6 +211,34 @@ extension ScheduleService {
         }
 
         return fullURL
+    }
+
+    private func lexueRouteBaseURLs(storedURL: String) -> [URL] {
+        if let storedHost = URL(string: storedURL)?.host?.lowercased(), storedHost == webVPNLexueBaseURL.host?.lowercased() {
+            return [webVPNLexueBaseURL, lexueBaseURL]
+        }
+        let studentID = storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefersDirect = teachingCenterState.shouldPreferDirect(for: studentID)
+        return prefersDirect
+            ? [lexueBaseURL, webVPNLexueBaseURL]
+            : [webVPNLexueBaseURL, lexueBaseURL]
+    }
+
+    private func shouldRetryLexueRoute(after error: Error) -> Bool {
+        guard let error = error as? ScheduleServiceError else { return false }
+        switch error {
+        case .secondFactorRequired,
+             .schoolSecondFactorRequired,
+             .challengeInvalid:
+            return false
+        case .schoolTransportFailure,
+             .invalidResponse,
+             .invalidLexuePage,
+             .invalidCalendarURL:
+            return true
+        default:
+            return false
+        }
     }
 
     func completeSchoolSecondFactor(
