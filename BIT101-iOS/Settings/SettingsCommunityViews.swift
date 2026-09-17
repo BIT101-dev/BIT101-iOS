@@ -28,6 +28,14 @@ struct GallerySettingsPage: View {
                     .onSubmit { saveHiddenUserIDs() }
             }
 
+            Section("显示") {
+                Toggle("使用网页话廊", isOn: Binding(
+                    get: { settings.galleryUseWebView },
+                    set: { settings.updateGallerySettings(useWebView: $0) }
+                ))
+                .appSelectionFeedback(trigger: settings.galleryUseWebView)
+            }
+
             Section {
                 HStack(spacing: AppDesignSystem.Spacing.content) {
                     TextField("缓存上限", value: $imageCacheLimitMB, format: .number)

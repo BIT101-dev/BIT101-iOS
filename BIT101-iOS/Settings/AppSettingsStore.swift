@@ -61,6 +61,8 @@ struct AppSettingsSnapshot: Codable, Equatable {
     var galleryHiddenUserIDs: [Int] = []
     /// 是否在话廊中过滤匿名内容。
     var galleryStrictUserFilter = false
+    /// 是否使用网页话廊。
+    var galleryUseWebView = false
     /// 是否已经看过“导入分享课表”的使用提示。
     var hasSeenSharedScheduleImportGuide = false
     /// 当前账号第一次进入 app 的时间。
@@ -74,6 +76,7 @@ struct AppSettingsSnapshot: Codable, Equatable {
         case galleryHideBotPosterInSearch
         case galleryHiddenUserIDs
         case galleryStrictUserFilter
+        case galleryUseWebView
         case hasSeenSharedScheduleImportGuide
         case firstOpenDate
         case hasShownLinuxDoThanksNotice
@@ -88,6 +91,7 @@ struct AppSettingsSnapshot: Codable, Equatable {
         galleryHideBotPosterInSearch = try container.decodeIfPresent(Bool.self, forKey: .galleryHideBotPosterInSearch) ?? true
         galleryHiddenUserIDs = try container.decodeIfPresent([Int].self, forKey: .galleryHiddenUserIDs) ?? []
         galleryStrictUserFilter = try container.decodeIfPresent(Bool.self, forKey: .galleryStrictUserFilter) ?? false
+        galleryUseWebView = try container.decodeIfPresent(Bool.self, forKey: .galleryUseWebView) ?? false
         hasSeenSharedScheduleImportGuide = try container.decodeIfPresent(Bool.self, forKey: .hasSeenSharedScheduleImportGuide) ?? false
         firstOpenDate = try container.decodeIfPresent(Date.self, forKey: .firstOpenDate)
         hasShownLinuxDoThanksNotice = try container.decodeIfPresent(Bool.self, forKey: .hasShownLinuxDoThanksNotice) ?? false
@@ -101,6 +105,7 @@ struct AppSettingsSyncPayload: Codable, Equatable {
     var galleryHideBotPosterInSearch: Bool
     var galleryHiddenUserIDs: [Int]
     var galleryStrictUserFilter: Bool
+    var galleryUseWebView: Bool
 
     init(snapshot: AppSettingsSnapshot) {
         themeMode = snapshot.themeMode
@@ -108,6 +113,7 @@ struct AppSettingsSyncPayload: Codable, Equatable {
         galleryHideBotPosterInSearch = snapshot.galleryHideBotPosterInSearch
         galleryHiddenUserIDs = snapshot.galleryHiddenUserIDs
         galleryStrictUserFilter = snapshot.galleryStrictUserFilter
+        galleryUseWebView = snapshot.galleryUseWebView
     }
 
     init(from decoder: Decoder) throws {
@@ -117,6 +123,7 @@ struct AppSettingsSyncPayload: Codable, Equatable {
         galleryHideBotPosterInSearch = try container.decodeIfPresent(Bool.self, forKey: .galleryHideBotPosterInSearch) ?? true
         galleryHiddenUserIDs = try container.decodeIfPresent([Int].self, forKey: .galleryHiddenUserIDs) ?? []
         galleryStrictUserFilter = try container.decodeIfPresent(Bool.self, forKey: .galleryStrictUserFilter) ?? false
+        galleryUseWebView = try container.decodeIfPresent(Bool.self, forKey: .galleryUseWebView) ?? false
     }
 }
 
@@ -177,6 +184,7 @@ final class AppSettingsStore: ObservableObject {
     var galleryHideBotPosterInSearch: Bool { snapshot.galleryHideBotPosterInSearch }
     var galleryHiddenUserIDs: [Int] { snapshot.galleryHiddenUserIDs }
     var galleryStrictUserFilter: Bool { snapshot.galleryStrictUserFilter }
+    var galleryUseWebView: Bool { snapshot.galleryUseWebView }
     var hasSeenSharedScheduleImportGuide: Bool { snapshot.hasSeenSharedScheduleImportGuide }
     var shouldShowCurrentStartupNotice: Bool {
         defaults.string(forKey: Self.startupNoticeSeenKey) != Self.currentStartupNoticeVersion
@@ -214,7 +222,8 @@ final class AppSettingsStore: ObservableObject {
     func updateGallerySettings(
         hideBotPosterInSearch: Bool? = nil,
         hiddenUserIDs: [Int]? = nil,
-        strictUserFilter: Bool? = nil
+        strictUserFilter: Bool? = nil,
+        useWebView: Bool? = nil
     ) {
         if let hideBotPosterInSearch {
             snapshot.galleryHideBotPosterInSearch = hideBotPosterInSearch
@@ -224,6 +233,9 @@ final class AppSettingsStore: ObservableObject {
         }
         if let strictUserFilter {
             snapshot.galleryStrictUserFilter = strictUserFilter
+        }
+        if let useWebView {
+            snapshot.galleryUseWebView = useWebView
         }
         save(syncPreferences: true)
     }

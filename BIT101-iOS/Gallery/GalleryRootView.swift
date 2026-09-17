@@ -8,6 +8,7 @@
 import SwiftUI
 import Network
 import Combine
+import WebKit
 
 /// “话廊”底部页内部的一级内容分区。
 ///
@@ -41,6 +42,7 @@ struct GalleryRootView: View {
     @StateObject private var messageViewModel = GalleryMessageViewModel()
     /// 监听网络从断开恢复为可用，帮助失败态自动重试。
     @StateObject private var networkObserver = GalleryNetworkObserver()
+    @ObservedObject private var appSettings = AppSettingsStore.shared
     @State private var isShowingComposer = false
     @State private var isShowingMessages = false
     @Binding private var requestedPaperID: Int?
@@ -59,25 +61,31 @@ struct GalleryRootView: View {
 
     var body: some View {
         Group {
-            switch selectedSurface {
-            case .gallery:
-                galleryContent
-            case .paper:
-                PaperRootView(
-                    requestedPaperID: $requestedPaperID,
-                    selectedGallerySurfaceRawValue: Binding(
-                        get: { selectedSurface.rawValue },
-                        set: { newValue in
-                            selectedSurface = GallerySurface(rawValue: newValue) ?? .gallery
-                        }
+            if appSettings.galleryUseWebView {
+                GalleryWebContentView()
+            } else {
+                switch selectedSurface {
+                case .gallery:
+                    galleryContent
+                case .paper:
+                    PaperRootView(
+                        requestedPaperID: $requestedPaperID,
+                        selectedGallerySurfaceRawValue: Binding(
+                            get: { selectedSurface.rawValue },
+                            set: { newValue in
+                                selectedSurface = GallerySurface(rawValue: newValue) ?? .gallery
+                            }
+                        )
                     )
-                )
+                }
             }
         }
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
-            AppTopSegmentedPicker(title: "话廊内容", selection: $selectedSurface) {
-                ForEach(GallerySurface.allCases) { surface in
-                    Text(surface.title).tag(surface)
+            if !appSettings.galleryUseWebView {
+                AppTopSegmentedPicker(title: "话廊内容", selection: $selectedSurface) {
+                    ForEach(GallerySurface.allCases) { surface in
+                        Text(surface.title).tag(surface)
+                    }
                 }
             }
         }
@@ -93,6 +101,65 @@ struct GalleryRootView: View {
         }
         .diagnosticAlert(item: $deepLinkAlert)
         .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private struct GalleryWebContentView: View {
+        var body: some View {
+            GalleryWebView(url: URL(string: "https://bit101.cn/gallery")!)
+                .ignoresSafeArea(.container, edges: .bottom)
+        }
+    }
+
+    private struct GalleryWebView: UIViewRepresentable {
+        let url: URL
+
+        func makeCoordinator() -> Coordinator { Coordinator() }
+
+        func makeUIView(context: Context) -> WKWebView {
+            let configuration = WKWebViewConfiguration()
+            configuration.websiteDataStore = .default()
+            let webView = WKWebView(frame: .zero, configuration: configuration)
+            webView.navigationDelegate = context.coordinator
+            webView.allowsBackForwardNavigationGestures = true
+            webView.load(URLRequest(url: url))
+            return webView
+        }
+
+        func updateUIView(_ webView: WKWebView, context: Context) {}
+
+        final class Coordinator: NSObject, WKNavigationDelegate {
+            private var didInjectLoginState = false
+
+            func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+                guard !didInjectLoginState else { return }
+                didInjectLoginState = true
+                let fakeCookie = LoginStorage.shared.fakeCookie
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "'", with: "\\'")
+                guard !fakeCookie.isEmpty else { return }
+                let script = """
+                (() => {
+                    const current = localStorage.getItem('store');
+                    const store = current ? JSON.parse(current) : {};
+                    store.fake_cookie = '\(fakeCookie)';
+                    localStorage.setItem('store', JSON.stringify(store));
+                    location.reload();
+                })();
+                """
+                webView.evaluateJavaScript(script)
+            }
+
+            func webView(
+                _ webView: WKWebView,
+                didFail navigation: WKNavigation!,
+                withError error: Error
+            ) {
+                webView.loadHTMLString(
+                    "<body style=\"font: -apple-system-body; padding: 24px;\">话廊网页加载失败，请稍后重试。</body>",
+                    baseURL: nil
+                )
+            }
+        }
     }
 
     private func openRequestedPosterIfNeeded() async {
