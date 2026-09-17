@@ -6,6 +6,7 @@ struct GallerySettingsPage: View {
     @State private var imageCacheLimitMB = GalleryImageCachePreferences.limitMB
     @State private var imageCacheUsageText = "计算中"
     @State private var imageCacheUsageGeneration = 0
+    @State private var hiddenUserIDsText = ""
 
     var body: some View {
         List {
@@ -15,6 +16,16 @@ struct GallerySettingsPage: View {
                     set: { settings.updateGallerySettings(hideBotPosterInSearch: $0) }
                 ))
                 .appSelectionFeedback(trigger: settings.galleryHideBotPosterInSearch)
+
+                TextField("屏蔽用户 UID（逗号分隔）", text: $hiddenUserIDsText)
+                    .keyboardType(.numbersAndPunctuation)
+                    .onSubmit { saveHiddenUserIDs() }
+
+                Toggle("严格屏蔽匿名内容", isOn: Binding(
+                    get: { settings.galleryStrictUserFilter },
+                    set: { settings.updateGallerySettings(strictUserFilter: $0) }
+                ))
+                .appSelectionFeedback(trigger: settings.galleryStrictUserFilter)
             }
 
             Section {
@@ -47,8 +58,17 @@ struct GallerySettingsPage: View {
         .appGroupedListStyle()
         .task {
             imageCacheLimitMB = GalleryImageCachePreferences.limitMB
+            hiddenUserIDsText = settings.galleryHiddenUserIDs.map(String.init).joined(separator: ",")
             await refreshImageCacheUsage()
         }
+    }
+
+    private func saveHiddenUserIDs() {
+        let values = hiddenUserIDsText
+            .split { $0 == "," || $0 == "，" || $0 == " " || $0 == "\n" }
+            .compactMap { Int($0) }
+        settings.updateGallerySettings(hiddenUserIDs: values)
+        hiddenUserIDsText = settings.galleryHiddenUserIDs.map(String.init).joined(separator: ",")
     }
 
     /// 该方法异步统计话廊图片缓存，并按系统文件大小格式更新设置页。

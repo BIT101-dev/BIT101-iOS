@@ -45,20 +45,11 @@ if [[ $# -eq 0 ]]; then
   }
 else
   if [[ $# -gt 2 ]]; then
-    echo "用法：Scripts/build-install-device.sh [真机设备ID] [Developer目录]" >&2
+    echo "用法：Scripts/build-install-device.sh [真机设备ID]" >&2
     exit 64
   fi
   BIT101_XCODE_DEVICE_ID="$1"
   BIT101_DEVICETCL_DEVICE_ID="$1"
-  if [[ -n "${2:-}" ]]; then
-    export DEVELOPER_DIR="$2"
-  elif [[ -n "${DEVELOPER_DIR:-}" ]]; then
-    export DEVELOPER_DIR="$DEVELOPER_DIR"
-  elif [[ -d "/Users/harrybit/Desktop/Xcode.app/Contents/Developer" ]]; then
-    export DEVELOPER_DIR="/Users/harrybit/Desktop/Xcode.app/Contents/Developer"
-  else
-    export DEVELOPER_DIR="/Users/harrybit/Desktop/Xcode-beta.app/Contents/Developer"
-  fi
 fi
 
 mkdir -p "$DERIVED_DATA"

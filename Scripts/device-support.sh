@@ -1,16 +1,6 @@
 #!/bin/zsh
 
-# 真机脚本共用的设备发现逻辑。被 source 后提供：
-# BIT101_XCODE_DEVICE_ID、BIT101_DEVICETCL_DEVICE_ID、BIT101_DEVELOPER_DIR。
-
-if [[ -n "${DEVELOPER_DIR:-}" ]]; then
-  BIT101_DEVELOPER_DIR="$DEVELOPER_DIR"
-elif [[ -d "/Users/harrybit/Desktop/Xcode.app/Contents/Developer" ]]; then
-  BIT101_DEVELOPER_DIR="/Users/harrybit/Desktop/Xcode.app/Contents/Developer"
-else
-  BIT101_DEVELOPER_DIR="/Users/harrybit/Desktop/Xcode-beta.app/Contents/Developer"
-fi
-export DEVELOPER_DIR="$BIT101_DEVELOPER_DIR"
+# 真机脚本共用的设备发现逻辑。被 source 后提供两个设备标识。
 
 bit101_find_device() {
   local project="$1"

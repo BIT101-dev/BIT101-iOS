@@ -56,6 +56,10 @@ struct MineService {
         try await api.request(path: "user/info/\(id)")
     }
 
+    func followUser(id: Int) async throws -> MineFollowResult {
+        try await api.request(path: "user/follow/\(id)", method: "POST")
+    }
+
     /// 获取我关注的用户列表。
     ///
     /// 关注/粉丝接口都使用页码分页，第一页从 0 开始。

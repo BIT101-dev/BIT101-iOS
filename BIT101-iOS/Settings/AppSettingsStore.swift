@@ -57,6 +57,10 @@ struct AppSettingsSnapshot: Codable, Equatable {
     var autoRotate = false
     /// 普通帖子页面按开关隐藏机器人帖子，机器人分栏保持显示。
     var galleryHideBotPosterInSearch = true
+    /// 话廊普通内容中需要隐藏的用户 UID。
+    var galleryHiddenUserIDs: [Int] = []
+    /// 是否在话廊中过滤匿名内容。
+    var galleryStrictUserFilter = false
     /// 是否已经看过“导入分享课表”的使用提示。
     var hasSeenSharedScheduleImportGuide = false
     /// 当前账号第一次进入 app 的时间。
@@ -68,9 +72,25 @@ struct AppSettingsSnapshot: Codable, Equatable {
         case themeMode
         case autoRotate
         case galleryHideBotPosterInSearch
+        case galleryHiddenUserIDs
+        case galleryStrictUserFilter
         case hasSeenSharedScheduleImportGuide
         case firstOpenDate
         case hasShownLinuxDoThanksNotice
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        themeMode = try container.decodeIfPresent(AppThemeMode.self, forKey: .themeMode) ?? .system
+        autoRotate = try container.decodeIfPresent(Bool.self, forKey: .autoRotate) ?? false
+        galleryHideBotPosterInSearch = try container.decodeIfPresent(Bool.self, forKey: .galleryHideBotPosterInSearch) ?? true
+        galleryHiddenUserIDs = try container.decodeIfPresent([Int].self, forKey: .galleryHiddenUserIDs) ?? []
+        galleryStrictUserFilter = try container.decodeIfPresent(Bool.self, forKey: .galleryStrictUserFilter) ?? false
+        hasSeenSharedScheduleImportGuide = try container.decodeIfPresent(Bool.self, forKey: .hasSeenSharedScheduleImportGuide) ?? false
+        firstOpenDate = try container.decodeIfPresent(Date.self, forKey: .firstOpenDate)
+        hasShownLinuxDoThanksNotice = try container.decodeIfPresent(Bool.self, forKey: .hasShownLinuxDoThanksNotice) ?? false
     }
 }
 
@@ -79,11 +99,24 @@ struct AppSettingsSyncPayload: Codable, Equatable {
     var themeMode: AppThemeMode
     var autoRotate: Bool
     var galleryHideBotPosterInSearch: Bool
+    var galleryHiddenUserIDs: [Int]
+    var galleryStrictUserFilter: Bool
 
     init(snapshot: AppSettingsSnapshot) {
         themeMode = snapshot.themeMode
         autoRotate = snapshot.autoRotate
         galleryHideBotPosterInSearch = snapshot.galleryHideBotPosterInSearch
+        galleryHiddenUserIDs = snapshot.galleryHiddenUserIDs
+        galleryStrictUserFilter = snapshot.galleryStrictUserFilter
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        themeMode = try container.decodeIfPresent(AppThemeMode.self, forKey: .themeMode) ?? .system
+        autoRotate = try container.decodeIfPresent(Bool.self, forKey: .autoRotate) ?? false
+        galleryHideBotPosterInSearch = try container.decodeIfPresent(Bool.self, forKey: .galleryHideBotPosterInSearch) ?? true
+        galleryHiddenUserIDs = try container.decodeIfPresent([Int].self, forKey: .galleryHiddenUserIDs) ?? []
+        galleryStrictUserFilter = try container.decodeIfPresent(Bool.self, forKey: .galleryStrictUserFilter) ?? false
     }
 }
 
@@ -142,6 +175,8 @@ final class AppSettingsStore: ObservableObject {
     var themeMode: AppThemeMode { snapshot.themeMode }
     var autoRotate: Bool { snapshot.autoRotate }
     var galleryHideBotPosterInSearch: Bool { snapshot.galleryHideBotPosterInSearch }
+    var galleryHiddenUserIDs: [Int] { snapshot.galleryHiddenUserIDs }
+    var galleryStrictUserFilter: Bool { snapshot.galleryStrictUserFilter }
     var hasSeenSharedScheduleImportGuide: Bool { snapshot.hasSeenSharedScheduleImportGuide }
     var shouldShowCurrentStartupNotice: Bool {
         defaults.string(forKey: Self.startupNoticeSeenKey) != Self.currentStartupNoticeVersion
@@ -176,8 +211,20 @@ final class AppSettingsStore: ObservableObject {
     }
 
     /// 修改普通帖子页面中的机器人帖子隐藏开关。
-    func updateGallerySettings(hideBotPosterInSearch: Bool) {
-        snapshot.galleryHideBotPosterInSearch = hideBotPosterInSearch
+    func updateGallerySettings(
+        hideBotPosterInSearch: Bool? = nil,
+        hiddenUserIDs: [Int]? = nil,
+        strictUserFilter: Bool? = nil
+    ) {
+        if let hideBotPosterInSearch {
+            snapshot.galleryHideBotPosterInSearch = hideBotPosterInSearch
+        }
+        if let hiddenUserIDs {
+            snapshot.galleryHiddenUserIDs = Array(Set(hiddenUserIDs.filter { $0 > 0 })).sorted()
+        }
+        if let strictUserFilter {
+            snapshot.galleryStrictUserFilter = strictUserFilter
+        }
         save(syncPreferences: true)
     }
 
@@ -223,6 +270,8 @@ final class AppSettingsStore: ObservableObject {
         snapshot.themeMode = payload.themeMode
         snapshot.autoRotate = payload.autoRotate
         snapshot.galleryHideBotPosterInSearch = payload.galleryHideBotPosterInSearch
+        snapshot.galleryHiddenUserIDs = payload.galleryHiddenUserIDs
+        snapshot.galleryStrictUserFilter = payload.galleryStrictUserFilter
         save()
         AppOrientationController.applyPreference(autoRotate: snapshot.autoRotate)
     }

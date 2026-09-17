@@ -51,7 +51,6 @@
 当前仓库常用的真机构建、装机和启动命令如下：
 
 ```bash
-DEVELOPER_DIR=/Users/harrybit/Desktop/Xcode-beta.app/Contents/Developer \
 Scripts/build-install-device.sh
 ```
 

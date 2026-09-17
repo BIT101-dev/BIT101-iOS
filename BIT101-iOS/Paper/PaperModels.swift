@@ -276,6 +276,20 @@ enum PaperEditorContentBuilder {
         }
         return json
     }
+
+    static func plainText(from rawContent: String) -> String {
+        PaperContentRenderer.blocks(from: rawContent).compactMap { block in
+            switch block {
+            case let .header(_, text, _), let .paragraph(_, text), let .quote(_, text, _):
+                return String(text.characters)
+            case let .list(_, items, _):
+                return items.map { String($0.characters) }.joined(separator: "\n")
+            case .image:
+                return nil
+            }
+        }
+        .joined(separator: "\n\n")
+    }
 }
 
 /// 文章正文的块解析与富文本辅助。

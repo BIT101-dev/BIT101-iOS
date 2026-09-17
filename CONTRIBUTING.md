@@ -38,8 +38,8 @@ SKIP_STALE_DOCS_CHECK=1 git commit ...
 在已登录的真机上按依赖边界运行只读用户流程测试：
 
 ```sh
-./Scripts/release-network-smoke-bit101.sh <真机设备ID> /Users/harrybit/Desktop/Xcode-beta.app/Contents/Developer
-./Scripts/release-network-smoke-school.sh <真机设备ID> /Users/harrybit/Desktop/Xcode-beta.app/Contents/Developer
+./Scripts/release-network-smoke-bit101.sh <真机设备ID>
+./Scripts/release-network-smoke-school.sh <真机设备ID>
 ```
 
 `release-network-smoke.sh` 先做一次本地构建检查，再向当前已安装并运行中的正式 App 发送

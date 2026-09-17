@@ -13,11 +13,10 @@ if [[ $# -eq 0 ]]; then
   DEVICE_ID="$BIT101_XCODE_DEVICE_ID"
 else
   if [[ $# -gt 2 ]]; then
-    echo "用法: $0 [真机设备ID] [Developer目录]" >&2
+    echo "用法: $0 [真机设备ID]" >&2
     exit 64
   fi
   DEVICE_ID="$1"
-  export DEVELOPER_DIR="${2:-${DEVELOPER_DIR:-/Users/harrybit/Desktop/Xcode-beta.app/Contents/Developer}}"
 fi
 
 common_args=(

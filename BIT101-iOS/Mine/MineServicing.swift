@@ -10,6 +10,7 @@ protocol MineOverviewServicing {
 protocol UserProfileServicing {
     func fetchUserInfo(id: Int) async throws -> MineUserInfo
     func fetchUserPosters(userID: Int, page: Int) async throws -> [GalleryPoster]
+    func followUser(id: Int) async throws -> MineFollowResult
 }
 
 extension MineService: MineOverviewServicing, UserProfileServicing {}

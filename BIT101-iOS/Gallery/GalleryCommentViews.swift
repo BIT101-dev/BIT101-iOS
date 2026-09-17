@@ -6,6 +6,8 @@
 //
 
 import SwiftUI
+import UIKit
+import PhotosUI
 
 struct GalleryPosterCommentsSection: View {
     let comments: [GalleryComment]
@@ -18,6 +20,7 @@ struct GalleryPosterCommentsSection: View {
     let onReply: (GalleryCommentReplyTarget) -> Void
     let onLikeComment: (GalleryComment) -> Void
     let onReportComment: (GalleryComment) -> Void
+    let onDeleteComment: (GalleryComment) -> Void
     let onOpenImage: (Int, [GalleryImage]) -> Void
     let onOpenUser: (GalleryUser) -> Void
     let onLoadMore: (GalleryComment?) -> Void
@@ -60,6 +63,7 @@ struct GalleryPosterCommentsSection: View {
                                     onReply: onReply,
                                     onLikeComment: onLikeComment,
                                     onReportComment: onReportComment,
+                                    onDeleteComment: onDeleteComment,
                                     onOpenImage: onOpenImage,
                                     onOpenUser: onOpenUser
                                 )
@@ -103,6 +107,7 @@ private struct GalleryCommentRow: View {
     let onReply: (GalleryCommentReplyTarget) -> Void
     let onLikeComment: (GalleryComment) -> Void
     let onReportComment: (GalleryComment) -> Void
+    let onDeleteComment: (GalleryComment) -> Void
     let onOpenImage: (Int, [GalleryImage]) -> Void
     let onOpenUser: (GalleryUser) -> Void
 
@@ -147,6 +152,14 @@ private struct GalleryCommentRow: View {
             )
         }
         .contextMenu {
+            Button("复制评论", systemImage: "doc.on.doc") {
+                UIPasteboard.general.string = comment.text
+            }
+            if comment.own {
+                Button("删除评论", systemImage: "trash", role: .destructive) {
+                    onDeleteComment(comment)
+                }
+            }
             Button("举报评论", systemImage: "exclamationmark.bubble") {
                 onReportComment(comment)
             }
@@ -184,11 +197,16 @@ private struct GalleryCommentRow: View {
 struct GalleryCommentComposerSheet: View {
     let target: GalleryCommentComposerTarget
     let isSubmitting: Bool
-    let onSubmit: (String, Bool) -> Void
+    let onSubmit: (String, Bool, [GalleryImage]) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var anonymous = false
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    @State private var uploadedImages: [GalleryImage] = []
+    @State private var isUploadingImages = false
+    @State private var uploadError: String?
+    private let service = GalleryService()
 
     var body: some View {
         NavigationStack {
@@ -196,6 +214,24 @@ struct GalleryCommentComposerSheet: View {
                 AppCommentComposerContentSection(anonymous: $anonymous) {
                     TextField(target.placeholder, text: $text, axis: .vertical)
                         .lineLimit(5, reservesSpace: true)
+                }
+
+                Section("图片") {
+                    PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 9, matching: .images) {
+                        Text("添加图片")
+                    }
+                    .disabled(isSubmitting || isUploadingImages)
+
+                    if isUploadingImages {
+                        ProgressView("上传中")
+                    }
+                    if let uploadError {
+                        Text(uploadError)
+                            .foregroundStyle(.secondary)
+                    }
+                    if !uploadedImages.isEmpty {
+                        GalleryPosterImagesView(images: uploadedImages, onOpenImage: { _, _ in })
+                    }
                 }
             }
             .navigationTitle(target.title)
@@ -208,9 +244,31 @@ struct GalleryCommentComposerSheet: View {
                         dismiss()
                     },
                     onSubmit: {
-                        onSubmit(text, anonymous)
+                        onSubmit(text, anonymous, uploadedImages)
                     }
                 )
+            }
+            .onChange(of: selectedPhotoItems) { _, items in
+                guard !items.isEmpty else { return }
+                Task { await upload(items: items) }
+            }
+        }
+    }
+
+    private func upload(items: [PhotosPickerItem]) async {
+        isUploadingImages = true
+        uploadError = nil
+        defer {
+            isUploadingImages = false
+            selectedPhotoItems = []
+        }
+        for item in items {
+            do {
+                guard let data = try await item.loadTransferable(type: Data.self) else { continue }
+                let image = try await service.uploadImage(data: data, filename: "comment-\(UUID().uuidString).jpg")
+                uploadedImages.append(image)
+            } catch {
+                uploadError = error.localizedDescription
             }
         }
     }

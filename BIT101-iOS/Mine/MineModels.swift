@@ -24,6 +24,24 @@ struct MineUserInfo: Decodable {
     let follower: Bool
     /// 该资料页属于当前登录用户时为 `true`。
     let own: Bool
+
+    func updatingFollow(_ result: MineFollowResult) -> Self {
+        MineUserInfo(
+            user: user,
+            followingNum: result.followingNum,
+            followerNum: result.followerNum,
+            following: result.following,
+            follower: result.follower,
+            own: own
+        )
+    }
+}
+
+struct MineFollowResult: Decodable {
+    let following: Bool
+    let follower: Bool
+    let followingNum: Int
+    let followerNum: Int
 }
 
 /// “我的”页子列表的加载状态。

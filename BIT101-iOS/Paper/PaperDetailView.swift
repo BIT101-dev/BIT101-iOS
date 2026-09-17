@@ -16,6 +16,9 @@ struct PaperDetailView: View {
     @StateObject private var networkObserver = PaperNetworkObserver()
     @State private var composerTarget: PaperCommentComposerTarget?
     @State private var imageViewer: GalleryImageViewerState?
+    @State private var isShowingEditor = false
+    @State private var isShowingDeleteConfirmation = false
+    @Environment(\.dismiss) private var dismiss
 
     init(initialPaper: PaperSummary) {
         self.initialPaper = initialPaper
@@ -160,11 +163,23 @@ struct PaperDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                AppDetailShareLink(
-                    item: paperShareURL,
-                    subject: viewModel.paper?.title ?? initialPaper.title,
-                    accessibilityLabel: "分享文章"
-                )
+                Menu {
+                    AppDetailShareLink(
+                        item: paperShareURL,
+                        subject: viewModel.paper?.title ?? initialPaper.title,
+                        accessibilityLabel: "分享文章"
+                    )
+                    if viewModel.paper?.own == true {
+                        Button("编辑文章", systemImage: "pencil") {
+                            isShowingEditor = true
+                        }
+                        Button("删除文章", systemImage: "trash", role: .destructive) {
+                            isShowingDeleteConfirmation = true
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
             }
         }
         .sheet(item: $composerTarget) { target in
@@ -184,6 +199,28 @@ struct PaperDetailView: View {
             .presentationDragIndicator(.visible)
         }
         .gallerySystemImagePreview(item: $imageViewer)
+        .sheet(isPresented: $isShowingEditor) {
+            NavigationStack {
+                if let paper = viewModel.paper {
+                    PaperComposerView(editingPaper: paper) {
+                        isShowingEditor = false
+                        Task { await viewModel.refreshAll() }
+                    }
+                }
+            }
+        }
+        .alert("删除文章", isPresented: $isShowingDeleteConfirmation) {
+            Button("删除", role: .destructive) {
+                Task {
+                    if await viewModel.deletePaper() {
+                        dismiss()
+                    }
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("删除后文章将从列表中移除。")
+        }
         .task {
             await viewModel.bootstrapIfNeeded()
         }

@@ -15,6 +15,15 @@ protocol PaperDetailServicing {
         replyUID: Int?,
         anonymous: Bool
     ) async throws -> GalleryComment
+    func updatePaper(
+        id: Int,
+        title: String,
+        intro: String,
+        content: String,
+        anonymous: Bool,
+        publicEdit: Bool
+    ) async throws
+    func deletePaper(id: Int) async throws
 }
 
 extension PaperService: PaperListServicing, PaperDetailServicing {}

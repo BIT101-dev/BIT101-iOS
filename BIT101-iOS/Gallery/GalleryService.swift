@@ -94,6 +94,24 @@ struct GalleryService {
         }
     }
 
+    private struct UpdatePosterRequest: Encodable {
+        let title: String
+        let text: String
+        let imageMids: [String]
+        let plugins: String
+        let anonymous: Bool
+        let tags: [String]
+        let claimID: Int
+        let `public`: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case title, text, plugins, anonymous, tags
+            case imageMids = "image_mids"
+            case claimID = "claim_id"
+            case `public`
+        }
+    }
+
     /// 发帖接口返回的帖子 ID。
     private struct CreatePosterResponse: Decodable {
         let id: Int
@@ -179,7 +197,9 @@ struct GalleryService {
         )
 
         return GalleryRecommendFeedBatch(
-            posters: applyBotFilterIfNeeded(rawPosters, hideBot: hideBot),
+            posters: await applyGalleryFilters(
+                applyBotFilterIfNeeded(rawPosters, hideBot: hideBot)
+            ),
             nextSourcePage: sourcePage + 1,
             canLoadMore: !rawPosters.isEmpty
         )
@@ -226,7 +246,7 @@ struct GalleryService {
         }
 
         return GalleryBotFeedBatch(
-            posters: collected,
+            posters: await applyGalleryFilters(collected),
             nextSourcePage: sourcePage,
             canLoadMore: canLoadMore
         )
@@ -235,6 +255,32 @@ struct GalleryService {
     private func applyBotFilterIfNeeded(_ posters: [GalleryPoster], hideBot: Bool) -> [GalleryPoster] {
         guard hideBot else { return posters }
         return posters.filter { !GalleryBotClassifier.matches(tags: $0.tags) }
+    }
+
+    private func applyGalleryFilters(_ posters: [GalleryPoster]) async -> [GalleryPoster] {
+        let settings = await MainActor.run {
+            AppSettingsStore.loadSnapshotFromDefaults()
+        }
+        let hiddenIDs = Set(settings?.galleryHiddenUserIDs ?? [])
+        let strict = settings?.galleryStrictUserFilter ?? false
+        return posters.filter { poster in
+            !hiddenIDs.contains(poster.user.id) && !(strict && poster.anonymous)
+        }
+    }
+
+    private func applyGalleryFilters(_ comments: [GalleryComment]) async -> [GalleryComment] {
+        let settings = await MainActor.run {
+            AppSettingsStore.loadSnapshotFromDefaults()
+        }
+        let hiddenIDs = Set(settings?.galleryHiddenUserIDs ?? [])
+        let strict = settings?.galleryStrictUserFilter ?? false
+
+        func filter(_ comment: GalleryComment) -> GalleryComment? {
+            guard !hiddenIDs.contains(comment.user.id), !(strict && comment.anonymous) else { return nil }
+            return comment.replacingSubComments(comment.sub.compactMap(filter))
+        }
+
+        return comments.compactMap(filter)
     }
 
     private func shouldHideBotPosters() async -> Bool {
@@ -313,6 +359,34 @@ struct GalleryService {
         try await api.requestVoid(path: "posters/\(id)", method: "DELETE")
     }
 
+    func updatePoster(
+        id: Int,
+        title: String,
+        text: String,
+        imageMids: [String],
+        anonymous: Bool,
+        tags: [String],
+        claimID: Int,
+        isPublic: Bool
+    ) async throws {
+        try await api.requestVoid(
+            path: "posters/\(id)",
+            method: "PUT",
+            body: try api.encode(
+                UpdatePosterRequest(
+                    title: title,
+                    text: text,
+                    imageMids: imageMids,
+                    plugins: "[]",
+                    anonymous: anonymous,
+                    tags: tags,
+                    claimID: claimID,
+                    public: isPublic
+                )
+            )
+        )
+    }
+
     /// 获取社区内容举报类型。
     func fetchReportTypes() async throws -> [GalleryReportType] {
         try await api.request(path: "manage/report_types")
@@ -348,7 +422,8 @@ struct GalleryService {
         if let page {
             queryItems.append(URLQueryItem(name: "page", value: String(page)))
         }
-        return try await api.request(path: "reaction/comments", queryItems: queryItems)
+        let comments: [GalleryComment] = try await api.request(path: "reaction/comments", queryItems: queryItems)
+        return await applyGalleryFilters(comments)
     }
 
     /// 对帖子或评论执行点赞操作。
@@ -371,7 +446,8 @@ struct GalleryService {
         text: String,
         replyObjectID: String? = nil,
         replyUID: Int? = nil,
-        anonymous: Bool = false
+        anonymous: Bool = false,
+        imageMids: [String] = []
     ) async throws -> GalleryComment {
         try await api.request(
             path: "reaction/comments",
@@ -383,10 +459,18 @@ struct GalleryService {
                     replyObj: replyObjectID,
                     replyUid: replyUID,
                     anonymous: anonymous,
-                    imageMids: []
+                    imageMids: imageMids
                 )
             )
         )
+    }
+
+    func uploadCommentImage(data: Data, filename: String) async throws -> GalleryImage {
+        try await uploadImage(data: data, filename: filename)
+    }
+
+    func deleteComment(id: Int) async throws {
+        try await api.requestVoid(path: "reaction/comments/\(id)", method: "DELETE")
     }
 
     /// 获取消息中心各分类的未读数。
@@ -427,7 +511,7 @@ struct GalleryService {
             page: page,
             hideBot: hideBot
         )
-        return applyBotFilterIfNeeded(posters, hideBot: hideBot)
+        return await applyGalleryFilters(applyBotFilterIfNeeded(posters, hideBot: hideBot))
     }
 
     /// 发起原始帖子流请求，供推荐流和机器人分栏复用。

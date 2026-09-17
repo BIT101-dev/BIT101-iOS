@@ -24,8 +24,10 @@ protocol GalleryPosterDetailServicing {
         text: String,
         replyObjectID: String?,
         replyUID: Int?,
-        anonymous: Bool
+        anonymous: Bool,
+        imageMids: [String]
     ) async throws -> GalleryComment
+    func deleteComment(id: Int) async throws
     func deletePoster(id: Int) async throws
 }
 

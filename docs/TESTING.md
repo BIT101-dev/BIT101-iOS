@@ -28,14 +28,7 @@ BIT101_INSTALL_TARGET=macCatalyst Scripts/build-install-device.sh
 
 ## 本地工具链
 
-工程当前使用 Xcode 27 Beta。Xcode 27 Beta 未设为系统默认开发者目录时，所有命令显式指定开发者目录：
-
-```sh
-export DEVELOPER_DIR=/Users/harrybit/Desktop/Xcode-beta.app/Contents/Developer
-xcodebuild -version
-```
-
-本仓库保留系统 `xcode-select` 原配置。执行构建或测试前，先确认当前连接的真机状态。
+工程使用系统当前 Xcode 工具链。执行构建或测试前，先确认当前连接的真机状态。
 
 ## 运行真机自动化测试
 

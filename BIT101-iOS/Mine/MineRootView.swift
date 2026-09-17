@@ -14,6 +14,7 @@ private enum MineRoute: Hashable, Identifiable {
     case followers
     case followings
     case posters
+    case user(Int)
 
     /// 供导航绑定使用的稳定标识。
     var id: Self { self }
@@ -64,7 +65,8 @@ struct MineRootView: View {
                     },
                     onLoadMore: { user in
                         Task { await viewModel.loadMoreFollowersIfNeeded(currentUser: user) }
-                    }
+                    },
+                    onOpenUser: { route = .user($0.id) }
                 )
             case .followings:
                 MineUserListView(
@@ -77,7 +79,8 @@ struct MineRootView: View {
                     },
                     onLoadMore: { user in
                         Task { await viewModel.loadMoreFollowingsIfNeeded(currentUser: user) }
-                    }
+                    },
+                    onOpenUser: { route = .user($0.id) }
                 )
             case .posters:
                 MinePosterListView(
@@ -91,6 +94,8 @@ struct MineRootView: View {
                         Task { await viewModel.loadMorePostersIfNeeded(currentPoster: poster) }
                     }
                 )
+            case let .user(userID):
+                UserProfileRootView(userID: userID)
             }
         }
         .navigationDestination(item: $settingsRoute) { destination in
@@ -225,6 +230,9 @@ struct UserProfileRootView: View {
                     posterCountText: viewModel.posterCountText,
                     onOpenAvatar: {
                         imageViewer = GalleryImageViewerState(images: [info.user.avatar], initialIndex: 0)
+                    },
+                    onFollow: {
+                        Task { await viewModel.followUser() }
                     }
                 )
             }
@@ -305,6 +313,7 @@ private struct MineProfileCard: View {
     let onOpenFollowings: (() -> Void)?
     let onOpenPosters: (() -> Void)?
     let onOpenAvatar: (() -> Void)?
+    let onFollow: (() -> Void)?
 
     init(
         info: MineUserInfo,
@@ -312,7 +321,8 @@ private struct MineProfileCard: View {
         onOpenFollowers: (() -> Void)? = nil,
         onOpenFollowings: (() -> Void)? = nil,
         onOpenPosters: (() -> Void)? = nil,
-        onOpenAvatar: (() -> Void)? = nil
+        onOpenAvatar: (() -> Void)? = nil,
+        onFollow: (() -> Void)? = nil
     ) {
         self.info = info
         self.posterCountText = posterCountText
@@ -320,6 +330,7 @@ private struct MineProfileCard: View {
         self.onOpenFollowings = onOpenFollowings
         self.onOpenPosters = onOpenPosters
         self.onOpenAvatar = onOpenAvatar
+        self.onFollow = onFollow
     }
 
     /// 资料卡主体。
@@ -360,6 +371,15 @@ private struct MineProfileCard: View {
                 MineStatButton(number: "\(info.followingNum)", title: "关注", action: onOpenFollowings)
                 MineStatButton(number: posterCountText, title: "帖子", action: onOpenPosters)
             }
+
+            if let onFollow {
+                Button(action: onFollow) {
+                    Text(info.following ? (info.follower ? "互相关注" : "已关注") : "关注")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .padding(.top, AppDesignSystem.Spacing.control)
+            }
         }
         .padding(.top, AppDesignSystem.Spacing.control)
         .frame(maxWidth: .infinity, alignment: .center)
@@ -389,6 +409,7 @@ private struct MineUserListView: View {
     let isLoadingMore: Bool
     let onRefresh: () -> Void
     let onLoadMore: (GalleryUser?) -> Void
+    let onOpenUser: (GalleryUser) -> Void
 
     var body: some View {
         Group {
@@ -404,7 +425,10 @@ private struct MineUserListView: View {
             } else {
                 List {
                     ForEach(users) { user in
-                        HStack(spacing: AppDesignSystem.Spacing.content) {
+                        Button {
+                            onOpenUser(user)
+                        } label: {
+                            HStack(spacing: AppDesignSystem.Spacing.content) {
                             AppAvatarView(
                                 imageURL: URL(string: user.avatar.lowUrl.isEmpty ? user.avatar.url : user.avatar.lowUrl),
                                 size: AppDesignSystem.Size.avatar.list,
@@ -427,7 +451,10 @@ private struct MineUserListView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
+                            }
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
                         .task {
                             onLoadMore(user)
                         }

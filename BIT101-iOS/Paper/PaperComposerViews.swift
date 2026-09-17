@@ -13,6 +13,7 @@ import SwiftUI
 /// 提交前将正文包装为最小 Editor.js JSON，与网页端内容格式保持一致。
 struct PaperComposerView: View {
     let onCreated: () -> Void
+    let editingPaper: PaperDetail?
 
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
@@ -23,6 +24,15 @@ struct PaperComposerView: View {
     @State private var alert: AppAlert?
 
     private let service = PaperService()
+
+    init(editingPaper: PaperDetail? = nil, onCreated: @escaping () -> Void) {
+        self.editingPaper = editingPaper
+        self.onCreated = onCreated
+        _title = State(initialValue: editingPaper?.title ?? "")
+        _intro = State(initialValue: editingPaper?.intro ?? "")
+        _content = State(initialValue: editingPaper.map { PaperEditorContentBuilder.plainText(from: $0.content) } ?? "")
+        _anonymous = State(initialValue: editingPaper?.anonymous ?? false)
+    }
 
     var body: some View {
         Form {
@@ -39,7 +49,7 @@ struct PaperComposerView: View {
                     .appSelectionFeedback(trigger: anonymous)
             }
         }
-        .navigationTitle("发布文章")
+        .navigationTitle(editingPaper == nil ? "发布文章" : "编辑文章")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
@@ -49,7 +59,7 @@ struct PaperComposerView: View {
             }
 
             ToolbarItem(placement: .confirmationAction) {
-                Button(isSubmitting ? "发布中…" : "发布") {
+                Button(isSubmitting ? "保存中…" : editingPaper == nil ? "发布" : "保存") {
                     Task {
                         await submit()
                     }
@@ -75,12 +85,23 @@ struct PaperComposerView: View {
         defer { isSubmitting = false }
 
         do {
-            _ = try await service.createPaper(
-                title: trimmedTitle,
-                intro: trimmedIntro,
-                content: PaperEditorContentBuilder.editorJSON(from: trimmedContent),
-                anonymous: anonymous
-            )
+            if let editingPaper {
+                try await service.updatePaper(
+                    id: editingPaper.id,
+                    title: trimmedTitle,
+                    intro: trimmedIntro,
+                    content: PaperEditorContentBuilder.editorJSON(from: trimmedContent),
+                    anonymous: anonymous,
+                    publicEdit: editingPaper.publicEdit
+                )
+            } else {
+                _ = try await service.createPaper(
+                    title: trimmedTitle,
+                    intro: trimmedIntro,
+                    content: PaperEditorContentBuilder.editorJSON(from: trimmedContent),
+                    anonymous: anonymous
+                )
+            }
             onCreated()
             dismiss()
         } catch {

@@ -340,6 +340,38 @@ final class PaperDetailViewModel: ObservableObject {
         }
     }
 
+    func updatePaper(title: String, intro: String, content: String, anonymous: Bool) async -> Bool {
+        guard paper?.own == true else { return false }
+        do {
+            try await service.updatePaper(
+                id: initialPaper.id,
+                title: title,
+                intro: intro,
+                content: PaperEditorContentBuilder.editorJSON(from: content),
+                anonymous: anonymous,
+                publicEdit: paper?.publicEdit ?? true
+            )
+            await refreshAll()
+            return true
+        } catch {
+            if TaskCancellation.matches(error) { return false }
+            alert = AppAlert(title: "保存失败", message: error.localizedDescription)
+            return false
+        }
+    }
+
+    func deletePaper() async -> Bool {
+        guard paper?.own == true else { return false }
+        do {
+            try await service.deletePaper(id: initialPaper.id)
+            return true
+        } catch {
+            if TaskCancellation.matches(error) { return false }
+            alert = AppAlert(title: "删除失败", message: error.localizedDescription)
+            return false
+        }
+    }
+
     func toggleCommentLike(_ comment: GalleryComment) async {
         guard !likingCommentIDs.contains(comment.id) else { return }
         likingCommentIDs.insert(comment.id)

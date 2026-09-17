@@ -3,18 +3,10 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 if [[ -z "${SWIFT_FRONTEND:-}" ]]; then
-  developer_dir="${DEVELOPER_DIR:-}"
-  if [[ -z "$developer_dir" && -d "/Users/harrybit/Desktop/Xcode-beta.app/Contents/Developer" ]]; then
-    developer_dir="/Users/harrybit/Desktop/Xcode-beta.app/Contents/Developer"
-  fi
-  if [[ -n "$developer_dir" && -x "$developer_dir/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift-frontend" ]]; then
-    SWIFT_FRONTEND="$developer_dir/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift-frontend"
-  else
-    SWIFT_FRONTEND="$(xcrun --find swift-frontend 2>/dev/null || true)"
-  fi
+  SWIFT_FRONTEND="$(xcrun --find swift-frontend 2>/dev/null || true)"
 fi
 if [[ -z "$SWIFT_FRONTEND" || ! -x "$SWIFT_FRONTEND" ]]; then
-  echo "[失败] 找不到可用的 swift-frontend；请设置 SWIFT_FRONTEND 或 DEVELOPER_DIR" >&2
+  echo "[失败] 找不到可用的 swift-frontend；请检查当前 Xcode 工具链" >&2
   exit 1
 fi
 LOG_DIR="$ROOT_DIR/.build/static-audit"

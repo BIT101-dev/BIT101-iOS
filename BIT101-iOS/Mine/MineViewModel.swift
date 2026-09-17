@@ -264,6 +264,7 @@ final class UserProfileViewModel: ObservableObject {
     @Published private(set) var profileStatus: MineLoadStatus = .idle
     /// 他人帖子列表分页状态。
     @Published private(set) var posterState = MinePagedState<GalleryPoster>()
+    @Published private(set) var isFollowingUser = false
     @Published var alert: AppAlert?
 
     private let userID: Int
@@ -326,6 +327,20 @@ final class UserProfileViewModel: ObservableObject {
             userInfo = nil
             profileStatus = .failed(error.localizedDescription)
             alert = AppAlert(title: "加载主页失败", message: error.localizedDescription)
+        }
+    }
+
+    func followUser() async {
+        guard let userInfo, !userInfo.own, !isFollowingUser else { return }
+        isFollowingUser = true
+        defer { isFollowingUser = false }
+
+        do {
+            let result = try await service.followUser(id: userID)
+            self.userInfo = userInfo.updatingFollow(result)
+        } catch {
+            if isMineCancellation(error) { return }
+            alert = AppAlert(title: "关注失败", message: error.localizedDescription)
         }
     }
 

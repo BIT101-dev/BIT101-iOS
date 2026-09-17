@@ -107,6 +107,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     @Published private(set) var likingCommentIDs: Set<Int> = []
     /// 评论提交请求是否进行中。
     @Published private(set) var isSubmittingComment = false
+    @Published private(set) var deletingCommentIDs: Set<Int> = []
     /// 帖子删除请求是否进行中。
     @Published private(set) var isDeletingPoster = false
     /// 页面级统一提示。
@@ -261,7 +262,12 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     /// 发送评论或回复。
     ///
     /// 发送成功后直接整页刷新，确保帖子计数和评论树保持一致。
-    func submitComment(text: String, anonymous: Bool, target: GalleryCommentComposerTarget) async -> Bool {
+    func submitComment(
+        text: String,
+        anonymous: Bool,
+        imageMids: [String] = [],
+        target: GalleryCommentComposerTarget
+    ) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             alert = AppAlert.userInput(title: "发送失败", message: "评论不能为空。")
@@ -278,7 +284,8 @@ final class GalleryPosterDetailViewModel: ObservableObject {
                 text: trimmed,
                 replyObjectID: target.replyObjectID,
                 replyUID: target.replyUID,
-                anonymous: anonymous
+                anonymous: anonymous,
+                imageMids: imageMids
             )
             await refreshAll()
             return true
@@ -286,6 +293,20 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             if isCancellation(error) { return false }
             alert = AppAlert(title: "发送失败", message: error.localizedDescription)
             return false
+        }
+    }
+
+    func deleteComment(_ comment: GalleryComment) async {
+        guard comment.own, !deletingCommentIDs.contains(comment.id) else { return }
+        deletingCommentIDs.insert(comment.id)
+        defer { deletingCommentIDs.remove(comment.id) }
+
+        do {
+            try await service.deleteComment(id: comment.id)
+            await refreshAll()
+        } catch {
+            if isCancellation(error) { return }
+            alert = AppAlert(title: "删除评论失败", message: error.localizedDescription)
         }
     }
 

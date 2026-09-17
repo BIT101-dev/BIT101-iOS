@@ -249,6 +249,7 @@ struct GalleryComposerView: View {
     ///
     /// 调用方通常会在这里刷新当前 feed，并在必要时切回用户刚发帖的分栏。
     let onCreated: () -> Void
+    let editingPoster: GalleryPosterDetail?
 
     @Environment(\.dismiss) private var dismiss
     /// 帖子标题。
@@ -265,6 +266,7 @@ struct GalleryComposerView: View {
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     /// 已经加入发帖草稿的图片列表。
     @State private var imageDrafts: [GalleryComposerImageDraft] = []
+    @State private var existingImageMids: [String] = []
     /// 当前批量读取图片并加入上传队列。
     @State private var isAddingImages = false
     /// 是否匿名发布。
@@ -287,6 +289,18 @@ struct GalleryComposerView: View {
 
     /// 发帖接口服务。
     private let service = GalleryService()
+
+    init(editingPoster: GalleryPosterDetail? = nil, onCreated: @escaping () -> Void) {
+        self.editingPoster = editingPoster
+        self.onCreated = onCreated
+        _title = State(initialValue: editingPoster?.title ?? "")
+        _text = State(initialValue: editingPoster?.text ?? "")
+        _selectedTags = State(initialValue: editingPoster?.tags ?? [])
+        _anonymous = State(initialValue: editingPoster?.anonymous ?? false)
+        _isPublic = State(initialValue: editingPoster?.public ?? true)
+        _selectedClaimID = State(initialValue: editingPoster?.claim.id ?? 0)
+        _existingImageMids = State(initialValue: editingPoster?.images.map(\.mid) ?? [])
+    }
 
     /// 内置的推荐标签。
     ///
@@ -383,7 +397,11 @@ struct GalleryComposerView: View {
                     PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: Self.maximumImageCount, matching: .images) {
                         Text("插入图片")
                     }
-                    .disabled(isSubmitting || isAddingImages || imageDrafts.count >= Self.maximumImageCount)
+                    .disabled(
+                        isSubmitting
+                            || isAddingImages
+                            || existingImageMids.count + imageDrafts.count >= Self.maximumImageCount
+                    )
 
                     if hasUploadingImages {
                         Text("图片上传中，上传完成后即可一并发布。")
@@ -392,14 +410,14 @@ struct GalleryComposerView: View {
                     }
                 }
             }
-            .navigationTitle("发布帖子")
+            .navigationTitle(editingPoster == nil ? "发布帖子" : "编辑帖子")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("取消") { requestDismiss() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(isSubmitting ? "发布中" : "发布") {
+                    Button(isSubmitting ? "保存中" : editingPoster == nil ? "发布" : "保存") {
                         Task { await submit() }
                     }
                     .disabled(isSubmitting)
@@ -439,6 +457,10 @@ struct GalleryComposerView: View {
 
     private func requestDismiss() {
         guard !isSubmitting else { return }
+        if editingPoster != nil {
+            dismiss()
+            return
+        }
         guard hasDraftContent else {
             dismiss()
             return
@@ -579,15 +601,29 @@ struct GalleryComposerView: View {
         defer { isSubmitting = false }
 
         do {
-            _ = try await service.createPoster(
-                title: trimmedTitle,
-                text: trimmedText,
-                imageMids: uploadedImages.map(\.mid),
-                anonymous: anonymous,
-                tags: tags,
-                claimID: selectedClaimID,
-                isPublic: isPublic
-            )
+            let imageMids = existingImageMids + uploadedImages.map(\.mid)
+            if let editingPoster {
+                try await service.updatePoster(
+                    id: editingPoster.id,
+                    title: trimmedTitle,
+                    text: trimmedText,
+                    imageMids: imageMids,
+                    anonymous: anonymous,
+                    tags: tags,
+                    claimID: selectedClaimID,
+                    isPublic: isPublic
+                )
+            } else {
+                _ = try await service.createPoster(
+                    title: trimmedTitle,
+                    text: trimmedText,
+                    imageMids: imageMids,
+                    anonymous: anonymous,
+                    tags: tags,
+                    claimID: selectedClaimID,
+                    isPublic: isPublic
+                )
+            }
             ComposerDraftStore.removeGallery()
             onCreated()
             dismiss()
@@ -639,7 +675,7 @@ struct GalleryComposerView: View {
         isAddingImages = true
         defer { isAddingImages = false }
         defer { selectedPhotoItems = [] }
-        let remaining = max(0, Self.maximumImageCount - imageDrafts.count)
+        let remaining = max(0, Self.maximumImageCount - existingImageMids.count - imageDrafts.count)
         guard remaining > 0 else { return }
 
         for item in items.prefix(remaining) {

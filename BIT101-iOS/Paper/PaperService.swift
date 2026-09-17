@@ -75,6 +75,19 @@ struct PaperService {
         let id: Int
     }
 
+    private struct UpdatePaperRequest: Encodable {
+        let title: String
+        let intro: String
+        let content: String
+        let anonymous: Bool
+        let publicEdit: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case title, intro, content, anonymous
+            case publicEdit = "public_edit"
+        }
+    }
+
     init(storage: LoginStorage = .shared, httpClient: HTTPClient = .community) {
         api = CommunityAPIClient(storage: storage, httpClient: httpClient, errorDomain: "BIT101.Paper")
     }
@@ -170,6 +183,33 @@ struct PaperService {
             )
         )
         return response.id
+    }
+
+    func updatePaper(
+        id: Int,
+        title: String,
+        intro: String,
+        content: String,
+        anonymous: Bool,
+        publicEdit: Bool = true
+    ) async throws {
+        try await api.requestVoid(
+            path: "papers/\(id)",
+            method: "PUT",
+            body: try api.encode(
+                UpdatePaperRequest(
+                    title: title,
+                    intro: intro,
+                    content: content,
+                    anonymous: anonymous,
+                    publicEdit: publicEdit
+                )
+            )
+        )
+    }
+
+    func deletePaper(id: Int) async throws {
+        try await api.requestVoid(path: "papers/\(id)", method: "DELETE")
     }
 
 }

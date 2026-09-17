@@ -11,19 +11,10 @@ if [[ $# -eq 0 ]]; then
   DEVICETCL_DEVICE_ID="$BIT101_DEVICETCL_DEVICE_ID"
 else
   if [[ $# -gt 2 ]]; then
-    echo "用法: $0 [真机设备ID] [Developer目录]" >&2
+    echo "用法: $0 [真机设备ID]" >&2
     exit 64
   fi
   DEVICE_ID="$1"
-  if [[ -n "${2:-}" ]]; then
-    export DEVELOPER_DIR="$2"
-  elif [[ -n "${DEVELOPER_DIR:-}" ]]; then
-    export DEVELOPER_DIR="$DEVELOPER_DIR"
-  elif [[ -d "/Users/harrybit/Desktop/Xcode.app/Contents/Developer" ]]; then
-    export DEVELOPER_DIR="/Users/harrybit/Desktop/Xcode.app/Contents/Developer"
-  else
-    export DEVELOPER_DIR="/Users/harrybit/Desktop/Xcode-beta.app/Contents/Developer"
-  fi
   DEVICETCL_DEVICE_ID="$DEVICE_ID"
 fi
 
@@ -60,7 +51,7 @@ rm -f "$LOG_FILE" "$BUILD_LOG" "$LOCAL_REPORT_PATH"
 
 restore_normal_app() {
   local smoke_status=$?
-  if ! DEVELOPER_DIR="$DEVELOPER_DIR" "$ROOT_DIR/Scripts/build-install-device.sh" >/dev/null 2>&1; then
+  if ! "$ROOT_DIR/Scripts/build-install-device.sh" >/dev/null 2>&1; then
     echo "恢复正常 App 失败，当前设备可能仍运行网络采样宿主。" >&2
     [[ $smoke_status -eq 0 ]] && smoke_status=1
   fi

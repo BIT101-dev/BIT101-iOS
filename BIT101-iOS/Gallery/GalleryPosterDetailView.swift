@@ -20,6 +20,7 @@ struct GalleryPosterDetailView: View {
     @State private var isShowingDeleteConfirmation = false
     @State private var reportTarget: GalleryReportTarget?
     @State private var imageAspectRatios: [Int: CGFloat] = [:]
+    @State private var isShowingEditor = false
     let onDeleted: (() -> Void)?
 
     init(
@@ -168,6 +169,9 @@ struct GalleryPosterDetailView: View {
                     onReportComment: { comment in
                         reportTarget = .comment(comment.id)
                     },
+                    onDeleteComment: { comment in
+                        Task { await viewModel.deleteComment(comment) }
+                    },
                     onOpenImage: { index, images in
                         imageViewer = GalleryImageViewerState(images: images, initialIndex: index)
                     },
@@ -202,6 +206,15 @@ struct GalleryPosterDetailView: View {
                     accessibilityLabel: "分享话题"
                 )
 
+                if viewModel.poster.own {
+                    Button {
+                        isShowingEditor = true
+                    } label: {
+                        Image(systemName: "pencil")
+                    }
+                    .accessibilityLabel("编辑帖子")
+                }
+
                 GalleryPosterActionMenu(
                     onDelete: viewModel.poster.own ? {
                         isShowingDeleteConfirmation = true
@@ -216,13 +229,26 @@ struct GalleryPosterDetailView: View {
             await viewModel.bootstrapIfNeeded()
         }
         .gallerySystemImagePreview(item: $imageViewer)
+        .sheet(isPresented: $isShowingEditor) {
+            NavigationStack {
+                GalleryComposerView(editingPoster: viewModel.poster) {
+                    isShowingEditor = false
+                    Task { await viewModel.refreshAll() }
+                }
+            }
+        }
         .sheet(item: $composerTarget) { target in
             GalleryCommentComposerSheet(
                 target: target,
                 isSubmitting: viewModel.isSubmittingComment
-            ) { text, anonymous in
+            ) { text, anonymous, images in
                 Task {
-                    let success = await viewModel.submitComment(text: text, anonymous: anonymous, target: target)
+                    let success = await viewModel.submitComment(
+                        text: text,
+                        anonymous: anonymous,
+                        imageMids: images.map(\.mid),
+                        target: target
+                    )
                     if success {
                         composerTarget = nil
                     }
