@@ -192,7 +192,7 @@ struct UserProfileRootView: View {
             }
         }
         .appGroupedListStyle()
-        .navigationTitle(navigationTitle)
+        .navigationTitle("用户详情")
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await viewModel.bootstrapIfNeeded()

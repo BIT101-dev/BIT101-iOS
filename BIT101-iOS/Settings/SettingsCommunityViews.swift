@@ -17,15 +17,15 @@ struct GallerySettingsPage: View {
                 ))
                 .appSelectionFeedback(trigger: settings.galleryHideBotPosterInSearch)
 
-                TextField("屏蔽用户 UID（逗号分隔）", text: $hiddenUserIDsText)
-                    .keyboardType(.numbersAndPunctuation)
-                    .onSubmit { saveHiddenUserIDs() }
-
-                Toggle("严格屏蔽匿名内容", isOn: Binding(
+                Toggle("隐藏匿名内容", isOn: Binding(
                     get: { settings.galleryStrictUserFilter },
                     set: { settings.updateGallerySettings(strictUserFilter: $0) }
                 ))
                 .appSelectionFeedback(trigger: settings.galleryStrictUserFilter)
+
+                TextField("屏蔽用户 UID（逗号分隔）", text: $hiddenUserIDsText)
+                    .keyboardType(.numbersAndPunctuation)
+                    .onSubmit { saveHiddenUserIDs() }
             }
 
             Section {
