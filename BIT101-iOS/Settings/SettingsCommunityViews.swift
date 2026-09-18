@@ -7,6 +7,8 @@ struct GallerySettingsPage: View {
     @State private var imageCacheUsageText = "计算中"
     @State private var imageCacheUsageGeneration = 0
     @State private var hiddenUserIDsText = ""
+    @StateObject private var networkDiagnosis = NetworkDiagnosisRunner()
+    @State private var diagnosisAlert: AppAlert?
 
     var body: some View {
         List {
@@ -34,6 +36,36 @@ struct GallerySettingsPage: View {
                     set: { settings.updateGallerySettings(useWebView: $0) }
                 ))
                 .appSelectionFeedback(trigger: settings.galleryUseWebView)
+            }
+
+            Section("网络诊断") {
+                Button {
+                    Task {
+                        guard let report = await networkDiagnosis.run() else { return }
+                        diagnosisAlert = AppAlert(
+                            title: "网络诊断完成",
+                            message: report.summary,
+                            showsRecoveryLinks: false
+                        )
+                    }
+                } label: {
+                    HStack(spacing: AppDesignSystem.Spacing.control) {
+                        Text("测试网络并发送诊断报告")
+                        Spacer()
+                        if networkDiagnosis.isRunning {
+                            Text("\(networkDiagnosis.completedCount)/\(networkDiagnosis.totalCount)")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .disabled(networkDiagnosis.isRunning)
+                if networkDiagnosis.isRunning {
+                    ProgressView(
+                        value: Double(networkDiagnosis.completedCount),
+                        total: Double(networkDiagnosis.totalCount)
+                    )
+                    .accessibilityValue("\(networkDiagnosis.completedCount)/\(networkDiagnosis.totalCount)")
+                }
             }
 
             Section {
@@ -64,6 +96,7 @@ struct GallerySettingsPage: View {
 
         }
         .appGroupedListStyle()
+        .diagnosticAlert(item: $diagnosisAlert)
         .task {
             imageCacheLimitMB = GalleryImageCachePreferences.limitMB
             hiddenUserIDsText = settings.galleryHiddenUserIDs.map(String.init).joined(separator: ",")

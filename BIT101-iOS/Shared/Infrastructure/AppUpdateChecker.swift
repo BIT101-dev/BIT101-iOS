@@ -280,9 +280,15 @@ final class AppPromptCoordinator: ObservableObject {
     private var handledIDs: Set<String> = []
     private var advanceTask: Task<Void, Never>?
     private let advanceDelay: Duration
+    private var dismissalWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+    private(set) var isHostReady = false
 
     init(advanceDelay: Duration = .milliseconds(350)) {
         self.advanceDelay = advanceDelay
+    }
+
+    func markHostReady() {
+        isHostReady = true
     }
 
     func enqueue(_ prompt: AppPrompt) {
@@ -294,6 +300,17 @@ final class AppPromptCoordinator: ObservableObject {
         queuedIDs.insert(prompt.id)
         queue.append(prompt)
         presentNextIfPossible()
+    }
+
+    func enqueueAndWait(_ prompt: AppPrompt) async {
+        guard isHostReady else {
+            enqueue(prompt)
+            return
+        }
+        await withCheckedContinuation { continuation in
+            dismissalWaiters[prompt.id, default: []].append(continuation)
+            enqueue(prompt)
+        }
     }
 
     func perform(_ action: AppPromptAction) {
@@ -313,6 +330,8 @@ final class AppPromptCoordinator: ObservableObject {
         activePrompt.onDismiss()
         handledIDs.insert(activePrompt.id)
         self.activePrompt = nil
+        let waiters = dismissalWaiters.removeValue(forKey: activePrompt.id) ?? []
+        waiters.forEach { $0.resume() }
 
         // 测试或动画已关闭的宿主显式关闭退场等待时，队列立即推进；队列行为直接由当前调用决定。
         if advanceDelay == .zero {
@@ -404,8 +423,11 @@ private struct AppPromptHostModifier: ViewModifier {
     @Environment(\.openURL) private var openURL
     @StateObject private var promptCoordinator = AppPromptCoordinator.shared
     private let updateCoordinator = AppUpdatePromptCoordinator.shared
+    private let networkConnectionDescription = NetworkConnectionDescription.shared
 
     func body(content: Content) -> some View {
+        let _ = promptCoordinator.markHostReady()
+        let _ = networkConnectionDescription
         content
             .task {
                 guard let notice = await updateCoordinator.noticeToPresentAtLaunch() else { return }

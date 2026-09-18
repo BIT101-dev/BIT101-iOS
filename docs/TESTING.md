@@ -32,13 +32,23 @@ BIT101_INSTALL_TARGET=macCatalyst Scripts/build-install-device.sh
 
 ## 运行真机自动化测试
 
-连接并信任真机后，直接运行现有测试脚本：
+连接并信任真机后，直接运行全量自动化测试：
 
 ```sh
 Scripts/run-extended-tests.sh
 ```
 
-该脚本依次运行默认测试 Target 和 27 项扩展测试，详细失败日志写入 `.build/extended-automation`。
+脚本在一次真机测试进程中编译并运行默认测试与扩展测试，详细失败日志写入 `.build/extended-automation/all-tests.log`。
+需要缩短开发反馈周期时按组运行：
+
+```sh
+Scripts/run-extended-tests.sh default
+Scripts/run-extended-tests.sh schedule
+Scripts/run-extended-tests.sh infrastructure
+Scripts/run-extended-tests.sh login
+```
+
+分组日志分别写入固定的 `default-tests.log`、`ExtendedSchedulePolicyTests.log`、`ExtendedInfrastructureTests.log` 和 `ExtendedLoginTests.log`。
 
 2026-08-09 的历史基线为 **40 项测试全部通过，0 条编译警告/错误**；当前默认测试 Target 有 **110 项自动化用例**（100 项 Swift Testing、10 项 XCTest）。另有 27 项扩展测试与 5 项专用 smoke 用例。测试覆盖范围包括：
 
@@ -262,10 +272,13 @@ UI 契约检查由 `check-ui-consistency.py` 统一维护：页面和公共组�
 
 ## 扩展自动化测试
 
-扩展测试使用 `EXTENDED_AUTOMATION` 条件编译，默认测试和 Release 包均排除这些用例。运行：
+扩展测试使用 `EXTENDED_AUTOMATION` 条件编译。全量入口一次运行默认测试与扩展测试；分组入口适合开发阶段快速定位：
 
 ```sh
 Scripts/run-extended-tests.sh
+Scripts/run-extended-tests.sh schedule
+Scripts/run-extended-tests.sh infrastructure
+Scripts/run-extended-tests.sh login
 ```
 
-脚本在真机上分组执行 27 项课程表策略、基础设施和登录状态测试；未连接真机时直接提示，模拟器保持停用。测试日志保存在 `.build/extended-automation`。
+脚本在真机上执行课程表策略、基础设施和登录状态测试；未连接真机时直接提示，模拟器保持停用。测试日志保存在 `.build/extended-automation`。

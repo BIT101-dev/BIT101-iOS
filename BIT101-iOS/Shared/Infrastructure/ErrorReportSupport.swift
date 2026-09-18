@@ -8,6 +8,7 @@ protocol DiagnosticAlertPresentable: Identifiable {
     var title: String { get }
     var message: String { get }
     var allowsDiagnostics: Bool { get }
+    var showsRecoveryLinks: Bool { get }
 }
 
 extension AppAlert: DiagnosticAlertPresentable {}
@@ -23,27 +24,265 @@ enum AppBuildEnvironment {
 #endif
 }
 
-private nonisolated final class NetworkConnectionDescription: @unchecked Sendable {
+struct NetworkConnectionSnapshot: Equatable, Sendable {
+    let summary: String
+    let virtualNetworkLikely: Bool
+}
+
+@MainActor
+final class NetworkMagicWarningCenter {
+    static let shared = NetworkMagicWarningCenter()
+
+    private static let cooldown: TimeInterval = 10 * 60
+    private var lastShownAtByScope: [String: Date] = [:]
+    private var lastPathSummaryByScope: [String: String] = [:]
+    private var activeWarningTask: Task<Void, Never>?
+
+    private init() {}
+
+    func consider(url: URL?) async -> Bool {
+        guard let host = url?.host?.lowercased(), !Self.isBIT101Host(host) else { return false }
+#if BIT101_AUTOMATED_TESTING
+        return false
+#endif
+        if let activeWarningTask {
+            await activeWarningTask.value
+        }
+        let snapshot = NetworkConnectionDescription.shared.snapshot
+        guard snapshot.virtualNetworkLikely else { return false }
+
+        let scope = Self.isSchoolHost(host) ? "school" : "external"
+        let now = Date()
+        let pathChanged = snapshot.summary != lastPathSummaryByScope[scope]
+        let cooldownExpired = lastShownAtByScope[scope].map {
+            now.timeIntervalSince($0) >= Self.cooldown
+        } ?? true
+        guard pathChanged || cooldownExpired else { return false }
+
+        let prompt = AppPrompt(
+            id: "network-magic-\(UUID().uuidString)",
+            title: "检测到可能在使用魔法",
+            message: "关闭食用效果更佳～",
+            actions: [
+                AppPromptAction(id: "dismiss", title: "知道了", isDefault: true) {}
+            ]
+        )
+#if RELEASE_NETWORK_SMOKE
+        lastPathSummaryByScope[scope] = snapshot.summary
+        lastShownAtByScope[scope] = now
+        AppPromptCoordinator.shared.enqueue(prompt)
+#else
+        guard AppPromptCoordinator.shared.isHostReady else { return false }
+        lastPathSummaryByScope[scope] = snapshot.summary
+        lastShownAtByScope[scope] = now
+        let dismissalTask = Task { @MainActor in
+            await AppPromptCoordinator.shared.enqueueAndWait(prompt)
+        }
+        activeWarningTask = dismissalTask
+        await dismissalTask.value
+        activeWarningTask = nil
+#endif
+        return true
+    }
+
+    private static func isBIT101Host(_ host: String) -> Bool {
+        host == "bit101.cn"
+            || host.hasSuffix(".bit101.cn")
+            || host == "aihelpme.dev"
+            || host.hasSuffix(".aihelpme.dev")
+            || host == "bit101.flwfdd.xyz"
+            || host.hasSuffix(".bit101.flwfdd.xyz")
+    }
+
+    private static func isSchoolHost(_ host: String) -> Bool {
+        host == "bit.edu.cn" || host.hasSuffix(".bit.edu.cn")
+    }
+}
+
+nonisolated final class NetworkConnectionDescription: @unchecked Sendable {
     static let shared = NetworkConnectionDescription()
     private let monitor = NWPathMonitor()
     private let lock = NSLock()
     private var value = "检测中"
+    private var virtualNetworkLikely = false
 
     private init() {
         monitor.pathUpdateHandler = { [weak self] path in
+            var seenInterfaces = Set<String>()
+            let interfaces = path.availableInterfaces
+                .map(Self.label(for:))
+                .filter { seenInterfaces.insert($0).inserted }
             let description: String
-            if path.status != .satisfied { description = "未连接" }
-            else if path.usesInterfaceType(.wifi) { description = "Wi-Fi" }
-            else if path.usesInterfaceType(.cellular) { description = "蜂窝网络" }
-            else { description = "已连接" }
-            self?.lock.lock(); self?.value = description; self?.lock.unlock()
+            if path.status != .satisfied {
+                description = "未连接"
+            } else if interfaces.isEmpty {
+                description = "已连接"
+            } else {
+                description = "已连接 · " + interfaces.joined(separator: " + ")
+            }
+            self?.lock.lock()
+            self?.value = description
+            self?.virtualNetworkLikely = path.usesInterfaceType(.other)
+            self?.lock.unlock()
         }
         monitor.start(queue: DispatchQueue(label: "dev.aihelpme.bit101.network-report"))
     }
 
     var current: String {
-        lock.lock(); defer { lock.unlock() }
-        return value
+        snapshot.summary
+    }
+
+    var snapshot: NetworkConnectionSnapshot {
+        let cached: NetworkConnectionSnapshot
+        lock.lock()
+        cached = makeSnapshotLocked()
+        lock.unlock()
+
+        let livePath = monitor.currentPath
+        guard livePath.status != .requiresConnection else { return cached }
+        return Self.snapshot(for: livePath)
+    }
+
+    private func makeSnapshotLocked() -> NetworkConnectionSnapshot {
+        NetworkConnectionSnapshot(summary: value, virtualNetworkLikely: virtualNetworkLikely)
+    }
+
+    private static func snapshot(for path: NWPath) -> NetworkConnectionSnapshot {
+        var seenInterfaces = Set<String>()
+        let interfaces = path.availableInterfaces
+            .map(label(for:))
+            .filter { seenInterfaces.insert($0).inserted }
+        let summary: String
+        if path.status != .satisfied {
+            summary = "未连接"
+        } else if interfaces.isEmpty {
+            summary = "已连接"
+        } else {
+            summary = "已连接 · " + interfaces.joined(separator: " + ")
+        }
+        return NetworkConnectionSnapshot(
+            summary: summary,
+            virtualNetworkLikely: path.usesInterfaceType(.other)
+        )
+    }
+
+    private static func label(for interface: NWInterface) -> String {
+        switch interface.type {
+        case .wifi: return "Wi‑Fi"
+        case .cellular: return "蜂窝网络"
+        case .wiredEthernet: return "有线网络"
+        case .other: return "虚拟/未知接口"
+        case .loopback: return "回环接口"
+        @unknown default: return "其他接口"
+        }
+    }
+}
+
+struct NetworkDiagnosisReport: Equatable, Sendable {
+    let results: [String]
+
+    var summary: String {
+        results.joined(separator: "\n")
+    }
+}
+
+@MainActor
+final class NetworkDiagnosisRunner: ObservableObject {
+    private enum Step: CaseIterable {
+        case path
+        case bit101Home
+        case gallery
+        case paper
+        case currentTerm
+        case schedule
+        case ddl
+        case transcript
+
+        var title: String {
+            switch self {
+            case .path: return "网络路径"
+            case .bit101Home: return "BIT101 首页"
+            case .gallery: return "话廊接口"
+            case .paper: return "文章接口"
+            case .currentTerm: return "学校当前学期"
+            case .schedule: return "课表与考试"
+            case .ddl: return "DDL 接口"
+            case .transcript: return "可信成绩单"
+            }
+        }
+    }
+
+    @Published private(set) var isRunning = false
+    @Published private(set) var completedCount = 0
+    let totalCount = Step.allCases.count
+
+    func run() async -> NetworkDiagnosisReport? {
+        guard !isRunning else { return nil }
+        isRunning = true
+        completedCount = 0
+        defer { isRunning = false }
+
+        var results: [String] = []
+        for step in Step.allCases {
+            let result = await run(step)
+            results.append(result)
+            completedCount += 1
+        }
+        return NetworkDiagnosisReport(results: results)
+    }
+
+    private func run(_ step: Step) async -> String {
+        do {
+            let detail: String
+            switch step {
+            case .path:
+                let snapshot = NetworkConnectionDescription.shared.snapshot
+                detail = snapshot.virtualNetworkLikely
+                    ? "\(snapshot.summary)，可能经过虚拟网络或代理"
+                    : snapshot.summary
+            case .bit101Home:
+                _ = try await fetch(AppURL.required("https://open.aihelpme.dev"))
+                detail = "通过"
+            case .gallery:
+                _ = try await GalleryService().fetchFeed(kind: .newest, page: nil)
+                detail = "通过"
+            case .paper:
+                _ = try await PaperService().fetchPapers(search: nil, order: .newest, page: 0)
+                detail = "通过"
+            case .currentTerm:
+                _ = try await ScheduleService().fetchCurrentTermOnly()
+                detail = "通过"
+            case .schedule:
+                let service = ScheduleService()
+                let term = try await service.fetchCurrentTermOnly()
+                _ = try await service.syncCourses(term: term)
+                detail = "通过"
+            case .ddl:
+                _ = try await ScheduleService().refreshLexueCalendarURL(
+                    schoolSMSCodeHandler: nil,
+                    smsDeliveryMode: .preflight
+                )
+                detail = "通过"
+            case .transcript:
+                _ = try await ScoreService().fetchTrustedTranscriptPages()
+                detail = "通过"
+            }
+            return "\(step.title)：\(detail)"
+        } catch ScheduleServiceError.secondFactorRequired,
+                  ScheduleServiceError.schoolSecondFactorRequired,
+                  ScoreServiceError.secondFactorRequired {
+            return "\(step.title)：需要短信验证"
+        } catch {
+            return "\(step.title)：失败，\(error.localizedDescription)"
+        }
+    }
+
+    private func fetch(_ url: URL) async throws -> Data {
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
+        request.setValue("BIT101-iOS network diagnosis", forHTTPHeaderField: "User-Agent")
+        let response = try await HTTPClient.shared.send(request, accepting: 200 ..< 400)
+        guard !response.data.isEmpty else { throw URLError(.zeroByteResource) }
+        return response.data
     }
 }
 
@@ -333,6 +572,7 @@ private struct AppErrorPresentation: Identifiable {
     let title: String
     let message: String
     let allowsDiagnostics: Bool
+    let showsRecoveryLinks: Bool
     let schoolServiceURL: URL?
     let shouldOpenSettings: Bool
 
@@ -375,6 +615,18 @@ final class AppErrorPresenter {
 
     func present(_ alert: any DiagnosticAlertPresentable) {
         let generation = presentationGeneration
+        if !alert.allowsDiagnostics {
+            queue.append(AppErrorPresentation(
+                title: alert.title,
+                message: alert.message,
+                allowsDiagnostics: false,
+                showsRecoveryLinks: false,
+                schoolServiceURL: nil,
+                shouldOpenSettings: (alert as? ScheduleNotice)?.shouldOpenSettings ?? false
+            ))
+            presentNextIfPossible()
+            return
+        }
         Task { @MainActor [weak self] in
             let schoolServiceURL = await NetworkDiagnosticStore.shared.latestSchoolServicePageURL()
             guard let self, self.presentationGeneration == generation else { return }
@@ -382,6 +634,7 @@ final class AppErrorPresenter {
                 title: alert.title,
                 message: alert.message,
                 allowsDiagnostics: alert.allowsDiagnostics,
+                showsRecoveryLinks: alert.showsRecoveryLinks,
                 schoolServiceURL: schoolServiceURL,
                 shouldOpenSettings: (alert as? ScheduleNotice)?.shouldOpenSettings ?? false
             ))
@@ -418,14 +671,16 @@ final class AppErrorPresenter {
         }
 
         if item.allowsDiagnostics {
+            if item.showsRecoveryLinks {
             controller.addAction(UIAlertAction(title: "查看是否有更新", style: .default) { [weak self] _ in
                 UIApplication.shared.open(BIT101AppStore.url)
                 self?.finishAlert()
             })
+            }
             controller.addAction(UIAlertAction(title: "向开发者分享错误信息", style: .default) { [weak self] _ in
                 self?.presentReportSheet(for: item)
             })
-            if item.allowsSchoolServiceLink {
+            if item.showsRecoveryLinks, item.allowsSchoolServiceLink {
                 controller.addAction(UIAlertAction(title: "万一学校服务 g 了？", style: .default) { [weak self] _ in
                     if let schoolServiceURL = item.schoolServiceURL {
                         UIApplication.shared.open(schoolServiceURL)

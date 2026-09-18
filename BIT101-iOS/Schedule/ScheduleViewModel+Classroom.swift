@@ -345,7 +345,7 @@ extension ScheduleViewModel {
                 return
             }
             if scheduleError.isSchoolTransportFailure {
-                notice = ScheduleNotice(
+                notice = schoolFailureNotice(
                     title: "学校服务连接失败",
                     message: scheduleError.schoolTransportFailureMessage
                 )
@@ -357,7 +357,7 @@ extension ScheduleViewModel {
             }
         }
 
-        notice = ScheduleNotice(title: title, message: error.localizedDescription)
+        notice = schoolFailureNotice(title: title, message: error.localizedDescription)
     }
 
     /// 标记当前空教室请求已正常结束。

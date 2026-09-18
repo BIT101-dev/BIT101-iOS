@@ -10,6 +10,7 @@ extension ScheduleViewModel {
     @discardableResult
     func syncDDL(showSuccessNotice: Bool = true, showErrorNotice: Bool = true) async -> Bool {
         guard !isSyncingDDL else { return false }
+        notice = nil
         isSyncingDDL = true
         defer { isSyncingDDL = false }
 
@@ -48,13 +49,13 @@ extension ScheduleViewModel {
                 break
             }
             if showErrorNotice {
-                notice = ScheduleNotice(title: "DDL 同步失败", message: error.localizedDescription)
+                notice = schoolFailureNotice(title: "DDL 同步失败", message: error.localizedDescription)
             }
             return false
         } catch {
             if isCancellation(error) { return false }
             if showErrorNotice {
-                notice = ScheduleNotice(title: "DDL 同步失败", message: error.localizedDescription)
+                notice = schoolFailureNotice(title: "DDL 同步失败", message: error.localizedDescription)
             }
             return false
         }
@@ -70,6 +71,7 @@ extension ScheduleViewModel {
     ///
     /// 主要用在订阅链接失效或用户主动要求重置时。
     func refreshLexueCalendarURL(showSuccessNotice: Bool = true) async {
+        notice = nil
         isSyncingDDL = true
         defer { isSyncingDDL = false }
 
@@ -90,11 +92,11 @@ extension ScheduleViewModel {
             case .schoolSMSUnavailable:
                 notice = ScheduleNotice(title: "短信验证失败", message: error.localizedDescription)
             default:
-                notice = ScheduleNotice(title: "订阅链接获取失败", message: error.localizedDescription)
+                notice = schoolFailureNotice(title: "订阅链接获取失败", message: error.localizedDescription)
             }
         } catch {
             if isCancellation(error) { return }
-            notice = ScheduleNotice(title: "订阅链接获取失败", message: error.localizedDescription)
+            notice = schoolFailureNotice(title: "订阅链接获取失败", message: error.localizedDescription)
         }
     }
 

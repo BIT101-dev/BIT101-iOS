@@ -39,6 +39,9 @@ struct HTTPClient {
         _ request: URLRequest,
         accepting statusCodes: Range<Int> = 200 ..< 300
     ) async throws -> HTTPResponse {
+        if let url = request.url {
+            _ = await NetworkMagicWarningCenter.shared.consider(url: url)
+        }
         let startedAt = Date()
         let data: Data
         let response: URLResponse

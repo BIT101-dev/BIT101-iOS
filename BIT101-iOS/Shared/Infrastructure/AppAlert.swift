@@ -6,11 +6,18 @@ struct AppAlert: Identifiable {
     let title: String
     let message: String
     let allowsDiagnostics: Bool
+    let showsRecoveryLinks: Bool
 
-    init(title: String, message: String, allowsDiagnostics: Bool = true) {
+    init(
+        title: String,
+        message: String,
+        allowsDiagnostics: Bool = true,
+        showsRecoveryLinks: Bool = true
+    ) {
         self.title = title
         self.message = message
         self.allowsDiagnostics = allowsDiagnostics
+        self.showsRecoveryLinks = showsRecoveryLinks
     }
 
     static func userInput(title: String, message: String) -> AppAlert {

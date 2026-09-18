@@ -67,17 +67,20 @@ struct ScheduleNotice: Identifiable {
     let message: String
     let shouldOpenSettings: Bool
     let allowsDiagnostics: Bool
+    let showsRecoveryLinks: Bool
 
     init(
         title: String,
         message: String,
         shouldOpenSettings: Bool = false,
-        allowsDiagnostics: Bool = true
+        allowsDiagnostics: Bool = true,
+        showsRecoveryLinks: Bool = true
     ) {
         self.title = title
         self.message = message
         self.shouldOpenSettings = shouldOpenSettings
         self.allowsDiagnostics = allowsDiagnostics
+        self.showsRecoveryLinks = showsRecoveryLinks
     }
 
     static func userInput(
@@ -95,6 +98,21 @@ struct ScheduleNotice: Identifiable {
 
     static func informational(title: String, message: String) -> ScheduleNotice {
         ScheduleNotice(title: title, message: message, allowsDiagnostics: false)
+    }
+}
+
+extension ScheduleViewModel {
+    func schoolFailureNotice(title: String, message: String) -> ScheduleNotice {
+        let snapshot = NetworkConnectionDescription.shared.snapshot
+        guard snapshot.virtualNetworkLikely else {
+            return ScheduleNotice(title: title, message: message)
+        }
+        return ScheduleNotice(
+            title: title,
+            message: "\(message)\n\n先关掉魔法试试。",
+            allowsDiagnostics: false,
+            showsRecoveryLinks: false
+        )
     }
 }
 

@@ -32,7 +32,7 @@ extension ScheduleViewModel {
             smsVerificationError = nil
         } catch let error as ScheduleServiceError where error.isSchoolTransportFailure {
             courseSyncCoordinator.reset()
-            notice = ScheduleNotice(
+            notice = schoolFailureNotice(
                 title: "学校服务连接失败",
                 message: error.schoolTransportFailureMessage
             )
@@ -45,7 +45,7 @@ extension ScheduleViewModel {
             notice = ScheduleNotice.userInput(title: "课表暂未发布", message: error.localizedDescription)
         } catch {
             if isCancellation(error) { return }
-            notice = ScheduleNotice(title: "课表同步失败", message: error.localizedDescription)
+            notice = schoolFailureNotice(title: "课表同步失败", message: error.localizedDescription)
         }
     }
 
@@ -101,7 +101,7 @@ extension ScheduleViewModel {
             smsVerificationError = nil
         } catch let error as ScheduleServiceError where error.isSchoolTransportFailure {
             courseSyncCoordinator.reset()
-            notice = ScheduleNotice(
+            notice = schoolFailureNotice(
                 title: "学校服务连接失败",
                 message: error.schoolTransportFailureMessage
             )
@@ -111,7 +111,7 @@ extension ScheduleViewModel {
         } catch {
             if isCancellation(error) { return }
             hasLoadedAvailableTerms = true
-            notice = ScheduleNotice(title: "学期列表加载失败", message: error.localizedDescription)
+            notice = schoolFailureNotice(title: "学期列表加载失败", message: error.localizedDescription)
         }
     }
 
@@ -160,7 +160,7 @@ extension ScheduleViewModel {
             smsChallenge = nil
             smsVerificationError = nil
             courseSyncCoordinator.reset()
-            notice = ScheduleNotice(
+            notice = schoolFailureNotice(
                 title: "学校服务连接失败",
                 message: error.schoolTransportFailureMessage
             )

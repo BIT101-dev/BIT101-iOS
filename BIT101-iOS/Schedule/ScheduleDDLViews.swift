@@ -131,11 +131,10 @@ struct DDLScheduleTabView: View {
 
     private func refreshDDL() async {
         guard !viewModel.isSyncingDDL else { return }
-
-        if !viewModel.hasLexueCalendarURL {
-            await viewModel.refreshLexueCalendarURL(showSuccessNotice: false)
-            guard viewModel.hasLexueCalendarURL else { return }
-        }
+        _ = await NetworkMagicWarningCenter.shared.consider(
+            url: URL(string: "https://sso.bit.edu.cn")
+        )
+        guard !Task.isCancelled else { return }
         _ = await viewModel.syncDDL()
     }
 
