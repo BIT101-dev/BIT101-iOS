@@ -223,7 +223,7 @@ struct GalleryCommentComposerSheet: View {
                     .disabled(isSubmitting || isUploadingImages)
 
                     if isUploadingImages {
-                        ProgressView("上传中")
+                        AppInlineLoadingState("上传中")
                     }
                     if let uploadError {
                         Text(uploadError)

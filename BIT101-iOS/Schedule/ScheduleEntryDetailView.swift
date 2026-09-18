@@ -25,6 +25,9 @@ struct ScheduleEntryDetailSheet: View {
     let onImportCourse: (String) -> Void
     let onDeleteCalendarMarkers: (Set<String>) -> Void
     let onDeleteCalendarCourse: (String) -> Void
+    let onImportExam: (String) -> Void
+    let onImportCustomSchedule: (String) -> Void
+    let onDeleteCalendarEntry: (String) -> Void
     let onEditCustomSchedule: () -> Void
     let onDeleteCustomSchedule: () -> Void
     @Environment(\.dismiss) private var dismiss
@@ -53,6 +56,17 @@ struct ScheduleEntryDetailSheet: View {
                             }
                         }
                     }
+
+                    if entry.kind == .exam {
+                        Section {
+                            Button("导入考试到日历") {
+                                onImportExam(entry.sourceID)
+                            }
+                            Button("移除考试日历事件", role: .destructive) {
+                                onDeleteCalendarEntry("exam-\(entry.sourceID)")
+                            }
+                        }
+                    }
                 }
 
                 if entry.kind == .course, !allowsCourseMutation {
@@ -71,10 +85,19 @@ struct ScheduleEntryDetailSheet: View {
                             dismiss()
                             onEditCustomSchedule()
                         }
-                        Button("删除", role: .destructive) {
-                            onDeleteCustomSchedule()
-                        }
+                Button("删除", role: .destructive) {
+                    onDeleteCustomSchedule()
+                }
+
+                Section {
+                    Button("导入到系统日历") {
+                        onImportCustomSchedule(entry.sourceID)
                     }
+                    Button("移除日历事件", role: .destructive) {
+                        onDeleteCalendarEntry("custom-\(entry.sourceID)")
+                    }
+                }
+            }
                 }
             }
             .appGroupedListStyle()

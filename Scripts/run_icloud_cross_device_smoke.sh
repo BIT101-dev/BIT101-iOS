@@ -19,6 +19,8 @@ else
   DEVICE_ID="$1"
 fi
 
+mkdir -p "$DERIVED_ROOT"
+
 common_args=(
   -quiet
   -project "$PROJECT"

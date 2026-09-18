@@ -1,190 +1,143 @@
 # iOS / Android 功能对照审计
 
-## 审计状态
+## 审计基线
 
-- 开始提交：`2f54df7`
-- Android 基线：`6d79f18`
-- 审计方式：Android 与 iOS git 提交、模块、服务、UI、测试入口交叉阅读
-- 并行审计：4 个 Luna xhigh 请求，4 个有效结果已汇总
-- 当前阶段：第一轮高置信度结果完成
+- iOS：`41c6af2 fix: correct schedule week normalization and calendar imports`
+- Android：`6d79f18 🔖 更新版本号至1.4.0`
+- 审计范围：Android `features`、`api`、`data` 与 iOS `Course`、`Gallery`、`Login`、`Map`、`Mine`、`Paper`、`Schedule`、`Score`、`Settings`、`Shared`
+- 审计方式：两端路由、页面、设置、网络服务、持久化、日历和测试入口交叉核对
+- 工作边界：本仓库记录 iOS 功能对照；Android、Web 前端、服务端由对应维护主体负责
 
-## 记录格式
+## 已完成的对齐项
 
-每项缺口记录以下信息：
+### 学校登录与日程网络
 
-- 功能名称
-- Android commit 与文件证据
-- iOS commit 与文件证据
-- 当前 iOS 状态
-- 缺口等级：高 / 中 / 低 / 待确认
-- 建议验证入口
+- 学校 SSO 静默恢复
+- 普通学校登录短信验证
+- 课表、考试、空教室、成绩、可信成绩单的学校会话恢复
+- 社区 401 刷新、并发复用和单次重试
+- DDL WebVPN / 校园网直连路线切换
+- DDL 订阅地址缓存、线路重试和路线偏好记录
+- 课表行级周次解析与小学期首周偏移校正
+- Smoke 对周次证据、首周日期和同步结果执行语义校验
 
-## 初始范围
+### 社区与内容
 
-Android 模块：`gallery`、`login`、`map`、`message`、`postedit`、`poster`、`report`、`schedule`、`setting`、`theme`、`user`、`versions`、`web`。
+- 帖子创建、编辑、删除
+- 文章创建、编辑、删除
+- 帖子和评论举报
+- 他人主页关注、取消关注
+- 粉丝、关注列表进入用户详情
+- UID 屏蔽
+- 机器人帖子过滤
+- 匿名内容过滤
+- 评论图片上传、预览、复制、删除
+- 消息分类、未读数、消息详情跳转
+- 话廊原生模式与可选 WebKit 模式
+- 帖子、评论、文章的图片展示和自适应布局
 
-iOS 模块：`Course`、`Gallery`、`Login`、`Map`、`Mine`、`Paper`、`Schedule`、`Score`、`Settings`、`Shared`、`WatchSync`。
+### 版本与日历
 
-## 当前高关注方向
+- 启动自动检查更新
+- 自动检查开关，默认开启并持久化
+- 手动检查更新
+- 当前学期课程批量导入系统日历
+- 单节课程导入、删除
+- 单门课程导入、删除
+- 考试详情导入、删除
+- 自定义日程详情导入、删除
+- 导入事件标识、重复导入替换和全量删除
+- 校区与教学楼坐标写入系统日历
 
-- Android 原生消息页面、消息角标与左右分页
-- Android 日历导入、学校 SSO、短信验证、课表、DDL、成绩、可信成绩单
-- Android 日志导出、版本更新、Web 页面入口
-- iOS Widget、Watch、Live Activity、系统日历与设计系统的对应关系
-- 两端测试脚本、真机验证、网络 Smoke、认证错误提示的覆盖差异
+## 当前差异
 
-## 审计结果
+### P1：Android 全站 Web 页面入口
 
-### P1：社区认证刷新与重试（代码已补齐）
+Android 使用 `PageShowOnNav.BIT101Web` 作为底部页面，并通过 `NavDest.Web` 承载站内网页路由。
 
-- Android：`f975d5d`、`5320289`、`f113265`；`DefaultAPIManager.kt:43-84`、`DefaultLoginRepo.kt:61-160`
-- iOS：`CommunityAPIClient.swift:170-180` 将 401 映射为登录错误；教学中心在 `ScheduleServiceTeachingCenter.swift:53-125` 维护独立恢复
-- `fd20fe6` 已加入统一社区 401 刷新、并发复用、失败分类和单次重试；`NetworkClientTests.swift` 增加 401 重试覆盖
-- 验证：401、并发请求、刷新成功、刷新失败、登录态清理
+iOS 当前 WebKit 模式集中在话廊页面：
 
-### P1：学校 SSO 静默恢复短信入口（代码已补齐）
+- 设置入口：`SettingsCommunityViews.swift`
+- 网页容器：`GalleryRootView.swift`
+- 网页地址：`https://bit101.cn/gallery`
+- 登录态注入：社区 fake-cookie
 
-- Android：`86736e8`、`a910e33`、`69e0921`；`SchoolLoginService.kt`、`DefaultLoginRepo.kt`
-- iOS 非 DDL 教学中心已有 `BITLoginAuthenticationChallenge` 与 `AppSMSVerificationSheet`，课表、考试、空教室、成绩链路使用该机制
-- iOS App 登录页使用 `LoginService.login()` 的 `webVPNVerify` 流程
-- `e2de22d` 已为 `LoginService.restoreSchoolSessionIfNeeded()` → `BIT101APIClient.loginSchool()` 的 CAS 会话恢复路径接入学校 SSO 短信回调
-- DDL 页面已有 `SchoolSMSCodeRequest` 与 `AppSchoolSMSVerificationSheet`
-- 真机触发恢复场景、输入验证码、完成 CAS 回流仍属于验证项
+当前差异集中在底部 Web 页面、网页成绩流程和通用站内 URL 路由。产品范围若定义为“话廊切换 WebKit”，该项目状态为完成；产品范围若定义为“Android 全站 Web 页面”，该项目状态为待扩展。
 
-### P1：DDL Smoke 真实短信闭环
+### P1：DDL 真实短信 Smoke 闭环
 
-- iOS Smoke 当前使用 `smsDeliveryMode: .preflight`
-- 已覆盖二次验证页面识别、手机号接口、订阅地址和 ICS
-- `sendSmsCode`、`checkToken`、`smsLogin` 表单、错误码回流、正确码回流、DDL 页面恢复采用真机手动验证
-- `schoolSMSCoverage=preflight_only` 已写入 Smoke 报告
-
-### P1：帖子编辑
-
-- Android：`features/poster/PosterScreen.kt:357-364`、`features/postedit/PostEditScreen.kt:446-530`、`PostersApiService.kt:35-39`
-- iOS：`GalleryPosterActionViews.swift:40-46`、`GalleryService.swift:288-300` 当前覆盖删除、详情和创建；帖子更新接口与编辑入口待补齐
-- 验证：本人帖子标题、正文、图片、标签、声明、匿名、可见性修改后重新加载
-
-### P1：帖子与评论举报（代码已补齐）
-
-- Android：`ManageRepo.kt`、`ReportScreen.kt`、`NavDest.Report`、`0cdfec9`
-- `81ba80a` 已加入 `manage/report_types`、`manage/reports`、帖子菜单、评论上下文菜单和举报表单
-- 真机加载举报类型、提交成功、失败提示仍需验证
-- 验证：帖子举报、评论举报、举报类型加载、提交反馈、失败提示
-
-### P1：他人主页关注
-
-- Android：`UserScreen.kt:113-124、299-301`、`UserApiService.kt:54-57`
-- iOS：`MineService.swift` 覆盖资料、粉丝、关注列表；他人主页资料卡缺少关注动作与对应请求
-- 验证：关注、取消关注、重复点击、粉丝数、关注列表
-
-### P1：话廊隐藏用户与严格模式
-
-- Android：`2e8fe88`、`ee29b23`；`GallerySettingPage.kt:45-80、100-180`、`GallerySettings.kt`
-- iOS：设置与服务层当前覆盖机器人帖子过滤；用户 UID 列表、匿名用户开关、严格模式待补齐
-- 验证：用户主页隐藏、帖子流、搜索、评论、回复、重启持久化
-
-### P1：评论图片、删除与复制
-
-- Android：`CommentBottomSheet.kt:81-84、227-236`、`PosterScreen.kt:339-384`、`ReactionApiService.kt`
-- iOS：`GalleryCommentViews.swift:134-205` 覆盖点赞、回复、文本和匿名；`imageMids` 固定为空数组，评论删除和复制入口待补齐
-- 验证：帖子、课程、文章评论图片上传，评论删除，复制，失败重试
-
-### P1：BIT101 内置网页入口
-
-- Android：`NavDest.Web`、`WebScreen.kt:48-166`、`PageShowOnNav.BIT101Web`
-- iOS：底部页面固定为日程、地图、话廊、成绩、我的；当前 WebKit 仅用于设置页网站数据清理
-- WebView 登录态注入、网页成绩自动填充、站内路由、外链处理待补齐
+- App 页面已支持短信验证码输入和学校 SSO 回流。
+- Smoke 当前覆盖 `preflight` 认证路径。
+- 真实短信发送、真机输入验证码、认证完成后的 DDL 下载当前使用人工验证路径。
 
 ### P2：底部页面自定义
 
-- Android：`PageSettings.kt:81-96`、`PagesSettingPage.kt:54-87`、`ef7246c`
-- iOS：`AppTab.allCases` 固定页面集合和顺序，`SettingsRoute` 缺少页面设置入口
-- 验证：页面排序、隐藏、主页选择、重启持久化
+Android `PageSettings`支持：
 
-### P2：粉丝与关注列表用户导航
+- 页面隐藏
+- 页面排序
+- 主页选择
 
-- Android：`FollowPage.kt:181-186`
-- iOS：`MineRootView.swift:381-450` 的用户行采用静态展示，用户主页导航待补齐
-
-### P2：话廊日志导出
-
-- Android：`AboutPage.kt`、`LogExporter.kt`
-- iOS：`ErrorReportSupport.swift` 覆盖错误诊断提交；关于页提供缓存清理和数据删除，通用日志导出入口待补齐
-
-### P2：单条日程加入系统日历
-
-- Android：`ScheduleUtils.kt` 支持课程、考试、自定义日程逐条导入
-- iOS：`ScheduleSystemCalendarManager` 面向当前学期批量导入课程；考试、自定义日程详情缺少对应单条入口
-
-### P2：DDL 网络环境适配
-
-- Android：`90b6fc3`、`SchoolLexueService.kt:30-39` 根据 WebVPN 和校园网地址切换
-- iOS：`ScheduleService.swift:333-337` 使用固定 `lexueBaseURL`；课表链路具备 WebVPN/直连回退，DDL 链路采用固定直连地址
-- 验证：校外网络、校园网、WebVPN DNS 异常、直连回退、登录态恢复
+iOS 当前底部页面集合和顺序固定为日程、地图、话廊、成绩、我的。
 
 ### P2：话廊横向滑动设置
 
-- Android：`128b339`、`GallerySettingPage.kt:80-86`
-- iOS：`GalleryRootView` 固定启用横向手势，设置层缺少开关
+Android提供“允许横向滑动”开关。
 
-### P2：空教室过滤设置
+iOS当前横向切换手势固定启用，对应开关待加入设置页。
 
-- Android：`128b339`、`FreeClassroomSettingPage.kt:108-124`
-- iOS：`FreeClassroomViews.swift` 已有校区、教学楼、节次筛选；隐藏非空教室和空闲分钟阈值待补齐
+### P2：空教室高级过滤
 
-### P2：更新检查控制
+Android提供：
 
-- Android：`AboutPage.kt:80-93` 提供手动检查与自动检查控制
-- iOS：`AppUpdateChecker.swift` 保留启动时 24 小时自动检查；`AboutSettingsPage` 提供默认开启的自动检查开关和手动检查按钮，手动检查跳过时间门禁并复用 App Store 查询链路
-- 状态：代码已补齐
+- 隐藏当前不空闲的教室
+- 空闲时段阈值
+- 连续空闲时间排序与展示
 
-### Smoke 与测试覆盖差异
+iOS当前提供校区、教学楼、节次筛选和颜色状态展示。高级过滤设置待实现。
 
-- iOS Smoke 当前覆盖网络读链路，写操作、帖子编辑、举报、设置修改采用独立人工验证
-- DDL 短信报告保持 `schoolSMSCoverage=preflight_only`
-- iOS `LoginLogicTests.swift`、`RefactorSafetyTests.swift` 覆盖解析与状态机；手机号获取、短信发送、校验、CAS 表单提交缺少 mock HTTP 闭环测试
-- iOS 缺少发帖、编辑、举报、隐藏用户、页面配置、更新设置、日志导出的 UI 回归入口
-- Android 侧已有 `SmsCodeRequestHubTest`、`DefaultLoginRepoTest`、`SchoolCookieStoreTest`
+### P2：日志导出
 
-### API 能力差异待确认
+Android“关于”页面提供 logcat 导出。
 
-Android API 侧已确认以下接口，iOS 当前 Service 检索结果待补齐或待确认 UI 使用范围：
+iOS当前提供错误诊断提交、错误报告采集和本地缓存清理。独立日志导出入口待实现。
 
-- `POST /user/mail_verify`
-- `POST /user/login`
-- `GET /courses/upload/url`
-- `POST /courses/upload/log`
-- `PUT /papers/{id}`
-- `DELETE /papers/{id}`
-- `PUT /posters/{id}`
-- `DELETE /reaction/comments/{id}`
-- `POST /reaction/stay`
+### P2：地图缩放偏好
 
-证据：`UserApiService.kt`、`CoursesApiService.kt`、`PapersApiService.kt`、`PostersApiService.kt`、`ReactionApiService.kt`。
+Android MapSettings保存地图缩放倍率，并提供滑块调整。
 
-## iOS 已确认优势
+iOS MapKit支持手势缩放，地图页提供校区切换、定位和课程地点聚焦。独立缩放倍率设置待评估。
 
-- 成绩与可信成绩单：`ScoreService.swift` 原生 challenge、短信认证、分页图片下载
-- iCloud 与跨设备：`ScheduleCloudSyncManager.swift`、`ExperimentalPreferenceCloudSync.swift`、CloudKit、iCloud Key-Value Store
+## 验证差异
+
+- iOS 网络 Smoke 覆盖社区、学校读链路、课表语义解析、DDL 预检和缓存采样。
+- iOS 社区写操作、举报、设置修改、真实短信认证仍采用真机人工路径。
+- Android拥有更完整的短信认证单元测试、学校 Cookie 测试和设置状态测试入口。
+- iOS 已有课表解析、缓存迁移、网络重试、系统日历事件构建和认证状态测试。
+- Android UI 自动化入口更完整，iOS UI 自动化入口待扩展。
+
+## iOS 平台优势
+
+- iCloud 多设备同步
 - Widget、锁屏组件、Live Activity、Apple Watch、Smart Stack
-- 课表、考试、学期、首周日期、空教室：两端核心接口基本对齐
-- DDL、课程、文章、话廊编辑器与草稿恢复
-- 消息中心、未读数、消息分类与入口角标
-- 统一设计系统：`AppDesignSystem.swift`
+- 原生 MapKit 校园地图、定位和系统地图导航
+- EventKit 课程日历批量管理与事件追踪
+- 原生成绩、可信成绩单、图片下载和短信 challenge 流程
+- 统一 `AppDesignSystem` 设计令牌与公共组件
 
-## 第一轮优先级
+## 当前优先级
 
-1. DDL 真实短信闭环
-2. 帖子编辑、关注、隐藏用户、评论媒体与操作菜单
-3. BIT101 内置网页入口
-4. DDL WebVPN / 直连策略
-5. 页面自定义、日志导出、单条日历导入
+1. DDL 真实短信 Smoke 闭环
+2. Android 全站 Web 页面范围确认
+3. 空教室高级过滤
+4. 底部页面自定义
+5. 日志导出
+6. 话廊横向滑动设置
+7. 地图缩放偏好评估
 
-## 待人工确认
+## 产品决策项
 
-- BIT101 内置 Web 页面是否属于当前产品必需功能
-- iOS 帖子编辑与举报的产品优先级
-- 话廊屏蔽设置是否要求跨端一致
-- 空教室阈值是否纳入 iOS 设计系统
-- 更新检查是否需要用户开关
-- 地图缩放设置是否形成独立功能差异
+- 全站 Web 页面是否纳入 iOS 底部导航
+- 考试、自定义日程是否进入 EventKit 统一导入模块
+- 空教室连续空闲阈值的默认值与设计呈现
+- 地图缩放倍率是否形成独立设置

@@ -86,6 +86,54 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
         }
     }
 
+    static func makeDraft(for exam: ExamRecord) -> ScheduleSystemCalendarEventDraft? {
+        let calendar = shanghaiCalendar()
+        guard
+            let day = date(from: exam.dateString, calendar: calendar),
+            let startDate = date(on: day, time: exam.beginTime, calendar: calendar),
+            let endDate = date(on: day, time: exam.endTime, calendar: calendar),
+            endDate > startDate
+        else { return nil }
+
+        let noteLines = [
+            exam.courseID.isEmpty ? nil : "课程号：\(dataDetectorSafeCourseNumber(exam.courseID))",
+            exam.teacher.isEmpty ? nil : "教师：\(exam.teacher)",
+            exam.examMode.isEmpty ? nil : "形式：\(exam.examMode)",
+            exam.seatID.isEmpty ? nil : "座位号：\(exam.seatID)",
+            "考试时间：\(exam.beginTime)-\(exam.endTime)",
+        ].compactMap { $0 }
+
+        return ScheduleSystemCalendarEventDraft(
+            markerID: "exam-\(exam.id)",
+            title: "[考试] \(exam.name)",
+            location: exam.classroom,
+            structuredLocation: structuredLocation(campus: "", classroom: exam.classroom),
+            notes: noteLines.joined(separator: "\n"),
+            startDate: startDate,
+            endDate: endDate
+        )
+    }
+
+    static func makeDraft(for schedule: CustomScheduleRecord) -> ScheduleSystemCalendarEventDraft? {
+        let calendar = shanghaiCalendar()
+        guard
+            let day = date(from: schedule.dateString, calendar: calendar),
+            let startDate = date(on: day, time: schedule.beginTime, calendar: calendar),
+            let endDate = date(on: day, time: schedule.endTime, calendar: calendar),
+            endDate > startDate
+        else { return nil }
+
+        return ScheduleSystemCalendarEventDraft(
+            markerID: "custom-\(schedule.id)",
+            title: schedule.title,
+            location: schedule.subtitle,
+            structuredLocation: structuredLocation(campus: "", classroom: schedule.subtitle),
+            notes: schedule.description,
+            startDate: startDate,
+            endDate: endDate
+        )
+    }
+
     /// 组合校区和教室文本；教室字段已包含校区时沿用原始教室文本。
     private static func displayLocation(campus: String, classroom: String) -> String {
         let campusText = campus.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -96,6 +144,19 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
             return classroomText
         }
         return "\(campusText) · \(classroomText)"
+    }
+
+    private static func structuredLocation(
+        campus: String,
+        classroom: String
+    ) -> ScheduleSystemCalendarStructuredLocation? {
+        CampusMapPlaceCatalog.place(campusName: campus, classroom: classroom).map {
+            ScheduleSystemCalendarStructuredLocation(
+                title: "北京理工大学 · \($0.campus.displayName) · \($0.name)",
+                latitude: $0.latitude,
+                longitude: $0.longitude
+            )
+        }
     }
 
     /// 在连续数字之间插入不可见的 word joiner，保留视觉内容，同时阻止系统日历
@@ -125,6 +186,18 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
         components.minute = parts[1]
         components.second = 0
         return calendar.date(from: components)
+    }
+
+    private static func date(from value: String, calendar: Calendar) -> Date? {
+        let parts = value.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        return calendar.date(from: DateComponents(
+            calendar: calendar,
+            timeZone: calendar.timeZone,
+            year: parts[0],
+            month: parts[1],
+            day: parts[2]
+        ))
     }
 
     private static func shanghaiCalendar() -> Calendar {

@@ -381,6 +381,60 @@ struct CourseScheduleTabView: View {
                         }
                     }
                 },
+                onImportExam: { examID in
+                    guard let exam = activeSchedule.exams.first(where: { $0.id == examID }),
+                          let draft = ScheduleSystemCalendarEventBuilder.makeDraft(for: exam) else {
+                        courseShareAlert = AppAlert(title: "导入日历失败", message: "考试时间数据无法生成系统日历事件。")
+                        return
+                    }
+                    Task {
+                        do {
+                            let count = try await ScheduleSystemCalendarManager.shared.importDrafts(
+                                [draft],
+                                term: activeSchedule.currentTerm
+                            )
+                            courseShareAlert = AppAlert.informational(
+                                title: "已导入系统日历",
+                                message: "已导入 \(count) 个日历事件。"
+                            )
+                        } catch {
+                            courseShareAlert = AppAlert(title: "导入日历失败", message: error.localizedDescription)
+                        }
+                    }
+                },
+                onImportCustomSchedule: { scheduleID in
+                    guard let schedule = activeSchedule.customSchedules.first(where: { $0.id == scheduleID }),
+                          let draft = ScheduleSystemCalendarEventBuilder.makeDraft(for: schedule) else {
+                        courseShareAlert = AppAlert(title: "导入日历失败", message: "自定义日程时间数据无法生成系统日历事件。")
+                        return
+                    }
+                    Task {
+                        do {
+                            let count = try await ScheduleSystemCalendarManager.shared.importDrafts(
+                                [draft],
+                                term: activeSchedule.currentTerm
+                            )
+                            courseShareAlert = AppAlert.informational(
+                                title: "已导入系统日历",
+                                message: "已导入 \(count) 个日历事件。"
+                            )
+                        } catch {
+                            courseShareAlert = AppAlert(title: "导入日历失败", message: error.localizedDescription)
+                        }
+                    }
+                },
+                onDeleteCalendarEntry: { markerID in
+                    Task {
+                        do {
+                            let result = try await ScheduleSystemCalendarManager.shared.deleteImportedEvents(
+                                markerIDs: Set([markerID])
+                            )
+                            courseShareAlert = calendarMutationAlert(result)
+                        } catch {
+                            courseShareAlert = AppAlert(title: "移除日历失败", message: error.localizedDescription)
+                        }
+                    }
+                },
                 onEditCustomSchedule: {
                     if let schedule = viewModel.cache.customSchedules.first(where: { $0.id == entry.sourceID }) {
                         editingCustomScheduleID = schedule.id

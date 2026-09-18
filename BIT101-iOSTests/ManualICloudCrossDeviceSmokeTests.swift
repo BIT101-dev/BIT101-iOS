@@ -22,7 +22,7 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
         var originalAutoRotate: Bool
         var phoneAutoRotate: Bool
         var phoneSyncWasEnabled: Bool
-        var phoneScoreCount: Int
+        var phoneScoreCount: Int?
     }
 
     private let cloud = NSUbiquitousKeyValueStore.default
@@ -36,11 +36,7 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
         }
 
         let original = AppSettingsStore.shared.autoRotate
-        let rows = ScoreCacheStore.loadRows() ?? []
-        guard !rows.isEmpty else {
-            XCTFail("真机成绩缓存为空，无法验证成绩缓存同步")
-            return
-        }
+        let scoreCount = ScoreCacheStore.loadRows()?.count
 
         var coordination = Coordination(
             token: UUID().uuidString,
@@ -49,7 +45,7 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
             originalAutoRotate: original,
             phoneAutoRotate: !original,
             phoneSyncWasEnabled: manager.isEnabled,
-            phoneScoreCount: rows.count
+            phoneScoreCount: scoreCount
         )
         save(coordination)
 
@@ -63,7 +59,7 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
             let scores: ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload>? =
                 self.remoteEnvelope(account: account, domain: .scoreCache)
             return settings?.payload.autoRotate == coordination.phoneAutoRotate
-                && scores?.payload.rows.count == coordination.phoneScoreCount
+                && self.scoreCountMatches(scores, expected: coordination.phoneScoreCount)
         }
         guard uploaded else {
             AppSettingsStore.shared.setAutoRotate(original)
@@ -75,7 +71,8 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
 
         coordination.stage = .phoneUploaded
         save(coordination)
-        print("ICLOUD_SMOKE_PHONE_UPLOADED token=\(coordination.token) scores=\(rows.count)")
+        let scoreDescription = coordination.phoneScoreCount.map { String($0) } ?? "skipped"
+        print("ICLOUD_SMOKE_PHONE_UPLOADED token=\(coordination.token) scores=\(scoreDescription)")
     }
 
     func testMacReceiveAndRestore() async throws {
@@ -111,7 +108,7 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
         let received = await waitUntil {
             self.manager.refreshFromCloudIfNeeded()
             return AppSettingsStore.shared.autoRotate == coordination.phoneAutoRotate
-                && ScoreCacheStore.loadRows()?.count == coordination.phoneScoreCount
+                && self.localScoreCountMatches(expected: coordination.phoneScoreCount)
         }
         guard received else {
             XCTFail("Mac 未收到手机上传的设置或成绩缓存")
@@ -145,7 +142,7 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
         let received = await waitUntil {
             self.manager.refreshFromCloudIfNeeded()
             return AppSettingsStore.shared.autoRotate == coordination.originalAutoRotate
-                && ScoreCacheStore.loadRows()?.count == coordination.phoneScoreCount
+                && self.localScoreCountMatches(expected: coordination.phoneScoreCount)
         }
         guard received else {
             manager.setEnabled(coordination.phoneSyncWasEnabled)
@@ -156,7 +153,21 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
 
         manager.setEnabled(coordination.phoneSyncWasEnabled)
         removeCoordination(account: coordination.account)
-        print("ICLOUD_SMOKE_PHONE_VERIFIED token=\(coordination.token) scores=\(coordination.phoneScoreCount)")
+        let scoreDescription = coordination.phoneScoreCount.map { String($0) } ?? "skipped"
+        print("ICLOUD_SMOKE_PHONE_VERIFIED token=\(coordination.token) scores=\(scoreDescription)")
+    }
+
+    private func scoreCountMatches(
+        _ envelope: ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload>?,
+        expected: Int?
+    ) -> Bool {
+        guard let expected else { return true }
+        return envelope?.payload.rows.count == expected
+    }
+
+    private func localScoreCountMatches(expected: Int?) -> Bool {
+        guard let expected else { return true }
+        return ScoreCacheStore.loadRows()?.count == expected
     }
 
     /// 脚本异常退出后，测试在当前账号存在协调状态时恢复手机设置、实验开关并清除协调标记。

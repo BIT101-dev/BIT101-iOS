@@ -7,6 +7,12 @@
 
 import Foundation
 
+nonisolated enum GalleryWebRequestFactory {
+    static func request(for url: URL) -> URLRequest {
+        URLRequest(url: url)
+    }
+}
+
 /// 话题接口层错误。
 enum GalleryServiceError: LocalizedError {
     case notLoggedIn

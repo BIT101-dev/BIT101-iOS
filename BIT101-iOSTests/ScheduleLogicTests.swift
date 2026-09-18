@@ -205,6 +205,44 @@ struct ScheduleSystemCalendarEventBuilderTests {
         #expect(draft?.structuredLocation?.longitude == 116.321642)
     }
 
+    @Test("Exam and custom schedule records share calendar event drafts")
+    func buildsExamAndCustomDrafts() {
+        let exam = ExamRecord(
+            id: "exam-1",
+            term: "2026-2027-1",
+            name: "软件工程导论",
+            courseID: "CS101",
+            teacher: "测试教师",
+            classroom: "综教A101",
+            dateString: "2026-09-08",
+            beginTime: "10:00",
+            endTime: "11:30",
+            examMode: "闭卷",
+            seatID: "A12"
+        )
+        let custom = CustomScheduleRecord(
+            id: "custom-1",
+            title: "实验室组会",
+            subtitle: "综教A201",
+            description: "准备周报",
+            dateString: "2026-09-09",
+            beginTime: "14:00",
+            endTime: "16:00"
+        )
+
+        let examDraft = ScheduleSystemCalendarEventBuilder.makeDraft(for: exam)
+        let customDraft = ScheduleSystemCalendarEventBuilder.makeDraft(for: custom)
+
+        #expect(examDraft?.markerID == "exam-exam-1")
+        #expect(examDraft?.title == "[考试] 软件工程导论")
+        #expect(examDraft?.location == "综教A101")
+        #expect(examDraft?.notes.contains("座位号：A12") == true)
+        #expect(customDraft?.markerID == "custom-custom-1")
+        #expect(customDraft?.title == "实验室组会")
+        #expect(customDraft?.location == "综教A201")
+        #expect(customDraft?.notes == "准备周报")
+    }
+
     @Test("Courses with missing timetable sections are skipped")
     func skipsInvalidTimetableBounds() {
         let course = CourseRecord(

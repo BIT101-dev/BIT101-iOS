@@ -105,7 +105,7 @@ struct GalleryRootView: View {
 
     private struct GalleryWebContentView: View {
         var body: some View {
-            GalleryWebView(url: URL(string: "https://bit101.cn/gallery")!)
+            GalleryWebView(url: AppURL.required("https://bit101.cn/gallery"))
                 .ignoresSafeArea(.container, edges: .bottom)
         }
     }
@@ -121,7 +121,7 @@ struct GalleryRootView: View {
             let webView = WKWebView(frame: .zero, configuration: configuration)
             webView.navigationDelegate = context.coordinator
             webView.allowsBackForwardNavigationGestures = true
-            webView.load(URLRequest(url: url))
+            webView.load(GalleryWebRequestFactory.request(for: url))
             return webView
         }
 
@@ -130,7 +130,7 @@ struct GalleryRootView: View {
         final class Coordinator: NSObject, WKNavigationDelegate {
             private var didInjectLoginState = false
 
-            func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
                 guard !didInjectLoginState else { return }
                 didInjectLoginState = true
                 let fakeCookie = LoginStorage.shared.fakeCookie
@@ -151,7 +151,7 @@ struct GalleryRootView: View {
 
             func webView(
                 _ webView: WKWebView,
-                didFail navigation: WKNavigation!,
+                didFail navigation: WKNavigation?,
                 withError error: Error
             ) {
                 webView.loadHTMLString(
