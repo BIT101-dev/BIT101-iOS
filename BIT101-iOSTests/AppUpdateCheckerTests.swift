@@ -122,6 +122,30 @@ struct AppUpdateCheckerTests {
         #expect(performed == ["first", "second"])
     }
 
+    @Test("A network prompt gate releases its request after dismissal")
+    func promptGateWaitsForDismissal() async throws {
+        let coordinator = AppPromptCoordinator(advanceDelay: .zero)
+        coordinator.markHostReady()
+        let prompt = AppPrompt(
+            id: "network-gate",
+            title: "检测到可能在使用魔法",
+            message: "关闭食用效果更佳～",
+            actions: [AppPromptAction(id: "dismiss", title: "知道了") {}]
+        )
+
+        let gate = Task { @MainActor in
+            await coordinator.enqueueAndWait(prompt)
+        }
+        await Task.yield()
+        #expect(coordinator.activePrompt?.id == "network-gate")
+        #expect(!gate.isCancelled)
+
+        let action = try #require(coordinator.activePrompt?.actions.first)
+        coordinator.perform(action)
+        await gate.value
+        #expect(coordinator.activePrompt == nil)
+    }
+
     @Test("Version comparison treats each component numerically")
     func numericVersionComparison() {
         #expect(AppVersionComparison.isNewer("1.10.0", than: "1.9.9"))
