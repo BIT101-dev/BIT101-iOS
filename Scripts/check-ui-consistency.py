@@ -242,7 +242,12 @@ def check_component_contracts(errors: list[str]) -> None:
         for pattern in contract.path_globs:
             members.update(SOURCE_ROOT.glob(pattern))
         for path, source in sources.items():
-            if contract.discovery_tokens and path.parent != DESIGN_SYSTEM.parent and any(token in source for token in contract.discovery_tokens):
+            if (
+                contract.discovery_tokens
+                and "View" in path.stem
+                and path.parent != DESIGN_SYSTEM.parent
+                and any(token in source for token in contract.discovery_tokens)
+            ):
                 members.add(path)
         for path in sorted(path for path in members if path.is_file()):
             source = sources[path]

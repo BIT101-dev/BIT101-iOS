@@ -13,7 +13,7 @@
 - `AppDesignSystem.Spacing`：常用语义间距。
 - `AppDesignSystem.Comment.layout`：评论头像、回复缩进与分割线布局；信息流和详情页通过公共组件复用 `Spacing` 与 `Size`，令牌由设计系统集中维护。
 - `AppDesignSystem.Radius`：常用圆角。
-- `AppDesignSystem.Palette`：`accent`、`highlight`、`highlightForeground`、`danger`、`info`、`subtleBorder` 以及系统背景色和填充色。
+- `AppDesignSystem.Palette`：`accent`、`accentSurface`、`accentSubtleSurface`、`highlight`、`highlightForeground`、`danger`、`info`、`subtleBorder` 以及系统背景色和填充色。
 - `AppDesignSystem.roundedRectangle(_:)`：统一圆角形状。
 - `AppCard`：统一卡片容器。
 - `AppCardVariant`：`standard`、`compact`、`secondaryGrouped` 三种明确变体。
@@ -23,7 +23,7 @@
 - `appCommentSectionStyle()`：统一课程、帖子和文章的评论区容器样式。
 - `AppCommentComposerContentSection`、`AppComposerToolbar`：统一课程、话廊和文章评论的输入区共性及工具栏；开发者建议复用 `AppComposerToolbar` 与图片草稿组件，正文输入保留建议场景的专用结构。
 - `AppSegmentedPicker`、`AppTopSegmentedPicker`：统一 segmented 选择控件的样式和选择触感；顶部版本统一安全区下沿、内容边缘与背景，`stacked` 变体用于连续双层顶部栏。
-- `AppDesignSystem.Schedule`：统一课表网格线、课程块与网格线的对称内缩、课程块边框、课程文字安全内边距、标题/地点字号、两格课程的标题行数限制和地点紧凑行高；地点行高使用可调的字体比例令牌；按周与全学期叠加共用同一套几何与文字布局。课程块默认显示名称+地点，并通过“名/地”按钮轮换为仅名称或仅两行地点。
+- `AppDesignSystem.Schedule`：统一课表网格线、课程块与网格线的对称内缩、课程块边框、课程文字安全内边距、标题/地点字号和地点紧凑行高；地点行高使用可调的字体比例令牌；时间轴默认缩放比例与网格线颜色集中在 `Schedule` 令牌；按周与全学期叠加共用同一套几何与文字布局。课程块默认显示名称+地点，并通过“名/地”按钮轮换为仅名称或仅地点。
 - `AppDesignSystem.Size.avatar`：统一文章详情、账号设置、用户列表和个人资料头像尺寸，以及头像占位透明度和大图标阈值。
 - `AppDesignSystem.Size.sheet`：统一 DDL 数值选择 sheet 高度。
 - `AppOrderedSearchBar`、`AppSearchBarContainer`：统一话廊和文章搜索的排序菜单、输入框、清空按钮、圆角背景和顶部材质。

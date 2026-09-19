@@ -11,7 +11,9 @@ extension ScheduleViewModel {
     /// 传入明确学期时先更新本地选择；后续请求失败时保留该选择。
     /// 同步成功后会立刻更新本地缓存，从而驱动课表页、小组件和灵动岛一起刷新。
     func syncCourses(term: String? = nil) async {
-        guard !isSyncingCourses, !isLoadingTerms, !isSubmittingSMSCode, smsChallenge == nil else { return }
+        guard !isSyncingCourses, !isLoadingTerms, !isSubmittingSMSCode,
+              smsChallenge == nil, pendingCourseReplacement == nil
+        else { return }
         if let term {
             selectTermForSync(term)
         }
@@ -34,7 +36,8 @@ extension ScheduleViewModel {
             courseSyncCoordinator.reset()
             notice = schoolFailureNotice(
                 title: "学校服务连接失败",
-                message: error.schoolTransportFailureMessage
+                message: error.schoolTransportFailureMessage,
+                networkFailure: true
             )
         } catch ScheduleServiceError.challengeInvalid(let message) {
             smsChallenge = nil
@@ -45,7 +48,11 @@ extension ScheduleViewModel {
             notice = ScheduleNotice.userInput(title: "课表暂未发布", message: error.localizedDescription)
         } catch {
             if isCancellation(error) { return }
-            notice = schoolFailureNotice(title: "课表同步失败", message: error.localizedDescription)
+            notice = schoolFailureNotice(
+                title: "课表同步失败",
+                message: error.localizedDescription,
+                networkFailure: Self.isLikelySchoolTransportError(error)
+            )
         }
     }
 
@@ -87,7 +94,9 @@ extension ScheduleViewModel {
 
     /// 加载学校接口实际返回的学期列表，列表内容与接口结果保持一致。
     func loadAvailableTerms() async {
-        guard !isLoadingTerms, !isSyncingCourses, smsChallenge == nil else { return }
+        guard !isLoadingTerms, !isSyncingCourses, smsChallenge == nil,
+              pendingCourseReplacement == nil
+        else { return }
         isLoadingTerms = true
         defer { isLoadingTerms = false }
 
@@ -103,7 +112,8 @@ extension ScheduleViewModel {
             courseSyncCoordinator.reset()
             notice = schoolFailureNotice(
                 title: "学校服务连接失败",
-                message: error.schoolTransportFailureMessage
+                message: error.schoolTransportFailureMessage,
+                networkFailure: true
             )
         } catch ScheduleServiceError.challengeInvalid(let message) {
             courseSyncCoordinator.reset()
@@ -111,7 +121,11 @@ extension ScheduleViewModel {
         } catch {
             if isCancellation(error) { return }
             hasLoadedAvailableTerms = true
-            notice = schoolFailureNotice(title: "学期列表加载失败", message: error.localizedDescription)
+            notice = schoolFailureNotice(
+                title: "学期列表加载失败",
+                message: error.localizedDescription,
+                networkFailure: Self.isLikelySchoolTransportError(error)
+            )
         }
     }
 
@@ -162,7 +176,8 @@ extension ScheduleViewModel {
             courseSyncCoordinator.reset()
             notice = schoolFailureNotice(
                 title: "学校服务连接失败",
-                message: error.schoolTransportFailureMessage
+                message: error.schoolTransportFailureMessage,
+                networkFailure: true
             )
         } catch ScheduleServiceError.challengeInvalid(let message) {
             smsChallenge = nil

@@ -66,6 +66,8 @@ actor ScheduleCloudSyncManager {
         decoder.dateDecodingStrategy = .iso8601
         return decoder
     }()
+    private var pendingLocalCache: ScheduleCache?
+    private var isPushingLocalCache = false
 
     func refreshFromCloudIfNeeded() async {
         let localCache = await MainActor.run { ScheduleCacheStore.load() }
@@ -87,11 +89,19 @@ actor ScheduleCloudSyncManager {
             logDebug("skip push: iCloud sync disabled")
             return
         }
-        guard await hasAvailableCloudAccount() else { return }
-        do {
-            try await upsert(remoteWith: localCache)
-        } catch {
-            logError("push latest local cache failed: \(describe(error))")
+        pendingLocalCache = localCache
+        guard !isPushingLocalCache else { return }
+
+        isPushingLocalCache = true
+        defer { isPushingLocalCache = false }
+        while let pendingLocalCache {
+            self.pendingLocalCache = nil
+            guard await hasAvailableCloudAccount() else { continue }
+            do {
+                try await upsert(remoteWith: pendingLocalCache)
+            } catch {
+                logError("push latest local cache failed: \(describe(error))")
+            }
         }
     }
 

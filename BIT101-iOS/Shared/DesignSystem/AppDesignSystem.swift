@@ -151,6 +151,16 @@ extension AppDesignSystem {
             let style: UIFont.TextStyle
         }
 
+        enum GridPalette {
+            static let majorLine = Color.secondary.opacity(0.18)
+            static let minorLine = Color.secondary.opacity(0.12)
+            static let linearMajorLine = Color.secondary.opacity(0.14)
+            static let linearMinorLine = Color.secondary.opacity(0.08)
+            static let columnLine = Color.secondary.opacity(0.14)
+            static let courseBorder = Color.secondary.opacity(0.25)
+            static let weekBar = Color.secondary.opacity(0.55)
+        }
+
         static let grid = GridMetrics(
             lineWidth: 0.5,
             cellSpacing: 1,
@@ -176,6 +186,7 @@ extension AppDesignSystem {
         static let courseText = CourseTextMetrics(
             style: .caption2
         )
+        static let timelineDefaultScale: CGFloat = CGFloat(24) / CGFloat(13)
         static let timelineMinimumScale: CGFloat = 1
         static let timelineMaximumScale: CGFloat = 3
         static let settingsPanelMinimumHeight: CGFloat = 220
@@ -201,6 +212,7 @@ extension AppDesignSystem {
     enum Palette {
         static let accent = Color.accentColor
         static let accentSurface = Color.accentColor.opacity(0.14)
+        static let accentSubtleSurface = Color.accentColor.opacity(0.08)
         static let highlight = Color.orange
         static let highlightSurface = Color.orange.opacity(0.12)
         static let highlightForeground = Color.white

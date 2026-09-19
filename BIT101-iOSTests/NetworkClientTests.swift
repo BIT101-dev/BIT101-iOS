@@ -14,6 +14,14 @@ private final class MockHTTPTransport: HTTPTransport {
     }
 }
 
+private final class StubNetworkPathProvider: NetworkPathProviding, @unchecked Sendable {
+    let snapshot: NetworkConnectionSnapshot
+
+    init(snapshot: NetworkConnectionSnapshot) {
+        self.snapshot = snapshot
+    }
+}
+
 private enum TestCommunityError: LocalizedError, CommunityAPIServiceError {
     case notLoggedIn
     case invalidResponse
@@ -26,6 +34,57 @@ private enum TestCommunityError: LocalizedError, CommunityAPIServiceError {
 struct NetworkClientTests {
     private struct UserPayload: Decodable, Equatable {
         let displayName: String
+    }
+
+    @Test("School network warning gates the injected transport")
+    @MainActor
+    func networkWarningPrecedesTransport() async throws {
+        let provider = StubNetworkPathProvider(
+            snapshot: NetworkConnectionSnapshot(
+                summary: "已连接 · Wi‑Fi + 虚拟/未知接口",
+                virtualNetworkLikely: true
+            )
+        )
+        let coordinator = AppPromptCoordinator(advanceDelay: .zero)
+        coordinator.markHostReady()
+        let center = NetworkMagicWarningCenter(
+            pathProvider: provider,
+            promptCoordinator: coordinator,
+            cooldown: 600
+        )
+        var transportStarted = false
+        let transport = MockHTTPTransport { request in
+            transportStarted = true
+            let requestURL = try #require(request.url)
+            let response = try #require(HTTPURLResponse(
+                url: requestURL,
+                statusCode: 204,
+                httpVersion: nil,
+                headerFields: nil
+            ))
+            return (Data(), response)
+        }
+        let request = URLRequest(url: try #require(URL(string: "https://sso.bit.edu.cn/cas/login")))
+        let task = Task { @MainActor in
+            try await HTTPClient(
+                transport: transport,
+                networkWarningCenter: center
+            ).send(request)
+        }
+
+        for _ in 0 ..< 100 where coordinator.activePrompt == nil {
+            await Task.yield()
+        }
+        #expect(!transportStarted)
+        #expect(coordinator.activePrompt?.title == "检测到可能在使用魔法")
+        #expect(coordinator.activePrompt?.message == "关闭食用效果更佳～")
+        #expect(coordinator.activePrompt?.actions.map(\.title) == ["知道了"])
+
+        let action = try #require(coordinator.activePrompt?.actions.first)
+        coordinator.perform(action)
+        _ = try await task.value
+        #expect(transportStarted)
+        #expect(await center.consider(url: URL(string: "https://open.aihelpme.dev")) == false)
     }
 
     @Test("HTTP errors preserve structured server messages")

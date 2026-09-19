@@ -30,6 +30,8 @@ nonisolated enum CourseSyncReplacementPolicy {
 
     private static func identity(_ course: CourseRecord) -> String {
         [course.number, course.name, course.teacher, course.classroom,
+         course.description, course.campus, course.credit.description, course.hour.description,
+         course.type, course.category, course.department,
          course.weekday.description, course.startSection.description,
          course.endSection.description, course.weeks.map(String.init).joined(separator: ",")]
             .joined(separator: "|")
@@ -102,9 +104,13 @@ struct ScheduleNotice: Identifiable {
 }
 
 extension ScheduleViewModel {
-    func schoolFailureNotice(title: String, message: String) -> ScheduleNotice {
+    func schoolFailureNotice(
+        title: String,
+        message: String,
+        networkFailure: Bool = false
+    ) -> ScheduleNotice {
         let snapshot = NetworkConnectionDescription.shared.snapshot
-        guard snapshot.virtualNetworkLikely else {
+        guard networkFailure, snapshot.virtualNetworkLikely else {
             return ScheduleNotice(title: title, message: message)
         }
         return ScheduleNotice(
@@ -113,6 +119,26 @@ extension ScheduleViewModel {
             allowsDiagnostics: false,
             showsRecoveryLinks: false
         )
+    }
+
+    nonisolated static func isLikelySchoolTransportError(_ error: Error) -> Bool {
+        if let urlError = error as? URLError {
+            return [
+                .cannotConnectToHost,
+                .cannotFindHost,
+                .dnsLookupFailed,
+                .networkConnectionLost,
+                .notConnectedToInternet,
+                .secureConnectionFailed,
+                .timedOut
+            ].contains(urlError.code)
+        }
+
+        let nsError = error as NSError
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error {
+            return isLikelySchoolTransportError(underlying)
+        }
+        return false
     }
 }
 
@@ -288,6 +314,7 @@ final class ScheduleViewModel: ObservableObject {
     func makeSchoolSMSCodeHandler() -> SchoolSMSCodeHandler {
         { @MainActor [weak self] request in
             guard let self else { throw CancellationError() }
+            guard self.schoolSMSContinuation == nil else { throw CancellationError() }
             self.schoolSMSCodeRequest = request
             return try await withCheckedThrowingContinuation { continuation in
                 self.schoolSMSContinuation = continuation

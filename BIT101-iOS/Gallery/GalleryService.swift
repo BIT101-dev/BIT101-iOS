@@ -40,6 +40,20 @@ extension GalleryServiceError: CommunityAPIServiceError {
     static var communityInvalidResponse: Self { .invalidResponse }
 }
 
+enum GalleryContentFilter {
+    static func shouldHideComment(
+        authorID: Int,
+        replyTargetID: Int,
+        isAnonymous: Bool,
+        hiddenUserIDs: Set<Int>,
+        hideAnonymousContent: Bool
+    ) -> Bool {
+        hiddenUserIDs.contains(authorID)
+            || hiddenUserIDs.contains(replyTargetID)
+            || (hideAnonymousContent && isAnonymous)
+    }
+}
+
 /// 机器人分栏的分页结果。
 ///
 /// 机器人流没有对应的后端 feed。iOS 从最新流读取源页并在本地按标签筛选，
@@ -268,9 +282,9 @@ struct GalleryService {
             AppSettingsStore.loadSnapshotFromDefaults()
         }
         let hiddenIDs = Set(settings?.galleryHiddenUserIDs ?? [])
-        let strict = settings?.galleryStrictUserFilter ?? false
+        let hideAnonymousContent = settings?.galleryHideAnonymousContent ?? false
         return posters.filter { poster in
-            !hiddenIDs.contains(poster.user.id) && !(strict && poster.anonymous)
+            !hiddenIDs.contains(poster.user.id) && !(hideAnonymousContent && poster.anonymous)
         }
     }
 
@@ -279,10 +293,16 @@ struct GalleryService {
             AppSettingsStore.loadSnapshotFromDefaults()
         }
         let hiddenIDs = Set(settings?.galleryHiddenUserIDs ?? [])
-        let strict = settings?.galleryStrictUserFilter ?? false
+        let hideAnonymousContent = settings?.galleryHideAnonymousContent ?? false
 
         func filter(_ comment: GalleryComment) -> GalleryComment? {
-            guard !hiddenIDs.contains(comment.user.id), !(strict && comment.anonymous) else { return nil }
+            guard !GalleryContentFilter.shouldHideComment(
+                authorID: comment.user.id,
+                replyTargetID: comment.replyUser.id,
+                isAnonymous: comment.anonymous,
+                hiddenUserIDs: hiddenIDs,
+                hideAnonymousContent: hideAnonymousContent
+            ) else { return nil }
             return comment.replacingSubComments(comment.sub.compactMap(filter))
         }
 

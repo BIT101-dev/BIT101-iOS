@@ -8,6 +8,24 @@
 
 网络侧冒烟测试仅在用户明确指示后执行。构建、静态检查和本地离线验证属于独立操作；执行范围仍按当前任务要求决定。
 
+## 测试执行策略
+
+- 开发阶段依据本次改动范围选择对应测试入口，每个改动范围默认执行一次。
+- 测试失败后，围绕失败项修复并重跑对应测试；修复过程保持局部验证。
+- 全量扩展测试与网络 Smoke 归入发布前验证，执行前等待用户明确授权。
+- 构建与装机沿用 `Scripts/build-install-device.sh`，装机流程和测试流程分开记录。
+
+## 开发阶段默认验证
+
+- Swift、脚本、文档或设计系统改动：运行一次 `Scripts/run-static-audit.sh`。
+- 业务逻辑改动：选择对应测试组或现有局部用例执行一次；测试范围跟随改动模块。
+- UI 改动：执行静态 UI/组件/触感审计，并通过 `Scripts/build-install-device.sh` 完成 Release 真机构建与装机。
+- 网络层改动：执行 Mock transport、错误分类、请求顺序和缓存策略相关测试。
+- 缓存、账号隔离和 CloudKit 逻辑改动：执行对应 Codable、状态机和策略测试。
+- 测试失败：修复后重跑对应局部测试，形成“修改—验证”闭环。
+- 全量扩展测试、网络 Smoke、iCloud 双向 Smoke：等待用户明确授权。
+- 设备交互、截图和 Dynamic Type 核对：在改动涉及对应界面时按专项要求执行。
+
 ## 设备使用要求
 
 **验证环境仅使用已连接并受信任的 iOS / watchOS 真机，模拟器保持停用。**
@@ -38,7 +56,7 @@ BIT101_INSTALL_TARGET=macCatalyst Scripts/build-install-device.sh
 Scripts/run-extended-tests.sh
 ```
 
-脚本在一次真机测试进程中编译并运行默认测试与扩展测试，详细失败日志写入 `.build/extended-automation/all-tests.log`。
+脚本在一次真机测试进程中编译并运行默认测试与扩展测试，详细失败日志写入 `.build/extended-automation/all-tests.log`。测试宿主使用 `BIT101_AUTOMATED_TESTING` 注入可测试的网络提示依赖，网络提示门禁仍由专门回归用例验证。
 需要缩短开发反馈周期时按组运行：
 
 ```sh
@@ -50,7 +68,7 @@ Scripts/run-extended-tests.sh login
 
 分组日志分别写入固定的 `default-tests.log`、`ExtendedSchedulePolicyTests.log`、`ExtendedInfrastructureTests.log` 和 `ExtendedLoginTests.log`。
 
-2026-08-09 的历史基线为 **40 项测试全部通过，0 条编译警告/错误**；当前默认测试 Target 有 **110 项自动化用例**（100 项 Swift Testing、10 项 XCTest）。另有 27 项扩展测试与 5 项专用 smoke 用例。测试覆盖范围包括：
+2026-08-09 的历史基线为 **40 项测试全部通过，0 条编译警告/错误**；当前默认测试 Target 有 **137 项自动化用例**（122 项 Swift Testing、15 项 XCTest）。另有 27 项扩展测试与 5 项专用 smoke 用例。测试覆盖范围包括：
 
 - 取消错误、页码分页、账号隔离 Codable 快照
 - HTTP/社区请求构造和错误映射
@@ -75,7 +93,7 @@ Scripts/build-install-device.sh
 Scripts/capture-screenshot-device.sh
 ```
 
-截图固定写入 `.build/screenshot.png`；脚本支持传入设备 ID 和 Developer 目录。
+截图固定写入 `.build/screenshot.png`；脚本支持传入设备 ID。
 
 脚本会自动寻找可用的 iPhone 真机；设备未连接或未信任时给出提示并退出。脚本执行内容包含 Release 真机构建、安装和启动，发布归档由发布流程负责。
 
@@ -114,7 +132,7 @@ Scripts/release-network-smoke-bit101.sh
 Scripts/release-network-smoke-school.sh
 ```
 
-仍可传入设备 ID 和 Developer 目录覆盖自动发现结果。
+仍可传入设备 ID 覆盖自动发现结果。
 
 ### 课程历史统计验证数据
 
@@ -168,7 +186,7 @@ CI 先运行 `Scripts/run-static-audit.sh`，再以 Release 配置执行 `build-
 Scripts/run_icloud_cross_device_smoke.sh
 ```
 
-脚本默认自动寻找可用的 iPhone 真机；也兼容显式传入设备 ID 和 Developer 目录。
+脚本默认自动寻找可用的 iPhone 真机；也兼容显式传入设备 ID。
 
 测试会让手机临时切换“自动旋转”偏好并上传成绩缓存，Mac 收到后写回原值，最后由手机确认。正常完成或脚本异常退出时都会尝试恢复原设置、实验开关并清除协调数据；测试期间两端保持相关设置不变。
 Mac Catalyst 测试会依据协调状态加载手机账号上下文，流程结束后恢复 Mac 本地登录状态。

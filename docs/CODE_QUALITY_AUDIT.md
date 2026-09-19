@@ -1,10 +1,10 @@
 # BIT101-iOS 代码质量审计
 
-更新时间：2026-09-08
+更新时间：2026-09-19
 
 ## 审计结果
 
-- 默认真机测试共 110 项：100 项 Swift Testing、10 项 XCTest。
+- 默认真机测试共 137 项：122 项 Swift Testing、15 项 XCTest。
 - `RELEASE_NETWORK_SMOKE`、`ICLOUD_CROSS_DEVICE_SMOKE` 和 `EXTENDED_AUTOMATION` 为专用测试，测试范围与默认测试和 Release 包分离。
 - `EXTENDED_AUTOMATION` 另有 27 项本地自动化测试，按课程表、基础设施、登录三组运行；iCloud 跨设备和 Release 网络 smoke 另有 5 项专用用例。
 - 审查结果显示，已删除功能和旧接口处于测试断言范围外。
@@ -24,10 +24,14 @@
 - Gallery、Schedule、Settings、Paper、Course 的页面按叶子功能拆分。
 - 登录拆为存储、会话、密码变换、CAS 解析、API 客户端和业务门面。
 - 日程拆出缓存、CloudKit、空教室协调、短信续接、ICS 解析和集合编辑。
+- 日程课表视图拆出线性时间轴、课程卡片、网格模型和周次滑动条，主网格文件保持页面级职责。
 - 社区请求统一由 `CommunityAPIClient` 处理认证、URL、状态码和 JSON。
 - 取消错误统一由 `TaskCancellation` 识别。
 - 分页状态统一由 `PagedItemsState` 管理。
 - 错误报告、更新提醒、网络 smoke 各自使用独立基础组件。
+- 网络提示中心支持路径、时钟、弹窗协调器注入；HTTPClient 支持注入网络提示中心，网络请求顺序回归测试覆盖学校域名、提示文案和 transport 门禁。
+- 本地课程编辑同步回写当前学期快照；课表元数据变化参与同步替换判断；空教室手工节次筛选拥有独立的持久化标记。
+- 时间轴默认缩放比例和网格颜色归入 `AppDesignSystem.Schedule`；空教室结果使用主题色层级区分状态。
 
 ## 大文件审查
 
@@ -39,10 +43,10 @@
 | `Schedule/ScheduleViewModel+CourseEditing.swift` | 课程和自定义日程编辑。 |
 | `Schedule/ScheduleViewModel+DDL.swift` | 乐学、DDL 和相关文案。 |
 | `Schedule/ScheduleViewModel+Preferences.swift` | 周次、显示设置和时间表。 |
-| `Schedule/ScheduleModels.swift` | 课表、考试、DDL、缓存模型和编解码。属于同一领域，当前保持合并。 |
+| `Schedule/ScheduleCoreModels.swift`、`Schedule/ScheduleCacheModels.swift`、`Schedule/ScheduleDateCodecs.swift` | 课表、考试、DDL、缓存模型和日期/周次编解码，按领域边界拆分。 |
 | `Schedule/ScheduleRootView.swift` | 日程容器和页面路由。 |
-| `Schedule/CourseScheduleTabView.swift` | 课表分栏、周次切换、分享和编辑入口。 |
-| `Schedule/ScheduleCalendarViews.swift` | 按周/全学期课表网格和背景层。 |
+| `Schedule/CourseScheduleTabView.swift`、`Schedule/CourseScheduleTabViewActions.swift` | 课表分栏与页面展示、分享/导入/编辑操作，按页面生命周期拆分。 |
+| `Schedule/ScheduleCalendarViews.swift`、`Schedule/ScheduleLinearCalendarViews.swift`、`Schedule/ScheduleCourseCardViews.swift`、`Schedule/ScheduleCalendarModels.swift`、`Schedule/ScheduleWeekSliderView.swift` | 课表网格、线性时间轴、课程卡片、展示模型和周次控件，按独立生命周期拆分。 |
 | `Schedule/ScheduleEntryDetailView.swift` | 课程、考试和自定义日程详情。 |
 | `Schedule/ScheduleEditingSupport.swift` | 课程编辑模式和调休/放假表单。 |
 | `Score/ScoreViewModels.swift` | 成绩筛选、缓存、短信续接和刷新状态。状态互相关联，当前保持合并。 |

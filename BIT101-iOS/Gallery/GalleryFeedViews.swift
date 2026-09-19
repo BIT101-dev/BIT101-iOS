@@ -446,11 +446,13 @@ struct GalleryPosterThumbnail: View {
     private let maxHeight: CGFloat?
     private let aspectRatio: CGFloat?
     private let contentMode: ContentMode
+    private let loadsOriginal: Bool
     private let onAspectRatioResolved: ((CGFloat) -> Void)?
 
     init(
         image: GalleryImage,
         contentMode: ContentMode = .fit,
+        loadsOriginal: Bool = false,
         onAspectRatioResolved: ((CGFloat) -> Void)? = nil
     ) {
         self.image = image
@@ -458,6 +460,7 @@ struct GalleryPosterThumbnail: View {
         maxHeight = nil
         aspectRatio = nil
         self.contentMode = contentMode
+        self.loadsOriginal = loadsOriginal
         self.onAspectRatioResolved = onAspectRatioResolved
     }
 
@@ -468,6 +471,7 @@ struct GalleryPosterThumbnail: View {
         self.maxHeight = maxHeight
         self.aspectRatio = aspectRatio
         contentMode = .fit
+        loadsOriginal = false
         onAspectRatioResolved = nil
     }
 
@@ -491,6 +495,13 @@ struct GalleryPosterThumbnail: View {
         Group {
             if let animatedURL {
                 GalleryAutoplayingImage(url: animatedURL, contentMode: contentMode)
+            } else if loadsOriginal, let originalURL {
+                GalleryProgressiveStillImage(
+                    thumbnailURL: thumbnailURL,
+                    originalURL: originalURL,
+                    contentMode: contentMode,
+                    onAspectRatioResolved: onAspectRatioResolved
+                )
             } else {
                 GalleryCachedStillImage(
                     url: thumbnailURL,
@@ -503,6 +514,10 @@ struct GalleryPosterThumbnail: View {
 
     private var thumbnailURL: URL? {
         URL(string: image.lowUrl.isEmpty ? image.url : image.lowUrl)
+    }
+
+    private var originalURL: URL? {
+        URL(string: image.url.isEmpty ? image.lowUrl : image.url)
     }
 
     /// 动图必须读取原文件；服务端生成的 lowUrl 通常只是静态缩略图。

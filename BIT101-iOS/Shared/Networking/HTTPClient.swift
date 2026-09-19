@@ -30,17 +30,28 @@ enum HTTPClientError: LocalizedError {
 /// 处理请求发送和 HTTP 协议层校验；业务认证规则由上层 Service 处理。
 struct HTTPClient {
     let transport: any HTTPTransport
+    let networkWarningCenter: NetworkMagicWarningCenter?
 
-    init(transport: any HTTPTransport) {
+#if BIT101_AUTOMATED_TESTING
+    private static let defaultNetworkWarningCenter: NetworkMagicWarningCenter? = nil
+#else
+    private static let defaultNetworkWarningCenter: NetworkMagicWarningCenter? = .shared
+#endif
+
+    init(
+        transport: any HTTPTransport,
+        networkWarningCenter: NetworkMagicWarningCenter? = HTTPClient.defaultNetworkWarningCenter
+    ) {
         self.transport = transport
+        self.networkWarningCenter = networkWarningCenter
     }
 
     func send(
         _ request: URLRequest,
         accepting statusCodes: Range<Int> = 200 ..< 300
     ) async throws -> HTTPResponse {
-        if let url = request.url {
-            _ = await NetworkMagicWarningCenter.shared.consider(url: url)
+        if let url = request.url, let networkWarningCenter {
+            _ = await networkWarningCenter.consider(url: url)
         }
         let startedAt = Date()
         let data: Data

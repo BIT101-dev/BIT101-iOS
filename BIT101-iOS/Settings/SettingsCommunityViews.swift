@@ -20,10 +20,10 @@ struct GallerySettingsPage: View {
                 .appSelectionFeedback(trigger: settings.galleryHideBotPosterInSearch)
 
                 Toggle("隐藏匿名内容", isOn: Binding(
-                    get: { settings.galleryStrictUserFilter },
-                    set: { settings.updateGallerySettings(strictUserFilter: $0) }
+                    get: { settings.galleryHideAnonymousContent },
+                    set: { settings.updateGallerySettings(hideAnonymousContent: $0) }
                 ))
-                .appSelectionFeedback(trigger: settings.galleryStrictUserFilter)
+                .appSelectionFeedback(trigger: settings.galleryHideAnonymousContent)
 
                 TextField("屏蔽用户 UID（逗号分隔）", text: $hiddenUserIDsText)
                     .keyboardType(.numbersAndPunctuation)

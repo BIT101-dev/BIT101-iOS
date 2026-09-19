@@ -39,21 +39,23 @@ extension ScheduleViewModel {
     ///
     /// 本地缓存保存课程修改，用于补录临时课程或手动修正。
     func addCourse(_ draft: CourseDraft) throws {
-        cache.courses = try ScheduleCourseEditor.adding(
+        let updatedCourses = try ScheduleCourseEditor.adding(
             draft,
             to: cache.courses,
             term: cache.currentTerm
         )
+        replaceCurrentCourses(updatedCourses)
         persist()
     }
 
     /// 更新整门课程。
     func updateCourse(id: String, draft: CourseDraft) throws {
-        cache.courses = try ScheduleCourseEditor.updating(
+        let updatedCourses = try ScheduleCourseEditor.updating(
             id: id,
             with: draft,
             in: cache.courses
         )
+        replaceCurrentCourses(updatedCourses)
         persist()
     }
 
@@ -62,12 +64,13 @@ extension ScheduleViewModel {
     /// 从原课程中移出当前周，生成一条仅覆盖当前周的新课程记录；
     /// 其它周保留原来的排课信息。
     func updateCourseOccurrence(id: String, week: Int, draft: CourseDraft) throws {
-        cache.courses = try ScheduleCourseEditor.updatingOccurrence(
+        let updatedCourses = try ScheduleCourseEditor.updatingOccurrence(
             id: id,
             week: week,
             with: draft,
             in: cache.courses
         )
+        replaceCurrentCourses(updatedCourses)
         persist()
     }
 
@@ -75,27 +78,29 @@ extension ScheduleViewModel {
     ///
     /// 课程覆盖范围为空时移除整门课。
     func deleteCourseOccurrence(id: String, week: Int) {
-        cache.courses = ScheduleCourseEditor.deletingOccurrence(
+        let updatedCourses = ScheduleCourseEditor.deletingOccurrence(
             id: id,
             week: week,
             from: cache.courses
         )
+        replaceCurrentCourses(updatedCourses)
         persist()
     }
 
     /// 删除整门课程。
     func deleteCourse(id: String) {
-        cache.courses = ScheduleCourseEditor.deleting(id: id, from: cache.courses)
+        replaceCurrentCourses(ScheduleCourseEditor.deleting(id: id, from: cache.courses))
         persist()
     }
 
     /// 将指定日期设置为放假：清空这一天的课程，保留考试和自定义日程。
     func clearCourses(week: Int, weekday: Int) {
-        cache.courses = ScheduleCourseEditor.removingOccurrences(
+        let updatedCourses = ScheduleCourseEditor.removingOccurrences(
             from: cache.courses,
             week: week,
             weekday: weekday
         )
+        replaceCurrentCourses(updatedCourses)
         persist()
     }
 
@@ -107,14 +112,30 @@ extension ScheduleViewModel {
     /// - 移动课程，保留考试和自定义日程。
     func transferCourses(fromWeek: Int, fromWeekday: Int, to targetDate: Date) throws {
         let target = try courseDayContext(for: targetDate)
-        cache.courses = ScheduleCourseEditor.transferring(
+        let updatedCourses = ScheduleCourseEditor.transferring(
             courses: cache.courses,
             fromWeek: fromWeek,
             fromWeekday: fromWeekday,
             toWeek: target.week,
             toWeekday: target.weekday
         )
+        replaceCurrentCourses(updatedCourses)
         persist()
+    }
+
+    private func replaceCurrentCourses(_ courses: [CourseRecord]) {
+        cache.courses = courses
+        guard !cache.currentTerm.isEmpty else { return }
+
+        cache.cachedCoursesByTerm[cache.currentTerm] = courses
+        guard let snapshot = cache.termSchedulesByTerm[cache.currentTerm] else { return }
+        cache.termSchedulesByTerm[cache.currentTerm] = TermScheduleSnapshot(
+            term: snapshot.term,
+            firstDayString: snapshot.firstDayString,
+            courses: courses,
+            exams: snapshot.exams,
+            updatedAt: snapshot.updatedAt
+        )
     }
 
     /// 导入一份分享的课表载荷。

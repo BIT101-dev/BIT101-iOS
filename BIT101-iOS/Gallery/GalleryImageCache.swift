@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import OSLog
 import SwiftUI
 import UIKit
 
@@ -283,6 +284,75 @@ struct GalleryCachedStillImage: View {
                 image = nil
             }
         }
+    }
+}
+
+/// 详情页图片先显示低清缓存，再在同一视图中替换为原图。
+struct GalleryProgressiveStillImage: View {
+    private static let logger = Logger(subsystem: "BIT101", category: "GalleryImage")
+    let thumbnailURL: URL?
+    let originalURL: URL?
+    var contentMode: ContentMode = .fit
+    var onAspectRatioResolved: ((CGFloat) -> Void)? = nil
+    @State private var image: UIImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: contentMode)
+            } else {
+                AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card)
+                    .fill(AppDesignSystem.Palette.highlightSurface)
+                    .overlay {
+                        Image(systemName: "photo")
+                            .foregroundStyle(AppDesignSystem.Palette.highlight)
+                    }
+            }
+        }
+        .task(id: thumbnailURL?.absoluteString ?? originalURL?.absoluteString) {
+            image = nil
+            await loadThumbnail()
+            guard !Task.isCancelled else { return }
+            await loadOriginal()
+        }
+    }
+
+    private func loadThumbnail() async {
+        guard let thumbnailURL else { return }
+        do {
+            let file = try await GalleryImageCache.shared.file(for: thumbnailURL, variant: .thumbnail)
+            guard !Task.isCancelled else { return }
+            let decoded = await GalleryThumbnailDecoder.shared.image(at: file)
+            guard !Task.isCancelled else { return }
+            image = decoded
+            reportRatio(decoded)
+        } catch {
+            image = nil
+        }
+    }
+
+    private func loadOriginal() async {
+        guard let originalURL,
+              originalURL != thumbnailURL
+        else { return }
+        do {
+            let file = try await GalleryImageCache.shared.file(for: originalURL, variant: .original)
+            guard !Task.isCancelled else { return }
+            let decoded = await GalleryThumbnailDecoder.shared.image(at: file)
+            guard !Task.isCancelled, let decoded else { return }
+            image = decoded
+            reportRatio(decoded)
+        } catch {
+            // 详情页保留已经显示的低清图，原图失败时继续提供可读内容。
+            Self.logger.debug("详情原图加载失败：\(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func reportRatio(_ image: UIImage?) {
+        guard let image, image.size.height > 0 else { return }
+        onAspectRatioResolved?(image.size.width / image.size.height)
     }
 }
 

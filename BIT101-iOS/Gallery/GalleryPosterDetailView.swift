@@ -107,6 +107,7 @@ struct GalleryPosterDetailView: View {
                                 GalleryPosterThumbnail(
                                     image: image,
                                     contentMode: .fit,
+                                    loadsOriginal: true,
                                     onAspectRatioResolved: { ratio in
                                         guard ratio > 0, imageAspectRatios[index] != ratio else { return }
                                         imageAspectRatios[index] = ratio

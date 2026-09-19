@@ -121,8 +121,10 @@ struct FreeClassroomTabView: View {
         ) {
         case .full:
             return AppDesignSystem.Palette.accentSurface
-        case .partial, .none:
-            return AppDesignSystem.Palette.secondaryGroupedBackground
+        case .partial:
+            return AppDesignSystem.Palette.accentSubtleSurface
+        case .none:
+            return AppDesignSystem.Palette.systemBackground
         }
     }
 }

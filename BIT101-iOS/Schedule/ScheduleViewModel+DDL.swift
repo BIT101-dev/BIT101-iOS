@@ -49,13 +49,21 @@ extension ScheduleViewModel {
                 break
             }
             if showErrorNotice {
-                notice = schoolFailureNotice(title: "DDL 同步失败", message: error.localizedDescription)
+                notice = schoolFailureNotice(
+                    title: "DDL 同步失败",
+                    message: error.localizedDescription,
+                    networkFailure: Self.isLikelySchoolTransportError(error)
+                )
             }
             return false
         } catch {
             if isCancellation(error) { return false }
             if showErrorNotice {
-                notice = schoolFailureNotice(title: "DDL 同步失败", message: error.localizedDescription)
+                notice = schoolFailureNotice(
+                    title: "DDL 同步失败",
+                    message: error.localizedDescription,
+                    networkFailure: Self.isLikelySchoolTransportError(error)
+                )
             }
             return false
         }
@@ -92,11 +100,19 @@ extension ScheduleViewModel {
             case .schoolSMSUnavailable:
                 notice = ScheduleNotice(title: "短信验证失败", message: error.localizedDescription)
             default:
-                notice = schoolFailureNotice(title: "订阅链接获取失败", message: error.localizedDescription)
+                notice = schoolFailureNotice(
+                    title: "订阅链接获取失败",
+                    message: error.localizedDescription,
+                    networkFailure: Self.isLikelySchoolTransportError(error)
+                )
             }
         } catch {
             if isCancellation(error) { return }
-            notice = schoolFailureNotice(title: "订阅链接获取失败", message: error.localizedDescription)
+            notice = schoolFailureNotice(
+                title: "订阅链接获取失败",
+                message: error.localizedDescription,
+                networkFailure: Self.isLikelySchoolTransportError(error)
+            )
         }
     }
 

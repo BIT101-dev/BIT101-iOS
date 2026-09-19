@@ -117,7 +117,7 @@ xcrun devicectl device process openURL \
   --activate | tee -a "$LOG_FILE"
 
 echo "等待结果文件..." | tee -a "$LOG_FILE"
-MAX_ATTEMPTS=300
+MAX_ATTEMPTS=120
 for (( attempt = 1; attempt <= MAX_ATTEMPTS; attempt++ )); do
   if xcrun devicectl device copy from \
     --device "$DEVICETCL_DEVICE_ID" \
@@ -142,7 +142,13 @@ PY
     echo "未在超时时间内拿到冒烟结果文件：$REMOTE_REPORT_PATH" | tee -a "$LOG_FILE" >&2
     exit 1
   fi
-  sleep 2
+  if (( attempt <= 5 )); then
+    sleep 0.5
+  elif (( attempt <= 25 )); then
+    sleep 1
+  else
+    sleep 2
+  fi
 done
 
 if [[ "$SMOKE_CAPTURE" == "rawCourseResponse" ]]; then

@@ -60,7 +60,7 @@ struct AppSettingsSnapshot: Codable, Equatable {
     /// 话廊普通内容中需要隐藏的用户 UID。
     var galleryHiddenUserIDs: [Int] = []
     /// 是否在话廊中过滤匿名内容。
-    var galleryStrictUserFilter = false
+    var galleryHideAnonymousContent = false
     /// 是否使用网页话廊。
     var galleryUseWebView = false
     /// 是否已经看过“导入分享课表”的使用提示。
@@ -75,7 +75,7 @@ struct AppSettingsSnapshot: Codable, Equatable {
         case autoRotate
         case galleryHideBotPosterInSearch
         case galleryHiddenUserIDs
-        case galleryStrictUserFilter
+        case galleryHideAnonymousContent = "galleryStrictUserFilter"
         case galleryUseWebView
         case hasSeenSharedScheduleImportGuide
         case firstOpenDate
@@ -90,7 +90,7 @@ struct AppSettingsSnapshot: Codable, Equatable {
         autoRotate = try container.decodeIfPresent(Bool.self, forKey: .autoRotate) ?? false
         galleryHideBotPosterInSearch = try container.decodeIfPresent(Bool.self, forKey: .galleryHideBotPosterInSearch) ?? true
         galleryHiddenUserIDs = try container.decodeIfPresent([Int].self, forKey: .galleryHiddenUserIDs) ?? []
-        galleryStrictUserFilter = try container.decodeIfPresent(Bool.self, forKey: .galleryStrictUserFilter) ?? false
+        galleryHideAnonymousContent = try container.decodeIfPresent(Bool.self, forKey: .galleryHideAnonymousContent) ?? false
         galleryUseWebView = try container.decodeIfPresent(Bool.self, forKey: .galleryUseWebView) ?? false
         hasSeenSharedScheduleImportGuide = try container.decodeIfPresent(Bool.self, forKey: .hasSeenSharedScheduleImportGuide) ?? false
         firstOpenDate = try container.decodeIfPresent(Date.self, forKey: .firstOpenDate)
@@ -104,15 +104,24 @@ struct AppSettingsSyncPayload: Codable, Equatable {
     var autoRotate: Bool
     var galleryHideBotPosterInSearch: Bool
     var galleryHiddenUserIDs: [Int]
-    var galleryStrictUserFilter: Bool
+    var galleryHideAnonymousContent: Bool
     var galleryUseWebView: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case themeMode
+        case autoRotate
+        case galleryHideBotPosterInSearch
+        case galleryHiddenUserIDs
+        case galleryHideAnonymousContent = "galleryStrictUserFilter"
+        case galleryUseWebView
+    }
 
     init(snapshot: AppSettingsSnapshot) {
         themeMode = snapshot.themeMode
         autoRotate = snapshot.autoRotate
         galleryHideBotPosterInSearch = snapshot.galleryHideBotPosterInSearch
         galleryHiddenUserIDs = snapshot.galleryHiddenUserIDs
-        galleryStrictUserFilter = snapshot.galleryStrictUserFilter
+        galleryHideAnonymousContent = snapshot.galleryHideAnonymousContent
         galleryUseWebView = snapshot.galleryUseWebView
     }
 
@@ -122,7 +131,7 @@ struct AppSettingsSyncPayload: Codable, Equatable {
         autoRotate = try container.decodeIfPresent(Bool.self, forKey: .autoRotate) ?? false
         galleryHideBotPosterInSearch = try container.decodeIfPresent(Bool.self, forKey: .galleryHideBotPosterInSearch) ?? true
         galleryHiddenUserIDs = try container.decodeIfPresent([Int].self, forKey: .galleryHiddenUserIDs) ?? []
-        galleryStrictUserFilter = try container.decodeIfPresent(Bool.self, forKey: .galleryStrictUserFilter) ?? false
+        galleryHideAnonymousContent = try container.decodeIfPresent(Bool.self, forKey: .galleryHideAnonymousContent) ?? false
         galleryUseWebView = try container.decodeIfPresent(Bool.self, forKey: .galleryUseWebView) ?? false
     }
 }
@@ -183,7 +192,7 @@ final class AppSettingsStore: ObservableObject {
     var autoRotate: Bool { snapshot.autoRotate }
     var galleryHideBotPosterInSearch: Bool { snapshot.galleryHideBotPosterInSearch }
     var galleryHiddenUserIDs: [Int] { snapshot.galleryHiddenUserIDs }
-    var galleryStrictUserFilter: Bool { snapshot.galleryStrictUserFilter }
+    var galleryHideAnonymousContent: Bool { snapshot.galleryHideAnonymousContent }
     var galleryUseWebView: Bool { snapshot.galleryUseWebView }
     var hasSeenSharedScheduleImportGuide: Bool { snapshot.hasSeenSharedScheduleImportGuide }
     var shouldShowCurrentStartupNotice: Bool {
@@ -222,7 +231,7 @@ final class AppSettingsStore: ObservableObject {
     func updateGallerySettings(
         hideBotPosterInSearch: Bool? = nil,
         hiddenUserIDs: [Int]? = nil,
-        strictUserFilter: Bool? = nil,
+        hideAnonymousContent: Bool? = nil,
         useWebView: Bool? = nil
     ) {
         if let hideBotPosterInSearch {
@@ -231,8 +240,8 @@ final class AppSettingsStore: ObservableObject {
         if let hiddenUserIDs {
             snapshot.galleryHiddenUserIDs = Array(Set(hiddenUserIDs.filter { $0 > 0 })).sorted()
         }
-        if let strictUserFilter {
-            snapshot.galleryStrictUserFilter = strictUserFilter
+        if let hideAnonymousContent {
+            snapshot.galleryHideAnonymousContent = hideAnonymousContent
         }
         if let useWebView {
             snapshot.galleryUseWebView = useWebView
@@ -283,7 +292,7 @@ final class AppSettingsStore: ObservableObject {
         snapshot.autoRotate = payload.autoRotate
         snapshot.galleryHideBotPosterInSearch = payload.galleryHideBotPosterInSearch
         snapshot.galleryHiddenUserIDs = payload.galleryHiddenUserIDs
-        snapshot.galleryStrictUserFilter = payload.galleryStrictUserFilter
+        snapshot.galleryHideAnonymousContent = payload.galleryHideAnonymousContent
         save()
         AppOrientationController.applyPreference(autoRotate: snapshot.autoRotate)
     }

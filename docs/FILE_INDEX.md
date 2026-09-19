@@ -39,13 +39,25 @@
 
 - `ScheduleRootView.swift`：日程页容器和页面路由。
 - `CourseScheduleTabView.swift`：课表分栏、周次切换、分享和编辑入口。
-- `ScheduleCalendarViews.swift`：按周/全学期课表网格与课程背景层。
+- `ScheduleCalendarViews.swift`：按周/全学期课表网格、上下文菜单和页面级课表容器。
+- `ScheduleLinearCalendarViews.swift`：线性时间轴、缩放滚动容器和时间轴画布。
+- `ScheduleCourseCardViews.swift`：课程/考试/自定义日程块、文字适配和背景层。
+- `ScheduleCalendarModels.swift`：网格条目、背景层、时间映射和重叠归一化。
+- `ScheduleWeekSliderView.swift`：课表顶部周次滑动条。
+- `CourseScheduleTabViewActions.swift`：课表分享、导入、编辑抽屉和课程评价操作。
 - `ScheduleEntryDetailView.swift`：课程、考试和自定义日程详情。
 - `ScheduleEditingSupport.swift`：课程编辑模式与调休/放假表单。
-- `ScheduleModels.swift`：课程、考试、DDL、空教室和缓存领域模型。
+- `ScheduleModels.swift`：日程领域公共通知与模型入口。
+- `ScheduleCoreModels.swift`：课程、考试、DDL、自定义日程和空教室模型。
+- `ScheduleCacheModels.swift`：缓存、学期快照和分享课表模型。
+- `ScheduleDateCodecs.swift`：日程日期、周次和时间表编解码。
 - `ScheduleViewModel*.swift`：同步、学期、空教室、编辑、DDL 和偏好分支。
 - `ScheduleService*.swift`：教学中心、乐学、认证、传输及响应模型。
 - `ScheduleCacheStore.swift`、`ScheduleWidgetSupport.swift`：缓存持久化和 widget 导出。
+- `ScheduleSystemCalendarManager.swift`：系统日历权限、课程/考试/自定义日程导入删除。
+- `Shared/Infrastructure/NetworkDiagnostics.swift`：网络路径提示、诊断探针、请求记录和诊断缓存。
+- `Shared/Infrastructure/ErrorReportSupport.swift`：错误报告、脱敏和诊断弹窗展示。
+- `Shared/Infrastructure/ReleaseNetworkSmoke.swift`、`ReleaseNetworkSmokeModels.swift`：网络 Smoke runner、探针模型和报告存储。
 - 其余解析器、策略、日历、分享和编辑文件按职责拆分，按所属目录查找。
 
 ### 成绩与课程
@@ -67,7 +79,7 @@
 ### 我的与设置
 
 - `BIT101-iOS/Mine/`：个人主页、他人主页、关注关系和帖子列表。
-- `BIT101-iOS/Settings/`：账号、外观、课表、DDL、话廊、关于和开发者建议页面；建议提交界面在 `SettingsRootView.swift`。
+- `BIT101-iOS/Settings/`：账号、外观、课表、DDL、话廊、关于和开发者建议页面；课表设置页与其 sheet 分别位于 `SettingsScheduleViews.swift`、`SettingsScheduleSheets.swift`；建议提交界面在 `SettingsRootView.swift`。
 
 设计一致性检查使用：`Scripts/check-ui-consistency.sh`、`Scripts/check-haptic-consistency.sh`、`Scripts/check-component-consistency.sh`。
 逐份源码质量检查使用：`Scripts/check-code-quality.sh`，结果固定写入 `.build/code-quality-report.txt`。

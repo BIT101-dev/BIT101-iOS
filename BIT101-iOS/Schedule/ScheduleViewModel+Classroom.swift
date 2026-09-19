@@ -67,6 +67,7 @@ extension ScheduleViewModel {
     /// 更新空教室节次筛选结果。
     func setSelectedClassroomSectionIDs(_ values: [Int]) {
         cache.selectedClassroomSectionIDs = ClassroomAvailabilityCalculator.normalizedSections(values, in: cache.timeTable)
+        cache.isClassroomSectionFilterCustomized = true
         persist()
         refreshClassroomAvailabilities()
     }
@@ -347,7 +348,8 @@ extension ScheduleViewModel {
             if scheduleError.isSchoolTransportFailure {
                 notice = schoolFailureNotice(
                     title: "学校服务连接失败",
-                    message: scheduleError.schoolTransportFailureMessage
+                    message: scheduleError.schoolTransportFailureMessage,
+                    networkFailure: true
                 )
                 return
             }
@@ -357,7 +359,11 @@ extension ScheduleViewModel {
             }
         }
 
-        notice = schoolFailureNotice(title: title, message: error.localizedDescription)
+        notice = schoolFailureNotice(
+            title: title,
+            message: error.localizedDescription,
+            networkFailure: Self.isLikelySchoolTransportError(error)
+        )
     }
 
     /// 标记当前空教室请求已正常结束。
@@ -468,6 +474,7 @@ extension ScheduleViewModel {
 
     /// 用户主动刷新空教室时，按当前时间切换到对应的节次块筛选。
     private func applyCurrentClassroomSectionBlock() {
+        guard !cache.isClassroomSectionFilterCustomized else { return }
         let sectionIDs = ClassroomAvailabilityCalculator.sectionBlock(at: currentMinutes(), in: cache.timeTable)
         guard !sectionIDs.isEmpty else { return }
 

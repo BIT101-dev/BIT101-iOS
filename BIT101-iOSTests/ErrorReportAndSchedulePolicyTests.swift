@@ -164,6 +164,34 @@ final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertFalse(CourseSyncReplacementPolicy.shouldReplace(existing: [old, added], with: [old]))
     }
 
+    func testCourseMetadataChangeCountsAsReplacement() {
+        let old = course(id: "1", name: "高数")
+        let changed = CourseRecord(
+            id: old.id,
+            term: old.term,
+            name: old.name,
+            teacher: old.teacher,
+            classroom: old.classroom,
+            description: old.description,
+            weeks: old.weeks,
+            weekday: old.weekday,
+            startSection: old.startSection,
+            endSection: old.endSection,
+            campus: "良乡校区",
+            number: old.number,
+            credit: old.credit,
+            hour: old.hour,
+            type: old.type,
+            category: old.category,
+            department: old.department
+        )
+
+        XCTAssertEqual(
+            CourseSyncReplacementPolicy.decision(existing: [old], with: [changed]),
+            .replace
+        )
+    }
+
     func testReducedPublishedCourseResponseRequiresConfirmation() {
         let old = course(id: "1", name: "高数")
         let added = course(id: "2", name: "英语")
