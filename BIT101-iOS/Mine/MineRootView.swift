@@ -169,7 +169,7 @@ struct UserProfileRootView: View {
     @State private var selectedPoster: GalleryPoster?
     @State private var imageViewer: GalleryImageViewerState?
 
-    init(userID: Int, onLogout: @escaping () -> Void) {
+    init(userID: Int, onLogout: @escaping () -> Void = {}) {
         self.userID = userID
         self.onLogout = onLogout
         _viewModel = StateObject(wrappedValue: UserProfileViewModel(userID: userID))
@@ -229,10 +229,10 @@ struct UserProfileRootView: View {
                     onOpenAvatar: {
                         imageViewer = GalleryImageViewerState(images: [info.user.avatar], initialIndex: 0)
                     },
-                    isFollowRequestInFlight: viewModel.isFollowingUser,
                     onFollow: {
                         Task { await viewModel.followUser() }
-                    }
+                    },
+                    isFollowRequestInFlight: viewModel.isFollowingUser
                 )
             }
         }
@@ -624,7 +624,7 @@ private struct MinePosterListView: View {
             if selectedPoster?.id == poster.id {
                 selectedPoster = nil
             }
-            onRefresh()
+            await onRefresh()
         } catch {
             alert = AppAlert(title: "删除失败", message: error.localizedDescription)
         }

@@ -6,16 +6,16 @@ enum TaskCancellation {
         var current: Error? = error
         var visitedErrors = Set<ObjectIdentifier>()
 
-        while let current {
-            if current is CancellationError {
+        while let currentError = current {
+            if currentError is CancellationError {
                 return true
             }
 
-            if let urlError = current as? URLError, urlError.code == .cancelled {
+            if let urlError = currentError as? URLError, urlError.code == .cancelled {
                 return true
             }
 
-            let nsError = current as NSError
+            let nsError = currentError as NSError
             if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
                 return true
             }

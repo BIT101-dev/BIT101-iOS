@@ -317,7 +317,7 @@ actor ScheduleCloudSyncManager {
               storedStudentID == expectedStudentID,
               let storedUpdatedAt = record[FieldKey.updatedAt] as? Date,
               let payloadJSON = record[FieldKey.payloadJSON] as? String,
-              var cache = try? decoder.decode(ScheduleCache.self, from: Data(payloadJSON.utf8))
+              let cache = try? decoder.decode(ScheduleCache.self, from: Data(payloadJSON.utf8))
         else { return nil }
 
         // JSON ISO-8601 encoding can lose sub-second precision; accept that

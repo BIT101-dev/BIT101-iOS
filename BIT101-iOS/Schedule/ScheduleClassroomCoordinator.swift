@@ -48,7 +48,7 @@ final class ScheduleClassroomCoordinator {
     ) async throws -> T where T: Sendable {
         try Task.checkCancellation()
 
-        try await withThrowingTaskGroup(of: T.self) { group in
+        return try await withThrowingTaskGroup(of: T.self) { group in
             group.addTask {
                 try await operation()
             }

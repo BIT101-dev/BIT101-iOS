@@ -566,7 +566,7 @@ struct GalleryComposerView: View {
         selectedClaimID = draft.selectedClaimID
         imageDrafts = draft.images.map {
             let uploadData = $0.uploadData ?? jpegUploadData(from: $0.previewData)
-            GalleryComposerImageDraft(
+            return GalleryComposerImageDraft(
                 previewData: $0.previewData,
                 filename: $0.filename,
                 uploadData: uploadData,

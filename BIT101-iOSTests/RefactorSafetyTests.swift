@@ -47,40 +47,56 @@ struct GalleryContentFilterTests {
 
 @Suite("Course history makeup policy")
 struct CourseHistoryMakeupPolicyTests {
-    @Test("Reviewed course history fixture drives the recorded prediction")
-    func reviewedFixture() throws {
+    @Test("Reviewed course history fixture metadata matches its samples")
+    func reviewedFixtureMetadata() throws {
         let fixture = try loadFixture()
-
         #expect(fixture.schemaVersion == 2)
-        if fixture.algorithmVersion != "log10_tukey_outer_3_iqr_avg_q1_keep_gt_20" {
-            Issue.record("算法版本：\(fixture.algorithmVersion)")
-        }
         #expect(fixture.algorithmVersion == "log10_tukey_outer_3_iqr_avg_q1_keep_gt_20")
         #expect(fixture.sampledCourseCount == fixture.courses.count)
         #expect(fixture.sampledGradeCount == fixture.courses.reduce(0) { $0 + $1.grades.count })
-        let actualManualLabelCounts = fixture.courses
+    }
+
+    @Test("Reviewed course history fixture labels match its samples")
+    func reviewedFixtureLabelCountsMatch() throws {
+        let fixture = try loadFixture()
+        let actualCounts = fixture.courses
             .flatMap { $0.grades }
             .reduce(into: [String: Int]()) { counts, grade in
                 counts[grade.manualLabel, default: 0] += 1
             }
-        #expect(actualManualLabelCounts == fixture.manualLabelCounts)
-        #expect(fixture.manualLabelCounts["likely_formal"] == 481)
-        #expect(fixture.manualLabelCounts["likely_makeup"] == 56)
-        #expect(fixture.manualLabelCounts["uncertain"] == 0)
+        let normalizedActualCounts = ["likely_formal", "likely_makeup", "uncertain"].reduce(into: actualCounts) {
+            $0[$1, default: 0] += 0
+        }
+        #expect(normalizedActualCounts == fixture.manualLabelCounts)
+    }
 
+    @Test("Reviewed course history fixture formal label count is stable")
+    func reviewedFixtureFormalLabelCount() throws {
+        let fixture = try loadFixture()
+        #expect(fixture.manualLabelCounts["likely_formal"] == 481)
+    }
+
+    @Test("Reviewed course history fixture makeup label count is stable")
+    func reviewedFixtureMakeupLabelCount() throws {
+        let fixture = try loadFixture()
+        #expect(fixture.manualLabelCounts["likely_makeup"] == 56)
+    }
+
+    @Test("Reviewed course history fixture has no uncertain labels")
+    func reviewedFixtureUncertainLabelCount() throws {
+        let fixture = try loadFixture()
+        #expect(fixture.manualLabelCounts["uncertain"] == 0)
+    }
+
+    @Test("Reviewed course history fixture predictions match the current policy")
+    func reviewedFixturePredictions() throws {
+        let fixture = try loadFixture()
         for course in fixture.courses {
             let grades = course.grades.map(\.courseHistoryGrade)
-            let predictedTerms = CourseHistoryMakeupPolicy.hiddenTerms(in: grades)
-            if predictedTerms != course.predictedHiddenTerms {
-                Issue.record("\(course.courseNumber) 预测：\(predictedTerms) fixture：\(course.predictedHiddenTerms)")
-            }
-            #expect(predictedTerms == course.predictedHiddenTerms)
+            #expect(CourseHistoryMakeupPolicy.hiddenTerms(in: grades) == course.predictedHiddenTerms)
 
             let manualLabels = Set(course.grades.map(\.manualLabel))
             let expectedCourseLabel = manualLabels.count == 1 ? (manualLabels.first ?? "mixed") : "mixed"
-            if course.manualReviewLabel != expectedCourseLabel {
-                Issue.record("\(course.courseNumber) 人工课程标签：\(course.manualReviewLabel) 计算：\(expectedCourseLabel)")
-            }
             #expect(course.manualReviewLabel == expectedCourseLabel)
             for grade in course.grades {
                 let expectedPredictedLabel = course.predictedHiddenTerms.contains(grade.term)
@@ -90,7 +106,11 @@ struct CourseHistoryMakeupPolicyTests {
                 #expect(["likely_formal", "likely_makeup", "uncertain"].contains(grade.manualLabel))
             }
         }
+    }
 
+    @Test("Reviewed course history fixture keeps the validated formal course visible")
+    func reviewedFixtureTargetCourse() throws {
+        let fixture = try loadFixture()
         let target = try #require(fixture.courses.first { $0.courseID == 10026 })
         #expect(target.predictedHiddenTerms.isEmpty)
         #expect(target.manualReviewLabel == "likely_formal")

@@ -84,20 +84,25 @@ final class ReleaseNetworkSmokeRunner {
         } else {
             recordFailure("话廊最新列表", "服务器返回空列表，无法继续验证详情与图片", scope: scope)
         }
-        _ = await probe("话廊推荐流", scope: scope) { try await gallery.fetchRecommendPage(sourcePage: 0) }
-        _ = await probe("话廊机器人流", scope: scope) { try await gallery.fetchBotFeed(startPage: 0) }
-        _ = await probe("帖子声明列表", scope: scope) { try await gallery.fetchClaims() }
-        _ = await probe("话廊搜索", scope: scope) {
-            try await gallery.searchPosters(query: GallerySearchQuery(text: "BIT101"), page: 0)
-        }
-        _ = await probe("消息未读数", scope: scope) {
-            try await gallery.fetchMessageUnreadCounts()
-        }
+        var galleryOperations: [@MainActor () async -> Void] = [
+            { _ = await self.probe("话廊推荐流", scope: scope) { try await gallery.fetchRecommendPage(sourcePage: 0) } },
+            { _ = await self.probe("话廊机器人流", scope: scope) { try await gallery.fetchBotFeed(startPage: 0) } },
+            { _ = await self.probe("帖子声明列表", scope: scope) { try await gallery.fetchClaims() } },
+            {
+                _ = await self.probe("话廊搜索", scope: scope) {
+                    try await gallery.searchPosters(query: GallerySearchQuery(text: "BIT101"), page: 0)
+                }
+            },
+            { _ = await self.probe("消息未读数", scope: scope) { try await gallery.fetchMessageUnreadCounts() } }
+        ]
         for messageType in GalleryMessageType.allCases {
-            _ = await probe("消息列表-\(messageType.rawValue)", scope: scope) {
-                try await gallery.fetchMessages(type: messageType, lastID: nil)
+            galleryOperations.append { [messageType] in
+                _ = await self.probe("消息列表-\(messageType.rawValue)", scope: scope) {
+                    try await gallery.fetchMessages(type: messageType, lastID: nil)
+                }
             }
         }
+        await runInParallel(galleryOperations)
 
         let courseRows = await probe("学业课程列表", scope: scope) {
             try await courses.fetchCourses(search: "", page: 0)
@@ -133,17 +138,21 @@ final class ReleaseNetworkSmokeRunner {
         } else {
             recordFailure("文章列表", "服务器返回空列表，无法继续验证文章详情", scope: scope)
         }
-        for order in PaperSortOrder.allCases {
-            _ = await probe("文章列表-\(order.title)", scope: scope) {
-                try await papers.fetchPapers(search: "BIT101", order: order, page: 0)
+        await runInParallel(PaperSortOrder.allCases.map { order in
+            {
+                _ = await self.probe("文章列表-\(order.title)", scope: scope) {
+                    try await papers.fetchPapers(search: "BIT101", order: order, page: 0)
+                }
             }
-        }
+        })
 
         let mine = MineService()
         let myInfo = await probe("我的资料", scope: scope) { try await mine.fetchMyInfo() }
-        _ = await probe("我的关注", scope: scope) { try await mine.fetchFollowings(page: 0) }
-        _ = await probe("我的粉丝", scope: scope) { try await mine.fetchFollowers(page: 0) }
-        _ = await probe("我的帖子", scope: scope) { try await mine.fetchMyPosters(page: 0) }
+        await runInParallel([
+            { _ = await self.probe("我的关注", scope: scope) { try await mine.fetchFollowings(page: 0) } },
+            { _ = await self.probe("我的粉丝", scope: scope) { try await mine.fetchFollowers(page: 0) } },
+            { _ = await self.probe("我的帖子", scope: scope) { try await mine.fetchMyPosters(page: 0) } }
+        ])
         if let myInfo {
             _ = await probe("用户资料详情", scope: scope) { try await mine.fetchUserInfo(id: myInfo.user.id) }
             _ = await probe("用户帖子", scope: scope) { try await mine.fetchUserPosters(userID: myInfo.user.id, page: 0) }
@@ -221,17 +230,25 @@ final class ReleaseNetworkSmokeRunner {
             }
         }
 
-        _ = await probe("App Store 更新接口", scope: scope) {
-            try await Self.fetchDataCount(urlString: "https://itunes.apple.com/lookup?id=6761147125&country=cn")
-        }
-        _ = await probe("紧急更新配置接口", scope: scope) {
-            try await Self.fetchDataCount(
-                urlString: "https://update.aihelpme.dev/emergency-update.json"
-            )
-        }
-        _ = await probe("feedback.aihelpme.dev 写入恢复", scope: scope) {
-            try await FeedbackSubmissionClient.submitNetworkSmoke(runID: runID)
-        }
+        await runInParallel([
+            {
+                _ = await self.probe("App Store 更新接口", scope: scope) {
+                    try await Self.fetchDataCount(urlString: "https://itunes.apple.com/lookup?id=6761147125&country=cn")
+                }
+            },
+            {
+                _ = await self.probe("紧急更新配置接口", scope: scope) {
+                    try await Self.fetchDataCount(
+                        urlString: "https://update.aihelpme.dev/emergency-update.json"
+                    )
+                }
+            },
+            {
+                _ = await self.probe("feedback.aihelpme.dev 写入恢复", scope: scope) {
+                    try await FeedbackSubmissionClient.submitNetworkSmoke(runID: runID)
+                }
+            }
+        ])
 
         return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
     }
@@ -578,6 +595,16 @@ final class ReleaseNetworkSmokeRunner {
         let line = "[\(name)] \(ErrorReportRedactor.sanitized(message)) elapsed=\(Self.duration(elapsed))"
         authenticationBlockers.append(line)
         print("NETWORK_SMOKE_AUTH_BLOCKED \(line)")
+    }
+
+    private func runInParallel(_ operations: [@MainActor () async -> Void]) async {
+        await withTaskGroup(of: Void.self) { group in
+            for operation in operations {
+                group.addTask {
+                    await operation()
+                }
+            }
+        }
     }
 
     private nonisolated static func isAuthenticationBlocked(_ error: Error) -> Bool {

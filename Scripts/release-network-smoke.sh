@@ -39,17 +39,14 @@ esac
 mkdir -p "$DERIVED_DATA" "$REPORT_DIR"
 
 RUN_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
-SMOKE_URL="bit101://network-smoke/$SMOKE_SCOPE?run=$RUN_ID"
-if [[ -n "$SMOKE_CAPTURE" ]]; then
-  SMOKE_URL="${SMOKE_URL}&capture=${SMOKE_CAPTURE}"
-fi
 REMOTE_REPORT_PATH="Library/NetworkSmoke/release-network-smoke.json"
 REMOTE_RAW_COURSE_PATH="Library/NetworkSmoke/raw-course-response.json"
 REMOTE_FIXTURE_PATH="course-history-audit-fixture.json"
 LOCAL_FIXTURE_PATH="$ROOT_DIR/BIT101-iOSTests/CourseHistoryAuditFixture.json"
 LOCAL_REPORT_PATH="$REPORT_DIR/release-network-smoke.json"
 LOCAL_RAW_COURSE_PATH="$REPORT_DIR/raw-course-response.json"
-rm -f "$LOG_FILE" "$BUILD_LOG" "$LOCAL_REPORT_PATH" "$LOCAL_RAW_COURSE_PATH"
+LOCAL_REQUEST_PATH="$REPORT_DIR/network-smoke-request.json"
+rm -f "$LOG_FILE" "$BUILD_LOG" "$LOCAL_REPORT_PATH" "$LOCAL_RAW_COURSE_PATH" "$LOCAL_REQUEST_PATH"
 
 restore_normal_app() {
   local smoke_status=$?
@@ -89,12 +86,12 @@ fi
 
 SMOKE_APP_PATH="$DERIVED_DATA/Build/Products/Release-iphoneos/BIT101-iOS.app"
 echo "安装网络数据采样宿主..." | tee -a "$LOG_FILE"
+xcrun devicectl device process terminate \
+  --device "$DEVICETCL_DEVICE_ID" \
+  "$APP_BUNDLE_ID" >/dev/null 2>&1 || true
 xcrun devicectl device install app \
   --device "$DEVICETCL_DEVICE_ID" \
   "$SMOKE_APP_PATH" >/dev/null
-xcrun devicectl device process launch \
-  --device "$DEVICETCL_DEVICE_ID" \
-  BIT101-dev.BIT101-iOS >/dev/null
 
 if [[ "$SMOKE_CAPTURE" == "cachedCourseHistory" ]]; then
   if [[ ! -f "$LOCAL_FIXTURE_PATH" ]]; then
@@ -110,14 +107,28 @@ if [[ "$SMOKE_CAPTURE" == "cachedCourseHistory" ]]; then
     --destination "Documents/$REMOTE_FIXTURE_PATH" >/dev/null
 fi
 
-echo "触发当前已安装的网络采样宿主..." | tee -a "$LOG_FILE"
-xcrun devicectl device process openURL \
+python3 - "$LOCAL_REQUEST_PATH" "$SMOKE_SCOPE" "$RUN_ID" "$SMOKE_CAPTURE" <<'PY'
+import json
+import sys
+
+path, scope, run_id, capture = sys.argv[1:]
+with open(path, "w", encoding="utf-8") as stream:
+    json.dump({"scope": scope, "runID": run_id, "capture": capture or "none"}, stream)
+PY
+xcrun devicectl device copy to \
   --device "$DEVICETCL_DEVICE_ID" \
-  "$SMOKE_URL" \
-  --activate | tee -a "$LOG_FILE"
+  --domain-type appDataContainer \
+  --domain-identifier "$APP_BUNDLE_ID" \
+  --source "$LOCAL_REQUEST_PATH" \
+  --destination "Documents/network-smoke-request.json" >/dev/null
+
+echo "启动网络数据采样宿主..." | tee -a "$LOG_FILE"
+xcrun devicectl device process launch \
+  --device "$DEVICETCL_DEVICE_ID" \
+  BIT101-dev.BIT101-iOS >/dev/null
 
 echo "等待结果文件..." | tee -a "$LOG_FILE"
-MAX_ATTEMPTS=120
+MAX_ATTEMPTS=90
 for (( attempt = 1; attempt <= MAX_ATTEMPTS; attempt++ )); do
   if xcrun devicectl device copy from \
     --device "$DEVICETCL_DEVICE_ID" \
@@ -142,13 +153,7 @@ PY
     echo "未在超时时间内拿到冒烟结果文件：$REMOTE_REPORT_PATH" | tee -a "$LOG_FILE" >&2
     exit 1
   fi
-  if (( attempt <= 5 )); then
-    sleep 0.5
-  elif (( attempt <= 25 )); then
-    sleep 1
-  else
-    sleep 2
-  fi
+  sleep 1
 done
 
 if [[ "$SMOKE_CAPTURE" == "rawCourseResponse" ]]; then

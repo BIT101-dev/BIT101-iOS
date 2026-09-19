@@ -29,7 +29,7 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
         let slots = Dictionary(timeTable.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let calendar = shanghaiCalendar()
 
-        let drafts = courses.flatMap { course in
+        let drafts: [ScheduleSystemCalendarEventDraft] = courses.flatMap { (course: CourseRecord) -> [ScheduleSystemCalendarEventDraft] in
             guard
                 let startSlot = slots[course.startSection],
                 let endSlot = slots[course.endSection]

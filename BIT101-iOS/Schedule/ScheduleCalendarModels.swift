@@ -91,7 +91,7 @@ struct ScheduleCalendarLayer: Identifiable {
 
     /// SwiftUI 的 zIndex 越大越靠上；中心更靠前的课程因此拥有更高层级。
     var displayZIndex: Double {
-        Double((startSection + endSection) / 2)
+        -Double((startSection + endSection) / 2)
     }
 }
 

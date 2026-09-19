@@ -249,7 +249,7 @@ struct CourseCommentComposerSheet: View {
                                             } label: {
                                                 Color.clear
                                                     .frame(
-                                                        width: AppDesignSystem.Size.control.touchTarget / 2,
+                                                        width: AppDesignSystem.Size.control.halfTouchTarget,
                                                         height: AppDesignSystem.Size.control.touchTarget
                                                     )
                                                     .contentShape(Rectangle())
@@ -262,7 +262,7 @@ struct CourseCommentComposerSheet: View {
                                             } label: {
                                                 Color.clear
                                                     .frame(
-                                                        width: AppDesignSystem.Size.control.touchTarget / 2,
+                                                        width: AppDesignSystem.Size.control.halfTouchTarget,
                                                         height: AppDesignSystem.Size.control.touchTarget
                                                     )
                                                     .contentShape(Rectangle())
@@ -336,6 +336,6 @@ struct CourseCommentComposerSheet: View {
 
     private func ratingAccessibilityLabel(for value: Int, isHalf: Bool) -> String {
         let ratingValue = Double(value) - (isHalf ? 0.5 : 0)
-        return "评分 \(ratingValue, specifier: "%.1f") 星"
+        return "评分 \(ratingValue.formatted(.number.precision(.fractionLength(1)))) 星"
     }
 }

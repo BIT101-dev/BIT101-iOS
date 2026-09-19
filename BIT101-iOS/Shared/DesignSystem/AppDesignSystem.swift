@@ -43,6 +43,7 @@ extension AppDesignSystem {
             let navigationIcon: CGFloat
             let compact: CGFloat
             let touchTarget: CGFloat
+            let halfTouchTarget: CGFloat
         }
 
         struct ContentMetrics {
@@ -85,7 +86,8 @@ extension AppDesignSystem {
             detailActionButton: 34,
             navigationIcon: 24,
             compact: 28,
-            touchTarget: 44
+            touchTarget: 44,
+            halfTouchTarget: 22
         )
         static let content = ContentMetrics(
             multilineEditorMinimumHeight: 180,

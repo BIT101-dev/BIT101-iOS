@@ -56,7 +56,7 @@ struct ScheduleRootView: View {
                 courseTitle: viewModel.activeCourseScheduleTitle
             )
         }
-        .safeAreaInset(edge: .bottom, spacing: AppDesignSystem.Spacing.none) {
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             // 给课表、DDL、空教室统一保留到底部系统 Tab 栏的固定内容间隙。
             Color.clear
                 .frame(height: AppDesignSystem.Spacing.tight)

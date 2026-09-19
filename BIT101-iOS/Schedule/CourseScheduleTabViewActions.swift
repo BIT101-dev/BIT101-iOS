@@ -116,8 +116,8 @@ extension CourseScheduleTabView {
                 }
                 var pathComponentAllowed = CharacterSet.alphanumerics
                 pathComponentAllowed.insert(charactersIn: "-._~")
-                guard !resolution.selectedCourse.id.isEmpty,
-                      let encodedCourseID = resolution.selectedCourse.id.addingPercentEncoding(
+                let courseID = String(resolution.selectedCourse.id)
+                guard let encodedCourseID = courseID.addingPercentEncoding(
                           withAllowedCharacters: pathComponentAllowed
                       ),
                       let url = URL(string: "https://open.aihelpme.dev/course/\(encodedCourseID)") else {

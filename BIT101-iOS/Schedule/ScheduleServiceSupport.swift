@@ -56,3 +56,14 @@ func isScheduleTransientNetworkError(_ error: Error) -> Bool {
         ].contains(candidate.code)
     }
 }
+
+func isSchoolTransportFailure(_ error: Error) -> Bool {
+    if let scheduleError = error as? ScheduleServiceError {
+        return scheduleError.isSchoolTransportFailure
+    }
+
+    guard let underlying = (error as NSError).userInfo[NSUnderlyingErrorKey] as? Error else {
+        return false
+    }
+    return isSchoolTransportFailure(underlying)
+}

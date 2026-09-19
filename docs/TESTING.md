@@ -118,8 +118,8 @@ Xcode 27 Beta 的 Watch target 通过具体真机构建目标保持 watchOS SDK 
 ### 正式 App 网络冒烟说明
 
 `release-network-smoke.sh` 使用 Release 构建和专用 `RELEASE_NETWORK_SMOKE` 条件；smoke runner 和触发路由编译入该专用构建，App Store Release 构建内容排除这两项；
-它会先构建并安装专用宿主，然后向该宿主发送 `bit101://network-smoke/<scope>?run=<uuid>`，
-在同一进程内触发探针。BIT101 自有反馈 Worker 的测试数据会在同一请求内写入、读取并删除，
+它会先构建并安装专用宿主，把本次范围、运行 ID 和采集选项写入宿主文档目录，再启动宿主读取请求文件，
+在同一进程内触发探针；`bit101://network-smoke/<scope>?run=<uuid>` 仍保留为手动调试入口。BIT101 自有反馈 Worker 的测试数据会在同一请求内写入、读取并删除，
 邮件发送量为零，远端报告保留量为零。会话来源为正式 App 当前保存的登录态、Cookie 与缓存。
 
 脚本会把结果写到应用组目录 `group.BIT101-dev.BIT101-iOS.shared/Library/NetworkSmoke/` 下的

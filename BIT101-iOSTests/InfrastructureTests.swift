@@ -61,7 +61,7 @@ struct LoginBootstrapTests {
         func checkLogin() async throws -> String? {
             checkLoginCalls += 1
             switch checkResult {
-            case .signedOut: nil
+            case .signedOut: return nil
             case .failed: throw URLError(.notConnectedToInternet)
             }
         }

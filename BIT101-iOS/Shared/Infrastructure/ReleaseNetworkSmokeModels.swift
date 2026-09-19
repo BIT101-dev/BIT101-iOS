@@ -91,6 +91,81 @@ struct CourseHistoryAuditSample: Codable, Equatable {
     let grades: [CourseHistoryGrade]
 }
 
+struct CourseHistoryAuditFixture: Codable, Equatable {
+    let schemaVersion: Int
+    let captureRunID: String
+    let capturedAt: String
+    let sampledCourseCount: Int
+    let sampledGradeCount: Int
+    let courses: [CourseHistoryAuditCourse]
+    let algorithmVersion: String
+    let manualLabelMethod: String
+    let manualLabelCounts: [String: Int]
+    let algorithmLabelMethod: String
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case captureRunID = "capture_run_id"
+        case capturedAt = "captured_at"
+        case sampledCourseCount = "sampled_course_count"
+        case sampledGradeCount = "sampled_grade_count"
+        case courses
+        case algorithmVersion = "algorithm_version"
+        case manualLabelMethod = "manual_label_method"
+        case manualLabelCounts = "manual_label_counts"
+        case algorithmLabelMethod = "algorithm_label_method"
+    }
+}
+
+struct CourseHistoryAuditCourse: Codable, Equatable {
+    let courseID: Int
+    let courseName: String
+    let courseNumber: String
+    let teachersName: String
+    let reviewLabel: String
+    let grades: [CourseHistoryAuditGrade]
+    let predictedHiddenTerms: Set<String>
+    let manualReviewLabel: String
+
+    private enum CodingKeys: String, CodingKey {
+        case courseID = "course_id"
+        case courseName = "course_name"
+        case courseNumber = "course_number"
+        case teachersName = "teachers_name"
+        case reviewLabel = "review_label"
+        case grades
+        case predictedHiddenTerms = "predicted_hidden_terms"
+        case manualReviewLabel = "manual_review_label"
+    }
+}
+
+struct CourseHistoryAuditGrade: Codable, Equatable {
+    let term: String
+    let avgScore: Double
+    let maxScore: Int
+    let studentNum: Int
+    let predictedLabel: String
+    let manualLabel: String
+
+    var courseHistoryGrade: CourseHistoryGrade {
+        CourseHistoryGrade(
+            term: term,
+            avgScore: avgScore,
+            maxScore: Double(maxScore),
+            studentNum: studentNum
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case term
+        case avgScore = "avg_score"
+        case maxScore = "max_score"
+        case studentNum = "student_num"
+        case predictedLabel = "predicted_label"
+        case manualLabel = "manual_label"
+    }
+}
+
 struct CourseHistoryAuditMetrics: Codable, Equatable, Sendable {
     let courseCount: Int
     let gradeCount: Int
@@ -222,10 +297,25 @@ enum ReleaseNetworkSmokeReportStore {
 }
 
 /// ReleaseNetworkSmokeLaunchRequest 解析 `bit101://network-smoke/...` 触发参数。
-struct ReleaseNetworkSmokeLaunchRequest {
+struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
     let scope: NetworkSmokeScope
     let runID: String
     let capture: NetworkSmokeCapture
+
+    private static var pendingFileURL: URL? {
+        FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask)
+            .first?
+            .appending(path: "network-smoke-request.json")
+    }
+
+    static func readPendingFile() -> Self? {
+        guard let pendingFileURL,
+              let data = try? Data(contentsOf: pendingFileURL)
+        else { return nil }
+        try? FileManager.default.removeItem(at: pendingFileURL)
+        return try? JSONDecoder().decode(Self.self, from: data)
+    }
 
     init?(url: URL) {
         guard url.scheme?.lowercased() == "bit101",

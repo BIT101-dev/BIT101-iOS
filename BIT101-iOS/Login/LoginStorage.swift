@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import OSLog
 import Security
 
 /// 登录状态存储。
@@ -11,6 +12,7 @@ import Security
 /// 学号、密码和 fake-cookie 存入 Keychain，安装标记存入 `UserDefaults`，学校 cookie 由系统 `HTTPCookieStorage` 管理。
 final class LoginStorage {
     static let shared = LoginStorage()
+    private static let logger = Logger(subsystem: "BIT101", category: "LoginStorage")
 
     private enum DefaultsKey {
         static let fakeCookie = "login.fakeCookie"
@@ -145,6 +147,7 @@ final class LoginStorage {
             defaults.removeObject(forKey: DefaultsKey.fakeCookie)
         } catch {
             // 保留旧值，下一次启动继续尝试迁移，避免迁移失败时丢失登录态。
+            Self.logger.error("Legacy fake-cookie migration failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 

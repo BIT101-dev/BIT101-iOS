@@ -58,7 +58,6 @@ struct DDLSettingsPage: View {
             }
         }
         .appGroupedListStyle()
-        .diagnosticAlert(item: $viewModel.notice)
         .task { viewModel.loadIfNeeded() }
         .sheet(item: $pickerRoute) { route in
             switch route {

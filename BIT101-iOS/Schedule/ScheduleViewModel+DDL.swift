@@ -14,8 +14,9 @@ extension ScheduleViewModel {
         notice = nil
         isSyncingDDL = true
         defer {
-            guard accountGeneration == generation else { return }
-            isSyncingDDL = false
+            if accountGeneration == generation {
+                isSyncingDDL = false
+            }
         }
 
         do {
@@ -92,8 +93,9 @@ extension ScheduleViewModel {
         notice = nil
         isSyncingDDL = true
         defer {
-            guard accountGeneration == generation else { return }
-            isSyncingDDL = false
+            if accountGeneration == generation {
+                isSyncingDDL = false
+            }
         }
 
         do {

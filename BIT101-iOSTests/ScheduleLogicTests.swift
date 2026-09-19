@@ -207,8 +207,9 @@ struct ScheduleCalendarLayerOrderingTests {
 }
 
 @Suite("Schedule academic course matching")
+@MainActor
 struct CourseLookupMatcherTests {
-    private actor ServiceStub: CourseListServicing {
+    private final class ServiceStub: CourseListServicing {
         let results: [String: [CourseSummary]]
         private var searches: [String] = []
 
@@ -218,7 +219,6 @@ struct CourseLookupMatcherTests {
 
         func fetchCourses(search: String, page: Int) async throws -> [CourseSummary] {
             searches.append(search)
-            await Task.yield()
             return results[search] ?? []
         }
 
@@ -298,7 +298,7 @@ struct CourseLookupMatcherTests {
         #expect(result.selectedCourse.id == expected.id)
         #expect(result.searchQuery == "自动控制理论II(双语)")
         #expect(result.searchResults.map(\.id) == [expected.id])
-        let searches = await service.recordedSearches()
+        let searches = service.recordedSearches()
         #expect(Set(searches) == ["AUTO 1", "自动控制理论II(双语)"])
     }
 
@@ -330,7 +330,7 @@ struct CourseLookupMatcherTests {
             teacher: "李老师"
         )))
 
-        let searches = await service.recordedSearches()
+        let searches = service.recordedSearches()
         #expect(Set(searches) == ["PHY-1", "大学物理"])
         #expect(resolution.selectedCourse.id == second.id)
     }

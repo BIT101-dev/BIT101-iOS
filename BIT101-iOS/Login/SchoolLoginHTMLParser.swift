@@ -15,7 +15,7 @@ enum SchoolLoginHTMLParser {
         let salt = field(in: html, id: "login-croypto")
         let execution = field(in: html, id: "login-page-flowkey")
 
-        SchoolLoginContext(
+        return SchoolLoginContext(
             salt: salt,
             execution: execution,
             isLoggedIn: containsAuthenticatedPageMarker(in: html) && !containsLoginPageMarker(in: html)

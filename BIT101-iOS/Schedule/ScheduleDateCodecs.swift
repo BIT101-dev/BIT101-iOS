@@ -98,7 +98,7 @@ enum ScheduleDateCodec {
 /// 课表周次与首周偏移的双向转换。
 ///
 /// 产品周次从第 1 周开始编号，第一周之前依次使用第 -1 周、第 -2 周。
-enum ScheduleWeekCodec {
+nonisolated enum ScheduleWeekCodec {
     static func weekNumber(forDayOffset dayOffset: Int) -> Int {
         let quotient = dayOffset / 7
         let remainder = dayOffset % 7

@@ -243,8 +243,6 @@ extension ScheduleService {
              .invalidLexuePage,
              .invalidCalendarURL:
             return true
-        case .schoolTransportFailure:
-            return true
         default:
             return false
         }

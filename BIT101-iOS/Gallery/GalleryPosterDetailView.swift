@@ -114,6 +114,7 @@ struct GalleryPosterDetailView: View {
                 if !viewModel.poster.images.isEmpty {
                     VStack(spacing: AppDesignSystem.Spacing.control) {
                         ForEach(Array(viewModel.poster.images.enumerated()), id: \.element.id) { index, image in
+                            let imageAccessibilityLabel = "图片 \(index + 1)"
                             Button {
                                 imageViewer = GalleryImageViewerState(images: viewModel.poster.images, initialIndex: index)
                             } label: {
@@ -136,7 +137,7 @@ struct GalleryPosterDetailView: View {
                             }
                             .buttonStyle(.plain)
                             .frame(maxWidth: .infinity)
-                            .accessibilityLabel("图片 \(index + 1)")
+                            .accessibilityLabel(imageAccessibilityLabel)
                             .accessibilityHint("轻点查看大图")
                         }
                     }

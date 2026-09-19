@@ -246,7 +246,6 @@ struct CalendarSettingsPage: View {
             helpSection
         }
         .appGroupedListStyle()
-        .diagnosticAlert(item: $viewModel.notice)
         .task {
             viewModel.loadIfNeeded()
             if viewModel.cache.courseLiveActivityLeadMinutes != normalizedLeadMinutes {

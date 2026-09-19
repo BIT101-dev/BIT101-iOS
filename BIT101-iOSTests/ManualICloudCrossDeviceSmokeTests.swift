@@ -276,15 +276,14 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
 
     private func loadCoordination(stage: Stage) -> Coordination? {
         let prefix = "manual.preference-cloud-sync.smoke.v1."
-        let matches = cloud.dictionaryRepresentation
-            .filter { $0.key.hasPrefix(prefix) }
-            .compactMap { _, value in
-                guard let data = value as? Data,
-                      let coordination = try? JSONDecoder().decode(Coordination.self, from: data),
-                      coordination.stage == stage
-                else { return nil }
-                return coordination
-            }
+        var matches: [Coordination] = []
+        for entry in cloud.dictionaryRepresentation where entry.key.hasPrefix(prefix) {
+            guard let data = entry.value as? Data,
+                  let coordination = try? JSONDecoder().decode(Coordination.self, from: data),
+                  coordination.stage == stage
+            else { continue }
+            matches.append(coordination)
+        }
         guard matches.count == 1 else { return nil }
         return matches[0]
     }

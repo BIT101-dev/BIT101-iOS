@@ -190,6 +190,14 @@ struct BIT101_iOSApp: App {
             // 与顺序网络探针并发。
             Color.clear
                 .accessibilityIdentifier("release-network-smoke-host")
+                .task {
+                    guard let smokeRequest = ReleaseNetworkSmokeLaunchRequest.readPendingFile() else { return }
+                    _ = await ReleaseNetworkSmokeRunner().run(
+                        scope: smokeRequest.scope,
+                        runID: smokeRequest.runID,
+                        capture: smokeRequest.capture
+                    )
+                }
                 .onOpenURL { url in
                     guard let smokeRequest = ReleaseNetworkSmokeLaunchRequest(url: url) else { return }
                     Task {

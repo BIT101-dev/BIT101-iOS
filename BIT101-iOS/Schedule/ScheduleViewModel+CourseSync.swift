@@ -23,9 +23,10 @@ extension ScheduleViewModel {
         isSyncingCourses = true
         syncingTerm = syncTerm
         defer {
-            guard accountGeneration == generation else { return }
-            isSyncingCourses = false
-            syncingTerm = nil
+            if accountGeneration == generation {
+                isSyncingCourses = false
+                syncingTerm = nil
+            }
         }
 
         do {
@@ -110,8 +111,9 @@ extension ScheduleViewModel {
         let generation = accountGeneration
         isLoadingTerms = true
         defer {
-            guard accountGeneration == generation else { return }
-            isLoadingTerms = false
+            if accountGeneration == generation {
+                isLoadingTerms = false
+            }
         }
 
         do {
@@ -161,8 +163,9 @@ extension ScheduleViewModel {
         smsVerificationError = nil
         let generation = accountGeneration
         defer {
-            guard accountGeneration == generation else { return }
-            isSubmittingSMSCode = false
+            if accountGeneration == generation {
+                isSubmittingSMSCode = false
+            }
         }
 
         do {

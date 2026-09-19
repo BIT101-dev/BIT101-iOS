@@ -30,20 +30,20 @@ enum AppDeepLinkRoute: Equatable {
         case "schedule" where routeComponents.count == 2 && routeComponents[1].lowercased() == "courses":
             self = .scheduleCourses
         case "paper":
-            guard routeComponents.count == 2, let id = positiveID(from: routeComponents[1]) else { return nil }
+            guard routeComponents.count == 2, let id = Self.positiveID(from: routeComponents[1]) else { return nil }
             self = .paper(id)
         case "gallery":
-            guard routeComponents.count == 2, let id = positiveID(from: routeComponents[1]) else { return nil }
+            guard routeComponents.count == 2, let id = Self.positiveID(from: routeComponents[1]) else { return nil }
             self = .gallery(id)
         case "course":
-            guard routeComponents.count == 2, let id = positiveID(from: routeComponents[1]) else { return nil }
+            guard routeComponents.count == 2, let id = Self.positiveID(from: routeComponents[1]) else { return nil }
             self = .course(id)
         default:
             return nil
         }
     }
 
-    private static func positiveID(from component: String) -> Int? {
+    private nonisolated static func positiveID(from component: String) -> Int? {
         guard let id = Int(component), id > 0 else { return nil }
         return id
     }

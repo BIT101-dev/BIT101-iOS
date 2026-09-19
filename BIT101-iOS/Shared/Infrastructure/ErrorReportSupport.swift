@@ -224,7 +224,7 @@ final class ErrorReportViewModel: ObservableObject {
             "authorization", "proxy-authorization", "cookie", "set-cookie",
             "x-api-key", "x-auth-token", "x-access-token"
         ]
-        headers.mapValues(ErrorReportRedactor.forced)
+        return headers.mapValues(ErrorReportRedactor.forced)
             .reduce(into: [:]) { result, pair in
                 let key = pair.key
                 result[key] = sensitiveNames.contains(key.lowercased()) ? "[REDACTED]" : pair.value
