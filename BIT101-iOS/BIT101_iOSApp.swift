@@ -123,10 +123,20 @@ enum ScheduleReminderBackgroundRefresh {
     /// 系统唤醒 app 后重新计算提醒，并预排下一次后台刷新。
     private static func handle(task: BGAppRefreshTask) {
         let operation = Task {
+            defer {
+                task.setTaskCompleted(success: !Task.isCancelled)
+            }
+
+            let fakeCookie = LoginStorage.shared.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !fakeCookie.isEmpty else {
+                schedule(earliestBeginDate: nil)
+                await ScheduleLiveActivityManager.shared.endAllActivities()
+                return
+            }
+
             let nextBeginDate = ScheduleLiveActivityManager.shared.preferredBackgroundRefreshBeginDate()
             schedule(earliestBeginDate: nextBeginDate)
             await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(trigger: "bg_app_refresh")
-            task.setTaskCompleted(success: true)
         }
 
         task.expirationHandler = {
@@ -155,15 +165,17 @@ struct BIT101_iOSApp: App {
         }
 
         Task {
-            let nextBeginDate = ScheduleLiveActivityManager.shared.preferredBackgroundRefreshBeginDate()
-            ScheduleReminderBackgroundRefresh.schedule(earliestBeginDate: nextBeginDate)
-
-            // 退出登录或登录失效后，直接结束现有提醒，避免旧 activity 继续挂在灵动岛上。
             let fakeCookie = LoginStorage.shared.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
-            if fakeCookie.isEmpty {
+
+            // 退出登录后取消后台刷新，避免旧账号缓存继续触发提醒任务。
+            guard !fakeCookie.isEmpty else {
+                ScheduleReminderBackgroundRefresh.schedule(earliestBeginDate: nil)
                 await ScheduleLiveActivityManager.shared.endAllActivities()
                 return
             }
+
+            let nextBeginDate = ScheduleLiveActivityManager.shared.preferredBackgroundRefreshBeginDate()
+            ScheduleReminderBackgroundRefresh.schedule(earliestBeginDate: nextBeginDate)
 
             await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(trigger: trigger)
         }

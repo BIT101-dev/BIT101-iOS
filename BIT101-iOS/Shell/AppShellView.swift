@@ -104,8 +104,7 @@ struct AppShellView: View {
     @State private var requestedPosterID: Int?
     @State private var requestedCourse: CourseNavigationRequest?
     @State private var requestedMapLocation: CampusMapLocationRequest?
-    /// 系统全屏控制器关闭时壳层可能再次收到 `onAppear`；状态初始化按单次流程执行，当前 tab 保持不变。
-    @State private var didInitializeSelectedTab = false
+    @State private var didEnqueueStartupPrompts = false
 
     /// 登录后的应用壳层主体。
     ///
@@ -155,13 +154,6 @@ struct AppShellView: View {
         .tint(selectedTab.tintColor)
         .appSelectionFeedback(trigger: selectedTab.rawValue)
         .onAppear {
-            if !didInitializeSelectedTab {
-                didInitializeSelectedTab = true
-                let initial = AppTab.allCases.first ?? .schedule
-                if selectedTab != initial {
-                    selectTab(initial)
-                }
-            }
             enqueueStartupPromptsIfNeeded()
         }
         .onChange(of: scenePhase) { _, newPhase in
@@ -268,6 +260,12 @@ struct AppShellView: View {
     }
 
     private func enqueueStartupPromptsIfNeeded() {
+        guard !didEnqueueStartupPrompts else {
+            refreshScheduleNotificationPromptIfNeeded()
+            return
+        }
+        didEnqueueStartupPrompts = true
+
         if settings.shouldShowCurrentStartupNotice {
             promptCoordinator.enqueue(AppPrompt(
                 id: "startup-notice-\(Self.startupNoticeTitle)",
@@ -307,7 +305,7 @@ struct AppShellView: View {
         promptCoordinator.enqueue(AppPrompt(
             id: "schedule-notification-permission",
             title: "请开启通知",
-            message: "灵动岛需要应用常驻前台；应用未能自动启动时，会使用本地通知，以避免您错过上课。请在系统设置的通知页面中允许 BIT101 发送通知。",
+            message: "当灵动岛提醒无法自动启动时，应用会使用本地通知，以避免您错过上课。请在系统设置的通知页面中允许 BIT101 发送通知。",
             actions: [
                 AppPromptAction(id: "cancel", title: "取消", role: .cancel) {},
                 AppPromptAction(id: "open-settings", title: "转到设置", isDefault: true) {

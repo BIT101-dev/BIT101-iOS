@@ -42,7 +42,6 @@ nonisolated enum CampusPreset: String, CaseIterable, Identifiable {
     var coordinate: CLLocationCoordinate2D {
         switch self {
         case .liangxiang:
-            // 坐标预先校准到当前系统地图坐标系，地图进入时直接使用。
             return CLLocationCoordinate2D(latitude: 39.73027614839699, longitude: 116.17276949062236)
         case .zhongguancun:
             return CLLocationCoordinate2D(latitude: 39.95966806175981, longitude: 116.31597988552478)
@@ -93,7 +92,7 @@ struct CampusMapLocationRequest: Equatable, Identifiable {
     }
 }
 
-/// 清洗后的中关村、良乡校园地点坐标。
+/// 中关村、良乡校园地点目录。
 nonisolated enum CampusMapPlaceCatalog {
     static let all: [CampusMapPlace] = [
         CampusMapPlace(campus: .zhongguancun, name: "1号楼", latitude: 39.960329831, longitude: 116.321710584),
@@ -145,10 +144,11 @@ nonisolated enum CampusMapPlaceCatalog {
     /// 匹配同时使用校区，两个校区的“体育馆”保持各自的地点归属。
     static func place(campusName: String, classroom: String) -> CampusMapPlace? {
         let normalizedClassroom = classroom
-            .replacingOccurrences(of: " ", with: "")
+            .split(whereSeparator: \.isWhitespace)
+            .joined()
             .replacingOccurrences(of: "（", with: "(")
             .replacingOccurrences(of: "）", with: ")")
-        let compactLocation = ScheduleDisplayNormalizer.compactLocation(for: classroom)
+        let compactLocation = ScheduleDisplayNormalizer.compactLocation(for: normalizedClassroom)
         guard let campus = campus(campusName: campusName, classroom: normalizedClassroom),
               let buildingName = [
                   normalizedClassroom,
@@ -174,7 +174,11 @@ nonisolated enum CampusMapPlaceCatalog {
             return .liangxiang
         }
 
-        let zhongguancunPrefixes = ["研楼", "中教", "主楼", "宇航楼", "求是楼", "中关村"]
+        if (1 ... 9).contains(where: { containsNumberedBuilding($0, in: classroom) }) {
+            return .zhongguancun
+        }
+
+        let zhongguancunPrefixes = ["研楼", "中教", "主楼", "宇航楼", "求是楼", "东操场", "中关村"]
         if zhongguancunPrefixes.contains(where: classroom.contains) {
             return .zhongguancun
         }

@@ -17,7 +17,7 @@ private func isGalleryCancellation(_ error: Error) -> Bool {
 }
 
 @MainActor
-/// 话题页状态机。
+/// 话廊页状态机。
 ///
 /// 同时管理五个 feed 和一个搜索结果页，并显式处理分页、刷新和取消错误。
 final class GalleryViewModel: ObservableObject {
@@ -504,6 +504,7 @@ final class GalleryMessageViewModel: ObservableObject {
     private let service: any GalleryMessageServicing
     private let readStore: GalleryMessageReadStore
     private var readStateObserver: NSObjectProtocol?
+    private var listGenerations: [GalleryMessageType: Int] = [:]
 
     /// 集中初始化服务和已读仓库，供构造器复用。
     private init(service: any GalleryMessageServicing, readStore: GalleryMessageReadStore) {
@@ -587,6 +588,9 @@ final class GalleryMessageViewModel: ObservableObject {
             return
         }
 
+        let generation = (listGenerations[type] ?? 0) &+ 1
+        listGenerations[type] = generation
+
         let serverUnreadBeforeFetch = unreadCounts.unreadCount(for: type)
 
         setState(for: type) {
@@ -596,6 +600,7 @@ final class GalleryMessageViewModel: ObservableObject {
 
         do {
             let messages = try await service.fetchMessages(type: type, lastID: nil)
+            guard listGenerations[type] == generation else { return }
             readStore.replaceLatestIDs(messages.map(\.id), unreadCount: serverUnreadBeforeFetch, for: type)
             setState(for: type) {
                 $0.applyFirstCursorPage(messages)
@@ -604,6 +609,7 @@ final class GalleryMessageViewModel: ObservableObject {
             localReadVersion += 1
             await refreshUnreadCounts()
         } catch {
+            guard listGenerations[type] == generation else { return }
             if isGalleryCancellation(error) {
                 setState(for: type) {
                     $0.items = previousState.items
@@ -661,6 +667,7 @@ final class GalleryMessageViewModel: ObservableObject {
     func loadMoreIfNeeded(for type: GalleryMessageType, currentMessage: GalleryMessage?) async {
         guard let currentMessage else { return }
         let state = state(for: type)
+        let generation = listGenerations[type] ?? 0
 
         guard state.status == .loaded,
               state.shouldLoadMore(currentID: currentMessage.id)
@@ -670,10 +677,12 @@ final class GalleryMessageViewModel: ObservableObject {
 
         do {
             let messages = try await service.fetchMessages(type: type, lastID: state.nextCursor)
+            guard listGenerations[type] == generation else { return }
             setState(for: type) {
                 $0.appendCursorPage(messages)
             }
         } catch {
+            guard listGenerations[type] == generation else { return }
             if isGalleryCancellation(error) {
                 setState(for: type) { $0.isLoadingMore = false }
                 return

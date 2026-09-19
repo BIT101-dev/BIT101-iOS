@@ -37,9 +37,12 @@ struct CampusNativeMapView: UIViewRepresentable {
     let centerOnUserRequestID: UUID?
     let nextCourseTarget: UpcomingCourseMapTarget?
     let requestedLocation: CampusMapLocationRequest?
+    let onLocationFailure: (Error) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator()
+        let coordinator = Coordinator()
+        coordinator.onLocationFailure = onLocationFailure
+        return coordinator
     }
 
     /// 创建并初始化原生 `MKMapView`。
@@ -51,9 +54,11 @@ struct CampusNativeMapView: UIViewRepresentable {
         mapView.mapType = .standard
         mapView.showsCompass = true
         mapView.showsScale = true
-        mapView.showsUserLocation = true
+        mapView.showsUserLocation = false
         mapView.pointOfInterestFilter = .excludingAll
         mapView.isPitchEnabled = false
+        mapView.accessibilityLabel = "校园地图"
+        mapView.accessibilityHint = "拖动或双指缩放查看校区和上课地点"
 
         context.coordinator.syncNextCourseAnnotation(nextCourseTarget, in: mapView)
         context.coordinator.syncRequestedLocation(requestedLocation, in: mapView)
@@ -67,6 +72,7 @@ struct CampusNativeMapView: UIViewRepresentable {
 
     /// 根据最新的 SwiftUI 状态同步地图相机和“回到我的位置”动作。
     func updateUIView(_ mapView: MKMapView, context: Context) {
+        context.coordinator.onLocationFailure = onLocationFailure
         context.coordinator.syncNextCourseAnnotation(nextCourseTarget, in: mapView)
         let requestedLocationChanged = context.coordinator.syncRequestedLocation(requestedLocation, in: mapView)
 
@@ -102,20 +108,21 @@ struct CampusNativeMapView: UIViewRepresentable {
         var lastFocusID: UUID?
         var lastCenterOnUserRequestID: UUID?
         private var pendingCenterOnUserRequestID: UUID?
-        private var lastCourseTargetID: String?
+        private var lastCourseTarget: UpcomingCourseMapTarget?
         private var lastRequestedLocationID: UUID?
+        var onLocationFailure: ((Error) -> Void)?
         private weak var nextCourseAnnotation: CampusPlaceAnnotation?
         private var requestedLocationAnnotations: [CampusPlaceAnnotation] = []
 
         /// 地图保留下一节课的一个标记；课程变化时原地替换当前标记，旧标记随更新移除。
         func syncNextCourseAnnotation(_ target: UpcomingCourseMapTarget?, in mapView: MKMapView) {
-            guard lastCourseTargetID != target?.id else { return }
+            guard lastCourseTarget != target else { return }
 
             if let nextCourseAnnotation {
                 mapView.removeAnnotation(nextCourseAnnotation)
             }
             nextCourseAnnotation = nil
-            lastCourseTargetID = target?.id
+            lastCourseTarget = target
 
             guard let target, let place = target.place else { return }
             let annotation = CampusPlaceAnnotation(place: place)
@@ -186,12 +193,19 @@ struct CampusNativeMapView: UIViewRepresentable {
             marker.titleVisibility = .visible
             marker.displayPriority = .required
             marker.glyphImage = UIImage(systemName: "building.2.fill")
-            marker.markerTintColor = placeAnnotation.campus == .liangxiang ? .systemBlue : .systemRed
+            marker.markerTintColor = UIColor(
+                placeAnnotation.campus == .liangxiang
+                    ? AppDesignSystem.Palette.info
+                    : AppDesignSystem.Palette.danger
+            )
+            marker.accessibilityLabel = placeAnnotation.title ?? placeAnnotation.place.name
+            marker.accessibilityValue = placeAnnotation.subtitle
             return marker
         }
 
         /// 如果当前位置已经可用，就直接居中；否则切到 follow 等待下一次定位回调。
         func centerOnUser(in mapView: MKMapView, requestID: UUID) {
+            mapView.showsUserLocation = true
             if let coordinate = validUserCoordinate(from: mapView) {
                 mapView.setUserTrackingMode(.none, animated: false)
                 mapView.setCenter(coordinate, animated: false)
@@ -215,6 +229,18 @@ struct CampusNativeMapView: UIViewRepresentable {
             mapView.setUserTrackingMode(.none, animated: false)
             lastCenterOnUserRequestID = requestID
             pendingCenterOnUserRequestID = nil
+        }
+
+        /// 过滤 `locationUnknown` 瞬时回调，将需要用户处理的定位错误交给页面提示。
+        func mapView(_ mapView: MKMapView, didFailToLocateUserWithError error: Error) {
+            let nsError = error as NSError
+            if nsError.domain == kCLErrorDomain,
+               let code = CLError.Code(rawValue: nsError.code),
+               code == .locationUnknown {
+                return
+            }
+
+            onLocationFailure?(error)
         }
 
         /// 过滤掉无效或缺失的用户坐标。

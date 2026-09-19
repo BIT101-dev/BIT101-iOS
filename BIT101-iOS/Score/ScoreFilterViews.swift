@@ -7,12 +7,17 @@ private struct ScoreSelectionRow: View {
     var body: some View {
         HStack(spacing: AppDesignSystem.Spacing.control) {
             Text(title)
+                .font(AppDesignSystem.Typography.body)
                 .foregroundStyle(.primary)
             Spacer()
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                 .foregroundStyle(isSelected ? AppDesignSystem.Palette.accent : .secondary)
+                .accessibilityHidden(true)
         }
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(isSelected ? "已选" : "未选")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -29,19 +34,26 @@ struct ScoreFilterPage: View {
                 Button(toggleAllTitle) {
                     onToggleAll()
                 }
+                .disabled(options.isEmpty)
+                .accessibilityValue("已选 \(selectedValues.intersection(Set(options)).count) 项，共 \(options.count) 项")
             }
 
             Section {
-                ForEach(options, id: \.self) { option in
-                    Button {
-                        toggle(option)
-                    } label: {
-                        ScoreSelectionRow(
-                            title: option,
-                            isSelected: selectedValues.contains(option)
-                        )
+                if options.isEmpty {
+                    Text("暂无可筛选项")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(options, id: \.self) { option in
+                        Button {
+                            toggle(option)
+                        } label: {
+                            ScoreSelectionRow(
+                                title: option,
+                                isSelected: selectedValues.contains(option)
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
@@ -98,6 +110,7 @@ struct ScoreSortPage: View {
                 } label: {
                     HStack(spacing: AppDesignSystem.Spacing.control) {
                         Text(sortOrder.title)
+                            .font(AppDesignSystem.Typography.subheadline)
                             .foregroundStyle(.primary)
                         Spacer()
                         Text("切换")
@@ -106,6 +119,9 @@ struct ScoreSortPage: View {
                     }
                     .contentShape(Rectangle())
                 }
+                .accessibilityLabel("排序方向")
+                .accessibilityValue(sortOrder.title)
+                .accessibilityHint("双击切换排序方向")
             } header: {
                 Text("排序方向")
             }

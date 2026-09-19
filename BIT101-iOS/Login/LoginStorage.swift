@@ -8,7 +8,7 @@ import Security
 
 /// 登录状态存储。
 ///
-/// 学号和密码存入 Keychain，fake-cookie 和登录标记存入 `UserDefaults`，学校 cookie 由系统 `HTTPCookieStorage` 管理。
+/// 学号、密码和 fake-cookie 存入 Keychain，安装标记存入 `UserDefaults`，学校 cookie 由系统 `HTTPCookieStorage` 管理。
 final class LoginStorage {
     static let shared = LoginStorage()
 
@@ -20,12 +20,14 @@ final class LoginStorage {
     private enum KeychainAccount {
         static let studentID = "login.sid"
         static let password = "login.password"
+        static let fakeCookie = "login.fakeCookie"
     }
 
     private let keychainService = "harrybit.BIT101-iOS.login"
     private let defaults = UserDefaults.standard
     private init() {
         purgePersistedCredentialsIfNeededAfterReinstall()
+        migrateLegacyFakeCookieIfNeeded()
     }
 
     /// 通知全局“当前账号相关数据已变化”。
@@ -37,7 +39,7 @@ final class LoginStorage {
 
     /// BIT101 自有登录态使用的 fake-cookie。
     var fakeCookie: String {
-        defaults.string(forKey: DefaultsKey.fakeCookie) ?? ""
+        (try? readKeychainValue(account: KeychainAccount.fakeCookie)) ?? ""
     }
 
     /// 当前本地保存的学号。
@@ -67,9 +69,19 @@ final class LoginStorage {
     /// 这里保存可长期复用的账号密码和当前 fake-cookie。
     /// 应用重启后可以直接进入主界面，并在需要时于后台静默重登学校 SSO。
     func saveLoginState(studentID: String, password: String, fakeCookie: String) throws {
-        try saveKeychainValue(studentID, account: KeychainAccount.studentID)
+        let normalizedStudentID = studentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedFakeCookie = fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedStudentID.isEmpty, !password.isEmpty else {
+            throw LoginServiceError.invalidCredentials
+        }
+        guard !normalizedFakeCookie.isEmpty else {
+            throw LoginServiceError.invalidServerResponse
+        }
+
+        try saveKeychainValue(normalizedStudentID, account: KeychainAccount.studentID)
         try saveKeychainValue(password, account: KeychainAccount.password)
-        defaults.set(fakeCookie, forKey: DefaultsKey.fakeCookie)
+        try saveKeychainValue(normalizedFakeCookie, account: KeychainAccount.fakeCookie)
+        defaults.removeObject(forKey: DefaultsKey.fakeCookie)
         notifyAccountChanged()
     }
 
@@ -78,6 +90,7 @@ final class LoginStorage {
     /// 这是“退出登录并保留学号”的语义，适用于远端会话失效后快速回到未登录态。
     func clearSession() {
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
+        deleteKeychainValue(account: KeychainAccount.fakeCookie)
 
         // 清理学校身份相关域，保留 App 内其他服务和调试环境的 Cookie。
         TeachingCenterSessionState.shared.clearSchoolAuthenticationCookies()
@@ -107,16 +120,45 @@ final class LoginStorage {
 
     private func clearPersistedLoginData() {
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
+        deleteKeychainValue(account: KeychainAccount.fakeCookie)
         TeachingCenterSessionState.shared.clearSchoolAuthenticationCookies()
         deleteKeychainValue(account: KeychainAccount.studentID)
         deleteKeychainValue(account: KeychainAccount.password)
+    }
+
+    /// 将旧版本写入 `UserDefaults` 的 fake-cookie 迁移到 Keychain。
+    private func migrateLegacyFakeCookieIfNeeded() {
+        guard let legacyFakeCookie = defaults.string(forKey: DefaultsKey.fakeCookie) else { return }
+        guard !legacyFakeCookie.isEmpty else {
+            defaults.removeObject(forKey: DefaultsKey.fakeCookie)
+            return
+        }
+
+        do {
+            let currentFakeCookie = try readKeychainValue(account: KeychainAccount.fakeCookie)
+            if !currentFakeCookie.isEmpty {
+                defaults.removeObject(forKey: DefaultsKey.fakeCookie)
+                return
+            }
+
+            try saveKeychainValue(legacyFakeCookie, account: KeychainAccount.fakeCookie)
+            defaults.removeObject(forKey: DefaultsKey.fakeCookie)
+        } catch {
+            // 保留旧值，下一次启动继续尝试迁移，避免迁移失败时丢失登录态。
+        }
     }
 
     private func saveKeychainValue(_ value: String, account: String) throws {
         let data = Data(value.utf8)
         let query = baseQuery(account: account)
 
-        let updateStatus = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        let updateStatus = SecItemUpdate(
+            query as CFDictionary,
+            [
+                kSecValueData as String: data,
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            ] as CFDictionary
+        )
         if updateStatus == errSecSuccess {
             return
         }
@@ -127,6 +169,7 @@ final class LoginStorage {
 
         var addQuery = query
         addQuery[kSecValueData as String] = data
+        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
         guard addStatus == errSecSuccess else {
             throw LoginServiceError.keychainWriteFailed(addStatus)

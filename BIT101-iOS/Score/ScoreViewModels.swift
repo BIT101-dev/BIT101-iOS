@@ -125,7 +125,7 @@ final class ScoreViewModel: ObservableObject {
         alert = nil
     }
 
-    /// 进入成绩页时恢复本地缓存；学校和 WebVPN 请求由用户操作触发。
+    /// 进入成绩页时恢复本地缓存；学校请求由用户操作触发。
     ///
     /// “查询成绩”和下拉刷新触发真实成绩查询，短信验证码在当前操作链路中展示。
     func restoreCachedDataIfNeeded() {
@@ -189,10 +189,12 @@ final class ScoreViewModel: ObservableObject {
             }
         } catch {
             if isCancellation(error) {
+                pendingRefreshForcesDetailed = false
                 state = hadContent ? .loaded : .idle
                 return
             }
 
+            pendingRefreshForcesDetailed = false
             if hadContent {
                 state = .loaded
                 if showErrors {
@@ -259,7 +261,12 @@ final class ScoreViewModel: ObservableObject {
                 state = rows.isEmpty ? .idle : .loaded
                 return
             }
-            smsVerificationError = error.localizedDescription
+            if smsChallenge != nil {
+                smsVerificationError = error.localizedDescription
+            } else {
+                state = rows.isEmpty ? .failed(error.localizedDescription) : .loaded
+                alert = AppAlert(title: "成绩查询失败", message: error.localizedDescription)
+            }
         }
     }
 
@@ -335,8 +342,8 @@ final class ScoreViewModel: ObservableObject {
     /// 成绩列表和统计摘要均基于这份过滤结果，全量 `rows` 作为原始数据源。
     var filteredRows: [ScoreRow] {
         rows.filter { row in
-            let matchesTerm = selectedTerms.contains(row.term)
-            let matchesType = selectedCourseTypes.contains(row.courseType)
+            let matchesTerm = selectedTerms.contains(normalizedFilterValue(row.term))
+            let matchesType = selectedCourseTypes.contains(normalizedFilterValue(row.courseType))
             return matchesTerm && matchesType
         }
     }
@@ -378,26 +385,35 @@ final class ScoreViewModel: ObservableObject {
     ///
     /// 对应学期缓存缺失时返回 `nil`，页面据此区分未知状态与 0。
     private func calculatePendingCourses() -> [CourseRecord]? {
-        let scoreTerms = Set(rows.map(\.term).filter { !$0.isEmpty })
+        let scoreTerms = Set(rows.map { normalizedFilterValue($0.term) }.filter { !$0.isEmpty })
             .intersection(selectedTerms)
         guard !scoreTerms.isEmpty else { return nil }
 
         let scheduleCache = ScheduleCacheStore.load()
-        let coveredTerms = scoreTerms.filter { scheduleCache.cachedCoursesByTerm[$0] != nil }
+        let cachedCoursesByTerm = scheduleCache.cachedCoursesByTerm.reduce(
+            into: [String: [CourseRecord]]()
+        ) { result, entry in
+            let normalizedTerm = normalizedFilterValue(entry.key)
+            guard !normalizedTerm.isEmpty else { return }
+            result[normalizedTerm, default: []].append(contentsOf: entry.value)
+        }
+        let coveredTerms = scoreTerms.filter { cachedCoursesByTerm[$0] != nil }
         guard !coveredTerms.isEmpty else { return nil }
 
         let scoredNumbers = Set(rows.compactMap { row -> String? in
             let number = normalizedCourseIdentity(row.courseNumber)
-            return number.isEmpty ? nil : "\(row.term)|\(number)"
+            let term = normalizedFilterValue(row.term)
+            return number.isEmpty || term.isEmpty ? nil : "\(term)|\(number)"
         })
         let scoredNames = Set(rows.compactMap { row -> String? in
             let name = normalizedCourseIdentity(row.courseName)
-            return name.isEmpty ? nil : "\(row.term)|\(name)"
+            let term = normalizedFilterValue(row.term)
+            return name.isEmpty || term.isEmpty ? nil : "\(term)|\(name)"
         })
         var pendingByIdentity: [String: CourseRecord] = [:]
 
         for term in coveredTerms {
-            for course in scheduleCache.cachedCoursesByTerm[term] ?? [] {
+            for course in cachedCoursesByTerm[term] ?? [] {
                 let number = normalizedCourseIdentity(course.number)
                 let name = normalizedCourseIdentity(course.name)
                 let hasScore = (!number.isEmpty && scoredNumbers.contains("\(term)|\(number)"))
@@ -485,6 +501,7 @@ final class ScoreViewModel: ObservableObject {
 
     /// iCloud 成绩缓存到达时立即刷新当前页面，页面继续使用本地缓存数据。
     private func applySyncedScoreCacheIfAvailable() {
+        guard !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil else { return }
         guard let cachedRows = ScoreCacheStore.loadRows(), !cachedRows.isEmpty else { return }
         didRestoreCachedRows = true
         lastUpdatedAt = ScoreCacheStore.loadUpdatedAt()
@@ -511,32 +528,36 @@ final class ScoreViewModel: ObservableObject {
     ///
     /// 首次进入时恢复本地偏好；后续刷新时把当前筛选限制在现有选项范围内。
     private func synchronizeFilters() {
+        let previousTerms = selectedTerms
+        let previousCourseTypes = selectedCourseTypes
         let termSet = Set(availableTerms)
         let typeSet = Set(availableCourseTypes)
 
-        if !didInitializeTermSelection {
+        if !didInitializeTermSelection, !termSet.isEmpty {
             if let persistedTerms = preferenceSnapshot?.selectedTerms {
                 selectedTerms = Set(persistedTerms).intersection(termSet)
             } else {
                 selectedTerms = termSet
             }
             didInitializeTermSelection = true
-        } else {
+        } else if didInitializeTermSelection, !termSet.isEmpty {
             selectedTerms = selectedTerms.intersection(termSet)
         }
 
-        if !didInitializeCourseTypeSelection {
+        if !didInitializeCourseTypeSelection, !typeSet.isEmpty {
             if let persistedCourseTypes = preferenceSnapshot?.selectedCourseTypes {
                 selectedCourseTypes = Set(persistedCourseTypes).intersection(typeSet)
             } else {
                 selectedCourseTypes = typeSet
             }
             didInitializeCourseTypeSelection = true
-        } else {
+        } else if didInitializeCourseTypeSelection, !typeSet.isEmpty {
             selectedCourseTypes = selectedCourseTypes.intersection(typeSet)
         }
 
-        persistFilterPreferences()
+        if previousTerms != selectedTerms || previousCourseTypes != selectedCourseTypes {
+            persistFilterPreferences()
+        }
     }
 
     /// iCloud 拉取完成后立即更新已存在的成绩页面。
@@ -579,6 +600,10 @@ final class ScoreViewModel: ObservableObject {
             .lowercased()
     }
 
+    private func normalizedFilterValue(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// 保存当前筛选结果到本地偏好。
     private func persistFilterPreferences() {
         guard didInitializeTermSelection, didInitializeCourseTypeSelection else { return }
@@ -599,7 +624,7 @@ final class ScoreViewModel: ObservableObject {
 /// 可信成绩单申请使用独立于普通成绩查询的状态机。
 ///
 /// 学校返回的图片地址属于短期地址，成绩单图片保存范围为当前申请页面的内存状态。
-/// 成绩缓存和图片缓存保存各自数据。
+/// 成绩缓存独立于成绩单图片的页面内存状态。
 @MainActor
 final class TrustedTranscriptViewModel: ObservableObject {
     enum State: Equatable {
@@ -680,12 +705,16 @@ final class TrustedTranscriptViewModel: ObservableObject {
             state = .idle
             smsVerificationError = "请输入最新收到的短信验证码。"
         } catch {
-            // 普通错误（尤其是错误验证码）继续显示在输入面板，用户可以修改验证码后重试。
             if TaskCancellation.matches(error) {
                 state = .idle
                 return
             }
-            smsVerificationError = error.localizedDescription
+            if smsChallenge != nil {
+                // 普通错误（尤其是错误验证码）继续显示在输入面板，用户可以修改验证码后重试。
+                smsVerificationError = error.localizedDescription
+            } else {
+                state = .failed(error.localizedDescription)
+            }
         }
     }
 

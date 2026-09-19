@@ -138,6 +138,10 @@ extension ScheduleService {
             // challenge 短暂失效时等待 2 秒，再次请求教学中心 Cookie。
             try await Task.sleep(for: .seconds(2))
             try await requestTeachingCenterCookies(body: body, accessToken: nil)
+        } catch {
+            guard isScheduleTransientNetworkError(error) else { throw error }
+            try await Task.sleep(for: .seconds(2))
+            try await requestTeachingCenterCookies(body: body, accessToken: nil)
         }
     }
 
@@ -264,6 +268,7 @@ extension ScheduleService {
             throw ScheduleServiceError.invalidResponse
         }
 
+        var installedCookieCount = 0
         for (name, value) in response.data {
             guard let cookie = HTTPCookie(properties: [
                 .domain: "webvpn.bit.edu.cn",
@@ -273,6 +278,10 @@ extension ScheduleService {
                 .secure: "TRUE",
             ]) else { continue }
             HTTPCookieStorage.shared.setCookie(cookie)
+            installedCookieCount += 1
+        }
+        guard installedCookieCount > 0 else {
+            throw ScheduleServiceError.invalidResponse
         }
         let studentID = storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !studentID.isEmpty else {

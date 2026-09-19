@@ -219,6 +219,7 @@ struct CalendarSettingsPage: View {
                 }
             }
             .buttonStyle(.plain)
+            .disabled(!viewModel.cache.showCourseLiveActivityReminder)
             .opacity(viewModel.cache.showCourseLiveActivityReminder ? 1 : 0.45)
         } header: {
             Text("显示设置")
@@ -245,6 +246,7 @@ struct CalendarSettingsPage: View {
             helpSection
         }
         .appGroupedListStyle()
+        .diagnosticAlert(item: $viewModel.notice)
         .task {
             viewModel.loadIfNeeded()
             if viewModel.cache.courseLiveActivityLeadMinutes != normalizedLeadMinutes {
@@ -484,8 +486,3 @@ struct CalendarSettingsPage: View {
         viewModel.notice = ScheduleNotice.informational(title: "导入成功", message: "分享课表已导入。考试、DDL 与自定义日程保持当前内容。")
     }
 }
-
-/// 课表学期选择页。
-///
-/// 学期选项完全来自学校接口返回值。
-/// 学期选择先独立保存；课表、考试和首周同步失败时显示错误，保留已选学期。

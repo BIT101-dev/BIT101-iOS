@@ -351,6 +351,10 @@ struct AppDetailShareLink: View {
     var body: some View {
         ShareLink(item: item, subject: Text(subject)) {
             Image(systemName: "square.and.arrow.up")
+                .frame(
+                    width: AppDesignSystem.Size.control.touchTarget,
+                    height: AppDesignSystem.Size.control.touchTarget
+                )
         }
         .accessibilityLabel(accessibilityLabel)
     }
@@ -380,6 +384,11 @@ struct AppDetailCircleButton<Label: View>: View {
                     height: AppDesignSystem.Size.control.detailActionButton
                 )
                 .background(AppDesignSystem.Palette.highlightSurface, in: Circle())
+                .frame(
+                    width: AppDesignSystem.Size.control.touchTarget,
+                    height: AppDesignSystem.Size.control.touchTarget
+                )
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
@@ -468,6 +477,10 @@ struct AppFloatingActionButtonSurface<Content: View>: View {
             )
             .background(fill ?? .clear, in: Circle())
             .background(.ultraThinMaterial, in: Circle())
+            .frame(
+                width: AppDesignSystem.Size.control.touchTarget,
+                height: AppDesignSystem.Size.control.touchTarget
+            )
             .contentShape(Circle())
     }
 }

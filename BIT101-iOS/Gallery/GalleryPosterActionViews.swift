@@ -57,6 +57,7 @@ struct GalleryPosterActionMenu: View {
             .font(AppDesignSystem.Typography.title3)
             .foregroundStyle(.secondary)
             .frame(width: AppDesignSystem.Size.control.detailActionButton, height: AppDesignSystem.Size.control.detailActionButton)
+            .accessibilityLabel("更多操作")
     }
 }
 
@@ -145,21 +146,23 @@ struct GalleryReportSheet: View {
     }
 
     private func loadReportTypes() async {
+        defer { isLoading = false }
         do {
             let remoteTypes = try await service.fetchReportTypes()
             reportTypes = remoteTypes.isEmpty ? GalleryReportType.fallback : remoteTypes
             selectedTypeID = reportTypes.first?.id
         } catch {
+            if TaskCancellation.matches(error) { return }
             reportTypes = GalleryReportType.fallback
             selectedTypeID = reportTypes.first?.id
         }
-        isLoading = false
     }
 
     private func submit() async {
         guard let selectedTypeID else { return }
         isSubmitting = true
         errorMessage = nil
+        defer { isSubmitting = false }
         do {
             try await service.report(
                 objectID: target.objectID,
@@ -169,8 +172,8 @@ struct GalleryReportSheet: View {
             onFinished()
             isShowingSuccess = true
         } catch {
+            if TaskCancellation.matches(error) { return }
             errorMessage = error.localizedDescription
         }
-        isSubmitting = false
     }
 }

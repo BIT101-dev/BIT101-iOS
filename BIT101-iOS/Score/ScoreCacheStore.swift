@@ -10,7 +10,6 @@ struct ScoreCacheSyncPayload: Codable {
 /// 成绩缓存仓库。
 ///
 /// 按学号隔离，切换账号后读取当前账号的成绩。
-/// 保留历史 key 兼容既有安装；新的完整查询覆盖旧的基础数据。
 enum ScoreCacheStore {
     /// Hosted tests run inside the installed app and share its standard defaults.
     /// Stub responses use a dedicated account namespace, while the signed-in user's score cache remains separate.
@@ -50,12 +49,10 @@ enum ScoreCacheStore {
     }
 
     static func save(rows: [ScoreRow]) {
-        guard !rows.isEmpty else { return }
-        persist(rows: rows, updatedAt: Date())
+        persist(rows: rows, updatedAt: Date(), clearDetailedUpdatedAt: rows.isEmpty)
     }
 
     static func saveDetailed(rows: [ScoreRow]) {
-        guard !rows.isEmpty else { return }
         let now = Date()
         persist(rows: rows, updatedAt: now, detailedUpdatedAt: now)
     }
@@ -64,6 +61,7 @@ enum ScoreCacheStore {
     static func markChecked() {
         updatedAtStore.save(Date())
         ExperimentalPreferenceCloudSync.shared.localValueDidChange(in: .scoreCache)
+        notifyCacheDidChange()
     }
 
     static func loadUpdatedAt() -> Date? {
@@ -97,20 +95,28 @@ enum ScoreCacheStore {
         } else {
             detailedUpdatedAtStore.remove()
         }
-        NotificationCenter.default.post(name: .scoreCacheDidChange, object: nil)
+        notifyCacheDidChange()
     }
 
     private static func persist(
         rows: [ScoreRow],
         updatedAt: Date,
-        detailedUpdatedAt: Date? = nil
+        detailedUpdatedAt: Date? = nil,
+        clearDetailedUpdatedAt: Bool = false
     ) {
         store.save(rows)
         updatedAtStore.save(updatedAt)
         if let detailedUpdatedAt {
             detailedUpdatedAtStore.save(detailedUpdatedAt)
+        } else if clearDetailedUpdatedAt {
+            detailedUpdatedAtStore.remove()
         }
         ExperimentalPreferenceCloudSync.shared.localValueDidChange(in: .scoreCache)
+        notifyCacheDidChange()
+    }
+
+    private static func notifyCacheDidChange() {
+        NotificationCenter.default.post(name: .scoreCacheDidChange, object: nil)
     }
 }
 

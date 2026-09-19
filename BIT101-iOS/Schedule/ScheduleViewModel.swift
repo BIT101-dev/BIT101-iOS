@@ -228,6 +228,8 @@ final class ScheduleViewModel: ObservableObject {
     let classroomCoordinator = ScheduleClassroomCoordinator()
     let courseSyncCoordinator = ScheduleCourseSyncCoordinator()
     private var hasLoaded = false
+    /// 账号切换后让仍在等待网络响应的旧请求失去状态写入资格。
+    private(set) var accountGeneration = 0
     private var schoolSMSContinuation: CheckedContinuation<String, Error>?
     /// 当前教学楼最近一次拉下来的原始空教室记录。
     var classroomRecords: [ClassroomRecord] = []
@@ -265,6 +267,7 @@ final class ScheduleViewModel: ObservableObject {
 
     /// 切换账号后重置页面内存态，并从新账号的隔离缓存重新开始加载。
     func resetForCurrentAccount() {
+        accountGeneration &+= 1
         classroomPageTask?.cancel()
         classroomPageTask = nil
         classroomPageTaskID = nil
@@ -273,6 +276,9 @@ final class ScheduleViewModel: ObservableObject {
         isLoadingCache = true
         isSyncingCourses = false
         isSyncingDDL = false
+        isLoadingTerms = false
+        syncingTerm = nil
+        isSubmittingSMSCode = false
         isLoadingClassroomMeta = false
         isLoadingClassrooms = false
         classroomLastUpdatedAt = nil
@@ -311,9 +317,12 @@ final class ScheduleViewModel: ObservableObject {
         continuation?.resume(throwing: CancellationError())
     }
 
-    func makeSchoolSMSCodeHandler() -> SchoolSMSCodeHandler {
+    func makeSchoolSMSCodeHandler(for generation: Int? = nil) -> SchoolSMSCodeHandler {
         { @MainActor [weak self] request in
             guard let self else { throw CancellationError() }
+            if let generation, self.accountGeneration != generation {
+                throw CancellationError()
+            }
             guard self.schoolSMSContinuation == nil else { throw CancellationError() }
             self.schoolSMSCodeRequest = request
             return try await withCheckedThrowingContinuation { continuation in
@@ -335,9 +344,9 @@ final class ScheduleViewModel: ObservableObject {
     }
 
     /// DDL 列表默认向前展示的天数。
-    var beforeDay: Int { cache.ddlBeforeDay }
+    var beforeDay: Int { min(max(cache.ddlBeforeDay, 0), 30) }
     /// DDL 列表默认向后保留的天数。
-    var afterDay: Int { cache.ddlAfterDay }
+    var afterDay: Int { min(max(cache.ddlAfterDay, 0), 30) }
 
     /// 首周日期的展示文本。
     var firstDayDescription: String {
@@ -438,7 +447,12 @@ final class ScheduleViewModel: ObservableObject {
 
     /// 根据首周日期推导当前周次。
     func resolvedAutomaticWeek() -> Int {
-        guard let firstDay = cache.firstDay else { return 1 }
+        resolvedAutomaticWeek(for: cache.firstDay)
+    }
+
+    /// 根据指定首周日期推导当前周次。
+    func resolvedAutomaticWeek(for firstDay: Date?) -> Int {
+        guard let firstDay else { return 1 }
 
         let start = ScheduleDateCodec.calendar.startOfDay(for: firstDay)
         let today = ScheduleDateCodec.calendar.startOfDay(for: Date())

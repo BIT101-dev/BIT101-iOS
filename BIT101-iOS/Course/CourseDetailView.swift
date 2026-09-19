@@ -2,8 +2,6 @@
 //  CourseDetailView.swift
 //  BIT101-iOS
 //
-//  Created by Codex on 2026-04-02.
-//
 
 import SwiftUI
 
@@ -205,7 +203,7 @@ struct CourseDetailView: View {
         }
     }
 
-    /// 使用稳定的 `/course/{id}` 路由；未安装 App 时由 Worker 转至网页。
+    /// 使用稳定的 `/course/{id}` 路由作为课程分享地址。
     private var courseShareURL: URL {
         AppURL.required("https://open.aihelpme.dev/course/\(initialCourse.id)")
     }

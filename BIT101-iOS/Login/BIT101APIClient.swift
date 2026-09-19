@@ -159,9 +159,10 @@ struct BIT101APIClient {
 
         if (300 ..< 400).contains(response.statusCode) {
             // 正确密码时学校会进入一串 SSO 成功跳转；继续访问跳转链后，教务和乐学接口才能获得学校 cookie。
-            if let location = response.value(forHTTPHeaderField: "Location") {
-                try await finishSchoolLoginRedirectChain(from: location, relativeTo: requestURL)
+            guard let location = response.value(forHTTPHeaderField: "Location") else {
+                throw LoginServiceError.invalidServerResponse
             }
+            try await finishSchoolLoginRedirectChain(from: location, relativeTo: requestURL)
             return true
         }
 
@@ -184,7 +185,10 @@ struct BIT101APIClient {
     /// 这一步继续访问跳转链并完成学校 cookie 写入；教务和乐学接口在进入主界面后依赖这些 cookie。
     private func finishSchoolLoginRedirectChain(from location: String, relativeTo baseURL: URL) async throws {
         guard var nextURL = HTTPSURLUpgrade.resolvedURL(from: location, relativeTo: baseURL) else {
-            return
+            throw LoginServiceError.invalidServerResponse
+        }
+        guard isAllowedSchoolRedirectURL(nextURL) else {
+            throw LoginServiceError.invalidServerResponse
         }
 
         // 学校成功页通常会经历多次 302，这里手动接管并将中间 HTTP 地址升级为 HTTPS，满足 ATS 要求。
@@ -197,6 +201,9 @@ struct BIT101APIClient {
             if (300 ..< 400).contains(response.statusCode),
                let nextLocation = response.value(forHTTPHeaderField: "Location"),
                let resolved = HTTPSURLUpgrade.resolvedURL(from: nextLocation, relativeTo: nextURL) {
+                guard isAllowedSchoolRedirectURL(resolved) else {
+                    throw LoginServiceError.invalidServerResponse
+                }
                 nextURL = resolved
                 continue
             }
@@ -215,6 +222,22 @@ struct BIT101APIClient {
 
             throw errorForStatusCode(response.statusCode)
         }
+
+        throw LoginServiceError.invalidServerResponse
+    }
+
+    private func isAllowedSchoolRedirectURL(_ url: URL) -> Bool {
+        guard
+            url.scheme?.lowercased() == "https",
+            let host = url.host?.lowercased()
+        else {
+            return false
+        }
+
+        let configuredSchoolHost = schoolBaseURL.host?.lowercased()
+        return host == configuredSchoolHost
+            || host == "bit.edu.cn"
+            || host.hasSuffix(".bit.edu.cn")
     }
 
     static func isAcceptedSchoolLoginCompletion(
@@ -222,7 +245,7 @@ struct BIT101APIClient {
         url: URL,
         schoolHost: String? = "sso.bit.edu.cn"
     ) -> Bool {
-        if (200 ..< 400).contains(statusCode) {
+        if (200 ..< 300).contains(statusCode) {
             return true
         }
         return statusCode == 401
@@ -233,7 +256,8 @@ struct BIT101APIClient {
         _ url: URL,
         schoolHost: String? = "sso.bit.edu.cn"
     ) -> Bool {
-        url.host?.lowercased() == schoolHost?.lowercased()
+        url.scheme?.lowercased() == "https"
+            && url.host?.lowercased() == schoolHost?.lowercased()
             && url.path == "/gate/cas-success"
     }
 
@@ -339,27 +363,12 @@ struct BIT101APIClient {
     }
 
     private func responseMessage(from data: Data) -> String? {
-        guard
-            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else {
-            return nil
-        }
-
-        for key in ["msg", "message", "error"] {
-            if let value = object[key] as? String {
-                let message = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !message.isEmpty {
-                    return String(message.prefix(200))
-                }
-            }
-        }
-        return nil
+        guard let message = HTTPClient.errorMessage(from: data) else { return nil }
+        return String(message.prefix(200))
     }
 
     /// 根据是否允许跟随重定向，选择合适的 `URLSession` 并统一做 HTTPS 升级。
     private func sendRequest(_ request: URLRequest, followRedirects: Bool) async throws -> (Data, HTTPURLResponse) {
-        let data: Data
-        let response: URLResponse
         let activeSession = followRedirects ? session : noRedirectSession
         let finalRequest: URLRequest
 
@@ -371,22 +380,19 @@ struct BIT101APIClient {
             finalRequest = request
         }
 
+        let result: HTTPResponse
         do {
-            let result = try await HTTPClient(transport: activeSession).send(
+            result = try await HTTPClient(transport: activeSession).send(
                 finalRequest,
                 accepting: 100 ..< 600
             )
-            data = result.data
-            response = result.response
         } catch {
             throw describeNetworkError(error, request: finalRequest)
         }
-
-        guard let httpResponse = response as? HTTPURLResponse else {
+        guard result.response.url?.scheme?.lowercased() == "https" else {
             throw LoginServiceError.invalidServerResponse
         }
-
-        return (data, httpResponse)
+        return (result.data, result.response)
     }
 
     /// 把表单字段编码成 `application/x-www-form-urlencoded` 数据。

@@ -95,9 +95,11 @@ extension CourseScheduleTabView {
         }
 
         let prefetchedResolution = prefetchedCourseID == sourceID ? prefetchedCourseResolution : nil
+        let generation = viewModel.accountGeneration
         isResolvingCourseShare = true
         Task { @MainActor in
             defer { isResolvingCourseShare = false }
+            guard viewModel.accountGeneration == generation else { return }
             do {
                 let resolution: ScheduleAcademicCourseResolution?
                 if let prefetchedResolution {
@@ -112,7 +114,13 @@ extension CourseScheduleTabView {
                     )
                     return
                 }
-                guard let url = URL(string: "https://open.aihelpme.dev/course/\(resolution.selectedCourse.id)") else {
+                var pathComponentAllowed = CharacterSet.alphanumerics
+                pathComponentAllowed.insert(charactersIn: "-._~")
+                guard !resolution.selectedCourse.id.isEmpty,
+                      let encodedCourseID = resolution.selectedCourse.id.addingPercentEncoding(
+                          withAllowedCharacters: pathComponentAllowed
+                      ),
+                      let url = URL(string: "https://open.aihelpme.dev/course/\(encodedCourseID)") else {
                     courseShareAlert = AppAlert.userInput(title: "分享失败", message: "课程分享链接无效。")
                     return
                 }
@@ -135,11 +143,25 @@ extension CourseScheduleTabView {
 
         prefetchedCourseID = sourceID
         prefetchedCourseResolution = nil
+        let generation = viewModel.accountGeneration
         Task { @MainActor in
-            guard let resolution = try? await ScheduleAcademicCourseResolver().resolve(course),
-                  prefetchedCourseID == sourceID
-            else { return }
-            prefetchedCourseResolution = resolution
+            do {
+                let resolution = try await ScheduleAcademicCourseResolver().resolve(course)
+                guard viewModel.accountGeneration == generation,
+                      prefetchedCourseID == sourceID
+                else { return }
+                if let resolution {
+                    prefetchedCourseResolution = resolution
+                } else {
+                    prefetchedCourseID = nil
+                }
+            } catch {
+                guard viewModel.accountGeneration == generation,
+                      prefetchedCourseID == sourceID
+                else { return }
+                prefetchedCourseID = nil
+                prefetchedCourseResolution = nil
+            }
         }
     }
 

@@ -93,10 +93,16 @@ struct ScheduleFirstDayEditorPage: View {
 struct CourseLiveActivityLeadMinutesPickerPage: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var value: Int
+    @State private var draftValue: Int
+
+    init(value: Binding<Int>) {
+        _value = value
+        _draftValue = State(initialValue: value.wrappedValue)
+    }
 
     /// 使用原生 wheel picker 提供 1...60 分钟的阈值选择。
     var body: some View {
-        Picker("提前显示阈值", selection: $value) {
+        Picker("提前显示阈值", selection: $draftValue) {
             ForEach(1 ... 60, id: \.self) { minute in
                 Text("\(minute) 分钟")
                     .tag(minute)
@@ -104,7 +110,7 @@ struct CourseLiveActivityLeadMinutesPickerPage: View {
         }
         .pickerStyle(.wheel)
         .labelsHidden()
-        .appSelectionFeedback(trigger: value)
+        .appSelectionFeedback(trigger: draftValue)
         .navigationTitle("提前显示阈值")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -115,6 +121,7 @@ struct CourseLiveActivityLeadMinutesPickerPage: View {
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("完成") {
+                    value = draftValue
                     dismiss()
                 }
             }
@@ -201,12 +208,19 @@ struct ScheduleImportCodeSheet: View {
                     .frame(minHeight: AppDesignSystem.Schedule.settingsPanelMinimumHeight)
                     .padding(AppDesignSystem.Spacing.control)
                     .background(AppDesignSystem.Palette.secondaryGroupedBackground, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.sheet))
+                    .accessibilityLabel("课表编码")
 
                 HStack(spacing: AppDesignSystem.Spacing.content) {
                     Button {
-                        if let clipboard = UIPasteboard.general.string, !clipboard.isEmpty {
-                            text = clipboard
+                        guard let clipboard = UIPasteboard.general.string,
+                              !clipboard.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                            localAlert = AppAlert.userInput(
+                                title: "粘贴失败",
+                                message: "剪贴板中没有可用的课表编码。"
+                            )
+                            return
                         }
+                        text = clipboard
                     } label: {
                         Label("粘贴剪贴板", systemImage: "doc.on.clipboard")
                             .frame(maxWidth: .infinity)

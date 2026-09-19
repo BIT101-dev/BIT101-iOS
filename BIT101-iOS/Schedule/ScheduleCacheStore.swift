@@ -15,18 +15,18 @@ enum ScheduleCacheStore {
         case cloud
     }
 
-    private static let encoder: JSONEncoder = {
+    private static func makeEncoder() -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         return encoder
-    }()
+    }
 
-    private static let decoder: JSONDecoder = {
+    private static func makeDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder
-    }()
+    }
 
     private static let logger = Logger(subsystem: "BIT101", category: "ScheduleCache")
 
@@ -53,7 +53,7 @@ enum ScheduleCacheStore {
     static func load() -> ScheduleCache {
         guard
             let data = cacheData(),
-            let cache = try? decoder.decode(ScheduleCache.self, from: data)
+            let cache = try? makeDecoder().decode(ScheduleCache.self, from: data)
         else {
             return ScheduleCache()
         }
@@ -73,7 +73,7 @@ enum ScheduleCacheStore {
 
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let data = try encoder.encode(cacheToSave)
+            let data = try makeEncoder().encode(cacheToSave)
             try data.write(to: url, options: [.atomic])
             ScheduleWidgetExporter.sync(cache: cacheToSave)
             postCacheDidChange()
@@ -152,8 +152,10 @@ enum ScheduleCacheStore {
     ///
     /// 保存与清空缓存后都要发送这条通知，两个入口共用这一实现。
     private static func postCacheDidChange() {
+        let accountIdentifier = currentAccountIdentifier()
         DispatchQueue.main.async {
-            NotificationCenter.default.post(name: .scheduleCacheDidChange, object: nil)
+            guard currentAccountIdentifier() == accountIdentifier else { return }
+            NotificationCenter.default.post(name: .scheduleCacheDidChange, object: accountIdentifier)
         }
     }
 }

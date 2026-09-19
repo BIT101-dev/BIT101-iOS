@@ -33,16 +33,24 @@ struct AppFixedColumnRow: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let totalRatio = items.reduce(CGFloat.zero) { total, item in
+                total + max(item.ratio, 0)
+            }
+
             HStack(spacing: AppDesignSystem.Spacing.none) {
                 ForEach(items.indices, id: \.self) { index in
                     let item = items[index]
+                    let normalizedRatio = totalRatio > 0
+                        ? max(item.ratio, 0) / totalRatio
+                        : 0
+
                     Text(item.text)
                         .font(item.font)
                         .foregroundStyle(item.color)
                         .lineLimit(1)
                         .monospacedDigit()
                         .frame(
-                            width: proxy.size.width * item.ratio,
+                            width: proxy.size.width * normalizedRatio,
                             height: height,
                             alignment: item.alignment
                         )

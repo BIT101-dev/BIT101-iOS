@@ -49,7 +49,14 @@ final class PaperListViewModel: ObservableObject {
         refreshGeneration &+= 1
         let generation = refreshGeneration
         let previousState = state
-        state.prepareForRefresh()
+        if state.items.isEmpty {
+            state.prepareForRefresh()
+        } else {
+            state.status = .loading
+            state.nextPage = 0
+            state.isLoadingMore = false
+            state.canLoadMore = true
+        }
 
         do {
             let papers = try await service.fetchPapers(
@@ -63,11 +70,26 @@ final class PaperListViewModel: ObservableObject {
         } catch {
             guard refreshGeneration == generation else { return }
             if TaskCancellation.matches(error) {
-                state = previousState
+                var restoredState = previousState
+                restoredState.isLoadingMore = false
+                if !restoredState.items.isEmpty {
+                    restoredState.status = .loaded
+                } else if case .loading = restoredState.status {
+                    restoredState.status = .idle
+                }
+                state = restoredState
                 return
             }
-            state.status = .failed(error.localizedDescription)
-            alert = AppAlert(title: "加载文章失败", message: error.localizedDescription)
+            if previousState.items.isEmpty {
+                state.status = .failed(error.localizedDescription)
+                state.canLoadMore = false
+                alert = AppAlert(title: "加载文章失败", message: error.localizedDescription)
+            } else {
+                state = previousState
+                state.status = .loaded
+                state.isLoadingMore = false
+                alert = AppAlert(title: "刷新文章失败", message: error.localizedDescription)
+            }
         }
     }
 
@@ -76,14 +98,21 @@ final class PaperListViewModel: ObservableObject {
         let generation = refreshGeneration
         guard state.status == .loaded, state.shouldLoadMore(currentID: currentPaper.id) else { return }
 
+        let search = trimmedSearchText
+        let order = selectedOrder
+        let nextPage = state.nextPage
         state.isLoadingMore = true
-        defer { state.isLoadingMore = false }
+        defer {
+            if refreshGeneration == generation {
+                state.isLoadingMore = false
+            }
+        }
 
         do {
             let papers = try await service.fetchPapers(
-                search: trimmedSearchText,
-                order: selectedOrder,
-                page: state.nextPage
+                search: search,
+                order: order,
+                page: nextPage
             )
             guard refreshGeneration == generation else { return }
             state.appendPage(papers)
@@ -161,7 +190,14 @@ final class PaperSearchViewModel: ObservableObject {
         } catch {
             guard searchGeneration == generation else { return }
             if TaskCancellation.matches(error) {
-                state = previousState
+                var restoredState = previousState
+                restoredState.isLoadingMore = false
+                if !restoredState.items.isEmpty {
+                    restoredState.status = .loaded
+                } else if case .loading = restoredState.status {
+                    restoredState.status = .idle
+                }
+                state = restoredState
                 return
             }
             state.status = .failed(error.localizedDescription)
@@ -174,14 +210,20 @@ final class PaperSearchViewModel: ObservableObject {
         let generation = searchGeneration
         guard state.status == .loaded, state.shouldLoadMore(currentID: currentPaper.id) else { return }
 
+        let order = selectedOrder
+        let nextPage = state.nextPage
         state.isLoadingMore = true
-        defer { state.isLoadingMore = false }
+        defer {
+            if searchGeneration == generation {
+                state.isLoadingMore = false
+            }
+        }
 
         do {
             let papers = try await service.fetchPapers(
                 search: trimmedSearchText,
-                order: selectedOrder,
-                page: state.nextPage
+                order: order,
+                page: nextPage
             )
             guard searchGeneration == generation else { return }
             state.appendPage(papers)
@@ -295,14 +337,20 @@ final class PaperDetailViewModel: ObservableObject {
               commentState.shouldLoadMore(currentID: currentComment.id)
         else { return }
 
+        let order = commentOrder
+        let nextPage = commentState.nextPage
         commentState.isLoadingMore = true
-        defer { commentState.isLoadingMore = false }
+        defer {
+            if refreshGeneration == generation {
+                commentState.isLoadingMore = false
+            }
+        }
 
         let result = await loadResult { [self] in
             try await self.service.fetchComments(
                 paperID: self.initialPaper.id,
-                order: self.commentOrder,
-                page: self.commentState.nextPage
+                order: order,
+                page: nextPage
             )
         }
 
@@ -326,15 +374,18 @@ final class PaperDetailViewModel: ObservableObject {
 
     func likePaper() async {
         guard !isLikingPaper else { return }
+        let generation = refreshGeneration
         isLikingPaper = true
         defer { isLikingPaper = false }
 
         do {
             let result = try await service.likePaper(id: initialPaper.id)
+            guard refreshGeneration == generation else { return }
             if let paper {
                 self.paper = paper.updatingLike(result.like, likeNum: result.likeNum)
             }
         } catch {
+            guard refreshGeneration == generation else { return }
             if TaskCancellation.matches(error) { return }
             alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
@@ -374,13 +425,16 @@ final class PaperDetailViewModel: ObservableObject {
 
     func toggleCommentLike(_ comment: GalleryComment) async {
         guard !likingCommentIDs.contains(comment.id) else { return }
+        let generation = refreshGeneration
         likingCommentIDs.insert(comment.id)
         defer { likingCommentIDs.remove(comment.id) }
 
         do {
             let result = try await service.sendLike(objectID: "comment\(comment.id)")
+            guard refreshGeneration == generation else { return }
             commentState.items = commentState.items.updatingLike(for: comment.id, like: result.like, likeNum: result.likeNum)
         } catch {
+            guard refreshGeneration == generation else { return }
             if TaskCancellation.matches(error) { return }
             alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
@@ -422,7 +476,14 @@ final class PaperDetailViewModel: ObservableObject {
             paperStatus = .loaded
         case let .failure(error):
             if TaskCancellation.matches(error) {
-                paperStatus = paper == nil ? previousStatus : .loaded
+                if paper == nil {
+                    paperStatus = previousStatus
+                    if case .loading = previousStatus {
+                        paperStatus = .idle
+                    }
+                } else {
+                    paperStatus = .loaded
+                }
                 return
             }
             paperStatus = .failed(error.localizedDescription)
@@ -440,7 +501,14 @@ final class PaperDetailViewModel: ObservableObject {
             commentState.status = .loaded
         case let .failure(error):
             if TaskCancellation.matches(error) {
-                commentState = previousState
+                var restoredState = previousState
+                restoredState.isLoadingMore = false
+                if !restoredState.items.isEmpty {
+                    restoredState.status = .loaded
+                } else if case .loading = restoredState.status {
+                    restoredState.status = .idle
+                }
+                commentState = restoredState
                 return
             }
             commentState.status = .failed(error.localizedDescription)

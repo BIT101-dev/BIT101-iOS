@@ -263,6 +263,7 @@ struct CourseScheduleTabView: View {
                     activeSchedule.courses.first(where: { $0.id == sourceID })
                 },
                 currentWeek: viewModel.selectedWeek,
+                currentTerm: activeSchedule.currentTerm,
                 allowsCourseMutation: supportsEditingDisplayedSchedule,
                 isOverviewMode: supportsEditingDisplayedSchedule
                     && viewModel.cache.scheduleDisplayMode == .allWeeks,
@@ -351,17 +352,20 @@ struct CourseScheduleTabView: View {
                         }
                     }
                 },
-                onDeleteCalendarMarkers: { markerIDs in
+                onDeleteCalendarMarkers: { markerIDs, term in
                     Task {
                         do {
-                            let result = try await ScheduleSystemCalendarManager.shared.deleteImportedEvents(markerIDs: markerIDs)
+                            let result = try await ScheduleSystemCalendarManager.shared.deleteImportedEvents(
+                                markerIDs: markerIDs,
+                                term: term
+                            )
                             courseShareAlert = calendarMutationAlert(result)
                         } catch {
                             courseShareAlert = AppAlert(title: "移除日历失败", message: error.localizedDescription)
                         }
                     }
                 },
-                onDeleteCalendarCourse: { courseID in
+                onDeleteCalendarCourse: { courseID, term in
                     guard let course = activeSchedule.courses.first(where: { $0.id == courseID }),
                           let firstDay = activeSchedule.firstDay else { return }
                     let relatedCourses = activeSchedule.courses.filter {
@@ -374,7 +378,10 @@ struct CourseScheduleTabView: View {
                     )
                     Task {
                         do {
-                            let result = try await ScheduleSystemCalendarManager.shared.deleteImportedEvents(drafts: drafts)
+                            let result = try await ScheduleSystemCalendarManager.shared.deleteImportedEvents(
+                                drafts: drafts,
+                                term: term
+                            )
                             courseShareAlert = calendarMutationAlert(result)
                         } catch {
                             courseShareAlert = AppAlert(title: "移除日历失败", message: error.localizedDescription)
@@ -423,11 +430,12 @@ struct CourseScheduleTabView: View {
                         }
                     }
                 },
-                onDeleteCalendarEntry: { markerID in
+                onDeleteCalendarEntry: { markerID, term in
                     Task {
                         do {
                             let result = try await ScheduleSystemCalendarManager.shared.deleteImportedEvents(
-                                markerIDs: Set([markerID])
+                                markerIDs: Set([markerID]),
+                                term: term
                             )
                             courseShareAlert = calendarMutationAlert(result)
                         } catch {

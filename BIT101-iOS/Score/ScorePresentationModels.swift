@@ -11,7 +11,9 @@ struct ScoreFilterPreferenceSnapshot: Codable {
 enum ScoreFilterPreferenceStore {
     private static let store = AccountScopedCodableStore<ScoreFilterPreferenceSnapshot>(
         keyPrefix: "score.filter.preferences",
-        accountIdentifier: { LoginStorage.shared.currentStudentID }
+        accountIdentifier: {
+            LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
     )
 
     static func load() -> ScoreFilterPreferenceSnapshot? {

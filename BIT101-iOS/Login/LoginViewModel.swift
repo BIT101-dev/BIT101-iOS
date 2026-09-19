@@ -2,8 +2,6 @@
 //  LoginViewModel.swift
 //  BIT101-iOS
 //
-//  Created by Codex on 2026-03-24.
-//
 
 import Combine
 import Foundation
@@ -21,6 +19,7 @@ enum LoginScreenState: Equatable {
 }
 
 /// 管理本地登录态恢复、登录提交状态和退出后的界面回退。
+@MainActor
 final class LoginViewModel: ObservableObject {
     /// 学号输入框内容。
     @Published var studentID: String
@@ -44,7 +43,7 @@ final class LoginViewModel: ObservableObject {
         self.service = service
         let savedStudentID = service.savedStudentID
         studentID = savedStudentID
-        password = service.savedPassword
+        password = ""
         screenState = service.hasCachedSession ? .signedIn(studentID: savedStudentID) : .signedOut
     }
 
@@ -76,7 +75,7 @@ final class LoginViewModel: ObservableObject {
                 screenState = .signedIn(studentID: studentID)
             } else {
                 self.studentID = service.savedStudentID
-                password = service.savedPassword
+                password = ""
                 screenState = .signedOut
             }
         } catch {
@@ -85,7 +84,7 @@ final class LoginViewModel: ObservableObject {
                 return
             }
             studentID = service.savedStudentID
-            password = service.savedPassword
+            password = ""
 
             // 网络、超时或解析等临时错误静默保留主界面，登录态继续沿用本地会话。
             if service.hasCachedSession, !studentID.isEmpty {
@@ -139,11 +138,11 @@ final class LoginViewModel: ObservableObject {
 
     /// 退出当前账号，并回退到登录页。
     ///
-    /// 退出动作清除会话并保留账号密码，登录页继续显示最近一次输入的学号。
+    /// 退出动作清除会话和内存中的密码，登录页继续显示最近一次输入的学号。
     func logout() {
         service.logout()
         studentID = service.savedStudentID
-        password = service.savedPassword
+        password = ""
         screenState = .signedOut
     }
 }

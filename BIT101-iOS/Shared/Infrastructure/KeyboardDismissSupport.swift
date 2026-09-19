@@ -28,6 +28,7 @@ extension View {
 }
 
 /// 安装器为当前窗口安装键盘附件和保留页面操作的键盘收起手势。
+@MainActor
 struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -48,8 +49,8 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
         coordinator.detach()
     }
 
+    @MainActor
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        private static let accessoryTag = 0x42495431
         private weak var window: UIWindow?
         private lazy var recognizer: UITapGestureRecognizer = {
             let recognizer = UITapGestureRecognizer(target: self, action: #selector(didTapBackground))
@@ -96,8 +97,10 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
 
         @objc private func textInputDidBeginEditing(_ notification: Notification) {
             if let textField = notification.object as? UITextField {
+                guard textField.window === window else { return }
                 installAccessory(on: textField)
             } else if let textView = notification.object as? UITextView {
+                guard textView.window === window else { return }
                 installAccessory(on: textView)
             }
         }
@@ -111,15 +114,19 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
             } else {
                 return
             }
-            guard existingAccessory?.tag != Self.accessoryTag else { return }
+            guard existingAccessory == nil else { return }
 
             let toolbar = UIToolbar()
-            toolbar.tag = Self.accessoryTag
-            toolbar.sizeToFit()
             toolbar.items = [
                 UIBarButtonItem(systemItem: .flexibleSpace),
-                UIBarButtonItem(title: "✓ 完成", style: .done, target: self, action: #selector(donePressed))
+                UIBarButtonItem(
+                    title: "✓ 完成",
+                    style: .done,
+                    target: self,
+                    action: #selector(donePressed)
+                )
             ]
+            toolbar.sizeToFit()
 
             if let textField = input as? UITextField {
                 textField.inputAccessoryView = toolbar

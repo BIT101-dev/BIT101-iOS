@@ -1,10 +1,6 @@
 //
 //  PaperDetailView.swift
 //  BIT101-iOS
-//
-//  This view was split from PaperRootView.swift.
-//
-
 import SwiftUI
 import UIKit
 
@@ -32,6 +28,14 @@ struct PaperDetailView: View {
                     Text(viewModel.paper?.title ?? initialPaper.title)
                         .font(AppDesignSystem.Typography.title2Emphasis)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityAddTraits(.isHeader)
+
+                    if !paperIntro.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(paperIntro)
+                            .font(AppDesignSystem.Typography.body)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
 
                     HStack(spacing: AppDesignSystem.Spacing.content) {
                         PaperHeaderSummary(paper: viewModel.paper, fallback: initialPaper)
@@ -68,23 +72,7 @@ struct PaperDetailView: View {
                     }
                 }
 
-                if !contentBlocks.isEmpty {
-                    VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.section) {
-                        ForEach(contentBlocks) { block in
-                            PaperContentBlockView(
-                                block: block,
-                                onOpenImage: { image in
-                                    guard let initialIndex = inlineImages.firstIndex(of: image) else { return }
-                                    imageViewer = GalleryImageViewerState(
-                                        images: inlineImages.map(\.asGalleryImage),
-                                        initialIndex: initialIndex
-                                    )
-                                }
-                            )
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                articleContent
 
                 HStack(spacing: AppDesignSystem.Spacing.control) {
                     Spacer()
@@ -100,9 +88,9 @@ struct PaperDetailView: View {
                             }
 
                             Text(isPaperLiked ? "已点赞" : "看完了，点个赞")
-                                .fontWeight(.semibold)
+                                .font(AppDesignSystem.Typography.bodyEmphasis)
                         }
-                        .foregroundStyle(isPaperLiked ? Color.white : AppDesignSystem.Palette.highlight)
+                        .foregroundStyle(isPaperLiked ? AppDesignSystem.Palette.highlightForeground : AppDesignSystem.Palette.highlight)
                         .padding(.horizontal, AppDesignSystem.Spacing.prominent)
                         .frame(minHeight: AppDesignSystem.Size.control.touchTarget)
                         .background(
@@ -182,6 +170,7 @@ struct PaperDetailView: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
+                .accessibilityLabel("更多操作")
             }
         }
         .sheet(item: $composerTarget) { target in
@@ -249,6 +238,51 @@ struct PaperDetailView: View {
         return blocks
     }
 
+    private var paperIntro: String {
+        viewModel.paper?.intro ?? initialPaper.intro
+    }
+
+    @ViewBuilder
+    private var articleContent: some View {
+        if contentBlocks.isEmpty {
+            switch viewModel.paperStatus {
+            case .failed(let message):
+                AppFailureState(
+                    title: "加载文章失败",
+                    systemImage: "doc.text.magnifyingglass",
+                    message: message,
+                    onRetry: {
+                        Task { await viewModel.refreshAll() }
+                    }
+                )
+            case .loaded:
+                Text("文章正文为空")
+                    .font(AppDesignSystem.Typography.body)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, AppDesignSystem.Spacing.section)
+            case .idle, .loading:
+                AppInlineLoadingState("正在加载文章")
+            }
+        } else {
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.section) {
+                ForEach(contentBlocks) { block in
+                    PaperContentBlockView(
+                        block: block,
+                        onOpenImage: { image in
+                            guard let initialIndex = inlineImages.firstIndex(of: image) else { return }
+                            imageViewer = GalleryImageViewerState(
+                                images: inlineImages.map(\.asGalleryImage),
+                                initialIndex: initialIndex
+                            )
+                        }
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
     private var isPaperLiked: Bool {
         viewModel.paper?.like ?? false
     }
@@ -309,7 +343,7 @@ private struct PaperHeaderSummary: View {
     var body: some View {
         HStack(spacing: AppDesignSystem.Spacing.control) {
             AppAvatarView(
-                imageURL: paper?.updateUser.avatar.preferredRemoteURL,
+                imageURL: paper?.anonymous == true ? nil : paper?.updateUser.avatar.preferredRemoteURL,
                 size: AppDesignSystem.Size.avatar.articleDetail,
                 tint: AppDesignSystem.Palette.neutral
             )
@@ -342,6 +376,7 @@ private struct PaperContentBlockView: View {
                 textStyle: headerTextStyle(for: level),
                 textColor: .label
             )
+            .accessibilityAddTraits(.isHeader)
         case let .paragraph(_, text):
             PaperRichTextView(text: text, textStyle: AppDesignSystem.Typography.uiBody, textColor: .label)
         case let .quote(_, text, caption):
@@ -374,7 +409,7 @@ private struct PaperContentBlockView: View {
             } label: {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                     GalleryCachedStillImage(url: image.preferredRemoteURL)
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: .infinity, minHeight: AppDesignSystem.Size.content.imageDraft)
                     .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
 
                     if let caption = image.caption, containsVisibleText(caption) {
@@ -383,7 +418,15 @@ private struct PaperContentBlockView: View {
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(imageAccessibilityLabel(for: image))
+            .accessibilityHint("打开图片预览")
         }
+    }
+
+    private func imageAccessibilityLabel(for image: PaperInlineImage) -> String {
+        guard let caption = image.caption else { return "查看文章图片" }
+        let text = String(caption.characters).trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? "查看文章图片" : "文章图片：\(text)"
     }
 
     private func headerTextStyle(for level: Int) -> UIFont.TextStyle {
@@ -413,6 +456,10 @@ private struct PaperRichTextView: UIViewRepresentable {
     let textStyle: UIFont.TextStyle
     let textColor: UIColor
 
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
     func makeUIView(context: Context) -> UITextView {
         let textView = UITextView()
         textView.backgroundColor = .clear
@@ -424,6 +471,7 @@ private struct PaperRichTextView: UIViewRepresentable {
         textView.textContainer.lineFragmentPadding = 0
         textView.dataDetectorTypes = []
         textView.linkTextAttributes = [.foregroundColor: UIColor(AppDesignSystem.Palette.highlight)]
+        textView.delegate = context.coordinator
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return textView
     }
@@ -468,5 +516,17 @@ private struct PaperRichTextView: UIViewRepresentable {
         let wantedTraits = traits.intersection([.traitBold, .traitItalic])
         let descriptor = baseFont.fontDescriptor.withSymbolicTraits(wantedTraits) ?? baseFont.fontDescriptor
         return UIFont(descriptor: descriptor, size: baseFont.pointSize)
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        func textView(
+            _ textView: UITextView,
+            shouldInteractWith URL: URL,
+            in characterRange: NSRange,
+            interaction: UITextItemInteraction
+        ) -> Bool {
+            guard let scheme = URL.scheme?.lowercased() else { return false }
+            return scheme == "http" || scheme == "https"
+        }
     }
 }

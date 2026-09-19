@@ -2,7 +2,7 @@ import Combine
 import Foundation
 
 /// 用户偏好和成绩缓存的实验性 iCloud 同步域。
-nonisolated enum ExperimentalPreferenceSyncDomain: String, CaseIterable {
+nonisolated enum ExperimentalPreferenceSyncDomain: String, CaseIterable, Hashable {
     case appSettings = "app-settings"
     case scoreFilters = "score-filters"
     case scoreCache = "score-cache"
@@ -48,6 +48,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     private var cloudObserver: NSObjectProtocol?
     private var accountObserver: NSObjectProtocol?
     private var reconciliationTask: Task<Void, Never>?
+    private var pendingReconciliationDomains = Set<ExperimentalPreferenceSyncDomain>()
 
     private init(
         defaults: UserDefaults = .standard,
@@ -62,9 +63,8 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
             object: cloudStore,
             queue: .main
         ) { [weak self] notification in
-            guard let self else { return }
-            MainActor.assumeIsolated {
-                self.handleExternalChange(notification)
+            Task { @MainActor [weak self] in
+                self?.handleExternalChange(notification)
             }
         }
         accountObserver = NotificationCenter.default.addObserver(
@@ -72,9 +72,8 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self else { return }
-            MainActor.assumeIsolated {
-                self.reloadForCurrentAccount()
+            Task { @MainActor [weak self] in
+                self?.reloadForCurrentAccount()
             }
         }
     }
@@ -92,6 +91,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         guard enabled else {
             reconciliationTask?.cancel()
             reconciliationTask = nil
+            pendingReconciliationDomains.removeAll()
             return
         }
 
@@ -101,10 +101,13 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
 
     /// 本地业务数据发生变化时记录时间；只有实验开关打开才立即上传。
     func localValueDidChange(in domain: ExperimentalPreferenceSyncDomain) {
-        let now = Date()
-        defaults.set(now, forKey: localUpdatedAtKey(for: domain))
+        let updatedAt = nextLocalUpdatedAt(
+            for: domain,
+            remoteUpdatedAt: remoteUpdatedAt(for: domain)
+        )
+        defaults.set(updatedAt, forKey: localUpdatedAtKey(for: domain))
         guard isEnabled else { return }
-        upload(domain: domain, updatedAt: now)
+        upload(domain: domain, updatedAt: updatedAt)
     }
 
     /// 启动和回到前台时补做一次拉取，兼容系统没有及时投递外部变更通知的情况。
@@ -116,6 +119,8 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
 
     private func reloadForCurrentAccount() {
         reconciliationTask?.cancel()
+        reconciliationTask = nil
+        pendingReconciliationDomains.removeAll()
         isEnabled = defaults.bool(forKey: enabledKey)
         guard isEnabled else { return }
         cloudStore.synchronize()
@@ -135,14 +140,27 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     /// 否则在同步应用偏好并触发另一域写回时会造成 libdispatch 递归加锁崩溃。
     private func scheduleReconciliation(for domains: [ExperimentalPreferenceSyncDomain]) {
         guard !domains.isEmpty else { return }
-        reconciliationTask?.cancel()
+        pendingReconciliationDomains.formUnion(domains)
+        guard reconciliationTask == nil else { return }
+
         reconciliationTask = Task { @MainActor [weak self] in
             await Task.yield()
-            guard let self, !Task.isCancelled, self.isEnabled else { return }
-            for domain in domains {
-                guard !Task.isCancelled, self.isEnabled else { return }
-                self.reconcile(domain: domain)
+            guard let self, !Task.isCancelled, self.isEnabled else {
+                return
             }
+
+            while !self.pendingReconciliationDomains.isEmpty {
+                let domains = self.pendingReconciliationDomains
+                self.pendingReconciliationDomains.removeAll()
+
+                for domain in ExperimentalPreferenceSyncDomain.allCases
+                where domains.contains(domain) {
+                    guard !Task.isCancelled, self.isEnabled else { return }
+                    self.reconcile(domain: domain)
+                }
+            }
+
+            self.reconciliationTask = nil
         }
     }
 
@@ -187,9 +205,9 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
 
         // 云端还没有该域时，把当前设备现有值作为初始值上传。
         if remote == nil, localUpdatedAt == nil {
-            let now = Date()
-            defaults.set(now, forKey: localUpdatedAtKey(for: domain))
-            upload(payload: localPayload, domain: domain, updatedAt: now)
+            let updatedAt = nextLocalUpdatedAt(for: domain)
+            defaults.set(updatedAt, forKey: localUpdatedAtKey(for: domain))
+            upload(payload: localPayload, domain: domain, updatedAt: updatedAt)
             return
         }
 
@@ -245,7 +263,8 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         guard defaults.object(forKey: localUpdatedAtKey(for: domain)) == nil else { return }
         let remote: ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload>? = remoteEnvelope(for: domain)
         guard remote?.payload.rows.isEmpty != false else { return }
-        defaults.set(Date(), forKey: localUpdatedAtKey(for: domain))
+        let updatedAt = nextLocalUpdatedAt(for: domain, remoteUpdatedAt: remote?.updatedAt)
+        defaults.set(updatedAt, forKey: localUpdatedAtKey(for: domain))
     }
 
     private func upload<Payload: Codable>(
@@ -264,6 +283,34 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     ) -> ExperimentalPreferenceSyncEnvelope<Payload>? {
         guard let data = cloudStore.data(forKey: cloudKey(for: domain)) else { return nil }
         return try? JSONDecoder().decode(ExperimentalPreferenceSyncEnvelope<Payload>.self, from: data)
+    }
+
+    private func remoteUpdatedAt(for domain: ExperimentalPreferenceSyncDomain) -> Date? {
+        struct TimestampEnvelope: Decodable {
+            let updatedAt: Date
+        }
+
+        guard let data = cloudStore.data(forKey: cloudKey(for: domain)) else { return nil }
+        return try? JSONDecoder().decode(TimestampEnvelope.self, from: data).updatedAt
+    }
+
+    private func nextLocalUpdatedAt(
+        for domain: ExperimentalPreferenceSyncDomain,
+        remoteUpdatedAt: Date? = nil
+    ) -> Date {
+        var updatedAt = Date()
+        if let localUpdatedAt = defaults.object(forKey: localUpdatedAtKey(for: domain)) as? Date,
+           updatedAt <= localUpdatedAt {
+            updatedAt = laterDate(after: localUpdatedAt)
+        }
+        if let remoteUpdatedAt, updatedAt <= remoteUpdatedAt {
+            updatedAt = laterDate(after: remoteUpdatedAt)
+        }
+        return updatedAt
+    }
+
+    private func laterDate(after date: Date) -> Date {
+        Date(timeIntervalSinceReferenceDate: date.timeIntervalSinceReferenceDate.nextUp)
     }
 
     private var enabledKey: String {

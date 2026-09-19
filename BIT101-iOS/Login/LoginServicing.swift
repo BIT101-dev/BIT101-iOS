@@ -1,6 +1,5 @@
 protocol LoginServicing {
     var savedStudentID: String { get }
-    var savedPassword: String { get }
     var hasCachedSession: Bool { get }
 
     func checkLogin() async throws -> String?

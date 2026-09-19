@@ -23,6 +23,8 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
         var phoneAutoRotate: Bool
         var phoneSyncWasEnabled: Bool
         var phoneScoreCount: Int?
+        var phoneScoreUpdatedAt: Date?
+        var phoneSettingsUpdatedAt: Date?
     }
 
     private let cloud = NSUbiquitousKeyValueStore.default
@@ -37,6 +39,7 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
 
         let original = AppSettingsStore.shared.autoRotate
         let scoreCount = ScoreCacheStore.loadRows()?.count
+        let scoreUpdatedAt = ScoreCacheStore.loadUpdatedAt()
 
         var coordination = Coordination(
             token: UUID().uuidString,
@@ -45,10 +48,18 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
             originalAutoRotate: original,
             phoneAutoRotate: !original,
             phoneSyncWasEnabled: manager.isEnabled,
-            phoneScoreCount: scoreCount
+            phoneScoreCount: scoreCount,
+            phoneScoreUpdatedAt: scoreUpdatedAt,
+            phoneSettingsUpdatedAt: nil
         )
         save(coordination)
 
+        let previousSettingsEnvelope: ExperimentalPreferenceSyncEnvelope<AppSettingsSyncPayload>? = remoteEnvelope(
+            account: account,
+            domain: .appSettings
+        )
+        let previousSettingsUpdatedAt = previousSettingsEnvelope?.updatedAt
+        var uploadedSettingsUpdatedAt: Date?
         manager.setEnabled(true)
         AppSettingsStore.shared.setAutoRotate(coordination.phoneAutoRotate)
 
@@ -58,10 +69,18 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
                 self.remoteEnvelope(account: account, domain: .appSettings)
             let scores: ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload>? =
                 self.remoteEnvelope(account: account, domain: .scoreCache)
-            return settings?.payload.autoRotate == coordination.phoneAutoRotate
-                && self.scoreCountMatches(scores, expected: coordination.phoneScoreCount)
+            guard settings?.payload.autoRotate == coordination.phoneAutoRotate,
+                  settings?.updatedAt != previousSettingsUpdatedAt,
+                  let updatedAt = settings?.updatedAt
+            else { return false }
+            uploadedSettingsUpdatedAt = updatedAt
+            return self.scoreSnapshotMatches(
+                scores,
+                expectedCount: coordination.phoneScoreCount,
+                expectedUpdatedAt: coordination.phoneScoreUpdatedAt
+            )
         }
-        guard uploaded else {
+        guard uploaded, let uploadedSettingsUpdatedAt else {
             AppSettingsStore.shared.setAutoRotate(original)
             manager.setEnabled(coordination.phoneSyncWasEnabled)
             removeCoordination(account: account)
@@ -70,6 +89,7 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
         }
 
         coordination.stage = .phoneUploaded
+        coordination.phoneSettingsUpdatedAt = uploadedSettingsUpdatedAt
         save(coordination)
         let scoreDescription = coordination.phoneScoreCount.map { String($0) } ?? "skipped"
         print("ICLOUD_SMOKE_PHONE_UPLOADED token=\(coordination.token) scores=\(scoreDescription)")
@@ -107,8 +127,14 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
 
         let received = await waitUntil {
             self.manager.refreshFromCloudIfNeeded()
-            return AppSettingsStore.shared.autoRotate == coordination.phoneAutoRotate
-                && self.localScoreCountMatches(expected: coordination.phoneScoreCount)
+            let settings: ExperimentalPreferenceSyncEnvelope<AppSettingsSyncPayload>? =
+                self.remoteEnvelope(account: coordination.account, domain: .appSettings)
+            return settings?.payload.autoRotate == coordination.phoneAutoRotate
+                && settings?.updatedAt == coordination.phoneSettingsUpdatedAt
+                && self.localScoreSnapshotMatches(
+                    expectedCount: coordination.phoneScoreCount,
+                    expectedUpdatedAt: coordination.phoneScoreUpdatedAt
+                )
         }
         guard received else {
             XCTFail("Mac 未收到手机上传的设置或成绩缓存")
@@ -142,7 +168,10 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
         let received = await waitUntil {
             self.manager.refreshFromCloudIfNeeded()
             return AppSettingsStore.shared.autoRotate == coordination.originalAutoRotate
-                && self.localScoreCountMatches(expected: coordination.phoneScoreCount)
+                && self.localScoreSnapshotMatches(
+                    expectedCount: coordination.phoneScoreCount,
+                    expectedUpdatedAt: coordination.phoneScoreUpdatedAt
+                )
         }
         guard received else {
             manager.setEnabled(coordination.phoneSyncWasEnabled)
@@ -157,17 +186,20 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
         print("ICLOUD_SMOKE_PHONE_VERIFIED token=\(coordination.token) scores=\(scoreDescription)")
     }
 
-    private func scoreCountMatches(
+    private func scoreSnapshotMatches(
         _ envelope: ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload>?,
-        expected: Int?
+        expectedCount: Int?,
+        expectedUpdatedAt: Date?
     ) -> Bool {
-        guard let expected else { return true }
-        return envelope?.payload.rows.count == expected
+        guard let expectedCount else { return true }
+        return envelope?.payload.rows.count == expectedCount
+            && envelope?.payload.updatedAt == expectedUpdatedAt
     }
 
-    private func localScoreCountMatches(expected: Int?) -> Bool {
-        guard let expected else { return true }
-        return ScoreCacheStore.loadRows()?.count == expected
+    private func localScoreSnapshotMatches(expectedCount: Int?, expectedUpdatedAt: Date?) -> Bool {
+        guard let expectedCount else { return true }
+        return ScoreCacheStore.loadRows()?.count == expectedCount
+            && ScoreCacheStore.loadUpdatedAt() == expectedUpdatedAt
     }
 
     /// 脚本异常退出后，测试在当前账号存在协调状态时恢复手机设置、实验开关并清除协调标记。
@@ -244,7 +276,7 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
 
     private func loadCoordination(stage: Stage) -> Coordination? {
         let prefix = "manual.preference-cloud-sync.smoke.v1."
-        return cloud.dictionaryRepresentation
+        let matches = cloud.dictionaryRepresentation
             .filter { $0.key.hasPrefix(prefix) }
             .compactMap { _, value in
                 guard let data = value as? Data,
@@ -253,7 +285,8 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
                 else { return nil }
                 return coordination
             }
-            .first
+        guard matches.count == 1 else { return nil }
+        return matches[0]
     }
 
     private func removeCoordination(account: String) {

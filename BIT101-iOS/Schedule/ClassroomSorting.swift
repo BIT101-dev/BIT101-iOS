@@ -16,5 +16,11 @@ func classroomNameAscending(_ lhs: ClassroomAvailability, _ rhs: ClassroomAvaila
         return nameOrder == .orderedAscending
     }
 
-    return lhs.id.localizedStandardCompare(rhs.id) == .orderedAscending
+    let idOrder = lhs.id.localizedStandardCompare(rhs.id)
+    if idOrder != .orderedSame {
+        return idOrder == .orderedAscending
+    }
+
+    // Keep distinct IDs ordered when localized comparison treats them as equal.
+    return lhs.id < rhs.id
 }

@@ -28,9 +28,7 @@ final class ReleaseNetworkSmokeRunner {
         courseHistoryAuditMetrics = nil
         scheduleCache = nil
         ReleaseNetworkSmokeReportStore.rawCourseCaptureEnabled = capture == .rawCourseResponse
-        if capture == .rawCourseResponse {
-            ReleaseNetworkSmokeReportStore.clearRawCourseResponse()
-        }
+        ReleaseNetworkSmokeReportStore.clearRawCourseResponse()
         executedProbes = []
         skippedProbes = []
         let startedAt = Date()
@@ -371,11 +369,19 @@ final class ReleaseNetworkSmokeRunner {
             }
         }
 
+        if requestFailures > 0, authenticationBlockers.isEmpty {
+            recordFailure(
+                "学业课程历史数据采样",
+                "课程历史接口有 \(requestFailures) 个请求失败",
+                scope: scope
+            )
+        }
         if samples.isEmpty, failures.isEmpty, authenticationBlockers.isEmpty {
             recordFailure("学业课程历史数据采样", "课程历史接口返回空数据", scope: scope)
         }
+        let result = requestFailures == 0 && !samples.isEmpty ? "PASS" : "FAIL"
         print(
-            "NETWORK_SMOKE_PASS name=学业课程历史数据采样 "
+            "NETWORK_SMOKE_\(result) name=学业课程历史数据采样 "
                 + "courses=\(candidates.prefix(80).count) samples=\(samples.count) "
                 + "request_failures=\(requestFailures) elapsed=\(Self.duration(Date().timeIntervalSince(startedAt)))"
         )
@@ -419,7 +425,11 @@ final class ReleaseNetworkSmokeRunner {
         if !report.passed {
             print(report.failureMessage)
         }
-        try? ReleaseNetworkSmokeReportStore.write(report)
+        do {
+            try ReleaseNetworkSmokeReportStore.write(report)
+        } catch {
+            print("NETWORK_SMOKE_REPORT_WRITE_FAIL error=\(ErrorReportRedactor.sanitized(error.localizedDescription))")
+        }
         return report
     }
 
@@ -553,7 +563,7 @@ final class ReleaseNetworkSmokeRunner {
     private func recordFailure(_ name: String, _ message: String, scope: NetworkSmokeScope, elapsed: TimeInterval? = nil) {
         guard scope.includes(name) else { return }
         let timing = elapsed.map { " elapsed=\(Self.duration($0))" } ?? ""
-        let line = "[\(name)] \(message)\(timing)"
+        let line = "[\(name)] \(ErrorReportRedactor.sanitized(message))\(timing)"
         failures.append(line)
         print("NETWORK_SMOKE_FAIL \(line)")
     }
@@ -565,7 +575,7 @@ final class ReleaseNetworkSmokeRunner {
         elapsed: TimeInterval
     ) {
         guard scope.includes(name) else { return }
-        let line = "[\(name)] \(message) elapsed=\(Self.duration(elapsed))"
+        let line = "[\(name)] \(ErrorReportRedactor.sanitized(message)) elapsed=\(Self.duration(elapsed))"
         authenticationBlockers.append(line)
         print("NETWORK_SMOKE_AUTH_BLOCKED \(line)")
     }

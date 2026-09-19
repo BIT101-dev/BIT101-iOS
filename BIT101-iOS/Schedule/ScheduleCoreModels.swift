@@ -183,18 +183,24 @@ nonisolated struct TimeSlot: Codable, Hashable, Identifiable {
         TimeSlot(id: 13, start: "20:10", end: "20:55"),
     ]
 
-    /// 把 `HH:mm` 字符串解析成分钟数。
+    /// 把 `HH:mm` 字符串解析成分钟数，支持 `24:00` 作为日界点。
     static func parseMinutes(_ string: String) -> Int {
         let parts = string.split(separator: ":")
-        guard parts.count == 2, let hour = Int(parts[0]), let minute = Int(parts[1]) else {
+        guard
+            parts.count == 2,
+            let hour = Int(parts[0]),
+            let minute = Int(parts[1]),
+            (0 ... 23).contains(hour) || (hour == 24 && minute == 0),
+            (0 ... 59).contains(minute)
+        else {
             return 0
         }
         return hour * 60 + minute
     }
 
-    /// 把分钟数格式化回 `HH:mm` 文本。
+    /// 把分钟数格式化回 `HH:mm` 文本，最大值为 `24:00`。
     static func formatMinutes(_ minutes: Int) -> String {
-        let clamped = max(minutes, 0)
+        let clamped = min(max(minutes, 0), 24 * 60)
         return String(format: "%02d:%02d", clamped / 60, clamped % 60)
     }
 }
@@ -377,14 +383,3 @@ struct ClassroomAvailability: Identifiable, Hashable {
     let isFreeNow: Bool
     let freeSections: [Int]
 }
-
-/// 日程模块本地缓存。
-///
-/// 这是 iOS 端整个日程模块的单一持久化快照：
-/// - 课表
-/// - 考试
-/// - DDL
-/// - 自定义日程
-/// - 空教室偏好
-/// - 课表显示设置
-/// - 灵动岛提醒设置

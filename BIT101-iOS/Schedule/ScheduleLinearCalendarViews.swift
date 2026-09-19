@@ -137,6 +137,7 @@ private struct LinearScheduleHeader: View {
                                     .background(AppDesignSystem.Palette.secondaryGroupedBackground)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("第\(week)周，\(weekdayTitle(visibleWeekdays[index]))，\(Self.monthDayFormatter.string(from: date))")
                         }
                     }
                 }
@@ -155,6 +156,7 @@ private struct LinearScheduleHeader: View {
                                 .foregroundStyle(.primary)
                                 .frame(width: dayWidth, height: AppDesignSystem.Schedule.weekSlider.compactHeaderHeight)
                                 .background(AppDesignSystem.Palette.secondaryGroupedBackground)
+                                .accessibilityLabel(weekdayTitle(weekday))
                         }
                     }
                 }
@@ -482,14 +484,17 @@ private struct LinearScheduleCanvasView: View {
                     .fill(configuration.showDivider
                         ? AppDesignSystem.Schedule.GridPalette.linearMajorLine
                         : AppDesignSystem.Schedule.GridPalette.linearMinorLine)
-                    .frame(width: leftWidth + dayWidth * CGFloat(visibleWeekdays.count), height: 0.5)
+                    .frame(
+                        width: leftWidth + dayWidth * CGFloat(visibleWeekdays.count),
+                        height: AppDesignSystem.Schedule.grid.lineWidth
+                    )
                     .offset(y: y)
 
                 Text(TimeSlot.formatMinutes(minute))
                     .font(AppDesignSystem.Typography.caption2)
                     .foregroundStyle(.secondary)
                     .frame(width: leftWidth, alignment: .center)
-                    .offset(y: y - 8)
+                    .offset(y: y - AppDesignSystem.Spacing.regular)
             }
 
             ForEach(0 ... visibleWeekdays.count, id: \.self) { column in
@@ -575,8 +580,9 @@ private struct LinearScheduleCanvasView: View {
         }
         .frame(width: cardWidth, height: cardHeight)
         .offset(
-            x: leftWidth + dayWidth * CGFloat(visibleWeekdayValues.firstIndex(of: entry.dayOfWeek) ?? 0) + 0.5,
-            y: startY + 0.5
+            x: leftWidth + dayWidth * CGFloat(visibleWeekdayValues.firstIndex(of: entry.dayOfWeek) ?? 0)
+                + AppDesignSystem.Schedule.grid.lineWidth,
+            y: startY + AppDesignSystem.Schedule.grid.lineWidth
         )
         .zIndex(entry.kind == .custom ? 1.5 : 1)
     }

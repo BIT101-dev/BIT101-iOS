@@ -1,10 +1,6 @@
 //
 //  PaperCommentViews.swift
 //  BIT101-iOS
-//
-//  Split from PaperRootView.swift.
-//
-
 import SwiftUI
 import Network
 import Combine
@@ -37,14 +33,14 @@ struct PaperCommentsSection: View {
             switch status {
             case .idle where comments.isEmpty, .loading where comments.isEmpty:
                 AppInlineLoadingState("正在加载评论")
-            case let .failed(message):
+            case let .failed(message) where comments.isEmpty:
                 AppFailureState(
                     title: "加载评论失败",
                     systemImage: "text.bubble",
                     message: message,
                     onRetry: onRetry
                 )
-            case .loaded:
+            default:
                 if comments.isEmpty {
                     Text(totalCommentCount == 0 ? "还没有评论" : "评论已根据社区规范隐藏")
                         .font(AppDesignSystem.Typography.body)
@@ -52,9 +48,9 @@ struct PaperCommentsSection: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, AppDesignSystem.Spacing.section)
                 } else {
-                    LazyVStack(spacing: 0) {
+                    LazyVStack(spacing: AppDesignSystem.Spacing.none) {
                         ForEach(Array(comments.enumerated()), id: \.element.id) { index, comment in
-                            VStack(spacing: 0) {
+                            VStack(spacing: AppDesignSystem.Spacing.none) {
                                 PaperCommentRow(
                                     comment: comment,
                                     likingCommentIDs: likingCommentIDs,
@@ -78,8 +74,6 @@ struct PaperCommentsSection: View {
                     }
                     .appCommentSectionStyle()
                 }
-            default:
-                EmptyView()
             }
         }
     }
@@ -131,14 +125,14 @@ private struct PaperCommentRow: View {
     private func commentBubble(_ comment: GalleryComment, isSubComment: Bool) -> some View {
         AppCommentBubble {
             AppAvatarView(
-                imageURL: comment.user.avatar.preferredRemoteURL,
+                imageURL: comment.anonymous ? nil : comment.user.avatar.preferredRemoteURL,
                 size: isSubComment
                     ? AppDesignSystem.Size.control.compact
                     : AppDesignSystem.Comment.layout.avatarSize
             )
         } content: {
             AppCommentIdentityHeader(
-                nickname: comment.user.nickname,
+                nickname: comment.anonymous ? "匿名用户" : comment.user.nickname,
                 isSubComment: isSubComment,
                 timeText: AppDateText.timestampText(from: comment.updateTime),
                 onOpenProfile: nil
@@ -155,7 +149,7 @@ private struct PaperCommentRow: View {
                     ? AppDesignSystem.Typography.subheadline
                     : AppDesignSystem.Typography.body)
                 .foregroundStyle(.primary)
-                .lineSpacing(3)
+                .lineSpacing(AppDesignSystem.Spacing.tiny)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             AppCommentActionBar(

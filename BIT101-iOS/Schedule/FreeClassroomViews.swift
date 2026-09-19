@@ -83,10 +83,14 @@ struct FreeClassroomTabView: View {
                     AppEmptyState(
                         title: "暂无空教室结果",
                         systemImage: "building.2.crop.circle",
-                        message: "先选定校区和教学楼，再刷新一次。",
-                        actionTitle: "刷新空教室",
+                        message: emptyStateMessage,
+                        actionTitle: hasSectionFilter ? "清除节次筛选" : "刷新空教室",
                         onAction: {
-                            Task { await viewModel.refreshClassroomPage() }
+                            if hasSectionFilter {
+                                viewModel.setSelectedClassroomSectionIDs([])
+                            } else {
+                                Task { await viewModel.refreshClassroomPage() }
+                            }
                         }
                     )
                     .frame(maxWidth: .infinity)
@@ -95,14 +99,26 @@ struct FreeClassroomTabView: View {
                 Section {
                     // ViewModel 已完成排序和筛选，列表在此展示可用教室结果。
                     ForEach(viewModel.classroomAvailabilities) { classroom in
-                        HStack(spacing: AppDesignSystem.Spacing.content) {
-                            Text(classroom.name)
-                                .font(AppDesignSystem.Typography.headline)
+                        HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
+                            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
+                                Text(classroom.name)
+                                    .font(AppDesignSystem.Typography.headline)
+                                Text(classroom.statusText)
+                                    .font(AppDesignSystem.Typography.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
                             Spacer()
-                            Text(classroom.prettyFreeTimes)
-                                .font(AppDesignSystem.Typography.subheadline)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.trailing)
+                            VStack(alignment: .trailing, spacing: AppDesignSystem.Spacing.micro) {
+                                Text(classroom.prettyFreeTimes)
+                                    .font(AppDesignSystem.Typography.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.trailing)
+                                if !classroom.detailText.isEmpty {
+                                    Text(classroom.detailText)
+                                        .font(AppDesignSystem.Typography.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                         }
                         .padding(.vertical, AppDesignSystem.Spacing.tiny)
                         .listRowBackground(classroomBackground(for: classroom))
@@ -111,6 +127,14 @@ struct FreeClassroomTabView: View {
             }
         }
         .appGroupedListStyle()
+    }
+
+    private var hasSectionFilter: Bool {
+        !viewModel.cache.selectedClassroomSectionIDs.isEmpty
+    }
+
+    private var emptyStateMessage: String {
+        hasSectionFilter ? "当前筛选条件下没有空教室。" : "先选定校区和教学楼，再刷新一次。"
     }
 
     private func classroomBackground(for classroom: ClassroomAvailability) -> Color {
@@ -160,6 +184,9 @@ struct ClassroomSectionFilterPage: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("第\(slot.id)节")
+                    .accessibilityValue(isSelected ? "已选择" : "未选择")
                 }
             }
         }
@@ -195,6 +222,7 @@ struct ClassroomSectionFilterPage: View {
     }
 
     private var areAllSectionsSelected: Bool {
-        selectedSectionIDs.count == timeTable.count
+        let availableIDs = Set(timeTable.map(\.id))
+        return !availableIDs.isEmpty && Set(selectedSectionIDs) == availableIDs
     }
 }

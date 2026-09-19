@@ -185,9 +185,10 @@ struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
             resolvingAgainstBaseURL: false
         )
         components?.queryItems = queryItems.isEmpty ? nil : queryItems
-        guard let url = components?.url else {
+        guard let rawURL = components?.url else {
             throw Failure.communityInvalidResponse
         }
+        let url = HTTPSURLUpgrade.upgradedURL(from: rawURL)
 
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -197,10 +198,12 @@ struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
             request.setValue(resolvedContentType, forHTTPHeaderField: "Content-Type")
         }
 
+        var observedCookie: String?
         switch authentication {
         case .required:
             let fakeCookie = fakeCookieProvider()
             guard !fakeCookie.isEmpty else { throw Failure.communityNotLoggedIn }
+            observedCookie = fakeCookie
             request.setValue(fakeCookie, forHTTPHeaderField: "fake-cookie")
         case .optional:
             let fakeCookie = fakeCookieProvider()
@@ -215,7 +218,7 @@ struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
             return try await httpClient.send(request)
         } catch let HTTPClientError.unacceptableStatus(code, _) where code == 401 && authentication == .required {
             do {
-                try await refreshHandler(fakeCookieProvider())
+                try await refreshHandler(observedCookie ?? "")
             } catch {
                 throw Failure.communityNotLoggedIn
             }

@@ -1,10 +1,6 @@
 //
 //  PaperRootView.swift
 //  BIT101-iOS
-//
-//  Created by Codex on 2026-04-01.
-//
-
 import SwiftUI
 
 /// 文章模块根视图。
@@ -72,6 +68,9 @@ struct PaperRootView: View {
                                             selectedPaper = paper
                                         }
                                     )
+                                    .accessibilityElement(children: .combine)
+                                    .accessibilityAddTraits(.isButton)
+                                    .accessibilityHint("打开文章详情")
                                 }
                                 .task {
                                     await viewModel.loadPreviewMetadataIfNeeded(for: paper)
@@ -184,7 +183,6 @@ struct PaperRootView: View {
     /// 发文成功后统一切回默认列表条件，并重新拉文章列表。
     @MainActor
     private func handleComposerCreated() async {
-        viewModel.searchText = ""
         viewModel.selectedOrder = .newest
         await viewModel.refresh()
     }

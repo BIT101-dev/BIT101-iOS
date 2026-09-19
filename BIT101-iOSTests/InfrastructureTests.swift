@@ -46,6 +46,7 @@ struct LoginBootstrapTests {
         let savedPassword = "saved-password"
         let hasCachedSession: Bool
         let checkResult: CheckResult
+        private(set) var checkLoginCalls = 0
 
         init(
             studentID: String = "1120260001",
@@ -58,6 +59,7 @@ struct LoginBootstrapTests {
         }
 
         func checkLogin() async throws -> String? {
+            checkLoginCalls += 1
             switch checkResult {
             case .signedOut: nil
             case .failed: throw URLError(.notConnectedToInternet)
@@ -72,6 +74,15 @@ struct LoginBootstrapTests {
     func cachedSessionIsOptimistic() {
         let viewModel = LoginViewModel(service: LoginServiceStub(checkResult: .failed))
         #expect(viewModel.screenState == .signedIn(studentID: "1120260001"))
+    }
+
+    @Test("Without a cached session the app starts signed out")
+    func missingCachedSessionStartsSignedOut() {
+        let service = LoginServiceStub(hasCachedSession: false, checkResult: .failed)
+        let viewModel = LoginViewModel(service: service)
+
+        #expect(viewModel.screenState == .signedOut)
+        #expect(service.checkLoginCalls == 0)
     }
 
     @Test("Transient validation failures stay silent and signed in")

@@ -7,7 +7,8 @@ import Foundation
 
 /// 返回字符串中首个匹配结果的捕获组。
 ///
-/// 正则表达式没有捕获组时返回完整匹配；正则表达式无效或未找到匹配时返回空数组。
+/// 无捕获组时返回完整匹配；可选捕获组缺少匹配文本时返回空字符串。
+/// 无效正则表达式和匹配失败时返回空数组。
 extension String {
     func captureGroups(pattern: String, options: NSRegularExpression.Options = []) -> [String] {
         guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else {
@@ -24,9 +25,12 @@ extension String {
             return [String(self[range])]
         }
 
-        return (1 ..< match.numberOfRanges).compactMap { index in
-            guard let captureRange = Range(match.range(at: index), in: self) else {
-                return nil
+        return (1 ..< match.numberOfRanges).map { index in
+            let capture = match.range(at: index)
+            guard capture.location != NSNotFound,
+                  let captureRange = Range(capture, in: self)
+            else {
+                return ""
             }
             return String(self[captureRange])
         }

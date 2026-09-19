@@ -11,6 +11,13 @@ struct GalleryContentFilterTests {
         let hiddenIDs: Set<Int> = [42]
 
         #expect(GalleryContentFilter.shouldHideComment(
+            authorID: 42,
+            replyTargetID: 8,
+            isAnonymous: false,
+            hiddenUserIDs: hiddenIDs,
+            hideAnonymousContent: false
+        ))
+        #expect(GalleryContentFilter.shouldHideComment(
             authorID: 8,
             replyTargetID: 42,
             isAnonymous: false,
@@ -51,6 +58,12 @@ struct CourseHistoryMakeupPolicyTests {
         #expect(fixture.algorithmVersion == "log10_tukey_outer_3_iqr_avg_q1_keep_gt_20")
         #expect(fixture.sampledCourseCount == fixture.courses.count)
         #expect(fixture.sampledGradeCount == fixture.courses.reduce(0) { $0 + $1.grades.count })
+        let actualManualLabelCounts = fixture.courses
+            .flatMap { $0.grades }
+            .reduce(into: [String: Int]()) { counts, grade in
+                counts[grade.manualLabel, default: 0] += 1
+            }
+        #expect(actualManualLabelCounts == fixture.manualLabelCounts)
         #expect(fixture.manualLabelCounts["likely_formal"] == 481)
         #expect(fixture.manualLabelCounts["likely_makeup"] == 56)
         #expect(fixture.manualLabelCounts["uncertain"] == 0)
@@ -89,8 +102,8 @@ struct CourseHistoryMakeupPolicyTests {
             grade(term: "2017-2018-2", studentNum: 82),
             grade(term: "2018-2019-1", studentNum: 87),
             grade(term: "2018-2019-2", studentNum: 85),
-            grade(term: "2019-2020-1", studentNum: 48),
-            grade(term: "2019-2020-2", studentNum: 68),
+            grade(term: "2019-2020-1", studentNum: 48, avgScore: 70),
+            grade(term: "2019-2020-2", studentNum: 68, avgScore: 80),
             grade(term: "2020-2021-1", studentNum: 258),
             grade(term: "2020-2021-2", studentNum: 202),
             grade(term: "2021-2022-1", studentNum: 206),
@@ -122,7 +135,7 @@ struct CourseHistoryMakeupPolicyTests {
     @Test("A count at or below 20 stays visible inside a large course")
     func preservesSmallCount() {
         let grades = [
-            grade(term: "2021-2022-1", studentNum: 20),
+            grade(term: "2021-2022-1", studentNum: 20, avgScore: 60),
             grade(term: "2021-2022-2", studentNum: 200),
             grade(term: "2022-2023-1", studentNum: 205),
             grade(term: "2022-2023-2", studentNum: 210)
@@ -143,8 +156,8 @@ struct CourseHistoryMakeupPolicyTests {
         #expect(CourseHistoryMakeupPolicy.hiddenTerms(in: grades).isEmpty)
     }
 
-    private func grade(term: String, studentNum: Int) -> CourseHistoryGrade {
-        CourseHistoryGrade(term: term, avgScore: 85, maxScore: 100, studentNum: studentNum)
+    private func grade(term: String, studentNum: Int, avgScore: Double = 85) -> CourseHistoryGrade {
+        CourseHistoryGrade(term: term, avgScore: avgScore, maxScore: 100, studentNum: studentNum)
     }
 
     private func loadFixture() throws -> CourseHistoryAuditFixture {
@@ -190,7 +203,7 @@ struct ScheduleCacheMigrationTests {
         #expect(decoded.iCloudSyncEnabled)
     }
 
-    @Test("Parsed row-specific negative weeks survive cache decoding")
+    @Test("Legacy cache migration preserves row-specific negative weeks")
     func rowSpecificNegativeWeeksSurviveCacheDecoding() throws {
         let course = CourseRecord(
             id: "negative-row",
@@ -198,7 +211,7 @@ struct ScheduleCacheMigrationTests {
             name: "文献检索",
             teacher: "",
             classroom: "文萃楼M227",
-            description: "-2周 星期四 6-9节 文萃楼M227,-1周 星期四 6-9节 文萃楼M227",
+            description: "-2周 星期二 6-9节 文萃楼M227,-1周 星期四 6-9节 文萃楼M227",
             weeks: [-1],
             weekday: 4,
             startSection: 6,
@@ -212,6 +225,7 @@ struct ScheduleCacheMigrationTests {
             department: ""
         )
         var cache = ScheduleCache()
+        cache.storedCourseScheduleParserVersion = 1
         cache.currentTerm = course.term
         cache.courses = [course]
         cache.cachedCoursesByTerm[course.term] = [course]
@@ -263,6 +277,11 @@ struct ScheduleCacheMigrationTests {
             localUpdatedAt: new,
             remoteUpdatedAt: old,
             allowsRemoteApply: true
+        ) == .uploadLocal)
+        #expect(ScheduleCacheReconciliationPolicy.decision(
+            localUpdatedAt: new,
+            remoteUpdatedAt: old,
+            allowsRemoteApply: false
         ) == .uploadLocal)
         #expect(ScheduleCacheReconciliationPolicy.decision(
             localUpdatedAt: old,
@@ -327,6 +346,23 @@ struct ScheduleClassroomCoordinatorTests {
 
         #expect(value == 42)
     }
+
+    @Test("Classroom operation timeout remains enforced after authentication")
+    func operationTimeoutIsEnforced() async {
+        let coordinator = ScheduleClassroomCoordinator(timeoutNanoseconds: 5_000_000)
+
+        do {
+            _ = try await coordinator.withAuthenticationThenTimeout {
+            } operation: {
+                try await Task.sleep(for: .milliseconds(20))
+                return 42
+            }
+            Issue.record("空教室请求超时契约失败")
+        } catch is ClassroomRequestTimeoutError {
+        } catch {
+            Issue.record("空教室请求错误：\(error)")
+        }
+    }
 }
 
 @Suite("Schedule authentication continuation")
@@ -342,8 +378,8 @@ struct ScheduleCourseSyncCoordinatorTests {
         #expect(coordinator.courseSyncTerm == nil)
     }
 
-    @Test("SMS authentication resumes the exact suspended operation")
-    func continuationPurpose() {
+    @Test("Authentication state records the suspended operation")
+    func recordsContinuationPurpose() {
         let coordinator = ScheduleCourseSyncCoordinator()
 
         coordinator.waitForCourseAuthentication(term: "2025-2026-2")
@@ -363,13 +399,22 @@ struct ScheduleCourseSyncCoordinatorTests {
 @MainActor
 struct GalleryRecommendationPrefetchTests {
     private final class FeedServiceStub: GalleryFeedServicing {
-        var batches: [Int: GalleryRecommendFeedBatch] = [:]
-        private(set) var requestedRecommendPages: [Int] = []
+        private let batches: [Int: GalleryRecommendFeedBatch]
+        private let requestLog = RequestLog()
+
+        init(batches: [Int: GalleryRecommendFeedBatch] = [:]) {
+            self.batches = batches
+        }
+
+        func requestedPages() async -> [Int] {
+            await requestLog.snapshot()
+        }
 
         func fetchFeed(kind: GalleryFeedKind, page: Int?) async throws -> [GalleryPoster] { [] }
 
         func fetchRecommendPage(sourcePage: Int) async throws -> GalleryRecommendFeedBatch {
-            requestedRecommendPages.append(sourcePage)
+            await requestLog.append(sourcePage)
+            await Task.yield()
             guard let batch = batches[sourcePage] else {
                 throw URLError(.resourceUnavailable)
             }
@@ -381,23 +426,36 @@ struct GalleryRecommendationPrefetchTests {
         }
 
         func searchPosters(query: GallerySearchQuery, page: Int?) async throws -> [GalleryPoster] { [] }
+
+        private actor RequestLog {
+            private var pages: [Int] = []
+
+            func append(_ page: Int) {
+                pages.append(page)
+            }
+
+            func snapshot() -> [Int] {
+                pages
+            }
+        }
     }
 
     @Test("Prefetched pages merge stably and never duplicate a source request")
     func stablePrefetchMerge() async throws {
-        let service = FeedServiceStub()
         let first = try makePoster(id: 1)
         let second = try makePoster(id: 2)
         let third = try makePoster(id: 3)
-        service.batches = [
+        let service = FeedServiceStub(batches: [
             0: GalleryRecommendFeedBatch(posters: [first, first], nextSourcePage: 1, canLoadMore: true),
             1: GalleryRecommendFeedBatch(posters: [first, second], nextSourcePage: 2, canLoadMore: true),
             2: GalleryRecommendFeedBatch(posters: [second, third], nextSourcePage: 3, canLoadMore: true),
-        ]
+        ])
         let viewModel = GalleryViewModel(service: service)
 
         await viewModel.refresh(feed: .recommend)
-        await waitUntil { service.requestedRecommendPages.contains(2) }
+        #expect(await waitUntil {
+            await service.requestedPages().contains(2)
+        })
 
         #expect(viewModel.state(for: .recommend).posters.map(\.id) == [1])
         await viewModel.loadMoreIfNeeded(for: .recommend, currentPoster: first)
@@ -405,14 +463,20 @@ struct GalleryRecommendationPrefetchTests {
 
         await viewModel.loadMoreIfNeeded(for: .recommend, currentPoster: second)
         #expect(viewModel.state(for: .recommend).posters.map(\.id) == [1, 2, 3])
-        #expect(service.requestedRecommendPages.filter { $0 == 1 }.count == 1)
-        #expect(service.requestedRecommendPages.filter { $0 == 2 }.count == 1)
+        let requestedPages = await service.requestedPages()
+        #expect(requestedPages.filter { $0 == 0 }.count == 1)
+        #expect(requestedPages.filter { $0 == 1 }.count == 1)
+        #expect(requestedPages.filter { $0 == 2 }.count == 1)
     }
 
-    private func waitUntil(_ condition: () -> Bool) async {
-        for _ in 0..<100 where !condition() {
+    private func waitUntil(_ condition: () async -> Bool) async -> Bool {
+        for _ in 0..<100 {
+            if await condition() {
+                return true
+            }
             await Task.yield()
         }
+        return await condition()
     }
 
     private func makePoster(id: Int) throws -> GalleryPoster {

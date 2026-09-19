@@ -37,13 +37,14 @@ private func shouldLoadMoreItems<Item: Identifiable>(
     isLoadingMore: Bool,
     canLoadMore: Bool,
     preloadCount: Int
-) -> Bool where Item.ID: Equatable {
-    !isLoadingMore &&
+) -> Bool {
+    guard preloadCount > 0 else { return false }
+    return !isLoadingMore &&
         canLoadMore &&
         items.suffix(preloadCount).contains(where: { $0.id == currentID })
 }
 
-extension PagedItemsState where Item: Identifiable, Item.ID: Equatable {
+extension PagedItemsState where Item: Identifiable {
     func shouldLoadMore(currentID: Item.ID, preloadCount: Int = 4) -> Bool {
         shouldLoadMoreItems(
             items: items,

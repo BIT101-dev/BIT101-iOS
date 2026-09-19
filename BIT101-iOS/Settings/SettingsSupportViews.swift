@@ -13,6 +13,7 @@ struct SettingsTextEditSheet: View {
             Form {
                 TextField(title, text: $text, axis: axis)
                     .lineLimit(axis == .vertical ? 4 : 1, reservesSpace: axis == .vertical)
+                    .accessibilityLabel(title)
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)

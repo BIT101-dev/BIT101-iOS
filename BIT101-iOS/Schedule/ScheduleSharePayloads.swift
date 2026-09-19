@@ -29,7 +29,6 @@ struct ScheduleExportPayload {
         self.timeTable = timeTable
         self.courses = courses
     }
-
 }
 
 private func makeExpandedPayload(
@@ -170,6 +169,17 @@ struct ScheduleExportCompactPayloadV2: Codable {
             )
         }
 
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.unkeyedContainer()
+            try container.encode(name)
+            try container.encode(teacher)
+            try container.encode(classroom)
+            try container.encode(weeks)
+            try container.encode(weekday)
+            try container.encode(startSection)
+            try container.encode(endSection)
+        }
+
         /// 把极简课程扩展成完整的 `CourseRecord`。
         ///
         /// 导入使用本机现有课表环境补全字段。
@@ -233,6 +243,18 @@ struct ScheduleExportCompactPayloadV2: Codable {
                     endSection: try course.decode(Int.self)
                 )
             )
+            guard course.isAtEnd else {
+                throw DecodingError.dataCorruptedError(
+                    in: course,
+                    debugDescription: "紧凑课表课程字段数量不正确。"
+                )
+            }
+        }
+        guard container.isAtEnd else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "紧凑课表载荷包含多余字段。"
+            )
         }
         courses = decodedCourses
     }
@@ -292,6 +314,12 @@ struct ScheduleExportCompactPayloadV3: Codable {
             startSection = try container.decode(Int.self)
             endSection = try container.decode(Int.self)
             credit = try container.decode(Int.self)
+            guard container.isAtEnd else {
+                throw DecodingError.dataCorruptedError(
+                    in: container,
+                    debugDescription: "紧凑课表课程字段数量不正确。"
+                )
+            }
         }
 
         func encode(to encoder: Encoder) throws {
@@ -350,6 +378,12 @@ struct ScheduleExportCompactPayloadV3: Codable {
         while !coursesContainer.isAtEnd {
             decodedCourses.append(try coursesContainer.decode(CompactCourse.self))
         }
+        guard container.isAtEnd else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "紧凑课表载荷包含多余字段。"
+            )
+        }
         courses = decodedCourses
     }
 
@@ -394,7 +428,15 @@ enum ScheduleShareCodeCodec {
     static func encodeLatest(cache: ScheduleCache) throws -> String {
         let payload = ScheduleExportCompactPayloadV3(cache: cache)
         let jsonData = try JSONEncoder().encode(payload)
-        guard let compressedData = try (jsonData as NSData).compressed(using: .lzfse) as Data? else {
+        let compressedData: Data
+        do {
+            guard let data = try (jsonData as NSData).compressed(using: .lzfse) as Data? else {
+                throw ScheduleShareCodeError.compressionFailed
+            }
+            compressedData = data
+        } catch let error as ScheduleShareCodeError {
+            throw error
+        } catch {
             throw ScheduleShareCodeError.compressionFailed
         }
         return "BIT101SCH3:\(compressedData.base64EncodedString())"
@@ -418,19 +460,33 @@ enum ScheduleShareCodeCodec {
         guard let compressedData = Data(base64Encoded: body) else {
             throw ScheduleShareCodeError.invalidBase64
         }
-        guard let jsonData = try (compressedData as NSData).decompressed(using: .lzfse) as Data? else {
+        let jsonData: Data
+        do {
+            guard let data = try (compressedData as NSData).decompressed(using: .lzfse) as Data? else {
+                throw ScheduleShareCodeError.decompressionFailed
+            }
+            jsonData = data
+        } catch let error as ScheduleShareCodeError {
+            throw error
+        } catch {
             throw ScheduleShareCodeError.decompressionFailed
         }
 
         let decoder = JSONDecoder()
-        switch prefix {
-        case "BIT101SCH2:":
-            return try decoder.decode(ScheduleExportCompactPayloadV2.self, from: jsonData)
-                .expandedPayload(using: cache)
-        case "BIT101SCH3:":
-            return try decoder.decode(ScheduleExportCompactPayloadV3.self, from: jsonData)
-                .expandedPayload(using: cache)
-        default:
+        do {
+            switch prefix {
+            case "BIT101SCH2:":
+                return try decoder.decode(ScheduleExportCompactPayloadV2.self, from: jsonData)
+                    .expandedPayload(using: cache)
+            case "BIT101SCH3:":
+                return try decoder.decode(ScheduleExportCompactPayloadV3.self, from: jsonData)
+                    .expandedPayload(using: cache)
+            default:
+                throw ScheduleShareCodeError.invalidFormat
+            }
+        } catch let error as ScheduleShareCodeError {
+            throw error
+        } catch {
             throw ScheduleShareCodeError.invalidFormat
         }
     }

@@ -1,10 +1,6 @@
 //
 //  PaperSearchViews.swift
 //  BIT101-iOS
-//
-//  Split from PaperRootView.swift.
-//
-
 import SwiftUI
 
 struct PaperSearchView: View {
@@ -14,7 +10,7 @@ struct PaperSearchView: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 0) {
+            LazyVStack(spacing: AppDesignSystem.Spacing.none) {
                 if viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     AppEmptyState(
                         title: "搜索文章",
@@ -59,6 +55,9 @@ struct PaperSearchView: View {
                                             selectedPaper = paper
                                         }
                                     )
+                                    .accessibilityElement(children: .combine)
+                                    .accessibilityAddTraits(.isButton)
+                                    .accessibilityHint("打开文章详情")
                                 }
                                 .task {
                                     await viewModel.loadPreviewMetadataIfNeeded(for: paper)

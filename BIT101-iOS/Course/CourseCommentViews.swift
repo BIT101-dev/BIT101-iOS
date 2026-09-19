@@ -96,14 +96,16 @@ private struct CourseCommentRow: View {
     private func commentBubble(_ comment: GalleryComment, isSubComment: Bool) -> some View {
         AppCommentBubble {
             AppAvatarView(
-                imageURL: URL(string: comment.user.avatar.lowUrl.isEmpty ? comment.user.avatar.url : comment.user.avatar.lowUrl),
+                imageURL: comment.anonymous
+                    ? nil
+                    : URL(string: comment.user.avatar.lowUrl.isEmpty ? comment.user.avatar.url : comment.user.avatar.lowUrl),
                 size: isSubComment
                     ? AppDesignSystem.Size.control.compact
                     : AppDesignSystem.Comment.layout.avatarSize
             )
         } content: {
             AppCommentIdentityHeader(
-                nickname: comment.user.nickname,
+                nickname: comment.anonymous ? "匿名用户" : comment.user.nickname,
                 isSubComment: isSubComment,
                 timeText: AppDateText.relativeText(from: comment.createTime, fallback: "未知时间"),
                 onOpenProfile: canOpenUserProfile(comment) ? { onOpenUser(comment.user) } : nil
@@ -203,6 +205,7 @@ private struct CourseCommentImagesView: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("查看评论图片，第\(index + 1)张，共\(images.count)张")
     }
 }
 
@@ -238,26 +241,39 @@ struct CourseCommentComposerSheet: View {
                                             .font(AppDesignSystem.Typography.title3)
                                             .foregroundStyle(AppDesignSystem.Palette.highlight)
                                             .frame(width: AppDesignSystem.Size.control.compact, height: AppDesignSystem.Size.control.compact)
+                                            .accessibilityHidden(true)
 
                                         HStack(spacing: AppDesignSystem.Spacing.none) {
                                             Button {
                                                 setRating(for: value, isHalf: true)
                                             } label: {
                                                 Color.clear
-                                                    .frame(width: AppDesignSystem.Spacing.container, height: AppDesignSystem.Size.control.compact)
+                                                    .frame(
+                                                        width: AppDesignSystem.Size.control.touchTarget / 2,
+                                                        height: AppDesignSystem.Size.control.touchTarget
+                                                    )
                                                     .contentShape(Rectangle())
                                             }
                                             .buttonStyle(.plain)
+                                            .accessibilityLabel(ratingAccessibilityLabel(for: value, isHalf: true))
 
                                             Button {
                                                 setRating(for: value, isHalf: false)
                                             } label: {
                                                 Color.clear
-                                                    .frame(width: AppDesignSystem.Spacing.container, height: AppDesignSystem.Size.control.compact)
+                                                    .frame(
+                                                        width: AppDesignSystem.Size.control.touchTarget / 2,
+                                                        height: AppDesignSystem.Size.control.touchTarget
+                                                    )
                                                     .contentShape(Rectangle())
                                             }
                                             .buttonStyle(.plain)
+                                            .accessibilityLabel(ratingAccessibilityLabel(for: value, isHalf: false))
                                         }
+                                        .frame(
+                                            width: AppDesignSystem.Size.control.touchTarget,
+                                            height: AppDesignSystem.Size.control.touchTarget
+                                        )
                                     }
                                 }
 
@@ -316,5 +332,10 @@ struct CourseCommentComposerSheet: View {
     private func setRating(for value: Int, isHalf: Bool) {
         let nextRating = value * 2 - (isHalf ? 1 : 0)
         rating = rating == nextRating ? 0 : nextRating
+    }
+
+    private func ratingAccessibilityLabel(for value: Int, isHalf: Bool) -> String {
+        let ratingValue = Double(value) - (isHalf ? 0.5 : 0)
+        return "评分 \(ratingValue, specifier: "%.1f") 星"
     }
 }

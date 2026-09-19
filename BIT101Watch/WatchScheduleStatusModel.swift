@@ -56,6 +56,7 @@ final class WatchScheduleStatusModel: ObservableObject {
     @Published private(set) var referenceDate: Date
 
     private let dependencies: WatchScheduleStatusDependencies
+    private var hasActivated = false
     private var refreshFeedbackTask: Task<Void, Never>?
     private var foregroundRefreshTask: Task<Void, Never>?
 
@@ -74,6 +75,8 @@ final class WatchScheduleStatusModel: ObservableObject {
     }
 
     func activate() {
+        guard !hasActivated else { return }
+        hasActivated = true
         dependencies.activateSync()
         reload()
         startForegroundRefresh()

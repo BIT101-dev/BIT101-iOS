@@ -3,15 +3,17 @@ import Foundation
 extension Notification.Name {
     /// 共享课表快照更新通知。
     ///
-    /// 当前进程的 Watch App 页面和 Watch Widget 监听这条通知，在本地镜像更新后刷新视图。
-    /// iPhone 与 Watch 的跨进程更新通过 App Group 文件和 WatchConnectivity 传递。
+    /// 当前进程的 Watch App 页面监听这条通知，在本地镜像更新后刷新视图；
+    /// Widget 通过 `WidgetCenter` 刷新时间线。iPhone 与 Watch 的跨进程更新
+    /// 通过 App Group 文件和 WatchConnectivity 传递。
     static let scheduleExternalSnapshotDidChange = Notification.Name("BIT101.ScheduleExternalSnapshotDidChange")
 }
 
 /// 课表外部展示能力共用的 App Group 标识。
 ///
-/// 桌面/锁屏 Widget、Live Activity、Apple Watch App 和 Smart Stack 共用这份共享快照；
-/// 各外部展示层复用这一层抽象，保持容器标识和文件路径一致。
+/// 桌面/锁屏 Widget、Apple Watch App 和 Smart Stack 共用这份共享快照；
+/// Live Activity 由 ActivityKit 状态契约承载展示内容。各外部展示层复用这一层抽象，
+/// 保持容器标识和文件路径一致。
 enum ScheduleSharedContainer {
     static let identifier = "group.BIT101-dev.BIT101-iOS.shared"
     static let directoryName = "Widgets"
@@ -112,11 +114,11 @@ struct ScheduleExternalCourseSnapshot: Codable, Hashable {
     let endSection: Int
 }
 
-/// 主 App 导出、Widget、Live Activity 和 Watch 读取的统一课表快照。
+/// 主 App 导出、Widget 和 Watch 读取的统一课表快照。
 ///
 /// 这份结构定义跨 target 的稳定边界：
 /// - 主 App 从完整缓存裁剪出可共享的最小信息
-/// - Widget、Live Activity 和 Watch 依赖这份快照，与主 App 状态机保持解耦
+/// - Widget 和 Watch 依赖这份快照，与主 App 状态机保持解耦
 struct ScheduleExternalSnapshot: Codable, Hashable {
     let generatedAt: Date
     let isLoggedIn: Bool
@@ -212,7 +214,7 @@ enum ScheduleExternalSnapshotStoreError: Error {
 
 /// 跨 target 共享快照的磁盘仓库。
 ///
-/// 主 App 写入这份快照，Widget、Live Activity 和 Watch 读取这份快照；
+/// 主 App 写入这份快照，Widget 和 Watch 读取这份快照；
 /// 各 target 复用这里的路径拼接与编解码逻辑。
 enum ScheduleExternalSnapshotStore {
     @discardableResult

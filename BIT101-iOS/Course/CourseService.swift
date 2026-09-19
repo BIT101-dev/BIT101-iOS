@@ -86,7 +86,10 @@ struct CourseService {
 
     /// 拉取单门课程按学期聚合的历史成绩统计。
     func fetchCourseHistories(number: String) async throws -> [CourseHistoryGrade] {
-        try await api.request(path: "courses/histories/\(number)")
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/?#[]@!$&'()*+,;=")
+        let pathNumber = number.addingPercentEncoding(withAllowedCharacters: allowed) ?? number
+        return try await api.request(path: "courses/histories/\(pathNumber)")
     }
 
     /// 拉取课程评论。

@@ -2,12 +2,13 @@ import Foundation
 
 private enum EmergencyUpdateURLPolicy {
     nonisolated static let endpointHost = "update.aihelpme.dev"
-    nonisolated static let appStoreHost = "apps.apple.com"
 
     nonisolated static func acceptsHTTPS(_ url: URL, host: String) -> Bool {
         guard url.scheme?.lowercased() == "https",
               url.host?.lowercased() == host,
-              url.port == nil || url.port == 443
+              url.port == nil || url.port == 443,
+              url.user == nil,
+              url.password == nil
         else { return false }
         return true
     }
@@ -36,8 +37,7 @@ struct EmergencyUpdateNotice: Decodable, Equatable, Identifiable {
     /// 应用接受 HTTPS 的 apps.apple.com 地址、默认端口或 443 端口以及 BIT101 App ID；其余地址回退到 BIT101AppStore.url。
     var safeUpdateURL: URL {
         if let updateURL,
-           EmergencyUpdateURLPolicy.acceptsHTTPS(updateURL, host: EmergencyUpdateURLPolicy.appStoreHost),
-           updateURL.path.contains("id6761147125")
+           BIT101AppStore.acceptsUpdateURL(updateURL)
         {
             return updateURL
         }

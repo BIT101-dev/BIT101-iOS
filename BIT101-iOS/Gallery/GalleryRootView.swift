@@ -48,20 +48,24 @@ struct GalleryRootView: View {
     @Binding private var requestedPaperID: Int?
     @Binding private var requestedPosterID: Int?
     @State private var selectedSurface: GallerySurface = .gallery
+    @State private var isShowingNativePaperRoute = false
     @State private var deepLinkedPoster: GalleryPoster?
     @State private var deepLinkAlert: AppAlert?
+    private let posterService: any GalleryPosterDetailServicing
 
     init(
         requestedPaperID: Binding<Int?> = .constant(nil),
-        requestedPosterID: Binding<Int?> = .constant(nil)
+        requestedPosterID: Binding<Int?> = .constant(nil),
+        posterService: any GalleryPosterDetailServicing = GalleryService()
     ) {
         _requestedPaperID = requestedPaperID
         _requestedPosterID = requestedPosterID
+        self.posterService = posterService
     }
 
     var body: some View {
         Group {
-            if appSettings.galleryUseWebView {
+            if appSettings.galleryUseWebView && !isShowingNativePaperRoute {
                 GalleryWebContentView()
             } else {
                 switch selectedSurface {
@@ -91,7 +95,13 @@ struct GalleryRootView: View {
         }
         .task(id: requestedPaperID) {
             guard requestedPaperID != nil else { return }
+            isShowingNativePaperRoute = true
             selectedSurface = .paper
+        }
+        .onChange(of: selectedSurface) { _, newSurface in
+            if newSurface != .paper {
+                isShowingNativePaperRoute = false
+            }
         }
         .task(id: requestedPosterID) {
             await openRequestedPosterIfNeeded()
@@ -132,16 +142,24 @@ struct GalleryRootView: View {
 
             func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
                 guard !didInjectLoginState else { return }
-                didInjectLoginState = true
                 let fakeCookie = LoginStorage.shared.fakeCookie
-                    .replacingOccurrences(of: "\\", with: "\\\\")
-                    .replacingOccurrences(of: "'", with: "\\'")
                 guard !fakeCookie.isEmpty else { return }
+                guard
+                    let encodedCookieData = try? JSONEncoder().encode(fakeCookie),
+                    let encodedCookie = String(data: encodedCookieData, encoding: .utf8)
+                else { return }
+                didInjectLoginState = true
                 let script = """
                 (() => {
                     const current = localStorage.getItem('store');
-                    const store = current ? JSON.parse(current) : {};
-                    store.fake_cookie = '\(fakeCookie)';
+                    let store = {};
+                    try {
+                        const parsed = current ? JSON.parse(current) : {};
+                        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                            store = parsed;
+                        }
+                    } catch (_) {}
+                    store.fake_cookie = \(encodedCookie);
                     localStorage.setItem('store', JSON.stringify(store));
                     location.reload();
                 })();
@@ -152,10 +170,11 @@ struct GalleryRootView: View {
             func webView(
                 _ webView: WKWebView,
                 didFail navigation: WKNavigation?,
-                withError error: Error
+                withError _: Error
             ) {
+                let padding = Int(AppDesignSystem.Spacing.prominent)
                 webView.loadHTMLString(
-                    "<body style=\"font: -apple-system-body; padding: 24px;\">话廊网页加载失败，请稍后重试。</body>",
+                    "<body style=\"font: -apple-system-body; padding: \(padding)px;\">话廊网页加载失败，请稍后重试。</body>",
                     baseURL: nil
                 )
             }
@@ -166,7 +185,7 @@ struct GalleryRootView: View {
         guard let posterID = requestedPosterID else { return }
         selectedSurface = .gallery
         do {
-            deepLinkedPoster = try await GalleryService().fetchPoster(id: posterID).asPoster
+            deepLinkedPoster = try await posterService.fetchPoster(id: posterID).asPoster
         } catch {
             deepLinkAlert = AppAlert(title: "无法打开话题", message: error.localizedDescription)
         }

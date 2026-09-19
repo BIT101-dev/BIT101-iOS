@@ -15,6 +15,12 @@ private func isMineCancellation(_ error: Error) -> Bool {
     TaskCancellation.matches(error)
 }
 
+private func isMineNotLoggedIn(_ error: Error) -> Bool {
+    guard let serviceError = error as? MineServiceError else { return false }
+    if case .notLoggedIn = serviceError { return true }
+    return false
+}
+
 /// 为第一页加载准备分页状态。
 ///
 /// 多个列表使用同一套分页状态结构，第一页刷新前统一设置加载状态并重置分页。
@@ -63,11 +69,17 @@ final class MineViewModel: ObservableObject {
     @Published private(set) var followingState = MinePagedState<GalleryUser>()
     /// 我的帖子列表分页状态。
     @Published private(set) var posterState = MinePagedState<GalleryPoster>()
+    /// 社区会话失效时通知页面回到登录流程。
+    @Published private(set) var requiresLogin = false
     @Published var alert: AppAlert?
 
     private let service: any MineOverviewServicing
     /// 记录主页首次加载流程的执行状态。
     private var hasBootstrapped = false
+    private var profileGeneration = 0
+    private var followerGeneration = 0
+    private var followingGeneration = 0
+    private var posterGeneration = 0
 
     init(service: any MineOverviewServicing) {
         self.service = service
@@ -79,12 +91,13 @@ final class MineViewModel: ObservableObject {
 
     /// 首次进入“我的”页时加载资料卡和第一页帖子。
     ///
-    /// 首页启动流程先请求资料卡和帖子；粉丝和关注列表在对应页面进入时加载。
+    /// 首页启动流程并行请求资料卡和帖子；粉丝和关注列表在对应页面进入时加载。
     func bootstrapIfNeeded() async {
         guard !hasBootstrapped else { return }
         hasBootstrapped = true
-        await refreshProfile()
-        await refreshPosters()
+        async let profileTask = refreshProfile()
+        async let posterTask = refreshPosters()
+        _ = await (profileTask, posterTask)
     }
 
     /// 资料卡里展示的帖子数摘要。
@@ -96,17 +109,26 @@ final class MineViewModel: ObservableObject {
     ///
     /// 页面已有旧资料时，刷新失败保留旧内容并弹出提示。
     func refreshProfile() async {
+        profileGeneration &+= 1
+        let generation = profileGeneration
         let hadUserInfo = userInfo != nil || profileStatus == .loaded
         if !hadUserInfo {
             profileStatus = .loading
         }
 
         do {
-            userInfo = try await service.fetchMyInfo()
+            let info = try await service.fetchMyInfo()
+            guard profileGeneration == generation else { return }
+            userInfo = info
             profileStatus = .loaded
         } catch {
+            guard profileGeneration == generation else { return }
             if isMineCancellation(error) {
                 profileStatus = hadUserInfo ? .loaded : .idle
+                return
+            }
+            if isMineNotLoggedIn(error) {
+                requiresLogin = true
                 return
             }
 
@@ -126,15 +148,27 @@ final class MineViewModel: ObservableObject {
     ///
     /// 粉丝和关注量通常不大，刷新时重置分页状态并请求第一页。
     func refreshFollowers() async {
+        followerGeneration &+= 1
+        let generation = followerGeneration
         let previousState = followerState
         resetMinePagedState(&followerState)
 
         do {
             let users = try await service.fetchFollowers(page: 0)
+            guard followerGeneration == generation else { return }
             applyMinePagedRefreshResult(users, to: &followerState)
         } catch {
+            guard followerGeneration == generation else { return }
             if isMineCancellation(error) {
                 followerState = previousState
+                if case .loading = previousState.status {
+                    followerState.status = previousState.items.isEmpty ? .idle : .loaded
+                    followerState.isLoadingMore = false
+                }
+                return
+            }
+            if isMineNotLoggedIn(error) {
+                requiresLogin = true
                 return
             }
             followerState.status = .failed(error.localizedDescription)
@@ -148,13 +182,21 @@ final class MineViewModel: ObservableObject {
         guard let currentUser else { return }
         guard followerState.status == .loaded, followerState.shouldLoadMore(currentID: currentUser.id) else { return }
 
+        let generation = followerGeneration
         followerState.isLoadingMore = true
         do {
             let users = try await service.fetchFollowers(page: followerState.nextPage)
+            guard followerGeneration == generation else { return }
             appendMinePagedPage(users, to: &followerState)
         } catch {
+            guard followerGeneration == generation else { return }
             if isMineCancellation(error) {
                 followerState.isLoadingMore = false
+                return
+            }
+            if isMineNotLoggedIn(error) {
+                followerState.isLoadingMore = false
+                requiresLogin = true
                 return
             }
             followerState.isLoadingMore = false
@@ -164,15 +206,27 @@ final class MineViewModel: ObservableObject {
 
     /// 重新拉取关注列表第一页。
     func refreshFollowings() async {
+        followingGeneration &+= 1
+        let generation = followingGeneration
         let previousState = followingState
         resetMinePagedState(&followingState)
 
         do {
             let users = try await service.fetchFollowings(page: 0)
+            guard followingGeneration == generation else { return }
             applyMinePagedRefreshResult(users, to: &followingState)
         } catch {
+            guard followingGeneration == generation else { return }
             if isMineCancellation(error) {
                 followingState = previousState
+                if case .loading = previousState.status {
+                    followingState.status = previousState.items.isEmpty ? .idle : .loaded
+                    followingState.isLoadingMore = false
+                }
+                return
+            }
+            if isMineNotLoggedIn(error) {
+                requiresLogin = true
                 return
             }
             followingState.status = .failed(error.localizedDescription)
@@ -186,13 +240,21 @@ final class MineViewModel: ObservableObject {
         guard let currentUser else { return }
         guard followingState.status == .loaded, followingState.shouldLoadMore(currentID: currentUser.id) else { return }
 
+        let generation = followingGeneration
         followingState.isLoadingMore = true
         do {
             let users = try await service.fetchFollowings(page: followingState.nextPage)
+            guard followingGeneration == generation else { return }
             appendMinePagedPage(users, to: &followingState)
         } catch {
+            guard followingGeneration == generation else { return }
             if isMineCancellation(error) {
                 followingState.isLoadingMore = false
+                return
+            }
+            if isMineNotLoggedIn(error) {
+                followingState.isLoadingMore = false
+                requiresLogin = true
                 return
             }
             followingState.isLoadingMore = false
@@ -204,6 +266,8 @@ final class MineViewModel: ObservableObject {
     ///
     /// 页面已有旧帖子时，刷新失败保留旧内容并弹出提示，页面继续显示原有列表。
     func refreshPosters() async {
+        posterGeneration &+= 1
+        let generation = posterGeneration
         let hadPosters = !posterState.items.isEmpty || posterState.status == .loaded
         if !hadPosters {
             resetMinePagedState(&posterState)
@@ -211,12 +275,18 @@ final class MineViewModel: ObservableObject {
 
         do {
             let posters = try await service.fetchMyPosters(page: 0)
+            guard posterGeneration == generation else { return }
             applyMinePagedRefreshResult(posters, to: &posterState)
         } catch {
+            guard posterGeneration == generation else { return }
             posterState.isLoadingMore = false
 
             if isMineCancellation(error) {
                 posterState.status = hadPosters ? .loaded : .idle
+                return
+            }
+            if isMineNotLoggedIn(error) {
+                requiresLogin = true
                 return
             }
 
@@ -237,13 +307,21 @@ final class MineViewModel: ObservableObject {
         guard let currentPoster else { return }
         guard posterState.status == .loaded, posterState.shouldLoadMore(currentID: currentPoster.id) else { return }
 
+        let generation = posterGeneration
         posterState.isLoadingMore = true
         do {
             let posters = try await service.fetchMyPosters(page: posterState.nextPage)
+            guard posterGeneration == generation else { return }
             appendMinePagedPage(posters, to: &posterState)
         } catch {
+            guard posterGeneration == generation else { return }
             if isMineCancellation(error) {
                 posterState.isLoadingMore = false
+                return
+            }
+            if isMineNotLoggedIn(error) {
+                posterState.isLoadingMore = false
+                requiresLogin = true
                 return
             }
             posterState.isLoadingMore = false
@@ -265,12 +343,16 @@ final class UserProfileViewModel: ObservableObject {
     /// 他人帖子列表分页状态。
     @Published private(set) var posterState = MinePagedState<GalleryPoster>()
     @Published private(set) var isFollowingUser = false
+    /// 社区会话失效时通知页面回到登录流程。
+    @Published private(set) var requiresLogin = false
     @Published var alert: AppAlert?
 
     private let userID: Int
     private let service: any UserProfileServicing
     /// 记录首次加载流程的执行状态。
     private var hasBootstrapped = false
+    private var profileGeneration = 0
+    private var posterGeneration = 0
 
     init(userID: Int, service: any UserProfileServicing) {
         self.userID = userID
@@ -304,17 +386,26 @@ final class UserProfileViewModel: ObservableObject {
 
     /// 刷新指定用户资料卡。
     func refreshProfile() async {
+        profileGeneration &+= 1
+        let generation = profileGeneration
         let hadUserInfo = userInfo != nil || profileStatus == .loaded
         if !hadUserInfo {
             profileStatus = .loading
         }
 
         do {
-            userInfo = try await service.fetchUserInfo(id: userID)
+            let info = try await service.fetchUserInfo(id: userID)
+            guard profileGeneration == generation else { return }
+            userInfo = info
             profileStatus = .loaded
         } catch {
+            guard profileGeneration == generation else { return }
             if isMineCancellation(error) {
                 profileStatus = hadUserInfo ? .loaded : .idle
+                return
+            }
+            if isMineNotLoggedIn(error) {
+                requiresLogin = true
                 return
             }
 
@@ -331,21 +422,30 @@ final class UserProfileViewModel: ObservableObject {
     }
 
     func followUser() async {
-        guard let userInfo, !userInfo.own, !isFollowingUser else { return }
+        guard let userInfo, !userInfo.own, !userInfo.following, !isFollowingUser else { return }
+        let generation = profileGeneration
         isFollowingUser = true
         defer { isFollowingUser = false }
 
         do {
             let result = try await service.followUser(id: userID)
+            guard profileGeneration == generation else { return }
             self.userInfo = userInfo.updatingFollow(result)
         } catch {
+            guard profileGeneration == generation else { return }
             if isMineCancellation(error) { return }
+            if isMineNotLoggedIn(error) {
+                requiresLogin = true
+                return
+            }
             alert = AppAlert(title: "关注失败", message: error.localizedDescription)
         }
     }
 
     /// 刷新指定用户帖子列表第一页。
     func refreshPosters() async {
+        posterGeneration &+= 1
+        let generation = posterGeneration
         let hadPosters = !posterState.items.isEmpty || posterState.status == .loaded
         if !hadPosters {
             resetMinePagedState(&posterState)
@@ -353,12 +453,18 @@ final class UserProfileViewModel: ObservableObject {
 
         do {
             let posters = try await service.fetchUserPosters(userID: userID, page: 0)
+            guard posterGeneration == generation else { return }
             applyMinePagedRefreshResult(posters, to: &posterState)
         } catch {
+            guard posterGeneration == generation else { return }
             posterState.isLoadingMore = false
 
             if isMineCancellation(error) {
                 posterState.status = hadPosters ? .loaded : .idle
+                return
+            }
+            if isMineNotLoggedIn(error) {
+                requiresLogin = true
                 return
             }
 
@@ -379,13 +485,21 @@ final class UserProfileViewModel: ObservableObject {
         guard let currentPoster else { return }
         guard posterState.status == .loaded, posterState.shouldLoadMore(currentID: currentPoster.id) else { return }
 
+        let generation = posterGeneration
         posterState.isLoadingMore = true
         do {
             let posters = try await service.fetchUserPosters(userID: userID, page: posterState.nextPage)
+            guard posterGeneration == generation else { return }
             appendMinePagedPage(posters, to: &posterState)
         } catch {
+            guard posterGeneration == generation else { return }
             if isMineCancellation(error) {
                 posterState.isLoadingMore = false
+                return
+            }
+            if isMineNotLoggedIn(error) {
+                posterState.isLoadingMore = false
+                requiresLogin = true
                 return
             }
             posterState.isLoadingMore = false

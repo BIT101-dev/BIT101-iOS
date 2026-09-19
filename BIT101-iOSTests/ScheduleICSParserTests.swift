@@ -52,9 +52,10 @@ struct ScheduleICSParserTests {
         """
 
         let events = try ScheduleICSParser.parse(ics)
+        let later = try #require(events.first { $0.id == "later" })
         #expect(events.map(\.id) == ["earlier", "later"])
-        #expect(events[1].title == "实验,报告")
-        #expect(events[1].text == "编译原理\n\n第一行\n第二行很长")
+        #expect(later.title == "实验,报告")
+        #expect(later.text == "编译原理\n\n第一行\n第二行很长")
         #expect(events.allSatisfy { $0.group == "lexue" && !$0.done })
     }
 

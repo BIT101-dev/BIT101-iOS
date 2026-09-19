@@ -14,11 +14,11 @@ enum ScoreServiceError: LocalizedError {
         case .missingCredentials:
             return "未找到已保存的学号和密码，请先重新登录。"
         case .invalidResponse:
-            return "成绩服务返回了无法识别的数据。"
+            return "服务返回了无法识别的数据。"
         case .requestTimedOut:
             return "请求超时，请稍后重试。"
         case .secondFactorRequired:
-            return "需要短信验证码才能继续查询成绩。"
+            return "需要短信验证码才能继续执行此操作。"
         case let .challengeInvalid(message):
             return message
         case let .queryFailed(message):
@@ -294,13 +294,16 @@ struct ScoreService {
         } catch {
             throw ScoreServiceError.invalidResponse
         }
-        return try await downloadTranscriptPages(cookieString: payload.cookieString)
+        let cookieString = payload.cookieString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cookieString.isEmpty else {
+            throw ScoreServiceError.invalidResponse
+        }
+        return try await downloadTranscriptPages(cookieString: cookieString)
     }
 
     /// 使用成绩单系统 Cookie 读取申请结果页，并下载其中全部分页图片。
     ///
-    /// bit-login 的图片接口历史上提供首张图片；解析学校结果页可以在成绩较多时
-    /// 获取第二页及后续页面。Cookie 与图片的生命周期属于临时内存会话。
+    /// 解析学校结果页中的全部分页图片，覆盖成绩较多时的多页结果。Cookie 与图片的生命周期属于临时内存会话。
     private func downloadTranscriptPages(cookieString: String) async throws -> [Data] {
         guard !cookieString.isEmpty else { throw ScoreServiceError.invalidResponse }
 
@@ -316,6 +319,9 @@ struct ScoreService {
         } catch {
             throw ScoreServiceError.queryFailed("学校可信成绩单页面暂时无法访问，请重新申请。")
         }
+        guard (200 ..< 300).contains(report.response.statusCode) else {
+            throw ScoreServiceError.queryFailed("学校可信成绩单页面暂时无法访问，请重新申请。")
+        }
         guard let html = String(data: report.data, encoding: .utf8) else {
             throw ScoreServiceError.invalidResponse
         }
@@ -328,6 +334,9 @@ struct ScoreService {
             guard
                 let range = Range(match.range(at: 1), in: html),
                 let url = URL(string: String(html[range]), relativeTo: reportURL)?.absoluteURL,
+                url.scheme == reportURL.scheme,
+                url.host == reportURL.host,
+                url.port == reportURL.port,
                 !pageURLs.contains(url)
             else { continue }
             pageURLs.append(url)

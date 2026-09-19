@@ -19,12 +19,13 @@ final class GalleryRecommendPrefetchCoordinator {
 
     init(service: any GalleryFeedServicing, depth: Int = 2) {
         self.service = service
-        self.depth = depth
+        self.depth = max(depth, 0)
     }
 
     func start(from startPage: Int) {
         guard chainTask == nil else { return }
         let expectedGeneration = generation
+        let firstPage = max(startPage, 0)
 
         chainTask = Task { [weak self] in
             guard let self else { return }
@@ -34,7 +35,7 @@ final class GalleryRecommendPrefetchCoordinator {
                 }
             }
 
-            var currentPage = startPage
+            var currentPage = firstPage
             for _ in 0..<depth {
                 guard !Task.isCancelled, generation == expectedGeneration else { return }
                 do {

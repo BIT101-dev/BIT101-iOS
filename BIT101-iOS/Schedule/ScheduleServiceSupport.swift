@@ -40,3 +40,19 @@ func isCertificateValidationError(_ error: Error) -> Bool {
         ].contains(candidate.code)
     }
 }
+
+/// 判断网络路线是否适合切换后重试。
+func isScheduleTransientNetworkError(_ error: Error) -> Bool {
+    if isHostResolutionError(error) || isCertificateValidationError(error) { return true }
+    return containsUnderlyingError(error) { candidate in
+        candidate.domain == NSURLErrorDomain && [
+            NSURLErrorCannotFindHost,
+            NSURLErrorDNSLookupFailed,
+            NSURLErrorTimedOut,
+            NSURLErrorCannotConnectToHost,
+            NSURLErrorNetworkConnectionLost,
+            NSURLErrorNotConnectedToInternet,
+            NSURLErrorSecureConnectionFailed,
+        ].contains(candidate.code)
+    }
+}

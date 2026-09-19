@@ -46,6 +46,8 @@ final class ScheduleClassroomCoordinator {
     func withTimeout<T>(
         operation: @escaping @Sendable () async throws -> T
     ) async throws -> T where T: Sendable {
+        try Task.checkCancellation()
+
         try await withThrowingTaskGroup(of: T.self) { group in
             group.addTask {
                 try await operation()
@@ -59,6 +61,7 @@ final class ScheduleClassroomCoordinator {
                 throw CancellationError()
             }
             group.cancelAll()
+            try Task.checkCancellation()
             return value
         }
     }
@@ -67,7 +70,9 @@ final class ScheduleClassroomCoordinator {
         authentication: () async throws -> Void,
         operation: @escaping @Sendable () async throws -> T
     ) async throws -> T where T: Sendable {
+        try Task.checkCancellation()
         try await authentication()
+        try Task.checkCancellation()
         return try await withTimeout(operation: operation)
     }
 }

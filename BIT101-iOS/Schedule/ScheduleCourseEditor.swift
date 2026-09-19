@@ -103,11 +103,21 @@ enum ScheduleCourseEditor {
             throw validationError("节次范围不合法。")
         }
 
+        let weeks: [Int]
+        if let fixedWeeks {
+            guard !fixedWeeks.isEmpty, fixedWeeks.allSatisfy({ $0 != 0 }) else {
+                throw invalidWeeksError
+            }
+            weeks = Array(Set(fixedWeeks)).sorted()
+        } else {
+            weeks = try parseWeeks(draft.weeksText)
+        }
+
         return ResolvedDraft(
             title: title,
             teacher: draft.teacher.trimmingCharacters(in: .whitespacesAndNewlines),
             classroom: draft.classroom.trimmingCharacters(in: .whitespacesAndNewlines),
-            weeks: try fixedWeeks ?? parseWeeks(draft.weeksText),
+            weeks: weeks,
             weekday: draft.weekday,
             startSection: draft.startSection,
             endSection: draft.endSection
@@ -164,17 +174,15 @@ enum ScheduleCourseEditor {
         guard let index = courses.firstIndex(where: { $0.id == id }) else { return courses }
         var courses = courses
         let original = courses[index]
+        guard original.weeks.contains(week) else { return courses }
         let resolved = try resolve(draft, fixedWeeks: [week])
-        let adjustedCourse = applying(
-            resolved,
-            to: original,
-            id: original.weeks == [week] ? original.id : adjustedID
-        )
+        let remainingWeeks = original.weeks.filter { $0 != week }
+        let adjustedCourse = applying(resolved, to: original, id: remainingWeeks.isEmpty ? original.id : adjustedID)
 
-        if original.weeks == [week] {
+        if remainingWeeks.isEmpty {
             courses[index] = adjustedCourse
         } else {
-            courses[index] = copying(original, weeks: original.weeks.filter { $0 != week })
+            courses[index] = copying(original, weeks: remainingWeeks)
             courses.append(adjustedCourse)
         }
         return courses
@@ -188,6 +196,7 @@ enum ScheduleCourseEditor {
         guard let index = courses.firstIndex(where: { $0.id == id }) else { return courses }
         var courses = courses
         let original = courses[index]
+        guard original.weeks.contains(week) else { return courses }
         let remainingWeeks = original.weeks.filter { $0 != week }
         if remainingWeeks.isEmpty {
             courses.remove(at: index)
@@ -221,6 +230,7 @@ enum ScheduleCourseEditor {
         toWeekday: Int,
         makeID: () -> String = { UUID().uuidString }
     ) -> [CourseRecord] {
+        guard fromWeek != toWeek || fromWeekday != toWeekday else { return courses }
         let sourceCourses = courses.filter {
             $0.weekday == fromWeekday && $0.weeks.contains(fromWeek)
         }

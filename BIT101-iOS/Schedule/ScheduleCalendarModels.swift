@@ -91,7 +91,7 @@ struct ScheduleCalendarLayer: Identifiable {
 
     /// SwiftUI 的 zIndex 越大越靠上；中心更靠前的课程因此拥有更高层级。
     var displayZIndex: Double {
-        -Double((startSection + endSection) / 2)
+        Double((startSection + endSection) / 2)
     }
 }
 
@@ -99,7 +99,10 @@ struct ScheduleCalendarLayer: Identifiable {
 ///
 /// 例如 10:15 可能落在第 3.4 节的位置，用于考试和自定义日程块的连续时间定位。
 func convertTimeToSection(timeText: String, timeTable: [TimeSlot]) -> CGFloat {
-    let minutes = TimeSlot.parseMinutes(timeText)
+    convertMinutesToSection(minutes: TimeSlot.parseMinutes(timeText), timeTable: timeTable)
+}
+
+func convertMinutesToSection(minutes: Int, timeTable: [TimeSlot]) -> CGFloat {
     guard !timeTable.isEmpty else { return 0 }
 
     let sectionIndex = timeTable.firstIndex(where: { minutes <= $0.endMinutes }) ?? (timeTable.count - 1)
@@ -121,10 +124,16 @@ func resolvedCurrentWeek(firstDay: Date) -> Int {
 /// 处理同一天中互相重叠的日历块，为先前条目保留可见区域。
 func normalize(entries: [ScheduleCalendarEntry]) -> [ScheduleCalendarEntry] {
     let sorted = entries.sorted { lhs, rhs in
-        if lhs.dayOfWeek == rhs.dayOfWeek {
+        if lhs.dayOfWeek != rhs.dayOfWeek {
+            return lhs.dayOfWeek < rhs.dayOfWeek
+        }
+        if lhs.startSection != rhs.startSection {
             return lhs.startSection < rhs.startSection
         }
-        return lhs.dayOfWeek < rhs.dayOfWeek
+        if lhs.endSection != rhs.endSection {
+            return lhs.endSection > rhs.endSection
+        }
+        return lhs.id < rhs.id
     }
 
     var result: [ScheduleCalendarEntry] = []
@@ -134,20 +143,33 @@ func normalize(entries: [ScheduleCalendarEntry]) -> [ScheduleCalendarEntry] {
         for entry in sorted where entry.dayOfWeek == day {
             if let last = dayEntries.last, last.endSection > entry.startSection {
                 if last.endSection < entry.endSection {
+                    let trimmedStart = last.endSection
+                    let trimmedEnd = entry.endSection
+                    let trimmedLayers = entry.backgroundLayers.compactMap { layer -> ScheduleCalendarLayer? in
+                        let startSection = max(layer.startSection, trimmedStart)
+                        let endSection = min(layer.endSection, trimmedEnd)
+                        guard endSection > startSection else { return nil }
+                        return ScheduleCalendarLayer(
+                            id: layer.id,
+                            startSection: startSection,
+                            endSection: endSection
+                        )
+                    }
                     dayEntries.append(
                         ScheduleCalendarEntry(
                             id: "\(entry.id)-trim-\(last.endSection)",
                             sourceID: entry.sourceID,
                             sourceIDs: entry.resolvedSourceIDs,
                             dayOfWeek: entry.dayOfWeek,
-                            startSection: last.endSection,
-                            endSection: entry.endSection,
+                            startSection: trimmedStart,
+                            endSection: trimmedEnd,
                             startMinutes: entry.startMinutes,
                             endMinutes: entry.endMinutes,
                             title: entry.title,
                             subtitle: entry.subtitle,
                             detailLines: entry.detailLines,
-                            kind: entry.kind
+                            kind: entry.kind,
+                            backgroundLayers: trimmedLayers
                         )
                     )
                 }

@@ -86,7 +86,7 @@ struct AppSettingsSnapshot: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        themeMode = try container.decodeIfPresent(AppThemeMode.self, forKey: .themeMode) ?? .system
+        themeMode = (try? container.decode(AppThemeMode.self, forKey: .themeMode)) ?? .system
         autoRotate = try container.decodeIfPresent(Bool.self, forKey: .autoRotate) ?? false
         galleryHideBotPosterInSearch = try container.decodeIfPresent(Bool.self, forKey: .galleryHideBotPosterInSearch) ?? true
         galleryHiddenUserIDs = try container.decodeIfPresent([Int].self, forKey: .galleryHiddenUserIDs) ?? []
@@ -127,7 +127,7 @@ struct AppSettingsSyncPayload: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        themeMode = try container.decodeIfPresent(AppThemeMode.self, forKey: .themeMode) ?? .system
+        themeMode = (try? container.decode(AppThemeMode.self, forKey: .themeMode)) ?? .system
         autoRotate = try container.decodeIfPresent(Bool.self, forKey: .autoRotate) ?? false
         galleryHideBotPosterInSearch = try container.decodeIfPresent(Bool.self, forKey: .galleryHideBotPosterInSearch) ?? true
         galleryHiddenUserIDs = try container.decodeIfPresent([Int].self, forKey: .galleryHiddenUserIDs) ?? []
@@ -139,16 +139,20 @@ struct AppSettingsSyncPayload: Codable, Equatable {
 @MainActor
 /// 应用设置仓库。
 ///
-/// 主题、账号偏好和全局筛选偏好都会统一写入这里，再由具体页面按需读取。
+/// 当前账号的主题、账号偏好和话廊筛选偏好都会统一写入这里，再由具体页面按需读取。
 final class AppSettingsStore: ObservableObject {
     static let shared = AppSettingsStore()
     /// 各账号设置快照在 `UserDefaults` 中使用的 key 前缀。
     nonisolated static let storageKeyPrefix = "app.settings.snapshot"
+    /// 账号隔离前的历史快照 key。
+    nonisolated static let legacyStorageKey = "app.settings.snapshot"
+    /// 尚未登录时使用的设置分区。
+    nonisolated static let defaultAccountIdentifier = "__default__"
     /// 当前安装版本的更新内容版本号；每个版本展示一次。
     nonisolated static let currentStartupNoticeVersion = "1.8.1"
     /// 更新内容公告已读状态保存在全局 key，账号切换后继续复用该状态。
     nonisolated static let startupNoticeSeenKey = "app.startup.notice.seen.version"
-    /// 历史成绩疑似补考学期筛选使用全局 key，账号切换后继续复用该状态。
+    /// 历史成绩疑似补考学期筛选按账号保存。
     nonisolated static let courseHistoryHidesMakeupOutliersKey = "app.settings.courseHistory.hidesMakeupOutliers"
     /// App Store 自动更新检查使用全局 key，账号切换后继续复用该状态。
     nonisolated static let automaticUpdateChecksEnabledKey = "app.settings.automatic-update-checks.enabled"
@@ -238,7 +242,7 @@ final class AppSettingsStore: ObservableObject {
             snapshot.galleryHideBotPosterInSearch = hideBotPosterInSearch
         }
         if let hiddenUserIDs {
-            snapshot.galleryHiddenUserIDs = Array(Set(hiddenUserIDs.filter { $0 > 0 })).sorted()
+            snapshot.galleryHiddenUserIDs = Self.normalizedGalleryHiddenUserIDs(hiddenUserIDs)
         }
         if let hideAnonymousContent {
             snapshot.galleryHideAnonymousContent = hideAnonymousContent
@@ -252,7 +256,7 @@ final class AppSettingsStore: ObservableObject {
     /// 修改历史成绩中的疑似补考学期隐藏开关。
     func setHidesCourseHistoryMakeupOutliers(_ enabled: Bool) {
         hidesCourseHistoryMakeupOutliers = enabled
-        defaults.set(enabled, forKey: Self.courseHistoryHidesMakeupOutliersKey)
+        defaults.set(enabled, forKey: currentCourseHistoryHidesMakeupOutliersKey)
     }
 
     /// 修改启动时的 App Store 自动检查开关。
@@ -291,8 +295,9 @@ final class AppSettingsStore: ObservableObject {
         snapshot.themeMode = payload.themeMode
         snapshot.autoRotate = payload.autoRotate
         snapshot.galleryHideBotPosterInSearch = payload.galleryHideBotPosterInSearch
-        snapshot.galleryHiddenUserIDs = payload.galleryHiddenUserIDs
+        snapshot.galleryHiddenUserIDs = Self.normalizedGalleryHiddenUserIDs(payload.galleryHiddenUserIDs)
         snapshot.galleryHideAnonymousContent = payload.galleryHideAnonymousContent
+        snapshot.galleryUseWebView = payload.galleryUseWebView
         save()
         AppOrientationController.applyPreference(autoRotate: snapshot.autoRotate)
     }
@@ -304,14 +309,22 @@ final class AppSettingsStore: ObservableObject {
     private func load() {
         loadCourseHistoryPreference()
         loadAutomaticUpdatePreference()
-        guard let snapshot = Self.loadSnapshotFromDefaults() else {
+        let accountID = Self.currentAccountIdentifier()
+        guard let snapshot = Self.loadSnapshotFromDefaults(for: accountID)
+                ?? Self.migrateLegacySnapshotIfNeeded(for: accountID) else {
             self.snapshot = AppSettingsSnapshot()
             self.snapshot.firstOpenDate = Date()
             defaults.set(true, forKey: galleryBotFilterDefaultMigrationKey)
             save()
+            AppOrientationController.applyPreference(autoRotate: self.snapshot.autoRotate)
             return
         }
         self.snapshot = snapshot
+        let normalizedHiddenUserIDs = Self.normalizedGalleryHiddenUserIDs(self.snapshot.galleryHiddenUserIDs)
+        if self.snapshot.galleryHiddenUserIDs != normalizedHiddenUserIDs {
+            self.snapshot.galleryHiddenUserIDs = normalizedHiddenUserIDs
+            save(syncPreferences: true)
+        }
         if defaults.object(forKey: galleryBotFilterDefaultMigrationKey) == nil {
             self.snapshot.galleryHideBotPosterInSearch = true
             defaults.set(true, forKey: galleryBotFilterDefaultMigrationKey)
@@ -321,15 +334,21 @@ final class AppSettingsStore: ObservableObject {
             self.snapshot.firstOpenDate = Date()
             save()
         }
+        AppOrientationController.applyPreference(autoRotate: self.snapshot.autoRotate)
     }
 
-    /// 读取全局历史成绩筛选偏好；首次使用时默认开启并立即持久化。
+    /// 读取当前账号的历史成绩筛选偏好；首次使用时默认开启并立即持久化。
     private func loadCourseHistoryPreference() {
-        if let storedValue = defaults.object(forKey: Self.courseHistoryHidesMakeupOutliersKey) as? Bool {
+        let accountKey = currentCourseHistoryHidesMakeupOutliersKey
+        if let storedValue = defaults.object(forKey: accountKey) as? Bool {
             hidesCourseHistoryMakeupOutliers = storedValue
+        } else if let legacyValue = defaults.object(forKey: Self.courseHistoryHidesMakeupOutliersKey) as? Bool {
+            hidesCourseHistoryMakeupOutliers = legacyValue
+            defaults.set(legacyValue, forKey: accountKey)
+            defaults.removeObject(forKey: Self.courseHistoryHidesMakeupOutliersKey)
         } else {
             hidesCourseHistoryMakeupOutliers = true
-            defaults.set(true, forKey: Self.courseHistoryHidesMakeupOutliersKey)
+            defaults.set(true, forKey: accountKey)
         }
     }
 
@@ -371,6 +390,21 @@ final class AppSettingsStore: ObservableObject {
         return snapshot
     }
 
+    /// 把账号隔离前的快照迁移到当前账号分区。
+    private static func migrateLegacySnapshotIfNeeded(for accountID: String) -> AppSettingsSnapshot? {
+        guard accountID != defaultAccountIdentifier else { return nil }
+        guard
+            let data = UserDefaults.standard.data(forKey: legacyStorageKey),
+            let snapshot = try? decoder.decode(AppSettingsSnapshot.self, from: data)
+        else {
+            return nil
+        }
+
+        UserDefaults.standard.set(data, forKey: storageKey(for: accountID))
+        UserDefaults.standard.removeObject(forKey: legacyStorageKey)
+        return snapshot
+    }
+
     private var currentStorageKey: String {
         Self.storageKey(for: Self.currentAccountIdentifier())
     }
@@ -379,15 +413,23 @@ final class AppSettingsStore: ObservableObject {
         "\(Self.galleryBotFilterDefaultMigrationKeyPrefix).\(Self.currentAccountIdentifier())"
     }
 
+    private var currentCourseHistoryHidesMakeupOutliersKey: String {
+        "\(Self.courseHistoryHidesMakeupOutliersKey).\(Self.currentAccountIdentifier())"
+    }
+
     /// 按账号生成设置快照的存储 key。
     private static func storageKey(for accountID: String) -> String {
         "\(storageKeyPrefix).\(accountID)"
     }
 
+    private static func normalizedGalleryHiddenUserIDs(_ values: [Int]) -> [Int] {
+        Array(Set(values.filter { $0 > 0 })).sorted()
+    }
+
     /// 读取当前账号标识；学号为空时使用默认分区。
     private static func currentAccountIdentifier() -> String {
         let raw = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
-        return raw.isEmpty ? "__default__" : raw
+        return raw.isEmpty ? defaultAccountIdentifier : raw
     }
 
     /// 按账号稳定地映射到首周内的某一天。

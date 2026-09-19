@@ -163,6 +163,16 @@ private struct CourseHistoryGradesChart: View {
         hidesMakeupOutliers ? CourseHistoryMakeupPolicy.hiddenTerms(in: sortedGrades).count : 0
     }
 
+    private var chartAccessibilityValue: String {
+        guard let selectedGrade else { return "暂无可用数据" }
+        return [
+            selectedGrade.term,
+            "平均分 " + courseHistoryScoreText(selectedGrade.avgScore),
+            "最高分 " + courseHistoryScoreText(selectedGrade.maxScore),
+            "学习人数 " + courseHistoryStudentText(selectedGrade.studentNum),
+        ].joined(separator: "，")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
             HStack(alignment: .firstTextBaseline) {
@@ -212,6 +222,9 @@ private struct CourseHistoryGradesChart: View {
             .chartLegend(position: .bottom, alignment: .leading)
             .chartXSelection(value: chartSelection)
             .frame(height: AppDesignSystem.Size.content.chartHeight)
+            .accessibilityLabel("历史成绩趋势图")
+            .accessibilityValue(chartAccessibilityValue)
+            .accessibilityHint("滑动图表可查看不同学期")
 
             if let selectedGrade {
                 CourseHistorySelectedLegend(grade: selectedGrade)

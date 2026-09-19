@@ -6,7 +6,6 @@
 //
 
 import Combine
-import CryptoKit
 import SwiftUI
 import UIKit
 
@@ -70,6 +69,7 @@ private final class CachedRemoteImageLoader: ObservableObject {
         guard let url else { return }
 
         if let cachedImage = await CachedRemoteImageStore.shared.image(for: url) {
+            guard !Task.isCancelled, currentURL == url else { return }
             image = cachedImage
             return
         }
@@ -81,6 +81,7 @@ private final class CachedRemoteImageLoader: ObservableObject {
             guard let downloadedImage = await CachedRemoteImageStore.shared.storeAndDecode(data, for: url) else {
                 return
             }
+            guard !Task.isCancelled, currentURL == url else { return }
             image = downloadedImage
         } catch {
             // 加载失败时保留占位内容。
@@ -101,7 +102,12 @@ private actor CachedRemoteImageStore {
     static let shared = CachedRemoteImageStore()
 
     /// 原始图片数据的内存缓存。
-    private let memoryCache = NSCache<NSString, NSData>()
+    private let memoryCache: NSCache<NSString, NSData> = {
+        let cache = NSCache<NSString, NSData>()
+        cache.countLimit = 160
+        cache.totalCostLimit = 32 * 1_024 * 1_024
+        return cache
+    }()
     /// 已准备显示的位图内存缓存。
     private let imageCache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
@@ -134,7 +140,7 @@ private actor CachedRemoteImageStore {
 
         let fileURL = directoryURL.appendingPathComponent(key)
         guard let data = try? Data(contentsOf: fileURL) else { return nil }
-        memoryCache.setObject(data as NSData, forKey: key as NSString)
+        memoryCache.setObject(data as NSData, forKey: key as NSString, cost: data.count)
         return data
     }
 
@@ -153,7 +159,7 @@ private actor CachedRemoteImageStore {
     /// 将图片数据写入内存缓存和磁盘。
     func store(_ data: Data, for url: URL) {
         let key = cacheKey(for: url)
-        memoryCache.setObject(data as NSData, forKey: key as NSString)
+        memoryCache.setObject(data as NSData, forKey: key as NSString, cost: data.count)
         let fileURL = directoryURL.appendingPathComponent(key)
         try? data.write(to: fileURL, options: .atomic)
     }
@@ -185,10 +191,14 @@ private actor CachedRemoteImageStore {
         }
     }
 
-    /// 使用 URL 的 SHA-256 摘要生成稳定文件名，避免文件名非法、过长或暴露原始 query。
+    /// 使用 URL 的稳定短标识生成文件名，保持缓存文件名安全且紧凑。
     private func cacheKey(for url: URL) -> String {
-        let digest = SHA256.hash(data: Data(url.absoluteString.utf8))
-        return digest.map { String(format: "%02x", $0) }.joined()
+        var value: UInt64 = 14_695_981_039_346_656_037
+        for byte in url.absoluteString.utf8 {
+            value ^= UInt64(byte)
+            value = value &* 1_099_511_628_211
+        }
+        return String(value, radix: 16)
     }
 
     private func decodedPixelCost(_ image: UIImage) -> Int {

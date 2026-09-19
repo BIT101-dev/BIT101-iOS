@@ -68,5 +68,6 @@ struct CampusMapLocationTests {
         #expect(zhongguancun.campus == .zhongguancun)
         #expect(liangxiang.campus == .liangxiang)
         #expect(zhongguancun.coordinate.latitude != liangxiang.coordinate.latitude)
+        #expect(zhongguancun.coordinate.longitude != liangxiang.coordinate.longitude)
     }
 }

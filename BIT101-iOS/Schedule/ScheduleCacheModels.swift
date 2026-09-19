@@ -1,5 +1,15 @@
 import Foundation
 
+/// 日程模块本地缓存。
+///
+/// 这是 iOS 端整个日程模块的单一持久化快照：
+/// - 课表
+/// - 考试
+/// - DDL
+/// - 自定义日程
+/// - 空教室偏好
+/// - 课表显示设置
+/// - 灵动岛提醒设置
 nonisolated struct ScheduleCache: Codable {
     /// 课程周次已经按学校响应的行级周次完成解析。
     ///
@@ -120,7 +130,7 @@ nonisolated struct ScheduleCache: Codable {
             forKey: .termSchedulesByTerm
         ) ?? [:]
         // 将旧版单学期缓存迁移到按学期保存，保留用户已经保存的课表。
-        if cachedCoursesByTerm.isEmpty, !currentTerm.isEmpty, !courses.isEmpty {
+        if !currentTerm.isEmpty, !courses.isEmpty, cachedCoursesByTerm[currentTerm]?.isEmpty ?? true {
             cachedCoursesByTerm[currentTerm] = courses
         }
         exams = try container.decodeIfPresent([ExamRecord].self, forKey: .exams) ?? []
@@ -168,14 +178,16 @@ nonisolated struct ScheduleCache: Codable {
         // 老版本只保存原缓存更新时间；迁移时以该时间作为保守基线，
         // 保留已有缓存的时间语义。
         coursesUpdatedAt = decodedCoursesUpdatedAt ?? (courses.isEmpty ? .distantPast : updatedAt)
-        if termSchedulesByTerm.isEmpty, !currentTerm.isEmpty, !courses.isEmpty {
-            termSchedulesByTerm[currentTerm] = TermScheduleSnapshot(
-                term: currentTerm,
-                firstDayString: firstDayString,
-                courses: courses,
-                exams: exams,
-                updatedAt: coursesUpdatedAt
-            )
+        if !currentTerm.isEmpty, !courses.isEmpty {
+            if termSchedulesByTerm[currentTerm]?.courses.isEmpty ?? true {
+                termSchedulesByTerm[currentTerm] = TermScheduleSnapshot(
+                    term: currentTerm,
+                    firstDayString: firstDayString,
+                    courses: courses,
+                    exams: termSchedulesByTerm[currentTerm]?.exams ?? exams,
+                    updatedAt: termSchedulesByTerm[currentTerm]?.updatedAt ?? coursesUpdatedAt
+                )
+            }
         }
 
         // 旧版已保存的 `-1` 小学期课表在解码时确定性迁移。校正后的数据再次
@@ -185,7 +197,12 @@ nonisolated struct ScheduleCache: Codable {
         let migrationTerms = Set(termSchedulesByTerm.keys).union(cachedCoursesByTerm.keys)
         for term in migrationTerms {
             let snapshot = termSchedulesByTerm[term]
-            let sourceCourses = snapshot?.courses ?? cachedCoursesByTerm[term] ?? []
+            let sourceCourses: [CourseRecord]
+            if let snapshot, !snapshot.courses.isEmpty {
+                sourceCourses = snapshot.courses
+            } else {
+                sourceCourses = cachedCoursesByTerm[term] ?? snapshot?.courses ?? []
+            }
             guard !sourceCourses.isEmpty else { continue }
             let normalized = SmallTermWeekNormalizer.normalize(
                 term: term,
@@ -226,8 +243,15 @@ nonisolated struct ScheduleCache: Codable {
 
     /// 解析 `yyyy-MM-dd` 首周日期，供缓存和学期快照共用。
     fileprivate static func parseScheduleFirstDay(_ string: String) -> Date? {
-        let parts = string.split(separator: "-").compactMap { Int($0) }
-        guard parts.count == 3 else { return nil }
+        let parts = string.split(separator: "-")
+        guard
+            parts.count == 3,
+            let year = Int(parts[0]),
+            let month = Int(parts[1]),
+            let day = Int(parts[2]),
+            (1 ... 12).contains(month),
+            (1 ... 31).contains(day)
+        else { return nil }
 
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 8 * 3600) ?? .current
@@ -235,10 +259,13 @@ nonisolated struct ScheduleCache: Codable {
         var components = DateComponents()
         components.calendar = calendar
         components.timeZone = calendar.timeZone
-        components.year = parts[0]
-        components.month = parts[1]
-        components.day = parts[2]
-        return calendar.date(from: components)
+        components.year = year
+        components.month = month
+        components.day = day
+        guard let date = calendar.date(from: components) else { return nil }
+        let resolved = calendar.dateComponents([.year, .month, .day], from: date)
+        guard resolved.year == year, resolved.month == month, resolved.day == day else { return nil }
+        return date
     }
 }
 

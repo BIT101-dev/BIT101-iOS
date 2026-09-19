@@ -241,7 +241,7 @@ private struct ScheduleWidgetProvider: TimelineProvider {
             for: entry.nextOccurrences,
             now: entry.date,
             includeDisplayUntilDates: true,
-            includeNextMidnight: false
+            includeNextMidnight: true
         )
     }
 }
@@ -286,7 +286,7 @@ private struct ScheduleWidgetEntryView: View {
     }
 
     private func courseStatusText(for occurrence: ScheduleExternalOccurrence) -> String {
-        occurrence.isCurrent() ? "正在上课" : "下一节"
+        occurrence.isCurrent(at: entry.date) ? "正在上课" : "下一节"
     }
 
     @ViewBuilder
@@ -298,7 +298,7 @@ private struct ScheduleWidgetEntryView: View {
 
             Spacer(minLength: 0)
 
-            Text(occurrence.relativeDayText())
+            Text(occurrence.relativeDayText(referenceDate: entry.date))
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(.tertiary)
         }
@@ -348,7 +348,7 @@ private struct ScheduleWidgetEntryView: View {
 
                     Spacer(minLength: 0)
 
-                    Text(first.relativeDayText())
+                    Text(first.relativeDayText(referenceDate: entry.date))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
@@ -388,9 +388,9 @@ private struct ScheduleWidgetEntryView: View {
 
             if let first = entry.nextOccurrences.first {
                 VStack(spacing: AppDesignSystem.External.Spacing.widgetCircular) {
-                    Image(systemName: first.isCurrent() ? "play.circle.fill" : "calendar.badge.clock")
+                    Image(systemName: first.isCurrent(at: entry.date) ? "play.circle.fill" : "calendar.badge.clock")
                         .font(.caption2)
-                    Text(circularCountdownText(for: first))
+                    Text(first.countdownTargetDate(at: entry.date), style: .timer)
                         .font(.system(size: AppDesignSystem.External.Typography.widgetCircularCount, weight: .semibold, design: .rounded))
                         .lineLimit(1)
                         .minimumScaleFactor(AppDesignSystem.External.Scale.widgetCircularCount)
@@ -554,14 +554,6 @@ private struct ScheduleWidgetEntryView: View {
             return "\(occurrence.rangeText) \(occurrence.classroom)"
         }
         return occurrence.rangeText
-    }
-
-    /// 锁屏圆形组件展示分钟数倒计时。
-    private func circularCountdownText(for occurrence: ScheduleExternalOccurrence) -> String {
-        let target = occurrence.countdownTargetDate()
-        let seconds = max(0, Int(target.timeIntervalSince(Date())))
-        let minutes = max(1, Int(ceil(Double(seconds) / 60.0)))
-        return "\(minutes)分"
     }
 
     /// 课表为空或后续课程为空时显示统一空态。

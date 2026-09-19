@@ -34,9 +34,10 @@ struct CourseListViewModelTests {
         #expect(!viewModel.state.isLoadingMore)
     }
 
-    @Test("Initial failures enter a retryable failed state")
+    @Test("Initial failures enter a retryable state")
     @MainActor
-    func initialFailure() async {
+    func initialFailure() async throws {
+        let first = try course(id: 1)
         let service = ServiceStub(pages: [0: .failure(URLError(.notConnectedToInternet))])
         let viewModel = CourseListViewModel(service: service)
 
@@ -48,6 +49,13 @@ struct CourseListViewModelTests {
         }
         #expect(!viewModel.state.canLoadMore)
         #expect(viewModel.alert?.title == "加载课程失败")
+
+        service.pages[0] = .success([first])
+        await viewModel.refresh()
+
+        #expect(viewModel.state.status == .loaded)
+        #expect(viewModel.state.items == [first])
+        #expect(service.requests.map { "\($0.search):\($0.page)" } == [":0", ":0"])
     }
 
     @Test("Cancellation is silent and returns the initial state to idle")
@@ -103,7 +111,7 @@ struct CourseListViewModelTests {
 struct PaperSearchViewModelTests {
     private final class ServiceStub: PaperListServicing {
         private(set) var requests: [(search: String?, order: PaperSortOrder, page: Int)] = []
-        let result: Result<[PaperSummary], Error>
+        var result: Result<[PaperSummary], Error>
 
         init(result: Result<[PaperSummary], Error>) { self.result = result }
 
@@ -117,18 +125,44 @@ struct PaperSearchViewModelTests {
         }
     }
 
-    @Test("Blank searches reset locally without a network request")
+    @Test("Blank searches reset populated results locally")
     @MainActor
     func blankSearchResetsLocally() async {
-        let service = ServiceStub(result: .success([]))
+        let paper = PaperSummary(
+            id: 1,
+            title: "标题",
+            intro: "摘要",
+            likeNum: 1,
+            commentNum: 1,
+            updateTime: "2026-08-09"
+        )
+        let service = ServiceStub(result: .success([paper]))
         let viewModel = PaperSearchViewModel(service: service)
+        viewModel.searchText = "Swift"
+
+        await viewModel.performSearch()
+
         viewModel.searchText = "   "
 
         await viewModel.performSearch()
 
-        #expect(service.requests.isEmpty)
+        #expect(service.requests.count == 1)
         #expect(viewModel.state.status == .idle)
         #expect(viewModel.state.items.isEmpty)
+    }
+
+    @Test("Cancellation restores the idle search state with alert clear")
+    @MainActor
+    func cancellationIsSilent() async {
+        let service = ServiceStub(result: .failure(CancellationError()))
+        let viewModel = PaperSearchViewModel(service: service)
+        viewModel.searchText = "Swift"
+
+        await viewModel.performSearch()
+
+        #expect(viewModel.state.status == .idle)
+        #expect(viewModel.state.items.isEmpty)
+        #expect(viewModel.alert == nil)
     }
 
     @Test("Search parameters are normalized and forwarded")

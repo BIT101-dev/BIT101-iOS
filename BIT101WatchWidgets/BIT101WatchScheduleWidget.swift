@@ -25,12 +25,12 @@ private struct WatchScheduleDisplaySummary {
     let courseTitle: String
     let inlineText: String
 
-    init(occurrence: ScheduleExternalOccurrence) {
+    init(occurrence: ScheduleExternalOccurrence, referenceDate: Date) {
         let rawLocation = occurrence.classroom.isEmpty ? occurrence.title : occurrence.classroom
         let compactLocation = ScheduleDisplayNormalizer.compactLocation(for: rawLocation)
         let courseTitle = occurrence.classroom.isEmpty ? "" : occurrence.title
         let startTimeText = ScheduleSharedDateCodec.formatTime(occurrence.startDate)
-        let dateText = occurrence.relativeDayText()
+        let dateText = occurrence.relativeDayText(referenceDate: referenceDate)
 
         self.location = compactLocation
         self.startTimeText = startTimeText
@@ -93,7 +93,7 @@ private enum WatchScheduleEntryStatus {
 private extension WatchScheduleEntry {
     var displaySummary: WatchScheduleDisplaySummary? {
         guard let nextOccurrence else { return nil }
-        return WatchScheduleDisplaySummary(occurrence: nextOccurrence)
+        return WatchScheduleDisplaySummary(occurrence: nextOccurrence, referenceDate: date)
     }
 
     var status: WatchScheduleEntryStatus {

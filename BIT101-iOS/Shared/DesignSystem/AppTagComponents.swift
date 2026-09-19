@@ -61,7 +61,7 @@ struct AppTagChip: View {
         case let .selection(isSelected):
             return isSelected
                 ? AppDesignSystem.Palette.accent
-                : AppDesignSystem.Palette.accent.opacity(0.12)
+                : AppDesignSystem.Palette.accentSurface
         }
     }
 }

@@ -4,6 +4,17 @@ import Combine
 
 enum BIT101AppStore {
     nonisolated static let url = AppURL.required("https://apps.apple.com/cn/app/bit101/id6761147125")
+
+    static func acceptsUpdateURL(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https",
+              url.host?.lowercased() == "apps.apple.com",
+              url.port == nil || url.port == 443,
+              url.user == nil,
+              url.password == nil
+        else { return false }
+
+        return url.pathComponents.contains("id6761147125")
+    }
 }
 
 /// App Store Lookup API 中与更新提醒有关的最小数据集。
@@ -22,8 +33,7 @@ struct AppStoreRelease: Codable, Equatable, Identifiable {
     var appStoreURL: URL {
         if
             let trackViewURL,
-            trackViewURL.host?.lowercased() == "apps.apple.com",
-            trackViewURL.path.contains("id6761147125")
+            BIT101AppStore.acceptsUpdateURL(trackViewURL)
         {
             return trackViewURL
         }
@@ -149,7 +159,7 @@ final class AppUpdateChecker {
 
     private func fetchLatestRelease() async throws -> AppStoreRelease {
         // Apple Lookup CDN 可能按 User-Agent 返回已过期版本；每次受 24 小时门禁控制的
-        // 查询追加唯一参数，配合缓存策略请求最新响应。
+        // 查询追加当前时间参数，配合缓存策略请求最新响应。
         var components = URLComponents(url: Self.lookupURL, resolvingAgainstBaseURL: false)
         let existingQueryItems = components?.queryItems ?? []
         components?.queryItems = existingQueryItems + [
@@ -307,6 +317,7 @@ final class AppPromptCoordinator: ObservableObject {
             enqueue(prompt)
             return
         }
+        guard !handledIDs.contains(prompt.id) else { return }
         await withCheckedContinuation { continuation in
             dismissalWaiters[prompt.id, default: []].append(continuation)
             enqueue(prompt)

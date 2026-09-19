@@ -16,12 +16,23 @@ enum HTTPSURLUpgrade {
 
     nonisolated static func resolvedURL(from location: String, relativeTo baseURL: URL) -> URL? {
         if let candidate = URL(string: location), candidate.scheme != nil {
-            return upgradedURL(from: candidate)
+            let resolved = upgradedURL(from: candidate)
+            return isHTTPURL(resolved) ? resolved : nil
         }
         guard let relative = URL(string: location, relativeTo: baseURL)?.absoluteURL else {
             return nil
         }
-        return upgradedURL(from: relative)
+        let resolved = upgradedURL(from: relative)
+        return isHTTPURL(resolved) ? resolved : nil
+    }
+
+    nonisolated private static func isHTTPURL(_ url: URL) -> Bool {
+        switch url.scheme?.lowercased() {
+        case "http", "https":
+            return true
+        default:
+            return false
+        }
     }
 }
 
@@ -48,16 +59,47 @@ final class HTTPSUpgradingRedirectDelegate: NSObject, URLSessionTaskDelegate {
         completionHandler: @escaping (URLRequest?) -> Void
     ) {
         guard let url = request.url else {
-            completionHandler(request)
+            completionHandler(nil)
             return
         }
         let upgradedURL = HTTPSURLUpgrade.upgradedURL(from: url)
-        guard upgradedURL != url else {
-            completionHandler(request)
+        guard let scheme = upgradedURL.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            completionHandler(nil)
             return
         }
         var secureRequest = request
         secureRequest.url = upgradedURL
+
+        let remainsSameOrigin = response.url.map { sameOrigin($0, upgradedURL) } ?? false
+        if !remainsSameOrigin {
+            let method = request.httpMethod?.uppercased() ?? "GET"
+            guard method == "GET" || method == "HEAD" else {
+                completionHandler(nil)
+                return
+            }
+            secureRequest.setValue(nil, forHTTPHeaderField: "Authorization")
+            secureRequest.setValue(nil, forHTTPHeaderField: "Proxy-Authorization")
+            secureRequest.setValue(nil, forHTTPHeaderField: "Cookie")
+            secureRequest.setValue(nil, forHTTPHeaderField: "fake-cookie")
+            secureRequest.httpBody = nil
+            secureRequest.httpBodyStream = nil
+        }
+
         completionHandler(secureRequest)
+    }
+
+    private func sameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
+        guard
+            let lhsScheme = lhs.scheme?.lowercased(),
+            let rhsScheme = rhs.scheme?.lowercased(),
+            let lhsHost = lhs.host?.lowercased(),
+            let rhsHost = rhs.host?.lowercased()
+        else {
+            return false
+        }
+
+        let lhsPort = lhs.port ?? (lhsScheme == "https" ? 443 : 80)
+        let rhsPort = rhs.port ?? (rhsScheme == "https" ? 443 : 80)
+        return lhsScheme == rhsScheme && lhsHost == rhsHost && lhsPort == rhsPort
     }
 }

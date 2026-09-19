@@ -56,6 +56,13 @@ struct PaperSummaryCard: View {
             .foregroundStyle(.secondary)
         }
         .appFeedCardStyle()
+        .contentShape(Rectangle())
         .onTapGesture(perform: onOpen)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("打开文章详情")
+        .accessibilityAction(named: "打开文章") {
+            onOpen()
+        }
     }
 }

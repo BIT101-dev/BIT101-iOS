@@ -58,6 +58,7 @@ struct DDLSettingsPage: View {
             }
         }
         .appGroupedListStyle()
+        .diagnosticAlert(item: $viewModel.notice)
         .task { viewModel.loadIfNeeded() }
         .sheet(item: $pickerRoute) { route in
             switch route {
@@ -134,6 +135,7 @@ private struct DDLSettingsNumberPickerSheet: View {
                 }
                 .pickerStyle(.wheel)
                 .labelsHidden()
+                .accessibilityLabel(title)
                 .appSelectionFeedback(trigger: value)
             }
             .navigationTitle(title)

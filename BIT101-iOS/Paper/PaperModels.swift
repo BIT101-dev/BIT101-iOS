@@ -2,9 +2,6 @@
 //  PaperModels.swift
 //  BIT101-iOS
 //
-//  Created by Codex on 2026-04-01.
-//
-
 import Foundation
 import UIKit
 
@@ -59,10 +56,8 @@ struct PaperSummary: Decodable, Identifiable, Hashable {
 /// 文章列表接口本身不返回作者信息。
 /// 列表页按需补拉单篇文章详情，并将显示所需的作者字段整理到这一层，视图层读取该摘要。
 struct PaperPreviewMetadata: Equatable, Hashable {
-    let authorID: Int?
     let authorName: String
     let avatarURL: URL?
-    let anonymous: Bool
 }
 
 /// 文章详情模型。
@@ -105,12 +100,8 @@ struct PaperDetail: Decodable, Identifiable, Hashable {
     /// 生成列表预览使用的作者摘要。
     var previewMetadata: PaperPreviewMetadata {
         PaperPreviewMetadata(
-            authorID: anonymous ? nil : updateUser.id,
             authorName: anonymous ? "匿名者" : updateUser.nickname,
-            // 文章详情页展示服务端返回的头像地址，列表预览沿用同一地址。
-            // 匿名文章也保留该地址，列表头像与详情保持一致。
-            avatarURL: updateUser.avatar.preferredRemoteURL,
-            anonymous: anonymous
+            avatarURL: anonymous ? nil : updateUser.avatar.preferredRemoteURL
         )
     }
 }
@@ -145,7 +136,7 @@ enum PaperCommentComposerTarget: Identifiable, Equatable {
         case .paper:
             return "发表评论"
         case let .comment(_, targetComment):
-            return "回复 @\(targetComment.user.nickname)"
+            return "回复 @\(targetCommentDisplayName(targetComment))"
         }
     }
 
@@ -154,8 +145,12 @@ enum PaperCommentComposerTarget: Identifiable, Equatable {
         case .paper:
             return "写点什么吧"
         case let .comment(_, targetComment):
-            return "回复 @\(targetComment.user.nickname)"
+            return "回复 @\(targetCommentDisplayName(targetComment))"
         }
+    }
+
+    private func targetCommentDisplayName(_ comment: GalleryComment) -> String {
+        comment.anonymous ? "匿名用户" : comment.user.nickname
     }
 
     var objectID: String {
@@ -219,7 +214,11 @@ struct PaperInlineImage: Identifiable, Hashable {
     let caption: AttributedString?
 
     var asGalleryImage: GalleryImage {
-        GalleryImage(mid: id, url: url, lowUrl: lowURL)
+        GalleryImage(
+            mid: id,
+            url: validatedRemoteURL(from: url)?.absoluteString ?? "",
+            lowUrl: validatedRemoteURL(from: lowURL)?.absoluteString ?? ""
+        )
     }
 
     var preferredRemoteURL: URL? {
@@ -259,7 +258,7 @@ enum PaperEditorContentBuilder {
             Block(
                 id: UUID().uuidString.prefix(8).lowercased(),
                 type: "paragraph",
-                data: BlockData(text: paragraph.replacingOccurrences(of: "\n", with: "<br>"))
+                data: BlockData(text: htmlEscapedText(paragraph).replacingOccurrences(of: "\n", with: "<br>"))
             )
         }
 
@@ -275,6 +274,13 @@ enum PaperEditorContentBuilder {
             return plainText
         }
         return json
+    }
+
+    private static func htmlEscapedText(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
     }
 
     static func plainText(from rawContent: String) -> String {
@@ -317,9 +323,10 @@ enum PaperContentRenderer {
         let normalizedHTML = html
             .replacingOccurrences(of: "&nbsp;", with: " ")
             .replacingOccurrences(of: "<br>", with: "<br/>")
+        let safeHTML = sanitizedHTML(normalizedHTML)
 
-        guard let data = "<span>\(normalizedHTML)</span>".data(using: .utf8) else {
-            return AttributedString(normalizedHTML)
+        guard let data = "<span>\(safeHTML)</span>".data(using: .utf8) else {
+            return AttributedString(strippingHTML(from: safeHTML))
         }
 
         guard
@@ -332,9 +339,10 @@ enum PaperContentRenderer {
                 documentAttributes: nil
             )
         else {
-            return AttributedString(strippingHTML(from: normalizedHTML))
+            return AttributedString(strippingHTML(from: safeHTML))
         }
 
+        sanitizeLinks(in: attributed)
         return (try? AttributedString(attributed, including: \.uiKit)) ?? AttributedString(attributed.string)
     }
 
@@ -376,7 +384,7 @@ enum PaperContentRenderer {
             guard let file = data["file"] as? [String: Any] else { return nil }
             let url = (file["url"] as? String) ?? ""
             let lowURL = (file["low_url"] as? String) ?? ""
-            guard !url.isEmpty || !lowURL.isEmpty else { return nil }
+            guard makePreferredRemoteURL(lowURL: lowURL, originalURL: url) != nil else { return nil }
             let rawCaption = (data["caption"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let caption = rawCaption.isEmpty ? nil : attributedText(from: rawCaption)
             return .image(id: id, image: PaperInlineImage(id: id, url: url, lowURL: lowURL, caption: caption))
@@ -388,6 +396,59 @@ enum PaperContentRenderer {
     private nonisolated static func strippingHTML(from html: String) -> String {
         html.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
     }
+
+    private nonisolated static func sanitizedHTML(_ html: String) -> String {
+        var result = html
+        for tag in ["script", "style", "iframe", "object", "embed"] {
+            result = result.replacingOccurrences(
+                of: "<\(tag)\\b[^>]*>[\\s\\S]*?</\(tag)\\s*>",
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
+        }
+        return result.replacingOccurrences(
+            of: "<img\\b[^>]*>",
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+    }
+
+    private nonisolated static func sanitizeLinks(in attributed: NSMutableAttributedString) {
+        let fullRange = NSRange(location: 0, length: attributed.length)
+        var unsafeRanges: [NSRange] = []
+        attributed.enumerateAttribute(.link, in: fullRange) { value, range, _ in
+            guard let value else { return }
+            guard let url = linkURL(from: value), isAllowedRemoteURL(url) else {
+                unsafeRanges.append(range)
+                return
+            }
+        }
+
+        for range in unsafeRanges {
+            attributed.removeAttribute(.link, range: range)
+        }
+    }
+
+    private nonisolated static func linkURL(from value: Any) -> URL? {
+        if let url = value as? URL {
+            return url
+        }
+        if let url = value as? NSURL {
+            return url as URL
+        }
+        if let string = value as? String {
+            return URL(string: string)
+        }
+        return nil
+    }
+
+    private nonisolated static func isAllowedRemoteURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              url.host != nil
+        else { return false }
+        return true
+    }
 }
 
 extension GalleryImage {
@@ -398,7 +459,15 @@ extension GalleryImage {
 }
 
 private nonisolated func makePreferredRemoteURL(lowURL: String, originalURL: String) -> URL? {
-    let rawURL = lowURL.isEmpty ? originalURL : lowURL
-    guard !rawURL.isEmpty else { return nil }
-    return URL(string: rawURL)
+    validatedRemoteURL(from: lowURL) ?? validatedRemoteURL(from: originalURL)
+}
+
+private nonisolated func validatedRemoteURL(from rawURL: String) -> URL? {
+    let trimmedURL = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let url = URL(string: trimmedURL),
+          let scheme = url.scheme?.lowercased(),
+          ["http", "https"].contains(scheme),
+          url.host != nil
+    else { return nil }
+    return url
 }

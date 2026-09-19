@@ -14,25 +14,32 @@ extension ScheduleViewModel {
         guard !isSyncingCourses, !isLoadingTerms, !isSubmittingSMSCode,
               smsChallenge == nil, pendingCourseReplacement == nil
         else { return }
-        if let term {
-            selectTermForSync(term)
+        let requestedTerm = term?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let syncTerm = requestedTerm?.isEmpty == true ? nil : requestedTerm
+        let generation = accountGeneration
+        if let syncTerm {
+            selectTermForSync(syncTerm)
         }
         isSyncingCourses = true
-        syncingTerm = term
+        syncingTerm = syncTerm
         defer {
+            guard accountGeneration == generation else { return }
             isSyncingCourses = false
             syncingTerm = nil
         }
 
         do {
-            let payload = try await service.syncCourses(term: term)
+            let payload = try await service.syncCourses(term: syncTerm)
+            guard accountGeneration == generation, !Task.isCancelled else { return }
             applyCourseSyncPayload(payload)
             courseSyncCoordinator.reset()
         } catch ScheduleServiceError.secondFactorRequired(let challenge) {
-            courseSyncCoordinator.waitForCourseAuthentication(term: term)
+            guard accountGeneration == generation, !Task.isCancelled else { return }
+            courseSyncCoordinator.waitForCourseAuthentication(term: syncTerm)
             smsChallenge = challenge
             smsVerificationError = nil
         } catch let error as ScheduleServiceError where error.isSchoolTransportFailure {
+            guard accountGeneration == generation, !Task.isCancelled else { return }
             courseSyncCoordinator.reset()
             notice = schoolFailureNotice(
                 title: "学校服务连接失败",
@@ -40,13 +47,16 @@ extension ScheduleViewModel {
                 networkFailure: true
             )
         } catch ScheduleServiceError.challengeInvalid(let message) {
+            guard accountGeneration == generation, !Task.isCancelled else { return }
             smsChallenge = nil
             smsVerificationError = nil
             courseSyncCoordinator.reset()
             notice = ScheduleNotice.userInput(title: "验证已失效", message: message)
         } catch let error as ScheduleServiceError where error.isUnpublishedCourseSchedule {
+            guard accountGeneration == generation, !Task.isCancelled else { return }
             notice = ScheduleNotice.userInput(title: "课表暂未发布", message: error.localizedDescription)
         } catch {
+            guard accountGeneration == generation, !Task.isCancelled else { return }
             if isCancellation(error) { return }
             notice = schoolFailureNotice(
                 title: "课表同步失败",
@@ -97,18 +107,26 @@ extension ScheduleViewModel {
         guard !isLoadingTerms, !isSyncingCourses, smsChallenge == nil,
               pendingCourseReplacement == nil
         else { return }
+        let generation = accountGeneration
         isLoadingTerms = true
-        defer { isLoadingTerms = false }
+        defer {
+            guard accountGeneration == generation else { return }
+            isLoadingTerms = false
+        }
 
         do {
-            availableTerms = try await service.fetchAvailableTerms()
+            let terms = try await service.fetchAvailableTerms()
+            guard accountGeneration == generation, !Task.isCancelled else { return }
+            availableTerms = terms
             hasLoadedAvailableTerms = true
             courseSyncCoordinator.reset()
         } catch ScheduleServiceError.secondFactorRequired(let challenge) {
+            guard accountGeneration == generation, !Task.isCancelled else { return }
             courseSyncCoordinator.waitForAvailableTermsAuthentication()
             smsChallenge = challenge
             smsVerificationError = nil
         } catch let error as ScheduleServiceError where error.isSchoolTransportFailure {
+            guard accountGeneration == generation, !Task.isCancelled else { return }
             courseSyncCoordinator.reset()
             notice = schoolFailureNotice(
                 title: "学校服务连接失败",
@@ -116,11 +134,12 @@ extension ScheduleViewModel {
                 networkFailure: true
             )
         } catch ScheduleServiceError.challengeInvalid(let message) {
+            guard accountGeneration == generation, !Task.isCancelled else { return }
             courseSyncCoordinator.reset()
             notice = ScheduleNotice.userInput(title: "验证已失效", message: message)
         } catch {
+            guard accountGeneration == generation, !Task.isCancelled else { return }
             if isCancellation(error) { return }
-            hasLoadedAvailableTerms = true
             notice = schoolFailureNotice(
                 title: "学期列表加载失败",
                 message: error.localizedDescription,
@@ -140,15 +159,26 @@ extension ScheduleViewModel {
 
         isSubmittingSMSCode = true
         smsVerificationError = nil
-        defer { isSubmittingSMSCode = false }
+        let generation = accountGeneration
+        defer {
+            guard accountGeneration == generation else { return }
+            isSubmittingSMSCode = false
+        }
 
         do {
-            let continuation = courseSyncCoordinator.continuation
-            if continuation == .classroomRefresh || continuation == .availableTerms {
+            guard let continuation = courseSyncCoordinator.continuation else {
+                smsChallenge = nil
+                smsVerificationError = nil
+                return
+            }
+
+            switch continuation {
+            case .classroomRefresh, .availableTerms:
                 try await service.submitSMSCodeForTeachingCenterAuthentication(
                     normalizedCode,
                     for: challenge
                 )
+                guard accountGeneration == generation, !Task.isCancelled else { return }
                 smsChallenge = nil
                 courseSyncCoordinator.reset()
                 if continuation == .classroomRefresh {
@@ -156,21 +186,23 @@ extension ScheduleViewModel {
                 } else {
                     await loadAvailableTerms()
                 }
-                return
+            case let .courseSync(term):
+                let payload = try await service.submitSMSCode(
+                    normalizedCode,
+                    for: challenge,
+                    term: term
+                )
+                guard accountGeneration == generation, !Task.isCancelled else { return }
+                applyCourseSyncPayload(payload)
+                smsChallenge = nil
+                courseSyncCoordinator.reset()
             }
-
-            let payload = try await service.submitSMSCode(
-                normalizedCode,
-                for: challenge,
-                term: courseSyncCoordinator.courseSyncTerm
-            )
-            applyCourseSyncPayload(payload)
-            smsChallenge = nil
-            courseSyncCoordinator.reset()
         } catch ScheduleServiceError.secondFactorRequired(let challenge) {
+            guard accountGeneration == generation, !Task.isCancelled else { return }
             smsChallenge = challenge
             smsVerificationError = "请输入最新收到的短信验证码。"
         } catch let error as ScheduleServiceError where error.isSchoolTransportFailure {
+            guard accountGeneration == generation, !Task.isCancelled else { return }
             smsChallenge = nil
             smsVerificationError = nil
             courseSyncCoordinator.reset()
@@ -180,13 +212,16 @@ extension ScheduleViewModel {
                 networkFailure: true
             )
         } catch ScheduleServiceError.challengeInvalid(let message) {
+            guard accountGeneration == generation, !Task.isCancelled else { return }
             smsChallenge = nil
             smsVerificationError = nil
             courseSyncCoordinator.reset()
             notice = ScheduleNotice.userInput(title: "验证已失效", message: message)
         } catch let error as ScheduleServiceError where error.isUnpublishedCourseSchedule {
+            guard accountGeneration == generation, !Task.isCancelled else { return }
             notice = ScheduleNotice.userInput(title: "课表暂未发布", message: error.localizedDescription)
         } catch {
+            guard accountGeneration == generation, !Task.isCancelled else { return }
             if isCancellation(error) { return }
             smsVerificationError = error.localizedDescription
         }
@@ -210,16 +245,6 @@ extension ScheduleViewModel {
         case .preserve:
             // 请求成功且课程内容一致时刷新“最近同步时间”，并提示本次同步结果。
             // 首周日期或考试安排发生变化时同步元数据，课程数组沿用现有内容。
-            guard !incomingCourses.isEmpty || existingCourses.isEmpty else {
-                markCourseSyncSucceeded(term: payload.term, at: now)
-                if coursesAreIdentical {
-                    notice = ScheduleNotice.informational(
-                        title: "课表已是最新",
-                        message: "本次获取结果与本地课程内容完全一致。"
-                    )
-                }
-                return
-            }
             let existingSnapshot = cache.termSchedulesByTerm[payload.term]
             let existingFirstDayString = existingSnapshot?.firstDayString
                 ?? (cache.currentTerm == payload.term ? cache.firstDayString : "")
@@ -281,8 +306,11 @@ extension ScheduleViewModel {
 
     /// 记录一次成功的学校响应，即使课表内容与本地缓存完全一致。
     private func markCourseSyncSucceeded(term: String, at date: Date) {
-        guard cache.currentTerm == term else { return }
-        cache.coursesUpdatedAt = date
+        var didUpdate = false
+        if cache.currentTerm == term {
+            cache.coursesUpdatedAt = date
+            didUpdate = true
+        }
         if let snapshot = cache.termSchedulesByTerm[term] {
             cache.termSchedulesByTerm[term] = TermScheduleSnapshot(
                 term: snapshot.term,
@@ -291,8 +319,11 @@ extension ScheduleViewModel {
                 exams: snapshot.exams,
                 updatedAt: date
             )
+            didUpdate = true
         }
-        persist()
+        if didUpdate {
+            persist()
+        }
     }
 
     func resolvePendingCourseReplacement(replace: Bool) {

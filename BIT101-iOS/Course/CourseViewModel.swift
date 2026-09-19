@@ -30,6 +30,7 @@ final class CourseListViewModel: ObservableObject {
 
     private let service: any CourseListServicing
     private var hasBootstrapped = false
+    private var refreshGeneration = 0
 
     init(service: any CourseListServicing) {
         self.service = service
@@ -52,6 +53,7 @@ final class CourseListViewModel: ObservableObject {
     /// 同时写入搜索词和分页状态，详情返回后可立即浏览同名课程的其他教师，
     /// 后续滚动从 page 1 继续分页。
     func applyPreparedSearch(query: String, items: [CourseSummary]) {
+        refreshGeneration &+= 1
         hasBootstrapped = true
         searchText = query
         state.applyFirstPage(items)
@@ -73,6 +75,9 @@ final class CourseListViewModel: ObservableObject {
     }
 
     func refresh() async {
+        refreshGeneration &+= 1
+        let generation = refreshGeneration
+        let previousState = state
         let hadCourses = !state.items.isEmpty || state.status == .loaded
         if !hadCourses {
             state.prepareForRefresh()
@@ -85,13 +90,20 @@ final class CourseListViewModel: ObservableObject {
                 search: normalizedSearchText,
                 page: 0
             )
+            guard refreshGeneration == generation else { return }
             state.applyFirstPage(items)
             state.status = .loaded
         } catch {
+            guard refreshGeneration == generation else { return }
             if isCourseRequestCancellation(error) {
-                if !hadCourses {
-                    state.status = .idle
+                var restoredState = previousState
+                restoredState.isLoadingMore = false
+                if !restoredState.items.isEmpty {
+                    restoredState.status = .loaded
+                } else if case .loading = restoredState.status {
+                    restoredState.status = .idle
                 }
+                state = restoredState
                 return
             }
 
@@ -111,23 +123,31 @@ final class CourseListViewModel: ObservableObject {
 
     func loadMoreIfNeeded(currentCourse: CourseSummary?) async {
         guard let currentCourse else { return }
+        let generation = refreshGeneration
         guard state.status == .loaded, state.shouldLoadMore(currentID: currentCourse.id) else { return }
 
+        let search = normalizedSearchText
+        let nextPage = state.nextPage
         state.isLoadingMore = true
+        defer {
+            if refreshGeneration == generation {
+                state.isLoadingMore = false
+            }
+        }
 
         do {
             let items = try await service.fetchCourses(
-                search: normalizedSearchText,
-                page: state.nextPage
+                search: search,
+                page: nextPage
             )
+            guard refreshGeneration == generation else { return }
             state.appendPage(items)
         } catch {
+            guard refreshGeneration == generation else { return }
             if isCourseRequestCancellation(error) {
-                state.isLoadingMore = false
                 return
             }
 
-            state.isLoadingMore = false
             alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
     }

@@ -7,6 +7,7 @@ struct GallerySettingsPage: View {
     @State private var imageCacheUsageText = "计算中"
     @State private var imageCacheUsageGeneration = 0
     @State private var hiddenUserIDsText = ""
+    @State private var hiddenUserIDsAlert: AppAlert?
     @StateObject private var networkDiagnosis = NetworkDiagnosisRunner()
     @State private var diagnosisAlert: AppAlert?
 
@@ -41,7 +42,13 @@ struct GallerySettingsPage: View {
             Section("网络诊断") {
                 Button {
                     Task {
-                        guard let report = await networkDiagnosis.run() else { return }
+                        guard let report = await networkDiagnosis.run() else {
+                            diagnosisAlert = AppAlert.informational(
+                                title: "网络诊断未完成",
+                                message: "请稍后重试。"
+                            )
+                            return
+                        }
                         diagnosisAlert = AppAlert(
                             title: "网络诊断完成",
                             message: report.summary,
@@ -50,7 +57,7 @@ struct GallerySettingsPage: View {
                     }
                 } label: {
                     HStack(spacing: AppDesignSystem.Spacing.control) {
-                        Text("测试网络并发送诊断报告")
+                        Text("测试网络并生成诊断报告")
                         Spacer()
                         if networkDiagnosis.isRunning {
                             Text("\(networkDiagnosis.completedCount)/\(networkDiagnosis.totalCount)")
@@ -64,6 +71,7 @@ struct GallerySettingsPage: View {
                         value: Double(networkDiagnosis.completedCount),
                         total: Double(networkDiagnosis.totalCount)
                     )
+                    .accessibilityLabel("网络诊断进度")
                     .accessibilityValue("\(networkDiagnosis.completedCount)/\(networkDiagnosis.totalCount)")
                 }
             }
@@ -96,18 +104,30 @@ struct GallerySettingsPage: View {
 
         }
         .appGroupedListStyle()
+        .diagnosticAlert(item: $hiddenUserIDsAlert)
         .diagnosticAlert(item: $diagnosisAlert)
         .task {
             imageCacheLimitMB = GalleryImageCachePreferences.limitMB
             hiddenUserIDsText = settings.galleryHiddenUserIDs.map(String.init).joined(separator: ",")
             await refreshImageCacheUsage()
         }
+        .onChange(of: settings.galleryHiddenUserIDs) { _, newValue in
+            hiddenUserIDsText = newValue.map(String.init).joined(separator: ",")
+        }
     }
 
     private func saveHiddenUserIDs() {
-        let values = hiddenUserIDsText
-            .split { $0 == "," || $0 == "，" || $0 == " " || $0 == "\n" }
-            .compactMap { Int($0) }
+        let tokens = hiddenUserIDsText.split { character in
+            character == "," || character == "，" || character.isWhitespace
+        }
+        let values = tokens.compactMap { Int($0) }
+        guard values.count == tokens.count, values.allSatisfy({ $0 > 0 }) else {
+            hiddenUserIDsAlert = AppAlert.userInput(
+                title: "UID 格式错误",
+                message: "请填写正整数 UID，多个 UID 使用逗号分隔。"
+            )
+            return
+        }
         settings.updateGallerySettings(hiddenUserIDs: values)
         hiddenUserIDsText = settings.galleryHiddenUserIDs.map(String.init).joined(separator: ",")
     }
@@ -311,18 +331,24 @@ struct AboutSettingsPage: View {
         let cachesURL = manager.urls(for: .cachesDirectory, in: .userDomainMask).first
         let temporaryURL = manager.temporaryDirectory
         let reclaimedBytes = (cachesURL.map { directorySize(at: $0) } ?? 0) + directorySize(at: temporaryURL)
+        var hasDeletionFailure = false
 
         if let cachesURL {
-            deleteContents(of: cachesURL, using: manager)
+            hasDeletionFailure = !deleteContents(of: cachesURL, using: manager)
         }
-        deleteContents(of: temporaryURL, using: manager)
+        hasDeletionFailure = !deleteContents(of: temporaryURL, using: manager) || hasDeletionFailure
         URLCache.shared.removeAllCachedResponses()
         await CachedRemoteImageCacheMaintenance.clearAll()
 
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useMB]
         let formatted = formatter.string(fromByteCount: max(reclaimedBytes, 0))
-        alert = AppAlert.informational(title: "清理完成", message: "已清理约 \(formatted) 缓存。")
+        alert = AppAlert.informational(
+            title: hasDeletionFailure ? "清理部分完成" : "清理完成",
+            message: hasDeletionFailure
+                ? "已清理约 \(formatted) 缓存，部分文件仍在使用中。"
+                : "已清理约 \(formatted) 缓存。"
+        )
     }
 
     private func clearUserDefaults() {
@@ -348,26 +374,34 @@ struct AboutSettingsPage: View {
         deleteContents(of: manager.temporaryDirectory, using: manager)
     }
 
-    /// 该方法删除目录中的可见内容，保留隐藏内容。
-    private func deleteContents(of directory: URL, using manager: FileManager) {
+    /// 该方法删除目录中的全部内容。
+    @discardableResult
+    private func deleteContents(of directory: URL, using manager: FileManager) -> Bool {
+        guard manager.fileExists(atPath: directory.path) else { return true }
         guard let urls = try? manager.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
+            options: []
         ) else {
-            return
+            return false
         }
 
+        var succeeded = true
         for url in urls {
-            try? manager.removeItem(at: url)
+            do {
+                try manager.removeItem(at: url)
+            } catch {
+                succeeded = false
+            }
         }
+        return succeeded
     }
 
     private func directorySize(at directory: URL) -> Int64 {
         guard let enumerator = FileManager.default.enumerator(
             at: directory,
             includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
-            options: [.skipsHiddenFiles]
+            options: []
         ) else {
             return 0
         }

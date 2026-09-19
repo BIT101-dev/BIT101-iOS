@@ -1,19 +1,17 @@
 //
 //  PaperComposerViews.swift
 //  BIT101-iOS
-//
-//  Split from PaperRootView.swift.
-//
-
 import SwiftUI
 
 /// 文章发布页。
 ///
 /// 当前提供原生编辑器，支持标题、简介、正文和匿名开关。
-/// 提交前将正文包装为最小 Editor.js JSON，与网页端内容格式保持一致。
+/// 新正文按纯文本段落包装为 Editor.js JSON，已有正文在正文保持原样时沿用服务端内容。
 struct PaperComposerView: View {
     let onCreated: () -> Void
     let editingPaper: PaperDetail?
+    private let originalContent: String?
+    private let originalPlainContent: String?
 
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
@@ -28,6 +26,8 @@ struct PaperComposerView: View {
     init(editingPaper: PaperDetail? = nil, onCreated: @escaping () -> Void) {
         self.editingPaper = editingPaper
         self.onCreated = onCreated
+        originalContent = editingPaper?.content
+        originalPlainContent = editingPaper.map { PaperEditorContentBuilder.plainText(from: $0.content) }
         _title = State(initialValue: editingPaper?.title ?? "")
         _intro = State(initialValue: editingPaper?.intro ?? "")
         _content = State(initialValue: editingPaper.map { PaperEditorContentBuilder.plainText(from: $0.content) } ?? "")
@@ -38,9 +38,12 @@ struct PaperComposerView: View {
         Form {
             Section("内容") {
                 TextField("标题", text: $title)
+                    .font(AppDesignSystem.Typography.body)
                 TextField("简介", text: $intro, axis: .vertical)
+                    .font(AppDesignSystem.Typography.body)
                     .lineLimit(3, reservesSpace: true)
                 TextField("正文", text: $content, axis: .vertical)
+                    .font(AppDesignSystem.Typography.body)
                     .lineLimit(10, reservesSpace: true)
             }
 
@@ -90,7 +93,7 @@ struct PaperComposerView: View {
                     id: editingPaper.id,
                     title: trimmedTitle,
                     intro: trimmedIntro,
-                    content: PaperEditorContentBuilder.editorJSON(from: trimmedContent),
+                    content: editorContent(from: trimmedContent),
                     anonymous: anonymous,
                     publicEdit: editingPaper.publicEdit
                 )
@@ -108,6 +111,16 @@ struct PaperComposerView: View {
             alert = AppAlert(title: "发布失败", message: error.localizedDescription)
         }
     }
+
+    private func editorContent(from trimmedContent: String) -> String {
+        guard let originalContent,
+              let originalPlainContent,
+              trimmedContent == originalPlainContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        else {
+            return PaperEditorContentBuilder.editorJSON(from: trimmedContent)
+        }
+        return originalContent
+    }
 }
 
 struct PaperCommentComposerSheet: View {
@@ -122,8 +135,21 @@ struct PaperCommentComposerSheet: View {
     var body: some View {
         List {
             AppCommentComposerContentSection(title: target.title, anonymous: $anonymous) {
-                TextEditor(text: $text)
-                    .frame(minHeight: AppDesignSystem.Size.content.multilineEditorMinimumHeight)
+                ZStack(alignment: .topLeading) {
+                    if text.isEmpty {
+                        Text(target.placeholder)
+                            .font(AppDesignSystem.Typography.body)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, AppDesignSystem.Spacing.tight)
+                            .padding(.vertical, AppDesignSystem.Spacing.regular)
+                            .accessibilityHidden(true)
+                    }
+
+                    TextEditor(text: $text)
+                        .font(AppDesignSystem.Typography.body)
+                        .frame(minHeight: AppDesignSystem.Size.content.multilineEditorMinimumHeight)
+                        .accessibilityLabel(target.placeholder)
+                }
             }
         }
         .appGroupedListStyle()

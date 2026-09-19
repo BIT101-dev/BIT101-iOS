@@ -104,6 +104,7 @@ struct GalleryComposerImageTile: View {
             }
             .padding(AppDesignSystem.Spacing.tight)
             .buttonStyle(.plain)
+            .accessibilityLabel("移除图片")
         }
         .frame(width: AppDesignSystem.Size.content.imageDraft, height: AppDesignSystem.Size.content.imageDraft)
     }
@@ -266,7 +267,8 @@ struct GalleryComposerView: View {
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     /// 已经加入发帖草稿的图片列表。
     @State private var imageDrafts: [GalleryComposerImageDraft] = []
-    @State private var existingImageMids: [String] = []
+    /// 编辑帖子时保留的原有图片列表。
+    @State private var existingImages: [GalleryImage] = []
     /// 当前批量读取图片并加入上传队列。
     @State private var isAddingImages = false
     /// 是否匿名发布。
@@ -299,7 +301,7 @@ struct GalleryComposerView: View {
         _anonymous = State(initialValue: editingPoster?.anonymous ?? false)
         _isPublic = State(initialValue: editingPoster?.public ?? true)
         _selectedClaimID = State(initialValue: editingPoster?.claim.id ?? 0)
-        _existingImageMids = State(initialValue: editingPoster?.images.map(\.mid) ?? [])
+        _existingImages = State(initialValue: editingPoster?.images ?? [])
     }
 
     /// 内置的推荐标签。
@@ -373,6 +375,7 @@ struct GalleryComposerView: View {
                                         .font(AppDesignSystem.Typography.title3)
                                 }
                                 .buttonStyle(.plain)
+                                .accessibilityLabel("删除标签")
                             }
                         }
                     }
@@ -400,8 +403,60 @@ struct GalleryComposerView: View {
                     .disabled(
                         isSubmitting
                             || isAddingImages
-                            || existingImageMids.count + imageDrafts.count >= Self.maximumImageCount
+                            || existingImages.count + imageDrafts.count >= Self.maximumImageCount
                     )
+
+                    if !existingImages.isEmpty {
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: AppDesignSystem.Size.content.imageDraft), spacing: AppDesignSystem.Spacing.regular)],
+                            spacing: AppDesignSystem.Spacing.regular
+                        ) {
+                            ForEach(existingImages) { image in
+                                ZStack(alignment: .topTrailing) {
+                                    GalleryPosterThumbnail(image: image, contentMode: .fill)
+                                        .frame(
+                                            width: AppDesignSystem.Size.content.imageDraft,
+                                            height: AppDesignSystem.Size.content.imageDraft
+                                        )
+                                        .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.sheet))
+
+                                    Button {
+                                        removeExistingImage(id: image.id)
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(AppDesignSystem.Typography.title3)
+                                            .foregroundStyle(.white, Color.black.opacity(0.55))
+                                    }
+                                    .padding(AppDesignSystem.Spacing.tight)
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("移除原有图片")
+                                }
+                                .frame(
+                                    width: AppDesignSystem.Size.content.imageDraft,
+                                    height: AppDesignSystem.Size.content.imageDraft
+                                )
+                            }
+                        }
+                    }
+
+                    if !imageDrafts.isEmpty {
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: AppDesignSystem.Size.content.imageDraft), spacing: AppDesignSystem.Spacing.regular)],
+                            spacing: AppDesignSystem.Spacing.regular
+                        ) {
+                            ForEach(imageDrafts) { draft in
+                                GalleryComposerImageTile(
+                                    draft: draft,
+                                    onRetry: {
+                                        Task { await retryImageUpload(id: draft.id) }
+                                    },
+                                    onRemove: {
+                                        removeImageDraft(id: draft.id)
+                                    }
+                                )
+                            }
+                        }
+                    }
 
                     if hasUploadingImages {
                         Text("图片上传中，上传完成后即可一并发布。")
@@ -490,7 +545,7 @@ struct GalleryComposerView: View {
     }
 
     private func checkDraftOnAppear() {
-        guard !didCheckDraft else { return }
+        guard editingPoster == nil, !didCheckDraft else { return }
         didCheckDraft = true
         isShowingDraftRestoreAlert = ComposerDraftStore.loadGallery() != nil
     }
@@ -510,10 +565,11 @@ struct GalleryComposerView: View {
         isPublic = draft.isPublic
         selectedClaimID = draft.selectedClaimID
         imageDrafts = draft.images.map {
+            let uploadData = $0.uploadData ?? jpegUploadData(from: $0.previewData)
             GalleryComposerImageDraft(
                 previewData: $0.previewData,
                 filename: $0.filename,
-                uploadData: $0.uploadData,
+                uploadData: uploadData,
                 status: .failed("需要重新上传")
             )
         }
@@ -601,7 +657,7 @@ struct GalleryComposerView: View {
         defer { isSubmitting = false }
 
         do {
-            let imageMids = existingImageMids + uploadedImages.map(\.mid)
+            let imageMids = existingImages.map(\.mid) + uploadedImages.map(\.mid)
             if let editingPoster {
                 try await service.updatePoster(
                     id: editingPoster.id,
@@ -675,7 +731,7 @@ struct GalleryComposerView: View {
         isAddingImages = true
         defer { isAddingImages = false }
         defer { selectedPhotoItems = [] }
-        let remaining = max(0, Self.maximumImageCount - existingImageMids.count - imageDrafts.count)
+        let remaining = max(0, Self.maximumImageCount - existingImages.count - imageDrafts.count)
         guard remaining > 0 else { return }
 
         for item in items.prefix(remaining) {
@@ -691,11 +747,21 @@ struct GalleryComposerView: View {
             }
 
             let filename = "poster-\(UUID().uuidString).jpg"
-            var draft = GalleryComposerImageDraft(previewData: data, filename: filename)
+            guard let uploadData = jpegUploadData(from: data) else {
+                throw GalleryServiceError.uploadFailed
+            }
+            var draft = GalleryComposerImageDraft(
+                previewData: data,
+                filename: filename,
+                uploadData: uploadData
+            )
             imageDrafts.append(draft)
 
             do {
-                let image = try await service.uploadImage(data: data, filename: filename)
+                let image = try await service.uploadImage(
+                    data: draft.uploadData ?? draft.previewData,
+                    filename: filename
+                )
                 draft.status = .uploaded(image)
             } catch {
                 draft.status = .failed(error.localizedDescription)
@@ -711,6 +777,40 @@ struct GalleryComposerView: View {
     private func replaceImageDraft(_ draft: GalleryComposerImageDraft) {
         guard let index = imageDrafts.firstIndex(where: { $0.id == draft.id }) else { return }
         imageDrafts[index] = draft
+    }
+
+    /// 将照片选择器返回的图片统一编码为上传接口声明的 JPEG。
+    private func jpegUploadData(from data: Data) -> Data? {
+        guard let image = UIImage(data: data) else { return nil }
+        return image.jpegData(compressionQuality: 1)
+    }
+
+    /// 重试失败图片的上传。
+    private func retryImageUpload(id: GalleryComposerImageDraft.ID) async {
+        guard var draft = imageDrafts.first(where: { $0.id == id }) else { return }
+        draft.status = .uploading
+        replaceImageDraft(draft)
+
+        do {
+            let image = try await service.uploadImage(
+                data: draft.uploadData ?? draft.previewData,
+                filename: draft.filename
+            )
+            draft.status = .uploaded(image)
+        } catch {
+            draft.status = .failed(error.localizedDescription)
+        }
+        replaceImageDraft(draft)
+    }
+
+    /// 移除新加入的图片草稿。
+    private func removeImageDraft(id: GalleryComposerImageDraft.ID) {
+        imageDrafts.removeAll { $0.id == id }
+    }
+
+    /// 移除编辑帖子时保留的原有图片。
+    private func removeExistingImage(id: GalleryImage.ID) {
+        existingImages.removeAll { $0.id == id }
     }
 
     /// 把预置标签和自定义标签合并成最终提交数组。

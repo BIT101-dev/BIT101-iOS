@@ -6,17 +6,20 @@ struct AppAvatarView: View {
     let size: CGFloat
     let tint: Color
     let systemImage: String
+    let accessibilityLabel: String?
 
     init(
         imageURL: URL?,
         size: CGFloat = AppDesignSystem.Comment.layout.avatarSize,
         tint: Color = AppDesignSystem.Palette.highlight,
-        systemImage: String = "person.fill"
+        systemImage: String = "person.fill",
+        accessibilityLabel: String? = nil
     ) {
         self.imageURL = imageURL
         self.size = size
         self.tint = tint
         self.systemImage = systemImage
+        self.accessibilityLabel = accessibilityLabel
     }
 
     var body: some View {
@@ -39,5 +42,8 @@ struct AppAvatarView: View {
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityHidden(accessibilityLabel == nil)
+        .accessibilityLabel(accessibilityLabel ?? "")
     }
 }

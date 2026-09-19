@@ -8,20 +8,25 @@ import XCTest
 /// 正式 App 的当前登录态冒烟通过 `bit101://network-smoke/...` 在主进程内触发同一 runner。
 @MainActor
 final class ReleaseNetworkSmokeTests: XCTestCase {
-    private var scope: NetworkSmokeScope {
+    private var scope: NetworkSmokeScope? {
 #if SMOKE_BIT101
         return .bit101
 #elseif SMOKE_SCHOOL
         return .school
 #else
-        return NetworkSmokeScope(
-            rawValue: ProcessInfo.processInfo.environment["BIT101_NETWORK_SMOKE_SCOPE"] ?? "all"
-        ) ?? .all
+        let rawValue = ProcessInfo.processInfo.environment["BIT101_NETWORK_SMOKE_SCOPE"] ?? "all"
+        return NetworkSmokeScope(rawValue: rawValue)
 #endif
     }
 
     func testReadOnlyUserNetworkFlows() async {
+        guard let scope else {
+            XCTFail("BIT101_NETWORK_SMOKE_SCOPE 无效")
+            return
+        }
         let report = await ReleaseNetworkSmokeRunner().run(scope: scope)
+        XCTAssertEqual(report.scope, scope)
+        XCTAssertTrue(report.executedProbes.contains("BIT101 登录状态"))
         XCTAssertTrue(report.passed, report.failureMessage)
     }
 }

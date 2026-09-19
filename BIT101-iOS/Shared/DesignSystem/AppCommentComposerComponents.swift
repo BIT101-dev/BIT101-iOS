@@ -32,10 +32,26 @@ struct AppCommentComposerContentSection<Content: View>: View {
 struct AppComposerToolbar: ToolbarContent {
     let isSubmitting: Bool
     let submitTitle: String
-    var submittingTitle = "发送中…"
-    var isSubmitDisabled = false
+    let submittingTitle: String
+    let isSubmitDisabled: Bool
     let onCancel: () -> Void
     let onSubmit: () -> Void
+
+    init(
+        isSubmitting: Bool,
+        submitTitle: String,
+        submittingTitle: String = "发送中…",
+        isSubmitDisabled: Bool = false,
+        onCancel: @escaping () -> Void,
+        onSubmit: @escaping () -> Void
+    ) {
+        self.isSubmitting = isSubmitting
+        self.submitTitle = submitTitle
+        self.submittingTitle = submittingTitle
+        self.isSubmitDisabled = isSubmitDisabled
+        self.onCancel = onCancel
+        self.onSubmit = onSubmit
+    }
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {

@@ -35,7 +35,8 @@ struct ScoreRow: Codable, Identifiable {
         let identifier = pairs.first(where: { $0.key == "序号" })?.value
             ?? pairs.first(where: { $0.key == "课程编号" })?.value
             ?? "\(index)"
-        id = identifier
+        // 同一课程可能存在多条记录，追加接口行号保持列表标识唯一。
+        id = "\(identifier)|\(index)"
     }
 
     /// 此下标器按原始表头读取任意字段，详情页使用它读取字段。
@@ -84,10 +85,14 @@ enum ScoreDetailRefreshPolicy {
               briefRowsMatchCache(briefRows, cachedRows: cachedRows)
         else { return .fetch }
 
-        guard let latestTerm = briefRows.map(\.term).filter({ !$0.isEmpty }).max() else {
+        guard let latestTerm = briefRows
+            .map({ normalizedTerm($0.term) })
+            .filter({ !$0.isEmpty })
+            .max()
+        else {
             return .fetch
         }
-        let relevantRows = cachedRows.filter { $0.term == latestTerm }
+        let relevantRows = cachedRows.filter { normalizedTerm($0.term) == latestTerm }
         guard !relevantRows.isEmpty else { return .fetch }
 
         let knownStatuses = relevantRows.map(\.teachingClassesCompletionStatus).filter { !$0.isEmpty }
@@ -120,6 +125,10 @@ enum ScoreDetailRefreshPolicy {
             }.joined(separator: "|")
         }.sorted()
     }
+
+    private static func normalizedTerm(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
 
 /// 此结构表示成绩统计摘要。
@@ -139,7 +148,7 @@ struct ScoreSummary {
         var fallbackRows: [ScoreRow] = []
 
         for row in rows {
-            let courseNumber = row.courseNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+            let courseNumber = normalizedCourseNumber(row.courseNumber)
             if courseNumber.isEmpty {
                 fallbackRows.append(row)
                 continue
@@ -172,6 +181,12 @@ struct ScoreSummary {
             weightedAverageScore: totalCredit > 0 ? totalScore / totalCredit : nil,
             weightedAverageGPA: totalCredit > 0 ? totalGPA / totalCredit : nil
         )
+    }
+
+    private static func normalizedCourseNumber(_ value: String) -> String {
+        value.components(separatedBy: .whitespacesAndNewlines)
+            .joined()
+            .lowercased()
     }
 
     /// 将网页端等级描述映射为百分制成绩和 GPA。

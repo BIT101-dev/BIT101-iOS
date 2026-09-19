@@ -20,7 +20,7 @@ struct LoginService {
 
     /// 当前本地保存的学号。
     var savedStudentID: String {
-        storage.currentStudentID
+        storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// 当前本地保存的密码。
@@ -32,19 +32,20 @@ struct LoginService {
     ///
     /// 该属性读取本地会话状态；远端有效性由后台异步校验。
     var hasCachedSession: Bool {
-        !storage.fakeCookie.isEmpty && !savedStudentID.isEmpty
+        let fakeCookie = storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !fakeCookie.isEmpty && !savedStudentID.isEmpty
     }
 
     /// 校验当前本地会话是否仍然有效。
     ///
-    /// 如有必要，会尝试使用已保存的账号密码静默重登学校 SSO。
+    /// 这条检查由启动后台校验、设置页手动检查和日程同步前置校验共同调用，
+    /// 负责确认 BIT101 自有会话并返回当前学号。学校 SSO 会话按需通过
+    /// `restoreSchoolSessionIfNeeded()` 恢复。
     ///
-    /// 这条检查由启动后台校验、设置页手动检查和日程同步前置校验共同调用。
-    /// 清退策略保持保守，远端明确说明当前凭据无效时清除本地 session。
-    /// 网络不稳、学校登录页结构异常、缺少静默恢复材料等情况向上抛错，同时保留
-    /// `fake-cookie`，让主 App、watch 和 widget 保持当前登录展示。
+    /// 远端明确返回当前会话失效时清除本地 session；网络错误沿调用链抛出，
+    /// 本地数据继续支撑主 App、watch 和 widget 的当前登录展示。
     func checkLogin() async throws -> String? {
-        let fakeCookie = storage.fakeCookie
+        let fakeCookie = storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !fakeCookie.isEmpty else {
             return nil
         }
@@ -57,7 +58,7 @@ struct LoginService {
             return nil
         }
 
-        let studentID = storage.currentStudentID
+        let studentID = savedStudentID
         guard !studentID.isEmpty else {
             storage.clearSession()
             return nil
@@ -71,7 +72,7 @@ struct LoginService {
     func restoreSchoolSessionIfNeeded() async throws -> String? {
         let schoolContext = try await apiClient.fetchSchoolLoginContext()
         if schoolContext.isLoggedIn {
-            let studentID = storage.currentStudentID
+            let studentID = savedStudentID
             if studentID.isEmpty {
                 throw LoginServiceError.unableToRestoreSchoolSession
             }
@@ -91,14 +92,22 @@ struct LoginService {
             throw LoginServiceError.invalidSchoolLoginPage
         }
 
+        let studentID = credentials.studentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !studentID.isEmpty else {
+            throw LoginServiceError.unableToRestoreSchoolSession
+        }
+
         let reloginSucceeded = try await apiClient.loginSchool(
-            studentID: credentials.studentID,
+            studentID: studentID,
             password: credentials.password,
             salt: salt,
             execution: execution
         )
 
-        return reloginSucceeded ? credentials.studentID : nil
+        guard reloginSucceeded else {
+            throw LoginServiceError.schoolLoginFailed
+        }
+        return studentID
     }
 
     /// 执行 BIT101 登录流程：WebVPN 身份校验 -> 登录模式注册。
@@ -106,13 +115,16 @@ struct LoginService {
     /// WebVPN 校验由 BIT101 后端完成，足以证明学号身份并签发 fake-cookie；手机本地的
     /// 学校 SSO Cookie 由需要学校身份的功能按需获取，App 登录链路与学校 CAS 版本变化保持隔离。
     func login(studentID: String, password: String) async throws -> String {
-        storage.clearSession()
+        let normalizedStudentID = studentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedStudentID.isEmpty, !password.isEmpty else {
+            throw LoginServiceError.invalidCredentials
+        }
 
         // 与 BIT101-GO 的现有接口保持一致：初始化验证上下文 -> 校验 WebVPN -> 登录模式注册。
-        let initResponse = try await apiClient.webVPNVerifyInit(studentID: studentID)
+        let initResponse = try await apiClient.webVPNVerifyInit(studentID: normalizedStudentID)
         let encryptedPassword = try LoginCrypto.encryptPassword(password, saltBase64: initResponse.salt)
         let verifyResponse = try await apiClient.webVPNVerify(
-            studentID: studentID,
+            studentID: normalizedStudentID,
             password: encryptedPassword,
             execution: initResponse.execution,
             cookie: initResponse.cookie,
@@ -125,13 +137,18 @@ struct LoginService {
             code: verifyResponse.code
         )
 
+        let fakeCookie = registerResponse.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !fakeCookie.isEmpty else {
+            throw LoginServiceError.invalidServerResponse
+        }
+
         try storage.saveLoginState(
-            studentID: studentID,
+            studentID: normalizedStudentID,
             password: password,
-            fakeCookie: registerResponse.fakeCookie
+            fakeCookie: fakeCookie
         )
 
-        return studentID
+        return normalizedStudentID
     }
 
     /// 清除当前登录会话。

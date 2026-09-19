@@ -197,7 +197,11 @@ final class GalleryPosterDetailViewModel: ObservableObject {
         else { return }
 
         commentState.isLoadingMore = true
-        defer { commentState.isLoadingMore = false }
+        defer {
+            if refreshGeneration == generation {
+                commentState.isLoadingMore = false
+            }
+        }
         let nextPage = commentState.nextPage
         let result = await loadResult { [self] in
             try await self.service.fetchComments(objectID: self.posterObjectID, order: self.commentOrder, page: nextPage)

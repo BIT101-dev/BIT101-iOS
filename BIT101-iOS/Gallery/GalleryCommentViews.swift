@@ -110,24 +110,57 @@ private struct GalleryCommentRow: View {
     let onDeleteComment: (GalleryComment) -> Void
     let onOpenImage: (Int, [GalleryImage]) -> Void
     let onOpenUser: (GalleryUser) -> Void
+    @State private var pendingDeleteComment: GalleryComment?
+    @State private var isShowingDeleteConfirmation = false
 
     var body: some View {
-        AppCommentThread(comment: comment, subcomments: comment.sub) { comment, isSubComment in
+        AppCommentThread(comment: comment, subcomments: flattenedSubcomments) { comment, isSubComment in
             commentBubble(comment, isSubComment: isSubComment)
         }
+        .alert(
+            "删除评论",
+            isPresented: $isShowingDeleteConfirmation,
+            presenting: pendingDeleteComment
+        ) { comment in
+            Button("取消", role: .cancel) {
+                pendingDeleteComment = nil
+            }
+            Button("删除", role: .destructive) {
+                pendingDeleteComment = nil
+                onDeleteComment(comment)
+            }
+        } message: { _ in
+            Text("确定删除这条评论吗？删除后无法恢复。")
+        }
     }
+
+    private var flattenedSubcomments: [GalleryComment] {
+        comment.sub.flatMap { flattenedComments(from: $0) }
+    }
+
+    private func flattenedComments(from comment: GalleryComment) -> [GalleryComment] {
+        [comment] + comment.sub.flatMap { flattenedComments(from: $0) }
+    }
+
+    private func commentAvatarURL(for comment: GalleryComment) -> URL? {
+        let rawURL = comment.user.avatar.lowUrl.isEmpty
+            ? comment.user.avatar.url
+            : comment.user.avatar.lowUrl
+        return URL(string: rawURL)
+    }
+
     @ViewBuilder
     private func commentBubble(_ comment: GalleryComment, isSubComment: Bool) -> some View {
         AppCommentBubble {
             AppAvatarView(
-                imageURL: URL(string: comment.user.avatar.lowUrl.isEmpty ? comment.user.avatar.url : comment.user.avatar.lowUrl),
+                imageURL: comment.anonymous ? nil : commentAvatarURL(for: comment),
                 size: isSubComment
                     ? AppDesignSystem.Size.control.compact
                     : AppDesignSystem.Comment.layout.avatarSize
             )
         } content: {
             AppCommentIdentityHeader(
-                nickname: comment.user.nickname,
+                nickname: comment.anonymous ? "匿名用户" : comment.user.nickname,
                 isSubComment: isSubComment,
                 timeText: AppDateText.relativeText(from: comment.createTime, fallback: "未知时间"),
                 onOpenProfile: canOpenUserProfile(comment) ? { onOpenUser(comment.user) } : nil
@@ -157,7 +190,8 @@ private struct GalleryCommentRow: View {
             }
             if comment.own {
                 Button("删除评论", systemImage: "trash", role: .destructive) {
-                    onDeleteComment(comment)
+                    pendingDeleteComment = comment
+                    isShowingDeleteConfirmation = true
                 }
             }
             Button("举报评论", systemImage: "exclamationmark.bubble") {
@@ -206,6 +240,7 @@ struct GalleryCommentComposerSheet: View {
     @State private var uploadedImages: [GalleryImage] = []
     @State private var isUploadingImages = false
     @State private var uploadError: String?
+    @State private var imageViewer: GalleryImageViewerState?
     private let service = GalleryService()
 
     var body: some View {
@@ -217,20 +252,31 @@ struct GalleryCommentComposerSheet: View {
                 }
 
                 Section("图片") {
-                    PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 9, matching: .images) {
-                        Text("添加图片")
+                    PhotosPicker(
+                        selection: $selectedPhotoItems,
+                        maxSelectionCount: max(1, 9 - uploadedImages.count),
+                        matching: .images
+                    ) {
+                        Text(uploadedImages.count >= 9 ? "已达到图片上限" : "添加图片")
                     }
-                    .disabled(isSubmitting || isUploadingImages)
+                    .disabled(isSubmitting || isUploadingImages || uploadedImages.count >= 9)
+                    .accessibilityLabel("添加评论图片")
+                    .accessibilityValue("\(uploadedImages.count) 张")
 
                     if isUploadingImages {
                         AppInlineLoadingState("上传中")
                     }
                     if let uploadError {
                         Text(uploadError)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(AppDesignSystem.Palette.danger)
                     }
                     if !uploadedImages.isEmpty {
-                        GalleryPosterImagesView(images: uploadedImages, onOpenImage: { _, _ in })
+                        Text("已添加 \(uploadedImages.count) 张图片")
+                            .font(AppDesignSystem.Typography.caption)
+                            .foregroundStyle(.secondary)
+                        GalleryPosterImagesView(images: uploadedImages) { index, images in
+                            imageViewer = GalleryImageViewerState(images: images, initialIndex: index)
+                        }
                     }
                 }
             }
@@ -240,6 +286,7 @@ struct GalleryCommentComposerSheet: View {
                 AppComposerToolbar(
                     isSubmitting: isSubmitting,
                     submitTitle: "发送",
+                    isSubmitDisabled: isUploadingImages,
                     onCancel: {
                         dismiss()
                     },
@@ -248,10 +295,11 @@ struct GalleryCommentComposerSheet: View {
                     }
                 )
             }
-            .onChange(of: selectedPhotoItems) { _, items in
-                guard !items.isEmpty else { return }
-                Task { await upload(items: items) }
+            .task(id: selectedPhotoItems) {
+                guard !selectedPhotoItems.isEmpty else { return }
+                await upload(items: selectedPhotoItems)
             }
+            .gallerySystemImagePreview(item: $imageViewer)
         }
     }
 
@@ -263,11 +311,14 @@ struct GalleryCommentComposerSheet: View {
             selectedPhotoItems = []
         }
         for item in items {
+            guard !Task.isCancelled, uploadedImages.count < 9 else { return }
             do {
                 guard let data = try await item.loadTransferable(type: Data.self) else { continue }
+                guard !Task.isCancelled else { return }
                 let image = try await service.uploadImage(data: data, filename: "comment-\(UUID().uuidString).jpg")
                 uploadedImages.append(image)
             } catch {
+                if TaskCancellation.matches(error) { return }
                 uploadError = error.localizedDescription
             }
         }

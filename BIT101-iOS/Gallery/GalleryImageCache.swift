@@ -2,6 +2,7 @@ import CryptoKit
 import Foundation
 import OSLog
 import SwiftUI
+import UniformTypeIdentifiers
 import UIKit
 
 /// 话廊图片缓存容量偏好。
@@ -46,7 +47,7 @@ actor GalleryImageCache {
     private let fileManager = FileManager.default
     private let directory: URL
     private var downloads: [String: Task<DownloadResult, Error>] = [:]
-    private let supportedExtensions = ["jpg", "jpeg", "png", "gif", "heic", "webp", "bin"]
+    private let supportedExtensions = ["jpg", "jpeg", "png", "gif", "heic", "heif", "webp", "bin"]
     /// 不在每张缩略图落盘后遍历整个缓存目录；最多每分钟执行一次容量整理。
     private var lastPruneDate = Date()
 
@@ -60,12 +61,17 @@ actor GalleryImageCache {
     /// 返回已有缓存并刷新其 LRU 时间，不发起网络请求。
     func cachedFile(for remoteURL: URL, variant: GalleryImageCacheVariant) -> URL? {
         let prefix = filePrefix(for: remoteURL, variant: variant)
-        guard let file = supportedExtensions
-            .map({ directory.appendingPathComponent("\(prefix).\($0)") })
-            .first(where: { fileManager.fileExists(atPath: $0.path) })
-        else { return nil }
-        touch(file)
-        return file
+        for extensionName in supportedExtensions {
+            let file = directory.appendingPathComponent("\(prefix).\(extensionName)")
+            guard fileManager.fileExists(atPath: file.path) else { continue }
+            guard hasData(at: file) else {
+                try? fileManager.removeItem(at: file)
+                continue
+            }
+            touch(file)
+            return file
+        }
+        return nil
     }
 
     /// 获取缓存文件；同一 URL 的并发请求会合并成一次下载。
@@ -108,7 +114,7 @@ actor GalleryImageCache {
     func localFile(data: Data, pathExtension: String = "png") throws -> URL {
         let digest = SHA256.hash(data: data).hexString
         let target = directory.appendingPathComponent("local-\(digest).\(pathExtension)")
-        if !fileManager.fileExists(atPath: target.path) {
+        if !hasData(at: target) {
             try data.write(to: target, options: .atomic)
         }
         touch(target)
@@ -119,7 +125,7 @@ actor GalleryImageCache {
     /// Quick Look 数据源暂时缺图时使用的透明占位文件。
     func placeholderFile() throws -> URL {
         let target = directory.appendingPathComponent("preview-placeholder.png")
-        if !fileManager.fileExists(atPath: target.path) {
+        if !hasData(at: target) {
             // 1 × 1 透明 PNG。
             let encoded = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL1WQAAAABJRU5ErkJggg=="
             guard let data = Data(base64Encoded: encoded) else { throw CocoaError(.fileWriteUnknown) }
@@ -160,17 +166,25 @@ actor GalleryImageCache {
     private func preferredExtension(for url: URL, mimeType: String?) -> String {
         let existing = url.pathExtension.lowercased()
         if supportedExtensions.dropLast().contains(existing) { return existing }
-        switch mimeType?.lowercased() {
-        case "image/png": return "png"
-        case "image/gif": return "gif"
-        case "image/heic", "image/heif": return "heic"
-        case "image/webp": return "webp"
-        default: return "jpg"
+        if let mimeType,
+           let type = UTType(mimeType: mimeType.lowercased()),
+           let preferred = type.preferredFilenameExtension,
+           supportedExtensions.contains(preferred.lowercased()) {
+            return preferred.lowercased()
         }
+        return "jpg"
     }
 
     private func touch(_ url: URL) {
         try? fileManager.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
+    }
+
+    private func hasData(at url: URL) -> Bool {
+        guard
+            let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+            values.isRegularFile == true
+        else { return false }
+        return (values.fileSize ?? 0) > 0
     }
 
     private func pruneIfNeeded(protecting protectedURLs: Set<URL>, force: Bool = false) {

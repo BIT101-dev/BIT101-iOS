@@ -1,10 +1,6 @@
 //
 //  PaperService.swift
 //  BIT101-iOS
-//
-//  Created by Codex on 2026-04-01.
-//
-
 import Foundation
 
 /// 文章模块网络层错误。
@@ -42,7 +38,7 @@ struct PaperService {
         let text: String
         let replyObj: String?
         let replyUid: Int?
-        let anonymous: Bool?
+        let anonymous: Bool
         let imageMids: [String]
 
         enum CodingKeys: String, CodingKey {

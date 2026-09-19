@@ -87,6 +87,17 @@ struct GalleryPosterDetailView: View {
                     }
                 }
 
+                if case let .failed(message) = viewModel.posterStatus {
+                    AppFailureState(
+                        title: "加载帖子失败",
+                        systemImage: "exclamationmark.triangle",
+                        message: message,
+                        onRetry: {
+                            Task { await viewModel.refreshAll() }
+                        }
+                    )
+                }
+
                 if viewModel.poster.claim.id != 0 {
                     HStack(spacing: AppDesignSystem.Spacing.tight) {
                         Image(systemName: "checkmark.seal")
@@ -125,6 +136,8 @@ struct GalleryPosterDetailView: View {
                             }
                             .buttonStyle(.plain)
                             .frame(maxWidth: .infinity)
+                            .accessibilityLabel("图片 \(index + 1)")
+                            .accessibilityHint("轻点查看大图")
                         }
                     }
                     .onChange(of: viewModel.poster.images) { _, _ in
@@ -283,10 +296,10 @@ struct GalleryPosterDetailView: View {
 
     private var authorSummary: some View {
         HStack(spacing: AppDesignSystem.Spacing.content) {
-            AppAvatarView(imageURL: URL(string: viewModel.poster.user.avatar.lowUrl.isEmpty ? viewModel.poster.user.avatar.url : viewModel.poster.user.avatar.lowUrl))
+            AppAvatarView(imageURL: posterAvatarURL)
 
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
-                Text(viewModel.poster.user.nickname)
+                Text(posterDisplayName)
                     .font(AppDesignSystem.Typography.headline)
                 HStack(spacing: AppDesignSystem.Spacing.regular) {
                     Text(AppDateText.relativeText(from: viewModel.poster.editTime, fallback: "未知时间"))
@@ -302,6 +315,18 @@ struct GalleryPosterDetailView: View {
 
     private var canOpenPosterUserProfile: Bool {
         !viewModel.poster.anonymous && viewModel.poster.user.id > 0
+    }
+
+    private var posterDisplayName: String {
+        viewModel.poster.anonymous ? "匿名用户" : viewModel.poster.user.nickname
+    }
+
+    private var posterAvatarURL: URL? {
+        guard !viewModel.poster.anonymous else { return nil }
+        let rawURL = viewModel.poster.user.avatar.lowUrl.isEmpty
+            ? viewModel.poster.user.avatar.url
+            : viewModel.poster.user.avatar.lowUrl
+        return URL(string: rawURL)
     }
 
     /// 独立跳转域名使用稳定的 `/gallery/{id}` 路由；未安装 App 时由 Worker 转至网页。

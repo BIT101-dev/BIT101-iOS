@@ -1,4 +1,3 @@
-#if EXTENDED_AUTOMATION
 import Foundation
 import Testing
 @testable import BIT101_iOS
@@ -176,4 +175,3 @@ struct ExtendedSchedulePolicyTests {
         )
     }
 }
-#endif

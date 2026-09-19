@@ -70,6 +70,7 @@ struct AppUpdateCheckerTests {
         let endpoint = try #require(URL(string: "https://example.com/emergency-update.json"))
         let checker = EmergencyUpdateChecker(
             defaults: context.defaults,
+            now: { context.now },
             installedBuild: { 33 },
             endpointURL: { endpoint },
             loadData: { request in
@@ -180,6 +181,12 @@ struct AppUpdateCheckerTests {
         #expect(first?.version == "1.7.1")
         #expect(first?.updateMessage == "修复问题并优化体验。")
         #expect(second == first)
+
+        context.now.addTimeInterval(AppUpdateChecker.queryInterval + 1)
+        let third = await checker.releaseToPresentAtLaunch()
+
+        #expect(requestCount == 2)
+        #expect(third == first)
     }
 
     @Test("Once presented the same release stays hidden for 24 hours")
@@ -286,6 +293,7 @@ struct AppUpdateCheckerTests {
         defer { context.cleanUp() }
         let checker = AppUpdateChecker(
             defaults: context.defaults,
+            now: { context.now },
             installedVersion: { "1.7.1" },
             loadData: { request in
                 try Self.lookupResponse(for: try #require(request.url), version: "1.7.1")

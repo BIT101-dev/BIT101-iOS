@@ -36,25 +36,18 @@ struct DDLScheduleTabView: View {
                     )
                 }
 
-                if !viewModel.hasLexueCalendarURL {
+                if viewModel.visibleDDLEvents.isEmpty {
                     Section {
                         AppEmptyState(
                             title: "暂无 DDL",
                             systemImage: "list.bullet.clipboard",
-                            message: "先获取乐学日程，或手动添加一条。",
-                            actionTitle: "获取乐学日程",
+                            message: viewModel.hasLexueCalendarURL
+                                ? "当前没有可展示的 DDL。"
+                                : "先获取乐学日程，或手动添加一条。",
+                            actionTitle: viewModel.hasLexueCalendarURL ? "刷新 DDL" : "获取乐学日程",
                             onAction: {
                                 Task { await refreshDDL() }
                             }
-                        )
-                        .frame(maxWidth: .infinity)
-                    }
-                } else if viewModel.visibleDDLEvents.isEmpty {
-                    Section {
-                        AppEmptyState(
-                            title: "暂无 DDL",
-                            systemImage: "list.bullet.clipboard",
-                            message: "当前没有可展示的 DDL。"
                         )
                         .frame(maxWidth: .infinity)
                     }
@@ -198,10 +191,17 @@ private struct DDLEventCard: View {
                 }
                 .buttonStyle(.plain)
                 .appSelectionFeedback(trigger: event.done)
+                .accessibilityLabel(event.done ? "标记为未完成" : "标记为已完成")
+                .accessibilityValue(event.done ? "已完成" : "未完成")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .contentShape(Rectangle())
         .onTapGesture(perform: onOpenDetail)
+        .accessibilityElement(children: .contain)
+        .accessibilityAction(named: "打开详情") {
+            onOpenDetail()
+        }
     }
 
     private var displayText: String {

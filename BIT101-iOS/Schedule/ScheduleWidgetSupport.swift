@@ -8,9 +8,9 @@
 import Foundation
 import WidgetKit
 
-/// 把当前账号课表缓存导出为 `ScheduleExternalSnapshot`，供外部展示层读取。
+/// 把当前账号课表缓存导出为 `ScheduleExternalSnapshot`，供 Widget 和 Watch 读取。
 ///
-/// 桌面 widget、锁屏组件、Live Activity 和 Apple Watch 共享这份快照，
+/// 桌面 widget、锁屏组件和 Apple Watch 共享这份快照；Live Activity 采用 ActivityKit 的状态更新链路，
 /// 外部 target 从快照读取课表所需的最小字段。
 enum ScheduleWidgetExporter {
     /// 重新读取当前账号缓存，并同步到共享容器。

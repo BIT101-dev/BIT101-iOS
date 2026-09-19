@@ -66,7 +66,7 @@ extension ScheduleService {
                         done: existingDoneMap[event.id] ?? event.done
                     )
                 }
-                if baseURL == lexueBaseURL {
+                if URL(string: finalURL)?.host?.lowercased() == lexueBaseURL.host?.lowercased() {
                     let studentID = storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
                     teachingCenterState.markDirectPreferred(for: studentID)
                 }
@@ -225,6 +225,13 @@ extension ScheduleService {
     }
 
     private func shouldRetryLexueRoute(after error: Error) -> Bool {
+        if isScheduleTransientNetworkError(error) { return true }
+
+        let nsError = error as NSError
+        if nsError.domain == "BIT101.Schedule", (400 ..< 600).contains(nsError.code) {
+            return true
+        }
+
         guard let error = error as? ScheduleServiceError else { return false }
         switch error {
         case .secondFactorRequired,
@@ -236,6 +243,8 @@ extension ScheduleService {
              .invalidLexuePage,
              .invalidCalendarURL:
             return true
+        case .schoolTransportFailure:
+            return true
         default:
             return false
         }
@@ -246,13 +255,13 @@ extension ScheduleService {
         handler: SchoolSMSCodeHandler?,
         smsDeliveryMode: SchoolSMSDeliveryMode
     ) async throws {
-        let phone = try await fetchSecondFactorPhone(userObjectID: context.userObjectID)
         guard smsDeliveryMode == .send else {
             throw ScheduleServiceError.schoolSecondFactorRequired
         }
         guard let handler else {
             throw ScheduleServiceError.schoolSecondFactorRequired
         }
+        let phone = try await fetchSecondFactorPhone(userObjectID: context.userObjectID)
         try await sendSecondFactorCode(to: phone.phone)
         let code = try await handler(
             SchoolSMSCodeRequest(
@@ -515,6 +524,9 @@ extension ScheduleService {
                 smsDeliveryMode: smsDeliveryMode,
                 retriedAfterSecondFactor: true
             )
+        }
+        guard ics.range(of: "BEGIN:VCALENDAR", options: .caseInsensitive) != nil else {
+            throw ScheduleServiceError.invalidLexuePage
         }
         return try ScheduleICSParser.parse(ics)
     }

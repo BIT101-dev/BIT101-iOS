@@ -27,13 +27,13 @@ final class NetworkMagicWarningCenter {
     init(
         pathProvider: (any NetworkPathProviding)? = nil,
         promptCoordinator: AppPromptCoordinator? = nil,
-        errorPresenter: AppErrorPresenter? = nil,
+        errorPresenter: AppErrorPresenter? = AppErrorPresenter.shared,
         now: @escaping () -> Date = Date.init,
         cooldown: TimeInterval = 10 * 60
     ) {
         self.pathProvider = pathProvider ?? NetworkConnectionDescription.shared
         self.promptCoordinator = promptCoordinator
-        self.errorPresenter = errorPresenter ?? AppErrorPresenter.shared
+        self.errorPresenter = errorPresenter
         self.now = now
         self.cooldown = cooldown
     }
@@ -305,7 +305,7 @@ final class NetworkDiagnosisRunner: ObservableObject {
                   ScoreServiceError.secondFactorRequired {
             return "\(step.title)：需要短信验证"
         } catch {
-            return "\(step.title)：失败，\(error.localizedDescription)"
+            return "\(step.title)：失败，\(ErrorReportRedactor.sanitized(error.localizedDescription))"
         }
     }
 
@@ -318,7 +318,7 @@ final class NetworkDiagnosisRunner: ObservableObject {
     }
 }
 
-struct NetworkDiagnosticRecord: Codable, Identifiable {
+struct NetworkDiagnosticRecord: Codable, Identifiable, Sendable {
     let id: UUID
     let occurredAt: Date
     let method: String
@@ -335,7 +335,6 @@ actor NetworkDiagnosticStore {
     private var records: [NetworkDiagnosticRecord] = []
 
     func record(request: URLRequest, data: Data?, response: URLResponse?, error: Error?, elapsed: TimeInterval) {
-        _ = NetworkConnectionDescription.shared.current
         guard request.url?.host?.lowercased() != "feedback.aihelpme.dev" else { return }
         let http = response as? HTTPURLResponse
         let headers = http?.allHeaderFields.reduce(into: [String: String]()) { result, item in
@@ -356,8 +355,8 @@ actor NetworkDiagnosticStore {
 
     func recent() -> [NetworkDiagnosticRecord] { Array(records.suffix(10)) }
 
-    /// 返回最近一次学校网页请求的安全外链；URL 移除 query 和 fragment，ticket、token
-    /// 等一次性认证参数留在诊断记录中。网页入口限定为学校网页请求。
+    /// 返回最近一次学校网页请求的安全外链；URL 移除用户信息、query 和 fragment，
+    /// ticket、token 等一次性认证参数留在诊断记录中。网页入口限定为学校网页请求。
     func latestSchoolServicePageURL() -> URL? {
         let schoolHosts = Set([
             "sso.bit.edu.cn",
@@ -377,6 +376,8 @@ actor NetworkDiagnosticStore {
             else { continue }
 
             var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            components?.user = nil
+            components?.password = nil
             components?.query = nil
             components?.fragment = nil
             if let pageURL = components?.url {

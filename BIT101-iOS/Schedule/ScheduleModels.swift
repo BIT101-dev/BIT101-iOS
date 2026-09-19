@@ -21,7 +21,3 @@ nonisolated let scheduleNameCharacterLimit = 8
 extension Notification.Name {
     static let scheduleCacheDidChange = Notification.Name("BIT101.ScheduleCacheDidChange")
 }
-
-/// 日程页的一级分栏。
-///
-/// 课表、DDL、空教室都挂在“日程”一级页签下，统一使用这个枚举表示分栏切换。

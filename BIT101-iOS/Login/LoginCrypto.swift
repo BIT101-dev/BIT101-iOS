@@ -23,6 +23,9 @@ enum LoginCrypto {
         guard let keyData = Data(base64Encoded: saltBase64) else {
             throw LoginServiceError.invalidSchoolLoginPage
         }
+        guard [kCCKeySizeAES128, kCCKeySizeAES192, kCCKeySizeAES256].contains(keyData.count) else {
+            throw LoginServiceError.invalidSchoolLoginPage
+        }
 
         let inputData = Data(password.utf8)
         var outputData = Data(count: inputData.count + kCCBlockSizeAES128)

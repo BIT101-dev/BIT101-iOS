@@ -17,6 +17,10 @@ struct CourseScheduleBlockView: View {
         .padding(AppDesignSystem.Spacing.micro)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(accessibilityValue)
+        .accessibilityHint("双击打开详情")
     }
 
     private var uiTextColor: UIColor {
@@ -28,6 +32,22 @@ struct CourseScheduleBlockView: View {
         case .custom:
             return UIColor(AppDesignSystem.Palette.info)
         }
+    }
+
+    private var accessibilityLabel: String {
+        let title = entry.title.isEmpty ? "未命名日程" : entry.title
+        switch entry.kind {
+        case .course:
+            return title
+        case .exam:
+            return "考试，\(title)"
+        case .custom:
+            return "自定义日程，\(title)"
+        }
+    }
+
+    private var accessibilityValue: String {
+        entry.subtitle.isEmpty ? "" : "地点：\(entry.subtitle)"
     }
 
 }
@@ -74,6 +94,7 @@ struct ScheduleCardTextView: UIViewRepresentable {
         override init(frame: CGRect) {
             super.init(frame: frame)
             clipsToBounds = true
+            isAccessibilityElement = true
             [titleLabel, locationLabel].forEach { label in
                 label.textAlignment = .center
                 label.adjustsFontForContentSizeCategory = true
@@ -104,6 +125,8 @@ struct ScheduleCardTextView: UIViewRepresentable {
             baseFont = font
             titleLabel.textColor = textColor
             locationLabel.textColor = textColor
+            accessibilityLabel = title.isEmpty ? location : title
+            accessibilityValue = title.isEmpty || location.isEmpty ? nil : "地点：\(location)"
             setNeedsLayout()
         }
 

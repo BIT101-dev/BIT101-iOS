@@ -17,14 +17,24 @@ struct AppAlert: Identifiable {
         self.title = title
         self.message = message
         self.allowsDiagnostics = allowsDiagnostics
-        self.showsRecoveryLinks = showsRecoveryLinks
+        self.showsRecoveryLinks = allowsDiagnostics && showsRecoveryLinks
     }
 
     static func userInput(title: String, message: String) -> AppAlert {
-        AppAlert(title: title, message: message, allowsDiagnostics: false)
+        AppAlert(
+            title: title,
+            message: message,
+            allowsDiagnostics: false,
+            showsRecoveryLinks: false
+        )
     }
 
     static func informational(title: String, message: String) -> AppAlert {
-        AppAlert(title: title, message: message, allowsDiagnostics: false)
+        AppAlert(
+            title: title,
+            message: message,
+            allowsDiagnostics: false,
+            showsRecoveryLinks: false
+        )
     }
 }

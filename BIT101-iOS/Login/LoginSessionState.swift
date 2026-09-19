@@ -201,8 +201,12 @@ enum LoginServiceError: LocalizedError {
     case keychainReadFailed(OSStatus)
 
     var isCredentialFailure: Bool {
-        if case .invalidCredentials = self { return true }
-        return false
+        switch self {
+        case .invalidCredentials, .schoolLoginFailed:
+            return true
+        default:
+            return false
+        }
     }
 
     var errorDescription: String? {
@@ -223,10 +227,10 @@ enum LoginServiceError: LocalizedError {
             return "学校登录状态已过期，且缺少可用于静默恢复的本地凭据。"
         case .invalidServerResponse:
             return "服务器返回了无法识别的数据。"
-        case let .keychainWriteFailed(status):
-            return "无法保存登录信息（Keychain 状态码: \(status)）。"
-        case let .keychainReadFailed(status):
-            return "无法读取登录信息（Keychain 状态码: \(status)）。"
+        case .keychainWriteFailed:
+            return "无法保存登录信息，请稍后重试。"
+        case .keychainReadFailed:
+            return "无法读取登录信息，请稍后重试。"
         }
     }
 }

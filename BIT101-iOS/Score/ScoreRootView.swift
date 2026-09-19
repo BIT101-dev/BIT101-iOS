@@ -233,11 +233,11 @@ private struct ScoreListPage: View {
                             AppEmptyState(
                                 title: "暂无成绩",
                                 systemImage: "chart.bar.doc.horizontal",
-                                message: "请调整学期或种类筛选条件。"
+                                message: "当前筛选条件下暂无成绩。"
                             )
                             .frame(maxWidth: .infinity)
                         } else {
-                            ForEach(viewModel.visibleRows) { row in
+                            ForEach(Array(viewModel.visibleRows.enumerated()), id: \.offset) { _, row in
                                 NavigationLink {
                                     ScoreDetailView(
                                         row: row,
@@ -342,22 +342,25 @@ private struct TrustedTranscriptPage: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: AppDesignSystem.Spacing.content) {
-                            ForEach(Array(viewModel.images.enumerated()), id: \.offset) { index, image in
-                                Button {
-                                    imageViewer = GalleryImageViewerState(
-                                        localImages: viewModel.images,
-                                        initialIndex: index
-                                    )
-                                } label: {
-                                    Image(uiImage: image)
-                                        .resizable()
-                                        .scaledToFit()
+                            LazyVStack(spacing: AppDesignSystem.Spacing.content) {
+                                ForEach(Array(viewModel.images.enumerated()), id: \.offset) { index, image in
+                                    Button {
+                                        imageViewer = GalleryImageViewerState(
+                                            localImages: viewModel.images,
+                                            initialIndex: index
+                                        )
+                                    } label: {
+                                        Image(uiImage: image)
+                                            .resizable()
+                                            .scaledToFit()
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("可信成绩单第\(index + 1)页")
+                                    .accessibilityValue("共\(viewModel.images.count)页")
+                                    .accessibilityHint("双击查看大图")
                                 }
-                                .buttonStyle(.plain)
                             }
-                        }
-                        .padding()
+                            .padding(AppDesignSystem.Spacing.prominent)
                     }
                     .background(AppDesignSystem.Palette.secondaryBackground)
                 }
@@ -424,25 +427,32 @@ private struct ScoreListRowCard: View {
     }
 
     init(row: ScoreRow) {
-        let credit = row.creditText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let courseName = Self.trimmed(row.courseName)
+        let credit = Self.trimmed(row.creditText)
+        let term = Self.trimmed(row.term)
+        let score = Self.trimmed(row.score)
+        let courseType = Self.trimmed(row.courseType)
         self.init(
-            courseName: row.courseName.isEmpty ? "未命名课程" : row.courseName,
-            creditText: credit.isEmpty ? "-" : "\(credit)分",
-            termText: row.term.isEmpty ? "-" : row.term,
-            scoreText: row.score.isEmpty ? "-" : row.score,
+            courseName: courseName.isEmpty ? "未命名课程" : courseName,
+            creditText: credit.isEmpty ? "-" : "\(credit)学分",
+            termText: term.isEmpty ? "-" : term,
+            scoreText: score.isEmpty ? "-" : score,
             averageScoreText: formatScoreText(row.averageScore),
-            courseTypeText: row.courseType.isEmpty ? "-" : row.courseType
+            courseTypeText: courseType.isEmpty ? "-" : courseType
         )
     }
 
     init(course: CourseRecord) {
+        let courseName = Self.trimmed(course.name)
+        let term = Self.trimmed(course.term)
+        let courseType = Self.trimmed(course.type)
         self.init(
-            courseName: course.name.isEmpty ? "未命名课程" : course.name,
-            creditText: course.credit > 0 ? "\(course.credit)分" : "-",
-            termText: course.term.isEmpty ? "-" : course.term,
+            courseName: courseName.isEmpty ? "未命名课程" : courseName,
+            creditText: course.credit > 0 ? "\(course.credit)学分" : "-",
+            termText: term.isEmpty ? "-" : term,
             scoreText: "-",
             averageScoreText: "-",
-            courseTypeText: course.type.isEmpty ? "-" : course.type
+            courseTypeText: courseType.isEmpty ? "-" : courseType
         )
     }
 
@@ -499,6 +509,16 @@ private struct ScoreListRowCard: View {
             )
         }
         .padding(.vertical, AppDesignSystem.Spacing.tiny)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilitySummary)
+    }
+
+    private var accessibilitySummary: String {
+        "\(courseName)，\(creditText)，\(termText)，成绩 \(scoreText)，均分 \(averageScoreText)，\(courseTypeText)"
+    }
+
+    private static func trimmed(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
@@ -512,7 +532,8 @@ private struct PendingScoreDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.prominent) {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
-                    Text(course.name.isEmpty ? "未命名课程" : course.name)
+                    let courseName = course.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    Text(courseName.isEmpty ? "未命名课程" : courseName)
                         .font(AppDesignSystem.Typography.title3Emphasis)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -580,8 +601,13 @@ private struct ScoreDetailMetaRow: View {
     var body: some View {
         LabeledContent(
             title,
-            value: value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "-" : value
+            value: displayValue
         )
+    }
+
+    private var displayValue: String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "-" : trimmed
     }
 }
 
@@ -596,8 +622,10 @@ private struct ScoreDetailView: View {
     var body: some View {
         List {
             Section {
-                Text(row.courseName.isEmpty ? "未命名课程" : row.courseName)
-                LabeledContent("成绩", value: row.score.isEmpty ? "-" : row.score)
+                let courseName = row.courseName.trimmingCharacters(in: .whitespacesAndNewlines)
+                Text(courseName.isEmpty ? "未命名课程" : courseName)
+                    .font(AppDesignSystem.Typography.headlineEmphasis)
+                LabeledContent("成绩", value: displayValue(row.score))
                 LabeledContent("平均分", value: formattedAverageScore)
                 LabeledContent("学分", value: formattedCreditValue)
             }
@@ -607,9 +635,9 @@ private struct ScoreDetailView: View {
             }
 
             Section("课程信息") {
-                LabeledContent("课程号", value: row.courseNumber)
-                LabeledContent("学期", value: row.term)
-                LabeledContent("课程性质", value: row.courseType)
+                LabeledContent("课程号", value: displayValue(row.courseNumber))
+                LabeledContent("学期", value: displayValue(row.term))
+                LabeledContent("课程性质", value: displayValue(row.courseType))
             }
 
             Section("详细信息") {
@@ -617,7 +645,7 @@ private struct ScoreDetailView: View {
                     Text("暂无更多信息")
                 } else {
                     ForEach(Array(remainingFields.enumerated()), id: \.offset) { _, field in
-                        LabeledContent(field.key, value: field.value)
+                        LabeledContent(field.key, value: displayValue(field.value))
                     }
                 }
             }
@@ -652,6 +680,11 @@ private struct ScoreDetailView: View {
 
     private var formattedAverageScore: String {
         formatScoreText(row.averageScore)
+    }
+
+    private func displayValue(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "-" : trimmed
     }
 }
 

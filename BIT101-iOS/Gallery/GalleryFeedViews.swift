@@ -273,6 +273,8 @@ struct GalleryPosterCard: View {
         }
         .appFeedCardStyle()
         .onTapGesture(perform: onOpenPoster)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("打开帖子")
     }
 
     private var identityColor: Color {
@@ -338,6 +340,7 @@ struct GalleryPosterImagesView: View {
                         .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("查看第\(allocation.index + 1)张图片")
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)

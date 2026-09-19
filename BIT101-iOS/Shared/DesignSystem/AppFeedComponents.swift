@@ -17,6 +17,7 @@ struct AppFeedRow<Content: View>: View {
             if !isLast {
                 Divider()
                     .padding(.leading, AppDesignSystem.Spacing.container)
+                    .accessibilityHidden(true)
             }
         }
     }

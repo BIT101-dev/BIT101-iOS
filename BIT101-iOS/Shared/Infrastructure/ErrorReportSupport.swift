@@ -27,7 +27,9 @@ enum ErrorReportRedactor {
     private static let protectedNames = [
         "password", "passwd", "pwd", "cookie", "set-cookie", "authorization", "token",
         "access_token", "refresh_token", "challenge_token", "fake-cookie",
-        "accessToken", "refreshToken", "challengeToken", "fakeCookie", "session", "sessionID", "ticket"
+        "accessToken", "refreshToken", "challengeToken", "fakeCookie", "session", "sessionID",
+        "session_id", "sessionid", "ticket", "api-key", "api_key", "apikey", "client_secret",
+        "secret", "captcha", "captcha_payload", "croypto", "execution", "salt"
     ]
 
     static func forced(_ value: String) -> String {
@@ -35,7 +37,7 @@ enum ErrorReportRedactor {
         for name in protectedNames {
             let escaped = NSRegularExpression.escapedPattern(for: name)
             let jsonPattern = "(?i)(\"\(escaped)\"\\s*:\\s*\")[^\"]*(\")"
-            let keyValuePattern = "(?i)(\\b\(escaped)\\s*[=:]\\s*)[^&\\s,;]+"
+            let keyValuePattern = "(?i)(\\b\(escaped)\\s*[=:]\\s*)[^&\\r\\n,;]+"
             output = output.replacingOccurrences(of: jsonPattern, with: "$1[REDACTED]$2", options: .regularExpression)
             output = output.replacingOccurrences(of: keyValuePattern, with: "$1[REDACTED]", options: .regularExpression)
         }
@@ -218,10 +220,14 @@ final class ErrorReportViewModel: ObservableObject {
     }
 
     private func redactHeaders(_ headers: [String: String]) -> [String: String] {
+        let sensitiveNames: Set<String> = [
+            "authorization", "proxy-authorization", "cookie", "set-cookie",
+            "x-api-key", "x-auth-token", "x-access-token"
+        ]
         headers.mapValues(ErrorReportRedactor.forced)
             .reduce(into: [:]) { result, pair in
                 let key = pair.key
-                result[key] = ["authorization", "cookie", "set-cookie"].contains(key.lowercased()) ? "[REDACTED]" : pair.value
+                result[key] = sensitiveNames.contains(key.lowercased()) ? "[REDACTED]" : pair.value
             }
     }
 
@@ -616,7 +622,7 @@ private struct ErrorReportSheet: View {
         if viewModel.mode == .sanitized {
             (
                 Text("仅包含 App 版本、设备与系统信息、网络状态、请求接口、状态码等；")
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 + Text("系统会自动隐藏密码、Cookie、Token、姓名、学号等敏感字段。")
                     .bold()
                     .foregroundStyle(AppDesignSystem.Palette.accent)
@@ -625,13 +631,13 @@ private struct ErrorReportSheet: View {
         } else {
             (
                 Text("包含接口返回的原始内容，")
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 + Text("可能包含学号、姓名、课程、成绩等个人信息。")
                     .bold()
                     .foregroundStyle(AppDesignSystem.Palette.accent)
                 + Text("密码、Cookie、Token 等认证信息仍会强制脱敏。")
                     .bold()
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
             )
             .font(AppDesignSystem.Typography.footnote)
         }

@@ -21,9 +21,7 @@ struct CourseRootView: View {
     }
 }
 
-/// 课程页具体内容。
-///
-/// 课程列表内容，供独立页面和“成绩 / 课程”合并页使用。
+/// 课程页具体内容，供独立页面和“成绩 / 课程”合并页使用。
 struct CoursePageContent: View {
     @ObservedObject var viewModel: CourseListViewModel
 
@@ -327,6 +325,7 @@ private struct CourseSearchRow: View {
         HStack(spacing: AppDesignSystem.Spacing.control) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
 
             TextField("在这里搜索课程哦", text: $text)
                 .textInputAutocapitalization(.never)
@@ -343,6 +342,7 @@ private struct CourseSearchRow: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("清除搜索")
             }
         }
     }

@@ -21,6 +21,9 @@ nonisolated enum CourseLookupMatcher {
         let sameName = expectedName.isEmpty ? [] : candidates.filter {
             normalizedText($0.name) == expectedName
         }
+        let hasConflictingUniqueIdentity = sameNumber.count == 1
+            && sameName.count == 1
+            && sameNumber[0].id != sameName[0].id
 
         if !normalizedTeacher(expectedTeacher).isEmpty {
             if let match = sameNumber.first(where: {
@@ -34,6 +37,10 @@ nonisolated enum CourseLookupMatcher {
                 return match
             }
 
+            if hasConflictingUniqueIdentity {
+                return nil
+            }
+
             // 后端个别旧课程没有教师字段；课程号唯一且候选教师为空时执行安全回退。
             if sameNumber.count == 1,
                normalizedTeacher(sameNumber[0].teachersName).isEmpty
@@ -43,17 +50,18 @@ nonisolated enum CourseLookupMatcher {
             return nil
         }
 
+        if hasConflictingUniqueIdentity {
+            return nil
+        }
+
         if sameNumber.count == 1 { return sameNumber[0] }
         if sameName.count == 1 { return sameName[0] }
 
-        // 成绩接口通常没有教师字段；课程号和课程名相同的记录按候选顺序进入详情。
+        // 成绩接口通常没有教师字段；课程号和课程名交集中的记录按候选顺序进入详情。
         let sameIdentity = sameNumber.filter { numberCourse in
             sameName.contains(where: { $0.id == numberCourse.id })
         }
-        if sameIdentity.count > 1 {
-            return sameIdentity[0]
-        }
-        return nil
+        return sameIdentity.first
     }
 
     static func numberMatch(

@@ -192,15 +192,25 @@ private struct GalleryQuickLookPresenter: UIViewControllerRepresentable {
                 } else if let lowURL = thumbnailURL(for: initialImage) {
                     // 首页已经展示过的缩略图必然已进入统一磁盘缓存；点击时只做
                     // 一次缓存查询，不重新编码图片，也不等待帖子内其它图片。
-                    prepared[initialIndex].url = if let cached = await GalleryImageCache.shared.cachedFile(
+                    if let cached = await GalleryImageCache.shared.cachedFile(
                         for: lowURL,
                         variant: .thumbnail
                     ) {
-                        cached
-                    } else {
+                        prepared[initialIndex].url = cached
+                    } else if let lowFile = try? await GalleryImageCache.shared.file(
+                        for: lowURL,
+                        variant: .thumbnail
+                    ) {
                         // 极少数情况下，用户可能在图片尚未加载完成时立即点击；只有
                         // 这种缓存确实缺失的场景才兜底下载当前缩略图。
-                        try await GalleryImageCache.shared.file(for: lowURL, variant: .thumbnail)
+                        prepared[initialIndex].url = lowFile
+                    } else if let highURL {
+                        // 缩略图服务异常时仍尝试原图，避免高清图可用却因低清失败而
+                        // 直接关闭系统预览。
+                        prepared[initialIndex].url = try await GalleryImageCache.shared.file(
+                            for: highURL,
+                            variant: .original
+                        )
                     }
                 } else if let highURL {
                     prepared[initialIndex].url = try await GalleryImageCache.shared.file(

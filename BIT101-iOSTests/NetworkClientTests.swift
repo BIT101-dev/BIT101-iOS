@@ -71,6 +71,12 @@ struct NetworkClientTests {
                 networkWarningCenter: center
             ).send(request)
         }
+        defer {
+            task.cancel()
+            if let action = coordinator.activePrompt?.actions.first {
+                coordinator.perform(action)
+            }
+        }
 
         for _ in 0 ..< 100 where coordinator.activePrompt == nil {
             await Task.yield()

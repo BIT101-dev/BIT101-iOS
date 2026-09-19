@@ -41,6 +41,8 @@ struct AccountSettingsPage: View {
                                 tint: AppDesignSystem.Palette.info
                             )
                         }
+                        .accessibilityLabel("头像")
+                        .accessibilityHint("选择新头像")
                         .disabled(isUpdating)
                     }
 
@@ -83,6 +85,7 @@ struct AccountSettingsPage: View {
                         Spacer()
                         if isCheckingLogin {
                             ProgressView()
+                                .accessibilityLabel("正在检查登录状态")
                         } else {
                             Text(isLoggedIn ? "已登录" : "未登录")
                                 .foregroundStyle(.secondary)
@@ -92,6 +95,7 @@ struct AccountSettingsPage: View {
                 .disabled(isCheckingLogin)
 
                 Button("退出登录", role: .destructive, action: onLogout)
+                    .disabled(isUpdating)
             }
         }
         .appGroupedListStyle()
@@ -133,6 +137,7 @@ struct AccountSettingsPage: View {
         let sessionCookie = expectedSessionCookie ?? LoginStorage.shared.fakeCookie
         guard !sessionCookie.isEmpty else {
             isLoggedIn = false
+            profile = nil
             return
         }
         do {
@@ -142,6 +147,11 @@ struct AccountSettingsPage: View {
             isLoggedIn = true
         } catch {
             guard shouldPresentError(error, for: sessionCookie) else { return }
+            if let settingsError = error as? SettingsServiceError,
+               case .notLoggedIn = settingsError {
+                isLoggedIn = false
+                profile = nil
+            }
             alert = AppAlert(title: "加载失败", message: error.localizedDescription)
         }
     }
@@ -157,6 +167,9 @@ struct AccountSettingsPage: View {
                 || (!loginState && LoginStorage.shared.fakeCookie.isEmpty)
             else { return }
             isLoggedIn = loginState
+            if !loginState {
+                profile = nil
+            }
         } catch {
             guard shouldPresentError(error, for: sessionCookie) else { return }
             alert = AppAlert(title: "检查失败", message: error.localizedDescription)
@@ -169,6 +182,11 @@ struct AccountSettingsPage: View {
     private func updateProfile(nickname: String?, motto: String?) async {
         guard let profile else { return }
         let sessionCookie = LoginStorage.shared.fakeCookie
+        guard !sessionCookie.isEmpty else {
+            isLoggedIn = false
+            self.profile = nil
+            return
+        }
         isUpdating = true
         defer { isUpdating = false }
         do {
@@ -193,6 +211,11 @@ struct AccountSettingsPage: View {
         guard let profile else { return }
         defer { selectedPhoto = nil }
         let sessionCookie = LoginStorage.shared.fakeCookie
+        guard !sessionCookie.isEmpty else {
+            isLoggedIn = false
+            self.profile = nil
+            return
+        }
         isUpdating = true
         defer { isUpdating = false }
 
@@ -255,5 +278,9 @@ private struct SettingsSensitiveValueRow: View {
             }
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityValue(isRevealed ? value : "已隐藏")
+        .accessibilityHint(isRevealed ? "轻点隐藏\(title)" : "轻点显示\(title)")
     }
 }

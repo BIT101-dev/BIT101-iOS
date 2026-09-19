@@ -20,7 +20,22 @@ enum ScheduleDDLEditor {
         into existingEvents: [DDLEventRecord]
     ) -> [DDLEventRecord] {
         let manualEvents = existingEvents.filter { $0.group != "lexue" }
-        return (manualEvents + syncedEvents).sorted { $0.dueAt < $1.dueAt }
+        let existingLexueEvents = Dictionary(
+            existingEvents
+                .filter { $0.group == "lexue" }
+                .map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let mergedSyncedEvents = syncedEvents.map { event in
+            guard let existing = existingLexueEvents[event.id] else { return event }
+            var merged = event
+            merged.done = existing.done
+            return merged
+        }
+        return (manualEvents + mergedSyncedEvents).sorted { lhs, rhs in
+            if lhs.dueAt != rhs.dueAt { return lhs.dueAt < rhs.dueAt }
+            return lhs.id < rhs.id
+        }
     }
 
     static func togglingDone(id: String, in events: [DDLEventRecord]) -> [DDLEventRecord] {
@@ -44,7 +59,10 @@ enum ScheduleDDLEditor {
             dueAt: draft.dueAt,
             done: false
         ))
-        return events.sorted { $0.dueAt < $1.dueAt }
+        return events.sorted { lhs, rhs in
+            if lhs.dueAt != rhs.dueAt { return lhs.dueAt < rhs.dueAt }
+            return lhs.id < rhs.id
+        }
     }
 
     static func updating(
@@ -57,7 +75,10 @@ enum ScheduleDDLEditor {
         events[index].title = try normalizedTitle(draft.title)
         events[index].text = draft.text
         events[index].dueAt = draft.dueAt
-        return events
+        return events.sorted { lhs, rhs in
+            if lhs.dueAt != rhs.dueAt { return lhs.dueAt < rhs.dueAt }
+            return lhs.id < rhs.id
+        }
     }
 
     static func deleting(id: String, from events: [DDLEventRecord]) -> [DDLEventRecord] {

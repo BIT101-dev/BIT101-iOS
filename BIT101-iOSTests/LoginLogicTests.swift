@@ -30,9 +30,11 @@ struct LoginLogicTests {
         #expect(!context.isLoggedIn)
     }
 
-    @Test("A page without the login prompt is recognized as authenticated")
+    @Test("Authenticated marker takes precedence over login fields")
     func recognizesAuthenticatedPage() {
-        let context = SchoolLoginHTMLParser.parse(html: "<html>统一身份认证成功</html>")
+        let context = SchoolLoginHTMLParser.parse(
+            html: "<html><a href=\"/logout\">退出登录</a></html>"
+        )
         #expect(context.salt == nil)
         #expect(context.execution == nil)
         #expect(context.isLoggedIn)

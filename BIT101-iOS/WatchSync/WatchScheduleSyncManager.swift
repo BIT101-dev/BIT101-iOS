@@ -29,6 +29,10 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
         category: "WatchScheduleSync"
     )
 
+    #if os(iOS)
+    private var pendingSnapshotData: Data?
+    #endif
+
     private override init() {
         super.init()
     }
@@ -86,13 +90,22 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
         guard session.isPaired else { return }
 
         guard let data = encodedSnapshotData(snapshot) else { return }
+        guard session.activationState == .activated else {
+            pendingSnapshotData = data
+            return
+        }
         updateApplicationContext(withSnapshotData: data, session: session)
     }
 
     /// 从当前共享快照重新推送一次。
     func pushCurrentSnapshotIfAvailable() {
+        activateIfNeeded()
         let session = WCSession.default
         guard session.isPaired, let data = currentSnapshotDataIfAvailable() else { return }
+        guard session.activationState == .activated else {
+            pendingSnapshotData = data
+            return
+        }
         updateApplicationContext(withSnapshotData: data, session: session)
     }
     #endif
@@ -162,6 +175,15 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(600))
                 self.requestLatestSnapshotFromPhone()
+            }
+        }
+        #endif
+        #if os(iOS)
+        if activationState == .activated {
+            Task { @MainActor in
+                guard let data = self.pendingSnapshotData else { return }
+                self.pendingSnapshotData = nil
+                self.updateApplicationContext(withSnapshotData: data, session: session)
             }
         }
         #endif

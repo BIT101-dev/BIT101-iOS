@@ -157,7 +157,7 @@ extension ScheduleViewModel {
         )
         persist()
         selectedCourseScheduleIndex = courseSchedules.count - 1
-        selectedWeek = resolvedAutomaticWeek()
+        selectedWeek = resolvedAutomaticWeek(for: ScheduleDateCodec.parseDate(payload.firstDayString))
     }
 
     /// 把已有自定义日程转成编辑草稿；记录为空时生成一份默认草稿。

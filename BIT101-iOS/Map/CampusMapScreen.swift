@@ -50,7 +50,13 @@ struct CampusMapScreen: View {
                 focusRequest: focusRequest,
                 centerOnUserRequestID: centerOnUserRequestID,
                 nextCourseTarget: nextCourseTarget,
-                requestedLocation: activeRequestedLocation
+                requestedLocation: activeRequestedLocation,
+                onLocationFailure: { error in
+                    locationController.notice = MapNotice(
+                        title: "定位失败",
+                        message: error.localizedDescription
+                    )
+                }
             )
             .ignoresSafeArea(edges: [.top, .bottom])
 
@@ -93,7 +99,7 @@ struct CampusMapScreen: View {
             scheduleViewModel.loadIfNeeded()
             focusOnNextCourseIfPossible(animated: false)
         }
-        .onChange(of: nextCourseTarget?.id) { _, _ in
+        .onChange(of: nextCourseTarget) { _, _ in
             focusOnNextCourseIfPossible(animated: false)
         }
         .onChange(of: requestedLocation?.id) { _, _ in
@@ -156,11 +162,10 @@ struct CampusMapScreen: View {
     private func centerOnUser() {
         if locationController.isAuthorized {
             pendingCenterOnUserAfterAuthorization = false
-            locationController.locateUser()
             centerOnUserRequestID = UUID()
         } else {
-            pendingCenterOnUserAfterAuthorization = true
-            locationController.locateUser()
+            pendingCenterOnUserAfterAuthorization = locationController.authorizationStatus == .notDetermined
+            locationController.requestAuthorizationIfNeeded()
         }
     }
 
@@ -177,7 +182,7 @@ struct CampusMapScreen: View {
 
 /// 校区快捷切换按钮。
 ///
-/// 这里用极简的单字标签，是因为按钮空间很小；完整校区名由地图内容本身承担识别。
+/// 这里使用短标签节省按钮空间，完整校区名通过无障碍标签提供。
 private struct FloatingMapLabelButton: View {
     let label: String
     let accessibilityLabel: String

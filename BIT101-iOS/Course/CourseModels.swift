@@ -31,7 +31,7 @@ enum CourseRatingText {
 
 /// 课程列表单项。
 ///
-/// 当前底部课程页先承接课程浏览与详情能力，因此模型只保留列表展示所需字段。
+/// 模型保留课程列表与详情入口所需的基础字段。
 struct CourseSummary: Decodable, Identifiable, Equatable, Hashable {
     let id: Int
     let name: String
@@ -88,7 +88,7 @@ struct CourseSummary: Decodable, Identifiable, Equatable, Hashable {
 struct CourseNavigationRequest: Identifiable, Hashable {
     let id = UUID()
     let courseID: Int
-    /// 课程详情没有社区 ID 时，使用课程号/名称走统一检索匹配。
+    /// 课程详情需要课程号或课程名时，使用统一检索流程完成匹配。
     let lookupCourseName: String?
     let lookupCourseNumber: String?
     let lookupTeacher: String?
@@ -215,7 +215,7 @@ struct CourseDetail: Decodable, Equatable {
 
 /// 单门课程的历史成绩统计。
 ///
-/// Web 端称为“历史记录”，iOS 端在详情页展示为“历史成绩”。
+/// 课程详情页按学期展示课程成绩统计。
 struct CourseHistoryGrade: Codable, Identifiable, Equatable {
     let term: String
     let avgScore: Double?
@@ -244,75 +244,6 @@ struct CourseHistoryGrade: Codable, Identifiable, Equatable {
         avgScore = container.decodeFlexibleDoubleIfPresent(forKeys: [.avgScore])
         maxScore = container.decodeFlexibleDoubleIfPresent(forKeys: [.maxScore])
         studentNum = container.decodeFlexibleIntIfPresent(forKeys: [.studentNum])
-    }
-}
-
-struct CourseHistoryAuditFixture: Codable {
-    let schemaVersion: Int
-    let algorithmVersion: String
-    let manualLabelMethod: String
-    let manualLabelCounts: [String: Int]
-    let sampledCourseCount: Int
-    let sampledGradeCount: Int
-    let courses: [CourseHistoryAuditFixtureCourse]
-
-    private enum CodingKeys: String, CodingKey {
-        case schemaVersion = "schema_version"
-        case algorithmVersion = "algorithm_version"
-        case manualLabelMethod = "manual_label_method"
-        case manualLabelCounts = "manual_label_counts"
-        case sampledCourseCount = "sampled_course_count"
-        case sampledGradeCount = "sampled_grade_count"
-        case courses
-    }
-}
-
-struct CourseHistoryAuditFixtureCourse: Codable {
-    let courseID: Int
-    let courseName: String
-    let courseNumber: String
-    let teachersName: String
-    let manualReviewLabel: String
-    let manualNote: String?
-    let predictedHiddenTerms: Set<String>
-    let grades: [CourseHistoryAuditFixtureGrade]
-
-    private enum CodingKeys: String, CodingKey {
-        case courseID = "course_id"
-        case courseName = "course_name"
-        case courseNumber = "course_number"
-        case teachersName = "teachers_name"
-        case manualReviewLabel = "manual_review_label"
-        case manualNote = "manual_note"
-        case predictedHiddenTerms = "predicted_hidden_terms"
-        case grades
-    }
-}
-
-struct CourseHistoryAuditFixtureGrade: Codable {
-    let term: String
-    let avgScore: Double
-    let maxScore: Double
-    let studentNum: Int
-    let predictedLabel: String
-    let manualLabel: String
-
-    private enum CodingKeys: String, CodingKey {
-        case term
-        case avgScore = "avg_score"
-        case maxScore = "max_score"
-        case studentNum = "student_num"
-        case predictedLabel = "predicted_label"
-        case manualLabel = "manual_label"
-    }
-
-    var courseHistoryGrade: CourseHistoryGrade {
-        CourseHistoryGrade(
-            term: term,
-            avgScore: avgScore,
-            maxScore: maxScore,
-            studentNum: studentNum
-        )
     }
 }
 

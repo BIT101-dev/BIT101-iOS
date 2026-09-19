@@ -19,6 +19,8 @@ enum ClassroomAvailabilityCalculator {
         selectedSections: [Int],
         nowMinutes: Int
     ) -> [ClassroomAvailability] {
+        guard !timeTable.isEmpty else { return [] }
+
         let selected = normalizedSections(selectedSections, in: timeTable)
         let currentFreeOnly = selected.isEmpty
         let selectedSet = Set(selected)

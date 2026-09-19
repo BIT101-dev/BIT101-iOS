@@ -15,6 +15,18 @@ private func normalizeDisplayedCourseTitle(_ value: String) -> String {
     ScheduleDisplayNormalizer.normalizeCourseTitle(value)
 }
 
+private func parseScheduleEntryMinutes(_ value: String) -> Int? {
+    let parts = value.split(separator: ":", omittingEmptySubsequences: false)
+    guard
+        parts.count == 2,
+        let hour = Int(parts[0]),
+        let minute = Int(parts[1]),
+        (0 ... 23).contains(hour) || (hour == 24 && minute == 0),
+        (0 ... 59).contains(minute)
+    else { return nil }
+    return hour * 60 + minute
+}
+
 extension CourseScheduleTabView {
     var scheduleEntries: [ScheduleCalendarEntry] {
         guard let firstDay = activeSchedule.firstDay else {
@@ -49,8 +61,10 @@ extension CourseScheduleTabView {
             }
 
             let weekday = ScheduleDateCodec.weekdayIndex(from: examDate)
-            let startMinutes = TimeSlot.parseMinutes(exam.beginTime)
-            let endMinutes = TimeSlot.parseMinutes(exam.endTime)
+            guard
+                let startMinutes = parseScheduleEntryMinutes(exam.beginTime),
+                let endMinutes = parseScheduleEntryMinutes(exam.endTime)
+            else { return nil }
             let startSection = convertTimeToSection(timeText: exam.beginTime, timeTable: activeSchedule.timeTable)
             let endSection = convertTimeToSection(timeText: exam.endTime, timeTable: activeSchedule.timeTable)
 
@@ -92,8 +106,10 @@ extension CourseScheduleTabView {
             }
 
             let weekday = ScheduleDateCodec.weekdayIndex(from: date)
-            let startMinutes = TimeSlot.parseMinutes(schedule.beginTime)
-            let endMinutes = TimeSlot.parseMinutes(schedule.endTime)
+            guard
+                let startMinutes = parseScheduleEntryMinutes(schedule.beginTime),
+                let endMinutes = parseScheduleEntryMinutes(schedule.endTime)
+            else { return nil }
             let startSection = convertTimeToSection(timeText: schedule.beginTime, timeTable: activeSchedule.timeTable)
             let endSection = convertTimeToSection(timeText: schedule.endTime, timeTable: activeSchedule.timeTable)
             guard endMinutes > startMinutes,

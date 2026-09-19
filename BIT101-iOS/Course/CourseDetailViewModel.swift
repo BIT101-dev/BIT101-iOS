@@ -27,7 +27,7 @@ enum CourseCommentComposerTarget: Identifiable, Equatable {
         case .course:
             return "发表评论"
         case let .comment(_, targetComment):
-            return "回复 @\(targetComment.user.nickname)"
+            return "回复 @\(targetCommentDisplayName(targetComment))"
         }
     }
 
@@ -36,8 +36,12 @@ enum CourseCommentComposerTarget: Identifiable, Equatable {
         case .course:
             return "写点什么吧"
         case let .comment(_, targetComment):
-            return "回复 @\(targetComment.user.nickname)"
+            return "回复 @\(targetCommentDisplayName(targetComment))"
         }
+    }
+
+    private func targetCommentDisplayName(_ comment: GalleryComment) -> String {
+        comment.anonymous ? "匿名用户" : comment.user.nickname
     }
 
     var objectID: String {
@@ -64,7 +68,7 @@ enum CourseCommentComposerTarget: Identifiable, Equatable {
         case .course:
             return nil
         case let .comment(mainComment, targetComment):
-            guard mainComment.id != targetComment.id else { return nil }
+            guard mainComment.id != targetComment.id, targetComment.user.id > 0 else { return nil }
             return targetComment.user.id
         }
     }
@@ -87,6 +91,8 @@ final class CourseDetailViewModel: ObservableObject {
 
     private let service: any CourseDetailServicing
     private var hasBootstrapped = false
+    private var refreshGeneration = 0
+    private var historyGeneration = 0
 
     init(initialCourse: CourseSummary, service: (any CourseDetailServicing)? = nil) {
         self.initialCourse = initialCourse
@@ -167,7 +173,11 @@ final class CourseDetailViewModel: ObservableObject {
 
     /// 并行刷新课程详情和评论首屏。
     func refresh() async {
+        refreshGeneration &+= 1
+        let generation = refreshGeneration
         let hadCourse = course != nil
+        let previousStatus = status
+        let previousCommentState = commentState
         if !hadCourse {
             status = .loading
         }
@@ -180,12 +190,18 @@ final class CourseDetailViewModel: ObservableObject {
             try await self.service.fetchComments(courseID: self.initialCourse.id, page: nil)
         }
 
-        handleCourseResult(await courseResult, hadCourse: hadCourse)
-        handleCommentRefreshResult(await commentResult)
+        let resolvedCourseResult = await courseResult
+        guard refreshGeneration == generation else { return }
+        handleCourseResult(resolvedCourseResult, previousStatus: previousStatus)
+
+        let resolvedCommentResult = await commentResult
+        guard refreshGeneration == generation else { return }
+        handleCommentRefreshResult(resolvedCommentResult, previousState: previousCommentState)
     }
 
     func loadMoreCommentsIfNeeded(currentComment: GalleryComment?) async {
         guard let currentComment else { return }
+        let generation = refreshGeneration
         guard
             commentState.status == .loaded,
             !commentState.isLoadingMore,
@@ -195,18 +211,24 @@ final class CourseDetailViewModel: ObservableObject {
             return
         }
 
-        commentState.isLoadingMore = true
-        defer { commentState.isLoadingMore = false }
-
         let nextPage = commentState.nextPage
+        commentState.isLoadingMore = true
+        defer {
+            if refreshGeneration == generation {
+                commentState.isLoadingMore = false
+            }
+        }
+
         let result = await loadResult { [self] in
             try await self.service.fetchComments(courseID: self.initialCourse.id, page: nextPage)
         }
 
         switch result {
         case let .success(comments):
+            guard refreshGeneration == generation else { return }
             commentState.appendPage(comments)
         case let .failure(error):
+            guard refreshGeneration == generation else { return }
             if isCourseDetailCancellation(error) { return }
             alert = AppAlert(title: "加载更多评论失败", message: error.localizedDescription)
         }
@@ -223,6 +245,8 @@ final class CourseDetailViewModel: ObservableObject {
     }
 
     func reloadHistoryGrades() async {
+        historyGeneration &+= 1
+        let generation = historyGeneration
         let number = resolvedNumber.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !number.isEmpty else {
             historyGradesAllowsDiagnostics = false
@@ -236,6 +260,7 @@ final class CourseDetailViewModel: ObservableObject {
             try await self.service.fetchCourseHistories(number: number)
         }
 
+        guard historyGeneration == generation else { return }
         switch result {
         case let .success(grades):
             historyGrades = grades.sorted { lhs, rhs in
@@ -244,7 +269,7 @@ final class CourseDetailViewModel: ObservableObject {
             historyGradeStatus = .loaded
         case let .failure(error):
             if isCourseDetailCancellation(error) {
-                historyGradeStatus = .idle
+                historyGradeStatus = historyGrades.isEmpty ? .idle : .loaded
                 return
             }
             historyGradeStatus = .failed(error.localizedDescription)
@@ -253,17 +278,20 @@ final class CourseDetailViewModel: ObservableObject {
 
     func likeCourse() async {
         guard !isLikingCourse else { return }
+        let generation = refreshGeneration
         isLikingCourse = true
         defer { isLikingCourse = false }
 
         do {
             let result = try await service.like(objectID: "course\(initialCourse.id)")
+            guard refreshGeneration == generation else { return }
             if let course {
                 self.course = course.updatingLike(result.like, likeNum: result.likeNum)
             } else {
                 self.course = fallbackCourseDetail(like: result.like, likeNum: result.likeNum)
             }
         } catch {
+            guard refreshGeneration == generation else { return }
             if isCourseDetailCancellation(error) { return }
             alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
@@ -271,13 +299,16 @@ final class CourseDetailViewModel: ObservableObject {
 
     func likeComment(_ comment: GalleryComment) async {
         guard !likingCommentIDs.contains(comment.id) else { return }
+        let generation = refreshGeneration
         likingCommentIDs.insert(comment.id)
         defer { likingCommentIDs.remove(comment.id) }
 
         do {
             let result = try await service.like(objectID: "comment\(comment.id)")
+            guard refreshGeneration == generation else { return }
             commentState.items = commentState.items.updatingLike(for: comment.id, like: result.like, likeNum: result.likeNum)
         } catch {
+            guard refreshGeneration == generation else { return }
             if isCourseDetailCancellation(error) { return }
             alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
@@ -328,20 +359,25 @@ final class CourseDetailViewModel: ObservableObject {
         )
     }
 
-    private func handleCourseResult(_ result: Result<CourseDetail, Error>, hadCourse: Bool) {
+    private func handleCourseResult(_ result: Result<CourseDetail, Error>, previousStatus: CourseDetailLoadStatus) {
         switch result {
         case let .success(course):
             self.course = course
             status = .loaded
         case let .failure(error):
             if isCourseDetailCancellation(error) {
-                if !hadCourse {
-                    status = .idle
+                if course == nil {
+                    status = previousStatus
+                    if case .loading = previousStatus {
+                        status = .idle
+                    }
+                } else {
+                    status = .loaded
                 }
                 return
             }
 
-            if hadCourse {
+            if course != nil {
                 status = .loaded
                 alert = AppAlert(title: "刷新课程详情失败", message: error.localizedDescription)
                 return
@@ -352,15 +388,24 @@ final class CourseDetailViewModel: ObservableObject {
         }
     }
 
-    private func handleCommentRefreshResult(_ result: Result<[GalleryComment], Error>) {
+    private func handleCommentRefreshResult(
+        _ result: Result<[GalleryComment], Error>,
+        previousState: GalleryCommentState
+    ) {
         switch result {
         case let .success(comments):
             commentState.applyFirstPage(comments)
             commentState.status = .loaded
         case let .failure(error):
             if isCourseDetailCancellation(error) {
-                commentState.status = .idle
-                commentState.isLoadingMore = false
+                var restoredState = previousState
+                restoredState.isLoadingMore = false
+                if !restoredState.items.isEmpty {
+                    restoredState.status = .loaded
+                } else if case .loading = restoredState.status {
+                    restoredState.status = .idle
+                }
+                commentState = restoredState
                 return
             }
 

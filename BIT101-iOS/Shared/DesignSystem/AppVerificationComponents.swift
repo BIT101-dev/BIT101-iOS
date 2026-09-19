@@ -1,5 +1,11 @@
 import SwiftUI
 
+private enum AppVerificationMetrics {
+    static let minimumCodeLength = 4
+    static let maximumCodeLength = 8
+    static let validCodeLength = minimumCodeLength ... maximumCodeLength
+}
+
 /// 课表、成绩和可信成绩单共用的短信验证码面板。
 ///
 /// 验证码输入、清洗、焦点、错误展示和提交状态采用统一实现；业务传入挑战对象、
@@ -41,9 +47,10 @@ struct AppSMSVerificationSheet: View {
                         .multilineTextAlignment(.center)
                         .font(AppDesignSystem.Typography.title2Monospaced)
                         .focused($isCodeFieldFocused)
+                        .accessibilityLabel("短信验证码")
                         .disabled(isSubmitting)
                         .onChange(of: code) { _, newValue in
-                            let digits = String(newValue.filter(\.isNumber).prefix(8))
+                            let digits = normalizedVerificationCode(newValue)
                             if digits != newValue {
                                 code = digits
                             }
@@ -77,7 +84,7 @@ struct AppSMSVerificationSheet: View {
                             Spacer()
                         }
                     }
-                    .disabled(isSubmitting || !(4 ... 8).contains(code.count))
+                    .disabled(isSubmitting || !AppVerificationMetrics.validCodeLength.contains(code.count))
                 }
             }
             .navigationTitle("短信验证")
@@ -121,9 +128,12 @@ struct AppSchoolSMSVerificationSheet: View {
                         .multilineTextAlignment(.center)
                         .font(AppDesignSystem.Typography.title2Monospaced)
                         .focused($isCodeFieldFocused)
+                        .accessibilityLabel("短信验证码")
                         .onChange(of: code) { _, newValue in
-                            let digits = String(newValue.filter(\.isNumber).prefix(8))
-                            if digits != newValue { code = digits }
+                            let digits = normalizedVerificationCode(newValue)
+                            if digits != newValue {
+                                code = digits
+                            }
                         }
                 } header: {
                     Text("输入验证码")
@@ -136,7 +146,7 @@ struct AppSchoolSMSVerificationSheet: View {
                         onSubmit(code)
                     }
                     .frame(maxWidth: .infinity)
-                    .disabled(!(4 ... 8).contains(code.count))
+                    .disabled(!AppVerificationMetrics.validCodeLength.contains(code.count))
                 }
             }
             .navigationTitle("短信验证")
@@ -150,4 +160,8 @@ struct AppSchoolSMSVerificationSheet: View {
         }
         .presentationDetents([.medium])
     }
+}
+
+private func normalizedVerificationCode(_ value: String) -> String {
+    String(value.filter(\.isNumber).prefix(AppVerificationMetrics.maximumCodeLength))
 }

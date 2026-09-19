@@ -208,9 +208,9 @@ struct ScheduleCalendarLayerOrderingTests {
 
 @Suite("Schedule academic course matching")
 struct CourseLookupMatcherTests {
-    private final class ServiceStub: CourseListServicing {
+    private actor ServiceStub: CourseListServicing {
         let results: [String: [CourseSummary]]
-        private(set) var searches: [String] = []
+        private var searches: [String] = []
 
         init(results: [String: [CourseSummary]]) {
             self.results = results
@@ -220,6 +220,10 @@ struct CourseLookupMatcherTests {
             searches.append(search)
             await Task.yield()
             return results[search] ?? []
+        }
+
+        func recordedSearches() -> [String] {
+            searches
         }
     }
 
@@ -294,7 +298,8 @@ struct CourseLookupMatcherTests {
         #expect(result.selectedCourse.id == expected.id)
         #expect(result.searchQuery == "自动控制理论II(双语)")
         #expect(result.searchResults.map(\.id) == [expected.id])
-        #expect(Set(service.searches) == ["AUTO 1", "自动控制理论II(双语)"])
+        let searches = await service.recordedSearches()
+        #expect(Set(searches) == ["AUTO 1", "自动控制理论II(双语)"])
     }
 
     @Test("Unknown evaluation course resolves to a failure result")
@@ -325,7 +330,8 @@ struct CourseLookupMatcherTests {
             teacher: "李老师"
         )))
 
-        #expect(Set(service.searches) == ["PHY-1", "大学物理"])
+        let searches = await service.recordedSearches()
+        #expect(Set(searches) == ["PHY-1", "大学物理"])
         #expect(resolution.selectedCourse.id == second.id)
     }
 
@@ -374,7 +380,7 @@ struct CourseLookupMatcherTests {
 
 @Suite("Academic term policy")
 struct AcademicTermPolicyTests {
-    @Test("March and September roll to the next adjacent pair")
+    @Test("Adjacent terms follow the March and September fallback boundaries")
     func adjacentTermPairs() {
         #expect(AcademicTermPolicy.adjacentTerms(on: shanghaiDate(2026, 2, 28)) == [
             "2025-2026-1", "2025-2026-2",

@@ -60,12 +60,8 @@ struct MineRootView: View {
                     users: viewModel.followerState.items,
                     status: viewModel.followerState.status,
                     isLoadingMore: viewModel.followerState.isLoadingMore,
-                    onRefresh: {
-                        Task { await viewModel.refreshFollowers() }
-                    },
-                    onLoadMore: { user in
-                        Task { await viewModel.loadMoreFollowersIfNeeded(currentUser: user) }
-                    },
+                    onRefresh: { await viewModel.refreshFollowers() },
+                    onLoadMore: { user in await viewModel.loadMoreFollowersIfNeeded(currentUser: user) },
                     onOpenUser: { route = .user($0.id) }
                 )
             case .followings:
@@ -74,12 +70,8 @@ struct MineRootView: View {
                     users: viewModel.followingState.items,
                     status: viewModel.followingState.status,
                     isLoadingMore: viewModel.followingState.isLoadingMore,
-                    onRefresh: {
-                        Task { await viewModel.refreshFollowings() }
-                    },
-                    onLoadMore: { user in
-                        Task { await viewModel.loadMoreFollowingsIfNeeded(currentUser: user) }
-                    },
+                    onRefresh: { await viewModel.refreshFollowings() },
+                    onLoadMore: { user in await viewModel.loadMoreFollowingsIfNeeded(currentUser: user) },
                     onOpenUser: { route = .user($0.id) }
                 )
             case .posters:
@@ -87,15 +79,11 @@ struct MineRootView: View {
                     posters: viewModel.posterState.items,
                     status: viewModel.posterState.status,
                     isLoadingMore: viewModel.posterState.isLoadingMore,
-                    onRefresh: {
-                        Task { await viewModel.refreshPosters() }
-                    },
-                    onLoadMore: { poster in
-                        Task { await viewModel.loadMorePostersIfNeeded(currentPoster: poster) }
-                    }
+                    onRefresh: { await viewModel.refreshPosters() },
+                    onLoadMore: { poster in await viewModel.loadMorePostersIfNeeded(currentPoster: poster) }
                 )
             case let .user(userID):
-                UserProfileRootView(userID: userID)
+                UserProfileRootView(userID: userID, onLogout: onLogout)
             }
         }
         .navigationDestination(item: $settingsRoute) { destination in
@@ -110,6 +98,10 @@ struct MineRootView: View {
             await viewModel.bootstrapIfNeeded()
         }
         .diagnosticAlert(item: $viewModel.alert)
+        .onChange(of: viewModel.requiresLogin) { _, requiresLogin in
+            guard requiresLogin else { return }
+            onLogout()
+        }
     }
 
     /// 资料卡区域，根据加载状态展示骨架、错误页或真实内容。
@@ -143,7 +135,7 @@ struct MineRootView: View {
 
     /// 设置入口列表。
     ///
-    /// 入口最终都进入同一个 `SettingsRootView`，这里负责展示入口列表和选择路由。
+    /// 设置入口进入 `SettingsRootView`，建议入口使用独立 sheet 呈现。
     private var settingsSection: some View {
         ForEach(SettingsRoute.allCases) { route in
             Button {
@@ -170,14 +162,16 @@ struct MineRootView: View {
 /// 复用“我的”页的资料卡和话题卡片样式，统一用户主页的视觉表现。
 struct UserProfileRootView: View {
     let userID: Int
+    let onLogout: () -> Void
 
     /// 指定用户主页状态机。
     @StateObject private var viewModel: UserProfileViewModel
     @State private var selectedPoster: GalleryPoster?
     @State private var imageViewer: GalleryImageViewerState?
 
-    init(userID: Int) {
+    init(userID: Int, onLogout: @escaping () -> Void) {
         self.userID = userID
+        self.onLogout = onLogout
         _viewModel = StateObject(wrappedValue: UserProfileViewModel(userID: userID))
     }
 
@@ -192,10 +186,14 @@ struct UserProfileRootView: View {
             }
         }
         .appGroupedListStyle()
-        .navigationTitle("用户详情")
+        .navigationTitle(navigationTitle)
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await viewModel.bootstrapIfNeeded()
+        }
+        .onChange(of: viewModel.requiresLogin) { _, requiresLogin in
+            guard requiresLogin else { return }
+            onLogout()
         }
         .sheet(item: $selectedPoster) { poster in
             NavigationStack {
@@ -231,6 +229,7 @@ struct UserProfileRootView: View {
                     onOpenAvatar: {
                         imageViewer = GalleryImageViewerState(images: [info.user.avatar], initialIndex: 0)
                     },
+                    isFollowRequestInFlight: viewModel.isFollowingUser,
                     onFollow: {
                         Task { await viewModel.followUser() }
                     }
@@ -298,8 +297,8 @@ struct UserProfileRootView: View {
     }
 
     private var navigationTitle: String {
-        guard let nickname = viewModel.userInfo?.user.nickname, !nickname.isEmpty else { return "主页" }
-        return nickname
+        let nickname = viewModel.userInfo?.user.nickname.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return nickname.isEmpty ? "主页" : nickname
     }
 }
 
@@ -314,6 +313,7 @@ private struct MineProfileCard: View {
     let onOpenPosters: (() -> Void)?
     let onOpenAvatar: (() -> Void)?
     let onFollow: (() -> Void)?
+    let isFollowRequestInFlight: Bool
 
     init(
         info: MineUserInfo,
@@ -322,7 +322,8 @@ private struct MineProfileCard: View {
         onOpenFollowings: (() -> Void)? = nil,
         onOpenPosters: (() -> Void)? = nil,
         onOpenAvatar: (() -> Void)? = nil,
-        onFollow: (() -> Void)? = nil
+        onFollow: (() -> Void)? = nil,
+        isFollowRequestInFlight: Bool = false
     ) {
         self.info = info
         self.posterCountText = posterCountText
@@ -331,6 +332,7 @@ private struct MineProfileCard: View {
         self.onOpenPosters = onOpenPosters
         self.onOpenAvatar = onOpenAvatar
         self.onFollow = onFollow
+        self.isFollowRequestInFlight = isFollowRequestInFlight
     }
 
     /// 资料卡主体。
@@ -372,12 +374,14 @@ private struct MineProfileCard: View {
                 MineStatButton(number: posterCountText, title: "帖子", action: onOpenPosters)
             }
 
-            if let onFollow {
+            if let onFollow, !info.own {
                 Button(action: onFollow) {
                     Text(info.following ? (info.follower ? "互相关注" : "已关注") : "关注")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(info.following || isFollowRequestInFlight)
+                .accessibilityLabel(info.following ? (info.follower ? "互相关注" : "已关注") : "关注")
                 .padding(.top, AppDesignSystem.Spacing.control)
             }
         }
@@ -407,8 +411,8 @@ private struct MineUserListView: View {
     let users: [GalleryUser]
     let status: MineLoadStatus
     let isLoadingMore: Bool
-    let onRefresh: () -> Void
-    let onLoadMore: (GalleryUser?) -> Void
+    let onRefresh: () async -> Void
+    let onLoadMore: (GalleryUser?) async -> Void
     let onOpenUser: (GalleryUser) -> Void
 
     var body: some View {
@@ -420,7 +424,9 @@ private struct MineUserListView: View {
                     title: "用户列表加载失败",
                     systemImage: "person.2.slash",
                     message: message,
-                    onRetry: onRefresh
+                    onRetry: {
+                        Task { await onRefresh() }
+                    }
                 )
             } else {
                 List {
@@ -429,34 +435,37 @@ private struct MineUserListView: View {
                             onOpenUser(user)
                         } label: {
                             HStack(spacing: AppDesignSystem.Spacing.content) {
-                            AppAvatarView(
-                                imageURL: URL(string: user.avatar.lowUrl.isEmpty ? user.avatar.url : user.avatar.lowUrl),
-                                size: AppDesignSystem.Size.avatar.list,
-                                tint: AppDesignSystem.Palette.info
-                            )
+                                AppAvatarView(
+                                    imageURL: URL(string: user.avatar.lowUrl.isEmpty ? user.avatar.url : user.avatar.lowUrl),
+                                    size: AppDesignSystem.Size.avatar.list,
+                                    tint: AppDesignSystem.Palette.info
+                                )
 
-                            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
-                                HStack(spacing: AppDesignSystem.Spacing.tight) {
-                                    Text(user.nickname)
-                                        .font(AppDesignSystem.Typography.headline)
+                                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
+                                    HStack(spacing: AppDesignSystem.Spacing.tight) {
+                                        Text(user.nickname)
+                                            .font(AppDesignSystem.Typography.headline)
 
-                                    if !user.identity.text.isEmpty {
-                                        Text(user.identity.text)
-                                            .font(AppDesignSystem.Typography.caption2Emphasis)
-                                            .foregroundStyle(MineColorDecoder.color(from: user.identity.color) ?? AppDesignSystem.Palette.info)
+                                        if !user.identity.text.isEmpty {
+                                            Text(user.identity.text)
+                                                .font(AppDesignSystem.Typography.caption2Emphasis)
+                                                .foregroundStyle(MineColorDecoder.color(from: user.identity.color) ?? AppDesignSystem.Palette.info)
+                                        }
                                     }
-                                }
 
-                                Text("UID：\(user.id)")
-                                    .font(AppDesignSystem.Typography.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+                                    Text("UID：\(user.id)")
+                                        .font(AppDesignSystem.Typography.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel(user.nickname.isEmpty ? "未命名用户" : user.nickname)
+                        .accessibilityValue("UID \(user.id)")
+                        .accessibilityHint("打开用户主页")
                         .task {
-                            onLoadMore(user)
+                            await onLoadMore(user)
                         }
                     }
 
@@ -465,11 +474,14 @@ private struct MineUserListView: View {
                     }
                 }
                 .appGroupedListStyle()
+                .refreshable {
+                    await onRefresh()
+                }
             }
         }
         .task {
             if case .idle = status {
-                onRefresh()
+                await onRefresh()
             }
         }
         .navigationTitle(title)
@@ -490,8 +502,8 @@ private struct MinePosterListView: View {
     let posters: [GalleryPoster]
     let status: MineLoadStatus
     let isLoadingMore: Bool
-    let onRefresh: () -> Void
-    let onLoadMore: (GalleryPoster?) -> Void
+    let onRefresh: () async -> Void
+    let onLoadMore: (GalleryPoster?) async -> Void
     @State private var selectedPoster: GalleryPoster?
     @State private var imageViewer: GalleryImageViewerState?
     @State private var deletingPoster: GalleryPoster?
@@ -515,7 +527,9 @@ private struct MinePosterListView: View {
                     title: "帖子加载失败",
                     systemImage: "text.bubble",
                     message: message,
-                    onRetry: onRefresh
+                    onRetry: {
+                        Task { await onRefresh() }
+                    }
                 )
             } else if visiblePosters.isEmpty {
                 AppEmptyState(title: "暂无可显示的帖子", systemImage: "text.bubble")
@@ -534,7 +548,7 @@ private struct MinePosterListView: View {
                                     onReport: nil
                                 )
                                 .task {
-                                    onLoadMore(poster)
+                                    await onLoadMore(poster)
                                 }
                             }
                         }
@@ -544,11 +558,14 @@ private struct MinePosterListView: View {
                         }
                     }
                 }
+                .refreshable {
+                    await onRefresh()
+                }
             }
         }
         .task {
             if case .idle = status {
-                onRefresh()
+                await onRefresh()
             }
         }
         .background(AppDesignSystem.Palette.groupedBackground)
@@ -560,7 +577,7 @@ private struct MinePosterListView: View {
                     poster: poster,
                     onDeleted: {
                         deletedPosterIDs.insert(poster.id)
-                        onRefresh()
+                        Task { await onRefresh() }
                     }
                 )
             }
@@ -629,8 +646,11 @@ private struct MineStatButton: View {
                     content
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(title)
+                .accessibilityValue(number)
             } else {
                 content
+                    .accessibilityElement(children: .combine)
             }
         }
     }

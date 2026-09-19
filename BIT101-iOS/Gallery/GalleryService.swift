@@ -13,7 +13,7 @@ nonisolated enum GalleryWebRequestFactory {
     }
 }
 
-/// 话题接口层错误。
+/// 话廊接口层错误。
 enum GalleryServiceError: LocalizedError {
     case notLoggedIn
     case invalidResponse
@@ -84,7 +84,7 @@ private enum GalleryBotClassifier {
     }
 }
 
-/// 话题模块网络层。
+/// 话廊模块网络层。
 ///
 /// 负责帖子流、搜索和消息请求；机器人分栏使用服务端标签分类，正文筛选保持关闭。
 struct GalleryService {

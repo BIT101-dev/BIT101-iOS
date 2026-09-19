@@ -168,7 +168,9 @@ struct CourseScheduleCalendarView: View {
                 )
             }
             let highlightWeekday = (currentWeek == week && showHighlightToday) ? ScheduleDateCodec.weekdayIndex(from: Date()) : nil
-            let timeLineSection = (currentWeek == week && showCurrentTime) ? convertTimeToSection(timeText: currentTimeText(), timeTable: timeTable) : nil
+            let timeLineSection = (currentWeek == week && showCurrentTime)
+                ? convertMinutesToSection(minutes: currentMinute(), timeTable: timeTable)
+                : nil
 
             ZStack(alignment: .topLeading) {
                 if let highlightWeekday, visibleWeekdays.contains(highlightWeekday), let index = visibleWeekdays.firstIndex(of: highlightWeekday) {
@@ -210,6 +212,7 @@ struct CourseScheduleCalendarView: View {
                                         .background(AppDesignSystem.Palette.secondaryGroupedBackground)
                                 }
                                 .buttonStyle(.plain)
+                                .accessibilityLabel("第\(week)周，周\(weekdayText(for: visibleWeekdays[index]))，\(mmddText(for: date))")
                             }
                         }
                     } else {
@@ -224,6 +227,7 @@ struct CourseScheduleCalendarView: View {
                                     .foregroundStyle(.primary)
                                     .frame(width: dayWidth, height: headerHeight)
                                     .background(AppDesignSystem.Palette.secondaryGroupedBackground)
+                                    .accessibilityLabel("周\(weekdayText(for: visibleWeekdays[index]))")
                             }
                         }
                     }
@@ -241,6 +245,8 @@ struct CourseScheduleCalendarView: View {
                                     .minimumScaleFactor(0.8)
                             }
                             .frame(width: leftWidth, height: rowHeight)
+                            .accessibilityElement(children: .combine)
+                            .accessibilityLabel("第\(index + 1)节，开始时间\(slot.start)")
 
                             ForEach(visibleWeekdays, id: \.self) { _ in
                                 Rectangle()
@@ -398,9 +404,12 @@ struct CourseScheduleCalendarView: View {
         return Self.weekdayTitles[weekday - 1]
     }
 
-    private func currentTimeText() -> String {
+    private func currentMinute() -> Int {
         let components = ScheduleDateCodec.calendar.dateComponents([.hour, .minute], from: Date())
-        return String(format: "%02d:%02d", components.hour ?? 0, components.minute ?? 0)
+        return min(
+            max((components.hour ?? 0) * 60 + (components.minute ?? 0), 0),
+            24 * 60
+        )
     }
 }
 

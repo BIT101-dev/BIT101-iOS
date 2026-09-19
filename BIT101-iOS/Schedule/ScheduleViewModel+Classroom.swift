@@ -137,18 +137,23 @@ extension ScheduleViewModel {
         guard classroomPageTask == nil else { return }
 
         let taskID = UUID()
+        let generation = accountGeneration
         classroomPageTaskID = taskID
         classroomPageTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.performClassroomPageRefresh()
-            guard self.classroomPageTaskID == taskID else { return }
+            guard self.accountGeneration == generation, !Task.isCancelled else { return }
+            await self.performClassroomPageRefresh(accountGeneration: generation)
+            guard self.accountGeneration == generation,
+                  self.classroomPageTaskID == taskID
+            else { return }
             self.classroomPageTask = nil
             self.classroomPageTaskID = nil
         }
     }
 
     /// 空教室页面刷新实现；外层负责请求任务的持有和复用。
-    private func performClassroomPageRefresh() async {
+    private func performClassroomPageRefresh(accountGeneration: Int) async {
+        guard self.accountGeneration == accountGeneration, !Task.isCancelled else { return }
         applyCurrentClassroomSectionBlock()
         let requestID = beginClassroomRequest()
         defer {
@@ -160,9 +165,14 @@ extension ScheduleViewModel {
                 try await loadClassroomMeta(requestID: requestID)
             }
 
-            guard isCurrentClassroomRequest(requestID), !selectedBuildingID.isEmpty else { return }
+            guard self.accountGeneration == accountGeneration,
+                  !Task.isCancelled,
+                  isCurrentClassroomRequest(requestID),
+                  !selectedBuildingID.isEmpty
+            else { return }
             try await refreshClassrooms(requestID: requestID)
         } catch {
+            guard self.accountGeneration == accountGeneration else { return }
             handleClassroomRequestError(error, requestID: requestID, title: "空教室同步失败")
         }
     }
@@ -320,10 +330,12 @@ extension ScheduleViewModel {
     ///
     /// 当前最新请求负责关闭 loading 和弹窗；旧请求结果统一忽略 UI 回写。
     private func handleClassroomRequestError(_ error: Error, requestID: Int, title: String) {
-        guard isCurrentClassroomRequest(requestID) else { return }
+        guard isCurrentClassroomRequest(requestID), !Task.isCancelled else { return }
 
         if isCancellation(error) {
             shouldShowInitialClassroomSpinner = false
+            isLoadingClassroomMeta = false
+            isLoadingClassrooms = false
             return
         }
 
@@ -419,7 +431,8 @@ extension ScheduleViewModel {
         return campuses.first { campus in
             let campusName = ClassroomAvailabilityCalculator.normalizedBuildingName(campus.name)
             let campusCode = ClassroomAvailabilityCalculator.normalizedBuildingName(campus.code)
-            return normalizedCampus.contains(campusName) || campusName.contains(normalizedCampus) || normalizedCampus == campusCode
+            return (!campusName.isEmpty && (normalizedCampus.contains(campusName) || campusName.contains(normalizedCampus)))
+                || (!campusCode.isEmpty && normalizedCampus == campusCode)
         }
     }
 

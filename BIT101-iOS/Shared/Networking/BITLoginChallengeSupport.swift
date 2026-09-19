@@ -90,6 +90,8 @@ enum BITLoginChallengeSupport {
         interval: Duration,
         fetch: @escaping (String) async throws -> BITLoginChallengePayload
     ) async throws -> BITLoginChallengePayload {
+        guard timeout > 0, interval > .zero else { return initialPayload }
+
         var payload = initialPayload
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(timeout))

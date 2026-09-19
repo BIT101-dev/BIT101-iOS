@@ -12,6 +12,7 @@ struct ScheduleEntryDetailSheet: View {
     let entry: ScheduleCalendarEntry
     let academicCourses: [CourseRecord]
     let currentWeek: Int
+    let currentTerm: String
     let allowsCourseMutation: Bool
     let isOverviewMode: Bool
     let allowsCustomScheduleMutation: Bool
@@ -23,11 +24,11 @@ struct ScheduleEntryDetailSheet: View {
     let onDeleteCourse: (String) -> Void
     let onImportCourseOccurrence: (String, Int) -> Void
     let onImportCourse: (String) -> Void
-    let onDeleteCalendarMarkers: (Set<String>) -> Void
-    let onDeleteCalendarCourse: (String) -> Void
+    let onDeleteCalendarMarkers: (Set<String>, String) -> Void
+    let onDeleteCalendarCourse: (String, String) -> Void
     let onImportExam: (String) -> Void
     let onImportCustomSchedule: (String) -> Void
-    let onDeleteCalendarEntry: (String) -> Void
+    let onDeleteCalendarEntry: (String, String) -> Void
     let onEditCustomSchedule: () -> Void
     let onDeleteCustomSchedule: () -> Void
     @Environment(\.dismiss) private var dismiss
@@ -63,7 +64,7 @@ struct ScheduleEntryDetailSheet: View {
                                 onImportExam(entry.sourceID)
                             }
                             Button("移除考试日历事件", role: .destructive) {
-                                onDeleteCalendarEntry("exam-\(entry.sourceID)")
+                                onDeleteCalendarEntry("exam-\(entry.sourceID)", currentTerm)
                             }
                         }
                     }
@@ -85,19 +86,20 @@ struct ScheduleEntryDetailSheet: View {
                             dismiss()
                             onEditCustomSchedule()
                         }
-                Button("删除", role: .destructive) {
-                    onDeleteCustomSchedule()
-                }
+                        Button("删除", role: .destructive) {
+                            dismiss()
+                            onDeleteCustomSchedule()
+                        }
+                    }
 
-                Section {
-                    Button("导入到系统日历") {
-                        onImportCustomSchedule(entry.sourceID)
+                    Section {
+                        Button("导入到系统日历") {
+                            onImportCustomSchedule(entry.sourceID)
+                        }
+                        Button("移除日历事件", role: .destructive) {
+                            onDeleteCalendarEntry("custom-\(entry.sourceID)", currentTerm)
+                        }
                     }
-                    Button("移除日历事件", role: .destructive) {
-                        onDeleteCalendarEntry("custom-\(entry.sourceID)")
-                    }
-                }
-            }
                 }
             }
             .appGroupedListStyle()
@@ -240,10 +242,10 @@ struct ScheduleEntryDetailSheet: View {
                         onImportCourse(first.id)
                     }
                     Button("移除这节课日历事件", role: .destructive) {
-                        onDeleteCalendarMarkers(["\(first.id)-w\(mutationWeek(for: group))"])
+                        onDeleteCalendarMarkers(["\(first.id)-w\(mutationWeek(for: group))"], currentTerm)
                     }
                     Button("移除这门课日历事件", role: .destructive) {
-                        onDeleteCalendarCourse(first.id)
+                        onDeleteCalendarCourse(first.id, currentTerm)
                     }
                 }
             }

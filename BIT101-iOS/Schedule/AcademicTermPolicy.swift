@@ -6,14 +6,14 @@ nonisolated enum AcademicActivityPhase: Equatable {
     case unknown
 }
 
-/// Calendar fallback used to keep the current and next semester available offline.
-/// School-provided first-week dates remain authoritative whenever they exist.
+/// Calendar fallback used to keep adjacent term identifiers available offline.
+/// Cached school first-week dates refine the selected term whenever they exist.
 nonisolated enum AcademicTermPolicy {
-    private static var calendar: Calendar {
+    private static let calendar: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 8 * 3600) ?? .current
         return calendar
-    }
+    }()
 
     /// Returns the semester containing `date` and the semester following it.
     /// March 1 and September 1 are the local fallback boundaries used by BIT.
@@ -55,8 +55,8 @@ nonisolated enum AcademicTermPolicy {
     }
 
     /// Distinguishes teaching time from the post-week-16/pre-next-term vacation.
-    /// Unknown data preserves the old behavior and keeps useful refreshes available
-    /// when a user's timetable has never synced.
+    /// Data availability determines whether the result is `.unknown`; this keeps
+    /// refreshes available before the first timetable sync.
     static func activityPhase(cache: ScheduleCache, on date: Date) -> AcademicActivityPhase {
         let terms = adjacentTerms(on: date)
         let currentTerm = terms[0]

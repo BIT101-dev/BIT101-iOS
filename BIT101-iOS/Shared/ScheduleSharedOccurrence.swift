@@ -274,7 +274,10 @@ enum ScheduleSharedDateCodec {
 
     static func parseDate(_ string: String) -> Date? {
         guard !string.isEmpty else { return nil }
-        return dateFormatter.date(from: string)
+        guard let date = dateFormatter.date(from: string), dateFormatter.string(from: date) == string else {
+            return nil
+        }
+        return date
     }
 
     static func formatDate(_ date: Date) -> String {
@@ -300,7 +303,13 @@ enum ScheduleSharedDateCodec {
 
     static func combine(date: Date, time: String) -> Date? {
         let parts = time.split(separator: ":")
-        guard parts.count == 2, let hour = Int(parts[0]), let minute = Int(parts[1]) else {
+        guard
+            parts.count == 2,
+            let hour = Int(parts[0]),
+            let minute = Int(parts[1]),
+            (0...23).contains(hour),
+            (0...59).contains(minute)
+        else {
             return nil
         }
 
@@ -315,7 +324,7 @@ enum ScheduleSharedDateCodec {
 /// 跨外部展示层共用的课程实例。
 ///
 /// 结构保存“周次 + 星期 + 节次”展开后的最终结果。
-/// Widget、Watch 和 Live Activity 直接使用它进行排序、展示和倒计时。
+/// Widget 和 Watch 直接使用它进行排序、展示和倒计时。
 struct ScheduleExternalOccurrence: Identifiable, Hashable {
     let id: String
     let title: String
@@ -435,16 +444,22 @@ enum ScheduleOccurrenceResolver {
             return []
         }
 
-        let slotMap = Dictionary(uniqueKeysWithValues: snapshot.timeTable.map { ($0.id, $0) })
+        let slotMap = Dictionary(
+            snapshot.timeTable.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
 
-        let rawOccurrences = snapshot.courses
+        let rawOccurrencesByID = snapshot.courses
             .flatMap { course in
                 course.weeks.compactMap { week -> ScheduleExternalOccurrence? in
                     guard
+                        week > 0,
+                        (1...7).contains(course.weekday),
                         let startSlot = slotMap[course.startSection],
                         let endSlot = slotMap[course.endSection],
                         let startDate = ScheduleSharedDateCodec.combine(firstDay: firstDay, week: week, weekday: course.weekday, time: startSlot.start),
                         let endDate = ScheduleSharedDateCodec.combine(firstDay: firstDay, week: week, weekday: course.weekday, time: endSlot.end),
+                        endDate > startDate,
                         endDate > now
                     else {
                         return nil
@@ -461,11 +476,19 @@ enum ScheduleOccurrenceResolver {
                     )
                 }
             }
+            .reduce(into: [String: ScheduleExternalOccurrence]()) { result, occurrence in
+                result[occurrence.id] = occurrence
+            }
+
+        let rawOccurrences = rawOccurrencesByID.values
             .sorted { lhs, rhs in
                 if lhs.startDate != rhs.startDate {
                     return lhs.startDate < rhs.startDate
                 }
-                return lhs.title < rhs.title
+                if lhs.title != rhs.title {
+                    return lhs.title < rhs.title
+                }
+                return lhs.id < rhs.id
             }
 
         return rawOccurrences.enumerated().compactMap { index, occurrence in

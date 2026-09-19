@@ -10,34 +10,42 @@ enum AppDeepLinkRoute: Equatable {
     nonisolated init?(url: URL) {
         let scheme = url.scheme?.lowercased()
         let pathComponents = url.pathComponents.filter { $0 != "/" }
-        let routeHead: String
-        let routeTail: String?
+        let routeComponents: [String]
 
         if scheme == "https" {
             guard url.host?.lowercased() == "open.aihelpme.dev" else { return nil }
-            routeHead = pathComponents.first ?? ""
-            routeTail = pathComponents.dropFirst().first
+            routeComponents = pathComponents
         } else {
             guard scheme == "bit101" else { return nil }
-            routeHead = (url.host ?? pathComponents.first ?? "").lowercased()
-            routeTail = url.host == nil ? pathComponents.dropFirst().first : pathComponents.first
+            if let host = url.host, !host.isEmpty {
+                routeComponents = [host] + pathComponents
+            } else {
+                routeComponents = pathComponents
+            }
         }
 
-        switch routeHead.lowercased() {
-        case "schedule" where routeTail?.lowercased() == "courses":
+        guard let routeHead = routeComponents.first?.lowercased() else { return nil }
+
+        switch routeHead {
+        case "schedule" where routeComponents.count == 2 && routeComponents[1].lowercased() == "courses":
             self = .scheduleCourses
         case "paper":
-            guard let routeTail, let id = Int(routeTail) else { return nil }
+            guard routeComponents.count == 2, let id = positiveID(from: routeComponents[1]) else { return nil }
             self = .paper(id)
         case "gallery":
-            guard let routeTail, let id = Int(routeTail) else { return nil }
+            guard routeComponents.count == 2, let id = positiveID(from: routeComponents[1]) else { return nil }
             self = .gallery(id)
         case "course":
-            guard let routeTail, let id = Int(routeTail) else { return nil }
+            guard routeComponents.count == 2, let id = positiveID(from: routeComponents[1]) else { return nil }
             self = .course(id)
         default:
             return nil
         }
+    }
+
+    private static func positiveID(from component: String) -> Int? {
+        guard let id = Int(component), id > 0 else { return nil }
+        return id
     }
 }
 
@@ -51,6 +59,7 @@ final class AppDeepLinkCoordinator: ObservableObject {
     private init() {}
 
     func receive(_ url: URL) {
+        guard AppDeepLinkRoute(url: url) != nil else { return }
         pendingURL = url
     }
 

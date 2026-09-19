@@ -54,7 +54,7 @@ extension ScheduleService {
     ///
     /// 首次请求前确保存在与当前账号绑定的 WebVPN Cookie。业务请求明确返回登录页、
     /// 401/403 或其他会话失效信号时，清理范围限定为教学中心状态，再重新走 bit-login。
-    /// 认证尝试上限为两轮恢复（共三次业务尝试），超出上限后向上抛出。
+    /// WebVPN 路线内认证恢复最多两轮；网络路线切换由外层分支处理。
     func withTeachingCenterSessionRetry<T>(
         operation: () async throws -> T
     ) async throws -> T {
@@ -86,12 +86,18 @@ extension ScheduleService {
         } catch ScheduleServiceError.teachingCenterSessionExpired {
             try await ensureSchoolSession()
             return try await operation()
+        } catch {
+            guard isScheduleTransientNetworkError(error) || isSchoolTransportFailure(error) else {
+                throw error
+            }
+            teachingCenterState.invalidate()
+            return try await withWebVPNTeachingCenterSessionRetry(operation: operation)
         }
     }
 
-    /// 校园网环境下，WebVPN 域名解析失败或 bit-login 网关超时时，继续使用校内直连。
+    /// WebVPN 网络路线或 bit-login 暂态故障时，继续使用校内直连。
     func shouldAttemptDirectTeachingCenterFallback(for error: Error) -> Bool {
-        if isHostResolutionError(error) {
+        if isScheduleTransientNetworkError(error) {
             return true
         }
 
@@ -99,6 +105,8 @@ extension ScheduleService {
         case ScheduleServiceError.authenticationFailed(let message),
              ScheduleServiceError.challengeInvalid(let message):
             return isTransientAuthenticationFailure(message)
+        case ScheduleServiceError.schoolTransportFailure:
+            return true
         default:
             return false
         }

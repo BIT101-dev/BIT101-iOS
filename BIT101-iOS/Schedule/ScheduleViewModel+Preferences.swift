@@ -52,6 +52,11 @@ extension ScheduleViewModel {
         let count = variants.count
         let nextIndex = (selectedCourseScheduleIndex + step).modulo(count)
         selectedCourseScheduleIndex = nextIndex
+        let targetSchedule = variants[nextIndex]
+        let targetHasSelectedWeek = targetSchedule.courses.contains { $0.weeks.contains(selectedWeek) }
+        if !targetHasSelectedWeek {
+            selectedWeek = resolvedAutomaticWeek(for: targetSchedule.firstDay)
+        }
     }
 
     /// 重命名当前账号自己的课表。
@@ -191,8 +196,11 @@ extension ScheduleViewModel {
 
             let start = parts[0]
             let end = parts[1]
-            let startMinutes = TimeSlot.parseMinutes(start)
-            let endMinutes = TimeSlot.parseMinutes(end)
+            guard let startMinutes = validTimeTableMinutes(start),
+                  let endMinutes = validTimeTableMinutes(end)
+            else {
+                throw scheduleValidationError("时间表格式错误。")
+            }
             guard endMinutes > startMinutes else {
                 throw scheduleValidationError("时间表格式错误。")
             }
@@ -209,6 +217,19 @@ extension ScheduleViewModel {
 
         cache.timeTable = timeTable
         persist()
+    }
+
+    private func validTimeTableMinutes(_ value: String) -> Int? {
+        let parts = value.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 2,
+              let hour = Int(parts[0]),
+              let minute = Int(parts[1]),
+              (0 ... 23).contains(hour),
+              (0 ... 59).contains(minute)
+        else {
+            return nil
+        }
+        return hour * 60 + minute
     }
 
 }

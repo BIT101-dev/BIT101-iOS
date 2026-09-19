@@ -9,7 +9,7 @@ import SwiftUI
 
 /// 外观设置页。
 ///
-/// 目前包含外观模式和自动旋转两项全局设置。
+/// 目前包含当前账号的外观模式和自动旋转设置。
 struct ThemeSettingsPage: View {
     @ObservedObject private var settings = AppSettingsStore.shared
 
@@ -33,5 +33,6 @@ struct ThemeSettingsPage: View {
                 .appSelectionFeedback(trigger: settings.autoRotate)
             }
         }
+        .appGroupedListStyle()
     }
 }

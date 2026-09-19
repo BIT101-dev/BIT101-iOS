@@ -49,14 +49,15 @@ struct GalleryMessagesView: View {
                             .listRowBackground(Color.clear)
                         } else {
                             ForEach(Array(currentState.items.enumerated()), id: \.element.id) { index, message in
+                                let type = viewModel.selectedType
                                 VStack(spacing: 0) {
                                     GalleryMessageRow(
-                                        type: viewModel.selectedType,
+                                        type: type,
                                         message: message,
-                                        isUnread: viewModel.isUnread(message, in: viewModel.selectedType),
+                                        isUnread: viewModel.isUnread(message, in: type),
                                         onOpenPoster: {
                                             Task {
-                                                await openMessage(message)
+                                                await openMessage(message, type: type)
                                             }
                                         }
                                     )
@@ -71,7 +72,7 @@ struct GalleryMessagesView: View {
                                 .listRowBackground(Color.clear)
                                 .onAppear {
                                     Task {
-                                        await viewModel.loadMoreIfNeeded(for: viewModel.selectedType, currentMessage: message)
+                                        await viewModel.loadMoreIfNeeded(for: type, currentMessage: message)
                                     }
                                 }
                             }
@@ -195,8 +196,8 @@ struct GalleryMessagesView: View {
     ///
     /// 服务端返回的消息对象可能关联已删除帖子，因此先请求帖子详情。
     /// 帖子已删除时显示本地提示，避免进入“对象不存在”的错误页。
-    private func openMessage(_ message: GalleryMessage) async {
-        viewModel.markMessageAsRead(message, in: viewModel.selectedType)
+    private func openMessage(_ message: GalleryMessage, type: GalleryMessageType) async {
+        viewModel.markMessageAsRead(message, in: type)
 
         guard let posterID = message.linkedPosterID else { return }
 
@@ -276,9 +277,11 @@ private struct GalleryMessageRow: View {
         .background(isUnread ? AppDesignSystem.Palette.highlightSurface : AppDesignSystem.Palette.systemBackground)
         .contentShape(Rectangle())
         .onTapGesture {
-            guard canOpenPoster else { return }
             onOpenPoster()
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(canOpenPoster ? "打开关联帖子" : "标记为已读")
     }
 }
 

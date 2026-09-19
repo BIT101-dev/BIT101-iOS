@@ -41,6 +41,7 @@ struct AppCommentIdentityHeader: View {
                     nicknameText
                 }
                 .buttonStyle(.plain)
+                .frame(minHeight: AppDesignSystem.Size.control.touchTarget)
             } else {
                 nicknameText
             }
@@ -77,6 +78,7 @@ struct AppCommentActionBar: View {
                 Label("回复", systemImage: "arrowshape.turn.up.left")
                     .font(AppDesignSystem.Typography.captionMedium)
                     .foregroundStyle(.secondary)
+                    .frame(minHeight: AppDesignSystem.Size.control.touchTarget)
             }
             .buttonStyle(.plain)
 
@@ -93,6 +95,7 @@ struct AppCommentActionBar: View {
                     }
                 }
                 .foregroundStyle(isLiked ? AppDesignSystem.Palette.highlight : .secondary)
+                .frame(minHeight: AppDesignSystem.Size.control.touchTarget)
             }
             .buttonStyle(.plain)
             .disabled(isLiking)

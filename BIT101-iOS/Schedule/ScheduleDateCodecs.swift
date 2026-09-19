@@ -19,6 +19,7 @@ enum ScheduleDateCodec {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(secondsFromGMT: 8 * 3600)
         formatter.dateFormat = "HH:mm"
+        formatter.isLenient = false
         return formatter
     }()
 
@@ -37,7 +38,10 @@ enum ScheduleDateCodec {
 
     /// 解析 `HH:mm` 文本为一个只关心时分的 `Date`。
     static func parseTime(_ string: String) -> Date? {
-        timeFormatter.date(from: string)
+        guard let date = timeFormatter.date(from: string), timeFormatter.string(from: date) == string else {
+            return nil
+        }
+        return date
     }
 
     /// 格式化时分文本。

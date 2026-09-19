@@ -10,16 +10,21 @@ extension ScheduleViewModel {
     @discardableResult
     func syncDDL(showSuccessNotice: Bool = true, showErrorNotice: Bool = true) async -> Bool {
         guard !isSyncingDDL else { return false }
+        let generation = accountGeneration
         notice = nil
         isSyncingDDL = true
-        defer { isSyncingDDL = false }
+        defer {
+            guard accountGeneration == generation else { return }
+            isSyncingDDL = false
+        }
 
         do {
             let payload = try await service.syncDDLEvents(
                 existingEvents: cache.ddlEvents,
                 storedURL: cache.lexueCalendarURL,
-                schoolSMSCodeHandler: makeSchoolSMSCodeHandler()
+                schoolSMSCodeHandler: makeSchoolSMSCodeHandler(for: generation)
             )
+            guard accountGeneration == generation else { return false }
             cache.lexueCalendarURL = payload.url
             cache.ddlEvents = ScheduleDDLEditor.mergingSyncedEvents(
                 payload.events,
@@ -35,9 +40,11 @@ extension ScheduleViewModel {
             }
             return true
         } catch ScheduleServiceError.schoolSecondFactorRequired {
+            guard accountGeneration == generation else { return false }
             presentDDLSecondFactorNotice()
             return false
         } catch let error as LoginServiceError {
+            guard accountGeneration == generation else { return false }
             switch error {
             case .schoolSMSCodeInvalid:
                 notice = ScheduleNotice.userInput(title: "验证码错误", message: error.localizedDescription)
@@ -57,6 +64,7 @@ extension ScheduleViewModel {
             }
             return false
         } catch {
+            guard accountGeneration == generation else { return false }
             if isCancellation(error) { return false }
             if showErrorNotice {
                 notice = schoolFailureNotice(
@@ -79,21 +87,29 @@ extension ScheduleViewModel {
     ///
     /// 主要用在订阅链接失效或用户主动要求重置时。
     func refreshLexueCalendarURL(showSuccessNotice: Bool = true) async {
+        guard !isSyncingDDL else { return }
+        let generation = accountGeneration
         notice = nil
         isSyncingDDL = true
-        defer { isSyncingDDL = false }
+        defer {
+            guard accountGeneration == generation else { return }
+            isSyncingDDL = false
+        }
 
         do {
             cache.lexueCalendarURL = try await service.refreshLexueCalendarURL(
-                schoolSMSCodeHandler: makeSchoolSMSCodeHandler()
+                schoolSMSCodeHandler: makeSchoolSMSCodeHandler(for: generation)
             )
+            guard accountGeneration == generation else { return }
             persist()
             if showSuccessNotice {
                 notice = ScheduleNotice.informational(title: "订阅链接更新成功", message: "已重新获取乐学订阅链接。")
             }
         } catch ScheduleServiceError.schoolSecondFactorRequired {
+            guard accountGeneration == generation else { return }
             presentDDLSecondFactorNotice()
         } catch let error as LoginServiceError {
+            guard accountGeneration == generation else { return }
             switch error {
             case .schoolSMSCodeInvalid:
                 notice = ScheduleNotice.userInput(title: "验证码错误", message: error.localizedDescription)
@@ -107,6 +123,7 @@ extension ScheduleViewModel {
                 )
             }
         } catch {
+            guard accountGeneration == generation else { return }
             if isCancellation(error) { return }
             notice = schoolFailureNotice(
                 title: "订阅链接获取失败",
@@ -152,13 +169,13 @@ extension ScheduleViewModel {
 
     /// 修改 DDL 提前提醒窗口。
     func setDDLBeforeDay(_ value: Int) {
-        cache.ddlBeforeDay = max(value, 0)
+        cache.ddlBeforeDay = min(max(value, 0), 30)
         persist()
     }
 
     /// 修改 DDL 过期后仍保留显示的窗口。
     func setDDLAfterDay(_ value: Int) {
-        cache.ddlAfterDay = max(value, 0)
+        cache.ddlAfterDay = min(max(value, 0), 30)
         persist()
     }
 

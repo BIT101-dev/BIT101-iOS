@@ -14,6 +14,7 @@ struct AppNavigationRowLabel: View {
                     height: AppDesignSystem.Size.control.navigationIcon
                 )
                 .foregroundStyle(.primary)
+                .accessibilityHidden(true)
 
             Text(title)
                 .font(AppDesignSystem.Typography.headline)
@@ -25,6 +26,7 @@ struct AppNavigationRowLabel: View {
                 Image(systemName: "chevron.right")
                     .font(AppDesignSystem.Typography.footnoteEmphasis)
                     .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
             }
         }
     }
@@ -154,6 +156,10 @@ struct AppOrderedSearchBar<Order: Hashable, OrderContent: View>: View {
                 Image(systemName: "xmark.circle.fill")
                     .font(AppDesignSystem.Typography.title3)
                     .foregroundStyle(AppDesignSystem.Palette.highlight)
+                    .frame(
+                        width: AppDesignSystem.Size.control.touchTarget,
+                        height: AppDesignSystem.Size.control.touchTarget
+                    )
             }
             .buttonStyle(.plain)
             .disabled(text.isEmpty)

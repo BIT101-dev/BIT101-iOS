@@ -1,6 +1,6 @@
 import Foundation
 
-enum NetworkSmokeScope: String, Codable {
+enum NetworkSmokeScope: String, Codable, Sendable {
     case all
     case bit101
     case school
@@ -31,6 +31,7 @@ enum NetworkSmokeScope: String, Codable {
                 || name.hasPrefix("feedback.aihelpme.dev")
         case .school:
             return name == "BIT101 登录状态"
+                || name == "当前学期"
                 || name.hasPrefix("切换学期")
                 || name.hasPrefix("课表")
                 || name.hasPrefix("空教室")
@@ -53,7 +54,7 @@ enum NetworkSmokeScope: String, Codable {
     }
 }
 
-enum NetworkSmokeCapture: String, Codable {
+enum NetworkSmokeCapture: String, Codable, Sendable {
     case none
     case courseHistory
     case cachedCourseHistory
@@ -61,7 +62,7 @@ enum NetworkSmokeCapture: String, Codable {
     case rawCourseResponse
 }
 
-struct ScheduleCacheAuditCourse: Codable {
+struct ScheduleCacheAuditCourse: Codable, Sendable {
     let id: String
     let name: String
     let number: String
@@ -73,7 +74,7 @@ struct ScheduleCacheAuditCourse: Codable {
     let endSection: Int
 }
 
-struct ScheduleCacheAuditSnapshot: Codable {
+struct ScheduleCacheAuditSnapshot: Codable, Sendable {
     let currentTerm: String
     let firstDayString: String
     let sourceFirstDayString: String
@@ -90,7 +91,7 @@ struct CourseHistoryAuditSample: Codable, Equatable {
     let grades: [CourseHistoryGrade]
 }
 
-struct CourseHistoryAuditMetrics: Codable, Equatable {
+struct CourseHistoryAuditMetrics: Codable, Equatable, Sendable {
     let courseCount: Int
     let gradeCount: Int
     let labeledGradeCount: Int
@@ -180,7 +181,7 @@ enum ReleaseNetworkSmokeReportStore {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(report)
-        try data.write(to: fileURL, options: [.atomic])
+        try data.write(to: fileURL, options: [.atomic, .completeFileProtection])
     }
 
     static var rawCourseCaptureEnabled: Bool {
@@ -206,7 +207,10 @@ enum ReleaseNetworkSmokeReportStore {
         else { return }
         let directory = containerURL.appending(path: "Library/NetworkSmoke", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try? data.write(to: directory.appending(path: rawCourseResponseFileName), options: .atomic)
+        try? data.write(
+            to: directory.appending(path: rawCourseResponseFileName),
+            options: [.atomic, .completeFileProtection]
+        )
     }
 
     static func readCachedCourseHistoryFixture() throws -> CourseHistoryAuditFixture {
@@ -248,6 +252,9 @@ struct ReleaseNetworkSmokeLaunchRequest {
         self.scope = pathScope
         self.capture = capture
         if let runID, !runID.isEmpty {
+            guard runID.count <= 128,
+                  runID.unicodeScalars.allSatisfy({ $0.value >= 0x20 && $0.value != 0x7F })
+            else { return nil }
             self.runID = runID
         } else {
             self.runID = UUID().uuidString
