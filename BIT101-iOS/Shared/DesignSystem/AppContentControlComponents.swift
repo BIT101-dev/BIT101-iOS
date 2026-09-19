@@ -16,14 +16,14 @@ struct AppNavigationRowLabel: View {
                 .foregroundStyle(.primary)
 
             Text(title)
-                .font(.headline)
+                .font(AppDesignSystem.Typography.headline)
                 .foregroundStyle(.primary)
 
             Spacer()
 
             if showsDisclosureIndicator {
                 Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
+                    .font(AppDesignSystem.Typography.footnoteEmphasis)
                     .foregroundStyle(.tertiary)
             }
         }
@@ -152,7 +152,7 @@ struct AppOrderedSearchBar<Order: Hashable, OrderContent: View>: View {
                 onClear()
             } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.title3)
+                    .font(AppDesignSystem.Typography.title3)
                     .foregroundStyle(AppDesignSystem.Palette.highlight)
             }
             .buttonStyle(.plain)

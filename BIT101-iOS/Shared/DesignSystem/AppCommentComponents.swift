@@ -15,10 +15,10 @@ struct AppCommentSectionHeader<Trailing: View>: View {
     var body: some View {
         HStack(spacing: AppDesignSystem.Spacing.control) {
             Text("评论")
-                .font(.headline)
+                .font(AppDesignSystem.Typography.headline)
 
             Text("\(count)")
-                .font(.subheadline)
+                .font(AppDesignSystem.Typography.subheadline)
                 .foregroundStyle(.secondary)
 
             Spacer()
@@ -48,7 +48,7 @@ struct AppCommentIdentityHeader: View {
             Spacer(minLength: 0)
 
             Text(timeText)
-                .font(.caption)
+                .font(AppDesignSystem.Typography.caption)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
@@ -56,7 +56,9 @@ struct AppCommentIdentityHeader: View {
 
     private var nicknameText: some View {
         Text(nickname)
-            .font(isSubComment ? .subheadline.weight(.semibold) : .headline)
+            .font(isSubComment
+                ? AppDesignSystem.Typography.subheadlineEmphasis
+                : AppDesignSystem.Typography.headline)
             .lineLimit(1)
     }
 }
@@ -73,7 +75,7 @@ struct AppCommentActionBar: View {
         HStack(spacing: AppDesignSystem.Spacing.control) {
             Button(action: onReply) {
                 Label("回复", systemImage: "arrowshape.turn.up.left")
-                    .font(.caption.weight(.medium))
+                    .font(AppDesignSystem.Typography.captionMedium)
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
@@ -81,7 +83,7 @@ struct AppCommentActionBar: View {
             Button(action: onLike) {
                 Label {
                     Text("\(likeCount)")
-                        .font(.caption)
+                        .font(AppDesignSystem.Typography.caption)
                 } icon: {
                     if isLiking {
                         ProgressView()

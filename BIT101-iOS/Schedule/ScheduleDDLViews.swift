@@ -168,7 +168,7 @@ private struct DDLEventCard: View {
             HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
                     Text(event.title)
-                        .font(.headline)
+                        .font(AppDesignSystem.Typography.headline)
                         .strikethrough(event.done)
 
                     if !displayText.isEmpty {
@@ -183,7 +183,7 @@ private struct DDLEventCard: View {
                         .foregroundStyle(tint)
 
                     Text(dueText)
-                        .font(.caption)
+                        .font(AppDesignSystem.Typography.caption)
                         .foregroundStyle(.secondary)
                 }
 
@@ -191,7 +191,7 @@ private struct DDLEventCard: View {
 
                 Button(action: onToggleDone) {
                     Image(systemName: event.done ? "checkmark.circle.fill" : "circle")
-                        .font(.title3)
+                        .font(AppDesignSystem.Typography.title3)
                         .foregroundStyle(tint)
                         .frame(width: AppDesignSystem.Size.control.touchTarget, height: AppDesignSystem.Size.control.touchTarget)
                         .contentShape(Rectangle())
@@ -224,12 +224,12 @@ private struct DDLEventDetailSheet: View {
             List {
                 Section {
                     Text(event.title)
-                        .font(.headline)
+                        .font(AppDesignSystem.Typography.headline)
                         .strikethrough(event.done)
                     Text(ScheduleDateCodec.formatDateTime(event.dueAt))
                         .foregroundStyle(.secondary)
                     Text(event.group == "lexue" ? "乐学" : "自定义")
-                        .font(.subheadline)
+                        .font(AppDesignSystem.Typography.subheadline)
                         .foregroundStyle(.secondary)
                 }
 

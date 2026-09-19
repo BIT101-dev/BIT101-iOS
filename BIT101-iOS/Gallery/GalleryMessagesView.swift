@@ -246,7 +246,7 @@ private struct GalleryMessageRow: View {
                     Spacer(minLength: 0)
 
                     Text(AppDateText.relativeText(from: message.updateTime, fallback: "未知时间"))
-                        .font(.caption)
+                        .font(AppDesignSystem.Typography.caption)
                         .foregroundStyle(.secondary)
                 }
 
@@ -265,7 +265,7 @@ private struct GalleryMessageRow: View {
 
             if canOpenPoster {
                 Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
+                    .font(AppDesignSystem.Typography.captionEmphasis)
                     .foregroundStyle(.tertiary)
                     .padding(.top, AppDesignSystem.Spacing.micro)
             }

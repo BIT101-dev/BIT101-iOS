@@ -131,7 +131,7 @@ struct DayAdjustmentSheet: View {
 
                 Section {
                     Text(footerText)
-                        .font(.footnote)
+                        .font(AppDesignSystem.Typography.footnote)
                         .foregroundStyle(.secondary)
                 }
             }

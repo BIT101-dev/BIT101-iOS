@@ -119,20 +119,22 @@ struct CourseDetailView: View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
             HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
                 Text(viewModel.resolvedName)
-                    .font(.title3.weight(.bold))
+                    .font(AppDesignSystem.Typography.title3Emphasis)
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 HStack(spacing: AppDesignSystem.Spacing.control) {
-                    AppDetailCircleButton {
+                    AppDetailCircleButton(accessibilityLabel: "评论课程") {
                         composerTarget = .course(courseID: initialCourse.id)
                     } label: {
                         Image(systemName: "bubble.right")
-                            .font(.headline)
+                            .font(AppDesignSystem.Typography.headline)
                             .foregroundStyle(.primary)
                     }
 
-                    AppDetailCircleButton {
+                    AppDetailCircleButton(
+                        accessibilityLabel: viewModel.isCourseLiked ? "取消课程点赞" : "点赞课程"
+                    ) {
                         Task {
                             await viewModel.likeCourse()
                         }
@@ -143,7 +145,7 @@ struct CourseDetailView: View {
                                     .controlSize(.small)
                             } else {
                                 Image(systemName: viewModel.isCourseLiked ? "hand.thumbsup.fill" : "hand.thumbsup")
-                                    .font(.headline)
+                                    .font(AppDesignSystem.Typography.headline)
                             }
                         }
                         .foregroundStyle(viewModel.isCourseLiked ? AppDesignSystem.Palette.highlight : Color.primary)
@@ -169,7 +171,7 @@ struct CourseDetailView: View {
             Text("\(viewModel.resolvedLikeNum)赞")
             Text("\(viewModel.resolvedCommentNum)评论")
         }
-        .font(.subheadline)
+        .font(AppDesignSystem.Typography.subheadline)
         .foregroundStyle(.secondary)
     }
 
@@ -218,7 +220,7 @@ private struct CourseResourceCard: View {
         AppCard(variant: .secondaryGrouped) {
             HStack(spacing: AppDesignSystem.Spacing.control) {
                 Image(systemName: systemImage)
-                    .font(.headline)
+                    .font(AppDesignSystem.Typography.headline)
                     .foregroundStyle(AppDesignSystem.Palette.highlight)
                     .frame(
                         width: AppDesignSystem.Size.control.detailActionButton,
@@ -231,7 +233,7 @@ private struct CourseResourceCard: View {
                         .font(AppDesignSystem.Typography.bodyEmphasis)
                         .foregroundStyle(.primary)
                     Text(subtitle)
-                        .font(.caption)
+                        .font(AppDesignSystem.Typography.caption)
                         .foregroundStyle(.secondary)
                 }
 

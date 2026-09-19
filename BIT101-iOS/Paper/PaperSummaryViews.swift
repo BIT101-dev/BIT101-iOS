@@ -15,7 +15,7 @@ struct PaperSummaryCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
             Text(paper.title)
-                .font(.headline)
+                .font(AppDesignSystem.Typography.headline)
                 .foregroundStyle(.primary)
                 .lineLimit(2)
 
@@ -32,7 +32,7 @@ struct PaperSummaryCard: View {
                         .lineLimit(1)
 
                     Text(AppDateText.timestampText(from: paper.updateTime))
-                        .font(.caption)
+                        .font(AppDesignSystem.Typography.caption)
                         .foregroundStyle(.secondary)
                 }
 
@@ -52,7 +52,7 @@ struct PaperSummaryCard: View {
                 Spacer(minLength: AppDesignSystem.Spacing.content)
                 Text(AppDateText.dayText(from: paper.updateTime))
             }
-            .font(.caption)
+            .font(AppDesignSystem.Typography.caption)
             .foregroundStyle(.secondary)
         }
         .appFeedCardStyle()

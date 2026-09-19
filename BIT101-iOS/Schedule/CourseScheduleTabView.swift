@@ -156,7 +156,7 @@ struct CourseScheduleTabView: View {
                         Section {
                             VStack(spacing: AppDesignSystem.Spacing.section) {
                                 Text(activeSchedule.isPrimary ? "尚未设置学期起始日期" : "这份分享课表缺少起始日期")
-                                    .font(.headline)
+                                    .font(AppDesignSystem.Typography.headline)
                                 Text(activeSchedule.isPrimary ? "请先同步所选学期，或在课表设置中手动设置起始日期。" : "试试上下滑切换到别的课表，或重新导入一份分享课表。")
                                     .foregroundStyle(.secondary)
                                 if supportsEditingDisplayedSchedule {

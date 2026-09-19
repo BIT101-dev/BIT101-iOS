@@ -111,7 +111,7 @@ private struct CourseCommentRow: View {
 
             if comment.rate > 0 {
                 Label(CourseRatingText.text(from: comment.rate), systemImage: "star.fill")
-                    .font(.caption.weight(.medium))
+                    .font(AppDesignSystem.Typography.captionMedium)
                     .foregroundStyle(AppDesignSystem.Palette.highlight)
             }
 
@@ -235,7 +235,7 @@ struct CourseCommentComposerSheet: View {
                                 ForEach(1 ... 5, id: \.self) { value in
                                     ZStack {
                                         Image(systemName: starSymbol(for: value))
-                                            .font(.title3)
+                                            .font(AppDesignSystem.Typography.title3)
                                             .foregroundStyle(AppDesignSystem.Palette.highlight)
                                             .frame(width: AppDesignSystem.Size.control.compact, height: AppDesignSystem.Size.control.compact)
 

@@ -54,7 +54,7 @@ struct GalleryPosterActionMenu: View {
 
     private var menuLabel: some View {
         Image(systemName: "ellipsis.circle")
-            .font(.title3)
+            .font(AppDesignSystem.Typography.title3)
             .foregroundStyle(.secondary)
             .frame(width: AppDesignSystem.Size.control.detailActionButton, height: AppDesignSystem.Size.control.detailActionButton)
     }

@@ -167,11 +167,11 @@ private struct CourseHistoryGradesChart: View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
             HStack(alignment: .firstTextBaseline) {
                 Text("趋势")
-                    .font(.headline)
+                    .font(AppDesignSystem.Typography.headline)
                 Spacer()
                 if let selectedGrade {
                     Text(selectedGrade.term)
-                        .font(.caption.weight(.medium))
+                        .font(AppDesignSystem.Typography.captionMedium)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -219,7 +219,7 @@ private struct CourseHistoryGradesChart: View {
 
             if hiddenMakeupOutlierCount > 0 {
                 Text("已从图表中隐藏 \(hiddenMakeupOutlierCount) 个疑似补考学期。")
-                    .font(.caption2)
+                    .font(AppDesignSystem.Typography.caption2)
                     .foregroundStyle(.secondary)
             }
         }
@@ -259,7 +259,7 @@ private struct CourseHistorySelectedLegend: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tight) {
             Text(grade.term)
-                .font(.caption.weight(.medium))
+                .font(AppDesignSystem.Typography.captionMedium)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: AppDesignSystem.Spacing.control) {
@@ -281,7 +281,7 @@ private struct CourseHistoryGradeRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
             Text(grade.term)
-                .font(.headline)
+                .font(AppDesignSystem.Typography.headline)
 
             HStack(spacing: AppDesignSystem.Spacing.control) {
                 CourseHistoryMetric(title: "平均分", value: courseHistoryScoreText(grade.avgScore), tint: AppDesignSystem.Palette.highlight)
@@ -301,7 +301,7 @@ private struct CourseHistoryMetric: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
             Text(title)
-                .font(.caption)
+                .font(AppDesignSystem.Typography.caption)
                 .foregroundStyle(.secondary)
             Text(value)
                 .font(AppDesignSystem.Typography.bodyEmphasis)

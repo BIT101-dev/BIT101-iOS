@@ -557,23 +557,23 @@ private struct ErrorReportSheet: View {
                 } footer: {
                     VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                         Text("本次错误")
-                            .font(.headline)
+                            .font(AppDesignSystem.Typography.headline)
                             .foregroundStyle(.primary)
                             .textCase(nil)
                         Text(viewModel.alert.title)
-                            .font(.headline)
+                            .font(AppDesignSystem.Typography.headline)
                             .foregroundStyle(.primary)
                         Text(viewModel.alert.message)
                             .font(AppDesignSystem.Typography.body)
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
                         Text("包含最近 \(viewModel.diagnostics.count) 条网络记录")
-                            .font(.footnote)
+                            .font(AppDesignSystem.Typography.footnote)
                             .foregroundStyle(.tertiary)
 
                         if let message = viewModel.resultMessage {
                             Text(message)
-                                .font(.footnote)
+                                .font(AppDesignSystem.Typography.footnote)
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -621,7 +621,7 @@ private struct ErrorReportSheet: View {
                     .bold()
                     .foregroundStyle(AppDesignSystem.Palette.accent)
             )
-            .font(.footnote)
+            .font(AppDesignSystem.Typography.footnote)
         } else {
             (
                 Text("包含接口返回的原始内容，")
@@ -633,7 +633,7 @@ private struct ErrorReportSheet: View {
                     .bold()
                     .foregroundColor(.secondary)
             )
-            .font(.footnote)
+            .font(AppDesignSystem.Typography.footnote)
         }
     }
 

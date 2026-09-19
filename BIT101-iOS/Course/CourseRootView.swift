@@ -339,7 +339,7 @@ private struct CourseSearchRow: View {
                     text = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.body)
+                        .font(AppDesignSystem.Typography.body)
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -359,20 +359,20 @@ private struct CourseListRow: View {
                     AppFixedColumnItem(
                         text: course.name.isEmpty ? "未命名课程" : course.name,
                         ratio: 0.64,
-                        font: .headline,
+                        font: AppDesignSystem.Typography.headline,
                         color: .primary
                     ),
                     AppFixedColumnItem(
                         text: CourseRatingText.text(from: course.rate, empty: "-"),
                         ratio: 0.16,
-                        font: .subheadline.weight(.semibold),
+                        font: AppDesignSystem.Typography.subheadlineEmphasis,
                         color: AppDesignSystem.Palette.highlight,
                         alignment: .trailing
                     ),
                     AppFixedColumnItem(
                         text: "\(course.commentNum)评",
                         ratio: 0.20,
-                        font: .caption,
+                        font: AppDesignSystem.Typography.caption,
                         color: .secondary,
                         alignment: .trailing
                     ),
@@ -385,19 +385,19 @@ private struct CourseListRow: View {
                     AppFixedColumnItem(
                         text: course.number.isEmpty ? "-" : course.number,
                         ratio: 0.30,
-                        font: .caption,
+                        font: AppDesignSystem.Typography.caption,
                         color: .secondary
                     ),
                     AppFixedColumnItem(
                         text: course.teachersName.isEmpty ? "-" : course.teachersName,
                         ratio: 0.45,
-                        font: .caption,
+                        font: AppDesignSystem.Typography.caption,
                         color: .secondary
                     ),
                     AppFixedColumnItem(
                         text: "\(course.likeNum)赞",
                         ratio: 0.25,
-                        font: .caption,
+                        font: AppDesignSystem.Typography.caption,
                         color: .secondary,
                         alignment: .trailing
                     ),

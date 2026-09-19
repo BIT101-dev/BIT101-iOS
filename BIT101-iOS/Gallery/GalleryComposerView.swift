@@ -87,7 +87,7 @@ struct GalleryComposerImageTile: View {
                         .scaledToFill()
                 } else {
                     Image(systemName: "photo")
-                        .font(.title2)
+                        .font(AppDesignSystem.Typography.title2)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -99,7 +99,7 @@ struct GalleryComposerImageTile: View {
 
             Button(action: onRemove) {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.title3)
+                    .font(AppDesignSystem.Typography.title3)
                     .foregroundStyle(.white, Color.black.opacity(0.55))
             }
             .padding(AppDesignSystem.Spacing.tight)
@@ -124,35 +124,35 @@ struct GalleryComposerImageTile: View {
                 Rectangle()
                     .fill(AppDesignSystem.Palette.mediaOverlay)
                 Text("\(draft.progress)%")
-                    .font(.caption2.weight(.semibold))
+                    .font(AppDesignSystem.Typography.caption2Emphasis)
                     .foregroundStyle(.white)
             }
             .frame(height: AppDesignSystem.Size.control.compact)
         case .prepared:
             if showsPreparedSuccessIndicator {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.title3)
+                    .font(AppDesignSystem.Typography.title3)
                     .foregroundStyle(.white)
                     .padding(AppDesignSystem.Spacing.tight)
-                    .background(.black.opacity(0.35), in: Circle())
+                    .background(AppDesignSystem.Palette.mediaOverlayStrong, in: Circle())
             }
         case .uploaded:
             HStack(spacing: AppDesignSystem.Spacing.tiny) {
                 Image(systemName: "checkmark.circle.fill")
                 Text("已上传")
             }
-            .font(.caption2.weight(.semibold))
+            .font(AppDesignSystem.Typography.caption2Emphasis)
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .padding(.vertical, AppDesignSystem.Spacing.tight)
-            .background(.black.opacity(0.35))
+            .background(AppDesignSystem.Palette.mediaOverlayStrong)
         case .failed:
             Button(action: onRetry) {
                 HStack(spacing: AppDesignSystem.Spacing.tiny) {
                     Image(systemName: "arrow.clockwise")
                     Text("重试")
                 }
-                .font(.caption2.weight(.semibold))
+                .font(AppDesignSystem.Typography.caption2Emphasis)
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, AppDesignSystem.Spacing.tight)
@@ -370,7 +370,7 @@ struct GalleryComposerView: View {
                                 } label: {
                                     Image(systemName: "minus.circle.fill")
                                         .foregroundStyle(.secondary)
-                                        .font(.title3)
+                                        .font(AppDesignSystem.Typography.title3)
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -405,7 +405,7 @@ struct GalleryComposerView: View {
 
                     if hasUploadingImages {
                         Text("图片上传中，上传完成后即可一并发布。")
-                            .font(.footnote)
+                            .font(AppDesignSystem.Typography.footnote)
                             .foregroundStyle(.secondary)
                     }
                 }

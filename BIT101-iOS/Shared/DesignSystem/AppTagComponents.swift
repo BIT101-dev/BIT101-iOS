@@ -22,9 +22,9 @@ enum AppTagChipVariant {
     var font: Font {
         switch self {
         case .display:
-            return .caption.weight(.medium)
+            return AppDesignSystem.Typography.captionMedium
         case .selection:
-            return .footnote.weight(.medium)
+            return AppDesignSystem.Typography.footnoteMedium
         }
     }
 }

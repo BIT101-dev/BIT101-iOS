@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 /// 课表顶部的周次滑动条，直接切换当前周。
 struct ScheduleInlineWeekSlider: View {
@@ -35,7 +34,7 @@ struct ScheduleInlineWeekSlider: View {
                         ForEach(weeks, id: \.self) { week in
                             VStack(spacing: AppDesignSystem.Schedule.grid.cellSpacing) {
                                 Text(isMajorWeek(week) ? "\(week)" : "")
-                                    .font(.caption2.weight(.semibold))
+                                    .font(AppDesignSystem.Typography.caption2Emphasis)
                                     .foregroundStyle(week == highlightedWeek ? AppDesignSystem.Palette.accent : .secondary)
                                     .frame(height: AppDesignSystem.Schedule.weekSlider.labelHeight)
                                 Capsule()
@@ -74,7 +73,7 @@ struct ScheduleInlineWeekSlider: View {
                 .safeAreaPadding(.horizontal, horizontalPadding)
                 .overlay(alignment: .top) {
                     Image(systemName: "triangle.fill")
-                        .font(.caption2)
+                        .font(AppDesignSystem.Typography.caption2)
                         .foregroundStyle(.tint)
                         .rotationEffect(.degrees(180))
                         .allowsHitTesting(false)
@@ -124,4 +123,3 @@ struct ScheduleInlineWeekSlider: View {
         }
     }
 }
-

@@ -19,7 +19,7 @@ struct AppRefreshStatusRow: View {
                     Text(lastUpdatedText)
                 }
             }
-            .font(.footnote)
+            .font(AppDesignSystem.Typography.footnote)
             .foregroundStyle(.secondary)
 
             Spacer(minLength: 0)

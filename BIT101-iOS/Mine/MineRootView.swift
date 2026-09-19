@@ -350,11 +350,11 @@ private struct MineProfileCard: View {
 
             HStack(spacing: AppDesignSystem.Spacing.regular) {
                 Text(info.user.nickname)
-                    .font(.title3.weight(.bold))
+                    .font(AppDesignSystem.Typography.title3Emphasis)
 
                 if !info.user.identity.text.isEmpty {
                     Text(info.user.identity.text)
-                        .font(.caption.weight(.bold))
+                        .font(AppDesignSystem.Typography.captionStrong)
                         .foregroundStyle(identityColor)
                 }
             }
@@ -438,17 +438,17 @@ private struct MineUserListView: View {
                             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
                                 HStack(spacing: AppDesignSystem.Spacing.tight) {
                                     Text(user.nickname)
-                                        .font(.headline)
+                                        .font(AppDesignSystem.Typography.headline)
 
                                     if !user.identity.text.isEmpty {
                                         Text(user.identity.text)
-                                            .font(.caption2.weight(.semibold))
+                                            .font(AppDesignSystem.Typography.caption2Emphasis)
                                             .foregroundStyle(MineColorDecoder.color(from: user.identity.color) ?? AppDesignSystem.Palette.info)
                                     }
                                 }
 
                                 Text("UID：\(user.id)")
-                                    .font(.caption)
+                                    .font(AppDesignSystem.Typography.caption)
                                     .foregroundStyle(.secondary)
                             }
                             }
@@ -638,10 +638,10 @@ private struct MineStatButton: View {
     private var content: some View {
         HStack(spacing: AppDesignSystem.Spacing.tiny) {
             Text(number)
-                .font(.headline.weight(.bold))
+                .font(AppDesignSystem.Typography.headlineStrong)
                 .foregroundStyle(.primary)
             Text(title)
-                .font(.subheadline.weight(.bold))
+                .font(AppDesignSystem.Typography.subheadlineStrong)
                 .foregroundStyle(.secondary)
         }
     }

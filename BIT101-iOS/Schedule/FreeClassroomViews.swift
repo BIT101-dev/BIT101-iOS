@@ -97,10 +97,10 @@ struct FreeClassroomTabView: View {
                     ForEach(viewModel.classroomAvailabilities) { classroom in
                         HStack(spacing: AppDesignSystem.Spacing.content) {
                             Text(classroom.name)
-                                .font(.headline)
+                                .font(AppDesignSystem.Typography.headline)
                             Spacer()
                             Text(classroom.prettyFreeTimes)
-                                .font(.subheadline)
+                                .font(AppDesignSystem.Typography.subheadline)
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.trailing)
                         }

@@ -191,7 +191,7 @@ struct GalleryPosterCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
             Text(poster.title)
-                .font(.headline)
+                .font(AppDesignSystem.Typography.headline)
                 .foregroundStyle(AppDesignSystem.Palette.highlight)
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -208,7 +208,7 @@ struct GalleryPosterCard: View {
 
                         if !poster.user.identity.text.isEmpty {
                             Text(poster.user.identity.text)
-                                .font(.caption2.weight(.medium))
+                                .font(AppDesignSystem.Typography.caption2Medium)
                                 .padding(.horizontal, AppDesignSystem.Spacing.tight)
                                 .padding(.vertical, AppDesignSystem.Spacing.micro)
                                 .background(identityColor.opacity(0.15), in: Capsule())
@@ -218,7 +218,7 @@ struct GalleryPosterCard: View {
 
                     if !poster.user.motto.isEmpty {
                         Text(poster.user.motto)
-                            .font(.caption)
+                            .font(AppDesignSystem.Typography.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -258,7 +258,7 @@ struct GalleryPosterCard: View {
 
                 Text(relativeTimeText(poster.editTime))
             }
-            .font(.caption)
+            .font(AppDesignSystem.Typography.caption)
             .foregroundStyle(.secondary)
 
             if !poster.tags.isEmpty {
@@ -329,7 +329,7 @@ struct GalleryPosterImagesView: View {
                                plan.hiddenImageCount > 0 {
                                 Color.black.opacity(AppDesignSystem.Gallery.overflowOverlayOpacity)
                                 Text("+\(plan.hiddenImageCount)")
-                                    .font(.headline)
+                                    .font(AppDesignSystem.Typography.headline)
                                     .foregroundStyle(.white)
                             }
                         }

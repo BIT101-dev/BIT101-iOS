@@ -30,7 +30,7 @@ struct PaperDetailView: View {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.prominent) {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
                     Text(viewModel.paper?.title ?? initialPaper.title)
-                        .font(.title2.weight(.bold))
+                        .font(AppDesignSystem.Typography.title2Emphasis)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     HStack(spacing: AppDesignSystem.Spacing.content) {
@@ -39,15 +39,17 @@ struct PaperDetailView: View {
                         Spacer()
 
                         HStack(spacing: AppDesignSystem.Spacing.control) {
-                            AppDetailCircleButton {
+                            AppDetailCircleButton(accessibilityLabel: "评论文章") {
                                 composerTarget = .paper(paperID: initialPaper.id)
                             } label: {
                                 Image(systemName: "bubble.right")
-                                    .font(.headline)
+                                    .font(AppDesignSystem.Typography.headline)
                                     .foregroundStyle(.primary)
                             }
 
-                            AppDetailCircleButton {
+                            AppDetailCircleButton(
+                                accessibilityLabel: (viewModel.paper?.like ?? false) ? "取消文章点赞" : "点赞文章"
+                            ) {
                                 likePaper()
                             } label: {
                                 Group {
@@ -56,7 +58,7 @@ struct PaperDetailView: View {
                                             .controlSize(.small)
                                     } else {
                                         Image(systemName: (viewModel.paper?.like ?? false) ? "hand.thumbsup.fill" : "hand.thumbsup")
-                                            .font(.headline)
+                                            .font(AppDesignSystem.Typography.headline)
                                     }
                                 }
                                 .foregroundStyle((viewModel.paper?.like ?? false) ? AppDesignSystem.Palette.highlight : Color.primary)
@@ -119,7 +121,7 @@ struct PaperDetailView: View {
                     Text("\(paperLikeCount)赞")
                     Text("\(viewModel.paper?.commentNum ?? initialPaper.commentNum)评论")
                 }
-                .font(.subheadline)
+                .font(AppDesignSystem.Typography.subheadline)
                 .foregroundStyle(.secondary)
 
                 Divider()
@@ -316,7 +318,7 @@ private struct PaperHeaderSummary: View {
                 Text(authorName)
                     .font(AppDesignSystem.Typography.bodyEmphasis)
                 Text(AppDateText.timestampText(from: paper?.updateTime ?? fallback.updateTime))
-                    .font(.caption)
+                    .font(AppDesignSystem.Typography.caption)
                     .foregroundStyle(.secondary)
             }
         }
@@ -341,12 +343,12 @@ private struct PaperContentBlockView: View {
                 textColor: .label
             )
         case let .paragraph(_, text):
-            PaperRichTextView(text: text, textStyle: .body, textColor: .label)
+            PaperRichTextView(text: text, textStyle: AppDesignSystem.Typography.uiBody, textColor: .label)
         case let .quote(_, text, caption):
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
-                PaperRichTextView(text: text, textStyle: .body, textColor: .label)
+                    PaperRichTextView(text: text, textStyle: AppDesignSystem.Typography.uiBody, textColor: .label)
                 if let caption, containsVisibleText(caption) {
-                    PaperRichTextView(text: caption, textStyle: .caption1, textColor: .secondaryLabel)
+                    PaperRichTextView(text: caption, textStyle: AppDesignSystem.Typography.uiCaption1, textColor: .secondaryLabel)
                 }
             }
             .padding(.leading, AppDesignSystem.Spacing.container)
@@ -360,9 +362,9 @@ private struct PaperContentBlockView: View {
                 ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                     HStack(alignment: .top, spacing: AppDesignSystem.Spacing.regular) {
                         Text(ordered ? "\(index + 1)." : "•")
-                            .font(.body.weight(.semibold))
+                            .font(AppDesignSystem.Typography.bodyEmphasis)
                             .foregroundStyle(.secondary)
-                        PaperRichTextView(text: item, textStyle: .body, textColor: .label)
+                        PaperRichTextView(text: item, textStyle: AppDesignSystem.Typography.uiBody, textColor: .label)
                     }
                 }
             }
@@ -376,7 +378,7 @@ private struct PaperContentBlockView: View {
                     .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
 
                     if let caption = image.caption, containsVisibleText(caption) {
-                        PaperRichTextView(text: caption, textStyle: .caption1, textColor: .secondaryLabel)
+                        PaperRichTextView(text: caption, textStyle: AppDesignSystem.Typography.uiCaption1, textColor: .secondaryLabel)
                     }
                 }
             }
@@ -387,13 +389,13 @@ private struct PaperContentBlockView: View {
     private func headerTextStyle(for level: Int) -> UIFont.TextStyle {
         switch level {
         case 1:
-            return .title2
+            return AppDesignSystem.Typography.uiTitle2
         case 2:
-            return .headline
+            return AppDesignSystem.Typography.uiHeadline
         case 3:
-            return .subheadline
+            return AppDesignSystem.Typography.uiSubheadline
         default:
-            return .body
+            return AppDesignSystem.Typography.uiBody
         }
     }
 

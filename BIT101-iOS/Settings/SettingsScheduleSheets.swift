@@ -136,7 +136,7 @@ struct ScheduleExportCodeSheet: View {
             VStack(spacing: AppDesignSystem.Spacing.section) {
                 ScrollView {
                     Text(code)
-                        .font(.footnote.monospaced())
+                        .font(AppDesignSystem.Typography.footnoteMonospaced)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(AppDesignSystem.Spacing.container)
@@ -197,7 +197,7 @@ struct ScheduleImportCodeSheet: View {
         NavigationStack {
             VStack(spacing: AppDesignSystem.Spacing.section) {
                 TextEditor(text: $text)
-                    .font(.footnote.monospaced())
+                    .font(AppDesignSystem.Typography.footnoteMonospaced)
                     .frame(minHeight: AppDesignSystem.Schedule.settingsPanelMinimumHeight)
                     .padding(AppDesignSystem.Spacing.control)
                     .background(AppDesignSystem.Palette.secondaryGroupedBackground, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.sheet))

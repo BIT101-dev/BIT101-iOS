@@ -119,7 +119,7 @@ private struct LinearScheduleHeader: View {
                     let dayWidth = max(proxy.size.width / CGFloat(visibleWeekdays.count + 1), 1)
                     HStack(spacing: AppDesignSystem.Spacing.none) {
                         Text("第\(week)周")
-                            .font(.caption2.weight(.semibold))
+                            .font(AppDesignSystem.Typography.caption2Emphasis)
                             .foregroundStyle(.primary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
@@ -131,7 +131,7 @@ private struct LinearScheduleHeader: View {
                                 onSelectDay(date, visibleWeekdays[index])
                             } label: {
                                 Text(Self.monthDayFormatter.string(from: date))
-                                    .font(.caption2)
+                                    .font(AppDesignSystem.Typography.caption2)
                                     .foregroundStyle(.primary)
                                     .frame(width: dayWidth, height: AppDesignSystem.Schedule.weekSlider.dateHeaderHeight)
                                     .background(AppDesignSystem.Palette.secondaryGroupedBackground)
@@ -151,7 +151,7 @@ private struct LinearScheduleHeader: View {
 
                         ForEach(visibleWeekdays, id: \.self) { weekday in
                             Text(weekdayTitle(weekday))
-                                .font(.caption2)
+                                .font(AppDesignSystem.Typography.caption2)
                                 .foregroundStyle(.primary)
                                 .frame(width: dayWidth, height: AppDesignSystem.Schedule.weekSlider.compactHeaderHeight)
                                 .background(AppDesignSystem.Palette.secondaryGroupedBackground)
@@ -466,7 +466,7 @@ private struct LinearScheduleCanvasView: View {
                configuration.currentWeek == configuration.week,
                let index = visibleWeekdays.firstIndex(of: ScheduleDateCodec.weekdayIndex(from: Date())) {
                 Rectangle()
-                    .fill(AppDesignSystem.Palette.accent.opacity(0.10))
+                    .fill(AppDesignSystem.Schedule.GridPalette.todayHighlight)
                     .frame(width: dayWidth, height: contentHeight)
                     .offset(x: leftWidth + dayWidth * CGFloat(index))
             }
@@ -486,7 +486,7 @@ private struct LinearScheduleCanvasView: View {
                     .offset(y: y)
 
                 Text(TimeSlot.formatMinutes(minute))
-                    .font(.caption2)
+                    .font(AppDesignSystem.Typography.caption2)
                     .foregroundStyle(.secondary)
                     .frame(width: leftWidth, alignment: .center)
                     .offset(y: y - 8)

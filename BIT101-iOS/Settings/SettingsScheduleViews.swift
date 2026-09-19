@@ -4,7 +4,6 @@
 //
 
 import SwiftUI
-import UIKit
 
 struct CalendarSettingsPage: View {
     @ObservedObject private var appSettings = AppSettingsStore.shared

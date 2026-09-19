@@ -61,7 +61,7 @@ struct AddCourseSheet: View {
 
                 Section {
                     Text(mode.footerText)
-                        .font(.footnote)
+                        .font(AppDesignSystem.Typography.footnote)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -106,7 +106,7 @@ struct AddEditCustomScheduleSheet: View {
 
                 Section {
                     Text("请不要把时间设在课间或极短时段，和其它日程冲突时会发生覆盖。")
-                        .font(.footnote)
+                        .font(AppDesignSystem.Typography.footnote)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -140,12 +140,12 @@ struct TimeTableEditorSheet: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
                 Text("每行格式：开始时间, 结束时间")
-                    .font(.footnote)
+                    .font(AppDesignSystem.Typography.footnote)
                     .foregroundStyle(.secondary)
 
                 AppCard(variant: .compact) {
                     TextEditor(text: $text)
-                        .font(.system(.body, design: .monospaced))
+                        .font(AppDesignSystem.Typography.bodyMonospaced)
                         .frame(minHeight: AppDesignSystem.Size.content.multilineEditorMinimumHeight)
                 }
 
@@ -197,11 +197,11 @@ struct CustomScheduleListSheet: View {
                                     .foregroundStyle(.primary)
                                 if !record.subtitle.isEmpty {
                                     Text(record.subtitle)
-                                        .font(.subheadline)
+                                        .font(AppDesignSystem.Typography.subheadline)
                                         .foregroundStyle(.secondary)
                                 }
                                 Text("\(record.dateString)  \(record.beginTime)-\(record.endTime)")
-                                    .font(.caption)
+                                    .font(AppDesignSystem.Typography.caption)
                                     .foregroundStyle(.secondary)
                             }
                         }
@@ -229,7 +229,7 @@ struct CustomScheduleListSheet: View {
                 NavigationStack {
                     List {
                         Section {
-                            Text(record.title).font(.headline)
+                            Text(record.title).font(AppDesignSystem.Typography.headline)
                             if !record.subtitle.isEmpty {
                                 Text(record.subtitle).foregroundStyle(.secondary)
                             }

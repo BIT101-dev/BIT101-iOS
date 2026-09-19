@@ -42,7 +42,7 @@ struct ScheduleEntryDetailSheet: View {
                 } else {
                     Section {
                         Text(entry.title)
-                            .font(.headline)
+                            .font(AppDesignSystem.Typography.headline)
                         if !entry.subtitle.isEmpty {
                             Text(entry.subtitle)
                                 .foregroundStyle(.secondary)
@@ -74,7 +74,7 @@ struct ScheduleEntryDetailSheet: View {
                         Text(isOverviewMode
                             ? "全学期叠加仅用于查看；请切换为按周显示后再编辑课程。"
                             : "分享课表是只读副本，调课、删除课程和调休 / 放假操作面向当前账号自己的课表。")
-                            .font(.footnote)
+                            .font(AppDesignSystem.Typography.footnote)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -169,7 +169,7 @@ struct ScheduleEntryDetailSheet: View {
             let first = group[0]
             Section {
                 Text(ScheduleDisplayNormalizer.normalizeCourseTitle(first.name))
-                    .font(.headline)
+                    .font(AppDesignSystem.Typography.headline)
                 let classrooms = unique(group.map { ScheduleDisplayNormalizer.normalizeClassroom($0.classroom) }.filter { !$0.isEmpty })
                 if !classrooms.isEmpty {
                     Text(classrooms.joined(separator: "\n"))

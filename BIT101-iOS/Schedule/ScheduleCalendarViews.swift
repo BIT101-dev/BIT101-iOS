@@ -173,7 +173,7 @@ struct CourseScheduleCalendarView: View {
             ZStack(alignment: .topLeading) {
                 if let highlightWeekday, visibleWeekdays.contains(highlightWeekday), let index = visibleWeekdays.firstIndex(of: highlightWeekday) {
                     Rectangle()
-                        .fill(AppDesignSystem.Palette.accent.opacity(0.10))
+                        .fill(AppDesignSystem.Schedule.GridPalette.todayHighlight)
                         .frame(width: dayWidth, height: usableHeight)
                         .offset(x: leftWidth + dayWidth * CGFloat(index), y: headerHeight)
                 }
@@ -192,7 +192,7 @@ struct CourseScheduleCalendarView: View {
 
                         HStack(spacing: AppDesignSystem.Spacing.none) {
                             Text("第\(week)周")
-                                .font(.caption2.weight(.semibold))
+                                .font(AppDesignSystem.Typography.caption2Emphasis)
                                 .foregroundStyle(.primary)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
@@ -204,7 +204,7 @@ struct CourseScheduleCalendarView: View {
                                     onSelectDay(date, visibleWeekdays[index])
                                 } label: {
                                     Text(mmddText(for: date))
-                                        .font(.caption2)
+                                        .font(AppDesignSystem.Typography.caption2)
                                         .foregroundStyle(.primary)
                                         .frame(width: dayWidth, height: dateHeaderHeight)
                                         .background(AppDesignSystem.Palette.secondaryGroupedBackground)
@@ -220,7 +220,7 @@ struct CourseScheduleCalendarView: View {
 
                             ForEach(Array(weekDates.enumerated()), id: \.offset) { index, _ in
                                 Text(weekdayText(for: visibleWeekdays[index]))
-                                    .font(.caption2)
+                                    .font(AppDesignSystem.Typography.caption2)
                                     .foregroundStyle(.primary)
                                     .frame(width: dayWidth, height: headerHeight)
                                     .background(AppDesignSystem.Palette.secondaryGroupedBackground)
@@ -232,10 +232,10 @@ struct CourseScheduleCalendarView: View {
                         HStack(spacing: AppDesignSystem.Spacing.none) {
                             VStack(spacing: AppDesignSystem.Schedule.grid.cellSpacing) {
                                 Text("\(index + 1)")
-                                    .font(.caption2.weight(.bold))
+                                    .font(AppDesignSystem.Typography.caption2Strong)
                                     .lineLimit(1)
                                 Text(slot.start)
-                                    .font(.caption2)
+                                    .font(AppDesignSystem.Typography.caption2)
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.8)
@@ -444,7 +444,7 @@ struct CourseScheduleFABLabel: View {
                     .foregroundStyle(.primary)
             } else if let text {
                 Text(text)
-                    .font(.caption2.weight(.semibold))
+                    .font(AppDesignSystem.Typography.caption2Emphasis)
                     .foregroundStyle(.primary)
                     .minimumScaleFactor(0.8)
             }

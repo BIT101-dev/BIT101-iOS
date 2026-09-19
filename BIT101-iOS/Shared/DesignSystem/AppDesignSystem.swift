@@ -108,14 +108,44 @@ extension AppDesignSystem {
     }
 
     enum Typography {
+        static let title2 = Font.title2
+        static let title2Emphasis = Font.title2.weight(.bold)
+        static let title2Monospaced = Font.title2.monospacedDigit()
+        static let title3 = Font.title3
+        static let title3Emphasis = Font.title3.weight(.bold)
+        static let headline = Font.headline
+        static let headlineEmphasis = Font.headline.weight(.semibold)
+        static let headlineStrong = Font.headline.weight(.bold)
         /// 主体可读内容；跟随当前平台的系统正文基线和动态字体设置。
         static let body = Font.body
         /// 主体内容中的强调文字。
         static let bodyEmphasis = Font.body.weight(.semibold)
+        static let bodyMonospaced = Font.system(.body, design: .monospaced)
+        static let subheadline = Font.subheadline
+        static let subheadlineEmphasis = Font.subheadline.weight(.semibold)
+        static let subheadlineStrong = Font.subheadline.weight(.bold)
         /// 次级说明文字。
         static let secondary = Font.subheadline
         /// 次级说明中的强调文字。
         static let secondaryEmphasis = Font.subheadline.weight(.semibold)
+        static let footnote = Font.footnote
+        static let footnoteMedium = Font.footnote.weight(.medium)
+        static let footnoteEmphasis = Font.footnote.weight(.semibold)
+        static let footnoteMonospaced = Font.system(.footnote, design: .monospaced)
+        static let caption = Font.caption
+        static let captionMedium = Font.caption.weight(.medium)
+        static let captionEmphasis = Font.caption.weight(.semibold)
+        static let captionStrong = Font.caption.weight(.bold)
+        static let caption2 = Font.caption2
+        static let caption2Medium = Font.caption2.weight(.medium)
+        static let caption2Emphasis = Font.caption2.weight(.semibold)
+        static let caption2Strong = Font.caption2.weight(.bold)
+        static let uiBody = UIFont.TextStyle.body
+        static let uiCaption1 = UIFont.TextStyle.caption1
+        static let uiCaption2 = UIFont.TextStyle.caption2
+        static let uiHeadline = UIFont.TextStyle.headline
+        static let uiSubheadline = UIFont.TextStyle.subheadline
+        static let uiTitle2 = UIFont.TextStyle.title2
         static let floatingIconSize: CGFloat = Size.floatingAction.icon
         static let floatingLabelSize: CGFloat = Primitives.FontSize.prominent
         static let floatingIcon = Font.system(size: floatingIconSize, weight: .semibold)
@@ -159,6 +189,14 @@ extension AppDesignSystem {
             static let columnLine = Color.secondary.opacity(0.14)
             static let courseBorder = Color.secondary.opacity(0.25)
             static let weekBar = Color.secondary.opacity(0.55)
+            static let todayHighlight = AppDesignSystem.Palette.accent.opacity(0.10)
+        }
+
+        enum CoursePalette {
+            static let examSurface = AppDesignSystem.Palette.highlight.opacity(0.22)
+            static let customSurface = AppDesignSystem.Palette.info.opacity(0.18)
+            static let examBorder = AppDesignSystem.Palette.highlight.opacity(0.35)
+            static let customBorder = AppDesignSystem.Palette.info.opacity(0.30)
         }
 
         static let grid = GridMetrics(
@@ -184,7 +222,7 @@ extension AppDesignSystem {
             compactHeaderHeight: 42
         )
         static let courseText = CourseTextMetrics(
-            style: .caption2
+            style: Typography.uiCaption2
         )
         static let timelineDefaultScale: CGFloat = CGFloat(24) / CGFloat(13)
         static let timelineMinimumScale: CGFloat = 1
@@ -232,6 +270,7 @@ extension AppDesignSystem {
         static let secondaryFill = Color(uiColor: .secondarySystemFill)
         static let subtleBorder = Color.primary.opacity(0.06)
         static let mediaOverlay = Color.black.opacity(0.45)
+        static let mediaOverlayStrong = Color.black.opacity(0.35)
     }
 
     @MainActor
@@ -320,10 +359,16 @@ struct AppDetailShareLink: View {
 /// 帖子、文章和课程详情页共用的圆形评论/点赞按钮。
 struct AppDetailCircleButton<Label: View>: View {
     let action: () -> Void
+    let accessibilityLabel: String
     private let label: Label
 
-    init(action: @escaping () -> Void, @ViewBuilder label: () -> Label) {
+    init(
+        accessibilityLabel: String,
+        action: @escaping () -> Void,
+        @ViewBuilder label: () -> Label
+    ) {
         self.action = action
+        self.accessibilityLabel = accessibilityLabel
         self.label = label()
     }
 
@@ -337,6 +382,7 @@ struct AppDetailCircleButton<Label: View>: View {
                 .background(AppDesignSystem.Palette.highlightSurface, in: Circle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
     }
 }
 
@@ -370,7 +416,7 @@ struct AppFloatingActionButton: View {
 
                 if let badgeText {
                     Text(badgeText)
-                        .font(.caption2.weight(.bold))
+                        .font(AppDesignSystem.Typography.caption2Strong)
                         .foregroundStyle(.white)
                         .padding(.horizontal, badgeText.count > 2
                             ? AppDesignSystem.Size.floatingAction.wideBadgePadding

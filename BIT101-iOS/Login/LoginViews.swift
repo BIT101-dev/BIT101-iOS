@@ -107,7 +107,7 @@ private struct LoginFormView: View {
 
             Link(destination: AppLegalInfo.icpPublicNoticeURL) {
                 Text(AppLegalInfo.icpDisplayText)
-                    .font(.footnote)
+                    .font(AppDesignSystem.Typography.footnote)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, AppDesignSystem.Spacing.section)

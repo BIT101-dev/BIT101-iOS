@@ -101,7 +101,7 @@ struct ScoreSortPage: View {
                             .foregroundStyle(.primary)
                         Spacer()
                         Text("切换")
-                            .font(.subheadline)
+                            .font(AppDesignSystem.Typography.subheadline)
                             .foregroundStyle(AppDesignSystem.Palette.accent)
                     }
                     .contentShape(Rectangle())

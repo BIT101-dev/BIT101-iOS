@@ -69,7 +69,7 @@ struct ScheduleCardTextView: UIViewRepresentable {
         private var title = ""
         private var location = ""
         private var scheduleContentMode = ScheduleCardContentMode.nameAndLocation
-        private var baseFont = UIFont.preferredFont(forTextStyle: .caption2)
+        private var baseFont = UIFont.preferredFont(forTextStyle: AppDesignSystem.Typography.uiCaption2)
 
         override init(frame: CGRect) {
             super.init(frame: frame)
@@ -281,9 +281,9 @@ struct CourseScheduleBackgroundView: View {
         case .course:
             return AppDesignSystem.Palette.secondaryBackground
         case .exam:
-            return AppDesignSystem.Palette.highlight.opacity(0.22)
+            return AppDesignSystem.Schedule.CoursePalette.examSurface
         case .custom:
-            return AppDesignSystem.Palette.info.opacity(0.18)
+            return AppDesignSystem.Schedule.CoursePalette.customSurface
         }
     }
 
@@ -292,10 +292,9 @@ struct CourseScheduleBackgroundView: View {
         case .course:
             return AppDesignSystem.Schedule.GridPalette.courseBorder
         case .exam:
-            return AppDesignSystem.Palette.highlight.opacity(0.35)
+            return AppDesignSystem.Schedule.CoursePalette.examBorder
         case .custom:
-            return AppDesignSystem.Palette.info.opacity(0.30)
+            return AppDesignSystem.Schedule.CoursePalette.customBorder
         }
     }
 }
-

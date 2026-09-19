@@ -146,12 +146,14 @@ private struct PaperCommentRow: View {
 
             if !comment.replyObj.isEmpty, comment.replyUser.id > 0 {
                 Text("回复 @\(comment.replyUser.nickname)：")
-                    .font(.caption.weight(.medium))
+                    .font(AppDesignSystem.Typography.captionMedium)
                     .foregroundStyle(.secondary)
             }
 
             Text(comment.text)
-                .font(isSubComment ? .subheadline : .body)
+                .font(isSubComment
+                    ? AppDesignSystem.Typography.subheadline
+                    : AppDesignSystem.Typography.body)
                 .foregroundStyle(.primary)
                 .lineSpacing(3)
                 .frame(maxWidth: .infinity, alignment: .leading)

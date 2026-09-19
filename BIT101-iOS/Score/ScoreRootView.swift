@@ -453,19 +453,19 @@ private struct ScoreListRowCard: View {
                     AppFixedColumnItem(
                         text: courseName,
                         ratio: 0.55,
-                        font: .headline,
+                        font: AppDesignSystem.Typography.headline,
                         color: .primary,
                     ),
                     AppFixedColumnItem(
                         text: creditText,
                         ratio: 0.15,
-                        font: .caption,
+                        font: AppDesignSystem.Typography.caption,
                         color: .secondary,
                     ),
                     AppFixedColumnItem(
                         text: termText,
                         ratio: 0.3,
-                        font: .caption,
+                        font: AppDesignSystem.Typography.caption,
                         color: .secondary,
                         alignment: .trailing
                     ),
@@ -478,19 +478,19 @@ private struct ScoreListRowCard: View {
                     AppFixedColumnItem(
                         text: "成绩 \(scoreText)",
                         ratio: 0.25,
-                        font: .subheadline.weight(.semibold),
+                        font: AppDesignSystem.Typography.subheadlineEmphasis,
                         color: .primary
                     ),
                     AppFixedColumnItem(
                         text: "均分 \(averageScoreText)",
                         ratio: 0.45,
-                        font: .subheadline.weight(.semibold),
+                        font: AppDesignSystem.Typography.subheadlineEmphasis,
                         color: .primary,
                     ),
                     AppFixedColumnItem(
                         text: courseTypeText,
                         ratio: 0.3,
-                        font: .caption,
+                        font: AppDesignSystem.Typography.caption,
                         color: .secondary,
                         alignment: .trailing
                     ),
@@ -513,7 +513,7 @@ private struct PendingScoreDetailView: View {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.prominent) {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
                     Text(course.name.isEmpty ? "未命名课程" : course.name)
-                        .font(.title3.weight(.bold))
+                        .font(AppDesignSystem.Typography.title3Emphasis)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     HStack(spacing: AppDesignSystem.Spacing.prominent) {
@@ -536,7 +536,7 @@ private struct PendingScoreDetailView: View {
 
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                     Text("课程信息")
-                        .font(.headline)
+                        .font(AppDesignSystem.Typography.headline)
                     ScoreDetailMetaRow(title: "教师", value: course.teacher)
                     ScoreDetailMetaRow(title: "教室", value: course.classroom)
                     ScoreDetailMetaRow(title: "校区", value: course.campus)

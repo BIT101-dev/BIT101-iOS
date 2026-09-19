@@ -39,7 +39,7 @@ struct AppSMSVerificationSheet: View {
                         .keyboardType(.numberPad)
                         .textContentType(.oneTimeCode)
                         .multilineTextAlignment(.center)
-                        .font(.title2.monospacedDigit())
+                        .font(AppDesignSystem.Typography.title2Monospaced)
                         .focused($isCodeFieldFocused)
                         .disabled(isSubmitting)
                         .onChange(of: code) { _, newValue in
@@ -119,7 +119,7 @@ struct AppSchoolSMSVerificationSheet: View {
                         .keyboardType(.numberPad)
                         .textContentType(.oneTimeCode)
                         .multilineTextAlignment(.center)
-                        .font(.title2.monospacedDigit())
+                        .font(AppDesignSystem.Typography.title2Monospaced)
                         .focused($isCodeFieldFocused)
                         .onChange(of: code) { _, newValue in
                             let digits = String(newValue.filter(\.isNumber).prefix(8))

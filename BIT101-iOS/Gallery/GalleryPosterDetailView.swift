@@ -38,7 +38,7 @@ struct GalleryPosterDetailView: View {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.prominent) {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
                     Text(viewModel.poster.title)
-                        .font(.title2.weight(.bold))
+                        .font(AppDesignSystem.Typography.title2Emphasis)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     HStack(spacing: AppDesignSystem.Spacing.content) {
@@ -56,15 +56,17 @@ struct GalleryPosterDetailView: View {
                         Spacer()
 
                         HStack(spacing: AppDesignSystem.Spacing.control) {
-                            AppDetailCircleButton {
+                            AppDetailCircleButton(accessibilityLabel: "评论帖子") {
                                 composerTarget = .poster(posterID: viewModel.poster.id)
                             } label: {
                                 Image(systemName: "bubble.right")
-                                    .font(.headline)
+                                    .font(AppDesignSystem.Typography.headline)
                                     .foregroundStyle(.primary)
                             }
 
-                            AppDetailCircleButton {
+                            AppDetailCircleButton(
+                                accessibilityLabel: viewModel.poster.like ? "取消帖子点赞" : "点赞帖子"
+                            ) {
                                 Task {
                                     await viewModel.likePoster()
                                 }
@@ -75,7 +77,7 @@ struct GalleryPosterDetailView: View {
                                             .controlSize(.small)
                                     } else {
                                         Image(systemName: viewModel.poster.like ? "hand.thumbsup.fill" : "hand.thumbsup")
-                                            .font(.headline)
+                                            .font(AppDesignSystem.Typography.headline)
                                     }
                                 }
                                 .foregroundStyle(viewModel.poster.like ? AppDesignSystem.Palette.highlight : Color.primary)
@@ -90,7 +92,7 @@ struct GalleryPosterDetailView: View {
                         Image(systemName: "checkmark.seal")
                         Text(viewModel.poster.claim.text)
                     }
-                    .font(.footnote.weight(.medium))
+                    .font(AppDesignSystem.Typography.footnoteMedium)
                     .foregroundStyle(AppDesignSystem.Palette.highlight)
                 }
 
@@ -142,7 +144,7 @@ struct GalleryPosterDetailView: View {
                     Text("\(viewModel.poster.likeNum)赞")
                     Text("\(viewModel.poster.commentNum)评论")
                 }
-                .font(.subheadline)
+                .font(AppDesignSystem.Typography.subheadline)
                 .foregroundStyle(.secondary)
 
                 Divider()
@@ -285,14 +287,14 @@ struct GalleryPosterDetailView: View {
 
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
                 Text(viewModel.poster.user.nickname)
-                    .font(.headline)
+                    .font(AppDesignSystem.Typography.headline)
                 HStack(spacing: AppDesignSystem.Spacing.regular) {
                     Text(AppDateText.relativeText(from: viewModel.poster.editTime, fallback: "未知时间"))
                     if !viewModel.poster.public {
                         Label("仅自己可见", systemImage: "eye.slash")
                     }
                 }
-                .font(.caption)
+                .font(AppDesignSystem.Typography.caption)
                 .foregroundStyle(.secondary)
             }
         }

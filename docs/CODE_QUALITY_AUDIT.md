@@ -62,10 +62,18 @@
 
 - `Map/CampusMapScreen.swift`：`MKMapView` 提供相机、定位和 overlay 能力。
 - `Gallery/GalleryImageViewer.swift`：Quick Look 提供系统图片预览；控制器负责预览图到原图的替换。
+- `Schedule/ScheduleCalendarViews.swift`：`UIContextMenuInteraction` 提供空白课表区域的真实长按锚点；SwiftUI `contextMenu` 的定位能力不足以满足该场景。
+- `Schedule/ScheduleLinearCalendarViews.swift`：`UIScrollView` 与 `UIHostingController` 组合承载线性时间轴的双指缩放、可见中心保持和内容偏移控制。
+- `Schedule/ScheduleCourseCardViews.swift`：`UILabel` 双文字块负责地点完整展示、课程名截断和动态字体测量。
+- `Schedule/ScheduleCalendarViews.swift`：`UIActivityViewController` 提供系统分享面板。
+- `Paper/PaperDetailView.swift`：`UITextView` 负责 HTML 富文本的粗体、斜体和链接渲染。
+- `Gallery/GalleryAnimatedImage.swift`：ImageIO 与 `UIImageView` 负责 GIF 原图帧解码和播放。
+- `Shared/Infrastructure/KeyboardDismissSupport.swift`：UIKit 手势与输入附件统一处理跨页面键盘收起。
+- `Gallery/GalleryRootView.swift`：WKWebView 保留为用户主动选择的网页话廊入口，原生话廊默认路径保持独立。
 - `Gallery/GalleryRootView.swift`：使用 segmented + 手势切换方案，pager 方案列为后续调整项。
 - Live Activity、Widget、Watch target：受系统 target 边界约束，单独维护。
 
-这些桥接承担平台适配职责，各自对应系统 target 或平台能力。
+本次逐份 Swift 审计确认：上述桥接均对应系统平台能力、精确交互控制或富文本媒体能力。逐份扫描结果：Flutter、React、跨端 UI 容器以及业务网页承载原生页面的路径均处于排除状态。WKWebView 保持为明确的可选功能路径。
 
 ## 重复逻辑的统一处理
 
@@ -94,7 +102,7 @@
 - 课表缓存和发帖草稿共用 `AppFileDirectories`；保存失败记录诊断，空 `catch` 已移除。
 - 头像和标签统一由公共容器加载；课程、话廊和文章共用评论头像/标题/操作/气泡结构；话廊、文章和我的帖子流共用信息流行容器；话廊和文章共用排序搜索栏；所有 segmented 页面选择统一通过公共控件。
 - 主要加载失败态统一由 `AppFailureState` 承载；重试和错误反馈入口沿用同一组件结构。
-- 正文统一使用 `AppDesignSystem.Typography.body`；正文强调使用 `bodyEmphasis`；次级说明保留 `secondary` 层级；平台字体基线由 SwiftUI 语义字体适配。
+- 标题、正文、正文强调、次级说明、脚注、caption、验证码和浮动按钮统一使用 `AppDesignSystem.Typography`；平台字体基线由 SwiftUI 语义字体适配；Widget 与 Watch 继续使用 `AppDesignSystem.External.Typography`。
 - 周次和全学期叠加课表共用等宽网格，叠加层按课程中心排序并使用不透明课程背景隔离节次分割线。
 - 页面差异通过 `AppCardVariant` 等语义变体表达，卡片结构保持共用。
 - `Scripts/check-ui-consistency.sh` 检查详情页分享/操作组件、评论区样式、信息流间距和课表叠加规则。

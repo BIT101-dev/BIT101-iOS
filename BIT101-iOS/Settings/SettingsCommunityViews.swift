@@ -86,7 +86,7 @@ struct GallerySettingsPage: View {
                         }
 
                     Text("已用缓存 \(imageCacheUsageText)")
-                        .font(.subheadline)
+                        .font(AppDesignSystem.Typography.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize()
                 }
@@ -163,7 +163,7 @@ struct AboutSettingsPage: View {
                 NavigationLink("开源声明") {
                     ScrollView {
                         Text(mitLicenseText)
-                            .font(.system(.footnote, design: .monospaced))
+                            .font(AppDesignSystem.Typography.footnoteMonospaced)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(AppDesignSystem.Spacing.section)
                             .textSelection(.enabled)

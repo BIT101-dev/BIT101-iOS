@@ -32,8 +32,8 @@ struct AppAvatarView: View {
                         .foregroundStyle(tint)
                         .font(
                             size >= AppDesignSystem.Size.avatar.largeIconThreshold
-                                ? .title2
-                                : .caption.weight(.bold)
+                                ? AppDesignSystem.Typography.title2
+                                : AppDesignSystem.Typography.captionStrong
                         )
                 }
         }
