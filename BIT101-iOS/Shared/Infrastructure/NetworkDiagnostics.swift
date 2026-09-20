@@ -27,7 +27,20 @@ final class NetworkMagicWarningCenter {
     init(
         pathProvider: (any NetworkPathProviding)? = nil,
         promptCoordinator: AppPromptCoordinator? = nil,
-        errorPresenter: AppErrorPresenter? = AppErrorPresenter.shared,
+        now: @escaping () -> Date = Date.init,
+        cooldown: TimeInterval = 10 * 60
+    ) {
+        self.pathProvider = pathProvider ?? NetworkConnectionDescription.shared
+        self.promptCoordinator = promptCoordinator
+        self.errorPresenter = AppErrorPresenter.shared
+        self.now = now
+        self.cooldown = cooldown
+    }
+
+    init(
+        pathProvider: (any NetworkPathProviding)?,
+        promptCoordinator: AppPromptCoordinator?,
+        errorPresenter: AppErrorPresenter?,
         now: @escaping () -> Date = Date.init,
         cooldown: TimeInterval = 10 * 60
     ) {

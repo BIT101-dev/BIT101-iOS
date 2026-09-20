@@ -522,8 +522,7 @@ private struct PaperRichTextView: UIViewRepresentable {
         func textView(
             _ textView: UITextView,
             shouldInteractWith URL: URL,
-            in characterRange: NSRange,
-            interaction: UITextItemInteraction
+            in characterRange: NSRange
         ) -> Bool {
             guard let scheme = URL.scheme?.lowercased() else { return false }
             return scheme == "http" || scheme == "https"

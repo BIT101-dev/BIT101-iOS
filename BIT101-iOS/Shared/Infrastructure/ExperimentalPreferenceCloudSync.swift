@@ -63,8 +63,9 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
             object: cloudStore,
             queue: .main
         ) { [weak self] notification in
-            Task { @MainActor [weak self] in
-                self?.handleExternalChange(notification)
+            let changedKeys = notification.userInfo?[NSUbiquitousKeyValueStoreChangedKeysKey] as? [String]
+            Task { @MainActor [weak self, changedKeys] in
+                self?.handleExternalChange(changedKeys: changedKeys)
             }
         }
         accountObserver = NotificationCenter.default.addObserver(
@@ -127,9 +128,8 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         scheduleReconciliation(for: ExperimentalPreferenceSyncDomain.allCases)
     }
 
-    private func handleExternalChange(_ notification: Notification) {
+    private func handleExternalChange(changedKeys: [String]?) {
         guard isEnabled else { return }
-        let changedKeys = notification.userInfo?[NSUbiquitousKeyValueStoreChangedKeysKey] as? [String]
         let domains = ExperimentalPreferenceSyncDomain.allCases.filter {
             changedKeys == nil || changedKeys?.contains(cloudKey(for: $0)) == true
         }
