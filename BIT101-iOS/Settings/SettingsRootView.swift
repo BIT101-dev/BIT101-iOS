@@ -175,6 +175,7 @@ private struct DeveloperSuggestionPayload: Encodable {
     let comment: String
     let errorTitle = "开发者建议"
     let errorMessage = "用户主动提交的功能建议。"
+    let contact: String?
     let appVersion: String
     let build: String
     let systemVersion: String
@@ -191,6 +192,7 @@ private struct DeveloperSuggestionPayload: Encodable {
 struct DeveloperSuggestionPage: View {
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
+    @State private var contact = ""
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var imageDrafts: [GalleryComposerImageDraft] = []
     @State private var isSubmitting = false
@@ -215,6 +217,15 @@ struct DeveloperSuggestionPage: View {
                             .allowsHitTesting(false)
                     }
                 }
+            }
+
+            Section("联系方式（可选）") {
+                TextField("微信、QQ 或邮箱", text: $contact, axis: .vertical)
+                    .lineLimit(1 ... 3)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .accessibilityLabel("联系方式")
+                    .accessibilityHint("可填写微信、QQ、邮箱或其他联系方式")
             }
 
             Section("图片（可选）") {
@@ -311,6 +322,9 @@ struct DeveloperSuggestionPage: View {
             try await FeedbackSubmissionClient.submit(
                 DeveloperSuggestionPayload(
                     comment: suggestion,
+                    contact: contact.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? nil
+                        : contact.trimmingCharacters(in: .whitespacesAndNewlines),
                     appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?",
                     build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?",
                     systemVersion: UIDevice.current.systemVersion,
@@ -328,6 +342,7 @@ struct DeveloperSuggestionPage: View {
                 )
             )
             text = ""
+            contact = ""
             ComposerDraftStore.removeSuggestion()
             alert = nil
             dismiss()
@@ -355,7 +370,8 @@ struct DeveloperSuggestionPage: View {
                         previewData: $0.previewData,
                         uploadData: $0.uploadData
                     )
-                }
+                },
+                contact: contact
             )
         )
     }
@@ -370,6 +386,7 @@ struct DeveloperSuggestionPage: View {
         guard let draft = ComposerDraftStore.loadSuggestion() else { return }
 
         text = draft.text
+        contact = draft.contact
         imageDrafts = draft.images.map {
             GalleryComposerImageDraft(
                 previewData: $0.previewData,
@@ -443,7 +460,9 @@ struct DeveloperSuggestionPage: View {
     }
 
     private var hasDraftContent: Bool {
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !imageDrafts.isEmpty
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !contact.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !imageDrafts.isEmpty
     }
 
     private var hasProcessingImages: Bool {

@@ -75,6 +75,7 @@ function reportEmailBody(id, receivedAt, report) {
   if (report.comment) {
     lines.push("", "用户补充：", emailText(report.comment, 2400));
   }
+  if (report.contact) lines.push("", `联系方式：${emailText(report.contact, 500)}`);
 
   lines.push(
     "",

@@ -184,6 +184,30 @@ struct GalleryComposerDraftSnapshot: Codable {
 struct DeveloperSuggestionDraftSnapshot: Codable {
     let text: String
     let images: [ComposerImageDraftSnapshot]
+    let contact: String
+
+    init(
+        text: String,
+        images: [ComposerImageDraftSnapshot],
+        contact: String = ""
+    ) {
+        self.text = text
+        self.images = images
+        self.contact = contact
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case text
+        case images
+        case contact
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        text = try container.decode(String.self, forKey: .text)
+        images = try container.decode([ComposerImageDraftSnapshot].self, forKey: .images)
+        contact = try container.decodeIfPresent(String.self, forKey: .contact) ?? ""
+    }
 }
 
 enum ComposerDraftStore {
