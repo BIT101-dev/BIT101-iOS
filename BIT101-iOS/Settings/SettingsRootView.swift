@@ -204,18 +204,16 @@ struct DeveloperSuggestionPage: View {
     var body: some View {
         Form {
             Section("建议内容") {
-                ZStack(alignment: .topLeading) {
-                    TextEditor(text: $text)
-                        .frame(minHeight: AppDesignSystem.Size.content.multilineEditorMinimumHeight)
-                        .accessibilityLabel("建议内容")
-                        .accessibilityHint("输入想告诉开发者的内容")
-                    if text.isEmpty {
-                        AppInputPlaceholder("请输入你想告诉开发者的内容")
-                            .padding(.top, AppDesignSystem.Spacing.regular)
-                            .padding(.leading, AppDesignSystem.Spacing.tiny)
-                            .allowsHitTesting(false)
-                    }
-                }
+                TextField(
+                    "",
+                    text: $text,
+                    prompt: AppInputPrompt.text("请输入你想告诉开发者的内容"),
+                    axis: .vertical
+                )
+                .lineLimit(12, reservesSpace: true)
+                .frame(minHeight: AppDesignSystem.Size.content.multilineEditorMinimumHeight)
+                .accessibilityLabel("建议内容")
+                .accessibilityHint("输入想告诉开发者的内容")
             }
 
             Section("联系方式（可选）") {

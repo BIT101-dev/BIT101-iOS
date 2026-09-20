@@ -135,19 +135,16 @@ struct PaperCommentComposerSheet: View {
     var body: some View {
         List {
             AppCommentComposerContentSection(title: target.title, anonymous: $anonymous) {
-                ZStack(alignment: .topLeading) {
-                    if text.isEmpty {
-                        AppInputPlaceholder(target.placeholder)
-                            .padding(.horizontal, AppDesignSystem.Spacing.tight)
-                            .padding(.vertical, AppDesignSystem.Spacing.regular)
-                            .accessibilityHidden(true)
-                    }
-
-                    TextEditor(text: $text)
-                        .font(AppDesignSystem.Typography.body)
-                        .frame(minHeight: AppDesignSystem.Size.content.multilineEditorMinimumHeight)
-                        .accessibilityLabel(target.placeholder)
-                }
+                TextField(
+                    "",
+                    text: $text,
+                    prompt: AppInputPrompt.text(target.placeholder),
+                    axis: .vertical
+                )
+                .font(AppDesignSystem.Typography.body)
+                .lineLimit(12, reservesSpace: true)
+                .frame(minHeight: AppDesignSystem.Size.content.multilineEditorMinimumHeight)
+                .accessibilityLabel(target.placeholder)
             }
         }
         .appGroupedListStyle()

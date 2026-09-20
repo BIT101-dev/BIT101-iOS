@@ -1,20 +1,5 @@
 import SwiftUI
 
-/// AppInputPlaceholder 统一自绘多行编辑器 placeholder 的字体和颜色。
-struct AppInputPlaceholder: View {
-    let text: String
-
-    init(_ text: String) {
-        self.text = text
-    }
-
-    var body: some View {
-        Text(text)
-            .font(AppDesignSystem.Typography.inputPlaceholder)
-            .foregroundStyle(AppDesignSystem.Palette.inputPlaceholder)
-    }
-}
-
 enum AppInputPrompt {
     static func text(_ value: String) -> Text {
         Text(value)
