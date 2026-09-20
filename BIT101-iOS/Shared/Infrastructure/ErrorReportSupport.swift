@@ -63,6 +63,79 @@ enum ErrorReportRedactor {
     }
 }
 
+struct FeedbackDeviceContext: Encodable {
+    let locale: String
+    let timeZone: String
+    let interfaceStyle: String
+    let orientation: String
+    let networkStatus: String
+
+    @MainActor
+    static var current: FeedbackDeviceContext {
+        let style: String
+        switch UITraitCollection.current.userInterfaceStyle {
+        case .dark: style = "dark"
+        case .light: style = "light"
+        default: style = "unspecified"
+        }
+
+        let orientation = String(describing: UIDevice.current.orientation)
+
+        return FeedbackDeviceContext(
+            locale: Locale.current.identifier,
+            timeZone: TimeZone.current.identifier,
+            interfaceStyle: style,
+            orientation: orientation,
+            networkStatus: NetworkConnectionDescription.shared.current
+        )
+    }
+}
+
+struct FeedbackDiagnosticSummary: Encodable {
+    let total: Int
+    let failed: Int
+    let statusCodes: [String: Int]
+    let latestOccurredAt: Date?
+    let latestFailure: String?
+
+    static let empty = FeedbackDiagnosticSummary(
+        total: 0,
+        failed: 0,
+        statusCodes: [:],
+        latestOccurredAt: nil,
+        latestFailure: nil
+    )
+
+    init(diagnostics: [NetworkDiagnosticRecord]) {
+        total = diagnostics.count
+        failed = diagnostics.reduce(into: 0) { count, record in
+            if record.error != nil || record.statusCode.map({ $0 >= 400 }) == true {
+                count += 1
+            }
+        }
+        statusCodes = diagnostics.reduce(into: [String: Int]()) { counts, record in
+            guard let statusCode = record.statusCode else { return }
+            counts[String(statusCode), default: 0] += 1
+        }
+        latestOccurredAt = diagnostics.map(\.occurredAt).max()
+        latestFailure = diagnostics.last(where: { $0.error != nil })?.error
+    }
+
+    private init(
+        total: Int,
+        failed: Int,
+        statusCodes: [String: Int],
+        latestOccurredAt: Date?,
+        latestFailure: String?
+    ) {
+        self.total = total
+        self.failed = failed
+        self.statusCodes = statusCodes
+        self.latestOccurredAt = latestOccurredAt
+        self.latestFailure = latestFailure
+    }
+}
+
 private struct ErrorReportPayload: Encodable {
     let mode: String
     let isDevelopmentBuild: Bool
@@ -75,6 +148,9 @@ private struct ErrorReportPayload: Encodable {
     let deviceModel: String
     let networkStatus: String
     let diagnostics: [NetworkDiagnosticRecord]
+    let submittedAt: Date
+    let context: FeedbackDeviceContext
+    let diagnosticSummary: FeedbackDiagnosticSummary
 }
 
 private enum FeedbackSubmissionError: LocalizedError {
@@ -185,6 +261,7 @@ final class ErrorReportViewModel: ObservableObject {
             )
         }
         let trimmedComment = comment.trimmingCharacters(in: .whitespacesAndNewlines)
+        let context = FeedbackDeviceContext.current
         let payload = ErrorReportPayload(
             mode: mode.rawValue,
             isDevelopmentBuild: AppBuildEnvironment.isDevelopment,
@@ -195,8 +272,11 @@ final class ErrorReportViewModel: ObservableObject {
             build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?",
             systemVersion: UIDevice.current.systemVersion,
             deviceModel: Self.deviceModel,
-            networkStatus: Self.networkStatus,
-            diagnostics: selected
+            networkStatus: context.networkStatus,
+            diagnostics: selected,
+            submittedAt: Date(),
+            context: context,
+            diagnosticSummary: FeedbackDiagnosticSummary(diagnostics: selected)
         )
         do {
             try await FeedbackSubmissionClient.submit(payload)

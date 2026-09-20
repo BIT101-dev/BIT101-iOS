@@ -179,8 +179,11 @@ private struct DeveloperSuggestionPayload: Encodable {
     let build: String
     let systemVersion: String
     let deviceModel: String
-    let networkStatus = ""
+    let networkStatus: String
     let diagnostics: [NetworkDiagnosticRecord] = []
+    let submittedAt: Date
+    let context: FeedbackDeviceContext
+    let diagnosticSummary = FeedbackDiagnosticSummary.empty
     let attachments: [DeveloperSuggestionAttachment]
 }
 
@@ -304,6 +307,7 @@ struct DeveloperSuggestionPage: View {
         isSubmitting = true
         defer { isSubmitting = false }
         do {
+            let context = FeedbackDeviceContext.current
             try await FeedbackSubmissionClient.submit(
                 DeveloperSuggestionPayload(
                     comment: suggestion,
@@ -311,6 +315,9 @@ struct DeveloperSuggestionPage: View {
                     build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?",
                     systemVersion: UIDevice.current.systemVersion,
                     deviceModel: UIDevice.current.model,
+                    networkStatus: context.networkStatus,
+                    submittedAt: Date(),
+                    context: context,
                     attachments: imageDrafts.map {
                         DeveloperSuggestionAttachment(
                             filename: $0.filename,

@@ -35,6 +35,74 @@ function json(data, status = 200) {
   });
 }
 
+function emailText(value, limit = 1200) {
+  const text = value == null ? "" : String(value).trim();
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit)}…`;
+}
+
+function emailLine(value) {
+  return emailText(value).replace(/[\r\n]+/g, " ");
+}
+
+function reportEmailSubject(category, report) {
+  const title = emailLine(report.errorTitle || report.comment || "新报告");
+  const version = report.appVersion || "未知版本";
+  const build = report.build || "?";
+  return `BIT101 ${category} · ${title} · ${version} (${build})`.slice(0, 180);
+}
+
+function reportEmailBody(id, receivedAt, report) {
+  const context = report.context || {};
+  const summary = report.diagnosticSummary || {};
+  const diagnostics = Array.isArray(report.diagnostics) ? report.diagnostics : [];
+  const lines = [
+    `报告编号：${id}`,
+    `接收时间：${receivedAt}`,
+    `类型：${report.mode === "suggestion" ? "用户建议" : "错误报告"}`,
+    `构建：${report.isDevelopmentBuild ? "开发版" : "正式版"} ${report.appVersion || "?"} (${report.build || "?"})`,
+    `设备：${report.deviceModel || "?"}`,
+    `系统：${report.systemVersion || "?"}`,
+    `语言环境：${context.locale || "?"}`,
+    `时区：${context.timeZone || "?"}`,
+    `界面：${context.interfaceStyle || "?"} · 方向：${context.orientation || "?"}`,
+    `网络：${context.networkStatus || report.networkStatus || "?"}`,
+    "",
+    `标题：${emailText(report.errorTitle || "")}`,
+    `消息：${emailText(report.errorMessage || "")}`
+  ];
+
+  if (report.comment) {
+    lines.push("", "用户补充：", emailText(report.comment, 2400));
+  }
+
+  lines.push(
+    "",
+    `诊断记录：${summary.total ?? diagnostics.length} 条，失败 ${summary.failed ?? 0} 条`,
+    `状态码统计：${Object.entries(summary.statusCodes || {}).map(([code, count]) => `${code}×${count}`).join("、") || "暂无"}`
+  );
+  if (summary.latestFailure) lines.push(`最近错误：${emailText(summary.latestFailure)}`);
+
+  if (diagnostics.length) {
+    lines.push("", "关键请求：");
+    for (const record of diagnostics.slice(-8)) {
+      const status = record.statusCode == null ? "无状态码" : `HTTP ${record.statusCode}`;
+      const elapsed = record.elapsedMilliseconds == null ? "" : ` ${record.elapsedMilliseconds}ms`;
+      const error = record.error ? ` · ${emailLine(record.error)}` : "";
+      lines.push(`- ${record.method || "?"} ${emailText(record.url, 500)} · ${status}${elapsed}${error}`);
+    }
+  }
+
+  const attachmentCount = Array.isArray(report.attachments) ? report.attachments.length : 0;
+  if (attachmentCount) lines.push("", `附件：${attachmentCount} 张`);
+  lines.push(
+    "",
+    `KV 查看键：report:${receivedAt}:${id}`,
+    "完整报告：运行 Scripts/error-reports.sh show <报告键>"
+  );
+  return lines.join("\n");
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -100,8 +168,8 @@ export default {
       ctx.waitUntil(env.REPORT_EMAIL.send({
         from: "error-report@aihelpme.dev",
         to: "idleassetsd@gmail.com",
-        subject: `BIT101 新${category}（${report.appVersion || "未知版本"}）`,
-        text: `收到新的 BIT101 ${category}。\n\n报告编号：${id}\n接收时间：${receivedAt}\n\n邮件不包含报告正文，请在已登录的电脑上运行 Scripts/error-reports.sh 查看。`
+        subject: reportEmailSubject(category, report),
+        text: reportEmailBody(id, receivedAt, report)
       }).catch(() => {}));
     }
     return json({ id }, 201);
