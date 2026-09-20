@@ -327,7 +327,7 @@ private struct CourseSearchRow: View {
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
 
-            TextField("在这里搜索课程哦", text: $text)
+            TextField("", text: $text, prompt: AppInputPrompt.text("在这里搜索课程哦"))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.search)

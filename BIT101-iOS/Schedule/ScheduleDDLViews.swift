@@ -279,9 +279,9 @@ private struct DDLEditSheet: View {
         NavigationStack {
             Form {
                 Section("内容") {
-                    TextField("标题", text: $draft.title)
+                    TextField("", text: $draft.title, prompt: AppInputPrompt.text("标题"))
                     DatePicker("时间", selection: $draft.dueAt, displayedComponents: [.date, .hourAndMinute])
-                    TextField("详情", text: $draft.text, axis: .vertical)
+                    TextField("", text: $draft.text, prompt: AppInputPrompt.text("详情"), axis: .vertical)
                         .lineLimit(4, reservesSpace: true)
                 }
             }

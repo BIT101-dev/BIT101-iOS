@@ -348,8 +348,8 @@ struct GalleryComposerView: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("标题", text: $title)
-                    TextField("正文", text: $text, axis: .vertical)
+                    TextField("", text: $title, prompt: AppInputPrompt.text("标题"))
+                    TextField("", text: $text, prompt: AppInputPrompt.text("正文"), axis: .vertical)
                         .lineLimit(6, reservesSpace: true)
                 }
 
@@ -387,7 +387,7 @@ struct GalleryComposerView: View {
                         // 每条自定义标签使用独立输入行，输入和删除操作分开呈现。
                         ForEach($customTagDrafts) { $draft in
                             HStack(spacing: AppDesignSystem.Spacing.control) {
-                                TextField("自定义标签", text: $draft.text)
+                                TextField("", text: $draft.text, prompt: AppInputPrompt.text("自定义标签"))
                                     .textInputAutocapitalization(.never)
                                     .autocorrectionDisabled()
 

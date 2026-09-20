@@ -23,16 +23,16 @@ struct AddCourseSheet: View {
         NavigationStack {
             Form {
                 Section("内容") {
-                    TextField("课程名称", text: $draft.title)
-                    TextField("教师", text: $draft.teacher)
-                    TextField("教室", text: $draft.classroom)
+                    TextField("", text: $draft.title, prompt: AppInputPrompt.text("课程名称"))
+                    TextField("", text: $draft.teacher, prompt: AppInputPrompt.text("教师"))
+                    TextField("", text: $draft.classroom, prompt: AppInputPrompt.text("教室"))
                     if mode.locksWeeks, let fixedWeek = mode.fixedWeek {
                         LabeledContent("周次") {
                             Text("第\(fixedWeek)周")
                                 .foregroundStyle(.secondary)
                         }
                     } else {
-                        TextField("周次（如 1-16,18）", text: $draft.weeksText)
+                        TextField("", text: $draft.weeksText, prompt: AppInputPrompt.text("周次（如 1-16,18）"))
                     }
                 }
 
@@ -92,9 +92,9 @@ struct AddEditCustomScheduleSheet: View {
         NavigationStack {
             Form {
                 Section("内容") {
-                    TextField("标题", text: $draft.title)
-                    TextField("副标题（通常为地点）", text: $draft.subtitle)
-                    TextField("描述（详情页显示）", text: $draft.description, axis: .vertical)
+                    TextField("", text: $draft.title, prompt: AppInputPrompt.text("标题"))
+                    TextField("", text: $draft.subtitle, prompt: AppInputPrompt.text("副标题（通常为地点）"))
+                    TextField("", text: $draft.description, prompt: AppInputPrompt.text("描述（详情页显示）"), axis: .vertical)
                         .lineLimit(3, reservesSpace: true)
                 }
 

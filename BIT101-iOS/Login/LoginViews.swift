@@ -49,7 +49,7 @@ private struct LoginFormView: View {
         Form {
             Section {
                 // 学号输入完成后将焦点移到密码框，减少一次手动点按。
-                TextField("学号", text: $viewModel.studentID)
+                TextField("", text: $viewModel.studentID, prompt: AppInputPrompt.text("学号"))
                     // 学号输入框使用可显示 QuickType 的键盘；聚焦学号框时系统提供凭据建议。
                     .keyboardType(.asciiCapable)
                     .textInputAutocapitalization(.never)
@@ -63,7 +63,7 @@ private struct LoginFormView: View {
                         focusedField = .password
                     }
 
-                SecureField("密码", text: $viewModel.password)
+                SecureField("", text: $viewModel.password, prompt: AppInputPrompt.text("密码"))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .textContentType(.password)

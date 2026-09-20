@@ -1,5 +1,43 @@
 import SwiftUI
 
+/// AppInputPlaceholder 统一自绘多行编辑器 placeholder 的字体和颜色。
+struct AppInputPlaceholder: View {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text)
+            .font(AppDesignSystem.Typography.inputPlaceholder)
+            .foregroundStyle(AppDesignSystem.Palette.inputPlaceholder)
+    }
+}
+
+enum AppInputPrompt {
+    static func text(_ value: String) -> Text {
+        Text(value)
+            .font(AppDesignSystem.Typography.inputPlaceholder)
+            .foregroundStyle(AppDesignSystem.Palette.inputPlaceholder)
+    }
+}
+
+/// AppListSectionHeader 统一自定义列表分组标题的语义样式。
+struct AppListSectionHeader: View {
+    let title: String
+
+    init(_ title: String) {
+        self.title = title
+    }
+
+    var body: some View {
+        Text(title)
+            .font(AppDesignSystem.Typography.sectionHeader)
+            .foregroundStyle(AppDesignSystem.Palette.sectionHeader)
+    }
+}
+
 /// AppNavigationRowLabel 为设置入口等导航行提供图标、标题和可选披露标记。
 struct AppNavigationRowLabel: View {
     let title: String
@@ -143,7 +181,7 @@ struct AppOrderedSearchBar<Order: Hashable, OrderContent: View>: View {
             .pickerStyle(.menu)
             .appSelectionFeedback(trigger: order)
 
-            TextField(placeholder, text: $text)
+            TextField("", text: $text, prompt: AppInputPrompt.text(placeholder))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.search)

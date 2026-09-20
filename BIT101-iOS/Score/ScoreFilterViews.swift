@@ -123,7 +123,7 @@ struct ScoreSortPage: View {
                 .accessibilityValue(sortOrder.title)
                 .accessibilityHint("双击切换排序方向")
             } header: {
-                Text("排序方向")
+                AppListSectionHeader("排序方向")
             }
         }
         .appGroupedListStyle()

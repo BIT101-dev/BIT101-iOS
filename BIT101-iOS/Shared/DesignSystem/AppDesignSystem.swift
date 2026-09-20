@@ -123,6 +123,8 @@ extension AppDesignSystem {
         /// 主体内容中的强调文字。
         static let bodyEmphasis = Font.body.weight(.semibold)
         static let bodyMonospaced = Font.system(.body, design: .monospaced)
+        static let inputPlaceholder = Font.body
+        static let sectionHeader = Font.footnote.weight(.semibold)
         static let subheadline = Font.subheadline
         static let subheadlineEmphasis = Font.subheadline.weight(.semibold)
         static let subheadlineStrong = Font.subheadline.weight(.bold)
@@ -270,6 +272,8 @@ extension AppDesignSystem {
         static let secondaryBackground = Color(uiColor: .secondarySystemBackground)
         static let secondaryGroupedBackground = Color(uiColor: .secondarySystemGroupedBackground)
         static let secondaryFill = Color(uiColor: .secondarySystemFill)
+        static let inputPlaceholder = Color(uiColor: .placeholderText)
+        static let sectionHeader = Color.secondary
         static let subtleBorder = Color.primary.opacity(0.06)
         static let mediaOverlay = Color.black.opacity(0.45)
         static let mediaOverlayStrong = Color.black.opacity(0.35)

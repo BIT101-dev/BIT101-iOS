@@ -26,7 +26,7 @@ struct GallerySettingsPage: View {
                 ))
                 .appSelectionFeedback(trigger: settings.galleryHideAnonymousContent)
 
-                TextField("屏蔽用户 UID（逗号分隔）", text: $hiddenUserIDsText)
+                TextField("", text: $hiddenUserIDsText, prompt: AppInputPrompt.text("屏蔽用户 UID（逗号分隔）"))
                     .keyboardType(.numbersAndPunctuation)
                     .onSubmit { saveHiddenUserIDs() }
             }
@@ -99,7 +99,7 @@ struct GallerySettingsPage: View {
                         .fixedSize()
                 }
             } header: {
-                Text("本地图片缓存上限（MB）")
+                AppListSectionHeader("本地图片缓存上限（MB）")
             }
 
         }

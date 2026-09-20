@@ -41,7 +41,7 @@ struct AppSMSVerificationSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("短信验证码", text: $code)
+                    TextField("", text: $code, prompt: AppInputPrompt.text("短信验证码"))
                         .keyboardType(.numberPad)
                         .textContentType(.oneTimeCode)
                         .multilineTextAlignment(.center)
@@ -56,7 +56,7 @@ struct AppSMSVerificationSheet: View {
                             }
                         }
                 } header: {
-                    Text("输入验证码")
+                    AppListSectionHeader("输入验证码")
                 } footer: {
                     Text(verificationHint)
                 }
@@ -122,7 +122,7 @@ struct AppSchoolSMSVerificationSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("短信验证码", text: $code)
+                    TextField("", text: $code, prompt: AppInputPrompt.text("短信验证码"))
                         .keyboardType(.numberPad)
                         .textContentType(.oneTimeCode)
                         .multilineTextAlignment(.center)
@@ -136,7 +136,7 @@ struct AppSchoolSMSVerificationSheet: View {
                             }
                         }
                 } header: {
-                    Text("输入验证码")
+                    AppListSectionHeader("输入验证码")
                 } footer: {
                     Text("验证码已发送至 \(request.maskedPhone)，可点击键盘上方建议自动填充。")
                 }

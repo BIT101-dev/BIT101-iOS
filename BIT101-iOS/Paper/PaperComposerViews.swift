@@ -37,12 +37,12 @@ struct PaperComposerView: View {
     var body: some View {
         Form {
             Section("内容") {
-                TextField("标题", text: $title)
+                TextField("", text: $title, prompt: AppInputPrompt.text("标题"))
                     .font(AppDesignSystem.Typography.body)
-                TextField("简介", text: $intro, axis: .vertical)
+                TextField("", text: $intro, prompt: AppInputPrompt.text("简介"), axis: .vertical)
                     .font(AppDesignSystem.Typography.body)
                     .lineLimit(3, reservesSpace: true)
-                TextField("正文", text: $content, axis: .vertical)
+                TextField("", text: $content, prompt: AppInputPrompt.text("正文"), axis: .vertical)
                     .font(AppDesignSystem.Typography.body)
                     .lineLimit(10, reservesSpace: true)
             }
@@ -137,9 +137,7 @@ struct PaperCommentComposerSheet: View {
             AppCommentComposerContentSection(title: target.title, anonymous: $anonymous) {
                 ZStack(alignment: .topLeading) {
                     if text.isEmpty {
-                        Text(target.placeholder)
-                            .font(AppDesignSystem.Typography.body)
-                            .foregroundStyle(.secondary)
+                        AppInputPlaceholder(target.placeholder)
                             .padding(.horizontal, AppDesignSystem.Spacing.tight)
                             .padding(.vertical, AppDesignSystem.Spacing.regular)
                             .accessibilityHidden(true)

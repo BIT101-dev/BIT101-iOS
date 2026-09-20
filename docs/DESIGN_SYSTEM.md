@@ -41,6 +41,7 @@
 - `AppRefreshStatusRow`：统一成绩、课表、DDL 等数据页面的最近更新时间、同步状态和手动刷新入口；所有更新时间直接放进页面主 List 的 Section。
 - `AppDesignSystem.External`：统一桌面 Widget、Live Activity、Apple Watch App 和 Watch Widget 的间距、尺寸、字体数值与缩放比例；该层保持 Foundation 依赖，跨 target 共享课表展示参数。
 - `AppDesignSystem.Typography`：统一标题、正文、正文强调、次级说明、脚注、caption、验证码、浮动按钮等语义字体；同时提供 `UIFont.TextStyle` 对应令牌，供课程卡片和 HTML 富文本桥接使用；业务页面使用该层表达字号和字重，避免散落系统字体写法。
+- `AppInputPrompt`：统一 TextField、SecureField、TextEditor 自绘提示的字体和 placeholder 颜色；`AppListSectionHeader`：统一列表自定义 Section 标题的字体和颜色。原生 `Section("标题")` 保留系统动态样式。
 - `AppDesignSystem.Primitives.FontSize`：统一跨组件固定字号基础值，当前为 `compact = 10`、`emphasis = 14`、`prominent = 16`。
 
 `AppHapticFeedback.swift` 提供 `appSelectionFeedback(trigger:)` 和 `appImpactFeedback(trigger:)`，分别用于离散切换和操作按钮；实际是否输出由系统决定。右下角公共按钮、地图校区按钮、课表菜单按钮和空白处长按菜单均接入触感。所有 `Picker`、`Toggle`、自绘勾选行和全选/全不选入口也接入选择触感。`Scripts/check-haptic-consistency.sh` 扫描这些控件、提醒遗漏，并将公共接口之外的触感实现判为失败。

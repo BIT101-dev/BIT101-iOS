@@ -11,7 +11,7 @@ struct SettingsTextEditSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField(title, text: $text, axis: axis)
+                TextField("", text: $text, prompt: AppInputPrompt.text(title), axis: axis)
                     .lineLimit(axis == .vertical ? 4 : 1, reservesSpace: axis == .vertical)
                     .accessibilityLabel(title)
             }

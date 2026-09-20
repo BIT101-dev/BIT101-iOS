@@ -299,7 +299,7 @@ struct ScheduleRenameSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("课表名称", text: $text)
+                    TextField("", text: $text, prompt: AppInputPrompt.text("课表名称"))
                 }
             }
             .navigationTitle(title)

@@ -65,7 +65,7 @@ struct CalendarSettingsPage: View {
             ))
             .appSelectionFeedback(trigger: preferenceCloudSync.isEnabled)
         } header: {
-            Text("iCloud 同步")
+            AppListSectionHeader("iCloud 同步")
         }
     }
 
@@ -222,7 +222,7 @@ struct CalendarSettingsPage: View {
             .disabled(!viewModel.cache.showCourseLiveActivityReminder)
             .opacity(viewModel.cache.showCourseLiveActivityReminder ? 1 : 0.45)
         } header: {
-            Text("显示设置")
+            AppListSectionHeader("显示设置")
         }
     }
 

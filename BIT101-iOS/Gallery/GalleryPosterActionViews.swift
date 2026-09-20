@@ -108,7 +108,7 @@ struct GalleryReportSheet: View {
                 }
 
                 Section("补充说明") {
-                    TextField("请描述举报原因", text: $text, axis: .vertical)
+                    TextField("", text: $text, prompt: AppInputPrompt.text("请描述举报原因"), axis: .vertical)
                         .lineLimit(4, reservesSpace: true)
                 }
 

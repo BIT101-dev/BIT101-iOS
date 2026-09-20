@@ -45,6 +45,10 @@ DIRECT_PLAIN_LIST_STYLE = re.compile(r"\.listStyle\(\s*\.plain\s*\)")
 DIRECT_LIST_SECTION_SPACING = re.compile(r"\.listSectionSpacing\(")
 DIRECT_STDOUT_LOG = re.compile(r"\b(?:print|debugPrint|NSLog)\s*\(")
 DIRECT_SHARED_URLSESSION = re.compile(r"\bURLSession\.shared\b")
+DIRECT_INPUT_PLACEHOLDER = re.compile(
+    r"\b(?:TextField|SecureField)\s*\(\s*\"[^\"]+\"\s*,\s*text\s*:"
+)
+DIRECT_CUSTOM_SECTION_HEADER = re.compile(r"header\s*:\s*\{\s*Text\s*\(")
 DIRECT_ANIMATION_DURATION = re.compile(r"\b(?:withAnimation|animation)\s*\([^\n]*\bduration\s*:")
 DIRECT_BARE_HSTACK = re.compile(r"\bHStack\s*\{")
 DIRECT_HSTACK_LITERAL = re.compile(
@@ -353,6 +357,8 @@ def main() -> int:
             (DIRECT_GROUPED_LIST_STYLE, "分组列表必须使用 appGroupedListStyle"),
             (DIRECT_LIST_SECTION_SPACING, "列表 section 间距必须通过 appGroupedListStyle 统一"),
             (DIRECT_ANIMATION_DURATION, "优先使用系统动画时长，不要在页面单独指定 duration"),
+            (DIRECT_INPUT_PLACEHOLDER, "输入提示必须使用 AppInputPrompt"),
+            (DIRECT_CUSTOM_SECTION_HEADER, "列表自定义标题必须使用 AppListSectionHeader"),
             (DIRECT_BARE_HSTACK, "HStack 必须显式使用 AppDesignSystem.Spacing 语义间距"),
             (DIRECT_HSTACK_LITERAL, "HStack 间距必须使用 AppDesignSystem.Spacing 语义令牌"),
             (DIRECT_FRAME_LITERAL, "固定 frame 尺寸必须使用 AppDesignSystem.Size 或专用语义令牌"),

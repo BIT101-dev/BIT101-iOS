@@ -210,8 +210,7 @@ struct DeveloperSuggestionPage: View {
                         .accessibilityLabel("建议内容")
                         .accessibilityHint("输入想告诉开发者的内容")
                     if text.isEmpty {
-                        Text("请输入你想告诉开发者的内容")
-                            .foregroundStyle(.secondary)
+                        AppInputPlaceholder("请输入你想告诉开发者的内容")
                             .padding(.top, AppDesignSystem.Spacing.regular)
                             .padding(.leading, AppDesignSystem.Spacing.tiny)
                             .allowsHitTesting(false)
@@ -220,7 +219,7 @@ struct DeveloperSuggestionPage: View {
             }
 
             Section("联系方式（可选）") {
-                TextField("微信、QQ 或邮箱", text: $contact, axis: .vertical)
+                TextField("", text: $contact, prompt: AppInputPrompt.text("微信、QQ 或邮箱"), axis: .vertical)
                     .lineLimit(1 ... 3)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()

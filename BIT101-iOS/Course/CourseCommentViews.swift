@@ -227,7 +227,7 @@ struct CourseCommentComposerSheet: View {
         NavigationStack {
             Form {
                 AppCommentComposerContentSection(anonymous: $anonymous) {
-                    TextField(target.placeholder, text: $text, axis: .vertical)
+                    TextField("", text: $text, prompt: AppInputPrompt.text(target.placeholder), axis: .vertical)
                         .lineLimit(5, reservesSpace: true)
                 }
 

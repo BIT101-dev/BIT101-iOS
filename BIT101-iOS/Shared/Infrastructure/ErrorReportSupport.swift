@@ -639,7 +639,7 @@ private struct ErrorReportSheet: View {
                     .appSelectionFeedback(trigger: viewModel.mode)
                     modeExplanation
                 } header: {
-                    Text("选择提交内容")
+                    AppListSectionHeader("选择提交内容")
                 } footer: {
                     VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                         Text("本次错误")
@@ -666,7 +666,7 @@ private struct ErrorReportSheet: View {
                     .padding(.top, AppDesignSystem.Spacing.content)
                 }
                 Section("留言（可选）") {
-                    TextField("可补充问题现象或复现步骤", text: $viewModel.comment, axis: .vertical)
+                    TextField("", text: $viewModel.comment, prompt: AppInputPrompt.text("可补充问题现象或复现步骤"), axis: .vertical)
                         .lineLimit(3...6)
                 }
             }
