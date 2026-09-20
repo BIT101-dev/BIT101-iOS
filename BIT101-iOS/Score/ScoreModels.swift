@@ -111,10 +111,21 @@ enum ScoreDetailRefreshPolicy {
 
     static func briefRowsMatchCache(_ briefRows: [ScoreRow], cachedRows: [ScoreRow]) -> Bool {
         guard !briefRows.isEmpty, !cachedRows.isEmpty else { return false }
-        let briefKeys = Set(briefRows.flatMap { $0.values.map(\.key) })
-            .subtracting(ignoredBriefKeys)
+        let briefKeys = comparableKeys(from: briefRows)
         guard !briefKeys.isEmpty else { return false }
         return signatures(for: briefRows, keys: briefKeys) == signatures(for: cachedRows, keys: briefKeys)
+    }
+
+    static func rowsMatch(_ lhs: [ScoreRow], _ rhs: [ScoreRow]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        guard !lhs.isEmpty else { return true }
+        let keys = comparableKeys(from: lhs + rhs)
+        guard !keys.isEmpty else { return false }
+        return signatures(for: lhs, keys: keys) == signatures(for: rhs, keys: keys)
+    }
+
+    private static func comparableKeys(from rows: [ScoreRow]) -> Set<String> {
+        Set(rows.flatMap { $0.values.map(\.key) }).subtracting(ignoredBriefKeys)
     }
 
     private static func signatures(for rows: [ScoreRow], keys: Set<String>) -> [String] {

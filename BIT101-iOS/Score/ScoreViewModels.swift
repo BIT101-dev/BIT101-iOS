@@ -296,6 +296,7 @@ final class ScoreViewModel: ObservableObject {
             ScoreCacheStore.markChecked()
             lastUpdatedAt = ScoreCacheStore.loadUpdatedAt()
             syncStatusText = "成绩已是最新"
+            presentUnchangedNotice()
             return
         }
 
@@ -308,9 +309,13 @@ final class ScoreViewModel: ObservableObject {
         syncStatusText = "同步详细信息中"
         do {
             let detailedRows = try await detailedRowsRequest
+            let scoresAreIdentical = cachedRows.map { ScoreDetailRefreshPolicy.rowsMatch(detailedRows, $0) } ?? false
             applyRows(detailedRows)
             ScoreCacheStore.saveDetailed(rows: detailedRows)
             lastUpdatedAt = ScoreCacheStore.loadUpdatedAt()
+            if scoresAreIdentical {
+                presentUnchangedNotice()
+            }
         } catch {
             if let cachedRows,
                ScoreDetailRefreshPolicy.briefRowsMatchCache(briefRows, cachedRows: cachedRows)
@@ -323,6 +328,13 @@ final class ScoreViewModel: ObservableObject {
             lastUpdatedAt = ScoreCacheStore.loadUpdatedAt()
             throw error
         }
+    }
+
+    private func presentUnchangedNotice() {
+        alert = AppAlert.informational(
+            title: "成绩已是最新",
+            message: "本次获取结果与本地成绩完全一致。"
+        )
     }
 
     /// 用户关闭验证码面板后释放内存中的短期令牌，服务端清理过期挑战。

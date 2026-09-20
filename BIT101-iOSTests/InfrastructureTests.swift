@@ -219,9 +219,11 @@ struct ScorePresentationTests {
     private final class ScoreServiceSpy: ScoreListServicing {
         private(set) var requestedDetailValues: [Bool] = []
         private let requiresSMS: Bool
+        private let detailedRowsOverride: [ScoreRow]?
 
-        init(requiresSMS: Bool = false) {
+        init(requiresSMS: Bool = false, detailedRows: [ScoreRow]? = nil) {
             self.requiresSMS = requiresSMS
+            detailedRowsOverride = detailedRows
         }
 
         func startScoreChallenge() async throws -> BITLoginAuthenticationChallenge {
@@ -271,7 +273,7 @@ struct ScorePresentationTests {
         }
 
         private var detailedRows: [ScoreRow] {
-            [ScoreRow(
+            detailedRowsOverride ?? [ScoreRow(
                 index: 0,
                 headers: ["课程编号", "课程名称", "成绩", "平均分", "学分", "开课学期", "课程性质"],
                 values: ["MATH-1", "高等数学", "90", "82.5", "4", "2025-2026-1", "必修"]
@@ -302,6 +304,25 @@ struct ScorePresentationTests {
 
         #expect(service.requestedDetailValues == [false, true])
         #expect(viewModel.rows.first?.averageScore == "82.5")
+    }
+
+    @Test("Unchanged score refresh presents the latest-state notice")
+    @MainActor
+    func unchangedScoreRefreshPresentsNotice() async {
+        let rows = [ScoreRow(
+            index: 0,
+            headers: ["课程编号", "课程名称", "成绩", "平均分", "学分", "开课学期", "课程性质"],
+            values: ["MATH-1", "高等数学", "90", "82.5", "4", "2025-2026-1", "必修"]
+        )]
+        let service = ScoreServiceSpy(detailedRows: rows)
+        ScoreCacheStore.saveDetailed(rows: rows)
+        defer { ScoreCacheStore.save(rows: []) }
+
+        let viewModel = ScoreViewModel(service: service)
+        await viewModel.refresh()
+
+        #expect(viewModel.alert?.title == "成绩已是最新")
+        #expect(viewModel.alert?.message == "本次获取结果与本地成绩完全一致。")
     }
 
     @Test("Qualitative scores use their numeric ordering")
