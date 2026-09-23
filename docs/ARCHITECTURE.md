@@ -9,6 +9,14 @@
 
 ## 1. 系统边界
 
+### 客户端精简原则
+
+- 定义少、规则少、层级浅，优先系统能力和直接实现。
+- 同类逻辑集中复用，抽象以降低整体复杂度为依据。
+- 网络、存储、解析、并发和错误分类归客户端工程规范；视觉、布局和交互表现归 UI 设计系统。
+- 检查规则按职责归属，每条规则由一个检查入口维护。
+- 文档集中记录必要约定，功能事实在所属文档维护。
+
 当前项目由五个边界明确的系统组成：
 
 1. 主 App
@@ -24,7 +32,15 @@
 
 维护时需要区分这五层边界。
 
+### 1.1 规范与检查归属
+
+UI 令牌、组件和交互契约由 [UI 设计系统](DESIGN_SYSTEM.md) 维护。
+客户端工程规范集中复用 `HTTPClient`、`CommunityAPIClient`、`TaskCancellation`、`AppFileDirectories` 和账号隔离存储入口。
+`Scripts/check-code-quality.sh` 负责网络调用、日志、社区日期解析、取消处理、存储契约与源码维护；视觉、字体、组件和触感检查归 UI 检查入口。
+`Scripts/run-static-audit.sh` 汇总这些检查。执行依据用户明确指示。
+
 ## 2. 主 App 的基本流转
+
 
 主 App 按以下链路运行：
 
@@ -105,9 +121,9 @@
 - 复杂网络逻辑由 Service 处理
 - 大量数据拼接和计算由 Service 或 ViewModel 处理
 
-### 3.5 Shared Infrastructure
+### 3.5 Shared Client
 
-跨模块、无业务语义的基础能力统一放在 `Shared/Infrastructure`，目前包括：
+跨模块、无业务语义的基础能力统一放在 `Shared/Client`，目前包括：
 
 - `AppAlert`：共享层提供页面提示数据，业务模块通过共享层使用。
 - `TaskCancellation`：统一识别 Concurrency 与 URLSession 取消错误。
@@ -119,9 +135,7 @@ ViewModel 优先通过按页面场景划分的协议依赖 Service。例如，�
 
 当前登录、课程、话廊、文章、我的主页、日程和成绩 ViewModel 都通过场景协议依赖网络层。生产环境由原有 Service 实现这些协议；共享层处理通用 HTTP 和社区 API 规则，请求路径与业务认证状态由具体 Service 管理。
 
-### 3.6 Shared Networking
-
-网络传输统一放在 `Shared/Networking`：
+网络传输同样位于 `Shared/Client`：
 
 - `HTTPClient` 处理 URLSession 传输、HTTP 响应和状态码。
 - `CommunityAPIClient` 处理社区 API 的 URL、fake-cookie 和 JSON。
@@ -229,20 +243,7 @@ ViewModel 优先通过按页面场景划分的协议依赖 Service。例如，�
 
 ## 6. 为什么话廊和日程不用系统 pager
 
-当前代码采用自定义分栏切换。
-
-话廊和日程的分栏切换使用以下实现，未使用 `TabView(.page)`：
-
-- 顶部分栏
-- 轻扫手势切换
-
-项目曾使用原生 pager，出现了以下问题：
-
-- 底部黑边
-- 内容不贴底
-- tab bar 采样异常
-
-当前实现优先保证视觉与布局稳定。改回系统 pager 需要按明确的架构调整处理。
+话廊和日程通过顶部 segmented 控件与轻扫手势切换分栏。页面内容按各模块的滚动、底部栏和 safe area 布局规则呈现。
 
 ## 7. 为什么 widget 不直接读主 App 缓存
 
@@ -297,11 +298,9 @@ Widget、锁屏组件和 Live Activity 都依赖课表快照，各自的设计�
 
 Live Activity 使用独立的生命周期模型，与 widget family 分开维护。
 
-## 10. 项目里的几类“工程性折中”
+## 10. 平台能力边界
 
-仓库包含一些受历史原因影响的工程折中。
-
-典型折中包括：
+以下实现对应系统能力和明确的交互要求：
 
 - 话廊和日程的自定义轻扫切换
 - 地图页的 `MKMapView` 桥接与 attribution 处理
@@ -309,7 +308,7 @@ Live Activity 使用独立的生命周期模型，与 widget family 分开维护
 - 一些学校系统登录与跳转兼容逻辑
 - 话题图片与可信成绩单共用的 `UIScrollView` 全屏缩放桥
 
-维护这些部分时，先确认它们的存在原因，再评估是否重写。
+维护这些部分时沿用其模块职责与平台接口。
 
 ## 11. 推荐的接手顺序
 

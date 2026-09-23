@@ -144,7 +144,7 @@ final class AppSettingsStore: ObservableObject {
     static let shared = AppSettingsStore()
     /// 各账号设置快照在 `UserDefaults` 中使用的 key 前缀。
     nonisolated static let storageKeyPrefix = "app.settings.snapshot"
-    /// 账号隔离前的历史快照 key。
+    /// 单一共享设置快照的迁移来源 key。
     nonisolated static let legacyStorageKey = "app.settings.snapshot"
     /// 尚未登录时使用的设置分区。
     nonisolated static let defaultAccountIdentifier = "__default__"

@@ -16,7 +16,6 @@ extension CourseScheduleTabView {
         prefetchedCourseID = nil
         prefetchedCourseResolution = nil
         editingCustomScheduleID = nil
-        editingCourseID = nil
         selectedDayAdjustmentContext = nil
     }
 
@@ -64,14 +63,14 @@ extension CourseScheduleTabView {
     }
 
     func exportScheduleCode() {
-        guard !viewModel.cache.courses.isEmpty else {
+        guard !activeSchedule.courses.isEmpty else {
             viewModel.notice = ScheduleNotice.userInput(title: "无法分享课表", message: "你尚未获取课表。")
             return
         }
 
         do {
             exportedSchedule = ScheduleCodePresentation(
-                code: try ScheduleShareCodeCodec.encodeLatest(cache: viewModel.cache)
+                code: try ScheduleShareCodeCodec.encodeLatest(courses: activeSchedule.courses)
             )
         } catch {
             viewModel.notice = ScheduleNotice(title: "导出失败", message: error.localizedDescription)
@@ -176,6 +175,7 @@ extension CourseScheduleTabView {
 
                 guard abs(vertical) > abs(horizontal), abs(vertical) >= 56 else { return }
                 guard viewModel.cache.scheduleDisplayMode == .weekly else { return }
+                guard calendarAxisMode == .quantized else { return }
 
                 if vertical < 0 {
                     viewModel.cycleCourseSchedule(step: 1)

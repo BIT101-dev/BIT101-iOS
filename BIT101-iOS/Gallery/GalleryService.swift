@@ -324,8 +324,7 @@ struct GalleryService {
 
     /// 上传一张发帖图片，返回服务端生成的图片资源对象。
     ///
-    /// 话廊发帖沿用 Android 端的老接口：先上传拿到 `mid`，再把 `image_mids`
-    /// 放进真正的发帖请求里。
+    /// 图片上传返回服务端资源对象；发帖请求通过 `image_mids` 引用该资源。
     func uploadImage(data: Data, filename: String = "poster.jpg") async throws -> GalleryImage {
         let multipart = MultipartFormData.jpegFile(data: data, filename: filename)
         do {

@@ -221,7 +221,7 @@ extension ScheduleViewModel {
         persist()
     }
 
-    /// 单一校区通常来自旧版按已选校区请求教学楼后生成的不完整目录。
+    /// 目录只有一条校区记录时补取全校区清单，完善校区选择器数据。
     private var needsCompleteClassroomCampusCatalog: Bool {
         campuses.count <= 1
     }
@@ -328,7 +328,7 @@ extension ScheduleViewModel {
 
     /// 统一处理空教室链路错误。
     ///
-    /// 当前最新请求负责关闭 loading 和弹窗；旧请求结果统一忽略 UI 回写。
+    /// 当前最新请求负责关闭 loading 和弹窗；在途过期请求跳过 UI 回写。
     private func handleClassroomRequestError(_ error: Error, requestID: Int, title: String) {
         guard isCurrentClassroomRequest(requestID), !Task.isCancelled else { return }
 

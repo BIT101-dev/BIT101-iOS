@@ -118,8 +118,7 @@ extension ScheduleService {
     ) async throws -> T {
         try await ensureTeachingCenterAuthentication()
 
-        // 学校 WebVPN 偶尔会接受新 Cookie，却在紧接着的第一笔业务请求中仍返回登录页。
-        // 全程自动恢复，最多做两轮重新认证；用户只在确实需要短信验证码时参与。
+        // WebVPN 会话失效时重新认证，并在认证状态可用后重试业务请求；短信验证由用户完成。
         for recoveryAttempt in 0 ... 2 {
             do {
                 return try await operation()
@@ -234,13 +233,13 @@ extension ScheduleService {
 
     /// 教务系统接口请求前的预热步骤。
     ///
-    /// 学校教务接口存在“未预热直接请求会失败”的历史行为，因此这里保留一组轻量预热访问。
+    /// 读取 App 配置和语言资源，准备教学中心会话状态。
     func prepareJXZX() async throws {
         let studentID = storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !studentID.isEmpty else { throw ScheduleServiceError.notLoggedIn }
         guard !teachingCenterState.isPrepared(for: studentID) else { return }
 
-        // 学校教务接口依赖若干预热请求，否则后续接口会直接返回未初始化状态。
+        // App 配置和语言资源请求为教学中心数据请求准备服务端会话。
         _ = try await sendStringRequest(path: "/jwapp/sys/funauthapp/api/getAppConfig/wdkbby-5959167891382285.do")
         _ = try await sendStringRequest(path: "/jwapp/i18n.do?appName=wdkbby&EMAP_LANG=zh")
         teachingCenterState.markPrepared(for: studentID)

@@ -360,7 +360,7 @@ private struct TrustedTranscriptPage: View {
                                     .accessibilityHint("双击查看大图")
                                 }
                             }
-                            .padding(AppDesignSystem.Spacing.prominent)
+                            .padding(AppDesignSystem.Spacing.section)
                     }
                     .background(AppDesignSystem.Palette.secondaryBackground)
                 }
@@ -448,7 +448,7 @@ private struct ScoreListRowCard: View {
         let courseType = Self.trimmed(course.type)
         self.init(
             courseName: courseName.isEmpty ? "未命名课程" : courseName,
-            creditText: course.credit > 0 ? "\(course.credit)学分" : "-",
+            creditText: course.credit > 0 ? "\(course.creditText)学分" : "-",
             termText: term.isEmpty ? "-" : term,
             scoreText: "-",
             averageScoreText: "-",
@@ -457,7 +457,7 @@ private struct ScoreListRowCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tight) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
             AppFixedColumnRow(
                 items: [
                     AppFixedColumnItem(
@@ -480,7 +480,7 @@ private struct ScoreListRowCard: View {
                         alignment: .trailing
                     ),
                 ],
-                height: AppDesignSystem.Size.compactRow.primaryHeight
+                height: AppDesignSystem.Size.CompactRow.primaryHeight
             )
 
             AppFixedColumnRow(
@@ -505,7 +505,7 @@ private struct ScoreListRowCard: View {
                         alignment: .trailing
                     ),
                 ],
-                height: AppDesignSystem.Size.compactRow.secondaryHeight
+                height: AppDesignSystem.Size.CompactRow.secondaryHeight
             )
         }
         .padding(.vertical, AppDesignSystem.Spacing.tiny)
@@ -530,17 +530,17 @@ private struct PendingScoreDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.prominent) {
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.section) {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
                     let courseName = course.name.trimmingCharacters(in: .whitespacesAndNewlines)
                     Text(courseName.isEmpty ? "未命名课程" : courseName)
                         .font(AppDesignSystem.Typography.title3Emphasis)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    HStack(spacing: AppDesignSystem.Spacing.prominent) {
+                    HStack(spacing: AppDesignSystem.Spacing.section) {
                         Text("成绩 -")
                         Text("均分 -")
-                        Text(course.credit > 0 ? "学分 \(course.credit)" : "学分 -")
+                        Text(course.credit > 0 ? "学分 \(course.creditText)" : "学分 -")
                     }
                     .font(AppDesignSystem.Typography.body)
                     .foregroundStyle(.secondary)
@@ -569,9 +569,9 @@ private struct PendingScoreDetailView: View {
                     }
                 }
             }
-            .padding(.horizontal, AppDesignSystem.Spacing.prominent)
-            .padding(.top, AppDesignSystem.Spacing.prominent)
-            .padding(.bottom, AppDesignSystem.Spacing.prominent)
+            .padding(.horizontal, AppDesignSystem.Spacing.section)
+            .padding(.top, AppDesignSystem.Spacing.section)
+            .padding(.bottom, AppDesignSystem.Spacing.section)
         }
         .background(AppDesignSystem.Palette.groupedBackground)
         .navigationTitle("成绩详情")
@@ -624,7 +624,7 @@ private struct ScoreDetailView: View {
             Section {
                 let courseName = row.courseName.trimmingCharacters(in: .whitespacesAndNewlines)
                 Text(courseName.isEmpty ? "未命名课程" : courseName)
-                    .font(AppDesignSystem.Typography.headlineEmphasis)
+                    .font(AppDesignSystem.Typography.headline)
                 LabeledContent("成绩", value: displayValue(row.score))
                 LabeledContent("平均分", value: formattedAverageScore)
                 LabeledContent("学分", value: formattedCreditValue)

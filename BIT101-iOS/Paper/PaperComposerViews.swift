@@ -143,7 +143,7 @@ struct PaperCommentComposerSheet: View {
                 )
                 .font(AppDesignSystem.Typography.body)
                 .lineLimit(12, reservesSpace: true)
-                .frame(minHeight: AppDesignSystem.Size.content.multilineEditorMinimumHeight)
+                .frame(minHeight: AppDesignSystem.Size.Content.multilineEditorMinimumHeight)
                 .accessibilityLabel(target.placeholder)
             }
         }

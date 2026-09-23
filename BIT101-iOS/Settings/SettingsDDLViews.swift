@@ -153,7 +153,7 @@ private struct DDLSettingsNumberPickerSheet: View {
                 }
             }
         }
-        .presentationDetents([.height(AppDesignSystem.Size.sheet.ddlNumericPickerHeight)])
+        .presentationDetents([.height(AppDesignSystem.Schedule.ddlNumericPickerHeight)])
         .presentationDragIndicator(.visible)
     }
 }

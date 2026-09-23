@@ -189,92 +189,93 @@ struct GalleryPosterCard: View {
     let onReport: (() -> Void)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
-            Text(poster.title)
-                .font(AppDesignSystem.Typography.headline)
-                .foregroundStyle(AppDesignSystem.Palette.highlight)
-                .lineLimit(2)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
+                Text(poster.title)
+                    .font(AppDesignSystem.Typography.headline)
+                    .foregroundStyle(AppDesignSystem.Palette.highlight)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: AppDesignSystem.Spacing.control) {
-                AppAvatarView(imageURL: URL(string: poster.user.avatar.lowUrl.isEmpty ? poster.user.avatar.url : poster.user.avatar.lowUrl))
+                HStack(spacing: AppDesignSystem.Spacing.regular) {
+                    AppAvatarView(imageURL: URL(string: poster.user.avatar.lowUrl.isEmpty ? poster.user.avatar.url : poster.user.avatar.lowUrl))
 
-                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
-                    HStack(spacing: AppDesignSystem.Spacing.tight) {
-                        Text(poster.user.nickname)
-                            .font(AppDesignSystem.Typography.bodyEmphasis)
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
+                    VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
+                        HStack(spacing: AppDesignSystem.Spacing.tiny) {
+                            Text(poster.user.nickname)
+                                .font(AppDesignSystem.Typography.bodyEmphasis)
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
 
-                        if !poster.user.identity.text.isEmpty {
-                            Text(poster.user.identity.text)
-                                .font(AppDesignSystem.Typography.caption2Medium)
-                                .padding(.horizontal, AppDesignSystem.Spacing.tight)
-                                .padding(.vertical, AppDesignSystem.Spacing.micro)
-                                .background(identityColor.opacity(0.15), in: Capsule())
-                                .foregroundStyle(identityColor)
+                            if !poster.user.identity.text.isEmpty {
+                                Text(poster.user.identity.text)
+                                    .font(AppDesignSystem.Typography.caption2Emphasis)
+                                    .padding(.horizontal, AppDesignSystem.Spacing.tiny)
+                                    .padding(.vertical, AppDesignSystem.Spacing.micro)
+                                    .background(identityColor.opacity(0.15), in: Capsule())
+                                    .foregroundStyle(identityColor)
+                            }
+                        }
+
+                        if !poster.user.motto.isEmpty {
+                            Text(poster.user.motto)
+                                .font(AppDesignSystem.Typography.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
                         }
                     }
 
-                    if !poster.user.motto.isEmpty {
-                        Text(poster.user.motto)
-                            .font(AppDesignSystem.Typography.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                    Spacer()
+
+                    if onDelete != nil || onReport != nil {
+                        GalleryPosterActionMenu(
+                            onDelete: onDelete,
+                            onReport: onReport
+                        )
+                        .contentShape(Rectangle())
+                        .onTapGesture { }
                     }
                 }
 
-                Spacer()
+                Text(galleryLinkifiedText(poster.text))
+                    .font(AppDesignSystem.Typography.body)
+                    .lineLimit(poster.images.count <= 2 ? 4 : 3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                if onDelete != nil || onReport != nil {
-                    GalleryPosterActionMenu(
-                        onDelete: onDelete,
-                        onReport: onReport
-                    )
-                    // 右上角菜单需要吞掉点击，避免父卡片的 onTapGesture 同时触发进详情。
-                    .contentShape(Rectangle())
-                    .onTapGesture { }
+                HStack(spacing: AppDesignSystem.Spacing.regular) {
+                    Label("\(poster.likeNum)", systemImage: "hand.thumbsup")
+                    Label("\(poster.commentNum)", systemImage: "bubble.right")
+
+                    if !poster.public {
+                        Label("仅自己可见", systemImage: "eye.slash")
+                    }
+
+                    Spacer()
+
+                    Text(relativeTimeText(poster.editTime))
+                }
+                .font(AppDesignSystem.Typography.caption)
+                .foregroundStyle(.secondary)
+
+                if !poster.tags.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: AppDesignSystem.Spacing.regular) {
+                            ForEach(poster.tags, id: \.self) { tag in
+                                AppTagChip(title: tag, variant: .display)
+                            }
+                        }
+                    }
                 }
             }
-
-            Text(galleryLinkifiedText(poster.text))
-                .font(AppDesignSystem.Typography.body)
-                .lineLimit(poster.images.count <= 2 ? 4 : 3)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onOpenPoster)
 
             if !poster.images.isEmpty {
                 GalleryPosterImagesView(images: poster.images, onOpenImage: onOpenImage)
             }
-
-            HStack(spacing: AppDesignSystem.Spacing.control) {
-                Label("\(poster.likeNum)", systemImage: "hand.thumbsup")
-                Label("\(poster.commentNum)", systemImage: "bubble.right")
-
-                if !poster.public {
-                    Label("仅自己可见", systemImage: "eye.slash")
-                }
-
-                Spacer()
-
-                Text(relativeTimeText(poster.editTime))
-            }
-            .font(AppDesignSystem.Typography.caption)
-            .foregroundStyle(.secondary)
-
-            if !poster.tags.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: AppDesignSystem.Spacing.regular) {
-                        ForEach(poster.tags, id: \.self) { tag in
-                            AppTagChip(title: tag, variant: .display)
-                        }
-                    }
-                }
-            }
         }
         .appFeedCardStyle()
-        .onTapGesture(perform: onOpenPoster)
         .accessibilityAddTraits(.isButton)
-        .accessibilityHint("打开帖子")
     }
 
     private var identityColor: Color {
@@ -309,7 +310,7 @@ struct GalleryPosterImagesView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let spacing = AppDesignSystem.Spacing.tight
+            let spacing = AppDesignSystem.Spacing.tiny
             let plan = layoutPlan(in: proxy.size, spacing: spacing)
 
             HStack(spacing: spacing) {
@@ -486,10 +487,12 @@ struct GalleryPosterThumbnail: View {
                 .frame(width: width)
                 .frame(maxHeight: maxHeight)
                 .clipped()
+                .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
         } else {
             thumbnailContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
+                .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
         }
     }
 

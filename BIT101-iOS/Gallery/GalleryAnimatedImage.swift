@@ -163,7 +163,7 @@ struct GalleryAnimatedImage: UIViewRepresentable {
     }
 }
 
-/// 播放处于 LazyVStack 活跃区域的 GIF，快速划过后立即停止旧播放器和解码任务。
+/// 播放处于 LazyVStack 活跃区域的 GIF，快速划过时停止对应播放器和解码任务。
 /// 屏幕外的动图保持停止，降低 CPU/GPU 消耗。
 struct GalleryAutoplayingImage: View {
     let url: URL

@@ -34,7 +34,7 @@ struct CachedRemoteImage<Content: View, Placeholder: View>: View {
         self.placeholder = placeholder
     }
 
-    /// 按加载状态显示图片或占位内容。URL 变化时，`.task(id:)` 会取消旧任务并启动新任务。
+    /// 按加载状态显示图片或占位内容。URL 变化时，`.task(id:)` 切换到对应加载任务。
     var body: some View {
         Group {
             if let image = loader.image {
@@ -57,7 +57,7 @@ private final class CachedRemoteImageLoader: ObservableObject {
     /// 当前加载任务对应的 URL，用于校验网络响应是否仍属于当前视图。
     private var currentURL: URL?
 
-    /// 先读取本地缓存，未命中时下载。切换 URL 时清空旧图。
+    /// 先读取本地缓存，缓存未命中时下载。URL 更新时清空当前图片状态。
     func load(url: URL?) async {
         if currentURL == url, image != nil {
             return

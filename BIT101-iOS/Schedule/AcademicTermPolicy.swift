@@ -35,25 +35,6 @@ nonisolated enum AcademicTermPolicy {
         adjacentTerms(on: date)[0]
     }
 
-    /// School first-week data may begin a semester just before the March or
-    /// September fallback boundary (for example, August 31).
-    static func preferredCachedTerm(cache: ScheduleCache, on date: Date) -> String {
-        let terms = adjacentTerms(on: date)
-        // A user may explicitly fetch and select the upcoming semester before
-        // its first week begins. Smart switching advances the timetable after
-        // the selected term starts and preserves that explicit selection before
-        // that date.
-        if cache.currentTerm == terms[1] {
-            return terms[1]
-        }
-        if let nextStart = cache.termSchedulesByTerm[terms[1]]?.firstDay,
-           date >= nextStart
-        {
-            return terms[1]
-        }
-        return terms[0]
-    }
-
     /// Distinguishes teaching time from the post-week-16/pre-next-term vacation.
     /// Data availability determines whether the result is `.unknown`; this keeps
     /// refreshes available before the first timetable sync.

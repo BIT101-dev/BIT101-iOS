@@ -53,6 +53,9 @@ enum ScheduleServiceError: LocalizedError {
             || value.contains("证书")
             || value.contains("httpsconnectionpool")
             || value.contains("tls")
+            || value.contains("timeout")
+            || value.contains("timed out")
+            || value.contains("超时")
     }
 
     var errorDescription: String? {

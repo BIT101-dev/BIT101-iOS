@@ -31,6 +31,7 @@ struct CalendarSettingsPage: View {
     }
 
     @StateObject private var viewModel = SchoolDataViewModelStore.shared.scheduleViewModel
+    @AppStorage("schedule.calendar.axisMode") private var storedCalendarAxisMode = ScheduleCalendarAxisMode.quantized.rawValue
     @State private var isShowingTimeTableEditor = false
     @State private var timeTableText = ""
     @State private var isShowingCustomSchedules = false
@@ -93,7 +94,7 @@ struct CalendarSettingsPage: View {
             Button {
                 Task { await viewModel.syncSelectedTerm() }
             } label: {
-                HStack(spacing: AppDesignSystem.Spacing.control) {
+                HStack(spacing: AppDesignSystem.Spacing.regular) {
                     Text("重新同步课表与考试")
                     Spacer()
                     if viewModel.isSyncingCourses {
@@ -169,6 +170,18 @@ struct CalendarSettingsPage: View {
 
     private var displaySettingsSection: some View {
         Section {
+            Picker("时间轴", selection: Binding(
+                get: { ScheduleCalendarAxisMode(rawValue: storedCalendarAxisMode) ?? .quantized },
+                set: {
+                    storedCalendarAxisMode = $0.rawValue
+                }
+            )) {
+                ForEach(ScheduleCalendarAxisMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .appSelectionFeedback(trigger: storedCalendarAxisMode)
+
             Picker(selection: Binding(
                 get: { viewModel.cache.scheduleDisplayMode },
                 set: { viewModel.setScheduleDisplayMode($0) }
@@ -210,7 +223,7 @@ struct CalendarSettingsPage: View {
                 guard viewModel.cache.showCourseLiveActivityReminder else { return }
                 isShowingLiveActivityLeadMinutesPicker = true
             } label: {
-                HStack(spacing: AppDesignSystem.Spacing.control) {
+                HStack(spacing: AppDesignSystem.Spacing.regular) {
                     Text("提前显示阈值")
                         .foregroundStyle(.primary)
                     Spacer()

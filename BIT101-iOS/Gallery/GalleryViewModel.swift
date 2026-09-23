@@ -66,7 +66,7 @@ final class GalleryViewModel: ObservableObject {
 
     /// 从第一页重新拉取指定 feed。
     ///
-    /// 取消错误会恢复旧快照，保持 tab 快速切换时的当前 UI 状态。
+    /// 取消错误恢复请求开始前的快照，保持 tab 快速切换时的 UI 状态。
     func refresh(feed: GalleryFeedKind) async {
         let previousState = state(for: feed)
         if previousState.status == .loading {
@@ -126,7 +126,7 @@ final class GalleryViewModel: ObservableObject {
         } catch {
             guard refreshGenerations[feed] == generation else { return }
             if isGalleryCancellation(error) {
-                // 列表复用、tab 切换或手动重刷时，SwiftUI/URLSession 都可能主动取消旧任务。
+                // 列表复用、tab 切换或手动重刷时，SwiftUI/URLSession 都可能取消在途任务。
                 // 取消状态保持原列表，界面维持当前状态。
                 setState(for: feed) {
                     $0.posters = previousState.posters
@@ -146,9 +146,9 @@ final class GalleryViewModel: ObservableObject {
         }
     }
 
-    /// 推荐流在接近尾部时提前预取，但真正 append 仍然等到最后一条出现。
+    /// 推荐流接近尾部时提前预取；列表到达末项后追加下一页。
     ///
-    /// 后台预取把网络等待放到用户接近尾部之前；延迟追加保持当前位置和滚动条比例。
+    /// 后台预取提前完成网络请求；追加页面时保持当前位置和滚动条比例。
     func prefetchIfNeeded(for feed: GalleryFeedKind, currentPoster: GalleryPoster?) async {
         guard feed == .recommend else { return }
         guard let currentPoster else { return }

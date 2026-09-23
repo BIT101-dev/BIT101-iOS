@@ -8,36 +8,6 @@
 import Combine
 import Foundation
 
-nonisolated enum CourseSyncReplacementDecision: Equatable {
-    case preserve
-    case replace
-    case confirm(existingCount: Int, incomingCount: Int)
-}
-
-nonisolated enum CourseSyncReplacementPolicy {
-    static func decision(existing: [CourseRecord], with incoming: [CourseRecord]) -> CourseSyncReplacementDecision {
-        guard !incoming.isEmpty else { return .preserve }
-        if incoming.count < existing.count {
-            return .confirm(existingCount: existing.count, incomingCount: incoming.count)
-        }
-        let existingIDs = Set(existing.map(identity))
-        return incoming.map(identity).contains { !existingIDs.contains($0) } ? .replace : .preserve
-    }
-
-    static func shouldReplace(existing: [CourseRecord], with incoming: [CourseRecord]) -> Bool {
-        decision(existing: existing, with: incoming) == .replace
-    }
-
-    private static func identity(_ course: CourseRecord) -> String {
-        [course.number, course.name, course.teacher, course.classroom,
-         course.description, course.campus, course.credit.description, course.hour.description,
-         course.type, course.category, course.department,
-         course.weekday.description, course.startSection.description,
-         course.endSection.description, course.weeks.map(String.init).joined(separator: ",")]
-            .joined(separator: "|")
-    }
-}
-
 /// 周视图的自动定位范围。
 ///
 /// 自动定位结果落在这个范围内，手动翻页沿用完整周次范围。
@@ -142,13 +112,6 @@ extension ScheduleViewModel {
     }
 }
 
-struct CourseSyncReplacementConfirmation: Identifiable {
-    let id = UUID()
-    let existingCount: Int
-    let incomingCount: Int
-    let payload: CourseSyncPayload
-}
-
 /// 空教室页业务级超时错误。
 struct ClassroomRequestTimeoutError: LocalizedError {
     var errorDescription: String? {
@@ -172,6 +135,8 @@ final class ScheduleViewModel: ObservableObject {
         let id: String
         let title: String
         let isPrimary: Bool
+        let importedAt: Date?
+        let sharedAt: Date?
         let currentTerm: String
         let firstDayString: String
         let timeTable: [TimeSlot]
@@ -213,7 +178,6 @@ final class ScheduleViewModel: ObservableObject {
     @Published var selectedCourseScheduleIndex = 0
     @Published var selectedBuildingID = ""
     @Published var notice: ScheduleNotice?
-    @Published var pendingCourseReplacement: CourseSyncReplacementConfirmation?
     @Published var smsChallenge: BITLoginAuthenticationChallenge?
     @Published var smsVerificationError: String?
     @Published var isSubmittingSMSCode = false
@@ -228,7 +192,7 @@ final class ScheduleViewModel: ObservableObject {
     let classroomCoordinator = ScheduleClassroomCoordinator()
     let courseSyncCoordinator = ScheduleCourseSyncCoordinator()
     private var hasLoaded = false
-    /// 账号切换后让仍在等待网络响应的旧请求失去状态写入资格。
+    /// 账号切换后撤销在途请求对页面状态的写入资格。
     private(set) var accountGeneration = 0
     private var schoolSMSContinuation: CheckedContinuation<String, Error>?
     /// 当前教学楼最近一次拉下来的原始空教室记录。
@@ -297,7 +261,6 @@ final class ScheduleViewModel: ObservableObject {
         schoolSMSContinuation = nil
         courseSyncCoordinator.reset()
         notice = nil
-        pendingCourseReplacement = nil
         reloadFromDisk()
     }
 
@@ -376,6 +339,8 @@ final class ScheduleViewModel: ObservableObject {
                 ? "课表"
                 : cache.primaryScheduleTitle,
             isPrimary: true,
+            importedAt: nil,
+            sharedAt: nil,
             currentTerm: cache.currentTerm,
             firstDayString: cache.firstDayString,
             timeTable: cache.timeTable,
@@ -389,6 +354,8 @@ final class ScheduleViewModel: ObservableObject {
                 id: record.id,
                 title: record.title,
                 isPrimary: false,
+                importedAt: record.importedAt,
+                sharedAt: record.sharedAt,
                 currentTerm: record.currentTerm,
                 firstDayString: record.firstDayString,
                 timeTable: record.timeTable,
@@ -433,15 +400,10 @@ final class ScheduleViewModel: ObservableObject {
         guard !hasLoaded else { return }
         hasLoaded = true
 
-        // 页面先读本地缓存，打开时直接展示已有内容；冷启动的联网同步由用户主动触发。
-        // 进程生命周期内，`loadIfNeeded` 成功执行一次；这里按今天定位；
-        // 自动定位结果落在第 -12 至 +20 周，手动翻页沿用完整周次范围：
-        // 杀后台后的冷启动回到今日；页面切换和前后台切换保留用户正在浏览的周次。
+        // 页面先读本地缓存，打开时直接展示用户上次选择的学期；联网同步由用户主动触发。
+        // 周次按当前课表首周计算，学期选择保持本地缓存值。
         reloadFromDisk()
         selectedWeek = resolvedAutomaticWeek()
-        if activatePreferredCachedTermIfAvailable(on: Date()) {
-            persist()
-        }
         isLoadingCache = false
     }
 

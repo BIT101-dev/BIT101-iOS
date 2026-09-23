@@ -5,7 +5,7 @@ private struct ScoreSelectionRow: View {
     let isSelected: Bool
 
     var body: some View {
-        HStack(spacing: AppDesignSystem.Spacing.control) {
+        HStack(spacing: AppDesignSystem.Spacing.regular) {
             Text(title)
                 .font(AppDesignSystem.Typography.body)
                 .foregroundStyle(.primary)
@@ -108,7 +108,7 @@ struct ScoreSortPage: View {
                 Button {
                     onToggleOrder()
                 } label: {
-                    HStack(spacing: AppDesignSystem.Spacing.control) {
+                    HStack(spacing: AppDesignSystem.Spacing.regular) {
                         Text(sortOrder.title)
                             .font(AppDesignSystem.Typography.subheadline)
                             .foregroundStyle(.primary)

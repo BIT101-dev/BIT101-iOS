@@ -110,13 +110,4 @@ nonisolated enum ScheduleWeekCodec {
         week > 0 ? week - 1 : week
     }
 
-    static func previousWeek(before week: Int) -> Int {
-        if week == 1 || week == 0 { return -1 }
-        return week - 1
-    }
-
-    static func nextWeek(after week: Int) -> Int {
-        if week == -1 || week == 0 { return 1 }
-        return week + 1
-    }
 }

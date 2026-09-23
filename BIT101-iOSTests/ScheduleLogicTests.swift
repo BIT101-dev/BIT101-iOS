@@ -412,28 +412,6 @@ struct AcademicTermPolicyTests {
             cache: cache,
             on: shanghaiDate(2026, 8, 31)
         ) == .teaching)
-        #expect(AcademicTermPolicy.preferredCachedTerm(
-            cache: cache,
-            on: shanghaiDate(2026, 8, 31)
-        ) == "2026-2027-1")
-    }
-
-    @Test("Smart switching never reverts an explicitly selected upcoming term")
-    func upcomingTermSelectionIsStable() {
-        var cache = makeSpringToFallCache()
-        let beforeFirstWeek = shanghaiDate(2026, 8, 26)
-
-        cache.currentTerm = "2025-2026-2"
-        #expect(AcademicTermPolicy.preferredCachedTerm(
-            cache: cache,
-            on: beforeFirstWeek
-        ) == "2025-2026-2")
-
-        cache.currentTerm = "2026-2027-1"
-        #expect(AcademicTermPolicy.preferredCachedTerm(
-            cache: cache,
-            on: beforeFirstWeek
-        ) == "2026-2027-1")
     }
 
     private func makeSpringToFallCache() -> ScheduleCache {
@@ -906,17 +884,58 @@ struct ScheduleShareCodeCodecTests {
 
         let code = try ScheduleShareCodeCodec.encodeLatest(cache: cache)
         let decoded = try ScheduleShareCodeCodec.decode(code, using: cache)
+        let coursesCode = try ScheduleShareCodeCodec.encodeLatest(courses: cache.courses)
+        let coursesDecoded = try ScheduleShareCodeCodec.decode(coursesCode, using: cache)
 
         #expect(code.hasPrefix("BIT101SCH3:"))
+        #expect(coursesCode.hasPrefix("BIT101SCH3:"))
         #expect(decoded.courses.count == 1)
+        #expect(coursesDecoded.courses.count == 1)
         #expect(decoded.courses[0].name == "编译原理")
         #expect(decoded.courses[0].credit == 4)
+        #expect(decoded.exportedAt == nil)
+    }
+
+    @Test("V4 decodes export time to minute precision while exports remain V3")
+    func v4ShareTimeRoundTrip() throws {
+        let cache = ScheduleCache()
+        let sourceTime = Date(timeIntervalSince1970: 1_777_777_777)
+        let payload = ScheduleExportCompactPayloadV4(cache: cache, exportedAt: sourceTime)
+        let expectedTime = Date(timeIntervalSince1970: 1_777_777_740)
+        #expect(payload.exportedAt == expectedTime)
+
+        let jsonData = try JSONEncoder().encode(payload)
+        guard let compressedData = try (jsonData as NSData).compressed(using: .lzfse) as Data? else {
+            throw ScheduleShareCodeError.compressionFailed
+        }
+        let code = "BIT101SCH4:\(compressedData.base64EncodedString())"
+        let decoded = try ScheduleShareCodeCodec.decode(code, using: cache)
+        let importedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let record = SharedScheduleRecord(
+            title: "测试课表",
+            importedAt: importedAt,
+            payload: decoded
+        )
+
+        #expect(decoded.exportedAt == expectedTime)
+        #expect(record.sharedAt == expectedTime)
+        #expect(record.importedAt == importedAt)
+        #expect(ScheduleShareCodeCodec.latestExportVersion == 3)
+    }
+
+    @Test("Older imported schedules keep a missing share time optional")
+    func decodesLegacySharedSchedule() throws {
+        let json = """
+        {"id":"legacy","title":"旧课表","importedAt":0,"currentTerm":"2025-2026-2","firstDayString":"2026-03-02","timeTable":[],"courses":[]}
+        """
+        let record = try JSONDecoder().decode(SharedScheduleRecord.self, from: Data(json.utf8))
+        #expect(record.sharedAt == nil)
     }
 
     @Test("A newer share format requests an app update")
     func unsupportedNewerFormat() {
-        #expect(throws: ScheduleShareCodeError.unsupportedNewerFormat(4)) {
-            _ = try ScheduleShareCodeCodec.decode("BIT101SCH4:anything", using: ScheduleCache())
+        #expect(throws: ScheduleShareCodeError.unsupportedNewerFormat(5)) {
+            _ = try ScheduleShareCodeCodec.decode("BIT101SCH5:anything", using: ScheduleCache())
         }
     }
 }

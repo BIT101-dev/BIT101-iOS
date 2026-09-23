@@ -64,7 +64,7 @@ struct GalleryMessagesView: View {
 
                                     if index != currentState.items.count - 1 {
                                         Divider()
-                                            .padding(.leading, AppDesignSystem.Size.content.messageDividerLeading)
+                                            .padding(.leading, AppDesignSystem.Gallery.messageDividerLeading)
                                     }
                                 }
                                 .listRowInsets(EdgeInsets())
@@ -194,8 +194,7 @@ struct GalleryMessagesView: View {
 
     /// 打开单条消息。
     ///
-    /// 服务端返回的消息对象可能关联已删除帖子，因此先请求帖子详情。
-    /// 帖子已删除时显示本地提示，避免进入“对象不存在”的错误页。
+    /// 先请求帖子详情；帖子详情缺失时显示本地提示并返回消息列表。
     private func openMessage(_ message: GalleryMessage, type: GalleryMessageType) async {
         viewModel.markMessageAsRead(message, in: type)
 
@@ -231,12 +230,12 @@ private struct GalleryMessageRow: View {
         HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
             GalleryMessageAvatarView(user: message.fromUser, type: type)
 
-            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tight) {
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
                 HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.regular) {
                     if isUnread {
                         Circle()
                             .fill(AppDesignSystem.Palette.highlight)
-                            .frame(width: AppDesignSystem.Size.content.unreadIndicator, height: AppDesignSystem.Size.content.unreadIndicator)
+                            .frame(width: AppDesignSystem.Gallery.unreadIndicator, height: AppDesignSystem.Gallery.unreadIndicator)
                     }
 
                     Text(message.fromUser.displayName)
@@ -271,7 +270,7 @@ private struct GalleryMessageRow: View {
                     .padding(.top, AppDesignSystem.Spacing.micro)
             }
         }
-        .padding(.horizontal, AppDesignSystem.Spacing.container)
+        .padding(.horizontal, AppDesignSystem.Spacing.content)
         .padding(.vertical, AppDesignSystem.Spacing.content)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(isUnread ? AppDesignSystem.Palette.highlightSurface : AppDesignSystem.Palette.systemBackground)
@@ -296,7 +295,7 @@ private struct GalleryMessageAvatarView: View {
         if user.id == 0 {
             AppAvatarView(
                 imageURL: nil,
-                size: AppDesignSystem.Comment.layout.avatarSize,
+                size: AppDesignSystem.Size.Avatar.standard,
                 systemImage: type == .system ? "bell.fill" : "person.fill"
             )
         } else {

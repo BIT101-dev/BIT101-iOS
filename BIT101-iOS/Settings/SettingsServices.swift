@@ -53,7 +53,7 @@ struct SettingsNetworkService {
 
     /// 更新昵称、签名和头像。
     ///
-    /// 接口要求整份资料一起提交；调用方传入“未改动但仍需保留”的旧值。
+    /// 接口要求整份资料一起提交；调用方传入未编辑字段的当前值。
     func updateUser(nickname: String?, motto: String?, avatarMid: String?) async throws {
         let body = try api.encode([
             "nickname": nickname,

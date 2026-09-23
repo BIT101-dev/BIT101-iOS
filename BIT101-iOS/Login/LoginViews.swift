@@ -83,7 +83,7 @@ private struct LoginFormView: View {
                     focusedField = nil
                     submitLogin()
                 } label: {
-                    HStack(spacing: AppDesignSystem.Spacing.control) {
+                    HStack(spacing: AppDesignSystem.Spacing.regular) {
                         Spacer()
                         if viewModel.isSubmitting {
                             ProgressView()
@@ -98,12 +98,6 @@ private struct LoginFormView: View {
                 .accessibilityLabel(viewModel.isSubmitting ? "正在登录" : "登录")
                 .accessibilityHint(viewModel.isSubmitting ? "请稍候" : "提交学校统一身份认证账号密码")
                 .disabled(!viewModel.canSubmit)
-            } footer: {
-                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
-                    Text("使用学校统一身份认证账号密码登录。首次登录 BIT101 账号时，系统自动完成注册；密码按学校认证流程加密传输，并保存于本机受保护的 Keychain，用于学校会话静默恢复。")
-                    Text("本 App 处于开发阶段，功能持续完善；如遇到问题，请联系 systemd@linux.do。使用前请自行评估相关风险。")
-                }
-                .font(AppDesignSystem.Typography.footnote)
             }
         }
         .navigationTitle("登录")
@@ -116,8 +110,8 @@ private struct LoginFormView: View {
                     .foregroundStyle(AppDesignSystem.Palette.neutral)
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, AppDesignSystem.Spacing.section)
-                    .padding(.top, AppDesignSystem.Spacing.tight)
-                    .padding(.bottom, AppDesignSystem.Spacing.control)
+                    .padding(.top, AppDesignSystem.Spacing.tiny)
+                    .padding(.bottom, AppDesignSystem.Spacing.regular)
                     .background(.regularMaterial)
             }
         }

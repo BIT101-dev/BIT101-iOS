@@ -26,6 +26,7 @@ APP_GROUP_ID="group.BIT101-dev.BIT101-iOS.shared"
 APP_BUNDLE_ID="BIT101-dev.BIT101-iOS"
 SMOKE_SCOPE="${BIT101_NETWORK_SMOKE_SCOPE:-all}"
 SMOKE_CAPTURE="${BIT101_NETWORK_SMOKE_CAPTURE:-cachedCourseHistory}"
+SMOKE_TERM="${BIT101_NETWORK_SMOKE_TERM:-}"
 
 case "$SMOKE_SCOPE" in
   all|bit101|school|transcript|schedule|ddl) ;;
@@ -107,13 +108,18 @@ if [[ "$SMOKE_CAPTURE" == "cachedCourseHistory" ]]; then
     --destination "Documents/$REMOTE_FIXTURE_PATH" >/dev/null
 fi
 
-python3 - "$LOCAL_REQUEST_PATH" "$SMOKE_SCOPE" "$RUN_ID" "$SMOKE_CAPTURE" <<'PY'
+python3 - "$LOCAL_REQUEST_PATH" "$SMOKE_SCOPE" "$RUN_ID" "$SMOKE_CAPTURE" "$SMOKE_TERM" <<'PY'
 import json
 import sys
 
-path, scope, run_id, capture = sys.argv[1:]
+path, scope, run_id, capture, term = sys.argv[1:]
 with open(path, "w", encoding="utf-8") as stream:
-    json.dump({"scope": scope, "runID": run_id, "capture": capture or "none"}, stream)
+    json.dump({
+        "scope": scope,
+        "runID": run_id,
+        "capture": capture or "none",
+        "term": term or None,
+    }, stream)
 PY
 xcrun devicectl device copy to \
   --device "$DEVICETCL_DEVICE_ID" \

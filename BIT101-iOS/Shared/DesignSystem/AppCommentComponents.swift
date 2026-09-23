@@ -13,7 +13,7 @@ struct AppCommentSectionHeader<Trailing: View>: View {
     }
 
     var body: some View {
-        HStack(spacing: AppDesignSystem.Spacing.control) {
+        HStack(spacing: AppDesignSystem.Spacing.regular) {
             Text("评论")
                 .font(AppDesignSystem.Typography.headline)
 
@@ -41,7 +41,7 @@ struct AppCommentIdentityHeader: View {
                     nicknameText
                 }
                 .buttonStyle(.plain)
-                .frame(minHeight: AppDesignSystem.Size.control.touchTarget)
+                .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
             } else {
                 nicknameText
             }
@@ -73,12 +73,12 @@ struct AppCommentActionBar: View {
     let onLike: () -> Void
 
     var body: some View {
-        HStack(spacing: AppDesignSystem.Spacing.control) {
+        HStack(spacing: AppDesignSystem.Spacing.regular) {
             Button(action: onReply) {
                 Label("回复", systemImage: "arrowshape.turn.up.left")
-                    .font(AppDesignSystem.Typography.captionMedium)
+                    .font(AppDesignSystem.Typography.captionEmphasis)
                     .foregroundStyle(.secondary)
-                    .frame(minHeight: AppDesignSystem.Size.control.touchTarget)
+                    .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
             }
             .buttonStyle(.plain)
 
@@ -95,7 +95,7 @@ struct AppCommentActionBar: View {
                     }
                 }
                 .foregroundStyle(isLiked ? AppDesignSystem.Palette.highlight : .secondary)
-                .frame(minHeight: AppDesignSystem.Size.control.touchTarget)
+                .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
             }
             .buttonStyle(.plain)
             .disabled(isLiking)
@@ -120,10 +120,10 @@ struct AppCommentBubble<Avatar: View, Content: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: AppDesignSystem.Spacing.control) {
+        HStack(alignment: .top, spacing: AppDesignSystem.Spacing.regular) {
             avatar
 
-            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tight) {
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
                 content
             }
         }
@@ -139,10 +139,10 @@ struct AppCommentRowContainer<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
             content
         }
-        .padding(AppDesignSystem.Spacing.container)
+        .padding(AppDesignSystem.Spacing.content)
     }
 }
 
@@ -176,12 +176,12 @@ struct AppCommentThread<Comment: Identifiable, Content: View>: View {
 
                             if index != subcomments.count - 1 {
                                 Divider()
-                                    .padding(.leading, AppDesignSystem.Comment.layout.dividerLeading)
+                                    .padding(.leading, AppDesignSystem.Comment.replyInset)
                             }
                         }
                     }
                 }
-                .padding(.leading, AppDesignSystem.Comment.layout.subCommentIndent)
+                .padding(.leading, AppDesignSystem.Comment.replyInset)
                 .padding(.top, AppDesignSystem.Spacing.tiny)
             }
         }

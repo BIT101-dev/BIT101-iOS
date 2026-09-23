@@ -49,10 +49,10 @@ struct CourseHistoryGradesSheet: View {
                                     hidesMakeupOutliers: appSettings.hidesCourseHistoryMakeupOutliers
                                 )
                                     .listRowInsets(EdgeInsets(
-                                        top: AppDesignSystem.Spacing.container,
-                                        leading: AppDesignSystem.Spacing.container,
-                                        bottom: AppDesignSystem.Spacing.container,
-                                        trailing: AppDesignSystem.Spacing.container
+                                        top: AppDesignSystem.Spacing.content,
+                                        leading: AppDesignSystem.Spacing.content,
+                                        bottom: AppDesignSystem.Spacing.content,
+                                        trailing: AppDesignSystem.Spacing.content
                                     ))
                             }
 
@@ -181,7 +181,7 @@ private struct CourseHistoryGradesChart: View {
                 Spacer()
                 if let selectedGrade {
                     Text(selectedGrade.term)
-                        .font(AppDesignSystem.Typography.captionMedium)
+                        .font(AppDesignSystem.Typography.captionEmphasis)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -221,7 +221,7 @@ private struct CourseHistoryGradesChart: View {
             }
             .chartLegend(position: .bottom, alignment: .leading)
             .chartXSelection(value: chartSelection)
-            .frame(height: AppDesignSystem.Size.content.chartHeight)
+            .frame(height: AppDesignSystem.Course.historyChartHeight)
             .accessibilityLabel("历史成绩趋势图")
             .accessibilityValue(chartAccessibilityValue)
             .accessibilityHint("滑动图表可查看不同学期")
@@ -270,12 +270,12 @@ private struct CourseHistorySelectedLegend: View {
     let grade: CourseHistoryGrade
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tight) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
             Text(grade.term)
-                .font(AppDesignSystem.Typography.captionMedium)
+                .font(AppDesignSystem.Typography.captionEmphasis)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: AppDesignSystem.Spacing.control) {
+            HStack(spacing: AppDesignSystem.Spacing.regular) {
                 Text("平均分 \(courseHistoryScoreText(grade.avgScore))")
                 Text("最高分 \(courseHistoryScoreText(grade.maxScore))")
                 Text("学习人数 \(courseHistoryStudentText(grade.studentNum))")
@@ -292,11 +292,11 @@ private struct CourseHistoryGradeRow: View {
     let grade: CourseHistoryGrade
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
             Text(grade.term)
                 .font(AppDesignSystem.Typography.headline)
 
-            HStack(spacing: AppDesignSystem.Spacing.control) {
+            HStack(spacing: AppDesignSystem.Spacing.regular) {
                 CourseHistoryMetric(title: "平均分", value: courseHistoryScoreText(grade.avgScore), tint: AppDesignSystem.Palette.highlight)
                 CourseHistoryMetric(title: "最高分", value: courseHistoryScoreText(grade.maxScore), tint: AppDesignSystem.Palette.scoreTab)
                 CourseHistoryMetric(title: "学习人数", value: courseHistoryStudentText(grade.studentNum), tint: AppDesignSystem.Palette.info)
@@ -321,8 +321,8 @@ private struct CourseHistoryMetric: View {
                 .foregroundStyle(.primary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(AppDesignSystem.Spacing.control)
-        .background(tint.opacity(0.10), in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.badge))
+        .padding(AppDesignSystem.Spacing.regular)
+        .background(tint.opacity(0.10), in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.small))
     }
 }
 

@@ -159,7 +159,7 @@ private struct DDLEventCard: View {
     var body: some View {
         AppCard {
             HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
-                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
+                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                     Text(event.title)
                         .font(AppDesignSystem.Typography.headline)
                         .strikethrough(event.done)
@@ -186,7 +186,7 @@ private struct DDLEventCard: View {
                     Image(systemName: event.done ? "checkmark.circle.fill" : "circle")
                         .font(AppDesignSystem.Typography.title3)
                         .foregroundStyle(tint)
-                        .frame(width: AppDesignSystem.Size.control.touchTarget, height: AppDesignSystem.Size.control.touchTarget)
+                        .frame(width: AppDesignSystem.Size.Control.touchTarget, height: AppDesignSystem.Size.Control.touchTarget)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)

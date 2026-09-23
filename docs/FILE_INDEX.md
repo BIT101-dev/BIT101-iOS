@@ -11,9 +11,13 @@
 
 ## 共享层
 
-- `BIT101-iOS/Shared/Infrastructure/`：提供提示模型、统一失败状态、深链、更新检查、紧急更新、错误报告提交界面、键盘收起、分页、账号存储、手势、任务取消、偏好同步和网络 smoke。
+设计规则按 [UI 设计系统](DESIGN_SYSTEM.md) 分层：`DesignPrimitives.swift` 保存跨 target 基础值，`AppDesignSystem.swift` 保存公共视觉令牌，`AppLayoutComponents.swift` 保存公共布局组件，`AppStateComponents.swift` 保存页面状态组件，`ExternalDesignSystem.swift` 保存外部展示规则。课程、日程与话廊的特化规则分别位于各自模块的 `*DesignSystem.swift` 文件。
+
+- `BIT101-iOS/Shared/Client/`：提供网络、提示模型、深链、更新检查、紧急更新、错误报告提交界面、键盘收起、分页、账号存储、手势、任务取消、偏好同步和网络 smoke。
+- `BIT101-iOS/Shared/Client/ErrorReportSupport.swift`：负责反馈脱敏、诊断摘要和提交载荷。
+- `BIT101-iOS/Shared/Client/AppErrorPresentation.swift`：负责错误队列、原生提示、恢复操作和报告 Sheet。
 - `BIT101-iOS/Shared/DesignSystem/`：提供主 App 的颜色、间距、圆角、评论/建议输入组件、搜索/segmented、更新时间、比例列数据行公共控件和系统触感修饰器。
-- `BIT101-iOS/Shared/Networking/`：处理 HTTP 传输、社区 API、登录 challenge 支持和安全 URL 传输。
+- `BIT101-iOS/Shared/DesignSystem/AppStateComponents.swift`：提供加载、空态、失败与滚动状态组件。
 - `BIT101-iOS/Shared/ScheduleShared*.swift`：定义主 App、Widget、Live Activity 和 Watch 共用的课表快照与 occurrence 规范。
 - `BIT101-iOS/WatchSync/WatchScheduleSyncManager.swift`：负责 iPhone 与 Apple Watch 的课表镜像同步。
 - `BIT101-iOS/CachedRemoteImage.swift`：缓存头像等远程图片，并使用内存与磁盘存储。
@@ -55,9 +59,10 @@
 - `ScheduleService*.swift`：教学中心、乐学、认证、传输及响应模型。
 - `ScheduleCacheStore.swift`、`ScheduleWidgetSupport.swift`：缓存持久化和 widget 导出。
 - `ScheduleSystemCalendarManager.swift`：系统日历权限、课程/考试/自定义日程导入删除。
-- `Shared/Infrastructure/NetworkDiagnostics.swift`：网络路径提示、诊断探针、请求记录和诊断缓存。
-- `Shared/Infrastructure/ErrorReportSupport.swift`：错误报告、脱敏和诊断弹窗展示。
-- `Shared/Infrastructure/ReleaseNetworkSmoke.swift`、`ReleaseNetworkSmokeModels.swift`：网络 Smoke runner、探针模型和报告存储。
+- `Shared/Client/NetworkDiagnostics.swift`：网络路径提示、诊断探针、请求记录和诊断缓存。
+- `Shared/Client/ErrorReportSupport.swift`：错误报告载荷、脱敏和诊断摘要。
+- `Shared/Client/AppErrorPresentation.swift`：诊断弹窗、恢复操作和报告 Sheet。
+- `Shared/Client/ReleaseNetworkSmoke.swift`、`ReleaseNetworkSmokeModels.swift`：网络 Smoke runner、探针模型和报告存储。
 - 其余解析器、策略、日历、分享和编辑文件按职责拆分，按所属目录查找。
 
 ### 成绩与课程
@@ -81,7 +86,7 @@
 - `BIT101-iOS/Mine/`：个人主页、他人主页、关注关系和帖子列表。
 - `BIT101-iOS/Settings/`：账号、外观、课表、DDL、话廊、关于和开发者建议页面；课表设置页与其 sheet 分别位于 `SettingsScheduleViews.swift`、`SettingsScheduleSheets.swift`；建议提交界面在 `SettingsRootView.swift`。
 
-设计一致性检查使用：`Scripts/check-ui-consistency.sh`、`Scripts/check-haptic-consistency.sh`、`Scripts/check-component-consistency.sh`。
+设计一致性检查使用：`Scripts/check-ui-consistency.sh`。
 逐份源码质量检查使用：`Scripts/check-code-quality.sh`，结果固定写入 `.build/code-quality-report.txt`。
 解释性文案候选报告使用：`Scripts/report-explanatory-text.sh`，结果固定写入 `.build/explanatory-text-report.txt`；扫描范围为 `Section footer` 和 `ContentUnavailableView description`，输出候选报告；文案删除依照用户明确批准执行，白名单收录用户明确批准的文案。
 
@@ -98,7 +103,7 @@
 - `BIT101Watch/`：Apple Watch 主 App。
 - `BIT101WatchWidgets/`：Apple Watch Smart Stack widget。
 
-项目已移除 `BIT101WatchExtension/` 目录；扩展代码归属 `BIT101ScheduleWidgets/`、`BIT101Watch/` 和 `BIT101WatchWidgets/`。
+Widget、Watch App 与 Watch Widget 的代码分别归属 `BIT101ScheduleWidgets/`、`BIT101Watch/` 和 `BIT101WatchWidgets/`。
 
 ## 维护提示
 

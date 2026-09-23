@@ -10,7 +10,7 @@ struct AppAvatarView: View {
 
     init(
         imageURL: URL?,
-        size: CGFloat = AppDesignSystem.Comment.layout.avatarSize,
+        size: CGFloat = AppDesignSystem.Size.Avatar.standard,
         tint: Color = AppDesignSystem.Palette.highlight,
         systemImage: String = "person.fill",
         accessibilityLabel: String? = nil
@@ -29,14 +29,14 @@ struct AppAvatarView: View {
                 .scaledToFill()
         } placeholder: {
             Circle()
-                .fill(tint.opacity(AppDesignSystem.Size.avatar.placeholderOpacity))
+                .fill(tint.opacity(AppDesignSystem.Size.Avatar.placeholderOpacity))
                 .overlay {
                     Image(systemName: systemImage)
                         .foregroundStyle(tint)
                         .font(
-                            size >= AppDesignSystem.Size.avatar.largeIconThreshold
+                            size >= AppDesignSystem.Size.Avatar.largeIconThreshold
                                 ? AppDesignSystem.Typography.title2
-                                : AppDesignSystem.Typography.captionStrong
+                                : AppDesignSystem.Typography.captionEmphasis
                         )
                 }
         }

@@ -13,13 +13,13 @@ struct PaperSummaryCard: View {
     let onOpen: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
             Text(paper.title)
                 .font(AppDesignSystem.Typography.headline)
                 .foregroundStyle(.primary)
                 .lineLimit(2)
 
-            HStack(spacing: AppDesignSystem.Spacing.control) {
+            HStack(spacing: AppDesignSystem.Spacing.regular) {
                 AppAvatarView(
                     imageURL: previewMetadata?.avatarURL,
                     tint: AppDesignSystem.Palette.neutral

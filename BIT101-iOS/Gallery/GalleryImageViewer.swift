@@ -155,8 +155,7 @@ private struct GalleryQuickLookPresenter: UIViewControllerRepresentable {
             pendingCurrentRefresh = false
         }
 
-        /// 只保证用户点击的图片已有可读文件；其它图片优先复用缓存，否则暂用占位。
-        /// 因此不会再等待整个帖子所有高清图下载完成后才打开预览。
+        /// 用户点击的图片先准备可读文件；其它图片使用缓存或占位，高清资源在预览展示后继续准备。
         private func prepareInitialItems(
             for request: GalleryImageViewerState
         ) async throws -> (items: [MutableQuickLookItem], initialIndex: Int) {
@@ -276,7 +275,7 @@ private struct GalleryQuickLookPresenter: UIViewControllerRepresentable {
         ///
         /// Quick Look 没有公开的渐进式换图接口，直接 `refreshCurrentPreviewItem()` 会由
         /// 系统重建当前预览时偶尔出现明显闪白。系统预览器保持原样；刷新时叠加一层
-        /// 不接收触摸的旧画面快照，让低清到高清更接近一次轻微交叉渐变。
+        /// 不接收触摸的画面快照，让低清到高清更接近一次轻微交叉渐变。
         private func refreshCurrentPreviewItemSmoothly() {
             guard let controller = previewController else { return }
             guard let snapshot = controller.view.snapshotView(afterScreenUpdates: false) else {

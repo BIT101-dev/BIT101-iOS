@@ -8,6 +8,14 @@ import SwiftUI
 import UIKit
 #endif
 
+private struct ScheduleRefreshStatusContentHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 struct CourseScheduleTabView: View {
     struct ScheduleCodePresentation: Identifiable {
         let id = UUID()
@@ -26,7 +34,6 @@ struct CourseScheduleTabView: View {
     let onOpenCourseLocation: (CampusMapLocationRequest) -> Void
     @State var selectedEntry: ScheduleCalendarEntry?
     @State var editingCustomScheduleID: String?
-    @State var editingCourseID: String?
     @State var selectedDayAdjustmentContext: ScheduleDayAdjustmentContext?
     @State var customScheduleDraft = CustomScheduleDraft()
     @State var courseDraft = CourseDraft()
@@ -44,6 +51,7 @@ struct CourseScheduleTabView: View {
     @State var prefetchedCourseID: String?
     @State var prefetchedCourseResolution: ScheduleAcademicCourseResolution?
     @State var bottomTabBarOverlap: CGFloat?
+    @State var refreshStatusContentHeight = AppDesignSystem.Size.Control.touchTarget
     @AppStorage("schedule.calendar.axisMode") var storedCalendarAxisMode = ScheduleCalendarAxisMode.quantized.rawValue
     @State var calendarAxisZoomScale: CGFloat = AppDesignSystem.Schedule.timelineDefaultScale
 
@@ -69,26 +77,50 @@ struct CourseScheduleTabView: View {
                     - (bottomTabBarOverlap ?? 0),
                 1
             )
+            let scheduleSectionGap = AppDesignSystem.Spacing.content
+            let refreshStatusHeight = AppDesignSystem.Schedule.refreshStatusRowHeight(
+                contentHeight: refreshStatusContentHeight
+            )
             let calendarHeight = max(
                 listHeight
-                    - (activeSchedule.isPrimary ? AppDesignSystem.Size.content.refreshStatusListHeight : 0)
-                    - AppDesignSystem.Spacing.content,
+                    - refreshStatusHeight
+                    - scheduleSectionGap
+                    - scheduleSectionGap,
                 1
             )
 
             ZStack(alignment: .bottomTrailing) {
                 List {
-                    if activeSchedule.isPrimary {
-                        Section {
-                            AppRefreshStatusRow(
-                                isRefreshing: viewModel.isSyncingCourses,
-                                refreshingText: "正在刷新课表",
-                                lastUpdatedText: viewModel.coursesLastUpdatedText,
-                                actionTitle: "刷新",
-                                onRefresh: {
-                                    Task { await viewModel.syncSelectedTerm() }
-                                }
-                            )
+                    Section {
+                        Group {
+                            if activeSchedule.isPrimary {
+                                AppRefreshStatusRow(
+                                    isRefreshing: viewModel.isSyncingCourses,
+                                    refreshingText: "正在刷新课表",
+                                    lastUpdatedText: viewModel.coursesLastUpdatedText,
+                                    actionTitle: "刷新",
+                                    onRefresh: {
+                                        Task { await viewModel.syncSelectedTerm() }
+                                    }
+                                )
+                            } else {
+                                AppRefreshStatusRow(
+                                    isRefreshing: false,
+                                    refreshingText: "",
+                                    lastUpdatedText: activeSchedule.importedAt.map {
+                                        "导入时间：\($0.formatted(.dateTime.month().day().hour().minute()))"
+                                    } ?? "分享课表",
+                                    trailingText: "只读"
+                                )
+                            }
+                        }
+                        .background {
+                            GeometryReader { rowProxy in
+                                Color.clear.preference(
+                                    key: ScheduleRefreshStatusContentHeightKey.self,
+                                    value: rowProxy.size.height
+                                )
+                            }
                         }
                     }
 
@@ -163,7 +195,7 @@ struct CourseScheduleTabView: View {
                                     Button {
                                         Task { await viewModel.syncSelectedTerm() }
                                     } label: {
-                                        HStack(spacing: AppDesignSystem.Spacing.control) {
+                                        HStack(spacing: AppDesignSystem.Spacing.regular) {
                                             if viewModel.isSyncingCourses {
                                                 ProgressView()
                                             }
@@ -182,18 +214,12 @@ struct CourseScheduleTabView: View {
                 .scrollContentBackground(.hidden)
                 .scrollDisabled(true)
                 .frame(height: listHeight, alignment: .top)
+                .onPreferenceChange(ScheduleRefreshStatusContentHeightKey.self) { height in
+                    guard height > 0 else { return }
+                    refreshStatusContentHeight = max(height, AppDesignSystem.Size.Control.touchTarget)
+                }
 
                 AppFloatingActionStack {
-                    if viewModel.cache.scheduleDisplayMode == .weekly {
-                        CourseScheduleFAB(systemImage: "chevron.up", accessibilityLabel: "上一周") {
-                            viewModel.previousWeek()
-                        }
-
-                        CourseScheduleFAB(systemImage: "chevron.down", accessibilityLabel: "下一周") {
-                            viewModel.nextWeek()
-                        }
-                    }
-
                     if supportsEditingDisplayedSchedule {
                         Menu {
                             Button("添加日程") {
@@ -213,30 +239,19 @@ struct CourseScheduleTabView: View {
                         .buttonStyle(.plain)
                         .tint(.primary)
                         .accessibilityLabel("添加课表内容")
-
-                        Button {
-                            cardDisplayFeedbackToken &+= 1
-                            viewModel.toggleScheduleCardContentMode()
-                        } label: {
-                            CourseScheduleFABLabel(text: "名/地")
-                        }
-                        .buttonStyle(.plain)
-                        .tint(.primary)
-                        .appImpactFeedback(trigger: cardDisplayFeedbackToken)
-                        .accessibilityLabel(cardDisplayAccessibilityLabel)
-                        .accessibilityValue("名/地")
                     }
 
                     Button {
-                        storedCalendarAxisMode = calendarAxisMode.next.rawValue
-                        calendarAxisZoomScale = AppDesignSystem.Schedule.timelineDefaultScale
+                        cardDisplayFeedbackToken &+= 1
+                        viewModel.toggleScheduleCardContentMode()
                     } label: {
-                        CourseScheduleFABLabel(text: "节/时")
+                        CourseScheduleFABLabel(text: "名/地")
                     }
                     .buttonStyle(.plain)
                     .tint(.primary)
-                    .accessibilityLabel(calendarAxisMode.accessibilityLabel)
-                    .accessibilityValue(calendarAxisMode == .quantized ? "节次" : "时间")
+                    .appImpactFeedback(trigger: cardDisplayFeedbackToken)
+                    .accessibilityLabel(cardDisplayAccessibilityLabel)
+                    .accessibilityValue("名/地")
 
                     CourseScheduleFAB(systemImage: "gearshape", accessibilityLabel: "课表设置") {
                         settingsRoute = .calendar
@@ -259,14 +274,16 @@ struct CourseScheduleTabView: View {
         .sheet(item: $selectedEntry) { entry in
             ScheduleEntryDetailSheet(
                 entry: entry,
-                academicCourses: entry.resolvedSourceIDs.compactMap { sourceID in
-                    activeSchedule.courses.first(where: { $0.id == sourceID })
-                },
+                academicCourses: {
+                    let displayedCourses = entry.resolvedSourceIDs.compactMap { sourceID in
+                        activeSchedule.courses.first(where: { $0.id == sourceID })
+                    }
+                    let identities = Set(displayedCourses.map(scheduleCourseIdentity))
+                    return activeSchedule.courses.filter { identities.contains(scheduleCourseIdentity($0)) }
+                }(),
                 currentWeek: viewModel.selectedWeek,
                 currentTerm: activeSchedule.currentTerm,
                 allowsCourseMutation: supportsEditingDisplayedSchedule,
-                isOverviewMode: supportsEditingDisplayedSchedule
-                    && viewModel.cache.scheduleDisplayMode == .allWeeks,
                 allowsCustomScheduleMutation: supportsEditingDisplayedSchedule,
                 onOpenAcademicCourse: { request in
                     selectedEntry = nil
@@ -276,26 +293,44 @@ struct CourseScheduleTabView: View {
                     selectedEntry = nil
                     onOpenCourseLocation(request)
                 },
-                onEditCourseOccurrence: { courseID in
-                    guard let course = activeSchedule.courses.first(where: { $0.id == courseID }) else { return }
-                    let week = preferredCourseWeek(from: course.weeks)
-                    editingCourseID = course.id
-                    courseEditorMode = .editOccurrence(week: week)
-                    courseDraft = viewModel.courseDraft(for: course, week: week, editsOccurrenceOnly: true)
-                    selectedEntry = nil
-                    isShowingCourseEditor = true
+                timeTable: viewModel.cache.timeTable,
+                buildings: viewModel.buildings.isEmpty
+                    ? viewModel.cache.cachedClassroomBuildingsByCampusCode.values.flatMap { $0 }
+                    : viewModel.buildings,
+                courseArrangementDraftsForCourse: { courseID in
+                    viewModel.courseArrangementDrafts(forCourseID: courseID)
                 },
-                onEditCourse: { courseID in
-                    guard let course = activeSchedule.courses.first(where: { $0.id == courseID }) else { return }
-                    editingCourseID = course.id
-                    courseEditorMode = .editCourse(courseID: course.id)
-                    courseDraft = viewModel.courseDraft(for: course, week: viewModel.selectedWeek, editsOccurrenceOnly: false)
-                    selectedEntry = nil
-                    isShowingCourseEditor = true
+                courseArrangementDraftForOccurrence: { courseID, week in
+                    guard let course = activeSchedule.courses.first(where: { $0.id == courseID }) else {
+                        return nil
+                    }
+                    return viewModel.courseArrangementDraft(for: course, week: week)
                 },
-                onDeleteCourseOccurrence: { courseID in
+                onSaveCourseArrangements: { arrangements, mode in
+                    do {
+                        switch mode {
+                        case .course:
+                            try viewModel.updateCourseArrangements(arrangements)
+                        case .occurrence:
+                            guard let arrangement = arrangements.first,
+                                  let weeks = try? ScheduleCourseEditor.parseWeeks(arrangement.draft.weeksText)
+                            else {
+                                throw viewModel.scheduleValidationError("至少选择一周课程。")
+                            }
+                            try viewModel.updateCourseOccurrences(
+                                id: arrangement.id,
+                                weeks: weeks,
+                                draft: arrangement.draft
+                            )
+                        }
+                        return true
+                    } catch {
+                        presentSaveError(error)
+                        return false
+                    }
+                },
+                onDeleteCourseOccurrence: { courseID, week in
                     guard let course = activeSchedule.courses.first(where: { $0.id == courseID }) else { return }
-                    let week = preferredCourseWeek(from: course.weeks)
                     viewModel.deleteCourseOccurrence(id: course.id, week: week)
                     selectedEntry = nil
                 },
@@ -486,30 +521,13 @@ struct CourseScheduleTabView: View {
                 timeTable: viewModel.cache.timeTable,
                 onSubmit: {
                     do {
-                        switch courseEditorMode {
-                        case .add:
-                            try viewModel.addCourse(courseDraft)
-                        case let .editOccurrence(week):
-                            if let sourceID = editingCourseID {
-                                try viewModel.updateCourseOccurrence(id: sourceID, week: week, draft: courseDraft)
-                            } else {
-                                throw NSError(
-                                    domain: "BIT101.Schedule",
-                                    code: -1,
-                                    userInfo: [NSLocalizedDescriptionKey: "找不到要调整的课程。"]
-                                )
-                            }
-                        case let .editCourse(courseID):
-                            try viewModel.updateCourse(id: courseID, draft: courseDraft)
-                        }
-                        editingCourseID = nil
+                        try viewModel.addCourse(courseDraft)
                         isShowingCourseEditor = false
                     } catch {
                         presentSaveError(error)
                     }
                 },
                 onDismiss: {
-                    editingCourseID = nil
                     isShowingCourseEditor = false
                 }
             )

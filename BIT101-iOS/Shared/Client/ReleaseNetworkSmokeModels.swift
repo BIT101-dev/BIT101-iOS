@@ -301,6 +301,7 @@ struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
     let scope: NetworkSmokeScope
     let runID: String
     let capture: NetworkSmokeCapture
+    let term: String?
 
     private static var pendingFileURL: URL? {
         FileManager.default
@@ -331,6 +332,8 @@ struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
         let runID = components?.queryItems?.first(where: { $0.name == "run" })?.value?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let captureValue = components?.queryItems?.first(where: { $0.name == "capture" })?.value
+        let term = components?.queryItems?.first(where: { $0.name == "term" })?.value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let capture: NetworkSmokeCapture
         if let captureValue {
             guard let parsedCapture = NetworkSmokeCapture(rawValue: captureValue) else { return nil }
@@ -341,6 +344,7 @@ struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
 
         self.scope = pathScope
         self.capture = capture
+        self.term = term?.isEmpty == true ? nil : term
         if let runID, !runID.isEmpty {
             guard runID.count <= 128,
                   runID.unicodeScalars.allSatisfy({ $0.value >= 0x20 && $0.value != 0x7F })

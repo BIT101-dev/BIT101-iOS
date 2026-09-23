@@ -4,7 +4,7 @@
 
 `feedback.aihelpme.dev` 的资源类型为 Worker API，接口功能为接收 App 错误报告和用户建议；独立网页入口状态为空。后端源码位于
 `Cloudflare/ErrorReportWorker/worker.js`，App 内提交界面位于
-`BIT101-iOS/Shared/Infrastructure/ErrorReportSupport.swift` 与
+`BIT101-iOS/Shared/Client/ErrorReportSupport.swift` 与
 `BIT101-iOS/Settings/SettingsRootView.swift`。
 
 报告读取脚本调用 `EmergencyUpdateWorker/node_modules` 中已安装的 Wrangler；`ErrorReportWorker` 目录的每次执行沿用该安装。

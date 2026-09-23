@@ -8,9 +8,7 @@ import CryptoKit
 import Foundation
 import Security
 
-/// Android 端登录流程依赖的加密算法。
-///
-/// iOS 端为了兼容现有后端和学校登录链路，需要严格复刻 Android 端的密码处理逻辑。
+/// 学校认证链路使用的口令变换和 URL 加密算法。
 enum LoginCrypto {
     static let schoolURLCryptoPublicKey = """
     -----BEGIN PUBLIC KEY-----
@@ -18,7 +16,7 @@ enum LoginCrypto {
     -----END PUBLIC KEY-----
     """
 
-    /// 复刻 Android 端的 AES 加密逻辑，用于学校登录表单和 WebVPN 校验。
+    /// 使用 AES 变换学校登录表单和 WebVPN 校验口令。
     static func encryptPassword(_ password: String, saltBase64: String) throws -> String {
         guard let keyData = Data(base64Encoded: saltBase64) else {
             throw LoginServiceError.invalidSchoolLoginPage

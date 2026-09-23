@@ -74,8 +74,7 @@ final class ScheduleLiveActivityManager {
     private func performRefreshFromCurrentCache(trigger: String) async {
         logger.debug("refreshFromCurrentCache trigger=\(trigger, privacy: .public)")
 
-        // 退出登录或远端登录态失效后，fake-cookie 会被清掉；账号密码和课表缓存可能继续保留。
-        // 课程提醒服务当前已登录账号，会话有效性是前置条件。
+        // 课表提醒依赖有效 fake-cookie 会话；账号凭据与课表缓存按各自持久化策略管理。
         let studentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !LoginStorage.shared.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             logger.debug("fake-cookie missing; treating session as signed out and ending all activities")

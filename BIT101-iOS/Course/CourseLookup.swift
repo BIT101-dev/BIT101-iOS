@@ -41,7 +41,7 @@ nonisolated enum CourseLookupMatcher {
                 return nil
             }
 
-            // 后端个别旧课程没有教师字段；课程号唯一且候选教师为空时执行安全回退。
+            // 课程缺少教师字段时，课程号唯一且教师候选为空可直接确定匹配结果。
             if sameNumber.count == 1,
                normalizedTeacher(sameNumber[0].teachersName).isEmpty
             {

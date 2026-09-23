@@ -33,7 +33,7 @@ enum SettingsRoute: String, CaseIterable, Identifiable {
         case .calendar: return "课程表设置"
         case .ddl: return "DDL设置"
         case .gallery: return "话廊设置"
-        case .suggestion: return "我想和开发者提建议"
+        case .suggestion: return "向开发者提建议"
         case .about: return "关于"
         }
     }
@@ -211,7 +211,7 @@ struct DeveloperSuggestionPage: View {
                     axis: .vertical
                 )
                 .lineLimit(12, reservesSpace: true)
-                .frame(minHeight: AppDesignSystem.Size.content.multilineEditorMinimumHeight)
+                .frame(minHeight: AppDesignSystem.Size.Content.multilineEditorMinimumHeight)
                 .accessibilityLabel("建议内容")
                 .accessibilityHint("输入想告诉开发者的内容")
             }
@@ -233,7 +233,7 @@ struct DeveloperSuggestionPage: View {
 
                 if !imageDrafts.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: AppDesignSystem.Spacing.control) {
+                        HStack(spacing: AppDesignSystem.Spacing.regular) {
                             ForEach(imageDrafts) { draft in
                                 GalleryComposerImageTile(
                                     draft: draft,
@@ -249,7 +249,7 @@ struct DeveloperSuggestionPage: View {
             }
         }
         .appGroupedListStyle()
-        .navigationTitle("我想和开发者提建议")
+        .navigationTitle("向开发者提建议")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             AppComposerToolbar(

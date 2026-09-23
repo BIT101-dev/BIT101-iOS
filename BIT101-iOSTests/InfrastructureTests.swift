@@ -216,6 +216,22 @@ struct InfrastructureTests {
 
 @Suite("Score presentation logic")
 struct ScorePresentationTests {
+    @Test("Successful empty score response returns an empty result")
+    func successfulEmptyScoreResponse() throws {
+        let response = Data(#"{"msg":"查询成功OvO","data":[]}"#.utf8)
+
+        #expect(try ScoreService.decodeScoreRows(response).isEmpty)
+    }
+
+    @Test("Empty score response preserves the server failure message")
+    func emptyScoreFailureMessage() {
+        let response = Data(#"{"msg":"成绩服务暂不可用","data":[]}"#.utf8)
+
+        #expect(throws: ScoreServiceError.self) {
+            try ScoreService.decodeScoreRows(response)
+        }
+    }
+
     private final class ScoreServiceSpy: ScoreListServicing {
         private(set) var requestedDetailValues: [Bool] = []
         private let requiresSMS: Bool

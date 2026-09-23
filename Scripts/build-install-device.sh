@@ -6,6 +6,28 @@ PROJECT="$ROOT_DIR/BIT101-iOS.xcodeproj"
 DERIVED_DATA="$ROOT_DIR/build/DeviceInstall"
 source "$ROOT_DIR/Scripts/device-support.sh"
 
+COMPILE_ONLY=false
+DEVICE_ID=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --compile-only)
+      COMPILE_ONLY=true
+      ;;
+    -h|--help)
+      echo "用法：Scripts/build-install-device.sh [--compile-only] [真机设备ID]"
+      exit 0
+      ;;
+    *)
+      if [[ -n "$DEVICE_ID" ]]; then
+        echo "用法：Scripts/build-install-device.sh [--compile-only] [真机设备ID]" >&2
+        exit 64
+      fi
+      DEVICE_ID="$1"
+      ;;
+  esac
+  shift
+done
+
 if [[ "${BIT101_INSTALL_TARGET:-iPhone}" == "macCatalyst" ]]; then
   mkdir -p "$DERIVED_DATA"
   BUILD_OVERRIDES=()
@@ -27,6 +49,11 @@ if [[ "${BIT101_INSTALL_TARGET:-iPhone}" == "macCatalyst" ]]; then
     "${BUILD_OVERRIDES[@]}" \
     -allowProvisioningUpdates
 
+  if $COMPILE_ONLY; then
+    echo "Mac Catalyst 编译完成。"
+    exit 0
+  fi
+
   APP_PATH="$DERIVED_DATA/Build/Products/Release-maccatalyst/BIT101-iOS.app"
   INSTALL_PATH="$HOME/Applications/BIT101-iOS.app"
   mkdir -p "$HOME/Applications"
@@ -38,18 +65,14 @@ if [[ "${BIT101_INSTALL_TARGET:-iPhone}" == "macCatalyst" ]]; then
   exit 0
 fi
 
-if [[ $# -eq 0 ]]; then
+if [[ -z "$DEVICE_ID" ]]; then
   bit101_require_device "$PROJECT" || {
-    echo "用法：直接运行 Scripts/build-install-device.sh，无需参数。" >&2
+    echo "用法：Scripts/build-install-device.sh [--compile-only] [真机设备ID]" >&2
     exit 1
   }
 else
-  if [[ $# -gt 2 ]]; then
-    echo "用法：Scripts/build-install-device.sh [真机设备ID]" >&2
-    exit 64
-  fi
-  BIT101_XCODE_DEVICE_ID="$1"
-  BIT101_DEVICETCL_DEVICE_ID="$1"
+  BIT101_XCODE_DEVICE_ID="$DEVICE_ID"
+  BIT101_DEVICETCL_DEVICE_ID="$DEVICE_ID"
 fi
 
 mkdir -p "$DERIVED_DATA"
@@ -69,7 +92,12 @@ xcodebuild build \
   -destination "platform=iOS,id=$BIT101_XCODE_DEVICE_ID" \
   -derivedDataPath "$DERIVED_DATA" \
   "${BUILD_OVERRIDES[@]}" \
-  -allowProvisioningUpdates
+    -allowProvisioningUpdates
+
+if $COMPILE_ONLY; then
+  echo "iPhone Release 编译完成。"
+  exit 0
+fi
 
 APP_PATH="$DERIVED_DATA/Build/Products/Release-iphoneos/BIT101-iOS.app"
 xcrun devicectl device install app \

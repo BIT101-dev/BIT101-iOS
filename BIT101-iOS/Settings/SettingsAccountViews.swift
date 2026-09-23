@@ -31,13 +31,13 @@ struct AccountSettingsPage: View {
         List {
             if let profile {
                 Section("个人信息") {
-                    HStack(spacing: AppDesignSystem.Spacing.control) {
+                    HStack(spacing: AppDesignSystem.Spacing.regular) {
                         Text("头像")
                         Spacer()
                         PhotosPicker(selection: $selectedPhoto, matching: .images) {
                             AppAvatarView(
                                 imageURL: URL(string: profile.user.avatar.url),
-                                size: AppDesignSystem.Size.avatar.account,
+                                size: AppDesignSystem.Size.Avatar.standard,
                                 tint: AppDesignSystem.Palette.info
                             )
                         }
@@ -80,7 +80,7 @@ struct AccountSettingsPage: View {
                 Button {
                     Task { await checkLogin() }
                 } label: {
-                    HStack(spacing: AppDesignSystem.Spacing.control) {
+                    HStack(spacing: AppDesignSystem.Spacing.regular) {
                         Text("登录状态检查")
                         Spacer()
                         if isCheckingLogin {
@@ -261,7 +261,7 @@ private struct SettingsSensitiveValueRow: View {
         Button {
             isRevealed.toggle()
         } label: {
-            HStack(spacing: AppDesignSystem.Spacing.control) {
+            HStack(spacing: AppDesignSystem.Spacing.regular) {
                 Text(title)
                 Spacer()
                 if isRevealed {
@@ -271,7 +271,7 @@ private struct SettingsSensitiveValueRow: View {
                     Text(value)
                         .foregroundStyle(.secondary)
                         .blur(radius: 7)
-                        .padding(.horizontal, AppDesignSystem.Spacing.tight)
+                        .padding(.horizontal, AppDesignSystem.Spacing.tiny)
                         .padding(.vertical, AppDesignSystem.Spacing.micro)
                         .background(.ultraThinMaterial, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.small))
                 }

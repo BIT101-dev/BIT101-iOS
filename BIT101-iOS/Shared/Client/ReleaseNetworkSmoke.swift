@@ -20,7 +20,8 @@ final class ReleaseNetworkSmokeRunner {
     func run(
         scope: NetworkSmokeScope,
         runID: String = UUID().uuidString,
-        capture: NetworkSmokeCapture = .none
+        capture: NetworkSmokeCapture = .none,
+        term requestedTerm: String? = nil
     ) async -> ReleaseNetworkSmokeReport {
         failures = []
         authenticationBlockers = []
@@ -169,7 +170,11 @@ final class ReleaseNetworkSmokeRunner {
         let terms = await probe("切换学期列表", scope: scope) {
             try await schedule.fetchAvailableTerms()
         } ?? []
-        if let term = terms.first {
+        let normalizedRequestedTerm = requestedTerm?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let term = normalizedRequestedTerm?.isEmpty == false
+            ? normalizedRequestedTerm
+            : terms.first
+        if let term {
             let syncPayload = await probe("课表、考试与首周同步", scope: scope) {
                 let payload = try await schedule.syncCourses(term: term)
                 try Self.validateCourseSyncPayload(payload)

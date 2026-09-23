@@ -35,8 +35,8 @@ struct GalleryPosterDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.prominent) {
-                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.section) {
+                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                     Text(viewModel.poster.title)
                         .font(AppDesignSystem.Typography.title2Emphasis)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -55,7 +55,7 @@ struct GalleryPosterDetailView: View {
 
                         Spacer()
 
-                        HStack(spacing: AppDesignSystem.Spacing.control) {
+                        HStack(spacing: AppDesignSystem.Spacing.regular) {
                             AppDetailCircleButton(accessibilityLabel: "评论帖子") {
                                 composerTarget = .poster(posterID: viewModel.poster.id)
                             } label: {
@@ -99,11 +99,11 @@ struct GalleryPosterDetailView: View {
                 }
 
                 if viewModel.poster.claim.id != 0 {
-                    HStack(spacing: AppDesignSystem.Spacing.tight) {
+                    HStack(spacing: AppDesignSystem.Spacing.tiny) {
                         Image(systemName: "checkmark.seal")
                         Text(viewModel.poster.claim.text)
                     }
-                    .font(AppDesignSystem.Typography.footnoteMedium)
+                    .font(AppDesignSystem.Typography.footnoteEmphasis)
                     .foregroundStyle(AppDesignSystem.Palette.highlight)
                 }
 
@@ -112,7 +112,7 @@ struct GalleryPosterDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 if !viewModel.poster.images.isEmpty {
-                    VStack(spacing: AppDesignSystem.Spacing.control) {
+                    VStack(spacing: AppDesignSystem.Spacing.regular) {
                         ForEach(Array(viewModel.poster.images.enumerated()), id: \.element.id) { index, image in
                             let imageAccessibilityLabel = "图片 \(index + 1)"
                             Button {
@@ -154,7 +154,7 @@ struct GalleryPosterDetailView: View {
                     }
                 }
 
-                HStack(spacing: AppDesignSystem.Spacing.prominent) {
+                HStack(spacing: AppDesignSystem.Spacing.section) {
                     Text("\(viewModel.poster.likeNum)赞")
                     Text("\(viewModel.poster.commentNum)评论")
                 }
@@ -203,8 +203,8 @@ struct GalleryPosterDetailView: View {
                     }
                 )
             }
-            .padding(.horizontal, AppDesignSystem.Spacing.prominent)
-            .padding(.top, AppDesignSystem.Spacing.prominent)
+            .padding(.horizontal, AppDesignSystem.Spacing.section)
+            .padding(.top, AppDesignSystem.Spacing.section)
         }
         .refreshable {
             await viewModel.refreshAll()

@@ -10,7 +10,7 @@ CONDITIONS="DEBUG EXTENDED_AUTOMATION BIT101_AUTOMATED_TESTING"
 MODE="all"
 if [[ $# -gt 0 ]]; then
   case "$1" in
-    all|default|schedule|infrastructure|login)
+    all|default|schedule|schedule-share|infrastructure|login)
       MODE="$1"
       shift
       ;;
@@ -23,7 +23,7 @@ if [[ $# -eq 0 ]]; then
   DEVICE_ID="$BIT101_XCODE_DEVICE_ID"
 else
   if [[ $# -gt 2 ]]; then
-    echo "用法：Scripts/run-extended-tests.sh [all|default|schedule|infrastructure|login] [真机设备ID]" >&2
+    echo "用法：Scripts/run-extended-tests.sh [all|default|schedule|schedule-share|infrastructure|login] [真机设备ID]" >&2
     exit 64
   fi
   DEVICE_ID="$1"
@@ -71,6 +71,9 @@ case "$MODE" in
     ;;
   schedule)
     run_tests ExtendedSchedulePolicyTests "$CONDITIONS"
+    ;;
+  schedule-share)
+    run_tests ScheduleShareCodeCodecTests "$CONDITIONS"
     ;;
   infrastructure)
     run_tests ExtendedInfrastructureTests "$CONDITIONS"

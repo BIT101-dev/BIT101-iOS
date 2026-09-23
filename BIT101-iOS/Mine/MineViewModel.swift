@@ -10,7 +10,7 @@ import Foundation
 
 /// “我的”模块统一识别取消错误。
 ///
-/// 页面切换、下拉刷新和任务复用都可能触发取消。此处兼容 Swift Concurrency 与 URLSession 的取消信号。
+/// 页面切换、下拉刷新和任务复用都可能触发取消。统一识别 Swift Concurrency 与 URLSession 的取消信号。
 private func isMineCancellation(_ error: Error) -> Bool {
     TaskCancellation.matches(error)
 }
@@ -107,7 +107,7 @@ final class MineViewModel: ObservableObject {
 
     /// 刷新个人资料卡。
     ///
-    /// 页面已有旧资料时，刷新失败保留旧内容并弹出提示。
+    /// 页面已有资料时，刷新失败保留已展示内容并弹出提示。
     func refreshProfile() async {
         profileGeneration &+= 1
         let generation = profileGeneration
@@ -264,7 +264,7 @@ final class MineViewModel: ObservableObject {
 
     /// 重新拉取“我的帖子”第一页。
     ///
-    /// 页面已有旧帖子时，刷新失败保留旧内容并弹出提示，页面继续显示原有列表。
+    /// 页面已有帖子时，刷新失败保留已展示内容并弹出提示。
     func refreshPosters() async {
         posterGeneration &+= 1
         let generation = posterGeneration

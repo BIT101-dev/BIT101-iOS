@@ -68,7 +68,7 @@ Scripts/run-extended-tests.sh login
 
 分组日志分别写入固定的 `default-tests.log`、`ExtendedSchedulePolicyTests.log`、`ExtendedInfrastructureTests.log` 和 `ExtendedLoginTests.log`。
 
-2026-08-09 的历史基线为 **40 项测试全部通过，0 条编译警告/错误**；当前默认测试 Target 有 **137 项自动化用例**（122 项 Swift Testing、15 项 XCTest）。另有 27 项扩展测试与 5 项专用 smoke 用例。测试覆盖范围包括：
+自动化测试覆盖范围包括：
 
 - 取消错误、页码分页、账号隔离 Codable 快照
 - HTTP/社区请求构造和错误映射
@@ -86,6 +86,16 @@ Scripts/run-extended-tests.sh login
 ```sh
 Scripts/build-install-device.sh
 ```
+
+编译检查可通过参数旁路装机、启动流程：
+
+```sh
+Scripts/build-install-device.sh --compile-only
+Scripts/build-install-device.sh --compile-only <真机设备ID>
+BIT101_INSTALL_TARGET=macCatalyst Scripts/build-install-device.sh --compile-only
+```
+
+脚本默认行为保持 Release 真机构建、装机和启动；`--compile-only` 保留具体真机编译目标并结束于编译完成。
 
 构建后可把当前真机截图覆盖保存到固定路径：
 
@@ -222,8 +232,8 @@ Scripts/build-install-device.sh
 - 学校返回的首周日期优先于日历分界；新学期快照尚无课程/考试时，当前课表保持原值。
 - 手动同步返回非空但课程数少于本机时，应弹出“本机有 X 节课，获取到 Y 节课，是否替换？”；选择“否”保留原课表，选择“是”才替换。空响应或学校明确未发布时，确认弹窗保持关闭。
 - 学校明确返回“课表未发布”时显示状态提示；版本号保持原值，错误上报入口保持关闭。
-- 手动选择学期先更新当前学期；随后课表请求失败仍保留该选择并显示错误，已有快照继续展示；没有快照时，旧学期课程保持隐藏。
-- 本地缓存可自动切换到已开始的新学期，该切换只读取本地缓存，学校请求数保持为 0；手动周次浏览范围超过课程最后一周，按首周日期定位时结果范围为第 -12 至 +20 周。
+- 手动选择学期先更新当前选择；课表请求失败时保留该选择并显示错误；已有快照继续展示，所选学期缺少快照时展示空课表。
+- 手动选择的学期写入本地缓存，冷启动沿用该选择；手动周次浏览范围超过课程最后一周，按首周日期定位时结果范围为第 -12 至 +20 周。
 - 成绩页进入时恢复本地缓存；认证由点击“查询成绩”、刷新按钮或下拉刷新触发。验证码挑战展示在当前操作链路中，错误报告弹窗保持关闭。
 - 点击进入空教室分栏即开始加载；“刷新空教室”、切换校区/教学楼或下拉刷新用于再次查询。认证需要短信时展示验证码面板，重试流程保持显式。
 - DDL 同步由用户主动触发，启动和前台阶段的静默同步请求数为 0；用户主动同步遇到学校短信二次验证时，显示“需要短信验证”提示，错误报告入口保持关闭。
@@ -234,7 +244,7 @@ Scripts/build-install-device.sh
 - 验证入口限定为真机的“我的－设置－课程表设置”，验证设备为真机。
 - 首次导入应请求完整日历权限，并创建“BIT101 课表”日历；课程日期、起止时间、地点应与当前学期一致。
 - 日历事件的地点文本包含校区和教室；命中地图建筑目录时，同时写入 `EKStructuredLocation` 坐标。良乡校区与中关村校区分别验证，地图目录暂无匹配的地点保留文本地点。
-- 同一学期连续导入两次，事件数量保持单份；第二次应替换带 `bit101://calendar-course/` 标记的旧事件。
+- 同一学期连续导入两次，事件数量保持单份；第二次应替换已存在的 `bit101://calendar-course/` 标记事件。
 - “删除已导入的日历事件”限定为 BIT101 标记事件，用户自己创建的日程保持不变。
 - 拒绝权限、无课表或没有已导入事件时，系统给出可理解的错误提示并继续运行。
 
@@ -269,7 +279,6 @@ python3 Scripts/visualize-course-history-audit.py --serve
 用户错误处理规则：用户错误归入普通提示，错误报告范围限定为软件、网络、服务器、解析和数据链路故障。
 
 ```sh
-Scripts/check-error-report-coverage.sh
 Scripts/error-reports.sh list
 Scripts/error-reports.sh latest
 Scripts/error-reports.sh delete '<report-key>'
@@ -280,13 +289,13 @@ Scripts/run-extended-tests.sh
 
 覆盖检查确保用户可见的错误弹窗和主要失败占位页保留 App Store 与错误报告入口。
 报告直接通过当前 Wrangler 登录读取远端 KV，管理网页不参与流程。
-`Scripts/fetch-issues-and-reports.sh` 会用当前 GitHub CLI 和 Wrangler 登录状态，一次拉取未关闭的仓库 Issues、GitHub Actions 失败运行与 Cloudflare KV 报告，保存到 `.build/issue-report-inbox` 并输出简要汇总。GitHub Issues 使用 REST 接口，GitHub API 暂时不可用时继续拉取 Cloudflare 报告；GitHub CI 失败运行写入 `github-ci.json`，包含运行元数据与失败日志尾部。错误报告按 `本次/上次/上上次` 保留三批，并按 `开发版/正式版/来源未知` 和 `错误报告/用户建议` 分类；开发验证包提交 `isDevelopmentBuild: true`，Release 构建提交 `false`，旧报告归入来源未知。输出本次详情、上两批数量。本次没有新报告时显示最近一批详情。完整拉取成功后只清理本次已拉取的 Cloudflare 报告，失败时保留远端数据。完整报告仅保存在本机，仓库保持不变。
+`Scripts/fetch-issues-and-reports.sh` 使用默认用户目录中的 GitHub CLI 认证，并将 `HOME` 单独设为 `$HOME/Library/Preferences` 供 Wrangler 读取 Cloudflare 授权。脚本拉取仓库 Issues、GitHub Actions 失败运行和 Cloudflare KV 报告，结果写入 `.build/issue-report-inbox`。报告直接按 `开发版/正式版/来源未知` 与 `错误报告/用户建议` 分类。本地报告快照每次覆盖为本次新拉取内容；`report-keys.txt` 记录 7 天保留窗口内已经处理的报告键，重复运行保持增量拉取。远端仅清理接收时间早于当前时间 7 天的 Cloudflare 报告。GitHub Issues 与 CI 元数据保存在目录根部，完整报告留在本机，仓库保持不变。
 
 用户输入校验提示采用 `AppAlert.userInput` 或 `ScheduleNotice.userInput`，保留页面提示并关闭错误报告入口。页面失败状态通过 `AppFailureState.allowsDiagnostics` 控制诊断入口。空字段、标签数量、空评论、验证码输入、图片处理状态、无效分享数据、本地日程格式、日历权限和可信成绩单短信验证取消等用户操作提示归入此类；网络请求、服务器响应和数据解析故障继续提供错误报告入口。
 
-`run-static-audit.sh` 执行静态检查；学校接口连接、网络 smoke 和发布归档由独立流程负责。它按 Swift、Shell、Python、Worker、Git、文档、UI、触感、组件和源码质量规则输出结果；源码质量报告固定覆盖 `.build/code-quality-report.txt`。CI 强制执行这一入口，并额外阻止警告进入构建门禁。
+`run-static-audit.sh` 执行静态检查；学校接口连接、网络 smoke 和发布归档由独立流程负责。它按 Swift、Shell、Python、Worker、Git、文档、统一 UI 与源码质量规则输出结果；源码质量报告固定覆盖 `.build/code-quality-report.txt`。CI 强制执行这一入口，并额外阻止警告进入构建门禁。
 
-UI 契约检查由 `check-ui-consistency.py` 统一维护：页面和公共组件按目录模式、页面后缀及公共组件用法自动发现，再套用同类契约；`check-component-consistency.sh` 的职责是转发到统一检查器，业务文件清单由统一检查器维护。新增同类页面沿用现有检查逻辑，契约表登记的必要平台/功能例外可跳过规则。
+UI 契约检查由 `check-ui-consistency.py` 统一维护：视觉令牌、页面和公共组件、触感、错误报告入口按目录模式、页面后缀及公共组件用法自动发现，再套用同类契约。新增同类页面沿用统一检查逻辑，契约表登记必要的平台与功能例外。
 
 ## 扩展自动化测试
 

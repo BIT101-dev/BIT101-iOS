@@ -72,11 +72,11 @@ struct AppSMSVerificationSheet: View {
                     Button {
                         Task { await onSubmit(code) }
                     } label: {
-                        HStack(spacing: AppDesignSystem.Spacing.control) {
+                        HStack(spacing: AppDesignSystem.Spacing.regular) {
                             Spacer()
                             if isSubmitting {
                                 ProgressView()
-                                    .padding(.trailing, AppDesignSystem.Spacing.tight)
+                                    .padding(.trailing, AppDesignSystem.Spacing.tiny)
                                 Text("正在验证")
                             } else {
                                 Text(submitTitle)

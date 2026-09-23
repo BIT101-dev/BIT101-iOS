@@ -96,14 +96,50 @@ struct CourseResponse: Decodable {
         let endSection: Int?
         let campus: String?
         let courseNumber: String?
-        let credit: Int?
+        let credit: Double?
         let hour: Int?
         let type: String?
         let category: String?
         let department: String?
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            term = try container.decodeIfPresent(String.self, forKey: .term)
+            name = try container.decodeIfPresent(String.self, forKey: .name)
+            teacher = try container.decodeIfPresent(String.self, forKey: .teacher)
+            classroom = try container.decodeIfPresent(String.self, forKey: .classroom)
+            scheduleDescription = try container.decodeIfPresent(String.self, forKey: .scheduleDescription)
+            rawWeeks = try container.decodeIfPresent(String.self, forKey: .rawWeeks)
+            displayWeeks = try container.decodeIfPresent(String.self, forKey: .displayWeeks)
+            weekday = try container.decodeIfPresent(Int.self, forKey: .weekday)
+            startSection = try container.decodeIfPresent(Int.self, forKey: .startSection)
+            endSection = try container.decodeIfPresent(Int.self, forKey: .endSection)
+            campus = try container.decodeIfPresent(String.self, forKey: .campus)
+            courseNumber = try container.decodeIfPresent(String.self, forKey: .courseNumber)
+            credit = container.decodeFlexibleDoubleIfPresent(forKey: .credit)
+            hour = try container.decodeIfPresent(Int.self, forKey: .hour)
+            type = try container.decodeIfPresent(String.self, forKey: .type)
+            category = try container.decodeIfPresent(String.self, forKey: .category)
+            department = try container.decodeIfPresent(String.self, forKey: .department)
+        }
     }
 
     let datas: Datas
+}
+
+private extension KeyedDecodingContainer {
+    func decodeFlexibleDoubleIfPresent(forKey key: Key) -> Double? {
+        if let value = try? decodeIfPresent(Double.self, forKey: key) {
+            return value
+        }
+        if let value = try? decodeIfPresent(Int.self, forKey: key) {
+            return Double(value)
+        }
+        if let value = try? decodeIfPresent(String.self, forKey: key) {
+            return Double(value.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return nil
+    }
 }
 
 extension CourseResponse {

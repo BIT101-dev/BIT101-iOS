@@ -7,14 +7,14 @@ enum AppTagChipVariant {
 
     var horizontalPadding: CGFloat {
         switch self {
-        case .display: return AppDesignSystem.Spacing.control
+        case .display: return AppDesignSystem.Spacing.regular
         case .selection: return AppDesignSystem.Spacing.content
         }
     }
 
     var verticalPadding: CGFloat {
         switch self {
-        case .display: return AppDesignSystem.Spacing.tight
+        case .display: return AppDesignSystem.Spacing.tiny
         case .selection: return AppDesignSystem.Spacing.regular
         }
     }
@@ -22,9 +22,9 @@ enum AppTagChipVariant {
     var font: Font {
         switch self {
         case .display:
-            return AppDesignSystem.Typography.captionMedium
+            return AppDesignSystem.Typography.captionEmphasis
         case .selection:
-            return AppDesignSystem.Typography.footnoteMedium
+            return AppDesignSystem.Typography.footnoteEmphasis
         }
     }
 }

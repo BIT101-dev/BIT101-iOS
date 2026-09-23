@@ -12,7 +12,7 @@ extension ScheduleViewModel {
     /// 同步成功后会立刻更新本地缓存，从而驱动课表页、小组件和灵动岛一起刷新。
     func syncCourses(term: String? = nil) async {
         guard !isSyncingCourses, !isLoadingTerms, !isSubmittingSMSCode,
-              smsChallenge == nil, pendingCourseReplacement == nil
+              smsChallenge == nil
         else { return }
         let requestedTerm = term?.trimmingCharacters(in: .whitespacesAndNewlines)
         let syncTerm = requestedTerm?.isEmpty == true ? nil : requestedTerm
@@ -105,8 +105,7 @@ extension ScheduleViewModel {
 
     /// 加载学校接口实际返回的学期列表，列表内容与接口结果保持一致。
     func loadAvailableTerms() async {
-        guard !isLoadingTerms, !isSyncingCourses, smsChallenge == nil,
-              pendingCourseReplacement == nil
+        guard !isLoadingTerms, !isSyncingCourses, smsChallenge == nil
         else { return }
         let generation = accountGeneration
         isLoadingTerms = true
@@ -150,7 +149,7 @@ extension ScheduleViewModel {
         }
     }
 
-    /// 提交短信一次性验证码，并继续之前暂停的教学中心认证、课表同步或学期列表加载。
+    /// 提交短信一次性验证码，并继续已暂停的教学中心认证、课表同步或学期列表加载。
     func submitSMSCode(_ code: String) async {
         guard let challenge = smsChallenge, !isSubmittingSMSCode else { return }
         let normalizedCode = code.filter(\.isNumber)
@@ -237,72 +236,43 @@ extension ScheduleViewModel {
         courseSyncCoordinator.reset()
     }
 
-    private func applyCourseSyncPayload(_ payload: CourseSyncPayload, forceReplaceReduced: Bool = false) {
+    private func applyCourseSyncPayload(_ payload: CourseSyncPayload) {
         let incomingCourses = payload.courses
-        let existingCourses = cache.termSchedulesByTerm[payload.term]?.courses
-            ?? (cache.currentTerm == payload.term ? cache.courses : [])
-        let coursesAreIdentical = existingCourses == incomingCourses
         let now = Date()
-        // 空响应和完全相同的课程响应沿用现有课程内容；已发布但课程数减少时先请求全局弹窗确认。
-        switch CourseSyncReplacementPolicy.decision(existing: existingCourses, with: incomingCourses) {
-        case .preserve:
-            // 请求成功且课程内容一致时刷新“最近同步时间”，并提示本次同步结果。
-            // 首周日期或考试安排发生变化时同步元数据，课程数组沿用现有内容。
-            let existingSnapshot = cache.termSchedulesByTerm[payload.term]
-            let existingFirstDayString = existingSnapshot?.firstDayString
-                ?? (cache.currentTerm == payload.term ? cache.firstDayString : "")
-            let existingExams = existingSnapshot?.exams
-                ?? (cache.currentTerm == payload.term ? cache.exams : [])
-            let metadataChanged = existingFirstDayString != payload.firstDayString
-                || existingExams != payload.exams
-            if metadataChanged {
-                let snapshot = TermScheduleSnapshot(
-                    term: payload.term,
-                    firstDayString: payload.firstDayString,
-                    courses: existingCourses,
-                    exams: payload.exams,
-                    updatedAt: now
-                )
-                cache.termSchedulesByTerm[payload.term] = snapshot
-                cache.cachedCoursesByTerm[payload.term] = existingCourses
-                if cache.currentTerm == payload.term {
-                    activate(snapshot)
-                    selectedWeek = resolvedAutomaticWeek()
-                }
-                trimTermSnapshots(preserving: Set([payload.term]))
-                persist()
-            } else {
-                markCourseSyncSucceeded(term: payload.term, at: now)
-            }
-            if coursesAreIdentical {
-                notice = ScheduleNotice.informational(
-                    title: "课表已是最新",
-                    message: "本次获取结果与本地课程内容完全一致。"
-                )
-            }
-            return
-        case let .confirm(existingCount, incomingCount) where !forceReplaceReduced:
-            pendingCourseReplacement = CourseSyncReplacementConfirmation(
-                existingCount: existingCount,
-                incomingCount: incomingCount,
-                payload: payload
-            )
-            return
-        case .replace, .confirm:
-            break
-        }
+        let existingBaseline = cache.schoolCoursesByTerm[payload.term]
+            ?? cache.termSchedulesByTerm[payload.term]?.courses
+            ?? (cache.currentTerm == payload.term ? cache.courses : [])
+        let rules = cache.manualCourseRulesByTerm[payload.term] ?? []
+        let reconciliation = ScheduleCourseEditor.reconcile(
+            rules: rules,
+            with: incomingCourses
+        )
+        let coursesAreIdentical = scheduleCourseSourceRecordsEqual(existingBaseline, incomingCourses)
 
+        cache.schoolCoursesByTerm[payload.term] = incomingCourses
+        cache.manualCourseRulesByTerm[payload.term] = reconciliation.validRules
         let snapshot = makeTermSnapshot(from: payload, now: now)
         cache.termSchedulesByTerm[payload.term] = snapshot
-        cache.cachedCoursesByTerm[payload.term] = payload.courses
-        activate(snapshot)
+        cache.cachedCoursesByTerm[payload.term] = reconciliation.courses
+
+        if cache.currentTerm == payload.term {
+            activate(snapshot)
+            selectedWeek = resolvedAutomaticWeek()
+        }
         trimTermSnapshots(preserving: Set([payload.term]))
-        selectedWeek = resolvedAutomaticWeek()
         persist()
-        if coursesAreIdentical {
+
+        if !reconciliation.invalidRules.isEmpty {
+            let names = uniqueCourseNames(from: reconciliation.invalidRules)
+            let courseText = names.isEmpty ? "相关课程" : names.joined(separator: "、")
+            notice = ScheduleNotice.userInput(
+                title: "手动调课已失效",
+                message: "学校课表中的 \(courseText) 发生了变化，相关手动调课已移除，当前显示最新课程安排。"
+            )
+        } else if coursesAreIdentical {
             notice = ScheduleNotice.informational(
                 title: "课表已是最新",
-                message: "本次获取结果与本地课程内容完全一致。"
+                message: "本次获取结果与学校原始课表完全一致。"
             )
         }
     }
@@ -329,13 +299,6 @@ extension ScheduleViewModel {
         }
     }
 
-    func resolvePendingCourseReplacement(replace: Bool) {
-        guard let pending = pendingCourseReplacement else { return }
-        pendingCourseReplacement = nil
-        guard replace else { return }
-        applyCourseSyncPayload(pending.payload, forceReplaceReduced: true)
-    }
-
     private func makeTermSnapshot(from payload: CourseSyncPayload, now: Date) -> TermScheduleSnapshot {
         TermScheduleSnapshot(
             term: payload.term,
@@ -350,8 +313,14 @@ extension ScheduleViewModel {
         cache.currentTerm = snapshot.term
         cache.firstDayString = snapshot.firstDayString
         cache.coursesUpdatedAt = snapshot.updatedAt
-        cache.courses = snapshot.courses
+        let baseline = cache.schoolCoursesByTerm[snapshot.term] ?? snapshot.courses
+        cache.schoolCoursesByTerm[snapshot.term] = baseline
+        cache.courses = ScheduleCourseEditor.reconcile(
+            rules: cache.manualCourseRulesByTerm[snapshot.term] ?? [],
+            with: baseline
+        ).courses
         cache.exams = snapshot.exams
+        cache.cachedCoursesByTerm[snapshot.term] = cache.courses
     }
 
     /// 将学期快照数量限制为最多两个，并保留当前显示学期与显式同步的目标学期。
@@ -362,23 +331,20 @@ extension ScheduleViewModel {
             .sorted { $0.updatedAt < $1.updatedAt }
         for snapshot in removable where cache.termSchedulesByTerm.count > 2 {
             cache.termSchedulesByTerm.removeValue(forKey: snapshot.term)
+            cache.schoolCoursesByTerm.removeValue(forKey: snapshot.term)
+            cache.manualCourseRulesByTerm.removeValue(forKey: snapshot.term)
         }
     }
 
-    /// 根据本地缓存切换到偏好的学期。
-    ///
-    /// 学校提供的首周日期会在必要时延后三月/九月的兜底分界。
-    @discardableResult
-    func activatePreferredCachedTermIfAvailable(on date: Date) -> Bool {
-        let preferred = AcademicTermPolicy.preferredCachedTerm(cache: cache, on: date)
-        guard preferred != cache.currentTerm,
-              let snapshot = cache.termSchedulesByTerm[preferred],
-              snapshot.hasDisplayableData
-        else { return false }
-        if let firstDay = snapshot.firstDay, date < firstDay { return false }
-        activate(snapshot)
-        selectedWeek = resolvedAutomaticWeek()
-        return true
+    private func uniqueCourseNames(from rules: [ScheduleCourseRule]) -> [String] {
+        var names: [String] = []
+        for rule in rules {
+            for name in rule.sourceCourses.map(\.name) where !name.isEmpty {
+                guard !names.contains(name) else { continue }
+                names.append(name)
+            }
+        }
+        return Array(names.prefix(3))
     }
 
 }

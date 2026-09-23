@@ -397,7 +397,7 @@ struct BIT101APIClient {
 
     /// 把表单字段编码成 `application/x-www-form-urlencoded` 数据。
     ///
-    /// 学校 CAS 登录表单使用 `application/x-www-form-urlencoded`，这条编码路径继续保留。
+    /// 将学校 CAS 登录表单字段编码为 `application/x-www-form-urlencoded`。
     private func formBody(_ fields: [(String, String)]) -> Data {
         let encoded = fields
             .map { key, value in

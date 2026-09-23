@@ -143,12 +143,12 @@ struct CourseScheduleCalendarView: View {
 
     private var quantizedBody: some View {
         GeometryReader { proxy in
-            let gridLineWidth = AppDesignSystem.Schedule.grid.lineWidth
-            let weekSliderHeight = AppDesignSystem.Schedule.weekSlider.sliderHeight
-            let dateHeaderHeight = AppDesignSystem.Schedule.weekSlider.dateHeaderHeight
+            let gridLineWidth = AppDesignSystem.Schedule.Grid.lineWidth
+            let weekSliderHeight = AppDesignSystem.Schedule.WeekSlider.sliderHeight
+            let dateHeaderHeight = AppDesignSystem.Schedule.WeekSlider.dateHeaderHeight
             let headerHeight = displayMode == .weekly
                 ? weekSliderHeight + dateHeaderHeight
-                : AppDesignSystem.Schedule.weekSlider.compactHeaderHeight
+                : AppDesignSystem.Schedule.WeekSlider.compactHeaderHeight
             let usableHeight = max(proxy.size.height - headerHeight, 1)
             let rowHeight = usableHeight / CGFloat(max(timeTable.count, 1))
             let visibleWeekdays = (1 ... 7).filter {
@@ -159,7 +159,7 @@ struct CourseScheduleCalendarView: View {
             let columnWidth = max(proxy.size.width / CGFloat(visibleWeekdays.count + 1), 1)
             let leftWidth = columnWidth
             let dayWidth = columnWidth
-            let cardWidth = max(dayWidth - AppDesignSystem.Schedule.grid.courseCardTotalInset, 1)
+            let cardWidth = max(dayWidth - AppDesignSystem.Schedule.Grid.courseCardTotalInset, 1)
             let weekDates = visibleWeekdays.compactMap {
                 ScheduleDateCodec.calendar.date(
                     byAdding: .day,
@@ -234,9 +234,9 @@ struct CourseScheduleCalendarView: View {
 
                     ForEach(Array(timeTable.enumerated()), id: \.offset) { index, slot in
                         HStack(spacing: AppDesignSystem.Spacing.none) {
-                            VStack(spacing: AppDesignSystem.Schedule.grid.cellSpacing) {
+                            VStack(spacing: AppDesignSystem.Schedule.Grid.cellSpacing) {
                                 Text("\(index + 1)")
-                                    .font(AppDesignSystem.Typography.caption2Strong)
+                                    .font(AppDesignSystem.Typography.caption2Emphasis)
                                     .lineLimit(1)
                                 Text(slot.start)
                                     .font(AppDesignSystem.Typography.caption2)
@@ -264,7 +264,7 @@ struct CourseScheduleCalendarView: View {
                                 ? AppDesignSystem.Schedule.GridPalette.majorLine
                                 : AppDesignSystem.Schedule.GridPalette.minorLine)
                             .frame(height: gridLineWidth)
-                            .offset(y: headerHeight + rowHeight * CGFloat(row) - AppDesignSystem.Schedule.grid.lineOffset)
+                            .offset(y: headerHeight + rowHeight * CGFloat(row) - AppDesignSystem.Schedule.Grid.lineOffset)
                             .zIndex(-1)
                     }
                 }
@@ -293,7 +293,7 @@ struct CourseScheduleCalendarView: View {
                    let index = visibleWeekdays.firstIndex(of: highlightWeekday) {
                     Rectangle()
                         .fill(AppDesignSystem.Palette.accent)
-                        .frame(width: dayWidth, height: AppDesignSystem.Schedule.grid.currentTimeLineHeight)
+                        .frame(width: dayWidth, height: AppDesignSystem.Schedule.Grid.currentTimeLineHeight)
                         .offset(
                             x: leftWidth + dayWidth * CGFloat(index),
                             y: headerHeight + rowHeight * timeLineSection
@@ -326,7 +326,7 @@ struct CourseScheduleCalendarView: View {
                                 width: cardWidth,
                                 height: max(
                                     rowHeight * (layer.endSection - layer.startSection)
-                                        - AppDesignSystem.Schedule.grid.courseCardTotalInset,
+                                        - AppDesignSystem.Schedule.Grid.courseCardTotalInset,
                                     1
                                 )
                             )
@@ -350,8 +350,8 @@ struct CourseScheduleCalendarView: View {
                                 if entry.kind == .course {
                                     Color.clear
                                         .frame(
-                                            width: AppDesignSystem.Schedule.grid.previewTriggerSize,
-                                            height: AppDesignSystem.Schedule.grid.previewTriggerSize
+                                            width: AppDesignSystem.Schedule.Grid.previewTriggerSize,
+                                            height: AppDesignSystem.Schedule.Grid.previewTriggerSize
                                         )
                                         .onAppear { onPrepareCourseShare(entry) }
                                 }
@@ -361,7 +361,7 @@ struct CourseScheduleCalendarView: View {
                             width: cardWidth,
                             height: max(
                                 rowHeight * (entry.endSection - entry.startSection)
-                                    - AppDesignSystem.Schedule.grid.courseCardTotalInset,
+                                    - AppDesignSystem.Schedule.Grid.courseCardTotalInset,
                                 1
                             )
                         )
@@ -370,7 +370,7 @@ struct CourseScheduleCalendarView: View {
                         width: cardWidth,
                         height: max(
                             rowHeight * (entry.endSection - entry.startSection)
-                                - AppDesignSystem.Schedule.grid.courseCardTotalInset,
+                                - AppDesignSystem.Schedule.Grid.courseCardTotalInset,
                             1
                         )
                     )

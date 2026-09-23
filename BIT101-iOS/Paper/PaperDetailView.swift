@@ -23,8 +23,8 @@ struct PaperDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.prominent) {
-                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.section) {
+                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                     Text(viewModel.paper?.title ?? initialPaper.title)
                         .font(AppDesignSystem.Typography.title2Emphasis)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -42,7 +42,7 @@ struct PaperDetailView: View {
 
                         Spacer()
 
-                        HStack(spacing: AppDesignSystem.Spacing.control) {
+                        HStack(spacing: AppDesignSystem.Spacing.regular) {
                             AppDetailCircleButton(accessibilityLabel: "评论文章") {
                                 composerTarget = .paper(paperID: initialPaper.id)
                             } label: {
@@ -74,7 +74,7 @@ struct PaperDetailView: View {
 
                 articleContent
 
-                HStack(spacing: AppDesignSystem.Spacing.control) {
+                HStack(spacing: AppDesignSystem.Spacing.regular) {
                     Spacer()
                     Button {
                         likePaper()
@@ -91,8 +91,8 @@ struct PaperDetailView: View {
                                 .font(AppDesignSystem.Typography.bodyEmphasis)
                         }
                         .foregroundStyle(isPaperLiked ? AppDesignSystem.Palette.highlightForeground : AppDesignSystem.Palette.highlight)
-                        .padding(.horizontal, AppDesignSystem.Spacing.prominent)
-                        .frame(minHeight: AppDesignSystem.Size.control.touchTarget)
+                        .padding(.horizontal, AppDesignSystem.Spacing.section)
+                        .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
                         .background(
                             isPaperLiked ? AppDesignSystem.Palette.highlight : AppDesignSystem.Palette.highlightSurface,
                             in: Capsule()
@@ -103,9 +103,9 @@ struct PaperDetailView: View {
                     .accessibilityLabel(isPaperLiked ? "取消点赞" : "点赞文章")
                     Spacer()
                 }
-                .padding(.top, AppDesignSystem.Spacing.tight)
+                .padding(.top, AppDesignSystem.Spacing.tiny)
 
-                HStack(spacing: AppDesignSystem.Spacing.prominent) {
+                HStack(spacing: AppDesignSystem.Spacing.section) {
                     Text("\(paperLikeCount)赞")
                     Text("\(viewModel.paper?.commentNum ?? initialPaper.commentNum)评论")
                 }
@@ -142,8 +142,8 @@ struct PaperDetailView: View {
                     }
                 )
             }
-            .padding(.horizontal, AppDesignSystem.Spacing.prominent)
-            .padding(.vertical, AppDesignSystem.Spacing.prominent)
+            .padding(.horizontal, AppDesignSystem.Spacing.section)
+            .padding(.vertical, AppDesignSystem.Spacing.section)
         }
         .background(AppDesignSystem.Palette.groupedBackground)
         .refreshable {
@@ -341,10 +341,10 @@ private struct PaperHeaderSummary: View {
     let fallback: PaperSummary
 
     var body: some View {
-        HStack(spacing: AppDesignSystem.Spacing.control) {
+        HStack(spacing: AppDesignSystem.Spacing.regular) {
             AppAvatarView(
                 imageURL: paper?.anonymous == true ? nil : paper?.updateUser.avatar.preferredRemoteURL,
-                size: AppDesignSystem.Size.avatar.articleDetail,
+                size: AppDesignSystem.Size.Avatar.standard,
                 tint: AppDesignSystem.Palette.neutral
             )
 
@@ -386,7 +386,7 @@ private struct PaperContentBlockView: View {
                     PaperRichTextView(text: caption, textStyle: AppDesignSystem.Typography.uiCaption1, textColor: .secondaryLabel)
                 }
             }
-            .padding(.leading, AppDesignSystem.Spacing.container)
+            .padding(.leading, AppDesignSystem.Spacing.content)
             .overlay(alignment: .leading) {
                 Capsule()
                     .fill(AppDesignSystem.Palette.highlight)
@@ -409,7 +409,7 @@ private struct PaperContentBlockView: View {
             } label: {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                     GalleryCachedStillImage(url: image.preferredRemoteURL)
-                    .frame(maxWidth: .infinity, minHeight: AppDesignSystem.Size.content.imageDraft)
+                    .frame(maxWidth: .infinity, minHeight: AppDesignSystem.Size.Content.imageDraft)
                     .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
 
                     if let caption = image.caption, containsVisibleText(caption) {

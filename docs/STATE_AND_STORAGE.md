@@ -48,7 +48,7 @@
 ### 2.3 维护原则
 
 - 敏感信息始终使用 Keychain，普通 `UserDefaults` 承载非敏感状态
-- 登录链路调整字段名或恢复逻辑时，维护者先确认旧 Keychain 迁移是否兼容
+- 登录字段或恢复逻辑调整时，核对 `fake-cookie` 从 UserDefaults 迁入 Keychain 的迁移入口
 - 卸载时系统清除安装标记，Keychain 可能由系统保留；重装后首次创建 `LoginStorage` 时，系统据此主动清理旧学号和密码。
 - 登录态检查将“无法确认”保留为待确认状态。网络不稳、学校页面解析失败、缺少静默恢复材料等情况保留本地 session 并向上抛错；远端明确返回凭据无效时，系统清除 `fake-cookie`、cookie 和本地密码。
 - `fake-cookie` 为空时，外部课表快照将其导出为 `isLoggedIn = false`，并同步到 widget / Apple Watch。登录检查的清除策略决定手表端是否显示“请先登录”。
@@ -96,7 +96,7 @@
 
 ### 3.4 覆盖更新与本地课表
 
-按正常的 App 覆盖更新流程，这一层数据继续保留。
+App 覆盖更新会保留 Application Support 中按账号保存的日程缓存。
 
 当前日程模块的主缓存存储在当前账号对应的本地文件中：
 
@@ -214,7 +214,7 @@
 
 相关代码主要在：
 
-- `Shared/Infrastructure/ExperimentalPreferenceCloudSync.swift`
+- `Shared/Client/ExperimentalPreferenceCloudSync.swift`
 - `Score/ScoreCacheStore.swift`
 
 ## 5. 话廊的本地状态

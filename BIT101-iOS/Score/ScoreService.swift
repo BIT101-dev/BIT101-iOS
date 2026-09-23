@@ -420,7 +420,7 @@ struct ScoreService {
                 BITLoginChallengeSupport.errorMessage(from: data) ?? "成绩查询失败。"
             )
         }
-        return try decodeScoreRows(data)
+        return try Self.decodeScoreRows(data)
     }
 
     private func finishAuthentication(
@@ -456,7 +456,7 @@ struct ScoreService {
         _ initialPayload: BITLoginChallengePayload,
         accessToken: String
     ) async throws -> BITLoginAuthenticationChallenge {
-        // 轮询间隔采用 350ms，与 Android/Web 端保持一致，服务端完成认证后由下一次轮询继续处理。
+        // 以 350ms 间隔轮询认证状态，服务端完成认证后衔接成绩查询。
         let payload = try await BITLoginChallengeSupport.pollUntilActionable(
             initialPayload,
             timeout: Self.authenticationWaitSeconds,
@@ -505,7 +505,7 @@ struct ScoreService {
         }
     }
 
-    private func decodeScoreRows(_ data: Data) throws -> [ScoreRow] {
+    static func decodeScoreRows(_ data: Data) throws -> [ScoreRow] {
         let payload: ScoreResponse
         do {
             payload = try JSONDecoder().decode(ScoreResponse.self, from: data)
@@ -514,6 +514,9 @@ struct ScoreService {
         }
 
         guard !payload.data.isEmpty else {
+            if payload.msg?.contains("查询成功") == true {
+                return []
+            }
             throw ScoreServiceError.queryFailed(payload.msg ?? "没有查询到成绩数据。")
         }
 

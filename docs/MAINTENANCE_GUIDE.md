@@ -56,9 +56,15 @@ Scripts/build-install-device.sh
 
 脚本自动选择已连接的 iPhone 真机，完成构建、安装和启动。
 
-当前工程使用 Xcode 27 的单 Watch App target 结构。完整构建 `BIT101-iOS` scheme 时，
-依赖图同时构建并嵌入 iOS widget、Watch App 和 Watch widget；旧式
-`BIT101WatchExtension` target 已删除。
+编译检查可以旁路安装与启动：
+
+```bash
+Scripts/build-install-device.sh --compile-only
+```
+
+参数仍使用具体真机作为 Release 编译目标；脚本默认行为继续完成装机和启动。
+
+当前工程使用 Xcode 27 的单 Watch App target 结构。完整构建 `BIT101-iOS` scheme 时，依赖图同时构建并嵌入 iOS Widget、Watch App 和 Watch Widget。
 
 ### 2.3 真机调试
 
@@ -129,7 +135,7 @@ UserDefaults 保存以下数据：
 对应入口包括：
 
 - `Schedule/ScheduleCloudSyncManager.swift`
-- `Shared/Infrastructure/ExperimentalPreferenceCloudSync.swift`
+- `Shared/Client/ExperimentalPreferenceCloudSync.swift`
 
 ### 3.4 App Group 共享快照
 
@@ -144,7 +150,7 @@ App Group 共享快照保存以下数据：
 
 ### 3.5 覆盖更新与本地数据保留
 
-用户从旧版本直接升级到新版本时，当前实现默认保留以下本地数据：
+用户覆盖安装升级时，应用保留以下本地数据：
 
 - `Application Support` 里的日程缓存
 - `UserDefaults` 里的设置快照
@@ -154,7 +160,7 @@ App Group 共享快照保存以下数据：
 
 - 分享课表会进入 `ScheduleCache.sharedSchedules`
 - 缓存文件按账号写到 `Application Support/BIT101-iOS/<account>/schedule-cache.json`
-- 升级不会主动清这一层
+- `Application Support` 日程缓存随应用数据保留
 
 按当前实现，正常覆盖更新后的分享课表应继续存在。
 
@@ -162,10 +168,10 @@ App Group 共享快照保存以下数据：
 
 以下行为触发本地数据清除：
 
-1. 卸载再安装（首次启动会根据安装标记清理 Keychain 中可能残留的旧账号密码）
+1. 卸载再安装（首次启动依据安装标记清理 Keychain 中的学号和密码）
 2. 设置页执行“删除所有文稿与数据”
 3. 开发时手动清空 App 沙盒
-4. 某次版本升级引入了破坏性迁移 bug
+4. 缓存 schema 迁移未能读取现有字段
 
 改动以下内容时，发版前验证升级路径：
 
@@ -176,10 +182,10 @@ App Group 共享快照保存以下数据：
 
 升级路径通过实际覆盖安装验证，步骤如下：
 
-1. 用旧版本造一份真实本地数据
+1. 使用升级来源版本生成一份真实本地数据
 2. 包括主课表、至少一份分享课表、DDL 和设置项
 3. 直接覆盖安装新版本
-4. 在真机确认这些数据仍然存在
+4. 在真机确认课表、分享课表、DDL 与设置数据完整
 
 ## 4. 账号隔离的维护原则
 
@@ -230,10 +236,10 @@ App Group 共享快照保存以下数据：
 
 桌面组件和锁屏组件共享同一批快照，展示目标分别为：
 
-- 桌面组件强调“下一节 / 后续几节”
+- 桌面组件强调“下一节 / 后续课节”
 - 锁屏组件强调高密度、低字数
 
-后续调整排版时，按 family 分别维护视图。
+排版按 widget family 分别维护。
 
 ## 6. 话廊模块维护建议
 

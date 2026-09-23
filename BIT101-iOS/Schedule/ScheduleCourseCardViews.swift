@@ -11,7 +11,7 @@ struct CourseScheduleBlockView: View {
             title: entry.title,
             location: entry.subtitle,
             contentMode: contentMode,
-            textStyle: AppDesignSystem.Schedule.courseText.style,
+            textStyle: AppDesignSystem.Typography.uiCaption2,
             textColor: uiTextColor
         )
         .padding(AppDesignSystem.Spacing.micro)
@@ -158,39 +158,25 @@ struct ScheduleCardTextView: UIViewRepresentable {
                 return
             }
 
-            let gap = AppDesignSystem.Schedule.grid.cellSpacing
-            let preferredLocationHeight = measuredHeight(
-                text: location,
-                font: baseFont,
-                width: bounds.width
-            )
-            let preferredTitleLineHeight = baseFont.lineHeight
-            let roomForTitle = bounds.height - preferredLocationHeight - gap
-            let locationMaximumHeight = roomForTitle >= preferredTitleLineHeight
-                ? preferredLocationHeight
-                : bounds.height
+            let gap = AppDesignSystem.Schedule.Grid.cellSpacing
             let locationFont = fittingFont(
                 text: location,
                 width: bounds.width,
-                maximumHeight: locationMaximumHeight
+                maximumHeight: bounds.height
             )
             let locationHeight = min(
                 measuredHeight(text: location, font: locationFont, width: bounds.width),
                 bounds.height
             )
             let titleAvailableHeight = max(bounds.height - locationHeight - gap, 0)
-            let titleHeight = layoutTitle(
+            _ = layoutTitle(
                 text: title,
                 in: CGRect(x: 0, y: 0, width: bounds.width, height: titleAvailableHeight)
             )
-            let actualGap = titleHeight > 0 ? gap : 0
-            let contentHeight = titleHeight + actualGap + locationHeight
-            let originY = max((bounds.height - contentHeight) / 2, 0)
-            titleLabel.frame.origin.y = originY
             configureLocationLabel(text: location, font: locationFont)
             locationLabel.frame = CGRect(
                 x: 0,
-                y: originY + titleHeight + actualGap,
+                y: bounds.height - locationHeight,
                 width: bounds.width,
                 height: locationHeight
             )
@@ -228,7 +214,7 @@ struct ScheduleCardTextView: UIViewRepresentable {
             let height = min(measuredHeight(text: text, font: font, width: rect.width), rect.height)
             locationLabel.frame = CGRect(
                 x: rect.minX,
-                y: rect.minY + max((rect.height - height) / 2, 0),
+                y: rect.maxY - height,
                 width: rect.width,
                 height: height
             )
@@ -288,13 +274,13 @@ struct CourseScheduleBackgroundView: View {
     let showBorder: Bool
 
     var body: some View {
-        AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.badge)
+        AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.small)
             .fill(backgroundColor)
             .opacity(entry.kind == .course || entry.backgroundLayers.count <= 1 ? 1 : 0.5)
             .overlay {
                 if showBorder, entry.kind != .course {
-                    AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.badge)
-                        .strokeBorder(borderColor, lineWidth: AppDesignSystem.Schedule.grid.courseBorderWidth)
+                    AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.small)
+                        .strokeBorder(borderColor, lineWidth: AppDesignSystem.Schedule.Grid.courseBorderWidth)
                 }
             }
     }

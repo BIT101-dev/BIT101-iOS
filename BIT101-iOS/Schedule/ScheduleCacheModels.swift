@@ -13,7 +13,7 @@ import Foundation
 nonisolated struct ScheduleCache: Codable {
     /// 课程周次已经按学校响应的行级周次完成解析。
     ///
-    /// 缓存解码会依据这个版本决定是否运行旧版迁移逻辑，保持行级周次结构。
+    /// 缓存解码依据此版本判断是否需要行级周次转换。
     private static let courseScheduleParserVersion = 2
 
     var primaryScheduleTitle = "课表"
@@ -26,6 +26,10 @@ nonisolated struct ScheduleCache: Codable {
     var courses: [CourseRecord] = []
     /// 已成功同步过的各学期课表快照，供成绩页本地判断尚未出分的课程。
     var cachedCoursesByTerm: [String: [CourseRecord]] = [:]
+    /// 这里保留学校最近一次成功返回的原始课表，手动调课存入规则层。
+    var schoolCoursesByTerm: [String: [CourseRecord]] = [:]
+    /// 手动调课规则，课表页面展示时叠加到学校原始课表。
+    var manualCourseRulesByTerm: [String: [ScheduleCourseRule]] = [:]
     /// 当前学期和下一学期的完整转换快照，滚动本地缓存保留相邻两个学期。
     var termSchedulesByTerm: [String: TermScheduleSnapshot] = [:]
     var exams: [ExamRecord] = []
@@ -72,6 +76,8 @@ nonisolated struct ScheduleCache: Codable {
         case lexueCalendarURL
         case courses
         case cachedCoursesByTerm
+        case schoolCoursesByTerm
+        case manualCourseRulesByTerm
         case termSchedulesByTerm
         case exams
         case customSchedules
@@ -125,11 +131,19 @@ nonisolated struct ScheduleCache: Codable {
             [String: [CourseRecord]].self,
             forKey: .cachedCoursesByTerm
         ) ?? [:]
+        schoolCoursesByTerm = try container.decodeIfPresent(
+            [String: [CourseRecord]].self,
+            forKey: .schoolCoursesByTerm
+        ) ?? [:]
+        manualCourseRulesByTerm = try container.decodeIfPresent(
+            [String: [ScheduleCourseRule]].self,
+            forKey: .manualCourseRulesByTerm
+        ) ?? [:]
         termSchedulesByTerm = try container.decodeIfPresent(
             [String: TermScheduleSnapshot].self,
             forKey: .termSchedulesByTerm
         ) ?? [:]
-        // 将旧版单学期缓存迁移到按学期保存，保留用户已经保存的课表。
+        // 将根级课程数组合入当前学期缓存项。
         if !currentTerm.isEmpty, !courses.isEmpty, cachedCoursesByTerm[currentTerm]?.isEmpty ?? true {
             cachedCoursesByTerm[currentTerm] = courses
         }
@@ -175,8 +189,7 @@ nonisolated struct ScheduleCache: Codable {
         }
         iCloudSyncEnabled = try container.decodeIfPresent(Bool.self, forKey: .iCloudSyncEnabled) ?? true
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .distantPast
-        // 老版本只保存原缓存更新时间；迁移时以该时间作为保守基线，
-        // 保留已有缓存的时间语义。
+        // coursesUpdatedAt 缺失时，使用现有缓存更新时间作为课程数据的时间基线。
         coursesUpdatedAt = decodedCoursesUpdatedAt ?? (courses.isEmpty ? .distantPast : updatedAt)
         if !currentTerm.isEmpty, !courses.isEmpty {
             if termSchedulesByTerm[currentTerm]?.courses.isEmpty ?? true {
@@ -190,15 +203,26 @@ nonisolated struct ScheduleCache: Codable {
             }
         }
 
-        // 旧版已保存的 `-1` 小学期课表在解码时确定性迁移。校正后的数据再次
-        // 解码会得到 offset=0，后续解码保持周次不变；该迁移规则适用于 `-1` 小学期。
-        // `cachedCoursesByTerm` 只保存课程，可能包含旧的原始周次；迁移仅校正课程周次
-        // 和行级安排，日期保持为空。
-        let migrationTerms = Set(termSchedulesByTerm.keys).union(cachedCoursesByTerm.keys)
+        let baselineTerms = Set(termSchedulesByTerm.keys)
+            .union(cachedCoursesByTerm.keys)
+            .union(currentTerm.isEmpty ? [] : [currentTerm])
+        for term in baselineTerms where schoolCoursesByTerm[term] == nil {
+            schoolCoursesByTerm[term] = termSchedulesByTerm[term]?.courses
+                ?? cachedCoursesByTerm[term]
+                ?? (term == currentTerm ? courses : [])
+        }
+
+        // 解析器版本低于当前版本时，按行级周次规范化 `-1` 小学期记录。
+        // 规范化后的 offset 为 0，重复解码保持周次稳定；cachedCoursesByTerm 的课程也应用此规则。
+        let migrationTerms = Set(termSchedulesByTerm.keys)
+            .union(cachedCoursesByTerm.keys)
+            .union(schoolCoursesByTerm.keys)
         for term in migrationTerms {
             let snapshot = termSchedulesByTerm[term]
             let sourceCourses: [CourseRecord]
-            if let snapshot, !snapshot.courses.isEmpty {
+            if let schoolCourses = schoolCoursesByTerm[term], !schoolCourses.isEmpty {
+                sourceCourses = schoolCourses
+            } else if let snapshot, !snapshot.courses.isEmpty {
                 sourceCourses = snapshot.courses
             } else {
                 sourceCourses = cachedCoursesByTerm[term] ?? snapshot?.courses ?? []
@@ -229,10 +253,21 @@ nonisolated struct ScheduleCache: Codable {
                 )
             }
             cachedCoursesByTerm[term] = narrowedCourses
+            schoolCoursesByTerm[term] = narrowedCourses
             if currentTerm == term {
                 firstDayString = normalized.firstDayString
                 courses = narrowedCourses
             }
+        }
+
+        if let baseline = schoolCoursesByTerm[currentTerm] {
+            let reconciliation = ScheduleCourseEditor.reconcile(
+                rules: manualCourseRulesByTerm[currentTerm] ?? [],
+                with: baseline
+            )
+            courses = reconciliation.courses
+            cachedCoursesByTerm[currentTerm] = reconciliation.courses
+            manualCourseRulesByTerm[currentTerm] = reconciliation.validRules
         }
     }
 
@@ -269,6 +304,33 @@ nonisolated struct ScheduleCache: Codable {
     }
 }
 
+/// 一条手动调课规则。
+///
+/// `sourceCourses` 保存规则创建时的学校原始课程；`replacementCourses` 保存显示层结果。
+/// 刷新时先比较来源快照，再决定规则继续生效或移除。
+nonisolated struct ScheduleCourseRule: Codable, Identifiable, Hashable {
+    let id: String
+    let sourceIdentity: String
+    let sourceCourses: [CourseRecord]
+    let replacementCourses: [CourseRecord]
+
+    init(
+        id: String = UUID().uuidString,
+        sourceIdentity: String,
+        sourceCourses: [CourseRecord],
+        replacementCourses: [CourseRecord]
+    ) {
+        self.id = id
+        self.sourceIdentity = sourceIdentity
+        self.sourceCourses = sourceCourses
+        self.replacementCourses = replacementCourses
+    }
+
+    var isLocalAddition: Bool {
+        sourceCourses.isEmpty
+    }
+}
+
 /// 一个学期的完整课表快照。滚动本地缓存保留相邻的两个学期。
 nonisolated struct TermScheduleSnapshot: Codable {
     let term: String
@@ -293,6 +355,7 @@ struct SharedScheduleRecord: Codable, Identifiable, Hashable {
     let id: String
     var title: String
     let importedAt: Date
+    let sharedAt: Date?
     let currentTerm: String
     let firstDayString: String
     let timeTable: [TimeSlot]
@@ -307,6 +370,7 @@ struct SharedScheduleRecord: Codable, Identifiable, Hashable {
         self.id = id
         self.title = title
         self.importedAt = importedAt
+        self.sharedAt = payload.exportedAt
         self.currentTerm = payload.currentTerm
         self.firstDayString = payload.firstDayString
         self.timeTable = payload.timeTable

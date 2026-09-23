@@ -171,25 +171,6 @@ struct AppShellView: View {
             schoolDataViewModels.scheduleViewModel.notice = nil
             AppErrorPresenter.shared.present(notice)
         }
-        .onReceive(schoolDataViewModels.scheduleViewModel.$pendingCourseReplacement.compactMap { $0 }) { pending in
-            let scheduleViewModel = schoolDataViewModels.scheduleViewModel
-            promptCoordinator.enqueue(AppPrompt(
-                id: "course-replacement-\(pending.id.uuidString)",
-                title: "确认替换课表",
-                message: "本机有\(pending.existingCount)节课，获取到\(pending.incomingCount)节课，是否替换？",
-                actions: [
-                    AppPromptAction(id: "replace", title: "是", role: .destructive, isDefault: true) {
-                        scheduleViewModel.resolvePendingCourseReplacement(replace: true)
-                    },
-                    AppPromptAction(id: "preserve", title: "否", role: .cancel) {
-                        scheduleViewModel.resolvePendingCourseReplacement(replace: false)
-                    }
-                ],
-                onDismiss: {
-                    scheduleViewModel.resolvePendingCourseReplacement(replace: false)
-                }
-            ))
-        }
     }
 
     private var tabSelection: Binding<AppTab> {

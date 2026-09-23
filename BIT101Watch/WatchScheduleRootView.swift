@@ -35,15 +35,15 @@ struct WatchScheduleRootView: View {
             if model.contentState == .ready, let next = model.nextOccurrence {
                 LazyVStack(
                     alignment: .leading,
-                    spacing: AppDesignSystem.External.Spacing.watchPrimary
+                    spacing: AppDesignSystem.Spacing.regular
                 ) {
                     VStack(
                         alignment: .leading,
-                        spacing: AppDesignSystem.External.Spacing.watchHeader
+                        spacing: AppDesignSystem.Spacing.regular
                     ) {
                         HStack(
                             alignment: .firstTextBaseline,
-                            spacing: AppDesignSystem.External.Spacing.watchHeader
+                            spacing: AppDesignSystem.Spacing.regular
                         ) {
                             Text(next.isCurrent(at: model.referenceDate) ? "正在上课" : "下一节")
                                 .font(.caption)
@@ -73,7 +73,7 @@ struct WatchScheduleRootView: View {
 
                     if model.upcomingOccurrences.count > 1 {
                         Divider()
-                            .padding(.vertical, AppDesignSystem.External.Spacing.watchDivider)
+                            .padding(.vertical, AppDesignSystem.Spacing.micro)
 
                         Text("后续课节")
                             .font(.caption.weight(.semibold))
@@ -82,17 +82,17 @@ struct WatchScheduleRootView: View {
                         ForEach(model.upcomingOccurrences.dropFirst()) { occurrence in
                             VStack(
                                 alignment: .leading,
-                                spacing: AppDesignSystem.External.Spacing.watchFollowUp
+                                spacing: AppDesignSystem.Spacing.micro
                             ) {
                                 HStack(
                                     alignment: .firstTextBaseline,
-                                    spacing: AppDesignSystem.External.Spacing.watchHeader
+                                    spacing: AppDesignSystem.Spacing.regular
                                 ) {
                                     Text(occurrence.relativeDayText(referenceDate: model.referenceDate))
                                         .font(.caption2.weight(.medium))
                                         .foregroundStyle(.secondary)
 
-                                    Spacer(minLength: AppDesignSystem.External.Spacing.watchMinimumSpacer)
+                                    Spacer(minLength: AppDesignSystem.Spacing.tiny)
 
                                     Text(occurrence.rangeText)
                                         .font(.caption2.weight(.medium))
@@ -109,7 +109,7 @@ struct WatchScheduleRootView: View {
                                         .lineLimit(1)
                                 }
                             }
-                            .padding(.vertical, AppDesignSystem.External.Spacing.watchFollowUp)
+                            .padding(.vertical, AppDesignSystem.Spacing.micro)
                         }
                     }
                 }
@@ -143,7 +143,7 @@ struct WatchScheduleRootView: View {
     }
 
     private var actionsPage: some View {
-        VStack(spacing: AppDesignSystem.External.Spacing.watchActions) {
+        VStack(spacing: AppDesignSystem.Spacing.content) {
             Text("操作")
                 .font(.headline)
 
@@ -176,7 +176,7 @@ private struct WatchScheduleEmptyStateView: View {
     var action: (() -> Void)? = nil
 
     var body: some View {
-        VStack(spacing: AppDesignSystem.External.Spacing.watchEmpty) {
+        VStack(spacing: AppDesignSystem.Spacing.regular) {
             Text(message)
                 .font(.headline)
                 .multilineTextAlignment(.center)

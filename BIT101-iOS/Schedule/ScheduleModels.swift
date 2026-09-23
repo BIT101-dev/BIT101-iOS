@@ -12,7 +12,7 @@ import Foundation
 /// 这一上限同时约束：
 /// - 设置页里的重命名输入
 /// - 导入分享课表后的默认命名
-/// - 旧缓存恢复后的标题展示
+/// - 缓存课表标题展示
 nonisolated let scheduleNameCharacterLimit = 8
 
 /// 本地缓存发生变化时发出的通知。

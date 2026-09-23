@@ -59,7 +59,7 @@ extension PagedItemsState where Item: Identifiable {
 /// 使用“最后一项 ID”作为游标的分页列表状态契约。
 ///
 /// 消息中心和页码列表使用不同分页协议，加载更多的状态转移保持一致；
-/// 此处抽出游标分页需要的公共部分，页码和后端游标保留各自表示。
+/// 公共分页协议提供列表操作；页码与后端游标由具体分页状态分别表示。
 protocol CursorPagedItemsState {
     associatedtype Item: Identifiable
     associatedtype Cursor: Equatable where Item.ID == Cursor

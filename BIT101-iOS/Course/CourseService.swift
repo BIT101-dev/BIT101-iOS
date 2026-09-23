@@ -29,9 +29,9 @@ extension CourseServiceError: CommunityAPIServiceError {
 
 /// 课程模块网络层。
 ///
-/// 课程列表和详情走 `courses` 资源，评论和点赞仍然复用社区 reaction 接口。
+/// 课程列表和详情走 `courses` 资源，评论和点赞共用社区 reaction 接口。
 struct CourseService {
-    /// 课程页当前不再暴露排序切换，列表固定按“最新”请求。
+    /// 课程列表固定按“最新”顺序请求。
     private static let defaultCourseOrder = "new"
 
     private struct CreateCommentRequest: Encodable {
@@ -94,7 +94,7 @@ struct CourseService {
 
     /// 拉取课程评论。
     ///
-    /// 课程页当前评论量较小，不再提供排序切换，因此固定拉取“最新”顺序。
+    /// 课程评论按“最新”顺序请求。
     func fetchComments(courseID: Int, page: Int?) async throws -> [GalleryComment] {
         var queryItems = [
             URLQueryItem(name: "obj", value: "course\(courseID)"),

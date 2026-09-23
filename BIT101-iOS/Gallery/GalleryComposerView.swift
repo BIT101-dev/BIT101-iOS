@@ -13,7 +13,7 @@ private struct GalleryCustomTagDraft: Identifiable {
 
 /// 发帖页的一张图片草稿，记录预览和上传状态。
 ///
-/// Android 端先上传得到服务端图片对象，再带 `mid` 发帖。iOS 保持这条链路，页面保存上传状态。
+/// 图片上传成功后，草稿保存服务端图片对象，发帖请求通过 `mid` 引用资源。
 struct GalleryComposerImageDraft: Identifiable {
     enum Status {
         case uploading
@@ -78,7 +78,7 @@ struct GalleryComposerImageTile: View {
     var body: some View {
         ZStack(alignment: .topTrailing) {
             ZStack {
-                AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.sheet)
+                AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card)
                     .fill(AppDesignSystem.Palette.secondaryGroupedBackground)
 
                 if let image = UIImage(data: draft.previewData) {
@@ -91,8 +91,8 @@ struct GalleryComposerImageTile: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(width: AppDesignSystem.Size.content.imageDraft, height: AppDesignSystem.Size.content.imageDraft)
-            .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.sheet))
+            .frame(width: AppDesignSystem.Size.Content.imageDraft, height: AppDesignSystem.Size.Content.imageDraft)
+            .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
             .overlay(alignment: .bottom) {
                 overlayContent
             }
@@ -102,11 +102,11 @@ struct GalleryComposerImageTile: View {
                     .font(AppDesignSystem.Typography.title3)
                     .foregroundStyle(.white, Color.black.opacity(0.55))
             }
-            .padding(AppDesignSystem.Spacing.tight)
+            .padding(AppDesignSystem.Spacing.tiny)
             .buttonStyle(.plain)
             .accessibilityLabel("移除图片")
         }
-        .frame(width: AppDesignSystem.Size.content.imageDraft, height: AppDesignSystem.Size.content.imageDraft)
+        .frame(width: AppDesignSystem.Size.Content.imageDraft, height: AppDesignSystem.Size.Content.imageDraft)
     }
 
     @ViewBuilder
@@ -119,7 +119,7 @@ struct GalleryComposerImageTile: View {
                 ProgressView()
                     .tint(.white)
             }
-            .frame(height: AppDesignSystem.Size.control.compact)
+            .frame(height: AppDesignSystem.Size.Control.compact)
         case .compressing:
             ZStack {
                 Rectangle()
@@ -128,13 +128,13 @@ struct GalleryComposerImageTile: View {
                     .font(AppDesignSystem.Typography.caption2Emphasis)
                     .foregroundStyle(.white)
             }
-            .frame(height: AppDesignSystem.Size.control.compact)
+            .frame(height: AppDesignSystem.Size.Control.compact)
         case .prepared:
             if showsPreparedSuccessIndicator {
                 Image(systemName: "checkmark.circle.fill")
                     .font(AppDesignSystem.Typography.title3)
                     .foregroundStyle(.white)
-                    .padding(AppDesignSystem.Spacing.tight)
+                    .padding(AppDesignSystem.Spacing.tiny)
                     .background(AppDesignSystem.Palette.mediaOverlayStrong, in: Circle())
             }
         case .uploaded:
@@ -145,7 +145,7 @@ struct GalleryComposerImageTile: View {
             .font(AppDesignSystem.Typography.caption2Emphasis)
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, AppDesignSystem.Spacing.tight)
+            .padding(.vertical, AppDesignSystem.Spacing.tiny)
             .background(AppDesignSystem.Palette.mediaOverlayStrong)
         case .failed:
             Button(action: onRetry) {
@@ -156,7 +156,7 @@ struct GalleryComposerImageTile: View {
                 .font(AppDesignSystem.Typography.caption2Emphasis)
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, AppDesignSystem.Spacing.tight)
+                .padding(.vertical, AppDesignSystem.Spacing.tiny)
                 .background(AppDesignSystem.Palette.danger.opacity(0.82))
             }
             .buttonStyle(.plain)
@@ -330,7 +330,7 @@ struct GalleryComposerView: View {
 
     /// 内置的推荐标签。
     ///
-    /// 这些标签沿用 Android/Web 的高频场景标签，帮助首次发帖快速选标签。
+    /// 这些常用场景标签帮助用户快速编辑帖子。
     private static let suggestedTags = [
         "水",
         "活动",
@@ -386,7 +386,7 @@ struct GalleryComposerView: View {
                     if !customTagDrafts.isEmpty {
                         // 每条自定义标签使用独立输入行，输入和删除操作分开呈现。
                         ForEach($customTagDrafts) { $draft in
-                            HStack(spacing: AppDesignSystem.Spacing.control) {
+                            HStack(spacing: AppDesignSystem.Spacing.regular) {
                                 TextField("", text: $draft.text, prompt: AppInputPrompt.text("自定义标签"))
                                     .textInputAutocapitalization(.never)
                                     .autocorrectionDisabled()
@@ -432,17 +432,17 @@ struct GalleryComposerView: View {
 
                     if !existingImages.isEmpty {
                         LazyVGrid(
-                            columns: [GridItem(.adaptive(minimum: AppDesignSystem.Size.content.imageDraft), spacing: AppDesignSystem.Spacing.regular)],
+                            columns: [GridItem(.adaptive(minimum: AppDesignSystem.Size.Content.imageDraft), spacing: AppDesignSystem.Spacing.regular)],
                             spacing: AppDesignSystem.Spacing.regular
                         ) {
                             ForEach(existingImages) { image in
                                 ZStack(alignment: .topTrailing) {
                                     GalleryPosterThumbnail(image: image, contentMode: .fill)
                                         .frame(
-                                            width: AppDesignSystem.Size.content.imageDraft,
-                                            height: AppDesignSystem.Size.content.imageDraft
+                                            width: AppDesignSystem.Size.Content.imageDraft,
+                                            height: AppDesignSystem.Size.Content.imageDraft
                                         )
-                                        .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.sheet))
+                                        .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
 
                                     Button {
                                         removeExistingImage(id: image.id)
@@ -451,13 +451,13 @@ struct GalleryComposerView: View {
                                             .font(AppDesignSystem.Typography.title3)
                                             .foregroundStyle(.white, Color.black.opacity(0.55))
                                     }
-                                    .padding(AppDesignSystem.Spacing.tight)
+                                    .padding(AppDesignSystem.Spacing.tiny)
                                     .buttonStyle(.plain)
                                     .accessibilityLabel("移除原有图片")
                                 }
                                 .frame(
-                                    width: AppDesignSystem.Size.content.imageDraft,
-                                    height: AppDesignSystem.Size.content.imageDraft
+                                    width: AppDesignSystem.Size.Content.imageDraft,
+                                    height: AppDesignSystem.Size.Content.imageDraft
                                 )
                             }
                         }
@@ -465,7 +465,7 @@ struct GalleryComposerView: View {
 
                     if !imageDrafts.isEmpty {
                         LazyVGrid(
-                            columns: [GridItem(.adaptive(minimum: AppDesignSystem.Size.content.imageDraft), spacing: AppDesignSystem.Spacing.regular)],
+                            columns: [GridItem(.adaptive(minimum: AppDesignSystem.Size.Content.imageDraft), spacing: AppDesignSystem.Spacing.regular)],
                             spacing: AppDesignSystem.Spacing.regular
                         ) {
                             ForEach(imageDrafts) { draft in
@@ -612,7 +612,7 @@ struct GalleryComposerView: View {
 
     /// 当前是否仍有图片在上传中。
     ///
-    /// `.uploading` 状态会阻止提交；Android 端的对应错误为 “upload image error”。
+    /// 图片上传完成后，发帖操作即可提交完整的资源列表。
     private var hasUploadingImages: Bool {
         imageDrafts.contains {
             if case .uploading = $0.status {

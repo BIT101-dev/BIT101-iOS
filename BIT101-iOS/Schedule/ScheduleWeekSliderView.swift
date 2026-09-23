@@ -24,39 +24,39 @@ struct ScheduleInlineWeekSlider: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let itemWidth = AppDesignSystem.Schedule.weekSlider.itemWidth
-            let barHeight = AppDesignSystem.Schedule.weekSlider.barHeight
+            let itemWidth = AppDesignSystem.Schedule.WeekSlider.itemWidth
+            let barHeight = AppDesignSystem.Schedule.WeekSlider.barHeight
             let horizontalPadding = max((proxy.size.width - itemWidth) / 2, 0).rounded()
 
             ScrollView(.horizontal) {
-                LazyHStack(spacing: AppDesignSystem.Schedule.weekSlider.itemSpacing) {
+                LazyHStack(spacing: AppDesignSystem.Schedule.WeekSlider.itemSpacing) {
                     ForEach(weeks, id: \.self) { week in
                         Button {
                             withAnimation(.snappy) {
                                 selectedWeek = week
                             }
                         } label: {
-                            VStack(spacing: AppDesignSystem.Schedule.grid.cellSpacing) {
+                            VStack(spacing: AppDesignSystem.Schedule.Grid.cellSpacing) {
                                 Text(isMajorWeek(week) ? "\(week)" : "")
                                     .font(AppDesignSystem.Typography.caption2Emphasis)
                                     .foregroundStyle(week == highlightedWeek ? AppDesignSystem.Palette.accent : .secondary)
-                                    .frame(height: AppDesignSystem.Schedule.weekSlider.labelHeight)
+                                    .frame(height: AppDesignSystem.Schedule.WeekSlider.labelHeight)
                                 Capsule()
                                     .fill(week == highlightedWeek
                                         ? AppDesignSystem.Palette.accent
                                         : AppDesignSystem.Schedule.GridPalette.weekBar)
                                     .frame(
                                         width: week == highlightedWeek
-                                            ? AppDesignSystem.Schedule.weekSlider.selectedBarWidth
-                                            : AppDesignSystem.Schedule.weekSlider.barWidth,
+                                            ? AppDesignSystem.Schedule.WeekSlider.selectedBarWidth
+                                            : AppDesignSystem.Schedule.WeekSlider.barWidth,
                                         height: isMajorWeek(week)
                                             ? barHeight
-                                            : AppDesignSystem.Schedule.weekSlider.minorBarHeight
+                                            : AppDesignSystem.Schedule.WeekSlider.minorBarHeight
                                     )
                             }
                             .frame(
                                 width: itemWidth,
-                                height: AppDesignSystem.Schedule.weekSlider.itemHeight,
+                                height: AppDesignSystem.Schedule.WeekSlider.itemHeight,
                                 alignment: .top
                             )
                         }
@@ -68,7 +68,7 @@ struct ScheduleInlineWeekSlider: View {
                     }
                 }
                 .scrollTargetLayout()
-                .frame(minHeight: AppDesignSystem.Schedule.weekSlider.itemHeight)
+                .frame(minHeight: AppDesignSystem.Schedule.WeekSlider.itemHeight)
             }
             .scrollIndicators(.hidden)
             .scrollTargetBehavior(.viewAligned)

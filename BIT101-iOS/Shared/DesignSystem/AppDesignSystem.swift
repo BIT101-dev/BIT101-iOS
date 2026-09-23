@@ -5,108 +5,34 @@ import UIKit
 ///
 /// 业务页面选择语义化的间距、圆角、颜色和卡片变体，公共值由本系统统一定义。
 extension AppDesignSystem {
-    enum Spacing {
-        static let none: CGFloat = 0
-        static let micro: CGFloat = 2
-        static let tiny: CGFloat = 4
-        static let tight: CGFloat = 6
-        static let regular: CGFloat = 8
-        static let control: CGFloat = 10
-        static let content: CGFloat = 12
-        static let container: CGFloat = 14
-        static let section: CGFloat = 16
-        static let prominent: CGFloat = 18
-    }
-
-    enum Radius {
-        nonisolated static let small: CGFloat = 8
-        nonisolated static let badge: CGFloat = 10
-        nonisolated static let card: CGFloat = 12
-        nonisolated static let sheet: CGFloat = 14
-        nonisolated static let grouped: CGFloat = 16
-        nonisolated static let prominent: CGFloat = 18
-    }
 
     enum Size {
-        struct FloatingActionMetrics {
-            let button: CGFloat
-            let icon: CGFloat
-            let badgeMinimum: CGFloat
-            let wideBadgePadding: CGFloat
-            let badgeOffset: CGFloat
-            let bottomInset: CGFloat
-            let contentInset: CGFloat
+        enum FloatingAction {
+            static let badgeMinimum: CGFloat = 18
+            static let bottomInset: CGFloat = 20
+            static let contentInset: CGFloat = 84
         }
-
-        struct ControlMetrics {
-            let detailActionButton: CGFloat
-            let navigationIcon: CGFloat
-            let compact: CGFloat
-            let touchTarget: CGFloat
-            let halfTouchTarget: CGFloat
+        enum Control {
+            static let detailActionButton: CGFloat = 34
+            static let navigationIcon: CGFloat = 24
+            static let compact: CGFloat = 28
+            static let touchTarget: CGFloat = 44
+            static let halfTouchTarget = touchTarget / 2
         }
-
-        struct ContentMetrics {
-            let multilineEditorMinimumHeight: CGFloat
-            let imageDraft: CGFloat
-            let chartHeight: CGFloat
-            let unreadIndicator: CGFloat
-            let messageDividerLeading: CGFloat
-            let refreshStatusListHeight: CGFloat
+        enum Content {
+            static let multilineEditorMinimumHeight: CGFloat = 180
+            static let imageDraft: CGFloat = 96
         }
-
-        struct CompactRowMetrics {
-            let primaryHeight: CGFloat
-            let secondaryHeight: CGFloat
+        enum CompactRow {
+            static let primaryHeight: CGFloat = 22
+            static let secondaryHeight: CGFloat = 20
         }
-
-        struct AvatarMetrics {
-            let articleDetail: CGFloat
-            let account: CGFloat
-            let list: CGFloat
-            let profile: CGFloat
-            let placeholderOpacity: CGFloat
-            let largeIconThreshold: CGFloat
+        enum Avatar {
+            static let standard: CGFloat = 40
+            static let profile: CGFloat = 80
+            static let placeholderOpacity: CGFloat = 0.15
+            static let largeIconThreshold: CGFloat = 64
         }
-
-        struct SheetMetrics {
-            let ddlNumericPickerHeight: CGFloat
-        }
-
-        static let floatingAction = FloatingActionMetrics(
-            button: 42,
-            icon: Primitives.FontSize.prominent,
-            badgeMinimum: 18,
-            wideBadgePadding: 5,
-            badgeOffset: 5,
-            bottomInset: 20,
-            contentInset: 84
-        )
-        static let control = ControlMetrics(
-            detailActionButton: 34,
-            navigationIcon: 24,
-            compact: 28,
-            touchTarget: 44,
-            halfTouchTarget: 22
-        )
-        static let content = ContentMetrics(
-            multilineEditorMinimumHeight: 180,
-            imageDraft: 96,
-            chartHeight: 240,
-            unreadIndicator: 7,
-            messageDividerLeading: 52,
-            refreshStatusListHeight: 58
-        )
-        static let compactRow = CompactRowMetrics(primaryHeight: 22, secondaryHeight: 20)
-        static let avatar = AvatarMetrics(
-            articleDetail: 38,
-            account: 40,
-            list: 46,
-            profile: 78,
-            placeholderOpacity: 0.15,
-            largeIconThreshold: 64
-        )
-        static let sheet = SheetMetrics(ddlNumericPickerHeight: 240)
     }
 
     enum Typography {
@@ -116,139 +42,33 @@ extension AppDesignSystem {
         static let title3 = Font.title3
         static let title3Emphasis = Font.title3.weight(.bold)
         static let headline = Font.headline
-        static let headlineEmphasis = Font.headline.weight(.semibold)
         static let headlineStrong = Font.headline.weight(.bold)
         /// 主体可读内容；跟随当前平台的系统正文基线和动态字体设置。
         static let body = Font.body
         /// 主体内容中的强调文字。
         static let bodyEmphasis = Font.body.weight(.semibold)
         static let bodyMonospaced = Font.system(.body, design: .monospaced)
-        static let inputPlaceholder = Font.body
-        static let sectionHeader = Font.footnote.weight(.semibold)
         static let subheadline = Font.subheadline
         static let subheadlineEmphasis = Font.subheadline.weight(.semibold)
-        static let subheadlineStrong = Font.subheadline.weight(.bold)
-        /// 次级说明文字。
-        static let secondary = Font.subheadline
-        /// 次级说明中的强调文字。
-        static let secondaryEmphasis = Font.subheadline.weight(.semibold)
         static let footnote = Font.footnote
-        static let footnoteMedium = Font.footnote.weight(.medium)
         static let footnoteEmphasis = Font.footnote.weight(.semibold)
         static let footnoteMonospaced = Font.system(.footnote, design: .monospaced)
         static let caption = Font.caption
-        static let captionMedium = Font.caption.weight(.medium)
         static let captionEmphasis = Font.caption.weight(.semibold)
-        static let captionStrong = Font.caption.weight(.bold)
         static let caption2 = Font.caption2
-        static let caption2Medium = Font.caption2.weight(.medium)
         static let caption2Emphasis = Font.caption2.weight(.semibold)
-        static let caption2Strong = Font.caption2.weight(.bold)
         static let uiBody = UIFont.TextStyle.body
         static let uiCaption1 = UIFont.TextStyle.caption1
         static let uiCaption2 = UIFont.TextStyle.caption2
         static let uiHeadline = UIFont.TextStyle.headline
         static let uiSubheadline = UIFont.TextStyle.subheadline
         static let uiTitle2 = UIFont.TextStyle.title2
-        static let floatingIconSize: CGFloat = Size.floatingAction.icon
-        static let floatingLabelSize: CGFloat = Primitives.FontSize.prominent
-        static let floatingIcon = Font.system(size: floatingIconSize, weight: .semibold)
-        static let floatingLabel = Font.system(size: floatingLabelSize, weight: .bold, design: .rounded)
-    }
-
-    enum Schedule {
-        struct GridMetrics {
-            let lineWidth: CGFloat
-            let cellSpacing: CGFloat
-            let currentTimeLineHeight: CGFloat
-            let previewTriggerSize: CGFloat
-            let lineOffset: CGFloat
-            let courseCardTotalInset: CGFloat
-            let courseBorderWidth: CGFloat
-        }
-
-        struct WeekSliderMetrics {
-            let itemSpacing: CGFloat
-            let itemWidth: CGFloat
-            let itemHeight: CGFloat
-            let labelHeight: CGFloat
-            let barHeight: CGFloat
-            let minorBarHeight: CGFloat
-            let selectedBarWidth: CGFloat
-            let barWidth: CGFloat
-            let sliderHeight: CGFloat
-            let dateHeaderHeight: CGFloat
-            let compactHeaderHeight: CGFloat
-        }
-
-        struct CourseTextMetrics {
-            let style: UIFont.TextStyle
-        }
-
-        enum GridPalette {
-            static let majorLine = Color.secondary.opacity(0.18)
-            static let minorLine = Color.secondary.opacity(0.12)
-            static let linearMajorLine = Color.secondary.opacity(0.14)
-            static let linearMinorLine = Color.secondary.opacity(0.08)
-            static let columnLine = Color.secondary.opacity(0.14)
-            static let courseBorder = Color.secondary.opacity(0.25)
-            static let weekBar = Color.secondary.opacity(0.55)
-            static let todayHighlight = AppDesignSystem.Palette.accent.opacity(0.10)
-        }
-
-        enum CoursePalette {
-            static let examSurface = AppDesignSystem.Palette.highlight.opacity(0.22)
-            static let customSurface = AppDesignSystem.Palette.info.opacity(0.18)
-            static let examBorder = AppDesignSystem.Palette.highlight.opacity(0.35)
-            static let customBorder = AppDesignSystem.Palette.info.opacity(0.30)
-        }
-
-        static let grid = GridMetrics(
-            lineWidth: 0.5,
-            cellSpacing: 1,
-            currentTimeLineHeight: 1.5,
-            previewTriggerSize: 1,
-            lineOffset: 0.25,
-            courseCardTotalInset: 1,
-            courseBorderWidth: 1
-        )
-        static let weekSlider = WeekSliderMetrics(
-            itemSpacing: 5,
-            itemWidth: 24,
-            itemHeight: 34,
-            labelHeight: 13,
-            barHeight: 20,
-            minorBarHeight: 16,
-            selectedBarWidth: 4,
-            barWidth: 3,
-            sliderHeight: 36,
-            dateHeaderHeight: 26,
-            compactHeaderHeight: 42
-        )
-        static let courseText = CourseTextMetrics(
-            style: Typography.uiCaption2
-        )
-        static let timelineDefaultScale: CGFloat = CGFloat(24) / CGFloat(13)
-        static let timelineMinimumScale: CGFloat = 1
-        static let timelineMaximumScale: CGFloat = 3
-        static let settingsPanelMinimumHeight: CGFloat = 220
-    }
-
-    enum Gallery {
-        static let thumbnailHeightContainerCount = 4
-        static let thumbnailPortraitAspectRatio = 1 / CGFloat(2).squareRoot()
-        static let thumbnailLandscapeAspectRatio = CGFloat(2).squareRoot()
-        static let overflowOverlayOpacity: CGFloat = 0.45
+        static let floatingIcon = Font.system(size: Primitives.FontSize.prominent, weight: .semibold)
+        static let floatingLabel = Font.system(size: Primitives.FontSize.prominent, weight: .bold, design: .rounded)
     }
 
     enum Comment {
-        struct LayoutMetrics {
-            let avatarSize: CGFloat
-            let subCommentIndent: CGFloat
-            let dividerLeading: CGFloat
-        }
-
-        static let layout = LayoutMetrics(avatarSize: 34, subCommentIndent: 42, dividerLeading: 46)
+        static let replyInset = Size.Avatar.standard + Spacing.regular
     }
 
     enum Palette {
@@ -263,17 +83,13 @@ extension AppDesignSystem {
         static let success = Color.green
         static let neutral = Color.gray
         static let scheduleTab = Color.indigo
-        static let courseTab = Color.teal
         static let mapTab = Color.green
         static let scoreTab = Color.pink
-        static let paperTab = Color.brown
         static let systemBackground = Color(uiColor: .systemBackground)
         static let groupedBackground = Color(uiColor: .systemGroupedBackground)
         static let secondaryBackground = Color(uiColor: .secondarySystemBackground)
         static let secondaryGroupedBackground = Color(uiColor: .secondarySystemGroupedBackground)
-        static let secondaryFill = Color(uiColor: .secondarySystemFill)
         static let inputPlaceholder = Color(uiColor: .placeholderText)
-        static let sectionHeader = Color.secondary
         static let subtleBorder = Color.primary.opacity(0.06)
         static let mediaOverlay = Color.black.opacity(0.45)
         static let mediaOverlayStrong = Color.black.opacity(0.35)
@@ -285,285 +101,5 @@ extension AppDesignSystem {
         style: RoundedCornerStyle = .continuous
     ) -> RoundedRectangle {
         return RoundedRectangle(cornerRadius: radius, style: style)
-    }
-}
-
-/// 公共卡片容器。页面通过变体表达布局差异，背景、圆角和内边距由组件统一处理。
-enum AppCardVariant {
-    case standard
-    case compact
-    case secondaryGrouped
-
-    var background: Color {
-        switch self {
-        case .standard, .compact:
-            return AppDesignSystem.Palette.secondaryBackground
-        case .secondaryGrouped:
-            return AppDesignSystem.Palette.secondaryGroupedBackground
-        }
-    }
-
-    var radius: CGFloat {
-        switch self {
-        case .standard:
-            return AppDesignSystem.Radius.grouped
-        case .compact:
-            return AppDesignSystem.Radius.card
-        case .secondaryGrouped:
-            return AppDesignSystem.Radius.sheet
-        }
-    }
-
-    var padding: CGFloat {
-        switch self {
-        case .standard:
-            return AppDesignSystem.Spacing.content
-        case .compact:
-            return AppDesignSystem.Spacing.control
-        case .secondaryGrouped:
-            return AppDesignSystem.Spacing.content
-        }
-    }
-}
-
-struct AppCard<Content: View>: View {
-    private let variant: AppCardVariant
-    private let content: Content
-
-    init(
-        variant: AppCardVariant = .standard,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.variant = variant
-        self.content = content()
-    }
-
-    var body: some View {
-        content
-            .padding(variant.padding)
-            .background(
-                variant.background,
-                in: AppDesignSystem.roundedRectangle(variant.radius)
-            )
-    }
-}
-
-/// 课程、帖子和文章详情页共用的系统分享按钮。
-struct AppDetailShareLink: View {
-    let item: URL
-    let subject: String
-    let accessibilityLabel: String
-
-    var body: some View {
-        ShareLink(item: item, subject: Text(subject)) {
-            Image(systemName: "square.and.arrow.up")
-                .frame(
-                    width: AppDesignSystem.Size.control.touchTarget,
-                    height: AppDesignSystem.Size.control.touchTarget
-                )
-        }
-        .accessibilityLabel(accessibilityLabel)
-    }
-}
-
-/// 帖子、文章和课程详情页共用的圆形评论/点赞按钮。
-struct AppDetailCircleButton<Label: View>: View {
-    let action: () -> Void
-    let accessibilityLabel: String
-    private let label: Label
-
-    init(
-        accessibilityLabel: String,
-        action: @escaping () -> Void,
-        @ViewBuilder label: () -> Label
-    ) {
-        self.action = action
-        self.accessibilityLabel = accessibilityLabel
-        self.label = label()
-    }
-
-    var body: some View {
-        Button(action: action) {
-            label
-                .frame(
-                    width: AppDesignSystem.Size.control.detailActionButton,
-                    height: AppDesignSystem.Size.control.detailActionButton
-                )
-                .background(AppDesignSystem.Palette.highlightSurface, in: Circle())
-                .frame(
-                    width: AppDesignSystem.Size.control.touchTarget,
-                    height: AppDesignSystem.Size.control.touchTarget
-                )
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(accessibilityLabel)
-    }
-}
-
-/// 右下角圆形操作按钮的公共主体，统一尺寸、背景和图标排布。
-struct AppFloatingActionButton: View {
-    let systemImage: String
-    let badgeText: String?
-    let accessibilityLabel: String
-    let action: () -> Void
-    @State private var feedbackToken = 0
-
-    init(
-        systemImage: String,
-        badgeText: String? = nil,
-        accessibilityLabel: String,
-        action: @escaping () -> Void
-    ) {
-        self.systemImage = systemImage
-        self.badgeText = badgeText
-        self.accessibilityLabel = accessibilityLabel
-        self.action = action
-    }
-
-    var body: some View {
-        Button {
-            feedbackToken &+= 1
-            action()
-        } label: {
-            ZStack(alignment: .topTrailing) {
-                AppFloatingActionButtonLabel(systemImage: systemImage)
-
-                if let badgeText {
-                    Text(badgeText)
-                        .font(AppDesignSystem.Typography.caption2Strong)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, badgeText.count > 2
-                            ? AppDesignSystem.Size.floatingAction.wideBadgePadding
-                            : AppDesignSystem.Spacing.tiny)
-                        .frame(
-                            minWidth: AppDesignSystem.Size.floatingAction.badgeMinimum,
-                            minHeight: AppDesignSystem.Size.floatingAction.badgeMinimum
-                        )
-                        .background(AppDesignSystem.Palette.danger, in: Capsule())
-                        .offset(x: AppDesignSystem.Size.floatingAction.badgeOffset, y: -AppDesignSystem.Size.floatingAction.badgeOffset)
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .appImpactFeedback(trigger: feedbackToken)
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityValue(badgeText.map { "\($0) 条未读" } ?? "")
-    }
-}
-
-/// 菜单标签复用圆形操作按钮主体，`Button` 和 `Menu` 保持相同的尺寸。
-struct AppFloatingActionButtonLabel: View {
-    let systemImage: String
-
-    var body: some View {
-        AppFloatingActionButtonSurface {
-            Image(systemName: systemImage)
-                .font(AppDesignSystem.Typography.floatingIcon)
-                .foregroundStyle(.primary)
-        }
-    }
-}
-
-/// 圆形按钮的可复用背景容器，支持校区按钮的选中填充色。
-struct AppFloatingActionButtonSurface<Content: View>: View {
-    private let fill: Color?
-    private let content: Content
-
-    init(fill: Color? = nil, @ViewBuilder content: () -> Content) {
-        self.fill = fill
-        self.content = content()
-    }
-
-    var body: some View {
-        content
-            .frame(
-                width: AppDesignSystem.Size.floatingAction.button,
-                height: AppDesignSystem.Size.floatingAction.button
-            )
-            .background(fill ?? .clear, in: Circle())
-            .background(.ultraThinMaterial, in: Circle())
-            .frame(
-                width: AppDesignSystem.Size.control.touchTarget,
-                height: AppDesignSystem.Size.control.touchTarget
-            )
-            .contentShape(Circle())
-    }
-}
-
-/// 右下角操作按钮组，统一按钮间距和安全区内边距。
-struct AppFloatingActionStack<Content: View>: View {
-    private let content: Content
-
-    init(@ViewBuilder content: () -> Content) {
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .trailing, spacing: AppDesignSystem.Spacing.control) {
-            content
-        }
-        .padding(.trailing, AppDesignSystem.Spacing.control)
-        .padding(.bottom, AppDesignSystem.Size.floatingAction.bottomInset)
-    }
-}
-
-/// 课程详情入口共用的列表行。
-///
-/// 日程和成绩详情共用标题与加载态；导航行为由外层容器负责。
-struct AppCourseEvaluationRow: View {
-    let isLoading: Bool
-
-    init(isLoading: Bool = false) {
-        self.isLoading = isLoading
-    }
-
-    var body: some View {
-        HStack(spacing: AppDesignSystem.Spacing.control) {
-            Text("查看课程评价")
-                .foregroundStyle(.tint)
-
-            Spacer(minLength: 0)
-            if isLoading {
-                ProgressView()
-                    .controlSize(.small)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-    }
-}
-
-/// 统一所有分组列表的系统样式、section 间距和横向内容边距。
-extension View {
-    func appGroupedListStyle() -> some View {
-        listStyle(.insetGrouped)
-            .listSectionSpacing(AppDesignSystem.Spacing.content)
-            .contentMargins(.top, 0, for: .scrollContent)
-            .contentMargins(.horizontal, AppDesignSystem.Spacing.regular, for: .scrollContent)
-            .listRowInsets(EdgeInsets(
-                top: AppDesignSystem.Spacing.tight,
-                leading: AppDesignSystem.Spacing.content,
-                bottom: AppDesignSystem.Spacing.tight,
-                trailing: AppDesignSystem.Spacing.content
-            ))
-    }
-
-    func appCommentSectionStyle() -> some View {
-        background(
-            AppDesignSystem.Palette.systemBackground,
-            in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.prominent)
-        )
-        .overlay {
-            AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.prominent)
-                .stroke(AppDesignSystem.Palette.subtleBorder, lineWidth: 1)
-        }
-    }
-
-    func appFeedCardStyle() -> some View {
-        padding(AppDesignSystem.Spacing.container)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AppDesignSystem.Palette.systemBackground)
-            .contentShape(Rectangle())
     }
 }

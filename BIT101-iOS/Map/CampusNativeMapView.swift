@@ -114,7 +114,7 @@ struct CampusNativeMapView: UIViewRepresentable {
         private weak var nextCourseAnnotation: CampusPlaceAnnotation?
         private var requestedLocationAnnotations: [CampusPlaceAnnotation] = []
 
-        /// 地图保留下一节课的一个标记；课程变化时原地替换当前标记，旧标记随更新移除。
+        /// 地图展示下一节课的标记；课程变化时原位更新标记。
         func syncNextCourseAnnotation(_ target: UpcomingCourseMapTarget?, in mapView: MKMapView) {
             guard lastCourseTarget != target else { return }
 

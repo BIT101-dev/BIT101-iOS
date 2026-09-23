@@ -54,12 +54,9 @@ worker_parse() {
 git_check() { git -C "$ROOT_DIR" diff --check; }
 docs_check() {
   (cd "$ROOT_DIR" && python3 Scripts/check_stale_docs.py --all)
-  (cd "$ROOT_DIR" && Scripts/check-error-report-coverage.sh)
   (cd "$ROOT_DIR" && python3 Scripts/validate_versions.py)
 }
 ui_consistency() { "$ROOT_DIR/Scripts/check-ui-consistency.sh"; }
-haptic_consistency() { "$ROOT_DIR/Scripts/check-haptic-consistency.sh"; }
-component_consistency() { "$ROOT_DIR/Scripts/check-component-consistency.sh"; }
 explanatory_text_report() { "$ROOT_DIR/Scripts/report-explanatory-text.sh"; }
 code_quality() { "$ROOT_DIR/Scripts/check-code-quality.sh"; }
 artifact_hygiene() {
@@ -112,8 +109,6 @@ run_group worker-parse worker_parse
 run_group git-diff git_check
 run_group docs docs_check
 run_group ui-consistency ui_consistency
-run_group haptic-consistency haptic_consistency
-run_group component-consistency component_consistency
 run_group code-quality code_quality
 run_group explanatory-text explanatory_text_report
 run_group artifact-hygiene artifact_hygiene

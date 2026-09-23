@@ -28,11 +28,11 @@ struct LinearScheduleCalendarView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let weekSliderHeight = AppDesignSystem.Schedule.weekSlider.sliderHeight
-            let dateHeaderHeight = AppDesignSystem.Schedule.weekSlider.dateHeaderHeight
+            let weekSliderHeight = AppDesignSystem.Schedule.WeekSlider.sliderHeight
+            let dateHeaderHeight = AppDesignSystem.Schedule.WeekSlider.dateHeaderHeight
             let headerHeight = displayMode == .weekly
                 ? weekSliderHeight + dateHeaderHeight
-                : AppDesignSystem.Schedule.weekSlider.compactHeaderHeight
+                : AppDesignSystem.Schedule.WeekSlider.compactHeaderHeight
 
             VStack(spacing: AppDesignSystem.Spacing.none) {
                 LinearScheduleHeader(
@@ -112,7 +112,7 @@ private struct LinearScheduleHeader: View {
                     onSelectWeek: onSelectWeekValue
                 )
                 .frame(maxWidth: .infinity)
-                .frame(height: AppDesignSystem.Schedule.weekSlider.sliderHeight)
+                .frame(height: AppDesignSystem.Schedule.WeekSlider.sliderHeight)
                 .background(AppDesignSystem.Palette.secondaryGroupedBackground)
 
                 GeometryReader { proxy in
@@ -123,7 +123,7 @@ private struct LinearScheduleHeader: View {
                             .foregroundStyle(.primary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
-                            .frame(width: dayWidth, height: AppDesignSystem.Schedule.weekSlider.dateHeaderHeight)
+                            .frame(width: dayWidth, height: AppDesignSystem.Schedule.WeekSlider.dateHeaderHeight)
                             .background(AppDesignSystem.Palette.secondaryGroupedBackground)
 
                         ForEach(Array(weekDates.enumerated()), id: \.offset) { index, date in
@@ -133,7 +133,7 @@ private struct LinearScheduleHeader: View {
                                 Text(Self.monthDayFormatter.string(from: date))
                                     .font(AppDesignSystem.Typography.caption2)
                                     .foregroundStyle(.primary)
-                                    .frame(width: dayWidth, height: AppDesignSystem.Schedule.weekSlider.dateHeaderHeight)
+                                    .frame(width: dayWidth, height: AppDesignSystem.Schedule.WeekSlider.dateHeaderHeight)
                                     .background(AppDesignSystem.Palette.secondaryGroupedBackground)
                             }
                             .buttonStyle(.plain)
@@ -141,26 +141,26 @@ private struct LinearScheduleHeader: View {
                         }
                     }
                 }
-                .frame(height: AppDesignSystem.Schedule.weekSlider.dateHeaderHeight)
+                .frame(height: AppDesignSystem.Schedule.WeekSlider.dateHeaderHeight)
             } else {
                 GeometryReader { proxy in
                     let dayWidth = max(proxy.size.width / CGFloat(visibleWeekdays.count + 1), 1)
                     HStack(spacing: AppDesignSystem.Spacing.none) {
                         Color.clear
-                            .frame(width: dayWidth, height: AppDesignSystem.Schedule.weekSlider.compactHeaderHeight)
+                            .frame(width: dayWidth, height: AppDesignSystem.Schedule.WeekSlider.compactHeaderHeight)
                             .background(AppDesignSystem.Palette.secondaryGroupedBackground)
 
                         ForEach(visibleWeekdays, id: \.self) { weekday in
                             Text(weekdayTitle(weekday))
                                 .font(AppDesignSystem.Typography.caption2)
                                 .foregroundStyle(.primary)
-                                .frame(width: dayWidth, height: AppDesignSystem.Schedule.weekSlider.compactHeaderHeight)
+                                .frame(width: dayWidth, height: AppDesignSystem.Schedule.WeekSlider.compactHeaderHeight)
                                 .background(AppDesignSystem.Palette.secondaryGroupedBackground)
                                 .accessibilityLabel(weekdayTitle(weekday))
                         }
                     }
                 }
-                .frame(height: AppDesignSystem.Schedule.weekSlider.compactHeaderHeight)
+                .frame(height: AppDesignSystem.Schedule.WeekSlider.compactHeaderHeight)
             }
         }
     }
@@ -482,11 +482,11 @@ private struct LinearScheduleCanvasView: View {
                 )
                 Rectangle()
                     .fill(configuration.showDivider
-                        ? AppDesignSystem.Schedule.GridPalette.linearMajorLine
-                        : AppDesignSystem.Schedule.GridPalette.linearMinorLine)
+                        ? AppDesignSystem.Schedule.GridPalette.majorLine
+                        : AppDesignSystem.Schedule.GridPalette.minorLine)
                     .frame(
                         width: leftWidth + dayWidth * CGFloat(visibleWeekdays.count),
-                        height: AppDesignSystem.Schedule.grid.lineWidth
+                        height: AppDesignSystem.Schedule.Grid.lineWidth
                     )
                     .offset(y: y)
 
@@ -499,8 +499,8 @@ private struct LinearScheduleCanvasView: View {
 
             ForEach(0 ... visibleWeekdays.count, id: \.self) { column in
                 Rectangle()
-                    .fill(AppDesignSystem.Schedule.GridPalette.columnLine)
-                    .frame(width: AppDesignSystem.Schedule.grid.lineWidth, height: contentHeight)
+                    .fill(AppDesignSystem.Schedule.GridPalette.majorLine)
+                    .frame(width: AppDesignSystem.Schedule.Grid.lineWidth, height: contentHeight)
                     .offset(x: leftWidth + dayWidth * CGFloat(column))
             }
 
@@ -509,7 +509,7 @@ private struct LinearScheduleCanvasView: View {
                let index = visibleWeekdays.firstIndex(of: ScheduleDateCodec.weekdayIndex(from: Date())) {
                 Rectangle()
                     .fill(AppDesignSystem.Palette.accent)
-                    .frame(width: dayWidth, height: AppDesignSystem.Schedule.grid.currentTimeLineHeight)
+                    .frame(width: dayWidth, height: AppDesignSystem.Schedule.Grid.currentTimeLineHeight)
                     .offset(
                         x: leftWidth + dayWidth * CGFloat(index),
                         y: yPosition(
@@ -549,8 +549,8 @@ private struct LinearScheduleCanvasView: View {
             start: timelineStart,
             end: timelineEnd
         )
-        let cardWidth = max(dayWidth - AppDesignSystem.Schedule.grid.courseCardTotalInset, 1)
-        let cardHeight = max(endY - startY - AppDesignSystem.Schedule.grid.courseCardTotalInset, 18)
+        let cardWidth = max(dayWidth - AppDesignSystem.Schedule.Grid.courseCardTotalInset, 1)
+        let cardHeight = max(endY - startY - AppDesignSystem.Schedule.Grid.courseCardTotalInset, 18)
 
         return ZStack(alignment: .topLeading) {
             CourseScheduleBackgroundView(entry: entry, showBorder: configuration.showBorder)
@@ -569,8 +569,8 @@ private struct LinearScheduleCanvasView: View {
                     if entry.kind == .course {
                         Color.clear
                             .frame(
-                                width: AppDesignSystem.Schedule.grid.previewTriggerSize,
-                                height: AppDesignSystem.Schedule.grid.previewTriggerSize
+                                width: AppDesignSystem.Schedule.Grid.previewTriggerSize,
+                                height: AppDesignSystem.Schedule.Grid.previewTriggerSize
                             )
                             .onAppear { configuration.onPrepareCourseShare(entry) }
                     }
@@ -581,8 +581,8 @@ private struct LinearScheduleCanvasView: View {
         .frame(width: cardWidth, height: cardHeight)
         .offset(
             x: leftWidth + dayWidth * CGFloat(visibleWeekdayValues.firstIndex(of: entry.dayOfWeek) ?? 0)
-                + AppDesignSystem.Schedule.grid.lineWidth,
-            y: startY + AppDesignSystem.Schedule.grid.lineWidth
+                + AppDesignSystem.Schedule.Grid.lineWidth,
+            y: startY + AppDesignSystem.Schedule.Grid.lineWidth
         )
         .zIndex(entry.kind == .custom ? 1.5 : 1)
     }

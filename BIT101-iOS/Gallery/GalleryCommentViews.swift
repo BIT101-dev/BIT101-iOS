@@ -26,7 +26,7 @@ struct GalleryPosterCommentsSection: View {
     let onLoadMore: (GalleryComment?) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.container) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
             AppCommentSectionHeader(count: totalCommentCount) {
                 Picker("排序", selection: Binding(get: { selectedOrder }, set: onSelectOrder)) {
                     ForEach(GalleryCommentOrder.allCases) { order in
@@ -70,7 +70,7 @@ struct GalleryPosterCommentsSection: View {
 
                                 if index != comments.count - 1 {
                                     Divider()
-                                        .padding(.leading, AppDesignSystem.Comment.layout.dividerLeading)
+                                        .padding(.leading, AppDesignSystem.Comment.replyInset)
                                 }
                             }
                             .onAppear {
@@ -100,7 +100,7 @@ struct GalleryCommentReplyTarget {
 
 /// 单条评论及其子评论预览。
 ///
-/// 主评论和子评论共用同一套气泡视图；这一层决定是否渲染嵌套结构。
+/// 主评论和子评论共用同一套气泡视图；组件决定嵌套结构的呈现方式。
 private struct GalleryCommentRow: View {
     let comment: GalleryComment
     let likingCommentIDs: Set<Int>
@@ -155,8 +155,8 @@ private struct GalleryCommentRow: View {
             AppAvatarView(
                 imageURL: comment.anonymous ? nil : commentAvatarURL(for: comment),
                 size: isSubComment
-                    ? AppDesignSystem.Size.control.compact
-                    : AppDesignSystem.Comment.layout.avatarSize
+                    ? AppDesignSystem.Size.Control.compact
+                    : AppDesignSystem.Size.Avatar.standard
             )
         } content: {
             AppCommentIdentityHeader(

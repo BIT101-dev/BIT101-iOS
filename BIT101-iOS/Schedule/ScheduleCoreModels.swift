@@ -65,6 +65,15 @@ enum ScheduleCalendarAxisMode: String, CaseIterable, Identifiable {
         }
     }
 
+    var title: String {
+        switch self {
+        case .quantized:
+            return "节次"
+        case .linear:
+            return "时间"
+        }
+    }
+
     var next: Self {
         switch self {
         case .quantized:
@@ -208,7 +217,7 @@ nonisolated struct TimeSlot: Codable, Hashable, Identifiable {
 /// 课表课程记录。
 ///
 /// 这是 iOS 端保存后的统一课程模型，教务接口、缓存、小组件、灵动岛都围绕它工作。
-struct CourseRecord: Codable, Identifiable, Hashable {
+nonisolated struct CourseRecord: Codable, Identifiable, Hashable {
     let id: String
     let term: String
     let name: String
@@ -221,7 +230,7 @@ struct CourseRecord: Codable, Identifiable, Hashable {
     let endSection: Int
     let campus: String
     let number: String
-    let credit: Int
+    let credit: Double
     let hour: Int
     let type: String
     let category: String
@@ -230,6 +239,14 @@ struct CourseRecord: Codable, Identifiable, Hashable {
     /// 课程占用的节次文本。
     var sectionText: String {
         "第\(startSection)-\(endSection)节"
+    }
+
+    var creditText: String {
+        guard credit > 0 else { return "-" }
+        if credit.rounded() == credit {
+            return String(format: "%.0f", credit)
+        }
+        return String(format: "%.1f", credit)
     }
 
     /// 根据当前时间表配置，把节次映射成具体的起止时间。
@@ -275,10 +292,70 @@ struct CourseDraft: Equatable {
     var title = ""
     var teacher = ""
     var classroom = ""
+    var buildingName = ""
+    var roomNumber = ""
     var weekday = 1
     var startSection = 1
     var endSection = 2
     var weeksText = ""
+    var selectedSections: [Int] = []
+}
+
+/// 课程本体的稳定身份，用于合并同一门课的多条排课记录。
+nonisolated func scheduleCourseIdentity(_ course: CourseRecord) -> String {
+    let number = course.number.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let name = course.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if !number.isEmpty {
+        return "number:\(number)|name:\(name)"
+    }
+    return "name:\(name)|teacher:\(course.teacher.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
+}
+
+/// 同一门课在同一星期、同一节次的排课身份。
+nonisolated func scheduleCourseArrangementIdentity(_ course: CourseRecord) -> String {
+    let campus = course.campus.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let classroom = course.classroom.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return "\(scheduleCourseIdentity(course))|weekday:\(course.weekday)|sections:\(course.startSection)-\(course.endSection)|campus:\(campus)|classroom:\(classroom)"
+}
+
+/// 课表刷新时用于定位同一门学校课程的稳定身份。
+nonisolated func scheduleCourseSourceIdentity(_ course: CourseRecord) -> String {
+    let number = course.number.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if !number.isEmpty {
+        return "number:\(number)"
+    }
+    return "name:\(course.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
+}
+
+/// 比较学校课程来源数据，排除服务器记录 ID。
+nonisolated func scheduleCourseSourceValue(_ course: CourseRecord) -> String {
+    [
+        course.term,
+        course.name,
+        course.teacher,
+        course.classroom,
+        course.description,
+        course.weeks.sorted().map(String.init).joined(separator: ","),
+        String(course.weekday),
+        String(course.startSection),
+        String(course.endSection),
+        course.campus,
+        course.number,
+        course.credit.description,
+        String(course.hour),
+        course.type,
+        course.category,
+        course.department,
+    ].joined(separator: "\u{001F}")
+}
+
+nonisolated func scheduleCourseSourceRecordsEqual(_ lhs: [CourseRecord], _ rhs: [CourseRecord]) -> Bool {
+    lhs.map(scheduleCourseSourceValue).sorted() == rhs.map(scheduleCourseSourceValue).sorted()
+}
+
+nonisolated func scheduleCourseDisplayRecordsEqual(_ lhs: [CourseRecord], _ rhs: [CourseRecord]) -> Bool {
+    lhs.map { "\($0.id)\u{001F}\(scheduleCourseSourceValue($0))" }.sorted()
+        == rhs.map { "\($0.id)\u{001F}\(scheduleCourseSourceValue($0))" }.sorted()
 }
 
 /// 考试记录。

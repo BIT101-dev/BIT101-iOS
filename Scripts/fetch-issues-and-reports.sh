@@ -5,14 +5,11 @@ umask 077
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 REPO="BIT101-dev/BIT101-iOS"
 WRANGLER_DIR="$ROOT_DIR/Cloudflare/EmergencyUpdateWorker"
+WRANGLER_HOME="$HOME/Library/Preferences"
 NAMESPACE_ID="4c6402dfad4e406a93cc2518843803c6"
 OUTPUT_DIR="$ROOT_DIR/.build/issue-report-inbox"
-CURRENT_DIR="$OUTPUT_DIR/本次"
-PREVIOUS_DIR="$OUTPUT_DIR/上次"
-OLDER_DIR="$OUTPUT_DIR/上上次"
 STAGING_DIR="$OUTPUT_DIR/.incoming"
 WRANGLER_LOG="$OUTPUT_DIR/wrangler.log"
-SKIP_KEYS_FILE="$OUTPUT_DIR/.skip-report-keys"
 CI_RUNS_PATH="$OUTPUT_DIR/github-ci-runs.json"
 CI_REPORT_PATH="$OUTPUT_DIR/github-ci.json"
 
@@ -22,40 +19,10 @@ if ! command -v gh >/dev/null 2>&1; then
 fi
 
 mkdir -p "$OUTPUT_DIR"
-rm -rf "$STAGING_DIR" "$OUTPUT_DIR/error-reports"
+find "$OUTPUT_DIR" -mindepth 1 -maxdepth 1 -type d ! -name ".incoming" -exec rm -rf {} +
+rm -rf "$STAGING_DIR"
 mkdir -p "$STAGING_DIR"
-rm -f "$OUTPUT_DIR/github-issues.json" "$OUTPUT_DIR/error-report-keys.json" "$OUTPUT_DIR/summary.txt" "$OUTPUT_DIR/report-keys.txt" "$CI_RUNS_PATH" "$CI_REPORT_PATH"
-
-python3 - "$CURRENT_DIR" "$PREVIOUS_DIR" "$OLDER_DIR" "$SKIP_KEYS_FILE" <<'PY'
-from pathlib import Path
-import sys
-
-output = Path(sys.argv[-1])
-keys = set()
-for folder_name in sys.argv[1:-1]:
-    folder = Path(folder_name)
-    if not folder.exists():
-        continue
-
-    manifest = folder / ".keys"
-    if manifest.exists():
-        keys.update(line.strip() for line in manifest.read_text(encoding="utf-8").splitlines() if line.strip())
-        continue
-
-    derived = []
-    for report in folder.glob("report_*.json"):
-        stem = report.stem[len("report_"):]
-        try:
-            timestamp, report_id = stem.rsplit("_", 1)
-        except ValueError:
-            continue
-        derived.append(f"report:{timestamp.replace('_', ':')}:{report_id}")
-    if derived:
-        manifest.write_text("\n".join(sorted(derived)) + "\n", encoding="utf-8")
-        keys.update(derived)
-
-output.write_text("\n".join(sorted(keys)) + ("\n" if keys else ""), encoding="utf-8")
-PY
+rm -f "$OUTPUT_DIR/github-issues.json" "$OUTPUT_DIR/error-report-keys.json" "$OUTPUT_DIR/summary.txt" "$CI_RUNS_PATH" "$CI_REPORT_PATH"
 
 echo "拉取 GitHub Issues..."
 if ! gh api \
@@ -117,7 +84,7 @@ output_path.write_text(
 PY
 
 echo "拉取 Cloudflare 错误报告..."
-if ! (cd "$WRANGLER_DIR" && npx wrangler kv key list \
+if ! (cd "$WRANGLER_DIR" && HOME="$WRANGLER_HOME" npx wrangler kv key list \
   --remote \
   --prefix report: \
   --namespace-id "$NAMESPACE_ID" \
@@ -126,10 +93,12 @@ if ! (cd "$WRANGLER_DIR" && npx wrangler kv key list \
   exit 1
 fi
 
-python3 - "$OUTPUT_DIR/error-report-keys.json" "$STAGING_DIR" "$WRANGLER_DIR" "$NAMESPACE_ID" "$OUTPUT_DIR/report-keys.txt" "$SKIP_KEYS_FILE" <<'PY'
+HOME="$WRANGLER_HOME" python3 - "$OUTPUT_DIR/error-report-keys.json" "$STAGING_DIR" "$WRANGLER_DIR" "$NAMESPACE_ID" "$OUTPUT_DIR/report-keys.txt" <<'PY'
 import json
 import base64
+import datetime as dt
 import pathlib
+import re
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -138,16 +107,36 @@ keys_path = pathlib.Path(sys.argv[1])
 staging_dir = pathlib.Path(sys.argv[2])
 worker_dir = pathlib.Path(sys.argv[3])
 namespace_id = sys.argv[4]
-keys_output = pathlib.Path(sys.argv[5])
-skip_path = pathlib.Path(sys.argv[6])
+processed_path = pathlib.Path(sys.argv[5])
+
+def key_time(key):
+    match = re.match(r"^report:(\d{4}-\d{2}-\d{2}T[^:]+Z):", key)
+    if not match:
+        return None
+    try:
+        return dt.datetime.fromisoformat(match.group(1).replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 items = json.loads(keys_path.read_text(encoding="utf-8"))
-skip = {line.strip() for line in skip_path.read_text(encoding="utf-8").splitlines() if line.strip()}
+processed = {
+    line.strip()
+    for line in processed_path.read_text(encoding="utf-8").splitlines()
+    if line.strip()
+} if processed_path.exists() else set()
 keys = [
     item["name"] for item in items
-    if item.get("name", "").startswith("report:") and item["name"] not in skip
+    if item.get("name", "").startswith("report:")
 ]
-keys_output.write_text("\n".join(keys) + ("\n" if keys else ""), encoding="utf-8")
+now = dt.datetime.now(dt.timezone.utc)
+cutoff = now - dt.timedelta(days=7)
+keys_to_fetch = []
+for key in keys:
+    timestamp = key_time(key)
+    if timestamp is not None and timestamp < cutoff:
+        continue
+    if key not in processed:
+        keys_to_fetch.append(key)
 
 def fetch(key):
     result = subprocess.run(
@@ -163,7 +152,7 @@ def fetch(key):
     return key, result
 
 with ThreadPoolExecutor(max_workers=4) as executor:
-    fetched = list(executor.map(fetch, keys))
+    fetched = list(executor.map(fetch, keys_to_fetch))
 
 for key, result in fetched:
     filename = key.replace(":", "_") + ".json"
@@ -207,26 +196,60 @@ for key, result in fetched:
         result_text = result.stdout
     destination = category_dir / filename
     destination.write_text(result_text, encoding="utf-8")
+
+retained_processed = []
+for key in sorted(processed.union(keys_to_fetch)):
+    timestamp = key_time(key)
+    if timestamp is None or timestamp >= cutoff:
+        retained_processed.append(key)
+processed_path.write_text(
+    "\n".join(retained_processed) + ("\n" if retained_processed else ""),
+    encoding="utf-8",
+)
 PY
 
 REPORT_COUNT="$(find "$STAGING_DIR" -type f -name '*.json' | wc -l | tr -d ' ')"
 if [[ "$REPORT_COUNT" -gt 0 ]]; then
-  rm -rf "$OLDER_DIR"
-  [[ -d "$PREVIOUS_DIR" ]] && mv "$PREVIOUS_DIR" "$OLDER_DIR"
-  [[ -d "$CURRENT_DIR" ]] && mv "$CURRENT_DIR" "$PREVIOUS_DIR"
-  cp "$OUTPUT_DIR/report-keys.txt" "$STAGING_DIR/.keys"
-  mv "$STAGING_DIR" "$CURRENT_DIR"
+  for category in "开发版" "正式版" "来源未知"; do
+    [[ -d "$STAGING_DIR/$category" ]] && mv "$STAGING_DIR/$category" "$OUTPUT_DIR/$category"
+  done
+  rm -rf "$STAGING_DIR"
+else
+  rm -rf "$STAGING_DIR"
+fi
 
-  echo "清理已拉取的 Cloudflare 错误报告..."
-  if ! python3 - "$WRANGLER_DIR" "$NAMESPACE_ID" "$OUTPUT_DIR/report-keys.txt" <<'PY'
+HOME="$WRANGLER_HOME" python3 - "$OUTPUT_DIR/error-report-keys.json" "$WRANGLER_DIR" "$NAMESPACE_ID" <<'PY'
+import datetime as dt
+import json
 import pathlib
+import re
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 
-worker_dir = pathlib.Path(sys.argv[1])
-namespace_id = sys.argv[2]
-keys = [line.strip() for line in pathlib.Path(sys.argv[3]).read_text(encoding="utf-8").splitlines() if line.strip()]
+keys_path = pathlib.Path(sys.argv[1])
+worker_dir = pathlib.Path(sys.argv[2])
+namespace_id = sys.argv[3]
+
+def key_time(key):
+    match = re.match(r"^report:(\d{4}-\d{2}-\d{2}T[^:]+Z):", key)
+    if not match:
+        return None
+    try:
+        return dt.datetime.fromisoformat(match.group(1).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=7)
+keys = []
+for item in json.loads(keys_path.read_text(encoding="utf-8")):
+    key = item.get("name", "")
+    timestamp = key_time(key)
+    if key.startswith("report:") and timestamp is not None and timestamp < cutoff:
+        keys.append(key)
+
+if keys:
+    print("清理接收时间早于 7 天的 Cloudflare 报告...")
 
 def delete(key):
     return key, subprocess.run(
@@ -249,32 +272,24 @@ for key, result in deleted:
         print(f"清理报告失败：{key}{f'：{detail}' if detail else ''}", file=sys.stderr)
         sys.exit(result.returncode or 1)
 PY
-  then
-    echo "报告已保存在本地，远端清理状态待复核。" >&2
-    exit 1
-  fi
-else
-  rmdir "$STAGING_DIR"
-fi
 
-python3 - "$OUTPUT_DIR/github-issues.json" "$CURRENT_DIR" "$OUTPUT_DIR/summary.txt" "$REPORT_COUNT" "$PREVIOUS_DIR" "$OLDER_DIR" "$CI_REPORT_PATH" <<'PY'
+python3 - "$OUTPUT_DIR/github-issues.json" "$OUTPUT_DIR" "$OUTPUT_DIR/summary.txt" "$REPORT_COUNT" "$CI_REPORT_PATH" <<'PY'
 import json
 import pathlib
 import sys
 
 issues = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 report_dir = pathlib.Path(sys.argv[2])
+summary_path = pathlib.Path(sys.argv[3])
 new_report_count = int(sys.argv[4])
-previous_dir = pathlib.Path(sys.argv[5])
-older_dir = pathlib.Path(sys.argv[6])
-ci_path = pathlib.Path(sys.argv[7])
+ci_path = pathlib.Path(sys.argv[5])
 ci_runs = json.loads(ci_path.read_text(encoding="utf-8")) if ci_path.exists() else []
 
 def category_counts(folder):
     counts = {"错误报告": 0, "用户建议": 0}
     if not folder.exists():
         return counts
-    for path in folder.rglob("*.json"):
+    for path in folder.glob("*/*/report_*.json"):
         try:
             report = json.loads(path.read_text(encoding="utf-8")).get("report", {})
         except (OSError, json.JSONDecodeError):
@@ -287,14 +302,10 @@ def source_counts(folder):
     counts = {"开发版": 0, "正式版": 0, "来源未知": 0}
     if not folder.exists():
         return counts
-    for path in folder.rglob("*.json"):
-        try:
-            report = json.loads(path.read_text(encoding="utf-8")).get("report", {})
-        except (OSError, json.JSONDecodeError):
-            continue
-        development = report.get("isDevelopmentBuild")
-        source = "开发版" if development is True else "正式版" if development is False else "来源未知"
-        counts[source] += 1
+    for source in counts:
+        source_dir = folder / source
+        if source_dir.exists():
+            counts[source] = len(list(source_dir.glob("*/report_*.json")))
     return counts
 
 lines = [f"GitHub Issues：{len(issues)}"]
@@ -308,33 +319,17 @@ for run in ci_runs:
         f"{run.get('displayTitle')}  {run.get('url')}"
     )
 lines.append("")
-previous_count = len(list(previous_dir.rglob("*.json"))) if previous_dir.exists() else 0
-older_count = len(list(older_dir.rglob("*.json"))) if older_dir.exists() else 0
 current_counts = category_counts(report_dir)
-previous_counts = category_counts(previous_dir)
-older_counts = category_counts(older_dir)
 current_sources = source_counts(report_dir)
-previous_sources = source_counts(previous_dir)
-older_sources = source_counts(older_dir)
 lines.append(
-    f"Cloudflare 报告：本次新增 {new_report_count} 条"
+    f"Cloudflare 报告：本次拉取 {new_report_count} 条"
     f"（错误报告 {current_counts['错误报告']}，用户建议 {current_counts['用户建议']}；"
     f"开发版 {current_sources['开发版']}，正式版 {current_sources['正式版']}，来源未知 {current_sources['来源未知']}）"
 )
-lines.append(
-    f"上次批次：{previous_count} 条"
-    f"（错误报告 {previous_counts['错误报告']}，用户建议 {previous_counts['用户建议']}；"
-    f"开发版 {previous_sources['开发版']}，正式版 {previous_sources['正式版']}，来源未知 {previous_sources['来源未知']}）"
-)
-lines.append(
-    f"上上次批次：{older_count} 条"
-    f"（错误报告 {older_counts['错误报告']}，用户建议 {older_counts['用户建议']}；"
-    f"开发版 {older_sources['开发版']}，正式版 {older_sources['正式版']}，来源未知 {older_sources['来源未知']}）"
-)
 
-pathlib.Path(sys.argv[3]).write_text("\n".join(lines) + "\n", encoding="utf-8")
-print(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"), end="")
+summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+print(summary_path.read_text(encoding="utf-8"), end="")
 PY
 
-rm -f "$WRANGLER_LOG" "$OUTPUT_DIR/report-keys.txt" "$SKIP_KEYS_FILE" "$CI_RUNS_PATH"
+rm -f "$WRANGLER_LOG" "$CI_RUNS_PATH"
 echo "本地报告目录：$OUTPUT_DIR"

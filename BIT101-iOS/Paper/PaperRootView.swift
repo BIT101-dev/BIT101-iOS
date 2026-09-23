@@ -84,7 +84,7 @@ struct PaperRootView: View {
                         }
                 }
             }
-            .padding(.bottom, AppDesignSystem.Size.floatingAction.contentInset)
+            .padding(.bottom, AppDesignSystem.Size.FloatingAction.contentInset)
             }
             .refreshable {
                 await viewModel.refresh()

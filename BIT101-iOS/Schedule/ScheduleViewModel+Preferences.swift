@@ -6,16 +6,6 @@
 import Foundation
 
 extension ScheduleViewModel {
-    /// 课表周次左移一周。手动浏览允许超过课程最后一周。
-    func previousWeek() {
-        selectedWeek = ScheduleWeekCodec.previousWeek(before: selectedWeek)
-    }
-
-    /// 课表周次右移一周。手动浏览允许超过课程最后一周。
-    func nextWeek() {
-        selectedWeek = ScheduleWeekCodec.nextWeek(after: selectedWeek)
-    }
-
     /// 把周次快速重置到当前周。
     func resetToCurrentWeek() {
         selectedWeek = resolvedAutomaticWeek()

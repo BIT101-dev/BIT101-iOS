@@ -7,40 +7,44 @@ import SwiftUI
 
 enum CourseEditorMode: Equatable {
     case add
-    case editOccurrence(week: Int)
-    case editCourse(courseID: String)
 
     var title: String {
         switch self {
         case .add:
             return "添加课程"
-        case .editOccurrence:
-            return "调这节课"
-        case .editCourse:
-            return "调这门课"
         }
     }
+}
 
-    var locksWeeks: Bool {
-        fixedWeek != nil
-    }
+enum CourseArrangementEditorMode: Equatable {
+    case course
+    case occurrence(week: Int)
 
-    var fixedWeek: Int? {
-        if case let .editOccurrence(week) = self {
-            return week
-        }
-        return nil
-    }
-
-    var footerText: String {
+    var title: String {
         switch self {
-        case .add:
-            return "添加的课程会存储在本地；删除应用后信息将丢失。"
-        case let .editOccurrence(week):
-            return "这次只会修改第\(week)周这一节课，系统会把它从原课程里拆出来单独保存。"
-        case .editCourse:
-            return "这会修改这门课在所选周次内的统一排课信息。"
+        case .course:
+            return "调这门课"
+        case .occurrence:
+            return "调这节课"
         }
+    }
+}
+
+struct CourseArrangementDraft: Identifiable, Equatable {
+    let id: String
+    let original: CourseDraft
+    var draft: CourseDraft
+
+    var title: String {
+        let weekday = ["", "一", "二", "三", "四", "五", "六", "日"]
+        let weekdayText = weekday.indices.contains(original.weekday) ? weekday[original.weekday] : "?"
+        return "周\(weekdayText) · 第\(original.startSection)-\(original.endSection)节"
+    }
+
+    init(id: String, original: CourseDraft) {
+        self.id = id
+        self.original = original
+        self.draft = original
     }
 }
 
@@ -129,11 +133,6 @@ struct DayAdjustmentSheet: View {
                     }
                 }
 
-                Section {
-                    Text(footerText)
-                        .font(AppDesignSystem.Typography.footnote)
-                        .foregroundStyle(.secondary)
-                }
             }
             .navigationTitle("调休 / 放假")
             .navigationBarTitleDisplayMode(.inline)
@@ -161,15 +160,6 @@ struct DayAdjustmentSheet: View {
                     secondaryButton: .cancel(Text("取消"))
                 )
             }
-        }
-    }
-
-    private var footerText: String {
-        switch draft.mode {
-        case .holiday:
-            return "放假会清空这一天的课程；考试和自定义日程不会被删除。"
-        case .transfer:
-            return "调课会先清空当前日期的课程，再把这些课程移动到目标日期；如果目标日期已有课程，将被覆盖。"
         }
     }
 

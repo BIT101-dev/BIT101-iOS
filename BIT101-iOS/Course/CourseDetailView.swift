@@ -27,7 +27,7 @@ struct CourseDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.prominent) {
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.section) {
                 summarySection
                 metricsSection
                 courseResourcesSection
@@ -61,8 +61,8 @@ struct CourseDetailView: View {
                     }
                 )
             }
-            .padding(.horizontal, AppDesignSystem.Spacing.prominent)
-            .padding(.top, AppDesignSystem.Spacing.prominent)
+            .padding(.horizontal, AppDesignSystem.Spacing.section)
+            .padding(.top, AppDesignSystem.Spacing.section)
         }
         .background(AppDesignSystem.Palette.groupedBackground)
         .navigationTitle("课程详情")
@@ -121,7 +121,7 @@ struct CourseDetailView: View {
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                HStack(spacing: AppDesignSystem.Spacing.control) {
+                HStack(spacing: AppDesignSystem.Spacing.regular) {
                     AppDetailCircleButton(accessibilityLabel: "评论课程") {
                         composerTarget = .course(courseID: initialCourse.id)
                     } label: {
@@ -164,7 +164,7 @@ struct CourseDetailView: View {
     }
 
     private var metricsSection: some View {
-        HStack(spacing: AppDesignSystem.Spacing.prominent) {
+        HStack(spacing: AppDesignSystem.Spacing.section) {
             Text(CourseRatingText.text(from: viewModel.resolvedRate, empty: "暂无评分"))
             Text("\(viewModel.resolvedLikeNum)赞")
             Text("\(viewModel.resolvedCommentNum)评论")
@@ -216,13 +216,13 @@ private struct CourseResourceCard: View {
 
     var body: some View {
         AppCard(variant: .secondaryGrouped) {
-            HStack(spacing: AppDesignSystem.Spacing.control) {
+            HStack(spacing: AppDesignSystem.Spacing.regular) {
                 Image(systemName: systemImage)
                     .font(AppDesignSystem.Typography.headline)
                     .foregroundStyle(AppDesignSystem.Palette.highlight)
                     .frame(
-                        width: AppDesignSystem.Size.control.detailActionButton,
-                        height: AppDesignSystem.Size.control.detailActionButton
+                        width: AppDesignSystem.Size.Control.detailActionButton,
+                        height: AppDesignSystem.Size.Control.detailActionButton
                     )
                     .background(AppDesignSystem.Palette.highlightSurface, in: Circle())
 

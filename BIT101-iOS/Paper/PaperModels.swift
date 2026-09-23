@@ -8,7 +8,7 @@ import UIKit
 /// 文章列表支持的排序方式。
 ///
 /// 后端原生支持“更新时间 / 点赞数 / 评论数”三种排序。
-/// 此处集中定义 UI 标题和接口参数，视图层直接读取统一值。
+/// 排序标题和接口参数在此统一定义，视图层读取对应值。
 enum PaperSortOrder: CaseIterable, Identifiable, Hashable {
     case newest
     case like
@@ -54,7 +54,7 @@ struct PaperSummary: Decodable, Identifiable, Hashable {
 /// 文章列表预览所需的作者摘要。
 ///
 /// 文章列表接口本身不返回作者信息。
-/// 列表页按需补拉单篇文章详情，并将显示所需的作者字段整理到这一层，视图层读取该摘要。
+/// 列表页按需补拉单篇文章详情，并从详情字段构建作者摘要供视图层展示。
 struct PaperPreviewMetadata: Equatable, Hashable {
     let authorName: String
     let avatarURL: URL?

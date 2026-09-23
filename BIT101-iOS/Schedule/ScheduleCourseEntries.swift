@@ -171,7 +171,7 @@ extension CourseScheduleTabView {
             detailLines: [
                 course.teacher.isEmpty ? nil : "教师：\(course.teacher)",
                 course.classroom.isEmpty ? nil : "教室：\(normalizeDisplayedClassroom(course.classroom))",
-                "学分：\(course.credit > 0 ? String(course.credit) : "-")",
+                "学分：\(course.creditText)",
                 "节次：\(course.sectionText)",
                 course.description.isEmpty ? nil : course.description,
             ].compactMap { $0 },
@@ -259,7 +259,7 @@ extension CourseScheduleTabView {
                 "课程：\(normalizeDisplayedCourseTitle(course.name))（\(weekText)）",
                 course.teacher.isEmpty ? nil : "教师：\(course.teacher)",
                 course.classroom.isEmpty ? nil : "教室：\(normalizeDisplayedClassroom(course.classroom))",
-                "学分：\(course.credit > 0 ? String(course.credit) : "-")",
+                "学分：\(course.creditText)",
                 "节次：\(course.sectionText)",
             ].compactMap { $0 }
         }

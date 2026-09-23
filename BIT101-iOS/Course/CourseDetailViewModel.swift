@@ -108,7 +108,7 @@ final class CourseDetailViewModel: ObservableObject {
     }
 
     var resolvedCreditText: String {
-        guard let credit = course?.credit ?? initialCourse.credit ?? localScheduleCredit else {
+        guard let credit = localScheduleCredit ?? course?.credit ?? initialCourse.credit else {
             return "-"
         }
         if credit.rounded() == credit {
@@ -120,7 +120,13 @@ final class CourseDetailViewModel: ObservableObject {
     private var localScheduleCredit: Double? {
         let number = resolvedNumber.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = resolvedName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let courses = ScheduleCacheStore.load().courses
+        let cache = ScheduleCacheStore.load()
+        let snapshots = cache.termSchedulesByTerm.values
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .flatMap(\.courses)
+        let courses = cache.courses
+            + (cache.cachedCoursesByTerm[cache.currentTerm] ?? [])
+            + snapshots
 
         if !number.isEmpty,
            let course = courses.first(where: { $0.number.trimmingCharacters(in: .whitespacesAndNewlines) == number && $0.credit > 0 }) {

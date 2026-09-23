@@ -356,19 +356,19 @@ private struct MineProfileCard: View {
 
                 if !info.user.identity.text.isEmpty {
                     Text(info.user.identity.text)
-                        .font(AppDesignSystem.Typography.captionStrong)
+                        .font(AppDesignSystem.Typography.captionEmphasis)
                         .foregroundStyle(identityColor)
                 }
             }
 
-            Spacer().frame(height: AppDesignSystem.Spacing.tight)
+            Spacer().frame(height: AppDesignSystem.Spacing.tiny)
 
             Text(info.user.motto.isEmpty ? "空简介" : info.user.motto)
                 .font(AppDesignSystem.Typography.body)
 
-            Spacer().frame(height: AppDesignSystem.Spacing.control)
+            Spacer().frame(height: AppDesignSystem.Spacing.regular)
 
-            HStack(spacing: AppDesignSystem.Spacing.prominent) {
+            HStack(spacing: AppDesignSystem.Spacing.section) {
                 MineStatButton(number: "\(info.followerNum)", title: "粉丝", action: onOpenFollowers)
                 MineStatButton(number: "\(info.followingNum)", title: "关注", action: onOpenFollowings)
                 MineStatButton(number: posterCountText, title: "帖子", action: onOpenPosters)
@@ -382,17 +382,17 @@ private struct MineProfileCard: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(info.following || isFollowRequestInFlight)
                 .accessibilityLabel(info.following ? (info.follower ? "互相关注" : "已关注") : "关注")
-                .padding(.top, AppDesignSystem.Spacing.control)
+                .padding(.top, AppDesignSystem.Spacing.regular)
             }
         }
-        .padding(.top, AppDesignSystem.Spacing.control)
+        .padding(.top, AppDesignSystem.Spacing.regular)
         .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private var profileAvatar: some View {
         AppAvatarView(
             imageURL: URL(string: info.user.avatar.url),
-            size: AppDesignSystem.Size.avatar.profile,
+            size: AppDesignSystem.Size.Avatar.profile,
             tint: AppDesignSystem.Palette.info
         )
         .contentShape(Circle())
@@ -437,12 +437,12 @@ private struct MineUserListView: View {
                             HStack(spacing: AppDesignSystem.Spacing.content) {
                                 AppAvatarView(
                                     imageURL: URL(string: user.avatar.lowUrl.isEmpty ? user.avatar.url : user.avatar.lowUrl),
-                                    size: AppDesignSystem.Size.avatar.list,
+                                    size: AppDesignSystem.Size.Avatar.standard,
                                     tint: AppDesignSystem.Palette.info
                                 )
 
                                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
-                                    HStack(spacing: AppDesignSystem.Spacing.tight) {
+                                    HStack(spacing: AppDesignSystem.Spacing.tiny) {
                                         Text(user.nickname)
                                             .font(AppDesignSystem.Typography.headline)
 
@@ -661,7 +661,7 @@ private struct MineStatButton: View {
                 .font(AppDesignSystem.Typography.headlineStrong)
                 .foregroundStyle(.primary)
             Text(title)
-                .font(AppDesignSystem.Typography.subheadlineStrong)
+                .font(AppDesignSystem.Typography.subheadlineEmphasis)
                 .foregroundStyle(.secondary)
         }
     }

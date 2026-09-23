@@ -57,8 +57,6 @@ final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertEqual(ScheduleAutomaticWeekPolicy.clamped(25), 20)
 
         // 手动翻页支持超出学期与课程周数范围的周次。
-        XCTAssertEqual(ScheduleWeekCodec.nextWeek(after: 25), 26)
-        XCTAssertEqual(ScheduleWeekCodec.previousWeek(before: -12), -13)
     }
 
     func testUnpublishedScheduleResponsePreservesSchoolMessage() throws {
@@ -152,58 +150,6 @@ final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertNil(ScheduleService.schoolBusinessErrorMessage(from: success))
         XCTAssertNil(ScheduleService.schoolBusinessErrorMessage(from: nestedSuccess))
         XCTAssertNil(ScheduleService.schoolBusinessErrorMessage(from: alternateSuccessCode))
-    }
-
-    func testCourseReplacementRequiresNewCourseAndNoStrictReduction() {
-        let old = course(id: "1", name: "高数")
-        let added = course(id: "2", name: "英语")
-        XCTAssertFalse(CourseSyncReplacementPolicy.shouldReplace(existing: [old], with: []))
-        XCTAssertFalse(CourseSyncReplacementPolicy.shouldReplace(existing: [old], with: [old]))
-        XCTAssertTrue(CourseSyncReplacementPolicy.shouldReplace(existing: [old], with: [old, added]))
-        XCTAssertTrue(CourseSyncReplacementPolicy.shouldReplace(existing: [old], with: [added]))
-        XCTAssertFalse(CourseSyncReplacementPolicy.shouldReplace(existing: [old, added], with: [old]))
-    }
-
-    func testCourseMetadataChangeCountsAsReplacement() {
-        let old = course(id: "1", name: "高数")
-        let changed = CourseRecord(
-            id: old.id,
-            term: old.term,
-            name: old.name,
-            teacher: old.teacher,
-            classroom: old.classroom,
-            description: old.description,
-            weeks: old.weeks,
-            weekday: old.weekday,
-            startSection: old.startSection,
-            endSection: old.endSection,
-            campus: "良乡校区",
-            number: old.number,
-            credit: old.credit,
-            hour: old.hour,
-            type: old.type,
-            category: old.category,
-            department: old.department
-        )
-
-        XCTAssertEqual(
-            CourseSyncReplacementPolicy.decision(existing: [old], with: [changed]),
-            .replace
-        )
-    }
-
-    func testReducedPublishedCourseResponseRequiresConfirmation() {
-        let old = course(id: "1", name: "高数")
-        let added = course(id: "2", name: "英语")
-
-        XCTAssertEqual(
-            CourseSyncReplacementPolicy.decision(existing: [old, added], with: [old]),
-            .confirm(existingCount: 2, incomingCount: 1)
-        )
-        XCTAssertEqual(
-            CourseSyncReplacementPolicy.decision(existing: [old], with: []),
-            .preserve
-        )
     }
 
     private func course(id: String, name: String) -> CourseRecord {

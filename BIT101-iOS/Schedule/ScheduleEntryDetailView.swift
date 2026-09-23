@@ -14,13 +14,15 @@ struct ScheduleEntryDetailSheet: View {
     let currentWeek: Int
     let currentTerm: String
     let allowsCourseMutation: Bool
-    let isOverviewMode: Bool
     let allowsCustomScheduleMutation: Bool
     let onOpenAcademicCourse: (CourseNavigationRequest) -> Void
     let onOpenCourseLocation: (CampusMapLocationRequest) -> Void
-    let onEditCourseOccurrence: (String) -> Void
-    let onEditCourse: (String) -> Void
-    let onDeleteCourseOccurrence: (String) -> Void
+    let timeTable: [TimeSlot]
+    let buildings: [BuildingRecord]
+    let courseArrangementDraftsForCourse: (String) -> [CourseArrangementDraft]
+    let courseArrangementDraftForOccurrence: (String, Int) -> CourseArrangementDraft?
+    let onSaveCourseArrangements: ([CourseArrangementDraft], CourseArrangementEditorMode) -> Bool
+    let onDeleteCourseOccurrence: (String, Int) -> Void
     let onDeleteCourse: (String) -> Void
     let onImportCourseOccurrence: (String, Int) -> Void
     let onImportCourse: (String) -> Void
@@ -34,6 +36,16 @@ struct ScheduleEntryDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var pendingCourseDeletion: PendingCourseDeletion?
     @State private var academicCourseAlert: AppAlert?
+    @State private var courseArrangementDrafts: [CourseArrangementDraft] = []
+    @State private var courseArrangementEditorMode: CourseArrangementEditorMode = .course
+    @State private var isShowingCourseArrangementEditor = false
+
+    private struct CourseAttributeRow: Identifiable {
+        let label: String
+        let value: String
+
+        var id: String { label }
+    }
 
     var body: some View {
         NavigationStack {
@@ -70,16 +82,6 @@ struct ScheduleEntryDetailSheet: View {
                     }
                 }
 
-                if entry.kind == .course, !allowsCourseMutation {
-                    Section("编辑") {
-                        Text(isOverviewMode
-                            ? "全学期叠加仅用于查看；请切换为按周显示后再编辑课程。"
-                            : "分享课表是只读副本，调课、删除课程和调休 / 放假操作面向当前账号自己的课表。")
-                            .font(AppDesignSystem.Typography.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
                 if entry.kind == .custom, allowsCustomScheduleMutation {
                     Section {
                         Button("编辑") {
@@ -110,14 +112,32 @@ struct ScheduleEntryDetailSheet: View {
                     Button("取消") { dismiss() }
                 }
             }
+            .sheet(isPresented: $isShowingCourseArrangementEditor) {
+                CourseArrangementEditorSheet(
+                    arrangements: $courseArrangementDrafts,
+                    timeTable: timeTable,
+                    buildings: buildings,
+                    mode: courseArrangementEditorMode,
+                    onSubmit: {
+                        if onSaveCourseArrangements(courseArrangementDrafts, courseArrangementEditorMode) {
+                            courseArrangementDrafts = []
+                            isShowingCourseArrangementEditor = false
+                        }
+                    },
+                    onDismiss: {
+                        courseArrangementDrafts = []
+                        isShowingCourseArrangementEditor = false
+                    }
+                )
+            }
             .alert(item: $pendingCourseDeletion) { target in
                 Alert(
                     title: Text("确认删除"),
                     message: Text(target.message),
                     primaryButton: .destructive(Text("删除")) {
                         switch target {
-                        case .occurrence:
-                            onDeleteCourseOccurrence(target.courseID)
+                        case let .occurrence(_, _, week):
+                            onDeleteCourseOccurrence(target.courseID, week)
                         case .wholeCourse:
                             onDeleteCourse(target.courseID)
                         }
@@ -166,30 +186,23 @@ struct ScheduleEntryDetailSheet: View {
 
     @ViewBuilder
     private var courseDetailSections: some View {
-        ForEach(academicCourseGroups.indices, id: \.self) { index in
-            let group = academicCourseGroups[index]
-            let first = group[0]
+        ForEach(academicCourseGroupsByCourse.indices, id: \.self) { index in
+            let arrangements = academicCourseGroupsByCourse[index]
+            let allCourses = arrangements.flatMap { $0 }
+            let first = allCourses[0]
+            let target = mutationTarget(for: allCourses)
             Section {
-                Text(ScheduleDisplayNormalizer.normalizeCourseTitle(first.name))
-                    .font(AppDesignSystem.Typography.headline)
-                let classrooms = unique(group.map { ScheduleDisplayNormalizer.normalizeClassroom($0.classroom) }.filter { !$0.isEmpty })
-                if !classrooms.isEmpty {
-                    Text(classrooms.joined(separator: "\n"))
-                        .foregroundStyle(.secondary)
+                ForEach(courseAttributeRows(for: allCourses), id: \.label) { row in
+                    LabeledContent(row.label, value: row.value)
                 }
-            }
-
-            Section("详情") {
-                ForEach(detailLines(for: group), id: \.self) { line in
-                    Text(line)
-                }
+                Text(arrangements.map(arrangementText).joined(separator: "\n"))
             }
 
             Section {
-                academicCourseRow(for: group)
+                academicCourseRow(for: allCourses)
 
                 Button {
-                    let places = mapPlaces(for: group)
+                    let places = mapPlaces(for: allCourses)
                     guard !places.isEmpty else {
                         academicCourseAlert = AppAlert.userInput(
                             title: "没有找到上课地点",
@@ -200,7 +213,7 @@ struct ScheduleEntryDetailSheet: View {
                     dismiss()
                     onOpenCourseLocation(
                         CampusMapLocationRequest(
-                            courseName: ScheduleDisplayNormalizer.normalizeCourseTitle(group[0].name),
+                            courseName: ScheduleDisplayNormalizer.normalizeCourseTitle(first.name),
                             places: places
                         )
                     )
@@ -212,18 +225,21 @@ struct ScheduleEntryDetailSheet: View {
             if allowsCourseMutation {
                 Section {
                     Button("调这节课") {
-                        dismiss()
-                        onEditCourseOccurrence(first.id)
+                        guard let draft = courseArrangementDraftForOccurrence(target.course.id, target.week) else { return }
+                        courseArrangementDrafts = [draft]
+                        courseArrangementEditorMode = .occurrence(week: target.week)
+                        isShowingCourseArrangementEditor = true
                     }
                     Button("调这门课") {
-                        dismiss()
-                        onEditCourse(first.id)
+                        courseArrangementDrafts = courseArrangementDraftsForCourse(first.id)
+                        courseArrangementEditorMode = .course
+                        isShowingCourseArrangementEditor = true
                     }
                     Button("删除这节课", role: .destructive) {
                         pendingCourseDeletion = .occurrence(
-                            courseID: first.id,
+                            courseID: target.course.id,
                             courseName: ScheduleDisplayNormalizer.normalizeCourseTitle(first.name),
-                            week: mutationWeek(for: group)
+                            week: target.week
                         )
                     }
                     Button("删除这门课", role: .destructive) {
@@ -236,13 +252,13 @@ struct ScheduleEntryDetailSheet: View {
 
                 Section {
                     Button("导入这节课到日历") {
-                        onImportCourseOccurrence(first.id, mutationWeek(for: group))
+                        onImportCourseOccurrence(target.course.id, target.week)
                     }
                     Button("导入这门课到日历") {
                         onImportCourse(first.id)
                     }
                     Button("移除这节课日历事件", role: .destructive) {
-                        onDeleteCalendarMarkers(["\(first.id)-w\(mutationWeek(for: group))"], currentTerm)
+                        onDeleteCalendarMarkers(["\(target.course.id)-w\(target.week)"], currentTerm)
                     }
                     Button("移除这门课日历事件", role: .destructive) {
                         onDeleteCalendarCourse(first.id, currentTerm)
@@ -250,7 +266,7 @@ struct ScheduleEntryDetailSheet: View {
                 }
             }
 
-            if index < academicCourseGroups.count - 1 {
+            if index < academicCourseGroupsByCourse.count - 1 {
                 Divider()
                     .listRowInsets(EdgeInsets(
                         top: AppDesignSystem.Spacing.content,
@@ -266,13 +282,30 @@ struct ScheduleEntryDetailSheet: View {
     private var academicCourseGroups: [[CourseRecord]] {
         var groups: [[CourseRecord]] = []
         for course in academicCourses {
-            if let index = groups.firstIndex(where: { scheduleCourseIdentity($0[0]) == scheduleCourseIdentity(course) }) {
+            if let index = groups.firstIndex(where: {
+                scheduleCourseArrangementIdentity($0[0]) == scheduleCourseArrangementIdentity(course)
+            }) {
                 groups[index].append(course)
             } else {
                 groups.append([course])
             }
         }
         return groups
+    }
+
+    private var academicCourseGroupsByCourse: [[[CourseRecord]]] {
+        var result: [[[CourseRecord]]] = []
+        for arrangement in academicCourseGroups {
+            let identity = scheduleCourseIdentity(arrangement[0])
+            if let index = result.firstIndex(where: {
+                scheduleCourseIdentity($0[0][0]) == identity
+            }) {
+                result[index].append(arrangement)
+            } else {
+                result.append([arrangement])
+            }
+        }
+        return result
     }
 
     private func unique(_ values: [String]) -> [String] {
@@ -307,32 +340,42 @@ struct ScheduleEntryDetailSheet: View {
         }
     }
 
-    private func detailLines(for group: [CourseRecord]) -> [String] {
+    private func courseAttributeRows(for group: [CourseRecord]) -> [CourseAttributeRow] {
         guard let first = group.first else { return [] }
         let teachers = unique(group.map(\.teacher).filter { !$0.isEmpty })
         let classrooms = unique(group.map { ScheduleDisplayNormalizer.normalizeClassroom($0.classroom) }.filter { !$0.isEmpty })
-        let sections = unique(group.map(\.sectionText))
-        let descriptions = unique(group.map(\.description).filter { !$0.isEmpty })
         return [
-            teachers.isEmpty ? nil : "教师：\(teachers.joined(separator: "、"))",
-            classrooms.isEmpty ? nil : "教室：\(classrooms.joined(separator: "\n"))",
-            "学分：\(first.credit > 0 ? String(first.credit) : "-")",
-            "节次：\(sections.joined(separator: "\n"))",
-            descriptions.isEmpty ? nil : descriptions.joined(separator: "\n"),
-        ].compactMap { $0 }
+            CourseAttributeRow(label: "名称", value: ScheduleDisplayNormalizer.normalizeCourseTitle(first.name)),
+            CourseAttributeRow(label: "地点", value: classrooms.isEmpty ? "暂无" : classrooms.joined(separator: "、")),
+            CourseAttributeRow(label: "教师", value: teachers.isEmpty ? "暂无" : teachers.joined(separator: "、")),
+            CourseAttributeRow(label: "学分", value: first.creditText),
+        ]
     }
 
-    private func mutationWeek(for group: [CourseRecord]) -> Int {
-        guard let course = group.first else { return currentWeek }
-        return course.weeks.contains(currentWeek) ? currentWeek : (course.weeks.first ?? currentWeek)
+    private func arrangementText(for arrangement: [CourseRecord]) -> String {
+        guard let first = arrangement.first else { return "时间安排" }
+        let weeks = "\(ScheduleCourseEditor.formatWeeks(arrangement.flatMap(\.weeks)))周"
+        let weekday = weekdayText(first.weekday).replacingOccurrences(of: "周", with: "")
+        let classroom = ScheduleDisplayNormalizer.normalizeClassroom(first.classroom)
+        return "\(weeks) 星期\(weekday) \(first.startSection)-\(first.endSection)节 \(classroom)"
     }
-}
 
-func scheduleCourseIdentity(_ course: CourseRecord) -> String {
-    let number = course.number.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    let name = course.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    if !number.isEmpty {
-        return "number:\(number)|name:\(name)"
+    private func weekdayText(_ weekday: Int) -> String {
+        let titles = ["", "一", "二", "三", "四", "五", "六", "日"]
+        return titles.indices.contains(weekday) ? titles[weekday] : "?"
     }
-    return "name:\(name)|teacher:\(course.teacher.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
+
+    private func mutationTarget(for courses: [CourseRecord]) -> (course: CourseRecord, week: Int) {
+        guard let first = courses.first else {
+            fatalError("课程详情缺少课程记录")
+        }
+        if let currentCourse = courses.first(where: { $0.weeks.contains(currentWeek) }) {
+            return (currentCourse, currentWeek)
+        }
+        if let firstWeek = courses.flatMap(\.weeks).sorted().first,
+           let firstCourse = courses.first(where: { $0.weeks.contains(firstWeek) }) {
+            return (firstCourse, firstWeek)
+        }
+        return (first, currentWeek)
+    }
 }

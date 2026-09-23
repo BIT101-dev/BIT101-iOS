@@ -107,7 +107,7 @@ enum ScheduleReminderBackgroundRefresh {
 
     /// 根据下一次课前提醒边界，提交一条后台刷新请求。
     ///
-    /// 重新提交同一 identifier 的请求时，系统会用新的请求替换旧请求。
+    /// 同一 identifier 的新请求会替换先前提交的请求。
     static func schedule(earliestBeginDate: Date?) {
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)
         guard let earliestBeginDate else { return }
@@ -167,7 +167,7 @@ struct BIT101_iOSApp: App {
         Task {
             let fakeCookie = LoginStorage.shared.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            // 退出登录后取消后台刷新，避免旧账号缓存继续触发提醒任务。
+            // 退出登录后取消后台刷新，隔离当前账号的提醒任务。
             guard !fakeCookie.isEmpty else {
                 ScheduleReminderBackgroundRefresh.schedule(earliestBeginDate: nil)
                 await ScheduleLiveActivityManager.shared.endAllActivities()
@@ -195,7 +195,8 @@ struct BIT101_iOSApp: App {
                     _ = await ReleaseNetworkSmokeRunner().run(
                         scope: smokeRequest.scope,
                         runID: smokeRequest.runID,
-                        capture: smokeRequest.capture
+                        capture: smokeRequest.capture,
+                        term: smokeRequest.term
                     )
                 }
                 .onOpenURL { url in
@@ -204,7 +205,8 @@ struct BIT101_iOSApp: App {
                         _ = await ReleaseNetworkSmokeRunner().run(
                             scope: smokeRequest.scope,
                             runID: smokeRequest.runID,
-                            capture: smokeRequest.capture
+                            capture: smokeRequest.capture,
+                            term: smokeRequest.term
                         )
                     }
                 }

@@ -30,6 +30,12 @@
 		E8DF51F6326A8FA9797F82E9 /* BIT101WatchWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 6C427FABBA6FB6C2CF4098BE /* BIT101WatchWidgets.appex */; };
 		F52E9C051CAF65D91825FB7A /* WatchScheduleRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6C2ACF3AF5C705FD407FBA /* WatchScheduleRootView.swift */; };
 		F65927450E15455FB026D9C1 /* BIT101ScheduleWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0382F3A6842C7256F74D4FCC /* BIT101ScheduleWidgets.appex */; platformFilter = ios; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		D51000000000000000000002 /* DesignPrimitives.swift in Sources */ = {isa = PBXBuildFile; fileRef = D51000000000000000000001 /* DesignPrimitives.swift */; };
+		D51000000000000000000003 /* DesignPrimitives.swift in Sources */ = {isa = PBXBuildFile; fileRef = D51000000000000000000001 /* DesignPrimitives.swift */; };
+		D51000000000000000000004 /* DesignPrimitives.swift in Sources */ = {isa = PBXBuildFile; fileRef = D51000000000000000000001 /* DesignPrimitives.swift */; };
+		D51000000000000000000006 /* ExternalDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = D51000000000000000000005 /* ExternalDesignSystem.swift */; };
+		D51000000000000000000007 /* ExternalDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = D51000000000000000000005 /* ExternalDesignSystem.swift */; };
+		D51000000000000000000008 /* ExternalDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = D51000000000000000000005 /* ExternalDesignSystem.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -125,6 +131,8 @@
 		F1E4DE63842E0A7A6C0DE9F9 /* BIT101ScheduleWidgets.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BIT101ScheduleWidgets.swift; sourceTree = "<group>"; };
 		F49E2B4B4D5BE4DD9D59BDF1 /* BIT101ScheduleWidgets.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = BIT101ScheduleWidgets.entitlements; sourceTree = "<group>"; };
 		F8E44554F89A8994A3C6A41E /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		D51000000000000000000001 /* DesignPrimitives.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem/DesignPrimitives.swift; sourceTree = "<group>"; };
+		D51000000000000000000005 /* ExternalDesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem/ExternalDesignSystem.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -231,6 +239,8 @@
 		C5319C351048C6B74D7C2653 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				D51000000000000000000001 /* DesignPrimitives.swift */,
+				D51000000000000000000005 /* ExternalDesignSystem.swift */,
 				498515EF1571216B6C662577 /* ScheduleSharedSnapshot.swift */,
 				DE2C0A347C3DFB45B555EAF0 /* ScheduleSharedOccurrence.swift */,
 				3CF4896F51E6C19BBE15048C /* ScheduleSharedLiveActivity.swift */,
@@ -485,6 +495,8 @@
 				C8618324F1CB0A8EB9CB55F9 /* BIT101ScheduleWidgetsBundle.swift in Sources */,
 				85798F727C7A8202CDFECFA1 /* BIT101ScheduleWidgets.swift in Sources */,
 				7E481656A9CBB85EA5FA51AD /* ScheduleSharedSnapshot.swift in Sources */,
+				D51000000000000000000006 /* ExternalDesignSystem.swift in Sources */,
+				D51000000000000000000002 /* DesignPrimitives.swift in Sources */,
 				14721303F52951498981FB7F /* ScheduleSharedOccurrence.swift in Sources */,
 				6B9445E6F09E8957FC4C25BE /* ScheduleSharedLiveActivity.swift in Sources */,
 			);
@@ -497,6 +509,8 @@
 				0D6CC15DA5636384C904E0AD /* BIT101WatchWidgetsBundle.swift in Sources */,
 				8FD3C2B3B8C6D5E68B474DD7 /* BIT101WatchScheduleWidget.swift in Sources */,
 				A44A833C45CA0AA37FAD6708 /* ScheduleSharedSnapshot.swift in Sources */,
+				D51000000000000000000007 /* ExternalDesignSystem.swift in Sources */,
+				D51000000000000000000003 /* DesignPrimitives.swift in Sources */,
 				33BCD239CC2949787F9D7E6F /* ScheduleSharedOccurrence.swift in Sources */,
 				46FBCFC063C5DE6022EC19D0 /* ScheduleSharedLiveActivity.swift in Sources */,
 			);
@@ -510,6 +524,8 @@
 				32D8F834E87443B18CE8F6B1 /* WatchScheduleStatusModel.swift in Sources */,
 				F52E9C051CAF65D91825FB7A /* WatchScheduleRootView.swift in Sources */,
 				80FEE566078E573A01F25942 /* ScheduleSharedSnapshot.swift in Sources */,
+				D51000000000000000000008 /* ExternalDesignSystem.swift in Sources */,
+				D51000000000000000000004 /* DesignPrimitives.swift in Sources */,
 				86480E32AA132F273CEFA205 /* ScheduleSharedOccurrence.swift in Sources */,
 				E89B1AAE46D4FFA1A056C483 /* ScheduleSharedLiveActivity.swift in Sources */,
 				31C4ED6573B18E57E68C9998 /* WatchScheduleSyncManager.swift in Sources */,

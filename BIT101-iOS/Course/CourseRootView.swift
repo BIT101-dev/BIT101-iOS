@@ -322,7 +322,7 @@ private struct CourseSearchRow: View {
     let onSubmit: () -> Void
 
     var body: some View {
-        HStack(spacing: AppDesignSystem.Spacing.control) {
+        HStack(spacing: AppDesignSystem.Spacing.regular) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
@@ -353,7 +353,7 @@ private struct CourseListRow: View {
     let course: CourseSummary
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tight) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
             AppFixedColumnRow(
                 items: [
                     AppFixedColumnItem(
@@ -377,7 +377,7 @@ private struct CourseListRow: View {
                         alignment: .trailing
                     ),
                 ],
-                height: AppDesignSystem.Size.compactRow.primaryHeight
+                height: AppDesignSystem.Size.CompactRow.primaryHeight
             )
 
             AppFixedColumnRow(
@@ -402,7 +402,7 @@ private struct CourseListRow: View {
                         alignment: .trailing
                     ),
                 ],
-                height: AppDesignSystem.Size.compactRow.secondaryHeight
+                height: AppDesignSystem.Size.CompactRow.secondaryHeight
             )
         }
     }

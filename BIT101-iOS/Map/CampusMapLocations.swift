@@ -161,7 +161,7 @@ nonisolated enum CampusMapPlaceCatalog {
         return all.first { $0.campus == campus && $0.name == buildingName }
     }
 
-    /// 优先使用教务返回的校区；共享课表等旧数据缺失校区时，再按建筑前缀推断。
+    /// 优先使用教务返回的校区；共享课表缺少校区字段时按建筑前缀推断。
     static func campus(campusName: String, classroom: String) -> CampusPreset? {
         if campusName.contains("良乡") { return .liangxiang }
         if campusName.contains("中关村") { return .zhongguancun }
@@ -185,7 +185,7 @@ nonisolated enum CampusMapPlaceCatalog {
         return nil
     }
 
-    /// 将同一建筑的门牌号和历史异写归并为地图显示名称。
+    /// 将同一建筑的门牌号与名称别名归并为地图显示名称。
     private static func buildingName(campus: CampusPreset, classroom: String) -> String? {
         switch campus {
         case .zhongguancun:

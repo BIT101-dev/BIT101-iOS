@@ -11,7 +11,6 @@ import stat
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOTS = (
     ROOT / "BIT101-iOS",
@@ -22,11 +21,22 @@ SOURCE_ROOTS = (
 )
 SCRIPT_ROOT = ROOT / "Scripts"
 REPORT_PATH = ROOT / ".build/code-quality-report.txt"
-DESIGN_SYSTEM = ROOT / "BIT101-iOS/Shared/DesignSystem/AppDesignSystem.swift"
-FONT_DESIGN_SYSTEMS = {
-    DESIGN_SYSTEM,
-    ROOT / "BIT101-iOS/Shared/ScheduleSharedSnapshot.swift",
+
+DIRECT_STDOUT_LOG = re.compile(r"\b(?:print|debugPrint|NSLog)\s*\(")
+
+DIRECT_SHARED_URLSESSION = re.compile(r"\bURLSession\.shared\b")
+
+DIRECT_DATE_FORMATTER = re.compile(
+    r"\b(?:DateFormatter|ISO8601DateFormatter|RelativeDateTimeFormatter)\s*\("
+)
+
+URLSESSION_EXCEPTIONS = {
+    "BIT101-iOS/Shared/Client/HTTPClient.swift",
+    "BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift",
 }
+
+STDOUT_EXCEPTIONS = {"Shared/Client/ReleaseNetworkSmoke.swift"}
+
 
 def relative(path: Path) -> str:
     return path.relative_to(ROOT).as_posix()
@@ -123,26 +133,33 @@ def source_findings() -> tuple[list[str], list[str]]:
     errors: list[str] = []
     review: list[str] = []
     force_unwrap = re.compile(r"\b[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*!(?!=)|\)\s*!(?!=)")
-    numeric_layout = re.compile(
-        r"\.(?:padding|frame|offset|cornerRadius|shadow|opacity|scaleEffect|spacing)\s*\([^\n]*\d"
-    )
     direct_view_request = re.compile(r"\bURLRequest\s*\(")
     direct_cancellation_check = re.compile(r"\berror\s+is\s+CancellationError\b")
     empty_catch = re.compile(r"\bcatch\s*\{\s*\}")
-    swift_explicit_font_size = re.compile(
-        r"(?:\bFont\.system|\.system)\s*\(\s*size\s*:\s*(?P<value>[^,\)\n]+)"
-    )
-    ui_explicit_font_size = re.compile(
-        r"\bUIFont\.systemFont\s*\(\s*ofSize\s*:\s*(?P<value>[^,\)\n]+)"
-    )
-    custom_font = re.compile(r"\bFont\.custom\s*\(")
 
     large_files: list[str] = []
-    layout_counts: list[tuple[int, str]] = []
     for path in swift_files():
         source = path.read_text(encoding="utf-8")
         masked_source = mask_literals_and_comments(source)
         name = relative(path)
+
+        if path.is_relative_to(ROOT / "BIT101-iOS"):
+            if name.removeprefix("BIT101-iOS/") not in STDOUT_EXCEPTIONS:
+                for match in DIRECT_STDOUT_LOG.finditer(source):
+                    finding_line = source.count("\n", 0, match.start()) + 1
+                    errors.append(f"{name}:{finding_line}: 调试输出统一由网络 smoke 维护")
+
+            if name not in URLSESSION_EXCEPTIONS:
+                for match in DIRECT_SHARED_URLSESSION.finditer(source):
+                    finding_line = source.count("\n", 0, match.start()) + 1
+                    errors.append(f"{name}:{finding_line}: 网络请求统一通过 HTTPClient 或场景化 Service")
+
+            if name.removeprefix("BIT101-iOS/").split("/", 1)[0] in {"Course", "Gallery", "Paper"} and "View" in path.stem:
+                for match in DIRECT_DATE_FORMATTER.finditer(source):
+                    finding_line = source.count("\n", 0, match.start()) + 1
+                    errors.append(
+                        f"{name}:{finding_line}: 社区日期解析统一使用 AppDateText"
+                    )
 
         if source and not source.endswith("\n"):
             errors.append(f"{name}: 文件末尾缺少换行")
@@ -165,50 +182,18 @@ def source_findings() -> tuple[list[str], list[str]]:
             errors.append(f"{name}: 不应保留 #if false 死代码块")
         add_matches(errors, path, masked_source, re.compile(r"\b(?:TODO|FIXME|HACK)\b"), "请清理遗留 TODO/FIXME/HACK")
 
-        if name != relative(ROOT / "BIT101-iOS/Shared/Infrastructure/TaskCancellation.swift"):
+        if name != relative(ROOT / "BIT101-iOS/Shared/Client/TaskCancellation.swift"):
             add_matches(errors, path, masked_source, direct_cancellation_check, "任务取消必须通过 TaskCancellation.matches 统一识别")
         add_matches(errors, path, masked_source, empty_catch, "禁止静默吞掉异常；请记录诊断或显式处理错误")
         if path.name.endswith("View.swift") or path.name.endswith("Screen.swift"):
             add_matches(errors, path, masked_source, direct_view_request, "View 不应直接构造 URLRequest；请求移到 Service")
 
-        if path not in FONT_DESIGN_SYSTEMS:
-            for match in swift_explicit_font_size.finditer(masked_source):
-                value = match.group("value").strip()
-                if "AppDesignSystem." not in value and "ScheduleExternalDesignSystem." not in value:
-                    errors.append(
-                        f"{name}:{line_number(masked_source, match.start())}: "
-                        f"字体字号必须使用设计系统令牌或系统语义字体：{value}"
-                    )
-            for match in ui_explicit_font_size.finditer(masked_source):
-                value = match.group("value").strip()
-                if "AppDesignSystem." not in value and "ScheduleExternalDesignSystem." not in value:
-                    errors.append(
-                        f"{name}:{line_number(masked_source, match.start())}: "
-                        f"UIFont 字号必须使用设计系统令牌或系统语义字体：{value}"
-                    )
-            add_matches(
-                errors,
-                path,
-                masked_source,
-                custom_font,
-                "字体必须使用系统语义字体或设计系统令牌；Font.custom 进入人工审查",
-            )
-
-        if path != DESIGN_SYSTEM:
-            count = len(numeric_layout.findall(masked_source))
-            if count:
-                layout_counts.append((count, name))
         force_count = len(force_unwrap.findall(masked_source))
         if force_count:
             errors.append(f"{name}: 禁止强制解包，共 {force_count} 处；请改用 guard/if let/#require")
         if len(source.splitlines()) > 800:
             large_files.append(name)
 
-    if layout_counts:
-        review.append(
-            "固定布局值候选（仅供迁移审查）："
-            + ", ".join(f"{name} × {count}" for count, name in sorted(layout_counts, reverse=True))
-        )
     if large_files:
         review.append("大型文件候选（按独立生命周期拆分，不因长度机械拆分）：" + ", ".join(large_files))
     return errors, review
@@ -343,25 +328,6 @@ def architectural_contract_findings() -> list[str]:
         if "AppFileDirectories.applicationSupport" not in source:
             errors.append(f"{file_name}: 持久化仓库必须复用 AppFileDirectories.applicationSupport")
 
-    forbidden_duplicate_wrappers = (
-        "GalleryFloatingActionButton",
-        "PaperFloatingActionButton",
-        "FloatingMapButton",
-    )
-    for path in swift_files():
-        source = path.read_text(encoding="utf-8")
-        for name in forbidden_duplicate_wrappers:
-            if re.search(rf"\b(?:struct|class|enum)\s+{name}\b", source):
-                errors.append(f"{relative(path)}: 不得重新包装 {name}，请直接使用公共浮动按钮组件")
-
-    # 首屏文字加载状态必须走公共状态组件；按钮内的无文字进度条仍可保留。
-    for path in swift_files():
-        if path == ROOT / "BIT101-iOS/Shared/Infrastructure/AppStateComponents.swift":
-            continue
-        source = path.read_text(encoding="utf-8")
-        if re.search(r"\bProgressView\s*\(\s*\"", source):
-            errors.append(f"{relative(path)}: 首屏文字加载状态必须使用 AppLoadingState/AppInlineLoadingState")
-
     for path in sorted((ROOT / "BIT101-iOS").rglob("*.swift")):
         if not path.name.endswith(("ViewModel.swift", "ViewModels.swift")):
             continue
@@ -373,24 +339,16 @@ def architectural_contract_findings() -> list[str]:
 
 
 def audit_wiring_findings() -> list[str]:
-    """防止新增检查脚本存在，却没有进入统一静态审计入口。"""
+    """检查统一静态审计入口与 CI 门禁。"""
     errors: list[str] = []
     audit_path = ROOT / "Scripts/run-static-audit.sh"
     audit_source = audit_path.read_text(encoding="utf-8")
-    required_groups = {
-        "check-ui-consistency.sh": "run_group ui-consistency",
-        "check-haptic-consistency.sh": "run_group haptic-consistency",
-        "check-component-consistency.sh": "run_group component-consistency",
-        "check-error-report-coverage.sh": "check-error-report-coverage.sh",
-        "check_stale_docs.py": "check_stale_docs.py",
-        "check-code-quality.sh": "run_group code-quality",
-    }
-    for checker, invocation in required_groups.items():
-        checker_path = SCRIPT_ROOT / checker
-        if not checker_path.is_file():
-            errors.append(f"Scripts/{checker}: 检查脚本不存在")
-        if invocation not in audit_source:
-            errors.append(f"Scripts/run-static-audit.sh: 未接入 {checker}")
+    if "run_group ui-consistency ui_consistency" not in audit_source:
+        errors.append("Scripts/run-static-audit.sh: 未接入统一 UI 审计")
+    if "run_group code-quality code_quality" not in audit_source:
+        errors.append("Scripts/run-static-audit.sh: 未接入统一代码质量审计")
+    if "check_stale_docs.py" not in audit_source:
+        errors.append("Scripts/run-static-audit.sh: 未接入文档状态检查")
     if "release-network-smoke" in audit_source:
         errors.append("Scripts/run-static-audit.sh: 静态审计不得调用网络 smoke")
 

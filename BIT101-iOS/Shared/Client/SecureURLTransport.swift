@@ -49,7 +49,7 @@ final class NoRedirectURLSessionDelegate: NSObject, URLSessionTaskDelegate {
     }
 }
 
-/// 正常跟随重定向；学校历史地址中的明文 HTTP 目标在这里升级为 HTTPS。
+/// 正常跟随重定向；学校链接中的 HTTP 目标在此升级为 HTTPS。
 final class HTTPSUpgradingRedirectDelegate: NSObject, URLSessionTaskDelegate {
     func urlSession(
         _ session: URLSession,

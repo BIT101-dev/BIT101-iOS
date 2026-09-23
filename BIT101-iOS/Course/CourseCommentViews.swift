@@ -18,7 +18,7 @@ struct CourseCommentsSection: View {
     let onLoadMore: (GalleryComment?) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.container) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
             AppCommentSectionHeader(count: totalCommentCount) { EmptyView() }
 
             switch status {
@@ -54,7 +54,7 @@ struct CourseCommentsSection: View {
 
                                 if index != comments.count - 1 {
                                     Divider()
-                                        .padding(.leading, AppDesignSystem.Comment.layout.dividerLeading)
+                                        .padding(.leading, AppDesignSystem.Comment.replyInset)
                                 }
                             }
                             .onAppear {
@@ -100,8 +100,8 @@ private struct CourseCommentRow: View {
                     ? nil
                     : URL(string: comment.user.avatar.lowUrl.isEmpty ? comment.user.avatar.url : comment.user.avatar.lowUrl),
                 size: isSubComment
-                    ? AppDesignSystem.Size.control.compact
-                    : AppDesignSystem.Comment.layout.avatarSize
+                    ? AppDesignSystem.Size.Control.compact
+                    : AppDesignSystem.Size.Avatar.standard
             )
         } content: {
             AppCommentIdentityHeader(
@@ -113,7 +113,7 @@ private struct CourseCommentRow: View {
 
             if comment.rate > 0 {
                 Label(CourseRatingText.text(from: comment.rate), systemImage: "star.fill")
-                    .font(AppDesignSystem.Typography.captionMedium)
+                    .font(AppDesignSystem.Typography.captionEmphasis)
                     .foregroundStyle(AppDesignSystem.Palette.highlight)
             }
 
@@ -233,14 +233,14 @@ struct CourseCommentComposerSheet: View {
 
                 if supportsCourseRating {
                     Section("评分") {
-                        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.control) {
-                            HStack(spacing: AppDesignSystem.Spacing.tight) {
+                        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
+                            HStack(spacing: AppDesignSystem.Spacing.tiny) {
                                 ForEach(1 ... 5, id: \.self) { value in
                                     ZStack {
                                         Image(systemName: starSymbol(for: value))
                                             .font(AppDesignSystem.Typography.title3)
                                             .foregroundStyle(AppDesignSystem.Palette.highlight)
-                                            .frame(width: AppDesignSystem.Size.control.compact, height: AppDesignSystem.Size.control.compact)
+                                            .frame(width: AppDesignSystem.Size.Control.compact, height: AppDesignSystem.Size.Control.compact)
                                             .accessibilityHidden(true)
 
                                         HStack(spacing: AppDesignSystem.Spacing.none) {
@@ -249,8 +249,8 @@ struct CourseCommentComposerSheet: View {
                                             } label: {
                                                 Color.clear
                                                     .frame(
-                                                        width: AppDesignSystem.Size.control.halfTouchTarget,
-                                                        height: AppDesignSystem.Size.control.touchTarget
+                                                        width: AppDesignSystem.Size.Control.halfTouchTarget,
+                                                        height: AppDesignSystem.Size.Control.touchTarget
                                                     )
                                                     .contentShape(Rectangle())
                                             }
@@ -262,8 +262,8 @@ struct CourseCommentComposerSheet: View {
                                             } label: {
                                                 Color.clear
                                                     .frame(
-                                                        width: AppDesignSystem.Size.control.halfTouchTarget,
-                                                        height: AppDesignSystem.Size.control.touchTarget
+                                                        width: AppDesignSystem.Size.Control.halfTouchTarget,
+                                                        height: AppDesignSystem.Size.Control.touchTarget
                                                     )
                                                     .contentShape(Rectangle())
                                             }
@@ -271,8 +271,8 @@ struct CourseCommentComposerSheet: View {
                                             .accessibilityLabel(ratingAccessibilityLabel(for: value, isHalf: false))
                                         }
                                         .frame(
-                                            width: AppDesignSystem.Size.control.touchTarget,
-                                            height: AppDesignSystem.Size.control.touchTarget
+                                            width: AppDesignSystem.Size.Control.touchTarget,
+                                            height: AppDesignSystem.Size.Control.touchTarget
                                         )
                                     }
                                 }

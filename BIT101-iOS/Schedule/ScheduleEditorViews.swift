@@ -26,14 +26,7 @@ struct AddCourseSheet: View {
                     TextField("", text: $draft.title, prompt: AppInputPrompt.text("课程名称"))
                     TextField("", text: $draft.teacher, prompt: AppInputPrompt.text("教师"))
                     TextField("", text: $draft.classroom, prompt: AppInputPrompt.text("教室"))
-                    if mode.locksWeeks, let fixedWeek = mode.fixedWeek {
-                        LabeledContent("周次") {
-                            Text("第\(fixedWeek)周")
-                                .foregroundStyle(.secondary)
-                        }
-                    } else {
-                        TextField("", text: $draft.weeksText, prompt: AppInputPrompt.text("周次（如 1-16,18）"))
-                    }
+                    TextField("", text: $draft.weeksText, prompt: AppInputPrompt.text("周次（如 1-16,18）"))
                 }
 
                 Section("时间") {
@@ -59,11 +52,6 @@ struct AddCourseSheet: View {
                     .appSelectionFeedback(trigger: draft.endSection)
                 }
 
-                Section {
-                    Text(mode.footerText)
-                        .font(AppDesignSystem.Typography.footnote)
-                        .foregroundStyle(.secondary)
-                }
             }
             .navigationTitle(mode.title)
             .navigationBarTitleDisplayMode(.inline)
@@ -76,6 +64,219 @@ struct AddCourseSheet: View {
                 }
             }
         }
+    }
+}
+
+/// 一门课程的多项时间安排编辑页。
+struct CourseArrangementEditorSheet: View {
+    @Binding var arrangements: [CourseArrangementDraft]
+    let timeTable: [TimeSlot]
+    let buildings: [BuildingRecord]
+    let mode: CourseArrangementEditorMode
+    let onSubmit: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                ForEach($arrangements) { $arrangement in
+                    Section(arrangement.title) {
+                        LabeledContent("名称", value: arrangement.original.title)
+                        LabeledContent("地点", value: arrangement.original.classroom)
+                        LabeledContent("周次", value: "\(arrangement.original.weeksText)周")
+                        LabeledContent("星期", value: weekdayText(arrangement.original.weekday))
+                        LabeledContent(
+                            "节次",
+                            value: "第\(arrangement.original.startSection)-\(arrangement.original.endSection)节"
+                        )
+                    }
+
+                    Section {
+                        Picker("楼宇", selection: $arrangement.draft.buildingName) {
+                            ForEach(buildings) { building in
+                                Text(building.name).tag(building.name)
+                            }
+                        }
+                        .appSelectionFeedback(trigger: arrangement.draft.buildingName)
+                        HStack(spacing: AppDesignSystem.Spacing.regular) {
+                            Text("房间号")
+                            Spacer()
+                            TextField("", text: $arrangement.draft.roomNumber, prompt: AppInputPrompt.text("房间号"))
+                                .multilineTextAlignment(.trailing)
+                                .textFieldStyle(.plain)
+                                .foregroundStyle(AppDesignSystem.Palette.accent)
+                                .tint(AppDesignSystem.Palette.accent)
+                        }
+
+                        NavigationLink {
+                            ScheduleWeekSelectionSheet(
+                                weeks: weekOptions(for: arrangement),
+                                selectedWeeks: weekSelectionBinding(for: $arrangement)
+                            )
+                        } label: {
+                            LabeledContent("周次", value: weeksText(for: arrangement.draft))
+                        }
+
+                        NavigationLink {
+                            ScheduleWeekdaySelectionSheet(
+                                selectedWeekday: Binding(
+                                    get: { $arrangement.wrappedValue.draft.weekday },
+                                    set: { $arrangement.wrappedValue.draft.weekday = $0 }
+                                )
+                            )
+                        } label: {
+                            LabeledContent("星期", value: weekdayText(arrangement.draft.weekday))
+                        }
+
+                        NavigationLink {
+                            ScheduleSectionSelectionSheet(
+                                timeTable: timeTable,
+                                selectedSections: sectionSelectionBinding(for: $arrangement)
+                            )
+                        } label: {
+                            LabeledContent("节次", value: sectionsText(for: arrangement.draft))
+                        }
+                    }
+                }
+            }
+            .appGroupedListStyle()
+            .tint(AppDesignSystem.Palette.accent)
+            .navigationTitle(mode.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("取消", action: onDismiss)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("确定", action: onSubmit)
+                }
+            }
+        }
+    }
+
+    private func weekSelectionBinding(
+        for arrangement: Binding<CourseArrangementDraft>
+    ) -> Binding<[Int]> {
+        Binding(
+            get: {
+                (try? ScheduleCourseEditor.parseWeeks(arrangement.wrappedValue.draft.weeksText)) ?? []
+            },
+            set: { weeks in
+                arrangement.wrappedValue.draft.weeksText = ScheduleCourseEditor.formatWeeks(weeks)
+            }
+        )
+    }
+
+    private func sectionSelectionBinding(
+        for arrangement: Binding<CourseArrangementDraft>
+    ) -> Binding<[Int]> {
+        Binding(
+            get: {
+                let draft = arrangement.wrappedValue.draft
+                return draft.selectedSections.isEmpty
+                    ? Array(draft.startSection ... draft.endSection)
+                    : draft.selectedSections
+            },
+            set: { sections in
+                let sorted = Array(Set(sections)).sorted()
+                arrangement.wrappedValue.draft.selectedSections = sorted
+                if let first = sorted.first, let last = sorted.last {
+                    arrangement.wrappedValue.draft.startSection = first
+                    arrangement.wrappedValue.draft.endSection = last
+                }
+            }
+        )
+    }
+
+    private func weekOptions(for arrangement: CourseArrangementDraft) -> [Int] {
+        Array(-3 ... 16).filter { $0 != 0 }
+    }
+
+    private func weeksText(for draft: CourseDraft) -> String {
+        let text = draft.weeksText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? "请选择" : "\(text)周"
+    }
+
+    private func sectionsText(for draft: CourseDraft) -> String {
+        let sections = draft.selectedSections.isEmpty
+            ? Array(draft.startSection ... draft.endSection)
+            : draft.selectedSections.sorted()
+        guard let first = sections.first, let last = sections.last else { return "请选择" }
+        return sections == Array(first ... last)
+            ? "第\(first)-\(last)节"
+            : sections.map(String.init).joined(separator: "、") + "节"
+    }
+
+    private func weekdayText(_ weekday: Int) -> String {
+        let titles = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+        return titles.indices.contains(weekday) ? titles[weekday] : "请选择"
+    }
+}
+
+struct ScheduleWeekSelectionSheet: View {
+    let weeks: [Int]
+    @Binding var selectedWeeks: [Int]
+
+    var body: some View {
+        AppMultiSelectionList(
+            title: "周次",
+            items: weeks,
+            itemTitle: { "第\($0)周" },
+            selectAllTitle: nil,
+            showsCompletionButton: true,
+            selectedItems: $selectedWeeks
+        )
+    }
+}
+
+struct ScheduleWeekdaySelectionSheet: View {
+    @Binding var selectedWeekday: Int
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List(1 ... 7, id: \.self) { weekday in
+                Button {
+                    selectedWeekday = weekday
+                    dismiss()
+                } label: {
+                    HStack(spacing: AppDesignSystem.Spacing.regular) {
+                        Text(weekdayText(weekday))
+                        Spacer()
+                        if selectedWeekday == weekday {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(AppDesignSystem.Palette.accent)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+            .navigationTitle("星期")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    private func weekdayText(_ weekday: Int) -> String {
+        ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"][weekday]
+    }
+}
+
+struct ScheduleSectionSelectionSheet: View {
+    let timeTable: [TimeSlot]
+    @Binding var selectedSections: [Int]
+
+    var body: some View {
+        AppMultiSelectionList(
+            title: "节次",
+            items: timeTable.map(\.id),
+            itemTitle: { id in
+                let slot = timeTable.first { $0.id == id }
+                return "第\(id)节  \(slot?.start ?? "")-\(slot?.end ?? "")"
+            },
+            selectAllTitle: nil,
+            showsCompletionButton: true,
+            selectedItems: $selectedSections
+        )
     }
 }
 
@@ -104,11 +305,6 @@ struct AddEditCustomScheduleSheet: View {
                     DatePicker("结束时间", selection: $draft.endTime, displayedComponents: .hourAndMinute)
                 }
 
-                Section {
-                    Text("请不要把时间设在课间或极短时段，和其它日程冲突时会发生覆盖。")
-                        .font(AppDesignSystem.Typography.footnote)
-                        .foregroundStyle(.secondary)
-                }
             }
             .navigationTitle(isEditing ? "修改自定义日程" : "添加自定义日程")
             .navigationBarTitleDisplayMode(.inline)
@@ -139,14 +335,10 @@ struct TimeTableEditorSheet: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
-                Text("每行格式：开始时间, 结束时间")
-                    .font(AppDesignSystem.Typography.footnote)
-                    .foregroundStyle(.secondary)
-
                 AppCard(variant: .compact) {
                     TextEditor(text: $text)
                         .font(AppDesignSystem.Typography.bodyMonospaced)
-                        .frame(minHeight: AppDesignSystem.Size.content.multilineEditorMinimumHeight)
+                        .frame(minHeight: AppDesignSystem.Size.Content.multilineEditorMinimumHeight)
                 }
 
                 Spacer()

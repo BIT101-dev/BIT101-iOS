@@ -19,7 +19,7 @@ struct AppInlineLoadingState: View {
     }
 
     var body: some View {
-        HStack(spacing: AppDesignSystem.Spacing.control) {
+        HStack(spacing: AppDesignSystem.Spacing.regular) {
             Spacer()
             if let title {
                 ProgressView(title)

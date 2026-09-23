@@ -599,7 +599,7 @@ struct GalleryMessageUnreadCounts: Decodable, Equatable {
 
 /// 单条消息模型。
 ///
-/// 服务端沿用 Web 端的 `obj/link_obj` 字段命名。helper 从字段中解析目标帖子 ID。
+/// 消息数据通过 `obj/link_obj` 字段关联目标帖子。
 struct GalleryMessage: Decodable, Identifiable, Hashable {
     let fromUser: GalleryMessageUser
     let id: Int

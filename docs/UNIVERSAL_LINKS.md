@@ -18,7 +18,7 @@ App 自定义 URL Scheme 还支持以下入口：
 - `bit101://gallery/{id}`：打开话题详情。
 - `bit101://course/{id}`：打开课程详情。
 
-上述路由由 `Shared/Infrastructure/AppDeepLinkCoordinator.swift` 解析，登录状态恢复后由 `Shell/AppShellView.swift` 分发到对应模块。
+上述路由由 `Shared/Client/AppDeepLinkCoordinator.swift` 解析，登录状态恢复后由 `Shell/AppShellView.swift` 分发到对应模块。
 
 ## Cloudflare 配置
 

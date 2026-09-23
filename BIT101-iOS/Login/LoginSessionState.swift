@@ -60,8 +60,7 @@ final class TeachingCenterSessionState {
             return false
         }
 
-        // App 重启后系统 Cookie 仍可能有效。登录流程在切换账号前清除学校 Cookie，因此
-        // 这里可以把现存 Cookie 重新绑定到当前保存的学号。
+        // App 重启后系统 Cookie 仍可能有效；账号切换流程清理学校 Cookie。可用 Cookie 与当前保存的学号绑定。
         if authenticatedStudentID == nil {
             authenticatedStudentID = studentID
         }

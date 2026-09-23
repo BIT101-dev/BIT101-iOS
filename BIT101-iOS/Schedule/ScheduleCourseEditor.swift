@@ -9,7 +9,117 @@ import Foundation
 ///
 /// 新增、整课编辑和单次调课共享同一套规则，
 /// 边界输入可以独立于 `ScheduleViewModel` 测试。
-enum ScheduleCourseEditor {
+nonisolated enum ScheduleCourseEditor {
+    struct CourseRuleReconciliation {
+        let courses: [CourseRecord]
+        let validRules: [ScheduleCourseRule]
+        let invalidRules: [ScheduleCourseRule]
+    }
+
+    static func reconcile(
+        rules: [ScheduleCourseRule],
+        with incomingCourses: [CourseRecord]
+    ) -> CourseRuleReconciliation {
+        var projectedCourses = incomingCourses
+        var validRules: [ScheduleCourseRule] = []
+        var invalidRules: [ScheduleCourseRule] = []
+
+        for rule in rules {
+            let matchingCourses = incomingCourses.filter {
+                scheduleCourseSourceIdentity($0) == rule.sourceIdentity
+            }
+            let sourceMatches = rule.isLocalAddition
+                || scheduleCourseSourceRecordsEqual(matchingCourses, rule.sourceCourses)
+            guard sourceMatches else {
+                invalidRules.append(rule)
+                continue
+            }
+
+            validRules.append(rule)
+            if !rule.isLocalAddition {
+                projectedCourses.removeAll {
+                    scheduleCourseSourceIdentity($0) == rule.sourceIdentity
+                }
+            }
+            projectedCourses.append(contentsOf: rule.replacementCourses)
+        }
+
+        return CourseRuleReconciliation(
+            courses: projectedCourses,
+            validRules: validRules,
+            invalidRules: invalidRules
+        )
+    }
+
+    static func updatingRules(
+        existing rules: [ScheduleCourseRule],
+        baselineCourses: [CourseRecord],
+        previousCourses: [CourseRecord],
+        currentCourses: [CourseRecord]
+    ) -> [ScheduleCourseRule] {
+        var updatedRules = rules
+        let previousIDs = Set(previousCourses.map(\.id))
+        let previousSourceIdentities = Set(previousCourses.map(scheduleCourseSourceIdentity))
+
+        for sourceIdentity in previousSourceIdentities {
+            let previous = previousCourses.filter {
+                scheduleCourseSourceIdentity($0) == sourceIdentity
+            }
+            let previousIDsForSource = Set(previous.map(\.id))
+            let sourceNumbers = Set(previous.map(\.number).filter { !$0.isEmpty })
+            let current = currentCourses.filter { course in
+                previousIDsForSource.contains(course.id)
+                    || scheduleCourseSourceIdentity(course) == sourceIdentity
+                    || (!sourceNumbers.isEmpty && sourceNumbers.contains(course.number))
+            }
+            guard !scheduleCourseDisplayRecordsEqual(previous, current) else { continue }
+
+            let changedIDs = Set(previous.map(\.id) + current.map(\.id))
+            let existingIndex = updatedRules.lastIndex { rule in
+                rule.sourceIdentity == sourceIdentity
+                    || !changedIDs.isDisjoint(with: rule.replacementCourses.map(\.id))
+            }
+            let existingRule = existingIndex.map { updatedRules[$0] }
+            let ruleIdentity = existingRule?.sourceIdentity ?? sourceIdentity
+            let sourceCourses = existingRule?.sourceCourses
+                ?? baselineCourses.filter {
+                    scheduleCourseSourceIdentity($0) == sourceIdentity
+                }
+            let ruleID = existingRule?.id ?? UUID().uuidString
+
+            updatedRules.removeAll { $0.sourceIdentity == ruleIdentity }
+            updatedRules.append(
+                ScheduleCourseRule(
+                    id: ruleID,
+                    sourceIdentity: ruleIdentity,
+                    sourceCourses: sourceCourses,
+                    replacementCourses: current
+                )
+            )
+        }
+
+        for course in currentCourses where !previousIDs.contains(course.id) {
+            let sourceIdentity = scheduleCourseSourceIdentity(course)
+            let relatedToPreviousCourse = previousSourceIdentities.contains(sourceIdentity)
+                || (!course.number.isEmpty && previousCourses.contains { $0.number == course.number })
+            guard !relatedToPreviousCourse else { continue }
+            let existingRule = updatedRules.last {
+                $0.replacementCourses.contains { $0.id == course.id }
+            }
+            guard existingRule == nil else { continue }
+
+            updatedRules.append(
+                ScheduleCourseRule(
+                    sourceIdentity: "local:\(course.id)",
+                    sourceCourses: [],
+                    replacementCourses: [course]
+                )
+            )
+        }
+
+        return updatedRules
+    }
+
     struct ResolvedDraft: Equatable {
         let title: String
         let teacher: String
@@ -99,8 +209,23 @@ enum ScheduleCourseEditor {
         let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { throw validationError("课程名称不能为空。") }
         guard (1 ... 7).contains(draft.weekday) else { throw validationError("星期设置不合法。") }
-        guard draft.startSection > 0, draft.endSection >= draft.startSection else {
-            throw validationError("节次范围不合法。")
+
+        let sectionIDs: [Int]
+        if draft.selectedSections.isEmpty {
+            guard draft.startSection > 0, draft.endSection >= draft.startSection else {
+                throw validationError("至少选择一节课。")
+            }
+            sectionIDs = Array(draft.startSection ... draft.endSection)
+        } else {
+            sectionIDs = Array(Set(draft.selectedSections)).sorted()
+        }
+        guard !sectionIDs.isEmpty, sectionIDs.allSatisfy({ $0 > 0 }) else {
+            throw validationError("至少选择一节课。")
+        }
+        guard let firstSection = sectionIDs.first,
+              let lastSection = sectionIDs.last,
+              sectionIDs == Array(firstSection ... lastSection) else {
+            throw validationError("节次必须连续。")
         }
 
         let weeks: [Int]
@@ -116,12 +241,25 @@ enum ScheduleCourseEditor {
         return ResolvedDraft(
             title: title,
             teacher: draft.teacher.trimmingCharacters(in: .whitespacesAndNewlines),
-            classroom: draft.classroom.trimmingCharacters(in: .whitespacesAndNewlines),
+            classroom: resolvedClassroom(from: draft),
             weeks: weeks,
             weekday: draft.weekday,
-            startSection: draft.startSection,
-            endSection: draft.endSection
+            startSection: firstSection,
+            endSection: lastSection
         )
+    }
+
+    static func conflictDescription(
+        candidates: [CourseRecord],
+        against otherCourses: [CourseRecord]
+    ) -> String? {
+        if let conflict = firstConflict(in: candidates, against: candidates) {
+            return conflictMessage(for: conflict)
+        }
+        if let conflict = firstConflict(in: candidates, against: otherCourses) {
+            return conflictMessage(for: conflict)
+        }
+        return nil
     }
 
     static func adding(
@@ -152,16 +290,17 @@ enum ScheduleCourseEditor {
         )]
     }
 
-    static func updating(
+    static func updatingArrangement(
         id: String,
         with draft: CourseDraft,
         in courses: [CourseRecord]
     ) throws -> [CourseRecord] {
-        guard let index = courses.firstIndex(where: { $0.id == id }) else { return courses }
+        guard let anchor = courses.first(where: { $0.id == id }) else { return courses }
         let resolved = try resolve(draft)
-        var courses = courses
-        courses[index] = applying(resolved, to: courses[index])
-        return courses
+        let identity = scheduleCourseArrangementIdentity(anchor)
+        var updated = courses.filter { scheduleCourseArrangementIdentity($0) != identity }
+        updated.append(applying(resolved, to: anchor))
+        return updated
     }
 
     static func updatingOccurrence(
@@ -171,12 +310,32 @@ enum ScheduleCourseEditor {
         in courses: [CourseRecord],
         adjustedID: String = UUID().uuidString
     ) throws -> [CourseRecord] {
+        try updatingOccurrence(
+            id: id,
+            weeks: [week],
+            with: draft,
+            in: courses,
+            adjustedID: adjustedID
+        )
+    }
+
+    static func updatingOccurrence(
+        id: String,
+        weeks: [Int],
+        with draft: CourseDraft,
+        in courses: [CourseRecord],
+        adjustedID: String = UUID().uuidString
+    ) throws -> [CourseRecord] {
         guard let index = courses.firstIndex(where: { $0.id == id }) else { return courses }
         var courses = courses
         let original = courses[index]
-        guard original.weeks.contains(week) else { return courses }
-        let resolved = try resolve(draft, fixedWeeks: [week])
-        let remainingWeeks = original.weeks.filter { $0 != week }
+        let selectedWeeks = Array(Set(weeks)).sorted()
+        guard !selectedWeeks.isEmpty,
+              selectedWeeks.allSatisfy({ original.weeks.contains($0) }) else {
+            return courses
+        }
+        let resolved = try resolve(draft, fixedWeeks: selectedWeeks)
+        let remainingWeeks = original.weeks.filter { !selectedWeeks.contains($0) }
         let adjustedCourse = applying(resolved, to: original, id: remainingWeeks.isEmpty ? original.id : adjustedID)
 
         if remainingWeeks.isEmpty {
@@ -207,7 +366,9 @@ enum ScheduleCourseEditor {
     }
 
     static func deleting(id: String, from courses: [CourseRecord]) -> [CourseRecord] {
-        courses.filter { $0.id != id }
+        guard let anchor = courses.first(where: { $0.id == id }) else { return courses }
+        let identity = scheduleCourseIdentity(anchor)
+        return courses.filter { scheduleCourseIdentity($0) != identity }
     }
 
     static func removingOccurrences(
@@ -258,6 +419,44 @@ enum ScheduleCourseEditor {
             startSection: resolved.startSection,
             endSection: resolved.endSection
         )
+    }
+
+    private static func resolvedClassroom(from draft: CourseDraft) -> String {
+        let building = draft.buildingName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let room = draft.roomNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !building.isEmpty else {
+            return room.isEmpty
+                ? draft.classroom.trimmingCharacters(in: .whitespacesAndNewlines)
+                : room
+        }
+        return [building, room].filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    private static func firstConflict(
+        in candidates: [CourseRecord],
+        against otherCourses: [CourseRecord]
+    ) -> (CourseRecord, CourseRecord)? {
+        for candidate in candidates {
+            for other in otherCourses where candidate.id != other.id {
+                guard candidate.weekday == other.weekday else { continue }
+                guard !Set(candidate.weeks).isDisjoint(with: other.weeks) else { continue }
+                guard candidate.startSection <= other.endSection,
+                      other.startSection <= candidate.endSection else { continue }
+                return (candidate, other)
+            }
+        }
+        return nil
+    }
+
+    private static func conflictMessage(for conflict: (CourseRecord, CourseRecord)) -> String {
+        let (candidate, other) = conflict
+        let weeks = formatWeeks(Array(Set(candidate.weeks).intersection(other.weeks)))
+        return "\(candidate.name)与\(other.name)在第\(weeks)周周\(weekdayText(candidate.weekday))第\(max(candidate.startSection, other.startSection))-\(min(candidate.endSection, other.endSection))节发生冲突。"
+    }
+
+    private static func weekdayText(_ weekday: Int) -> String {
+        let titles = ["", "一", "二", "三", "四", "五", "六", "日"]
+        return titles.indices.contains(weekday) ? titles[weekday] : "?"
     }
 
     private static func copying(

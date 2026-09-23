@@ -19,7 +19,7 @@ struct PaperCommentsSection: View {
     let onRetry: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.container) {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
             AppCommentSectionHeader(count: totalCommentCount) {
                 Picker("排序", selection: Binding(get: { selectedOrder }, set: onSelectOrder)) {
                     ForEach(GalleryCommentOrder.allCases) { order in
@@ -60,7 +60,7 @@ struct PaperCommentsSection: View {
 
                                 if index != comments.count - 1 {
                                     Divider()
-                                        .padding(.leading, AppDesignSystem.Comment.layout.dividerLeading)
+                                        .padding(.leading, AppDesignSystem.Comment.replyInset)
                                 }
                             }
                             .onAppear {
@@ -127,8 +127,8 @@ private struct PaperCommentRow: View {
             AppAvatarView(
                 imageURL: comment.anonymous ? nil : comment.user.avatar.preferredRemoteURL,
                 size: isSubComment
-                    ? AppDesignSystem.Size.control.compact
-                    : AppDesignSystem.Comment.layout.avatarSize
+                    ? AppDesignSystem.Size.Control.compact
+                    : AppDesignSystem.Size.Avatar.standard
             )
         } content: {
             AppCommentIdentityHeader(
@@ -140,7 +140,7 @@ private struct PaperCommentRow: View {
 
             if !comment.replyObj.isEmpty, comment.replyUser.id > 0 {
                 Text("回复 @\(comment.replyUser.nickname)：")
-                    .font(AppDesignSystem.Typography.captionMedium)
+                    .font(AppDesignSystem.Typography.captionEmphasis)
                     .foregroundStyle(.secondary)
             }
 

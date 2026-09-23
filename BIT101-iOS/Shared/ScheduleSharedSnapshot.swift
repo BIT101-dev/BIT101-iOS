@@ -17,78 +17,8 @@ extension Notification.Name {
 enum ScheduleSharedContainer {
     static let identifier = "group.BIT101-dev.BIT101-iOS.shared"
     static let directoryName = "Widgets"
-    /// Widget 已使用这个文件名。当前继续保留它，兼容已有快照读取路径。
+    /// 主 App、Widget 与 Watch 通过 App Group 使用此快照文件名。
     static let snapshotFileName = "schedule-widget-snapshot.json"
-}
-
-/// AppDesignSystem 的跨 target 令牌层。
-///
-/// 该层保持 Foundation 依赖，让 iOS Widget、watch App 和 watch Widget 共享数值。
-nonisolated enum AppDesignSystem {
-    enum Primitives {
-        enum FontSize {
-            static let compact: CGFloat = 10
-            static let emphasis: CGFloat = 14
-            static let prominent: CGFloat = 16
-        }
-    }
-
-    enum External {
-        enum Spacing {
-        static let liveActivityCard: CGFloat = 6
-        static let liveActivityHeader: CGFloat = 8
-        static let liveActivityRegion: CGFloat = 6
-        static let widgetHeader: CGFloat = 6
-        static let widgetSmallContent: CGFloat = 6
-        static let widgetAccessoryContent: CGFloat = 3
-        static let widgetAccessoryHeader: CGFloat = 6
-        static let widgetCircular: CGFloat = 1
-        static let widgetMediumContent: CGFloat = 8
-        static let widgetMediumMain: CGFloat = 4
-        static let widgetFollowUp: CGFloat = 2
-        static let widgetLargeContent: CGFloat = 10
-        static let widgetLargeMain: CGFloat = 6
-        static let widgetLargeFollowUp: CGFloat = 8
-        static let widgetEmpty: CGFloat = 6
-        static let watchPrimary: CGFloat = 8
-        static let watchHeader: CGFloat = 8
-        static let watchDivider: CGFloat = 2
-        static let watchFollowUp: CGFloat = 2
-        static let watchActions: CGFloat = 10
-        static let watchEmpty: CGFloat = 8
-        static let watchMinimumSpacer: CGFloat = 4
-        }
-
-        enum Size {
-        static let liveActivityContent: CGFloat = 12
-        static let liveActivityExpandedTimerWidth: CGFloat = 42
-        static let liveActivityCompactTimerWidth: CGFloat = 40
-        static let watchEmptyMinimumHeight: CGFloat = 120
-        }
-
-        enum Typography {
-        static let widgetCircularCount = AppDesignSystem.Primitives.FontSize.compact
-        static let widgetCircularEmpty = AppDesignSystem.Primitives.FontSize.compact
-        static let watchCircularBuilding = AppDesignSystem.Primitives.FontSize.emphasis
-        static let watchCircularRoom = AppDesignSystem.Primitives.FontSize.prominent
-        static let watchCorner = AppDesignSystem.Primitives.FontSize.emphasis
-        static let watchCornerStatus = AppDesignSystem.Primitives.FontSize.emphasis
-        }
-
-        enum Scale {
-        static let widgetSmallTitle: CGFloat = 0.75
-        static let widgetMediumTitle: CGFloat = 0.82
-        static let widgetLargeTitle: CGFloat = 0.82
-        static let widgetCircularCount: CGFloat = 0.6
-        static let watchCircularBuilding: CGFloat = 0.55
-        static let watchCircularRoom: CGFloat = 0.45
-        static let watchCorner: CGFloat = 0.45
-        static let watchCornerStatus: CGFloat = 0.5
-        static let watchRectangularTitle: CGFloat = 0.7
-        static let watchRectangularRange: CGFloat = 0.7
-        static let watchRectangularLocation: CGFloat = 0.7
-        }
-    }
 }
 
 /// 对外部展示层暴露的精简节次模型。
@@ -102,7 +32,7 @@ struct ScheduleExternalTimeSlotSnapshot: Codable, Hashable {
 
 /// 对外部展示层暴露的精简课程模型。
 ///
-/// 当前只保留“计算下一节/后续课程”真正需要的字段。
+/// 共享模型包含计算当前课程与后续课程所需字段。
 struct ScheduleExternalCourseSnapshot: Codable, Hashable {
     let id: String
     let name: String

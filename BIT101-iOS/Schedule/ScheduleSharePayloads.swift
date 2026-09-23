@@ -8,16 +8,16 @@ import Foundation
 /// - 时间表
 /// - 课程
 ///
-/// DDL、考试、自定义日程和个人显示偏好继续保留在本机。
+/// 载荷包含课表排布字段；DDL、考试、自定义日程和显示偏好由本机缓存维护。
 struct ScheduleExportPayload {
-    let exportedAt: Date
+    let exportedAt: Date?
     let currentTerm: String
     let firstDayString: String
     let timeTable: [TimeSlot]
     let courses: [CourseRecord]
 
     init(
-        exportedAt: Date,
+        exportedAt: Date? = nil,
         currentTerm: String,
         firstDayString: String,
         timeTable: [TimeSlot],
@@ -32,12 +32,12 @@ struct ScheduleExportPayload {
 }
 
 private func makeExpandedPayload(
-    importedAt: Date,
+    exportedAt: Date? = nil,
     cache: ScheduleCache,
     courses: [CourseRecord]
 ) -> ScheduleExportPayload {
     ScheduleExportPayload(
-        exportedAt: importedAt,
+        exportedAt: exportedAt,
         currentTerm: cache.currentTerm,
         firstDayString: cache.firstDayString,
         timeTable: cache.timeTable,
@@ -54,7 +54,7 @@ private func makeExpandedCourse(
     weekday: Int,
     startSection: Int,
     endSection: Int,
-    credit: Int
+    credit: Double
 ) -> CourseRecord {
     CourseRecord(
         id: UUID().uuidString,
@@ -79,7 +79,7 @@ private func makeExpandedCourse(
 
 /// 课表分享编码的紧凑载荷 V2。
 ///
-/// 该载荷服务于较早紧凑分享码的导入，当前导出端使用 V3。
+/// 该载荷负责解码 `BIT101SCH2` 分享码，导出入口维持 V3。
 ///
 /// ## 设计约束
 /// - 继续复用现有外层包装：`lzfse + base64`
@@ -106,7 +106,7 @@ private func makeExpandedCourse(
 /// - 每一门课都按固定顺序编码成 7 项数组，字段含义由位置表达
 ///
 /// ## 导入时使用的本机信息
-/// V2 载荷范围限定为课程排布，导入时从本机缓存读取以下信息：
+/// V2 载荷承载课程排布；导入时从本机缓存读取以下信息：
 /// - 首周日期
 /// - 时间表
 /// - 考试
@@ -114,16 +114,13 @@ private func makeExpandedCourse(
 /// - 自定义日程
 /// - 课表显示偏好
 ///
-/// 分享课表复用“课程排布”，发送方的本地环境留在发送方。
-/// 当前产品流程要求用户在导入或查看分享课表前先同步自己的课表；
-/// 因此导入时可直接复用本机现有的：
+/// 分享载荷保存课程排布；接收端使用本机课表环境中的：
 /// - `currentTerm`
 /// - `firstDayString`
 /// - `timeTable`
 ///
 /// ## 兼容策略
-/// 新版默认导出 `BIT101SCH3`；导入端继续支持 `BIT101SCH2` 和 `BIT101SCH3`。
-/// 低版本客户端如果尚未支持 V2，会无法导入新版分享码，因此高版本兜底提示仍然保留。
+/// 导出入口维持 `BIT101SCH3`；导入端支持 `BIT101SCH2` 至 `BIT101SCH4`。
 struct ScheduleExportCompactPayloadV2: Codable {
     static let formatVersion = 2
 
@@ -210,9 +207,8 @@ struct ScheduleExportCompactPayloadV2: Codable {
     }
 
     /// V2 使用导入侧本机环境生成统一的课表载荷。
-    func expandedPayload(using cache: ScheduleCache, importedAt: Date = Date()) -> ScheduleExportPayload {
+    func expandedPayload(using cache: ScheduleCache) -> ScheduleExportPayload {
         makeExpandedPayload(
-            importedAt: importedAt,
             cache: cache,
             courses: courses.map { $0.expandedCourse(term: cache.currentTerm) }
         )
@@ -279,7 +275,7 @@ struct ScheduleExportCompactPayloadV2: Codable {
 
 /// 课表分享编码的紧凑载荷 V3。
 ///
-/// V3 在 V2 的课程排布骨架上追加学分字段，是当前默认导出格式。
+/// V3 在 V2 的课程排布骨架上追加学分字段，继续作为当前导出格式。
 struct ScheduleExportCompactPayloadV3: Codable {
     static let formatVersion = 3
 
@@ -291,7 +287,7 @@ struct ScheduleExportCompactPayloadV3: Codable {
         let weekday: Int
         let startSection: Int
         let endSection: Int
-        let credit: Int
+        let credit: Double
 
         nonisolated init(course: CourseRecord) {
             name = course.name
@@ -313,7 +309,7 @@ struct ScheduleExportCompactPayloadV3: Codable {
             weekday = try container.decode(Int.self)
             startSection = try container.decode(Int.self)
             endSection = try container.decode(Int.self)
-            credit = try container.decode(Int.self)
+            credit = try container.decode(Double.self)
             guard container.isAtEnd else {
                 throw DecodingError.dataCorruptedError(
                     in: container,
@@ -352,12 +348,15 @@ struct ScheduleExportCompactPayloadV3: Codable {
     let courses: [CompactCourse]
 
     init(cache: ScheduleCache) {
-        courses = cache.courses.map(CompactCourse.init(course:))
+        self.init(courses: cache.courses)
     }
 
-    func expandedPayload(using cache: ScheduleCache, importedAt: Date = Date()) -> ScheduleExportPayload {
+    init(courses: [CourseRecord]) {
+        self.courses = courses.map { CompactCourse(course: $0) }
+    }
+
+    func expandedPayload(using cache: ScheduleCache) -> ScheduleExportPayload {
         makeExpandedPayload(
-            importedAt: importedAt,
             cache: cache,
             courses: courses.map { $0.expandedCourse(term: cache.currentTerm) }
         )
@@ -394,6 +393,57 @@ struct ScheduleExportCompactPayloadV3: Codable {
     }
 }
 
+/// V4 在 V3 课程数组前加入分钟精度的导出时间。
+///
+/// 导出入口维持 V3；V4 提供时间字段和解码支持。
+struct ScheduleExportCompactPayloadV4: Codable {
+    static let formatVersion = 4
+
+    let exportedAt: Date
+    let courses: [ScheduleExportCompactPayloadV3.CompactCourse]
+
+    init(cache: ScheduleCache, exportedAt: Date) {
+        let minute = Int64(exportedAt.timeIntervalSince1970 / 60)
+        self.exportedAt = Date(timeIntervalSince1970: TimeInterval(minute) * 60)
+        courses = cache.courses.map(ScheduleExportCompactPayloadV3.CompactCourse.init(course:))
+    }
+
+    func expandedPayload(using cache: ScheduleCache) -> ScheduleExportPayload {
+        makeExpandedPayload(
+            exportedAt: exportedAt,
+            cache: cache,
+            courses: courses.map { $0.expandedCourse(term: cache.currentTerm) }
+        )
+    }
+
+    init(from decoder: Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        let version = try container.decode(Int.self)
+        guard version == Self.formatVersion else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "不支持的紧凑课表分享格式版本：\(version)"
+            )
+        }
+        let exportedMinute = try container.decode(Int64.self)
+        exportedAt = Date(timeIntervalSince1970: TimeInterval(exportedMinute) * 60)
+        courses = try container.decode([ScheduleExportCompactPayloadV3.CompactCourse].self)
+        guard container.isAtEnd else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "紧凑课表载荷包含多余字段。"
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.unkeyedContainer()
+        try container.encode(Self.formatVersion)
+        try container.encode(Int64(exportedAt.timeIntervalSince1970 / 60))
+        try container.encode(courses)
+    }
+}
+
 enum ScheduleShareCodeError: LocalizedError, Equatable {
     case empty
     case unsupportedNewerFormat(Int)
@@ -420,13 +470,22 @@ enum ScheduleShareCodeError: LocalizedError, Equatable {
     }
 }
 
-/// 课表分享码统一由此编解码；默认导出 V3，导入继续兼容 V2/V3。
+/// 课表分享码统一由此编解码；导出入口使用 V3，导入兼容 V2 至 V4。
 enum ScheduleShareCodeCodec {
-    static let latestVersion = 3
-    static let supportedPrefixes = ["BIT101SCH2:", "BIT101SCH3:"]
+    static let latestExportVersion = ScheduleExportCompactPayloadV3.formatVersion
+    static let latestSupportedVersion = ScheduleExportCompactPayloadV4.formatVersion
+    static let supportedPrefixes = [
+        "BIT101SCH\(ScheduleExportCompactPayloadV2.formatVersion):",
+        "BIT101SCH\(ScheduleExportCompactPayloadV3.formatVersion):",
+        "BIT101SCH\(ScheduleExportCompactPayloadV4.formatVersion):",
+    ]
 
     static func encodeLatest(cache: ScheduleCache) throws -> String {
-        let payload = ScheduleExportCompactPayloadV3(cache: cache)
+        try encodeLatest(courses: cache.courses)
+    }
+
+    static func encodeLatest(courses: [CourseRecord]) throws -> String {
+        let payload = ScheduleExportCompactPayloadV3(courses: courses)
         let jsonData = try JSONEncoder().encode(payload)
         let compressedData: Data
         do {
@@ -439,7 +498,7 @@ enum ScheduleShareCodeCodec {
         } catch {
             throw ScheduleShareCodeError.compressionFailed
         }
-        return "BIT101SCH3:\(compressedData.base64EncodedString())"
+        return "BIT101SCH\(latestExportVersion):\(compressedData.base64EncodedString())"
     }
 
     static func decode(_ text: String, using cache: ScheduleCache) throws -> ScheduleExportPayload {
@@ -448,7 +507,7 @@ enum ScheduleShareCodeCodec {
 
         if !supportedPrefixes.contains(where: trimmed.hasPrefix),
            let version = declaredVersion(in: trimmed),
-           version > latestVersion
+           version > latestSupportedVersion
         {
             throw ScheduleShareCodeError.unsupportedNewerFormat(version)
         }
@@ -480,6 +539,9 @@ enum ScheduleShareCodeCodec {
                     .expandedPayload(using: cache)
             case "BIT101SCH3:":
                 return try decoder.decode(ScheduleExportCompactPayloadV3.self, from: jsonData)
+                    .expandedPayload(using: cache)
+            case "BIT101SCH4:":
+                return try decoder.decode(ScheduleExportCompactPayloadV4.self, from: jsonData)
                     .expandedPayload(using: cache)
             default:
                 throw ScheduleShareCodeError.invalidFormat

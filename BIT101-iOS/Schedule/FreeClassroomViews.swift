@@ -161,68 +161,13 @@ struct ClassroomSectionFilterPage: View {
     @Binding var selectedSectionIDs: [Int]
 
     var body: some View {
-        List {
-            Section {
-                Button(toggleAllTitle) {
-                    toggleAll()
-                }
-            }
-
-            Section {
-                ForEach(timeTable) { slot in
-                    let isSelected = selectedSectionIDs.contains(slot.id)
-                    Button {
-                        toggle(slot.id)
-                    } label: {
-                        HStack(spacing: AppDesignSystem.Spacing.control) {
-                            Text("第\(slot.id)节")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(isSelected ? AppDesignSystem.Palette.accent : .secondary)
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("第\(slot.id)节")
-                    .accessibilityValue(isSelected ? "已选择" : "未选择")
-                }
-            }
-        }
-        .appGroupedListStyle()
-        .appSelectionFeedback(trigger: selectedSectionIDs)
-        .navigationTitle("节次筛选")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    /// 切换单个节次是否被选中。
-    private func toggle(_ sectionID: Int) {
-        var next = selectedSectionIDs
-        if let index = next.firstIndex(of: sectionID) {
-            next.remove(at: index)
-        } else {
-            next.append(sectionID)
-        }
-        selectedSectionIDs = next.sorted()
-    }
-
-    /// 在“全选”和“全不选”之间切换。
-    private func toggleAll() {
-        if areAllSectionsSelected {
-            selectedSectionIDs = []
-        } else {
-            selectedSectionIDs = timeTable.map(\.id)
-        }
-    }
-
-    /// 顶部总开关文案。
-    private var toggleAllTitle: String {
-        areAllSectionsSelected ? "全不选" : "全选"
-    }
-
-    private var areAllSectionsSelected: Bool {
-        let availableIDs = Set(timeTable.map(\.id))
-        return !availableIDs.isEmpty && Set(selectedSectionIDs) == availableIDs
+        AppMultiSelectionList(
+            title: "节次筛选",
+            items: timeTable.map(\.id),
+            itemTitle: { "第\($0)节" },
+            selectAllTitle: "全选",
+            showsCompletionButton: false,
+            selectedItems: $selectedSectionIDs
+        )
     }
 }

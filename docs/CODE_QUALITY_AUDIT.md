@@ -1,128 +1,50 @@
-# BIT101-iOS 代码质量审计
+# BIT101-iOS 代码质量审查
 
-更新时间：2026-09-19
+更新时间：2026-09-22
 
-## 审计结果
+## 当前工程约束
 
-- 默认真机测试共 137 项：122 项 Swift Testing、15 项 XCTest。
-- `RELEASE_NETWORK_SMOKE`、`ICLOUD_CROSS_DEVICE_SMOKE` 和 `EXTENDED_AUTOMATION` 为专用测试，测试范围与默认测试和 Release 包分离。
-- `EXTENDED_AUTOMATION` 另有 27 项本地自动化测试，按课程表、基础设施、登录三组运行；iCloud 跨设备和 Release 网络 smoke 另有 5 项专用用例。
-- 审查结果显示，已删除功能和旧接口处于测试断言范围外。
-- 维护手册与源码职责已在本轮同步；`stale-docs` 检查负责提示长期未编辑文档。
-- 已将网络 smoke runner 从 `BIT101_iOSApp.swift` 移到独立文件。
-- 已加入逐份源码质量扫描，覆盖 App、Widget、Watch 和测试 target；硬性规则拦截死代码、
-  公共网络/触感入口越界和脚本动态临时产物；布局值、强制解包与大型文件生成审查候选。
-- 字体审计检查 `Font.system(size:)`、`UIFont.systemFont(ofSize:)` 和 `Font.custom`；字号集中在
-  `AppDesignSystem` 及其跨 target 令牌层，业务页面使用系统语义字体。
-- 首屏/列表/滚动状态已统一使用公共状态组件；课程与成绩的比例列已统一使用公共数据行；
-  日程与成绩的课程评价跳转共用课程匹配器和 CoursePageContent。
-- GitHub Actions 已强制执行统一静态审计，并在 Release `build-for-testing` 门禁中将 Swift/Clang 警告视为错误。
-- 启动、回前台和切换账号的路径移除学校/WebVPN 自动预热；成绩恢复路径采用本地缓存，查询和短信验证由用户显式操作触发。
+- 主 App、Widget、Watch App、Watch Widget 与测试 target 按各自平台边界组织。
+- 网络请求通过 `HTTPClient`、`CommunityAPIClient` 或场景化 Service 发送。
+- 任务取消、账号隔离存储、日期展示、错误分类和网络诊断复用 `Shared/Client` 中的公共入口。
+- UI 令牌与组件位于 `Shared/DesignSystem`；课表、课程、话廊使用所属模块的专用设计文件。
+- ViewModel 通过场景化 `Servicing` 协议依赖 Service，页面负责状态呈现与交互。
+- 账号切换会取消过期任务并隔离缓存、诊断提示与页面状态。
 
-## 已完成的结构整理
+## 结构审查结论
 
-- Gallery、Schedule、Settings、Paper、Course 的页面按叶子功能拆分。
-- 登录拆为存储、会话、密码变换、CAS 解析、API 客户端和业务门面。
-- 日程拆出缓存、CloudKit、空教室协调、短信续接、ICS 解析和集合编辑。
-- 日程课表视图拆出线性时间轴、课程卡片、网格模型和周次滑动条，主网格文件保持页面级职责。
-- 社区请求统一由 `CommunityAPIClient` 处理认证、URL、状态码和 JSON。
-- 取消错误统一由 `TaskCancellation` 识别。
-- 分页状态统一由 `PagedItemsState` 管理。
-- 错误报告、更新提醒、网络 smoke 各自使用独立基础组件。
-- 网络提示中心支持路径、时钟、弹窗协调器注入；HTTPClient 支持注入网络提示中心，网络请求顺序回归测试覆盖学校域名、提示文案和 transport 门禁。
-- 本地课程编辑同步回写当前学期快照；课表元数据变化参与同步替换判断；空教室手工节次筛选拥有独立的持久化标记。
-- 时间轴默认缩放比例和网格颜色归入 `AppDesignSystem.Schedule`；空教室结果使用主题色层级区分状态。
+- 日程服务按同步、缓存、认证、空教室、DDL、日历和编解码职责拆分。
+- 课表界面按网格、线性时间轴、课程卡片、周次控件和详情分工。
+- Gallery、Paper、Course、Mine 与 Settings 按各自页面流程分层。
+- 登录模块由认证 Service、会话状态、Keychain 存储、CAS 解析和 API 客户端组成。
+- HTTP 传输、社区请求、网络诊断、错误报告和更新检查归 `Shared/Client`。
+- 加载、空态、失败提示和操作恢复由共享组件提供。
 
-## 大文件审查
+## 跨页面约定
 
-| 文件 | 判断 |
-| --- | --- |
-| `Schedule/ScheduleViewModel.swift` | 日程状态、初始化、缓存投影和共享辅助方法。其余职责已移到扩展文件。 |
-| `Schedule/ScheduleViewModel+CourseSync.swift` | 课表同步、学期列表、短信验证和显式认证续接。 |
-| `Schedule/ScheduleViewModel+Classroom.swift` | 空教室请求、元数据和筛选。 |
-| `Schedule/ScheduleViewModel+CourseEditing.swift` | 课程和自定义日程编辑。 |
-| `Schedule/ScheduleViewModel+DDL.swift` | 乐学、DDL 和相关文案。 |
-| `Schedule/ScheduleViewModel+Preferences.swift` | 周次、显示设置和时间表。 |
-| `Schedule/ScheduleCoreModels.swift`、`Schedule/ScheduleCacheModels.swift`、`Schedule/ScheduleDateCodecs.swift` | 课表、考试、DDL、缓存模型和日期/周次编解码，按领域边界拆分。 |
-| `Schedule/ScheduleRootView.swift` | 日程容器和页面路由。 |
-| `Schedule/CourseScheduleTabView.swift`、`Schedule/CourseScheduleTabViewActions.swift` | 课表分栏与页面展示、分享/导入/编辑操作，按页面生命周期拆分。 |
-| `Schedule/ScheduleCalendarViews.swift`、`Schedule/ScheduleLinearCalendarViews.swift`、`Schedule/ScheduleCourseCardViews.swift`、`Schedule/ScheduleCalendarModels.swift`、`Schedule/ScheduleWeekSliderView.swift` | 课表网格、线性时间轴、课程卡片、展示模型和周次控件，按独立生命周期拆分。 |
-| `Schedule/ScheduleEntryDetailView.swift` | 课程、考试和自定义日程详情。 |
-| `Schedule/ScheduleEditingSupport.swift` | 课程编辑模式和调休/放假表单。 |
-| `Score/ScoreViewModels.swift` | 成绩筛选、缓存、短信续接和刷新状态。状态互相关联，当前保持合并。 |
-| `Score/ScoreRootView.swift` | 成绩/课程合并页及其列表子视图，后续按独立生命周期拆分。 |
-| `Gallery/GalleryModels.swift` | 话廊数据模型和分页状态，职责单一。 |
-| `Gallery/GalleryViewModel.swift` | 信息流、搜索、消息状态，推荐预取已独立。 |
-| `BIT101_iOSApp.swift` | 应用生命周期和全局副作用。 |
-| `Shared/Infrastructure/ReleaseNetworkSmoke.swift` | 编译范围限定为 Release/专用 smoke 条件，与应用生命周期分离。 |
+- 课表、成绩与可信成绩单共用短信验证表单；各业务 Service 维护独立 challenge。
+- 评论、头像、标签、列表、搜索、刷新、比例数据行和浮动按钮通过设计系统组件复用。
+- 课程、话廊、文章和消息的日期文案由 `AppDateText` 提供。
+- 社区分页由 `PagedItemsState` 管理；课程、话廊、文章、我的页面通过场景协议维护独立业务状态。
+- 错误报告脱敏与载荷由 `ErrorReportSupport.swift` 维护；原生弹窗、恢复操作和报告 Sheet 由 `AppErrorPresentation.swift` 维护。
 
-文件拆分依据独立生命周期、独立测试边界或高频冲突；文件长度单独作为观察指标。
+## Apple 平台桥接
 
-## 保留的桥接
+- `Map/CampusMapScreen.swift` 使用 `MKMapView` 管理相机、定位和地图 overlay。
+- `Gallery/GalleryImageViewer.swift` 使用 Quick Look 呈现原图，并维护低清到高清的预览切换。
+- `Schedule/ScheduleCalendarViews.swift` 使用 `UIContextMenuInteraction` 定位空白课表区域的原生菜单，并通过 `UIActivityViewController` 提供系统分享面板。
+- `Schedule/ScheduleLinearCalendarViews.swift` 使用 `UIScrollView` 和 `UIHostingController` 实现双指缩放与可见中心保持。
+- `Schedule/ScheduleCourseCardViews.swift` 使用 `UILabel` 排列独立的课程名称、完整地点和动态字体。
+- `Paper/PaperDetailView.swift` 使用 `UITextView` 呈现 HTML 富文本。
+- `Gallery/GalleryAnimatedImage.swift` 使用 ImageIO 和 `UIImageView` 解码、播放 GIF。
+- `Shared/Client/KeyboardDismissSupport.swift` 使用 UIKit 手势和输入附件处理跨页面键盘收起。
+- `Gallery/GalleryRootView.swift` 提供原生话廊与用户可选的 WKWebView 入口。
 
-- `Map/CampusMapScreen.swift`：`MKMapView` 提供相机、定位和 overlay 能力。
-- `Gallery/GalleryImageViewer.swift`：Quick Look 提供系统图片预览；控制器负责预览图到原图的替换。
-- `Schedule/ScheduleCalendarViews.swift`：`UIContextMenuInteraction` 提供空白课表区域的真实长按锚点；SwiftUI `contextMenu` 的定位能力不足以满足该场景。
-- `Schedule/ScheduleLinearCalendarViews.swift`：`UIScrollView` 与 `UIHostingController` 组合承载线性时间轴的双指缩放、可见中心保持和内容偏移控制。
-- `Schedule/ScheduleCourseCardViews.swift`：`UILabel` 双文字块负责地点完整展示、课程名截断和动态字体测量。
-- `Schedule/ScheduleCalendarViews.swift`：`UIActivityViewController` 提供系统分享面板。
-- `Paper/PaperDetailView.swift`：`UITextView` 负责 HTML 富文本的粗体、斜体和链接渲染。
-- `Gallery/GalleryAnimatedImage.swift`：ImageIO 与 `UIImageView` 负责 GIF 原图帧解码和播放。
-- `Shared/Infrastructure/KeyboardDismissSupport.swift`：UIKit 手势与输入附件统一处理跨页面键盘收起。
-- `Gallery/GalleryRootView.swift`：WKWebView 保留为用户主动选择的网页话廊入口，原生话廊默认路径保持独立。
-- `Gallery/GalleryRootView.swift`：使用 segmented + 手势切换方案，pager 方案列为后续调整项。
-- Live Activity、Widget、Watch target：受系统 target 边界约束，单独维护。
+## 检查入口
 
-本次逐份 Swift 审计确认：上述桥接均对应系统平台能力、精确交互控制或富文本媒体能力。逐份扫描结果：Flutter、React、跨端 UI 容器以及业务网页承载原生页面的路径均处于排除状态。WKWebView 保持为明确的可选功能路径。
+- `Scripts/check-ui-consistency.sh`：视觉令牌、字体、布局、页面角色、公共组件、系统触感和错误报告入口。
+- `Scripts/check-code-quality.sh`：客户端网络、存储、日期、并发、源码与脚本规范。
+- `Scripts/run-static-audit.sh`：统一运行静态检查。
+- `Scripts/run-extended-tests.sh`：默认与分组自动化测试。
 
-## 重复逻辑的统一处理
-
-- 课表同步、学期切换和空教室请求共用教学中心会话准备入口。
-- 课程、成绩和学校请求共用 bit-login challenge 基础类型；`jwb`、`jwb_cjd`、教学中心会话保持隔离。
-- 空响应和完全相同的课表保留现有课程；已发布课表出现课程数减少时先弹窗确认，替换策略有自动化测试。
-- 账号切换会取消旧请求、清理旧错误提示并重置内存状态；设置页旧请求与新会话隔离。
-- GitHub Issues 与 Cloudflare KV 报告可由 `Scripts/fetch-issues-and-reports.sh` 一次拉取。
-
-## 风险
-
-1. 学校 CAS、WebVPN、教务 JSON 结构存在变化风险。
-2. 课表、成绩、可信成绩单的 challenge 失效和短信续接。
-3. App、Widget、Watch、Live Activity 的共享快照版本一致性。
-4. 账号切换期间的旧任务取消和 UI 回写。
-5. Xcode beta 的 Watch target 构建行为。
-
-## UI 一致性处理
-
-- 主 App 的系统背景色、圆角和公共卡片集中在 `Shared/DesignSystem/AppDesignSystem.swift`。
-- 课程、帖子和文章详情页共用分享及圆形操作按钮；评论区共用间距、分割线和容器样式。
-- 成绩详情使用原生分组 List，并通过与日程相同的 `CourseNavigationRequest` 流程进入课程评价。
-- 课表、成绩、可信成绩单的验证码表单统一使用 `AppSMSVerificationSheet`，保留业务提交文案差异。
-- 课程、话廊和消息统一使用 `AppDateText` 解析时间，旧解析器纳入禁用检查。
-- `AppDateText` 的多格式解析和回退文案由基础设施单测覆盖。
-- 课表缓存和发帖草稿共用 `AppFileDirectories`；保存失败记录诊断，空 `catch` 已移除。
-- 头像和标签统一由公共容器加载；课程、话廊和文章共用评论头像/标题/操作/气泡结构；话廊、文章和我的帖子流共用信息流行容器；话廊和文章共用排序搜索栏；所有 segmented 页面选择统一通过公共控件。
-- 主要加载失败态统一由 `AppFailureState` 承载；重试和错误反馈入口沿用同一组件结构。
-- 标题、正文、正文强调、次级说明、脚注、caption、验证码和浮动按钮统一使用 `AppDesignSystem.Typography`；平台字体基线由 SwiftUI 语义字体适配；Widget 与 Watch 继续使用 `AppDesignSystem.External.Typography`。
-- 周次和全学期叠加课表共用等宽网格，叠加层按课程中心排序并使用不透明课程背景隔离节次分割线。
-- 页面差异通过 `AppCardVariant` 等语义变体表达，卡片结构保持共用。
-- `Scripts/check-ui-consistency.sh` 检查详情页分享/操作组件、评论区样式、信息流间距和课表叠加规则。
-- UI/组件检查共用 `Scripts/check-ui-consistency.py` 的契约表：按目录模式、页面后缀和已采用的公共组件自动发现成员，再检查同一契约的要求；`check-component-consistency.sh` 负责入口转发，契约表负责成员发现和契约检查。
-- 组件声明、页面契约和必要例外均集中在契约表；例外限定为消息中心 plain 列表、网络基础设施和平台专用布局等确有边界的项目。
-- 规则优先检查页面对公共组件和语义令牌的采用情况；新增同类页面落入目录/组件发现条件即可自动继承契约。
-- 检查同时拦截已移除的社区操作回流、主 App 的标准输出写入，并将 plain 列表限定于消息中心。
-- 业务页面通过 `HTTPClient` 发起网络请求；`URLSession.shared` 的直接调用归入网络基础设施边界。
-- 该检查按需运行，编译和真机验证保持独立。
-- `Scripts/check-code-quality.sh` 逐份扫描全部 Swift 文件，并固定输出 `.build/code-quality-report.txt`；
-  它覆盖脚本权限、死代码标记、文档失效链接、重复 import、强制解包候选和大型文件候选，
-  延伸原有 UI、触感和组件检查范围。
-- `run-static-audit.sh` 统一编排检查；源码质量检查核对 UI、触感、组件、错误报告和文档检查的接入状态，
-  静态审计与网络 smoke 保持调用隔离；CI 检查该入口和 Release 编译门禁的存在状态。
-- 解释性文案报告扫描范围为列表/表单的 `Section footer` 和空状态的 `ContentUnavailableView description`；
-  已由用户确认的文案进入白名单，新增文案继续提示。
-
-## 后续顺序
-
-1. 根据错误报告增加学校响应 fixture。
-2. 观察 smoke 失败样本，再补充探针。
-3. 观察状态机的修改频率，再决定是否继续拆分。
-4. 保持测试、脚本和文档中的版本与数量同步。
+各项检查从当前源码和项目测试 target 获取状态。此文档维护结构边界和公共入口说明。

@@ -108,11 +108,10 @@ final class LoginStorage {
         notifyAccountChanged()
     }
 
-    /// 检测“卸载重装后的首次启动”，并在登录页读取本地凭据前删除 Keychain 中的残留凭据。
+    /// 检测首次安装标记，并在登录页读取本地凭据前清理 Keychain 中的学号和密码。
     ///
     /// 卸载时系统会清除 `UserDefaults`，Keychain 通常会保留数据。
-    /// 发现安装标记缺失时，当前启动属于全新安装或重装后的首次启动。
-    /// 此时删除上一个安装遗留的学号和密码，避免登录界面先显示旧账号。
+    /// 安装标记缺失时，当前启动进入首次安装初始化流程。
     private func purgePersistedCredentialsIfNeededAfterReinstall() {
         guard !defaults.bool(forKey: DefaultsKey.installationMarker) else { return }
 
@@ -128,7 +127,7 @@ final class LoginStorage {
         deleteKeychainValue(account: KeychainAccount.password)
     }
 
-    /// 将旧版本写入 `UserDefaults` 的 fake-cookie 迁移到 Keychain。
+    /// 将 `UserDefaults` 中的共享 fake-cookie 迁入账号对应的 Keychain 项。
     private func migrateLegacyFakeCookieIfNeeded() {
         guard let legacyFakeCookie = defaults.string(forKey: DefaultsKey.fakeCookie) else { return }
         guard !legacyFakeCookie.isEmpty else {
@@ -146,7 +145,7 @@ final class LoginStorage {
             try saveKeychainValue(legacyFakeCookie, account: KeychainAccount.fakeCookie)
             defaults.removeObject(forKey: DefaultsKey.fakeCookie)
         } catch {
-            // 保留旧值，下一次启动继续尝试迁移，避免迁移失败时丢失登录态。
+            // 迁移写入失败时保留来源数据，供下一次启动重试。
             Self.logger.error("Legacy fake-cookie migration failed: \(error.localizedDescription, privacy: .public)")
         }
     }

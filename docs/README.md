@@ -26,7 +26,7 @@ Universal Links，以及 Xcode 27 单 Watch App target 结构。
 6. [`MAINTENANCE_GUIDE.md`](MAINTENANCE_GUIDE.md)
    长期维护、构建、签名或真机调试时，先读工程维护、账号隔离、小组件和排障说明。
 7. [`CODE_QUALITY_AUDIT.md`](CODE_QUALITY_AUDIT.md)
-   清理大文件、整理重复逻辑或评估刻意保留的 UI 桥接实现时，先读代码清理重点、逐份源码审查、检查脚本覆盖范围和后续清理优先位置。
+   清理大文件、整理重复逻辑或评估 UI 桥接实现时，先读代码审查结论、检查脚本覆盖范围和模块维护入口。
 8. [`FILE_INDEX.md`](FILE_INDEX.md)
    知道修改目标但不知道文件位置时，从这里查找全部 Swift 源码文件及其职责。
 9. [`DESIGN_SYSTEM.md`](DESIGN_SYSTEM.md)
