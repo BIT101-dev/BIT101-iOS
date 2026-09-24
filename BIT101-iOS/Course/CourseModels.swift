@@ -32,7 +32,7 @@ enum CourseRatingText {
 /// 课程列表单项。
 ///
 /// 模型保留课程列表与详情入口所需的基础字段。
-struct CourseSummary: Decodable, Identifiable, Equatable, Hashable {
+nonisolated struct CourseSummary: Decodable, Identifiable, Equatable, Hashable, Sendable {
     let id: Int
     let name: String
     let number: String
@@ -132,7 +132,7 @@ struct CourseNavigationRequest: Identifiable, Hashable {
 /// 课程详情。
 ///
 /// 详情接口在课程基础信息外，还会返回当前用户的点赞状态。
-struct CourseDetail: Decodable, Equatable {
+nonisolated struct CourseDetail: Decodable, Equatable, Sendable {
     let id: Int
     let name: String
     let number: String
@@ -216,7 +216,7 @@ struct CourseDetail: Decodable, Equatable {
 /// 单门课程的历史成绩统计。
 ///
 /// 课程详情页按学期展示课程成绩统计。
-struct CourseHistoryGrade: Codable, Identifiable, Equatable {
+nonisolated struct CourseHistoryGrade: Codable, Identifiable, Equatable, Sendable {
     let term: String
     let avgScore: Double?
     let maxScore: Double?
@@ -250,6 +250,7 @@ struct CourseHistoryGrade: Codable, Identifiable, Equatable {
 enum CourseHistoryMakeupPolicy {
     private static let requiredCoursePrefix = "10"
     private static let electiveCoursePrefix = "99"
+    private static let maximumExcludedStudentCount = 5
     private static let minimumPairedYears = 2
     private static let strongCountRatio = 0.35
     private static let pairwiseOutlierRatio = 0.20
@@ -257,17 +258,33 @@ enum CourseHistoryMakeupPolicy {
 
     /// 识别 10 开头必修课中按学年重复出现的低人数补考学期。
     ///
-    /// 99 开头选修课完整保留数据。一个学年只有一个数据点时保留；同一学年有两个数据点时，
+    /// 学习人数不超过 5 的数据点始终清理。99 开头选修课保留其余数据；一个学年只有一个数据点时保留；同一学年有两个数据点时，
     /// 先按跨学年稳定的低人数学期位置清理，再清理人数相差十倍及以上的明确离群点。
     static func hiddenTerms(in grades: [CourseHistoryGrade], courseNumber: String) -> Set<String> {
+        let lowCountTerms: Set<String> = Set(
+            grades.compactMap { grade in
+                guard let studentNum = grade.studentNum,
+                      studentNum <= maximumExcludedStudentCount
+                else {
+                    return nil
+                }
+                return grade.term
+            }
+        )
+
         let normalizedNumber = courseNumber.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalizedNumber.hasPrefix(requiredCoursePrefix),
               !normalizedNumber.hasPrefix(electiveCoursePrefix)
         else {
-            return []
+            return lowCountTerms
         }
 
-        let samples = grades.compactMap(ComparableGrade.init)
+        let samples = grades
+            .compactMap(ComparableGrade.init)
+            .filter { sample in
+                guard let studentNum = sample.grade.studentNum else { return true }
+                return studentNum > maximumExcludedStudentCount
+            }
         let groupedByAcademicYear = Dictionary(grouping: samples, by: \.academicYear)
         let pairedYears = groupedByAcademicYear.values.compactMap { yearSamples -> [ComparableGrade]? in
             guard yearSamples.count == 2 else { return nil }
@@ -312,7 +329,9 @@ enum CourseHistoryMakeupPolicy {
 
         let remainingSamples = samples.filter { !firstPassHiddenTerms.contains($0.grade.term) }
         let secondPassHiddenTerms = globalOutlierTerms(in: remainingSamples)
-        return firstPassHiddenTerms.union(secondPassHiddenTerms)
+        return lowCountTerms
+            .union(firstPassHiddenTerms)
+            .union(secondPassHiddenTerms)
     }
 
     /// 第二遍忽略学期位置，对第一遍剩余的全部数据点统一比较人数。
@@ -384,7 +403,7 @@ enum CourseHistoryGradeLoadStatus: Equatable {
     case failed(String)
 }
 
-private extension KeyedDecodingContainer {
+private nonisolated extension KeyedDecodingContainer {
     func decodeFlexibleDoubleIfPresent(forKeys keys: [Key]) -> Double? {
         for key in keys {
             if let value = try? decodeIfPresent(Double.self, forKey: key) {

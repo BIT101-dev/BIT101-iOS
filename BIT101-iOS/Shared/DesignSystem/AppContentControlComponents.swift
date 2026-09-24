@@ -179,7 +179,7 @@ struct AppOrderedSearchBar<Order: Hashable, OrderContent: View>: View {
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(AppDesignSystem.Typography.title)
-                    .foregroundStyle(AppDesignSystem.Palette.Highlight.primary)
+                    .foregroundStyle(AppDesignSystem.Palette.Accent.primary)
                     .frame(
                         width: AppDesignSystem.Size.Control.touchTarget,
                         height: AppDesignSystem.Size.Control.touchTarget

@@ -53,23 +53,18 @@ enum ClassroomAvailabilityCalculator {
 
         let isFreeNow: Bool
         let statusText: String
-        let detailText: String
         if currentBusySlot == nil, let nextBusyStart {
             isFreeNow = true
-            statusText = "还会空闲 \(durationText(minutes: nextBusyStart - nowMinutes))"
-            detailText = "直到 \(TimeSlot.formatMinutes(nextBusyStart))"
+            statusText = "空闲到 \(TimeSlot.formatMinutes(nextBusyStart))"
         } else if currentBusySlot == nil {
             isFreeNow = true
             statusText = "空闲到明天"
-            detailText = ""
         } else if let nextFree = nextFreeStart(in: timeTable, busy: busy, after: nowMinutes) {
             isFreeNow = false
-            statusText = "\(durationText(minutes: nextFree - nowMinutes)) 后空闲"
-            detailText = TimeSlot.formatMinutes(nextFree)
+            statusText = "\(TimeSlot.formatMinutes(nextFree)) 后空闲"
         } else {
             isFreeNow = false
             statusText = "使用中"
-            detailText = ""
         }
 
         return ClassroomAvailability(
@@ -77,7 +72,6 @@ enum ClassroomAvailabilityCalculator {
             name: record.name,
             prettyFreeTimes: sectionsText(freeSections),
             statusText: statusText,
-            detailText: detailText,
             isFreeNow: isFreeNow,
             freeSections: freeSections
         )
@@ -181,12 +175,4 @@ enum ClassroomAvailabilityCalculator {
         return nil
     }
 
-    private static func durationText(minutes: Int) -> String {
-        let totalMinutes = max(minutes, 0)
-        if totalMinutes == 0 { return "< 1 分钟" }
-        if totalMinutes < 60 { return "\(totalMinutes) 分钟" }
-        let hours = totalMinutes / 60
-        let minutes = totalMinutes % 60
-        return minutes == 0 ? "\(hours) 小时" : "\(hours) 小时 \(minutes) 分钟"
-    }
 }

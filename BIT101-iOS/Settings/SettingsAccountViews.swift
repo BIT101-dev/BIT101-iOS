@@ -5,7 +5,7 @@
 //  Split from SettingsRootView.swift.
 //
 
-@preconcurrency import PhotosUI
+import PhotosUI
 import SwiftUI
 
 struct AccountSettingsPage: View {
@@ -41,7 +41,7 @@ struct AccountSettingsPage: View {
                             AppAvatarView(
                                 imageURL: URL(string: profile.user.avatar.url),
                                 size: AppDesignSystem.Size.Avatar.standard,
-                                tint: AppDesignSystem.Palette.Status.info
+                                tint: AppDesignSystem.Palette.Accent.primary
                             )
                         }
                         .accessibilityLabel("头像")

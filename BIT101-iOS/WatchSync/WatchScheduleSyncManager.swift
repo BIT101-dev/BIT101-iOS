@@ -2,6 +2,8 @@
 
 import Foundation
 import OSLog
+// WCSessionDelegate callbacks enter through SDK nonisolated methods; state is
+// handed back to the MainActor manager before mutation.
 @preconcurrency import WatchConnectivity
 #if canImport(WidgetKit)
 import WidgetKit

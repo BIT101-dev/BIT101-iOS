@@ -227,6 +227,16 @@ PAGE_THEME_REVIEW = (
         "历史成绩人数指标使用状态色，保留数据类别区分",
     ),
 )
+THEME_SENSITIVE_ROOTS = (
+    "Shared/DesignSystem",
+    "Gallery",
+    "Paper",
+    "Mine",
+)
+CONTEXTUAL_COLOR_BYPASSES = (
+    ("AppDesignSystem.Palette.Highlight.primary", "AppDesignSystem.Palette.Accent.primary"),
+    ("AppDesignSystem.Palette.Highlight.surface", "AppDesignSystem.Palette.Accent.surface"),
+)
 DIRECT_FLOATING_SIZE = re.compile(r"\.frame\(\s*width:\s*42\s*,\s*height:\s*42\s*\)")
 DIRECT_TOUCH_TARGET = re.compile(
     r"\.frame\([^)]*(?:minHeight\s*:\s*44|width\s*:\s*44\s*,\s*height\s*:\s*44)"
@@ -685,6 +695,34 @@ def check_page_theme_consistency(errors: list[str]) -> None:
                     start = index + len(token)
 
 
+def check_contextual_component_colors(errors: list[str]) -> None:
+    """复用内容与组件使用页面强调色，避免绕过环境 tint 的固定高亮色。"""
+    for path in swift_files():
+        if path in DESIGN_SYSTEM_SOURCES:
+            continue
+        source_relative = path.relative_to(SOURCE_ROOT).as_posix()
+        if not any(
+            source_relative == root or source_relative.startswith(f"{root}/")
+            for root in THEME_SENSITIVE_ROOTS
+        ):
+            continue
+
+        raw_source = path.read_text(encoding="utf-8")
+        source = mask_literals_and_comments(raw_source)
+        for token, expected_token in CONTEXTUAL_COLOR_BYPASSES:
+            start = 0
+            while True:
+                index = source.find(token, start)
+                if index < 0:
+                    break
+                line_number = raw_source.count("\n", 0, index) + 1
+                errors.append(
+                    f"{path.relative_to(ROOT)}:{line_number}: "
+                    f"复用组件的页面主题色应使用 {expected_token}，当前发现 {token}"
+                )
+                start = index + len(token)
+
+
 def collect_fixed_geometry_review_notes() -> list[str]:
     notes: list[str] = []
     for relative_path, marker, message in FIXED_GEOMETRY_REVIEW:
@@ -803,7 +841,7 @@ def main() -> int:
     check_fonts(errors)
     check_design_token_boundaries(errors)
     check_page_theme_consistency(errors)
-    review_notes = collect_fixed_geometry_review_notes() + collect_page_theme_review_notes()
+    check_contextual_component_colors(errors)
     app_card_uses = 0
     floating_stack_uses = 0
     for path in swift_files():
@@ -916,8 +954,6 @@ def main() -> int:
         return 1
 
     print(f"[通过] UI 一致性检查（扫描 {len(swift_files())} 个 Swift 文件）")
-    for note in review_notes:
-        print(f"[审阅] {note}")
     return 0
 
 

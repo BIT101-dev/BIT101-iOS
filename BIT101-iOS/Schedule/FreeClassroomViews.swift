@@ -99,29 +99,31 @@ struct FreeClassroomTabView: View {
                 Section {
                     // ViewModel 已完成排序和筛选，列表在此展示可用教室结果。
                     ForEach(viewModel.classroomAvailabilities) { classroom in
-                        HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
-                            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
-                                Text(classroom.name)
-                                    .font(AppDesignSystem.Typography.title)
-                                Text(classroom.statusText)
-                                    .font(AppDesignSystem.Typography.subheadline)
-                                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                            }
-                            Spacer()
-                            VStack(alignment: .trailing, spacing: AppDesignSystem.Spacing.micro) {
-                                Text(classroom.prettyFreeTimes)
-                                    .font(AppDesignSystem.Typography.subheadline)
-                                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                                    .multilineTextAlignment(.trailing)
-                                if !classroom.detailText.isEmpty {
-                                    Text(classroom.detailText)
-                                        .font(AppDesignSystem.Typography.caption)
-                                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                                }
-                            }
+                        let matchesAllSelectedSections = isExactMatch(for: classroom)
+                        HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.content) {
+                            Text(classroom.name)
+                                .font(AppDesignSystem.Typography.body)
+                                .foregroundStyle(AppDesignSystem.Foreground.primary)
+                                .lineLimit(1)
+                                .allowsTightening(true)
+                                .minimumScaleFactor(0.8)
+                                .layoutPriority(1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Text(classroom.prettyFreeTimes)
+                                .font(
+                                    matchesAllSelectedSections
+                                        ? AppDesignSystem.Typography.subheadlineEmphasis
+                                        : AppDesignSystem.Typography.subheadline
+                                )
+                                .foregroundStyle(
+                                    matchesAllSelectedSections
+                                        ? AppDesignSystem.Foreground.primary
+                                        : AppDesignSystem.Foreground.secondary
+                                )
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
                         }
                         .padding(.vertical, AppDesignSystem.Spacing.tiny)
-                        .listRowBackground(classroomBackground(for: classroom))
                     }
                 }
             }
@@ -137,18 +139,16 @@ struct FreeClassroomTabView: View {
         hasSectionFilter ? "当前筛选条件下没有空教室。" : "先选定校区和教学楼，再刷新一次。"
     }
 
-    private func classroomBackground(for classroom: ClassroomAvailability) -> Color {
+    private func isExactMatch(for classroom: ClassroomAvailability) -> Bool {
         switch ClassroomAvailabilityCalculator.sectionMatch(
             freeSections: classroom.freeSections,
             selectedSections: viewModel.cache.selectedClassroomSectionIDs,
             timeTable: viewModel.cache.timeTable
         ) {
         case .full:
-            return AppDesignSystem.Palette.Accent.surface
-        case .partial:
-            return AppDesignSystem.Palette.Accent.subtleSurface
-        case .none:
-            return AppDesignSystem.Palette.Background.system
+            return true
+        case .partial, .none:
+            return false
         }
     }
 }

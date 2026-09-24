@@ -115,7 +115,7 @@ struct GallerySearchQuery: Equatable {
 /// 图片资源。
 ///
 /// 后端同时返回原图和低清图。列表优先使用低清图，大图浏览使用原图。
-struct GalleryImage: Decodable, Identifiable, Hashable {
+nonisolated struct GalleryImage: Decodable, Identifiable, Hashable, Sendable {
     let mid: String
     let url: String
     let lowUrl: String
@@ -139,7 +139,7 @@ struct GalleryImage: Decodable, Identifiable, Hashable {
 /// 用户身份标签。
 ///
 /// 模型保留服务端返回的完整字段，供昵称旁的 badge 和身份展示使用。
-struct GalleryIdentity: Decodable, Hashable {
+nonisolated struct GalleryIdentity: Decodable, Hashable, Sendable {
     let id: Int
     let color: String
     let text: String
@@ -151,7 +151,7 @@ struct GalleryIdentity: Decodable, Hashable {
 /// 话廊用户模型。
 ///
 /// 帖子、评论等话廊模块共用这份基础用户结构。
-struct GalleryUser: Decodable, Identifiable, Hashable {
+nonisolated struct GalleryUser: Decodable, Identifiable, Hashable, Sendable {
     let id: Int
     let createTime: String
     let nickname: String
@@ -163,7 +163,7 @@ struct GalleryUser: Decodable, Identifiable, Hashable {
 /// 帖子所属 claim。
 ///
 /// claim 用于发帖选择、帖子卡片和详情展示。
-struct GalleryClaim: Codable, Hashable, Identifiable {
+nonisolated struct GalleryClaim: Codable, Hashable, Identifiable, Sendable {
     let id: Int
     let text: String
 }
@@ -171,7 +171,7 @@ struct GalleryClaim: Codable, Hashable, Identifiable {
 /// 信息流帖子卡片模型。
 ///
 /// 模型包含列表渲染所需字段，详情状态由 `GalleryPosterDetail` 提供。
-struct GalleryPoster: Decodable, Identifiable, Hashable {
+nonisolated struct GalleryPoster: Decodable, Identifiable, Hashable, Sendable {
     let anonymous: Bool
     let claim: GalleryClaim
     let commentNum: Int
@@ -191,7 +191,7 @@ struct GalleryPoster: Decodable, Identifiable, Hashable {
 /// 帖子详情模型。
 ///
 /// 详情包含当前用户的点赞、归属和插件字段。
-struct GalleryPosterDetail: Decodable, Identifiable, Hashable {
+nonisolated struct GalleryPosterDetail: Decodable, Identifiable, Hashable, Sendable {
     let anonymous: Bool
     let claim: GalleryClaim
     let commentNum: Int
@@ -306,7 +306,7 @@ enum GalleryCommentOrder: String, CaseIterable, Identifiable {
 /// 话廊评论模型。
 ///
 /// 顶层评论和子评论使用同一结构，`sub` 保存子评论树。
-struct GalleryComment: Decodable, Identifiable, Hashable {
+nonisolated struct GalleryComment: Decodable, Identifiable, Hashable, Sendable {
     let id: Int
     let obj: String
     let images: [GalleryImage]
@@ -372,7 +372,7 @@ struct GalleryComment: Decodable, Identifiable, Hashable {
 /// 点赞接口返回的点赞状态和数量。
 ///
 /// 点赞请求只返回这两个字段，模型保持接口边界。
-struct GalleryLikeResult: Decodable {
+nonisolated struct GalleryLikeResult: Decodable, Sendable {
     let like: Bool
     let likeNum: Int
 }
@@ -410,7 +410,7 @@ extension GalleryFeedState: PagedItemsState {
     }
 }
 
-struct GalleryReportType: Decodable, Identifiable, Hashable {
+nonisolated struct GalleryReportType: Decodable, Identifiable, Hashable, Sendable {
     let id: Int
     let text: String
 
@@ -495,7 +495,7 @@ enum GalleryMessageType: String, CaseIterable, Identifiable, Hashable {
 /// 消息发送者头像。
 ///
 /// 消息接口里的 `from_user` 可能为空对象，字段按可选值解码并使用空字符串默认值。
-nonisolated struct GalleryMessageAvatar: Decodable, Hashable {
+nonisolated struct GalleryMessageAvatar: Decodable, Hashable, Sendable {
     let url: String
     let lowUrl: String
 
@@ -528,7 +528,7 @@ nonisolated struct GalleryMessageAvatar: Decodable, Hashable {
 /// 消息发送者。
 ///
 /// 系统消息返回空用户对象，字段提供展示默认值。
-nonisolated struct GalleryMessageUser: Decodable, Hashable {
+nonisolated struct GalleryMessageUser: Decodable, Hashable, Sendable {
     let id: Int
     let nickname: String
     let avatar: GalleryMessageAvatar
@@ -566,7 +566,7 @@ nonisolated struct GalleryMessageUser: Decodable, Hashable {
 /// 各消息分类的未读数。
 ///
 /// 服务端返回分类未读数，ViewModel 基于数量推断最新前 N 条的本地伪未读状态。
-struct GalleryMessageUnreadCounts: Decodable, Equatable {
+nonisolated struct GalleryMessageUnreadCounts: Decodable, Equatable, Sendable {
     var comment: Int
     var follow: Int
     var like: Int
@@ -612,7 +612,7 @@ struct GalleryMessageUnreadCounts: Decodable, Equatable {
 /// 单条消息模型。
 ///
 /// 消息数据通过 `obj/link_obj` 字段关联目标帖子。
-nonisolated struct GalleryMessage: Decodable, Identifiable, Hashable {
+nonisolated struct GalleryMessage: Decodable, Identifiable, Hashable, Sendable {
     let fromUser: GalleryMessageUser
     let id: Int
     let linkObj: String

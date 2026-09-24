@@ -21,6 +21,7 @@ SOURCE_ROOTS = (
 )
 SCRIPT_ROOT = ROOT / "Scripts"
 REPORT_PATH = ROOT / ".build/code-quality-report.txt"
+MAX_SOURCE_LINES = 1000
 
 DIRECT_STDOUT_LOG = re.compile(r"\b(?:print|debugPrint|NSLog)\s*\(")
 
@@ -299,7 +300,12 @@ def source_findings() -> tuple[list[str], list[str]]:
         force_count = len(force_unwrap.findall(masked_source))
         if force_count:
             errors.append(f"{name}: 禁止强制解包，共 {force_count} 处；请改用 guard/if let/#require")
-        if len(source.splitlines()) > 800:
+        source_line_count = len(source.splitlines())
+        if source_line_count >= MAX_SOURCE_LINES:
+            errors.append(
+                f"{name}: 检测到过大的代码，请拆分文件（{source_line_count} 行，文件应少于 {MAX_SOURCE_LINES} 行）"
+            )
+        if source_line_count > 800:
             large_files.append(name)
 
     if large_files:

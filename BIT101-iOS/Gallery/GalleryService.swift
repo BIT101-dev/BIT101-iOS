@@ -133,7 +133,7 @@ struct GalleryService {
     }
 
     /// 发帖接口返回的帖子 ID。
-    private struct CreatePosterResponse: Decodable {
+    private nonisolated struct CreatePosterResponse: Decodable, Sendable {
         let id: Int
     }
 

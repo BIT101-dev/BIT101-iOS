@@ -1,6 +1,6 @@
 import Foundation
 
-enum ScheduleSection: String, CaseIterable, Identifiable, Hashable {
+nonisolated enum ScheduleSection: String, CaseIterable, Identifiable, Hashable, Sendable {
     case courses
     case ddl
     case classroom
@@ -24,7 +24,7 @@ enum ScheduleSection: String, CaseIterable, Identifiable, Hashable {
 /// 课程在周视图中的排布方式。
 ///
 /// 按周显示是原有行为；全学期叠加用于快速查看一学期内固定时段的课程概览。
-enum ScheduleDisplayMode: String, CaseIterable, Codable, Identifiable {
+nonisolated enum ScheduleDisplayMode: String, CaseIterable, Codable, Identifiable, Sendable {
     case weekly
     case allWeeks
 
@@ -41,7 +41,7 @@ enum ScheduleDisplayMode: String, CaseIterable, Codable, Identifiable {
 }
 
 /// 课程卡片在“名称”和“地点”之间切换的内容模式。
-enum ScheduleCardContentMode: String, CaseIterable, Codable, Identifiable {
+nonisolated enum ScheduleCardContentMode: String, CaseIterable, Codable, Identifiable, Sendable {
     case nameAndLocation
     case name
     case location
@@ -61,7 +61,7 @@ enum ScheduleCardContentMode: String, CaseIterable, Codable, Identifiable {
 }
 
 /// 课表纵轴的时间表达方式。
-enum ScheduleCalendarAxisMode: String, CaseIterable, Identifiable {
+nonisolated enum ScheduleCalendarAxisMode: String, CaseIterable, Identifiable, Sendable {
     case quantized
     case linear
 
@@ -166,7 +166,7 @@ struct ScheduleTimelineViewport: Equatable {
 /// 节次与时间段的映射。
 ///
 /// `TimeSlot` 是课表、空教室、当前时间线、小组件和灵动岛共同依赖的基础模型。
-nonisolated struct TimeSlot: Codable, Hashable, Identifiable {
+nonisolated struct TimeSlot: Codable, Hashable, Identifiable, Sendable {
     let id: Int
     let start: String
     let end: String
@@ -228,7 +228,7 @@ nonisolated struct TimeSlot: Codable, Hashable, Identifiable {
 /// 课表课程记录。
 ///
 /// 这是 iOS 端保存后的统一课程模型，教务接口、缓存、小组件、灵动岛都围绕它工作。
-nonisolated struct CourseRecord: Codable, Identifiable, Hashable {
+nonisolated struct CourseRecord: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let term: String
     let name: String
@@ -372,7 +372,7 @@ nonisolated func scheduleCourseDisplayRecordsEqual(_ lhs: [CourseRecord], _ rhs:
 /// 考试记录。
 ///
 /// 考试数据用于课表页展示，模型保留完整字段，供扩展按需复用。
-struct ExamRecord: Codable, Identifiable, Hashable {
+nonisolated struct ExamRecord: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let term: String
     let name: String
@@ -389,7 +389,7 @@ struct ExamRecord: Codable, Identifiable, Hashable {
 /// DDL 列表项。
 ///
 /// 乐学同步数据和手动新建数据都使用这一种本地记录。
-struct DDLEventRecord: Codable, Identifiable, Hashable {
+nonisolated struct DDLEventRecord: Codable, Identifiable, Hashable, Sendable {
     let id: String
     var group: String
     var title: String
@@ -410,7 +410,7 @@ struct DDLDraft: Equatable {
 /// 自定义课程块记录。
 ///
 /// 用于补充学校接口之外的个人日程，也参与灵动岛“下一项”判断。
-struct CustomScheduleRecord: Codable, Identifiable, Hashable {
+nonisolated struct CustomScheduleRecord: Codable, Identifiable, Hashable, Sendable {
     let id: String
     var title: String
     var subtitle: String
@@ -433,7 +433,7 @@ struct CustomScheduleDraft: Equatable {
 /// 空教室查询使用的校区记录。
 ///
 /// 这是服务端返回的元数据模型，仅驱动选择器。
-struct CampusRecord: Codable, Identifiable, Hashable {
+nonisolated struct CampusRecord: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let name: String
     let code: String
@@ -442,7 +442,7 @@ struct CampusRecord: Codable, Identifiable, Hashable {
 /// 空教室查询使用的教学楼记录。
 ///
 /// 教学楼记录会被缓存，并用于“根据下一节课教室自动匹配教学楼”的逻辑。
-struct BuildingRecord: Codable, Identifiable, Hashable {
+nonisolated struct BuildingRecord: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let name: String
     let buildingCode: String
@@ -453,7 +453,7 @@ struct BuildingRecord: Codable, Identifiable, Hashable {
 /// 空教室接口原始教室记录。
 ///
 /// 原始记录只包含“哪些时间忙”，具体的中文空闲文案会在视图模型层再加工。
-struct ClassroomRecord: Codable, Identifiable, Hashable {
+nonisolated struct ClassroomRecord: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let name: String
     let busyTimeCodes: [Int]
@@ -462,12 +462,11 @@ struct ClassroomRecord: Codable, Identifiable, Hashable {
 /// 供界面展示的教室空闲状态。
 ///
 /// 这是已经完成格式化、适合直接渲染到列表中的衍生模型。
-struct ClassroomAvailability: Identifiable, Hashable {
+nonisolated struct ClassroomAvailability: Identifiable, Hashable, Sendable {
     let id: String
     let name: String
     let prettyFreeTimes: String
     let statusText: String
-    let detailText: String
     let isFreeNow: Bool
     let freeSections: [Int]
 }

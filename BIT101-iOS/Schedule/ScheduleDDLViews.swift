@@ -33,6 +33,11 @@ struct DDLScheduleTabView: View {
                             Task { await refreshDDL() }
                         }
                     )
+
+                    // DDL 维护状态标记：学校正逐步弃用乐学。
+                    Text("学校正逐步弃用乐学，DDL功能不再维护。")
+                        .font(AppDesignSystem.Typography.subheadline)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                 }
 
                 if viewModel.visibleDDLEvents.isEmpty {

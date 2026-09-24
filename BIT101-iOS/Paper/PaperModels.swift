@@ -42,7 +42,7 @@ enum PaperSortOrder: CaseIterable, Identifiable, Hashable {
 /// 文章列表项。
 ///
 /// 文章列表按摘要字段解码，模型保持轻量。
-struct PaperSummary: Decodable, Identifiable, Hashable {
+nonisolated struct PaperSummary: Decodable, Identifiable, Hashable, Sendable {
     let id: Int
     let title: String
     let intro: String
@@ -63,7 +63,7 @@ struct PaperPreviewMetadata: Equatable, Hashable {
 /// 文章详情模型。
 ///
 /// 详情页会额外显示编辑者、正文块、点赞状态和所有者状态。
-struct PaperDetail: Decodable, Identifiable, Hashable {
+nonisolated struct PaperDetail: Decodable, Identifiable, Hashable, Sendable {
     let id: Int
     let title: String
     let intro: String

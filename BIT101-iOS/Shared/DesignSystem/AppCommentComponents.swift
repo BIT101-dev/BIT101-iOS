@@ -39,9 +39,9 @@ struct AppCommentIdentityHeader: View {
             if let onOpenProfile {
                 Button(action: onOpenProfile) {
                     nicknameText
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
             } else {
                 nicknameText
             }
@@ -94,7 +94,7 @@ struct AppCommentActionBar: View {
                         Image(systemName: isLiked ? "hand.thumbsup.fill" : "hand.thumbsup")
                     }
                 }
-                .foregroundStyle(isLiked ? AppDesignSystem.Palette.Highlight.primary : AppDesignSystem.Foreground.secondaryColor)
+                .foregroundStyle(isLiked ? AppDesignSystem.Palette.Accent.primary : AppDesignSystem.Foreground.secondaryColor)
                 .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
             }
             .buttonStyle(.plain)

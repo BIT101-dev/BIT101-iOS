@@ -393,7 +393,7 @@ private struct MineProfileCard: View {
         AppAvatarView(
             imageURL: URL(string: info.user.avatar.url),
             size: AppDesignSystem.Size.Avatar.profile,
-            tint: AppDesignSystem.Palette.Status.info
+            tint: AppDesignSystem.Palette.Accent.primary
         )
         .contentShape(Circle())
     }
@@ -438,7 +438,7 @@ private struct MineUserListView: View {
                                 AppAvatarView(
                                     imageURL: URL(string: user.avatar.lowUrl.isEmpty ? user.avatar.url : user.avatar.lowUrl),
                                     size: AppDesignSystem.Size.Avatar.standard,
-                                    tint: AppDesignSystem.Palette.Status.info
+                                    tint: AppDesignSystem.Palette.Accent.primary
                                 )
 
                                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {

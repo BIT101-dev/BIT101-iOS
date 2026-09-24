@@ -193,7 +193,7 @@ struct GalleryPosterCard: View {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                 Text(poster.title)
                     .font(AppDesignSystem.Typography.title)
-                    .foregroundStyle(AppDesignSystem.Palette.Highlight.primary)
+                    .foregroundStyle(AppDesignSystem.Palette.Accent.primary)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -282,7 +282,7 @@ struct GalleryPosterCard: View {
     }
 
     private var identityColor: Color {
-        Color(hex: poster.user.identity.color) ?? AppDesignSystem.Palette.Highlight.primary
+        Color(hex: poster.user.identity.color) ?? AppDesignSystem.Palette.Accent.primary
     }
 
     /// 把后端时间文本转成相对时间文案。

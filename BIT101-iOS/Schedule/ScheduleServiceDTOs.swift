@@ -6,16 +6,16 @@
 import Foundation
 
 /// 当前学期接口响应体。
-struct CurrentTermResponse: Decodable {
-    struct Datas: Decodable {
-        struct Rows: Decodable {
+nonisolated struct CurrentTermResponse: Decodable, Sendable {
+    nonisolated struct Datas: Decodable, Sendable {
+        nonisolated struct Rows: Decodable, Sendable {
             let rows: [TermRow]
         }
 
         let dqxnxq: Rows
     }
 
-    struct TermRow: Decodable {
+    nonisolated struct TermRow: Decodable, Sendable {
         enum CodingKeys: String, CodingKey {
             case code = "DM"
         }
@@ -27,16 +27,16 @@ struct CurrentTermResponse: Decodable {
 }
 
 /// 可选学期列表接口响应体。
-nonisolated struct TermsResponse: Decodable {
-    struct Datas: Decodable {
-        struct Rows: Decodable {
+nonisolated struct TermsResponse: Decodable, Sendable {
+    nonisolated struct Datas: Decodable, Sendable {
+        nonisolated struct Rows: Decodable, Sendable {
             let rows: [TermRow]
         }
 
         let xnxqcx: Rows
     }
 
-    struct TermRow: Decodable {
+    nonisolated struct TermRow: Decodable, Sendable {
         enum CodingKeys: String, CodingKey {
             case code = "DM"
         }
@@ -48,14 +48,14 @@ nonisolated struct TermsResponse: Decodable {
 }
 
 /// 课程表接口响应体。
-struct CourseResponse: Decodable {
-    struct Datas: Decodable {
-        struct Rows: Decodable {
+nonisolated struct CourseResponse: Decodable, Sendable {
+    nonisolated struct Datas: Decodable, Sendable {
+        nonisolated struct Rows: Decodable, Sendable {
             let rows: [CourseRow]
             let extParams: ExtParams?
         }
 
-        struct ExtParams: Decodable {
+        nonisolated struct ExtParams: Decodable, Sendable {
             let code: Int?
             let msg: String?
         }
@@ -63,7 +63,7 @@ struct CourseResponse: Decodable {
         let cxxszhxqkb: Rows
     }
 
-    struct CourseRow: Decodable {
+    nonisolated struct CourseRow: Decodable, Sendable {
         enum CodingKeys: String, CodingKey {
             case term = "XNXQDM"
             case name = "KCM"
@@ -143,7 +143,7 @@ private extension KeyedDecodingContainer {
 }
 
 extension CourseResponse {
-    struct ParsedCourse {
+    nonisolated struct ParsedCourse: Sendable {
         let course: CourseRecord
         let rawWeeks: [Int]
     }
@@ -198,16 +198,16 @@ extension CourseResponse {
 }
 
 /// 考试安排接口响应体。
-struct ExamResponse: Decodable {
-    struct Datas: Decodable {
-        struct Rows: Decodable {
+nonisolated struct ExamResponse: Decodable, Sendable {
+    nonisolated struct Datas: Decodable, Sendable {
+        nonisolated struct Rows: Decodable, Sendable {
             let rows: [ExamRow]
         }
 
         let cxxsksap: Rows
     }
 
-    struct ExamRow: Decodable {
+    nonisolated struct ExamRow: Decodable, Sendable {
         enum CodingKeys: String, CodingKey {
             case location = "JASMC"
             case timeDescription = "KSSJMS"
@@ -235,8 +235,8 @@ struct ExamResponse: Decodable {
 }
 
 /// 周起始日期接口响应体。
-struct WeekDateResponse: Decodable {
-    struct WeekDateRow: Decodable {
+nonisolated struct WeekDateResponse: Decodable, Sendable {
+    nonisolated struct WeekDateRow: Decodable, Sendable {
         enum CodingKeys: String, CodingKey {
             case week = "XQ"
             case date = "RQ"
@@ -250,16 +250,16 @@ struct WeekDateResponse: Decodable {
 }
 
 /// 校区列表接口响应体。
-struct CampusListResponse: Decodable {
-    struct Datas: Decodable {
-        struct Rows: Decodable {
+nonisolated struct CampusListResponse: Decodable, Sendable {
+    nonisolated struct Datas: Decodable, Sendable {
+        nonisolated struct Rows: Decodable, Sendable {
             let rows: [CampusRow]
         }
 
         let ggzdpx: Rows
     }
 
-    struct CampusRow: Decodable {
+    nonisolated struct CampusRow: Decodable, Sendable {
         enum CodingKeys: String, CodingKey {
             case displayName = "MC"
             case code = "DM"
@@ -273,16 +273,16 @@ struct CampusListResponse: Decodable {
 }
 
 /// 教学楼列表接口响应体。
-struct BuildingListResponse: Decodable {
-    struct Datas: Decodable {
-        struct Rows: Decodable {
+nonisolated struct BuildingListResponse: Decodable, Sendable {
+    nonisolated struct Datas: Decodable, Sendable {
+        nonisolated struct Rows: Decodable, Sendable {
             let rows: [BuildingRow]
         }
 
         let cxjxl: Rows
     }
 
-    struct BuildingRow: Decodable {
+    nonisolated struct BuildingRow: Decodable, Sendable {
         enum CodingKeys: String, CodingKey {
             case buildingName = "JXLMC"
             case buildingCode = "JXLDM"
@@ -300,16 +300,16 @@ struct BuildingListResponse: Decodable {
 }
 
 /// 空教室接口响应体。
-struct ClassroomListResponse: Decodable {
-    struct Datas: Decodable {
-        struct Rows: Decodable {
+nonisolated struct ClassroomListResponse: Decodable, Sendable {
+    nonisolated struct Datas: Decodable, Sendable {
+        nonisolated struct Rows: Decodable, Sendable {
             let rows: [ClassroomRow]
         }
 
         let cxkxjasqk: Rows
     }
 
-    struct ClassroomRow: Decodable {
+    nonisolated struct ClassroomRow: Decodable, Sendable {
         enum CodingKeys: String, CodingKey {
             case classroomName = "JASMC"
             case busyTimeString = "ZYJC"

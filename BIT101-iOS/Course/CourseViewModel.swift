@@ -31,6 +31,7 @@ final class CourseListViewModel: ObservableObject {
     private let service: any CourseListServicing
     private var hasBootstrapped = false
     private var refreshGeneration = 0
+    private var searchResetTask: Task<Void, Never>?
 
     init(service: any CourseListServicing) {
         self.service = service
@@ -38,6 +39,10 @@ final class CourseListViewModel: ObservableObject {
 
     convenience init() {
         self.init(service: CourseService())
+    }
+
+    deinit {
+        searchResetTask?.cancel()
     }
 
     var normalizedSearchText: String {
@@ -161,8 +166,10 @@ final class CourseListViewModel: ObservableObject {
         let newKeyword = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !oldKeyword.isEmpty, newKeyword.isEmpty else { return }
 
-        Task {
-            await refresh()
+        searchResetTask?.cancel()
+        searchResetTask = Task { [weak self] in
+            guard let self else { return }
+            await self.refresh()
         }
     }
 }

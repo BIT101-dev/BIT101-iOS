@@ -234,7 +234,7 @@ private struct GalleryMessageRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.regular) {
                     if isUnread {
                         Circle()
-                            .fill(AppDesignSystem.Palette.Highlight.primary)
+                            .fill(AppDesignSystem.Palette.Accent.primary)
                             .frame(width: AppDesignSystem.Gallery.unreadIndicator, height: AppDesignSystem.Gallery.unreadIndicator)
                     }
 
@@ -273,7 +273,7 @@ private struct GalleryMessageRow: View {
         .padding(.horizontal, AppDesignSystem.Spacing.content)
         .padding(.vertical, AppDesignSystem.Spacing.content)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isUnread ? AppDesignSystem.Palette.Highlight.surface : AppDesignSystem.Palette.Background.system)
+        .background(isUnread ? AppDesignSystem.Palette.Accent.surface : AppDesignSystem.Palette.Background.system)
         .contentShape(Rectangle())
         .onTapGesture {
             onOpenPoster()

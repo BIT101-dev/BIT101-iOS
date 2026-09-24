@@ -65,7 +65,7 @@ struct PaperDetailView: View {
                                             .font(AppDesignSystem.Typography.title)
                                     }
                                 }
-                                .foregroundStyle((viewModel.paper?.like ?? false) ? AppDesignSystem.Palette.Highlight.primary : AppDesignSystem.Foreground.primaryColor)
+                                .foregroundStyle((viewModel.paper?.like ?? false) ? AppDesignSystem.Palette.Accent.primary : AppDesignSystem.Foreground.primaryColor)
                             }
                             .disabled(viewModel.isLikingPaper)
                         }
@@ -90,11 +90,11 @@ struct PaperDetailView: View {
                             Text(isPaperLiked ? "已点赞" : "看完了，点个赞")
                                 .font(AppDesignSystem.Typography.bodyEmphasis)
                         }
-                        .foregroundStyle(isPaperLiked ? AppDesignSystem.Palette.Highlight.foreground : AppDesignSystem.Palette.Highlight.primary)
+                        .foregroundStyle(isPaperLiked ? AppDesignSystem.Palette.Highlight.foreground : AppDesignSystem.Palette.Accent.primary)
                         .padding(.horizontal, AppDesignSystem.Spacing.section)
                         .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
                         .background(
-                            isPaperLiked ? AppDesignSystem.Palette.Highlight.primary : AppDesignSystem.Palette.Highlight.surface,
+                            isPaperLiked ? AppDesignSystem.Palette.Accent.primary : AppDesignSystem.Palette.Accent.surface,
                             in: Capsule()
                         )
                     }
@@ -389,7 +389,7 @@ private struct PaperContentBlockView: View {
             .padding(.leading, AppDesignSystem.Spacing.content)
             .overlay(alignment: .leading) {
                 Capsule()
-                    .fill(AppDesignSystem.Palette.Highlight.primary)
+                    .fill(AppDesignSystem.Palette.Accent.primary)
                     .frame(width: AppDesignSystem.Spacing.tiny)
             }
         case let .list(_, items, ordered):
@@ -470,7 +470,7 @@ private struct PaperRichTextView: UIViewRepresentable {
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
         textView.dataDetectorTypes = []
-        textView.linkTextAttributes = [.foregroundColor: UIColor(AppDesignSystem.Palette.Highlight.primary)]
+        textView.linkTextAttributes = [.foregroundColor: UIColor(AppDesignSystem.Palette.Accent.primary)]
         textView.delegate = context.coordinator
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return textView

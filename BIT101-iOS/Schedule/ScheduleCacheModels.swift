@@ -10,7 +10,7 @@ import Foundation
 /// - 空教室偏好
 /// - 课表显示设置
 /// - 灵动岛提醒设置
-nonisolated struct ScheduleCache: Codable {
+nonisolated struct ScheduleCache: Codable, Sendable {
     /// 课程周次已经按学校响应的行级周次完成解析。
     ///
     /// 缓存解码依据此版本判断是否需要行级周次转换。
@@ -296,7 +296,7 @@ nonisolated struct ScheduleCache: Codable {
 ///
 /// `sourceCourses` 保存规则创建时的学校原始课程；`replacementCourses` 保存显示层结果。
 /// 刷新时先比较来源快照，再决定规则继续生效或移除。
-nonisolated struct ScheduleCourseRule: Codable, Identifiable, Hashable {
+nonisolated struct ScheduleCourseRule: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let sourceIdentity: String
     let sourceCourses: [CourseRecord]
@@ -320,7 +320,7 @@ nonisolated struct ScheduleCourseRule: Codable, Identifiable, Hashable {
 }
 
 /// 一个学期的完整课表快照。滚动本地缓存保留相邻的两个学期。
-nonisolated struct TermScheduleSnapshot: Codable {
+nonisolated struct TermScheduleSnapshot: Codable, Sendable {
     let term: String
     let firstDayString: String
     let courses: [CourseRecord]
@@ -339,7 +339,7 @@ nonisolated struct TermScheduleSnapshot: Codable {
 /// 导入到本地后的分享课表记录。
 ///
 /// 这类课表用于查看与切换；提醒、DDL、空教室偏好继续使用当前账号的私有课表逻辑。
-struct SharedScheduleRecord: Codable, Identifiable, Hashable {
+nonisolated struct SharedScheduleRecord: Codable, Identifiable, Hashable, Sendable {
     let id: String
     var title: String
     let importedAt: Date

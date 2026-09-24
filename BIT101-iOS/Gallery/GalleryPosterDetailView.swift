@@ -80,7 +80,7 @@ struct GalleryPosterDetailView: View {
                                             .font(AppDesignSystem.Typography.title)
                                     }
                                 }
-                                .foregroundStyle(viewModel.poster.like ? AppDesignSystem.Palette.Highlight.primary : AppDesignSystem.Foreground.primaryColor)
+                                .foregroundStyle(viewModel.poster.like ? AppDesignSystem.Palette.Accent.primary : AppDesignSystem.Foreground.primaryColor)
                             }
                             .disabled(viewModel.isLikingPoster)
                         }
@@ -104,7 +104,7 @@ struct GalleryPosterDetailView: View {
                         Text(viewModel.poster.claim.text)
                     }
                     .font(AppDesignSystem.Typography.footnoteEmphasis)
-                    .foregroundStyle(AppDesignSystem.Palette.Highlight.primary)
+                    .foregroundStyle(AppDesignSystem.Palette.Accent.primary)
                 }
 
                 Text(galleryLinkifiedText(viewModel.poster.text))
@@ -146,19 +146,24 @@ struct GalleryPosterDetailView: View {
                     }
                 }
 
-                if !viewModel.poster.tags.isEmpty {
-                    HStack(spacing: AppDesignSystem.Spacing.regular) {
-                        ForEach(viewModel.poster.tags, id: \.self) { tag in
-                            AppTagChip(title: tag, variant: .display)
+                HStack(spacing: AppDesignSystem.Spacing.content) {
+                    Label("\(viewModel.poster.likeNum)", systemImage: "hand.thumbsup")
+                    Label("\(viewModel.poster.commentNum)", systemImage: "bubble.right")
+
+                    if !viewModel.poster.tags.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: AppDesignSystem.Spacing.tiny) {
+                                ForEach(viewModel.poster.tags, id: \.self) { tag in
+                                    AppTagChip(title: tag, variant: .display)
+                                }
+                            }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        Spacer(minLength: AppDesignSystem.Spacing.tiny)
                     }
                 }
-
-                HStack(spacing: AppDesignSystem.Spacing.section) {
-                    Text("\(viewModel.poster.likeNum)赞")
-                    Text("\(viewModel.poster.commentNum)评论")
-                }
-                .font(AppDesignSystem.Typography.subheadline)
+                .font(AppDesignSystem.Typography.caption)
                 .foregroundStyle(AppDesignSystem.Foreground.secondary)
 
                 Divider()

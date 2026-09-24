@@ -67,7 +67,7 @@ struct PaperService {
         }
     }
 
-    private struct CreatePaperResponse: Decodable {
+    private nonisolated struct CreatePaperResponse: Decodable, Sendable {
         let id: Int
     }
 

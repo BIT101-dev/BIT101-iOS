@@ -139,6 +139,7 @@ ViewModel 优先通过按页面场景划分的协议依赖 Service。例如，�
 
 - `HTTPClient` 处理 URLSession 传输、HTTP 响应和状态码。
 - `CommunityAPIClient` 处理社区 API 的 URL、fake-cookie 和 JSON。
+- 社区响应解码运行在可取消的独立并发任务；响应模型以 `Sendable` 作为跨隔离域的数据契约。
 - `NetworkSessionPool` 复用社区、成绩认证和敏感下载会话。
 
 学校 CAS、教学中心和成绩 challenge 共享 HTTP 传输能力，各自维护认证状态。详细边界见 `docs/NETWORKING.md`。

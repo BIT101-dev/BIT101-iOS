@@ -60,7 +60,7 @@ struct AppAvatarView: View {
     init(
         imageURL: URL?,
         size: CGFloat = AppDesignSystem.Size.Avatar.standard,
-        tint: Color = AppDesignSystem.Palette.Highlight.primary,
+        tint: Color = AppDesignSystem.Palette.Accent.primary,
         systemImage: String = "person.fill",
         accessibilityLabel: String? = nil
     ) {

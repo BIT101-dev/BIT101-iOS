@@ -33,7 +33,7 @@ private enum TestCommunityError: LocalizedError, CommunityAPIServiceError {
 
 @Suite("Network stack")
 struct NetworkClientTests {
-    private struct UserPayload: Decodable, Equatable {
+    private struct UserPayload: Decodable, Equatable, Sendable {
         let displayName: String
     }
 

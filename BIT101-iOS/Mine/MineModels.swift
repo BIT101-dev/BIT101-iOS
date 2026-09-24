@@ -11,7 +11,7 @@ import Foundation
 ///
 /// `MineUserInfo` 服务于“我的主页”和他人主页的资料卡。
 /// 模型包含基础用户信息、关注关系和是否本人这些关系态字段。
-struct MineUserInfo: Decodable {
+nonisolated struct MineUserInfo: Decodable, Sendable {
     /// 当前主页主体用户。
     let user: GalleryUser
     /// 当前主页用户关注的人数。
@@ -37,7 +37,7 @@ struct MineUserInfo: Decodable {
     }
 }
 
-struct MineFollowResult: Decodable {
+nonisolated struct MineFollowResult: Decodable, Sendable {
     let following: Bool
     let follower: Bool
     let followingNum: Int

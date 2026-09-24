@@ -46,7 +46,7 @@ struct AppTagChip: View {
     private var foregroundColor: Color {
         switch variant {
         case .display:
-            return AppDesignSystem.Palette.Highlight.primary
+            return AppDesignSystem.Palette.Accent.primary
         case let .selection(isSelected):
             return isSelected
                 ? AppDesignSystem.Palette.Highlight.foreground
@@ -57,7 +57,7 @@ struct AppTagChip: View {
     private var backgroundColor: Color {
         switch variant {
         case .display:
-            return AppDesignSystem.Palette.Highlight.surface
+            return AppDesignSystem.Palette.Accent.surface
         case let .selection(isSelected):
             return isSelected
                 ? AppDesignSystem.Palette.Accent.primary

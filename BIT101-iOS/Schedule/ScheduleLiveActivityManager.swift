@@ -7,6 +7,8 @@
 
 #if canImport(ActivityKit) && !targetEnvironment(macCatalyst)
 
+// ActivityKit's iOS 27 Activity handles expose concurrent update/end methods;
+// the manager serializes their use on MainActor.
 @preconcurrency import ActivityKit
 import Foundation
 import os

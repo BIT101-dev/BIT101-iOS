@@ -86,7 +86,7 @@ struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         self.refreshHandler = refreshHandler
     }
 
-    func request<Response: Decodable>(
+    func request<Response: Decodable & Sendable>(
         path: String,
         queryItems: [URLQueryItem] = [],
         method: String = "GET",
@@ -148,13 +148,22 @@ struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         try JSONEncoder().encode(body)
     }
 
-    private static func decodeResponse<Response: Decodable>(
+    /// 社区列表可能包含大量帖子、评论和图片元数据；解码放在独立并发任务，
+    /// 返回值用 Sendable 约束跨回 MainActor 的数据边界。
+    private static func decodeResponse<Response: Decodable & Sendable>(
         _ type: Response.Type,
         from data: Data
     ) async throws -> Response {
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        return try decoder.decode(type, from: data)
+        let decodingTask = Task.detached(priority: .userInitiated) {
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            return try decoder.decode(type, from: data)
+        }
+        return try await withTaskCancellationHandler {
+            try await decodingTask.value
+        } onCancel: {
+            decodingTask.cancel()
+        }
     }
 
     private func send(

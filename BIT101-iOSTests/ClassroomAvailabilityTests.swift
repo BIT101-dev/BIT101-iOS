@@ -20,8 +20,7 @@ struct ClassroomAvailabilityCalculatorTests {
         )
 
         #expect(item.isFreeNow)
-        #expect(item.statusText == "还会空闲 20 分钟")
-        #expect(item.detailText == "直到 08:50")
+        #expect(item.statusText == "空闲到 08:50")
         #expect(item.freeSections == [1, 3])
         #expect(item.prettyFreeTimes == "1, 3")
     }
@@ -36,8 +35,7 @@ struct ClassroomAvailabilityCalculatorTests {
         )
 
         #expect(!item.isFreeNow)
-        #expect(item.statusText == "55 分钟 后空闲")
-        #expect(item.detailText == "09:55")
+        #expect(item.statusText == "09:55 后空闲")
     }
 
     @Test("Filters retain rooms free in any selected section")

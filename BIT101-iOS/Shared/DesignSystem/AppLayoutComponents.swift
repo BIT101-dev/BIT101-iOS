@@ -99,7 +99,7 @@ struct AppDetailCircleButton<Label: View>: View {
                     width: AppDesignSystem.Size.Control.detailActionButton,
                     height: AppDesignSystem.Size.Control.detailActionButton
                 )
-                .background(AppDesignSystem.Palette.Highlight.surface, in: Circle())
+                .background(AppDesignSystem.Palette.Accent.surface, in: Circle())
                 .frame(
                     width: AppDesignSystem.Size.Control.touchTarget,
                     height: AppDesignSystem.Size.Control.touchTarget
