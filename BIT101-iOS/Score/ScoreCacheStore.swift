@@ -1,7 +1,7 @@
 import Foundation
 
 /// 成绩 iCloud 同步快照，保留详细字段和本地新鲜度，使新设备直接复用已有数据。
-struct ScoreCacheSyncPayload: Codable {
+nonisolated struct ScoreCacheSyncPayload: Codable, Sendable {
     var rows: [ScoreRow]
     var updatedAt: Date?
     var detailedUpdatedAt: Date?

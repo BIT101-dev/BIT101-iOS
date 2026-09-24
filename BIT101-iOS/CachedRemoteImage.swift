@@ -56,19 +56,22 @@ struct AppAvatarView: View {
     let tint: Color
     let systemImage: String
     let accessibilityLabel: String?
+    let anonymous: Bool
 
     init(
         imageURL: URL?,
         size: CGFloat = AppDesignSystem.Size.Avatar.standard,
         tint: Color = AppDesignSystem.Palette.Accent.primary,
         systemImage: String = "person.fill",
-        accessibilityLabel: String? = nil
+        accessibilityLabel: String? = nil,
+        anonymous: Bool = false
     ) {
         self.imageURL = imageURL
         self.size = size
         self.tint = tint
         self.systemImage = systemImage
         self.accessibilityLabel = accessibilityLabel
+        self.anonymous = anonymous
     }
 
     var body: some View {
@@ -82,13 +85,29 @@ struct AppAvatarView: View {
             )
         } placeholder: {
             AppAvatarContainer(
-                image: nil,
+                image: anonymous ? anonymousAvatarImage : nil,
                 size: size,
                 tint: tint,
                 systemImage: systemImage,
                 accessibilityLabel: accessibilityLabel
             )
         }
+    }
+
+    private var anonymousAvatarImage: Image? {
+        let iconKey = UIDevice.current.userInterfaceIdiom == .pad
+            ? "CFBundleIcons~ipad"
+            : "CFBundleIcons"
+        guard
+            let icons = Bundle.main.infoDictionary?[iconKey] as? [String: Any],
+            let primaryIcon = icons["CFBundlePrimaryIcon"] as? [String: Any],
+            let iconNames = primaryIcon["CFBundleIconFiles"] as? [String],
+            let iconName = iconNames.last,
+            let image = UIImage(named: iconName)
+        else {
+            return nil
+        }
+        return Image(uiImage: image)
     }
 }
 

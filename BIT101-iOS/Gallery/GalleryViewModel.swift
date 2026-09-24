@@ -43,6 +43,8 @@ final class GalleryViewModel: ObservableObject {
     private let recommendPrefetch: GalleryRecommendPrefetchCoordinator
     private var refreshGenerations: [GalleryFeedKind: Int] = [:]
     private var searchGeneration = 0
+    private var interactionTasks: [String: Task<Void, Never>] = [:]
+    private var interactionTaskTokens: [String: UUID] = [:]
 
     init(service: any GalleryFeedServicing) {
         self.service = service
@@ -51,6 +53,61 @@ final class GalleryViewModel: ObservableObject {
 
     convenience init() {
         self.init(service: GalleryService())
+    }
+
+    deinit {
+        interactionTasks.values.forEach { $0.cancel() }
+    }
+
+    /// 将页面回调创建的非结构化任务收归 ViewModel，避免视图销毁后遗留请求。
+    func enqueueRefresh(for feed: GalleryFeedKind) {
+        enqueueInteractionTask(key: "refresh:\(feed.rawValue)") { [weak self] in
+            await self?.refresh(feed: feed)
+        }
+    }
+
+    func enqueuePrefetch(for feed: GalleryFeedKind, currentPoster: GalleryPoster) {
+        enqueueInteractionTask(key: "prefetch:\(feed.rawValue)") { [weak self] in
+            await self?.prefetchIfNeeded(for: feed, currentPoster: currentPoster)
+        }
+    }
+
+    func enqueueLoadMore(for feed: GalleryFeedKind, currentPoster: GalleryPoster) {
+        enqueueInteractionTask(key: "load-more:\(feed.rawValue)") { [weak self] in
+            await self?.loadMoreIfNeeded(for: feed, currentPoster: currentPoster)
+        }
+    }
+
+    func enqueueRetry(for feed: GalleryFeedKind) {
+        enqueueInteractionTask(key: "retry:\(feed.rawValue)") { [weak self] in
+            guard let self else { return }
+            let state = self.state(for: feed)
+            guard case .failed = state.status, state.posters.isEmpty else { return }
+            await self.refresh(feed: feed)
+        }
+    }
+
+    func enqueueNewestRefreshAfterComposer() {
+        enqueueInteractionTask(key: "composer-refresh") { [weak self] in
+            guard let self else { return }
+            self.selectedFeed = .newest
+            await self.refresh(feed: .newest)
+        }
+    }
+
+    private func enqueueInteractionTask(
+        key: String,
+        operation: @escaping @MainActor () async -> Void
+    ) {
+        interactionTasks[key]?.cancel()
+        let token = UUID()
+        interactionTaskTokens[key] = token
+        interactionTasks[key] = Task { @MainActor [weak self] in
+            await operation()
+            guard let self, self.interactionTaskTokens[key] == token else { return }
+            self.interactionTasks[key] = nil
+            self.interactionTaskTokens[key] = nil
+        }
     }
 
     /// 首次进入话题页时触发一次默认 feed 加载。
@@ -336,19 +393,39 @@ final class GalleryViewModel: ObservableObject {
     ///
     /// 去重和拼接放到后台队列执行，让大数组操作离开主线程滚动流程。
     private func mergeUniqueInBackground(existing: [GalleryPoster], incoming: [GalleryPoster]) async -> [GalleryPoster] {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                continuation.resume(returning: Self.mergeUniqueSync(existing: existing, incoming: incoming))
+        let task = Task.detached(priority: .utility) {
+            try Task.checkCancellation()
+            let result = Self.mergeUniqueSync(existing: existing, incoming: incoming)
+            try Task.checkCancellation()
+            return result
+        }
+        return await withTaskCancellationHandler {
+            do {
+                return try await task.value
+            } catch {
+                return existing
             }
+        } onCancel: {
+            task.cancel()
         }
     }
 
     /// 首屏列表也走同一套去重逻辑，并放到后台队列执行，保持刷新时的滚动响应。
     private func deduplicateInBackground(_ posters: [GalleryPoster]) async -> [GalleryPoster] {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                continuation.resume(returning: Self.deduplicateSync(posters))
+        let task = Task.detached(priority: .utility) {
+            try Task.checkCancellation()
+            let result = Self.deduplicateSync(posters)
+            try Task.checkCancellation()
+            return result
+        }
+        return await withTaskCancellationHandler {
+            do {
+                return try await task.value
+            } catch {
+                return posters
             }
+        } onCancel: {
+            task.cancel()
         }
     }
 

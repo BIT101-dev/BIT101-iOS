@@ -206,19 +206,15 @@ struct GalleryRootView: View {
                 feedIdentity: viewModel.selectedFeed.rawValue,
                 prefetchTriggerThreshold: viewModel.selectedFeed == .recommend ? 10 : 0,
                 onRefresh: {
-                    Task {
-                        await viewModel.refresh(feed: viewModel.selectedFeed)
-                    }
+                    viewModel.enqueueRefresh(for: viewModel.selectedFeed)
                 },
                 onPrefetch: { poster in
-                    Task {
-                        await viewModel.prefetchIfNeeded(for: viewModel.selectedFeed, currentPoster: poster)
-                    }
+                    guard let poster else { return }
+                    viewModel.enqueuePrefetch(for: viewModel.selectedFeed, currentPoster: poster)
                 },
                 onLoadMore: { poster in
-                    Task {
-                        await viewModel.loadMoreIfNeeded(for: viewModel.selectedFeed, currentPoster: poster)
-                    }
+                    guard let poster else { return }
+                    viewModel.enqueueLoadMore(for: viewModel.selectedFeed, currentPoster: poster)
                 }
             )
             .simultaneousGesture(feedSwitchGesture)
@@ -259,22 +255,17 @@ struct GalleryRootView: View {
         }
         .onChange(of: viewModel.selectedFeed) { _, newFeed in
             if viewModel.state(for: newFeed).status == .idle {
-                Task {
-                    await viewModel.refresh(feed: newFeed)
-                }
+                viewModel.enqueueRefresh(for: newFeed)
             }
         }
         .onChange(of: networkObserver.isReachable) { oldValue, newValue in
             guard newValue, !oldValue else { return }
-            Task {
-                await retryCurrentFeedIfNeeded()
-            }
+            viewModel.enqueueRetry(for: viewModel.selectedFeed)
         }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active else { return }
-            Task {
-                await retryCurrentFeedIfNeeded()
-            }
+            guard networkObserver.isReachable else { return }
+            viewModel.enqueueRetry(for: viewModel.selectedFeed)
         }
         .sheet(isPresented: $viewModel.isShowingSearch) {
             NavigationStack {
@@ -289,12 +280,7 @@ struct GalleryRootView: View {
         }
         .sheet(isPresented: $isShowingComposer) {
             GalleryComposerView {
-                Task {
-                    await MainActor.run {
-                        viewModel.selectedFeed = .newest
-                    }
-                    await viewModel.refresh(feed: .newest)
-                }
+                viewModel.enqueueNewestRefreshAfterComposer()
             }
         }
         .diagnosticAlert(item: $viewModel.alert)
@@ -337,17 +323,6 @@ struct GalleryRootView: View {
         }
     }
 
-    /// 网络恢复或应用回前台时，失败且列表为空的当前 feed 自动重试。
-    ///
-    /// 正常列表保留当前阅读内容，自动重试覆盖失败且列表为空的状态。
-    private func retryCurrentFeedIfNeeded() async {
-        guard networkObserver.isReachable else { return }
-
-        let currentState = viewModel.state(for: viewModel.selectedFeed)
-        guard case .failed = currentState.status, currentState.posters.isEmpty else { return }
-
-        await viewModel.refresh(feed: viewModel.selectedFeed)
-    }
 }
 
 /// 轻量网络可达性观察器。

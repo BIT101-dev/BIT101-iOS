@@ -6,18 +6,23 @@
 import Foundation
 
 /// 乐学 iCalendar 文本的纯解析器。
-enum ScheduleICSParser {
+nonisolated enum ScheduleICSParser {
     static func parse(_ ics: String) throws -> [DDLEventRecord] {
+        try Task.checkCancellation()
         let lines = unfoldLines(in: ics)
-        let uppercasedLines = lines.map { $0.uppercased() }
-        guard uppercasedLines.contains("BEGIN:VCALENDAR"), uppercasedLines.contains("END:VCALENDAR") else {
+        guard lines.contains(where: { $0.caseInsensitiveCompare("BEGIN:VCALENDAR") == .orderedSame }),
+              lines.contains(where: { $0.caseInsensitiveCompare("END:VCALENDAR") == .orderedSame })
+        else {
             throw ScheduleServiceError.invalidCalendarData
         }
 
         var currentEvent: [String: Property]?
         var eventsByID: [String: DDLEventRecord] = [:]
 
-        for line in lines {
+        for (index, line) in lines.enumerated() {
+            if index.isMultiple(of: 128) {
+                try Task.checkCancellation()
+            }
             let controlLine = line.uppercased()
             if controlLine == "BEGIN:VEVENT" {
                 currentEvent = [:]

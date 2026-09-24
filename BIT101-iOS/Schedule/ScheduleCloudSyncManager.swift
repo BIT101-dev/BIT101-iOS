@@ -341,25 +341,30 @@ actor ScheduleCloudSyncManager {
     }
 
     private func currentLocalCloudState() async -> LocalCloudState? {
-        await MainActor.run {
-            let cache = ScheduleCacheStore.load()
-            guard cache.iCloudSyncEnabled else { return nil }
-
-            let studentID = LoginStorage.shared.currentStudentID
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !studentID.isEmpty else { return nil }
-
-            let account = CloudAccountContext(
-                studentID: studentID,
+        let initialAccount = await MainActor.run {
+            (
+                studentID: LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines),
                 accountIdentifier: ScheduleCacheStore.currentAccountIdentifier()
+            )
+        }
+        guard !initialAccount.studentID.isEmpty else { return nil }
+
+        let cache = await ScheduleCacheStore.loadAsync()
+        return await MainActor.run {
+            guard ScheduleCacheStore.currentAccountIdentifier() == initialAccount.accountIdentifier,
+                  cache.iCloudSyncEnabled
+            else { return nil }
+            let account = CloudAccountContext(
+                studentID: initialAccount.studentID,
+                accountIdentifier: initialAccount.accountIdentifier
             )
             return LocalCloudState(cache: cache, account: account)
         }
     }
 
     private func currentLocalCloudState(matching account: CloudAccountContext) async -> LocalCloudState? {
-        await MainActor.run {
-            let cache = ScheduleCacheStore.load()
+        let cache = await ScheduleCacheStore.loadAsync()
+        return await MainActor.run { () -> LocalCloudState? in
             let studentID = LoginStorage.shared.currentStudentID
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let currentAccount = CloudAccountContext(
@@ -385,7 +390,8 @@ actor ScheduleCloudSyncManager {
         account: CloudAccountContext,
         expectedLocalUpdatedAt: Date
     ) async -> Bool {
-        await MainActor.run {
+        let currentCache = await ScheduleCacheStore.loadAsync()
+        return await MainActor.run { () -> Bool in
             let currentStudentID = LoginStorage.shared.currentStudentID
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let currentAccount = CloudAccountContext(
@@ -394,7 +400,6 @@ actor ScheduleCloudSyncManager {
             )
             guard currentAccount == account else { return false }
 
-            let currentCache = ScheduleCacheStore.load()
             guard currentCache.iCloudSyncEnabled,
                   currentCache.updatedAt == expectedLocalUpdatedAt
             else { return false }
@@ -409,6 +414,7 @@ actor ScheduleCloudSyncManager {
         account: CloudAccountContext,
         expectedLocalUpdatedAt: Date
     ) async {
+        let currentCache = await ScheduleCacheStore.loadAsync()
         await MainActor.run {
             let currentStudentID = LoginStorage.shared.currentStudentID
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -418,13 +424,13 @@ actor ScheduleCloudSyncManager {
             )
             guard currentAccount == account else { return }
 
-            var currentCache = ScheduleCacheStore.load()
             guard currentCache.iCloudSyncEnabled,
                   currentCache.updatedAt == expectedLocalUpdatedAt
             else { return }
 
-            currentCache.updatedAt = updatedAt
-            ScheduleCacheStore.save(currentCache, source: .cloud)
+            var cacheToSave = currentCache
+            cacheToSave.updatedAt = updatedAt
+            ScheduleCacheStore.save(cacheToSave, source: .cloud)
         }
     }
 

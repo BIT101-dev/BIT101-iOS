@@ -128,11 +128,12 @@ private struct PaperCommentRow: View {
                 imageURL: comment.anonymous ? nil : comment.user.avatar.preferredRemoteURL,
                 size: isSubComment
                     ? AppDesignSystem.Size.Control.compact
-                    : AppDesignSystem.Size.Avatar.standard
+                    : AppDesignSystem.Size.Avatar.standard,
+                anonymous: comment.anonymous
             )
         } content: {
             AppCommentIdentityHeader(
-                nickname: comment.anonymous ? "匿名用户" : comment.user.nickname,
+                nickname: comment.anonymous ? AppUserPresentation.anonymousName : comment.user.nickname,
                 isSubComment: isSubComment,
                 timeText: AppDateText.timestampText(from: comment.updateTime),
                 onOpenProfile: nil

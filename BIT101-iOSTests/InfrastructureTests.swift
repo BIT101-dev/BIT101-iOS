@@ -444,7 +444,7 @@ struct ScoreDetailRefreshPolicyTests {
     }
 }
 
-@Suite("External schedule infrastructure")
+@Suite("Watch and Widget shared runtime contracts")
 struct ExternalScheduleInfrastructureTests {
     @Test("Snapshot codec preserves the shared contract")
     func snapshotCodecRoundTrip() throws {

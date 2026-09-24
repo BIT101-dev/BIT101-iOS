@@ -58,6 +58,7 @@ nonisolated struct PaperSummary: Decodable, Identifiable, Hashable, Sendable {
 struct PaperPreviewMetadata: Equatable, Hashable {
     let authorName: String
     let avatarURL: URL?
+    let isAnonymous: Bool
 }
 
 /// 文章详情模型。
@@ -100,8 +101,9 @@ nonisolated struct PaperDetail: Decodable, Identifiable, Hashable, Sendable {
     /// 生成列表预览使用的作者摘要。
     var previewMetadata: PaperPreviewMetadata {
         PaperPreviewMetadata(
-            authorName: anonymous ? "匿名者" : updateUser.nickname,
-            avatarURL: anonymous ? nil : updateUser.avatar.preferredRemoteURL
+            authorName: anonymous ? AppUserPresentation.anonymousName : updateUser.nickname,
+            avatarURL: anonymous ? nil : updateUser.avatar.preferredRemoteURL,
+            isAnonymous: anonymous
         )
     }
 }
@@ -150,7 +152,7 @@ enum PaperCommentComposerTarget: Identifiable, Equatable {
     }
 
     private func targetCommentDisplayName(_ comment: GalleryComment) -> String {
-        comment.anonymous ? "匿名用户" : comment.user.nickname
+        comment.anonymous ? AppUserPresentation.anonymousName : comment.user.nickname
     }
 
     var objectID: String {

@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import re
+import json
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +23,7 @@ DESIGN_SYSTEM_SOURCES = {
     SOURCE_ROOT / "Map/CampusMapScreen.swift",
 }
 PRIMITIVE_OPACITY_SOURCE = SOURCE_ROOT / "Shared/DesignSystem/DesignPrimitives.swift"
+REPORT_PATH = ROOT / ".build/ui-consistency-report.txt"
 
 
 def _blank_segment(output: list[str], source: str, start: int, end: int) -> None:
@@ -406,16 +409,67 @@ def swift_files() -> list[Path]:
     return sorted(SOURCE_ROOT.rglob("*.swift"))
 
 
-def check_component_contracts(errors: list[str]) -> None:
+def syntax_index() -> dict[str, dict]:
+    checker = ROOT / "Scripts/check-code-quality.py"
+    result = subprocess.run(
+        [sys.executable, str(checker), "--swift-syntax-index"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(result.stdout)
+
+
+def ast_has_marker(facts: dict, marker: str) -> bool:
+    normalized = re.sub(r"\s+", " ", marker).strip()
+    if normalized.startswith("struct "):
+        name = normalized.removeprefix("struct ").strip()
+        return any(declaration["kind"] == "struct" and declaration["name"] == name for declaration in facts["declarations"])
+
+    variants = {normalized}
+    for keyword in ("let ", "var "):
+        if normalized.startswith(keyword):
+            variants.add(normalized.removeprefix(keyword))
+    collections = (
+        facts["calls"], facts["members"], facts["expressions"],
+        facts["bindings"], facts["controlFlow"], facts["typeNames"],
+    )
+    if any(
+        any(
+            expected == re.sub(r"\s+", " ", item["value"]).strip()
+            or expected in re.sub(r"\s+", " ", item["value"]).strip()
+            for expected in variants
+        )
+        for collection in collections
+        for item in collection
+    ):
+        return True
+
+    string_fragments = re.findall(r"\"([^\"]+)\"", marker)
+    if string_fragments and not all(fragment in facts["stringSegments"] for fragment in string_fragments):
+        return False
+    identifiers = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", re.sub(r'"[^\"]*"', "", marker))
+    return bool(identifiers) and all(identifier in facts["identifiers"] for identifier in identifiers)
+
+
+def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> None:
     sources = {path: path.read_text(encoding="utf-8") for path in swift_files()}
     code_sources = {path: mask_literals_and_comments(source) for path, source in sources.items()}
     comment_free_sources = {path: mask_comments(source) for path, source in sources.items()}
-    declarations = "\n".join(code_sources.values())
 
-    # 公共组件清单只声明语义名称；来源文件由源码声明自动发现，不再维护文件名映射。
+    # Public component existence comes from declaration nodes, independent of comments and strings.
+    component_declarations = [
+        declaration
+        for path, facts in syntax.items()
+        if Path(path).is_relative_to(SOURCE_ROOT)
+        for declaration in facts["declarations"]
+    ]
     for group, symbols in COMPONENT_GROUPS:
         for symbol in symbols:
-            if not re.search(rf"\b(?:struct|enum|class|protocol)\s+{re.escape(symbol)}\b", declarations):
+            if not any(
+                declaration["name"] == symbol
+                for declaration in component_declarations
+            ):
                 errors.append(f"公共组件组「{group}」缺少 {symbol}")
 
     for contract in COMPONENT_CONTRACTS:
@@ -427,16 +481,16 @@ def check_component_contracts(errors: list[str]) -> None:
                 contract.discovery_tokens
                 and is_view_source(path, source)
                 and path.parent != DESIGN_SYSTEM.parent
-                and any(token in source for token in contract.discovery_tokens)
+                and any(ast_has_marker(syntax[str(path)], token) for token in contract.discovery_tokens)
             ):
                 members.add(path)
         for path in sorted(path for path in members if path.is_file()):
-            source = code_sources[path]
+            facts = syntax[str(path)]
             relative = path.relative_to(ROOT)
-            if contract.any_tokens and not any(token in source for token in contract.any_tokens):
+            if contract.any_tokens and not any(ast_has_marker(facts, token) for token in contract.any_tokens):
                 errors.append(f"{relative}: {contract.name}缺少首屏状态公共组件")
             for token, message in contract.requirements:
-                if token not in source:
+                if not ast_has_marker(facts, token):
                     errors.append(f"{relative}: {contract.name}{message}（缺少 {token}）")
 
     forbidden_duplicate_wrappers = (
@@ -462,11 +516,15 @@ def check_component_contracts(errors: list[str]) -> None:
     for path, source in code_sources.items():
         if not is_view_source(path, source):
             continue
-        if re.search(r"\b(List|Form|Section)\b", source) and "ContentUnavailableView" in source:
-            if "AppFailureState" not in source and "AppEmptyState" not in source:
+        if re.search(r"\b(List|Form|Section)\b", source) and "ContentUnavailableView" in syntax[str(path)]["identifiers"]:
+            identifiers = syntax[str(path)]["identifiers"]
+            if "AppFailureState" not in identifiers and "AppEmptyState" not in identifiers:
                 errors.append(f"{path.relative_to(ROOT)}: 页面状态必须使用公共空态/失败态组件")
-        if re.search(r"\b(?:Gallery|Paper|Course|Mine|Settings)\b", str(path)) and re.search(r"avatar", source, re.IGNORECASE):
-            if "AppAvatarView" not in source and "AppAvatarComponents.swift" not in str(path):
+        identifiers = syntax[str(path)]["identifiers"]
+        if re.search(r"\b(?:Gallery|Paper|Course|Mine|Settings)\b", str(path)) and any(
+            identifier.lower() == "avatar" for identifier in identifiers
+        ):
+            if "AppAvatarView" not in identifiers and "AppAvatarComponents.swift" not in str(path):
                 errors.append(f"{path.relative_to(ROOT)}: 头像页面必须使用 AppAvatarView")
 
     # 列表/表单内的图标按位置审计：状态、右侧导航和交互控件可保留，
@@ -496,10 +554,10 @@ def check_component_contracts(errors: list[str]) -> None:
                 containers.pop()
 
     direct_states = [
-        f"{path.relative_to(ROOT)}:{index + 1}: {line.strip()}"
-        for path, source in code_sources.items()
-        for index, line in enumerate(source.splitlines())
-        if "ContentUnavailableView" in line and "AppStateComponents.swift" not in str(path)
+        str(path.relative_to(ROOT))
+        for path in swift_files()
+        if "ContentUnavailableView" in syntax[str(path)]["identifiers"]
+        and "AppStateComponents.swift" not in str(path)
         and "Schedule/FreeClassroomViews.swift" not in str(path)
     ]
     errors.extend(f"页面不得直接实现空态/失败态：{item}" for item in direct_states)
@@ -758,23 +816,23 @@ def is_reviewed_fixed_geometry(path: Path, source: str, pattern: re.Pattern[str]
     )
 
 
-def check_refresh_status_contract(errors: list[str]) -> None:
+def check_refresh_status_contract(errors: list[str], syntax: dict[str, dict]) -> None:
     status_component_path = DESIGN_SYSTEM.parent / "AppRefreshStatusComponents.swift"
-    status_component = status_component_path.read_text(encoding="utf-8")
+    status_facts = syntax[str(status_component_path)]
     refresh_pages = (
         SOURCE_ROOT / "Score/ScoreRootView.swift",
         SOURCE_ROOT / "Schedule/ScheduleDDLViews.swift",
         SOURCE_ROOT / "Schedule/FreeClassroomViews.swift",
     )
     for page_path in refresh_pages:
-        page_source = page_path.read_text(encoding="utf-8")
-        if "AppRefreshStatusRow(" not in page_source:
+        page_facts = syntax[str(page_path)]
+        if not any(call["value"] == "AppRefreshStatusRow" for call in page_facts["calls"]):
             errors.append(f"{page_path.relative_to(ROOT)}: 刷新数据页必须使用 AppRefreshStatusRow")
-        if ".appGroupedListStyle()" not in page_source:
+        if not any(call["value"].endswith("appGroupedListStyle") for call in page_facts["calls"]):
             errors.append(f"{page_path.relative_to(ROOT)}: 刷新数据页必须使用统一分组列表样式")
 
     path = SOURCE_ROOT / "Schedule/CourseScheduleTabView.swift"
-    source = path.read_text(encoding="utf-8")
+    facts = syntax[str(path)]
     header_contract = (
         "if activeSchedule.isPrimary",
         "lastUpdatedText: activeSchedule.importedAt.map",
@@ -783,48 +841,40 @@ def check_refresh_status_contract(errors: list[str]) -> None:
         "ScheduleRefreshStatusContentHeightKey.self",
         "onPreferenceChange(ScheduleRefreshStatusContentHeightKey.self)",
     )
-    missing = [item for item in header_contract if item not in source]
+    missing = [item for item in header_contract if not ast_has_marker(facts, item)]
     if missing:
         errors.append(
             f"{path.relative_to(ROOT)}: 我的课表与分享课表必须共用顶部行组件（缺少 {', '.join(missing)}）"
         )
 
-    if ".frame(height:" in status_component or ".frame(minHeight:" in status_component:
+    if any(call["value"].endswith("frame") for call in status_facts["calls"]):
         errors.append(f"{status_component_path.relative_to(ROOT)}: 公共更新时间行保留列表自然行高")
-    for token in ("let trailingText: String?", "else if let trailingText"):
-        if token not in status_component:
+    for token in ("trailingText: String?", "else if let trailingText"):
+        if not ast_has_marker(status_facts, token):
             errors.append(f"{status_component_path.relative_to(ROOT)}: 只读课表顶部行必须复用更新时间行（缺少 {token}）")
 
-    header_start = source.find("Section {")
-    header_end = source.find("// 学校尚未发布未来学期课表时", header_start)
-    header_source = source[header_start:header_end] if header_start >= 0 and header_end >= 0 else ""
-    if header_source.count("AppRefreshStatusRow(") != 2:
+    status_row_calls = sum(call["value"] == "AppRefreshStatusRow" for call in facts["calls"])
+    if status_row_calls != 2:
         errors.append(f"{path.relative_to(ROOT)}: 主课表与分享课表顶部行共用 AppRefreshStatusRow")
-    if "refreshStatusContentHeight" not in source or "rowProxy.size.height" not in source:
+    if not ast_has_marker(facts, "refreshStatusContentHeight") or not ast_has_marker(facts, "rowProxy.size.height"):
         errors.append(f"{path.relative_to(ROOT)}: 课表日历按实际更新时间行高度计算剩余空间")
-    for custom_style in (
-        ".listRowInsets(",
-        ".listRowBackground(",
-        ".frame(height:",
-        ".frame(minHeight:",
-    ):
-        if custom_style in header_source:
-            errors.append(f"{path.relative_to(ROOT)}: 顶部更新时间行沿用公共分组列表样式（发现 {custom_style}）")
 
     schedule_design_path = SOURCE_ROOT / "Schedule/ScheduleDesignSystem.swift"
-    schedule_design = schedule_design_path.read_text(encoding="utf-8")
-    if "static func refreshStatusRowHeight(contentHeight:" not in schedule_design:
+    if "refreshStatusRowHeight" not in syntax[str(schedule_design_path)]["identifiers"]:
         errors.append(f"{schedule_design_path.relative_to(ROOT)}: 列表行高派生逻辑归入课表设计系统")
 
-    height_start = source.find("let calendarHeight = max(")
-    height_end = source.find("\n            )", height_start)
-    height_expression = source[height_start:height_end] if height_start >= 0 and height_end >= 0 else ""
-    if not height_expression or "activeSchedule" in height_expression:
+    height_binding = next(
+        (binding["value"] for binding in facts["bindings"] if binding["value"].startswith("calendarHeight =")),
+        "",
+    )
+    if not height_binding or "activeSchedule" in height_binding:
         errors.append(f"{path.relative_to(ROOT)}: 两种课表变体使用同一日历高度计算")
 
     actions_path = SOURCE_ROOT / "Schedule/CourseScheduleTabViewActions.swift"
-    actions_source = actions_path.read_text(encoding="utf-8")
-    if "encodeLatest(courses: activeSchedule.courses)" not in actions_source:
+    actions_facts = syntax[str(actions_path)]
+    if not any(call["value"].endswith("encodeLatest") for call in actions_facts["calls"]) or not any(
+        member["value"] == "activeSchedule.courses" for member in actions_facts["members"]
+    ):
         errors.append(f"{actions_path.relative_to(ROOT)}: 分享操作必须使用当前显示课表的数据源")
 
 
@@ -834,8 +884,13 @@ def main() -> int:
         return 1
 
     errors: list[str] = []
-    check_component_contracts(errors)
-    check_refresh_status_contract(errors)
+    try:
+        syntax = syntax_index()
+    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as error:
+        print(f"[失败] SwiftSyntax 索引：{error}", file=sys.stderr)
+        return 1
+    check_component_contracts(errors, syntax)
+    check_refresh_status_contract(errors, syntax)
     check_haptic_consistency(errors)
     check_error_report_coverage(errors)
     check_fonts(errors)
@@ -949,10 +1004,18 @@ def main() -> int:
                 )
 
     if errors:
-        print("[失败] UI 一致性检查：")
-        print("\n".join(errors))
+        lines = ["[失败] UI 一致性检查：", *errors]
+        report = "\n".join(lines)
+        if len(lines) <= 1000:
+            REPORT_PATH.unlink(missing_ok=True)
+            print(report)
+        else:
+            REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
+            REPORT_PATH.write_text(report + "\n", encoding="utf-8")
+            print(f"UI 检查结果共 {len(lines)} 行，详情写入 {REPORT_PATH.relative_to(ROOT)}")
         return 1
 
+    REPORT_PATH.unlink(missing_ok=True)
     print(f"[通过] UI 一致性检查（扫描 {len(swift_files())} 个 Swift 文件）")
     return 0
 

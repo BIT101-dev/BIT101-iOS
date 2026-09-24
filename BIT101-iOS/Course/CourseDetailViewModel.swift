@@ -41,7 +41,7 @@ enum CourseCommentComposerTarget: Identifiable, Equatable {
     }
 
     private func targetCommentDisplayName(_ comment: GalleryComment) -> String {
-        comment.anonymous ? "匿名用户" : comment.user.nickname
+        comment.anonymous ? AppUserPresentation.anonymousName : comment.user.nickname
     }
 
     var objectID: String {
@@ -93,6 +93,7 @@ final class CourseDetailViewModel: ObservableObject {
     private var hasBootstrapped = false
     private var refreshGeneration = 0
     private var historyGeneration = 0
+    private var cachedSchedule = ScheduleCache()
 
     init(initialCourse: CourseSummary, service: (any CourseDetailServicing)? = nil) {
         self.initialCourse = initialCourse
@@ -120,12 +121,11 @@ final class CourseDetailViewModel: ObservableObject {
     private var localScheduleCredit: Double? {
         let number = resolvedNumber.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = resolvedName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cache = ScheduleCacheStore.load()
-        let snapshots = cache.termSchedulesByTerm.values
+        let snapshots = cachedSchedule.termSchedulesByTerm.values
             .sorted { $0.updatedAt > $1.updatedAt }
             .flatMap(\.courses)
-        let courses = cache.courses
-            + (cache.cachedCoursesByTerm[cache.currentTerm] ?? [])
+        let courses = cachedSchedule.courses
+            + (cachedSchedule.cachedCoursesByTerm[cachedSchedule.currentTerm] ?? [])
             + snapshots
 
         if !number.isEmpty,
@@ -174,6 +174,7 @@ final class CourseDetailViewModel: ObservableObject {
     func bootstrapIfNeeded() async {
         guard !hasBootstrapped else { return }
         hasBootstrapped = true
+        cachedSchedule = await ScheduleCacheStore.loadAsync()
         await refresh()
     }
 

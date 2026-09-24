@@ -10,7 +10,7 @@ import Foundation
 /// 日程同步过程中的统一错误。
 ///
 /// 该枚举承接 UI 展示所需的错误；接口差异和字段缺失在此归并为少量用户可理解的文案。
-enum ScheduleServiceError: LocalizedError {
+nonisolated enum ScheduleServiceError: LocalizedError {
     case notLoggedIn
     case secondFactorRequired(BITLoginAuthenticationChallenge)
     case challengeInvalid(String)
@@ -91,7 +91,7 @@ enum ScheduleServiceError: LocalizedError {
 /// 同步课程表和考试后的组合结果。
 ///
 /// 课程、考试和首周日期来自不同接口；“同步课表”按一个业务动作一起更新，返回体集中承载三类数据。
-struct CourseSyncPayload {
+nonisolated struct CourseSyncPayload: Sendable {
     let term: String
     let firstDayString: String
     let sourceFirstDayString: String
@@ -109,7 +109,7 @@ nonisolated enum SmallTermWeekNormalizer {
     /// 结果包含两种状态：`0` 表示不变，`3` 表示全局减 3 周。
     static let correctionOffset = 3
 
-    struct Result {
+    nonisolated struct Result: Sendable {
         let firstDayString: String
         let courses: [CourseRecord]
         let offset: Int
@@ -351,8 +351,6 @@ struct ScheduleService {
     let session: URLSession
     private let redirectDelegate = HTTPSUpgradingRedirectDelegate()
     static let authenticationWaitSeconds: TimeInterval = 90
-    static let decoder = JSONDecoder()
-
     struct AuthenticationCredentials: Encodable {
         let username: String?
         let password: String?

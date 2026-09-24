@@ -63,7 +63,7 @@ struct ScheduleRootView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .task {
-            viewModel.loadIfNeeded()
+            await viewModel.loadIfNeeded()
         }
         .task(id: viewModel.selectedSection) {
             guard viewModel.selectedSection == .classroom else { return }

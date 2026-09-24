@@ -24,7 +24,7 @@ nonisolated enum ScheduleSharedContainer {
 /// 对外部展示层暴露的精简节次模型。
 ///
 /// 该模型独立于主 App 的 `TimeSlot`，供 Watch、Widget 和 Live Activity 依赖。
-nonisolated struct ScheduleExternalTimeSlotSnapshot: Codable, Hashable {
+nonisolated struct ScheduleExternalTimeSlotSnapshot: Codable, Hashable, Sendable {
     let id: Int
     let start: String
     let end: String
@@ -33,7 +33,7 @@ nonisolated struct ScheduleExternalTimeSlotSnapshot: Codable, Hashable {
 /// 对外部展示层暴露的精简课程模型。
 ///
 /// 共享模型包含计算当前课程与后续课程所需字段。
-nonisolated struct ScheduleExternalCourseSnapshot: Codable, Hashable {
+nonisolated struct ScheduleExternalCourseSnapshot: Codable, Hashable, Sendable {
     let id: String
     let name: String
     let classroom: String
@@ -49,7 +49,7 @@ nonisolated struct ScheduleExternalCourseSnapshot: Codable, Hashable {
 /// 这份结构定义跨 target 的稳定边界：
 /// - 主 App 从完整缓存裁剪出可共享的最小信息
 /// - Widget 和 Watch 依赖这份快照，与主 App 状态机保持解耦
-nonisolated struct ScheduleExternalSnapshot: Codable, Hashable {
+nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable {
     let generatedAt: Date
     let isLoggedIn: Bool
     let studentID: String

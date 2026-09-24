@@ -269,7 +269,7 @@ private struct ScoreListPage: View {
             }
         }
         .task {
-            viewModel.restoreCachedDataIfNeeded()
+            await viewModel.restoreCachedDataIfNeeded()
         }
         .diagnosticAlert(item: $viewModel.alert)
         .sheet(

@@ -3,7 +3,7 @@ import Foundation
 /// 此枚举表示成绩页加载状态。
 ///
 /// 成绩页根视图根据此枚举区分空闲、加载、已加载和失败状态。
-enum ScoreLoadState: Equatable {
+nonisolated enum ScoreLoadState: Equatable, Sendable {
     case idle
     case loading
     case loaded
@@ -13,7 +13,7 @@ enum ScoreLoadState: Equatable {
 /// 此结构表示单个成绩字段。
 ///
 /// 服务端以二维表返回成绩；模型将表头和值保存为键值对，详情页复用这些字段。
-struct ScoreField: Codable, Hashable {
+nonisolated struct ScoreField: Codable, Hashable, Sendable {
     let key: String
     let value: String
 }
@@ -21,7 +21,7 @@ struct ScoreField: Codable, Hashable {
 /// 此结构表示成绩表中的一行课程记录。
 ///
 /// 模型保留原始表头和值的对应关系，并提供常用字段访问器。
-struct ScoreRow: Codable, Identifiable {
+nonisolated struct ScoreRow: Codable, Identifiable, Sendable {
     let id: String
     let values: [ScoreField]
 
@@ -64,7 +64,7 @@ struct ScoreRow: Codable, Identifiable {
     }
 }
 
-enum ScoreDetailRefreshDecision: Equatable {
+nonisolated enum ScoreDetailRefreshDecision: Equatable, Sendable {
     case fetch
     case reuseCompletedCache
     case reuseRateLimitedCache
@@ -145,7 +145,7 @@ enum ScoreDetailRefreshPolicy {
 /// 此结构表示成绩统计摘要。
 ///
 /// 统计逻辑参考网页端：同一课程编号对应多条记录时，选择最高成绩参与加权计算。
-struct ScoreSummary {
+nonisolated struct ScoreSummary: Sendable {
     let selectedCourseCount: Int
     let totalCredit: Double
     let weightedAverageScore: Double?

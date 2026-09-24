@@ -56,7 +56,7 @@ BIT101_INSTALL_TARGET=macCatalyst Scripts/build-install-device.sh
 Scripts/run-extended-tests.sh
 ```
 
-脚本在一次真机测试进程中编译并运行默认测试与扩展测试，详细失败日志写入 `.build/extended-automation/all-tests.log`。测试宿主使用 `BIT101_AUTOMATED_TESTING` 注入可测试的网络提示依赖，网络提示门禁仍由专门回归用例验证。
+脚本在一次真机测试进程中编译并运行默认测试与扩展测试，详细失败日志写入 `.build/extended-automation/all-tests.log`。测试宿主使用 `BIT101_AUTOMATED_TESTING` 注入可测试的网络提示依赖，网络提示门禁仍由专门回归用例验证。真机测试开启代码覆盖率，测试数量、结果与逐 target 覆盖率按输出行数处理：不超过 1000 行时显示在 terminal，超过阈值时写入固定的 `.build/extended-automation/test-metrics.txt`。
 需要缩短开发反馈周期时按组运行：
 
 ```sh
@@ -64,9 +64,10 @@ Scripts/run-extended-tests.sh default
 Scripts/run-extended-tests.sh schedule
 Scripts/run-extended-tests.sh infrastructure
 Scripts/run-extended-tests.sh login
+Scripts/run-extended-tests.sh extensions
 ```
 
-分组日志分别写入固定的 `default-tests.log`、`ExtendedSchedulePolicyTests.log`、`ExtendedInfrastructureTests.log` 和 `ExtendedLoginTests.log`。
+`extensions` 分组执行 Watch 与 Widget 共用快照、传输协议、状态解析和时间线规划的运行测试。该指标记录这些共享逻辑的运行情况；Watch 与 Widget 二进制运行情况由设备验证流程单独记录。各组日志使用固定类别文件名，指标文件随每次测试覆盖。
 
 自动化测试覆盖范围包括：
 
@@ -157,9 +158,9 @@ BIT101_NETWORK_SMOKE_SCOPE=ddl Scripts/release-network-smoke.sh
 
 发布前再运行完整 `all` 范围，重新认证入口归入对应范围。
 
-CI 和其它自动化沿用同一模拟器排除要求。无真机 destination 的环境执行范围限于静态检查，静态检查保持无模拟器依赖；真机构建、测试、Widget 时间线和 Live Activity 时序按 `MODULE_PLAYBOOK.md` 人工验证。
+CI 和其它自动化沿用同一模拟器排除要求。GitHub Actions 的 PR / main 门禁运行静态审计、iOS Release `build-for-testing`、Watch 与 Widget schemes Release 编译和锁定依赖漏洞审计；Apple 编译使用 generic device destination。真机测试及覆盖率由本机流程生成；Widget 时间线和 Live Activity 时序按 `MODULE_PLAYBOOK.md` 验证。
 
-GitHub Actions 日常 Job 命名为 `Static audit (Apple toolchain)`，使用 macOS runner 提供 `xcrun` 和 `swift-frontend`，仅执行静态审计、版本门禁和项目配置检查。手动运行 `iOS CI` 并打开 `release_build` 后，工作流在静态审计通过后执行可选的 Release `build-for-testing`；该构建保持无模拟器 destination，Swift 和 Clang 警告均按错误处理。`release_check` 仍用于确认准备发布的公开版本高于 App Store 当前版本。
+GitHub Actions 默认执行 `Static audit (Apple toolchain)` 与 `Release build and extension schemes`。静态审计包含 SwiftSyntax 契约、阻塞式文档新鲜度、锁定依赖漏洞扫描和项目配置检查；Release Job 编译 iOS 测试 target、Watch App、iOS Widget 与 Watch Widget，保持无模拟器 destination，Swift 和 Clang 警告均按错误处理。手动 `release_check` 用于确认准备发布的公开版本高于 App Store 当前版本。
 
 本机继续负责 Release 真机构建、真机测试、网络 Smoke、iCloud Smoke、Widget 和 Watch 验证。GitHub Actions 不承载真机测试。
 
@@ -257,7 +258,7 @@ Scripts/run-extended-tests.sh
 
 用户输入校验提示采用 `AppAlert.userInput` 或 `ScheduleNotice.userInput`，保留页面提示并关闭错误报告入口。页面失败状态通过 `AppFailureState.allowsDiagnostics` 控制诊断入口。空字段、标签数量、空评论、验证码输入、图片处理状态、无效分享数据、本地日程格式、日历权限和可信成绩单短信验证取消等用户操作提示归入此类；网络请求、服务器响应和数据解析故障继续提供错误报告入口。
 
-`run-static-audit.sh` 执行静态检查；学校接口连接、网络 smoke 和发布归档由独立流程负责。它按 Swift、Shell、Python、Worker、Git、文档、统一 UI 与源码质量规则输出结果；源码质量报告固定覆盖 `.build/code-quality-report.txt`。CI 强制执行这一入口，并额外阻止警告进入构建门禁。
+`run-static-audit.sh` 执行 Swift、Shell、Python、Worker、Git、文档、UI、源码质量与锁定依赖检查；过期文档和高危依赖会阻断结果。学校接口连接、网络 smoke 和发布归档由独立流程负责。源码质量报告超过 1000 行时覆盖 `.build/code-quality-report.txt`，较短结果直接显示在 terminal。CI 强制执行这一入口，并额外阻止编译警告进入门禁。
 
 UI 契约检查由 `check-ui-consistency.py` 统一维护：视觉令牌、页面和公共组件、触感、错误报告入口按目录模式、页面后缀及公共组件用法自动发现，再套用同类契约。新增同类页面沿用统一检查逻辑，契约表登记必要的平台与功能例外。
 

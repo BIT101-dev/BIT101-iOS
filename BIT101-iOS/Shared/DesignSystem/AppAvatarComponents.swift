@@ -1,5 +1,9 @@
 import SwiftUI
 
+nonisolated enum AppUserPresentation {
+    static let anonymousName = "匿名用户"
+}
+
 /// 头像统一的占位、裁切、无障碍和尺寸容器。
 struct AppAvatarContainer: View {
     let image: Image?

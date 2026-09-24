@@ -226,7 +226,7 @@ struct CalendarSettingsPage: View {
         }
         .appGroupedListStyle()
         .task {
-            viewModel.loadIfNeeded()
+            await viewModel.loadIfNeeded()
             if viewModel.cache.courseLiveActivityLeadMinutes != normalizedLeadMinutes {
                 viewModel.setCourseLiveActivityLeadMinutes(normalizedLeadMinutes)
             }

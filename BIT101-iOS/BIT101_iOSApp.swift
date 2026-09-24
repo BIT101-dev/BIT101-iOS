@@ -88,7 +88,7 @@ enum ScheduleReminderBackgroundRefresh {
                 return
             }
 
-            let nextBeginDate = ScheduleLiveActivityManager.shared.preferredBackgroundRefreshBeginDate()
+            let nextBeginDate = await ScheduleLiveActivityManager.shared.preferredBackgroundRefreshBeginDate()
             schedule(earliestBeginDate: nextBeginDate)
             await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(trigger: "bg_app_refresh")
         }
@@ -111,11 +111,10 @@ struct BIT101_iOSApp: App {
     ///
     /// 这条链路读取本地缓存并刷新外部展示；学校数据同步由用户显式操作触发。
     private func refreshScheduleExternalDisplays(trigger: String, syncWidgetSnapshot: Bool) {
-        if syncWidgetSnapshot {
-            ScheduleWidgetExporter.syncFromCurrentCache()
-        }
-
         Task {
+            if syncWidgetSnapshot {
+                await ScheduleWidgetExporter.syncFromCurrentCache()
+            }
             let fakeCookie = LoginStorage.shared.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
 
             // 退出登录后取消后台刷新，隔离当前账号的提醒任务。
@@ -125,7 +124,7 @@ struct BIT101_iOSApp: App {
                 return
             }
 
-            let nextBeginDate = ScheduleLiveActivityManager.shared.preferredBackgroundRefreshBeginDate()
+            let nextBeginDate = await ScheduleLiveActivityManager.shared.preferredBackgroundRefreshBeginDate()
             ScheduleReminderBackgroundRefresh.schedule(earliestBeginDate: nextBeginDate)
 
             await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(trigger: trigger)

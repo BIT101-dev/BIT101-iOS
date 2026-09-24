@@ -3,7 +3,7 @@ import Foundation
 /// 表示 bit-login 为学校 JWB 系列业务创建的短期统一认证挑战。
 ///
 /// `accessToken` 的生命周期限于内存，UserDefaults 与 Keychain 承载长期凭据。
-struct BITLoginAuthenticationChallenge: Identifiable, Equatable {
+nonisolated struct BITLoginAuthenticationChallenge: Identifiable, Equatable, Sendable {
     let challengeID: String
     let accessToken: String
     let status: String

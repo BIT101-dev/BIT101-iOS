@@ -102,11 +102,12 @@ private struct CourseCommentRow: View {
                 size: isSubComment
                     ? AppDesignSystem.Size.Control.compact
                     : AppDesignSystem.Size.Avatar.standard,
-                tint: AppDesignSystem.Course.accent
+                tint: AppDesignSystem.Course.accent,
+                anonymous: comment.anonymous
             )
         } content: {
             AppCommentIdentityHeader(
-                nickname: comment.anonymous ? "匿名用户" : comment.user.nickname,
+                nickname: comment.anonymous ? AppUserPresentation.anonymousName : comment.user.nickname,
                 isSubComment: isSubComment,
                 timeText: AppDateText.relativeText(from: comment.createTime, fallback: "未知时间"),
                 onOpenProfile: canOpenUserProfile(comment) ? { onOpenUser(comment.user) } : nil

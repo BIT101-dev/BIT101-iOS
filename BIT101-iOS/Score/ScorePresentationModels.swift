@@ -1,7 +1,7 @@
 import Foundation
 
 /// 成绩页本地筛选偏好快照。
-struct ScoreFilterPreferenceSnapshot: Codable {
+nonisolated struct ScoreFilterPreferenceSnapshot: Codable, Sendable {
     var selectedTerms: [String] = []
     var selectedCourseTypes: [String] = []
     var sortIndex: String?

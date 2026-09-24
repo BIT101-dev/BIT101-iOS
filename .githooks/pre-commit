@@ -1,9 +1,3 @@
 #!/bin/sh
 
-# 这是提示而不是门禁：检查器异常或发现过期候选都不能阻止提交。
-if [ "${SKIP_STALE_DOCS_CHECK:-0}" != "1" ]; then
-    python3 Scripts/check_stale_docs.py ||
-        echo "info: 文档时效检查暂时不可用，已忽略。"
-fi
-
-exit 0
+exec python3 Scripts/check_stale_docs.py --all

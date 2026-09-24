@@ -87,12 +87,14 @@ extension ScheduleService {
         async let firstDayTask = fetchFirstDayString(term: term)
         let (parsedCourses, exams, firstDayString) = try await (coursesTask, examsTask, firstDayTask)
         let courses = parsedCourses.map(\.course)
-        let normalized = SmallTermWeekNormalizer.normalize(
-            term: term,
-            firstDayString: firstDayString,
-            courses: courses,
-            rawWeeksByCourse: parsedCourses.map(\.rawWeeks)
-        )
+        let normalized = await Task.detached(priority: .utility) {
+            SmallTermWeekNormalizer.normalize(
+                term: term,
+                firstDayString: firstDayString,
+                courses: courses,
+                rawWeeksByCourse: parsedCourses.map(\.rawWeeks)
+            )
+        }.value
         return CourseSyncPayload(
             term: term,
             firstDayString: normalized.firstDayString,

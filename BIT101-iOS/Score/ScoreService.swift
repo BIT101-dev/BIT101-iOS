@@ -69,7 +69,7 @@ struct ScoreService {
         }
     }
 
-    private struct CookieResponse: Decodable {
+    private nonisolated struct CookieResponse: Decodable, Sendable {
         let cookieString: String
 
         enum CodingKeys: String, CodingKey {
@@ -77,7 +77,7 @@ struct ScoreService {
         }
     }
 
-    private struct ScoreResponse: Decodable {
+    private nonisolated struct ScoreResponse: Decodable, Sendable {
         let msg: String?
         let data: [[String]]
     }
@@ -420,7 +420,7 @@ struct ScoreService {
                 BITLoginChallengeSupport.errorMessage(from: data) ?? "成绩查询失败。"
             )
         }
-        return try Self.decodeScoreRows(data)
+        return try await Self.decodeScoreRowsOffMain(data)
     }
 
     private func finishAuthentication(
@@ -505,7 +505,18 @@ struct ScoreService {
         }
     }
 
-    static func decodeScoreRows(_ data: Data) throws -> [ScoreRow] {
+    nonisolated private static func decodeScoreRowsOffMain(_ data: Data) async throws -> [ScoreRow] {
+        let decodingTask = Task.detached(priority: .utility) {
+            try decodeScoreRows(data)
+        }
+        return try await withTaskCancellationHandler {
+            try await decodingTask.value
+        } onCancel: {
+            decodingTask.cancel()
+        }
+    }
+
+    nonisolated static func decodeScoreRows(_ data: Data) throws -> [ScoreRow] {
         let payload: ScoreResponse
         do {
             payload = try JSONDecoder().decode(ScoreResponse.self, from: data)

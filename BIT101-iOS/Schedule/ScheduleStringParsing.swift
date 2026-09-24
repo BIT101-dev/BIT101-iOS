@@ -9,7 +9,7 @@ import Foundation
 ///
 /// 无捕获组时返回完整匹配；可选捕获组缺少匹配文本时返回空字符串。
 /// 无效正则表达式和匹配失败时返回空数组。
-extension String {
+nonisolated extension String {
     func captureGroups(pattern: String, options: NSRegularExpression.Options = []) -> [String] {
         guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else {
             return []

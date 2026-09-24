@@ -12,17 +12,40 @@ fi
 LOG_DIR="$ROOT_DIR/.build/static-audit"
 
 mkdir -p "$LOG_DIR"
-rm -f "$LOG_DIR"/*.log
+rm -f "$LOG_DIR"/*.log(N)
 
 run_group() {
   local name="$1"
   shift
   local log="$LOG_DIR/$name.log"
-  if "$@" > "$log" 2>&1; then
+  local output
+  local line_count
+  local exit_code
+  if output="$("$@" 2>&1)"; then
+    exit_code=0
+  else
+    exit_code=$?
+  fi
+
+  if [[ -n "$output" ]]; then
+    line_count="$(printf '%s\n' "$output" | wc -l | tr -d '[:space:]')"
+  else
+    line_count=0
+  fi
+
+  if (( line_count <= 1000 )); then
+    if [[ -n "$output" ]]; then
+      print -r -- "$output"
+    fi
+  else
+    printf '%s\n' "$output" > "$log"
+    echo "[输出] $name 共 $line_count 行，详情写入 $log"
+  fi
+
+  if (( exit_code == 0 )); then
     echo "[通过] $name"
   else
     echo "[失败] $name" >&2
-    cat "$log" >&2
     exit 1
   fi
 }
@@ -52,6 +75,9 @@ worker_parse() {
     -path '*/node_modules' -prune -o \
     -type f -name '*.js' -exec node --check {} +
 }
+dependency_audit() {
+  (cd "$ROOT_DIR/Cloudflare/EmergencyUpdateWorker" && npm audit --audit-level=high)
+}
 git_check() {
   git -C "$ROOT_DIR" diff --check
   git -C "$ROOT_DIR" diff --cached --check
@@ -70,9 +96,11 @@ import sys
 
 root = Path(sys.argv[1])
 allowed_root_files = {
-    ".build/code-quality-report.txt",
-    ".build/explanatory-text-report.txt",
-    ".build/screenshot.png",
+  ".build/code-quality-report.txt",
+  ".build/explanatory-text-report.txt",
+  ".build/stale-docs-report.txt",
+  ".build/ui-consistency-report.txt",
+  ".build/screenshot.png",
 }
 allowed_dirs = {
     "build/DeviceInstall",
@@ -111,6 +139,7 @@ run_group swift-parse swift_parse
 run_group shell-parse shell_parse
 run_group python-parse python_parse
 run_group worker-parse worker_parse
+run_group dependency-audit dependency_audit
 run_group git-diff git_check
 run_group docs docs_check
 run_group ui-consistency ui_consistency

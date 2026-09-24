@@ -7,11 +7,17 @@
 
 import Foundation
 
+private nonisolated enum ScheduleJSONResponseResult<Value: Sendable>: Sendable {
+    case decoded(Value)
+    case businessError(String)
+    case invalidResponse
+}
+
 extension ScheduleService {
     /// 发送教务/乐学 JSON 请求并自动解码响应。
     ///
     /// 学校接口大量使用表单 POST + JSON 返回，因此这里统一封装。
-    func sendJSONRequest<Response: Decodable>(
+    func sendJSONRequest<Response: Decodable & Sendable>(
         baseURL: URL? = nil,
         path: String,
         method: String = "GET",
@@ -39,16 +45,50 @@ extension ScheduleService {
         guard (200 ..< 300).contains(response.statusCode) else {
             throw httpError(response.statusCode)
         }
-        if let message = Self.schoolBusinessErrorMessage(from: data) {
+        let result = await Self.decodeJSONResponse(Response.self, from: data)
+        try Task.checkCancellation()
+        switch result {
+        case let .decoded(response):
+            return response
+        case let .businessError(message):
             throw ScheduleServiceError.schoolResponse(message)
-        }
-
-        do {
-            return try Self.decoder.decode(Response.self, from: data)
-        } catch {
+        case .invalidResponse:
             // 登录页 HTML 已在上方按内容特征识别。其余无法解码的 2xx 响应可能只是学校
             // 网关故障或接口改版，不能误导用户说“登录失效”。
             throw ScheduleServiceError.invalidResponse
+        }
+    }
+
+    /// 业务分类和解码共用后台解析任务，集中处理完整课表与空教室响应。
+    private nonisolated static func decodeJSONResponse<Response: Decodable & Sendable>(
+        _ type: Response.Type,
+        from data: Data
+    ) async -> ScheduleJSONResponseResult<Response> {
+        let parsingTask = Task.detached(priority: .utility) {
+            do {
+                try Task.checkCancellation()
+            } catch {
+                return ScheduleJSONResponseResult<Response>.invalidResponse
+            }
+            let businessMessage = Self.schoolBusinessErrorMessage(from: data)
+            do {
+                try Task.checkCancellation()
+            } catch {
+                return ScheduleJSONResponseResult<Response>.invalidResponse
+            }
+            if let businessMessage {
+                return ScheduleJSONResponseResult<Response>.businessError(businessMessage)
+            }
+            do {
+                return .decoded(try JSONDecoder().decode(type, from: data))
+            } catch {
+                return .invalidResponse
+            }
+        }
+        return await withTaskCancellationHandler {
+            await parsingTask.value
+        } onCancel: {
+            parsingTask.cancel()
         }
     }
 
@@ -58,6 +98,7 @@ extension ScheduleService {
         guard let root = try? JSONSerialization.jsonObject(with: data) else { return nil }
 
         func inspect(_ value: Any) -> String? {
+            guard !Task.isCancelled else { return nil }
             if let dictionary = value as? [String: Any] {
                 let message = (dictionary["msg"] as? String)
                     ?? (dictionary["message"] as? String)

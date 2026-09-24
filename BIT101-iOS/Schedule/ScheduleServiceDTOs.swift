@@ -127,7 +127,7 @@ nonisolated struct CourseResponse: Decodable, Sendable {
     let datas: Datas
 }
 
-private extension KeyedDecodingContainer {
+private nonisolated extension KeyedDecodingContainer {
     func decodeFlexibleDoubleIfPresent(forKey key: Key) -> Double? {
         if let value = try? decodeIfPresent(Double.self, forKey: key) {
             return value
@@ -142,7 +142,7 @@ private extension KeyedDecodingContainer {
     }
 }
 
-extension CourseResponse {
+nonisolated extension CourseResponse {
     nonisolated struct ParsedCourse: Sendable {
         let course: CourseRecord
         let rawWeeks: [Int]

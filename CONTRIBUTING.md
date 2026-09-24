@@ -16,13 +16,8 @@
 git config core.hooksPath .githooks
 ```
 
-`pre-commit` 会提示超过 30 天没有修改的 Markdown 文档。检查结果使用 `info` 级别，提交
-流程继续执行；Info.plist、Entitlements、配置、静态资源和测试 fixture 保持在检查范围外。
-临时关闭提示时可使用：
-
-```sh
-SKIP_STALE_DOCS_CHECK=1 git commit ...
-```
+`pre-commit` 会阻止超过 30 天没有审核的 Markdown 文档进入提交。审核并更新相关文档后
+重新提交；Info.plist、Entitlements、配置、静态资源和测试 fixture 保持在检查范围外。
 
 1. 验证流程使用已连接并受信任的 iOS / watchOS 真机。
 2. 编译、装机和启动统一运行 `Scripts/build-install-device.sh`。

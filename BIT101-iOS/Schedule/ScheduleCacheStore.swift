@@ -9,26 +9,27 @@ import OSLog
 ///
 /// 统一负责 `ScheduleCache` 的磁盘读写和变更通知发送。
 enum ScheduleCacheStore {
-    enum SaveSource {
+    nonisolated enum SaveSource: Sendable {
         case local
         case localWithoutCloudPush
         case cloud
     }
 
-    private static func makeEncoder() -> JSONEncoder {
+    fileprivate nonisolated static func makeEncoder() -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         return encoder
     }
 
-    private static func makeDecoder() -> JSONDecoder {
+    private nonisolated static func makeDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder
     }
 
-    private static let logger = Logger(subsystem: "BIT101", category: "ScheduleCache")
+    fileprivate nonisolated static let logger = Logger(subsystem: "BIT101", category: "ScheduleCache")
+    private static let writeQueue = ScheduleCacheWriteQueue()
 
     /// 当前账号对应的缓存文件路径。
     ///
@@ -51,41 +52,37 @@ enum ScheduleCacheStore {
 
     /// 读取当前账号的缓存快照。
     static func load() -> ScheduleCache {
-        guard
-            let data = cacheData(),
-            let cache = try? makeDecoder().decode(ScheduleCache.self, from: data)
-        else {
-            return ScheduleCache()
-        }
+        load(
+            accountIdentifier: currentAccountIdentifier(),
+            legacyAccountIdentifier: legacyAccountIdentifier()
+        )
+    }
 
-        return cache
+    /// 将缓存文件读取与解码移到独立任务，避免页面恢复阶段阻塞 MainActor。
+    static func loadAsync() async -> ScheduleCache {
+        let accountIdentifier = currentAccountIdentifier()
+        let legacyIdentifier = legacyAccountIdentifier()
+        return await Task.detached(priority: .utility) {
+            Self.load(
+                accountIdentifier: accountIdentifier,
+                legacyAccountIdentifier: legacyIdentifier
+            )
+        }.value
     }
 
     /// 写回缓存，并导出小组件快照、发送全局变更通知。
     static func save(_ cache: ScheduleCache, source: SaveSource = .local) {
-        let url = fileURL
-        let directory = url.deletingLastPathComponent()
         var cacheToSave = cache
-
         if source == .local {
             cacheToSave.updatedAt = Date()
         }
-
-        do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let data = try makeEncoder().encode(cacheToSave)
-            try data.write(to: url, options: [.atomic])
-            ScheduleWidgetExporter.sync(cache: cacheToSave)
-            postCacheDidChange()
-            #if canImport(CloudKit)
-            if source == .local, cacheToSave.iCloudSyncEnabled {
-                Task {
-                    await ScheduleCloudSyncManager.shared.pushLatestLocalCacheIfNeeded()
-                }
-            }
-            #endif
-        } catch {
-            logger.error("保存课表缓存失败：\(String(describing: error), privacy: .public)")
+        let accountIdentifier = currentAccountIdentifier()
+        Task {
+            await writeQueue.save(
+                cacheToSave,
+                accountIdentifier: accountIdentifier,
+                source: source
+            )
         }
     }
 
@@ -107,7 +104,9 @@ enum ScheduleCacheStore {
                 }
             }
 
-            ScheduleWidgetExporter.syncFromCurrentCache()
+            Task {
+                await ScheduleWidgetExporter.syncFromCurrentCache()
+            }
             postCacheDidChange()
         } catch {
             logger.error("清理课表缓存失败：\(String(describing: error), privacy: .public)")
@@ -116,6 +115,27 @@ enum ScheduleCacheStore {
 
     private static func rawAccountIdentifier() -> String {
         LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private nonisolated static func load(
+        accountIdentifier: String,
+        legacyAccountIdentifier: String
+    ) -> ScheduleCache {
+        let currentURL = cacheFileURL(for: accountIdentifier)
+        if let data = try? Data(contentsOf: currentURL),
+           let cache = try? makeDecoder().decode(ScheduleCache.self, from: data)
+        {
+            return cache
+        }
+
+        let legacyURL = cacheFileURL(for: legacyAccountIdentifier)
+        guard legacyURL != currentURL,
+              let data = try? Data(contentsOf: legacyURL),
+              let cache = try? makeDecoder().decode(ScheduleCache.self, from: data)
+        else {
+            return ScheduleCache()
+        }
+        return cache
     }
 
     private static func cacheData() -> Data? {
@@ -134,7 +154,7 @@ enum ScheduleCacheStore {
         return current == legacy ? [current] : [current, legacy]
     }
 
-    private static func cacheFileURL(for accountIdentifier: String) -> URL {
+    fileprivate nonisolated static func cacheFileURL(for accountIdentifier: String) -> URL {
         let directory = AppFileDirectories.applicationSupport
             .appending(path: "BIT101-iOS", directoryHint: .isDirectory)
             .appending(path: accountIdentifier, directoryHint: .isDirectory)
@@ -151,11 +171,48 @@ enum ScheduleCacheStore {
     /// 在主线程广播“课表缓存已变化”。
     ///
     /// 保存与清空缓存后都要发送这条通知，两个入口共用这一实现。
-    private static func postCacheDidChange() {
+    fileprivate static func postCacheDidChange() {
         let accountIdentifier = currentAccountIdentifier()
         DispatchQueue.main.async {
             guard currentAccountIdentifier() == accountIdentifier else { return }
             NotificationCenter.default.post(name: .scheduleCacheDidChange, object: accountIdentifier)
         }
+    }
+}
+
+/// 串行处理缓存文件写入，保持快速连续编辑的保存顺序，并把编码和磁盘操作移出 MainActor。
+private actor ScheduleCacheWriteQueue {
+    func save(
+        _ cache: ScheduleCache,
+        accountIdentifier: String,
+        source: ScheduleCacheStore.SaveSource
+    ) async {
+        let url = ScheduleCacheStore.cacheFileURL(for: accountIdentifier)
+        let directory = url.deletingLastPathComponent()
+
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let data = try ScheduleCacheStore.makeEncoder().encode(cache)
+            try data.write(to: url, options: [.atomic])
+        } catch {
+            ScheduleCacheStore.logger.error("保存课表缓存失败：\(String(describing: error), privacy: .public)")
+            return
+        }
+
+        let isCurrentAccount = await MainActor.run {
+            ScheduleCacheStore.currentAccountIdentifier() == accountIdentifier
+        }
+        guard isCurrentAccount else { return }
+        await ScheduleWidgetExporter.syncAsync(cache: cache)
+        await MainActor.run {
+            ScheduleCacheStore.postCacheDidChange()
+        }
+
+        #if canImport(CloudKit)
+        if source == .local, cache.iCloudSyncEnabled {
+            await ScheduleCloudSyncManager.shared.pushLatestLocalCacheIfNeeded()
+        }
+        #endif
+
     }
 }

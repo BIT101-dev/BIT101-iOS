@@ -195,19 +195,24 @@ struct GalleryPosterCard: View {
                     .font(AppDesignSystem.Typography.title)
                     .foregroundStyle(AppDesignSystem.Palette.Accent.primary)
                     .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 HStack(spacing: AppDesignSystem.Spacing.regular) {
-                    AppAvatarView(imageURL: URL(string: poster.user.avatar.lowUrl.isEmpty ? poster.user.avatar.url : poster.user.avatar.lowUrl))
+                    AppAvatarView(
+                        imageURL: poster.anonymous
+                            ? nil
+                            : URL(string: poster.user.avatar.lowUrl.isEmpty ? poster.user.avatar.url : poster.user.avatar.lowUrl),
+                        anonymous: poster.anonymous
+                    )
 
                     VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
                         HStack(spacing: AppDesignSystem.Spacing.tiny) {
-                            Text(poster.user.nickname)
+                            Text(poster.anonymous ? AppUserPresentation.anonymousName : poster.user.nickname)
                                 .font(AppDesignSystem.Typography.bodyEmphasis)
                                 .foregroundStyle(AppDesignSystem.Foreground.primary)
                                 .lineLimit(1)
 
-                            if !poster.user.identity.text.isEmpty {
+                            if !poster.anonymous, !poster.user.identity.text.isEmpty {
                                 Text(poster.user.identity.text)
                                     .font(AppDesignSystem.Typography.captionEmphasis)
                                     .padding(.horizontal, AppDesignSystem.Spacing.tiny)
@@ -217,7 +222,7 @@ struct GalleryPosterCard: View {
                             }
                         }
 
-                        if !poster.user.motto.isEmpty {
+                        if !poster.anonymous, !poster.user.motto.isEmpty {
                             Text(poster.user.motto)
                                 .font(AppDesignSystem.Typography.caption)
                                 .foregroundStyle(AppDesignSystem.Foreground.secondary)
@@ -351,11 +356,7 @@ struct GalleryPosterImagesView: View {
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
         }
         .frame(maxWidth: .infinity)
-        .containerRelativeFrame(
-            .vertical,
-            count: AppDesignSystem.Gallery.thumbnailHeightContainerCount,
-            spacing: AppDesignSystem.Spacing.none
-        )
+        .frame(height: AppDesignSystem.Gallery.thumbnailHeight)
         .onChange(of: images) { _, _ in
             imageAspectRatios = [:]
         }

@@ -16,18 +16,36 @@ enum ScheduleWidgetExporter {
     /// 重新读取当前账号缓存，并同步到共享容器。
     ///
     /// 应用生命周期、登录切换等未持有最新缓存对象的场景使用此入口。
-    static func syncFromCurrentCache() {
-        sync(cache: ScheduleCacheStore.load())
+    static func syncFromCurrentCache() async {
+        await syncAsync(cache: ScheduleCacheStore.loadAsync())
     }
 
     /// 把指定缓存同步给外部展示层，并主动刷新 widget 时间线。
     ///
     /// 这里仅导出课表、小节次和首周信息，保持共享层边界最小化。
     static func sync(cache: ScheduleCache) {
+        let snapshot = makeSnapshot(cache: cache)
+        ScheduleExternalSnapshotStore.save(snapshot)
+        WatchScheduleSyncManager.shared.push(snapshot: snapshot)
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    /// 写入共享快照的磁盘操作运行在独立任务，完成后回到 MainActor 更新 Watch 与 Widget。
+    static func syncAsync(cache: ScheduleCache) async {
+        let snapshot = makeSnapshot(cache: cache)
+        let didSave = await Task.detached(priority: .utility) {
+            ScheduleExternalSnapshotStore.save(snapshot)
+        }.value
+        guard didSave else { return }
+        WatchScheduleSyncManager.shared.push(snapshot: snapshot)
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    private static func makeSnapshot(cache: ScheduleCache) -> ScheduleExternalSnapshot {
         let studentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
         let isLoggedIn = !LoginStorage.shared.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
-        let snapshot = ScheduleExternalSnapshot(
+        return ScheduleExternalSnapshot(
             isLoggedIn: isLoggedIn,
             studentID: studentID,
             firstDayString: cache.firstDayString,
@@ -47,8 +65,5 @@ enum ScheduleWidgetExporter {
                 )
             }
         )
-        ScheduleExternalSnapshotStore.save(snapshot)
-        WatchScheduleSyncManager.shared.push(snapshot: snapshot)
-        WidgetCenter.shared.reloadAllTimelines()
     }
 }

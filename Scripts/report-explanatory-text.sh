@@ -111,8 +111,12 @@ for path, line, expressions in description_items:
     lines.append(f"- {path}:{line}")
     lines.extend(f"  - Text({expression})" for expression in expressions)
 
-report.parent.mkdir(parents=True, exist_ok=True)
-report.write_text("\n".join(lines) + "\n", encoding="utf-8")
 count = sum(len(expressions) for _, _, expressions in footer_items + description_items)
-print(f"[报告] List/Form 解释文案候选 {count} 条：{report}")
+if len(lines) <= 1000:
+    report.unlink(missing_ok=True)
+    print("\n".join(lines))
+else:
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"List/Form 解释文案结果共 {len(lines)} 行，候选 {count} 条，详情写入 {report}")
 PY

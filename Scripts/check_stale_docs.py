@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Non-blocking reminder for tracked Markdown documents that may be stale."""
+"""Block tracked Markdown documents that have not been reviewed recently."""
 
 from __future__ import annotations
 
@@ -8,10 +8,12 @@ import datetime as dt
 import pathlib
 import subprocess
 
+from pathlib import Path
 
 DOCUMENT_SUFFIX = ".md"
 EXCLUDED_PARTS = {"Fixtures"}
 EXCLUDED_SUFFIXES = {".xcodeproj", ".xcworkspace"}
+REPORT_PATH = Path(__file__).resolve().parents[1] / ".build/stale-docs-report.txt"
 
 
 def git(*arguments: str) -> str:
@@ -69,21 +71,29 @@ def main() -> int:
 
     files = stale_files(max(arguments.days, 1))
     if not files:
+        REPORT_PATH.unlink(missing_ok=True)
         return 0
 
-    print(
-        f"info: 检测到 {len(files)} 个文档已经超过 {arguments.days} 天未编辑，"
-        "请查看是否过时（非强制，可以忽略，如果确实不需要编辑）。"
-    )
+    lines = [
+        f"error: 检测到 {len(files)} 个文档已经超过 {arguments.days} 天未编辑，"
+        "请审核并更新后重试。"
+    ]
     visible = files if arguments.all else files[:10]
     for age, name in visible:
-        print(f"  - {name}（{age} 天）")
+        lines.append(f"  - {name}（{age} 天）")
     if len(visible) < len(files):
-        print(
-            f"  …其余 {len(files) - len(visible)} 个；"
+        lines.append(
+            f"  其余 {len(files) - len(visible)} 个；"
             "运行 `python3 Scripts/check_stale_docs.py --all` 查看全部。"
         )
-    return 0
+    if len(lines) <= 1000:
+        REPORT_PATH.unlink(missing_ok=True)
+        print("\n".join(lines))
+    else:
+        REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        REPORT_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        print(f"文档检查结果共 {len(lines)} 行，详情写入 {REPORT_PATH}")
+    return 1
 
 
 if __name__ == "__main__":

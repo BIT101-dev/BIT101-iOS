@@ -43,8 +43,9 @@
 ## 检查入口
 
 - `Scripts/check-ui-consistency.sh`：视觉令牌、字体、布局、页面角色、公共组件、系统触感和错误报告入口。
-- `Scripts/check-code-quality.sh`：客户端网络、存储、日期、并发、源码与脚本规范。
-- `Scripts/run-static-audit.sh`：统一运行静态检查。
+- `Scripts/check-code-quality.sh`：客户端网络、存储、日期、并发、源码与脚本规范；结构契约通过 Xcode toolchain 自带的 SwiftSyntax 解析声明、调用、类型和成员访问。
+- `Scripts/run-static-audit.sh`：统一运行静态检查、阻塞式文档新鲜度检查和锁定依赖漏洞审计。
 - `Scripts/run-extended-tests.sh`：默认与分组自动化测试。
 
 各项检查从当前源码和项目测试 target 获取状态。此文档维护结构边界和公共入口说明。
+检查结果不超过 1000 行时直接显示在 terminal；超过阈值时写入固定类别报告路径并在 terminal 显示路径。

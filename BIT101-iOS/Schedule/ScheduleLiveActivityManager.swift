@@ -86,7 +86,7 @@ final class ScheduleLiveActivityManager {
             return
         }
 
-        let cache = ScheduleCacheStore.load()
+        let cache = await ScheduleCacheStore.loadAsync()
         guard cache.showCourseLiveActivityReminder else {
             logger.debug("course live activity reminder disabled in settings; ending all activities")
             await clearFallbackNotifications()
@@ -168,7 +168,7 @@ final class ScheduleLiveActivityManager {
     ///
     /// 灵动岛提醒开启时检查通知权限；关闭时返回 `allowed`。
     func notificationAuthorizationStateForReminderFallback() async -> NotificationAuthorizationState {
-        let cache = ScheduleCacheStore.load()
+        let cache = await ScheduleCacheStore.loadAsync()
         guard cache.showCourseLiveActivityReminder else {
             return .allowed
         }
@@ -343,11 +343,11 @@ final class ScheduleLiveActivityManager {
     ///
     /// 该值表示系统可开始安排后台时间的最早时刻，实际启动时间由系统后台调度策略决定。
     /// 申请时间比真实边界提前 5 分钟。
-    func preferredBackgroundRefreshBeginDate() -> Date? {
+    func preferredBackgroundRefreshBeginDate() async -> Date? {
         let fakeCookie = LoginStorage.shared.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !fakeCookie.isEmpty else { return nil }
 
-        let cache = ScheduleCacheStore.load()
+        let cache = await ScheduleCacheStore.loadAsync()
         guard cache.showCourseLiveActivityReminder else { return nil }
 
         let leadMinutes = cache.courseLiveActivityLeadMinutes
@@ -681,7 +681,7 @@ final class ScheduleLiveActivityManager {
     func clearFallbackNotifications() async {}
 
     /// Catalyst 下保持 BGAppRefreshTask 链路关闭。
-    func preferredBackgroundRefreshBeginDate() -> Date? { nil }
+    func preferredBackgroundRefreshBeginDate() async -> Date? { nil }
 }
 
 #endif

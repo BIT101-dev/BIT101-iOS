@@ -7,6 +7,9 @@
 from __future__ import annotations
 
 import re
+import json
+import os
+import subprocess
 import stat
 import sys
 from pathlib import Path
@@ -37,6 +40,196 @@ URLSESSION_EXCEPTIONS = {
 }
 
 STDOUT_EXCEPTIONS = {"Shared/Client/ReleaseNetworkSmoke.swift"}
+
+SWIFT_SYNTAX_INDEXER = r'''
+import Foundation
+import SwiftSyntax
+import SwiftParser
+
+struct FileFacts: Encodable {
+    let hasParseErrors: Bool
+    let identifiers: [String]
+    let stringSegments: [String]
+    let declarations: [DeclarationFact]
+    let calls: [ScopedFact]
+    let members: [ScopedFact]
+    let expressions: [ScopedFact]
+    let bindings: [ScopedFact]
+    let controlFlow: [ScopedFact]
+    let typeNames: [ScopedFact]
+}
+
+struct DeclarationFact: Encodable {
+    let kind: String
+    let name: String
+    let inheritedTypes: [String]
+    let scope: [String]
+}
+
+struct ScopedFact: Encodable {
+    let value: String
+    let scope: [String]
+}
+
+final class FactVisitor: SyntaxVisitor {
+    private(set) var declarations: [DeclarationFact] = []
+    private(set) var calls: [ScopedFact] = []
+    private(set) var members: [ScopedFact] = []
+    private(set) var expressions: [ScopedFact] = []
+    private(set) var bindings: [ScopedFact] = []
+    private(set) var controlFlow: [ScopedFact] = []
+    private(set) var typeNames: [ScopedFact] = []
+    private var scope: [String] = []
+
+    private func enter(_ kind: String, _ name: String, _ inherited: [String]) -> SyntaxVisitorContinueKind {
+        declarations.append(DeclarationFact(kind: kind, name: name, inheritedTypes: inherited, scope: scope))
+        scope.append(name)
+        return .visitChildren
+    }
+
+    private func leave() { _ = scope.popLast() }
+    private func fact(_ value: String) -> ScopedFact { ScopedFact(value: value, scope: scope) }
+
+    override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
+        enter("struct", node.name.text, node.inheritanceClause?.inheritedTypes.map { $0.type.trimmedDescription } ?? [])
+    }
+    override func visitPost(_ node: StructDeclSyntax) { leave() }
+
+    override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
+        enter("class", node.name.text, node.inheritanceClause?.inheritedTypes.map { $0.type.trimmedDescription } ?? [])
+    }
+    override func visitPost(_ node: ClassDeclSyntax) { leave() }
+
+    override func visit(_ node: EnumDeclSyntax) -> SyntaxVisitorContinueKind {
+        enter("enum", node.name.text, node.inheritanceClause?.inheritedTypes.map { $0.type.trimmedDescription } ?? [])
+    }
+    override func visitPost(_ node: EnumDeclSyntax) { leave() }
+
+    override func visit(_ node: ActorDeclSyntax) -> SyntaxVisitorContinueKind {
+        enter("actor", node.name.text, node.inheritanceClause?.inheritedTypes.map { $0.type.trimmedDescription } ?? [])
+    }
+    override func visitPost(_ node: ActorDeclSyntax) { leave() }
+
+    override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
+        enter("extension", node.extendedType.trimmedDescription, node.inheritanceClause?.inheritedTypes.map { $0.type.trimmedDescription } ?? [])
+    }
+    override func visitPost(_ node: ExtensionDeclSyntax) { leave() }
+
+    override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
+        calls.append(fact(node.calledExpression.trimmedDescription))
+        return .visitChildren
+    }
+
+    override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
+        members.append(fact(node.trimmedDescription))
+        return .visitChildren
+    }
+
+    override func visit(_ node: InfixOperatorExprSyntax) -> SyntaxVisitorContinueKind {
+        expressions.append(fact(node.trimmedDescription))
+        return .visitChildren
+    }
+
+    override func visit(_ node: PatternBindingSyntax) -> SyntaxVisitorContinueKind {
+        bindings.append(fact(node.trimmedDescription))
+        return .visitChildren
+    }
+
+    override func visit(_ node: IfExprSyntax) -> SyntaxVisitorContinueKind {
+        controlFlow.append(fact(node.trimmedDescription))
+        return .visitChildren
+    }
+
+    override func visit(_ node: IdentifierTypeSyntax) -> SyntaxVisitorContinueKind {
+        typeNames.append(fact(node.trimmedDescription))
+        return .visitChildren
+    }
+}
+
+struct Input: Decodable { let paths: [String] }
+
+let inputData = FileHandle.standardInput.readDataToEndOfFile()
+let input = try JSONDecoder().decode(Input.self, from: inputData)
+var output: [String: FileFacts] = [:]
+for path in input.paths {
+    let source = try String(contentsOfFile: path, encoding: .utf8)
+    let tree = Parser.parse(source: source)
+    let visitor = FactVisitor(viewMode: .sourceAccurate)
+    visitor.walk(tree)
+    let identifiers = tree.tokens(viewMode: .sourceAccurate).compactMap { token -> String? in
+        if case .identifier(let name) = token.tokenKind { return name }
+        return nil
+    }
+    let stringSegments = tree.tokens(viewMode: .sourceAccurate).compactMap { token -> String? in
+        if case .stringSegment(let value) = token.tokenKind { return value }
+        return nil
+    }
+    output[path] = FileFacts(
+        hasParseErrors: tree.hasError,
+        identifiers: identifiers,
+        stringSegments: stringSegments,
+        declarations: visitor.declarations,
+        calls: visitor.calls,
+        members: visitor.members,
+        expressions: visitor.expressions,
+        bindings: visitor.bindings,
+        controlFlow: visitor.controlFlow,
+        typeNames: visitor.typeNames
+    )
+}
+let encoded = try JSONEncoder().encode(output)
+print(String(decoding: encoded, as: UTF8.self))
+'''
+
+
+def swift_syntax_index(files: list[Path]) -> dict[str, dict]:
+    swift = os.environ.get("SWIFT")
+    if not swift:
+        swift = subprocess.check_output(["xcrun", "--find", "swift"], text=True).strip()
+    swift_path = Path(swift).absolute()
+    host_modules = swift_path.parent.parent / "lib/swift/host"
+    if not (host_modules / "SwiftSyntax.swiftmodule").is_dir():
+        raise RuntimeError(f"Xcode SwiftSyntax modules not found: {host_modules}")
+    request = json.dumps({"paths": [str(path) for path in files]})
+    result = subprocess.run(
+        [
+            str(swift_path), "-I", str(host_modules), "-L", str(host_modules),
+            "-lSwiftSyntax", "-lSwiftParser", "-e", SWIFT_SYNTAX_INDEXER,
+        ],
+        input=request,
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode:
+        raise RuntimeError(result.stderr.strip() or "SwiftSyntax indexing failed")
+    try:
+        index = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"SwiftSyntax returned invalid JSON: {error}") from error
+    parse_failures = [path for path, facts in index.items() if facts["hasParseErrors"]]
+    if parse_failures:
+        raise RuntimeError("SwiftSyntax parse errors: " + ", ".join(parse_failures))
+    return index
+
+
+def ast_has_identifier(facts: dict, name: str) -> bool:
+    return name in facts["identifiers"]
+
+
+def ast_has_call(facts: dict, name: str, scope: str | None = None) -> bool:
+    return any(
+        (call["value"] == name or call["value"].endswith("." + name))
+        and (scope is None or scope in call["scope"])
+        for call in facts["calls"]
+    )
+
+
+def ast_has_member(facts: dict, expression: str, scope: str | None = None) -> bool:
+    return any(
+        member["value"] == expression
+        and (scope is None or scope in member["scope"])
+        for member in facts["members"]
+    )
 
 
 def relative(path: Path) -> str:
@@ -355,7 +548,7 @@ def documentation_findings() -> list[str]:
     return errors
 
 
-def automatic_school_fetch_findings() -> list[str]:
+def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
     """保证启动、回前台和账号切换不会重新引入学校/WebVPN 自动请求。"""
     errors: list[str] = []
     forbidden_identifiers = (
@@ -370,72 +563,63 @@ def automatic_school_fetch_findings() -> list[str]:
     )
     forbidden_literals = ("schedule.auto-refresh", "silent-refresh")
     for path in swift_files():
-        source = path.read_text(encoding="utf-8")
-        code = mask_literals_and_comments(source)
-        literals = mask_comments(source)
+        facts = syntax_index[str(path)]
         for term in forbidden_identifiers:
-            if has_identifier(code, term):
+            if ast_has_identifier(facts, term):
                 errors.append(f"{relative(path)}: 不得重新引入学校/WebVPN 自动请求：{term}")
         for term in forbidden_literals:
-            if term in literals:
+            if any(term in literal for literal in facts["stringSegments"]):
                 errors.append(f"{relative(path)}: 不得重新引入学校/WebVPN 自动请求：{term}")
 
-    app_source = (ROOT / "BIT101-iOS/BIT101_iOSApp.swift").read_text(encoding="utf-8")
-    app_code = mask_literals_and_comments(app_source)
-    if has_call(app_code, "refreshFromCloudIfNeeded"):
+    app_facts = syntax_index[str(ROOT / "BIT101-iOS/BIT101_iOSApp.swift")]
+    if ast_has_call(app_facts, "refreshFromCloudIfNeeded"):
         errors.append("BIT101-iOS/BIT101_iOSApp.swift: 启动生命周期不得自动拉取 iCloud 数据")
 
-    schedule_source = (ROOT / "BIT101-iOS/Schedule/ScheduleViewModel.swift").read_text(encoding="utf-8")
-    schedule_code = mask_literals_and_comments(schedule_source)
-    if re.search(r"\bScheduleCloudSyncManager\.shared\.refreshFromCloudIfNeeded\s*\(", schedule_code):
+    schedule_facts = syntax_index[str(ROOT / "BIT101-iOS/Schedule/ScheduleViewModel.swift")]
+    if any(
+        call["value"] == "ScheduleCloudSyncManager.shared.refreshFromCloudIfNeeded"
+        for call in schedule_facts["calls"]
+    ):
         errors.append("BIT101-iOS/Schedule/ScheduleViewModel.swift: 日程页面本地恢复不得自动拉取 iCloud")
 
-    score_source = (ROOT / "BIT101-iOS/Score/ScoreRootView.swift").read_text(encoding="utf-8")
-    score_code = mask_literals_and_comments(score_source)
-    if re.search(r"\bawait\s+viewModel\.bootstrapIfNeeded\s*\(", score_code):
+    score_facts = syntax_index[str(ROOT / "BIT101-iOS/Score/ScoreRootView.swift")]
+    if any(call["value"] == "viewModel.bootstrapIfNeeded" for call in score_facts["calls"]):
         errors.append("BIT101-iOS/Score/ScoreRootView.swift: 成绩页不得自动触发学校查询")
     required_manual_contracts = {
         "BIT101-iOS/Score/ScoreRootView.swift": (
-            lambda source, code: has_call(code, "restoreCachedDataIfNeeded"),
+            lambda facts: ast_has_call(facts, "restoreCachedDataIfNeeded"),
             "restoreCachedDataIfNeeded",
         ),
         "BIT101-iOS/Schedule/FreeClassroomViews.swift": (
-            lambda source, code: re.search(
-                r"\bactionTitle\s*:\s*[^\n]*\"刷新空教室\"", mask_comments(source)
-            )
-            is not None,
+            lambda facts: "刷新空教室" in facts["stringSegments"]
+            and ast_has_identifier(facts, "actionTitle"),
             "刷新空教室",
         ),
         "BIT101-iOS/Schedule/ScheduleRootView.swift": (
-            lambda source, code: has_call(code, "startClassroomPageRefresh"),
+            lambda facts: ast_has_call(facts, "startClassroomPageRefresh"),
             "startClassroomPageRefresh",
         ),
         "BIT101-iOS/Schedule/ScheduleViewModel+Classroom.swift": (
-            lambda source, code: has_call(code, "waitForClassroomAuthentication"),
+            lambda facts: ast_has_call(facts, "waitForClassroomAuthentication"),
             "waitForClassroomAuthentication",
         ),
         "BIT101-iOS/Schedule/ScheduleViewModel+CourseSync.swift": (
-            lambda source, code: ".classroomRefresh" in code,
+            lambda facts: any(member["value"].endswith(".classroomRefresh") for member in facts["members"]),
             ".classroomRefresh",
         ),
     }
     for file_name, (predicate, marker) in required_manual_contracts.items():
         path = ROOT / file_name
         if path.is_file():
-            source = path.read_text(encoding="utf-8")
-            if predicate(source, mask_literals_and_comments(source)):
+            if predicate(syntax_index[str(path)]):
                 continue
             errors.append(f"{file_name}: 缺少显式学校请求/验证码入口：{marker}")
     return errors
 
 
-def architectural_contract_findings() -> list[str]:
+def architectural_contract_findings(syntax_index: dict[str, dict]) -> list[str]:
     """检查已确认的模块关系，防止同一概念在新文件中重新分叉。"""
     errors: list[str] = []
-    sources = {
-        path: mask_literals_and_comments(path.read_text(encoding="utf-8"))
-        for path in swift_files()
-    }
 
     required_conformances = {
         "CoursePagedState": "PagedItemsState",
@@ -446,10 +630,14 @@ def architectural_contract_findings() -> list[str]:
         "PaperListState": "PagedItemsState",
     }
     for type_name, protocol_name in required_conformances.items():
-        pattern = re.compile(
-            rf"\bextension\s+{re.escape(type_name)}\s*:\s*[^{{\n]*\b{re.escape(protocol_name)}\b"
+        conforms = any(
+            declaration["kind"] == "extension"
+            and declaration["name"] == type_name
+            and protocol_name in declaration["inheritedTypes"]
+            for facts in syntax_index.values()
+            for declaration in facts["declarations"]
         )
-        if not any(pattern.search(source) for source in sources.values()):
+        if not conforms:
             errors.append(
                 f"{type_name}: 缺少已统一的分页结构约束：{protocol_name}"
             )
@@ -462,19 +650,25 @@ def architectural_contract_findings() -> list[str]:
         "SettingsNetworkService",
     )
     for type_name in community_services:
-        blocks = [
-            declaration_block(source, type_name)
-            for source in sources.values()
-            if declaration_block(source, type_name)
+        scoped_facts = [
+            facts
+            for facts in syntax_index.values()
+            if any(declaration["name"] == type_name for declaration in facts["declarations"])
         ]
-        if not blocks:
+        if not scoped_facts:
             errors.append(f"{type_name}: 找不到社区服务声明")
             continue
-        if not any(
-            re.search(r"\bCommunityAPIClient\s*(?:<|[A-Za-z_])", block)
-            and re.search(r"\bCommunityAPIClient\s*\(", block)
-            for block in blocks
-        ):
+        has_client_type = any(
+            type_name in reference["scope"] and "CommunityAPIClient" in reference["value"]
+            for facts in scoped_facts
+            for reference in facts["typeNames"]
+        )
+        initializes_client = any(
+            type_name in call["scope"] and call["value"].startswith("CommunityAPIClient")
+            for facts in scoped_facts
+            for call in facts["calls"]
+        )
+        if not has_client_type or not initializes_client:
             errors.append(
                 f"{type_name}: 社区服务必须通过 CommunityAPIClient 初始化网络边界"
             )
@@ -484,12 +678,13 @@ def architectural_contract_findings() -> list[str]:
         ("ComposerDraftStore", "BIT101-iOS/Gallery/GalleryComposerView.swift"),
     )
     for type_name, file_name in storage_contracts:
-        blocks = [
-            declaration_block(source, type_name)
-            for source in sources.values()
-            if declaration_block(source, type_name)
-        ]
-        if not any("AppFileDirectories.applicationSupport" in block for block in blocks):
+        stores_in_scope = any(
+            type_name in member["scope"]
+            and "AppFileDirectories.applicationSupport" in member["value"]
+            for facts in syntax_index.values()
+            for member in facts["members"]
+        )
+        if not stores_in_scope:
             errors.append(
                 f"{file_name}: 持久化仓库必须复用 AppFileDirectories.applicationSupport"
             )
@@ -497,8 +692,8 @@ def architectural_contract_findings() -> list[str]:
     for path in sorted((ROOT / "BIT101-iOS").rglob("*.swift")):
         if not path.name.endswith(("ViewModel.swift", "ViewModels.swift")):
             continue
-        source = sources[path]
-        if not has_identifier(source, "TaskCancellation") and not has_call(source, "isCancellation"):
+        facts = syntax_index[str(path)]
+        if not ast_has_identifier(facts, "TaskCancellation") and not ast_has_call(facts, "isCancellation"):
             errors.append(f"{relative(path)}: 状态模型必须统一处理任务取消，不能把取消当成业务失败")
 
     return errors
@@ -513,8 +708,12 @@ def audit_wiring_findings() -> list[str]:
         errors.append("Scripts/run-static-audit.sh: 未接入统一 UI 审计")
     if "run_group code-quality code_quality" not in audit_source:
         errors.append("Scripts/run-static-audit.sh: 未接入统一代码质量审计")
-    if "check_stale_docs.py" not in audit_source:
-        errors.append("Scripts/run-static-audit.sh: 未接入文档状态检查")
+    if "check_stale_docs.py --all" not in audit_source:
+        errors.append("Scripts/run-static-audit.sh: 未接入阻塞式文档新鲜度检查")
+    if "run_group dependency-audit dependency_audit" not in audit_source:
+        errors.append("Scripts/run-static-audit.sh: 未接入锁定依赖漏洞审计")
+    if "npm audit --audit-level=high" not in audit_source:
+        errors.append("Scripts/run-static-audit.sh: 依赖漏洞审计门槛缺失")
     if "release-network-smoke" in audit_source:
         errors.append("Scripts/run-static-audit.sh: 静态审计不得调用网络 smoke")
 
@@ -523,34 +722,79 @@ def audit_wiring_findings() -> list[str]:
         errors.append(".github/workflows/ci.yml: CI 工作流不存在")
     else:
         workflow_source = workflow_path.read_text(encoding="utf-8")
+        release_job_match = re.search(
+            r"(?ms)^  release-build:\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:|\Z)",
+            workflow_source,
+        )
+        if release_job_match is None:
+            errors.append(".github/workflows/ci.yml: 缺少默认 Release 编译 Job")
+        elif re.search(r"^    if:", release_job_match.group("body"), re.MULTILINE):
+            errors.append(".github/workflows/ci.yml: Release 编译 Job 必须默认执行")
         required_ci_rules = (
             ("Scripts/run-static-audit.sh", "CI 未执行统一静态审计"),
             ("static-audit:", "CI 未声明静态审计 Job"),
-            ("release_build:", "CI 未提供发布前远程编译开关"),
-            ("release-build:", "CI 未声明发布编译 Job"),
-            ("xcodebuild build-for-testing", "发布编译 Job 未保留 build-for-testing"),
-            ("generic/platform=iOS", "发布编译不得默认选择模拟器"),
+            ("release-build:", "CI 未声明默认 Release 编译 Job"),
+            ("xcodebuild build-for-testing", "默认编译 Job 未编译 iOS 测试 target"),
+            ("-scheme BIT101-iOS", "CI 未编译 iOS scheme"),
+            ("-scheme BIT101Watch", "CI 未编译 Watch scheme"),
+            ("-scheme BIT101ScheduleWidgets", "CI 未编译 iOS Widget scheme"),
+            ("-scheme BIT101WatchWidgets", "CI 未编译 Watch Widget scheme"),
+            ("generic/platform=watchOS", "Watch 编译不得选择模拟器"),
+            ("generic/platform=iOS", "iOS 编译不得选择模拟器"),
             ("SWIFT_TREAT_WARNINGS_AS_ERRORS=YES", "发布编译未将 Swift 警告视为错误"),
             ("GCC_TREAT_WARNINGS_AS_ERRORS=YES", "发布编译未将 Clang 警告视为错误"),
         )
         for marker, message in required_ci_rules:
             if marker not in workflow_source:
                 errors.append(f".github/workflows/ci.yml: {message}")
+
+    test_script = ROOT / "Scripts/run-extended-tests.sh"
+    if not test_script.is_file():
+        errors.append("Scripts/run-extended-tests.sh: 真机测试入口不存在")
+    else:
+        test_source = test_script.read_text(encoding="utf-8")
+        required_test_metrics = (
+            ("-enableCodeCoverage YES", "真机测试未启用代码覆盖率"),
+            ("xccov", "真机测试未提取代码覆盖率"),
+            ("test-metrics.txt", "真机测试指标未写入固定报告"),
+            ("extensions)", "缺少扩展共享逻辑测试分组"),
+            ("ExternalScheduleInfrastructureTests", "扩展共享逻辑分组未执行对应测试套件"),
+        )
+        for marker, message in required_test_metrics:
+            if marker not in test_source:
+                errors.append(f"Scripts/run-extended-tests.sh: {message}")
+
+    hook_path = ROOT / ".githooks/pre-commit"
+    if not hook_path.is_file() or "Scripts/check_stale_docs.py --all" not in hook_path.read_text(encoding="utf-8"):
+        errors.append(".githooks/pre-commit: 提交前必须阻塞过期文档")
     return errors
 
 
 def main() -> int:
+    if sys.argv[1:] == ["--swift-syntax-index"]:
+        try:
+            print(json.dumps(swift_syntax_index(swift_files()), ensure_ascii=False))
+            return 0
+        except (OSError, subprocess.CalledProcessError, RuntimeError) as error:
+            print(f"SwiftSyntax 索引失败：{error}", file=sys.stderr)
+            return 1
+
     errors, review = source_findings()
+    try:
+        syntax_index = swift_syntax_index(swift_files())
+    except (OSError, subprocess.CalledProcessError, RuntimeError) as error:
+        syntax_index = {}
+        errors.append(f"SwiftSyntax 索引失败：{error}")
     errors.extend(script_findings())
     errors.extend(documentation_findings())
-    errors.extend(automatic_school_fetch_findings())
-    errors.extend(architectural_contract_findings())
+    if syntax_index:
+        errors.extend(automatic_school_fetch_findings(syntax_index))
+        errors.extend(architectural_contract_findings(syntax_index))
     errors.extend(audit_wiring_findings())
     audit_doc = (ROOT / "docs/CODE_QUALITY_AUDIT.md").read_text(encoding="utf-8")
     if re.search(r"行号|行数", audit_doc):
         errors.append("docs/CODE_QUALITY_AUDIT.md: 不记录行号或行数")
 
-    REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     report_lines = [
         "# 逐份源码质量审查",
         "",
@@ -563,14 +807,17 @@ def main() -> int:
         *(review or ["无"]),
         "",
     ]
-    REPORT_PATH.write_text("\n".join(report_lines), encoding="utf-8")
+    report = "\n".join(report_lines)
+    if len(report_lines) <= 1000:
+        REPORT_PATH.unlink(missing_ok=True)
+        print(report)
+    else:
+        REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        REPORT_PATH.write_text(report, encoding="utf-8")
+        print(f"检查结果共 {len(report_lines)} 行，详情写入 {relative(REPORT_PATH)}")
 
     if errors:
-        print("[失败] 代码质量检查：")
-        print("\n".join(errors))
-        print(f"报告：{relative(REPORT_PATH)}")
         return 1
-    print(f"[通过] 代码质量检查（逐份扫描 {len(swift_files())} 个 Swift 文件；审查候选见 {relative(REPORT_PATH)}）")
     return 0
 
 

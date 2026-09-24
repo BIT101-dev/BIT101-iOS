@@ -281,6 +281,11 @@ struct AppPrompt: Identifiable {
 /// 应用级弹窗队列。SwiftUI 在同一时刻展示一个 `.alert`。
 @MainActor
 final class AppPromptCoordinator: ObservableObject {
+    private struct DismissalWaiter {
+        let id: UUID
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
     static let shared = AppPromptCoordinator()
 
     @Published private(set) var activePrompt: AppPrompt?
@@ -290,7 +295,7 @@ final class AppPromptCoordinator: ObservableObject {
     private var handledIDs: Set<String> = []
     private var advanceTask: Task<Void, Never>?
     private let advanceDelay: Duration
-    private var dismissalWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+    private var dismissalWaiters: [String: [DismissalWaiter]] = [:]
     private(set) var isHostReady = false
 
     init(advanceDelay: Duration = .milliseconds(350)) {
@@ -318,10 +323,33 @@ final class AppPromptCoordinator: ObservableObject {
             return
         }
         guard !handledIDs.contains(prompt.id) else { return }
-        await withCheckedContinuation { continuation in
-            dismissalWaiters[prompt.id, default: []].append(continuation)
-            enqueue(prompt)
+        let promptID = prompt.id
+        let waiterID = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                dismissalWaiters[prompt.id, default: []].append(
+                    DismissalWaiter(id: waiterID, continuation: continuation)
+                )
+                enqueue(prompt)
+            }
+        } onCancel: { [weak self] in
+            Task { @MainActor in
+                self?.cancelWaiter(promptID: promptID, waiterID: waiterID)
+            }
         }
+    }
+
+    private func cancelWaiter(promptID: String, waiterID: UUID) {
+        guard var waiters = dismissalWaiters[promptID],
+              let index = waiters.firstIndex(where: { $0.id == waiterID })
+        else { return }
+        let waiter = waiters.remove(at: index)
+        if waiters.isEmpty {
+            dismissalWaiters[promptID] = nil
+        } else {
+            dismissalWaiters[promptID] = waiters
+        }
+        waiter.continuation.resume()
     }
 
     func perform(_ action: AppPromptAction) {
@@ -342,7 +370,7 @@ final class AppPromptCoordinator: ObservableObject {
         handledIDs.insert(activePrompt.id)
         self.activePrompt = nil
         let waiters = dismissalWaiters.removeValue(forKey: activePrompt.id) ?? []
-        waiters.forEach { $0.resume() }
+        waiters.forEach { $0.continuation.resume() }
 
         // 测试或动画已关闭的宿主显式关闭退场等待时，队列立即推进；队列行为直接由当前调用决定。
         if advanceDelay == .zero {

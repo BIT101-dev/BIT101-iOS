@@ -302,7 +302,7 @@ struct GalleryPosterDetailView: View {
 
     private var authorSummary: some View {
         HStack(spacing: AppDesignSystem.Spacing.content) {
-            AppAvatarView(imageURL: posterAvatarURL)
+            AppAvatarView(imageURL: posterAvatarURL, anonymous: viewModel.poster.anonymous)
 
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
                 Text(posterDisplayName)
@@ -327,7 +327,7 @@ struct GalleryPosterDetailView: View {
     }
 
     private var posterDisplayName: String {
-        viewModel.poster.anonymous ? "匿名用户" : viewModel.poster.user.nickname
+        viewModel.poster.anonymous ? AppUserPresentation.anonymousName : viewModel.poster.user.nickname
     }
 
     private var posterAvatarURL: URL? {

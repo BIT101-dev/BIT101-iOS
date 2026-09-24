@@ -25,11 +25,16 @@ extension AppErrorPresentation: DiagnosticAlertPresentable {}
 /// 统一从当前最顶层 UIViewController 呈现原生 Alert，让 Alert 在 Sheet 之上显示。
 @MainActor
 final class AppErrorPresenter {
+    private struct DismissalWaiter {
+        let id: UUID
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
     static let shared = AppErrorPresenter()
     private var queue: [AppErrorPresentation] = []
     private var isPresenting = false
     private var activePresentationID: UUID?
-    private var dismissalWaiters: [UUID: [CheckedContinuation<Void, Never>]] = [:]
+    private var dismissalWaiters: [UUID: [DismissalWaiter]] = [:]
     private var reportDelegate: ReportPresentationDelegate?
     private weak var reportController: UIViewController?
     private var presentationGeneration = 0
@@ -47,7 +52,7 @@ final class AppErrorPresenter {
         activePresentationID = nil
         let waiters = dismissalWaiters.values.flatMap { $0 }
         dismissalWaiters.removeAll()
-        waiters.forEach { $0.resume() }
+        waiters.forEach { $0.continuation.resume() }
 
         if let presenter = Self.topViewController(), let alert = presenter as? UIAlertController {
             alert.dismiss(animated: false)
@@ -78,11 +83,34 @@ final class AppErrorPresenter {
 
     func presentAndWait(_ alert: any DiagnosticAlertPresentable) async {
         let presentation = localPresentation(for: alert)
-        await withCheckedContinuation { continuation in
-            dismissalWaiters[presentation.id, default: []].append(continuation)
-            queue.append(presentation)
-            presentNextIfPossible()
+        let presentationID = presentation.id
+        let waiterID = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                dismissalWaiters[presentation.id, default: []].append(
+                    DismissalWaiter(id: waiterID, continuation: continuation)
+                )
+                queue.append(presentation)
+                presentNextIfPossible()
+            }
+        } onCancel: { [weak self] in
+            Task { @MainActor in
+                self?.cancelWaiter(presentationID: presentationID, waiterID: waiterID)
+            }
         }
+    }
+
+    private func cancelWaiter(presentationID: UUID, waiterID: UUID) {
+        guard var waiters = dismissalWaiters[presentationID],
+              let index = waiters.firstIndex(where: { $0.id == waiterID })
+        else { return }
+        let waiter = waiters.remove(at: index)
+        if waiters.isEmpty {
+            dismissalWaiters[presentationID] = nil
+        } else {
+            dismissalWaiters[presentationID] = waiters
+        }
+        waiter.continuation.resume()
     }
 
     private func localPresentation(for alert: any DiagnosticAlertPresentable) -> AppErrorPresentation {
@@ -197,7 +225,7 @@ final class AppErrorPresenter {
         activePresentationID = nil
         isPresenting = false
         let waiters = dismissalWaiters.removeValue(forKey: presentationID) ?? []
-        waiters.forEach { $0.resume() }
+        waiters.forEach { $0.continuation.resume() }
         presentNextIfPossible()
     }
 

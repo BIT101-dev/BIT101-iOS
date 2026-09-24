@@ -58,7 +58,7 @@ struct DDLSettingsPage: View {
             }
         }
         .appGroupedListStyle()
-        .task { viewModel.loadIfNeeded() }
+        .task { await viewModel.loadIfNeeded() }
         .sheet(item: $pickerRoute) { route in
             switch route {
             case .beforeDay:

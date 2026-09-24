@@ -9,7 +9,7 @@ import Foundation
 ///
 /// 解析器使用 Foundation 的正则能力处理学校页面中的表单字段，兼容字段属性顺序、
 /// 隐藏 input 和文本节点。
-enum SchoolLoginHTMLParser {
+nonisolated enum SchoolLoginHTMLParser {
     /// 从学校 CAS 登录页 HTML 中提取 salt、execution 和“是否已登录”状态。
     static func parse(html: String) -> SchoolLoginContext {
         let salt = field(in: html, id: "login-croypto")

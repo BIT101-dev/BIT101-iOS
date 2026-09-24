@@ -526,7 +526,19 @@ extension ScheduleService {
         guard ics.range(of: "BEGIN:VCALENDAR", options: .caseInsensitive) != nil else {
             throw ScheduleServiceError.invalidLexuePage
         }
-        return try ScheduleICSParser.parse(ics)
+        let parsingTask = Task.detached(priority: .utility) {
+            try? ScheduleICSParser.parse(ics)
+        }
+        let events = await withTaskCancellationHandler {
+            await parsingTask.value
+        } onCancel: {
+            parsingTask.cancel()
+        }
+        try Task.checkCancellation()
+        guard let events else {
+            throw ScheduleServiceError.invalidCalendarData
+        }
+        return events
     }
 
     /// 从乐学页面提取订阅链接。

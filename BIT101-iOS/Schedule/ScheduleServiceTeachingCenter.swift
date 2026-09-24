@@ -219,15 +219,33 @@ extension ScheduleService {
             ]
         )
 
-        return response.datas.cxkxjasqk.rows.map {
-            ClassroomRecord(
-                id: $0.classroomName,
-                name: $0.classroomName,
-                busyTimeCodes: $0.busyTimeString?
-                    .split(separator: ",")
-                    .compactMap { Int($0) }
-                    .sorted() ?? []
-            )
+        let rows = response.datas.cxkxjasqk.rows
+        let mappingTask = Task.detached(priority: .utility) { () throws -> [ClassroomRecord] in
+            try Task.checkCancellation()
+            var classrooms: [ClassroomRecord] = []
+            classrooms.reserveCapacity(rows.count)
+            for (index, row) in rows.enumerated() {
+                if index.isMultiple(of: 64) {
+                    try Task.checkCancellation()
+                }
+                classrooms.append(
+                    ClassroomRecord(
+                        id: row.classroomName,
+                        name: row.classroomName,
+                        busyTimeCodes: row.busyTimeString?
+                            .split(separator: ",")
+                            .compactMap { Int($0) }
+                            .sorted() ?? []
+                    )
+                )
+            }
+            try Task.checkCancellation()
+            return classrooms
+        }
+        return try await withTaskCancellationHandler {
+            try await mappingTask.value
+        } onCancel: {
+            mappingTask.cancel()
         }
     }
 
@@ -288,7 +306,9 @@ extension ScheduleService {
             throw ScheduleServiceError.invalidResponse
         }
 
-        return response.parsedCourses
+        return await Task.detached(priority: .utility) {
+            response.parsedCourses
+        }.value
     }
 
     /// 拉取指定目标学期的考试安排。
@@ -299,33 +319,35 @@ extension ScheduleService {
             body: [("XNXQDM", term), ("*order", "-KSRQ")]
         )
 
-        return response.datas.cxxsksap.rows.map { row in
-            let rawCourseName = row.courseName ?? ""
-            let name = rawCourseName
-                .split(separator: "]")
-                .first?
-                .split(separator: "[")
-                .last
-                .map(String.init) ?? rawCourseName
+        return await Task.detached(priority: .utility) {
+            response.datas.cxxsksap.rows.map { row in
+                let rawCourseName = row.courseName ?? ""
+                let name = rawCourseName
+                    .split(separator: "]")
+                    .first?
+                    .split(separator: "[")
+                    .last
+                    .map(String.init) ?? rawCourseName
 
-            let times = row.timeDescription.captureGroups(pattern: #"(\d{2}:\d{2})-(\d{2}:\d{2})"#)
-            let beginTime = times.first ?? ""
-            let endTime = times.dropFirst().first ?? ""
+                let times = row.timeDescription.captureGroups(pattern: #"(\d{2}:\d{2})-(\d{2}:\d{2})"#)
+                let beginTime = times.first ?? ""
+                let endTime = times.dropFirst().first ?? ""
 
-            return ExamRecord(
-                id: "\(row.termCode ?? "")-\(row.courseID ?? "")-\(row.dateString ?? "")-\(row.timeDescription)",
-                term: row.termCode ?? "",
-                name: name,
-                courseID: row.courseID ?? "",
-                teacher: row.teacherName ?? "",
-                classroom: row.location ?? "",
-                dateString: (row.dateString ?? "").split(separator: " ").first.map(String.init) ?? (row.dateString ?? ""),
-                beginTime: beginTime,
-                endTime: endTime,
-                examMode: row.examMode ?? "",
-                seatID: row.seatID ?? ""
-            )
-        }
+                return ExamRecord(
+                    id: "\(row.termCode ?? "")-\(row.courseID ?? "")-\(row.dateString ?? "")-\(row.timeDescription)",
+                    term: row.termCode ?? "",
+                    name: name,
+                    courseID: row.courseID ?? "",
+                    teacher: row.teacherName ?? "",
+                    classroom: row.location ?? "",
+                    dateString: (row.dateString ?? "").split(separator: " ").first.map(String.init) ?? (row.dateString ?? ""),
+                    beginTime: beginTime,
+                    endTime: endTime,
+                    examMode: row.examMode ?? "",
+                    seatID: row.seatID ?? ""
+                )
+            }
+        }.value
     }
 
     /// 获取指定目标学期的第一周起始日期。

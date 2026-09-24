@@ -48,6 +48,8 @@ final class ScoreViewModel: ObservableObject {
     private var preferenceSnapshot = ScoreFilterPreferenceStore.load()
     private var preferenceObserverTask: Task<Void, Never>?
     private var scoreCacheObserverTask: Task<Void, Never>?
+    private var scheduleCacheObserverTask: Task<Void, Never>?
+    private var cachedCoursesByTerm: [String: [CourseRecord]] = [:]
 
     init(
         service: any ScoreListServicing
@@ -77,11 +79,18 @@ final class ScoreViewModel: ObservableObject {
                 self.applySyncedScoreCacheIfAvailable()
             }
         }
+        scheduleCacheObserverTask = Task { @MainActor [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: .scheduleCacheDidChange) {
+                guard let self else { return }
+                await self.refreshCachedScheduleCourses()
+            }
+        }
     }
 
     deinit {
         preferenceObserverTask?.cancel()
         scoreCacheObserverTask?.cancel()
+        scheduleCacheObserverTask?.cancel()
     }
 
     convenience init() {
@@ -109,6 +118,7 @@ final class ScoreViewModel: ObservableObject {
         didInitializeTermSelection = false
         didInitializeCourseTypeSelection = false
         pendingRefreshForcesDetailed = false
+        cachedCoursesByTerm = [:]
         preferenceSnapshot = ScoreFilterPreferenceStore.load()
         alert = nil
     }
@@ -116,11 +126,20 @@ final class ScoreViewModel: ObservableObject {
     /// 进入成绩页时恢复本地缓存；学校请求由用户操作触发。
     ///
     /// “查询成绩”和下拉刷新触发真实成绩查询，短信验证码在当前操作链路中展示。
-    func restoreCachedDataIfNeeded() {
+    func restoreCachedDataIfNeeded() async {
         guard state == .idle else { return }
+        await refreshCachedScheduleCourses()
         restoreCachedRowsIfAvailable()
         if rows.isEmpty {
             state = .loaded
+        }
+    }
+
+    private func refreshCachedScheduleCourses() async {
+        let cache = await ScheduleCacheStore.loadAsync()
+        cachedCoursesByTerm = cache.cachedCoursesByTerm
+        if !rows.isEmpty {
+            pendingCourses = calculatePendingCourses()
         }
     }
 
@@ -391,8 +410,7 @@ final class ScoreViewModel: ObservableObject {
             .intersection(selectedTerms)
         guard !scoreTerms.isEmpty else { return nil }
 
-        let scheduleCache = ScheduleCacheStore.load()
-        let cachedCoursesByTerm = scheduleCache.cachedCoursesByTerm.reduce(
+        let cachedCoursesByTerm = self.cachedCoursesByTerm.reduce(
             into: [String: [CourseRecord]]()
         ) { result, entry in
             let normalizedTerm = normalizedFilterValue(entry.key)

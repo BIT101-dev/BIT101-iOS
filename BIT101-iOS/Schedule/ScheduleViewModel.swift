@@ -210,7 +210,7 @@ final class ScheduleViewModel: ObservableObject {
             for await _ in NotificationCenter.default.notifications(named: .scheduleCacheDidChange) {
                 guard let self else { return }
                 // 设置中心修改课表显示项后，ViewModel 从磁盘重新载入缓存，页面与设置页共享同一份持久化状态。
-                self.reloadFromDisk()
+                await self.reloadFromDisk()
             }
         }
     }
@@ -250,12 +250,12 @@ final class ScheduleViewModel: ObservableObject {
         selectedBuildingID = ""
         smsChallenge = nil
         smsVerificationError = nil
-        schoolSMSCodeRequest = nil
-        schoolSMSContinuation?.resume(throwing: CancellationError())
-        schoolSMSContinuation = nil
+        cancelSchoolSMSWait()
         courseSyncCoordinator.reset()
         notice = nil
-        reloadFromDisk()
+        Task { @MainActor [weak self] in
+            await self?.reloadFromDisk()
+        }
     }
 
     func submitSchoolSMSCode(_ code: String) {
@@ -268,10 +268,7 @@ final class ScheduleViewModel: ObservableObject {
     }
 
     func dismissSchoolSMSCode() {
-        let continuation = schoolSMSContinuation
-        schoolSMSContinuation = nil
-        schoolSMSCodeRequest = nil
-        continuation?.resume(throwing: CancellationError())
+        cancelSchoolSMSWait()
     }
 
     func makeSchoolSMSCodeHandler(for generation: Int? = nil) -> SchoolSMSCodeHandler {
@@ -282,10 +279,23 @@ final class ScheduleViewModel: ObservableObject {
             }
             guard self.schoolSMSContinuation == nil else { throw CancellationError() }
             self.schoolSMSCodeRequest = request
-            return try await withCheckedThrowingContinuation { continuation in
-                self.schoolSMSContinuation = continuation
+            return try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    self.schoolSMSContinuation = continuation
+                }
+            } onCancel: {
+                Task { @MainActor [weak self] in
+                    self?.cancelSchoolSMSWait()
+                }
             }
         }
+    }
+
+    private func cancelSchoolSMSWait() {
+        let continuation = schoolSMSContinuation
+        schoolSMSContinuation = nil
+        schoolSMSCodeRequest = nil
+        continuation?.resume(throwing: CancellationError())
     }
 
     /// 构造日程模块统一使用的本地校验错误。
@@ -382,13 +392,13 @@ final class ScheduleViewModel: ObservableObject {
     /// 首次进入日程页时从本地磁盘恢复缓存。
     ///
     /// 日程页先展示本地缓存，联网同步由用户主动触发；冷启动直接进入缓存内容。
-    func loadIfNeeded() {
+    func loadIfNeeded() async {
         guard !hasLoaded else { return }
         hasLoaded = true
 
         // 页面先读本地缓存，打开时直接展示用户上次选择的学期；联网同步由用户主动触发。
         // 周次按当前课表首周计算，学期选择保持本地缓存值。
-        reloadFromDisk()
+        await reloadFromDisk()
         selectedWeek = resolvedAutomaticWeek()
         isLoadingCache = false
     }
@@ -411,10 +421,10 @@ final class ScheduleViewModel: ObservableObject {
     }
 
     /// 从磁盘重新加载缓存，保留用户当前正在浏览的周次和课表分身。
-    func reloadFromDisk() {
+    func reloadFromDisk() async {
         let previousScheduleIndex = selectedCourseScheduleIndex
         let previousWeek = selectedWeek
-        cache = ScheduleCacheStore.load()
+        cache = await ScheduleCacheStore.loadAsync()
         selectedCourseScheduleIndex = min(max(previousScheduleIndex, 0), max(courseSchedules.count - 1, 0))
         selectedWeek = previousWeek
         selectedBuildingID = cache.selectedBuildingID

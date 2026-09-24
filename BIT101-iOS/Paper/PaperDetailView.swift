@@ -345,7 +345,8 @@ private struct PaperHeaderSummary: View {
             AppAvatarView(
                 imageURL: paper?.anonymous == true ? nil : paper?.updateUser.avatar.preferredRemoteURL,
                 size: AppDesignSystem.Size.Avatar.standard,
-                tint: AppDesignSystem.Palette.Status.neutral
+                tint: AppDesignSystem.Palette.Status.neutral,
+                anonymous: paper?.anonymous == true
             )
 
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
@@ -360,7 +361,7 @@ private struct PaperHeaderSummary: View {
 
     private var authorName: String {
         guard let paper else { return "加载中" }
-        return paper.anonymous ? "匿名者" : paper.updateUser.nickname
+        return paper.anonymous ? AppUserPresentation.anonymousName : paper.updateUser.nickname
     }
 }
 

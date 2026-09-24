@@ -24,7 +24,7 @@ struct SchoolSMSCodeRequest: Identifiable {
 typealias SchoolSMSCodeHandler = @MainActor (SchoolSMSCodeRequest) async throws -> String
 
 /// 学校 CAS 短信验证页的最小提交上下文。
-struct SchoolSecondFactorContext {
+nonisolated struct SchoolSecondFactorContext: Sendable {
     let execution: String
     let formAction: URL
     let userObjectID: String
@@ -180,7 +180,7 @@ final class TeachingCenterSessionState {
 ///
 /// 学校 CAS 登录页返回 HTML，不提供稳定 JSON 接口。本结构提取后续登录所需字段，
 /// 供业务层继续传递。
-struct SchoolLoginContext {
+nonisolated struct SchoolLoginContext: Sendable {
     let salt: String?
     let execution: String?
     let isLoggedIn: Bool
