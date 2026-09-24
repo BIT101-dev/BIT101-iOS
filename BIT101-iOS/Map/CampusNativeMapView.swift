@@ -11,7 +11,7 @@ import SwiftUI
 import UIKit
 
 /// 带校区信息的原生地图标记，供 delegate 选择不同颜色。
-private final class CampusPlaceAnnotation: MKPointAnnotation {
+private nonisolated final class CampusPlaceAnnotation: MKPointAnnotation {
     let campus: CampusPreset
     let place: CampusMapPlace
 

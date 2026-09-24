@@ -43,7 +43,7 @@ struct BITLoginChallengeEnvelope: Decodable {
     let detail: BITLoginChallengePayload
 }
 
-struct BITLoginChallengePayload: Decodable {
+nonisolated struct BITLoginChallengePayload: Decodable {
     let challengeID: String
     let accessToken: String?
     let status: String
@@ -64,15 +64,15 @@ struct BITLoginChallengePayload: Decodable {
 enum BITLoginChallengeSupport {
     private struct PollDeadlineReached: Error {}
 
-    private final class FetchOperation: @unchecked Sendable {
-        let call: (String) async throws -> BITLoginChallengePayload
+    private final class FetchOperation: Sendable {
+        let call: @Sendable (String) async throws -> BITLoginChallengePayload
 
-        init(call: @escaping (String) async throws -> BITLoginChallengePayload) {
+        init(call: @escaping @Sendable (String) async throws -> BITLoginChallengePayload) {
             self.call = call
         }
     }
 
-    private final class FetchResult: @unchecked Sendable {
+    private final class FetchResult: Sendable {
         let payload: BITLoginChallengePayload
 
         nonisolated init(payload: BITLoginChallengePayload) {
@@ -80,7 +80,7 @@ enum BITLoginChallengeSupport {
         }
     }
 
-    static func decodePayload(from data: Data) throws -> BITLoginChallengePayload {
+    nonisolated static func decodePayload(from data: Data) throws -> BITLoginChallengePayload {
         try JSONDecoder().decode(BITLoginChallengePayload.self, from: data)
     }
 
@@ -88,7 +88,7 @@ enum BITLoginChallengeSupport {
         _ initialPayload: BITLoginChallengePayload,
         timeout: TimeInterval,
         interval: Duration,
-        fetch: @escaping (String) async throws -> BITLoginChallengePayload
+        fetch: @escaping @Sendable (String) async throws -> BITLoginChallengePayload
     ) async throws -> BITLoginChallengePayload {
         guard timeout > 0, interval > .zero else { return initialPayload }
 
@@ -146,7 +146,7 @@ enum BITLoginChallengeSupport {
         )
     }
 
-    private static func firstNonEmptyString(
+    private nonisolated static func firstNonEmptyString(
         in object: [String: Any],
         keys: [String]
     ) -> String? {
@@ -158,7 +158,7 @@ enum BITLoginChallengeSupport {
         return nil
     }
 
-    static func errorMessage(from data: Data) -> String? {
+    nonisolated static func errorMessage(from data: Data) -> String? {
         guard let value = try? JSONSerialization.jsonObject(
             with: data,
             options: [.fragmentsAllowed]

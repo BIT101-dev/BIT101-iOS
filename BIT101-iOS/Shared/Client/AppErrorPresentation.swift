@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 import UIKit
 
-struct AppErrorPresentation: Identifiable {
+nonisolated struct AppErrorPresentation: Identifiable {
     let id = UUID()
     let title: String
     let message: String

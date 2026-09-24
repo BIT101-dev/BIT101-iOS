@@ -503,7 +503,7 @@ final class GalleryMessageViewModel: ObservableObject {
 
     private let service: any GalleryMessageServicing
     private let readStore: GalleryMessageReadStore
-    private var readStateObserver: NSObjectProtocol?
+    private var readStateObserverTask: Task<Void, Never>?
     private var listGenerations: [GalleryMessageType: Int] = [:]
 
     /// 集中初始化服务和已读仓库，供构造器复用。
@@ -524,19 +524,13 @@ final class GalleryMessageViewModel: ObservableObject {
     }
 
     deinit {
-        if let readStateObserver {
-            NotificationCenter.default.removeObserver(readStateObserver)
-        }
+        readStateObserverTask?.cancel()
     }
 
     private func observeSyncedReadState() {
-        readStateObserver = NotificationCenter.default.addObserver(
-            forName: .galleryMessageReadStateDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            MainActor.assumeIsolated {
+        readStateObserverTask = Task { @MainActor [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: .galleryMessageReadStateDidChange) {
+                guard let self else { return }
                 self.localReadVersion += 1
             }
         }

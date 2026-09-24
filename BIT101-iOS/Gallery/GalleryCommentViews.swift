@@ -16,7 +16,7 @@ struct GalleryPosterCommentsSection: View {
     let isLoadingMore: Bool
     let selectedOrder: GalleryCommentOrder
     let likingCommentIDs: Set<Int>
-    let onSelectOrder: (GalleryCommentOrder) -> Void
+    let onSelectOrder: @MainActor (GalleryCommentOrder) -> Void
     let onReply: (GalleryCommentReplyTarget) -> Void
     let onLikeComment: (GalleryComment) -> Void
     let onReportComment: (GalleryComment) -> Void
@@ -244,6 +244,7 @@ struct GalleryCommentComposerSheet: View {
     private let service = GalleryService()
 
     var body: some View {
+        let uploadedImageCount = uploadedImages.count
         NavigationStack {
             Form {
                 AppCommentComposerContentSection(anonymous: $anonymous) {
@@ -257,7 +258,7 @@ struct GalleryCommentComposerSheet: View {
                         maxSelectionCount: max(1, 9 - uploadedImages.count),
                         matching: .images
                     ) {
-                        Text(uploadedImages.count >= 9 ? "已达到图片上限" : "添加图片")
+                        Text(uploadedImageCount >= 9 ? "已达到图片上限" : "添加图片")
                     }
                     .disabled(isSubmitting || isUploadingImages || uploadedImages.count >= 9)
                     .accessibilityLabel("添加评论图片")

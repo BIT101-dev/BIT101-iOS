@@ -2,7 +2,7 @@
 
 import Foundation
 import OSLog
-import WatchConnectivity
+@preconcurrency import WatchConnectivity
 #if canImport(WidgetKit)
 import WidgetKit
 #endif
@@ -61,15 +61,20 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     }
 
     /// 从共享仓库读取并编码当前快照。
-    private func currentSnapshotDataIfAvailable() -> Data? {
+    private nonisolated static func currentSnapshotDataIfAvailable() -> Data? {
         guard let snapshot = ScheduleExternalSnapshotStore.load() else { return nil }
-        return encodedSnapshotData(snapshot)
+        do {
+            return try ScheduleExternalSnapshotCodec.encode(snapshot)
+        } catch {
+            Self.logger.error("Failed to encode the watch schedule snapshot: \(String(describing: error), privacy: .public)")
+            return nil
+        }
     }
 
     /// 将快照镜像统一写入 `applicationContext`。
     ///
     /// 主动推送、前台即时回复和 `applicationContext` 请求共用这份逻辑。
-    private func updateApplicationContext(
+    private nonisolated static func updateApplicationContext(
         withSnapshotData data: Data,
         session: WCSession
     ) {
@@ -94,19 +99,19 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
             pendingSnapshotData = data
             return
         }
-        updateApplicationContext(withSnapshotData: data, session: session)
+        Self.updateApplicationContext(withSnapshotData: data, session: session)
     }
 
     /// 从当前共享快照重新推送一次。
     func pushCurrentSnapshotIfAvailable() {
         activateIfNeeded()
         let session = WCSession.default
-        guard session.isPaired, let data = currentSnapshotDataIfAvailable() else { return }
+        guard session.isPaired, let data = Self.currentSnapshotDataIfAvailable() else { return }
         guard session.activationState == .activated else {
             pendingSnapshotData = data
             return
         }
-        updateApplicationContext(withSnapshotData: data, session: session)
+        Self.updateApplicationContext(withSnapshotData: data, session: session)
     }
     #endif
 
@@ -183,7 +188,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
             Task { @MainActor in
                 guard let data = self.pendingSnapshotData else { return }
                 self.pendingSnapshotData = nil
-                self.updateApplicationContext(withSnapshotData: data, session: session)
+                Self.updateApplicationContext(withSnapshotData: data, session: session)
             }
         }
         #endif
@@ -214,13 +219,10 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     ) {
         #if os(iOS)
         if messageData == WatchScheduleTransferProtocol.requestData {
-            Task { @MainActor in
-                if let data = self.currentSnapshotDataIfAvailable() {
-                    self.updateApplicationContext(withSnapshotData: data, session: session)
-                    replyHandler(data)
-                    return
-                }
-
+            if let data = Self.currentSnapshotDataIfAvailable() {
+                Self.updateApplicationContext(withSnapshotData: data, session: session)
+                replyHandler(data)
+            } else {
                 replyHandler(Data())
             }
             return
@@ -241,16 +243,14 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     ) {
         #if os(iOS)
         if WatchScheduleTransferProtocol.requestsLatestSnapshot(message) {
-            Task { @MainActor in
-                let payload: [String: Any]
-                if let data = self.currentSnapshotDataIfAvailable() {
-                    self.updateApplicationContext(withSnapshotData: data, session: session)
-                    payload = WatchScheduleTransferProtocol.snapshotContext(data)
-                } else {
-                    payload = [:]
-                }
-                replyHandler(payload)
+            let payload: [String: Any]
+            if let data = Self.currentSnapshotDataIfAvailable() {
+                Self.updateApplicationContext(withSnapshotData: data, session: session)
+                payload = WatchScheduleTransferProtocol.snapshotContext(data)
+            } else {
+                payload = [:]
             }
+            replyHandler(payload)
             return
         }
         #endif

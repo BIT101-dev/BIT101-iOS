@@ -45,8 +45,8 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
 
     private let defaults: UserDefaults
     private let cloudStore: NSUbiquitousKeyValueStore
-    private var cloudObserver: NSObjectProtocol?
-    private var accountObserver: NSObjectProtocol?
+    private var cloudObserverTask: Task<Void, Never>?
+    private var accountObserverTask: Task<Void, Never>?
     private var reconciliationTask: Task<Void, Never>?
     private var pendingReconciliationDomains = Set<ExperimentalPreferenceSyncDomain>()
 
@@ -58,31 +58,28 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         self.cloudStore = cloudStore
         isEnabled = defaults.bool(forKey: enabledKey)
 
-        cloudObserver = NotificationCenter.default.addObserver(
-            forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
-            object: cloudStore,
-            queue: .main
-        ) { [weak self] notification in
-            let changedKeys = notification.userInfo?[NSUbiquitousKeyValueStoreChangedKeysKey] as? [String]
-            Task { @MainActor [weak self, changedKeys] in
-                self?.handleExternalChange(changedKeys: changedKeys)
+        cloudObserverTask = Task { @MainActor [weak self, cloudStore] in
+            for await notification in NotificationCenter.default.notifications(
+                named: NSUbiquitousKeyValueStore.didChangeExternallyNotification
+            ) {
+                guard (notification.object as AnyObject?) === cloudStore else { continue }
+                let changedKeys = notification.userInfo?[NSUbiquitousKeyValueStoreChangedKeysKey] as? [String]
+                guard let self else { return }
+                self.handleExternalChange(changedKeys: changedKeys)
             }
         }
-        accountObserver = NotificationCenter.default.addObserver(
-            forName: .loginStorageDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.reloadForCurrentAccount()
+        accountObserverTask = Task { @MainActor [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: .loginStorageDidChange) {
+                guard let self else { return }
+                self.reloadForCurrentAccount()
             }
         }
     }
 
     deinit {
+        cloudObserverTask?.cancel()
+        accountObserverTask?.cancel()
         reconciliationTask?.cancel()
-        if let cloudObserver { NotificationCenter.default.removeObserver(cloudObserver) }
-        if let accountObserver { NotificationCenter.default.removeObserver(accountObserver) }
     }
 
     func setEnabled(_ enabled: Bool) {

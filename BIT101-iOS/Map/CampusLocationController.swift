@@ -10,7 +10,7 @@ import CoreLocation
 import Foundation
 
 /// 地图页提示弹窗模型。
-struct MapNotice: Identifiable {
+nonisolated struct MapNotice: Identifiable {
     let id = UUID()
     let title: String
     let message: String

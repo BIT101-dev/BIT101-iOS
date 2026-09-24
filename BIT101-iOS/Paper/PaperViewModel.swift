@@ -302,18 +302,22 @@ final class PaperDetailViewModel: ObservableObject {
         paperStatus = .loading
         resetCommentStateForRefresh()
 
-        async let paperResult = loadResult { [self] in
-            try await self.service.fetchPaper(id: self.initialPaper.id)
+        let paperTask = Task { @MainActor [self] in
+            await loadResult {
+                try await self.service.fetchPaper(id: self.initialPaper.id)
+            }
         }
-        async let commentResult = loadResult { [self, commentOrder] in
-            try await self.service.fetchComments(paperID: self.initialPaper.id, order: commentOrder, page: nil)
+        let commentTask = Task { @MainActor [self, commentOrder] in
+            await loadResult {
+                try await self.service.fetchComments(paperID: self.initialPaper.id, order: commentOrder, page: nil)
+            }
         }
 
-        let resolvedPaperResult = await paperResult
+        let resolvedPaperResult = await paperTask.value
         guard refreshGeneration == generation else { return }
         handlePaperResult(resolvedPaperResult, previousStatus: previousPaperStatus)
 
-        let resolvedCommentResult = await commentResult
+        let resolvedCommentResult = await commentTask.value
         guard refreshGeneration == generation else { return }
         handleCommentRefreshResult(resolvedCommentResult, previousState: previousCommentState)
     }

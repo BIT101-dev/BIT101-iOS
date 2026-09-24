@@ -84,7 +84,7 @@ struct ScoreService {
 
     private let storage: LoginStorage
     private let session: URLSession
-    private static let requestTimeoutSeconds: TimeInterval = 25
+    private nonisolated static let requestTimeoutSeconds: TimeInterval = 25
     /// 统一认证首次启动 OCR/下游会话时长可能超过普通 HTTP 请求，使用 90 秒认证等待时限。
     private static let authenticationWaitSeconds: TimeInterval = 90
     private let endpointBaseURL: URL
@@ -497,7 +497,7 @@ struct ScoreService {
         }
     }
 
-    private func decodeBITLoginChallengePayload(_ data: Data) throws -> BITLoginChallengePayload {
+    private nonisolated func decodeBITLoginChallengePayload(_ data: Data) throws -> BITLoginChallengePayload {
         do {
             return try BITLoginChallengeSupport.decodePayload(from: data)
         } catch {

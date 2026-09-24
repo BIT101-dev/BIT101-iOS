@@ -2,7 +2,8 @@ import XCTest
 import UIKit
 @testable import BIT101_iOS
 
-final class ErrorReportAndSchedulePolicyTests: XCTestCase {
+nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
+    @MainActor
     func testFeedbackBuildEnvironmentMatchesCompilationMode() {
 #if DEBUG
         XCTAssertTrue(AppBuildEnvironment.isDevelopment)
@@ -34,6 +35,7 @@ final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         _ = coordinator
     }
 
+    @MainActor
     func testForcedRedactionKeepsPersonalFieldsButRemovesCredentials() {
         let output = ErrorReportRedactor.forced("name=张三&student_id=1120260000&password=secret&token=abc&cookie=session&ticket=ST-secret")
         XCTAssertTrue(output.contains("张三"))
@@ -59,6 +61,7 @@ final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         // 手动翻页支持超出学期与课程周数范围的周次。
     }
 
+    @MainActor
     func testUnpublishedScheduleResponsePreservesSchoolMessage() throws {
         let data = Data(#"{"datas":{"cxxszhxqkb":{"extParams":{"code":3,"msg":"此学年学期的课表未发布"},"rows":[]}}}"#.utf8)
         let response = try JSONDecoder().decode(CourseResponse.self, from: data)
@@ -100,6 +103,7 @@ final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertFalse(notice.allowsDiagnostics)
     }
 
+    @MainActor
     func testUserCancelledTranscriptVerificationDoesNotOfferErrorReporting() {
         let viewModel = TrustedTranscriptViewModel(service: StubTrustedTranscriptService())
 

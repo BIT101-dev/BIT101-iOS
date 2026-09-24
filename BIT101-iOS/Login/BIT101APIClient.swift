@@ -290,7 +290,7 @@ struct BIT101APIClient {
         }
     }
 
-    static func isCredentialFailureMessage(_ message: String?) -> Bool {
+    nonisolated static func isCredentialFailureMessage(_ message: String?) -> Bool {
         guard let message else { return false }
         let normalized = message.lowercased()
         return normalized.contains("统一身份认证失败")

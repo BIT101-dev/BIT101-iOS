@@ -7,7 +7,7 @@
 
 #if canImport(ActivityKit) && !targetEnvironment(macCatalyst)
 
-import ActivityKit
+@preconcurrency import ActivityKit
 import Foundation
 import os
 import UserNotifications

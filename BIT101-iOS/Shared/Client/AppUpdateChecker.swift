@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 import Combine
 
-enum BIT101AppStore {
+nonisolated enum BIT101AppStore {
     nonisolated static let url = AppURL.required("https://apps.apple.com/cn/app/bit101/id6761147125")
 
     static func acceptsUpdateURL(_ url: URL) -> Bool {

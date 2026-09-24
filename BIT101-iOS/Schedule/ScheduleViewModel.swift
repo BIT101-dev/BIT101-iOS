@@ -33,7 +33,7 @@ extension Int {
 /// 日程页统一使用的提示模型。
 ///
 /// 日程模块的同步、保存和空教室查询动作通过这个提示模型向视图层传递错误。
-struct ScheduleNotice: Identifiable {
+nonisolated struct ScheduleNotice: Identifiable {
     let id = UUID()
     let title: String
     let message: String
@@ -198,7 +198,7 @@ final class ScheduleViewModel: ObservableObject {
     /// 当前教学楼最近一次拉下来的原始空教室记录。
     var classroomRecords: [ClassroomRecord] = []
     /// 监听设置和缓存变化，用于跨页面同步。
-    private var cacheObserver: NSObjectProtocol?
+    private var cacheObserverTask: Task<Void, Never>?
     /// ViewModel 持有空教室页面请求；请求在页面离开分栏后继续执行。
     var classroomPageTask: Task<Void, Never>?
     var classroomPageTaskID: UUID?
@@ -206,13 +206,9 @@ final class ScheduleViewModel: ObservableObject {
     /// 初始化日程状态机，并监听缓存变化通知。
     init(service: any ScheduleServicing) {
         self.service = service
-        cacheObserver = NotificationCenter.default.addObserver(
-            forName: .scheduleCacheDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            MainActor.assumeIsolated {
+        cacheObserverTask = Task { @MainActor [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: .scheduleCacheDidChange) {
+                guard let self else { return }
                 // 设置中心修改课表显示项后，ViewModel 从磁盘重新载入缓存，页面与设置页共享同一份持久化状态。
                 self.reloadFromDisk()
             }
@@ -224,9 +220,7 @@ final class ScheduleViewModel: ObservableObject {
     }
 
     deinit {
-        if let cacheObserver {
-            NotificationCenter.default.removeObserver(cacheObserver)
-        }
+        cacheObserverTask?.cancel()
     }
 
     /// 切换账号后重置页面内存态，并从新账号的隔离缓存重新开始加载。

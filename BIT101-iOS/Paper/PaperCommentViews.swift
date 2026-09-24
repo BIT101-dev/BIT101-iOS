@@ -12,7 +12,7 @@ struct PaperCommentsSection: View {
     let isLoadingMore: Bool
     let selectedOrder: GalleryCommentOrder
     let likingCommentIDs: Set<Int>
-    let onSelectOrder: (GalleryCommentOrder) -> Void
+    let onSelectOrder: @MainActor (GalleryCommentOrder) -> Void
     let onReply: (PaperCommentReplyTarget) -> Void
     let onLikeComment: (GalleryComment) -> Void
     let onLoadMore: (GalleryComment?) -> Void

@@ -5,7 +5,7 @@
 //  Split from SettingsRootView.swift.
 //
 
-import PhotosUI
+@preconcurrency import PhotosUI
 import SwiftUI
 
 struct AccountSettingsPage: View {
@@ -23,6 +23,7 @@ struct AccountSettingsPage: View {
     @State private var isShowingStudentID = false
     @State private var isShowingUID = false
     @State private var selectedPhoto: PhotosPickerItem?
+    @State private var isShowingPhotoPicker = false
     @State private var alert: AppAlert?
 
     private let service = SettingsNetworkService()
@@ -34,7 +35,9 @@ struct AccountSettingsPage: View {
                     HStack(spacing: AppDesignSystem.Spacing.regular) {
                         Text("头像")
                         Spacer()
-                        PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                        Button {
+                            isShowingPhotoPicker = true
+                        } label: {
                             AppAvatarView(
                                 imageURL: URL(string: profile.user.avatar.url),
                                 size: AppDesignSystem.Size.Avatar.standard,
@@ -44,6 +47,11 @@ struct AccountSettingsPage: View {
                         .accessibilityLabel("头像")
                         .accessibilityHint("选择新头像")
                         .disabled(isUpdating)
+                        .photosPicker(
+                            isPresented: $isShowingPhotoPicker,
+                            selection: $selectedPhoto,
+                            matching: .images
+                        )
                     }
 
                     Button {

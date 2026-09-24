@@ -44,7 +44,7 @@ final class ScheduleClassroomCoordinator {
     }
 
     func withTimeout<T>(
-        operation: @escaping @Sendable () async throws -> T
+        operation: @escaping @MainActor @Sendable () async throws -> T
     ) async throws -> T where T: Sendable {
         try Task.checkCancellation()
 
@@ -67,8 +67,8 @@ final class ScheduleClassroomCoordinator {
     }
 
     func withAuthenticationThenTimeout<T>(
-        authentication: () async throws -> Void,
-        operation: @escaping @Sendable () async throws -> T
+        authentication: @escaping @MainActor @Sendable () async throws -> Void,
+        operation: @escaping @MainActor @Sendable () async throws -> T
     ) async throws -> T where T: Sendable {
         try Task.checkCancellation()
         try await authentication()

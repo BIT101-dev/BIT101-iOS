@@ -387,10 +387,10 @@ extension ScheduleViewModel {
 
     /// 给单个空教室网络请求设置等待上限，限制学校接口的等待时长。
     private func withClassroomRequestTimeout<T: Sendable>(
-        operation: @escaping @Sendable () async throws -> T
+        operation: @escaping @MainActor @Sendable () async throws -> T
     ) async throws -> T {
         try await classroomCoordinator.withAuthenticationThenTimeout(
-            authentication: { [service] in
+            authentication: { @MainActor [service] in
                 try await service.prepareTeachingCenterAccess()
             },
             operation: operation

@@ -189,18 +189,22 @@ final class CourseDetailViewModel: ObservableObject {
         }
         resetCommentStateForRefresh()
 
-        async let courseResult = loadResult { [self] in
-            try await self.service.fetchCourse(id: self.initialCourse.id)
+        let courseTask = Task { @MainActor [self] in
+            await loadResult {
+                try await self.service.fetchCourse(id: self.initialCourse.id)
+            }
         }
-        async let commentResult = loadResult { [self] in
-            try await self.service.fetchComments(courseID: self.initialCourse.id, page: nil)
+        let commentTask = Task { @MainActor [self] in
+            await loadResult {
+                try await self.service.fetchComments(courseID: self.initialCourse.id, page: nil)
+            }
         }
 
-        let resolvedCourseResult = await courseResult
+        let resolvedCourseResult = await courseTask.value
         guard refreshGeneration == generation else { return }
         handleCourseResult(resolvedCourseResult, previousStatus: previousStatus)
 
-        let resolvedCommentResult = await commentResult
+        let resolvedCommentResult = await commentTask.value
         guard refreshGeneration == generation else { return }
         handleCommentRefreshResult(resolvedCommentResult, previousState: previousCommentState)
     }

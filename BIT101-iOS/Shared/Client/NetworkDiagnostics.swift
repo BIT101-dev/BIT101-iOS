@@ -7,7 +7,8 @@ struct NetworkConnectionSnapshot: Equatable, Sendable {
     let virtualNetworkLikely: Bool
 }
 
-protocol NetworkPathProviding: AnyObject, Sendable {
+@MainActor
+protocol NetworkPathProviding: AnyObject {
     var snapshot: NetworkConnectionSnapshot { get }
 }
 
@@ -120,10 +121,10 @@ final class NetworkMagicWarningCenter {
     }
 }
 
-nonisolated final class NetworkConnectionDescription: NetworkPathProviding, @unchecked Sendable {
+@MainActor
+final class NetworkConnectionDescription: NetworkPathProviding {
     static let shared = NetworkConnectionDescription()
     private let monitor = NWPathMonitor()
-    private let lock = NSLock()
     private var value = "检测中"
     private var virtualNetworkLikely = false
 
@@ -141,34 +142,30 @@ nonisolated final class NetworkConnectionDescription: NetworkPathProviding, @unc
             } else {
                 description = "已连接 · " + interfaces.joined(separator: " + ")
             }
-            self?.lock.lock()
-            self?.value = description
-            self?.virtualNetworkLikely = path.usesInterfaceType(.other)
-            self?.lock.unlock()
+            Task { @MainActor [weak self] in
+                self?.value = description
+                self?.virtualNetworkLikely = path.usesInterfaceType(.other)
+            }
         }
         monitor.start(queue: DispatchQueue(label: "dev.aihelpme.bit101.network-report"))
     }
 
-    nonisolated var current: String {
+    var current: String {
         snapshot.summary
     }
 
-    nonisolated var snapshot: NetworkConnectionSnapshot {
-        let cached: NetworkConnectionSnapshot
-        lock.lock()
-        cached = makeSnapshotLocked()
-        lock.unlock()
-
+    var snapshot: NetworkConnectionSnapshot {
+        let cached = makeSnapshot()
         let livePath = monitor.currentPath
         guard livePath.status != .requiresConnection else { return cached }
         return Self.snapshot(for: livePath)
     }
 
-    private func makeSnapshotLocked() -> NetworkConnectionSnapshot {
+    private func makeSnapshot() -> NetworkConnectionSnapshot {
         NetworkConnectionSnapshot(summary: value, virtualNetworkLikely: virtualNetworkLikely)
     }
 
-    private static func snapshot(for path: NWPath) -> NetworkConnectionSnapshot {
+    private nonisolated static func snapshot(for path: NWPath) -> NetworkConnectionSnapshot {
         var seenInterfaces = Set<String>()
         let interfaces = path.availableInterfaces
             .map(label(for:))
@@ -187,7 +184,7 @@ nonisolated final class NetworkConnectionDescription: NetworkPathProviding, @unc
         )
     }
 
-    private static func label(for interface: NWInterface) -> String {
+    private nonisolated static func label(for interface: NWInterface) -> String {
         switch interface.type {
         case .wifi: return "Wi‑Fi"
         case .cellular: return "蜂窝网络"

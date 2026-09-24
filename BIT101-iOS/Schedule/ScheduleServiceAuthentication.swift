@@ -249,7 +249,7 @@ extension ScheduleService {
         return BITLoginChallengeSupport.challenge(from: payload, accessToken: accessToken)
     }
 
-    private func decodeBITLoginChallengePayload(_ data: Data) throws -> BITLoginChallengePayload {
+    private nonisolated func decodeBITLoginChallengePayload(_ data: Data) throws -> BITLoginChallengePayload {
         do {
             return try BITLoginChallengeSupport.decodePayload(from: data)
         } catch {

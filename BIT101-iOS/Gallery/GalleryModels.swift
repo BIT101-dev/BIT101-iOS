@@ -495,7 +495,7 @@ enum GalleryMessageType: String, CaseIterable, Identifiable, Hashable {
 /// 消息发送者头像。
 ///
 /// 消息接口里的 `from_user` 可能为空对象，字段按可选值解码并使用空字符串默认值。
-struct GalleryMessageAvatar: Decodable, Hashable {
+nonisolated struct GalleryMessageAvatar: Decodable, Hashable {
     let url: String
     let lowUrl: String
 
@@ -528,7 +528,7 @@ struct GalleryMessageAvatar: Decodable, Hashable {
 /// 消息发送者。
 ///
 /// 系统消息返回空用户对象，字段提供展示默认值。
-struct GalleryMessageUser: Decodable, Hashable {
+nonisolated struct GalleryMessageUser: Decodable, Hashable {
     let id: Int
     let nickname: String
     let avatar: GalleryMessageAvatar
@@ -612,7 +612,7 @@ struct GalleryMessageUnreadCounts: Decodable, Equatable {
 /// 单条消息模型。
 ///
 /// 消息数据通过 `obj/link_obj` 字段关联目标帖子。
-struct GalleryMessage: Decodable, Identifiable, Hashable {
+nonisolated struct GalleryMessage: Decodable, Identifiable, Hashable {
     let fromUser: GalleryMessageUser
     let id: Int
     let linkObj: String
@@ -634,7 +634,7 @@ struct GalleryMessage: Decodable, Identifiable, Hashable {
 /// 单个消息分类的列表状态。
 ///
 /// 列表、分页游标和加载状态按消息类型统一存放。
-struct GalleryMessageListState {
+nonisolated struct GalleryMessageListState {
     /// 当前已经加载到客户端的消息列表。
     var items: [GalleryMessage] = []
     /// 列表当前所处的加载状态。

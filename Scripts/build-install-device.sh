@@ -93,6 +93,7 @@ echo "使用 iPhone 真机构建并安装（不执行 Archive）..."
 BUILD_ACTION=build
 if [[ "${BIT101_BUILD_FOR_TESTING:-0}" == "1" ]]; then
   BUILD_ACTION=build-for-testing
+  BUILD_OVERRIDES+=("ENABLE_TESTABILITY=YES")
 fi
 xcodebuild "$BUILD_ACTION" \
   -quiet \

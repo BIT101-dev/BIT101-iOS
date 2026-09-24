@@ -103,18 +103,18 @@ struct LoginBootstrapTests {
 
 @Suite("Shared infrastructure")
 struct InfrastructureTests {
-    private struct TestItem: Identifiable, Equatable {
+    private nonisolated struct TestItem: Identifiable, Equatable {
         let id: Int
     }
 
-    private struct TestPagedState: PagedItemsState {
+    private nonisolated struct TestPagedState: PagedItemsState {
         var items: [TestItem] = []
         var nextPage = 0
         var isLoadingMore = false
         var canLoadMore = true
     }
 
-    private struct TestCursorState: CursorPagedItemsState {
+    private nonisolated struct TestCursorState: CursorPagedItemsState {
         var items: [TestItem] = []
         var nextCursor: Int?
         var isLoadingMore = false

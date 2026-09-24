@@ -2,7 +2,7 @@ import Foundation
 import Combine
 import UIKit
 
-protocol DiagnosticAlertPresentable: Identifiable {
+nonisolated protocol DiagnosticAlertPresentable: Identifiable {
     var title: String { get }
     var message: String { get }
     var allowsDiagnostics: Bool { get }
@@ -319,4 +319,3 @@ final class ErrorReportViewModel: ObservableObject {
         }
     }
 }
-

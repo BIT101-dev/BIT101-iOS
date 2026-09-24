@@ -14,7 +14,8 @@ private final class MockHTTPTransport: HTTPTransport {
     }
 }
 
-private final class StubNetworkPathProvider: NetworkPathProviding, @unchecked Sendable {
+@MainActor
+private final class StubNetworkPathProvider: NetworkPathProviding {
     let snapshot: NetworkConnectionSnapshot
 
     init(snapshot: NetworkConnectionSnapshot) {

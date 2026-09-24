@@ -156,18 +156,22 @@ final class GalleryPosterDetailViewModel: ObservableObject {
         posterStatus = .loading
         resetCommentStateForRefresh()
 
-        async let posterResult = loadResult { [self] in
-            try await self.service.fetchPoster(id: self.posterID)
+        let posterTask = Task { @MainActor [self] in
+            await loadResult {
+                try await self.service.fetchPoster(id: self.posterID)
+            }
         }
-        async let commentResult = loadResult { [self, commentOrder] in
-            try await self.service.fetchComments(objectID: self.posterObjectID, order: commentOrder, page: nil)
+        let commentTask = Task { @MainActor [self, commentOrder] in
+            await loadResult {
+                try await self.service.fetchComments(objectID: self.posterObjectID, order: commentOrder, page: nil)
+            }
         }
 
-        let resolvedPosterResult = await posterResult
+        let resolvedPosterResult = await posterTask.value
         guard refreshGeneration == generation else { return }
         handlePosterResult(resolvedPosterResult, previousStatus: previousPosterStatus)
 
-        let resolvedCommentResult = await commentResult
+        let resolvedCommentResult = await commentTask.value
         guard refreshGeneration == generation else { return }
         handleCommentRefreshResult(resolvedCommentResult, previousState: previousCommentState)
     }

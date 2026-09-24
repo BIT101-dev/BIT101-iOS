@@ -46,11 +46,6 @@ private final class CommunitySessionRefreshCoordinator {
     }
 }
 
-/// `CommunityDecodableType` 将 `Decodable` 元类型包装为 `Sendable` 值并传入后台 `JSONDecoder` 调用；异步闭包在解码完成前持有该值。
-private struct CommunityDecodableType<Response: Decodable>: @unchecked Sendable {
-    let value: Response.Type
-}
-
 /// `CommunityAPIClient` 统一处理 BIT101 社区后端的认证、URL、HTTP 状态码和 JSON 边界。
 struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
     private let baseURL: URL
@@ -153,23 +148,13 @@ struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         try JSONEncoder().encode(body)
     }
 
-    /// `decodeResponse` 将包含大量帖子和嵌套图片的社区列表响应交给后台队列解码，MainActor 继续处理滚动帧。
-    private nonisolated static func decodeResponse<Response: Decodable>(
+    private static func decodeResponse<Response: Decodable>(
         _ type: Response.Type,
         from data: Data
     ) async throws -> Response {
-        let responseType = CommunityDecodableType(value: type)
-        return try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                do {
-                    let decoder = JSONDecoder()
-                    decoder.keyDecodingStrategy = .convertFromSnakeCase
-                    continuation.resume(returning: try decoder.decode(responseType.value, from: data))
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(type, from: data)
     }
 
     private func send(

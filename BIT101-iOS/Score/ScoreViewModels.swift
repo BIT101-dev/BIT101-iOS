@@ -46,8 +46,8 @@ final class ScoreViewModel: ObservableObject {
     private var pendingRefreshForcesDetailed = false
     /// 初始化时读取一次已持久化的筛选快照。
     private var preferenceSnapshot = ScoreFilterPreferenceStore.load()
-    private var preferenceObserver: NSObjectProtocol?
-    private var scoreCacheObserver: NSObjectProtocol?
+    private var preferenceObserverTask: Task<Void, Never>?
+    private var scoreCacheObserverTask: Task<Void, Never>?
 
     init(
         service: any ScoreListServicing
@@ -65,35 +65,23 @@ final class ScoreViewModel: ObservableObject {
         {
             sortOrder = persistedSortOrder
         }
-        preferenceObserver = NotificationCenter.default.addObserver(
-            forName: .scoreFilterPreferencesDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            MainActor.assumeIsolated {
+        preferenceObserverTask = Task { @MainActor [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: .scoreFilterPreferencesDidChange) {
+                guard let self else { return }
                 self.applyPersistedFilterPreferences()
             }
         }
-        scoreCacheObserver = NotificationCenter.default.addObserver(
-            forName: .scoreCacheDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            MainActor.assumeIsolated {
+        scoreCacheObserverTask = Task { @MainActor [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: .scoreCacheDidChange) {
+                guard let self else { return }
                 self.applySyncedScoreCacheIfAvailable()
             }
         }
     }
 
     deinit {
-        if let preferenceObserver {
-            NotificationCenter.default.removeObserver(preferenceObserver)
-        }
-        if let scoreCacheObserver {
-            NotificationCenter.default.removeObserver(scoreCacheObserver)
-        }
+        preferenceObserverTask?.cancel()
+        scoreCacheObserverTask?.cancel()
     }
 
     convenience init() {
@@ -300,15 +288,17 @@ final class ScoreViewModel: ObservableObject {
             return
         }
 
-        async let detailedRowsRequest = service.fetchScores(
-            detail: true,
-            authenticatedBy: challenge
-        )
+        let detailedRowsTask = Task { @MainActor [self] in
+            try await service.fetchScores(
+                detail: true,
+                authenticatedBy: challenge
+            )
+        }
         try await Task.sleep(for: .milliseconds(500))
 
         syncStatusText = "同步详细信息中"
         do {
-            let detailedRows = try await detailedRowsRequest
+            let detailedRows = try await detailedRowsTask.value
             let scoresAreIdentical = cachedRows.map { ScoreDetailRefreshPolicy.rowsMatch(detailedRows, $0) } ?? false
             applyRows(detailedRows)
             ScoreCacheStore.saveDetailed(rows: detailedRows)

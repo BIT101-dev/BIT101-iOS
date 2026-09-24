@@ -14,7 +14,7 @@ extension Notification.Name {
 /// 桌面/锁屏 Widget、Apple Watch App 和 Smart Stack 共用这份共享快照；
 /// Live Activity 由 ActivityKit 状态契约承载展示内容。各外部展示层复用这一层抽象，
 /// 保持容器标识和文件路径一致。
-enum ScheduleSharedContainer {
+nonisolated enum ScheduleSharedContainer {
     static let identifier = "group.BIT101-dev.BIT101-iOS.shared"
     static let directoryName = "Widgets"
     /// 主 App、Widget 与 Watch 通过 App Group 使用此快照文件名。
@@ -24,7 +24,7 @@ enum ScheduleSharedContainer {
 /// 对外部展示层暴露的精简节次模型。
 ///
 /// 该模型独立于主 App 的 `TimeSlot`，供 Watch、Widget 和 Live Activity 依赖。
-struct ScheduleExternalTimeSlotSnapshot: Codable, Hashable {
+nonisolated struct ScheduleExternalTimeSlotSnapshot: Codable, Hashable {
     let id: Int
     let start: String
     let end: String
@@ -33,7 +33,7 @@ struct ScheduleExternalTimeSlotSnapshot: Codable, Hashable {
 /// 对外部展示层暴露的精简课程模型。
 ///
 /// 共享模型包含计算当前课程与后续课程所需字段。
-struct ScheduleExternalCourseSnapshot: Codable, Hashable {
+nonisolated struct ScheduleExternalCourseSnapshot: Codable, Hashable {
     let id: String
     let name: String
     let classroom: String
@@ -49,7 +49,7 @@ struct ScheduleExternalCourseSnapshot: Codable, Hashable {
 /// 这份结构定义跨 target 的稳定边界：
 /// - 主 App 从完整缓存裁剪出可共享的最小信息
 /// - Widget 和 Watch 依赖这份快照，与主 App 状态机保持解耦
-struct ScheduleExternalSnapshot: Codable, Hashable {
+nonisolated struct ScheduleExternalSnapshot: Codable, Hashable {
     let generatedAt: Date
     let isLoggedIn: Bool
     let studentID: String
@@ -97,8 +97,8 @@ struct ScheduleExternalSnapshot: Codable, Hashable {
 ///
 /// 磁盘快照和 WatchConnectivity 采用相同的日期策略。每次调用创建独立的
 /// encoder / decoder，隔离并发消费方的可变 Foundation 编码器。
-enum ScheduleExternalSnapshotCodec {
-    static func encode(
+nonisolated enum ScheduleExternalSnapshotCodec {
+    nonisolated static func encode(
         _ snapshot: ScheduleExternalSnapshot,
         outputFormatting: JSONEncoder.OutputFormatting = []
     ) throws -> Data {
@@ -108,7 +108,7 @@ enum ScheduleExternalSnapshotCodec {
         return try encoder.encode(snapshot)
     }
 
-    static func decode(_ data: Data) throws -> ScheduleExternalSnapshot {
+    nonisolated static func decode(_ data: Data) throws -> ScheduleExternalSnapshot {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(ScheduleExternalSnapshot.self, from: data)
@@ -146,7 +146,7 @@ enum ScheduleExternalSnapshotStoreError: Error {
 ///
 /// 主 App 写入这份快照，Widget 和 Watch 读取这份快照；
 /// 各 target 复用这里的路径拼接与编解码逻辑。
-enum ScheduleExternalSnapshotStore {
+nonisolated enum ScheduleExternalSnapshotStore {
     @discardableResult
     static func save(_ snapshot: ScheduleExternalSnapshot) -> Bool {
         do {

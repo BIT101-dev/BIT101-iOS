@@ -235,6 +235,9 @@ def source_findings() -> tuple[list[str], list[str]]:
     direct_view_request = re.compile(r"\bURLRequest\s*\(")
     direct_cancellation_check = re.compile(r"\berror\s+is\s+CancellationError\b")
     empty_catch = re.compile(r"\bcatch\s*\{\s*\}")
+    unsafe_concurrency_escape = re.compile(
+        r"\bnonisolated\s*\(\s*unsafe\s*\)|@\s*unchecked\s+Sendable"
+    )
 
     large_files: list[str] = []
     for path in swift_files():
@@ -284,6 +287,7 @@ def source_findings() -> tuple[list[str], list[str]]:
         if name != relative(ROOT / "BIT101-iOS/Shared/Client/TaskCancellation.swift"):
             add_matches(errors, path, masked_source, direct_cancellation_check, "任务取消必须通过 TaskCancellation.matches 统一识别")
         add_matches(errors, path, masked_source, empty_catch, "禁止静默吞掉异常；请记录诊断或显式处理错误")
+        add_matches(errors, path, masked_source, unsafe_concurrency_escape, "禁止绕过 Swift 并发安全检查：请表达真实隔离或使用锁/Actor")
         view_ranges = view_declaration_ranges(masked_source)
         for match in direct_view_request.finditer(masked_source):
             if any(start <= match.start() < end for start, end in view_ranges):

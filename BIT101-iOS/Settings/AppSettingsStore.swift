@@ -120,27 +120,21 @@ final class AppSettingsStore: ObservableObject {
     @Published private(set) var automaticUpdateChecksEnabled = true
 
     private let defaults = UserDefaults.standard
-    private var accountObserver: NSObjectProtocol?
+    private var accountObserverTask: Task<Void, Never>?
 
     /// 初始化设置仓库，并监听账号切换。
     private init() {
         load()
-        accountObserver = NotificationCenter.default.addObserver(
-            forName: .loginStorageDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            MainActor.assumeIsolated {
+        accountObserverTask = Task { @MainActor [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: .loginStorageDidChange) {
+                guard let self else { return }
                 self.load()
             }
         }
     }
 
     deinit {
-        if let accountObserver {
-            NotificationCenter.default.removeObserver(accountObserver)
-        }
+        accountObserverTask?.cancel()
     }
 
     /// 以下计算属性为视图层提供读取入口；设置方法集中处理 snapshot 写入。
