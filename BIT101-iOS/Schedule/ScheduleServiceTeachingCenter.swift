@@ -308,7 +308,7 @@ extension ScheduleService {
 
         let parsingTask = Task.detached(priority: .utility) { () throws -> [CourseResponse.ParsedCourse] in
             try Task.checkCancellation()
-            let courses = response.parsedCourses
+            let courses = try response.parsedCoursesCancellable()
             try Task.checkCancellation()
             return courses
         }

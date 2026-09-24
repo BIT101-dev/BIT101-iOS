@@ -153,43 +153,58 @@ nonisolated extension CourseResponse {
     /// `ZCMC` 是学校为当前行返回的周次字段。`YPSJDD` 汇总了同一课程的全部安排，
     /// 作为描述文本保存，当前行周次沿用 `ZCMC`。
     var parsedCourses: [ParsedCourse] {
-        datas.cxxszhxqkb.rows.map { row in
-            let rawWeeks = (row.rawWeeks ?? "").enumerated().compactMap { index, flag in
-                flag == "1" ? index + 1 : nil
-            }
-            let displayWeeks = SmallTermWeekNormalizer.weeksDescribed(in: row.displayWeeks ?? "")
-            let weeks = displayWeeks.isEmpty ? rawWeeks : displayWeeks.sorted()
-            let scheduleIdentity = [
-                row.term ?? "",
-                row.courseNumber ?? "",
-                String(row.weekday ?? 0),
-                String(row.startSection ?? 0),
-                String(row.endSection ?? 0),
-                row.classroom ?? "",
-                weeks.map(String.init).joined(separator: ",")
-            ].joined(separator: "-")
+        datas.cxxszhxqkb.rows.map(Self.parseCourse)
+    }
 
-            let course = CourseRecord(
-                id: scheduleIdentity,
-                term: row.term ?? "",
-                name: row.name ?? "",
-                teacher: row.teacher ?? "",
-                classroom: row.classroom ?? "",
-                description: row.scheduleDescription ?? "",
-                weeks: weeks,
-                weekday: row.weekday ?? 0,
-                startSection: row.startSection ?? 0,
-                endSection: row.endSection ?? 0,
-                campus: row.campus ?? "",
-                number: row.courseNumber ?? "",
-                credit: row.credit ?? 0,
-                hour: row.hour ?? 0,
-                type: row.type ?? "",
-                category: row.category ?? "",
-                department: row.department ?? ""
-            )
-            return ParsedCourse(course: course, rawWeeks: rawWeeks)
+    func parsedCoursesCancellable() throws -> [ParsedCourse] {
+        let rows = datas.cxxszhxqkb.rows
+        var courses: [ParsedCourse] = []
+        courses.reserveCapacity(rows.count)
+        for (index, row) in rows.enumerated() {
+            if index.isMultiple(of: 64) {
+                try Task.checkCancellation()
+            }
+            courses.append(Self.parseCourse(row))
         }
+        return courses
+    }
+
+    private static func parseCourse(_ row: CourseRow) -> ParsedCourse {
+        let rawWeeks = (row.rawWeeks ?? "").enumerated().compactMap { index, flag in
+            flag == "1" ? index + 1 : nil
+        }
+        let displayWeeks = SmallTermWeekNormalizer.weeksDescribed(in: row.displayWeeks ?? "")
+        let weeks = displayWeeks.isEmpty ? rawWeeks : displayWeeks.sorted()
+        let scheduleIdentity = [
+            row.term ?? "",
+            row.courseNumber ?? "",
+            String(row.weekday ?? 0),
+            String(row.startSection ?? 0),
+            String(row.endSection ?? 0),
+            row.classroom ?? "",
+            weeks.map(String.init).joined(separator: ",")
+        ].joined(separator: "-")
+
+        let course = CourseRecord(
+            id: scheduleIdentity,
+            term: row.term ?? "",
+            name: row.name ?? "",
+            teacher: row.teacher ?? "",
+            classroom: row.classroom ?? "",
+            description: row.scheduleDescription ?? "",
+            weeks: weeks,
+            weekday: row.weekday ?? 0,
+            startSection: row.startSection ?? 0,
+            endSection: row.endSection ?? 0,
+            campus: row.campus ?? "",
+            number: row.courseNumber ?? "",
+            credit: row.credit ?? 0,
+            hour: row.hour ?? 0,
+            type: row.type ?? "",
+            category: row.category ?? "",
+            department: row.department ?? ""
+        )
+        return ParsedCourse(course: course, rawWeeks: rawWeeks)
     }
 
     var courseRecords: [CourseRecord] {

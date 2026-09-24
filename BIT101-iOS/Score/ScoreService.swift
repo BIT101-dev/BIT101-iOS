@@ -517,12 +517,14 @@ struct ScoreService {
     }
 
     nonisolated static func decodeScoreRows(_ data: Data) throws -> [ScoreRow] {
+        try Task.checkCancellation()
         let payload: ScoreResponse
         do {
             payload = try JSONDecoder().decode(ScoreResponse.self, from: data)
         } catch {
             throw ScoreServiceError.invalidResponse
         }
+        try Task.checkCancellation()
 
         guard !payload.data.isEmpty else {
             if payload.msg?.contains("查询成功") == true {
@@ -532,9 +534,15 @@ struct ScoreService {
         }
 
         let headers = payload.data[0]
-        return payload.data.dropFirst().enumerated().map { index, row in
-            ScoreRow(index: index, headers: headers, values: row)
+        var rows: [ScoreRow] = []
+        rows.reserveCapacity(payload.data.count - 1)
+        for (index, row) in payload.data.dropFirst().enumerated() {
+            if index.isMultiple(of: 64) {
+                try Task.checkCancellation()
+            }
+            rows.append(ScoreRow(index: index, headers: headers, values: row))
         }
+        return rows
     }
 
 }

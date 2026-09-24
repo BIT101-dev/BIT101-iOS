@@ -395,7 +395,7 @@ final class GalleryViewModel: ObservableObject {
     private func mergeUniqueInBackground(existing: [GalleryPoster], incoming: [GalleryPoster]) async -> [GalleryPoster] {
         let task = Task.detached(priority: .utility) {
             try Task.checkCancellation()
-            let result = Self.mergeUniqueSync(existing: existing, incoming: incoming)
+            let result = try Self.mergeUniqueSync(existing: existing, incoming: incoming)
             try Task.checkCancellation()
             return result
         }
@@ -414,7 +414,7 @@ final class GalleryViewModel: ObservableObject {
     private func deduplicateInBackground(_ posters: [GalleryPoster]) async -> [GalleryPoster] {
         let task = Task.detached(priority: .utility) {
             try Task.checkCancellation()
-            let result = Self.deduplicateSync(posters)
+            let result = try Self.deduplicateSync(posters)
             try Task.checkCancellation()
             return result
         }
@@ -429,20 +429,37 @@ final class GalleryViewModel: ObservableObject {
         }
     }
 
-    nonisolated private static func mergeUniqueSync(existing: [GalleryPoster], incoming: [GalleryPoster]) -> [GalleryPoster] {
-        var seenIDs = Set(existing.map(\.id))
+    nonisolated private static func mergeUniqueSync(
+        existing: [GalleryPoster],
+        incoming: [GalleryPoster]
+    ) throws -> [GalleryPoster] {
+        var seenIDs = Set<Int>()
+        seenIDs.reserveCapacity(existing.count + incoming.count)
         var merged = existing
+        merged.reserveCapacity(existing.count + incoming.count)
 
-        for poster in incoming where seenIDs.insert(poster.id).inserted {
-            merged.append(poster)
+        for (index, poster) in existing.enumerated() {
+            if index.isMultiple(of: 128) {
+                try Task.checkCancellation()
+            }
+            seenIDs.insert(poster.id)
+        }
+
+        for (index, poster) in incoming.enumerated() {
+            if index.isMultiple(of: 128) {
+                try Task.checkCancellation()
+            }
+            if seenIDs.insert(poster.id).inserted {
+                merged.append(poster)
+            }
         }
 
         return merged
     }
 
     /// 首屏返回的推荐结果也可能包含重复项，先做一次稳定去重。
-    nonisolated private static func deduplicateSync(_ posters: [GalleryPoster]) -> [GalleryPoster] {
-        mergeUniqueSync(existing: [], incoming: posters)
+    nonisolated private static func deduplicateSync(_ posters: [GalleryPoster]) throws -> [GalleryPoster] {
+        try mergeUniqueSync(existing: [], incoming: posters)
     }
 
 }
