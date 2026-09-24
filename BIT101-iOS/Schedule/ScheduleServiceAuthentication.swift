@@ -87,14 +87,22 @@ extension ScheduleService {
         async let firstDayTask = fetchFirstDayString(term: term)
         let (parsedCourses, exams, firstDayString) = try await (coursesTask, examsTask, firstDayTask)
         let courses = parsedCourses.map(\.course)
-        let normalized = await Task.detached(priority: .utility) {
-            SmallTermWeekNormalizer.normalize(
+        let normalizationTask = Task.detached(priority: .utility) { () throws -> SmallTermWeekNormalizer.Result in
+            try Task.checkCancellation()
+            let result = SmallTermWeekNormalizer.normalize(
                 term: term,
                 firstDayString: firstDayString,
                 courses: courses,
                 rawWeeksByCourse: parsedCourses.map(\.rawWeeks)
             )
-        }.value
+            try Task.checkCancellation()
+            return result
+        }
+        let normalized = try await withTaskCancellationHandler {
+            try await normalizationTask.value
+        } onCancel: {
+            normalizationTask.cancel()
+        }
         return CourseSyncPayload(
             term: term,
             firstDayString: normalized.firstDayString,

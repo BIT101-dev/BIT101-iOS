@@ -306,9 +306,17 @@ extension ScheduleService {
             throw ScheduleServiceError.invalidResponse
         }
 
-        return await Task.detached(priority: .utility) {
-            response.parsedCourses
-        }.value
+        let parsingTask = Task.detached(priority: .utility) { () throws -> [CourseResponse.ParsedCourse] in
+            try Task.checkCancellation()
+            let courses = response.parsedCourses
+            try Task.checkCancellation()
+            return courses
+        }
+        return try await withTaskCancellationHandler {
+            try await parsingTask.value
+        } onCancel: {
+            parsingTask.cancel()
+        }
     }
 
     /// 拉取指定目标学期的考试安排。
@@ -319,8 +327,13 @@ extension ScheduleService {
             body: [("XNXQDM", term), ("*order", "-KSRQ")]
         )
 
-        return await Task.detached(priority: .utility) {
-            response.datas.cxxsksap.rows.map { row in
+        let mappingTask = Task.detached(priority: .utility) { () throws -> [ExamRecord] in
+            var exams: [ExamRecord] = []
+            exams.reserveCapacity(response.datas.cxxsksap.rows.count)
+            for (index, row) in response.datas.cxxsksap.rows.enumerated() {
+                if index.isMultiple(of: 64) {
+                    try Task.checkCancellation()
+                }
                 let rawCourseName = row.courseName ?? ""
                 let name = rawCourseName
                     .split(separator: "]")
@@ -333,7 +346,7 @@ extension ScheduleService {
                 let beginTime = times.first ?? ""
                 let endTime = times.dropFirst().first ?? ""
 
-                return ExamRecord(
+                exams.append(ExamRecord(
                     id: "\(row.termCode ?? "")-\(row.courseID ?? "")-\(row.dateString ?? "")-\(row.timeDescription)",
                     term: row.termCode ?? "",
                     name: name,
@@ -345,9 +358,16 @@ extension ScheduleService {
                     endTime: endTime,
                     examMode: row.examMode ?? "",
                     seatID: row.seatID ?? ""
-                )
+                ))
             }
-        }.value
+            try Task.checkCancellation()
+            return exams
+        }
+        return try await withTaskCancellationHandler {
+            try await mappingTask.value
+        } onCancel: {
+            mappingTask.cancel()
+        }
     }
 
     /// 获取指定目标学期的第一周起始日期。
