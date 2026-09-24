@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT="$ROOT_DIR/BIT101-iOS.xcodeproj"
-DERIVED_ROOT="${TMPDIR:-/tmp}/BIT101ICloudCrossDeviceSmoke"
+DERIVED_ROOT="$ROOT_DIR/.build/icloud-cross-device-smoke"
 CONDITIONS="DEBUG ICLOUD_CROSS_DEVICE_SMOKE"
 TEST_CLASS="BIT101-iOSTests/ICloudCrossDeviceSmokeTests"
 
@@ -33,7 +33,7 @@ common_args=(
 
 run_phone_test() {
   local method="$1"
-  local log="$DERIVED_ROOT/phone-$method.log"
+  local log="$DERIVED_ROOT/$method.log"
   if ! xcodebuild test "${common_args[@]}" \
       -destination "platform=iOS,id=$DEVICE_ID" \
       -derivedDataPath "$DERIVED_ROOT/Phone" \
@@ -54,7 +54,7 @@ echo "[1/3] 真机上传设置与成绩缓存"
 run_phone_test testPhoneUpload
 
 echo "[2/3] Mac Catalyst 接收手机数据并写回原设置"
-MAC_LOG="$DERIVED_ROOT/mac-testMacReceiveAndRestore.log"
+MAC_LOG="$DERIVED_ROOT/mac-receive.log"
 if ! xcodebuild test "${common_args[@]}" \
     -destination 'platform=macOS,variant=Mac Catalyst' \
     -derivedDataPath "$DERIVED_ROOT/Mac" \

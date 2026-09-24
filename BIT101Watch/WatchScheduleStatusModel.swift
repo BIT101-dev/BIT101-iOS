@@ -28,8 +28,10 @@ struct WatchScheduleStatusDependencies {
     var now: () -> Date
     var loadResolvedSnapshot: (Date, Int) -> ScheduleExternalResolvedSnapshot
     var clearSnapshot: () -> Void
-    var activateSync: () -> Void
-    var requestLatestSnapshot: (@escaping (Result<Void, WatchScheduleSyncError>) -> Void) -> Void
+    var activateSync: @MainActor () -> Void
+    var requestLatestSnapshot: @MainActor (
+        @escaping (Result<Void, WatchScheduleSyncError>) -> Void
+    ) -> Void
 
     static let live = WatchScheduleStatusDependencies(
         now: Date.init,

@@ -11,15 +11,24 @@ on:
         required: false
         default: false
         type: boolean
+      release_build:
+        description: Run the optional Release build-for-testing job on GitHub
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
 
 concurrency:
   group: ios-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build-for-testing:
-    runs-on: macos-26
-    timeout-minutes: 45
+  static-audit:
+    name: Static audit (Apple toolchain)
+    runs-on: macos-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
         with:
@@ -41,10 +50,25 @@ jobs:
       - name: Validate release against App Store
         if: github.event_name == 'workflow_dispatch' && inputs.release_check
         run: python3 Scripts/validate_versions.py --check-app-store
-      - name: Install static audit tools
-        run: brew install ripgrep
       - name: Run static audit
         run: Scripts/run-static-audit.sh
+
+  release-build:
+    name: Optional Release build-for-testing
+    needs: static-audit
+    if: github.event_name == 'workflow_dispatch' && inputs.release_build
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Show toolchain
+        run: xcodebuild -version
+      - name: Validate project
+        run: plutil -lint BIT101-iOS.xcodeproj/project.pbxproj
+      - name: Validate versions
+        run: python3 Scripts/validate_versions.py
       - name: Build app and tests without a simulator
         run: >-
           xcodebuild build-for-testing

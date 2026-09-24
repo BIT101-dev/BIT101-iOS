@@ -31,6 +31,9 @@ done
 if [[ "${BIT101_INSTALL_TARGET:-iPhone}" == "macCatalyst" ]]; then
   mkdir -p "$DERIVED_DATA"
   BUILD_OVERRIDES=()
+  if [[ -n "${BIT101_SWIFT_VERSION:-}" ]]; then
+    BUILD_OVERRIDES+=("SWIFT_VERSION=$BIT101_SWIFT_VERSION")
+  fi
   if [[ -n "${BIT101_MARKETING_VERSION:-}" ]]; then
     BUILD_OVERRIDES+=("MARKETING_VERSION=$BIT101_MARKETING_VERSION")
   fi
@@ -77,6 +80,9 @@ fi
 
 mkdir -p "$DERIVED_DATA"
 BUILD_OVERRIDES=()
+if [[ -n "${BIT101_SWIFT_VERSION:-}" ]]; then
+  BUILD_OVERRIDES+=("SWIFT_VERSION=$BIT101_SWIFT_VERSION")
+fi
 if [[ -n "${BIT101_MARKETING_VERSION:-}" ]]; then
   BUILD_OVERRIDES+=("MARKETING_VERSION=$BIT101_MARKETING_VERSION")
 fi
@@ -84,7 +90,11 @@ if [[ -n "${BIT101_BUILD_NUMBER:-}" ]]; then
   BUILD_OVERRIDES+=("CURRENT_PROJECT_VERSION=$BIT101_BUILD_NUMBER")
 fi
 echo "使用 iPhone 真机构建并安装（不执行 Archive）..."
-xcodebuild build \
+BUILD_ACTION=build
+if [[ "${BIT101_BUILD_FOR_TESTING:-0}" == "1" ]]; then
+  BUILD_ACTION=build-for-testing
+fi
+xcodebuild "$BUILD_ACTION" \
   -quiet \
   -project "$PROJECT" \
   -scheme BIT101-iOS \

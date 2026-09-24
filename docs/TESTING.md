@@ -159,7 +159,9 @@ BIT101_NETWORK_SMOKE_SCOPE=ddl Scripts/release-network-smoke.sh
 
 CI 和其它自动化沿用同一模拟器排除要求。无真机 destination 的环境执行范围限于静态检查，静态检查保持无模拟器依赖；真机构建、测试、Widget 时间线和 Live Activity 时序按 `MODULE_PLAYBOOK.md` 人工验证。
 
-CI 先运行 `Scripts/run-static-audit.sh`，再以 Release 配置执行 `build-for-testing`；Swift 和 Clang 警告均按错误处理，CI 保持无模拟器依赖。版本门禁由 `Scripts/validate_versions.py` 提供，检查所有 Target/Configuration 的公开版本与 Build 是否一致、格式是否合法，以及相对 PR 基准是否倒退。在 GitHub Actions 手动运行 `iOS CI` 并打开 `release_check`，流程还会确认准备发布的公开版本高于 App Store 当前版本。
+GitHub Actions 日常 Job 命名为 `Static audit (Apple toolchain)`，使用 macOS runner 提供 `xcrun` 和 `swift-frontend`，仅执行静态审计、版本门禁和项目配置检查。手动运行 `iOS CI` 并打开 `release_build` 后，工作流在静态审计通过后执行可选的 Release `build-for-testing`；该构建保持无模拟器 destination，Swift 和 Clang 警告均按错误处理。`release_check` 仍用于确认准备发布的公开版本高于 App Store 当前版本。
+
+本机继续负责 Release 真机构建、真机测试、网络 Smoke、iCloud Smoke、Widget 和 Watch 验证。GitHub Actions 不承载真机测试。
 
 ## iCloud 跨设备双向 Smoke
 

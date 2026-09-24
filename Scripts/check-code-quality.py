@@ -55,67 +55,166 @@ def line_number(source: str, position: int) -> int:
     return source.count("\n", 0, position) + 1
 
 
-def mask_literals_and_comments(source: str) -> str:
-    """保留换行，忽略字符串与注释，避免把正则或文案里的 `!` 当成代码。"""
-    output: list[str] = []
+def _blank_segment(output: list[str], source: str, start: int, end: int) -> None:
+    for index in range(start, min(end, len(source))):
+        if source[index] != "\n":
+            output[index] = " "
+
+
+def mask_comments(source: str) -> str:
+    """移除注释并保留字符串，供需要识别 Swift 文案字面量的规则使用。"""
+    output = list(source)
     index = 0
-    state = "code"
+    depth = 0
     while index < len(source):
-        if state == "code":
-            if source.startswith("//", index):
-                state = "line_comment"
-                output.extend("  ")
+        if depth:
+            if source.startswith("/*", index):
+                depth += 1
+                _blank_segment(output, source, index, index + 2)
                 index += 2
-            elif source.startswith("/*", index):
-                state = "block_comment"
-                output.extend("  ")
-                index += 2
-            elif source.startswith('"""', index):
-                state = "multiline_string"
-                output.extend("   ")
-                index += 3
-            elif source[index] == '"':
-                state = "string"
-                output.append(" ")
-                index += 1
-            else:
-                output.append(source[index])
-                index += 1
-        elif state == "line_comment":
-            if source[index] == "\n":
-                state = "code"
-                output.append("\n")
-            else:
-                output.append(" ")
-            index += 1
-        elif state == "block_comment":
-            if source.startswith("*/", index):
-                state = "code"
-                output.extend("  ")
+            elif source.startswith("*/", index):
+                depth -= 1
+                _blank_segment(output, source, index, index + 2)
                 index += 2
             else:
-                output.append("\n" if source[index] == "\n" else " ")
+                _blank_segment(output, source, index, index + 1)
                 index += 1
-        elif state == "multiline_string":
-            if source.startswith('"""', index):
-                state = "code"
-                output.extend("   ")
-                index += 3
-            else:
-                output.append("\n" if source[index] == "\n" else " ")
-                index += 1
+        elif source.startswith("//", index):
+            end = source.find("\n", index)
+            end = len(source) if end < 0 else end
+            _blank_segment(output, source, index, end)
+            index = end
+        elif source.startswith("/*", index):
+            depth = 1
+            _blank_segment(output, source, index, index + 2)
+            index += 2
         else:
-            if source[index] == "\\":
-                output.extend("  ")
-                index += 2
-            elif source[index] == '"':
-                state = "code"
-                output.append(" ")
-                index += 1
-            else:
-                output.append("\n" if source[index] == "\n" else " ")
-                index += 1
+            index += 1
     return "".join(output)
+
+
+def mask_literals_and_comments(source: str) -> str:
+    """保留换行，忽略字符串与注释，避免文案和注释伪造源码契约。"""
+    output = list(source)
+    index = 0
+    comment_depth = 0
+    while index < len(source):
+        if comment_depth:
+            if source.startswith("/*", index):
+                comment_depth += 1
+                _blank_segment(output, source, index, index + 2)
+                index += 2
+            elif source.startswith("*/", index):
+                comment_depth -= 1
+                _blank_segment(output, source, index, index + 2)
+                index += 2
+            else:
+                _blank_segment(output, source, index, index + 1)
+                index += 1
+            continue
+
+        if source.startswith("//", index):
+            end = source.find("\n", index)
+            end = len(source) if end < 0 else end
+            _blank_segment(output, source, index, end)
+            index = end
+            continue
+        if source.startswith("/*", index):
+            comment_depth = 1
+            _blank_segment(output, source, index, index + 2)
+            index += 2
+            continue
+
+        raw_match = re.match(r"(#+)(\"{1,3})", source[index:])
+        if raw_match:
+            hashes, quote = raw_match.groups()
+            terminator = quote + hashes
+            content_start = index + len(hashes) + len(quote)
+            end = source.find(terminator, content_start)
+            end = len(source) if end < 0 else end + len(terminator)
+            _blank_segment(output, source, index, end)
+            index = end
+            continue
+
+        if source.startswith('"""', index):
+            end = source.find('"""', index + 3)
+            end = len(source) if end < 0 else end + 3
+            _blank_segment(output, source, index, end)
+            index = end
+            continue
+
+        if source[index] == '"':
+            index += 1
+            while index < len(source):
+                if source[index] == "\\":
+                    _blank_segment(output, source, index, index + 2)
+                    index += 2
+                elif source[index] == '"':
+                    index += 1
+                    break
+                else:
+                    _blank_segment(output, source, index, index + 1)
+                    index += 1
+            continue
+
+        index += 1
+    return "".join(output)
+
+
+def declaration_block(code: str, type_name: str) -> str:
+    """返回类型或 extension 的源码块，避免用文件名和全文件关键词推断契约。"""
+    declaration = re.compile(
+        rf"\b(?:struct|class|enum|actor|extension)\s+{re.escape(type_name)}\b[^{{]*{{"
+    ).search(code)
+    if declaration is None:
+        return ""
+    opening = code.find("{", declaration.start(), declaration.end())
+    depth = 0
+    for index in range(opening, len(code)):
+        if code[index] == "{":
+            depth += 1
+        elif code[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return code[declaration.start() : index + 1]
+    return code[declaration.start() :]
+
+
+def has_identifier(code: str, identifier: str) -> bool:
+    return re.search(rf"(?<![A-Za-z0-9_$]){re.escape(identifier)}(?![A-Za-z0-9_$])", code) is not None
+
+
+def has_call(code: str, identifier: str) -> bool:
+    return re.search(rf"(?<![A-Za-z0-9_$]){re.escape(identifier)}\s*\(", code) is not None
+
+
+def is_view_source(path: Path, code: str) -> bool:
+    if path.name.endswith(("View.swift", "Views.swift", "Screen.swift", "Screens.swift")):
+        return True
+    return re.search(
+        r"\b(?:struct|class|enum)\s+[A-Za-z_][A-Za-z0-9_]*\s*:[^{\n]*\bView\b",
+        code,
+    ) is not None
+
+
+def view_declaration_ranges(code: str) -> list[tuple[int, int]]:
+    """返回真实 View 声明的范围，避免把同文件的缓存/Loader 当成 View。"""
+    ranges: list[tuple[int, int]] = []
+    declaration = re.compile(
+        r"\b(?:struct|class|enum)\s+[A-Za-z_][A-Za-z0-9_]*\s*:[^{\n]*\bView\b[^{{]*{{"
+    )
+    for match in declaration.finditer(code):
+        opening = code.find("{", match.start(), match.end())
+        depth = 0
+        for index in range(opening, len(code)):
+            if code[index] == "{":
+                depth += 1
+            elif code[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    ranges.append((match.start(), index + 1))
+                    break
+    return ranges
 
 
 def add_matches(
@@ -145,17 +244,17 @@ def source_findings() -> tuple[list[str], list[str]]:
 
         if path.is_relative_to(ROOT / "BIT101-iOS"):
             if name.removeprefix("BIT101-iOS/") not in STDOUT_EXCEPTIONS:
-                for match in DIRECT_STDOUT_LOG.finditer(source):
+                for match in DIRECT_STDOUT_LOG.finditer(masked_source):
                     finding_line = source.count("\n", 0, match.start()) + 1
                     errors.append(f"{name}:{finding_line}: 调试输出统一由网络 smoke 维护")
 
             if name not in URLSESSION_EXCEPTIONS:
-                for match in DIRECT_SHARED_URLSESSION.finditer(source):
+                for match in DIRECT_SHARED_URLSESSION.finditer(masked_source):
                     finding_line = source.count("\n", 0, match.start()) + 1
                     errors.append(f"{name}:{finding_line}: 网络请求统一通过 HTTPClient 或场景化 Service")
 
-            if name.removeprefix("BIT101-iOS/").split("/", 1)[0] in {"Course", "Gallery", "Paper"} and "View" in path.stem:
-                for match in DIRECT_DATE_FORMATTER.finditer(source):
+            if name.removeprefix("BIT101-iOS/").split("/", 1)[0] in {"Course", "Gallery", "Paper"} and is_view_source(path, masked_source):
+                for match in DIRECT_DATE_FORMATTER.finditer(masked_source):
                     finding_line = source.count("\n", 0, match.start()) + 1
                     errors.append(
                         f"{name}:{finding_line}: 社区日期解析统一使用 AppDateText"
@@ -185,8 +284,13 @@ def source_findings() -> tuple[list[str], list[str]]:
         if name != relative(ROOT / "BIT101-iOS/Shared/Client/TaskCancellation.swift"):
             add_matches(errors, path, masked_source, direct_cancellation_check, "任务取消必须通过 TaskCancellation.matches 统一识别")
         add_matches(errors, path, masked_source, empty_catch, "禁止静默吞掉异常；请记录诊断或显式处理错误")
-        if path.name.endswith("View.swift") or path.name.endswith("Screen.swift"):
-            add_matches(errors, path, masked_source, direct_view_request, "View 不应直接构造 URLRequest；请求移到 Service")
+        view_ranges = view_declaration_ranges(masked_source)
+        for match in direct_view_request.finditer(masked_source):
+            if any(start <= match.start() < end for start, end in view_ranges):
+                errors.append(
+                    f"{name}:{line_number(source, match.start())}: "
+                    "View 不应直接构造 URLRequest；请求移到 Service"
+                )
 
         force_count = len(force_unwrap.findall(masked_source))
         if force_count:
@@ -222,8 +326,16 @@ def script_findings() -> list[str]:
 def documentation_findings() -> list[str]:
     errors: list[str] = []
     markdown_link = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
-    docs_root = ROOT / "docs"
-    for path in sorted(docs_root.rglob("*.md")):
+    markdown_files = [
+        path
+        for path in ROOT.rglob("*.md")
+        if ".git" not in path.parts
+        and ".build" not in path.parts
+        and "build" not in path.parts
+        and "node_modules" not in path.parts
+        and "Fixtures" not in path.parts
+    ]
+    for path in sorted(markdown_files):
         for target in markdown_link.findall(path.read_text(encoding="utf-8")):
             if target.startswith(("http://", "https://", "mailto:", "#")):
                 continue
@@ -236,7 +348,7 @@ def documentation_findings() -> list[str]:
 def automatic_school_fetch_findings() -> list[str]:
     """保证启动、回前台和账号切换不会重新引入学校/WebVPN 自动请求。"""
     errors: list[str] = []
-    forbidden_terms = (
+    forbidden_identifiers = (
         "SchoolDataRefreshCoordinator",
         "refreshOnEntry",
         "ScheduleAutoRefreshPreferences",
@@ -245,36 +357,64 @@ def automatic_school_fetch_findings() -> list[str]:
         "prepareClassroomIfNeeded",
         "refreshClassroomMetaInBackgroundIfNeeded",
         "claimAutomaticPreparation",
-        "schedule.auto-refresh",
-        "silent-refresh",
     )
+    forbidden_literals = ("schedule.auto-refresh", "silent-refresh")
     for path in swift_files():
         source = path.read_text(encoding="utf-8")
-        for term in forbidden_terms:
-            if term in source:
+        code = mask_literals_and_comments(source)
+        literals = mask_comments(source)
+        for term in forbidden_identifiers:
+            if has_identifier(code, term):
+                errors.append(f"{relative(path)}: 不得重新引入学校/WebVPN 自动请求：{term}")
+        for term in forbidden_literals:
+            if term in literals:
                 errors.append(f"{relative(path)}: 不得重新引入学校/WebVPN 自动请求：{term}")
 
     app_source = (ROOT / "BIT101-iOS/BIT101_iOSApp.swift").read_text(encoding="utf-8")
-    if "refreshFromCloudIfNeeded" in app_source:
+    app_code = mask_literals_and_comments(app_source)
+    if has_call(app_code, "refreshFromCloudIfNeeded"):
         errors.append("BIT101-iOS/BIT101_iOSApp.swift: 启动生命周期不得自动拉取 iCloud 数据")
 
     schedule_source = (ROOT / "BIT101-iOS/Schedule/ScheduleViewModel.swift").read_text(encoding="utf-8")
-    if "ScheduleCloudSyncManager.shared.refreshFromCloudIfNeeded" in schedule_source:
+    schedule_code = mask_literals_and_comments(schedule_source)
+    if re.search(r"\bScheduleCloudSyncManager\.shared\.refreshFromCloudIfNeeded\s*\(", schedule_code):
         errors.append("BIT101-iOS/Schedule/ScheduleViewModel.swift: 日程页面本地恢复不得自动拉取 iCloud")
 
     score_source = (ROOT / "BIT101-iOS/Score/ScoreRootView.swift").read_text(encoding="utf-8")
-    if "await viewModel.bootstrapIfNeeded" in score_source:
+    score_code = mask_literals_and_comments(score_source)
+    if re.search(r"\bawait\s+viewModel\.bootstrapIfNeeded\s*\(", score_code):
         errors.append("BIT101-iOS/Score/ScoreRootView.swift: 成绩页不得自动触发学校查询")
-    required_manual_markers = {
-        "BIT101-iOS/Score/ScoreRootView.swift": "restoreCachedDataIfNeeded",
-        "BIT101-iOS/Schedule/FreeClassroomViews.swift": "刷新空教室",
-        "BIT101-iOS/Schedule/ScheduleRootView.swift": "startClassroomPageRefresh",
-        "BIT101-iOS/Schedule/ScheduleViewModel+Classroom.swift": "waitForClassroomAuthentication",
-        "BIT101-iOS/Schedule/ScheduleViewModel+CourseSync.swift": ".classroomRefresh",
+    required_manual_contracts = {
+        "BIT101-iOS/Score/ScoreRootView.swift": (
+            lambda source, code: has_call(code, "restoreCachedDataIfNeeded"),
+            "restoreCachedDataIfNeeded",
+        ),
+        "BIT101-iOS/Schedule/FreeClassroomViews.swift": (
+            lambda source, code: re.search(
+                r"\bactionTitle\s*:\s*[^\n]*\"刷新空教室\"", mask_comments(source)
+            )
+            is not None,
+            "刷新空教室",
+        ),
+        "BIT101-iOS/Schedule/ScheduleRootView.swift": (
+            lambda source, code: has_call(code, "startClassroomPageRefresh"),
+            "startClassroomPageRefresh",
+        ),
+        "BIT101-iOS/Schedule/ScheduleViewModel+Classroom.swift": (
+            lambda source, code: has_call(code, "waitForClassroomAuthentication"),
+            "waitForClassroomAuthentication",
+        ),
+        "BIT101-iOS/Schedule/ScheduleViewModel+CourseSync.swift": (
+            lambda source, code: ".classroomRefresh" in code,
+            ".classroomRefresh",
+        ),
     }
-    for file_name, marker in required_manual_markers.items():
+    for file_name, (predicate, marker) in required_manual_contracts.items():
         path = ROOT / file_name
-        if path.is_file() and marker not in path.read_text(encoding="utf-8"):
+        if path.is_file():
+            source = path.read_text(encoding="utf-8")
+            if predicate(source, mask_literals_and_comments(source)):
+                continue
             errors.append(f"{file_name}: 缺少显式学校请求/验证码入口：{marker}")
     return errors
 
@@ -282,57 +422,73 @@ def automatic_school_fetch_findings() -> list[str]:
 def architectural_contract_findings() -> list[str]:
     """检查已确认的模块关系，防止同一概念在新文件中重新分叉。"""
     errors: list[str] = []
+    sources = {
+        path: mask_literals_and_comments(path.read_text(encoding="utf-8"))
+        for path in swift_files()
+    }
 
     required_conformances = {
-        "BIT101-iOS/Course/CourseModels.swift": (
-            "extension CoursePagedState: PagedItemsState {}",
-        ),
-        "BIT101-iOS/Gallery/GalleryModels.swift": (
-            "extension GalleryFeedState: PagedItemsState",
-            "extension GalleryMessageListState: CursorPagedItemsState {}",
-        ),
-        "BIT101-iOS/Gallery/GalleryPosterDetailViewModel.swift": (
-            "extension GalleryCommentState: PagedItemsState {}",
-        ),
-        "BIT101-iOS/Mine/MineModels.swift": (
-            "extension MinePagedState: PagedItemsState {}",
-        ),
-        "BIT101-iOS/Paper/PaperModels.swift": (
-            "extension PaperListState: PagedItemsState {}",
-        ),
+        "CoursePagedState": "PagedItemsState",
+        "GalleryFeedState": "PagedItemsState",
+        "GalleryMessageListState": "CursorPagedItemsState",
+        "GalleryCommentState": "PagedItemsState",
+        "MinePagedState": "PagedItemsState",
+        "PaperListState": "PagedItemsState",
     }
-    for file_name, markers in required_conformances.items():
-        path = ROOT / file_name
-        source = path.read_text(encoding="utf-8") if path.is_file() else ""
-        for marker in markers:
-            if marker not in source:
-                errors.append(f"{file_name}: 缺少已统一的分页结构约束：{marker}")
+    for type_name, protocol_name in required_conformances.items():
+        pattern = re.compile(
+            rf"\bextension\s+{re.escape(type_name)}\s*:\s*[^{{\n]*\b{re.escape(protocol_name)}\b"
+        )
+        if not any(pattern.search(source) for source in sources.values()):
+            errors.append(
+                f"{type_name}: 缺少已统一的分页结构约束：{protocol_name}"
+            )
 
     community_services = (
-        "BIT101-iOS/Course/CourseService.swift",
-        "BIT101-iOS/Gallery/GalleryService.swift",
-        "BIT101-iOS/Mine/MineService.swift",
-        "BIT101-iOS/Paper/PaperService.swift",
-        "BIT101-iOS/Settings/SettingsServices.swift",
+        "CourseService",
+        "GalleryService",
+        "MineService",
+        "PaperService",
+        "SettingsNetworkService",
     )
-    for file_name in community_services:
-        source = (ROOT / file_name).read_text(encoding="utf-8")
-        if "CommunityAPIClient" not in source:
-            errors.append(f"{file_name}: 社区服务必须经 CommunityAPIClient，不能自建网络边界")
+    for type_name in community_services:
+        blocks = [
+            declaration_block(source, type_name)
+            for source in sources.values()
+            if declaration_block(source, type_name)
+        ]
+        if not blocks:
+            errors.append(f"{type_name}: 找不到社区服务声明")
+            continue
+        if not any(
+            re.search(r"\bCommunityAPIClient\s*(?:<|[A-Za-z_])", block)
+            and re.search(r"\bCommunityAPIClient\s*\(", block)
+            for block in blocks
+        ):
+            errors.append(
+                f"{type_name}: 社区服务必须通过 CommunityAPIClient 初始化网络边界"
+            )
 
-    for file_name in (
-        "BIT101-iOS/Schedule/ScheduleCacheStore.swift",
-        "BIT101-iOS/Gallery/GalleryComposerView.swift",
-    ):
-        source = (ROOT / file_name).read_text(encoding="utf-8")
-        if "AppFileDirectories.applicationSupport" not in source:
-            errors.append(f"{file_name}: 持久化仓库必须复用 AppFileDirectories.applicationSupport")
+    storage_contracts = (
+        ("ScheduleCacheStore", "BIT101-iOS/Schedule/ScheduleCacheStore.swift"),
+        ("ComposerDraftStore", "BIT101-iOS/Gallery/GalleryComposerView.swift"),
+    )
+    for type_name, file_name in storage_contracts:
+        blocks = [
+            declaration_block(source, type_name)
+            for source in sources.values()
+            if declaration_block(source, type_name)
+        ]
+        if not any("AppFileDirectories.applicationSupport" in block for block in blocks):
+            errors.append(
+                f"{file_name}: 持久化仓库必须复用 AppFileDirectories.applicationSupport"
+            )
 
     for path in sorted((ROOT / "BIT101-iOS").rglob("*.swift")):
         if not path.name.endswith(("ViewModel.swift", "ViewModels.swift")):
             continue
-        source = path.read_text(encoding="utf-8")
-        if "TaskCancellation" not in source and "isCancellation(" not in source:
+        source = sources[path]
+        if not has_identifier(source, "TaskCancellation") and not has_call(source, "isCancellation"):
             errors.append(f"{relative(path)}: 状态模型必须统一处理任务取消，不能把取消当成业务失败")
 
     return errors
@@ -359,10 +515,13 @@ def audit_wiring_findings() -> list[str]:
         workflow_source = workflow_path.read_text(encoding="utf-8")
         required_ci_rules = (
             ("Scripts/run-static-audit.sh", "CI 未执行统一静态审计"),
-            ("xcodebuild build-for-testing", "CI 未执行 build-for-testing 编译门禁"),
-            ("generic/platform=iOS", "CI 编译不得默认选择模拟器"),
-            ("SWIFT_TREAT_WARNINGS_AS_ERRORS=YES", "CI 未将 Swift 警告视为错误"),
-            ("GCC_TREAT_WARNINGS_AS_ERRORS=YES", "CI 未将 Clang 警告视为错误"),
+            ("static-audit:", "CI 未声明静态审计 Job"),
+            ("release_build:", "CI 未提供发布前远程编译开关"),
+            ("release-build:", "CI 未声明发布编译 Job"),
+            ("xcodebuild build-for-testing", "发布编译 Job 未保留 build-for-testing"),
+            ("generic/platform=iOS", "发布编译不得默认选择模拟器"),
+            ("SWIFT_TREAT_WARNINGS_AS_ERRORS=YES", "发布编译未将 Swift 警告视为错误"),
+            ("GCC_TREAT_WARNINGS_AS_ERRORS=YES", "发布编译未将 Clang 警告视为错误"),
         )
         for marker, message in required_ci_rules:
             if marker not in workflow_source:

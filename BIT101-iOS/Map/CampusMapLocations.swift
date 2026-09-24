@@ -124,7 +124,7 @@ nonisolated enum CampusMapPlaceCatalog {
         CampusMapPlace(campus: .liangxiang, name: "文萃楼F", latitude: 39.73206, longitude: 116.173821),
         CampusMapPlace(campus: .liangxiang, name: "文萃楼G", latitude: 39.732216, longitude: 116.173101),
         CampusMapPlace(campus: .liangxiang, name: "文萃楼H", latitude: 39.732995, longitude: 116.173098),
-        CampusMapPlace(campus: .liangxiang, name: "文萃楼I", latitude: 39.733083, longitude: 116.173866),
+        CampusMapPlace(campus: .liangxiang, name: "文萃楼I", latitude: 39.733128, longitude: 116.173866),
         CampusMapPlace(campus: .liangxiang, name: "文萃楼J", latitude: 39.733518, longitude: 116.173408),
         CampusMapPlace(campus: .liangxiang, name: "文萃楼K", latitude: 39.733464, longitude: 116.173833),
         CampusMapPlace(campus: .liangxiang, name: "文萃楼L", latitude: 39.733525, longitude: 116.174175),

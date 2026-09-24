@@ -12,6 +12,7 @@ fi
 LOG_DIR="$ROOT_DIR/.build/static-audit"
 
 mkdir -p "$LOG_DIR"
+rm -f "$LOG_DIR"/*.log
 
 run_group() {
   local name="$1"
@@ -51,7 +52,10 @@ worker_parse() {
     -path '*/node_modules' -prune -o \
     -type f -name '*.js' -exec node --check {} +
 }
-git_check() { git -C "$ROOT_DIR" diff --check; }
+git_check() {
+  git -C "$ROOT_DIR" diff --check
+  git -C "$ROOT_DIR" diff --cached --check
+}
 docs_check() {
   (cd "$ROOT_DIR" && python3 Scripts/check_stale_docs.py --all)
   (cd "$ROOT_DIR" && python3 Scripts/validate_versions.py)
@@ -73,10 +77,12 @@ allowed_root_files = {
 allowed_dirs = {
     "build/DeviceInstall",
     "build/Tests",
+    "build/CI",
     "build/DeviceReview",
     "build/UpdatePromptTest",
     ".build/static-audit",
     ".build/extended-automation",
+    ".build/icloud-cross-device-smoke",
     ".build/release-" + "network-smoke",
     ".build/issue-report-inbox",
 }

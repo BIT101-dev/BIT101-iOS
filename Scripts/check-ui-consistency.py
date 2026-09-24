@@ -22,6 +22,121 @@ DESIGN_SYSTEM_SOURCES = {
 }
 PRIMITIVE_OPACITY_SOURCE = SOURCE_ROOT / "Shared/DesignSystem/DesignPrimitives.swift"
 
+
+def _blank_segment(output: list[str], source: str, start: int, end: int) -> None:
+    for index in range(start, min(end, len(source))):
+        if source[index] != "\n":
+            output[index] = " "
+
+
+def mask_comments(source: str) -> str:
+    """移除注释并保留字符串，供需要识别 UI 文案结构的规则使用。"""
+    output = list(source)
+    index = 0
+    depth = 0
+    while index < len(source):
+        if depth:
+            if source.startswith("/*", index):
+                depth += 1
+                _blank_segment(output, source, index, index + 2)
+                index += 2
+            elif source.startswith("*/", index):
+                depth -= 1
+                _blank_segment(output, source, index, index + 2)
+                index += 2
+            else:
+                _blank_segment(output, source, index, index + 1)
+                index += 1
+        elif source.startswith("//", index):
+            end = source.find("\n", index)
+            end = len(source) if end < 0 else end
+            _blank_segment(output, source, index, end)
+            index = end
+        elif source.startswith("/*", index):
+            depth = 1
+            _blank_segment(output, source, index, index + 2)
+            index += 2
+        else:
+            index += 1
+    return "".join(output)
+
+
+def mask_literals_and_comments(source: str) -> str:
+    """保留换行，忽略字符串和注释，避免文案伪造 UI 契约。"""
+    output = list(source)
+    index = 0
+    comment_depth = 0
+    while index < len(source):
+        if comment_depth:
+            if source.startswith("/*", index):
+                comment_depth += 1
+                _blank_segment(output, source, index, index + 2)
+                index += 2
+            elif source.startswith("*/", index):
+                comment_depth -= 1
+                _blank_segment(output, source, index, index + 2)
+                index += 2
+            else:
+                _blank_segment(output, source, index, index + 1)
+                index += 1
+            continue
+
+        if source.startswith("//", index):
+            end = source.find("\n", index)
+            end = len(source) if end < 0 else end
+            _blank_segment(output, source, index, end)
+            index = end
+            continue
+        if source.startswith("/*", index):
+            comment_depth = 1
+            _blank_segment(output, source, index, index + 2)
+            index += 2
+            continue
+
+        raw_match = re.match(r"(#+)(\"{1,3})", source[index:])
+        if raw_match:
+            hashes, quote = raw_match.groups()
+            terminator = quote + hashes
+            content_start = index + len(hashes) + len(quote)
+            end = source.find(terminator, content_start)
+            end = len(source) if end < 0 else end + len(terminator)
+            _blank_segment(output, source, index, end)
+            index = end
+            continue
+
+        if source.startswith('"""', index):
+            end = source.find('"""', index + 3)
+            end = len(source) if end < 0 else end + 3
+            _blank_segment(output, source, index, end)
+            index = end
+            continue
+
+        if source[index] == '"':
+            index += 1
+            while index < len(source):
+                if source[index] == "\\":
+                    _blank_segment(output, source, index, index + 2)
+                    index += 2
+                elif source[index] == '"':
+                    index += 1
+                    break
+                else:
+                    _blank_segment(output, source, index, index + 1)
+                    index += 1
+            continue
+
+        index += 1
+    return "".join(output)
+
+
+def is_view_source(path: Path, code: str) -> bool:
+    if path.name.endswith(("View.swift", "Views.swift", "Screen.swift", "Screens.swift")):
+        return True
+    return re.search(
+        r"\b(?:struct|class|enum)\s+[A-Za-z_][A-Za-z0-9_]*\s*:[^{\n]*\bView\b",
+        code,
+    ) is not None
+
 FIXED_GEOMETRY_REVIEW = (
     (
         "Course/CourseCommentViews.swift",
@@ -283,7 +398,9 @@ def swift_files() -> list[Path]:
 
 def check_component_contracts(errors: list[str]) -> None:
     sources = {path: path.read_text(encoding="utf-8") for path in swift_files()}
-    declarations = "\n".join(sources.values())
+    code_sources = {path: mask_literals_and_comments(source) for path, source in sources.items()}
+    comment_free_sources = {path: mask_comments(source) for path, source in sources.items()}
+    declarations = "\n".join(code_sources.values())
 
     # 公共组件清单只声明语义名称；来源文件由源码声明自动发现，不再维护文件名映射。
     for group, symbols in COMPONENT_GROUPS:
@@ -295,16 +412,16 @@ def check_component_contracts(errors: list[str]) -> None:
         members = set()
         for pattern in contract.path_globs:
             members.update(SOURCE_ROOT.glob(pattern))
-        for path, source in sources.items():
+        for path, source in code_sources.items():
             if (
                 contract.discovery_tokens
-                and "View" in path.stem
+                and is_view_source(path, source)
                 and path.parent != DESIGN_SYSTEM.parent
                 and any(token in source for token in contract.discovery_tokens)
             ):
                 members.add(path)
         for path in sorted(path for path in members if path.is_file()):
-            source = sources[path]
+            source = code_sources[path]
             relative = path.relative_to(ROOT)
             if contract.any_tokens and not any(token in source for token in contract.any_tokens):
                 errors.append(f"{relative}: {contract.name}缺少首屏状态公共组件")
@@ -318,7 +435,7 @@ def check_component_contracts(errors: list[str]) -> None:
         "FloatingMapButton",
     )
     for path in swift_files():
-        source = path.read_text(encoding="utf-8")
+        source = code_sources[path]
         for name in forbidden_duplicate_wrappers:
             if re.search(rf"\b(?:struct|class|enum)\s+{name}\b", source):
                 errors.append(f"{str(path.relative_to(ROOT))}: 不得重新包装 {name}，请直接使用公共浮动按钮组件")
@@ -327,13 +444,13 @@ def check_component_contracts(errors: list[str]) -> None:
     for path in swift_files():
         if path == ROOT / "BIT101-iOS/Shared/DesignSystem/AppStateComponents.swift":
             continue
-        source = path.read_text(encoding="utf-8")
+        source = comment_free_sources[path]
         if re.search(r"\bProgressView\s*\(\s*\"", source):
             errors.append(f"{str(path.relative_to(ROOT))}: 首屏文字加载状态必须使用 AppLoadingState/AppInlineLoadingState")
 
     # 页面级公共规则：只按语义模式发现，不按业务文件名列白名单。
-    for path, source in sources.items():
-        if "View" not in path.stem:
+    for path, source in code_sources.items():
+        if not is_view_source(path, source):
             continue
         if re.search(r"\b(List|Form|Section)\b", source) and "ContentUnavailableView" in source:
             if "AppFailureState" not in source and "AppEmptyState" not in source:
@@ -349,17 +466,20 @@ def check_component_contracts(errors: list[str]) -> None:
         r"\b(Label\s*\([^\n]*systemImage\s*:|Button\s*\([^\n]*systemImage\s*:|"
         r"NavigationLink\s*\([^\n]*systemImage\s*:|Image\s*\(systemName\s*:)")
     right_pattern = re.compile(r"checkmark|circle|chevron|xmark|minus|star")
-    for path, source in sources.items():
+    for path, source in code_sources.items():
         if "Mine" in path.parts:
             continue
         containers = []
         depth = 0
-        for line_number, line in enumerate(source.splitlines(), 1):
-            code = line.split("//", 1)[0]
+        literal_source = comment_free_sources[path]
+        for line_number, (line, literal_line) in enumerate(
+            zip(source.splitlines(), literal_source.splitlines()), 1
+        ):
+            code = line
             if container_pattern.search(code) and "{" in code:
                 containers.append(depth)
-            match = icon_pattern.search(code)
-            if match and containers and not right_pattern.search(code):
+            match = icon_pattern.search(literal_line)
+            if match and containers and not right_pattern.search(literal_line):
                 errors.append(f"{path.relative_to(ROOT)}:{line_number}: 列表/表单左侧图标必须通过公共组件提供")
             depth += code.count("{") - code.count("}")
             while containers and depth <= containers[-1]:
@@ -367,7 +487,7 @@ def check_component_contracts(errors: list[str]) -> None:
 
     direct_states = [
         f"{path.relative_to(ROOT)}:{index + 1}: {line.strip()}"
-        for path, source in sources.items()
+        for path, source in code_sources.items()
         for index, line in enumerate(source.splitlines())
         if "ContentUnavailableView" in line and "AppStateComponents.swift" not in str(path)
         and "Schedule/FreeClassroomViews.swift" not in str(path)
@@ -376,7 +496,7 @@ def check_component_contracts(errors: list[str]) -> None:
 
 
 def check_haptic_consistency(errors: list[str]) -> None:
-    sources = {path: path.read_text(encoding="utf-8") for path in swift_files()}
+    sources = {path: mask_literals_and_comments(path.read_text(encoding="utf-8")) for path in swift_files()}
     required = (
         ("Shared/DesignSystem/AppHapticFeedback.swift", "func appSelectionFeedback"),
         ("Shared/DesignSystem/AppHapticFeedback.swift", "sensoryFeedback(.selection, trigger:"),
@@ -461,7 +581,7 @@ def _swift_block(source: str, start: int) -> str:
 def check_error_report_coverage(errors: list[str]) -> None:
     schedule_notice_presenters = 0
     for path in swift_files():
-        source = path.read_text(encoding="utf-8")
+        source = mask_literals_and_comments(path.read_text(encoding="utf-8"))
         schedule_notice_presenters += len(re.findall(r"\.scheduleViewModel\.\$notice\.compactMap", source))
         if path.name != "ErrorReportSupport.swift":
             position = 0
@@ -505,7 +625,7 @@ def check_fonts(errors: list[str]) -> None:
 
     roots = (SOURCE_ROOT, ROOT / "BIT101ScheduleWidgets", ROOT / "BIT101Watch", ROOT / "BIT101WatchWidgets", ROOT / "BIT101-iOSTests")
     for path in sorted(path for root in roots for path in root.rglob("*.swift")):
-        source = path.read_text(encoding="utf-8")
+        source = mask_literals_and_comments(path.read_text(encoding="utf-8"))
         relative = path.relative_to(ROOT)
         if path not in DESIGN_SYSTEM_SOURCES:
             for match in swift_explicit_font_size.finditer(source):
@@ -531,7 +651,7 @@ def check_design_token_boundaries(errors: list[str]) -> None:
     for path in swift_files():
         if path == PRIMITIVE_OPACITY_SOURCE:
             continue
-        source = path.read_text(encoding="utf-8")
+        source = mask_literals_and_comments(path.read_text(encoding="utf-8"))
         relative = path.relative_to(ROOT)
         for pattern, message in (
             (DIRECT_OPACITY_LITERAL, "透明度数字必须通过 AppDesignSystem.Opacity 派生"),
@@ -548,7 +668,7 @@ def check_page_theme_consistency(errors: list[str]) -> None:
         if path in DESIGN_SYSTEM_SOURCES:
             continue
         source_relative = path.relative_to(SOURCE_ROOT).as_posix()
-        source = path.read_text(encoding="utf-8")
+        source = mask_literals_and_comments(path.read_text(encoding="utf-8"))
         for prefixes, forbidden_tokens, expected_token in PAGE_THEME_RULES:
             if not source_relative.startswith(prefixes):
                 continue
@@ -691,7 +811,9 @@ def main() -> int:
             continue
         relative = path.relative_to(ROOT)
         source_relative = path.relative_to(SOURCE_ROOT).as_posix()
-        source = path.read_text(encoding="utf-8")
+        raw_source = path.read_text(encoding="utf-8")
+        source = mask_literals_and_comments(raw_source)
+        comment_free_source = mask_comments(raw_source)
         if "AppFloatingActionStack" in source:
             floating_stack_uses += 1
         if "ZStack(alignment: .bottomTrailing)" in source and re.search(r"Floating|FAB", source):
@@ -728,18 +850,19 @@ def main() -> int:
                 DIRECT_GROUPED_LIST_STYLE, DIRECT_LIST_SECTION_SPACING, DIRECT_FLOATING_MATERIAL
             ):
                 continue
-            for match in pattern.finditer(source):
+            pattern_source = comment_free_source if pattern is DIRECT_INPUT_PLACEHOLDER else source
+            for match in pattern.finditer(pattern_source):
                 if pattern in (
                     DIRECT_GRID_ITEM_GEOMETRY,
                     DIRECT_STROKE_GEOMETRY,
                     DIRECT_THUMBNAIL_GEOMETRY,
                 ) and is_reviewed_fixed_geometry(path, source, pattern):
                     continue
-                line_number = source.count("\n", 0, match.start()) + 1
+                line_number = raw_source.count("\n", 0, match.start()) + 1
                 errors.append(f"{relative}:{line_number}: {message}")
         for pattern, palette_name in DIRECT_SEMANTIC_COLOR_RULES:
             for match in pattern.finditer(source):
-                line_number = source.count("\n", 0, match.start()) + 1
+                line_number = raw_source.count("\n", 0, match.start()) + 1
                 errors.append(f"{relative}:{line_number}: 请使用 {palette_name}")
 
         for pattern, label in (
@@ -749,7 +872,7 @@ def main() -> int:
             for match in pattern.finditer(source):
                 if float(match.group(1)) == 0:
                     continue
-                line_number = source.count("\n", 0, match.start()) + 1
+                line_number = raw_source.count("\n", 0, match.start()) + 1
                 errors.append(
                     f"{relative}:{line_number}: {label} 必须使用 AppDesignSystem.Spacing 或专用语义令牌"
                 )
@@ -757,14 +880,14 @@ def main() -> int:
         if path not in DESIGN_SYSTEM_SOURCES:
             for pattern in (DERIVED_DESIGN_TOKEN, REPEATED_DESIGN_TOKEN):
                 for match in pattern.finditer(source):
-                    line_number = source.count("\n", 0, match.start()) + 1
+                    line_number = raw_source.count("\n", 0, match.start()) + 1
                     errors.append(
                         f"{relative}:{line_number}: 设计令牌不得通过比例或重复相加/相减二次运算；请直接使用语义令牌"
                     )
 
         if source_relative not in PLAIN_LIST_EXCEPTIONS:
             for match in DIRECT_PLAIN_LIST_STYLE.finditer(source):
-                line_number = source.count("\n", 0, match.start()) + 1
+                line_number = raw_source.count("\n", 0, match.start()) + 1
                 errors.append(f"{relative}:{line_number}: plain 列表只允许消息中心使用")
 
         app_card_uses += len(re.findall(r"\bAppCard\s*(?:<[^>]+>)?\s*(?:\(|\{)", source))
@@ -778,7 +901,7 @@ def main() -> int:
     for path in swift_files():
         if path == DESIGN_SYSTEM:
             continue
-        source = path.read_text(encoding="utf-8")
+        source = mask_literals_and_comments(path.read_text(encoding="utf-8"))
         if re.search(r"\bList\s*\{", source) and path.relative_to(SOURCE_ROOT).as_posix() not in PLAIN_LIST_EXCEPTIONS:
             list_count = len(re.findall(r"\bList\s*\{", source))
             style_count = source.count("appGroupedListStyle()")

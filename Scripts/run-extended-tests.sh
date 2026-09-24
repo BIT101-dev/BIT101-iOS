@@ -6,6 +6,7 @@ PROJECT="$ROOT_DIR/BIT101-iOS.xcodeproj"
 DERIVED_ROOT="$ROOT_DIR/.build/extended-automation"
 TEST_BUNDLE="BIT101-iOSTests"
 CONDITIONS="DEBUG EXTENDED_AUTOMATION BIT101_AUTOMATED_TESTING"
+RESULT_BUNDLE="$DERIVED_ROOT/test-results.xcresult"
 
 MODE="all"
 if [[ $# -gt 0 ]]; then
@@ -30,6 +31,7 @@ else
 fi
 
 mkdir -p "$DERIVED_ROOT"
+rm -rf "$RESULT_BUNDLE"
 
 run_tests() {
   local group="$1"
@@ -47,6 +49,7 @@ run_tests() {
     -configuration Release \
     -destination "platform=iOS,id=$DEVICE_ID" \
     -derivedDataPath "$DERIVED_ROOT" \
+    -resultBundlePath "$RESULT_BUNDLE" \
     -collect-test-diagnostics never \
     "SWIFT_ACTIVE_COMPILATION_CONDITIONS=$conditions" \
     ENABLE_TESTABILITY=YES \
