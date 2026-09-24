@@ -122,6 +122,18 @@ struct GalleryImage: Decodable, Identifiable, Hashable {
 
     /// 图片资源的稳定标识。
     var id: String { mid }
+
+    /// 识别服务端返回的 GIF 地址；查询参数中的扩展名也纳入判断。
+    var isGIF: Bool {
+        [url, lowUrl].contains { value in
+            let normalized = value.lowercased()
+            guard let url = URL(string: value) else {
+                return normalized.contains(".gif")
+            }
+            return url.pathExtension.lowercased() == "gif"
+                || url.absoluteString.lowercased().contains(".gif")
+        }
+    }
 }
 
 /// 用户身份标签。

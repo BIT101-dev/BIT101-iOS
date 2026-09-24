@@ -87,7 +87,7 @@ struct GalleryComposerImageTile: View {
                         .scaledToFill()
                 } else {
                     Image(systemName: "photo")
-                        .font(AppDesignSystem.Typography.title2)
+                        .font(AppDesignSystem.Typography.title)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -99,7 +99,7 @@ struct GalleryComposerImageTile: View {
 
             Button(action: onRemove) {
                 Image(systemName: "xmark.circle.fill")
-                    .font(AppDesignSystem.Typography.title3)
+                    .font(AppDesignSystem.Typography.title)
                     .foregroundStyle(.white, Color.black.opacity(0.55))
             }
             .padding(AppDesignSystem.Spacing.tiny)
@@ -125,14 +125,14 @@ struct GalleryComposerImageTile: View {
                 Rectangle()
                     .fill(AppDesignSystem.Palette.mediaOverlay)
                 Text("\(draft.progress)%")
-                    .font(AppDesignSystem.Typography.caption2Emphasis)
+                    .font(AppDesignSystem.Typography.captionEmphasis)
                     .foregroundStyle(.white)
             }
             .frame(height: AppDesignSystem.Size.Control.compact)
         case .prepared:
             if showsPreparedSuccessIndicator {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(AppDesignSystem.Typography.title3)
+                    .font(AppDesignSystem.Typography.title)
                     .foregroundStyle(.white)
                     .padding(AppDesignSystem.Spacing.tiny)
                     .background(AppDesignSystem.Palette.mediaOverlayStrong, in: Circle())
@@ -142,7 +142,7 @@ struct GalleryComposerImageTile: View {
                 Image(systemName: "checkmark.circle.fill")
                 Text("已上传")
             }
-            .font(AppDesignSystem.Typography.caption2Emphasis)
+            .font(AppDesignSystem.Typography.captionEmphasis)
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .padding(.vertical, AppDesignSystem.Spacing.tiny)
@@ -153,7 +153,7 @@ struct GalleryComposerImageTile: View {
                     Image(systemName: "arrow.clockwise")
                     Text("重试")
                 }
-                .font(AppDesignSystem.Typography.caption2Emphasis)
+                .font(AppDesignSystem.Typography.captionEmphasis)
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, AppDesignSystem.Spacing.tiny)
@@ -396,7 +396,7 @@ struct GalleryComposerView: View {
                                 } label: {
                                     Image(systemName: "minus.circle.fill")
                                         .foregroundStyle(.secondary)
-                                        .font(AppDesignSystem.Typography.title3)
+                                        .font(AppDesignSystem.Typography.title)
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityLabel("删除标签")
@@ -448,7 +448,7 @@ struct GalleryComposerView: View {
                                         removeExistingImage(id: image.id)
                                     } label: {
                                         Image(systemName: "xmark.circle.fill")
-                                            .font(AppDesignSystem.Typography.title3)
+                                            .font(AppDesignSystem.Typography.title)
                                             .foregroundStyle(.white, Color.black.opacity(0.55))
                                     }
                                     .padding(AppDesignSystem.Spacing.tiny)

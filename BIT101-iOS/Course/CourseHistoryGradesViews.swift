@@ -177,7 +177,7 @@ private struct CourseHistoryGradesChart: View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
             HStack(alignment: .firstTextBaseline) {
                 Text("趋势")
-                    .font(AppDesignSystem.Typography.headline)
+                    .font(AppDesignSystem.Typography.title)
                 Spacer()
                 if let selectedGrade {
                     Text(selectedGrade.term)
@@ -232,7 +232,7 @@ private struct CourseHistoryGradesChart: View {
 
             if hiddenMakeupOutlierCount > 0 {
                 Text("已从图表中隐藏 \(hiddenMakeupOutlierCount) 个疑似补考学期。")
-                    .font(AppDesignSystem.Typography.caption2)
+                    .font(AppDesignSystem.Typography.caption)
                     .foregroundStyle(.secondary)
             }
         }
@@ -294,7 +294,7 @@ private struct CourseHistoryGradeRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
             Text(grade.term)
-                .font(AppDesignSystem.Typography.headline)
+                .font(AppDesignSystem.Typography.title)
 
             HStack(spacing: AppDesignSystem.Spacing.regular) {
                 CourseHistoryMetric(title: "平均分", value: courseHistoryScoreText(grade.avgScore), tint: AppDesignSystem.Palette.highlight)

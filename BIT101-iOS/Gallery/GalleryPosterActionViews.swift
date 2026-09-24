@@ -54,7 +54,7 @@ struct GalleryPosterActionMenu: View {
 
     private var menuLabel: some View {
         Image(systemName: "ellipsis.circle")
-            .font(AppDesignSystem.Typography.title3)
+            .font(AppDesignSystem.Typography.title)
             .foregroundStyle(.secondary)
             .frame(width: AppDesignSystem.Size.Control.detailActionButton, height: AppDesignSystem.Size.Control.detailActionButton)
             .accessibilityLabel("更多操作")

@@ -37,6 +37,8 @@ struct CampusNativeMapView: UIViewRepresentable {
     let centerOnUserRequestID: UUID?
     let nextCourseTarget: UpcomingCourseMapTarget?
     let requestedLocation: CampusMapLocationRequest?
+    let mapConfiguration: MKMapConfiguration
+    let mapConfigurationID: String
     let onLocationFailure: (Error) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -51,11 +53,11 @@ struct CampusNativeMapView: UIViewRepresentable {
     func makeUIView(context: Context) -> MKMapView {
         let mapView = MKMapView(frame: .zero)
         mapView.delegate = context.coordinator
-        mapView.mapType = .standard
+        mapView.preferredConfiguration = mapConfiguration
+        context.coordinator.lastMapConfigurationID = mapConfigurationID
         mapView.showsCompass = true
         mapView.showsScale = true
         mapView.showsUserLocation = false
-        mapView.pointOfInterestFilter = .excludingAll
         mapView.isPitchEnabled = false
         mapView.accessibilityLabel = "校园地图"
         mapView.accessibilityHint = "拖动或双指缩放查看校区和上课地点"
@@ -73,6 +75,10 @@ struct CampusNativeMapView: UIViewRepresentable {
     /// 根据最新的 SwiftUI 状态同步地图相机和“回到我的位置”动作。
     func updateUIView(_ mapView: MKMapView, context: Context) {
         context.coordinator.onLocationFailure = onLocationFailure
+        if context.coordinator.lastMapConfigurationID != mapConfigurationID {
+            mapView.preferredConfiguration = mapConfiguration
+            context.coordinator.lastMapConfigurationID = mapConfigurationID
+        }
         context.coordinator.syncNextCourseAnnotation(nextCourseTarget, in: mapView)
         let requestedLocationChanged = context.coordinator.syncRequestedLocation(requestedLocation, in: mapView)
 
@@ -107,6 +113,7 @@ struct CampusNativeMapView: UIViewRepresentable {
 
         var lastFocusID: UUID?
         var lastCenterOnUserRequestID: UUID?
+        var lastMapConfigurationID: String?
         private var pendingCenterOnUserRequestID: UUID?
         private var lastCourseTarget: UpcomingCourseMapTarget?
         private var lastRequestedLocationID: UUID?

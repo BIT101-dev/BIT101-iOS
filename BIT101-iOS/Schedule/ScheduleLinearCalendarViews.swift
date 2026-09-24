@@ -13,10 +13,6 @@ struct LinearScheduleCalendarView: View {
     let currentWeek: Int
     let showSaturday: Bool
     let showSunday: Bool
-    let showHighlightToday: Bool
-    let showDivider: Bool
-    let showCurrentTime: Bool
-    let showBorder: Bool
     @Binding var zoomScale: CGFloat
     let onSelect: (ScheduleCalendarEntry) -> Void
     let onSelectDay: (Date, Int) -> Void
@@ -56,10 +52,6 @@ struct LinearScheduleCalendarView: View {
                         week: week,
                         showSaturday: showSaturday,
                         showSunday: showSunday,
-                        showHighlightToday: showHighlightToday,
-                        showDivider: showDivider,
-                        showCurrentTime: showCurrentTime,
-                        showBorder: showBorder,
                         onSelect: onSelect,
                         onLongPressCourse: onLongPressCourse,
                         onPrepareCourseShare: onPrepareCourseShare,
@@ -119,7 +111,7 @@ private struct LinearScheduleHeader: View {
                     let dayWidth = max(proxy.size.width / CGFloat(visibleWeekdays.count + 1), 1)
                     HStack(spacing: AppDesignSystem.Spacing.none) {
                         Text("第\(week)周")
-                            .font(AppDesignSystem.Typography.caption2Emphasis)
+                            .font(AppDesignSystem.Typography.captionEmphasis)
                             .foregroundStyle(.primary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
@@ -131,7 +123,7 @@ private struct LinearScheduleHeader: View {
                                 onSelectDay(date, visibleWeekdays[index])
                             } label: {
                                 Text(Self.monthDayFormatter.string(from: date))
-                                    .font(AppDesignSystem.Typography.caption2)
+                                    .font(AppDesignSystem.Typography.caption)
                                     .foregroundStyle(.primary)
                                     .frame(width: dayWidth, height: AppDesignSystem.Schedule.WeekSlider.dateHeaderHeight)
                                     .background(AppDesignSystem.Palette.secondaryGroupedBackground)
@@ -152,7 +144,7 @@ private struct LinearScheduleHeader: View {
 
                         ForEach(visibleWeekdays, id: \.self) { weekday in
                             Text(weekdayTitle(weekday))
-                                .font(AppDesignSystem.Typography.caption2)
+                                .font(AppDesignSystem.Typography.caption)
                                 .foregroundStyle(.primary)
                                 .frame(width: dayWidth, height: AppDesignSystem.Schedule.WeekSlider.compactHeaderHeight)
                                 .background(AppDesignSystem.Palette.secondaryGroupedBackground)
@@ -189,10 +181,6 @@ private struct LinearScheduleCalendarConfiguration {
     let week: Int
     let showSaturday: Bool
     let showSunday: Bool
-    let showHighlightToday: Bool
-    let showDivider: Bool
-    let showCurrentTime: Bool
-    let showBorder: Bool
     let onSelect: (ScheduleCalendarEntry) -> Void
     let onLongPressCourse: (ScheduleCalendarEntry) -> Void
     let onPrepareCourseShare: (ScheduleCalendarEntry) -> Void
@@ -464,8 +452,7 @@ private struct LinearScheduleCanvasView: View {
         timelineEnd: Int
     ) -> some View {
         ZStack(alignment: .topLeading) {
-            if configuration.showHighlightToday,
-               configuration.currentWeek == configuration.week,
+            if configuration.currentWeek == configuration.week,
                let index = visibleWeekdays.firstIndex(of: ScheduleDateCodec.weekdayIndex(from: Date())) {
                 Rectangle()
                     .fill(AppDesignSystem.Schedule.GridPalette.todayHighlight)
@@ -481,9 +468,7 @@ private struct LinearScheduleCanvasView: View {
                     end: timelineEnd
                 )
                 Rectangle()
-                    .fill(configuration.showDivider
-                        ? AppDesignSystem.Schedule.GridPalette.majorLine
-                        : AppDesignSystem.Schedule.GridPalette.minorLine)
+                    .fill(AppDesignSystem.Schedule.GridPalette.majorLine)
                     .frame(
                         width: leftWidth + dayWidth * CGFloat(visibleWeekdays.count),
                         height: AppDesignSystem.Schedule.Grid.lineWidth
@@ -491,7 +476,7 @@ private struct LinearScheduleCanvasView: View {
                     .offset(y: y)
 
                 Text(TimeSlot.formatMinutes(minute))
-                    .font(AppDesignSystem.Typography.caption2)
+                    .font(AppDesignSystem.Typography.caption)
                     .foregroundStyle(.secondary)
                     .frame(width: leftWidth, alignment: .center)
                     .offset(y: y - AppDesignSystem.Spacing.regular)
@@ -504,8 +489,7 @@ private struct LinearScheduleCanvasView: View {
                     .offset(x: leftWidth + dayWidth * CGFloat(column))
             }
 
-            if configuration.showCurrentTime,
-               configuration.currentWeek == configuration.week,
+            if configuration.currentWeek == configuration.week,
                let index = visibleWeekdays.firstIndex(of: ScheduleDateCodec.weekdayIndex(from: Date())) {
                 Rectangle()
                     .fill(AppDesignSystem.Palette.accent)
@@ -553,7 +537,7 @@ private struct LinearScheduleCanvasView: View {
         let cardHeight = max(endY - startY - AppDesignSystem.Schedule.Grid.courseCardTotalInset, 18)
 
         return ZStack(alignment: .topLeading) {
-            CourseScheduleBackgroundView(entry: entry, showBorder: configuration.showBorder)
+            CourseScheduleBackgroundView(entry: entry)
                 .frame(width: cardWidth, height: cardHeight)
 
             CourseScheduleBlockView(entry: entry, contentMode: configuration.cardContentMode)

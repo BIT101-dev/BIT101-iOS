@@ -102,7 +102,7 @@ struct FreeClassroomTabView: View {
                         HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
                             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
                                 Text(classroom.name)
-                                    .font(AppDesignSystem.Typography.headline)
+                                    .font(AppDesignSystem.Typography.title)
                                 Text(classroom.statusText)
                                     .font(AppDesignSystem.Typography.subheadline)
                                     .foregroundStyle(.secondary)

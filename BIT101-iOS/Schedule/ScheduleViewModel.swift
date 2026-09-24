@@ -311,14 +311,6 @@ final class ScheduleViewModel: ObservableObject {
     /// DDL 列表默认向后保留的天数。
     var afterDay: Int { min(max(cache.ddlAfterDay, 0), 30) }
 
-    /// 首周日期的展示文本。
-    var firstDayDescription: String {
-        guard let firstDay = activeCourseSchedule.firstDay else {
-            return "未同步"
-        }
-        return ScheduleDateCodec.formatDate(firstDay)
-    }
-
     /// 当前显示课表的标题。
     var activeCourseScheduleTitle: String {
         activeCourseSchedule.title

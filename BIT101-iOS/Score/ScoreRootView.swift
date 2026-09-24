@@ -463,7 +463,7 @@ private struct ScoreListRowCard: View {
                     AppFixedColumnItem(
                         text: courseName,
                         ratio: 0.55,
-                        font: AppDesignSystem.Typography.headline,
+                        font: AppDesignSystem.Typography.title,
                         color: .primary,
                     ),
                     AppFixedColumnItem(
@@ -534,7 +534,7 @@ private struct PendingScoreDetailView: View {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
                     let courseName = course.name.trimmingCharacters(in: .whitespacesAndNewlines)
                     Text(courseName.isEmpty ? "未命名课程" : courseName)
-                        .font(AppDesignSystem.Typography.title3Emphasis)
+                        .font(AppDesignSystem.Typography.titleEmphasis)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     HStack(spacing: AppDesignSystem.Spacing.section) {
@@ -557,7 +557,7 @@ private struct PendingScoreDetailView: View {
 
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                     Text("课程信息")
-                        .font(AppDesignSystem.Typography.headline)
+                        .font(AppDesignSystem.Typography.title)
                     ScoreDetailMetaRow(title: "教师", value: course.teacher)
                     ScoreDetailMetaRow(title: "教室", value: course.classroom)
                     ScoreDetailMetaRow(title: "校区", value: course.campus)
@@ -624,7 +624,7 @@ private struct ScoreDetailView: View {
             Section {
                 let courseName = row.courseName.trimmingCharacters(in: .whitespacesAndNewlines)
                 Text(courseName.isEmpty ? "未命名课程" : courseName)
-                    .font(AppDesignSystem.Typography.headline)
+                    .font(AppDesignSystem.Typography.title)
                 LabeledContent("成绩", value: displayValue(row.score))
                 LabeledContent("平均分", value: formattedAverageScore)
                 LabeledContent("学分", value: formattedCreditValue)

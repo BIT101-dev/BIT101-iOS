@@ -174,7 +174,7 @@ struct GalleryRootView: View {
             ) {
                 let padding = Int(AppDesignSystem.Spacing.section)
                 webView.loadHTMLString(
-                    "<body style=\"font: -apple-system-body; padding: \(padding)px;\">话廊网页加载失败，请稍后重试。</body>",
+                    "<body style=\"font: \(AppDesignSystem.Typography.webBodyCSS); padding: \(padding)px;\">话廊网页加载失败，请稍后重试。</body>",
                     baseURL: nil
                 )
             }

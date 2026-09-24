@@ -27,7 +27,7 @@ struct ScheduleTermPickerPage: View {
                                     ProgressView()
                                 } else if viewModel.cache.currentTerm == term {
                                     Image(systemName: "checkmark")
-                                        .fontWeight(.semibold)
+                                        .font(AppDesignSystem.Typography.bodyEmphasis)
                                 }
                             }
                             .contentShape(Rectangle())
@@ -46,45 +46,6 @@ struct ScheduleTermPickerPage: View {
         }
         .refreshable {
             await viewModel.loadAvailableTerms()
-        }
-    }
-}
-
-/// 手动覆盖当前学期第一周日期的页面。
-struct ScheduleFirstDayEditorPage: View {
-    @Environment(\.dismiss) private var dismiss
-    @Binding var date: Date
-    let onSave: () -> Void
-
-    var body: some View {
-        Form {
-            Section {
-                DatePicker(
-                    "第一周起始日期",
-                    selection: $date,
-                    displayedComponents: .date
-                )
-                .datePickerStyle(.graphical)
-                .onChange(of: date) { _, newValue in
-                    let monday = ScheduleDateCodec.monday(containing: newValue)
-                    if ScheduleDateCodec.formatDate(monday) != ScheduleDateCodec.formatDate(newValue) {
-                        date = monday
-                    }
-                }
-            }
-        }
-        .navigationTitle("学期起始日期")
-        .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            date = ScheduleDateCodec.monday(containing: date)
-        }
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("取消") { dismiss() }
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button("保存", action: onSave)
-            }
         }
     }
 }

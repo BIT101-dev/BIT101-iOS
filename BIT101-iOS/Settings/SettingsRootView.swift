@@ -17,7 +17,6 @@ let mitLicenseText = "MIT License Copyright (c) 2026 BIT101 Contributors Permiss
 /// 设置首页卡片和其它页面的设置深链共用此枚举。
 enum SettingsRoute: String, CaseIterable, Identifiable {
     case account
-    case theme
     case calendar
     case ddl
     case gallery
@@ -29,7 +28,6 @@ enum SettingsRoute: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .account: return "账号设置"
-        case .theme: return "外观设置"
         case .calendar: return "课程表设置"
         case .ddl: return "DDL设置"
         case .gallery: return "话廊设置"
@@ -41,7 +39,6 @@ enum SettingsRoute: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .account: return "person.crop.circle"
-        case .theme: return "paintpalette"
         case .calendar: return "calendar.badge.clock"
         case .ddl: return "list.bullet.clipboard"
         case .gallery: return "bubble.left.and.bubble.right"
@@ -53,7 +50,7 @@ enum SettingsRoute: String, CaseIterable, Identifiable {
 
 /// 此视图展示设置中心的一级入口。
 ///
-/// “我的”页右上角设置、课程表页齿轮和 DDL 页齿轮均进入此视图。
+/// “我的”页设置入口进入此视图。
 struct SettingsRootView: View {
     let initialRoute: SettingsRoute?
     let studentID: String
@@ -147,8 +144,6 @@ private struct SettingsRoutePage: View {
         switch route {
         case .account:
             AccountSettingsPage(studentID: studentID, onLogout: onLogout)
-        case .theme:
-            ThemeSettingsPage()
         case .calendar:
             CalendarSettingsPage()
         case .ddl:

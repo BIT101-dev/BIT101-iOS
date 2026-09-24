@@ -141,7 +141,7 @@ struct AppFloatingActionButton: View {
 
                 if let badgeText {
                     Text(badgeText)
-                        .font(AppDesignSystem.Typography.caption2Emphasis)
+                        .font(AppDesignSystem.Typography.captionEmphasis)
                         .foregroundStyle(.white)
                         .padding(.horizontal, AppDesignSystem.Spacing.tiny)
                         .frame(

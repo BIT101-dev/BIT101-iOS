@@ -36,13 +36,9 @@ extension AppDesignSystem {
     }
 
     enum Typography {
-        static let title2 = Font.title2
-        static let title2Emphasis = Font.title2.weight(.bold)
-        static let title2Monospaced = Font.title2.monospacedDigit()
-        static let title3 = Font.title3
-        static let title3Emphasis = Font.title3.weight(.bold)
-        static let headline = Font.headline
-        static let headlineStrong = Font.headline.weight(.bold)
+        static let title = Font.headline
+        static let titleEmphasis = Font.headline.weight(.bold)
+        static let titleMonospaced = Font.headline.monospacedDigit()
         /// 主体可读内容；跟随当前平台的系统正文基线和动态字体设置。
         static let body = Font.body
         /// 主体内容中的强调文字。
@@ -55,16 +51,14 @@ extension AppDesignSystem {
         static let footnoteMonospaced = Font.system(.footnote, design: .monospaced)
         static let caption = Font.caption
         static let captionEmphasis = Font.caption.weight(.semibold)
-        static let caption2 = Font.caption2
-        static let caption2Emphasis = Font.caption2.weight(.semibold)
         static let uiBody = UIFont.TextStyle.body
-        static let uiCaption1 = UIFont.TextStyle.caption1
-        static let uiCaption2 = UIFont.TextStyle.caption2
-        static let uiHeadline = UIFont.TextStyle.headline
+        static let uiCaption = UIFont.TextStyle.caption1
+        static let uiTitle = UIFont.TextStyle.headline
         static let uiSubheadline = UIFont.TextStyle.subheadline
-        static let uiTitle2 = UIFont.TextStyle.title2
-        static let floatingIcon = Font.system(size: Primitives.FontSize.prominent, weight: .semibold)
-        static let floatingLabel = Font.system(size: Primitives.FontSize.prominent, weight: .bold, design: .rounded)
+        static let uiFootnote = UIFont.TextStyle.footnote
+        static let floatingIcon = Font.body.weight(.semibold)
+        static let floatingLabel = Font.system(.body, design: .rounded).weight(.bold)
+        static let webBodyCSS = "-apple-system-body"
     }
 
     enum Comment {

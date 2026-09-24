@@ -45,7 +45,7 @@ struct AppSMSVerificationSheet: View {
                         .keyboardType(.numberPad)
                         .textContentType(.oneTimeCode)
                         .multilineTextAlignment(.center)
-                        .font(AppDesignSystem.Typography.title2Monospaced)
+                        .font(AppDesignSystem.Typography.titleMonospaced)
                         .focused($isCodeFieldFocused)
                         .accessibilityLabel("短信验证码")
                         .disabled(isSubmitting)
@@ -126,7 +126,7 @@ struct AppSchoolSMSVerificationSheet: View {
                         .keyboardType(.numberPad)
                         .textContentType(.oneTimeCode)
                         .multilineTextAlignment(.center)
-                        .font(AppDesignSystem.Typography.title2Monospaced)
+                        .font(AppDesignSystem.Typography.titleMonospaced)
                         .focused($isCodeFieldFocused)
                         .accessibilityLabel("短信验证码")
                         .onChange(of: code) { _, newValue in

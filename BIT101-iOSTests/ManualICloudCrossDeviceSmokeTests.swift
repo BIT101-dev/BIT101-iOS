@@ -19,12 +19,9 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
         var token: String
         var account: String
         var stage: Stage
-        var originalAutoRotate: Bool
-        var phoneAutoRotate: Bool
         var phoneSyncWasEnabled: Bool
         var phoneScoreCount: Int?
         var phoneScoreUpdatedAt: Date?
-        var phoneSettingsUpdatedAt: Date?
     }
 
     private let cloud = NSUbiquitousKeyValueStore.default
@@ -37,7 +34,6 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
             return
         }
 
-        let original = AppSettingsStore.shared.autoRotate
         let scoreCount = ScoreCacheStore.loadRows()?.count
         let scoreUpdatedAt = ScoreCacheStore.loadUpdatedAt()
 
@@ -45,43 +41,25 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
             token: UUID().uuidString,
             account: account,
             stage: .preparing,
-            originalAutoRotate: original,
-            phoneAutoRotate: !original,
             phoneSyncWasEnabled: manager.isEnabled,
             phoneScoreCount: scoreCount,
-            phoneScoreUpdatedAt: scoreUpdatedAt,
-            phoneSettingsUpdatedAt: nil
+            phoneScoreUpdatedAt: scoreUpdatedAt
         )
         save(coordination)
 
-        let previousSettingsEnvelope: ExperimentalPreferenceSyncEnvelope<AppSettingsSyncPayload>? = remoteEnvelope(
-            account: account,
-            domain: .appSettings
-        )
-        let previousSettingsUpdatedAt = previousSettingsEnvelope?.updatedAt
-        var uploadedSettingsUpdatedAt: Date?
         manager.setEnabled(true)
-        AppSettingsStore.shared.setAutoRotate(coordination.phoneAutoRotate)
 
         let uploaded = await waitUntil {
             self.manager.refreshFromCloudIfNeeded()
-            let settings: ExperimentalPreferenceSyncEnvelope<AppSettingsSyncPayload>? =
-                self.remoteEnvelope(account: account, domain: .appSettings)
             let scores: ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload>? =
                 self.remoteEnvelope(account: account, domain: .scoreCache)
-            guard settings?.payload.autoRotate == coordination.phoneAutoRotate,
-                  settings?.updatedAt != previousSettingsUpdatedAt,
-                  let updatedAt = settings?.updatedAt
-            else { return false }
-            uploadedSettingsUpdatedAt = updatedAt
             return self.scoreSnapshotMatches(
                 scores,
                 expectedCount: coordination.phoneScoreCount,
                 expectedUpdatedAt: coordination.phoneScoreUpdatedAt
             )
         }
-        guard uploaded, let uploadedSettingsUpdatedAt else {
-            AppSettingsStore.shared.setAutoRotate(original)
+        guard uploaded else {
             manager.setEnabled(coordination.phoneSyncWasEnabled)
             removeCoordination(account: account)
             XCTFail("手机数据未在限定时间内上传到 iCloud KVS")
@@ -89,7 +67,6 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
         }
 
         coordination.stage = .phoneUploaded
-        coordination.phoneSettingsUpdatedAt = uploadedSettingsUpdatedAt
         save(coordination)
         let scoreDescription = coordination.phoneScoreCount.map { String($0) } ?? "skipped"
         print("ICLOUD_SMOKE_PHONE_UPLOADED token=\(coordination.token) scores=\(scoreDescription)")
@@ -127,29 +104,13 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
 
         let received = await waitUntil {
             self.manager.refreshFromCloudIfNeeded()
-            let settings: ExperimentalPreferenceSyncEnvelope<AppSettingsSyncPayload>? =
-                self.remoteEnvelope(account: coordination.account, domain: .appSettings)
-            return settings?.payload.autoRotate == coordination.phoneAutoRotate
-                && settings?.updatedAt == coordination.phoneSettingsUpdatedAt
-                && self.localScoreSnapshotMatches(
+            return self.localScoreSnapshotMatches(
                     expectedCount: coordination.phoneScoreCount,
                     expectedUpdatedAt: coordination.phoneScoreUpdatedAt
                 )
         }
         guard received else {
-            XCTFail("Mac 未收到手机上传的设置或成绩缓存")
-            manager.setEnabled(macSyncWasEnabled)
-            return
-        }
-
-        AppSettingsStore.shared.setAutoRotate(coordination.originalAutoRotate)
-        let restoredRemotely = await waitUntil {
-            let settings: ExperimentalPreferenceSyncEnvelope<AppSettingsSyncPayload>? =
-                self.remoteEnvelope(account: coordination.account, domain: .appSettings)
-            return settings?.payload.autoRotate == coordination.originalAutoRotate
-        }
-        guard restoredRemotely else {
-            XCTFail("Mac 恢复值未上传到 iCloud KVS")
+            XCTFail("Mac 未收到手机上传的成绩缓存")
             manager.setEnabled(macSyncWasEnabled)
             return
         }
@@ -167,8 +128,7 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
 
         let received = await waitUntil {
             self.manager.refreshFromCloudIfNeeded()
-            return AppSettingsStore.shared.autoRotate == coordination.originalAutoRotate
-                && self.localScoreSnapshotMatches(
+            return self.localScoreSnapshotMatches(
                     expectedCount: coordination.phoneScoreCount,
                     expectedUpdatedAt: coordination.phoneScoreUpdatedAt
                 )
@@ -176,7 +136,7 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
         guard received else {
             manager.setEnabled(coordination.phoneSyncWasEnabled)
             removeCoordination(account: coordination.account)
-            XCTFail("手机未收到 Mac 写回的设置或成绩缓存")
+            XCTFail("手机未收到 Mac 写回的成绩缓存")
             return
         }
 
@@ -202,18 +162,11 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
             && ScoreCacheStore.loadUpdatedAt() == expectedUpdatedAt
     }
 
-    /// 脚本异常退出后，测试在当前账号存在协调状态时恢复手机设置、实验开关并清除协调标记。
+    /// 脚本异常退出后，测试在当前账号存在协调状态时恢复实验开关并清除协调标记。
     func testCleanup() async {
         let account = ScheduleCacheStore.currentAccountIdentifier()
         guard let coordination = loadCoordination(account: account) else { return }
 
-        manager.setEnabled(true)
-        AppSettingsStore.shared.setAutoRotate(coordination.originalAutoRotate)
-        _ = await waitUntil(timeout: 10) {
-            let settings: ExperimentalPreferenceSyncEnvelope<AppSettingsSyncPayload>? =
-                self.remoteEnvelope(account: account, domain: .appSettings)
-            return settings?.payload.autoRotate == coordination.originalAutoRotate
-        }
         manager.setEnabled(coordination.phoneSyncWasEnabled)
         removeCoordination(account: account)
     }

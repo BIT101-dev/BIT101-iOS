@@ -55,7 +55,7 @@ struct ScheduleEntryDetailSheet: View {
                 } else {
                     Section {
                         Text(entry.title)
-                            .font(AppDesignSystem.Typography.headline)
+                            .font(AppDesignSystem.Typography.title)
                         if !entry.subtitle.isEmpty {
                             Text(entry.subtitle)
                                 .foregroundStyle(.secondary)

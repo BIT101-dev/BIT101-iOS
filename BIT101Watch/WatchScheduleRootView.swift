@@ -46,26 +46,26 @@ struct WatchScheduleRootView: View {
                             spacing: AppDesignSystem.Spacing.regular
                         ) {
                             Text(next.isCurrent(at: model.referenceDate) ? "正在上课" : "下一节")
-                                .font(.caption)
+                                .font(AppDesignSystem.External.Typography.caption)
                                 .foregroundStyle(.secondary)
 
                             Spacer(minLength: 0)
 
                             Text(next.relativeDayText(referenceDate: model.referenceDate))
-                                .font(.caption)
+                                .font(AppDesignSystem.External.Typography.caption)
                                 .foregroundStyle(.secondary)
                         }
 
                         Text(next.title)
-                            .font(.title2)
+                            .font(AppDesignSystem.External.Typography.title)
                             .lineLimit(2)
 
                         Text(next.rangeText)
-                            .font(.title2)
+                            .font(AppDesignSystem.External.Typography.title)
 
                         if !next.classroom.isEmpty {
                             Text(next.classroom)
-                                .font(.title2)
+                                .font(AppDesignSystem.External.Typography.title)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
@@ -76,7 +76,7 @@ struct WatchScheduleRootView: View {
                             .padding(.vertical, AppDesignSystem.Spacing.micro)
 
                         Text("后续课节")
-                            .font(.caption.weight(.semibold))
+                            .font(AppDesignSystem.External.Typography.captionEmphasis)
                             .foregroundStyle(.secondary)
 
                         ForEach(model.upcomingOccurrences.dropFirst()) { occurrence in
@@ -89,23 +89,23 @@ struct WatchScheduleRootView: View {
                                     spacing: AppDesignSystem.Spacing.regular
                                 ) {
                                     Text(occurrence.relativeDayText(referenceDate: model.referenceDate))
-                                        .font(.caption2.weight(.medium))
+                                        .font(AppDesignSystem.External.Typography.captionEmphasis)
                                         .foregroundStyle(.secondary)
 
                                     Spacer(minLength: AppDesignSystem.Spacing.tiny)
 
                                     Text(occurrence.rangeText)
-                                        .font(.caption2.weight(.medium))
+                                        .font(AppDesignSystem.External.Typography.captionEmphasis)
                                         .foregroundStyle(.secondary)
                                 }
 
                                 Text(occurrence.title)
-                                    .font(.subheadline.weight(.medium))
+                                    .font(AppDesignSystem.External.Typography.subheadlineEmphasis)
                                     .lineLimit(2)
 
                                 if !occurrence.classroom.isEmpty {
                                     Text(occurrence.classroom)
-                                        .font(.subheadline.weight(.medium))
+                                        .font(AppDesignSystem.External.Typography.subheadlineEmphasis)
                                         .lineLimit(1)
                                 }
                             }
@@ -145,7 +145,7 @@ struct WatchScheduleRootView: View {
     private var actionsPage: some View {
         VStack(spacing: AppDesignSystem.Spacing.content) {
             Text("操作")
-                .font(.headline)
+                .font(AppDesignSystem.External.Typography.title)
 
             Button(model.refreshButtonTitle) {
                 model.requestRefresh()
@@ -155,7 +155,7 @@ struct WatchScheduleRootView: View {
 
             if let feedbackText = model.refreshFeedbackText {
                 Text(feedbackText)
-                    .font(.caption)
+                    .font(AppDesignSystem.External.Typography.caption)
                     .foregroundStyle(.secondary)
             }
 
@@ -178,7 +178,7 @@ private struct WatchScheduleEmptyStateView: View {
     var body: some View {
         VStack(spacing: AppDesignSystem.Spacing.regular) {
             Text(message)
-                .font(.headline)
+                .font(AppDesignSystem.External.Typography.title)
                 .multilineTextAlignment(.center)
 
             if let actionTitle, let action {
@@ -189,7 +189,7 @@ private struct WatchScheduleEmptyStateView: View {
 
             if let feedbackText {
                 Text(feedbackText)
-                    .font(.caption)
+                    .font(AppDesignSystem.External.Typography.caption)
                     .foregroundStyle(.secondary)
             }
         }

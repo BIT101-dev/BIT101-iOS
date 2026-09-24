@@ -11,9 +11,49 @@ import SwiftUI
 
 /// 地图页用到的本地偏好键。
 ///
-/// 当前地图模块只持久化“用户上次停留在哪个校区”，避免每次打开都回到默认校区。
+/// 地图模块持久化用户上次选择的校区和地图图层。
 private enum MapPreferenceKey {
     static let selectedCampus = "map.selectedCampus"
+    static let displayMode = "map.displayMode"
+}
+
+private enum CampusMapDisplayMode: String {
+    case standard
+    case satellite
+
+    var title: String {
+        switch self {
+        case .standard:
+            return "常规地图"
+        case .satellite:
+            return "卫星图"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .standard:
+            return "map"
+        case .satellite:
+            return "globe.americas.fill"
+        }
+    }
+
+    var configuration: MKMapConfiguration {
+        switch self {
+        case .standard:
+            let configuration = MKStandardMapConfiguration()
+            configuration.pointOfInterestFilter = .excludingAll
+            configuration.showsTraffic = false
+            return configuration
+        case .satellite:
+            // 混合图层保留卫星影像，并叠加道路标注，兼容性高于纯影像图层。
+            let configuration = MKHybridMapConfiguration()
+            configuration.pointOfInterestFilter = .excludingAll
+            configuration.showsTraffic = false
+            return configuration
+        }
+    }
 }
 
 /// 校园地图主页面。
@@ -23,6 +63,7 @@ struct CampusMapScreen: View {
     @ObservedObject var scheduleViewModel: ScheduleViewModel
     let requestedLocation: CampusMapLocationRequest?
     @AppStorage(MapPreferenceKey.selectedCampus) private var selectedCampusID = CampusPreset.liangxiang.rawValue
+    @AppStorage(MapPreferenceKey.displayMode) private var storedDisplayMode = CampusMapDisplayMode.standard.rawValue
     @StateObject private var locationController = CampusLocationController()
     /// SwiftUI 发给地图桥接层的聚焦请求。
     @State private var focusRequest = MapFocusRequest(preset: .liangxiang, animated: false)
@@ -51,6 +92,8 @@ struct CampusMapScreen: View {
                 centerOnUserRequestID: centerOnUserRequestID,
                 nextCourseTarget: nextCourseTarget,
                 requestedLocation: activeRequestedLocation,
+                mapConfiguration: displayMode.configuration,
+                mapConfigurationID: displayMode.rawValue,
                 onLocationFailure: { error in
                     locationController.notice = MapNotice(
                         title: "定位失败",
@@ -61,6 +104,14 @@ struct CampusMapScreen: View {
             .ignoresSafeArea(edges: [.top, .bottom])
 
             AppFloatingActionStack {
+                AppFloatingActionButton(
+                    systemImage: displayMode.systemImage,
+                    accessibilityLabel: "切换地图图层"
+                ) {
+                    toggleDisplayMode()
+                }
+                .accessibilityValue(displayMode.title)
+
                 if let place = nextCourseTarget?.place {
                     AppFloatingActionButton(
                         systemImage: "arrow.triangle.turn.up.right.diamond.fill",
@@ -135,6 +186,12 @@ struct CampusMapScreen: View {
         focusRequest = MapFocusRequest(preset: preset, animated: animated)
     }
 
+    private func toggleDisplayMode() {
+        storedDisplayMode = displayMode == .standard
+            ? CampusMapDisplayMode.satellite.rawValue
+            : CampusMapDisplayMode.standard.rawValue
+    }
+
     /// 地图首次出现或课表缓存更新后，自动切换到下一节课所在校区。
     private func focusOnNextCourseIfPossible(animated: Bool) {
         guard let target = nextCourseTarget else {
@@ -172,6 +229,10 @@ struct CampusMapScreen: View {
     /// 当前持久化选中的校区。
     private var selectedCampus: CampusPreset {
         CampusPreset(rawValue: selectedCampusID) ?? .liangxiang
+    }
+
+    private var displayMode: CampusMapDisplayMode {
+        CampusMapDisplayMode(rawValue: storedDisplayMode) ?? .standard
     }
 
     /// 主课表中尚未开始的最近一节课程。

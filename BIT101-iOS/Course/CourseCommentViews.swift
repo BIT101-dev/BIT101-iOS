@@ -238,7 +238,7 @@ struct CourseCommentComposerSheet: View {
                                 ForEach(1 ... 5, id: \.self) { value in
                                     ZStack {
                                         Image(systemName: starSymbol(for: value))
-                                            .font(AppDesignSystem.Typography.title3)
+                                            .font(AppDesignSystem.Typography.title)
                                             .foregroundStyle(AppDesignSystem.Palette.highlight)
                                             .frame(width: AppDesignSystem.Size.Control.compact, height: AppDesignSystem.Size.Control.compact)
                                             .accessibilityHidden(true)

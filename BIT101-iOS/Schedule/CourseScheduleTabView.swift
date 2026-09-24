@@ -41,8 +41,6 @@ struct CourseScheduleTabView: View {
     @State var isShowingEditSchedule = false
     @State var isShowingCourseEditor = false
     @State var courseEditorMode: CourseEditorMode = .add
-    @State var settingsRoute: SettingsRoute?
-    @State var cardDisplayFeedbackToken = 0
     @State var isShowingScheduleImport = false
     @State var exportedSchedule: ScheduleCodePresentation?
     @State var courseSharePresentation: CourseSharePresentation?
@@ -125,7 +123,7 @@ struct CourseScheduleTabView: View {
                     }
 
                     // 学校尚未发布未来学期课表时，课程接口通常正常返回空数组。
-                    // 首周日期有效时，页面展示空课表网格和右下角操作按钮，周次浏览、设置以及
+                    // 首周日期有效时，页面展示空课表网格和右下角操作按钮，周次浏览以及
                     // 手动添加日程入口保持可用。
                     if let firstDay = activeSchedule.firstDay {
                         Section {
@@ -142,10 +140,6 @@ struct CourseScheduleTabView: View {
                                 currentWeek: resolvedCurrentWeek(firstDay: firstDay),
                                 showSaturday: viewModel.cache.showSaturday,
                                 showSunday: viewModel.cache.showSunday,
-                                showHighlightToday: viewModel.cache.showHighlightToday,
-                                showDivider: viewModel.cache.showDivider,
-                                showCurrentTime: viewModel.cache.showCurrentTime,
-                                showBorder: viewModel.cache.showBorder,
                                 onSelect: { entry in
                                     selectedEntry = entry
                                 },
@@ -187,9 +181,9 @@ struct CourseScheduleTabView: View {
                     } else {
                         Section {
                             VStack(spacing: AppDesignSystem.Spacing.section) {
-                                Text(activeSchedule.isPrimary ? "尚未设置学期起始日期" : "这份分享课表缺少起始日期")
-                                    .font(AppDesignSystem.Typography.headline)
-                                Text(activeSchedule.isPrimary ? "请先同步所选学期，或在课表设置中手动设置起始日期。" : "试试上下滑切换到别的课表，或重新导入一份分享课表。")
+                                Text(activeSchedule.isPrimary ? "课表尚未同步学期起始日期" : "分享课表缺少起始日期")
+                                    .font(AppDesignSystem.Typography.title)
+                                Text(activeSchedule.isPrimary ? "请先同步所选学期。" : "试试上下滑切换到别的课表，或重新导入一份分享课表。")
                                     .foregroundStyle(.secondary)
                                 if supportsEditingDisplayedSchedule {
                                     Button {
@@ -241,21 +235,6 @@ struct CourseScheduleTabView: View {
                         .accessibilityLabel("添加课表内容")
                     }
 
-                    Button {
-                        cardDisplayFeedbackToken &+= 1
-                        viewModel.toggleScheduleCardContentMode()
-                    } label: {
-                        CourseScheduleFABLabel(text: "名/地")
-                    }
-                    .buttonStyle(.plain)
-                    .tint(.primary)
-                    .appImpactFeedback(trigger: cardDisplayFeedbackToken)
-                    .accessibilityLabel(cardDisplayAccessibilityLabel)
-                    .accessibilityValue("名/地")
-
-                    CourseScheduleFAB(systemImage: "gearshape", accessibilityLabel: "课表设置") {
-                        settingsRoute = .calendar
-                    }
                 }
 
             }
@@ -571,11 +550,6 @@ struct CourseScheduleTabView: View {
                     try importScheduleCode(text)
                 }
             )
-        }
-        .sheet(item: $settingsRoute) { route in
-            NavigationStack {
-                SettingsRootView(initialRoute: route, studentID: "", onLogout: {}, showsCloseButton: true)
-            }
         }
         .diagnosticAlert(item: $courseShareAlert)
         .onChange(of: resetSignal) { _, _ in

@@ -87,11 +87,18 @@ struct GalleryAnimatedImage: UIViewRepresentable {
     let url: URL
     let isActive: Bool
     let contentMode: ContentMode
+    let cornerRadius: CGFloat
 
-    init(url: URL, isActive: Bool = true, contentMode: ContentMode = .fit) {
+    init(
+        url: URL,
+        isActive: Bool = true,
+        contentMode: ContentMode = .fit,
+        cornerRadius: CGFloat = 0
+    ) {
         self.url = url
         self.isActive = isActive
         self.contentMode = contentMode
+        self.cornerRadius = cornerRadius
     }
 
     func makeCoordinator() -> Coordinator {
@@ -101,12 +108,16 @@ struct GalleryAnimatedImage: UIViewRepresentable {
     func makeUIView(context: Context) -> UIImageView {
         let imageView = UIImageView()
         imageView.contentMode = contentMode == .fill ? .scaleAspectFill : .scaleAspectFit
+        imageView.isUserInteractionEnabled = false
         imageView.clipsToBounds = true
+        imageView.layer.cornerRadius = cornerRadius
         return imageView
     }
 
     func updateUIView(_ imageView: UIImageView, context: Context) {
         imageView.contentMode = contentMode == .fill ? .scaleAspectFill : .scaleAspectFit
+        imageView.isUserInteractionEnabled = false
+        imageView.layer.cornerRadius = cornerRadius
         if isActive {
             context.coordinator.load(url: url, into: imageView)
         } else {
@@ -168,10 +179,16 @@ struct GalleryAnimatedImage: UIViewRepresentable {
 struct GalleryAutoplayingImage: View {
     let url: URL
     var contentMode: ContentMode = .fit
+    var cornerRadius: CGFloat = 0
     @State private var isActive = false
 
     var body: some View {
-        GalleryAnimatedImage(url: url, isActive: isActive, contentMode: contentMode)
+        GalleryAnimatedImage(
+            url: url,
+            isActive: isActive,
+            contentMode: contentMode,
+            cornerRadius: cornerRadius
+        )
             .onAppear { isActive = true }
             .onDisappear { isActive = false }
     }

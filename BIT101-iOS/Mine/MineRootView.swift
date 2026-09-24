@@ -352,7 +352,7 @@ private struct MineProfileCard: View {
 
             HStack(spacing: AppDesignSystem.Spacing.regular) {
                 Text(info.user.nickname)
-                    .font(AppDesignSystem.Typography.title3Emphasis)
+                    .font(AppDesignSystem.Typography.titleEmphasis)
 
                 if !info.user.identity.text.isEmpty {
                     Text(info.user.identity.text)
@@ -444,11 +444,11 @@ private struct MineUserListView: View {
                                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
                                     HStack(spacing: AppDesignSystem.Spacing.tiny) {
                                         Text(user.nickname)
-                                            .font(AppDesignSystem.Typography.headline)
+                                            .font(AppDesignSystem.Typography.title)
 
                                         if !user.identity.text.isEmpty {
                                             Text(user.identity.text)
-                                                .font(AppDesignSystem.Typography.caption2Emphasis)
+                                                .font(AppDesignSystem.Typography.captionEmphasis)
                                                 .foregroundStyle(MineColorDecoder.color(from: user.identity.color) ?? AppDesignSystem.Palette.info)
                                         }
                                     }
@@ -658,7 +658,7 @@ private struct MineStatButton: View {
     private var content: some View {
         HStack(spacing: AppDesignSystem.Spacing.tiny) {
             Text(number)
-                .font(AppDesignSystem.Typography.headlineStrong)
+                .font(AppDesignSystem.Typography.titleEmphasis)
                 .foregroundStyle(.primary)
             Text(title)
                 .font(AppDesignSystem.Typography.subheadlineEmphasis)

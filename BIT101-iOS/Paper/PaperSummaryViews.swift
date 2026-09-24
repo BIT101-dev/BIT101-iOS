@@ -15,7 +15,7 @@ struct PaperSummaryCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
             Text(paper.title)
-                .font(AppDesignSystem.Typography.headline)
+                .font(AppDesignSystem.Typography.title)
                 .foregroundStyle(.primary)
                 .lineLimit(2)
 

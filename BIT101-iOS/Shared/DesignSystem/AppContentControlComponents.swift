@@ -40,7 +40,7 @@ struct AppNavigationRowLabel: View {
                 .accessibilityHidden(true)
 
             Text(title)
-                .font(AppDesignSystem.Typography.headline)
+                .font(AppDesignSystem.Typography.title)
                 .foregroundStyle(.primary)
 
             Spacer()
@@ -178,7 +178,7 @@ struct AppOrderedSearchBar<Order: Hashable, OrderContent: View>: View {
                 onClear()
             } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .font(AppDesignSystem.Typography.title3)
+                    .font(AppDesignSystem.Typography.title)
                     .foregroundStyle(AppDesignSystem.Palette.highlight)
                     .frame(
                         width: AppDesignSystem.Size.Control.touchTarget,

@@ -41,12 +41,23 @@ enum ScheduleDisplayMode: String, CaseIterable, Codable, Identifiable {
 }
 
 /// 课程卡片在“名称”和“地点”之间切换的内容模式。
-enum ScheduleCardContentMode: String, Codable, Identifiable {
+enum ScheduleCardContentMode: String, CaseIterable, Codable, Identifiable {
     case nameAndLocation
     case name
     case location
 
     var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .nameAndLocation:
+            return "名称和地点"
+        case .name:
+            return "名称"
+        case .location:
+            return "地点"
+        }
+    }
 }
 
 /// 课表纵轴的时间表达方式。

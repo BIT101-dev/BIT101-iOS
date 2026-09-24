@@ -117,7 +117,7 @@ struct CourseDetailView: View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
             HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
                 Text(viewModel.resolvedName)
-                    .font(AppDesignSystem.Typography.title3Emphasis)
+                    .font(AppDesignSystem.Typography.titleEmphasis)
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -126,7 +126,7 @@ struct CourseDetailView: View {
                         composerTarget = .course(courseID: initialCourse.id)
                     } label: {
                         Image(systemName: "bubble.right")
-                            .font(AppDesignSystem.Typography.headline)
+                            .font(AppDesignSystem.Typography.title)
                             .foregroundStyle(.primary)
                     }
 
@@ -143,7 +143,7 @@ struct CourseDetailView: View {
                                     .controlSize(.small)
                             } else {
                                 Image(systemName: viewModel.isCourseLiked ? "hand.thumbsup.fill" : "hand.thumbsup")
-                                    .font(AppDesignSystem.Typography.headline)
+                                    .font(AppDesignSystem.Typography.title)
                             }
                         }
                         .foregroundStyle(viewModel.isCourseLiked ? AppDesignSystem.Palette.highlight : Color.primary)
@@ -218,7 +218,7 @@ private struct CourseResourceCard: View {
         AppCard(variant: .secondaryGrouped) {
             HStack(spacing: AppDesignSystem.Spacing.regular) {
                 Image(systemName: systemImage)
-                    .font(AppDesignSystem.Typography.headline)
+                    .font(AppDesignSystem.Typography.title)
                     .foregroundStyle(AppDesignSystem.Palette.highlight)
                     .frame(
                         width: AppDesignSystem.Size.Control.detailActionButton,

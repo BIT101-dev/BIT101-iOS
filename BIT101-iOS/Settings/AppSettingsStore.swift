@@ -7,7 +7,6 @@
 
 import Combine
 import Foundation
-import SwiftUI
 
 extension Notification.Name {
     /// 登录存储变化通知。
@@ -16,45 +15,10 @@ extension Notification.Name {
     static let loginStorageDidChange = Notification.Name("BIT101.LoginStorageDidChange")
 }
 
-/// 应用层主题模式。
-///
-/// 持久化层使用这个主题枚举；`colorScheme` 提供 SwiftUI 的 `ColorScheme` 映射。
-/// 枚举使用 `String` 原始值和 `Codable`，可安全存入 `UserDefaults`，`system` 保留“跟随系统”语义。
-enum AppThemeMode: String, CaseIterable, Identifiable, Codable {
-    case system
-    case light
-    case dark
-
-    /// 供 `Picker` 和持久化使用的稳定标识。
-    var id: String { rawValue }
-
-    /// 设置页展示的主题标题。
-    var title: String {
-        switch self {
-        case .system: return "跟随系统"
-        case .light: return "浅色"
-        case .dark: return "深色"
-        }
-    }
-
-    /// 对应 SwiftUI 使用的 `ColorScheme`。
-    var colorScheme: ColorScheme? {
-        switch self {
-        case .system: return nil
-        case .light: return .light
-        case .dark: return .dark
-        }
-    }
-}
-
 /// 持久化到 `UserDefaults` 的设置快照。
 ///
 /// 设置快照统一承接 UI 层的修改、读写、账号隔离和默认值。
 struct AppSettingsSnapshot: Codable, Equatable {
-    /// 用户主动指定的主题模式。
-    var themeMode: AppThemeMode = .system
-    /// 是否允许界面自动旋转。
-    var autoRotate = false
     /// 普通帖子页面按开关隐藏机器人帖子，机器人分栏保持显示。
     var galleryHideBotPosterInSearch = true
     /// 话廊普通内容中需要隐藏的用户 UID。
@@ -71,8 +35,6 @@ struct AppSettingsSnapshot: Codable, Equatable {
     var hasShownLinuxDoThanksNotice = false
 
     enum CodingKeys: String, CodingKey {
-        case themeMode
-        case autoRotate
         case galleryHideBotPosterInSearch
         case galleryHiddenUserIDs
         case galleryHideAnonymousContent = "galleryStrictUserFilter"
@@ -86,8 +48,6 @@ struct AppSettingsSnapshot: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        themeMode = (try? container.decode(AppThemeMode.self, forKey: .themeMode)) ?? .system
-        autoRotate = try container.decodeIfPresent(Bool.self, forKey: .autoRotate) ?? false
         galleryHideBotPosterInSearch = try container.decodeIfPresent(Bool.self, forKey: .galleryHideBotPosterInSearch) ?? true
         galleryHiddenUserIDs = try container.decodeIfPresent([Int].self, forKey: .galleryHiddenUserIDs) ?? []
         galleryHideAnonymousContent = try container.decodeIfPresent(Bool.self, forKey: .galleryHideAnonymousContent) ?? false
@@ -100,16 +60,12 @@ struct AppSettingsSnapshot: Codable, Equatable {
 
 /// 同步载荷包含用户偏好字段；首次打开时间和一次性提示状态保留在本机。
 struct AppSettingsSyncPayload: Codable, Equatable {
-    var themeMode: AppThemeMode
-    var autoRotate: Bool
     var galleryHideBotPosterInSearch: Bool
     var galleryHiddenUserIDs: [Int]
     var galleryHideAnonymousContent: Bool
     var galleryUseWebView: Bool
 
     enum CodingKeys: String, CodingKey {
-        case themeMode
-        case autoRotate
         case galleryHideBotPosterInSearch
         case galleryHiddenUserIDs
         case galleryHideAnonymousContent = "galleryStrictUserFilter"
@@ -117,8 +73,6 @@ struct AppSettingsSyncPayload: Codable, Equatable {
     }
 
     init(snapshot: AppSettingsSnapshot) {
-        themeMode = snapshot.themeMode
-        autoRotate = snapshot.autoRotate
         galleryHideBotPosterInSearch = snapshot.galleryHideBotPosterInSearch
         galleryHiddenUserIDs = snapshot.galleryHiddenUserIDs
         galleryHideAnonymousContent = snapshot.galleryHideAnonymousContent
@@ -127,8 +81,6 @@ struct AppSettingsSyncPayload: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        themeMode = (try? container.decode(AppThemeMode.self, forKey: .themeMode)) ?? .system
-        autoRotate = try container.decodeIfPresent(Bool.self, forKey: .autoRotate) ?? false
         galleryHideBotPosterInSearch = try container.decodeIfPresent(Bool.self, forKey: .galleryHideBotPosterInSearch) ?? true
         galleryHiddenUserIDs = try container.decodeIfPresent([Int].self, forKey: .galleryHiddenUserIDs) ?? []
         galleryHideAnonymousContent = try container.decodeIfPresent(Bool.self, forKey: .galleryHideAnonymousContent) ?? false
@@ -139,7 +91,7 @@ struct AppSettingsSyncPayload: Codable, Equatable {
 @MainActor
 /// 应用设置仓库。
 ///
-/// 当前账号的主题、账号偏好和话廊筛选偏好都会统一写入这里，再由具体页面按需读取。
+/// 当前账号的账号偏好和话廊筛选偏好都会统一写入这里，再由具体页面按需读取。
 final class AppSettingsStore: ObservableObject {
     static let shared = AppSettingsStore()
     /// 各账号设置快照在 `UserDefaults` 中使用的 key 前缀。
@@ -192,8 +144,6 @@ final class AppSettingsStore: ObservableObject {
     }
 
     /// 以下计算属性为视图层提供读取入口；设置方法集中处理 snapshot 写入。
-    var themeMode: AppThemeMode { snapshot.themeMode }
-    var autoRotate: Bool { snapshot.autoRotate }
     var galleryHideBotPosterInSearch: Bool { snapshot.galleryHideBotPosterInSearch }
     var galleryHiddenUserIDs: [Int] { snapshot.galleryHiddenUserIDs }
     var galleryHideAnonymousContent: Bool { snapshot.galleryHideAnonymousContent }
@@ -216,19 +166,6 @@ final class AppSettingsStore: ObservableObject {
             to: firstOpenDate
         ) ?? firstOpenDate
         return Date() >= dueDate
-    }
-
-    /// 修改固定主题模式。
-    func setThemeMode(_ mode: AppThemeMode) {
-        snapshot.themeMode = mode
-        save(syncPreferences: true)
-    }
-
-    /// 修改自动旋转开关。
-    func setAutoRotate(_ enabled: Bool) {
-        snapshot.autoRotate = enabled
-        save(syncPreferences: true)
-        AppOrientationController.applyPreference(autoRotate: enabled)
     }
 
     /// 修改普通帖子页面中的机器人帖子隐藏开关。
@@ -292,14 +229,11 @@ final class AppSettingsStore: ObservableObject {
 
     /// 应用来自 iCloud 的用户偏好，并保留当前设备的一次性提示状态。
     func applySyncedPreferences(_ payload: AppSettingsSyncPayload) {
-        snapshot.themeMode = payload.themeMode
-        snapshot.autoRotate = payload.autoRotate
         snapshot.galleryHideBotPosterInSearch = payload.galleryHideBotPosterInSearch
         snapshot.galleryHiddenUserIDs = Self.normalizedGalleryHiddenUserIDs(payload.galleryHiddenUserIDs)
         snapshot.galleryHideAnonymousContent = payload.galleryHideAnonymousContent
         snapshot.galleryUseWebView = payload.galleryUseWebView
         save()
-        AppOrientationController.applyPreference(autoRotate: snapshot.autoRotate)
     }
 
     /// 从 `UserDefaults` 加载设置快照。
@@ -316,7 +250,6 @@ final class AppSettingsStore: ObservableObject {
             self.snapshot.firstOpenDate = Date()
             defaults.set(true, forKey: galleryBotFilterDefaultMigrationKey)
             save()
-            AppOrientationController.applyPreference(autoRotate: self.snapshot.autoRotate)
             return
         }
         self.snapshot = snapshot
@@ -334,7 +267,6 @@ final class AppSettingsStore: ObservableObject {
             self.snapshot.firstOpenDate = Date()
             save()
         }
-        AppOrientationController.applyPreference(autoRotate: self.snapshot.autoRotate)
     }
 
     /// 读取当前账号的历史成绩筛选偏好；首次使用时默认开启并立即持久化。

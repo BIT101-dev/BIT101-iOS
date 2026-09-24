@@ -1,13 +1,12 @@
 import SwiftUI
 
 extension CourseScheduleTabView {
-    /// 收起课表分栏当前打开的抽屉和设置页。
+    /// 收起课表分栏当前打开的抽屉。
     ///
     /// 这里保留当前分栏实例，直接走各个 sheet 的正常关闭路径；系统复用原生下滑关闭动画，
     /// 关闭过程保持连续。
     func dismissPresentedSheets() {
         selectedEntry = nil
-        settingsRoute = nil
         isShowingEditSchedule = false
         isShowingCourseEditor = false
         isShowingScheduleImport = false
@@ -24,17 +23,6 @@ extension CourseScheduleTabView {
         let lowerBound = min(-12, min(viewModel.selectedWeek, courseWeeks.min() ?? -12))
         let upperBound = max(20, max(viewModel.selectedWeek, courseWeeks.max() ?? 20))
         return Array(lowerBound ... upperBound).filter { $0 != 0 }
-    }
-
-    var cardDisplayAccessibilityLabel: String {
-        switch viewModel.cache.scheduleCardContentMode {
-        case .nameAndLocation:
-            return "显示课程名称和地点"
-        case .name:
-            return "显示课程名称"
-        case .location:
-            return "显示课程地点"
-        }
     }
 
     func preferredCourseWeek(from weeks: [Int]) -> Int {

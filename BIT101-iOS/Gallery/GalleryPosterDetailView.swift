@@ -38,7 +38,7 @@ struct GalleryPosterDetailView: View {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.section) {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                     Text(viewModel.poster.title)
-                        .font(AppDesignSystem.Typography.title2Emphasis)
+                        .font(AppDesignSystem.Typography.titleEmphasis)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     HStack(spacing: AppDesignSystem.Spacing.content) {
@@ -60,7 +60,7 @@ struct GalleryPosterDetailView: View {
                                 composerTarget = .poster(posterID: viewModel.poster.id)
                             } label: {
                                 Image(systemName: "bubble.right")
-                                    .font(AppDesignSystem.Typography.headline)
+                                    .font(AppDesignSystem.Typography.title)
                                     .foregroundStyle(.primary)
                             }
 
@@ -77,7 +77,7 @@ struct GalleryPosterDetailView: View {
                                             .controlSize(.small)
                                     } else {
                                         Image(systemName: viewModel.poster.like ? "hand.thumbsup.fill" : "hand.thumbsup")
-                                            .font(AppDesignSystem.Typography.headline)
+                                            .font(AppDesignSystem.Typography.title)
                                     }
                                 }
                                 .foregroundStyle(viewModel.poster.like ? AppDesignSystem.Palette.highlight : Color.primary)
@@ -301,7 +301,10 @@ struct GalleryPosterDetailView: View {
 
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
                 Text(posterDisplayName)
-                    .font(AppDesignSystem.Typography.headline)
+                    .font(AppDesignSystem.Typography.title)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: AppDesignSystem.Spacing.regular) {
                     Text(AppDateText.relativeText(from: viewModel.poster.editTime, fallback: "未知时间"))
                     if !viewModel.poster.public {

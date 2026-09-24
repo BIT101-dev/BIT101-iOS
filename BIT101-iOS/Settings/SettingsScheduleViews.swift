@@ -34,10 +34,7 @@ struct CalendarSettingsPage: View {
     @AppStorage("schedule.calendar.axisMode") private var storedCalendarAxisMode = ScheduleCalendarAxisMode.quantized.rawValue
     @State private var isShowingTimeTableEditor = false
     @State private var timeTableText = ""
-    @State private var isShowingCustomSchedules = false
     @State private var isShowingLiveActivityLeadMinutesPicker = false
-    @State private var isShowingFirstDayEditor = false
-    @State private var firstDayDraft = Date()
     @State private var isShowingEmptyScheduleExportConfirmation = false
     @State private var isShowingSharedScheduleImportGuide = false
     @State private var isShowingLiveActivityExperimentalWarning = false
@@ -83,34 +80,9 @@ struct CalendarSettingsPage: View {
                         .foregroundStyle(.tint)
                 }
             }
-            Button {
-                firstDayDraft = viewModel.cache.firstDay ?? Date()
-                isShowingFirstDayEditor = true
-            } label: {
-                LabeledContent("学期起始日期", value: viewModel.firstDayDescription)
-                    .foregroundStyle(.primary)
-            }
-
-            Button {
-                Task { await viewModel.syncSelectedTerm() }
-            } label: {
-                HStack(spacing: AppDesignSystem.Spacing.regular) {
-                    Text("重新同步课表与考试")
-                    Spacer()
-                    if viewModel.isSyncingCourses {
-                        ProgressView()
-                    }
-                }
-            }
-            .disabled(viewModel.isSyncingCourses || viewModel.isLoadingTerms)
-
             Button("时间表") {
                 timeTableText = viewModel.cache.timeTable.map { "\($0.start), \($0.end)" }.joined(separator: "\n")
                 isShowingTimeTableEditor = true
-            }
-
-            Button("自定义日程") {
-                isShowingCustomSchedules = true
             }
 
             Button("分享课表") {
@@ -194,18 +166,22 @@ struct CalendarSettingsPage: View {
                     .foregroundStyle(.tint)
             }
             .appSelectionFeedback(trigger: viewModel.cache.scheduleDisplayMode)
+            Picker(selection: Binding(
+                get: { viewModel.cache.scheduleCardContentMode },
+                set: { viewModel.setScheduleCardContentMode($0) }
+            )) {
+                ForEach(ScheduleCardContentMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            } label: {
+                Text("显示内容")
+                    .foregroundStyle(.tint)
+            }
+            .appSelectionFeedback(trigger: viewModel.cache.scheduleCardContentMode)
             Toggle("显示周六", isOn: Binding(get: { viewModel.cache.showSaturday }, set: viewModel.setShowSaturday))
                 .appSelectionFeedback(trigger: viewModel.cache.showSaturday)
             Toggle("显示周日", isOn: Binding(get: { viewModel.cache.showSunday }, set: viewModel.setShowSunday))
                 .appSelectionFeedback(trigger: viewModel.cache.showSunday)
-            Toggle("显示课程卡片边框", isOn: Binding(get: { viewModel.cache.showBorder }, set: viewModel.setShowBorder))
-                .appSelectionFeedback(trigger: viewModel.cache.showBorder)
-            Toggle("高亮今日", isOn: Binding(get: { viewModel.cache.showHighlightToday }, set: viewModel.setShowHighlightToday))
-                .appSelectionFeedback(trigger: viewModel.cache.showHighlightToday)
-            Toggle("显示节次分割线", isOn: Binding(get: { viewModel.cache.showDivider }, set: viewModel.setShowDivider))
-                .appSelectionFeedback(trigger: viewModel.cache.showDivider)
-            Toggle("显示当前时间线", isOn: Binding(get: { viewModel.cache.showCurrentTime }, set: viewModel.setShowCurrentTime))
-                .appSelectionFeedback(trigger: viewModel.cache.showCurrentTime)
             Toggle("显示考试安排", isOn: Binding(get: { viewModel.cache.showExamInfo }, set: viewModel.setShowExamInfo))
                 .appSelectionFeedback(trigger: viewModel.cache.showExamInfo)
             Toggle("显示灵动岛提醒（实验性）", isOn: Binding(
@@ -239,24 +215,12 @@ struct CalendarSettingsPage: View {
         }
     }
 
-    @ViewBuilder
-    private var helpSection: some View {
-        if appSettings.hasSeenSharedScheduleImportGuide {
-            Section("帮助") {
-                Button("重新观看提示") {
-                    presentImportGuideIfNeeded(openImportAfterGuide: false, forceShow: true)
-                }
-            }
-        }
-    }
-
     var body: some View {
         List {
             dataSettingsSection
             scheduleNamesSection
             displaySettingsSection
             iCloudSyncSection
-            helpSection
         }
         .appGroupedListStyle()
         .task {
@@ -278,9 +242,6 @@ struct CalendarSettingsPage: View {
                 }
             )
         }
-        .sheet(isPresented: $isShowingCustomSchedules) {
-            CustomScheduleListSheet(viewModel: viewModel)
-        }
         .sheet(isPresented: $isShowingLiveActivityLeadMinutesPicker) {
             NavigationStack {
                 CourseLiveActivityLeadMinutesPickerPage(
@@ -289,14 +250,6 @@ struct CalendarSettingsPage: View {
                         set: viewModel.setCourseLiveActivityLeadMinutes
                     )
                 )
-            }
-        }
-        .sheet(isPresented: $isShowingFirstDayEditor) {
-            NavigationStack {
-                ScheduleFirstDayEditorPage(date: $firstDayDraft) {
-                    viewModel.setFirstDay(firstDayDraft)
-                    isShowingFirstDayEditor = false
-                }
             }
         }
         .sheet(item: $exportedScheduleCode) { payload in
@@ -474,11 +427,11 @@ struct CalendarSettingsPage: View {
         }
     }
 
-    /// 导入前展示一次使用提示；用户确认后，设置页显示“重新观看提示”入口。
-    private func presentImportGuideIfNeeded(openImportAfterGuide: Bool, forceShow: Bool = false) {
+    /// 导入前展示一次使用提示。
+    private func presentImportGuideIfNeeded(openImportAfterGuide: Bool) {
         shouldOpenImportSheetAfterGuide = openImportAfterGuide
 
-        if forceShow || !appSettings.hasSeenSharedScheduleImportGuide {
+        if !appSettings.hasSeenSharedScheduleImportGuide {
             isShowingSharedScheduleImportGuide = true
         } else if openImportAfterGuide {
             importSheetPresentation = ImportSheetPresentation()

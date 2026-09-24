@@ -26,7 +26,7 @@ struct PaperDetailView: View {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.section) {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                     Text(viewModel.paper?.title ?? initialPaper.title)
-                        .font(AppDesignSystem.Typography.title2Emphasis)
+                        .font(AppDesignSystem.Typography.titleEmphasis)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .accessibilityAddTraits(.isHeader)
 
@@ -47,7 +47,7 @@ struct PaperDetailView: View {
                                 composerTarget = .paper(paperID: initialPaper.id)
                             } label: {
                                 Image(systemName: "bubble.right")
-                                    .font(AppDesignSystem.Typography.headline)
+                                    .font(AppDesignSystem.Typography.title)
                                     .foregroundStyle(.primary)
                             }
 
@@ -62,7 +62,7 @@ struct PaperDetailView: View {
                                             .controlSize(.small)
                                     } else {
                                         Image(systemName: (viewModel.paper?.like ?? false) ? "hand.thumbsup.fill" : "hand.thumbsup")
-                                            .font(AppDesignSystem.Typography.headline)
+                                            .font(AppDesignSystem.Typography.title)
                                     }
                                 }
                                 .foregroundStyle((viewModel.paper?.like ?? false) ? AppDesignSystem.Palette.highlight : Color.primary)
@@ -383,7 +383,7 @@ private struct PaperContentBlockView: View {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                     PaperRichTextView(text: text, textStyle: AppDesignSystem.Typography.uiBody, textColor: .label)
                 if let caption, containsVisibleText(caption) {
-                    PaperRichTextView(text: caption, textStyle: AppDesignSystem.Typography.uiCaption1, textColor: .secondaryLabel)
+                    PaperRichTextView(text: caption, textStyle: AppDesignSystem.Typography.uiCaption, textColor: .secondaryLabel)
                 }
             }
             .padding(.leading, AppDesignSystem.Spacing.content)
@@ -413,7 +413,7 @@ private struct PaperContentBlockView: View {
                     .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
 
                     if let caption = image.caption, containsVisibleText(caption) {
-                        PaperRichTextView(text: caption, textStyle: AppDesignSystem.Typography.uiCaption1, textColor: .secondaryLabel)
+                        PaperRichTextView(text: caption, textStyle: AppDesignSystem.Typography.uiCaption, textColor: .secondaryLabel)
                     }
                 }
             }
@@ -432,9 +432,9 @@ private struct PaperContentBlockView: View {
     private func headerTextStyle(for level: Int) -> UIFont.TextStyle {
         switch level {
         case 1:
-            return AppDesignSystem.Typography.uiTitle2
+            return AppDesignSystem.Typography.uiTitle
         case 2:
-            return AppDesignSystem.Typography.uiHeadline
+            return AppDesignSystem.Typography.uiTitle
         case 3:
             return AppDesignSystem.Typography.uiSubheadline
         default:

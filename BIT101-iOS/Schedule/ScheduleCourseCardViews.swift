@@ -11,7 +11,7 @@ struct CourseScheduleBlockView: View {
             title: entry.title,
             location: entry.subtitle,
             contentMode: contentMode,
-            textStyle: AppDesignSystem.Typography.uiCaption2,
+            textStyle: AppDesignSystem.Typography.uiCaption,
             textColor: uiTextColor
         )
         .padding(AppDesignSystem.Spacing.micro)
@@ -89,7 +89,7 @@ struct ScheduleCardTextView: UIViewRepresentable {
         private var title = ""
         private var location = ""
         private var scheduleContentMode = ScheduleCardContentMode.nameAndLocation
-        private var baseFont = UIFont.preferredFont(forTextStyle: AppDesignSystem.Typography.uiCaption2)
+        private var baseFont = UIFont.preferredFont(forTextStyle: AppDesignSystem.Typography.uiCaption)
 
         override init(frame: CGRect) {
             super.init(frame: frame)
@@ -140,7 +140,11 @@ struct ScheduleCardTextView: UIViewRepresentable {
                 hideLocation()
             case .location:
                 hideTitle()
-                layoutLocation(text: location.isEmpty ? title : location, in: bounds)
+                layoutLocation(
+                    text: location.isEmpty ? title : location,
+                    in: bounds,
+                    verticallyCentered: true
+                )
             case .nameAndLocation:
                 layoutCombined()
             }
@@ -204,17 +208,24 @@ struct ScheduleCardTextView: UIViewRepresentable {
             return height
         }
 
-        private func layoutLocation(text: String, in rect: CGRect) {
+        private func layoutLocation(
+            text: String,
+            in rect: CGRect,
+            verticallyCentered: Bool = false
+        ) {
             guard !text.isEmpty else {
                 hideLocation()
                 return
             }
+            locationLabel.textAlignment = .center
             let font = fittingFont(text: text, width: rect.width, maximumHeight: rect.height)
             configureLocationLabel(text: text, font: font)
             let height = min(measuredHeight(text: text, font: font, width: rect.width), rect.height)
             locationLabel.frame = CGRect(
                 x: rect.minX,
-                y: rect.maxY - height,
+                y: verticallyCentered
+                    ? rect.minY + max((rect.height - height) / 2, 0)
+                    : rect.maxY - height,
                 width: rect.width,
                 height: height
             )
@@ -271,14 +282,13 @@ struct ScheduleCardTextView: UIViewRepresentable {
 
 struct CourseScheduleBackgroundView: View {
     let entry: ScheduleCalendarEntry
-    let showBorder: Bool
 
     var body: some View {
         AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.small)
             .fill(backgroundColor)
             .opacity(entry.kind == .course || entry.backgroundLayers.count <= 1 ? 1 : 0.5)
             .overlay {
-                if showBorder, entry.kind != .course {
+                if entry.kind != .course {
                     AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.small)
                         .strokeBorder(borderColor, lineWidth: AppDesignSystem.Schedule.Grid.courseBorderWidth)
                 }

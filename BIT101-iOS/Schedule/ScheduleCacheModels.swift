@@ -48,10 +48,6 @@ nonisolated struct ScheduleCache: Codable {
     var isClassroomSectionFilterCustomized = false
     var showSaturday = true
     var showSunday = true
-    var showBorder = true
-    var showHighlightToday = true
-    var showDivider = true
-    var showCurrentTime = true
     var showExamInfo = true
     var scheduleDisplayMode: ScheduleDisplayMode = .weekly
     var scheduleCardContentMode: ScheduleCardContentMode = .nameAndLocation
@@ -94,10 +90,6 @@ nonisolated struct ScheduleCache: Codable {
         case isClassroomSectionFilterCustomized
         case showSaturday
         case showSunday
-        case showBorder
-        case showHighlightToday
-        case showDivider
-        case showCurrentTime
         case showExamInfo
         case scheduleDisplayMode
         case scheduleCardContentMode = "scheduleCardContentModeV2"
@@ -168,10 +160,6 @@ nonisolated struct ScheduleCache: Codable {
         ) ?? !selectedClassroomSectionIDs.isEmpty
         showSaturday = try container.decodeIfPresent(Bool.self, forKey: .showSaturday) ?? true
         showSunday = try container.decodeIfPresent(Bool.self, forKey: .showSunday) ?? true
-        showBorder = try container.decodeIfPresent(Bool.self, forKey: .showBorder) ?? true
-        showHighlightToday = try container.decodeIfPresent(Bool.self, forKey: .showHighlightToday) ?? true
-        showDivider = try container.decodeIfPresent(Bool.self, forKey: .showDivider) ?? true
-        showCurrentTime = try container.decodeIfPresent(Bool.self, forKey: .showCurrentTime) ?? true
         showExamInfo = try container.decodeIfPresent(Bool.self, forKey: .showExamInfo) ?? true
         scheduleDisplayMode = try container.decodeIfPresent(ScheduleDisplayMode.self, forKey: .scheduleDisplayMode) ?? .weekly
         // V2 使用独立存储键，早期开发版的两态实验值按默认值处理，默认显示名称+地点。

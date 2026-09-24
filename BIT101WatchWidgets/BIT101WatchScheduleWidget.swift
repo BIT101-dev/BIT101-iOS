@@ -217,19 +217,19 @@ private struct WatchScheduleCircularView: View {
         if let summary = entry.displaySummary {
             VStack(spacing: AppDesignSystem.Spacing.micro) {
                 Text(summary.location.maxBuilding)
-                    .font(.system(size: AppDesignSystem.Primitives.FontSize.emphasis, weight: .semibold, design: .rounded))
+                    .font(AppDesignSystem.External.Typography.footnoteEmphasis)
                     .lineLimit(1)
                     .minimumScaleFactor(AppDesignSystem.External.Scale.watchCircularBuilding)
 
                 Text(summary.location.room ?? " ")
-                    .font(.system(size: AppDesignSystem.Primitives.FontSize.prominent, weight: .bold, design: .rounded))
+                    .font(AppDesignSystem.External.Typography.bodyEmphasis)
                     .lineLimit(1)
                     .minimumScaleFactor(AppDesignSystem.External.Scale.watchCircularRoom)
             }
             .multilineTextAlignment(.center)
         } else {
             Text(entry.status.circularText)
-                .font(.system(size: AppDesignSystem.Primitives.FontSize.emphasis, weight: .semibold, design: .rounded))
+                .font(AppDesignSystem.External.Typography.footnoteEmphasis)
                 .multilineTextAlignment(.center)
         }
     }
@@ -241,7 +241,7 @@ private struct WatchScheduleCornerView: View {
     var body: some View {
         if let summary = entry.displaySummary {
             Text(summary.location.maxText)
-                .font(.system(size: AppDesignSystem.Primitives.FontSize.emphasis, weight: .semibold, design: .rounded))
+                .font(AppDesignSystem.External.Typography.footnoteEmphasis)
                 .lineLimit(1)
                 .minimumScaleFactor(AppDesignSystem.External.Scale.watchCircularRoom)
                 .widgetCurvesContent()
@@ -250,7 +250,7 @@ private struct WatchScheduleCornerView: View {
                 }
         } else {
             Text(entry.status.cornerText)
-                .font(.system(size: AppDesignSystem.Primitives.FontSize.emphasis, weight: .semibold, design: .rounded))
+                .font(AppDesignSystem.External.Typography.footnoteEmphasis)
                 .lineLimit(1)
                 .minimumScaleFactor(AppDesignSystem.External.Scale.watchCornerStatus)
         }
@@ -277,31 +277,31 @@ private struct WatchScheduleRectangularView: View {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                 HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.regular) {
                     Text("下一节")
-                        .font(.caption)
+                        .font(AppDesignSystem.External.Typography.caption)
                         .foregroundStyle(.secondary)
 
                     Spacer(minLength: 0)
 
                     Text(summary.dateText)
-                        .font(.caption)
+                        .font(AppDesignSystem.External.Typography.caption)
                         .foregroundStyle(.tertiary)
                 }
 
                 Text(summary.courseTitle.isEmpty ? summary.location.lightText : summary.courseTitle)
-                    .font(.headline.weight(.semibold))
+                    .font(AppDesignSystem.External.Typography.titleEmphasis)
                     .lineLimit(1)
                     .minimumScaleFactor(AppDesignSystem.External.Scale.watchRectangular)
 
                 HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.regular) {
                     Text(summary.rangeText)
-                        .font(.headline.weight(.semibold))
+                        .font(AppDesignSystem.External.Typography.titleEmphasis)
                         .lineLimit(1)
                         .minimumScaleFactor(AppDesignSystem.External.Scale.watchRectangular)
 
                     Spacer(minLength: AppDesignSystem.Spacing.tiny)
 
                     Text(summary.location.lightText)
-                        .font(.headline.weight(.semibold))
+                        .font(AppDesignSystem.External.Typography.titleEmphasis)
                         .lineLimit(1)
                         .minimumScaleFactor(AppDesignSystem.External.Scale.watchRectangular)
                 }
@@ -309,11 +309,11 @@ private struct WatchScheduleRectangularView: View {
         } else {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                 Text(entry.message ?? watchScheduleWidgetRestMessage)
-                    .font(.headline)
+                    .font(AppDesignSystem.External.Typography.title)
                     .fixedSize(horizontal: false, vertical: true)
                 if case .sync = entry.status {
                     Text("先打开手机 App。")
-                        .font(.caption)
+                        .font(AppDesignSystem.External.Typography.caption)
                         .foregroundStyle(.secondary)
                 }
             }

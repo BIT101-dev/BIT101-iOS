@@ -16,7 +16,6 @@ struct DDLScheduleTabView: View {
     @State private var draft = DDLDraft()
     @State private var editingEventID: String?
     @State private var isShowingEditor = false
-    @State private var settingsRoute: SettingsRoute?
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -44,10 +43,10 @@ struct DDLScheduleTabView: View {
                             message: viewModel.hasLexueCalendarURL
                                 ? "当前没有可展示的 DDL。"
                                 : "先获取乐学日程，或手动添加一条。",
-                            actionTitle: viewModel.hasLexueCalendarURL ? "刷新 DDL" : "获取乐学日程",
-                            onAction: {
-                                Task { await refreshDDL() }
-                            }
+                            actionTitle: viewModel.hasLexueCalendarURL ? nil : "获取乐学日程",
+                            onAction: viewModel.hasLexueCalendarURL
+                                ? nil
+                                : { Task { await refreshDDL() } }
                         )
                         .frame(maxWidth: .infinity)
                     }
@@ -76,9 +75,6 @@ struct DDLScheduleTabView: View {
                     isShowingEditor = true
                 }
 
-                AppFloatingActionButton(systemImage: "gearshape", accessibilityLabel: "待办设置") {
-                    settingsRoute = .ddl
-                }
             }
         }
         .sheet(item: $selectedEvent) { event in
@@ -114,11 +110,6 @@ struct DDLScheduleTabView: View {
                 },
                 onDismiss: { isShowingEditor = false }
             )
-        }
-        .sheet(item: $settingsRoute) { route in
-            NavigationStack {
-                SettingsRootView(initialRoute: route, studentID: "", onLogout: {}, showsCloseButton: true)
-            }
         }
     }
 
@@ -161,7 +152,7 @@ private struct DDLEventCard: View {
             HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                     Text(event.title)
-                        .font(AppDesignSystem.Typography.headline)
+                        .font(AppDesignSystem.Typography.title)
                         .strikethrough(event.done)
 
                     if !displayText.isEmpty {
@@ -184,7 +175,7 @@ private struct DDLEventCard: View {
 
                 Button(action: onToggleDone) {
                     Image(systemName: event.done ? "checkmark.circle.fill" : "circle")
-                        .font(AppDesignSystem.Typography.title3)
+                        .font(AppDesignSystem.Typography.title)
                         .foregroundStyle(tint)
                         .frame(width: AppDesignSystem.Size.Control.touchTarget, height: AppDesignSystem.Size.Control.touchTarget)
                         .contentShape(Rectangle())
@@ -224,7 +215,7 @@ private struct DDLEventDetailSheet: View {
             List {
                 Section {
                     Text(event.title)
-                        .font(AppDesignSystem.Typography.headline)
+                        .font(AppDesignSystem.Typography.title)
                         .strikethrough(event.done)
                     Text(ScheduleDateCodec.formatDateTime(event.dueAt))
                         .foregroundStyle(.secondary)

@@ -192,7 +192,7 @@ struct GalleryPosterCard: View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                 Text(poster.title)
-                    .font(AppDesignSystem.Typography.headline)
+                    .font(AppDesignSystem.Typography.title)
                     .foregroundStyle(AppDesignSystem.Palette.highlight)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -209,7 +209,7 @@ struct GalleryPosterCard: View {
 
                             if !poster.user.identity.text.isEmpty {
                                 Text(poster.user.identity.text)
-                                    .font(AppDesignSystem.Typography.caption2Emphasis)
+                                    .font(AppDesignSystem.Typography.captionEmphasis)
                                     .padding(.horizontal, AppDesignSystem.Spacing.tiny)
                                     .padding(.vertical, AppDesignSystem.Spacing.micro)
                                     .background(identityColor.opacity(0.15), in: Capsule())
@@ -241,31 +241,6 @@ struct GalleryPosterCard: View {
                     .font(AppDesignSystem.Typography.body)
                     .lineLimit(poster.images.count <= 2 ? 4 : 3)
                     .frame(maxWidth: .infinity, alignment: .leading)
-
-                HStack(spacing: AppDesignSystem.Spacing.regular) {
-                    Label("\(poster.likeNum)", systemImage: "hand.thumbsup")
-                    Label("\(poster.commentNum)", systemImage: "bubble.right")
-
-                    if !poster.public {
-                        Label("仅自己可见", systemImage: "eye.slash")
-                    }
-
-                    Spacer()
-
-                    Text(relativeTimeText(poster.editTime))
-                }
-                .font(AppDesignSystem.Typography.caption)
-                .foregroundStyle(.secondary)
-
-                if !poster.tags.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: AppDesignSystem.Spacing.regular) {
-                            ForEach(poster.tags, id: \.self) { tag in
-                                AppTagChip(title: tag, variant: .display)
-                            }
-                        }
-                    }
-                }
             }
             .contentShape(Rectangle())
             .onTapGesture(perform: onOpenPoster)
@@ -273,6 +248,34 @@ struct GalleryPosterCard: View {
             if !poster.images.isEmpty {
                 GalleryPosterImagesView(images: poster.images, onOpenImage: onOpenImage)
             }
+
+            HStack(spacing: AppDesignSystem.Spacing.content) {
+                Label("\(poster.likeNum)", systemImage: "hand.thumbsup")
+                Label("\(poster.commentNum)", systemImage: "bubble.right")
+
+                if !poster.public {
+                    Label("仅自己可见", systemImage: "eye.slash")
+                }
+
+                if !poster.tags.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: AppDesignSystem.Spacing.tiny) {
+                            ForEach(poster.tags, id: \.self) { tag in
+                                AppTagChip(title: tag, variant: .display)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Spacer(minLength: AppDesignSystem.Spacing.tiny)
+                }
+
+                Text(relativeTimeText(poster.editTime))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            .font(AppDesignSystem.Typography.caption)
+            .foregroundStyle(.secondary)
         }
         .appFeedCardStyle()
         .accessibilityAddTraits(.isButton)
@@ -332,7 +335,7 @@ struct GalleryPosterImagesView: View {
                                plan.hiddenImageCount > 0 {
                                 Color.black.opacity(AppDesignSystem.Gallery.overflowOverlayOpacity)
                                 Text("+\(plan.hiddenImageCount)")
-                                    .font(AppDesignSystem.Typography.headline)
+                                    .font(AppDesignSystem.Typography.title)
                                     .foregroundStyle(.white)
                             }
                         }
@@ -341,6 +344,7 @@ struct GalleryPosterImagesView: View {
                         .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
                     }
                     .buttonStyle(.plain)
+                    .contentShape(Rectangle())
                     .accessibilityLabel("查看第\(allocation.index + 1)张图片")
                 }
             }
@@ -500,7 +504,12 @@ struct GalleryPosterThumbnail: View {
     private var thumbnailContent: some View {
         Group {
             if let animatedURL {
-                GalleryAutoplayingImage(url: animatedURL, contentMode: contentMode)
+                GalleryAutoplayingImage(
+                    url: animatedURL,
+                    contentMode: contentMode,
+                    cornerRadius: AppDesignSystem.Radius.card
+                )
+                .allowsHitTesting(false)
             } else if loadsOriginal, let originalURL {
                 GalleryProgressiveStillImage(
                     thumbnailURL: thumbnailURL,
@@ -528,10 +537,10 @@ struct GalleryPosterThumbnail: View {
 
     /// 动图必须读取原文件；服务端生成的 lowUrl 通常只是静态缩略图。
     private var animatedURL: URL? {
-        guard let url = URL(string: image.url), url.pathExtension.lowercased() == "gif" else {
+        guard image.isGIF else {
             return nil
         }
-        return url
+        return URL(string: image.url.isEmpty ? image.lowUrl : image.url)
     }
 
 }

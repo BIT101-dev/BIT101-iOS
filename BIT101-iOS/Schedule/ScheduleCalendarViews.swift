@@ -97,10 +97,6 @@ struct CourseScheduleCalendarView: View {
     let currentWeek: Int
     let showSaturday: Bool
     let showSunday: Bool
-    let showHighlightToday: Bool
-    let showDivider: Bool
-    let showCurrentTime: Bool
-    let showBorder: Bool
     let onSelect: (ScheduleCalendarEntry) -> Void
     let onSelectDay: (Date, Int) -> Void
     let onSelectWeekValue: (Int) -> Void
@@ -123,10 +119,6 @@ struct CourseScheduleCalendarView: View {
                 currentWeek: currentWeek,
                 showSaturday: showSaturday,
                 showSunday: showSunday,
-                showHighlightToday: showHighlightToday,
-                showDivider: showDivider,
-                showCurrentTime: showCurrentTime,
-                showBorder: showBorder,
                 zoomScale: $axisZoomScale,
                 onSelect: onSelect,
                 onSelectDay: onSelectDay,
@@ -167,8 +159,10 @@ struct CourseScheduleCalendarView: View {
                     to: firstDay
                 )
             }
-            let highlightWeekday = (currentWeek == week && showHighlightToday) ? ScheduleDateCodec.weekdayIndex(from: Date()) : nil
-            let timeLineSection = (currentWeek == week && showCurrentTime)
+            let highlightWeekday = currentWeek == week
+                ? ScheduleDateCodec.weekdayIndex(from: Date())
+                : nil
+            let timeLineSection = currentWeek == week
                 ? convertMinutesToSection(minutes: currentMinute(), timeTable: timeTable)
                 : nil
 
@@ -194,7 +188,7 @@ struct CourseScheduleCalendarView: View {
 
                         HStack(spacing: AppDesignSystem.Spacing.none) {
                             Text("第\(week)周")
-                                .font(AppDesignSystem.Typography.caption2Emphasis)
+                                .font(AppDesignSystem.Typography.captionEmphasis)
                                 .foregroundStyle(.primary)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
@@ -206,7 +200,7 @@ struct CourseScheduleCalendarView: View {
                                     onSelectDay(date, visibleWeekdays[index])
                                 } label: {
                                     Text(mmddText(for: date))
-                                        .font(AppDesignSystem.Typography.caption2)
+                                        .font(AppDesignSystem.Typography.caption)
                                         .foregroundStyle(.primary)
                                         .frame(width: dayWidth, height: dateHeaderHeight)
                                         .background(AppDesignSystem.Palette.secondaryGroupedBackground)
@@ -223,7 +217,7 @@ struct CourseScheduleCalendarView: View {
 
                             ForEach(Array(weekDates.enumerated()), id: \.offset) { index, _ in
                                 Text(weekdayText(for: visibleWeekdays[index]))
-                                    .font(AppDesignSystem.Typography.caption2)
+                                    .font(AppDesignSystem.Typography.caption)
                                     .foregroundStyle(.primary)
                                     .frame(width: dayWidth, height: headerHeight)
                                     .background(AppDesignSystem.Palette.secondaryGroupedBackground)
@@ -236,10 +230,10 @@ struct CourseScheduleCalendarView: View {
                         HStack(spacing: AppDesignSystem.Spacing.none) {
                             VStack(spacing: AppDesignSystem.Schedule.Grid.cellSpacing) {
                                 Text("\(index + 1)")
-                                    .font(AppDesignSystem.Typography.caption2Emphasis)
+                                    .font(AppDesignSystem.Typography.captionEmphasis)
                                     .lineLimit(1)
                                 Text(slot.start)
-                                    .font(AppDesignSystem.Typography.caption2)
+                                    .font(AppDesignSystem.Typography.caption)
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.8)
@@ -257,16 +251,14 @@ struct CourseScheduleCalendarView: View {
                     }
                 }
 
-                if showDivider {
-                    ForEach(0 ... timeTable.count, id: \.self) { row in
-                        Rectangle()
-                            .fill(row == 0
-                                ? AppDesignSystem.Schedule.GridPalette.majorLine
-                                : AppDesignSystem.Schedule.GridPalette.minorLine)
-                            .frame(height: gridLineWidth)
-                            .offset(y: headerHeight + rowHeight * CGFloat(row) - AppDesignSystem.Schedule.Grid.lineOffset)
-                            .zIndex(-1)
-                    }
+                ForEach(0 ... timeTable.count, id: \.self) { row in
+                    Rectangle()
+                        .fill(row == 0
+                            ? AppDesignSystem.Schedule.GridPalette.majorLine
+                            : AppDesignSystem.Schedule.GridPalette.minorLine)
+                        .frame(height: gridLineWidth)
+                        .offset(y: headerHeight + rowHeight * CGFloat(row) - AppDesignSystem.Schedule.Grid.lineOffset)
+                        .zIndex(-1)
                 }
 
                 ForEach(0 ... visibleWeekdays.count, id: \.self) { column in
@@ -319,8 +311,7 @@ struct CourseScheduleCalendarView: View {
                         ForEach(entry.orderedBackgroundLayers) { layer in
                             // 课程背景使用不透明系统色，网格线保持在卡片后方。
                             CourseScheduleBackgroundView(
-                                entry: entry,
-                                showBorder: showBorder
+                                entry: entry
                             )
                             .frame(
                                 width: cardWidth,
@@ -413,50 +404,21 @@ struct CourseScheduleCalendarView: View {
     }
 }
 
-/// 右下角悬浮按钮。
-struct CourseScheduleFAB: View {
-    let systemImage: String
-    let accessibilityLabel: String
-    let action: () -> Void
-
-    var body: some View {
-        AppFloatingActionButton(
-            systemImage: systemImage,
-            accessibilityLabel: accessibilityLabel,
-            action: action
-        )
-    }
-}
-
 /// 课表页悬浮圆形按钮的统一外观。
 ///
 /// `Button` 和 `Menu` 共用同一套视觉样式，保持“添加”按钮的尺寸和命中区域一致。
 struct CourseScheduleFABLabel: View {
-    let systemImage: String?
-    let text: String?
+    let systemImage: String
 
     init(systemImage: String) {
         self.systemImage = systemImage
-        text = nil
-    }
-
-    init(text: String) {
-        systemImage = nil
-        self.text = text
     }
 
     var body: some View {
         AppFloatingActionButtonSurface {
-            if let systemImage {
-                Image(systemName: systemImage)
-                    .font(AppDesignSystem.Typography.floatingIcon)
-                    .foregroundStyle(.primary)
-            } else if let text {
-                Text(text)
-                    .font(AppDesignSystem.Typography.caption2Emphasis)
-                    .foregroundStyle(.primary)
-                    .minimumScaleFactor(0.8)
-            }
+            Image(systemName: systemImage)
+                .font(AppDesignSystem.Typography.floatingIcon)
+                .foregroundStyle(.primary)
         }
     }
 }

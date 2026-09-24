@@ -4,14 +4,6 @@ import Foundation
 ///
 /// 该层保持 Foundation 依赖，让 iOS Widget、watch App 和 watch Widget 共享数值。
 nonisolated enum AppDesignSystem {
-    enum Primitives {
-        enum FontSize {
-            static let compact: CGFloat = 10
-            static let emphasis: CGFloat = 14
-            static let prominent: CGFloat = 16
-        }
-    }
-
     enum Spacing {
         static let none: CGFloat = 0
         static let micro: CGFloat = 2

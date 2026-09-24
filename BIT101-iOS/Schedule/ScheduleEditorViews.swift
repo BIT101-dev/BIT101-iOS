@@ -282,7 +282,7 @@ struct ScheduleSectionSelectionSheet: View {
 
 /// 新增 / 编辑自定义日程弹层。
 ///
-/// 课表页和自定义日程列表页都共用这一套编辑器。
+/// 课表页的加号入口使用这一套编辑器。
 struct AddEditCustomScheduleSheet: View {
     @Binding var draft: CustomScheduleDraft
     let isEditing: Bool
@@ -353,127 +353,6 @@ struct TimeTableEditorSheet: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("确定", action: onSubmit)
                 }
-            }
-        }
-    }
-}
-
-/// 自定义日程列表页。
-///
-/// 课表页右下角加号创建单条自定义日程；此列表页管理全部已有自定义日程。
-struct CustomScheduleListSheet: View {
-    @ObservedObject var viewModel: ScheduleViewModel
-    @Environment(\.dismiss) private var dismiss
-    @State private var selectedRecord: CustomScheduleRecord?
-    @State private var editingRecordID: String?
-    @State private var draft = CustomScheduleDraft()
-    @State private var isShowingEditor = false
-
-    var body: some View {
-        NavigationStack {
-            List {
-                if viewModel.cache.customSchedules.isEmpty {
-                    AppEmptyState(
-                        title: "还没有自定义日程",
-                        systemImage: "calendar.badge.plus",
-                        message: "点击右上角的加号可以先新增一个。"
-                    )
-                    .frame(maxWidth: .infinity)
-                } else {
-                    ForEach(viewModel.cache.customSchedules) { record in
-                        Button {
-                            selectedRecord = record
-                        } label: {
-                            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
-                                Text(record.title)
-                                    .foregroundStyle(.primary)
-                                if !record.subtitle.isEmpty {
-                                    Text(record.subtitle)
-                                        .font(AppDesignSystem.Typography.subheadline)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Text("\(record.dateString)  \(record.beginTime)-\(record.endTime)")
-                                    .font(AppDesignSystem.Typography.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-            }
-            .appGroupedListStyle()
-            .navigationTitle("自定义日程")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("取消") { dismiss() }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        editingRecordID = nil
-                        draft = viewModel.customScheduleDraft(for: nil)
-                        isShowingEditor = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                }
-            }
-            .sheet(item: $selectedRecord) { record in
-                NavigationStack {
-                    List {
-                        Section {
-                            Text(record.title).font(AppDesignSystem.Typography.headline)
-                            if !record.subtitle.isEmpty {
-                                Text(record.subtitle).foregroundStyle(.secondary)
-                            }
-                        }
-
-                        Section("详情") {
-                            Text(record.description.isEmpty ? "无描述" : record.description)
-                            Text(record.dateString)
-                            Text("\(record.beginTime) - \(record.endTime)")
-                        }
-
-                        Section {
-                            Button("编辑") {
-                                selectedRecord = nil
-                                editingRecordID = record.id
-                                draft = viewModel.customScheduleDraft(for: record)
-                                isShowingEditor = true
-                            }
-                            Button("删除", role: .destructive) {
-                                viewModel.deleteCustomSchedule(id: record.id)
-                                selectedRecord = nil
-                            }
-                        }
-                    }
-                    .appGroupedListStyle()
-                    .navigationTitle("自定义日程")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("取消") { selectedRecord = nil }
-                        }
-                    }
-                }
-            }
-            .sheet(isPresented: $isShowingEditor) {
-                AddEditCustomScheduleSheet(
-                    draft: $draft,
-                    isEditing: editingRecordID != nil,
-                    onSubmit: {
-                        do {
-                            if let editingRecordID {
-                                try viewModel.updateCustomSchedule(id: editingRecordID, draft: draft)
-                            } else {
-                                try viewModel.addCustomSchedule(draft)
-                            }
-                            isShowingEditor = false
-                        } catch {
-                            viewModel.notice = ScheduleNotice.userInput(title: "保存失败", message: error.localizedDescription)
-                        }
-                    },
-                    onDismiss: { isShowingEditor = false }
-                )
             }
         }
     }

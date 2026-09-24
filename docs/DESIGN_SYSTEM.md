@@ -12,7 +12,7 @@
 
 | 文件 | 职责 |
 | --- | --- |
-| `Shared/DesignSystem/DesignPrimitives.swift` | Foundation 基础值：间距、圆角、固定字号；定义 `AppDesignSystem` 根命名空间 |
+| `Shared/DesignSystem/DesignPrimitives.swift` | Foundation 基础值：间距、圆角；定义 `AppDesignSystem` 根命名空间 |
 | `Shared/DesignSystem/AppDesignSystem.swift` | 主 App 公共尺寸、系统语义字体与颜色 |
 | `Shared/DesignSystem/AppLayoutComponents.swift` | 卡片、详情操作、浮动按钮与公共 List 样式 |
 | `Shared/DesignSystem/AppStateComponents.swift` | 加载、空态、失败与滚动状态 |
@@ -21,7 +21,7 @@
 | `Schedule/ScheduleDesignSystem.swift` | 课表网格、周次栏、时间轴与课程块颜色 |
 | `Course/CourseDesignSystem.swift` | 课程历史图表尺寸 |
 | `Gallery/GalleryDesignSystem.swift` | 话廊缩略图、消息标记与覆盖层 |
-| `Shared/DesignSystem/ExternalDesignSystem.swift` | Widget、Watch、Live Activity 专用尺寸与缩放 |
+| `Shared/DesignSystem/ExternalDesignSystem.swift` | Widget、Watch、Live Activity 共用字体、尺寸与缩放 |
 
 以上路径相对于 `BIT101-iOS/`。基础值和外部展示令牌同时加入 App、Widget、Watch App 与 Watch Widget target。课表快照文件负责数据契约。
 
@@ -29,12 +29,12 @@
 
 - 间距：`none = 0`、`micro = 2`、`tiny = 4`、`regular = 8`、`content = 12`、`section = 16`。
 - 圆角：`small = 8`、`card = 12`、`grouped = 16`。
-- 固定字号：`Primitives.FontSize` 提供 `10 / 14 / 16` 三档；正文使用系统动态字体。
+- 基础字号：`title / body / subheadline / footnote / caption` 五档，全部使用系统动态字体。
 - 常规头像：40；资料头像：80。评论共享常规头像尺寸。
 - 浮动按钮视觉尺寸与触控区域统一为 44；徽标偏移直接复用基础间距。
 - 最小触控区域：`Size.Control.touchTarget`，44。
 
-主 App 与外部展示共同引用基础间距和固定字号。相同数值通过现有入口复用，特殊几何以用途命名。
+主 App 与外部展示共同引用基础间距和五档字体。强调、等宽数字和平台桥接均从基础字号派生，特殊几何以用途命名。
 
 ## 公共组件
 
@@ -65,9 +65,9 @@
 
 ## 当前系统结构
 
-- 间距、圆角与固定字号使用上方列出的基础刻度。
+- 间距、圆角与五档基础字号使用上方列出的基础刻度。
 - 常规头像尺寸为 40，资料头像尺寸为 80；评论头像复用常规尺寸。
 - 课程、课表和话廊的页面专属参数位于各自模块设计文件。
-- Widget、Watch 与 Live Activity 引用公共间距和固定字号，并维护各自的呈现缩放规则。
+- Widget、Watch 与 Live Activity 引用 `External.Typography` 和公共间距，并维护各自的呈现缩放规则。
 - 组件读取公共语义令牌；页面组合公共组件与模块组件。
 - UI、组件、触感和客户端工程规范由各自检查入口负责，统一审计入口负责编排。

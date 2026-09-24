@@ -15,7 +15,7 @@ struct AppCommentSectionHeader<Trailing: View>: View {
     var body: some View {
         HStack(spacing: AppDesignSystem.Spacing.regular) {
             Text("评论")
-                .font(AppDesignSystem.Typography.headline)
+                .font(AppDesignSystem.Typography.title)
 
             Text("\(count)")
                 .font(AppDesignSystem.Typography.subheadline)
@@ -59,7 +59,7 @@ struct AppCommentIdentityHeader: View {
         Text(nickname)
             .font(isSubComment
                 ? AppDesignSystem.Typography.subheadlineEmphasis
-                : AppDesignSystem.Typography.headline)
+                : AppDesignSystem.Typography.title)
             .lineLimit(1)
     }
 }

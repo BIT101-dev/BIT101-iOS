@@ -359,7 +359,7 @@ private struct CourseListRow: View {
                     AppFixedColumnItem(
                         text: course.name.isEmpty ? "未命名课程" : course.name,
                         ratio: 0.64,
-                        font: AppDesignSystem.Typography.headline,
+                        font: AppDesignSystem.Typography.title,
                         color: .primary
                     ),
                     AppFixedColumnItem(

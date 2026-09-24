@@ -24,45 +24,6 @@ final class SchoolDataViewModelStore: ObservableObject {
     private init() {}
 }
 
-/// 统一管理应用允许的方向集合。
-///
-/// 项目默认只允许竖屏；当用户在设置里打开自动旋转时，再放开系统旋转。
-enum AppOrientationController {
-    /// 根据自动旋转设置生成 UIKit 使用的方向掩码。
-    ///
-    /// 各入口通过这个方法复用同一套方向规则。
-    static func supportedMask(autoRotate: Bool) -> UIInterfaceOrientationMask {
-        autoRotate ? .allButUpsideDown : .portrait
-    }
-
-    /// 读取当前持久化设置，给 `UIApplicationDelegate` 提供实时方向限制。
-    ///
-    /// 这个方法会在系统询问“当前窗口支持哪些方向”时被调用，所以不能依赖
-    /// 某个特定的 SwiftUI 视图状态，只能从共享设置快照中读取一个稳定结果。
-    static func currentMask() -> UIInterfaceOrientationMask {
-        let snapshot = AppSettingsStore.loadSnapshotFromDefaults() ?? AppSettingsSnapshot()
-        return supportedMask(autoRotate: snapshot.autoRotate)
-    }
-
-    /// 将用户刚修改的自动旋转偏好同步给所有已连接的 window scene。
-    ///
-    /// `requestGeometryUpdate` 会请求系统重新评估方向能力。遍历所有 scene 和 window，
-    /// 让主窗口、sheet 以及其他窗口场景都收到新的方向约束。
-    @MainActor
-    static func applyPreference(autoRotate: Bool) {
-        let mask = supportedMask(autoRotate: autoRotate)
-
-        for case let windowScene as UIWindowScene in UIApplication.shared.connectedScenes {
-            let preferences = UIWindowScene.GeometryPreferences.iOS(interfaceOrientations: mask)
-            windowScene.requestGeometryUpdate(preferences) { _ in }
-            for window in windowScene.windows {
-                window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
-            }
-        }
-    }
-}
-
-/// 让 UIKit 在需要时回调当前允许的方向集合。
 final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(
         _: UIApplication,
@@ -72,13 +33,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 
-    /// 提供应用级方向限制，方向状态由 `AppOrientationController` 读取。
-    func application(
-        _: UIApplication,
-        supportedInterfaceOrientationsFor _: UIWindow?
-    ) -> UIInterfaceOrientationMask {
-        AppOrientationController.currentMask()
-    }
 }
 
 /// 课前提醒的后台刷新协调器。
@@ -147,13 +101,10 @@ enum ScheduleReminderBackgroundRefresh {
 
 /// iOS 应用入口。
 ///
-/// 挂载根视图、注入主题，并协调应用级方向、课表缓存与外部展示同步。
+/// 挂载根视图，并协调课表缓存与外部展示同步。
 @main
 struct BIT101_iOSApp: App {
     @Environment(\.scenePhase) private var scenePhase
-    /// 全局设置单例，负责驱动主题模式、旋转等跨页面偏好。
-    @StateObject private var settings = AppSettingsStore.shared
-    /// 通过 UIKit delegate 响应方向能力查询。
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     /// 把本地课表缓存同步到 Widget、Watch 和 Live Activity。
@@ -216,15 +167,6 @@ struct BIT101_iOSApp: App {
                 .appPromptHost()
                 .onOpenURL { url in
                     AppDeepLinkCoordinator.shared.receive(url)
-                }
-                .preferredColorScheme(settings.themeMode.colorScheme)
-                .onAppear {
-                    // 首次挂载时，立即把当前旋转偏好下发给 UIKit。
-                    AppOrientationController.applyPreference(autoRotate: settings.autoRotate)
-                }
-                .onChange(of: settings.autoRotate) { _, newValue in
-                    // 设置页改动后，实时收紧或放开方向限制。
-                    AppOrientationController.applyPreference(autoRotate: newValue)
                 }
                 .task {
                     // 先激活 WatchConnectivity，接收 watch 端发来的“重新同步”请求。

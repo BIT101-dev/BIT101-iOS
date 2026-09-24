@@ -22,16 +22,6 @@ extension ScheduleViewModel {
         return trimmed
     }
 
-    /// 手动修正当前课表的第一周起始日期。
-    ///
-    /// 学期切换使用学校按学期返回的第一周日期；学校数据更新前或临时校历调整时，
-    /// 可通过此入口覆盖日期。
-    func setFirstDay(_ date: Date) {
-        cache.firstDayString = ScheduleDateCodec.formatDate(ScheduleDateCodec.monday(containing: date))
-        selectedWeek = resolvedAutomaticWeek()
-        persist()
-    }
-
     /// 在“我的课表”和导入课表之间循环切换。
     ///
     /// 采用 loop 语义：向上或向下滑动到边界后回卷。
@@ -83,30 +73,6 @@ extension ScheduleViewModel {
         persist()
     }
 
-    /// 设置课程块边框显示。
-    func setShowBorder(_ value: Bool) {
-        cache.showBorder = value
-        persist()
-    }
-
-    /// 设置今天对应的课程列高亮显示。
-    func setShowHighlightToday(_ value: Bool) {
-        cache.showHighlightToday = value
-        persist()
-    }
-
-    /// 设置课表网格分割线显示。
-    func setShowDivider(_ value: Bool) {
-        cache.showDivider = value
-        persist()
-    }
-
-    /// 设置当前时间线显示。
-    func setShowCurrentTime(_ value: Bool) {
-        cache.showCurrentTime = value
-        persist()
-    }
-
     /// 设置课表网格中的考试块显示。
     func setShowExamInfo(_ value: Bool) {
         cache.showExamInfo = value
@@ -120,16 +86,10 @@ extension ScheduleViewModel {
         persist()
     }
 
-    /// 在课程名称和楼宇/房间号之间切换课程块显示内容。
-    func toggleScheduleCardContentMode() {
-        switch cache.scheduleCardContentMode {
-        case .nameAndLocation:
-            cache.scheduleCardContentMode = .name
-        case .name:
-            cache.scheduleCardContentMode = .location
-        case .location:
-            cache.scheduleCardContentMode = .nameAndLocation
-        }
+    /// 设置课程卡片显示内容。
+    func setScheduleCardContentMode(_ mode: ScheduleCardContentMode) {
+        guard cache.scheduleCardContentMode != mode else { return }
+        cache.scheduleCardContentMode = mode
         persist()
     }
 
