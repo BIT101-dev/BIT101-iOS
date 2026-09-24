@@ -349,6 +349,7 @@ struct ScheduleService {
     let storage = LoginStorage.shared
     let teachingCenterState = TeachingCenterSessionState.shared
     let session: URLSession
+    let transportOverride: (any HTTPTransport)?
     private let redirectDelegate = HTTPSUpgradingRedirectDelegate()
     static let authenticationWaitSeconds: TimeInterval = 90
     struct AuthenticationCredentials: Encodable {
@@ -366,8 +367,9 @@ struct ScheduleService {
         let data: [String: String]
     }
 
-    /// 构造带共享 cookie 与 HTTPS 升级能力的会话。
-    init() {
+    /// 构造带共享 cookie 与 HTTPS 升级能力的会话；传入传输层用于离线契约测试。
+    init(transport: (any HTTPTransport)? = nil) {
+        transportOverride = transport
         let configuration = URLSessionConfiguration.default
         configuration.httpCookieAcceptPolicy = .always
         // 教学中心提供校外 WebVPN 与校园网直连两条链路。配置关闭连接等待，让当前网络

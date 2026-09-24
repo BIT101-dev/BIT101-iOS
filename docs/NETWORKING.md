@@ -60,9 +60,15 @@ smoke 属于该例外范围。
 `NetworkClientTests` 使用注入的 `HTTPTransport`，不访问真实服务器，覆盖：
 
 - HTTP 状态码和结构化错误消息
+- 非 HTTP 响应、可接受状态码范围和纯文本错误消息
 - `fake-cookie` 的 required / optional 行为
 - URL 查询参数
 - snake_case JSON 解码
 - multipart 文件字段契约
+- 学校 JSON 表单请求、CAS/跨域重定向、HTTPS 升级、嵌套业务错误和短信 challenge 续接
+- 网络 Smoke scope 与探针业务分组映射
+- Smoke 报告把服务健康状态与依赖探针覆盖完整度分开表示
+- Smoke 外部网页的最终 host/HTML 校验，以及 App Store 应用身份和紧急更新配置 schema 校验
+- 图片与可信成绩单页面通过 ImageIO 内容解码校验
 
 共享网络层修改完成后，使用授权的真机构建流程验证；`NetworkClientTests` 与学校同步冒烟纳入获得明确授权的验证阶段。

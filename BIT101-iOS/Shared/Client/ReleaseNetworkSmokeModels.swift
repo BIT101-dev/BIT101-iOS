@@ -1,6 +1,6 @@
 import Foundation
 
-enum NetworkSmokeScope: String, Codable, Sendable {
+enum NetworkSmokeScope: String, Codable, CaseIterable, Sendable {
     case all
     case bit101
     case school
@@ -8,46 +8,35 @@ enum NetworkSmokeScope: String, Codable, Sendable {
     case schedule
     case ddl
 
-    func includes(_ name: String) -> Bool {
+    func includes(_ area: NetworkSmokeArea) -> Bool {
         switch self {
         case .all:
             return true
         case .bit101:
-            return name == "BIT101 登录状态"
-                || name.hasPrefix("话廊")
-                || name.hasPrefix("社区")
-                || name.hasPrefix("消息")
-                || name.hasPrefix("用户")
-                || name.hasPrefix("学业")
-                || name.hasPrefix("文章")
-                || name.hasPrefix("我的")
-                || name.hasPrefix("App Store")
-                || name.hasPrefix("紧急更新")
-                || name.hasPrefix("open.aihelpme.dev")
-                || name.hasPrefix("feedback.aihelpme.dev")
+            return area == .authentication || area == .bit101
         case .school:
-            return name == "BIT101 登录状态"
-                || name == "当前学期"
-                || name.hasPrefix("切换学期")
-                || name.hasPrefix("课表")
-                || name.hasPrefix("空教室")
-                || name.hasPrefix("乐学")
-                || name.hasPrefix("成绩")
-                || name.hasPrefix("可信成绩单")
+            return area == .authentication
+                || area == .schedule
+                || area == .ddl
+                || area == .school
+                || area == .transcript
         case .transcript:
-            return name == "BIT101 登录状态"
-                || name == "可信成绩单接口"
+            return area == .authentication || area == .transcript
         case .schedule:
-            return name == "BIT101 登录状态"
-                || name == "当前学期"
-                || name == "切换学期列表"
-                || name == "课表、考试与首周同步"
+            return area == .authentication || area == .schedule
         case .ddl:
-            return name == "BIT101 登录状态"
-                || name == "乐学日历订阅地址"
-                || name == "乐学 DDL 下载"
+            return area == .authentication || area == .ddl
         }
     }
+}
+
+enum NetworkSmokeArea: CaseIterable, Hashable, Sendable {
+    case authentication
+    case bit101
+    case schedule
+    case ddl
+    case school
+    case transcript
 }
 
 enum NetworkSmokeCapture: String, Codable, Sendable {
@@ -89,20 +78,26 @@ struct ReleaseNetworkSmokeReport: Codable {
     let scheduleCache: ScheduleCacheAuditSnapshot?
     let executedProbes: [String]
     let skippedProbes: [String]
+    let coverageGaps: [String]
     let schoolSMSCoverage: String
 
     var elapsed: TimeInterval {
         finishedAt.timeIntervalSince(startedAt)
     }
 
+    var coverageComplete: Bool {
+        coverageGaps.isEmpty
+    }
+
     var summaryLine: String {
-        "NETWORK_SMOKE_SUMMARY run_id=\(runID) scope=\(scope.rawValue) passed=\(passed) failures=\(failures.count) auth_blocked=\(authenticationBlockers.count) executed=\(executedProbes.count) sms_coverage=\(schoolSMSCoverage) elapsed=\(Self.duration(elapsed))"
+        "NETWORK_SMOKE_SUMMARY run_id=\(runID) scope=\(scope.rawValue) passed=\(passed) coverage_complete=\(coverageComplete) failures=\(failures.count) auth_blocked=\(authenticationBlockers.count) executed=\(executedProbes.count) skipped=\(skippedProbes.count) sms_coverage=\(schoolSMSCoverage) elapsed=\(Self.duration(elapsed))"
     }
 
     var failureMessage: String {
         let failureSection = failures.isEmpty ? "" : "\n网络或业务失败：\n" + failures.joined(separator: "\n")
         let authenticationSection = authenticationBlockers.isEmpty ? "" : "\n需要人工认证，相关路径尚未完成验证：\n" + authenticationBlockers.joined(separator: "\n")
-        return "发布前网络冒烟测试未完全通过：" + failureSection + authenticationSection
+        let coverageSection = coverageGaps.isEmpty ? "" : "\n验证覆盖不完整：\n" + coverageGaps.joined(separator: "\n")
+        return "发布前网络冒烟结果：" + failureSection + authenticationSection + coverageSection
     }
 
     private static func duration(_ interval: TimeInterval) -> String {

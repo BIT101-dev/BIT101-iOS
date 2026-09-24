@@ -1,8 +1,36 @@
 import Foundation
+import ImageIO
 
 // MARK: - Release network smoke
 
 #if DEBUG || RELEASE_NETWORK_SMOKE
+
+nonisolated private struct AppStoreNetworkSmokeResponse: Decodable {
+    nonisolated struct Result: Decodable {
+        let version: String
+        let bundleID: String?
+        let trackViewURL: URL?
+
+        enum CodingKeys: String, CodingKey {
+            case version
+            case bundleID = "bundleId"
+            case trackViewURL = "trackViewUrl"
+        }
+    }
+
+    let resultCount: Int
+    let results: [Result]
+}
+
+nonisolated private struct EmergencyUpdateSmokeEnvelope: Decodable {
+    let schemaVersion: Int
+    let enabled: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case enabled
+        case schemaVersion = "schema_version"
+    }
+}
 
 /// NetworkSmokeScope 表示发布前网络冒烟执行的范围。
 ///
@@ -14,6 +42,7 @@ final class ReleaseNetworkSmokeRunner {
     private var scheduleCache: ScheduleCacheAuditSnapshot?
     private var executedProbes: [String] = []
     private var skippedProbes: [String] = []
+    private var coverageGaps: [String] = []
 
     func run(
         scope: NetworkSmokeScope,
@@ -28,6 +57,7 @@ final class ReleaseNetworkSmokeRunner {
         ReleaseNetworkSmokeReportStore.clearRawCourseResponse()
         executedProbes = []
         skippedProbes = []
+        coverageGaps = []
         let startedAt = Date()
 
         executedProbes.append("BIT101 登录状态")
@@ -35,136 +65,164 @@ final class ReleaseNetworkSmokeRunner {
         do {
             let loginResult = try await LoginService().checkLogin()
             guard let signedInStudentID = loginResult, !signedInStudentID.isEmpty else {
-                recordFailure("BIT101 登录状态", "真机没有有效登录状态，无法执行发布前网络冒烟测试", scope: scope)
+                recordFailure("BIT101 登录状态", "真机没有有效登录状态，无法执行发布前网络冒烟测试", area: .authentication, scope: scope)
                 return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
             }
             print("NETWORK_SMOKE_PASS name=BIT101 登录状态 elapsed=\(Self.duration(Date().timeIntervalSince(loginStartedAt)))")
         } catch {
-            recordFailure("BIT101 登录状态", error.localizedDescription, scope: scope, elapsed: Date().timeIntervalSince(loginStartedAt))
+            recordFailure("BIT101 登录状态", error.localizedDescription, area: .authentication, scope: scope, elapsed: Date().timeIntervalSince(loginStartedAt))
             return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
         }
 
         let gallery = GalleryService()
         let courses = CourseService()
-        _ = await probe("open.aihelpme.dev 首页", scope: scope) {
-            try await Self.fetchDataCount(urlString: "https://open.aihelpme.dev")
+        _ = await probe("open.aihelpme.dev 首页", area: .bit101, scope: scope) {
+            try await Self.fetchHTMLCount(
+                urlString: "https://open.aihelpme.dev",
+                expectedHost: "open.aihelpme.dev"
+            )
         }
-        let posters = await probe("话廊最新列表", scope: scope) {
+        let posters = await probe("话廊最新列表", area: .bit101, scope: scope) {
             try await gallery.fetchFeed(kind: .newest, page: nil)
-        } ?? []
-        if let poster = posters.first {
-            _ = await probe("话廊帖子详情", scope: scope) {
+        }
+        if let poster = posters?.first {
+            _ = await probe("话廊帖子详情", area: .bit101, scope: scope) {
                 try await gallery.fetchPoster(id: poster.id)
             }
-            _ = await probe("话廊帖子评论", scope: scope) {
+            _ = await probe("话廊帖子评论", area: .bit101, scope: scope) {
                 try await gallery.fetchComments(
                     objectID: "poster\(poster.id)",
                     order: .newest,
                     page: nil
                 )
             }
-            if let image = poster.images.first ?? Optional(poster.user.avatar) {
-                _ = await probe("话廊图片下载", scope: scope) {
-                    try await Self.fetchDataCount(urlString: image.lowUrl.isEmpty ? image.url : image.lowUrl)
+            let image = poster.images.first ?? poster.user.avatar
+            let imageURL = image.lowUrl.isEmpty ? image.url : image.lowUrl
+            if imageURL.isEmpty {
+                recordSkip("话廊图片下载", "帖子没有可用图片地址", area: .bit101, scope: scope)
+            } else {
+                _ = await probe("话廊图片下载", area: .bit101, scope: scope) {
+                    try await Self.fetchImageCount(urlString: imageURL)
                 }
             }
-            _ = await probe("话廊网页详情", scope: scope) {
-                try await Self.fetchDataCount(urlString: "https://open.aihelpme.dev/gallery/\(poster.id)")
+            _ = await probe("话廊网页详情", area: .bit101, scope: scope) {
+                try await Self.fetchHTMLCount(
+                    urlString: "https://open.aihelpme.dev/gallery/\(poster.id)",
+                    expectedHost: "open.aihelpme.dev"
+                )
             }
         } else {
-            recordFailure("话廊最新列表", "服务器返回空列表，无法继续验证详情与图片", scope: scope)
+            let reason = posters == nil ? "列表探针没有可用数据" : "列表为空"
+            recordSkip("话廊帖子详情", reason, area: .bit101, scope: scope)
+            recordSkip("话廊帖子评论", reason, area: .bit101, scope: scope)
+            recordSkip("话廊图片下载", reason, area: .bit101, scope: scope)
+            recordSkip("话廊网页详情", reason, area: .bit101, scope: scope)
         }
         var galleryOperations: [@MainActor () async -> Void] = [
-            { _ = await self.probe("话廊推荐流", scope: scope) { try await gallery.fetchRecommendPage(sourcePage: 0) } },
-            { _ = await self.probe("话廊机器人流", scope: scope) { try await gallery.fetchBotFeed(startPage: 0) } },
-            { _ = await self.probe("帖子声明列表", scope: scope) { try await gallery.fetchClaims() } },
+            { _ = await self.probe("话廊推荐流", area: .bit101, scope: scope) { try await gallery.fetchRecommendPage(sourcePage: 0) } },
+            { _ = await self.probe("话廊机器人流", area: .bit101, scope: scope) { try await gallery.fetchBotFeed(startPage: 0) } },
+            { _ = await self.probe("帖子声明列表", area: .bit101, scope: scope) { try await gallery.fetchClaims() } },
             {
-                _ = await self.probe("话廊搜索", scope: scope) {
+                _ = await self.probe("话廊搜索", area: .bit101, scope: scope) {
                     try await gallery.searchPosters(query: GallerySearchQuery(text: "BIT101"), page: 0)
                 }
             },
-            { _ = await self.probe("消息未读数", scope: scope) { try await gallery.fetchMessageUnreadCounts() } }
+            { _ = await self.probe("消息未读数", area: .bit101, scope: scope) { try await gallery.fetchMessageUnreadCounts() } }
         ]
         for messageType in GalleryMessageType.allCases {
             galleryOperations.append { [messageType] in
-                _ = await self.probe("消息列表-\(messageType.rawValue)", scope: scope) {
+                _ = await self.probe("消息列表-\(messageType.rawValue)", area: .bit101, scope: scope) {
                     try await gallery.fetchMessages(type: messageType, lastID: nil)
                 }
             }
         }
         await runInParallel(galleryOperations)
 
-        let courseRows = await probe("学业课程列表", scope: scope) {
+        let courseRows = await probe("学业课程列表", area: .bit101, scope: scope) {
             try await courses.fetchCourses(search: "", page: 0)
-        } ?? []
-        if let course = courseRows.first {
-            _ = await probe("学业课程详情", scope: scope) {
+        }
+        if let course = courseRows?.first {
+            _ = await probe("学业课程详情", area: .bit101, scope: scope) {
                 try await courses.fetchCourse(id: course.id)
             }
-            _ = await probe("学业课程评论", scope: scope) {
+            _ = await probe("学业课程评论", area: .bit101, scope: scope) {
                 try await courses.fetchComments(courseID: course.id, page: nil)
             }
-            _ = await probe("学业课程历史成绩", scope: scope) {
+            _ = await probe("学业课程历史成绩", area: .bit101, scope: scope) {
                 try await courses.fetchCourseHistories(number: course.number)
             }
-            _ = await probe("学业课程网页详情", scope: scope) {
-                try await Self.fetchDataCount(urlString: "https://open.aihelpme.dev/course/\(course.id)")
+            _ = await probe("学业课程网页详情", area: .bit101, scope: scope) {
+                try await Self.fetchHTMLCount(
+                    urlString: "https://open.aihelpme.dev/course/\(course.id)",
+                    expectedHost: "open.aihelpme.dev"
+                )
             }
         } else {
-            recordFailure("学业课程列表", "服务器返回空列表，无法继续验证课程详情", scope: scope)
+            let reason = courseRows == nil ? "列表探针没有可用数据" : "列表为空"
+            recordSkip("学业课程详情", reason, area: .bit101, scope: scope)
+            recordSkip("学业课程评论", reason, area: .bit101, scope: scope)
+            recordSkip("学业课程历史成绩", reason, area: .bit101, scope: scope)
+            recordSkip("学业课程网页详情", reason, area: .bit101, scope: scope)
         }
 
         let papers = PaperService()
-        let paperRows = await probe("文章列表", scope: scope) {
+        let paperRows = await probe("文章列表", area: .bit101, scope: scope) {
             try await papers.fetchPapers(search: nil, order: .newest, page: 0)
-        } ?? []
-        if let paper = paperRows.first {
-            _ = await probe("文章详情", scope: scope) {
+        }
+        if let paper = paperRows?.first {
+            _ = await probe("文章详情", area: .bit101, scope: scope) {
                 try await papers.fetchPaper(id: paper.id)
             }
-            _ = await probe("文章评论", scope: scope) {
+            _ = await probe("文章评论", area: .bit101, scope: scope) {
                 try await papers.fetchComments(paperID: paper.id, order: .newest, page: nil)
             }
         } else {
-            recordFailure("文章列表", "服务器返回空列表，无法继续验证文章详情", scope: scope)
+            let reason = paperRows == nil ? "列表探针没有可用数据" : "列表为空"
+            recordSkip("文章详情", reason, area: .bit101, scope: scope)
+            recordSkip("文章评论", reason, area: .bit101, scope: scope)
         }
         await runInParallel(PaperSortOrder.allCases.map { order in
             {
-                _ = await self.probe("文章列表-\(order.title)", scope: scope) {
+                _ = await self.probe("文章列表-\(order.title)", area: .bit101, scope: scope) {
                     try await papers.fetchPapers(search: "BIT101", order: order, page: 0)
                 }
             }
         })
 
         let mine = MineService()
-        let myInfo = await probe("我的资料", scope: scope) { try await mine.fetchMyInfo() }
+        let myInfo = await probe("我的资料", area: .bit101, scope: scope) { try await mine.fetchMyInfo() }
         await runInParallel([
-            { _ = await self.probe("我的关注", scope: scope) { try await mine.fetchFollowings(page: 0) } },
-            { _ = await self.probe("我的粉丝", scope: scope) { try await mine.fetchFollowers(page: 0) } },
-            { _ = await self.probe("我的帖子", scope: scope) { try await mine.fetchMyPosters(page: 0) } }
+            { _ = await self.probe("我的关注", area: .bit101, scope: scope) { try await mine.fetchFollowings(page: 0) } },
+            { _ = await self.probe("我的粉丝", area: .bit101, scope: scope) { try await mine.fetchFollowers(page: 0) } },
+            { _ = await self.probe("我的帖子", area: .bit101, scope: scope) { try await mine.fetchMyPosters(page: 0) } }
         ])
         if let myInfo {
-            _ = await probe("用户资料详情", scope: scope) { try await mine.fetchUserInfo(id: myInfo.user.id) }
-            _ = await probe("用户帖子", scope: scope) { try await mine.fetchUserPosters(userID: myInfo.user.id, page: 0) }
+            _ = await probe("用户资料详情", area: .bit101, scope: scope) { try await mine.fetchUserInfo(id: myInfo.user.id) }
+            _ = await probe("用户帖子", area: .bit101, scope: scope) { try await mine.fetchUserPosters(userID: myInfo.user.id, page: 0) }
+        } else {
+            recordSkip("用户资料详情", "资料探针没有可用数据", area: .bit101, scope: scope)
+            recordSkip("用户帖子", "资料探针没有可用数据", area: .bit101, scope: scope)
         }
 
         // 可信成绩单探针位于学校相关探针的首段，模拟用户手动点击“申请可信成绩单”的路径。
         let scoreService = ScoreService()
-        _ = await probe("可信成绩单接口", scope: scope) {
-            try await scoreService.fetchTrustedTranscriptPages()
+        _ = await probe("可信成绩单接口", area: .transcript, scope: scope) {
+            let pages = try await scoreService.fetchTrustedTranscriptPages()
+            try Self.validateTrustedTranscriptPages(pages)
+            return pages.count
         }
 
         let schedule = ScheduleService()
-        _ = await probe("当前学期", scope: scope) { try await schedule.fetchCurrentTermOnly() }
-        let terms = await probe("切换学期列表", scope: scope) {
+        _ = await probe("当前学期", area: .schedule, scope: scope) { try await schedule.fetchCurrentTermOnly() }
+        let terms = await probe("切换学期列表", area: .schedule, scope: scope) {
             try await schedule.fetchAvailableTerms()
-        } ?? []
+        }
         let normalizedRequestedTerm = requestedTerm?.trimmingCharacters(in: .whitespacesAndNewlines)
         let term = normalizedRequestedTerm?.isEmpty == false
             ? normalizedRequestedTerm
-            : terms.first
+            : terms?.first
         if let term {
-            let syncPayload = await probe("课表、考试与首周同步", scope: scope) {
+            let syncPayload = await probe("课表、考试与首周同步", area: .schedule, scope: scope) {
                 let payload = try await schedule.syncCourses(term: term)
                 try Self.validateCourseSyncPayload(payload)
                 return payload
@@ -173,34 +231,41 @@ final class ReleaseNetworkSmokeRunner {
                 scheduleCache = captureScheduleCache(from: syncPayload)
             }
 
-            let campuses = await probe("空教室校区列表", scope: scope) {
+            let campuses = await probe("空教室校区列表", area: .schedule, scope: scope) {
                 try await schedule.fetchCampuses()
-            } ?? []
-            if let campus = campuses.first {
-                let buildings = await probe("空教室教学楼列表", scope: scope) {
+            }
+            if let campus = campuses?.first {
+                let buildings = await probe("空教室教学楼列表", area: .schedule, scope: scope) {
                     try await schedule.fetchBuildings(campusCode: campus.code)
-                } ?? []
-                if let building = buildings.first {
-                    _ = await probe("空教室占用数据", scope: scope) {
+                }
+                if let building = buildings?.first {
+                    _ = await probe("空教室占用数据", area: .schedule, scope: scope) {
                         try await schedule.fetchClassrooms(buildingID: building.id, term: term)
                     }
                 } else {
-                    recordFailure("空教室教学楼列表", "服务器返回空列表", scope: scope)
+                    let reason = buildings == nil ? "教学楼探针没有可用数据" : "教学楼列表为空"
+                    recordSkip("空教室占用数据", reason, area: .schedule, scope: scope)
                 }
             } else {
-                recordFailure("空教室校区列表", "服务器返回空列表", scope: scope)
+                let reason = campuses == nil ? "校区探针没有可用数据" : "校区列表为空"
+                recordSkip("空教室教学楼列表", reason, area: .schedule, scope: scope)
+                recordSkip("空教室占用数据", reason, area: .schedule, scope: scope)
             }
         } else {
-            recordFailure("切换学期列表", "服务器返回空列表，无法继续验证课表与空教室", scope: scope)
+            let reason = terms == nil ? "学期探针没有可用数据" : "学期列表为空"
+            recordSkip("课表、考试与首周同步", reason, area: .schedule, scope: scope)
+            recordSkip("空教室校区列表", reason, area: .schedule, scope: scope)
+            recordSkip("空教室教学楼列表", reason, area: .schedule, scope: scope)
+            recordSkip("空教室占用数据", reason, area: .schedule, scope: scope)
         }
-        let calendarURL = await probe("乐学日历订阅地址", scope: scope) {
+        let calendarURL = await probe("乐学日历订阅地址", area: .ddl, scope: scope) {
             try await schedule.refreshLexueCalendarURL(
                 schoolSMSCodeHandler: nil,
                 smsDeliveryMode: .preflight
             )
         }
         if let calendarURL {
-            _ = await probe("乐学 DDL 下载", scope: scope) {
+            _ = await probe("乐学 DDL 下载", area: .ddl, scope: scope) {
                 try await schedule.syncDDLEvents(
                     existingEvents: [],
                     storedURL: calendarURL,
@@ -208,37 +273,37 @@ final class ReleaseNetworkSmokeRunner {
                     smsDeliveryMode: .preflight
                 )
             }
+        } else {
+            recordSkip("乐学 DDL 下载", "日历订阅地址探针没有可用数据", area: .ddl, scope: scope)
         }
 
         // 成绩页与可信成绩单同属学校网络链路；短信二次验证时记录为 AUTH_BLOCKED，
         // 区分认证阻塞与网络故障。
-        let scoreChallenge = await probe("成绩认证接口", scope: scope) {
+        let scoreChallenge = await probe("成绩认证接口", area: .school, scope: scope) {
             try await scoreService.startScoreChallenge()
         }
         if let scoreChallenge {
-            _ = await probe("成绩简略列表", scope: scope) {
+            _ = await probe("成绩简略列表", area: .school, scope: scope) {
                 try await scoreService.fetchScores(detail: false, authenticatedBy: scoreChallenge)
             }
-            _ = await probe("成绩详细列表", scope: scope) {
+            _ = await probe("成绩详细列表", area: .school, scope: scope) {
                 try await scoreService.fetchScores(detail: true, authenticatedBy: scoreChallenge)
             }
         }
 
         await runInParallel([
             {
-                _ = await self.probe("App Store 更新接口", scope: scope) {
-                    try await Self.fetchDataCount(urlString: "https://itunes.apple.com/lookup?id=6761147125&country=cn")
+                _ = await self.probe("App Store 更新接口", area: .bit101, scope: scope) {
+                    try await Self.fetchAppStoreLookup()
                 }
             },
             {
-                _ = await self.probe("紧急更新配置接口", scope: scope) {
-                    try await Self.fetchDataCount(
-                        urlString: "https://update.aihelpme.dev/emergency-update.json"
-                    )
+                _ = await self.probe("紧急更新配置接口", area: .bit101, scope: scope) {
+                    try await Self.fetchEmergencyUpdateConfiguration()
                 }
             },
             {
-                _ = await self.probe("feedback.aihelpme.dev 写入恢复", scope: scope) {
+                _ = await self.probe("feedback.aihelpme.dev 写入恢复", area: .bit101, scope: scope) {
                     try await FeedbackSubmissionClient.submitNetworkSmoke(runID: runID)
                 }
             }
@@ -276,6 +341,7 @@ final class ReleaseNetworkSmokeRunner {
             scheduleCache: scheduleCache,
             executedProbes: executedProbes,
             skippedProbes: skippedProbes,
+            coverageGaps: coverageGaps,
             schoolSMSCoverage: schoolSMSCoverage
         )
         print(report.summaryLine)
@@ -392,10 +458,11 @@ final class ReleaseNetworkSmokeRunner {
 
     private func probe<Value>(
         _ name: String,
+        area: NetworkSmokeArea,
         scope: NetworkSmokeScope,
         operation: () async throws -> Value
     ) async -> Value? {
-        guard scope.includes(name) else {
+        guard scope.includes(area) else {
             skippedProbes.append(name)
             print("NETWORK_SMOKE_SKIP name=\(name) scope=\(scope.rawValue)")
             return nil
@@ -409,29 +476,49 @@ final class ReleaseNetworkSmokeRunner {
         } catch {
             let elapsed = Date().timeIntervalSince(startedAt)
             if Self.isAuthenticationBlocked(error) {
-                recordAuthenticationBlocker(name, error.localizedDescription, scope: scope, elapsed: elapsed)
+                recordAuthenticationBlocker(name, error.localizedDescription, area: area, scope: scope, elapsed: elapsed)
             } else {
-                recordFailure(name, error.localizedDescription, scope: scope, elapsed: elapsed)
+                recordFailure(name, error.localizedDescription, area: area, scope: scope, elapsed: elapsed)
             }
             return nil
         }
     }
 
-    private func recordFailure(_ name: String, _ message: String, scope: NetworkSmokeScope, elapsed: TimeInterval? = nil) {
-        guard scope.includes(name) else { return }
+    private func recordFailure(
+        _ name: String,
+        _ message: String,
+        area: NetworkSmokeArea,
+        scope: NetworkSmokeScope,
+        elapsed: TimeInterval? = nil
+    ) {
+        guard scope.includes(area) else { return }
         let timing = elapsed.map { " elapsed=\(Self.duration($0))" } ?? ""
         let line = "[\(name)] \(ErrorReportRedactor.sanitized(message))\(timing)"
         failures.append(line)
         print("NETWORK_SMOKE_FAIL \(line)")
     }
 
+    private func recordSkip(
+        _ name: String,
+        _ reason: String,
+        area: NetworkSmokeArea,
+        scope: NetworkSmokeScope
+    ) {
+        guard scope.includes(area) else { return }
+        let entry = "\(name)（\(reason)）"
+        skippedProbes.append(entry)
+        coverageGaps.append(entry)
+        print("NETWORK_SMOKE_SKIP name=\(name) reason=\(reason) scope=\(scope.rawValue)")
+    }
+
     private func recordAuthenticationBlocker(
         _ name: String,
         _ message: String,
+        area: NetworkSmokeArea,
         scope: NetworkSmokeScope,
         elapsed: TimeInterval
     ) {
-        guard scope.includes(name) else { return }
+        guard scope.includes(area) else { return }
         let line = "[\(name)] \(ErrorReportRedactor.sanitized(message)) elapsed=\(Self.duration(elapsed))"
         authenticationBlockers.append(line)
         print("NETWORK_SMOKE_AUTH_BLOCKED \(line)")
@@ -463,12 +550,118 @@ final class ReleaseNetworkSmokeRunner {
         return try await fetch(url).count
     }
 
+    private nonisolated static func fetchImageCount(urlString: String) async throws -> Int {
+        guard let url = URL(string: urlString) else { throw URLError(.badURL) }
+        let response = try await fetchResponse(url)
+        try validateImageData(response.data)
+        return response.data.count
+    }
+
+    private nonisolated static func validateImageData(_ data: Data) throws {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(source) > 0,
+              CGImageSourceCreateImageAtIndex(source, 0, nil) != nil
+        else {
+            throw URLError(.cannotDecodeContentData)
+        }
+    }
+
+    private nonisolated static func fetchHTMLCount(
+        urlString: String,
+        expectedHost: String
+    ) async throws -> Int {
+        guard let url = URL(string: urlString), url.host?.lowercased() == expectedHost else {
+            throw URLError(.badURL)
+        }
+        let response = try await fetchResponse(url)
+        return try validateHTMLResponse(
+            response.data,
+            finalURL: response.response.url,
+            expectedHost: expectedHost
+        )
+    }
+
+    nonisolated static func validateHTMLResponse(
+        _ data: Data,
+        finalURL: URL?,
+        expectedHost: String
+    ) throws -> Int {
+        guard finalURL?.host?.lowercased() == expectedHost else {
+            throw URLError(.badServerResponse)
+        }
+        let body = String(decoding: data, as: UTF8.self).lowercased()
+        guard body.contains("<html") || body.contains("<!doctype html") else {
+            throw URLError(.cannotParseResponse)
+        }
+        return data.count
+    }
+
+    nonisolated static func validateAppStoreLookup(_ data: Data) throws -> Int {
+        let response = try JSONDecoder().decode(AppStoreNetworkSmokeResponse.self, from: data)
+        guard response.resultCount > 0,
+              response.resultCount == response.results.count,
+              let result = response.results.first,
+              !result.version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              result.bundleID == "BIT101-dev.BIT101-iOS",
+              let trackViewURL = result.trackViewURL,
+              BIT101AppStore.acceptsUpdateURL(trackViewURL)
+        else {
+            throw URLError(.cannotParseResponse)
+        }
+        return response.resultCount
+    }
+
+    nonisolated static func validateEmergencyUpdateConfiguration(_ data: Data) throws -> Bool {
+        let envelope = try JSONDecoder().decode(EmergencyUpdateSmokeEnvelope.self, from: data)
+        guard envelope.schemaVersion == 1 else { throw URLError(.cannotParseResponse) }
+        guard envelope.enabled else { return false }
+
+        let notice = try JSONDecoder().decode(EmergencyUpdateNotice.self, from: data)
+        guard !notice.noticeID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !notice.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !notice.message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            throw URLError(.cannotParseResponse)
+        }
+        return true
+    }
+
+    nonisolated static func validateTrustedTranscriptPages(_ pages: [Data]) throws -> Int {
+        guard !pages.isEmpty else { throw URLError(.zeroByteResource) }
+        for page in pages {
+            try validateImageData(page)
+        }
+        return pages.count
+    }
+
+    private nonisolated static func fetchAppStoreLookup() async throws -> Int {
+        let url = AppURL.required("https://itunes.apple.com/lookup?id=6761147125&country=cn")
+        let response = try await fetchResponse(url)
+        guard response.response.url?.host?.lowercased() == "itunes.apple.com" else {
+            throw URLError(.badServerResponse)
+        }
+        return try validateAppStoreLookup(response.data)
+    }
+
+    private nonisolated static func fetchEmergencyUpdateConfiguration() async throws -> Bool {
+        let url = AppURL.required("https://update.aihelpme.dev/emergency-update.json")
+        let response = try await fetchResponse(url)
+        guard response.response.url?.host?.lowercased() == "update.aihelpme.dev" else {
+            throw URLError(.badServerResponse)
+        }
+        return try validateEmergencyUpdateConfiguration(response.data)
+    }
+
     private nonisolated static func fetch(_ url: URL) async throws -> Data {
+        try await fetchResponse(url).data
+    }
+
+    private nonisolated static func fetchResponse(_ url: URL) async throws -> HTTPResponse {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
         request.setValue("BIT101-iOS release network smoke", forHTTPHeaderField: "User-Agent")
         let response = try await HTTPClient.shared.send(request, accepting: 200 ..< 400)
         guard !response.data.isEmpty else { throw URLError(.zeroByteResource) }
-        return response.data
+        return response
     }
 
     private nonisolated static func duration(_ interval: TimeInterval) -> String {

@@ -19,7 +19,7 @@ final class ReleaseNetworkSmokeTests: XCTestCase {
 #endif
     }
 
-    func testReadOnlyUserNetworkFlows() async {
+    func testReleaseNetworkFlows() async {
         guard let scope else {
             XCTFail("BIT101_NETWORK_SMOKE_SCOPE 无效")
             return
@@ -28,6 +28,7 @@ final class ReleaseNetworkSmokeTests: XCTestCase {
         XCTAssertEqual(report.scope, scope)
         XCTAssertTrue(report.executedProbes.contains("BIT101 登录状态"))
         XCTAssertTrue(report.passed, report.failureMessage)
+        XCTAssertTrue(report.coverageComplete, report.failureMessage)
     }
 }
 #endif

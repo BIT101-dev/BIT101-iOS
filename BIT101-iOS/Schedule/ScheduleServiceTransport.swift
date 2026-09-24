@@ -202,7 +202,7 @@ extension ScheduleService {
             secureRequest = request
         }
         do {
-            let result = try await HTTPClient(transport: session).send(
+            let result = try await HTTPClient(transport: transportOverride ?? session).send(
                 secureRequest,
                 accepting: 100 ..< 600
             )

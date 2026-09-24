@@ -81,7 +81,8 @@ Scripts/run-extended-tests.sh catalyst
 自动化测试覆盖范围包括：
 
 - 取消错误、页码分页、账号隔离 Codable 快照
-- HTTP/社区请求构造和错误映射
+- HTTP 状态边界、社区与学校请求契约、CAS/跨域重定向、短信 challenge 续接和错误映射
+- 网络 Smoke scope 与业务探针分组映射
 - 登录启动状态、CAS HTML 解析、AES/MD5 兼容向量
 - 成绩详细模式与排序
 - 课程草稿/周次、空教室筛选和文案
@@ -139,7 +140,7 @@ Xcode 27 Beta 的 Watch target 通过具体真机构建目标保持 watchOS SDK 
 
 `release-network-smoke.sh` 使用 Release 构建和专用 `RELEASE_NETWORK_SMOKE` 条件；smoke runner 和触发路由编译入该专用构建，App Store Release 构建内容排除这两项；
 它会先构建并安装专用宿主，把本次范围、运行 ID 和采集选项写入宿主文档目录，再启动宿主读取请求文件，
-在同一进程内触发探针；`bit101://network-smoke/<scope>?run=<uuid>` 仍保留为手动调试入口。BIT101 自有反馈 Worker 的测试数据会在同一请求内写入、读取并删除，
+在同一进程内触发探针；退出恢复沿用本次 iPhone 设备 ID。`bit101://network-smoke/<scope>?run=<uuid>` 仍保留为手动调试入口。BIT101 自有反馈 Worker 的测试数据会在同一请求内写入、读取并删除，
 邮件发送量为零，远端报告保留量为零。会话来源为正式 App 当前保存的登录态、Cookie 与缓存。
 
 脚本会把结果写到应用组目录 `group.BIT101-dev.BIT101-iOS.shared/Library/NetworkSmoke/` 下的
@@ -157,6 +158,8 @@ Scripts/release-network-smoke-school.sh
 学校范围 Smoke 的乐学 DDL 探针会先完成短信手机号预检；学校触发短信验证时记录为 `auth_blocked`，短信发送状态保持关闭，界面验证码继续由真机流程验证。
 
 Smoke 报告记录 `executedProbes`、`skippedProbes` 和 `schoolSMSCoverage`。`ddl` 范围要求 BIT101 登录状态、乐学订阅地址、乐学 DDL 下载三项探针进入执行列表；短信输入 UI 状态采用真机手动验证。
+命令行最多等待 30 分钟读取完整报告，覆盖全量范围的串行探针时长。
+依赖详情探针的列表返回空集时，详情记录为带原因的跳过项；报告的 `passed` 表示服务健康，`coverageComplete` 表示依赖探针覆盖完整度。部分覆盖由命令行以状态码 2 标记。图片与可信成绩单页面要求 ImageIO 图像解码成功。外部网页检查最终 host 和 HTML 文档标记，App Store Lookup 校验 BIT101 身份，紧急更新配置校验 schema 版本。
 
 网络 Smoke 报告写入 `.build/release-network-smoke/report/release-network-smoke.json`。
 可信成绩单归入学校链路；当前冒烟范围为 `all`、`bit101`、`school`、`transcript`、`schedule` 和 `ddl`。局部开发使用对应范围，开发结束后运行全量 Smoke。例如，开发 DDL 链路时使用 `ddl` 范围：

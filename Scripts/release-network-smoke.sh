@@ -49,7 +49,7 @@ rm -f "$LOG_FILE" "$BUILD_LOG" "$LOCAL_REPORT_PATH" "$LOCAL_RAW_COURSE_PATH" "$L
 
 restore_normal_app() {
   local smoke_status=$?
-  if ! "$ROOT_DIR/Scripts/build-install-device.sh" >/dev/null 2>&1; then
+  if ! BIT101_INSTALL_TARGET=iPhone "$ROOT_DIR/Scripts/build-install-device.sh" "$DEVICE_ID" >/dev/null 2>&1; then
     echo "恢复正常 App 失败，当前设备可能仍运行网络采样宿主。" >&2
     [[ $smoke_status -eq 0 ]] && smoke_status=1
   fi
@@ -118,7 +118,7 @@ xcrun devicectl device process launch \
   BIT101-dev.BIT101-iOS >/dev/null
 
 echo "等待结果文件..." | tee -a "$LOG_FILE"
-MAX_ATTEMPTS=90
+MAX_ATTEMPTS=1800
 for (( attempt = 1; attempt <= MAX_ATTEMPTS; attempt++ )); do
   if xcrun devicectl device copy from \
     --device "$DEVICETCL_DEVICE_ID" \
@@ -175,11 +175,13 @@ run_id = report.get("runID")
 executed = report.get("executedProbes", [])
 skipped = report.get("skippedProbes", [])
 sms_coverage = report.get("schoolSMSCoverage", "unknown")
+coverage_gaps = report.get("coverageGaps", [])
+coverage_complete = not coverage_gaps
 
 print(
     f"发布前网络冒烟结果: passed={passed} scope={scope} "
     f"run_id={run_id} failures={len(failures)} auth_blocked={len(auth_blocked)} "
-    f"skipped={len(skipped)} "
+    f"coverage_complete={coverage_complete} coverage_gaps={len(coverage_gaps)} skipped={len(skipped)} "
     f"executed={len(executed)} sms_coverage={sms_coverage}"
 )
 if failures:
@@ -190,6 +192,10 @@ if auth_blocked:
     print("需要人工认证：")
     for line in auth_blocked:
         print(line)
+if coverage_gaps:
+    print("验证覆盖不完整：")
+    for line in coverage_gaps:
+        print(line)
 
-sys.exit(0 if passed else 1)
+sys.exit(0 if passed and coverage_complete else 1 if not passed else 2)
 PY
