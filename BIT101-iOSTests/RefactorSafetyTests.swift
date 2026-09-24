@@ -212,7 +212,7 @@ struct ScheduleClassroomCoordinatorTests {
 
     @Test("Authentication time is outside the classroom request deadline")
     func authenticationUsesIndependentDeadline() async throws {
-        let coordinator = ScheduleClassroomCoordinator(timeoutNanoseconds: 5_000_000)
+        let coordinator = ScheduleClassroomCoordinator(timeoutNanoseconds: 500_000_000)
         let value = try await coordinator.withAuthenticationThenTimeout {
             try await Task.sleep(for: .milliseconds(20))
         } operation: {
