@@ -176,7 +176,7 @@ struct CourseScheduleTabView: View {
                             .frame(height: calendarHeight)
                             // 课表自身绘制白色分组背景；List 行背景保持在悬浮 Tab 栏上方。
                             .listRowInsets(EdgeInsets())
-                            .listRowBackground(AppDesignSystem.Palette.groupedBackground)
+                            .listRowBackground(AppDesignSystem.Palette.Background.grouped)
                         }
                     } else {
                         Section {
@@ -184,7 +184,7 @@ struct CourseScheduleTabView: View {
                                 Text(activeSchedule.isPrimary ? "课表尚未同步学期起始日期" : "分享课表缺少起始日期")
                                     .font(AppDesignSystem.Typography.title)
                                 Text(activeSchedule.isPrimary ? "请先同步所选学期。" : "试试上下滑切换到别的课表，或重新导入一份分享课表。")
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
                                 if supportsEditingDisplayedSchedule {
                                     Button {
                                         Task { await viewModel.syncSelectedTerm() }

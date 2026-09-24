@@ -46,27 +46,27 @@ struct WatchScheduleRootView: View {
                             spacing: AppDesignSystem.Spacing.regular
                         ) {
                             Text(next.isCurrent(at: model.referenceDate) ? "正在上课" : "下一节")
-                                .font(AppDesignSystem.External.Typography.caption)
-                                .foregroundStyle(.secondary)
+                                .font(AppDesignSystem.Typography.caption)
+                                .foregroundStyle(AppDesignSystem.Foreground.secondary)
 
-                            Spacer(minLength: 0)
+                            Spacer(minLength: AppDesignSystem.Spacing.none)
 
                             Text(next.relativeDayText(referenceDate: model.referenceDate))
-                                .font(AppDesignSystem.External.Typography.caption)
-                                .foregroundStyle(.secondary)
+                                .font(AppDesignSystem.Typography.caption)
+                                .foregroundStyle(AppDesignSystem.Foreground.secondary)
                         }
 
                         Text(next.title)
-                            .font(AppDesignSystem.External.Typography.title)
+                            .font(AppDesignSystem.Typography.title)
                             .lineLimit(2)
 
                         Text(next.rangeText)
-                            .font(AppDesignSystem.External.Typography.title)
+                            .font(AppDesignSystem.Typography.title)
 
                         if !next.classroom.isEmpty {
                             Text(next.classroom)
-                                .font(AppDesignSystem.External.Typography.title)
-                                .foregroundStyle(.secondary)
+                                .font(AppDesignSystem.Typography.title)
+                                .foregroundStyle(AppDesignSystem.Foreground.secondary)
                                 .lineLimit(1)
                         }
                     }
@@ -76,8 +76,8 @@ struct WatchScheduleRootView: View {
                             .padding(.vertical, AppDesignSystem.Spacing.micro)
 
                         Text("后续课节")
-                            .font(AppDesignSystem.External.Typography.captionEmphasis)
-                            .foregroundStyle(.secondary)
+                            .font(AppDesignSystem.Typography.captionEmphasis)
+                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
 
                         ForEach(model.upcomingOccurrences.dropFirst()) { occurrence in
                             VStack(
@@ -89,23 +89,23 @@ struct WatchScheduleRootView: View {
                                     spacing: AppDesignSystem.Spacing.regular
                                 ) {
                                     Text(occurrence.relativeDayText(referenceDate: model.referenceDate))
-                                        .font(AppDesignSystem.External.Typography.captionEmphasis)
-                                        .foregroundStyle(.secondary)
+                                        .font(AppDesignSystem.Typography.captionEmphasis)
+                                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
 
                                     Spacer(minLength: AppDesignSystem.Spacing.tiny)
 
                                     Text(occurrence.rangeText)
-                                        .font(AppDesignSystem.External.Typography.captionEmphasis)
-                                        .foregroundStyle(.secondary)
+                                        .font(AppDesignSystem.Typography.captionEmphasis)
+                                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                                 }
 
                                 Text(occurrence.title)
-                                    .font(AppDesignSystem.External.Typography.subheadlineEmphasis)
+                                    .font(AppDesignSystem.Typography.subheadlineEmphasis)
                                     .lineLimit(2)
 
                                 if !occurrence.classroom.isEmpty {
                                     Text(occurrence.classroom)
-                                        .font(AppDesignSystem.External.Typography.subheadlineEmphasis)
+                                        .font(AppDesignSystem.Typography.subheadlineEmphasis)
                                         .lineLimit(1)
                                 }
                             }
@@ -145,7 +145,7 @@ struct WatchScheduleRootView: View {
     private var actionsPage: some View {
         VStack(spacing: AppDesignSystem.Spacing.content) {
             Text("操作")
-                .font(AppDesignSystem.External.Typography.title)
+                .font(AppDesignSystem.Typography.title)
 
             Button(model.refreshButtonTitle) {
                 model.requestRefresh()
@@ -155,8 +155,8 @@ struct WatchScheduleRootView: View {
 
             if let feedbackText = model.refreshFeedbackText {
                 Text(feedbackText)
-                    .font(AppDesignSystem.External.Typography.caption)
-                    .foregroundStyle(.secondary)
+                    .font(AppDesignSystem.Typography.caption)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
             }
 
             Button("清除数据", role: .destructive) {
@@ -178,7 +178,7 @@ private struct WatchScheduleEmptyStateView: View {
     var body: some View {
         VStack(spacing: AppDesignSystem.Spacing.regular) {
             Text(message)
-                .font(AppDesignSystem.External.Typography.title)
+                .font(AppDesignSystem.Typography.title)
                 .multilineTextAlignment(.center)
 
             if let actionTitle, let action {
@@ -189,8 +189,8 @@ private struct WatchScheduleEmptyStateView: View {
 
             if let feedbackText {
                 Text(feedbackText)
-                    .font(AppDesignSystem.External.Typography.caption)
-                    .foregroundStyle(.secondary)
+                    .font(AppDesignSystem.Typography.caption)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
             }
         }
         .frame(

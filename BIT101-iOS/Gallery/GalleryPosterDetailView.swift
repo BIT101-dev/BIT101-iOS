@@ -61,7 +61,7 @@ struct GalleryPosterDetailView: View {
                             } label: {
                                 Image(systemName: "bubble.right")
                                     .font(AppDesignSystem.Typography.title)
-                                    .foregroundStyle(.primary)
+                                    .foregroundStyle(AppDesignSystem.Foreground.primary)
                             }
 
                             AppDetailCircleButton(
@@ -80,7 +80,7 @@ struct GalleryPosterDetailView: View {
                                             .font(AppDesignSystem.Typography.title)
                                     }
                                 }
-                                .foregroundStyle(viewModel.poster.like ? AppDesignSystem.Palette.highlight : Color.primary)
+                                .foregroundStyle(viewModel.poster.like ? AppDesignSystem.Palette.Highlight.primary : AppDesignSystem.Foreground.primaryColor)
                             }
                             .disabled(viewModel.isLikingPoster)
                         }
@@ -104,7 +104,7 @@ struct GalleryPosterDetailView: View {
                         Text(viewModel.poster.claim.text)
                     }
                     .font(AppDesignSystem.Typography.footnoteEmphasis)
-                    .foregroundStyle(AppDesignSystem.Palette.highlight)
+                    .foregroundStyle(AppDesignSystem.Palette.Highlight.primary)
                 }
 
                 Text(galleryLinkifiedText(viewModel.poster.text))
@@ -159,7 +159,7 @@ struct GalleryPosterDetailView: View {
                     Text("\(viewModel.poster.commentNum)评论")
                 }
                 .font(AppDesignSystem.Typography.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
 
                 Divider()
 
@@ -209,7 +209,7 @@ struct GalleryPosterDetailView: View {
         .refreshable {
             await viewModel.refreshAll()
         }
-        .background(AppDesignSystem.Palette.groupedBackground)
+        .background(AppDesignSystem.Palette.Background.grouped)
         .navigationTitle("帖子详情")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $userRoute) { route in
@@ -312,7 +312,7 @@ struct GalleryPosterDetailView: View {
                     }
                 }
                 .font(AppDesignSystem.Typography.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
             }
         }
     }

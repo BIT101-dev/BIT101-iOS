@@ -93,7 +93,7 @@ struct GalleryAnimatedImage: UIViewRepresentable {
         url: URL,
         isActive: Bool = true,
         contentMode: ContentMode = .fit,
-        cornerRadius: CGFloat = 0
+        cornerRadius: CGFloat = AppDesignSystem.Spacing.none
     ) {
         self.url = url
         self.isActive = isActive
@@ -179,7 +179,7 @@ struct GalleryAnimatedImage: UIViewRepresentable {
 struct GalleryAutoplayingImage: View {
     let url: URL
     var contentMode: ContentMode = .fit
-    var cornerRadius: CGFloat = 0
+    var cornerRadius: CGFloat = AppDesignSystem.Spacing.none
     @State private var isActive = false
 
     var body: some View {

@@ -33,7 +33,7 @@ struct PaperDetailView: View {
                     if !paperIntro.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text(paperIntro)
                             .font(AppDesignSystem.Typography.body)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
@@ -48,7 +48,7 @@ struct PaperDetailView: View {
                             } label: {
                                 Image(systemName: "bubble.right")
                                     .font(AppDesignSystem.Typography.title)
-                                    .foregroundStyle(.primary)
+                                    .foregroundStyle(AppDesignSystem.Foreground.primary)
                             }
 
                             AppDetailCircleButton(
@@ -65,7 +65,7 @@ struct PaperDetailView: View {
                                             .font(AppDesignSystem.Typography.title)
                                     }
                                 }
-                                .foregroundStyle((viewModel.paper?.like ?? false) ? AppDesignSystem.Palette.highlight : Color.primary)
+                                .foregroundStyle((viewModel.paper?.like ?? false) ? AppDesignSystem.Palette.Highlight.primary : AppDesignSystem.Foreground.primaryColor)
                             }
                             .disabled(viewModel.isLikingPaper)
                         }
@@ -90,11 +90,11 @@ struct PaperDetailView: View {
                             Text(isPaperLiked ? "已点赞" : "看完了，点个赞")
                                 .font(AppDesignSystem.Typography.bodyEmphasis)
                         }
-                        .foregroundStyle(isPaperLiked ? AppDesignSystem.Palette.highlightForeground : AppDesignSystem.Palette.highlight)
+                        .foregroundStyle(isPaperLiked ? AppDesignSystem.Palette.Highlight.foreground : AppDesignSystem.Palette.Highlight.primary)
                         .padding(.horizontal, AppDesignSystem.Spacing.section)
                         .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
                         .background(
-                            isPaperLiked ? AppDesignSystem.Palette.highlight : AppDesignSystem.Palette.highlightSurface,
+                            isPaperLiked ? AppDesignSystem.Palette.Highlight.primary : AppDesignSystem.Palette.Highlight.surface,
                             in: Capsule()
                         )
                     }
@@ -110,7 +110,7 @@ struct PaperDetailView: View {
                     Text("\(viewModel.paper?.commentNum ?? initialPaper.commentNum)评论")
                 }
                 .font(AppDesignSystem.Typography.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
 
                 Divider()
 
@@ -145,7 +145,7 @@ struct PaperDetailView: View {
             .padding(.horizontal, AppDesignSystem.Spacing.section)
             .padding(.vertical, AppDesignSystem.Spacing.section)
         }
-        .background(AppDesignSystem.Palette.groupedBackground)
+        .background(AppDesignSystem.Palette.Background.grouped)
         .refreshable {
             await viewModel.refreshAll()
         }
@@ -258,7 +258,7 @@ struct PaperDetailView: View {
             case .loaded:
                 Text("文章正文为空")
                     .font(AppDesignSystem.Typography.body)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, AppDesignSystem.Spacing.section)
             case .idle, .loading:
@@ -345,7 +345,7 @@ private struct PaperHeaderSummary: View {
             AppAvatarView(
                 imageURL: paper?.anonymous == true ? nil : paper?.updateUser.avatar.preferredRemoteURL,
                 size: AppDesignSystem.Size.Avatar.standard,
-                tint: AppDesignSystem.Palette.neutral
+                tint: AppDesignSystem.Palette.Status.neutral
             )
 
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
@@ -353,7 +353,7 @@ private struct PaperHeaderSummary: View {
                     .font(AppDesignSystem.Typography.bodyEmphasis)
                 Text(AppDateText.timestampText(from: paper?.updateTime ?? fallback.updateTime))
                     .font(AppDesignSystem.Typography.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
             }
         }
     }
@@ -389,7 +389,7 @@ private struct PaperContentBlockView: View {
             .padding(.leading, AppDesignSystem.Spacing.content)
             .overlay(alignment: .leading) {
                 Capsule()
-                    .fill(AppDesignSystem.Palette.highlight)
+                    .fill(AppDesignSystem.Palette.Highlight.primary)
                     .frame(width: AppDesignSystem.Spacing.tiny)
             }
         case let .list(_, items, ordered):
@@ -398,7 +398,7 @@ private struct PaperContentBlockView: View {
                     HStack(alignment: .top, spacing: AppDesignSystem.Spacing.regular) {
                         Text(ordered ? "\(index + 1)." : "•")
                             .font(AppDesignSystem.Typography.bodyEmphasis)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
                         PaperRichTextView(text: item, textStyle: AppDesignSystem.Typography.uiBody, textColor: .label)
                     }
                 }
@@ -409,7 +409,7 @@ private struct PaperContentBlockView: View {
             } label: {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                     GalleryCachedStillImage(url: image.preferredRemoteURL)
-                    .frame(maxWidth: .infinity, minHeight: AppDesignSystem.Size.Content.imageDraft)
+                    .frame(maxWidth: .infinity, minHeight: AppDesignSystem.Size.Media.draft)
                     .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
 
                     if let caption = image.caption, containsVisibleText(caption) {
@@ -470,7 +470,7 @@ private struct PaperRichTextView: UIViewRepresentable {
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
         textView.dataDetectorTypes = []
-        textView.linkTextAttributes = [.foregroundColor: UIColor(AppDesignSystem.Palette.highlight)]
+        textView.linkTextAttributes = [.foregroundColor: UIColor(AppDesignSystem.Palette.Highlight.primary)]
         textView.delegate = context.coordinator
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return textView

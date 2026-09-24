@@ -4,7 +4,7 @@ enum AppInputPrompt {
     static func text(_ value: String) -> Text {
         Text(value)
             .font(AppDesignSystem.Typography.body)
-            .foregroundStyle(AppDesignSystem.Palette.inputPlaceholder)
+            .foregroundStyle(AppDesignSystem.Palette.Background.inputPlaceholder)
     }
 }
 
@@ -19,7 +19,7 @@ struct AppListSectionHeader: View {
     var body: some View {
         Text(title)
             .font(AppDesignSystem.Typography.footnoteEmphasis)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(AppDesignSystem.Foreground.secondary)
     }
 }
 
@@ -36,19 +36,19 @@ struct AppNavigationRowLabel: View {
                     width: AppDesignSystem.Size.Control.navigationIcon,
                     height: AppDesignSystem.Size.Control.navigationIcon
                 )
-                .foregroundStyle(.primary)
+                .foregroundStyle(AppDesignSystem.Foreground.primary)
                 .accessibilityHidden(true)
 
             Text(title)
                 .font(AppDesignSystem.Typography.title)
-                .foregroundStyle(.primary)
+                .foregroundStyle(AppDesignSystem.Foreground.primary)
 
             Spacer()
 
             if showsDisclosureIndicator {
                 Image(systemName: "chevron.right")
                     .font(AppDesignSystem.Typography.footnoteEmphasis)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(AppDesignSystem.Foreground.tertiary)
                     .accessibilityHidden(true)
             }
         }
@@ -125,7 +125,7 @@ struct AppTopSegmentedPicker<Selection: Hashable, Content: View>: View {
         .padding(.horizontal, AppDesignSystem.Spacing.regular)
         .padding(.bottom, variant.bottomPadding)
         .frame(maxWidth: .infinity)
-        .background(AppDesignSystem.Palette.groupedBackground)
+        .background(AppDesignSystem.Palette.Background.grouped)
     }
 }
 
@@ -179,7 +179,7 @@ struct AppOrderedSearchBar<Order: Hashable, OrderContent: View>: View {
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(AppDesignSystem.Typography.title)
-                    .foregroundStyle(AppDesignSystem.Palette.highlight)
+                    .foregroundStyle(AppDesignSystem.Palette.Highlight.primary)
                     .frame(
                         width: AppDesignSystem.Size.Control.touchTarget,
                         height: AppDesignSystem.Size.Control.touchTarget
@@ -192,7 +192,7 @@ struct AppOrderedSearchBar<Order: Hashable, OrderContent: View>: View {
         .padding(.horizontal, AppDesignSystem.Spacing.content)
         .padding(.vertical, AppDesignSystem.Spacing.regular)
         .background(
-            AppDesignSystem.Palette.secondaryBackground,
+            AppDesignSystem.Palette.Background.secondary,
             in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped)
         )
     }
@@ -241,10 +241,10 @@ struct AppMultiSelectionList<Item: Hashable>: View {
                     } label: {
                         HStack(spacing: AppDesignSystem.Spacing.regular) {
                             Text(itemTitle(item))
-                                .foregroundStyle(.primary)
+                                .foregroundStyle(AppDesignSystem.Foreground.primary)
                             Spacer()
                             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(isSelected ? AppDesignSystem.Palette.accent : .secondary)
+                                .foregroundStyle(isSelected ? AppDesignSystem.Palette.Accent.primary : AppDesignSystem.Foreground.secondaryColor)
                         }
                         .contentShape(Rectangle())
                     }

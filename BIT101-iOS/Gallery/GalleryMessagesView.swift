@@ -18,7 +18,7 @@ struct GalleryMessagesView: View {
 
     var body: some View {
         ZStack {
-            AppDesignSystem.Palette.groupedBackground
+            AppDesignSystem.Palette.Background.grouped
                 .ignoresSafeArea()
 
             Group {
@@ -50,7 +50,7 @@ struct GalleryMessagesView: View {
                         } else {
                             ForEach(Array(currentState.items.enumerated()), id: \.element.id) { index, message in
                                 let type = viewModel.selectedType
-                                VStack(spacing: 0) {
+                                VStack(spacing: AppDesignSystem.Spacing.none) {
                                     GalleryMessageRow(
                                         type: type,
                                         message: message,
@@ -234,30 +234,30 @@ private struct GalleryMessageRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.regular) {
                     if isUnread {
                         Circle()
-                            .fill(AppDesignSystem.Palette.highlight)
+                            .fill(AppDesignSystem.Palette.Highlight.primary)
                             .frame(width: AppDesignSystem.Gallery.unreadIndicator, height: AppDesignSystem.Gallery.unreadIndicator)
                     }
 
                     Text(message.fromUser.displayName)
                         .font(AppDesignSystem.Typography.bodyEmphasis)
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(AppDesignSystem.Foreground.primary)
                         .lineLimit(1)
 
-                    Spacer(minLength: 0)
+                    Spacer(minLength: AppDesignSystem.Spacing.none)
 
                     Text(AppDateText.relativeText(from: message.updateTime, fallback: "未知时间"))
                         .font(AppDesignSystem.Typography.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                 }
 
                 Text(type.actionText(for: message))
                     .font(AppDesignSystem.Typography.body)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(AppDesignSystem.Foreground.primary)
 
                 if !message.text.isEmpty {
                     Text(message.text)
                         .font(AppDesignSystem.Typography.body)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                         .lineLimit(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -266,14 +266,14 @@ private struct GalleryMessageRow: View {
             if canOpenPoster {
                 Image(systemName: "chevron.right")
                     .font(AppDesignSystem.Typography.captionEmphasis)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(AppDesignSystem.Foreground.tertiary)
                     .padding(.top, AppDesignSystem.Spacing.micro)
             }
         }
         .padding(.horizontal, AppDesignSystem.Spacing.content)
         .padding(.vertical, AppDesignSystem.Spacing.content)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isUnread ? AppDesignSystem.Palette.highlightSurface : AppDesignSystem.Palette.systemBackground)
+        .background(isUnread ? AppDesignSystem.Palette.Highlight.surface : AppDesignSystem.Palette.Background.system)
         .contentShape(Rectangle())
         .onTapGesture {
             onOpenPoster()

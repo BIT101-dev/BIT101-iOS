@@ -38,7 +38,7 @@ struct AccountSettingsPage: View {
                             AppAvatarView(
                                 imageURL: URL(string: profile.user.avatar.url),
                                 size: AppDesignSystem.Size.Avatar.standard,
-                                tint: AppDesignSystem.Palette.info
+                                tint: AppDesignSystem.Palette.Status.info
                             )
                         }
                         .accessibilityLabel("头像")
@@ -88,7 +88,7 @@ struct AccountSettingsPage: View {
                                 .accessibilityLabel("正在检查登录状态")
                         } else {
                             Text(isLoggedIn ? "已登录" : "未登录")
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(AppDesignSystem.Foreground.secondary)
                         }
                     }
                 }
@@ -266,11 +266,11 @@ private struct SettingsSensitiveValueRow: View {
                 Spacer()
                 if isRevealed {
                     Text(value)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                 } else {
                     Text(value)
-                        .foregroundStyle(.secondary)
-                        .blur(radius: 7)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                        .blur(radius: AppDesignSystem.Size.Effect.blurRadius)
                         .padding(.horizontal, AppDesignSystem.Spacing.tiny)
                         .padding(.vertical, AppDesignSystem.Spacing.micro)
                         .background(.ultraThinMaterial, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.small))

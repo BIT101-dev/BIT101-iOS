@@ -39,11 +39,11 @@ struct ScheduleInlineWeekSlider: View {
                             VStack(spacing: AppDesignSystem.Schedule.Grid.cellSpacing) {
                                 Text(isMajorWeek(week) ? "\(week)" : "")
                                     .font(AppDesignSystem.Typography.captionEmphasis)
-                                    .foregroundStyle(week == highlightedWeek ? AppDesignSystem.Palette.accent : .secondary)
+                                    .foregroundStyle(week == highlightedWeek ? AppDesignSystem.Palette.Accent.primary : AppDesignSystem.Foreground.secondaryColor)
                                     .frame(height: AppDesignSystem.Schedule.WeekSlider.labelHeight)
                                 Capsule()
                                     .fill(week == highlightedWeek
-                                        ? AppDesignSystem.Palette.accent
+                                        ? AppDesignSystem.Palette.Accent.primary
                                         : AppDesignSystem.Schedule.GridPalette.weekBar)
                                     .frame(
                                         width: week == highlightedWeek
@@ -77,7 +77,7 @@ struct ScheduleInlineWeekSlider: View {
             .overlay(alignment: .top) {
                 Image(systemName: "triangle.fill")
                     .font(AppDesignSystem.Typography.caption)
-                    .foregroundStyle(AppDesignSystem.Palette.accent)
+                    .foregroundStyle(AppDesignSystem.Palette.Accent.primary)
                     .rotationEffect(.degrees(180))
                     .allowsHitTesting(false)
             }

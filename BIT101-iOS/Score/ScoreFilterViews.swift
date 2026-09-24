@@ -8,10 +8,10 @@ private struct ScoreSelectionRow: View {
         HStack(spacing: AppDesignSystem.Spacing.regular) {
             Text(title)
                 .font(AppDesignSystem.Typography.body)
-                .foregroundStyle(.primary)
+                .foregroundStyle(AppDesignSystem.Foreground.primary)
             Spacer()
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(isSelected ? AppDesignSystem.Palette.accent : .secondary)
+                .foregroundStyle(isSelected ? AppDesignSystem.Course.accent : AppDesignSystem.Foreground.secondaryColor)
                 .accessibilityHidden(true)
         }
         .contentShape(Rectangle())
@@ -41,7 +41,7 @@ struct ScoreFilterPage: View {
             Section {
                 if options.isEmpty {
                     Text("暂无可筛选项")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                 } else {
                     ForEach(options, id: \.self) { option in
                         Button {
@@ -111,11 +111,11 @@ struct ScoreSortPage: View {
                     HStack(spacing: AppDesignSystem.Spacing.regular) {
                         Text(sortOrder.title)
                             .font(AppDesignSystem.Typography.subheadline)
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(AppDesignSystem.Foreground.primary)
                         Spacer()
                         Text("切换")
                             .font(AppDesignSystem.Typography.subheadline)
-                            .foregroundStyle(AppDesignSystem.Palette.accent)
+                            .foregroundStyle(AppDesignSystem.Course.accent)
                     }
                     .contentShape(Rectangle())
                 }

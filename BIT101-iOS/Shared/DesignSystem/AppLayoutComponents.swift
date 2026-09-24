@@ -9,9 +9,9 @@ enum AppCardVariant {
     var background: Color {
         switch self {
         case .standard, .compact:
-            return AppDesignSystem.Palette.secondaryBackground
+            return AppDesignSystem.Palette.Background.secondary
         case .secondaryGrouped:
-            return AppDesignSystem.Palette.secondaryGroupedBackground
+            return AppDesignSystem.Palette.Background.secondaryGrouped
         }
     }
 
@@ -99,7 +99,7 @@ struct AppDetailCircleButton<Label: View>: View {
                     width: AppDesignSystem.Size.Control.detailActionButton,
                     height: AppDesignSystem.Size.Control.detailActionButton
                 )
-                .background(AppDesignSystem.Palette.highlightSurface, in: Circle())
+                .background(AppDesignSystem.Palette.Highlight.surface, in: Circle())
                 .frame(
                     width: AppDesignSystem.Size.Control.touchTarget,
                     height: AppDesignSystem.Size.Control.touchTarget
@@ -142,13 +142,13 @@ struct AppFloatingActionButton: View {
                 if let badgeText {
                     Text(badgeText)
                         .font(AppDesignSystem.Typography.captionEmphasis)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(AppDesignSystem.Palette.Highlight.foreground)
                         .padding(.horizontal, AppDesignSystem.Spacing.tiny)
                         .frame(
                             minWidth: AppDesignSystem.Size.FloatingAction.badgeMinimum,
                             minHeight: AppDesignSystem.Size.FloatingAction.badgeMinimum
                         )
-                        .background(AppDesignSystem.Palette.danger, in: Capsule())
+                        .background(AppDesignSystem.Palette.Status.danger, in: Capsule())
                         .offset(x: AppDesignSystem.Spacing.tiny, y: -AppDesignSystem.Spacing.tiny)
                 }
             }
@@ -167,8 +167,8 @@ struct AppFloatingActionButtonLabel: View {
     var body: some View {
         AppFloatingActionButtonSurface {
             Image(systemName: systemImage)
-                .font(AppDesignSystem.Typography.floatingIcon)
-                .foregroundStyle(.primary)
+                .font(AppDesignSystem.Typography.bodyEmphasis)
+                .foregroundStyle(AppDesignSystem.Foreground.primary)
         }
     }
 }
@@ -212,33 +212,7 @@ struct AppFloatingActionStack<Content: View>: View {
             content
         }
         .padding(.trailing, AppDesignSystem.Spacing.regular)
-        .padding(.bottom, AppDesignSystem.Size.FloatingAction.bottomInset)
-    }
-}
-
-/// 课程详情入口共用的列表行。
-///
-/// 日程和成绩详情共用标题与加载态；导航行为由外层容器负责。
-struct AppCourseEvaluationRow: View {
-    let isLoading: Bool
-
-    init(isLoading: Bool = false) {
-        self.isLoading = isLoading
-    }
-
-    var body: some View {
-        HStack(spacing: AppDesignSystem.Spacing.regular) {
-            Text("查看课程评价")
-                .foregroundStyle(.tint)
-
-            Spacer(minLength: 0)
-            if isLoading {
-                ProgressView()
-                    .controlSize(.small)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
+        .padding(.bottom, AppDesignSystem.Size.Layout.floatingActionBottomInset)
     }
 }
 
@@ -259,19 +233,19 @@ extension View {
 
     func appCommentSectionStyle() -> some View {
         background(
-            AppDesignSystem.Palette.systemBackground,
+            AppDesignSystem.Palette.Background.system,
             in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped)
         )
         .overlay {
             AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped)
-                .stroke(AppDesignSystem.Palette.subtleBorder, lineWidth: 1)
+                .stroke(AppDesignSystem.Palette.Border.subtle, lineWidth: 1)
         }
     }
 
     func appFeedCardStyle() -> some View {
         padding(AppDesignSystem.Spacing.content)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AppDesignSystem.Palette.systemBackground)
+            .background(AppDesignSystem.Palette.Background.system)
             .contentShape(Rectangle())
     }
 }

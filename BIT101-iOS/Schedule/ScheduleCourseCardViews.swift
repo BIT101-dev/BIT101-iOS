@@ -28,9 +28,9 @@ struct CourseScheduleBlockView: View {
         case .course:
             return .label
         case .exam:
-            return UIColor(AppDesignSystem.Palette.highlight)
+            return UIColor(AppDesignSystem.Palette.Highlight.primary)
         case .custom:
-            return UIColor(AppDesignSystem.Palette.info)
+            return UIColor(AppDesignSystem.Palette.Status.info)
         }
     }
 
@@ -286,7 +286,7 @@ struct CourseScheduleBackgroundView: View {
     var body: some View {
         AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.small)
             .fill(backgroundColor)
-            .opacity(entry.kind == .course || entry.backgroundLayers.count <= 1 ? 1 : 0.5)
+            .opacity(backgroundOpacity)
             .overlay {
                 if entry.kind != .course {
                     AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.small)
@@ -298,12 +298,18 @@ struct CourseScheduleBackgroundView: View {
     private var backgroundColor: Color {
         switch entry.kind {
         case .course:
-            return AppDesignSystem.Palette.secondaryBackground
+            return AppDesignSystem.Palette.Background.secondary
         case .exam:
             return AppDesignSystem.Schedule.CoursePalette.examSurface
         case .custom:
             return AppDesignSystem.Schedule.CoursePalette.customSurface
         }
+    }
+
+    private var backgroundOpacity: CGFloat {
+        entry.kind == .course || entry.backgroundLayers.count <= 1
+            ? AppDesignSystem.Opacity.full
+            : AppDesignSystem.Schedule.CoursePalette.secondaryLayerOpacity
     }
 
     private var borderColor: Color {

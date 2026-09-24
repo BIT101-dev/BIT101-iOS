@@ -8,10 +8,10 @@ private enum AppVerificationMetrics {
 
 /// 课表、成绩和可信成绩单共用的短信验证码面板。
 ///
-/// 验证码输入、清洗、焦点、错误展示和提交状态采用统一实现；业务传入挑战对象、
+/// 验证码输入、清洗、焦点、错误展示和提交状态采用统一实现；业务传入掩码手机号、
 /// 提交文案、取消操作和提交操作。
 struct AppSMSVerificationSheet: View {
-    let challenge: BITLoginAuthenticationChallenge
+    let maskedPhone: String?
     let isSubmitting: Bool
     let errorMessage: String?
     let submitTitle: String
@@ -22,14 +22,14 @@ struct AppSMSVerificationSheet: View {
     @FocusState private var isCodeFieldFocused: Bool
 
     init(
-        challenge: BITLoginAuthenticationChallenge,
+        maskedPhone: String?,
         isSubmitting: Bool,
         errorMessage: String?,
         submitTitle: String,
         onCancel: @escaping () -> Void,
         onSubmit: @escaping (String) async -> Void
     ) {
-        self.challenge = challenge
+        self.maskedPhone = maskedPhone
         self.isSubmitting = isSubmitting
         self.errorMessage = errorMessage
         self.submitTitle = submitTitle
@@ -45,7 +45,7 @@ struct AppSMSVerificationSheet: View {
                         .keyboardType(.numberPad)
                         .textContentType(.oneTimeCode)
                         .multilineTextAlignment(.center)
-                        .font(AppDesignSystem.Typography.titleMonospaced)
+                        .font(AppDesignSystem.Typography.title.monospacedDigit())
                         .focused($isCodeFieldFocused)
                         .accessibilityLabel("短信验证码")
                         .disabled(isSubmitting)
@@ -64,7 +64,7 @@ struct AppSMSVerificationSheet: View {
                 if let errorMessage, !errorMessage.isEmpty {
                     Section {
                         Text(errorMessage)
-                            .foregroundStyle(AppDesignSystem.Palette.danger)
+                            .foregroundStyle(AppDesignSystem.Palette.Status.danger)
                     }
                 }
 
@@ -102,7 +102,7 @@ struct AppSMSVerificationSheet: View {
     }
 
     private var verificationHint: String {
-        if let maskedPhone = challenge.maskedPhone, !maskedPhone.isEmpty {
+        if let maskedPhone, !maskedPhone.isEmpty {
             return "学校统一身份认证要求二次验证，验证码已发送至 \(maskedPhone)。可点击键盘上方建议自动填充。"
         }
         return "学校统一身份认证要求二次验证，验证码已发送至绑定手机。可点击键盘上方建议自动填充。"
@@ -111,9 +111,19 @@ struct AppSMSVerificationSheet: View {
 
 /// 学校 SSO 网页短信二次验证面板。
 struct AppSchoolSMSVerificationSheet: View {
-    let request: SchoolSMSCodeRequest
+    let maskedPhone: String
     let onCancel: () -> Void
     let onSubmit: (String) -> Void
+
+    init(
+        maskedPhone: String,
+        onCancel: @escaping () -> Void,
+        onSubmit: @escaping (String) -> Void
+    ) {
+        self.maskedPhone = maskedPhone
+        self.onCancel = onCancel
+        self.onSubmit = onSubmit
+    }
 
     @State private var code = ""
     @FocusState private var isCodeFieldFocused: Bool
@@ -126,7 +136,7 @@ struct AppSchoolSMSVerificationSheet: View {
                         .keyboardType(.numberPad)
                         .textContentType(.oneTimeCode)
                         .multilineTextAlignment(.center)
-                        .font(AppDesignSystem.Typography.titleMonospaced)
+                        .font(AppDesignSystem.Typography.title.monospacedDigit())
                         .focused($isCodeFieldFocused)
                         .accessibilityLabel("短信验证码")
                         .onChange(of: code) { _, newValue in
@@ -138,7 +148,7 @@ struct AppSchoolSMSVerificationSheet: View {
                 } header: {
                     AppListSectionHeader("输入验证码")
                 } footer: {
-                    Text("验证码已发送至 \(request.maskedPhone)，可点击键盘上方建议自动填充。")
+                    Text("验证码已发送至 \(maskedPhone)，可点击键盘上方建议自动填充。")
                 }
 
                 Section {

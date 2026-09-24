@@ -112,7 +112,7 @@ private struct SettingsIndexPage: View {
             }
             .padding(AppDesignSystem.Spacing.section)
         }
-        .background(AppDesignSystem.Palette.groupedBackground)
+        .background(AppDesignSystem.Palette.Background.grouped)
         .sheet(isPresented: $isShowingSuggestion) {
             NavigationStack {
                 DeveloperSuggestionPage()
@@ -206,7 +206,7 @@ struct DeveloperSuggestionPage: View {
                     axis: .vertical
                 )
                 .lineLimit(12, reservesSpace: true)
-                .frame(minHeight: AppDesignSystem.Size.Content.multilineEditorMinimumHeight)
+                .frame(minHeight: AppDesignSystem.Size.Editor.multilineMinimumHeight)
                 .accessibilityLabel("建议内容")
                 .accessibilityHint("输入想告诉开发者的内容")
             }

@@ -50,13 +50,13 @@ struct GalleryPosterCommentsSection: View {
                 if comments.isEmpty {
                     Text(totalCommentCount == 0 ? "还没有评论" : "评论已根据社区规范隐藏")
                         .font(AppDesignSystem.Typography.body)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, AppDesignSystem.Spacing.section)
                 } else {
-                    LazyVStack(spacing: 0) {
+                    LazyVStack(spacing: AppDesignSystem.Spacing.none) {
                         ForEach(Array(comments.enumerated()), id: \.element.id) { index, comment in
-                            VStack(spacing: 0) {
+                            VStack(spacing: AppDesignSystem.Spacing.none) {
                                 GalleryCommentRow(
                                     comment: comment,
                                     likingCommentIDs: likingCommentIDs,
@@ -210,16 +210,16 @@ private struct GalleryCommentRow: View {
         if comment.replyUser.id != 0, !comment.replyUser.nickname.isEmpty {
             (
                 Text("回复 @\(comment.replyUser.nickname)：")
-                    .foregroundStyle(.secondary) +
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary) +
                     Text(galleryLinkifiedText(comment.text))
             )
             .font(AppDesignSystem.Typography.body)
-            .lineSpacing(3)
+            .lineSpacing(AppDesignSystem.Comment.bodyLineSpacing)
             .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             Text(galleryLinkifiedText(comment.text))
                 .font(AppDesignSystem.Typography.body)
-                .lineSpacing(3)
+                .lineSpacing(AppDesignSystem.Comment.bodyLineSpacing)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -268,12 +268,12 @@ struct GalleryCommentComposerSheet: View {
                     }
                     if let uploadError {
                         Text(uploadError)
-                            .foregroundStyle(AppDesignSystem.Palette.danger)
+                            .foregroundStyle(AppDesignSystem.Palette.Status.danger)
                     }
                     if !uploadedImages.isEmpty {
                         Text("已添加 \(uploadedImages.count) 张图片")
                             .font(AppDesignSystem.Typography.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
                         GalleryPosterImagesView(images: uploadedImages) { index, images in
                             imageViewer = GalleryImageViewerState(images: images, initialIndex: index)
                         }

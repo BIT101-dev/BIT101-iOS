@@ -174,7 +174,7 @@ struct CourseScheduleCalendarView: View {
                         .offset(x: leftWidth + dayWidth * CGFloat(index), y: headerHeight)
                 }
 
-                VStack(spacing: 0) {
+                VStack(spacing: AppDesignSystem.Spacing.none) {
                     if displayMode == .weekly {
                         ScheduleInlineWeekSlider(
                             weeks: availableWeeks,
@@ -184,16 +184,16 @@ struct CourseScheduleCalendarView: View {
                         )
                         .frame(maxWidth: .infinity)
                         .frame(height: weekSliderHeight)
-                        .background(AppDesignSystem.Palette.secondaryGroupedBackground)
+                        .background(AppDesignSystem.Palette.Background.secondaryGrouped)
 
                         HStack(spacing: AppDesignSystem.Spacing.none) {
                             Text("第\(week)周")
                                 .font(AppDesignSystem.Typography.captionEmphasis)
-                                .foregroundStyle(.primary)
+                                .foregroundStyle(AppDesignSystem.Foreground.primary)
                                 .lineLimit(1)
-                                .minimumScaleFactor(0.8)
+                                .minimumScaleFactor(AppDesignSystem.Schedule.Grid.minimumScaleFactor)
                                 .frame(width: leftWidth, height: dateHeaderHeight)
-                            .background(AppDesignSystem.Palette.secondaryGroupedBackground)
+                            .background(AppDesignSystem.Palette.Background.secondaryGrouped)
 
                             ForEach(Array(weekDates.enumerated()), id: \.offset) { index, date in
                                 Button {
@@ -201,9 +201,9 @@ struct CourseScheduleCalendarView: View {
                                 } label: {
                                     Text(mmddText(for: date))
                                         .font(AppDesignSystem.Typography.caption)
-                                        .foregroundStyle(.primary)
+                                        .foregroundStyle(AppDesignSystem.Foreground.primary)
                                         .frame(width: dayWidth, height: dateHeaderHeight)
-                                        .background(AppDesignSystem.Palette.secondaryGroupedBackground)
+                                        .background(AppDesignSystem.Palette.Background.secondaryGrouped)
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityLabel("第\(week)周，周\(weekdayText(for: visibleWeekdays[index]))，\(mmddText(for: date))")
@@ -213,14 +213,14 @@ struct CourseScheduleCalendarView: View {
                         HStack(spacing: AppDesignSystem.Spacing.none) {
                             Color.clear
                                 .frame(width: leftWidth, height: headerHeight)
-                                .background(AppDesignSystem.Palette.secondaryGroupedBackground)
+                                .background(AppDesignSystem.Palette.Background.secondaryGrouped)
 
                             ForEach(Array(weekDates.enumerated()), id: \.offset) { index, _ in
                                 Text(weekdayText(for: visibleWeekdays[index]))
                                     .font(AppDesignSystem.Typography.caption)
-                                    .foregroundStyle(.primary)
+                                    .foregroundStyle(AppDesignSystem.Foreground.primary)
                                     .frame(width: dayWidth, height: headerHeight)
-                                    .background(AppDesignSystem.Palette.secondaryGroupedBackground)
+                                    .background(AppDesignSystem.Palette.Background.secondaryGrouped)
                                     .accessibilityLabel("周\(weekdayText(for: visibleWeekdays[index]))")
                             }
                         }
@@ -234,9 +234,9 @@ struct CourseScheduleCalendarView: View {
                                     .lineLimit(1)
                                 Text(slot.start)
                                     .font(AppDesignSystem.Typography.caption)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
                                     .lineLimit(1)
-                                    .minimumScaleFactor(0.8)
+                                    .minimumScaleFactor(AppDesignSystem.Schedule.Grid.minimumScaleFactor)
                             }
                             .frame(width: leftWidth, height: rowHeight)
                             .accessibilityElement(children: .combine)
@@ -284,7 +284,7 @@ struct CourseScheduleCalendarView: View {
                    visibleWeekdays.contains(highlightWeekday),
                    let index = visibleWeekdays.firstIndex(of: highlightWeekday) {
                     Rectangle()
-                        .fill(AppDesignSystem.Palette.accent)
+                        .fill(AppDesignSystem.Palette.Accent.primary)
                         .frame(width: dayWidth, height: AppDesignSystem.Schedule.Grid.currentTimeLineHeight)
                         .offset(
                             x: leftWidth + dayWidth * CGFloat(index),
@@ -293,7 +293,7 @@ struct CourseScheduleCalendarView: View {
                     .zIndex(2)
                 }
 
-                VStack(spacing: 0) {
+                VStack(spacing: AppDesignSystem.Spacing.none) {
                     Color.clear
                         .frame(height: headerHeight)
                         .allowsHitTesting(false)
@@ -376,7 +376,7 @@ struct CourseScheduleCalendarView: View {
 
             }
             .clipped()
-            .background(AppDesignSystem.Palette.systemBackground)
+            .background(AppDesignSystem.Palette.Background.system)
             // 课表主体沿用 List 分组内容的圆角；其它卡片使用各自样式。
             .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped))
             .appSelectionFeedback(trigger: week)
@@ -417,8 +417,8 @@ struct CourseScheduleFABLabel: View {
     var body: some View {
         AppFloatingActionButtonSurface {
             Image(systemName: systemImage)
-                .font(AppDesignSystem.Typography.floatingIcon)
-                .foregroundStyle(.primary)
+                .font(AppDesignSystem.Typography.bodyEmphasis)
+                .foregroundStyle(AppDesignSystem.Foreground.primary)
         }
     }
 }

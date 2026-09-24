@@ -66,15 +66,15 @@ enum AppTab: String, Identifiable, Codable {
     var tintColor: Color {
         switch self {
         case .schedule:
-            return AppDesignSystem.Palette.scheduleTab
+            return AppDesignSystem.Schedule.tabAccent
         case .map:
-            return AppDesignSystem.Palette.mapTab
+            return AppDesignSystem.Map.tabAccent
         case .score:
-            return AppDesignSystem.Palette.scoreTab
+            return AppDesignSystem.Course.accent
         case .gallery:
-            return AppDesignSystem.Palette.highlight
+            return AppDesignSystem.Gallery.tabAccent
         case .mine:
-            return AppDesignSystem.Palette.info
+            return AppDesignSystem.Palette.Status.info
         }
     }
 }

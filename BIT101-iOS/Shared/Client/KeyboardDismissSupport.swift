@@ -17,7 +17,7 @@ private enum AppKeyboard {
 private struct KeyboardDismissSupportModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .background(KeyboardBackgroundTapInstaller().frame(width: 0, height: 0))
+            .background(KeyboardBackgroundTapInstaller().frame(width: AppDesignSystem.Spacing.none, height: AppDesignSystem.Spacing.none))
     }
 }
 

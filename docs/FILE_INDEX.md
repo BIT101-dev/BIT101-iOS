@@ -11,16 +11,16 @@
 
 ## 共享层
 
-设计规则按 [UI 设计系统](DESIGN_SYSTEM.md) 分层：`DesignPrimitives.swift` 保存跨 target 基础值，`AppDesignSystem.swift` 保存公共视觉令牌，`AppLayoutComponents.swift` 保存公共布局组件，`AppStateComponents.swift` 保存页面状态组件，`ExternalDesignSystem.swift` 保存外部展示规则。课程、日程与话廊的特化规则分别位于各自模块的 `*DesignSystem.swift` 文件。
+设计规则按 [UI 设计系统](DESIGN_SYSTEM.md) 分层：`DesignPrimitives.swift` 保存跨 target 基础值和透明度刻度，`ExternalDesignSystem.swift` 保存跨 target 的 SwiftUI 字体、前景层级和外部展示规则，`AppDesignSystem.swift` 保存主 App 尺寸、颜色和平台桥接，`Shared/DesignSystem/*Components.swift` 保存主 App 公共组件。课程、日程、话廊和地图的特化规则分别位于所属模块文件。
 
 - `BIT101-iOS/Shared/Client/`：提供网络、提示模型、深链、更新检查、紧急更新、错误报告提交界面、键盘收起、分页、账号存储、手势、任务取消、偏好同步和网络 smoke。
 - `BIT101-iOS/Shared/Client/ErrorReportSupport.swift`：负责反馈脱敏、诊断摘要和提交载荷。
 - `BIT101-iOS/Shared/Client/AppErrorPresentation.swift`：负责错误队列、原生提示、恢复操作和报告 Sheet。
-- `BIT101-iOS/Shared/DesignSystem/`：提供主 App 的颜色、间距、圆角、评论/建议输入组件、搜索/segmented、更新时间、比例列数据行公共控件和系统触感修饰器。
+- `BIT101-iOS/Shared/DesignSystem/`：提供主 App 的颜色、间距、圆角、头像容器、评论/建议输入组件、搜索/segmented、更新时间、比例列数据行公共控件和系统触感修饰器；组件通过回调和环境接入 App 基础设施。
 - `BIT101-iOS/Shared/DesignSystem/AppStateComponents.swift`：提供加载、空态、失败与滚动状态组件。
 - `BIT101-iOS/Shared/ScheduleShared*.swift`：定义主 App、Widget、Live Activity 和 Watch 共用的课表快照与 occurrence 规范。
 - `BIT101-iOS/WatchSync/WatchScheduleSyncManager.swift`：负责 iPhone 与 Apple Watch 的课表镜像同步。
-- `BIT101-iOS/CachedRemoteImage.swift`：缓存头像等远程图片，并使用内存与磁盘存储。
+- `BIT101-iOS/CachedRemoteImage.swift`：缓存头像等远程图片，并使用内存与磁盘存储；`AppAvatarView` 负责远程图片到 `AppAvatarContainer` 的适配。
 
 ## 业务模块
 

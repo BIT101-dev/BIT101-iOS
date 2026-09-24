@@ -9,8 +9,10 @@ extension AppDesignSystem {
     enum Size {
         enum FloatingAction {
             static let badgeMinimum: CGFloat = 18
-            static let bottomInset: CGFloat = 20
-            static let contentInset: CGFloat = 84
+        }
+        enum Layout {
+            static let floatingActionBottomInset: CGFloat = 20
+            static let floatingActionContentInset: CGFloat = 84
         }
         enum Control {
             static let detailActionButton: CGFloat = 34
@@ -19,9 +21,14 @@ extension AppDesignSystem {
             static let touchTarget: CGFloat = 44
             static let halfTouchTarget = touchTarget / 2
         }
-        enum Content {
-            static let multilineEditorMinimumHeight: CGFloat = 180
-            static let imageDraft: CGFloat = 96
+        enum Editor {
+            static let multilineMinimumHeight: CGFloat = 180
+        }
+        enum Media {
+            static let draft: CGFloat = 96
+        }
+        enum Effect {
+            static let blurRadius = Radius.small
         }
         enum CompactRow {
             static let primaryHeight: CGFloat = 22
@@ -30,63 +37,48 @@ extension AppDesignSystem {
         enum Avatar {
             static let standard: CGFloat = 40
             static let profile: CGFloat = 80
-            static let placeholderOpacity: CGFloat = 0.15
             static let largeIconThreshold: CGFloat = 64
         }
     }
 
-    enum Typography {
-        static let title = Font.headline
-        static let titleEmphasis = Font.headline.weight(.bold)
-        static let titleMonospaced = Font.headline.monospacedDigit()
-        /// 主体可读内容；跟随当前平台的系统正文基线和动态字体设置。
-        static let body = Font.body
-        /// 主体内容中的强调文字。
-        static let bodyEmphasis = Font.body.weight(.semibold)
-        static let bodyMonospaced = Font.system(.body, design: .monospaced)
-        static let subheadline = Font.subheadline
-        static let subheadlineEmphasis = Font.subheadline.weight(.semibold)
-        static let footnote = Font.footnote
-        static let footnoteEmphasis = Font.footnote.weight(.semibold)
-        static let footnoteMonospaced = Font.system(.footnote, design: .monospaced)
-        static let caption = Font.caption
-        static let captionEmphasis = Font.caption.weight(.semibold)
-        static let uiBody = UIFont.TextStyle.body
-        static let uiCaption = UIFont.TextStyle.caption1
-        static let uiTitle = UIFont.TextStyle.headline
-        static let uiSubheadline = UIFont.TextStyle.subheadline
-        static let uiFootnote = UIFont.TextStyle.footnote
-        static let floatingIcon = Font.body.weight(.semibold)
-        static let floatingLabel = Font.system(.body, design: .rounded).weight(.bold)
-        static let webBodyCSS = "-apple-system-body"
-    }
-
     enum Comment {
         static let replyInset = Size.Avatar.standard + Spacing.regular
+        static let bodyLineSpacing: CGFloat = 3
     }
 
     enum Palette {
-        static let accent = Color.accentColor
-        static let accentSurface = Color.accentColor.opacity(0.14)
-        static let accentSubtleSurface = Color.accentColor.opacity(0.08)
-        static let highlight = Color.orange
-        static let highlightSurface = Color.orange.opacity(0.12)
-        static let highlightForeground = Color.white
-        static let danger = Color.red
-        static let info = Color.blue
-        static let success = Color.green
-        static let neutral = Color.gray
-        static let scheduleTab = Color.indigo
-        static let mapTab = Color.green
-        static let scoreTab = Color.pink
-        static let systemBackground = Color(uiColor: .systemBackground)
-        static let groupedBackground = Color(uiColor: .systemGroupedBackground)
-        static let secondaryBackground = Color(uiColor: .secondarySystemBackground)
-        static let secondaryGroupedBackground = Color(uiColor: .secondarySystemGroupedBackground)
-        static let inputPlaceholder = Color(uiColor: .placeholderText)
-        static let subtleBorder = Color.primary.opacity(0.06)
-        static let mediaOverlay = Color.black.opacity(0.45)
-        static let mediaOverlayStrong = Color.black.opacity(0.35)
+        enum Accent {
+            static let primary = Color.accentColor
+            static let surface = Color.accentColor.opacity(Opacity.surface)
+            static let subtleSurface = Color.accentColor.opacity(Opacity.subtle)
+        }
+        enum Highlight {
+            static let primary = Color.orange
+            static let surface = Color.orange.opacity(Opacity.subtle)
+            static let foreground = Color.white
+        }
+        enum Status {
+            static let danger = Color.red
+            static let info = Color.blue
+            static let success = Color.green
+            static let neutral = Color.gray
+        }
+        enum Background {
+            static let system = Color(uiColor: .systemBackground)
+            static let grouped = Color(uiColor: .systemGroupedBackground)
+            static let secondary = Color(uiColor: .secondarySystemBackground)
+            static let secondaryGrouped = Color(uiColor: .secondarySystemGroupedBackground)
+            static let inputPlaceholder = Color(uiColor: .placeholderText)
+        }
+        enum Border {
+            static let subtle = Color(uiColor: .separator)
+        }
+        enum Media {
+            static let overlay = Color.black.opacity(Opacity.overlay)
+            static let overlaySoft = Color.black.opacity(Opacity.softOverlay)
+            static let foreground = Color.white
+            static let controlOverlay = Color.black.opacity(Opacity.controlOverlay)
+        }
     }
 
     @MainActor
@@ -96,4 +88,19 @@ extension AppDesignSystem {
     ) -> RoundedRectangle {
         return RoundedRectangle(cornerRadius: radius, style: style)
     }
+}
+
+/// UIKit 富文本和 UILabel 桥接使用的动态字体样式。
+extension AppDesignSystem.Typography {
+    static let uiBody = UIFont.TextStyle.body
+    static let uiCaption = UIFont.TextStyle.caption1
+    static let uiTitle = UIFont.TextStyle.headline
+    static let uiSubheadline = UIFont.TextStyle.subheadline
+    static let uiFootnote = UIFont.TextStyle.footnote
+}
+
+/// UIKit 文字颜色桥接；复杂条件表达式使用这些 Color 值，普通前景通过系统层级样式表达。
+extension AppDesignSystem.Foreground {
+    static let primaryColor = Color(uiColor: .label)
+    static let secondaryColor = Color(uiColor: .secondaryLabel)
 }

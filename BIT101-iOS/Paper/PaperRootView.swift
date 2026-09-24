@@ -27,7 +27,7 @@ struct PaperRootView: View {
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            AppDesignSystem.Palette.groupedBackground
+            AppDesignSystem.Palette.Background.grouped
                 .ignoresSafeArea(edges: .bottom)
 
             ScrollView {
@@ -84,7 +84,7 @@ struct PaperRootView: View {
                         }
                 }
             }
-            .padding(.bottom, AppDesignSystem.Size.FloatingAction.contentInset)
+            .padding(.bottom, AppDesignSystem.Size.Layout.floatingActionContentInset)
             }
             .refreshable {
                 await viewModel.refresh()

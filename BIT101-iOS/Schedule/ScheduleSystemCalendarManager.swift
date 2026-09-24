@@ -287,6 +287,7 @@ final class ScheduleSystemCalendarManager {
     private static let calendarTitle = "BIT101 课表"
     private static let batchesKey = "schedule.system-calendar.imported-batches"
     private static let calendarIdentifierKey = "schedule.system-calendar.identifier"
+    private static let legacyEventMatchTolerance: TimeInterval = 60
 
     private let eventStore: EKEventStore
     private let defaults: UserDefaults
@@ -313,9 +314,13 @@ final class ScheduleSystemCalendarManager {
         do {
             let calendar = try writableBIT101Calendar()
             let markerIDs = Set(orderedDrafts.map(\.markerID))
-            let existingEvents = replacingTerm
+            let markerEvents = replacingTerm
                 ? events(forTerm: term)
                 : events(matchingMarkerIDs: markerIDs, term: term)
+            let legacyEvents = events(matchingDrafts: orderedDrafts, term: term)
+            let existingEvents = Dictionary(
+                uniqueKeysWithValues: (markerEvents + legacyEvents).map { ($0.eventIdentifier, $0) }
+            ).values
             let removedIdentifiers = Set(existingEvents.map(\.eventIdentifier))
             for event in existingEvents {
                 try eventStore.remove(event, span: .thisEvent, commit: false)
@@ -605,6 +610,70 @@ final class ScheduleSystemCalendarManager {
             }
         }
         return Array(eventsByIdentifier.values)
+    }
+
+    /// 兼容早期导入事件：旧事件可能缺少 marker URL，使用课程、时间和地点回收后替换。
+    private func events(
+        matchingDrafts drafts: [ScheduleSystemCalendarEventDraft],
+        term: String
+    ) -> [EKEvent] {
+        guard
+            let calendar = existingBIT101Calendar(),
+            let firstDate = drafts.map(\.startDate).min(),
+            let lastDate = drafts.map(\.endDate).max()
+        else {
+            return []
+        }
+
+        let predicate = eventStore.predicateForEvents(
+            withStart: firstDate.addingTimeInterval(-24 * 60 * 60),
+            end: lastDate.addingTimeInterval(24 * 60 * 60),
+            calendars: [calendar]
+        )
+        return eventStore.events(matching: predicate).filter { event in
+            guard
+                !isBIT101Event(event),
+                drafts.contains(where: { draft in
+                    legacyEventMatches(event, draft: draft)
+                })
+            else {
+                return false
+            }
+
+            return eventTerm(from: event) == nil || eventTerm(from: event) == term
+        }
+    }
+
+    private func legacyEventMatches(_ event: EKEvent, draft: ScheduleSystemCalendarEventDraft) -> Bool {
+        guard
+            event.title == draft.title,
+            abs(event.startDate.timeIntervalSince(draft.startDate)) <= Self.legacyEventMatchTolerance,
+            abs(event.endDate.timeIntervalSince(draft.endDate)) <= Self.legacyEventMatchTolerance
+        else {
+            return false
+        }
+
+        let eventLocation = normalizedLocation(event.location ?? "")
+        let draftLocation = normalizedLocation(draft.location)
+        guard !eventLocation.isEmpty, !draftLocation.isEmpty else { return true }
+        return eventLocation == draftLocation
+            || eventLocation.hasSuffix(draftLocation)
+            || draftLocation.hasSuffix(eventLocation)
+    }
+
+    private func normalizedLocation(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "校区", with: "")
+            .replacingOccurrences(of: "·", with: "")
+            .filter { !$0.isWhitespace }
+    }
+
+    private func eventTerm(from event: EKEvent) -> String? {
+        guard let url = event.url else { return nil }
+        return URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "term" })?
+            .value
     }
 
     private func events(forTerm term: String) -> [EKEvent] {

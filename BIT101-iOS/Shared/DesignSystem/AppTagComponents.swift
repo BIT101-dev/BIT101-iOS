@@ -46,22 +46,22 @@ struct AppTagChip: View {
     private var foregroundColor: Color {
         switch variant {
         case .display:
-            return AppDesignSystem.Palette.highlight
+            return AppDesignSystem.Palette.Highlight.primary
         case let .selection(isSelected):
             return isSelected
-                ? AppDesignSystem.Palette.highlightForeground
-                : AppDesignSystem.Palette.accent
+                ? AppDesignSystem.Palette.Highlight.foreground
+                : AppDesignSystem.Palette.Accent.primary
         }
     }
 
     private var backgroundColor: Color {
         switch variant {
         case .display:
-            return AppDesignSystem.Palette.highlightSurface
+            return AppDesignSystem.Palette.Highlight.surface
         case let .selection(isSelected):
             return isSelected
-                ? AppDesignSystem.Palette.accent
-                : AppDesignSystem.Palette.accentSurface
+                ? AppDesignSystem.Palette.Accent.primary
+                : AppDesignSystem.Palette.Accent.surface
         }
     }
 }

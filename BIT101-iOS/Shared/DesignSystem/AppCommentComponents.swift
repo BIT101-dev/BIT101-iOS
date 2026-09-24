@@ -19,7 +19,7 @@ struct AppCommentSectionHeader<Trailing: View>: View {
 
             Text("\(count)")
                 .font(AppDesignSystem.Typography.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
 
             Spacer()
             trailing
@@ -46,11 +46,11 @@ struct AppCommentIdentityHeader: View {
                 nicknameText
             }
 
-            Spacer(minLength: 0)
+            Spacer(minLength: AppDesignSystem.Spacing.none)
 
             Text(timeText)
                 .font(AppDesignSystem.Typography.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
         }
         .frame(maxWidth: .infinity)
     }
@@ -77,7 +77,7 @@ struct AppCommentActionBar: View {
             Button(action: onReply) {
                 Label("回复", systemImage: "arrowshape.turn.up.left")
                     .font(AppDesignSystem.Typography.captionEmphasis)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
                     .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
             }
             .buttonStyle(.plain)
@@ -94,13 +94,13 @@ struct AppCommentActionBar: View {
                         Image(systemName: isLiked ? "hand.thumbsup.fill" : "hand.thumbsup")
                     }
                 }
-                .foregroundStyle(isLiked ? AppDesignSystem.Palette.highlight : .secondary)
+                .foregroundStyle(isLiked ? AppDesignSystem.Palette.Highlight.primary : AppDesignSystem.Foreground.secondaryColor)
                 .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
             }
             .buttonStyle(.plain)
             .disabled(isLiking)
 
-            Spacer(minLength: 0)
+            Spacer(minLength: AppDesignSystem.Spacing.none)
         }
         .padding(.top, AppDesignSystem.Spacing.micro)
     }

@@ -274,10 +274,10 @@ struct GalleryCachedStillImage: View {
                     .aspectRatio(contentMode: contentMode)
             } else {
                 AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card)
-                    .fill(AppDesignSystem.Palette.highlightSurface)
+                    .fill(AppDesignSystem.Palette.Highlight.surface)
                     .overlay {
                         Image(systemName: "photo")
-                            .foregroundStyle(AppDesignSystem.Palette.highlight)
+                            .foregroundStyle(AppDesignSystem.Palette.Highlight.primary)
                     }
             }
         }
@@ -318,10 +318,10 @@ struct GalleryProgressiveStillImage: View {
                     .aspectRatio(contentMode: contentMode)
             } else {
                 AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card)
-                    .fill(AppDesignSystem.Palette.highlightSurface)
+                    .fill(AppDesignSystem.Palette.Highlight.surface)
                     .overlay {
                         Image(systemName: "photo")
-                            .foregroundStyle(AppDesignSystem.Palette.highlight)
+                            .foregroundStyle(AppDesignSystem.Palette.Highlight.primary)
                     }
             }
         }

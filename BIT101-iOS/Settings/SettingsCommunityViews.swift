@@ -61,7 +61,7 @@ struct GallerySettingsPage: View {
                         Spacer()
                         if networkDiagnosis.isRunning {
                             Text("\(networkDiagnosis.completedCount)/\(networkDiagnosis.totalCount)")
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(AppDesignSystem.Foreground.secondary)
                         }
                     }
                 }
@@ -95,7 +95,7 @@ struct GallerySettingsPage: View {
 
                     Text("已用缓存 \(imageCacheUsageText)")
                         .font(AppDesignSystem.Typography.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                         .fixedSize()
                 }
             } header: {
@@ -183,7 +183,7 @@ struct AboutSettingsPage: View {
                 NavigationLink("开源声明") {
                     ScrollView {
                         Text(mitLicenseText)
-                            .font(AppDesignSystem.Typography.footnoteMonospaced)
+                            .font(AppDesignSystem.Typography.footnote.monospacedDigit())
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(AppDesignSystem.Spacing.section)
                             .textSelection(.enabled)

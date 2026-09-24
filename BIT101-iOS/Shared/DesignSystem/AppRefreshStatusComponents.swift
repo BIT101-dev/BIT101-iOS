@@ -37,9 +37,9 @@ struct AppRefreshStatusRow: View {
                 }
             }
             .font(AppDesignSystem.Typography.subheadline)
-            .foregroundStyle(.primary)
+            .foregroundStyle(AppDesignSystem.Foreground.primary)
 
-            Spacer(minLength: 0)
+            Spacer(minLength: AppDesignSystem.Spacing.none)
 
             if let actionTitle, let onRefresh {
                 Button(actionTitle) {
@@ -51,7 +51,7 @@ struct AppRefreshStatusRow: View {
             } else if let trailingText {
                 Text(trailingText)
                     .font(AppDesignSystem.Typography.subheadline)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(AppDesignSystem.Foreground.primary)
             }
         }
     }

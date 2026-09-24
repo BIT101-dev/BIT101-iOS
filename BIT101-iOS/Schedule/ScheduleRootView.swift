@@ -47,7 +47,7 @@ struct ScheduleRootView: View {
                 )
             )
         }
-        .background(AppDesignSystem.Palette.groupedBackground)
+        .background(AppDesignSystem.Palette.Background.grouped)
         // 与成绩、话廊共用同一套 safeAreaInset 结构。列表内容从顶部切换栏之后开始，
         // 日程分栏保持单层 VStack 间距。
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
@@ -56,7 +56,7 @@ struct ScheduleRootView: View {
                 courseTitle: viewModel.activeCourseScheduleTitle
             )
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .safeAreaInset(edge: .bottom, spacing: AppDesignSystem.Spacing.none) {
             // 给课表、DDL、空教室统一保留到底部系统 Tab 栏的固定内容间隙。
             Color.clear
                 .frame(height: AppDesignSystem.Spacing.tiny)
@@ -88,7 +88,7 @@ struct ScheduleRootView: View {
             )
         ) { challenge in
             AppSMSVerificationSheet(
-                challenge: challenge,
+                maskedPhone: challenge.maskedPhone,
                 isSubmitting: viewModel.isSubmittingSMSCode,
                 errorMessage: viewModel.smsVerificationError,
                 submitTitle: "验证并同步课表",
@@ -109,7 +109,7 @@ struct ScheduleRootView: View {
             )
         ) { request in
             AppSchoolSMSVerificationSheet(
-                request: request,
+                maskedPhone: request.maskedPhone,
                 onCancel: viewModel.dismissSchoolSMSCode,
                 onSubmit: viewModel.submitSchoolSMSCode
             )

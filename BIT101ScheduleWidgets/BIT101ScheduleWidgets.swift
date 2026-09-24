@@ -22,23 +22,23 @@ struct CourseReminderLiveActivityWidget: Widget {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                 HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.regular) {
                     Text(context.state.kindText)
-                        .font(AppDesignSystem.External.Typography.caption)
-                        .foregroundStyle(.secondary)
+                        .font(AppDesignSystem.Typography.caption)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
 
-                    Spacer(minLength: 0)
+                    Spacer(minLength: AppDesignSystem.Spacing.none)
 
                     Text(context.state.countdownTargetDate, style: .time)
-                        .font(AppDesignSystem.External.Typography.caption)
-                        .foregroundStyle(.tertiary)
+                        .font(AppDesignSystem.Typography.caption)
+                        .foregroundStyle(AppDesignSystem.Foreground.tertiary)
                 }
 
                 Text(context.state.title)
-                    .font(AppDesignSystem.External.Typography.title)
+                    .font(AppDesignSystem.Typography.title)
                     .lineLimit(2)
 
                 Text(context.state.classroom.isEmpty ? context.state.teacher : context.state.classroom)
-                    .font(AppDesignSystem.External.Typography.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(AppDesignSystem.Typography.subheadline)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
                     .lineLimit(1)
 
                 LiveActivityTimerText(
@@ -55,7 +55,7 @@ struct CourseReminderLiveActivityWidget: Widget {
                 // 展开态左侧展示提醒类型。
                 DynamicIslandExpandedRegion(.leading) {
                     Text(context.state.kindText)
-                        .font(AppDesignSystem.External.Typography.caption)
+                        .font(AppDesignSystem.Typography.caption)
                         .lineLimit(1)
                         .padding(.leading, AppDesignSystem.Spacing.regular)
                 }
@@ -70,19 +70,19 @@ struct CourseReminderLiveActivityWidget: Widget {
                 // 展开态中间展示单行标题。
                 DynamicIslandExpandedRegion(.center) {
                     Text(context.state.title)
-                        .font(AppDesignSystem.External.Typography.title)
+                        .font(AppDesignSystem.Typography.title)
                         .lineLimit(1)
                 }
                 // 展开态底部展示时间段、地点和老师摘要。
                 DynamicIslandExpandedRegion(.bottom) {
                     Text(liveActivityExpandedSummaryText(for: context.state))
-                        .font(AppDesignSystem.External.Typography.title)
+                        .font(AppDesignSystem.Typography.title)
                         .lineLimit(1)
                 }
             } compactLeading: {
                 // 紧凑态左侧展示提醒类型。
                 Text(context.state.kindText)
-                    .font(AppDesignSystem.External.Typography.caption)
+                    .font(AppDesignSystem.Typography.caption)
                     .lineLimit(1)
             } compactTrailing: {
                 // 紧凑态右侧展示倒计时。
@@ -132,19 +132,19 @@ private struct LiveActivityTimerText: View {
         switch style {
         case .large:
             timerText
-                .font(AppDesignSystem.External.Typography.titleEmphasis.monospacedDigit())
+                .font(AppDesignSystem.Typography.titleEmphasis.monospacedDigit())
         case .expanded:
             timerText
                 .multilineTextAlignment(.trailing)
                 .frame(width: AppDesignSystem.External.Size.liveActivityTimerWidth)
-                .font(AppDesignSystem.External.Typography.caption)
+                .font(AppDesignSystem.Typography.caption)
                 .lineLimit(1)
         case .compact:
             // 紧凑态保持固定宽度，倒计时文本长度变化时维持 Dynamic Island 宽度。
             timerText
                 .multilineTextAlignment(.center)
                 .frame(width: AppDesignSystem.External.Size.liveActivityTimerWidth)
-                .font(AppDesignSystem.External.Typography.caption)
+                .font(AppDesignSystem.Typography.caption)
                 .lineLimit(1)
         }
     }
@@ -292,14 +292,14 @@ private struct ScheduleWidgetEntryView: View {
     private func scheduleHeader(for occurrence: ScheduleExternalOccurrence) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.regular) {
             Text(courseStatusText(for: occurrence))
-                .font(AppDesignSystem.External.Typography.caption)
-                .foregroundStyle(.secondary)
+                .font(AppDesignSystem.Typography.caption)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
 
-            Spacer(minLength: 0)
+            Spacer(minLength: AppDesignSystem.Spacing.none)
 
             Text(occurrence.relativeDayText(referenceDate: entry.date))
-                .font(AppDesignSystem.External.Typography.captionEmphasis)
-                .foregroundStyle(.tertiary)
+                .font(AppDesignSystem.Typography.captionEmphasis)
+                .foregroundStyle(AppDesignSystem.Foreground.tertiary)
         }
     }
 
@@ -311,19 +311,19 @@ private struct ScheduleWidgetEntryView: View {
 
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                     Text(first.title)
-                        .font(AppDesignSystem.External.Typography.title)
+                        .font(AppDesignSystem.Typography.title)
                         .lineLimit(2)
                         .minimumScaleFactor(AppDesignSystem.External.Scale.widgetSmallTitle)
 
                     Text(first.rangeText)
-                        .font(AppDesignSystem.External.Typography.subheadlineEmphasis)
-                        .foregroundStyle(.primary)
+                        .font(AppDesignSystem.Typography.subheadlineEmphasis)
+                        .foregroundStyle(AppDesignSystem.Foreground.primary)
                         .lineLimit(1)
 
                     if !first.classroom.isEmpty {
                         Text(first.classroom)
-                            .font(AppDesignSystem.External.Typography.caption)
-                            .foregroundStyle(.secondary)
+                            .font(AppDesignSystem.Typography.caption)
+                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
                             .lineLimit(1)
                     }
                 }
@@ -342,28 +342,28 @@ private struct ScheduleWidgetEntryView: View {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
                 HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.regular) {
                     Text(courseStatusText(for: first))
-                        .font(AppDesignSystem.External.Typography.caption)
-                        .foregroundStyle(.secondary)
+                        .font(AppDesignSystem.Typography.caption)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
 
-                    Spacer(minLength: 0)
+                    Spacer(minLength: AppDesignSystem.Spacing.none)
 
                     Text(first.relativeDayText(referenceDate: entry.date))
-                        .font(AppDesignSystem.External.Typography.caption)
-                        .foregroundStyle(.tertiary)
+                        .font(AppDesignSystem.Typography.caption)
+                        .foregroundStyle(AppDesignSystem.Foreground.tertiary)
                 }
 
                 Text(first.title)
-                    .font(AppDesignSystem.External.Typography.subheadlineEmphasis)
+                    .font(AppDesignSystem.Typography.subheadlineEmphasis)
                     .lineLimit(1)
 
                 Text(accessoryMetaText(for: first))
-                    .font(AppDesignSystem.External.Typography.caption)
-                    .foregroundStyle(.secondary)
+                    .font(AppDesignSystem.Typography.caption)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
                     .lineLimit(1)
             }
         } else {
             Text(accessoryEmptyText)
-                .font(AppDesignSystem.External.Typography.caption)
+                .font(AppDesignSystem.Typography.caption)
                 .lineLimit(2)
         }
     }
@@ -388,18 +388,18 @@ private struct ScheduleWidgetEntryView: View {
             if let first = entry.nextOccurrences.first {
                 VStack(spacing: AppDesignSystem.Spacing.micro) {
                     Image(systemName: first.isCurrent(at: entry.date) ? "play.circle.fill" : "calendar.badge.clock")
-                        .font(AppDesignSystem.External.Typography.caption)
+                        .font(AppDesignSystem.Typography.caption)
                     Text(first.countdownTargetDate(at: entry.date), style: .timer)
-                        .font(AppDesignSystem.External.Typography.captionEmphasis)
+                        .font(AppDesignSystem.Typography.captionEmphasis)
                         .lineLimit(1)
                         .minimumScaleFactor(AppDesignSystem.External.Scale.widgetCircularCount)
                 }
             } else {
                 VStack(spacing: AppDesignSystem.Spacing.micro) {
                     Image(systemName: "calendar")
-                        .font(AppDesignSystem.External.Typography.caption)
+                        .font(AppDesignSystem.Typography.caption)
                     Text(circularEmptyText)
-                        .font(AppDesignSystem.External.Typography.caption)
+                        .font(AppDesignSystem.Typography.caption)
                 }
             }
         }
@@ -413,43 +413,43 @@ private struct ScheduleWidgetEntryView: View {
                     scheduleHeader(for: first)
 
                     Text(first.title)
-                        .font(AppDesignSystem.External.Typography.title)
+                        .font(AppDesignSystem.Typography.title)
                         .lineLimit(2)
                         .minimumScaleFactor(AppDesignSystem.External.Scale.widgetTitle)
 
                     Text("\(first.rangeText)\(first.classroom.isEmpty ? "" : " · \(first.classroom)")")
-                        .font(AppDesignSystem.External.Typography.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(AppDesignSystem.Typography.subheadline)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                         .lineLimit(1)
                 }
 
                 if !entry.nextOccurrences.dropFirst().isEmpty {
                     Text("后续")
-                        .font(AppDesignSystem.External.Typography.caption)
-                        .foregroundStyle(.secondary)
+                        .font(AppDesignSystem.Typography.caption)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
 
                     ForEach(Array(entry.nextOccurrences.dropFirst().prefix(1))) { occurrence in
                         HStack(spacing: AppDesignSystem.Spacing.tiny) {
                             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
                                 Text(occurrence.title)
-                                    .font(AppDesignSystem.External.Typography.subheadlineEmphasis)
+                                    .font(AppDesignSystem.Typography.subheadlineEmphasis)
                                     .lineLimit(1)
                                     .minimumScaleFactor(AppDesignSystem.External.Scale.widgetTitle)
 
                                 let meta = secondaryMetaText(for: occurrence)
                                 if !meta.isEmpty {
                                     Text(meta)
-                                        .font(AppDesignSystem.External.Typography.caption)
-                                        .foregroundStyle(.secondary)
+                                        .font(AppDesignSystem.Typography.caption)
+                                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                                         .lineLimit(1)
                                 }
                             }
 
-                            Spacer(minLength: 0)
+                            Spacer(minLength: AppDesignSystem.Spacing.none)
 
                             Text(occurrence.rangeText)
-                                .font(AppDesignSystem.External.Typography.caption)
-                                .foregroundStyle(.secondary)
+                                .font(AppDesignSystem.Typography.caption)
+                                .foregroundStyle(AppDesignSystem.Foreground.secondary)
                                 .lineLimit(1)
                         }
                     }
@@ -469,51 +469,51 @@ private struct ScheduleWidgetEntryView: View {
                     scheduleHeader(for: first)
 
                     Text(first.title)
-                        .font(AppDesignSystem.External.Typography.title)
+                        .font(AppDesignSystem.Typography.title)
                         .lineLimit(2)
                         .minimumScaleFactor(AppDesignSystem.External.Scale.widgetTitle)
 
                     Text(first.rangeText)
-                        .font(AppDesignSystem.External.Typography.titleEmphasis)
-                        .foregroundStyle(.primary)
+                        .font(AppDesignSystem.Typography.titleEmphasis)
+                        .foregroundStyle(AppDesignSystem.Foreground.primary)
                         .lineLimit(1)
 
                     if !first.classroom.isEmpty || !first.teacher.isEmpty {
                         Text(primaryMetaText(for: first))
-                            .font(AppDesignSystem.External.Typography.subheadline)
-                            .foregroundStyle(.secondary)
+                            .font(AppDesignSystem.Typography.subheadline)
+                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
                             .lineLimit(1)
                     }
                 }
 
                 if !entry.nextOccurrences.dropFirst().isEmpty {
                     Text("后续")
-                        .font(AppDesignSystem.External.Typography.caption)
-                        .foregroundStyle(.secondary)
+                        .font(AppDesignSystem.Typography.caption)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
 
                     VStack(spacing: AppDesignSystem.Spacing.regular) {
                         ForEach(Array(entry.nextOccurrences.dropFirst().prefix(4))) { occurrence in
                             HStack(spacing: AppDesignSystem.Spacing.regular) {
                                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
                                     Text(occurrence.title)
-                                        .font(AppDesignSystem.External.Typography.subheadlineEmphasis)
+                                        .font(AppDesignSystem.Typography.subheadlineEmphasis)
                                         .lineLimit(1)
                                         .minimumScaleFactor(AppDesignSystem.External.Scale.widgetTitle)
 
                                     let meta = secondaryMetaText(for: occurrence)
                                     if !meta.isEmpty {
                                         Text(meta)
-                                            .font(AppDesignSystem.External.Typography.caption)
-                                            .foregroundStyle(.secondary)
+                                            .font(AppDesignSystem.Typography.caption)
+                                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
                                             .lineLimit(1)
                                     }
                                 }
 
-                                Spacer(minLength: 0)
+                                Spacer(minLength: AppDesignSystem.Spacing.none)
 
                                 Text(occurrence.rangeText)
-                                    .font(AppDesignSystem.External.Typography.captionEmphasis)
-                                    .foregroundStyle(.secondary)
+                                    .font(AppDesignSystem.Typography.captionEmphasis)
+                                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
                                     .lineLimit(1)
                             }
                         }
@@ -523,7 +523,7 @@ private struct ScheduleWidgetEntryView: View {
                 emptyState
             }
 
-            Spacer(minLength: 0)
+            Spacer(minLength: AppDesignSystem.Spacing.none)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -559,21 +559,21 @@ private struct ScheduleWidgetEntryView: View {
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
             Text(entry.message ?? scheduleWidgetRestMessage)
-                .font(AppDesignSystem.External.Typography.subheadlineEmphasis)
+                .font(AppDesignSystem.Typography.subheadlineEmphasis)
             if entry.message == scheduleWidgetSyncMessage {
                 Text("打开 App 同步课表后，这里会显示下一节课。")
-                    .font(AppDesignSystem.External.Typography.caption)
-                    .foregroundStyle(.secondary)
+                    .font(AppDesignSystem.Typography.caption)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else if entry.message == scheduleWidgetInvalidMessage {
                 Text("打开 App 重新同步课表后，这里会显示下一节课。")
-                    .font(AppDesignSystem.External.Typography.caption)
-                    .foregroundStyle(.secondary)
+                    .font(AppDesignSystem.Typography.caption)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else if entry.message == scheduleWidgetLoginMessage {
                 Text("登录后，这里会显示下一节课。")
-                    .font(AppDesignSystem.External.Typography.caption)
-                    .foregroundStyle(.secondary)
+                    .font(AppDesignSystem.Typography.caption)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }

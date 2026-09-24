@@ -201,15 +201,17 @@ struct CalendarSettingsPage: View {
             } label: {
                 HStack(spacing: AppDesignSystem.Spacing.regular) {
                     Text("提前显示阈值")
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(AppDesignSystem.Foreground.primary)
                     Spacer()
                     Text("\(normalizedLeadMinutes) 分钟")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                 }
             }
             .buttonStyle(.plain)
             .disabled(!viewModel.cache.showCourseLiveActivityReminder)
-            .opacity(viewModel.cache.showCourseLiveActivityReminder ? 1 : 0.45)
+            .opacity(viewModel.cache.showCourseLiveActivityReminder
+                ? AppDesignSystem.Opacity.full
+                : AppDesignSystem.Schedule.reminderDisabledOpacity)
         } header: {
             AppListSectionHeader("显示设置")
         }
@@ -287,7 +289,7 @@ struct CalendarSettingsPage: View {
             )
         ) { challenge in
             AppSMSVerificationSheet(
-                challenge: challenge,
+                maskedPhone: challenge.maskedPhone,
                 isSubmitting: viewModel.isSubmittingSMSCode,
                 errorMessage: viewModel.smsVerificationError,
                 submitTitle: "验证并同步课表",

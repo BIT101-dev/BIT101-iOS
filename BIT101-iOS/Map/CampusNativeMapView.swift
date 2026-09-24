@@ -202,8 +202,8 @@ struct CampusNativeMapView: UIViewRepresentable {
             marker.glyphImage = UIImage(systemName: "building.2.fill")
             marker.markerTintColor = UIColor(
                 placeAnnotation.campus == .liangxiang
-                    ? AppDesignSystem.Palette.info
-                    : AppDesignSystem.Palette.danger
+                    ? AppDesignSystem.Palette.Status.info
+                    : AppDesignSystem.Palette.Status.danger
             )
             marker.accessibilityLabel = placeAnnotation.title ?? placeAnnotation.place.name
             marker.accessibilityValue = placeAnnotation.subtitle

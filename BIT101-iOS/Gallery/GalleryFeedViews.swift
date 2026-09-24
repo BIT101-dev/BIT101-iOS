@@ -47,7 +47,7 @@ struct GalleryFeedView: View {
                         )
                     }
                 } else {
-                    LazyVStack(spacing: 0) {
+                    LazyVStack(spacing: AppDesignSystem.Spacing.none) {
                         ForEach(Array(visiblePosters.enumerated()), id: \.element.id) { index, poster in
                             AppFeedRow(isLast: index == visiblePosters.count - 1) {
                                 GalleryPosterCard(
@@ -81,7 +81,7 @@ struct GalleryFeedView: View {
             }
             // 系统滚动定位在顶部目标发生变化时更新一次；卡片复用统一定位状态。
             .scrollPosition(id: $currentTopPosterID, anchor: .top)
-            .background(AppDesignSystem.Palette.groupedBackground)
+            .background(AppDesignSystem.Palette.Background.grouped)
             .id(feedIdentity)
             .refreshable {
                 pendingRestorePosterID = currentTopPosterID ?? visiblePosters.first?.id
@@ -193,7 +193,7 @@ struct GalleryPosterCard: View {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                 Text(poster.title)
                     .font(AppDesignSystem.Typography.title)
-                    .foregroundStyle(AppDesignSystem.Palette.highlight)
+                    .foregroundStyle(AppDesignSystem.Palette.Highlight.primary)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -204,7 +204,7 @@ struct GalleryPosterCard: View {
                         HStack(spacing: AppDesignSystem.Spacing.tiny) {
                             Text(poster.user.nickname)
                                 .font(AppDesignSystem.Typography.bodyEmphasis)
-                                .foregroundStyle(.primary)
+                                .foregroundStyle(AppDesignSystem.Foreground.primary)
                                 .lineLimit(1)
 
                             if !poster.user.identity.text.isEmpty {
@@ -212,7 +212,7 @@ struct GalleryPosterCard: View {
                                     .font(AppDesignSystem.Typography.captionEmphasis)
                                     .padding(.horizontal, AppDesignSystem.Spacing.tiny)
                                     .padding(.vertical, AppDesignSystem.Spacing.micro)
-                                    .background(identityColor.opacity(0.15), in: Capsule())
+                                    .background(identityColor.opacity(AppDesignSystem.Gallery.identitySurfaceOpacity), in: Capsule())
                                     .foregroundStyle(identityColor)
                             }
                         }
@@ -220,7 +220,7 @@ struct GalleryPosterCard: View {
                         if !poster.user.motto.isEmpty {
                             Text(poster.user.motto)
                                 .font(AppDesignSystem.Typography.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(AppDesignSystem.Foreground.secondary)
                                 .lineLimit(1)
                         }
                     }
@@ -275,14 +275,14 @@ struct GalleryPosterCard: View {
                     .fixedSize(horizontal: true, vertical: false)
             }
             .font(AppDesignSystem.Typography.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(AppDesignSystem.Foreground.secondary)
         }
         .appFeedCardStyle()
         .accessibilityAddTraits(.isButton)
     }
 
     private var identityColor: Color {
-        Color(hex: poster.user.identity.color) ?? AppDesignSystem.Palette.highlight
+        Color(hex: poster.user.identity.color) ?? AppDesignSystem.Palette.Highlight.primary
     }
 
     /// 把后端时间文本转成相对时间文案。
@@ -333,10 +333,10 @@ struct GalleryPosterImagesView: View {
 
                             if allocation.index == plan.allocations.last?.index,
                                plan.hiddenImageCount > 0 {
-                                Color.black.opacity(AppDesignSystem.Gallery.overflowOverlayOpacity)
+                                AppDesignSystem.Palette.Media.overlay
                                 Text("+\(plan.hiddenImageCount)")
                                     .font(AppDesignSystem.Typography.title)
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(AppDesignSystem.Palette.Media.foreground)
                             }
                         }
                         .frame(width: allocation.width, height: proxy.size.height)

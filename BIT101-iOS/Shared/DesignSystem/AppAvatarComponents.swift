@@ -1,21 +1,21 @@
 import SwiftUI
 
-/// 账号头像统一的加载、占位、裁切和尺寸容器。
-struct AppAvatarView: View {
-    let imageURL: URL?
+/// 头像统一的占位、裁切、无障碍和尺寸容器。
+struct AppAvatarContainer: View {
+    let image: Image?
     let size: CGFloat
     let tint: Color
     let systemImage: String
     let accessibilityLabel: String?
 
     init(
-        imageURL: URL?,
+        image: Image?,
         size: CGFloat = AppDesignSystem.Size.Avatar.standard,
-        tint: Color = AppDesignSystem.Palette.highlight,
+        tint: Color = AppDesignSystem.Palette.Highlight.primary,
         systemImage: String = "person.fill",
         accessibilityLabel: String? = nil
     ) {
-        self.imageURL = imageURL
+        self.image = image
         self.size = size
         self.tint = tint
         self.systemImage = systemImage
@@ -23,22 +23,24 @@ struct AppAvatarView: View {
     }
 
     var body: some View {
-        CachedRemoteImage(url: imageURL) { image in
-            image
+        Group {
+            if let image {
+                image
                 .resizable()
                 .scaledToFill()
-        } placeholder: {
-            Circle()
-                .fill(tint.opacity(AppDesignSystem.Size.Avatar.placeholderOpacity))
-                .overlay {
-                    Image(systemName: systemImage)
-                        .foregroundStyle(tint)
-                        .font(
-                            size >= AppDesignSystem.Size.Avatar.largeIconThreshold
-                                ? AppDesignSystem.Typography.title
-                                : AppDesignSystem.Typography.captionEmphasis
-                        )
-                }
+            } else {
+                Circle()
+                    .fill(tint.opacity(AppDesignSystem.Opacity.subtle))
+                    .overlay {
+                        Image(systemName: systemImage)
+                            .foregroundStyle(tint)
+                            .font(
+                                size >= AppDesignSystem.Size.Avatar.largeIconThreshold
+                                    ? AppDesignSystem.Typography.title
+                                    : AppDesignSystem.Typography.captionEmphasis
+                            )
+                    }
+            }
         }
         .frame(width: size, height: size)
         .clipShape(Circle())

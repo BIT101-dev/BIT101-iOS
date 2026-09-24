@@ -16,24 +16,24 @@ struct PaperSummaryCard: View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
             Text(paper.title)
                 .font(AppDesignSystem.Typography.title)
-                .foregroundStyle(.primary)
+                .foregroundStyle(AppDesignSystem.Foreground.primary)
                 .lineLimit(2)
 
             HStack(spacing: AppDesignSystem.Spacing.regular) {
                 AppAvatarView(
                     imageURL: previewMetadata?.avatarURL,
-                    tint: AppDesignSystem.Palette.neutral
+                    tint: AppDesignSystem.Palette.Status.neutral
                 )
 
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
                     Text(previewMetadata?.authorName ?? "加载中")
                         .font(AppDesignSystem.Typography.bodyEmphasis)
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(AppDesignSystem.Foreground.primary)
                         .lineLimit(1)
 
                     Text(AppDateText.timestampText(from: paper.updateTime))
                         .font(AppDesignSystem.Typography.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                 }
 
                 Spacer(minLength: AppDesignSystem.Spacing.content)
@@ -42,7 +42,7 @@ struct PaperSummaryCard: View {
             if !paper.intro.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text(paper.intro)
                     .font(AppDesignSystem.Typography.body)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
                     .lineLimit(3)
             }
 
@@ -53,7 +53,7 @@ struct PaperSummaryCard: View {
                 Text(AppDateText.dayText(from: paper.updateTime))
             }
             .font(AppDesignSystem.Typography.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(AppDesignSystem.Foreground.secondary)
         }
         .appFeedCardStyle()
         .contentShape(Rectangle())

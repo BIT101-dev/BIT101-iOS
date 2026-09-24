@@ -271,6 +271,13 @@ extension View {
     func diagnosticAlert<Item: DiagnosticAlertPresentable>(item: Binding<Item?>) -> some View {
         modifier(DiagnosticAlertModifier(item: item))
     }
+
+    /// 向页面状态组件注入主 App 的诊断恢复操作，保持设计系统与错误基础设施解耦。
+    func appDiagnosticRecoveryActions() -> some View {
+        environment(\.appFailureDiagnostics) { title, message in
+            AnyView(DiagnosticRecoveryActions(title: title, message: message))
+        }
+    }
 }
 
 struct DiagnosticRecoveryActions: View {
@@ -284,7 +291,7 @@ struct DiagnosticRecoveryActions: View {
             Link("查看是否有更新", destination: BIT101AppStore.url)
             if let schoolServiceURL {
                 Link("万一学校服务 g 了？", destination: schoolServiceURL)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
             }
             Button("向开发者分享错误信息") {
                 reportAlert = AppAlert(title: title, message: message)
@@ -325,23 +332,23 @@ private struct AppErrorReportSheet: View {
                     VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                         Text("本次错误")
                             .font(AppDesignSystem.Typography.title)
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(AppDesignSystem.Foreground.primary)
                             .textCase(nil)
                         Text(viewModel.alert.title)
                             .font(AppDesignSystem.Typography.title)
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(AppDesignSystem.Foreground.primary)
                         Text(viewModel.alert.message)
                             .font(AppDesignSystem.Typography.body)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
                             .textSelection(.enabled)
                         Text("包含最近 \(viewModel.diagnostics.count) 条网络记录")
                             .font(AppDesignSystem.Typography.footnote)
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(AppDesignSystem.Foreground.tertiary)
 
                         if let message = viewModel.resultMessage {
                             Text(message)
                                 .font(AppDesignSystem.Typography.footnote)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(AppDesignSystem.Foreground.secondary)
                         }
                     }
                     .padding(.top, AppDesignSystem.Spacing.content)
@@ -383,22 +390,22 @@ private struct AppErrorReportSheet: View {
         if viewModel.mode == .sanitized {
             (
                 Text("仅包含 App 版本、设备与系统信息、网络状态、请求接口、状态码等；")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
                 + Text("系统会自动隐藏密码、Cookie、Token、姓名、学号等敏感字段。")
                     .font(AppDesignSystem.Typography.footnoteEmphasis)
-                    .foregroundStyle(AppDesignSystem.Palette.accent)
+                    .foregroundStyle(AppDesignSystem.Palette.Accent.primary)
             )
             .font(AppDesignSystem.Typography.footnote)
         } else {
             (
                 Text("包含接口返回的原始内容，")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
                 + Text("可能包含学号、姓名、课程、成绩等个人信息。")
                     .font(AppDesignSystem.Typography.footnoteEmphasis)
-                    .foregroundStyle(AppDesignSystem.Palette.accent)
+                    .foregroundStyle(AppDesignSystem.Palette.Accent.primary)
                 + Text("密码、Cookie、Token 等认证信息仍会强制脱敏。")
                     .font(AppDesignSystem.Typography.footnoteEmphasis)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
             )
             .font(AppDesignSystem.Typography.footnote)
         }

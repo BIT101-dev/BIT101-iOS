@@ -248,59 +248,131 @@ struct CourseHistoryGrade: Codable, Identifiable, Equatable {
 }
 
 enum CourseHistoryMakeupPolicy {
-    private static let minimumSampleCount = 4
-    private static let smallCourseMaximumStudentCount = 20
-    private static let tukeyFenceMultiplier = 3.0
-    private static let averageScoreQuantile = 0.25
+    private static let requiredCoursePrefix = "10"
+    private static let electiveCoursePrefix = "99"
+    private static let minimumPairedYears = 2
+    private static let strongCountRatio = 0.35
+    private static let pairwiseOutlierRatio = 0.20
+    private static let globalOutlierMultiplier = 10.0
 
-    /// 将学习人数转换为对数后使用单侧 Tukey 外围下界识别乘性异常值。
+    /// 识别 10 开头必修课中按学年重复出现的低人数补考学期。
     ///
-    /// 数据达到 4 个有效学期时计算 Q1、Q3 和 3×IQR；人数 ≤ 20 的学期保持展示，平均分处于课程下四分位数的记录进入统计候选集合。
-    static func hiddenTerms(in grades: [CourseHistoryGrade]) -> Set<String> {
-        let samples = grades.compactMap { grade -> (term: String, count: Int, averageScore: Double)? in
-            guard
-                let count = grade.studentNum,
-                count > smallCourseMaximumStudentCount,
-                let averageScore = grade.avgScore
-            else {
-                return nil
-            }
-            return (grade.term, count, averageScore)
+    /// 99 开头选修课完整保留数据。一个学年只有一个数据点时保留；同一学年有两个数据点时，
+    /// 先按跨学年稳定的低人数学期位置清理，再清理人数相差十倍及以上的明确离群点。
+    static func hiddenTerms(in grades: [CourseHistoryGrade], courseNumber: String) -> Set<String> {
+        let normalizedNumber = courseNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedNumber.hasPrefix(requiredCoursePrefix),
+              !normalizedNumber.hasPrefix(electiveCoursePrefix)
+        else {
+            return []
         }
-        guard samples.count >= minimumSampleCount else { return [] }
 
-        let logCounts = samples.map { log10(Double($0.count)) }.sorted()
-        let lowerQuartile = percentile(0.25, values: logCounts)
-        let upperQuartile = percentile(0.75, values: logCounts)
-        let lowerFence = lowerQuartile - tukeyFenceMultiplier * (upperQuartile - lowerQuartile)
-        let averageScores = samples.map(\.averageScore).sorted()
-        let averageScoreFence = percentile(averageScoreQuantile, values: averageScores)
-
-        return Set(samples.compactMap { sample in
-            let logCount = log10(Double(sample.count))
+        let samples = grades.compactMap(ComparableGrade.init)
+        let groupedByAcademicYear = Dictionary(grouping: samples, by: \.academicYear)
+        let pairedYears = groupedByAcademicYear.values.compactMap { yearSamples -> [ComparableGrade]? in
+            guard yearSamples.count == 2 else { return nil }
+            return yearSamples.sorted { $0.semester < $1.semester }
+        }
+        let pairComparisons = pairedYears.compactMap { pair -> PairComparison? in
             guard
-                logCount < lowerFence,
-                sample.averageScore < averageScoreFence
+                let firstCount = pair[0].grade.studentNum,
+                let secondCount = pair[1].grade.studentNum,
+                firstCount > 0,
+                secondCount > 0
             else {
                 return nil
             }
-            return sample.term
+
+            let lowerIndex = firstCount <= secondCount ? 0 : 1
+            let higherIndex = lowerIndex == 0 ? 1 : 0
+            let lower = pair[lowerIndex]
+            let higher = pair[higherIndex]
+            let ratio = Double(lower.grade.studentNum ?? 0) / Double(higher.grade.studentNum ?? 1)
+            return PairComparison(lower: lower, countRatio: ratio)
+        }
+
+        var firstPassHiddenTerms = Set<String>()
+        let strongPairs = pairComparisons.filter { $0.countRatio <= strongCountRatio }
+        if strongPairs.count >= minimumPairedYears,
+           let dominantSemester = dominantLowerSemester(in: strongPairs),
+           strongPairs.filter({ $0.lower.semester == dominantSemester }).count * 2 > strongPairs.count {
+            firstPassHiddenTerms.formUnion(
+                strongPairs
+                    .filter { $0.lower.semester == dominantSemester }
+                    .map { $0.lower.grade.term }
+            )
+        }
+
+        // 主学期位置变化时，年内相对人数差异仍可作为第一遍清理依据。
+        firstPassHiddenTerms.formUnion(
+            pairComparisons
+                .filter { $0.countRatio <= pairwiseOutlierRatio }
+                .map { $0.lower.grade.term }
+        )
+
+        let remainingSamples = samples.filter { !firstPassHiddenTerms.contains($0.grade.term) }
+        let secondPassHiddenTerms = globalOutlierTerms(in: remainingSamples)
+        return firstPassHiddenTerms.union(secondPassHiddenTerms)
+    }
+
+    /// 第二遍忽略学期位置，对第一遍剩余的全部数据点统一比较人数。
+    /// 使用高位人数基线识别至少低十倍的离群点，避免某个学期固定为主学期的前提。
+    private static func globalOutlierTerms(in samples: [ComparableGrade]) -> Set<String> {
+        let counts = samples.compactMap(\.grade.studentNum).filter { $0 > 0 }.sorted()
+        guard counts.count >= 2 else { return [] }
+
+        let upperBaselineIndex = min(
+            counts.count - 1,
+            Int(ceil(Double(counts.count) * 0.75)) - 1
+        )
+        let upperBaseline = Double(counts[upperBaselineIndex])
+        return Set(samples.compactMap { sample in
+            guard
+                let count = sample.grade.studentNum,
+                Double(count) * globalOutlierMultiplier <= upperBaseline
+            else {
+                return nil
+            }
+            return sample.grade.term
         })
     }
 
-    private static func percentile(_ percentile: Double, values: [Double]) -> Double {
-        guard !values.isEmpty else { return 0 }
-        guard values.count > 1 else { return values[0] }
+    private static func dominantLowerSemester(in pairs: [PairComparison]) -> Int? {
+        let counts = Dictionary(grouping: pairs, by: { $0.lower.semester })
+            .mapValues(\.count)
+        return counts.max { left, right in
+            if left.value == right.value {
+                return left.key > right.key
+            }
+            return left.value < right.value
+        }?.key
+    }
 
-        let position = percentile * Double(values.count - 1)
-        let lowerIndex = Int(floor(position))
-        let upperIndex = Int(ceil(position))
-        guard lowerIndex != upperIndex else {
-            return values[lowerIndex]
+    private struct PairComparison {
+        let lower: ComparableGrade
+        let countRatio: Double
+    }
+
+    private struct ComparableGrade {
+        let grade: CourseHistoryGrade
+        let academicYear: String
+        let semester: Int
+
+        nonisolated init?(_ grade: CourseHistoryGrade) {
+            let components = grade.term.split(separator: "-")
+            guard
+                components.count >= 3,
+                let semesterComponent = components.last,
+                let semester = Int(semesterComponent),
+                semester > 0
+            else {
+                return nil
+            }
+
+            self.grade = grade
+            self.academicYear = components.dropLast().joined(separator: "-")
+            self.semester = semester
         }
-
-        let weight = position - Double(lowerIndex)
-        return values[lowerIndex] * (1 - weight) + values[upperIndex] * weight
     }
 }
 

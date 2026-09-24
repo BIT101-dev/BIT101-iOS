@@ -74,7 +74,7 @@ struct PaperSearchView: View {
             }
             .padding(.vertical, AppDesignSystem.Spacing.content)
         }
-        .background(AppDesignSystem.Palette.groupedBackground)
+        .background(AppDesignSystem.Palette.Background.grouped)
         .refreshable {
             await viewModel.performSearch()
         }

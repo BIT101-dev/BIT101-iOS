@@ -103,11 +103,11 @@ private struct LoginFormView: View {
         .navigationTitle("登录")
         .navigationBarTitleDisplayMode(.inline)
         .scrollDismissesKeyboard(.interactively)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .safeAreaInset(edge: .bottom, spacing: AppDesignSystem.Spacing.none) {
             Link(destination: AppLegalInfo.icpPublicNoticeURL) {
                 Text(AppLegalInfo.icpDisplayText)
                     .font(AppDesignSystem.Typography.footnote)
-                    .foregroundStyle(AppDesignSystem.Palette.neutral)
+                    .foregroundStyle(AppDesignSystem.Palette.Status.neutral)
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, AppDesignSystem.Spacing.section)
                     .padding(.top, AppDesignSystem.Spacing.tiny)

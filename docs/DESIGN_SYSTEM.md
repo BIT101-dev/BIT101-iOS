@@ -12,16 +12,25 @@
 
 | 文件 | 职责 |
 | --- | --- |
-| `Shared/DesignSystem/DesignPrimitives.swift` | Foundation 基础值：间距、圆角；定义 `AppDesignSystem` 根命名空间 |
-| `Shared/DesignSystem/AppDesignSystem.swift` | 主 App 公共尺寸、系统语义字体与颜色 |
+| `Shared/DesignSystem/DesignPrimitives.swift` | Foundation 基础值：间距、圆角、透明度刻度；定义 `AppDesignSystem` 根命名空间 |
+| `Shared/DesignSystem/AppDesignSystem.swift` | 主 App 尺寸、颜色、UIKit 字体桥接与形状工厂 |
 | `Shared/DesignSystem/AppLayoutComponents.swift` | 卡片、详情操作、浮动按钮与公共 List 样式 |
 | `Shared/DesignSystem/AppStateComponents.swift` | 加载、空态、失败与滚动状态 |
 | `Shared/DesignSystem/AppCommentComponents.swift` | 评论结构、头像正文排列与回复缩进 |
 | `Shared/DesignSystem/AppContentControlComponents.swift` | 输入提示、分组标题、导航行、选择栏与搜索栏 |
-| `Schedule/ScheduleDesignSystem.swift` | 课表网格、周次栏、时间轴与课程块颜色 |
-| `Course/CourseDesignSystem.swift` | 课程历史图表尺寸 |
-| `Gallery/GalleryDesignSystem.swift` | 话廊缩略图、消息标记与覆盖层 |
-| `Shared/DesignSystem/ExternalDesignSystem.swift` | Widget、Watch、Live Activity 共用字体、尺寸与缩放 |
+| `Shared/DesignSystem/AppAvatarComponents.swift` | 纯头像容器、占位、裁切与无障碍 |
+| `Shared/DesignSystem/AppCommentComposerComponents.swift` | 评论和建议编辑结构 |
+| `Shared/DesignSystem/AppFeedComponents.swift` | 信息流行容器与分割线 |
+| `Shared/DesignSystem/AppFixedColumnComponents.swift` | 比例列数据行 |
+| `Shared/DesignSystem/AppHapticFeedback.swift` | 系统选择与操作触感修饰器 |
+| `Shared/DesignSystem/AppRefreshStatusComponents.swift` | 更新时间与刷新入口 |
+| `Shared/DesignSystem/AppTagComponents.swift` | 标签展示与选择变体 |
+| `Shared/DesignSystem/AppVerificationComponents.swift` | 数据无关的短信验证码输入面板 |
+| `Schedule/ScheduleDesignSystem.swift` | 课表网格、周次栏、时间轴、课程块颜色与模块强调色 |
+| `Course/CourseDesignSystem.swift` | 课程历史图表、指标样式与课程评价行 |
+| `Gallery/GalleryDesignSystem.swift` | 话廊缩略图、消息标记、覆盖层与模块强调色 |
+| `Map/CampusMapScreen.swift` | 地图模块强调色令牌 |
+| `Shared/DesignSystem/ExternalDesignSystem.swift` | 主 App、Widget、Watch、Live Activity 共用 SwiftUI 字体、尺寸与缩放 |
 
 以上路径相对于 `BIT101-iOS/`。基础值和外部展示令牌同时加入 App、Widget、Watch App 与 Watch Widget target。课表快照文件负责数据契约。
 
@@ -29,12 +38,17 @@
 
 - 间距：`none = 0`、`micro = 2`、`tiny = 4`、`regular = 8`、`content = 12`、`section = 16`。
 - 圆角：`small = 8`、`card = 12`、`grouped = 16`。
+- 透明度：`subtle`、`surface`、`softOverlay`、`overlay`、`controlOverlay`、`emphasis` 六档；`full` 表示完全不透明。
 - 基础字号：`title / body / subheadline / footnote / caption` 五档，全部使用系统动态字体。
 - 常规头像：40；资料头像：80。评论共享常规头像尺寸。
 - 浮动按钮视觉尺寸与触控区域统一为 44；徽标偏移直接复用基础间距。
 - 最小触控区域：`Size.Control.touchTarget`，44。
 
-主 App 与外部展示共同引用基础间距和五档字体。强调、等宽数字和平台桥接均从基础字号派生，特殊几何以用途命名。
+主 App 与外部展示共同引用基础间距、透明度刻度和五档 SwiftUI 字体。UIKit 富文本桥接位于主 App 扩展，强调和特殊几何从基础角色派生；等宽数字直接从基础字体角色调用 `monospacedDigit()`。
+
+自定义颜色透明度统一从 `AppDesignSystem.Opacity` 派生。系统前景层级通过 `AppDesignSystem.Foreground` 暴露，页面使用设计系统语义入口，基础实现继续交给 SwiftUI 环境适配。
+
+成绩和课程页面共用 `AppDesignSystem.Course.accent` 作为页面强调色。状态色、系统前景色和历史成绩图表的多序列颜色属于独立语义，保留对应令牌。
 
 ## 公共组件
 
@@ -44,11 +58,13 @@
 - **内容控制**：顶部 segmented、排序搜索栏和设置导航行共享公共组件。
 - **内容展示**：头像、标签、信息流分割线、比例数据行和刷新状态行各有公共实现。
 - **评论**：`AppCommentThread` 组合身份、气泡、操作栏与回复；`AppComposerToolbar` 统一取消与提交。
-- **验证码**：共用数字清洗、自动填充和输入样式，各认证流程传入提交行为。
-- **状态**：`AppLoadingState`、`AppInlineLoadingState`、`AppEmptyState`、`AppFailureState` 提供加载、空态、失败与恢复操作。
+- **验证码**：共用数字清洗、自动填充和输入样式，各认证流程传入掩码手机号与提交行为。
+- **状态**：`AppLoadingState`、`AppInlineLoadingState`、`AppEmptyState`、`AppFailureState` 提供加载、空态、失败与恢复操作；诊断操作通过环境注入。
 - **触感**：`appSelectionFeedback` 与 `appImpactFeedback` 使用系统反馈能力。
 
-错误分类由客户端基础设施提供，提示组件依据分类展示操作。业务页面负责内容、状态和操作绑定。
+错误分类由客户端基础设施提供，恢复操作通过 `appDiagnosticRecoveryActions()` 注入 `AppFailureState`。业务页面负责内容、状态和操作绑定。
+
+头像容器 `AppAvatarContainer` 接收已加载的 `Image`，远程图片缓存由 App 层的 `AppAvatarView` 适配。设计系统组件保持视图结构与视觉规则，业务和基础设施适配器位于 App 层。
 
 ## 自适应
 
@@ -68,6 +84,10 @@
 - 间距、圆角与五档基础字号使用上方列出的基础刻度。
 - 常规头像尺寸为 40，资料头像尺寸为 80；评论头像复用常规尺寸。
 - 课程、课表和话廊的页面专属参数位于各自模块设计文件。
-- Widget、Watch 与 Live Activity 引用 `External.Typography` 和公共间距，并维护各自的呈现缩放规则。
+- Widget、Watch 与 Live Activity 引用 `AppDesignSystem.Typography`、`AppDesignSystem.Foreground` 和公共间距，并维护各自的呈现缩放规则。
+- 公共颜色和模块颜色从 `AppDesignSystem.Opacity` 派生，页面层保留语义令牌调用。
+- UI 一致性检查会审计透明度、前景层级、字体入口、页面主题色和固定几何，并输出无法进一步收束的人工审阅项。
+
+人工审阅项包括课程评论图片的多档构图尺寸、话廊标签网格最小列宽、图片导出和时间轴的防零尺寸保护值，以及历史成绩多指标图表和详细指标的必要颜色区分。
 - 组件读取公共语义令牌；页面组合公共组件与模块组件。
 - UI、组件、触感和客户端工程规范由各自检查入口负责，统一审计入口负责编排。

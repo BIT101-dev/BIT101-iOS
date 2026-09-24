@@ -69,7 +69,6 @@ allowed_root_files = {
     ".build/code-quality-report.txt",
     ".build/explanatory-text-report.txt",
     ".build/screenshot.png",
-    ".build/course-history-audit.html",
 }
 allowed_dirs = {
     "build/DeviceInstall",

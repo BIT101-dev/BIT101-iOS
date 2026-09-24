@@ -55,7 +55,7 @@ struct GalleryPosterActionMenu: View {
     private var menuLabel: some View {
         Image(systemName: "ellipsis.circle")
             .font(AppDesignSystem.Typography.title)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(AppDesignSystem.Foreground.secondary)
             .frame(width: AppDesignSystem.Size.Control.detailActionButton, height: AppDesignSystem.Size.Control.detailActionButton)
             .accessibilityLabel("更多操作")
     }
@@ -93,7 +93,7 @@ struct GalleryReportSheet: View {
                         ProgressView()
                     } else if reportTypes.isEmpty {
                         Text("暂无可用举报类型")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
                     } else {
                         Picker("类型", selection: Binding(
                             get: { selectedTypeID ?? reportTypes.first?.id ?? 0 },
@@ -115,7 +115,7 @@ struct GalleryReportSheet: View {
                 if let errorMessage, !errorMessage.isEmpty {
                     Section {
                         Text(errorMessage)
-                            .foregroundStyle(AppDesignSystem.Palette.danger)
+                            .foregroundStyle(AppDesignSystem.Palette.Status.danger)
                     }
                 }
 

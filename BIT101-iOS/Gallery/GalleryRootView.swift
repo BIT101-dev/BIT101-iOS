@@ -198,7 +198,7 @@ struct GalleryRootView: View {
 
     private var galleryContent: some View {
         ZStack(alignment: .bottomTrailing) {
-            AppDesignSystem.Palette.groupedBackground
+            AppDesignSystem.Palette.Background.grouped
                 .ignoresSafeArea(edges: .bottom)
 
             GalleryFeedView(

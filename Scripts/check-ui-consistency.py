@@ -18,7 +18,37 @@ DESIGN_SYSTEM_SOURCES = {
     SOURCE_ROOT / "Course/CourseDesignSystem.swift",
     SOURCE_ROOT / "Schedule/ScheduleDesignSystem.swift",
     SOURCE_ROOT / "Gallery/GalleryDesignSystem.swift",
+    SOURCE_ROOT / "Map/CampusMapScreen.swift",
 }
+PRIMITIVE_OPACITY_SOURCE = SOURCE_ROOT / "Shared/DesignSystem/DesignPrimitives.swift"
+
+FIXED_GEOMETRY_REVIEW = (
+    (
+        "Course/CourseCommentViews.swift",
+        "thumbnailButton(image: displayedImages[0]",
+        "评论图片的首图、横图和尾图使用不同的构图尺寸，保留业务视觉契约",
+    ),
+    (
+        "Gallery/GalleryComposerView.swift",
+        "GridItem(.adaptive(minimum: 64)",
+        "自定义标签网格的 64pt 最小列宽暂无公共尺寸可表达",
+    ),
+    (
+        "Course/CourseHistoryGradesViews.swift",
+        "StrokeStyle(lineWidth: 2, dash: [5, 4])",
+        "历史成绩图表选中线使用独立线型，保留图表可读性",
+    ),
+    (
+        "Settings/SettingsRootView.swift",
+        "max(1, width * scale)",
+        "图片导出尺寸的 1pt 是 CoreGraphics 防零尺寸保护值",
+    ),
+    (
+        "Schedule/ScheduleLinearCalendarViews.swift",
+        "max(proxy.size.height - headerHeight, 1)",
+        "时间轴画布的 1pt 是布局防零尺寸保护值",
+    ),
+)
 
 DIRECT_ROUNDED_RECTANGLE = re.compile(r"\bRoundedRectangle\s*\(")
 DIRECT_CORNER_RADIUS = re.compile(r"\.cornerRadius\s*\(")
@@ -27,16 +57,60 @@ DIRECT_SYSTEM_COLOR = re.compile(
     r"secondarySystemBackground|secondarySystemGroupedBackground|secondarySystemFill)\s*\)"
 )
 DIRECT_ACCENT_COLOR = re.compile(r"\bColor\.accentColor\b")
+DIRECT_OPACITY_LITERAL = re.compile(
+    r"\.opacity\s*\(\s*(?:0\.[0-9]+|1(?:\.0+)?)\s*\)"
+)
+DIRECT_OPACITY_ASSIGNMENT = re.compile(
+    r"\b(?:let|var)\s+[A-Za-z_][A-Za-z0-9_]*Opacity\s*(?::\s*(?:CGFloat|Double))?\s*=\s*(?:0\.[0-9]+|1(?:\.0+)?)"
+)
+DIRECT_FOREGROUND_STYLE = re.compile(
+    r"\.foregroundStyle\s*\(\s*\.(?:primary|secondary|tertiary|quaternary|quinary|white|black)\s*\)"
+)
+DIRECT_HIERARCHICAL_COLOR = re.compile(r"\bColor\.(?:primary|secondary)\b")
+DIRECT_FONT_MODIFIER = re.compile(r"\.font\s*\(\s*\.[A-Za-z_][A-Za-z0-9_]*\s*\)")
+DIRECT_GRID_ITEM_GEOMETRY = re.compile(
+    r"\bGridItem\s*\([^)]*\b(?:minimum|maximum)\s*:\s*[0-9]+(?:\.[0-9]+)?"
+)
+DIRECT_STROKE_GEOMETRY = re.compile(
+    r"\bStrokeStyle\s*\([^)]*\b(?:lineWidth|dash)\s*:\s*(?:\[[^\]]+\]|[0-9]+(?:\.[0-9]+)?)"
+)
+DIRECT_BLUR_GEOMETRY = re.compile(r"\.blur\s*\(\s*radius\s*:\s*[0-9]+(?:\.[0-9]+)?")
+DIRECT_THUMBNAIL_GEOMETRY = re.compile(
+    r"\bthumbnailButton\s*\([^\n]*(?:width|maxHeight|aspectRatio)\s*:\s*[0-9]+(?:\.[0-9]+)?"
+)
 DIRECT_SEMANTIC_COLOR_RULES = (
-    (re.compile(r"\bColor\.orange\b|(?<![\w.])\.orange\b"), "AppDesignSystem.Palette.highlight"),
-    (re.compile(r"\bColor\.red\b|(?<![\w.])\.red\b"), "AppDesignSystem.Palette.danger"),
-    (re.compile(r"\bColor\.blue\b|(?<![\w.])\.blue\b"), "AppDesignSystem.Palette.info"),
-    (re.compile(r"\bColor\.green\b|(?<![\w.])\.green\b"), "AppDesignSystem.Palette.success"),
-    (re.compile(r"\bColor\.gray\b|(?<![\w.])\.gray\b"), "AppDesignSystem.Palette.neutral"),
-    (re.compile(r"\bColor\.pink\b|(?<![\w.])\.pink\b"), "AppDesignSystem.Palette.scoreTab"),
-    (re.compile(r"\bColor\.indigo\b|(?<![\w.])\.indigo\b"), "AppDesignSystem.Palette.scheduleTab"),
-    (re.compile(r"\bColor\.teal\b|(?<![\w.])\.teal\b"), "AppDesignSystem.Palette.courseTab"),
-    (re.compile(r"\bColor\.brown\b|(?<![\w.])\.brown\b"), "AppDesignSystem.Palette.paperTab"),
+    (re.compile(r"\bColor\.orange\b|(?<![\w.])\.orange\b"), "AppDesignSystem.Palette.Highlight.primary"),
+    (re.compile(r"\bColor\.red\b|(?<![\w.])\.red\b"), "AppDesignSystem.Palette.Status.danger"),
+    (re.compile(r"\bColor\.blue\b|(?<![\w.])\.blue\b"), "AppDesignSystem.Palette.Status.info"),
+    (re.compile(r"\bColor\.green\b|(?<![\w.])\.green\b"), "AppDesignSystem.Palette.Status.success"),
+    (re.compile(r"\bColor\.gray\b|(?<![\w.])\.gray\b"), "AppDesignSystem.Palette.Status.neutral"),
+    (re.compile(r"\bColor\.pink\b|(?<![\w.])\.pink\b"), "AppDesignSystem.Course.accent"),
+    (re.compile(r"\bColor\.indigo\b|(?<![\w.])\.indigo\b"), "AppDesignSystem.Schedule.tabAccent"),
+    (re.compile(r"\bColor\.teal\b|(?<![\w.])\.teal\b"), "AppDesignSystem.Palette.Status.info"),
+    (re.compile(r"\bColor\.brown\b|(?<![\w.])\.brown\b"), "AppDesignSystem.Palette.Status.neutral"),
+)
+PAGE_THEME_RULES = (
+    (
+        ("Course/", "Score/"),
+        (
+            "AppDesignSystem.Palette.Accent.primary",
+            "AppDesignSystem.Palette.Highlight.primary",
+            "AppDesignSystem.Palette.Highlight.surface",
+        ),
+        "AppDesignSystem.Course.accent",
+    ),
+)
+PAGE_THEME_REVIEW = (
+    (
+        "Course/CourseHistoryGradesViews.swift",
+        '.foregroundStyle(by: .value("指标", point.series))',
+        "历史成绩多指标线按数据系列使用多色，保留图表可读性",
+    ),
+    (
+        "Course/CourseHistoryGradesViews.swift",
+        "Palette.Status.info",
+        "历史成绩人数指标使用状态色，保留数据类别区分",
+    ),
 )
 DIRECT_FLOATING_SIZE = re.compile(r"\.frame\(\s*width:\s*42\s*,\s*height:\s*42\s*\)")
 DIRECT_TOUCH_TARGET = re.compile(
@@ -158,7 +232,7 @@ COMPONENT_CONTRACTS = (
     ComponentContract(
         name="首屏状态页",
         path_globs=(
-            "**/Course/*RootView.swift", "**/Course/*HistoryGradesViews.swift", "**/Gallery/*MessagesView.swift",
+            "**/Course/*RootView.swift", "**/Gallery/*MessagesView.swift",
             "**/Mine/*RootView.swift", "**/Score/*RootView.swift", "**/Paper/*RootView.swift", "**/Paper/*SearchViews.swift",
         ),
         any_tokens=("AppLoadingState", "AppInlineLoadingState"),
@@ -192,13 +266,13 @@ COMPONENT_CONTRACTS = (
             ("entry.kind == .course", "课程背景必须使用不透明底色遮住节次分割线"),
             ("let leftWidth = columnWidth", "周次与叠加视图必须共用等宽列"),
             ("let dayWidth = columnWidth", "周次与叠加视图必须共用等宽列"),
-            ("secondaryGroupedBackground", "周次滑块与日期栏必须使用可区分的语义背景色"),
+            ("AppDesignSystem.Palette.Background.secondaryGrouped", "周次滑块与日期栏必须使用可区分的语义背景色"),
         ),
     ),
     ComponentContract(
         name="日程根页",
         discovery_tokens=("ScheduleSectionTabs",),
-        requirements=((".safeAreaInset(edge: .bottom, spacing: 0)", "内容必须使用统一的底部安全区间隙"),),
+        requirements=((".safeAreaInset(edge: .bottom, spacing: AppDesignSystem.Spacing.none)", "内容必须使用统一的底部安全区间隙"),),
     ),
 )
 
@@ -452,6 +526,80 @@ def check_fonts(errors: list[str]) -> None:
                 errors.append(f"{relative}: 字体采用系统语义或公共令牌")
 
 
+def check_design_token_boundaries(errors: list[str]) -> None:
+    """透明度数字只允许存在于跨 target 基础刻度层。"""
+    for path in swift_files():
+        if path == PRIMITIVE_OPACITY_SOURCE:
+            continue
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(ROOT)
+        for pattern, message in (
+            (DIRECT_OPACITY_LITERAL, "透明度数字必须通过 AppDesignSystem.Opacity 派生"),
+            (DIRECT_OPACITY_ASSIGNMENT, "透明度标量必须引用 AppDesignSystem.Opacity"),
+        ):
+            for match in pattern.finditer(source):
+                line_number = source.count("\n", 0, match.start()) + 1
+                errors.append(f"{relative}:{line_number}: {message}")
+
+
+def check_page_theme_consistency(errors: list[str]) -> None:
+    """页面强调色必须使用所属模块的主题令牌。"""
+    for path in swift_files():
+        if path in DESIGN_SYSTEM_SOURCES:
+            continue
+        source_relative = path.relative_to(SOURCE_ROOT).as_posix()
+        source = path.read_text(encoding="utf-8")
+        for prefixes, forbidden_tokens, expected_token in PAGE_THEME_RULES:
+            if not source_relative.startswith(prefixes):
+                continue
+            for token in forbidden_tokens:
+                start = 0
+                while True:
+                    index = source.find(token, start)
+                    if index < 0:
+                        break
+                    line_number = source.count("\n", 0, index) + 1
+                    errors.append(
+                        f"{path.relative_to(ROOT)}:{line_number}: 页面主题色应使用 {expected_token}，当前发现 {token}"
+                    )
+                    start = index + len(token)
+
+
+def collect_fixed_geometry_review_notes() -> list[str]:
+    notes: list[str] = []
+    for relative_path, marker, message in FIXED_GEOMETRY_REVIEW:
+        path = SOURCE_ROOT / relative_path
+        if not path.is_file():
+            continue
+        source = path.read_text(encoding="utf-8")
+        if marker in source:
+            notes.append(f"{path.relative_to(ROOT)}: {message}")
+    return notes
+
+
+def collect_page_theme_review_notes() -> list[str]:
+    notes: list[str] = []
+    for relative_path, marker, message in PAGE_THEME_REVIEW:
+        path = SOURCE_ROOT / relative_path
+        if path.is_file() and marker in path.read_text(encoding="utf-8"):
+            notes.append(f"{path.relative_to(ROOT)}: {message}")
+    return notes
+
+
+def is_reviewed_fixed_geometry(path: Path, source: str, pattern: re.Pattern[str]) -> bool:
+    relative_path = path.relative_to(SOURCE_ROOT).as_posix()
+    reviewed_paths = {
+        "Course/CourseCommentViews.swift": DIRECT_THUMBNAIL_GEOMETRY,
+        "Course/CourseHistoryGradesViews.swift": DIRECT_STROKE_GEOMETRY,
+        "Gallery/GalleryComposerView.swift": DIRECT_GRID_ITEM_GEOMETRY,
+    }
+    expected_pattern = reviewed_paths.get(relative_path)
+    return expected_pattern is pattern and any(
+        entry_path == relative_path and marker in source
+        for entry_path, marker, _ in FIXED_GEOMETRY_REVIEW
+    )
+
+
 def check_refresh_status_contract(errors: list[str]) -> None:
     status_component_path = DESIGN_SYSTEM.parent / "AppRefreshStatusComponents.swift"
     status_component = status_component_path.read_text(encoding="utf-8")
@@ -533,6 +681,9 @@ def main() -> int:
     check_haptic_consistency(errors)
     check_error_report_coverage(errors)
     check_fonts(errors)
+    check_design_token_boundaries(errors)
+    check_page_theme_consistency(errors)
+    review_notes = collect_fixed_geometry_review_notes() + collect_page_theme_review_notes()
     app_card_uses = 0
     floating_stack_uses = 0
     for path in swift_files():
@@ -550,7 +701,7 @@ def main() -> int:
             (DIRECT_ROUNDED_RECTANGLE, "请使用 AppDesignSystem.roundedRectangle"),
             (DIRECT_CORNER_RADIUS, "圆角半径必须通过 AppDesignSystem.Radius 和 roundedRectangle 统一"),
             (DIRECT_SYSTEM_COLOR, "请使用 AppDesignSystem.Palette"),
-            (DIRECT_ACCENT_COLOR, "请使用 AppDesignSystem.Palette.accent"),
+            (DIRECT_ACCENT_COLOR, "请使用 AppDesignSystem.Palette.Accent.primary"),
             (DIRECT_FLOATING_SIZE, "圆形操作按钮尺寸必须使用 AppDesignSystem.Size"),
             (DIRECT_TOUCH_TARGET, "触控区域尺寸必须使用 AppDesignSystem.Size.Control.touchTarget"),
             (DIRECT_FLOATING_MATERIAL, "圆形操作按钮背景必须使用 AppFloatingActionButtonSurface"),
@@ -564,6 +715,13 @@ def main() -> int:
             (DIRECT_FRAME_LITERAL, "固定 frame 尺寸必须使用 AppDesignSystem.Size 或专用语义令牌"),
             (DIRECT_EDGE_INSETS_LITERAL, "EdgeInsets 必须使用 AppDesignSystem.Spacing"),
             (DIRECT_LOCAL_CGFLOAT_LITERAL, "页面布局常量必须提升为设计系统语义令牌"),
+            (DIRECT_FOREGROUND_STYLE, "前景层级必须使用 AppDesignSystem.Foreground"),
+            (DIRECT_HIERARCHICAL_COLOR, "系统前景颜色必须使用 AppDesignSystem.Foreground"),
+            (DIRECT_FONT_MODIFIER, "字体角色必须使用 AppDesignSystem.Typography"),
+            (DIRECT_GRID_ITEM_GEOMETRY, "GridItem 尺寸必须使用 AppDesignSystem.Size 或模块语义令牌"),
+            (DIRECT_STROKE_GEOMETRY, "图表线宽和虚线必须使用模块设计令牌"),
+            (DIRECT_BLUR_GEOMETRY, "模糊半径必须使用 AppDesignSystem.Size.Effect"),
+            (DIRECT_THUMBNAIL_GEOMETRY, "缩略图几何必须使用模块设计令牌"),
         )
         for pattern, message in rules:
             if path.name == "AppLayoutComponents.swift" and pattern in (
@@ -571,6 +729,12 @@ def main() -> int:
             ):
                 continue
             for match in pattern.finditer(source):
+                if pattern in (
+                    DIRECT_GRID_ITEM_GEOMETRY,
+                    DIRECT_STROKE_GEOMETRY,
+                    DIRECT_THUMBNAIL_GEOMETRY,
+                ) and is_reviewed_fixed_geometry(path, source, pattern):
+                    continue
                 line_number = source.count("\n", 0, match.start()) + 1
                 errors.append(f"{relative}:{line_number}: {message}")
         for pattern, palette_name in DIRECT_SEMANTIC_COLOR_RULES:
@@ -629,6 +793,8 @@ def main() -> int:
         return 1
 
     print(f"[通过] UI 一致性检查（扫描 {len(swift_files())} 个 Swift 文件）")
+    for note in review_notes:
+        print(f"[审阅] {note}")
     return 0
 
 

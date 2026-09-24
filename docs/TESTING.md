@@ -144,31 +144,11 @@ Scripts/release-network-smoke-school.sh
 
 仍可传入设备 ID 覆盖自动发现结果。
 
-### 课程历史统计验证数据
-
-`BIT101-iOSTests/CourseHistoryAuditFixture.json` 保存一次真机采样的 73 门课程、537 条学期记录，包含原始字段和逐条人工标签。
-人工标签由四组 Luna xhigh agent 盲化阅读后汇总；`likely_makeup`、`likely_formal`、`uncertain` 三类标签与算法预测字段分开保存。
-体育_防身术的 `2019-2020-1` 学期人数为 48，按正式学期样本保留。
-当前人工修订结果为 `likely_makeup=56`、`likely_formal=481`、`uncertain=0`。
-
-当前保守候选基线为：人数 `≤ 20` 的学期保持展示；其余记录使用 `log10` 人数单侧 Tukey `3×IQR` 外围下界，并要求平均分低于同组 Q1。
-参数在全部课程之间统一，课程级分组结果用于观察跨课程稳定性。
-
-`release-network-smoke.sh` 默认把该缓存写入真机应用文档目录；`all` 和 `bit101` 范围启动时完成缓存验证，`school`、`transcript`、`schedule`、`ddl` 范围保持业务链路聚焦。缓存文件保持在开发目录中，普通 Smoke 运行持续复用这份数据。
-普通 Smoke 运行保持 Git fixture 原样；收到更新测试数据指令后再人工复核并替换 fixture。
-更新采样数据时显式执行：
-
-```sh
-BIT101_NETWORK_SMOKE_CAPTURE=courseHistory Scripts/release-network-smoke-bit101.sh
-```
-
 学校范围 Smoke 的乐学 DDL 探针会先完成短信手机号预检；学校触发短信验证时记录为 `auth_blocked`，短信发送状态保持关闭，界面验证码继续由真机流程验证。
 
 Smoke 报告记录 `executedProbes`、`skippedProbes` 和 `schoolSMSCoverage`。`ddl` 范围要求 BIT101 登录状态、乐学订阅地址、乐学 DDL 下载三项探针进入执行列表；短信输入 UI 状态采用真机手动验证。
 
-采样报告写入 `.build/release-network-smoke/report/release-network-smoke.json`；人工复核完成后再更新 Git 中的 fixture。
-Smoke 报告同步输出当前算法对确定标签的 precision、recall、TP、FP 和 FN；确定标签出现 FP 或 FN 时，课程历史缓存验证进入失败状态。
-
+网络 Smoke 报告写入 `.build/release-network-smoke/report/release-network-smoke.json`。
 可信成绩单归入学校链路；当前冒烟范围为 `all`、`bit101`、`school`、`transcript`、`schedule` 和 `ddl`。局部开发使用对应范围，开发结束后运行全量 Smoke。例如，开发 DDL 链路时使用 `ddl` 范围：
 
 ```sh
@@ -255,24 +235,6 @@ Scripts/build-install-device.sh
 - 简略列表未变化，且最新学期已知教学班状态全部为“是”时，直接复用详细缓存。
 - 简略列表未变化但仍存在“否”时，详细查询按账号限制为 24 小时最多一次。
 - 主动下拉刷新优先级最高，直接绕过详细缓存并完整查询简略与详细成绩。
-
-## 课程历史分类可视化
-
-使用开发目录缓存生成交互式审查页面：
-
-```sh
-python3 Scripts/visualize-course-history-audit.py
-```
-
-页面写入 `.build/course-history-audit.html`，支持上一门、下一门、课程下拉选择和课程筛选；页面聚焦后使用左右方向键切换课程，Home / End 跳转到首尾课程。
-
-启用网页手工标注和自动覆写：
-
-```sh
-python3 Scripts/visualize-course-history-audit.py --serve
-```
-
-浏览器打开 `http://127.0.0.1:8765/`；逐条修改人工标签后，页面自动覆写 `BIT101-iOSTests/CourseHistoryAuditFixture.json`，课程级标签和标签计数同步更新。
 
 ## 错误报告
 

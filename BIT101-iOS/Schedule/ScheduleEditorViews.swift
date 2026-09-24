@@ -104,8 +104,8 @@ struct CourseArrangementEditorSheet: View {
                             TextField("", text: $arrangement.draft.roomNumber, prompt: AppInputPrompt.text("房间号"))
                                 .multilineTextAlignment(.trailing)
                                 .textFieldStyle(.plain)
-                                .foregroundStyle(AppDesignSystem.Palette.accent)
-                                .tint(AppDesignSystem.Palette.accent)
+                                .foregroundStyle(AppDesignSystem.Palette.Accent.primary)
+                                .tint(AppDesignSystem.Palette.Accent.primary)
                         }
 
                         NavigationLink {
@@ -140,7 +140,7 @@ struct CourseArrangementEditorSheet: View {
                 }
             }
             .appGroupedListStyle()
-            .tint(AppDesignSystem.Palette.accent)
+            .tint(AppDesignSystem.Palette.Accent.primary)
             .navigationTitle(mode.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -245,7 +245,7 @@ struct ScheduleWeekdaySelectionSheet: View {
                         Spacer()
                         if selectedWeekday == weekday {
                             Image(systemName: "checkmark")
-                                .foregroundStyle(AppDesignSystem.Palette.accent)
+                                .foregroundStyle(AppDesignSystem.Palette.Accent.primary)
                         }
                     }
                 }
@@ -337,8 +337,8 @@ struct TimeTableEditorSheet: View {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
                 AppCard(variant: .compact) {
                     TextEditor(text: $text)
-                        .font(AppDesignSystem.Typography.bodyMonospaced)
-                        .frame(minHeight: AppDesignSystem.Size.Content.multilineEditorMinimumHeight)
+                        .font(AppDesignSystem.Typography.body.monospacedDigit())
+                        .frame(minHeight: AppDesignSystem.Size.Editor.multilineMinimumHeight)
                 }
 
                 Spacer()

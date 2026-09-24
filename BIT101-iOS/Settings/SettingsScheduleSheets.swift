@@ -21,7 +21,7 @@ struct ScheduleTermPickerPage: View {
                         } label: {
                             HStack(spacing: AppDesignSystem.Spacing.regular) {
                                 Text(term)
-                                    .foregroundStyle(.primary)
+                                    .foregroundStyle(AppDesignSystem.Foreground.primary)
                                 Spacer()
                                 if viewModel.isSyncingCourses, viewModel.syncingTerm == term {
                                     ProgressView()
@@ -104,11 +104,11 @@ struct ScheduleExportCodeSheet: View {
             VStack(spacing: AppDesignSystem.Spacing.section) {
                 ScrollView {
                     Text(code)
-                        .font(AppDesignSystem.Typography.footnoteMonospaced)
+                        .font(AppDesignSystem.Typography.footnote.monospacedDigit())
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(AppDesignSystem.Spacing.content)
-                        .background(AppDesignSystem.Palette.secondaryGroupedBackground, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
+                        .background(AppDesignSystem.Palette.Background.secondaryGrouped, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
                 }
 
                 Button {
@@ -165,10 +165,10 @@ struct ScheduleImportCodeSheet: View {
         NavigationStack {
             VStack(spacing: AppDesignSystem.Spacing.section) {
                 TextEditor(text: $text)
-                    .font(AppDesignSystem.Typography.footnoteMonospaced)
+                    .font(AppDesignSystem.Typography.footnote.monospacedDigit())
                     .frame(minHeight: AppDesignSystem.Schedule.settingsPanelMinimumHeight)
                     .padding(AppDesignSystem.Spacing.regular)
-                    .background(AppDesignSystem.Palette.secondaryGroupedBackground, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
+                    .background(AppDesignSystem.Palette.Background.secondaryGrouped, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
                     .accessibilityLabel("课表编码")
 
                 HStack(spacing: AppDesignSystem.Spacing.content) {

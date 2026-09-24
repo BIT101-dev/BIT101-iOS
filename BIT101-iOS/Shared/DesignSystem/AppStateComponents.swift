@@ -1,5 +1,18 @@
 import SwiftUI
 
+typealias AppFailureDiagnosticsBuilder = (String, String) -> AnyView
+
+private struct AppFailureDiagnosticsKey: EnvironmentKey {
+    static let defaultValue: AppFailureDiagnosticsBuilder? = nil
+}
+
+extension EnvironmentValues {
+    var appFailureDiagnostics: AppFailureDiagnosticsBuilder? {
+        get { self[AppFailureDiagnosticsKey.self] }
+        set { self[AppFailureDiagnosticsKey.self] = newValue }
+    }
+}
+
 /// AppLoadingState 为页面级首屏加载状态提供统一的进度样式和可用空间约束。
 struct AppLoadingState: View {
     let title: String
@@ -42,9 +55,9 @@ struct AppScrollStateContainer<Content: View>: View {
 
     var body: some View {
         VStack {
-            Spacer(minLength: 0)
+            Spacer(minLength: AppDesignSystem.Spacing.none)
             content
-            Spacer(minLength: 0)
+            Spacer(minLength: AppDesignSystem.Spacing.none)
         }
         .frame(maxWidth: .infinity)
         .containerRelativeFrame(.vertical)
@@ -59,6 +72,7 @@ struct AppFailureState: View {
     let retryTitle: String
     let onRetry: (() -> Void)?
     let allowsDiagnostics: Bool
+    @Environment(\.appFailureDiagnostics) private var appFailureDiagnostics
 
     init(
         title: String,
@@ -85,8 +99,8 @@ struct AppFailureState: View {
             if let onRetry {
                 Button(retryTitle, action: onRetry)
             }
-            if allowsDiagnostics {
-                DiagnosticRecoveryActions(title: title, message: message)
+            if allowsDiagnostics, let appFailureDiagnostics {
+                appFailureDiagnostics(title, message)
             }
         }
     }

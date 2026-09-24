@@ -5,90 +5,9 @@
 import Charts
 import SwiftUI
 
-struct CourseHistoryGradesSheet: View {
+struct CourseHistoryGradesChart: View {
     let grades: [CourseHistoryGrade]
-    let status: CourseHistoryGradeLoadStatus
-    let allowsDiagnostics: Bool
-    let onRetry: () async -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @ObservedObject private var appSettings = AppSettingsStore.shared
-
-    var body: some View {
-        NavigationStack {
-            Group {
-                switch status {
-                case .idle, .loading:
-                    AppLoadingState(title: "正在加载历史成绩")
-
-                case let .failed(message):
-                    AppFailureState(
-                        title: "加载历史成绩失败",
-                        systemImage: "chart.line.uptrend.xyaxis",
-                        message: message,
-                        allowsDiagnostics: allowsDiagnostics,
-                        onRetry: {
-                            Task {
-                                await onRetry()
-                            }
-                        }
-                    )
-
-                case .loaded:
-                    if grades.isEmpty {
-                        AppEmptyState(
-                            title: "暂无历史成绩",
-                            systemImage: "chart.line.uptrend.xyaxis",
-                            message: "当前课程还没有可展示的历史成绩统计。"
-                        )
-                    } else {
-                        List {
-                            Section {
-                                CourseHistoryGradesChart(
-                                    grades: grades,
-                                    hidesMakeupOutliers: appSettings.hidesCourseHistoryMakeupOutliers
-                                )
-                                    .listRowInsets(EdgeInsets(
-                                        top: AppDesignSystem.Spacing.content,
-                                        leading: AppDesignSystem.Spacing.content,
-                                        bottom: AppDesignSystem.Spacing.content,
-                                        trailing: AppDesignSystem.Spacing.content
-                                    ))
-                            }
-
-                            Section {
-                                Toggle("隐藏疑似补考学期", isOn: Binding(
-                                    get: { appSettings.hidesCourseHistoryMakeupOutliers },
-                                    set: appSettings.setHidesCourseHistoryMakeupOutliers
-                                ))
-                                    .appSelectionFeedback(trigger: appSettings.hidesCourseHistoryMakeupOutliers)
-                            }
-
-                            Section {
-                                ForEach(grades) { grade in
-                                    CourseHistoryGradeRow(grade: grade)
-                                }
-                            }
-                        }
-                        .appGroupedListStyle()
-                    }
-                }
-            }
-            .navigationTitle("历史成绩")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") {
-                        dismiss()
-                    }
-                }
-            }
-        }
-    }
-}
-
-private struct CourseHistoryGradesChart: View {
-    let grades: [CourseHistoryGrade]
+    let courseNumber: String
     let hidesMakeupOutliers: Bool
     @State private var selectedTerm: String?
 
@@ -100,7 +19,10 @@ private struct CourseHistoryGradesChart: View {
 
     private var chartGrades: [CourseHistoryGrade] {
         guard hidesMakeupOutliers else { return sortedGrades }
-        let hiddenTerms = CourseHistoryMakeupPolicy.hiddenTerms(in: sortedGrades)
+        let hiddenTerms = CourseHistoryMakeupPolicy.hiddenTerms(
+            in: sortedGrades,
+            courseNumber: courseNumber
+        )
         return sortedGrades.filter { !hiddenTerms.contains($0.term) }
     }
 
@@ -159,10 +81,6 @@ private struct CourseHistoryGradesChart: View {
         }
     }
 
-    private var hiddenMakeupOutlierCount: Int {
-        hidesMakeupOutliers ? CourseHistoryMakeupPolicy.hiddenTerms(in: sortedGrades).count : 0
-    }
-
     private var chartAccessibilityValue: String {
         guard let selectedGrade else { return "暂无可用数据" }
         return [
@@ -175,36 +93,25 @@ private struct CourseHistoryGradesChart: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("趋势")
-                    .font(AppDesignSystem.Typography.title)
-                Spacer()
-                if let selectedGrade {
-                    Text(selectedGrade.term)
-                        .font(AppDesignSystem.Typography.captionEmphasis)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
             Chart {
                 ForEach(chartPoints) { point in
                     LineMark(
                         x: .value("学期", point.term),
-                        y: .value("趋势", point.normalizedValue)
+                        y: .value("", point.normalizedValue)
                     )
                     .foregroundStyle(by: .value("指标", point.series))
                     .interpolationMethod(.catmullRom)
 
                     PointMark(
                         x: .value("学期", point.term),
-                        y: .value("趋势", point.normalizedValue)
+                        y: .value("", point.normalizedValue)
                     )
                     .foregroundStyle(by: .value("指标", point.series))
                 }
 
                 if let selectedGrade {
                     RuleMark(x: .value("选中学期", selectedGrade.term))
-                        .foregroundStyle(AppDesignSystem.Palette.danger.opacity(0.9))
+                        .foregroundStyle(AppDesignSystem.Palette.Status.danger.opacity(AppDesignSystem.Course.historyWarningOpacity))
                         .lineStyle(StrokeStyle(lineWidth: 2, dash: [5, 4]))
                 }
             }
@@ -222,18 +129,12 @@ private struct CourseHistoryGradesChart: View {
             .chartLegend(position: .bottom, alignment: .leading)
             .chartXSelection(value: chartSelection)
             .frame(height: AppDesignSystem.Course.historyChartHeight)
-            .accessibilityLabel("历史成绩趋势图")
+            .accessibilityLabel("历史成绩图")
             .accessibilityValue(chartAccessibilityValue)
             .accessibilityHint("滑动图表可查看不同学期")
 
             if let selectedGrade {
                 CourseHistorySelectedLegend(grade: selectedGrade)
-            }
-
-            if hiddenMakeupOutlierCount > 0 {
-                Text("已从图表中隐藏 \(hiddenMakeupOutlierCount) 个疑似补考学期。")
-                    .font(AppDesignSystem.Typography.caption)
-                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -273,56 +174,18 @@ private struct CourseHistorySelectedLegend: View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
             Text(grade.term)
                 .font(AppDesignSystem.Typography.captionEmphasis)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
 
             HStack(spacing: AppDesignSystem.Spacing.regular) {
                 Text("平均分 \(courseHistoryScoreText(grade.avgScore))")
                 Text("最高分 \(courseHistoryScoreText(grade.maxScore))")
                 Text("学习人数 \(courseHistoryStudentText(grade.studentNum))")
             }
-            .font(AppDesignSystem.Typography.bodyEmphasis)
-            .foregroundStyle(.primary)
+            .font(AppDesignSystem.Typography.body)
+            .foregroundStyle(AppDesignSystem.Foreground.primary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, AppDesignSystem.Spacing.micro)
-    }
-}
-
-private struct CourseHistoryGradeRow: View {
-    let grade: CourseHistoryGrade
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
-            Text(grade.term)
-                .font(AppDesignSystem.Typography.title)
-
-            HStack(spacing: AppDesignSystem.Spacing.regular) {
-                CourseHistoryMetric(title: "平均分", value: courseHistoryScoreText(grade.avgScore), tint: AppDesignSystem.Palette.highlight)
-                CourseHistoryMetric(title: "最高分", value: courseHistoryScoreText(grade.maxScore), tint: AppDesignSystem.Palette.scoreTab)
-                CourseHistoryMetric(title: "学习人数", value: courseHistoryStudentText(grade.studentNum), tint: AppDesignSystem.Palette.info)
-            }
-        }
-        .padding(.vertical, AppDesignSystem.Spacing.tiny)
-    }
-}
-
-private struct CourseHistoryMetric: View {
-    let title: String
-    let value: String
-    let tint: Color
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
-            Text(title)
-                .font(AppDesignSystem.Typography.caption)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(AppDesignSystem.Typography.bodyEmphasis)
-                .foregroundStyle(.primary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(AppDesignSystem.Spacing.regular)
-        .background(tint.opacity(0.10), in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.small))
     }
 }
 

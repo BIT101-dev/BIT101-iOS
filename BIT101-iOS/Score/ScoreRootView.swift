@@ -135,7 +135,7 @@ private struct ScoreListPage: View {
             switch viewModel.state {
             case .idle, .loading:
                 AppLoadingState(title: "正在查询成绩")
-                    .background(AppDesignSystem.Palette.groupedBackground)
+                    .background(AppDesignSystem.Palette.Background.grouped)
             case let .failed(message):
                 AppFailureState(
                     title: "加载失败",
@@ -148,7 +148,7 @@ private struct ScoreListPage: View {
                     }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(AppDesignSystem.Palette.groupedBackground)
+                .background(AppDesignSystem.Palette.Background.grouped)
             case .loaded:
                 List {
                     Section {
@@ -265,7 +265,7 @@ private struct ScoreListPage: View {
                     }
                 }
                 .appGroupedListStyle()
-                .background(AppDesignSystem.Palette.groupedBackground)
+                .background(AppDesignSystem.Palette.Background.grouped)
             }
         }
         .task {
@@ -283,7 +283,7 @@ private struct ScoreListPage: View {
             )
         ) { challenge in
             AppSMSVerificationSheet(
-                challenge: challenge,
+                maskedPhone: challenge.maskedPhone,
                 isSubmitting: viewModel.isSubmittingSMSCode,
                 errorMessage: viewModel.smsVerificationError,
                 submitTitle: "验证并查询成绩",
@@ -362,14 +362,14 @@ private struct TrustedTranscriptPage: View {
                             }
                             .padding(AppDesignSystem.Spacing.section)
                     }
-                    .background(AppDesignSystem.Palette.secondaryBackground)
+                    .background(AppDesignSystem.Palette.Background.secondary)
                 }
             }
         }
         .navigationTitle("可信成绩单")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
-        .background(AppDesignSystem.Palette.groupedBackground)
+        .background(AppDesignSystem.Palette.Background.grouped)
         .task {
             // 页面从成绩页进入后立即申请可信成绩单，入口直接执行申请操作。
             await viewModel.apply()
@@ -386,7 +386,7 @@ private struct TrustedTranscriptPage: View {
             )
         ) { challenge in
             AppSMSVerificationSheet(
-                challenge: challenge,
+                maskedPhone: challenge.maskedPhone,
                 isSubmitting: viewModel.isSubmittingSMSCode,
                 errorMessage: viewModel.smsVerificationError,
                 submitTitle: "验证并申请成绩单",
@@ -464,19 +464,19 @@ private struct ScoreListRowCard: View {
                         text: courseName,
                         ratio: 0.55,
                         font: AppDesignSystem.Typography.title,
-                        color: .primary,
+                        color: AppDesignSystem.Foreground.primaryColor,
                     ),
                     AppFixedColumnItem(
                         text: creditText,
                         ratio: 0.15,
                         font: AppDesignSystem.Typography.caption,
-                        color: .secondary,
+                        color: AppDesignSystem.Foreground.secondaryColor,
                     ),
                     AppFixedColumnItem(
                         text: termText,
                         ratio: 0.3,
                         font: AppDesignSystem.Typography.caption,
-                        color: .secondary,
+                        color: AppDesignSystem.Foreground.secondaryColor,
                         alignment: .trailing
                     ),
                 ],
@@ -489,19 +489,19 @@ private struct ScoreListRowCard: View {
                         text: "成绩 \(scoreText)",
                         ratio: 0.25,
                         font: AppDesignSystem.Typography.subheadlineEmphasis,
-                        color: .primary
+                        color: AppDesignSystem.Foreground.primaryColor
                     ),
                     AppFixedColumnItem(
                         text: "均分 \(averageScoreText)",
                         ratio: 0.45,
                         font: AppDesignSystem.Typography.subheadlineEmphasis,
-                        color: .primary,
+                        color: AppDesignSystem.Foreground.primaryColor,
                     ),
                     AppFixedColumnItem(
                         text: courseTypeText,
                         ratio: 0.3,
                         font: AppDesignSystem.Typography.caption,
-                        color: .secondary,
+                        color: AppDesignSystem.Foreground.secondaryColor,
                         alignment: .trailing
                     ),
                 ],
@@ -543,7 +543,7 @@ private struct PendingScoreDetailView: View {
                         Text(course.credit > 0 ? "学分 \(course.creditText)" : "学分 -")
                     }
                     .font(AppDesignSystem.Typography.body)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
 
                     VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                         ScoreDetailMetaRow(title: "课程号", value: course.number)
@@ -573,7 +573,7 @@ private struct PendingScoreDetailView: View {
             .padding(.top, AppDesignSystem.Spacing.section)
             .padding(.bottom, AppDesignSystem.Spacing.section)
         }
-        .background(AppDesignSystem.Palette.groupedBackground)
+        .background(AppDesignSystem.Palette.Background.grouped)
         .navigationTitle("成绩详情")
         .navigationBarTitleDisplayMode(.inline)
     }

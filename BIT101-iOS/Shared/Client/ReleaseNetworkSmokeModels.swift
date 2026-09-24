@@ -9,10 +9,6 @@ enum NetworkSmokeScope: String, Codable, Sendable {
     case ddl
 
     func includes(_ name: String) -> Bool {
-        if name == "课程历史缓存验证" {
-            return self == .all || self == .bit101
-        }
-
         switch self {
         case .all:
             return true
@@ -56,8 +52,6 @@ enum NetworkSmokeScope: String, Codable, Sendable {
 
 enum NetworkSmokeCapture: String, Codable, Sendable {
     case none
-    case courseHistory
-    case cachedCourseHistory
     case scheduleCache
     case rawCourseResponse
 }
@@ -83,111 +77,6 @@ struct ScheduleCacheAuditSnapshot: Codable, Sendable {
     let courses: [ScheduleCacheAuditCourse]
 }
 
-struct CourseHistoryAuditSample: Codable, Equatable {
-    let courseID: Int
-    let courseName: String
-    let courseNumber: String
-    let teachersName: String
-    let grades: [CourseHistoryGrade]
-}
-
-struct CourseHistoryAuditFixture: Codable, Equatable {
-    let schemaVersion: Int
-    let captureRunID: String
-    let capturedAt: String
-    let sampledCourseCount: Int
-    let sampledGradeCount: Int
-    let courses: [CourseHistoryAuditCourse]
-    let algorithmVersion: String
-    let manualLabelMethod: String
-    let manualLabelCounts: [String: Int]
-    let algorithmLabelMethod: String
-
-    private enum CodingKeys: String, CodingKey {
-        case schemaVersion = "schema_version"
-        case captureRunID = "capture_run_id"
-        case capturedAt = "captured_at"
-        case sampledCourseCount = "sampled_course_count"
-        case sampledGradeCount = "sampled_grade_count"
-        case courses
-        case algorithmVersion = "algorithm_version"
-        case manualLabelMethod = "manual_label_method"
-        case manualLabelCounts = "manual_label_counts"
-        case algorithmLabelMethod = "algorithm_label_method"
-    }
-}
-
-struct CourseHistoryAuditCourse: Codable, Equatable {
-    let courseID: Int
-    let courseName: String
-    let courseNumber: String
-    let teachersName: String
-    let reviewLabel: String
-    let grades: [CourseHistoryAuditGrade]
-    let predictedHiddenTerms: Set<String>
-    let manualReviewLabel: String
-
-    private enum CodingKeys: String, CodingKey {
-        case courseID = "course_id"
-        case courseName = "course_name"
-        case courseNumber = "course_number"
-        case teachersName = "teachers_name"
-        case reviewLabel = "review_label"
-        case grades
-        case predictedHiddenTerms = "predicted_hidden_terms"
-        case manualReviewLabel = "manual_review_label"
-    }
-}
-
-struct CourseHistoryAuditGrade: Codable, Equatable {
-    let term: String
-    let avgScore: Double
-    let maxScore: Int
-    let studentNum: Int
-    let predictedLabel: String
-    let manualLabel: String
-
-    var courseHistoryGrade: CourseHistoryGrade {
-        CourseHistoryGrade(
-            term: term,
-            avgScore: avgScore,
-            maxScore: Double(maxScore),
-            studentNum: studentNum
-        )
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case term
-        case avgScore = "avg_score"
-        case maxScore = "max_score"
-        case studentNum = "student_num"
-        case predictedLabel = "predicted_label"
-        case manualLabel = "manual_label"
-    }
-}
-
-struct CourseHistoryAuditMetrics: Codable, Equatable, Sendable {
-    let courseCount: Int
-    let gradeCount: Int
-    let labeledGradeCount: Int
-    let uncertainGradeCount: Int
-    let predictedCandidateCount: Int
-    let truePositive: Int
-    let falsePositive: Int
-    let falseNegative: Int
-    let trueNegative: Int
-
-    var precision: Double {
-        let denominator = truePositive + falsePositive
-        return denominator == 0 ? 0 : Double(truePositive) / Double(denominator)
-    }
-
-    var recall: Double {
-        let denominator = truePositive + falseNegative
-        return denominator == 0 ? 0 : Double(truePositive) / Double(denominator)
-    }
-}
-
 /// ReleaseNetworkSmokeReport 保存一次网络冒烟执行的结果。
 struct ReleaseNetworkSmokeReport: Codable {
     let runID: String
@@ -197,8 +86,6 @@ struct ReleaseNetworkSmokeReport: Codable {
     let passed: Bool
     let failures: [String]
     let authenticationBlockers: [String]
-    let courseHistorySamples: [CourseHistoryAuditSample]
-    let courseHistoryAuditMetrics: CourseHistoryAuditMetrics?
     let scheduleCache: ScheduleCacheAuditSnapshot?
     let executedProbes: [String]
     let skippedProbes: [String]
@@ -226,7 +113,6 @@ struct ReleaseNetworkSmokeReport: Codable {
 /// ReleaseNetworkSmokeReportStore 保存网络冒烟报告。
 enum ReleaseNetworkSmokeReportStore {
     private static let directoryName = "NetworkSmoke"
-    static let cachedFixtureFileName = "course-history-audit-fixture.json"
     static let rawCourseResponseFileName = "raw-course-response.json"
     private static let rawCourseCaptureKey = "release-network-smoke.capture.raw-course-response"
 
@@ -288,12 +174,6 @@ enum ReleaseNetworkSmokeReportStore {
         )
     }
 
-    static func readCachedCourseHistoryFixture() throws -> CourseHistoryAuditFixture {
-        let fileURL = FileManager.default
-            .urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appending(path: cachedFixtureFileName)
-        return try JSONDecoder().decode(CourseHistoryAuditFixture.self, from: Data(contentsOf: fileURL))
-    }
 }
 
 /// ReleaseNetworkSmokeLaunchRequest 解析 `bit101://network-smoke/...` 触发参数。

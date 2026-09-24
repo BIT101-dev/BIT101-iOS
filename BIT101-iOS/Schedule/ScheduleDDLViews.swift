@@ -19,7 +19,7 @@ struct DDLScheduleTabView: View {
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            AppDesignSystem.Palette.groupedBackground
+            AppDesignSystem.Palette.Background.grouped
                 .ignoresSafeArea(edges: .bottom)
 
             List {
@@ -125,13 +125,13 @@ struct DDLScheduleTabView: View {
     private func color(for event: DDLEventRecord) -> Color {
         switch viewModel.ddlTint(for: event) {
         case "red":
-            return AppDesignSystem.Palette.danger
+            return AppDesignSystem.Palette.Status.danger
         case "orange":
-            return AppDesignSystem.Palette.highlight
+            return AppDesignSystem.Palette.Highlight.primary
         case "gray":
-            return AppDesignSystem.Palette.neutral
+            return AppDesignSystem.Palette.Status.neutral
         default:
-            return AppDesignSystem.Palette.success
+            return AppDesignSystem.Palette.Status.success
         }
     }
 }
@@ -158,7 +158,7 @@ private struct DDLEventCard: View {
                     if !displayText.isEmpty {
                         Text(displayText)
                             .font(AppDesignSystem.Typography.body)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
                             .lineLimit(3)
                     }
 
@@ -168,10 +168,10 @@ private struct DDLEventCard: View {
 
                     Text(dueText)
                         .font(AppDesignSystem.Typography.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                 }
 
-                Spacer(minLength: 0)
+                Spacer(minLength: AppDesignSystem.Spacing.none)
 
                 Button(action: onToggleDone) {
                     Image(systemName: event.done ? "checkmark.circle.fill" : "circle")
@@ -218,10 +218,10 @@ private struct DDLEventDetailSheet: View {
                         .font(AppDesignSystem.Typography.title)
                         .strikethrough(event.done)
                     Text(ScheduleDateCodec.formatDateTime(event.dueAt))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                     Text(event.group == "lexue" ? "乐学" : "自定义")
                         .font(AppDesignSystem.Typography.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                 }
 
                 Section("详情") {

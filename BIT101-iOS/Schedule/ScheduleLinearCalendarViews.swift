@@ -62,7 +62,7 @@ struct LinearScheduleCalendarView: View {
                 )
                 .frame(height: max(proxy.size.height - headerHeight, 1))
             }
-            .background(AppDesignSystem.Palette.systemBackground)
+            .background(AppDesignSystem.Palette.Background.system)
             .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped))
         }
     }
@@ -105,18 +105,18 @@ private struct LinearScheduleHeader: View {
                 )
                 .frame(maxWidth: .infinity)
                 .frame(height: AppDesignSystem.Schedule.WeekSlider.sliderHeight)
-                .background(AppDesignSystem.Palette.secondaryGroupedBackground)
+                .background(AppDesignSystem.Palette.Background.secondaryGrouped)
 
                 GeometryReader { proxy in
                     let dayWidth = max(proxy.size.width / CGFloat(visibleWeekdays.count + 1), 1)
                     HStack(spacing: AppDesignSystem.Spacing.none) {
                         Text("第\(week)周")
                             .font(AppDesignSystem.Typography.captionEmphasis)
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(AppDesignSystem.Foreground.primary)
                             .lineLimit(1)
-                            .minimumScaleFactor(0.8)
+                            .minimumScaleFactor(AppDesignSystem.Schedule.Grid.minimumScaleFactor)
                             .frame(width: dayWidth, height: AppDesignSystem.Schedule.WeekSlider.dateHeaderHeight)
-                            .background(AppDesignSystem.Palette.secondaryGroupedBackground)
+                            .background(AppDesignSystem.Palette.Background.secondaryGrouped)
 
                         ForEach(Array(weekDates.enumerated()), id: \.offset) { index, date in
                             Button {
@@ -124,9 +124,9 @@ private struct LinearScheduleHeader: View {
                             } label: {
                                 Text(Self.monthDayFormatter.string(from: date))
                                     .font(AppDesignSystem.Typography.caption)
-                                    .foregroundStyle(.primary)
+                                    .foregroundStyle(AppDesignSystem.Foreground.primary)
                                     .frame(width: dayWidth, height: AppDesignSystem.Schedule.WeekSlider.dateHeaderHeight)
-                                    .background(AppDesignSystem.Palette.secondaryGroupedBackground)
+                                    .background(AppDesignSystem.Palette.Background.secondaryGrouped)
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel("第\(week)周，\(weekdayTitle(visibleWeekdays[index]))，\(Self.monthDayFormatter.string(from: date))")
@@ -140,14 +140,14 @@ private struct LinearScheduleHeader: View {
                     HStack(spacing: AppDesignSystem.Spacing.none) {
                         Color.clear
                             .frame(width: dayWidth, height: AppDesignSystem.Schedule.WeekSlider.compactHeaderHeight)
-                            .background(AppDesignSystem.Palette.secondaryGroupedBackground)
+                            .background(AppDesignSystem.Palette.Background.secondaryGrouped)
 
                         ForEach(visibleWeekdays, id: \.self) { weekday in
                             Text(weekdayTitle(weekday))
                                 .font(AppDesignSystem.Typography.caption)
-                                .foregroundStyle(.primary)
+                                .foregroundStyle(AppDesignSystem.Foreground.primary)
                                 .frame(width: dayWidth, height: AppDesignSystem.Schedule.WeekSlider.compactHeaderHeight)
-                                .background(AppDesignSystem.Palette.secondaryGroupedBackground)
+                                .background(AppDesignSystem.Palette.Background.secondaryGrouped)
                                 .accessibilityLabel(weekdayTitle(weekday))
                         }
                     }
@@ -477,7 +477,7 @@ private struct LinearScheduleCanvasView: View {
 
                 Text(TimeSlot.formatMinutes(minute))
                     .font(AppDesignSystem.Typography.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
                     .frame(width: leftWidth, alignment: .center)
                     .offset(y: y - AppDesignSystem.Spacing.regular)
             }
@@ -492,7 +492,7 @@ private struct LinearScheduleCanvasView: View {
             if configuration.currentWeek == configuration.week,
                let index = visibleWeekdays.firstIndex(of: ScheduleDateCodec.weekdayIndex(from: Date())) {
                 Rectangle()
-                    .fill(AppDesignSystem.Palette.accent)
+                    .fill(AppDesignSystem.Palette.Accent.primary)
                     .frame(width: dayWidth, height: AppDesignSystem.Schedule.Grid.currentTimeLineHeight)
                     .offset(
                         x: leftWidth + dayWidth * CGFloat(index),

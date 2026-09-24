@@ -79,7 +79,7 @@ struct GalleryComposerImageTile: View {
         ZStack(alignment: .topTrailing) {
             ZStack {
                 AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card)
-                    .fill(AppDesignSystem.Palette.secondaryGroupedBackground)
+                    .fill(AppDesignSystem.Palette.Background.secondaryGrouped)
 
                 if let image = UIImage(data: draft.previewData) {
                     Image(uiImage: image)
@@ -88,10 +88,10 @@ struct GalleryComposerImageTile: View {
                 } else {
                     Image(systemName: "photo")
                         .font(AppDesignSystem.Typography.title)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                 }
             }
-            .frame(width: AppDesignSystem.Size.Content.imageDraft, height: AppDesignSystem.Size.Content.imageDraft)
+            .frame(width: AppDesignSystem.Size.Media.draft, height: AppDesignSystem.Size.Media.draft)
             .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
             .overlay(alignment: .bottom) {
                 overlayContent
@@ -100,13 +100,13 @@ struct GalleryComposerImageTile: View {
             Button(action: onRemove) {
                 Image(systemName: "xmark.circle.fill")
                     .font(AppDesignSystem.Typography.title)
-                    .foregroundStyle(.white, Color.black.opacity(0.55))
+                    .foregroundStyle(AppDesignSystem.Palette.Media.foreground, AppDesignSystem.Palette.Media.controlOverlay)
             }
             .padding(AppDesignSystem.Spacing.tiny)
             .buttonStyle(.plain)
             .accessibilityLabel("移除图片")
         }
-        .frame(width: AppDesignSystem.Size.Content.imageDraft, height: AppDesignSystem.Size.Content.imageDraft)
+        .frame(width: AppDesignSystem.Size.Media.draft, height: AppDesignSystem.Size.Media.draft)
     }
 
     @ViewBuilder
@@ -115,7 +115,7 @@ struct GalleryComposerImageTile: View {
         case .uploading:
             ZStack {
                 Rectangle()
-                    .fill(AppDesignSystem.Palette.mediaOverlay)
+                    .fill(AppDesignSystem.Palette.Media.overlay)
                 ProgressView()
                     .tint(.white)
             }
@@ -123,19 +123,19 @@ struct GalleryComposerImageTile: View {
         case .compressing:
             ZStack {
                 Rectangle()
-                    .fill(AppDesignSystem.Palette.mediaOverlay)
+                    .fill(AppDesignSystem.Palette.Media.overlay)
                 Text("\(draft.progress)%")
                     .font(AppDesignSystem.Typography.captionEmphasis)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(AppDesignSystem.Palette.Media.foreground)
             }
             .frame(height: AppDesignSystem.Size.Control.compact)
         case .prepared:
             if showsPreparedSuccessIndicator {
                 Image(systemName: "checkmark.circle.fill")
                     .font(AppDesignSystem.Typography.title)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(AppDesignSystem.Palette.Media.foreground)
                     .padding(AppDesignSystem.Spacing.tiny)
-                    .background(AppDesignSystem.Palette.mediaOverlayStrong, in: Circle())
+                    .background(AppDesignSystem.Palette.Media.overlaySoft, in: Circle())
             }
         case .uploaded:
             HStack(spacing: AppDesignSystem.Spacing.tiny) {
@@ -143,10 +143,10 @@ struct GalleryComposerImageTile: View {
                 Text("已上传")
             }
             .font(AppDesignSystem.Typography.captionEmphasis)
-            .foregroundStyle(.white)
+            .foregroundStyle(AppDesignSystem.Palette.Media.foreground)
             .frame(maxWidth: .infinity)
             .padding(.vertical, AppDesignSystem.Spacing.tiny)
-            .background(AppDesignSystem.Palette.mediaOverlayStrong)
+            .background(AppDesignSystem.Palette.Media.overlaySoft)
         case .failed:
             Button(action: onRetry) {
                 HStack(spacing: AppDesignSystem.Spacing.tiny) {
@@ -154,10 +154,10 @@ struct GalleryComposerImageTile: View {
                     Text("重试")
                 }
                 .font(AppDesignSystem.Typography.captionEmphasis)
-                .foregroundStyle(.white)
+                .foregroundStyle(AppDesignSystem.Palette.Media.foreground)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, AppDesignSystem.Spacing.tiny)
-                .background(AppDesignSystem.Palette.danger.opacity(0.82))
+                .background(AppDesignSystem.Palette.Status.danger.opacity(AppDesignSystem.Gallery.dangerOverlayOpacity))
             }
             .buttonStyle(.plain)
         }
@@ -395,7 +395,7 @@ struct GalleryComposerView: View {
                                     removeCustomTagDraft(id: draft.id)
                                 } label: {
                                     Image(systemName: "minus.circle.fill")
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                                         .font(AppDesignSystem.Typography.title)
                                 }
                                 .buttonStyle(.plain)
@@ -432,15 +432,15 @@ struct GalleryComposerView: View {
 
                     if !existingImages.isEmpty {
                         LazyVGrid(
-                            columns: [GridItem(.adaptive(minimum: AppDesignSystem.Size.Content.imageDraft), spacing: AppDesignSystem.Spacing.regular)],
+                            columns: [GridItem(.adaptive(minimum: AppDesignSystem.Size.Media.draft), spacing: AppDesignSystem.Spacing.regular)],
                             spacing: AppDesignSystem.Spacing.regular
                         ) {
                             ForEach(existingImages) { image in
                                 ZStack(alignment: .topTrailing) {
                                     GalleryPosterThumbnail(image: image, contentMode: .fill)
                                         .frame(
-                                            width: AppDesignSystem.Size.Content.imageDraft,
-                                            height: AppDesignSystem.Size.Content.imageDraft
+                                            width: AppDesignSystem.Size.Media.draft,
+                                            height: AppDesignSystem.Size.Media.draft
                                         )
                                         .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
 
@@ -449,15 +449,15 @@ struct GalleryComposerView: View {
                                     } label: {
                                         Image(systemName: "xmark.circle.fill")
                                             .font(AppDesignSystem.Typography.title)
-                                            .foregroundStyle(.white, Color.black.opacity(0.55))
+                                            .foregroundStyle(AppDesignSystem.Palette.Media.foreground, AppDesignSystem.Palette.Media.controlOverlay)
                                     }
                                     .padding(AppDesignSystem.Spacing.tiny)
                                     .buttonStyle(.plain)
                                     .accessibilityLabel("移除原有图片")
                                 }
                                 .frame(
-                                    width: AppDesignSystem.Size.Content.imageDraft,
-                                    height: AppDesignSystem.Size.Content.imageDraft
+                                    width: AppDesignSystem.Size.Media.draft,
+                                    height: AppDesignSystem.Size.Media.draft
                                 )
                             }
                         }
@@ -465,7 +465,7 @@ struct GalleryComposerView: View {
 
                     if !imageDrafts.isEmpty {
                         LazyVGrid(
-                            columns: [GridItem(.adaptive(minimum: AppDesignSystem.Size.Content.imageDraft), spacing: AppDesignSystem.Spacing.regular)],
+                            columns: [GridItem(.adaptive(minimum: AppDesignSystem.Size.Media.draft), spacing: AppDesignSystem.Spacing.regular)],
                             spacing: AppDesignSystem.Spacing.regular
                         ) {
                             ForEach(imageDrafts) { draft in
@@ -485,7 +485,7 @@ struct GalleryComposerView: View {
                     if hasUploadingImages {
                         Text("图片上传中，上传完成后即可一并发布。")
                             .font(AppDesignSystem.Typography.footnote)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
                     }
                 }
             }

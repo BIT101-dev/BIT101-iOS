@@ -36,13 +36,13 @@ struct CourseCommentsSection: View {
                 if comments.isEmpty {
                     Text(totalCommentCount == 0 ? "还没有评论" : "评论已根据社区规范隐藏")
                         .font(AppDesignSystem.Typography.body)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, AppDesignSystem.Spacing.section)
                 } else {
-                    LazyVStack(spacing: 0) {
+                    LazyVStack(spacing: AppDesignSystem.Spacing.none) {
                         ForEach(Array(comments.enumerated()), id: \.element.id) { index, comment in
-                            VStack(spacing: 0) {
+                            VStack(spacing: AppDesignSystem.Spacing.none) {
                                 CourseCommentRow(
                                     comment: comment,
                                     likingCommentIDs: likingCommentIDs,
@@ -101,7 +101,8 @@ private struct CourseCommentRow: View {
                     : URL(string: comment.user.avatar.lowUrl.isEmpty ? comment.user.avatar.url : comment.user.avatar.lowUrl),
                 size: isSubComment
                     ? AppDesignSystem.Size.Control.compact
-                    : AppDesignSystem.Size.Avatar.standard
+                    : AppDesignSystem.Size.Avatar.standard,
+                tint: AppDesignSystem.Course.accent
             )
         } content: {
             AppCommentIdentityHeader(
@@ -114,7 +115,7 @@ private struct CourseCommentRow: View {
             if comment.rate > 0 {
                 Label(CourseRatingText.text(from: comment.rate), systemImage: "star.fill")
                     .font(AppDesignSystem.Typography.captionEmphasis)
-                    .foregroundStyle(AppDesignSystem.Palette.highlight)
+                    .foregroundStyle(AppDesignSystem.Course.accent)
             }
 
             commentText(for: comment)
@@ -146,18 +147,18 @@ private struct CourseCommentRow: View {
         if comment.replyUser.id != 0, !comment.replyUser.nickname.isEmpty {
             (
                 Text("回复 @\(comment.replyUser.nickname)：")
-                    .foregroundStyle(.secondary) +
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary) +
                     Text(comment.text)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(AppDesignSystem.Foreground.primary)
             )
             .font(AppDesignSystem.Typography.body)
-            .lineSpacing(3)
+            .lineSpacing(AppDesignSystem.Comment.bodyLineSpacing)
             .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             Text(comment.text)
                 .font(AppDesignSystem.Typography.body)
-                .foregroundStyle(.primary)
-                .lineSpacing(3)
+                .foregroundStyle(AppDesignSystem.Foreground.primary)
+                .lineSpacing(AppDesignSystem.Comment.bodyLineSpacing)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -239,7 +240,7 @@ struct CourseCommentComposerSheet: View {
                                     ZStack {
                                         Image(systemName: starSymbol(for: value))
                                             .font(AppDesignSystem.Typography.title)
-                                            .foregroundStyle(AppDesignSystem.Palette.highlight)
+                                            .foregroundStyle(AppDesignSystem.Course.accent)
                                             .frame(width: AppDesignSystem.Size.Control.compact, height: AppDesignSystem.Size.Control.compact)
                                             .accessibilityHidden(true)
 
@@ -281,7 +282,7 @@ struct CourseCommentComposerSheet: View {
 
                                 Text(rating == 0 ? "不评分" : CourseRatingText.text(from: rating, empty: "不评分"))
                                     .font(AppDesignSystem.Typography.bodyEmphasis)
-                                    .foregroundStyle(rating == 0 ? Color.secondary : AppDesignSystem.Palette.highlight)
+                                    .foregroundStyle(rating == 0 ? AppDesignSystem.Foreground.secondaryColor : AppDesignSystem.Course.accent)
                             }
 
                         }

@@ -44,7 +44,7 @@ struct PaperCommentsSection: View {
                 if comments.isEmpty {
                     Text(totalCommentCount == 0 ? "还没有评论" : "评论已根据社区规范隐藏")
                         .font(AppDesignSystem.Typography.body)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, AppDesignSystem.Spacing.section)
                 } else {
@@ -141,14 +141,14 @@ private struct PaperCommentRow: View {
             if !comment.replyObj.isEmpty, comment.replyUser.id > 0 {
                 Text("回复 @\(comment.replyUser.nickname)：")
                     .font(AppDesignSystem.Typography.captionEmphasis)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
             }
 
             Text(comment.text)
                 .font(isSubComment
                     ? AppDesignSystem.Typography.subheadline
                     : AppDesignSystem.Typography.body)
-                .foregroundStyle(.primary)
+                .foregroundStyle(AppDesignSystem.Foreground.primary)
                 .lineSpacing(AppDesignSystem.Spacing.tiny)
                 .frame(maxWidth: .infinity, alignment: .leading)
 

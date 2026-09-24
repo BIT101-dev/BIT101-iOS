@@ -18,4 +18,15 @@ nonisolated enum AppDesignSystem {
         static let card: CGFloat = 12
         static let grouped: CGFloat = 16
     }
+
+    /// 跨模块共享的透明度基础刻度；语义颜色和模块令牌从这里派生。
+    enum Opacity {
+        static let full: CGFloat = 1
+        static let subtle: CGFloat = 0.12
+        static let surface: CGFloat = 0.18
+        static let softOverlay: CGFloat = 0.35
+        static let overlay: CGFloat = 0.45
+        static let controlOverlay: CGFloat = 0.55
+        static let emphasis: CGFloat = 0.90
+    }
 }

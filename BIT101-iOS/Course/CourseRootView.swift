@@ -31,7 +31,7 @@ struct CoursePageContent: View {
             case .idle where viewModel.state.items.isEmpty,
                  .loading where viewModel.state.items.isEmpty:
                 AppLoadingState(title: viewModel.hasActiveSearch ? "正在搜索课程" : "正在加载课程")
-                    .background(AppDesignSystem.Palette.groupedBackground)
+                    .background(AppDesignSystem.Palette.Background.grouped)
 
             case let .failed(message) where viewModel.state.items.isEmpty:
                 AppFailureState(
@@ -46,7 +46,7 @@ struct CoursePageContent: View {
                     }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(AppDesignSystem.Palette.groupedBackground)
+                .background(AppDesignSystem.Palette.Background.grouped)
 
             default:
                 List {
@@ -66,7 +66,7 @@ struct CoursePageContent: View {
                     }
                 }
                 .appGroupedListStyle()
-                .background(AppDesignSystem.Palette.groupedBackground)
+                .background(AppDesignSystem.Palette.Background.grouped)
             }
         }
         .task {
@@ -76,7 +76,7 @@ struct CoursePageContent: View {
             viewModel.clearSearchIfNeeded(from: oldValue, to: newValue)
         }
         .diagnosticAlert(item: $viewModel.alert)
-        .background(AppDesignSystem.Palette.groupedBackground)
+        .background(AppDesignSystem.Palette.Background.grouped)
     }
 
     @ViewBuilder
@@ -265,7 +265,7 @@ struct CourseEvaluationDestination: View {
                 AppLoadingState(title: "正在加载课程评价")
             }
         }
-        .background(AppDesignSystem.Palette.groupedBackground)
+        .background(AppDesignSystem.Palette.Background.grouped)
         .navigationTitle("课程评价")
         .navigationBarTitleDisplayMode(.inline)
         .alert(item: $expectedAlert) { alert in
@@ -324,7 +324,7 @@ private struct CourseSearchRow: View {
     var body: some View {
         HStack(spacing: AppDesignSystem.Spacing.regular) {
             Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
                 .accessibilityHidden(true)
 
             TextField("", text: $text, prompt: AppInputPrompt.text("在这里搜索课程哦"))
@@ -339,7 +339,7 @@ private struct CourseSearchRow: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(AppDesignSystem.Typography.body)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("清除搜索")
@@ -360,20 +360,20 @@ private struct CourseListRow: View {
                         text: course.name.isEmpty ? "未命名课程" : course.name,
                         ratio: 0.64,
                         font: AppDesignSystem.Typography.title,
-                        color: .primary
+                        color: AppDesignSystem.Foreground.primaryColor
                     ),
                     AppFixedColumnItem(
                         text: CourseRatingText.text(from: course.rate, empty: "-"),
                         ratio: 0.16,
                         font: AppDesignSystem.Typography.subheadlineEmphasis,
-                        color: AppDesignSystem.Palette.highlight,
+                        color: AppDesignSystem.Foreground.primaryColor,
                         alignment: .trailing
                     ),
                     AppFixedColumnItem(
                         text: "\(course.commentNum)评",
                         ratio: 0.20,
                         font: AppDesignSystem.Typography.caption,
-                        color: .secondary,
+                        color: AppDesignSystem.Foreground.secondaryColor,
                         alignment: .trailing
                     ),
                 ],
@@ -386,19 +386,19 @@ private struct CourseListRow: View {
                         text: course.number.isEmpty ? "-" : course.number,
                         ratio: 0.30,
                         font: AppDesignSystem.Typography.caption,
-                        color: .secondary
+                        color: AppDesignSystem.Foreground.secondaryColor
                     ),
                     AppFixedColumnItem(
                         text: course.teachersName.isEmpty ? "-" : course.teachersName,
                         ratio: 0.45,
                         font: AppDesignSystem.Typography.caption,
-                        color: .secondary
+                        color: AppDesignSystem.Foreground.secondaryColor
                     ),
                     AppFixedColumnItem(
                         text: "\(course.likeNum)赞",
                         ratio: 0.25,
                         font: AppDesignSystem.Typography.caption,
-                        color: .secondary,
+                        color: AppDesignSystem.Foreground.secondaryColor,
                         alignment: .trailing
                     ),
                 ],

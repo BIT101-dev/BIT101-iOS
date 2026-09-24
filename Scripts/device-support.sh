@@ -11,7 +11,7 @@ bit101_find_device() {
     -scheme BIT101-iOS 2>/dev/null || true)"
   device_list="$(xcrun devicectl list devices 2>/dev/null || true)"
   device_line="$(printf '%s\n' "$device_list" \
-    | grep -Ei '(connected|available)' \
+    | grep -Ei 'available[[:space:]]+\(paired\)|connected' \
     | grep -Ei '(physical|iPhone|iPad)' \
     | head -n 1 || true)"
   # devicectl 使用 CoreDevice UUID，xcodebuild 使用设备 UDID；两者不是同一个字符串，

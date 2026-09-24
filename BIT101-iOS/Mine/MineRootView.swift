@@ -337,7 +337,7 @@ private struct MineProfileCard: View {
 
     /// 资料卡主体。
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: AppDesignSystem.Spacing.none) {
             if let onOpenAvatar {
                 Button(action: onOpenAvatar) {
                     profileAvatar
@@ -393,7 +393,7 @@ private struct MineProfileCard: View {
         AppAvatarView(
             imageURL: URL(string: info.user.avatar.url),
             size: AppDesignSystem.Size.Avatar.profile,
-            tint: AppDesignSystem.Palette.info
+            tint: AppDesignSystem.Palette.Status.info
         )
         .contentShape(Circle())
     }
@@ -438,7 +438,7 @@ private struct MineUserListView: View {
                                 AppAvatarView(
                                     imageURL: URL(string: user.avatar.lowUrl.isEmpty ? user.avatar.url : user.avatar.lowUrl),
                                     size: AppDesignSystem.Size.Avatar.standard,
-                                    tint: AppDesignSystem.Palette.info
+                                    tint: AppDesignSystem.Palette.Status.info
                                 )
 
                                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
@@ -449,13 +449,13 @@ private struct MineUserListView: View {
                                         if !user.identity.text.isEmpty {
                                             Text(user.identity.text)
                                                 .font(AppDesignSystem.Typography.captionEmphasis)
-                                                .foregroundStyle(MineColorDecoder.color(from: user.identity.color) ?? AppDesignSystem.Palette.info)
+                                                .foregroundStyle(MineColorDecoder.color(from: user.identity.color) ?? AppDesignSystem.Palette.Status.info)
                                         }
                                     }
 
                                     Text("UID：\(user.id)")
                                         .font(AppDesignSystem.Typography.caption)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                                 }
                             }
                             .contentShape(Rectangle())
@@ -535,7 +535,7 @@ private struct MinePosterListView: View {
                 AppEmptyState(title: "暂无可显示的帖子", systemImage: "text.bubble")
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 0) {
+                    LazyVStack(spacing: AppDesignSystem.Spacing.none) {
                         ForEach(Array(visiblePosters.enumerated()), id: \.element.id) { index, poster in
                             AppFeedRow(isLast: index == visiblePosters.count - 1) {
                                 GalleryPosterCard(
@@ -568,7 +568,7 @@ private struct MinePosterListView: View {
                 await onRefresh()
             }
         }
-        .background(AppDesignSystem.Palette.groupedBackground)
+        .background(AppDesignSystem.Palette.Background.grouped)
         .navigationTitle("我的帖子")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $selectedPoster) { poster in
@@ -659,10 +659,10 @@ private struct MineStatButton: View {
         HStack(spacing: AppDesignSystem.Spacing.tiny) {
             Text(number)
                 .font(AppDesignSystem.Typography.titleEmphasis)
-                .foregroundStyle(.primary)
+                .foregroundStyle(AppDesignSystem.Foreground.primary)
             Text(title)
                 .font(AppDesignSystem.Typography.subheadlineEmphasis)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
         }
     }
 }

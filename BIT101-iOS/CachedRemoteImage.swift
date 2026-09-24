@@ -49,6 +49,49 @@ struct CachedRemoteImage<Content: View, Placeholder: View>: View {
     }
 }
 
+/// 主 App 的远程头像适配器；远程加载属于 App 层，头像容器保持在设计系统层。
+struct AppAvatarView: View {
+    let imageURL: URL?
+    let size: CGFloat
+    let tint: Color
+    let systemImage: String
+    let accessibilityLabel: String?
+
+    init(
+        imageURL: URL?,
+        size: CGFloat = AppDesignSystem.Size.Avatar.standard,
+        tint: Color = AppDesignSystem.Palette.Highlight.primary,
+        systemImage: String = "person.fill",
+        accessibilityLabel: String? = nil
+    ) {
+        self.imageURL = imageURL
+        self.size = size
+        self.tint = tint
+        self.systemImage = systemImage
+        self.accessibilityLabel = accessibilityLabel
+    }
+
+    var body: some View {
+        CachedRemoteImage(url: imageURL) { image in
+            AppAvatarContainer(
+                image: image,
+                size: size,
+                tint: tint,
+                systemImage: systemImage,
+                accessibilityLabel: accessibilityLabel
+            )
+        } placeholder: {
+            AppAvatarContainer(
+                image: nil,
+                size: size,
+                tint: tint,
+                systemImage: systemImage,
+                accessibilityLabel: accessibilityLabel
+            )
+        }
+    }
+}
+
 @MainActor
 private final class CachedRemoteImageLoader: ObservableObject {
     /// 当前用于显示的位图。

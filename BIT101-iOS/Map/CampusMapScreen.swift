@@ -9,6 +9,12 @@ import Combine
 import MapKit
 import SwiftUI
 
+extension AppDesignSystem {
+    enum Map {
+        static let tabAccent = Color.green
+    }
+}
+
 /// 地图页用到的本地偏好键。
 ///
 /// 地图模块持久化用户上次选择的校区和地图图层。
@@ -257,10 +263,10 @@ private struct FloatingMapLabelButton: View {
             feedbackToken &+= 1
             action()
         } label: {
-            AppFloatingActionButtonSurface(fill: isSelected ? AppDesignSystem.Palette.accent : nil) {
+            AppFloatingActionButtonSurface(fill: isSelected ? AppDesignSystem.Palette.Accent.primary : nil) {
                 Text(label)
                     .font(AppDesignSystem.Typography.floatingLabel)
-                    .foregroundStyle(isSelected ? Color.white : Color.primary)
+                    .foregroundStyle(isSelected ? AppDesignSystem.Palette.Highlight.foreground : AppDesignSystem.Foreground.primaryColor)
             }
         }
         .buttonStyle(.plain)

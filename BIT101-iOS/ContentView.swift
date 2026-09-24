@@ -17,5 +17,6 @@ enum AppLegalInfo {
 struct ContentView: View {
     var body: some View {
         LoginRootView()
+            .appDiagnosticRecoveryActions()
     }
 }

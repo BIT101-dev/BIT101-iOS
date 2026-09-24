@@ -25,7 +25,7 @@ REPORT_DIR="$DERIVED_DATA/report"
 APP_GROUP_ID="group.BIT101-dev.BIT101-iOS.shared"
 APP_BUNDLE_ID="BIT101-dev.BIT101-iOS"
 SMOKE_SCOPE="${BIT101_NETWORK_SMOKE_SCOPE:-all}"
-SMOKE_CAPTURE="${BIT101_NETWORK_SMOKE_CAPTURE:-cachedCourseHistory}"
+SMOKE_CAPTURE="${BIT101_NETWORK_SMOKE_CAPTURE:-none}"
 SMOKE_TERM="${BIT101_NETWORK_SMOKE_TERM:-}"
 
 case "$SMOKE_SCOPE" in
@@ -33,7 +33,7 @@ case "$SMOKE_SCOPE" in
   *) echo "BIT101_NETWORK_SMOKE_SCOPE 必须是 all、bit101、school、transcript、schedule 或 ddl。" >&2; exit 64 ;;
 esac
 case "$SMOKE_CAPTURE" in
-  ""|courseHistory|cachedCourseHistory|scheduleCache|rawCourseResponse) ;;
+  ""|scheduleCache|rawCourseResponse) ;;
   *) echo "BIT101_NETWORK_SMOKE_CAPTURE 参数无效。" >&2; exit 64 ;;
 esac
 
@@ -42,8 +42,6 @@ mkdir -p "$DERIVED_DATA" "$REPORT_DIR"
 RUN_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
 REMOTE_REPORT_PATH="Library/NetworkSmoke/release-network-smoke.json"
 REMOTE_RAW_COURSE_PATH="Library/NetworkSmoke/raw-course-response.json"
-REMOTE_FIXTURE_PATH="course-history-audit-fixture.json"
-LOCAL_FIXTURE_PATH="$ROOT_DIR/BIT101-iOSTests/CourseHistoryAuditFixture.json"
 LOCAL_REPORT_PATH="$REPORT_DIR/release-network-smoke.json"
 LOCAL_RAW_COURSE_PATH="$REPORT_DIR/raw-course-response.json"
 LOCAL_REQUEST_PATH="$REPORT_DIR/network-smoke-request.json"
@@ -93,20 +91,6 @@ xcrun devicectl device process terminate \
 xcrun devicectl device install app \
   --device "$DEVICETCL_DEVICE_ID" \
   "$SMOKE_APP_PATH" >/dev/null
-
-if [[ "$SMOKE_CAPTURE" == "cachedCourseHistory" ]]; then
-  if [[ ! -f "$LOCAL_FIXTURE_PATH" ]]; then
-    echo "课程历史缓存文件不存在：$LOCAL_FIXTURE_PATH" | tee -a "$LOG_FILE" >&2
-    exit 1
-  fi
-  echo "写入课程历史缓存数据..." | tee -a "$LOG_FILE"
-  xcrun devicectl device copy to \
-    --device "$DEVICETCL_DEVICE_ID" \
-    --domain-type appDataContainer \
-    --domain-identifier "$APP_BUNDLE_ID" \
-    --source "$LOCAL_FIXTURE_PATH" \
-    --destination "Documents/$REMOTE_FIXTURE_PATH" >/dev/null
-fi
 
 python3 - "$LOCAL_REQUEST_PATH" "$SMOKE_SCOPE" "$RUN_ID" "$SMOKE_CAPTURE" "$SMOKE_TERM" <<'PY'
 import json
@@ -188,7 +172,6 @@ failures = report.get("failures", [])
 auth_blocked = report.get("authenticationBlockers", [])
 scope = report.get("scope")
 run_id = report.get("runID")
-metrics = report.get("courseHistoryAuditMetrics")
 executed = report.get("executedProbes", [])
 skipped = report.get("skippedProbes", [])
 sms_coverage = report.get("schoolSMSCoverage", "unknown")
@@ -199,18 +182,6 @@ print(
     f"skipped={len(skipped)} "
     f"executed={len(executed)} sms_coverage={sms_coverage}"
 )
-if metrics:
-    true_positive = metrics.get('truePositive', 0)
-    false_positive = metrics.get('falsePositive', 0)
-    false_negative = metrics.get('falseNegative', 0)
-    precision = true_positive / (true_positive + false_positive) if true_positive + false_positive else 0
-    recall = true_positive / (true_positive + false_negative) if true_positive + false_negative else 0
-    print(
-        "课程历史标签匹配: "
-        f"predicted={metrics.get('predictedCandidateCount', 0)} "
-        f"tp={true_positive} fp={false_positive} fn={false_negative} "
-        f"precision={precision * 100:.1f}% recall={recall * 100:.1f}%"
-    )
 if failures:
     print("网络或业务失败：")
     for line in failures:

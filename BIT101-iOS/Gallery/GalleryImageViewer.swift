@@ -27,7 +27,7 @@ struct GalleryImageViewerState: Identifiable {
 extension View {
     /// 直接从当前页面呈现系统 Quick Look，不增加自定义“正在准备”中间页。
     func gallerySystemImagePreview(item: Binding<GalleryImageViewerState?>) -> some View {
-        background(GalleryQuickLookPresenter(viewer: item).frame(width: 0, height: 0))
+        background(GalleryQuickLookPresenter(viewer: item).frame(width: AppDesignSystem.Spacing.none, height: AppDesignSystem.Spacing.none))
     }
 }
 

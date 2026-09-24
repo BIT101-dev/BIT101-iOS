@@ -15,10 +15,10 @@ struct CourseDetailView: View {
 
     @Environment(\.openURL) private var openURL
     @StateObject private var viewModel: CourseDetailViewModel
+    @ObservedObject private var appSettings = AppSettingsStore.shared
     @State private var composerTarget: CourseCommentComposerTarget?
     @State private var imageViewer: GalleryImageViewerState?
     @State private var userRoute: UserRoute?
-    @State private var isShowingHistoryGrades = false
 
     init(initialCourse: CourseSummary) {
         self.initialCourse = initialCourse
@@ -30,7 +30,7 @@ struct CourseDetailView: View {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.section) {
                 summarySection
                 metricsSection
-                courseResourcesSection
+                historyGradesSection
                 Divider()
 
                 CourseCommentsSection(
@@ -64,7 +64,7 @@ struct CourseDetailView: View {
             .padding(.horizontal, AppDesignSystem.Spacing.section)
             .padding(.top, AppDesignSystem.Spacing.section)
         }
-        .background(AppDesignSystem.Palette.groupedBackground)
+        .background(AppDesignSystem.Palette.Background.grouped)
         .navigationTitle("课程详情")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
@@ -82,6 +82,7 @@ struct CourseDetailView: View {
         }
         .task {
             await viewModel.bootstrapIfNeeded()
+            await viewModel.loadHistoryGradesIfNeeded()
         }
         .sheet(item: $composerTarget) { target in
             CourseCommentComposerSheet(
@@ -96,19 +97,6 @@ struct CourseDetailView: View {
                 }
             }
         }
-        .sheet(isPresented: $isShowingHistoryGrades) {
-            CourseHistoryGradesSheet(
-                grades: viewModel.historyGrades,
-                status: viewModel.historyGradeStatus,
-                allowsDiagnostics: viewModel.historyGradesAllowsDiagnostics,
-                onRetry: {
-                    await viewModel.reloadHistoryGrades()
-                }
-            )
-            .task {
-                await viewModel.loadHistoryGradesIfNeeded()
-            }
-        }
         .gallerySystemImagePreview(item: $imageViewer)
         .diagnosticAlert(item: $viewModel.alert)
     }
@@ -118,7 +106,7 @@ struct CourseDetailView: View {
             HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
                 Text(viewModel.resolvedName)
                     .font(AppDesignSystem.Typography.titleEmphasis)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(AppDesignSystem.Foreground.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 HStack(spacing: AppDesignSystem.Spacing.regular) {
@@ -127,7 +115,7 @@ struct CourseDetailView: View {
                     } label: {
                         Image(systemName: "bubble.right")
                             .font(AppDesignSystem.Typography.title)
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(AppDesignSystem.Foreground.primary)
                     }
 
                     AppDetailCircleButton(
@@ -146,7 +134,7 @@ struct CourseDetailView: View {
                                     .font(AppDesignSystem.Typography.title)
                             }
                         }
-                        .foregroundStyle(viewModel.isCourseLiked ? AppDesignSystem.Palette.highlight : Color.primary)
+                        .foregroundStyle(viewModel.isCourseLiked ? AppDesignSystem.Course.accent : AppDesignSystem.Foreground.primaryColor)
                     }
                     .disabled(viewModel.isLikingCourse)
                 }
@@ -170,11 +158,48 @@ struct CourseDetailView: View {
             Text("\(viewModel.resolvedCommentNum)评论")
         }
         .font(AppDesignSystem.Typography.subheadline)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(AppDesignSystem.Foreground.secondary)
     }
 
-    private var courseResourcesSection: some View {
-        HStack(spacing: AppDesignSystem.Spacing.content) {
+    @ViewBuilder
+    private var historyGradesSection: some View {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.section) {
+            switch viewModel.historyGradeStatus {
+            case .idle, .loading:
+                AppInlineLoadingState("正在加载历史成绩")
+
+            case let .failed(message):
+                AppFailureState(
+                    title: "加载历史成绩失败",
+                    systemImage: "chart.line.uptrend.xyaxis",
+                    message: message,
+                    allowsDiagnostics: viewModel.historyGradesAllowsDiagnostics,
+                    onRetry: {
+                        Task { await viewModel.reloadHistoryGrades() }
+                    }
+                )
+
+            case .loaded:
+                if viewModel.historyGrades.isEmpty {
+                    AppEmptyState(
+                        title: "暂无历史成绩",
+                        systemImage: "chart.line.uptrend.xyaxis"
+                    )
+                } else {
+                    CourseHistoryGradesChart(
+                        grades: viewModel.historyGrades,
+                        courseNumber: viewModel.resolvedNumber,
+                        hidesMakeupOutliers: appSettings.hidesCourseHistoryMakeupOutliers
+                    )
+
+                    courseResourceCards
+                }
+            }
+        }
+    }
+
+    private var courseResourceCards: some View {
+        HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
             Button {
                 if let url = viewModel.sharedMaterialsURL {
                     openURL(url)
@@ -182,62 +207,73 @@ struct CourseDetailView: View {
                     viewModel.alert = AppAlert.userInput(title: "无法打开共享资料", message: "课程名称或课程号为空。")
                 }
             } label: {
-                CourseResourceCard(
-                    title: "共享资料",
-                    subtitle: "在浏览器打开",
-                    systemImage: "folder"
-                )
+                AppCard(variant: .secondaryGrouped) {
+                    HStack(spacing: AppDesignSystem.Spacing.regular) {
+                        Image(systemName: "folder")
+                            .font(AppDesignSystem.Typography.title)
+                            .foregroundStyle(AppDesignSystem.Course.accent)
+                            .frame(
+                                width: AppDesignSystem.Size.Control.detailActionButton,
+                                height: AppDesignSystem.Size.Control.detailActionButton
+                            )
+                            .background(AppDesignSystem.Course.accentSurface, in: Circle())
+
+                        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
+                            Text("共享资料")
+                                .font(AppDesignSystem.Typography.bodyEmphasis)
+                                .foregroundStyle(AppDesignSystem.Foreground.primary)
+                            Text("在浏览器打开")
+                                .font(AppDesignSystem.Typography.caption)
+                                .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                        }
+
+                        Spacer(minLength: AppDesignSystem.Spacing.none)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             .buttonStyle(.plain)
 
             Button {
-                isShowingHistoryGrades = true
-            } label: {
-                CourseResourceCard(
-                    title: "历史成绩",
-                    subtitle: "查看历年统计",
-                    systemImage: "chart.line.uptrend.xyaxis"
+                appSettings.setHidesCourseHistoryMakeupOutliers(
+                    !appSettings.hidesCourseHistoryMakeupOutliers
                 )
+            } label: {
+                AppCard(variant: .secondaryGrouped) {
+                    HStack(spacing: AppDesignSystem.Spacing.regular) {
+                        Image(systemName: "line.3.horizontal.decrease.circle")
+                            .font(AppDesignSystem.Typography.title)
+                            .foregroundStyle(AppDesignSystem.Course.accent)
+                            .frame(
+                                width: AppDesignSystem.Size.Control.detailActionButton,
+                                height: AppDesignSystem.Size.Control.detailActionButton
+                            )
+                            .background(AppDesignSystem.Course.accentSurface, in: Circle())
+
+                        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
+                            Text("数据清洗")
+                                .font(AppDesignSystem.Typography.bodyEmphasis)
+                                .foregroundStyle(AppDesignSystem.Foreground.primary)
+                            Text(appSettings.hidesCourseHistoryMakeupOutliers ? "隐藏疑似补考" : "全部显示")
+                                .font(AppDesignSystem.Typography.caption)
+                                .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                        }
+
+                        Spacer(minLength: AppDesignSystem.Spacing.none)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("数据清洗")
+            .accessibilityValue(appSettings.hidesCourseHistoryMakeupOutliers ? "隐藏疑似补考" : "全部显示")
+            .appSelectionFeedback(trigger: appSettings.hidesCourseHistoryMakeupOutliers)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// 使用稳定的 `/course/{id}` 路由作为课程分享地址。
     private var courseShareURL: URL {
         AppURL.required("https://open.aihelpme.dev/course/\(initialCourse.id)")
-    }
-}
-
-private struct CourseResourceCard: View {
-    let title: String
-    let subtitle: String
-    let systemImage: String
-
-    var body: some View {
-        AppCard(variant: .secondaryGrouped) {
-            HStack(spacing: AppDesignSystem.Spacing.regular) {
-                Image(systemName: systemImage)
-                    .font(AppDesignSystem.Typography.title)
-                    .foregroundStyle(AppDesignSystem.Palette.highlight)
-                    .frame(
-                        width: AppDesignSystem.Size.Control.detailActionButton,
-                        height: AppDesignSystem.Size.Control.detailActionButton
-                    )
-                    .background(AppDesignSystem.Palette.highlightSurface, in: Circle())
-
-                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
-                    Text(title)
-                        .font(AppDesignSystem.Typography.bodyEmphasis)
-                        .foregroundStyle(.primary)
-                    Text(subtitle)
-                        .font(AppDesignSystem.Typography.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 0)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
     }
 }

@@ -105,18 +105,18 @@ struct FreeClassroomTabView: View {
                                     .font(AppDesignSystem.Typography.title)
                                 Text(classroom.statusText)
                                     .font(AppDesignSystem.Typography.subheadline)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
                             }
                             Spacer()
                             VStack(alignment: .trailing, spacing: AppDesignSystem.Spacing.micro) {
                                 Text(classroom.prettyFreeTimes)
                                     .font(AppDesignSystem.Typography.subheadline)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
                                     .multilineTextAlignment(.trailing)
                                 if !classroom.detailText.isEmpty {
                                     Text(classroom.detailText)
                                         .font(AppDesignSystem.Typography.caption)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                                 }
                             }
                         }
@@ -144,11 +144,11 @@ struct FreeClassroomTabView: View {
             timeTable: viewModel.cache.timeTable
         ) {
         case .full:
-            return AppDesignSystem.Palette.accentSurface
+            return AppDesignSystem.Palette.Accent.surface
         case .partial:
-            return AppDesignSystem.Palette.accentSubtleSurface
+            return AppDesignSystem.Palette.Accent.subtleSurface
         case .none:
-            return AppDesignSystem.Palette.systemBackground
+            return AppDesignSystem.Palette.Background.system
         }
     }
 }
