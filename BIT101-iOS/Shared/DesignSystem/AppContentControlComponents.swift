@@ -121,6 +121,7 @@ struct AppTopSegmentedPicker<Selection: Hashable, Content: View>: View {
         AppSegmentedPicker(title: title, selection: $selection) {
             content
         }
+        .font(AppDesignSystem.Typography.footnote)
         .padding(.horizontal, AppDesignSystem.Spacing.regular)
         .padding(.bottom, variant.bottomPadding)
         .frame(maxWidth: .infinity)

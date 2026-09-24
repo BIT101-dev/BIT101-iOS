@@ -36,7 +36,7 @@ struct AppRefreshStatusRow: View {
                     Text(lastUpdatedText)
                 }
             }
-            .font(AppDesignSystem.Typography.body)
+            .font(AppDesignSystem.Typography.subheadline)
             .foregroundStyle(.primary)
 
             Spacer(minLength: 0)
@@ -50,7 +50,7 @@ struct AppRefreshStatusRow: View {
                 .appImpactFeedback(trigger: feedbackToken)
             } else if let trailingText {
                 Text(trailingText)
-                    .font(AppDesignSystem.Typography.body)
+                    .font(AppDesignSystem.Typography.subheadline)
                     .foregroundStyle(.primary)
             }
         }
