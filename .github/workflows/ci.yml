@@ -29,7 +29,11 @@ jobs:
         with:
           fetch-depth: 0
       - name: Show toolchain
-        run: xcodebuild -version
+        shell: bash
+        run: |
+          version="$(xcodebuild -version)"
+          printf '%s\n' "$version"
+          grep -Eq '^Xcode (2[7-9]|[3-9][0-9]|[1-9][0-9]{2,})\.' <<<"$version"
       - name: Validate project
         run: plutil -lint BIT101-iOS.xcodeproj/project.pbxproj
       - name: Validate versions
@@ -58,7 +62,11 @@ jobs:
         with:
           fetch-depth: 0
       - name: Show toolchain
-        run: xcodebuild -version
+        shell: bash
+        run: |
+          version="$(xcodebuild -version)"
+          printf '%s\n' "$version"
+          grep -Eq '^Xcode (2[7-9]|[3-9][0-9]|[1-9][0-9]{2,})\.' <<<"$version"
       - name: Validate project
         run: plutil -lint BIT101-iOS.xcodeproj/project.pbxproj
       - name: Validate versions
@@ -108,3 +116,5 @@ jobs:
           CODE_SIGNING_ALLOWED=NO
           SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
           GCC_TREAT_WARNINGS_AS_ERRORS=YES
+      - name: Run behavior tests on Mac Catalyst
+        run: Scripts/run-extended-tests.sh catalyst

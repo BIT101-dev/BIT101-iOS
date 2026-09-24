@@ -170,6 +170,29 @@ struct ScheduleCacheMigrationTests {
         ) == .noChange)
     }
 
+    @Test("Local cache timestamps advance when the device clock moves backward")
+    func cacheTimestampRemainsMonotonic() {
+        let previous = Date(timeIntervalSince1970: 1_700_000_000)
+        let movedBackward = Date(timeIntervalSince1970: 1_600_000_000)
+        let advanced = ScheduleCacheTimestamp.next(after: previous, now: movedBackward)
+
+        #expect(advanced > previous)
+        #expect(advanced.timeIntervalSince(previous) >= 0.001)
+        #expect(ScheduleCacheTimestamp.next(after: previous, now: previous.addingTimeInterval(10))
+            == previous.addingTimeInterval(10))
+
+        let preciseRecordDate = Date(timeIntervalSince1970: 1_700_000_000.123)
+        let roundedPayloadDate = Date(timeIntervalSince1970: 1_700_000_000)
+        #expect(ScheduleCacheTimestamp.restored(
+            recordDate: preciseRecordDate,
+            payloadDate: roundedPayloadDate
+        ) == preciseRecordDate)
+        #expect(ScheduleCacheTimestamp.restored(
+            recordDate: preciseRecordDate.addingTimeInterval(2),
+            payloadDate: roundedPayloadDate
+        ) == nil)
+    }
+
     private func makeCourse(id: String, term: String) -> CourseRecord {
         CourseRecord(
             id: id,

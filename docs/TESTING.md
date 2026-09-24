@@ -28,11 +28,12 @@
 
 ## 设备使用要求
 
-**验证环境仅使用已连接并受信任的 iOS / watchOS 真机，模拟器保持停用。**
+**iOS / watchOS 行为验证使用已连接并受信任的真机，模拟器保持停用。**
 
 - 验证流程排除 `simctl boot`、Simulator destination 以及任何会隐式启动模拟器的自动化操作。
-- 构建、测试、安装和运行验证统一使用当前已连接并受信任的真机。
-- 真机可用性是验证前提；真机不可用时停止验证并说明设备状态，验证环境保持真机要求。
+- iOS / watchOS 构建、安装和运行验证使用当前已连接并受信任的真机。
+- 可运行的 XCTest 同时通过 Mac Catalyst 原生宿主执行；该流程使用 macOS runtime，不启动模拟器。
+- 真机可用性是 iOS / watchOS 验证前提；真机不可用时按设备流程说明状态。
 - 编译、装机和启动统一通过 `Scripts/build-install-device.sh` 使用已连接真机完成。
 - 维护者、CI 脚本和自动化代理遵循同一设备要求。
 
@@ -68,6 +69,14 @@ Scripts/run-extended-tests.sh extensions
 ```
 
 `extensions` 分组执行 Watch 与 Widget 共用快照、传输协议、状态解析和时间线规划的运行测试。该指标记录这些共享逻辑的运行情况；Watch 与 Widget 二进制运行情况由设备验证流程单独记录。各组日志使用固定类别文件名，指标文件随每次测试覆盖。
+
+CI 使用同一入口执行 Mac Catalyst 行为测试：
+
+```sh
+Scripts/run-extended-tests.sh catalyst
+```
+
+该模式在 Mac Catalyst runtime 上运行完整测试组，XCTest 汇总写入既有 `.build/extended-automation/` 固定路径；逐 target 行覆盖率由真机测试结果提供。
 
 自动化测试覆盖范围包括：
 
@@ -158,9 +167,9 @@ BIT101_NETWORK_SMOKE_SCOPE=ddl Scripts/release-network-smoke.sh
 
 发布前再运行完整 `all` 范围，重新认证入口归入对应范围。
 
-CI 和其它自动化沿用同一模拟器排除要求。GitHub Actions 的 PR / main 门禁运行静态审计、iOS Release `build-for-testing`、Watch 与 Widget schemes Release 编译和锁定依赖漏洞审计；Apple 编译使用 generic device destination。真机测试及覆盖率由本机流程生成；Widget 时间线和 Live Activity 时序按 `MODULE_PLAYBOOK.md` 验证。
+CI 和其它自动化沿用同一模拟器排除要求。GitHub Actions 的 PR / main 门禁运行静态审计、iOS Release `build-for-testing`、Watch 与 Widget schemes Release 编译、Mac Catalyst XCTest 和锁定依赖漏洞审计；Apple generic device 编译继续使用 Release 配置。真机流程提供逐 target 行覆盖率并覆盖真实设备行为，Widget 时间线和 Live Activity 时序按 `MODULE_PLAYBOOK.md` 验证。
 
-GitHub Actions 默认执行 `Static audit (Apple toolchain)` 与 `Release build and extension schemes`。静态审计包含 SwiftSyntax 契约、阻塞式文档新鲜度、锁定依赖漏洞扫描和项目配置检查；Release Job 编译 iOS 测试 target、Watch App、iOS Widget 与 Watch Widget，保持无模拟器 destination，Swift 和 Clang 警告均按错误处理。手动 `release_check` 用于确认准备发布的公开版本高于 App Store 当前版本。
+GitHub Actions 默认执行 `Static audit (Apple toolchain)` 与 `Release build and extension schemes`。静态审计包含 SwiftSyntax 契约、阻塞式文档新鲜度、锁定依赖漏洞扫描和项目配置检查；Release Job 编译 iOS 测试 target、Watch App、iOS Widget 与 Watch Widget，随后在 Mac Catalyst runtime 执行行为用例，保持无模拟器 destination，Swift 和 Clang 警告均按错误处理。两个 Job 校验 Xcode 27 或更新主版本。手动 `release_check` 用于确认准备发布的公开版本高于 App Store 当前版本。
 
 本机继续负责 Release 真机构建、真机测试、网络 Smoke、iCloud Smoke、Widget 和 Watch 验证。GitHub Actions 不承载真机测试。
 

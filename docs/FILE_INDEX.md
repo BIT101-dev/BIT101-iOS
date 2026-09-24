@@ -68,6 +68,8 @@
 ### 成绩与课程
 
 - `BIT101-iOS/Score/`：成绩、筛选、统计、可信成绩单及其独立状态机。
+- `BIT101-iOS/Score/ScoreViewModels.swift`：成绩列表加载、筛选与排序状态。
+- `BIT101-iOS/Score/TrustedTranscriptViewModel.swift`：可信成绩单与独立短信验证状态。
 - `BIT101-iOS/Course/`：课程搜索、详情、教师评价、历年成绩和评论。
 
 课程评价入口由 `Course/CourseLookup.swift` 和 `CourseNavigationRequest` 统一承载，

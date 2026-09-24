@@ -317,12 +317,15 @@ actor ScheduleCloudSyncManager {
               storedStudentID == expectedStudentID,
               let storedUpdatedAt = record[FieldKey.updatedAt] as? Date,
               let payloadJSON = record[FieldKey.payloadJSON] as? String,
-              let cache = try? decoder.decode(ScheduleCache.self, from: Data(payloadJSON.utf8))
+              var cache = try? decoder.decode(ScheduleCache.self, from: Data(payloadJSON.utf8))
         else { return nil }
 
-        // JSON ISO-8601 encoding can lose sub-second precision; accept that
-        // serialization difference while rejecting unrelated timestamp values.
-        guard abs(storedUpdatedAt.timeIntervalSince(cache.updatedAt)) <= 1.1 else { return nil }
+        // JSON ISO-8601 can lose sub-second precision; keep the CloudKit date after validation.
+        guard let restoredUpdatedAt = ScheduleCacheTimestamp.restored(
+            recordDate: storedUpdatedAt,
+            payloadDate: cache.updatedAt
+        ) else { return nil }
+        cache.updatedAt = restoredUpdatedAt
         return cache
     }
 

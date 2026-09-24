@@ -5,6 +5,17 @@
 import Foundation
 import OSLog
 
+nonisolated enum ScheduleCacheTimestamp {
+    static func next(after previous: Date, now: Date) -> Date {
+        max(now, previous.addingTimeInterval(0.001))
+    }
+
+    static func restored(recordDate: Date, payloadDate: Date) -> Date? {
+        guard abs(recordDate.timeIntervalSince(payloadDate)) <= 1.1 else { return nil }
+        return recordDate
+    }
+}
+
 /// 日程模块本地缓存仓库。
 ///
 /// 统一负责 `ScheduleCache` 的磁盘读写和变更通知发送。
@@ -74,7 +85,7 @@ enum ScheduleCacheStore {
     static func save(_ cache: ScheduleCache, source: SaveSource = .local) {
         var cacheToSave = cache
         if source == .local {
-            cacheToSave.updatedAt = Date()
+            cacheToSave.updatedAt = ScheduleCacheTimestamp.next(after: cache.updatedAt, now: Date())
         }
         let accountIdentifier = currentAccountIdentifier()
         Task {
