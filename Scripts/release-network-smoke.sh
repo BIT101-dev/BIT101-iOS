@@ -33,7 +33,7 @@ case "$SMOKE_SCOPE" in
   *) echo "BIT101_NETWORK_SMOKE_SCOPE 必须是 all、bit101、school、transcript、schedule 或 ddl。" >&2; exit 64 ;;
 esac
 case "$SMOKE_CAPTURE" in
-  ""|scheduleCache|rawCourseResponse) ;;
+  ""|none|scheduleCache|rawCourseResponse) ;;
   *) echo "BIT101_NETWORK_SMOKE_CAPTURE 参数无效。" >&2; exit 64 ;;
 esac
 
