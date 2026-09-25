@@ -312,7 +312,7 @@ struct AboutSettingsPage: View {
         // 根状态机先退出主壳层，网页数据清理随后执行。清除公告已读标记后，AppShell 在
         // clearWebData 等待期间可能弹出版本公告，登录页随后替换 AppShell。
         onLogout()
-        ScheduleCacheStore.clear()
+        await ScheduleCacheStore.clear()
         clearUserDefaults()
         clearFileSystemCaches()
         URLCache.shared.removeAllCachedResponses()

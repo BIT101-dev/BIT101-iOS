@@ -426,12 +426,30 @@ def ast_has_marker(facts: dict, marker: str) -> bool:
         name = normalized.removeprefix("struct ").strip()
         return any(declaration["kind"] == "struct" and declaration["name"] == name for declaration in facts["declarations"])
 
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", normalized):
+        return any(
+            declaration["name"] == normalized
+            for declaration in facts["declarations"]
+        ) or any(
+            call["value"] == normalized or call["value"].endswith("." + normalized)
+            for call in facts["calls"]
+        ) or any(
+            member["value"] == normalized or member["value"].endswith("." + normalized)
+            for member in facts["members"]
+        ) or any(
+            re.search(
+                rf"(?<![A-Za-z0-9_$]){re.escape(normalized)}(?![A-Za-z0-9_$])",
+                binding["value"].split("=", 1)[0],
+            )
+            for binding in facts["bindings"]
+        )
+
     variants = {normalized}
     for keyword in ("let ", "var "):
         if normalized.startswith(keyword):
             variants.add(normalized.removeprefix(keyword))
     collections = (
-        facts["calls"], facts["members"], facts["expressions"],
+        facts["calls"], facts["invocations"], facts["members"], facts["expressions"],
         facts["bindings"], facts["controlFlow"], facts["typeNames"],
     )
     if any(
@@ -445,11 +463,61 @@ def ast_has_marker(facts: dict, marker: str) -> bool:
     ):
         return True
 
-    string_fragments = re.findall(r"\"([^\"]+)\"", marker)
-    if string_fragments and not all(fragment in facts["stringSegments"] for fragment in string_fragments):
-        return False
-    identifiers = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", re.sub(r'"[^\"]*"', "", marker))
-    return bool(identifiers) and all(identifier in facts["identifiers"] for identifier in identifiers)
+    if any(normalized in segment for segment in facts["stringSegments"]):
+        return True
+    return False
+
+
+def ast_marker_boundary_findings() -> list[str]:
+    facts = {
+        "declarations": [{"kind": "struct", "name": "SampleView"}],
+        "calls": [{"value": "AppFailureState", "scope": ["SampleView"]}],
+        "invocations": [
+            {"value": 'Text("课程暂未发布说明")', "scope": ["SampleView"]}
+        ],
+        "members": [],
+        "expressions": [],
+        "bindings": [],
+        "controlFlow": [],
+        "typeNames": [],
+        "identifiers": ["AppFailureState", "Text"],
+        "stringSegments": ["课程暂未发布说明"],
+    }
+    findings = []
+    if not ast_has_marker(facts, "AppFailureState"):
+        findings.append("UI 契约规则边界自检失败：组件调用识别")
+    if ast_has_marker(facts, "AppFailureStates"):
+        findings.append("UI 契约规则边界自检失败：标识符精确匹配")
+    if not ast_has_marker(facts, 'Text("课程暂未发布说明")'):
+        findings.append("UI 契约规则边界自检失败：调用文案联合识别")
+    if ast_has_marker(facts, 'Text("课程未发布说明")'):
+        findings.append("UI 契约规则边界自检失败：字符串片段精确匹配")
+
+    scattered_facts = {
+        "declarations": [],
+        "calls": [],
+        "invocations": [{"value": 'Text("其它文案")', "scope": ["SampleView"]}],
+        "members": [],
+        "expressions": [],
+        "bindings": [],
+        "controlFlow": [],
+        "typeNames": [],
+        "identifiers": ["AppFailureState", "Text"],
+        "stringSegments": ["课程暂未发布说明"],
+    }
+    if ast_has_marker(scattered_facts, "AppFailureState"):
+        findings.append("UI 契约规则边界自检失败：分散标识符被识别为组件契约")
+    if ast_has_marker(scattered_facts, 'Text("课程暂未发布说明")'):
+        findings.append("UI 契约规则边界自检失败：跨节点调用与文案被识别为同一表达式")
+    literal_only_facts = {
+        **scattered_facts,
+        "calls": [{"value": "Text", "scope": ["SampleView"]}],
+        "invocations": [{"value": 'Text("AppFailureState")', "scope": ["SampleView"]}],
+        "stringSegments": ["AppFailureState"],
+    }
+    if ast_has_marker(literal_only_facts, "AppFailureState"):
+        findings.append("UI 契约规则边界自检失败：源码字面量被识别为组件调用")
+    return findings
 
 
 def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> None:
@@ -889,6 +957,7 @@ def main() -> int:
     except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as error:
         print(f"[失败] SwiftSyntax 索引：{error}", file=sys.stderr)
         return 1
+    errors.extend(ast_marker_boundary_findings())
     check_component_contracts(errors, syntax)
     check_refresh_status_contract(errors, syntax)
     check_haptic_consistency(errors)

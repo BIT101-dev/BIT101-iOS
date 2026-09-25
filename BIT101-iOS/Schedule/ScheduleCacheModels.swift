@@ -57,6 +57,9 @@ nonisolated struct ScheduleCache: Codable, Sendable {
     var sharedSchedules: [SharedScheduleRecord] = []
     var iCloudSyncEnabled = true
     var updatedAt: Date = .distantPast
+    var cloudSyncBaselineAt: Date = .distantPast
+    var cloudSyncBaselineRecordTag = ""
+    var hasUnpushedCloudChanges = false
 
     /// 首周日期的解码结果，便于课表直接计算当前周数。
     var firstDay: Date? {
@@ -99,6 +102,9 @@ nonisolated struct ScheduleCache: Codable, Sendable {
         case sharedSchedules
         case iCloudSyncEnabled
         case updatedAt
+        case cloudSyncBaselineAt
+        case cloudSyncBaselineRecordTag
+        case hasUnpushedCloudChanges
     }
 
     /// 提供一份带默认值的空缓存。
@@ -177,6 +183,9 @@ nonisolated struct ScheduleCache: Codable, Sendable {
         }
         iCloudSyncEnabled = try container.decodeIfPresent(Bool.self, forKey: .iCloudSyncEnabled) ?? true
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .distantPast
+        cloudSyncBaselineAt = try container.decodeIfPresent(Date.self, forKey: .cloudSyncBaselineAt) ?? .distantPast
+        cloudSyncBaselineRecordTag = try container.decodeIfPresent(String.self, forKey: .cloudSyncBaselineRecordTag) ?? ""
+        hasUnpushedCloudChanges = try container.decodeIfPresent(Bool.self, forKey: .hasUnpushedCloudChanges) ?? false
         // coursesUpdatedAt 缺失时，使用现有缓存更新时间作为课程数据的时间基线。
         coursesUpdatedAt = decodedCoursesUpdatedAt ?? (courses.isEmpty ? .distantPast : updatedAt)
         if !currentTerm.isEmpty, !courses.isEmpty {

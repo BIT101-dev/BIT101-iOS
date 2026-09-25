@@ -92,42 +92,76 @@ extension ScheduleService {
         }
     }
 
-    /// 学校部分 JSON 接口即使业务失败也返回 HTTP 200 和外层 `code: 0`，
-    /// 真正错误藏在任意层级的 `code + msg`（例如课表未发布的 extParams）。
+    /// 学校接口会在外层成功响应中嵌入业务状态，例如课表 `extParams`。
     nonisolated static func schoolBusinessErrorMessage(from data: Data) -> String? {
         guard let root = try? JSONSerialization.jsonObject(with: data) else { return nil }
 
-        func inspect(_ value: Any) -> String? {
-            guard !Task.isCancelled else { return nil }
+        let successCodes: Set<Int> = [0, 1, 200]
+        let envelopeKeys: Set<String> = ["data", "datas", "result", "results", "response", "payload", "extparams", "error", "errors"]
+        let recordKeys: Set<String> = ["rows", "items", "records", "courses", "list"]
+        var candidates: [(priority: Int, depth: Int, path: String, message: String)] = []
+
+        func inspect(_ value: Any, path: [String]) {
+            guard !Task.isCancelled else { return }
             if let dictionary = value as? [String: Any] {
-                let message = (dictionary["msg"] as? String)
+                let explicitError = (dictionary["error"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let explicitErrorMessage = explicitError?.isEmpty == false ? explicitError : nil
+                let message = explicitErrorMessage
+                    ?? (dictionary["msg"] as? String)
                     ?? (dictionary["message"] as? String)
-                    ?? (dictionary["error"] as? String)
                 let trimmed = message?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                if !trimmed.isEmpty {
-                    if let success = dictionary["success"] as? Bool, !success { return trimmed }
-                    if businessMessageIndicatesFailure(trimmed) { return trimmed }
-                    let reportsSuccess = (dictionary["success"] as? Bool) == true
-                        || businessMessageIndicatesSuccess(trimmed)
-                    if let code = normalizedBusinessCode(dictionary["code"]),
-                       ![0, 1, 200].contains(code),
-                       !reportsSuccess
+                let normalizedPath = path.map { $0.lowercased() }
+                let isRecord = normalizedPath.contains(where: recordKeys.contains)
+                if !trimmed.isEmpty, !isRecord {
+                    let code = normalizedBusinessCode(dictionary["code"])
+                    let success = dictionary["success"] as? Bool
+                    let reportsSuccess = success == true || businessMessageIndicatesSuccess(trimmed)
+                    let isEnvelope = path.isEmpty
+                        || normalizedPath.contains(where: envelopeKeys.contains)
+                    let priority: Int?
+                    if explicitErrorMessage != nil {
+                        priority = 0
+                    } else if success == false {
+                        priority = 1
+                    } else if isEnvelope,
+                              success != true,
+                              businessMessageIndicatesFailure(trimmed)
                     {
-                        return trimmed
+                        priority = 2
+                    } else if let code, !successCodes.contains(code), !reportsSuccess {
+                        priority = 3
+                    } else {
+                        priority = nil
+                    }
+                    if let priority {
+                        candidates.append((
+                            priority: priority,
+                            depth: path.count,
+                            path: path.joined(separator: "."),
+                            message: trimmed
+                        ))
                     }
                 }
-                for child in dictionary.values {
-                    if let found = inspect(child) { return found }
+                for key in dictionary.keys.sorted() {
+                    if let child = dictionary[key] {
+                        inspect(child, path: path + [key])
+                    }
                 }
             } else if let array = value as? [Any] {
-                for child in array {
-                    if let found = inspect(child) { return found }
+                for (index, child) in array.enumerated() {
+                    inspect(child, path: path + [String(index)])
                 }
             }
-            return nil
         }
 
-        return inspect(root)
+        inspect(root, path: [])
+        return candidates.sorted {
+            if $0.priority != $1.priority { return $0.priority < $1.priority }
+            if $0.depth != $1.depth { return $0.depth < $1.depth }
+            if $0.path != $1.path { return $0.path < $1.path }
+            return $0.message < $1.message
+        }.first?.message
     }
 
     private nonisolated static func businessMessageIndicatesFailure(_ message: String) -> Bool {

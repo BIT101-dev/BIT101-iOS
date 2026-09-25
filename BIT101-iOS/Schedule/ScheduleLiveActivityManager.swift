@@ -7,8 +7,8 @@
 
 #if canImport(ActivityKit) && !targetEnvironment(macCatalyst)
 
-// ActivityKit's iOS 27 Activity handles expose concurrent update/end methods;
-// the manager serializes their use on MainActor.
+// ActivityKit 27 exposes update/end as concurrent methods; keep handle use
+// behind this manager's serialized MainActor operation path.
 @preconcurrency import ActivityKit
 import Foundation
 import os
@@ -40,6 +40,8 @@ final class ScheduleLiveActivityManager {
     private var refreshTask: Task<Void, Never>?
     private var scheduledRefreshTask: Task<Void, Never>?
     private var scheduledEndTask: Task<Void, Never>?
+    private var activityOperationTask: Task<Void, Never>?
+    private var activityOperationID: UUID?
 
     private init() {}
 
@@ -87,6 +89,7 @@ final class ScheduleLiveActivityManager {
         }
 
         let cache = await ScheduleCacheStore.loadAsync()
+        guard !Task.isCancelled else { return }
         guard cache.showCourseLiveActivityReminder else {
             logger.debug("course live activity reminder disabled in settings; ending all activities")
             await clearFallbackNotifications()
@@ -196,6 +199,14 @@ final class ScheduleLiveActivityManager {
     ///
     /// activity 同时记录 `studentID`，用于切号后避免复用上一账号的提醒。
     private func syncActivity(with occurrence: CourseReminderOccurrence?, studentID: String) async {
+        await performSerializedActivityOperation {
+            await self.syncActivitySerially(with: occurrence, studentID: studentID)
+        }
+    }
+
+    private func syncActivitySerially(with occurrence: CourseReminderOccurrence?, studentID: String) async {
+        guard !Task.isCancelled, isCurrentSession(for: studentID) else { return }
+
         let activities = Activity<CourseReminderActivityAttributes>.activities
         let activeActivity = activities.first { $0.attributes.studentID == studentID }
         logger.debug("syncActivity activeCount=\(activities.count, privacy: .public) currentStudentID=\(studentID, privacy: .private(mask: .hash))")
@@ -203,6 +214,7 @@ final class ScheduleLiveActivityManager {
         // 当前没有提醒对象时结束现有活动。
         guard let occ = occurrence else {
             for activity in activities {
+                guard !Task.isCancelled, isCurrentSession(for: studentID) else { return }
                 logger.debug("ending activity id=\(activity.id, privacy: .public) because occurrence is nil")
                 await activity.end(nil, dismissalPolicy: .immediate)
             }
@@ -213,6 +225,7 @@ final class ScheduleLiveActivityManager {
         }
 
         for activity in activities where activity.id != activeActivity?.id {
+            guard !Task.isCancelled, isCurrentSession(for: studentID) else { return }
             logger.debug("ending stale activity id=\(activity.id, privacy: .public) before syncing current occurrence")
             await activity.end(nil, dismissalPolicy: .immediate)
         }
@@ -298,16 +311,18 @@ final class ScheduleLiveActivityManager {
 
     /// 仅当当前 activity 仍然对应同一条提醒时，才在到点时结束它。
     private func endActivityIfStillMatching(expectedTarget: Date, expectedStudentID: String) async {
-        guard #available(iOS 16.2, *) else { return }
-        let matchingActivities = Activity<CourseReminderActivityAttributes>.activities.filter {
-            $0.attributes.studentID == expectedStudentID
-                && $0.content.state.countdownTargetDate == expectedTarget
-        }
-        guard !matchingActivities.isEmpty else { return }
-
-        for activity in matchingActivities {
-            logger.debug("ending activity id=\(activity.id, privacy: .public) because countdown target reached")
-            await activity.end(nil, dismissalPolicy: .immediate)
+        await performSerializedActivityOperation {
+            guard !Task.isCancelled, self.isCurrentSession(for: expectedStudentID) else { return }
+            guard #available(iOS 16.2, *) else { return }
+            let matchingActivities = Activity<CourseReminderActivityAttributes>.activities.filter {
+                $0.attributes.studentID == expectedStudentID
+                    && $0.content.state.countdownTargetDate == expectedTarget
+            }
+            for activity in matchingActivities {
+                guard !Task.isCancelled, self.isCurrentSession(for: expectedStudentID) else { return }
+                self.logger.debug("ending activity id=\(activity.id, privacy: .public) because countdown target reached")
+                await activity.end(nil, dismissalPolicy: .immediate)
+            }
         }
     }
 
@@ -332,10 +347,39 @@ final class ScheduleLiveActivityManager {
         if LoginStorage.shared.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             await clearFallbackNotifications()
         }
-        guard #available(iOS 16.2, *) else { return }
-        for activity in Activity<CourseReminderActivityAttributes>.activities {
-            logger.debug("endAllActivities ending id=\(activity.id, privacy: .public)")
-            await activity.end(nil, dismissalPolicy: .immediate)
+        await performSerializedActivityOperation {
+            guard !Task.isCancelled, #available(iOS 16.2, *) else { return }
+            for activity in Activity<CourseReminderActivityAttributes>.activities {
+                guard !Task.isCancelled else { return }
+                self.logger.debug("endAllActivities ending id=\(activity.id, privacy: .public)")
+                await activity.end(nil, dismissalPolicy: .immediate)
+            }
+        }
+    }
+
+    private func performSerializedActivityOperation(
+        _ operation: @escaping @MainActor () async -> Void
+    ) async {
+        guard !Task.isCancelled else { return }
+        let operationID = UUID()
+        let previousTask = activityOperationTask
+        let task = Task { @MainActor in
+            await previousTask?.value
+            guard !Task.isCancelled else { return }
+            await operation()
+        }
+        activityOperationTask = task
+        activityOperationID = operationID
+
+        await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+
+        if activityOperationID == operationID {
+            activityOperationTask = nil
+            activityOperationID = nil
         }
     }
 

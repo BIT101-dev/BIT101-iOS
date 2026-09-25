@@ -106,6 +106,9 @@ struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         do {
             return try await Self.decodeResponse(Response.self, from: response.data)
         } catch {
+            if TaskCancellation.matches(error) {
+                throw error
+            }
             throw Failure.communityInvalidResponse
         }
     }
@@ -155,15 +158,20 @@ struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         from data: Data
     ) async throws -> Response {
         let decodingTask = Task.detached(priority: .userInitiated) {
+            try Task.checkCancellation()
             let decoder = JSONDecoder()
             decoder.keyDecodingStrategy = .convertFromSnakeCase
-            return try decoder.decode(type, from: data)
+            let response = try decoder.decode(type, from: data)
+            try Task.checkCancellation()
+            return response
         }
-        return try await withTaskCancellationHandler {
+        let response = try await withTaskCancellationHandler {
             try await decodingTask.value
         } onCancel: {
             decodingTask.cancel()
         }
+        try Task.checkCancellation()
+        return response
     }
 
     private func send(

@@ -156,6 +156,66 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertNil(ScheduleService.schoolBusinessErrorMessage(from: alternateSuccessCode))
     }
 
+    func testRealDeviceCourseResponseMetadataIsRecognizedAsSuccess() throws {
+        // 真机 schedule smoke 响应；学生学号与姓名字段已脱敏。
+        let bundle = Bundle(for: ErrorReportAndSchedulePolicyTests.self)
+        let fixtureURL = bundle.url(
+            forResource: "schedule-service-response",
+            withExtension: "json",
+            subdirectory: "Fixtures"
+        ) ?? bundle.url(forResource: "schedule-service-response", withExtension: "json")
+        let fixture = try XCTUnwrap(fixtureURL)
+        let data = try Data(contentsOf: fixture)
+        let response = try JSONDecoder().decode(CourseResponse.self, from: data)
+
+        XCTAssertEqual(response.datas.cxxszhxqkb.extParams?.code, 1)
+        XCTAssertEqual(response.datas.cxxszhxqkb.extParams?.msg, "查询成功")
+        XCTAssertEqual(response.datas.cxxszhxqkb.rows.count, 14)
+        XCTAssertNil(ScheduleService.schoolBusinessErrorMessage(from: data))
+
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let datas = try XCTUnwrap(root["datas"] as? [String: Any])
+        let timetable = try XCTUnwrap(datas["cxxszhxqkb"] as? [String: Any])
+        let rows = try XCTUnwrap(timetable["rows"] as? [[String: Any]])
+        XCTAssertTrue(rows.allSatisfy { $0["XH"] == nil && $0["XM"] == nil })
+    }
+
+    func testSchoolBusinessInspectorIgnoresMessagesInsideCourseRows() {
+        let data = Data(#"{"datas":{"cxxszhxqkb":{"rows":[{"msg":"课程暂未发布说明"}]}}}"#.utf8)
+
+        XCTAssertNil(ScheduleService.schoolBusinessErrorMessage(from: data))
+    }
+
+    func testSchoolBusinessInspectorHonorsExplicitFailureStatus() {
+        let data = Data(#"{"data":{"success":false,"code":0,"msg":"学校服务当前不可用"}}"#.utf8)
+        let failureMessageWithSuccessCode = Data(#"{"code":0,"msg":"课表查询失败"}"#.utf8)
+
+        XCTAssertEqual(
+            ScheduleService.schoolBusinessErrorMessage(from: data),
+            "学校服务当前不可用"
+        )
+        XCTAssertEqual(
+            ScheduleService.schoolBusinessErrorMessage(from: failureMessageWithSuccessCode),
+            "课表查询失败"
+        )
+    }
+
+    func testSchoolBusinessInspectorSelectsNestedFailuresDeterministically() {
+        let data = Data(
+            #"{"datas":{"z":{"extParams":{"code":3,"msg":"课表暂未发布"}},"a":{"extParams":{"code":4,"msg":"此学年学期的课表未发布"}}}}"#.utf8
+        )
+        let messageInDataEnvelope = Data(#"{"datas":{"msg":"本学期课表未发布"}}"#.utf8)
+
+        XCTAssertEqual(
+            ScheduleService.schoolBusinessErrorMessage(from: data),
+            "此学年学期的课表未发布"
+        )
+        XCTAssertEqual(
+            ScheduleService.schoolBusinessErrorMessage(from: messageInDataEnvelope),
+            "本学期课表未发布"
+        )
+    }
+
     private func course(id: String, name: String) -> CourseRecord {
         CourseRecord(id: id, term: "2024-2025-1", name: name, teacher: "教师", classroom: "教室",
                      description: "", weeks: [1, 2], weekday: 1, startSection: 1, endSection: 2,

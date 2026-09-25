@@ -36,6 +36,21 @@ nonisolated enum ScheduleCacheReconciliationPolicy {
         }
         return .noChange
     }
+
+    static func hasConcurrentChanges(
+        localHasUnpushedChanges: Bool,
+        localBaselineRecordTag: String,
+        remoteRecordTag: String
+    ) -> Bool {
+        guard localHasUnpushedChanges else { return false }
+        return localBaselineRecordTag.isEmpty || remoteRecordTag.isEmpty
+            || localBaselineRecordTag != remoteRecordTag
+    }
+}
+
+nonisolated enum ScheduleCacheConflictResolution: Sendable {
+    case keepLocal
+    case useCloud
 }
 
 actor ScheduleCloudSyncManager {
@@ -58,6 +73,15 @@ actor ScheduleCloudSyncManager {
     private struct PendingLocalCache {
         let cache: ScheduleCache
         let account: CloudAccountContext
+    }
+
+    private struct PendingCloudConflict {
+        let localCache: ScheduleCache
+        let remoteCache: ScheduleCache
+        let account: CloudAccountContext
+        let remoteModifiedAt: Date
+        let remoteRecordTag: String
+        let signature: String
     }
 
     private enum FieldKey {
@@ -87,6 +111,8 @@ actor ScheduleCloudSyncManager {
     }()
     private var pendingLocalCache: PendingLocalCache?
     private var isPushingLocalCache = false
+    private var pendingCloudConflicts: [String: PendingCloudConflict] = [:]
+    private var promptedConflictSignatures: Set<String> = []
 
     func refreshFromCloudIfNeeded() async {
         guard let localState = await currentLocalCloudState() else {
@@ -163,6 +189,27 @@ actor ScheduleCloudSyncManager {
                 return
             }
             guard let currentLocalState = await currentLocalCloudState(matching: account) else { return }
+            guard await isCurrentCloudState(
+                for: account,
+                expectedUpdatedAt: currentLocalState.cache.updatedAt
+            ) else { return }
+            let remoteModifiedAt = remoteRecord.modificationDate ?? remoteCache.cloudSyncBaselineAt
+            let remoteRecordTag = remoteRecord.recordChangeTag ?? ""
+
+            if ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
+                localHasUnpushedChanges: currentLocalState.cache.hasUnpushedCloudChanges,
+                localBaselineRecordTag: currentLocalState.cache.cloudSyncBaselineRecordTag,
+                remoteRecordTag: remoteRecordTag
+            ) {
+                await enqueueCloudConflict(
+                    localCache: currentLocalState.cache,
+                    remoteCache: remoteCache,
+                    account: account,
+                    remoteModifiedAt: remoteModifiedAt,
+                    remoteRecordTag: remoteRecordTag
+                )
+                return
+            }
 
             logDebug(
                 "reconcile fetched remoteUpdatedAt=\(debugDate(remoteCache.updatedAt)) localUpdatedAt=\(debugDate(currentLocalState.cache.updatedAt))"
@@ -206,18 +253,11 @@ actor ScheduleCloudSyncManager {
                     initialUpload.updatedAt = Date()
                 }
                 do {
-                    let didUpload = try await upsert(
+                    _ = try await upsert(
                         remoteWith: initialUpload,
                         account: account,
                         expectedLocalUpdatedAt: currentLocalState.cache.updatedAt
                     )
-                    if didUpload, currentLocalState.cache.updatedAt == .distantPast {
-                        await persistUpdatedAtIfCurrent(
-                            initialUpload.updatedAt,
-                            account: account,
-                            expectedLocalUpdatedAt: .distantPast
-                        )
-                    }
                 } catch {
                     logError("initial upload after unknownItem failed: \(describe(error))")
                 }
@@ -226,6 +266,158 @@ actor ScheduleCloudSyncManager {
             }
         } catch {
             logError("reconcile failed: \(describe(error))")
+        }
+    }
+
+    private func enqueueCloudConflict(
+        localCache: ScheduleCache,
+        remoteCache: ScheduleCache,
+        account: CloudAccountContext,
+        remoteModifiedAt: Date,
+        remoteRecordTag: String
+    ) async {
+        let signature = [
+            account.accountIdentifier,
+            String(localCache.updatedAt.timeIntervalSince1970.bitPattern),
+            remoteRecordTag
+        ].joined(separator: "-")
+        if pendingCloudConflicts[account.accountIdentifier]?.signature != signature {
+            pendingCloudConflicts[account.accountIdentifier] = PendingCloudConflict(
+                localCache: localCache,
+                remoteCache: remoteCache,
+                account: account,
+                remoteModifiedAt: remoteModifiedAt,
+                remoteRecordTag: remoteRecordTag,
+                signature: signature
+            )
+        }
+        guard promptedConflictSignatures.insert(signature).inserted else { return }
+
+        await MainActor.run {
+            AppPromptCoordinator.shared.enqueue(AppPrompt(
+                id: "schedule-cache-conflict-\(signature)-\(UUID().uuidString)",
+                title: "课表在两台设备上都有修改",
+                message: "本机内容和 iCloud 内容都在上次同步后发生变化。请选择保留本机版本或使用 iCloud 版本；选择后另一份内容会被替换。",
+                actions: [
+                    AppPromptAction(id: "keep-local", title: "保留本机", isDefault: true) {
+                        Task {
+                            await self.resolvePendingCloudConflict(
+                                accountIdentifier: account.accountIdentifier,
+                                signature: signature,
+                                resolution: .keepLocal
+                            )
+                        }
+                    },
+                    AppPromptAction(id: "use-cloud", title: "使用 iCloud") {
+                        Task {
+                            await self.resolvePendingCloudConflict(
+                                accountIdentifier: account.accountIdentifier,
+                                signature: signature,
+                                resolution: .useCloud
+                            )
+                        }
+                    },
+                    AppPromptAction(id: "later", title: "稍后处理") {
+                        Task { await self.conflictPromptWasDismissed(signature) }
+                    }
+                ]
+            ))
+        }
+    }
+
+    private func conflictPromptWasDismissed(_ signature: String) {
+        promptedConflictSignatures.remove(signature)
+    }
+
+    private func resolvePendingCloudConflict(
+        accountIdentifier: String,
+        signature: String,
+        resolution: ScheduleCacheConflictResolution
+    ) async {
+        guard let conflict = pendingCloudConflicts[accountIdentifier],
+              conflict.signature == signature
+        else {
+            promptedConflictSignatures.remove(signature)
+            return
+        }
+        guard let currentLocalState = await currentLocalCloudState(matching: conflict.account) else {
+            promptedConflictSignatures.remove(signature)
+            return
+        }
+        guard currentLocalState.cache.updatedAt == conflict.localCache.updatedAt else {
+            pendingCloudConflicts[accountIdentifier] = nil
+            promptedConflictSignatures.remove(signature)
+            await refreshFromCloudIfNeeded()
+            return
+        }
+
+        do {
+            let currentRemoteRecord = try await container.privateCloudDatabase.record(for: conflict.account.recordID)
+            guard let currentRemoteCache = decodeCache(
+                from: currentRemoteRecord,
+                expectedStudentID: conflict.account.studentID
+            ) else { return }
+            let currentRemoteModifiedAt = currentRemoteRecord.modificationDate
+                ?? currentRemoteCache.cloudSyncBaselineAt
+            let currentRemoteRecordTag = currentRemoteRecord.recordChangeTag ?? ""
+            guard currentRemoteModifiedAt == conflict.remoteModifiedAt,
+                  currentRemoteRecordTag == conflict.remoteRecordTag
+            else {
+                pendingCloudConflicts[accountIdentifier] = nil
+                promptedConflictSignatures.remove(signature)
+                await reconcile(
+                    localCache: currentLocalState.cache,
+                    account: conflict.account,
+                    allowCloudApply: true
+                )
+                return
+            }
+        } catch {
+            logError("cloud conflict resolution could not verify the remote version: \(describe(error))")
+            promptedConflictSignatures.remove(signature)
+            return
+        }
+
+        switch resolution {
+        case .keepLocal:
+            var cache = currentLocalState.cache
+            cache.cloudSyncBaselineAt = conflict.remoteModifiedAt
+            cache.cloudSyncBaselineRecordTag = conflict.remoteRecordTag
+            cache.hasUnpushedCloudChanges = true
+            cache.updatedAt = ScheduleCacheTimestamp.next(
+                after: max(cache.updatedAt, conflict.remoteModifiedAt),
+                now: Date()
+            )
+            guard await ScheduleCacheStore.saveAndWait(
+                cache,
+                source: .localWithoutCloudPush,
+                expectedAccountIdentifier: accountIdentifier,
+                expectedUpdatedAt: currentLocalState.cache.updatedAt
+            ) else {
+                promptedConflictSignatures.remove(signature)
+                return
+            }
+            pendingCloudConflicts[accountIdentifier] = nil
+            promptedConflictSignatures.remove(signature)
+            await pushLatestLocalCacheIfNeeded()
+        case .useCloud:
+            var cache = conflict.remoteCache
+            cache.iCloudSyncEnabled = true
+            cache.cloudSyncBaselineAt = conflict.remoteModifiedAt
+            cache.cloudSyncBaselineRecordTag = conflict.remoteRecordTag
+            cache.hasUnpushedCloudChanges = false
+            cache.updatedAt = max(cache.updatedAt, conflict.remoteModifiedAt)
+            guard await ScheduleCacheStore.saveAndWait(
+                cache,
+                source: .cloud,
+                expectedAccountIdentifier: accountIdentifier,
+                expectedUpdatedAt: currentLocalState.cache.updatedAt
+            ) else {
+                promptedConflictSignatures.remove(signature)
+                return
+            }
+            pendingCloudConflicts[accountIdentifier] = nil
+            promptedConflictSignatures.remove(signature)
         }
     }
 
@@ -247,6 +439,25 @@ actor ScheduleCloudSyncManager {
             logDebug("upsert fetched existing remote record")
             guard let remoteCache = decodeCache(from: record, expectedStudentID: account.studentID) else {
                 logError("upsert abort: remote payload decode failed record=\(account.recordID.recordName)")
+                return false
+            }
+            guard await isCurrentCloudState(for: account, expectedUpdatedAt: expectedLocalUpdatedAt) else {
+                return false
+            }
+            let remoteModifiedAt = record.modificationDate ?? remoteCache.cloudSyncBaselineAt
+            let remoteRecordTag = record.recordChangeTag ?? ""
+            if ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
+                localHasUnpushedChanges: cache.hasUnpushedCloudChanges,
+                localBaselineRecordTag: cache.cloudSyncBaselineRecordTag,
+                remoteRecordTag: remoteRecordTag
+            ) {
+                await enqueueCloudConflict(
+                    localCache: cache,
+                    remoteCache: remoteCache,
+                    account: account,
+                    remoteModifiedAt: remoteModifiedAt,
+                    remoteRecordTag: remoteRecordTag
+                )
                 return false
             }
             guard cache.updatedAt > remoteCache.updatedAt else {
@@ -284,8 +495,16 @@ actor ScheduleCloudSyncManager {
         record[FieldKey.payloadJSON] = payloadJSON as CKRecordValue
 
         do {
-            _ = try await container.privateCloudDatabase.save(record)
+            let savedRecord = try await container.privateCloudDatabase.save(record)
             logDebug("upsert saved remote record successfully")
+            if let modifiedAt = savedRecord.modificationDate {
+                await persistCloudSyncStateIfCurrent(
+                    modifiedAt,
+                    recordTag: savedRecord.recordChangeTag ?? "",
+                    account: account,
+                    expectedLocalUpdatedAt: expectedLocalUpdatedAt ?? cache.updatedAt
+                )
+            }
             return true
         } catch let error as CKError where retryOnConflict && error.code == .serverRecordChanged {
             logDebug("upsert conflict detected; refetching remote record")
@@ -295,6 +514,25 @@ actor ScheduleCloudSyncManager {
                 expectedStudentID: account.studentID
             ) else {
                 logError("upsert conflict resolution aborted: remote payload decode failed")
+                return false
+            }
+            guard await isCurrentCloudState(for: account, expectedUpdatedAt: expectedLocalUpdatedAt) else {
+                return false
+            }
+            let remoteModifiedAt = currentRemoteRecord.modificationDate ?? currentRemoteCache.cloudSyncBaselineAt
+            let remoteRecordTag = currentRemoteRecord.recordChangeTag ?? ""
+            if ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
+                localHasUnpushedChanges: cache.hasUnpushedCloudChanges,
+                localBaselineRecordTag: cache.cloudSyncBaselineRecordTag,
+                remoteRecordTag: remoteRecordTag
+            ) {
+                await enqueueCloudConflict(
+                    localCache: cache,
+                    remoteCache: currentRemoteCache,
+                    account: account,
+                    remoteModifiedAt: remoteModifiedAt,
+                    remoteRecordTag: remoteRecordTag
+                )
                 return false
             }
             guard cache.updatedAt > currentRemoteCache.updatedAt else {
@@ -323,9 +561,13 @@ actor ScheduleCloudSyncManager {
         // JSON ISO-8601 can lose sub-second precision; keep the CloudKit date after validation.
         guard let restoredUpdatedAt = ScheduleCacheTimestamp.restored(
             recordDate: storedUpdatedAt,
-            payloadDate: cache.updatedAt
+            payloadDate: cache.updatedAt,
+            serverDate: record.modificationDate
         ) else { return nil }
         cache.updatedAt = restoredUpdatedAt
+        cache.cloudSyncBaselineAt = record.modificationDate ?? restoredUpdatedAt
+        cache.cloudSyncBaselineRecordTag = record.recordChangeTag ?? ""
+        cache.hasUnpushedCloudChanges = false
         return cache
     }
 
@@ -352,7 +594,8 @@ actor ScheduleCloudSyncManager {
         }
         guard !initialAccount.studentID.isEmpty else { return nil }
 
-        let cache = await ScheduleCacheStore.loadAsync()
+        let loadResult = await ScheduleCacheStore.loadResultAsync()
+        guard let cache = loadResult.cacheIfReadable else { return nil }
         return await MainActor.run {
             guard ScheduleCacheStore.currentAccountIdentifier() == initialAccount.accountIdentifier,
                   cache.iCloudSyncEnabled
@@ -366,7 +609,8 @@ actor ScheduleCloudSyncManager {
     }
 
     private func currentLocalCloudState(matching account: CloudAccountContext) async -> LocalCloudState? {
-        let cache = await ScheduleCacheStore.loadAsync()
+        let loadResult = await ScheduleCacheStore.loadResultAsync()
+        guard let cache = loadResult.cacheIfReadable else { return nil }
         return await MainActor.run { () -> LocalCloudState? in
             let studentID = LoginStorage.shared.currentStudentID
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -393,8 +637,9 @@ actor ScheduleCloudSyncManager {
         account: CloudAccountContext,
         expectedLocalUpdatedAt: Date
     ) async -> Bool {
-        let currentCache = await ScheduleCacheStore.loadAsync()
-        return await MainActor.run { () -> Bool in
+        let loadResult = await ScheduleCacheStore.loadResultAsync()
+        guard let currentCache = loadResult.cacheIfReadable else { return false }
+        let isCurrent = await MainActor.run { () -> Bool in
             let currentStudentID = LoginStorage.shared.currentStudentID
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let currentAccount = CloudAccountContext(
@@ -406,39 +651,64 @@ actor ScheduleCloudSyncManager {
             guard currentCache.iCloudSyncEnabled,
                   currentCache.updatedAt == expectedLocalUpdatedAt
             else { return false }
-
-            ScheduleCacheStore.save(cache, source: .cloud)
             return true
         }
+        guard isCurrent else { return false }
+        return await ScheduleCacheStore.saveAndWait(
+            cache,
+            source: .cloud,
+            expectedAccountIdentifier: account.accountIdentifier,
+            expectedUpdatedAt: expectedLocalUpdatedAt
+        )
     }
 
-    private func persistUpdatedAtIfCurrent(
-        _ updatedAt: Date,
+    private func persistCloudSyncStateIfCurrent(
+        _ serverModifiedAt: Date,
+        recordTag: String,
         account: CloudAccountContext,
         expectedLocalUpdatedAt: Date
     ) async {
-        let currentCache = await ScheduleCacheStore.loadAsync()
-        await MainActor.run {
+        guard !recordTag.isEmpty else { return }
+        let loadResult = await ScheduleCacheStore.loadResultAsync()
+        guard let currentCache = loadResult.cacheIfReadable else { return }
+        let cacheToSave = await MainActor.run { () -> ScheduleCache? in
             let currentStudentID = LoginStorage.shared.currentStudentID
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let currentAccount = CloudAccountContext(
                 studentID: currentStudentID,
                 accountIdentifier: ScheduleCacheStore.currentAccountIdentifier()
             )
-            guard currentAccount == account else { return }
+            guard currentAccount == account else { return nil }
 
             guard currentCache.iCloudSyncEnabled,
                   currentCache.updatedAt == expectedLocalUpdatedAt
-            else { return }
+            else { return nil }
 
             var cacheToSave = currentCache
-            cacheToSave.updatedAt = updatedAt
-            ScheduleCacheStore.save(cacheToSave, source: .cloud)
+            cacheToSave.updatedAt = ScheduleCacheTimestamp.afterCloudSave(
+                serverModifiedAt,
+                currentDate: currentCache.updatedAt
+            )
+            cacheToSave.cloudSyncBaselineAt = serverModifiedAt
+            cacheToSave.cloudSyncBaselineRecordTag = recordTag
+            cacheToSave.hasUnpushedCloudChanges = false
+            return cacheToSave
         }
+        guard let cacheToSave else { return }
+        _ = await ScheduleCacheStore.saveAndWait(
+            cacheToSave,
+            source: .cloud,
+            expectedAccountIdentifier: account.accountIdentifier,
+            expectedUpdatedAt: expectedLocalUpdatedAt
+        )
     }
 
     private func encodeCache(_ cache: ScheduleCache) throws -> String {
-        let data = try encoder.encode(cache)
+        var cloudCache = cache
+        cloudCache.cloudSyncBaselineAt = .distantPast
+        cloudCache.cloudSyncBaselineRecordTag = ""
+        cloudCache.hasUnpushedCloudChanges = false
+        let data = try encoder.encode(cloudCache)
         guard let json = String(data: data, encoding: .utf8) else {
             throw CocoaError(.fileReadInapplicableStringEncoding)
         }

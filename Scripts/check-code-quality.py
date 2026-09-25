@@ -29,6 +29,8 @@ MAX_SOURCE_LINES = 1000
 DIRECT_STDOUT_LOG = re.compile(r"\b(?:print|debugPrint|NSLog)\s*\(")
 
 DIRECT_SHARED_URLSESSION = re.compile(r"\bURLSession\.shared\b")
+DIRECT_VIEW_REQUEST = re.compile(r"\bURLRequest\s*\(")
+FORCE_UNWRAP = re.compile(r"\b[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*!(?!=)|\)\s*!(?!=)")
 
 DIRECT_DATE_FORMATTER = re.compile(
     r"\b(?:DateFormatter|ISO8601DateFormatter|RelativeDateTimeFormatter)\s*\("
@@ -52,6 +54,7 @@ struct FileFacts: Encodable {
     let stringSegments: [String]
     let declarations: [DeclarationFact]
     let calls: [ScopedFact]
+    let invocations: [ScopedFact]
     let members: [ScopedFact]
     let expressions: [ScopedFact]
     let bindings: [ScopedFact]
@@ -74,6 +77,7 @@ struct ScopedFact: Encodable {
 final class FactVisitor: SyntaxVisitor {
     private(set) var declarations: [DeclarationFact] = []
     private(set) var calls: [ScopedFact] = []
+    private(set) var invocations: [ScopedFact] = []
     private(set) var members: [ScopedFact] = []
     private(set) var expressions: [ScopedFact] = []
     private(set) var bindings: [ScopedFact] = []
@@ -117,6 +121,7 @@ final class FactVisitor: SyntaxVisitor {
 
     override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
         calls.append(fact(node.calledExpression.trimmedDescription))
+        invocations.append(fact(node.trimmedDescription))
         return .visitChildren
     }
 
@@ -170,6 +175,7 @@ for path in input.paths {
         stringSegments: stringSegments,
         declarations: visitor.declarations,
         calls: visitor.calls,
+        invocations: visitor.invocations,
         members: visitor.members,
         expressions: visitor.expressions,
         bindings: visitor.bindings,
@@ -229,6 +235,30 @@ def ast_has_member(facts: dict, expression: str, scope: str | None = None) -> bo
         member["value"] == expression
         and (scope is None or scope in member["scope"])
         for member in facts["members"]
+    )
+
+
+def ast_has_shared_urlsession(facts: dict) -> bool:
+    return any(
+        member["value"] == "URLSession.shared"
+        or member["value"].startswith("URLSession.shared.")
+        for member in facts["members"]
+    )
+
+
+def ast_has_view_request(facts: dict) -> bool:
+    view_types = {
+        declaration["name"]
+        for declaration in facts["declarations"]
+        if any(
+            inherited.rsplit(".", 1)[-1] == "View"
+            for inherited in declaration["inheritedTypes"]
+        )
+    }
+    return any(
+        call["value"] in {"URLRequest", "Swift.URLRequest"}
+        and any(view_type in call["scope"] for view_type in view_types)
+        for call in facts["calls"]
     )
 
 
@@ -395,7 +425,7 @@ def view_declaration_ranges(code: str) -> list[tuple[int, int]]:
     """返回真实 View 声明的范围，避免把同文件的缓存/Loader 当成 View。"""
     ranges: list[tuple[int, int]] = []
     declaration = re.compile(
-        r"\b(?:struct|class|enum)\s+[A-Za-z_][A-Za-z0-9_]*\s*:[^{\n]*\bView\b[^{{]*{{"
+        r"\b(?:struct|class|enum)\s+[A-Za-z_][A-Za-z0-9_]*\s*:[^{\n]*\bView\b[^{}]*\{"
     )
     for match in declaration.finditer(code):
         opening = code.find("{", match.start(), match.end())
@@ -411,6 +441,15 @@ def view_declaration_ranges(code: str) -> list[tuple[int, int]]:
     return ranges
 
 
+def view_request_matches(code: str) -> list[re.Match[str]]:
+    ranges = view_declaration_ranges(code)
+    return [
+        match
+        for match in DIRECT_VIEW_REQUEST.finditer(code)
+        if any(start <= match.start() < end for start, end in ranges)
+    ]
+
+
 def add_matches(
     findings: list[str],
     path: Path,
@@ -422,11 +461,53 @@ def add_matches(
         findings.append(f"{relative(path)}:{line_number(source, match.start())}: {message}")
 
 
-def source_findings() -> tuple[list[str], list[str]]:
+def checker_boundary_findings() -> list[str]:
+    findings: list[str] = []
+    shared_session_source = '''
+// URLSession.shared.data(for: request)
+let example = "URLSession.shared.data(for: request)"
+URLSession.shared.data(for: request)
+'''
+    masked_session_source = mask_literals_and_comments(shared_session_source)
+    if len(DIRECT_SHARED_URLSESSION.findall(masked_session_source)) != 1:
+        findings.append("代码质量规则边界自检失败：网络调用与注释/字符串区分")
+
+    unwrap_source = '''
+// value!
+let example = "value!"
+let unwrapped = value!
+let comparison = left != right
+'''
+    masked_unwrap_source = mask_literals_and_comments(unwrap_source)
+    if len(FORCE_UNWRAP.findall(masked_unwrap_source)) != 1:
+        findings.append("代码质量规则边界自检失败：强制解包与比较运算区分")
+
+    shared_session_facts = {"members": [{"value": "URLSession.shared.data", "scope": []}]}
+    literal_only_facts = {"members": [{"value": "URLSession.default.data", "scope": []}]}
+    if not ast_has_shared_urlsession(shared_session_facts) or ast_has_shared_urlsession(literal_only_facts):
+        findings.append("代码质量规则边界自检失败：SwiftSyntax 网络边界匹配")
+
+    view_source = "struct SampleView: View { let request = URLRequest(url: url) }"
+    model_source = "struct SampleModel { let request = URLRequest(url: url) }"
+    if len(view_request_matches(view_source)) != 1 or view_request_matches(model_source):
+        findings.append("代码质量规则边界自检失败：View 请求构造范围识别")
+
+    view_facts = {
+        "declarations": [{"name": "SampleView", "inheritedTypes": ["SwiftUI.View"]}],
+        "calls": [{"value": "URLRequest", "scope": ["SampleView"]}],
+    }
+    model_facts = {
+        "declarations": [{"name": "SampleModel", "inheritedTypes": ["ObservableObject"]}],
+        "calls": [{"value": "URLRequest", "scope": ["SampleModel"]}],
+    }
+    if not ast_has_view_request(view_facts) or ast_has_view_request(model_facts):
+        findings.append("代码质量规则边界自检失败：SwiftSyntax View 请求范围匹配")
+    return findings
+
+
+def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     review: list[str] = []
-    force_unwrap = re.compile(r"\b[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*!(?!=)|\)\s*!(?!=)")
-    direct_view_request = re.compile(r"\bURLRequest\s*\(")
     direct_cancellation_check = re.compile(r"\berror\s+is\s+CancellationError\b")
     empty_catch = re.compile(r"\bcatch\s*\{\s*\}")
     unsafe_concurrency_escape = re.compile(
@@ -446,9 +527,14 @@ def source_findings() -> tuple[list[str], list[str]]:
                     errors.append(f"{name}:{finding_line}: 调试输出统一由网络 smoke 维护")
 
             if name not in URLSESSION_EXCEPTIONS:
-                for match in DIRECT_SHARED_URLSESSION.finditer(masked_source):
-                    finding_line = source.count("\n", 0, match.start()) + 1
-                    errors.append(f"{name}:{finding_line}: 网络请求统一通过 HTTPClient 或场景化 Service")
+                facts = syntax_index.get(str(path)) if syntax_index else None
+                if facts:
+                    if ast_has_shared_urlsession(facts):
+                        errors.append(f"{name}: 网络请求统一通过 HTTPClient 或场景化 Service")
+                else:
+                    for match in DIRECT_SHARED_URLSESSION.finditer(masked_source):
+                        finding_line = source.count("\n", 0, match.start()) + 1
+                        errors.append(f"{name}:{finding_line}: 网络请求统一通过 HTTPClient 或场景化 Service")
 
             if name.removeprefix("BIT101-iOS/").split("/", 1)[0] in {"Course", "Gallery", "Paper"} and is_view_source(path, masked_source):
                 for match in DIRECT_DATE_FORMATTER.finditer(masked_source):
@@ -482,15 +568,17 @@ def source_findings() -> tuple[list[str], list[str]]:
             add_matches(errors, path, masked_source, direct_cancellation_check, "任务取消必须通过 TaskCancellation.matches 统一识别")
         add_matches(errors, path, masked_source, empty_catch, "禁止静默吞掉异常；请记录诊断或显式处理错误")
         add_matches(errors, path, masked_source, unsafe_concurrency_escape, "禁止绕过 Swift 并发安全检查：请表达真实隔离或使用锁/Actor")
-        view_ranges = view_declaration_ranges(masked_source)
-        for match in direct_view_request.finditer(masked_source):
-            if any(start <= match.start() < end for start, end in view_ranges):
+        facts = syntax_index.get(str(path)) if syntax_index else None
+        if facts and ast_has_view_request(facts):
+            errors.append(f"{name}: View 不应直接构造 URLRequest；请求移到 Service")
+        elif facts is None:
+            for match in view_request_matches(masked_source):
                 errors.append(
                     f"{name}:{line_number(source, match.start())}: "
                     "View 不应直接构造 URLRequest；请求移到 Service"
                 )
 
-        force_count = len(force_unwrap.findall(masked_source))
+        force_count = len(FORCE_UNWRAP.findall(masked_source))
         if force_count:
             errors.append(f"{name}: 禁止强制解包，共 {force_count} 处；请改用 guard/if let/#require")
         source_line_count = len(source.splitlines())
@@ -734,6 +822,7 @@ def audit_wiring_findings() -> list[str]:
             ("Scripts/run-static-audit.sh", "CI 未执行统一静态审计"),
             ("static-audit:", "CI 未声明静态审计 Job"),
             ("release-build:", "CI 未声明默认 Release 编译 Job"),
+            ("Scripts/run-extended-tests.sh catalyst", "CI 默认 Job 缺少 Mac Catalyst 行为测试"),
             ("xcodebuild build-for-testing", "默认编译 Job 未编译 iOS 测试 target"),
             ("-scheme BIT101-iOS", "CI 未编译 iOS scheme"),
             ("-scheme BIT101Watch", "CI 未编译 Watch scheme"),
@@ -779,12 +868,15 @@ def main() -> int:
             print(f"SwiftSyntax 索引失败：{error}", file=sys.stderr)
             return 1
 
-    errors, review = source_findings()
+    errors: list[str] = []
     try:
         syntax_index = swift_syntax_index(swift_files())
     except (OSError, subprocess.CalledProcessError, RuntimeError) as error:
         syntax_index = {}
         errors.append(f"SwiftSyntax 索引失败：{error}")
+    source_errors, review = source_findings(syntax_index or None)
+    errors.extend(source_errors)
+    errors.extend(checker_boundary_findings())
     errors.extend(script_findings())
     errors.extend(documentation_findings())
     if syntax_index:

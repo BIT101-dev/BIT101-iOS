@@ -15,7 +15,7 @@ private enum EmergencyUpdateURLPolicy {
 }
 
 /// 应用在 Cloudflare 远程配置命中条件时展示紧急功能更新提醒。
-struct EmergencyUpdateNotice: Decodable, Equatable, Identifiable {
+nonisolated struct EmergencyUpdateNotice: Decodable, Equatable, Identifiable, Sendable {
     let schemaVersion: Int
     let enabled: Bool
     let noticeID: String

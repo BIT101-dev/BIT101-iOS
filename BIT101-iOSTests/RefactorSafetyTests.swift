@@ -76,6 +76,25 @@ struct ScheduleCacheMigrationTests {
         #expect(decoded.coursesUpdatedAt == timestamp)
         #expect(decoded.primaryScheduleTitle.count == scheduleNameCharacterLimit)
         #expect(decoded.iCloudSyncEnabled)
+        #expect(decoded.cloudSyncBaselineAt == .distantPast)
+        #expect(!decoded.hasUnpushedCloudChanges)
+    }
+
+    @Test("Unreadable cache data is kept out of the save path")
+    func corruptCacheBlocksReplacement() throws {
+        let unreadable = ScheduleCacheStore.decodeCache(Data("invalid cache".utf8))
+
+        #expect(unreadable.isUnreadable)
+        #expect(!unreadable.allowsWrite)
+        #expect(ScheduleCacheStore.LoadResult.missing.allowsWrite)
+
+        let cache = ScheduleCache()
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let readable = ScheduleCacheStore.decodeCache(try encoder.encode(cache))
+
+        #expect(!readable.isUnreadable)
+        #expect(readable.allowsWrite)
     }
 
     @Test("Legacy cache migration preserves row-specific negative weeks")
@@ -128,6 +147,9 @@ struct ScheduleCacheMigrationTests {
         let timestamp = Date(timeIntervalSince1970: 1_700_000_123)
         var cache = ScheduleCache()
         cache.ddlUpdatedAt = timestamp
+        cache.cloudSyncBaselineAt = timestamp
+        cache.cloudSyncBaselineRecordTag = "record-v3"
+        cache.hasUnpushedCloudChanges = true
 
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -136,6 +158,9 @@ struct ScheduleCacheMigrationTests {
 
         let decoded = try decoder.decode(ScheduleCache.self, from: encoder.encode(cache))
         #expect(decoded.ddlUpdatedAt == timestamp)
+        #expect(decoded.cloudSyncBaselineAt == timestamp)
+        #expect(decoded.cloudSyncBaselineRecordTag == "record-v3")
+        #expect(decoded.hasUnpushedCloudChanges)
     }
 
     @Test("Reconciliation only applies a newer remote cache when allowed")
@@ -168,6 +193,26 @@ struct ScheduleCacheMigrationTests {
             remoteUpdatedAt: new,
             allowsRemoteApply: true
         ) == .noChange)
+        #expect(!ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
+            localHasUnpushedChanges: false,
+            localBaselineRecordTag: "record-v1",
+            remoteRecordTag: "record-v2"
+        ))
+        #expect(!ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
+            localHasUnpushedChanges: true,
+            localBaselineRecordTag: "record-v1",
+            remoteRecordTag: "record-v1"
+        ))
+        #expect(ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
+            localHasUnpushedChanges: true,
+            localBaselineRecordTag: "record-v1",
+            remoteRecordTag: "record-v2"
+        ))
+        #expect(ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
+            localHasUnpushedChanges: true,
+            localBaselineRecordTag: "",
+            remoteRecordTag: "record-v2"
+        ))
     }
 
     @Test("Local cache timestamps advance when the device clock moves backward")
@@ -187,6 +232,12 @@ struct ScheduleCacheMigrationTests {
             recordDate: preciseRecordDate,
             payloadDate: roundedPayloadDate
         ) == preciseRecordDate)
+        let serverDate = preciseRecordDate.addingTimeInterval(3)
+        #expect(ScheduleCacheTimestamp.restored(
+            recordDate: preciseRecordDate,
+            payloadDate: roundedPayloadDate,
+            serverDate: serverDate
+        ) == serverDate)
         #expect(ScheduleCacheTimestamp.restored(
             recordDate: preciseRecordDate.addingTimeInterval(2),
             payloadDate: roundedPayloadDate

@@ -44,9 +44,14 @@ actor GalleryImageCache {
         let mimeType: String?
     }
 
+    private struct DownloadOperation {
+        let id: UUID
+        let task: Task<DownloadResult, Error>
+    }
+
     private let fileManager = FileManager.default
     private let directory: URL
-    private var downloads: [String: Task<DownloadResult, Error>] = [:]
+    private var downloads: [String: DownloadOperation] = [:]
     private let supportedExtensions = ["jpg", "jpeg", "png", "gif", "heic", "heif", "webp", "bin"]
     /// 不在每张缩略图落盘后遍历整个缓存目录；最多每分钟执行一次容量整理。
     private var lastPruneDate = Date()
@@ -81,21 +86,24 @@ actor GalleryImageCache {
         }
 
         let requestKey = "\(variant.rawValue):\(remoteURL.absoluteString)"
-        let task: Task<DownloadResult, Error>
+        let operation: DownloadOperation
         if let running = downloads[requestKey] {
-            task = running
+            operation = running
         } else {
             let created = Task<DownloadResult, Error> {
                 let response = try await HTTPClient.community.send(URLRequest(url: remoteURL))
                 return DownloadResult(data: response.data, mimeType: response.response.mimeType)
             }
-            downloads[requestKey] = created
-            task = created
+            let newOperation = DownloadOperation(id: UUID(), task: created)
+            downloads[requestKey] = newOperation
+            operation = newOperation
         }
 
         do {
-            let result = try await task.value
-            downloads[requestKey] = nil
+            let result = try await operation.task.value
+            if downloads[requestKey]?.id == operation.id {
+                downloads[requestKey] = nil
+            }
             let ext = preferredExtension(for: remoteURL, mimeType: result.mimeType)
             let target = directory.appendingPathComponent("\(filePrefix(for: remoteURL, variant: variant)).\(ext)")
             if !fileManager.fileExists(atPath: target.path) {
@@ -105,7 +113,9 @@ actor GalleryImageCache {
             pruneIfNeeded(protecting: Set([target]))
             return target
         } catch {
-            downloads[requestKey] = nil
+            if downloads[requestKey]?.id == operation.id {
+                downloads[requestKey] = nil
+            }
             throw error
         }
     }

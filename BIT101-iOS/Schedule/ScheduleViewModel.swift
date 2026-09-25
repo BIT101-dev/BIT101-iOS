@@ -157,6 +157,8 @@ final class ScheduleViewModel: ObservableObject {
     @Published var selectedSection: ScheduleSection = .courses
     /// 当前账号的日程缓存快照。
     @Published var cache = ScheduleCache()
+    /// 本地缓存读取状态确定前，以及原文件不可读时暂停写入。
+    @Published private(set) var isCacheWritable = false
     /// 是否正在做首次本地缓存恢复。
     @Published var isLoadingCache = true
     /// 是否正在同步课表/考试。
@@ -232,6 +234,8 @@ final class ScheduleViewModel: ObservableObject {
         classroomCoordinator.reset()
         hasLoaded = false
         isLoadingCache = true
+        isCacheWritable = false
+        cache = ScheduleCache()
         isSyncingCourses = false
         isSyncingDDL = false
         isLoadingTerms = false
@@ -424,7 +428,22 @@ final class ScheduleViewModel: ObservableObject {
     func reloadFromDisk() async {
         let previousScheduleIndex = selectedCourseScheduleIndex
         let previousWeek = selectedWeek
-        cache = await ScheduleCacheStore.loadAsync()
+        switch await ScheduleCacheStore.loadResultAsync() {
+        case .loaded(let loadedCache):
+            cache = loadedCache
+            isCacheWritable = true
+            if notice?.title == "本地课表缓存读取失败" { notice = nil }
+        case .missing:
+            cache = ScheduleCache()
+            isCacheWritable = true
+            if notice?.title == "本地课表缓存读取失败" { notice = nil }
+        case .unreadable:
+            isCacheWritable = false
+            notice = .informational(
+                title: "本地课表缓存读取失败",
+                message: "原文件已保留，当前课表只读并暂停保存。请联系维护者恢复缓存后重试。"
+            )
+        }
         selectedCourseScheduleIndex = min(max(previousScheduleIndex, 0), max(courseSchedules.count - 1, 0))
         selectedWeek = previousWeek
         selectedBuildingID = cache.selectedBuildingID
@@ -432,6 +451,7 @@ final class ScheduleViewModel: ObservableObject {
 
     /// 写回缓存。
     func persist(source: ScheduleCacheStore.SaveSource = .local) {
+        guard isCacheWritable else { return }
         ScheduleCacheStore.save(cache, source: source)
     }
 

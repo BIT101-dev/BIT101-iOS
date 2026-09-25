@@ -4,7 +4,7 @@ import Foundation
 import OSLog
 // WCSessionDelegate callbacks enter through SDK nonisolated methods; state is
 // handed back to the MainActor manager before mutation.
-@preconcurrency import WatchConnectivity
+import WatchConnectivity
 #if canImport(WidgetKit)
 import WidgetKit
 #endif
@@ -190,7 +190,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
             Task { @MainActor in
                 guard let data = self.pendingSnapshotData else { return }
                 self.pendingSnapshotData = nil
-                Self.updateApplicationContext(withSnapshotData: data, session: session)
+                Self.updateApplicationContext(withSnapshotData: data, session: WCSession.default)
             }
         }
         #endif
@@ -204,7 +204,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
 
     nonisolated func sessionDidDeactivate(_ session: WCSession) {
         Task { @MainActor in
-            session.activate()
+            WCSession.default.activate()
         }
     }
     #endif

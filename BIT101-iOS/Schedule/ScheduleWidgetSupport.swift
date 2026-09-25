@@ -17,7 +17,8 @@ enum ScheduleWidgetExporter {
     ///
     /// 应用生命周期、登录切换等未持有最新缓存对象的场景使用此入口。
     static func syncFromCurrentCache() async {
-        await syncAsync(cache: ScheduleCacheStore.loadAsync())
+        guard let cache = await ScheduleCacheStore.loadResultAsync().cacheIfReadable else { return }
+        await syncAsync(cache: cache)
     }
 
     /// 把指定缓存同步给外部展示层，并主动刷新 widget 时间线。

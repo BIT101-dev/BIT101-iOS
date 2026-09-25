@@ -128,9 +128,9 @@ UserDefaults 保存以下数据：
 - `Schedule/ScheduleCacheStore.swift`
 - `Schedule/ScheduleModels.swift`
 
-课表缓存可按用户开关同步到 CloudKit 私有数据库，记录仍按当前学号隔离。实验性的偏好同步
-使用 iCloud Key-Value Store，覆盖设置、成绩筛选与缓存、话廊消息已读状态。课表缓存同步和
-偏好同步按用途分别使用两套机制。
+课表缓存可按用户开关同步到 CloudKit 私有数据库，记录仍按当前学号隔离。同步以 CloudKit
+服务器修改时间作为基线，本地改动单独追踪；双方都在共同基线后更新时，提示用户选择保留本机
+版本或使用 iCloud 版本。实验性的偏好同步使用 iCloud Key-Value Store，覆盖设置、成绩筛选与缓存、话廊消息已读状态。
 
 对应入口包括：
 

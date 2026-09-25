@@ -172,7 +172,7 @@ BIT101_NETWORK_SMOKE_SCOPE=ddl Scripts/release-network-smoke.sh
 
 CI 和其它自动化沿用同一模拟器排除要求。GitHub Actions 的 PR / main 门禁运行静态审计、iOS Release `build-for-testing`、Watch 与 Widget schemes Release 编译、Mac Catalyst XCTest 和锁定依赖漏洞审计；Apple generic device 编译继续使用 Release 配置。真机流程提供逐 target 行覆盖率并覆盖真实设备行为，Widget 时间线和 Live Activity 时序按 `MODULE_PLAYBOOK.md` 验证。
 
-GitHub Actions 默认执行 `Static audit (Apple toolchain)` 与 `Release build and extension schemes`。静态审计包含 SwiftSyntax 契约、阻塞式文档新鲜度、锁定依赖漏洞扫描和项目配置检查；Release Job 编译 iOS 测试 target、Watch App、iOS Widget 与 Watch Widget，随后在 Mac Catalyst runtime 执行行为用例，保持无模拟器 destination，Swift 和 Clang 警告均按错误处理。两个 Job 校验 Xcode 27 或更新主版本。手动 `release_check` 用于确认准备发布的公开版本高于 App Store 当前版本。
+GitHub Actions 默认执行 `Static audit (Apple toolchain)` 与 `Release build and extension schemes`。静态审计包含 SwiftSyntax 契约、阻塞式文档新鲜度、锁定依赖漏洞扫描和项目配置检查；Release Job 编译 iOS 测试 target、Watch App、iOS Widget 与 Watch Widget，随后在 Mac Catalyst runtime 执行行为用例，保持无模拟器 destination，Swift 和 Clang 警告均按错误处理。两个 Job 校验 Xcode 27.x。手动 `release_check` 用于确认准备发布的公开版本高于 App Store 当前版本。
 
 本机继续负责 Release 真机构建、真机测试、网络 Smoke、iCloud Smoke、Widget 和 Watch 验证。GitHub Actions 不承载真机测试。
 
