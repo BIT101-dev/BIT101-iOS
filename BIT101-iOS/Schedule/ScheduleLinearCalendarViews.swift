@@ -393,6 +393,7 @@ private final class LinearTimelineScrollView: UIScrollView, UIScrollViewDelegate
 }
 
 private struct LinearScheduleCanvasView: View {
+    @State private var contextMenuFeedbackToken = 0
     let configuration: LinearScheduleCalendarConfiguration
 
     var body: some View {
@@ -414,7 +415,7 @@ private struct LinearScheduleCanvasView: View {
                 )
 
                 ScheduleBlankContextMenuView(
-                    onBegan: {},
+                    onBegan: { contextMenuFeedbackToken &+= 1 },
                     onShare: configuration.onShareSchedule,
                     onImport: configuration.onImportSchedule
                 )
@@ -432,6 +433,7 @@ private struct LinearScheduleCanvasView: View {
                 }
             }
             .frame(width: proxy.size.width, height: contentHeight)
+            .appImpactFeedback(trigger: contextMenuFeedbackToken)
         }
     }
 
@@ -541,28 +543,26 @@ private struct LinearScheduleCanvasView: View {
                 .frame(width: cardWidth, height: cardHeight)
 
             CourseScheduleBlockView(entry: entry, contentMode: configuration.cardContentMode)
-                .contentShape(Rectangle())
-                .onTapGesture { configuration.onSelect(entry) }
-                .contextMenu {
-                    if entry.kind == .course {
-                        Button("分享课程", systemImage: "square.and.arrow.up") {
-                            configuration.onLongPressCourse(entry)
-                        }
-                    }
-                } preview: {
-                    if entry.kind == .course {
-                        Color.clear
-                            .frame(
-                                width: AppDesignSystem.Schedule.Grid.previewTriggerSize,
-                                height: AppDesignSystem.Schedule.Grid.previewTriggerSize
-                            )
-                            .onAppear { configuration.onPrepareCourseShare(entry) }
-                    }
-                }
-                .accessibilityAddTraits(.isButton)
                 .frame(width: cardWidth, height: cardHeight)
+
+            if entry.kind == .course {
+                ScheduleCourseContextMenuView(
+                    onTap: { configuration.onSelect(entry) },
+                    onBegan: {
+                        contextMenuFeedbackToken &+= 1
+                        configuration.onPrepareCourseShare(entry)
+                    },
+                    onShare: { configuration.onLongPressCourse(entry) }
+                )
+                .frame(width: cardWidth, height: cardHeight)
+            }
         }
         .frame(width: cardWidth, height: cardHeight)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if entry.kind != .course { configuration.onSelect(entry) }
+        }
+        .accessibilityAddTraits(.isButton)
         .offset(
             x: leftWidth + dayWidth * CGFloat(visibleWeekdayValues.firstIndex(of: entry.dayOfWeek) ?? 0)
                 + AppDesignSystem.Schedule.Grid.lineWidth,

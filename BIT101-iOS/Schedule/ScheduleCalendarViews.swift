@@ -29,7 +29,32 @@ struct ScheduleBlankContextMenuView: UIViewRepresentable {
     }
 }
 
+struct ScheduleCourseContextMenuView: UIViewRepresentable {
+    let onTap: () -> Void
+    let onBegan: () -> Void
+    let onShare: () -> Void
+
+    func makeUIView(context: Context) -> ScheduleBlankContextMenuControl {
+        let view = ScheduleBlankContextMenuControl()
+        view.shareTitle = "分享课程"
+        view.showsImport = false
+        view.onTap = onTap
+        view.onBegan = onBegan
+        view.onShare = onShare
+        return view
+    }
+
+    func updateUIView(_ uiView: ScheduleBlankContextMenuControl, context: Context) {
+        uiView.onTap = onTap
+        uiView.onBegan = onBegan
+        uiView.onShare = onShare
+    }
+}
+
 final class ScheduleBlankContextMenuControl: UIControl {
+    var shareTitle = "分享课表"
+    var showsImport = true
+    var onTap: (() -> Void)?
     var onBegan: (() -> Void)?
     var onShare: (() -> Void)?
     var onImport: (() -> Void)?
@@ -38,11 +63,26 @@ final class ScheduleBlankContextMenuControl: UIControl {
     override init(frame: CGRect) {
         super.init(frame: frame)
         isOpaque = false
+        tintColor = UIColor(AppDesignSystem.Palette.Accent.primary)
         isContextMenuInteractionEnabled = true
+        addTarget(self, action: #selector(handleTap), for: .touchUpInside)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc private func handleTap() {
+        onTap?()
+    }
+
+    private static func coloredMenuImage(_ name: String) -> UIImage? {
+        guard let symbol = UIImage(systemName: name) else { return nil }
+        let color = UIColor(AppDesignSystem.Palette.Accent.primary)
+        return UIGraphicsImageRenderer(size: symbol.size).image { _ in
+            symbol.withTintColor(color, renderingMode: .alwaysOriginal)
+                .draw(in: CGRect(origin: .zero, size: symbol.size))
+        }.withRenderingMode(.alwaysOriginal)
     }
 
     override func contextMenuInteraction(
@@ -52,20 +92,22 @@ final class ScheduleBlankContextMenuControl: UIControl {
         lastInteractionLocation = location
         onBegan?()
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
-            UIMenu(children: [
-                UIAction(
-                    title: "分享课表",
-                    image: UIImage(systemName: "square.and.arrow.up")
-                ) { _ in
-                    self?.onShare?()
-                },
-                UIAction(
+            guard let self else { return UIMenu(children: []) }
+            var actions: [UIMenuElement] = [UIAction(
+                title: self.shareTitle,
+                image: Self.coloredMenuImage("square.and.arrow.up")
+            ) { [weak self] _ in
+                self?.onShare?()
+            }]
+            if self.showsImport {
+                actions.append(UIAction(
                     title: "导入课表",
-                    image: UIImage(systemName: "square.and.arrow.down")
-                ) { _ in
+                    image: Self.coloredMenuImage("square.and.arrow.down")
+                ) { [weak self] _ in
                     self?.onImport?()
-                }
-            ])
+                })
+            }
+            return UIMenu(children: actions)
         }
     }
 
@@ -329,33 +371,33 @@ struct CourseScheduleCalendarView: View {
                         }
 
                         CourseScheduleBlockView(entry: entry, contentMode: cardContentMode)
-                            .contentShape(Rectangle())
-                            .onTapGesture { onSelect(entry) }
-                            .contextMenu {
-                                if entry.kind == .course {
-                                    Button("分享课程", systemImage: "square.and.arrow.up") {
-                                        onLongPressCourse(entry)
-                                    }
-                                }
-                            } preview: {
-                                if entry.kind == .course {
-                                    Color.clear
-                                        .frame(
-                                            width: AppDesignSystem.Schedule.Grid.previewTriggerSize,
-                                            height: AppDesignSystem.Schedule.Grid.previewTriggerSize
-                                        )
-                                        .onAppear { onPrepareCourseShare(entry) }
-                                }
-                            }
-                        .accessibilityAddTraits(.isButton)
-                        .frame(
-                            width: cardWidth,
-                            height: max(
-                                rowHeight * (entry.endSection - entry.startSection)
-                                    - AppDesignSystem.Schedule.Grid.courseCardTotalInset,
-                                1
+                            .frame(
+                                width: cardWidth,
+                                height: max(
+                                    rowHeight * (entry.endSection - entry.startSection)
+                                        - AppDesignSystem.Schedule.Grid.courseCardTotalInset,
+                                    1
+                                )
                             )
-                        )
+
+                        if entry.kind == .course {
+                            ScheduleCourseContextMenuView(
+                                onTap: { onSelect(entry) },
+                                onBegan: {
+                                    contextMenuFeedbackToken &+= 1
+                                    onPrepareCourseShare(entry)
+                                },
+                                onShare: { onLongPressCourse(entry) }
+                            )
+                            .frame(
+                                width: cardWidth,
+                                height: max(
+                                    rowHeight * (entry.endSection - entry.startSection)
+                                        - AppDesignSystem.Schedule.Grid.courseCardTotalInset,
+                                    1
+                                )
+                            )
+                        }
                     }
                     .frame(
                         width: cardWidth,
@@ -365,6 +407,11 @@ struct CourseScheduleCalendarView: View {
                             1
                         )
                     )
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if entry.kind != .course { onSelect(entry) }
+                    }
+                    .accessibilityAddTraits(.isButton)
                     .offset(
                         x: leftWidth + dayWidth * CGFloat(visibleWeekdays.firstIndex(of: entry.dayOfWeek) ?? 0)
                             + gridLineWidth,
