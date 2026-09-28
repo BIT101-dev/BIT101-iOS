@@ -70,6 +70,13 @@
 			remoteGlobalIDString = A222C4EBA765A745DE78B6CF;
 			remoteInfo = BIT101ScheduleWidgets;
 		};
+		B10100000000000000000002 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D2FF4C8E2F729DB4000FA1C1 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D2FF4C952F729DB4000FA1C1;
+			remoteInfo = "BIT101-iOS";
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -112,6 +119,7 @@
 		027903073181F16453D11398 /* BIT101Watch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BIT101Watch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0382F3A6842C7256F74D4FCC /* BIT101ScheduleWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BIT101ScheduleWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		111111111111111111111112 /* BIT101-iOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "BIT101-iOSTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10100000000000000000004 /* BIT101-iOSUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "BIT101-iOSUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		21A95B6C96CDD83709030EF8 /* BIT101WatchApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BIT101WatchApp.swift; sourceTree = "<group>"; };
 		3CF4896F51E6C19BBE15048C /* ScheduleSharedLiveActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScheduleSharedLiveActivity.swift; sourceTree = "<group>"; };
 		4162B327CBFEC0829F8AB242 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
@@ -143,6 +151,11 @@
 		111111111111111111111113 /* BIT101-iOSTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "BIT101-iOSTests";
+			sourceTree = "<group>";
+		};
+		B10100000000000000000007 /* BIT101-iOSUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "BIT101-iOSUITests";
 			sourceTree = "<group>";
 		};
 		D2FF4C982F729DB4000FA1C1 /* BIT101-iOS */ = {
@@ -283,6 +296,7 @@
 			children = (
 				D2FF4C962F729DB4000FA1C1 /* BIT101-iOS.app */,
 				111111111111111111111112 /* BIT101-iOSTests.xctest */,
+				B10100000000000000000004 /* BIT101-iOSUITests.xctest */,
 				0382F3A6842C7256F74D4FCC /* BIT101ScheduleWidgets.appex */,
 				027903073181F16453D11398 /* BIT101Watch.app */,
 				6C427FABBA6FB6C2CF4098BE /* BIT101WatchWidgets.appex */,

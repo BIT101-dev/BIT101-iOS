@@ -148,12 +148,16 @@ struct AppShellView: View {
                 .tag(tab)
                 .tabItem {
                     Label(tab.title, systemImage: tab.systemImage)
+                        .accessibilityIdentifier("app.tab.\(tab.rawValue)")
                 }
             }
         }
         .tint(selectedTab.tintColor)
         .appSelectionFeedback(trigger: selectedTab.rawValue)
         .onAppear {
+#if BIT101_UI_TESTING
+            guard !AppFileDirectories.isRunningUITest else { return }
+#endif
             enqueueStartupPromptsIfNeeded()
         }
         .onChange(of: scenePhase) { _, newPhase in

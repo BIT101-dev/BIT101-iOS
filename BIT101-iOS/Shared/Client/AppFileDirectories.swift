@@ -35,7 +35,38 @@ nonisolated struct AppStorageSession: Sendable, Equatable {
 /// App 持久化路径、当前账号会话和本地文件服务的统一入口。
 enum AppFileDirectories {
     nonisolated static let files = AppFileSystem.files
-    nonisolated static var defaults: UserDefaults { UserDefaults.standard }
+    nonisolated static var defaults: UserDefaults {
+#if BIT101_UI_TESTING
+        if isRunningUITest {
+            guard let suite = UserDefaults(suiteName: uiTestDefaultsSuiteName) else {
+                preconditionFailure("UI test defaults suite is unavailable")
+            }
+            return suite
+        }
+#endif
+        return .standard
+    }
+
+#if BIT101_UI_TESTING
+    nonisolated static var isRunningUITest: Bool {
+        let process = ProcessInfo.processInfo
+        return process.arguments.contains("--ui-testing")
+            && process.environment["BIT101_UI_TESTING"] == "1"
+            && !(process.environment["BIT101_UI_TEST_RUN_ID"] ?? "").isEmpty
+    }
+
+    nonisolated static var uiTestRunIdentifier: String {
+        let rawValue = ProcessInfo.processInfo.environment["BIT101_UI_TEST_RUN_ID"] ?? ""
+        guard !rawValue.isEmpty else { return "unconfigured" }
+        return rawValue.utf8.map { String(format: "%02X", $0) }.joined()
+    }
+
+    nonisolated static var uiTestDefaultsSuiteName: String {
+        "harrybit.BIT101-iOS.ui-tests.\(uiTestRunIdentifier)"
+    }
+#else
+    nonisolated static let isRunningUITest = false
+#endif
 
     nonisolated static let applicationSupport: URL = {
         guard let url = files.directoryURL(.applicationSupportDirectory) else {
@@ -45,10 +76,20 @@ enum AppFileDirectories {
     }()
 
     @MainActor static var currentSession: AppStorageSession {
-        AppStorageSession(accountIdentifier: LoginStorage.shared.currentStudentID)
+        let studentID = LoginStorage.shared.currentStudentID
+#if BIT101_UI_TESTING
+        if isRunningUITest {
+            let isolatedAccount = studentID.isEmpty ? "guest" : studentID
+            return AppStorageSession(accountIdentifier: "__ui_tests__.\(uiTestRunIdentifier).\(isolatedAccount)")
+        }
+#endif
+        return AppStorageSession(accountIdentifier: studentID)
     }
 
     @MainActor static var scoreCacheSession: AppStorageSession {
+#if BIT101_UI_TESTING
+        if isRunningUITest { return currentSession }
+#endif
 #if ICLOUD_CROSS_DEVICE_SMOKE
         return currentSession
 #elseif DEBUG

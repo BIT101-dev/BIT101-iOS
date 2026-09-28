@@ -25,8 +25,30 @@ final class LoginStorage {
         static let fakeCookie = "login.fakeCookie"
     }
 
-    private let keychainService = "harrybit.BIT101-iOS.login"
+    private var keychainService: String {
+#if BIT101_UI_TESTING
+        if AppFileDirectories.isRunningUITest {
+            return Self.uiTestKeychainService
+        }
+#endif
+        return "harrybit.BIT101-iOS.login"
+    }
     private let defaults = AppFileDirectories.defaults
+
+#if BIT101_UI_TESTING
+    nonisolated static var uiTestKeychainService: String {
+        "harrybit.BIT101-iOS.ui-tests.\(AppFileDirectories.uiTestRunIdentifier)"
+    }
+
+    static func resetUITestCredentials() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: uiTestKeychainService,
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+#endif
+
     private init() {
         purgePersistedCredentialsIfNeededAfterReinstall()
         migrateLegacyFakeCookieIfNeeded()
@@ -95,7 +117,13 @@ final class LoginStorage {
         deleteKeychainValue(account: KeychainAccount.fakeCookie)
 
         // 清理学校身份相关域，保留 App 内其他服务和调试环境的 Cookie。
+#if BIT101_UI_TESTING
+        if !AppFileDirectories.isRunningUITest {
+            TeachingCenterSessionState.shared.clearSchoolAuthenticationCookies()
+        }
+#else
         TeachingCenterSessionState.shared.clearSchoolAuthenticationCookies()
+#endif
         deleteKeychainValue(account: KeychainAccount.password)
         notifyAccountChanged()
     }
@@ -122,7 +150,13 @@ final class LoginStorage {
     private func clearPersistedLoginData() {
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
         deleteKeychainValue(account: KeychainAccount.fakeCookie)
+#if BIT101_UI_TESTING
+        if !AppFileDirectories.isRunningUITest {
+            TeachingCenterSessionState.shared.clearSchoolAuthenticationCookies()
+        }
+#else
         TeachingCenterSessionState.shared.clearSchoolAuthenticationCookies()
+#endif
         deleteKeychainValue(account: KeychainAccount.studentID)
         deleteKeychainValue(account: KeychainAccount.password)
     }

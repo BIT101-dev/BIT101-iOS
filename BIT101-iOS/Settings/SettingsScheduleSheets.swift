@@ -170,6 +170,7 @@ struct ScheduleImportCodeSheet: View {
                     .padding(AppDesignSystem.Spacing.regular)
                     .background(AppDesignSystem.Palette.Background.secondaryGrouped, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
                     .accessibilityLabel("课表编码")
+                    .accessibilityIdentifier("schedule.import.code")
 
                 HStack(spacing: AppDesignSystem.Spacing.content) {
                     Button {

@@ -59,6 +59,7 @@ private struct LoginFormView: View {
                     .focused($focusedField, equals: .studentID)
                     .accessibilityLabel("学号")
                     .accessibilityHint("输入学校统一身份认证学号")
+                    .accessibilityIdentifier("login.student-id")
                     .onSubmit {
                         focusedField = .password
                     }
@@ -71,6 +72,7 @@ private struct LoginFormView: View {
                     .focused($focusedField, equals: .password)
                     .accessibilityLabel("密码")
                     .accessibilityHint("输入学校统一身份认证密码")
+                    .accessibilityIdentifier("login.password")
                     .onSubmit {
                         submitLogin()
                     }
@@ -97,6 +99,7 @@ private struct LoginFormView: View {
                 }
                 .accessibilityLabel(viewModel.isSubmitting ? "正在登录" : "登录")
                 .accessibilityHint(viewModel.isSubmitting ? "请稍候" : "提交学校统一身份认证账号密码")
+                .accessibilityIdentifier("login.submit")
                 .disabled(!viewModel.canSubmit)
             }
         }

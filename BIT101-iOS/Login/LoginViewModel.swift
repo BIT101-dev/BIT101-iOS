@@ -40,7 +40,7 @@ final class LoginViewModel: ObservableObject {
     ///
     /// 如果本地已有 fake-cookie，先乐观进入主界面，远端校验放到后台完成。
     init(service: (any LoginServicing)? = nil) {
-        let service = service ?? LoginService()
+        let service = service ?? LoginService.appRuntimeService()
         self.service = service
         let savedStudentID = service.savedStudentID
         studentID = savedStudentID

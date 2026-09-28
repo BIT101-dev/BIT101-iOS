@@ -16,6 +16,10 @@ struct ScheduleBlankContextMenuView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> ScheduleBlankContextMenuControl {
         let view = ScheduleBlankContextMenuControl()
+        view.isAccessibilityElement = true
+        view.accessibilityLabel = "课表空白区域"
+        view.accessibilityIdentifier = "schedule.blank-context-menu"
+        view.accessibilityTraits = .button
         view.onBegan = onBegan
         view.onShare = onShare
         view.onImport = onImport
@@ -36,6 +40,10 @@ struct ScheduleCourseContextMenuView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> ScheduleBlankContextMenuControl {
         let view = ScheduleBlankContextMenuControl()
+        view.isAccessibilityElement = true
+        view.accessibilityLabel = "课程分享菜单"
+        view.accessibilityIdentifier = "schedule.course-context-menu"
+        view.accessibilityTraits = .button
         view.shareTitle = "分享课程"
         view.showsImport = false
         view.onTap = onTap

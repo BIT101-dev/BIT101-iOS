@@ -29,6 +29,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         _: UIApplication,
         didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+#if BIT101_UI_TESTING
+        guard !AppFileDirectories.isRunningUITest else { return true }
+#endif
         ScheduleReminderBackgroundRefresh.register()
         return true
     }
@@ -107,10 +110,19 @@ struct BIT101_iOSApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
+    init() {
+#if BIT101_UI_TESTING
+        AppUITestBootstrap.prepareForLaunch()
+#endif
+    }
+
     /// 把本地课表缓存同步到 Widget、Watch 和 Live Activity。
     ///
     /// 这条链路读取本地缓存并刷新外部展示；学校数据同步由用户显式操作触发。
     private func refreshScheduleExternalDisplays(trigger: String, syncWidgetSnapshot: Bool) {
+#if BIT101_UI_TESTING
+        guard !AppFileDirectories.isRunningUITest else { return }
+#endif
         Task {
             if syncWidgetSnapshot {
                 await ScheduleWidgetExporter.syncFromCurrentCache()
@@ -168,6 +180,9 @@ struct BIT101_iOSApp: App {
                     AppDeepLinkCoordinator.shared.receive(url)
                 }
                 .task {
+#if BIT101_UI_TESTING
+                    guard !AppFileDirectories.isRunningUITest else { return }
+#endif
                     // 先激活 WatchConnectivity，接收 watch 端发来的“重新同步”请求。
                     WatchScheduleSyncManager.shared.activateIfNeeded()
 
@@ -194,6 +209,9 @@ struct BIT101_iOSApp: App {
         #if !RELEASE_NETWORK_SMOKE
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
+#if BIT101_UI_TESTING
+                guard !AppFileDirectories.isRunningUITest else { return }
+#endif
                 // 回到前台时导出本地快照并刷新时间线；学校请求由用户显式操作触发。
                 refreshScheduleExternalDisplays(trigger: "scene_active", syncWidgetSnapshot: true)
             }
