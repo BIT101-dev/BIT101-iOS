@@ -53,7 +53,7 @@
 
 ## 2026-09-27 错误报告与发布差异
 
-本次读取 Cloudflare 远端全部 16 份报告，接收时间为 9 月 23 日至 27 日，报告版本均为正式版 1.8.1（37）。报告采用 sanitized 模式；业务响应正文与完整重定向头的证据范围有限。报告份数代表提交次数。
+截至 2026-09-28 汇总入口已收录 Cloudflare 远端 18 份报告，接收时间为 9 月 23 日至 28 日，其中 17 份错误报告、1 份建议；正式版 1.8.1（37）共 16 份，1.8.2（38）共 2 份。sanitized 报告的业务正文与完整重定向头证据有限，报告份数代表提交次数。
 
 Apple Lookup 于 9 月 27 日返回线上版本 1.8.1，发布时间为 `2026-09-10T17:42:11Z`。源码比对基线为发布准备提交 `801da08`；具体归档与提交的对应关系以发布归档记录为准。准备发布的工程版本为 1.8.3（40），开发版安装与 App Store 发布分别管理。
 
@@ -64,8 +64,14 @@ Apple Lookup 于 9 月 27 日返回线上版本 1.8.1，发布时间为 `2026-09
 | CAS 1320009 / 401，备注“验证框闪退” | 1 | 9 月 24 日。短信接口 HTTP 200 表示请求得到响应；challenge 中携带 CAS 失败。具体认证失败原因仍需认证服务日志。客户端把 `failed` 映射为 `challengeInvalid`，ViewModel 随即清空 `smsChallenge`，形成验证窗口关闭的体验。 | 本次将 `failed` 归入 `authenticationFailed`。短信提交时保留窗口并展示原因及取消后重新同步的提示；challenge 到期与 403/404/409 仍走失效流程。 |
 | WebVPN TLS 握手失败 | 1 | 9 月 23 日。认证 Cookie 获取成功后，学校 WebVPN 接口连续在 25 ms、12 ms 返回 TLS 错误。证据指向学校端点或用户到端点的 TLS 链路；证书、代理、设备信任状态仍需更详细的系统错误确认。 | 当前代码已有 TLS 错误分类与学校直连恢复。保留系统证书校验和既有恢复策略。 |
 | 教学中心直连与 WebVPN 超时 | 1 | 9 月 24 日。直连与 WebVPN 请求均超时，WebVPN 约 44 秒。另一条记录约 127 分钟；诊断耗时采用墙钟差值，后台挂起等因素也会计入，具体网络等待时长待确认。 | 发布基线已经设置 30 秒请求、60 秒资源超时并关闭连接等待。当前代码包含更完整的路线切换。沿用超时设置与恢复流程，保留网络链路问题的归因范围。 |
+| Core Location `locationUnknown` | 1 | 9 月 28 日，版本 1.8.2（38），10 条 BIT101 API 请求均返回 HTTP 200；定位错误来自操作系统 Core Location。 | 1.8.3（40）已递归检查 `NSUnderlyingErrorKey` 并过滤瞬时 `locationUnknown`，其它定位故障仍会显示提示。 |
+| 课程详情建议 | 1 | 9 月 27 日，版本 1.8.2（38），用户称更新后无法打开课程详情。与透明长按交互覆盖课程点击的回归吻合。 | 1.8.3（40）使用 `UITapGestureRecognizer` 处理短按，长按分享由 UIKit 默认识别顺序处理；build 39 的同时识别版本曾干扰菜单，build 40 已撤回。 |
 
 参考：[App Store](https://apps.apple.com/cn/app/bit101/id6761147125)、[BIT-Login 重定向解析源码](https://github.com/BIT101-dev/BIT-Login/blob/d1b3c403/bit-login/src/commonMain/kotlin/cn/bit101/bitlogin/service/JxzxehallLogin.kt)。本轮验证范围为构建装机与代码对照，交互手感由实机操作确认。
+
+## 2026-09-28 GitHub Actions 汇总
+
+汇总脚本拉取 0 条开放 GitHub Issue 与 17 条历史失败运行。当前 HEAD `60ca01a` 对应运行 `36372154871` 失败在工具链预检：`macos-latest` 提供 Xcode 26.6，项目预检要求 Xcode 27；Release job 因依赖预检失败而跳过。`.github/workflows/ci.yml` 两个 job 已固定为 GitHub 官方 `xcode-27` runner。其它失败运行对应更早提交，需结合各次提交历史判断，不计入当前 HEAD 失败。
 
 ## 周次控件与 Mac 装机
 

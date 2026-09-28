@@ -74,9 +74,12 @@ struct HTTPClient {
             throw error
         }
         guard statusCodes.contains(httpResponse.statusCode) else {
+            let message = await Task.detached(priority: .utility) {
+                Self.errorMessage(from: data)
+            }.value
             let error = HTTPClientError.unacceptableStatus(
                 code: httpResponse.statusCode,
-                message: Self.errorMessage(from: data)
+                message: message
             )
             await NetworkDiagnosticStore.shared.record(
                 request: request, data: data, response: httpResponse, error: error,
@@ -94,7 +97,7 @@ struct HTTPClient {
     static let community = HTTPClient(transport: NetworkSessionPool.community)
     static let shared = HTTPClient(transport: NetworkSessionPool.shared)
 
-    static func errorMessage(from data: Data) -> String? {
+    nonisolated static func errorMessage(from data: Data) -> String? {
         if
             let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         {

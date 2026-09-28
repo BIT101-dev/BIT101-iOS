@@ -251,6 +251,7 @@ struct ScheduleWeekdaySelectionSheet: View {
                 }
                 .buttonStyle(.plain)
             }
+            .appGroupedListStyle()
             .navigationTitle("星期")
             .navigationBarTitleDisplayMode(.inline)
         }

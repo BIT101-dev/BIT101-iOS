@@ -22,7 +22,7 @@ concurrency:
 jobs:
   static-audit:
     name: Static audit (Apple toolchain)
-    runs-on: macos-latest
+    runs-on: xcode-27
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -55,7 +55,7 @@ jobs:
   release-build:
     name: Release build and extension schemes
     needs: static-audit
-    runs-on: macos-latest
+    runs-on: xcode-27
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7

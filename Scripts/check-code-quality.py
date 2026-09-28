@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import json
 import os
+import importlib.util
 import subprocess
 import stat
 import sys
@@ -58,6 +59,8 @@ struct FileFacts: Encodable {
     let invocations: [ScopedFact]
     let selectionControls: [SelectionControlFact]
     let feedbackModifiers: [FeedbackModifierFact]
+    let listControls: [SelectionControlFact]
+    let listStyleModifiers: [FeedbackModifierFact]
     let members: [ScopedFact]
     let expressions: [ScopedFact]
     let bindings: [ScopedFact]
@@ -81,12 +84,14 @@ struct SelectionControlFact: Encodable {
     let name: String
     let invocation: String
     let scope: [String]
+    let start: Int
 }
 
 struct FeedbackModifierFact: Encodable {
     let name: String
     let base: String
     let scope: [String]
+    let baseStart: Int
 }
 
 final class FactVisitor: SyntaxVisitor {
@@ -97,6 +102,8 @@ final class FactVisitor: SyntaxVisitor {
     private(set) var stringSegments: [ScopedFact] = []
     private(set) var selectionControls: [SelectionControlFact] = []
     private(set) var feedbackModifiers: [FeedbackModifierFact] = []
+    private(set) var listControls: [SelectionControlFact] = []
+    private(set) var listStyleModifiers: [FeedbackModifierFact] = []
     private(set) var members: [ScopedFact] = []
     private(set) var expressions: [ScopedFact] = []
     private(set) var bindings: [ScopedFact] = []
@@ -147,7 +154,16 @@ final class FactVisitor: SyntaxVisitor {
             selectionControls.append(SelectionControlFact(
                 name: calledName,
                 invocation: node.trimmedDescription,
-                scope: scope
+                scope: scope,
+                start: node.positionAfterSkippingLeadingTrivia.utf8Offset
+            ))
+        }
+        if calledName == "List" {
+            listControls.append(SelectionControlFact(
+                name: calledName,
+                invocation: node.trimmedDescription,
+                scope: scope,
+                start: node.positionAfterSkippingLeadingTrivia.utf8Offset
             ))
         }
         if let memberAccess = node.calledExpression.as(MemberAccessExprSyntax.self),
@@ -156,7 +172,18 @@ final class FactVisitor: SyntaxVisitor {
             feedbackModifiers.append(FeedbackModifierFact(
                 name: "appSelectionFeedback",
                 base: memberAccess.base?.trimmedDescription ?? "",
-                scope: scope
+                scope: scope,
+                baseStart: memberAccess.base?.positionAfterSkippingLeadingTrivia.utf8Offset ?? -1
+            ))
+        }
+        if let memberAccess = node.calledExpression.as(MemberAccessExprSyntax.self),
+           memberAccess.trimmedDescription.hasSuffix(".appGroupedListStyle")
+        {
+            listStyleModifiers.append(FeedbackModifierFact(
+                name: "appGroupedListStyle",
+                base: memberAccess.base?.trimmedDescription ?? "",
+                scope: scope,
+                baseStart: memberAccess.base?.positionAfterSkippingLeadingTrivia.utf8Offset ?? -1
             ))
         }
         return .visitChildren
@@ -229,6 +256,8 @@ for path in input.paths {
         invocations: visitor.invocations,
         selectionControls: visitor.selectionControls,
         feedbackModifiers: visitor.feedbackModifiers,
+        listControls: visitor.listControls,
+        listStyleModifiers: visitor.listStyleModifiers,
         members: visitor.members,
         expressions: visitor.expressions,
         bindings: visitor.bindings,
@@ -610,6 +639,14 @@ let comparison = left != right
         findings.append("代码质量规则边界自检失败：类型迁移后仍按声明作用域匹配契约")
     if owner_has_call(relocated_index, "MissingView", "restoreCache"):
         findings.append("代码质量规则边界自检失败：缺少契约类型应保持失败")
+    workflow_source = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    detached_release = workflow_source.replace("needs: static-audit", "needs: []", 1)
+    if not any("必须依赖静态审计" in item for item in ci_wiring_findings(detached_release)):
+        findings.append("代码质量规则边界自检失败：Release Job 与静态审计依赖识别")
+    misplaced_audit = workflow_source.replace("run: Scripts/run-static-audit.sh", "run: echo skipped", 1)
+    misplaced_audit += "\n# Scripts/run-static-audit.sh\n"
+    if not any("静态审计 Job 缺少执行入口" in item for item in ci_wiring_findings(misplaced_audit)):
+        findings.append("代码质量规则边界自检失败：CI 注释中的审计标记隔离")
     return findings
 
 
@@ -884,10 +921,8 @@ def audit_wiring_findings() -> list[str]:
     errors: list[str] = []
     audit_path = ROOT / "Scripts/run-static-audit.sh"
     audit_source = audit_path.read_text(encoding="utf-8")
-    if "run_group ui-consistency ui_consistency" not in audit_source:
-        errors.append("Scripts/run-static-audit.sh: 未接入统一 UI 审计")
-    if "run_group code-quality code_quality" not in audit_source:
-        errors.append("Scripts/run-static-audit.sh: 未接入统一代码质量审计")
+    if "run_group checkers checker_audit" not in audit_source:
+        errors.append("Scripts/run-static-audit.sh: 未接入共享索引检查器审计")
     if "check_stale_docs.py --all" not in audit_source:
         errors.append("Scripts/run-static-audit.sh: 未接入阻塞式文档新鲜度检查")
     if "run_group dependency-audit dependency_audit" not in audit_source:
@@ -901,33 +936,7 @@ def audit_wiring_findings() -> list[str]:
     if not workflow_path.is_file():
         errors.append(".github/workflows/ci.yml: CI 工作流不存在")
     else:
-        workflow_source = workflow_path.read_text(encoding="utf-8")
-        release_job_match = re.search(
-            r"(?ms)^  release-build:\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:|\Z)",
-            workflow_source,
-        )
-        if release_job_match is None:
-            errors.append(".github/workflows/ci.yml: 缺少默认 Release 编译 Job")
-        elif re.search(r"^    if:", release_job_match.group("body"), re.MULTILINE):
-            errors.append(".github/workflows/ci.yml: Release 编译 Job 必须默认执行")
-        required_ci_rules = (
-            ("Scripts/run-static-audit.sh", "CI 未执行统一静态审计"),
-            ("static-audit:", "CI 未声明静态审计 Job"),
-            ("release-build:", "CI 未声明默认 Release 编译 Job"),
-            ("Scripts/run-extended-tests.sh catalyst", "CI 默认 Job 缺少 Mac Catalyst 行为测试"),
-            ("xcodebuild build-for-testing", "默认编译 Job 未编译 iOS 测试 target"),
-            ("-scheme BIT101-iOS", "CI 未编译 iOS scheme"),
-            ("-scheme BIT101Watch", "CI 未编译 Watch scheme"),
-            ("-scheme BIT101ScheduleWidgets", "CI 未编译 iOS Widget scheme"),
-            ("-scheme BIT101WatchWidgets", "CI 未编译 Watch Widget scheme"),
-            ("generic/platform=watchOS", "Watch 编译不得选择模拟器"),
-            ("generic/platform=iOS", "iOS 编译不得选择模拟器"),
-            ("SWIFT_TREAT_WARNINGS_AS_ERRORS=YES", "发布编译未将 Swift 警告视为错误"),
-            ("GCC_TREAT_WARNINGS_AS_ERRORS=YES", "发布编译未将 Clang 警告视为错误"),
-        )
-        for marker, message in required_ci_rules:
-            if marker not in workflow_source:
-                errors.append(f".github/workflows/ci.yml: {message}")
+        errors.extend(ci_wiring_findings(workflow_path.read_text(encoding="utf-8")))
 
     test_script = ROOT / "Scripts/run-extended-tests.sh"
     if not test_script.is_file():
@@ -952,7 +961,69 @@ def audit_wiring_findings() -> list[str]:
     return errors
 
 
-def main() -> int:
+def ci_wiring_findings(workflow_source: str) -> list[str]:
+    errors: list[str] = []
+    active_lines = [line for line in workflow_source.splitlines() if not line.lstrip().startswith("#")]
+    source = "\n".join(active_lines) + "\n"
+
+    def job_body(name: str) -> str | None:
+        match = re.search(
+            rf"(?ms)^  {re.escape(name)}:\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:|\Z)",
+            source,
+        )
+        return match.group("body") if match else None
+
+    def run_commands(job: str) -> list[str]:
+        commands: list[str] = []
+        lines = job.splitlines()
+        for index, line in enumerate(lines):
+            match = re.match(r"^        run:\s*(.*?)\s*$", line)
+            if match is None:
+                continue
+            command = match.group(1)
+            if command in {"|", "|-", ">", ">-"}:
+                body: list[str] = []
+                for following in lines[index + 1:]:
+                    if following.strip() and len(following) - len(following.lstrip()) <= 8:
+                        break
+                    body.append(following.strip())
+                command = " ".join(body)
+            commands.append(command)
+        return commands
+
+    static_job = job_body("static-audit")
+    release_job = job_body("release-build")
+    if static_job is None:
+        errors.append(".github/workflows/ci.yml: CI 未声明静态审计 Job")
+    elif "Scripts/run-static-audit.sh" not in run_commands(static_job):
+        errors.append(".github/workflows/ci.yml: 静态审计 Job 缺少执行入口")
+    if release_job is None:
+        errors.append(".github/workflows/ci.yml: 缺少默认 Release 编译 Job")
+        return errors
+    if re.search(r"^    if:", release_job, re.MULTILINE):
+        errors.append(".github/workflows/ci.yml: Release 编译 Job 必须默认执行")
+    if not re.search(r"^    needs:\s*static-audit\s*$", release_job, re.MULTILINE):
+        errors.append(".github/workflows/ci.yml: Release 编译 Job 必须依赖静态审计")
+    required_release_rules = (
+        ("Scripts/run-extended-tests.sh catalyst", "CI 默认 Job 缺少 Mac Catalyst 行为测试"),
+        ("xcodebuild build-for-testing", "默认编译 Job 未编译 iOS 测试 target"),
+        ("-scheme BIT101-iOS", "CI 未编译 iOS scheme"),
+        ("-scheme BIT101Watch", "CI 未编译 Watch scheme"),
+        ("-scheme BIT101ScheduleWidgets", "CI 未编译 iOS Widget scheme"),
+        ("-scheme BIT101WatchWidgets", "CI 未编译 Watch Widget scheme"),
+        ("generic/platform=watchOS", "Watch 编译不得选择模拟器"),
+        ("generic/platform=iOS", "iOS 编译不得选择模拟器"),
+        ("SWIFT_TREAT_WARNINGS_AS_ERRORS=YES", "发布编译未将 Swift 警告视为错误"),
+        ("GCC_TREAT_WARNINGS_AS_ERRORS=YES", "发布编译未将 Clang 警告视为错误"),
+    )
+    release_commands = "\n".join(run_commands(release_job))
+    for marker, message in required_release_rules:
+        if marker not in release_commands:
+            errors.append(f".github/workflows/ci.yml: {message}")
+    return errors
+
+
+def main(shared_syntax: dict[str, dict] | None = None) -> int:
     if sys.argv[1:] == ["--swift-syntax-index"]:
         try:
             print(json.dumps(swift_syntax_index(swift_files()), ensure_ascii=False))
@@ -971,11 +1042,14 @@ def main() -> int:
         return 0
 
     errors: list[str] = []
-    try:
-        syntax_index = swift_syntax_index(swift_files())
-    except (OSError, subprocess.CalledProcessError, RuntimeError) as error:
-        syntax_index = {}
-        errors.append(f"SwiftSyntax 索引失败：{error}")
+    if shared_syntax is None:
+        try:
+            syntax_index = swift_syntax_index(swift_files())
+        except (OSError, subprocess.CalledProcessError, RuntimeError) as error:
+            syntax_index = {}
+            errors.append(f"SwiftSyntax 索引失败：{error}")
+    else:
+        syntax_index = shared_syntax
     source_errors, review = source_findings(syntax_index or None)
     errors.extend(source_errors)
     errors.extend(checker_boundary_findings())
@@ -1015,5 +1089,24 @@ def main() -> int:
     return 0
 
 
+def combined_main() -> int:
+    try:
+        syntax_index = swift_syntax_index(swift_files())
+    except (OSError, subprocess.CalledProcessError, RuntimeError) as error:
+        print(f"[失败] SwiftSyntax 索引：{error}", file=sys.stderr)
+        return 1
+    ui_path = SCRIPT_ROOT / "check-ui-consistency.py"
+    spec = importlib.util.spec_from_file_location("check_ui_consistency", ui_path)
+    if spec is None or spec.loader is None:
+        print(f"[失败] UI 检查器加载：{ui_path}", file=sys.stderr)
+        return 1
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    ui_status = module.main(syntax_index)
+    quality_status = main(syntax_index)
+    return int(ui_status != 0 or quality_status != 0)
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(combined_main() if sys.argv[1:] == ["--combined"] else main())

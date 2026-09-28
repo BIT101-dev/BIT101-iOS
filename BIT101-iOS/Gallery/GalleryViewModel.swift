@@ -156,7 +156,7 @@ final class GalleryViewModel: ObservableObject {
                     // 推荐流首屏拉取一个源页，先展示结果；更多源页交给后台预取。
                     let batch = try await service.fetchRecommendPage(sourcePage: 0)
                     guard refreshGenerations[feed] == generation else { return }
-                    let uniquePosters = await deduplicateInBackground(batch.posters)
+                    let uniquePosters = try await deduplicateInBackground(batch.posters)
                     guard refreshGenerations[feed] == generation else { return }
                     setState(for: feed) {
                         $0.posters = uniquePosters
@@ -170,7 +170,7 @@ final class GalleryViewModel: ObservableObject {
                 } else {
                     let posters = try await service.fetchFeed(kind: feed, page: nil)
                     guard refreshGenerations[feed] == generation else { return }
-                    let uniquePosters = await deduplicateInBackground(posters)
+                    let uniquePosters = try await deduplicateInBackground(posters)
                     guard refreshGenerations[feed] == generation else { return }
                     setState(for: feed) {
                         $0.posters = uniquePosters
@@ -244,7 +244,7 @@ final class GalleryViewModel: ObservableObject {
             if feed.isBotFeed {
                 let batch = try await service.fetchBotFeed(startPage: state.nextPage)
                 guard refreshGenerations[feed] == generation else { return }
-                let mergedPosters = await mergeUniqueInBackground(existing: state.posters, incoming: batch.posters)
+                let mergedPosters = try await mergeUniqueInBackground(existing: state.posters, incoming: batch.posters)
                 guard refreshGenerations[feed] == generation else { return }
                 setState(for: feed) {
                     $0.posters = mergedPosters
@@ -264,7 +264,7 @@ final class GalleryViewModel: ObservableObject {
                     batch = try await recommendPrefetch.takePage(for: nextPage)
                     guard refreshGenerations[feed] == generation else { return }
 
-                    mergedPosters = await mergeUniqueInBackground(existing: mergedPosters, incoming: batch.posters)
+                    mergedPosters = try await mergeUniqueInBackground(existing: mergedPosters, incoming: batch.posters)
                     nextPage = batch.nextPage
                     canLoadMore = batch.canLoadMore
                     attempt += 1
@@ -283,7 +283,7 @@ final class GalleryViewModel: ObservableObject {
             } else {
                 let posters = try await service.fetchFeed(kind: feed, page: state.nextPage)
                 guard refreshGenerations[feed] == generation else { return }
-                let mergedPosters = await mergeUniqueInBackground(existing: state.posters, incoming: posters)
+                let mergedPosters = try await mergeUniqueInBackground(existing: state.posters, incoming: posters)
                 guard refreshGenerations[feed] == generation else { return }
                 let nextPage = state.nextPage + 1
                 setState(for: feed) {
@@ -319,8 +319,9 @@ final class GalleryViewModel: ObservableObject {
         do {
             let posters = try await service.searchPosters(query: searchQuery, page: nil)
             guard searchGeneration == generation else { return }
-            searchState.applyFirstPage(await deduplicateInBackground(posters))
+            let uniquePosters = try await deduplicateInBackground(posters)
             guard searchGeneration == generation else { return }
+            searchState.applyFirstPage(uniquePosters)
             searchState.status = .loaded
         } catch {
             guard searchGeneration == generation else { return }
@@ -353,8 +354,9 @@ final class GalleryViewModel: ObservableObject {
         do {
             let posters = try await service.searchPosters(query: searchQuery, page: searchState.nextPage)
             guard searchGeneration == generation else { return }
-            searchState.posters = await mergeUniqueInBackground(existing: searchState.posters, incoming: posters)
+            let mergedPosters = try await mergeUniqueInBackground(existing: searchState.posters, incoming: posters)
             guard searchGeneration == generation else { return }
+            searchState.posters = mergedPosters
             searchState.isLoadingMore = false
             searchState.nextPage += 1
             searchState.canLoadMore = !posters.isEmpty
@@ -392,38 +394,34 @@ final class GalleryViewModel: ObservableObject {
     /// 推荐流可能出现重复帖子，这里按帖子 ID 去重后再拼接。
     ///
     /// 去重和拼接放到后台队列执行，让大数组操作离开主线程滚动流程。
-    private func mergeUniqueInBackground(existing: [GalleryPoster], incoming: [GalleryPoster]) async -> [GalleryPoster] {
+    private func mergeUniqueInBackground(existing: [GalleryPoster], incoming: [GalleryPoster]) async throws -> [GalleryPoster] {
         let task = Task.detached(priority: .utility) {
             try Task.checkCancellation()
             let result = try Self.mergeUniqueSync(existing: existing, incoming: incoming)
             try Task.checkCancellation()
             return result
         }
-        return await withTaskCancellationHandler {
-            do {
-                return try await task.value
-            } catch {
-                return existing
-            }
+        return try await withTaskCancellationHandler {
+            let result = try await task.value
+            try Task.checkCancellation()
+            return result
         } onCancel: {
             task.cancel()
         }
     }
 
     /// 首屏列表也走同一套去重逻辑，并放到后台队列执行，保持刷新时的滚动响应。
-    private func deduplicateInBackground(_ posters: [GalleryPoster]) async -> [GalleryPoster] {
+    private func deduplicateInBackground(_ posters: [GalleryPoster]) async throws -> [GalleryPoster] {
         let task = Task.detached(priority: .utility) {
             try Task.checkCancellation()
             let result = try Self.deduplicateSync(posters)
             try Task.checkCancellation()
             return result
         }
-        return await withTaskCancellationHandler {
-            do {
-                return try await task.value
-            } catch {
-                return posters
-            }
+        return try await withTaskCancellationHandler {
+            let result = try await task.value
+            try Task.checkCancellation()
+            return result
         } onCancel: {
             task.cancel()
         }

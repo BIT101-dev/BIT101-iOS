@@ -86,9 +86,8 @@ docs_check() {
   (cd "$ROOT_DIR" && python3 Scripts/check_stale_docs.py --all)
   (cd "$ROOT_DIR" && python3 Scripts/validate_versions.py)
 }
-ui_consistency() { "$ROOT_DIR/Scripts/check-ui-consistency.sh"; }
 explanatory_text_report() { "$ROOT_DIR/Scripts/report-explanatory-text.sh"; }
-code_quality() { "$ROOT_DIR/Scripts/check-code-quality.sh"; }
+checker_audit() { python3 "$ROOT_DIR/Scripts/check-code-quality.py" --combined; }
 checker_self_test() {
   local self_test_status=0
   python3 "$ROOT_DIR/Scripts/check-code-quality.py" --self-test || self_test_status=1
@@ -150,8 +149,7 @@ run_group worker-parse worker_parse || failed_groups+=(worker-parse)
 run_group dependency-audit dependency_audit || failed_groups+=(dependency-audit)
 run_group git-diff git_check || failed_groups+=(git-diff)
 run_group docs docs_check || failed_groups+=(docs)
-run_group ui-consistency ui_consistency || failed_groups+=(ui-consistency)
-run_group code-quality code_quality || failed_groups+=(code-quality)
+run_group checkers checker_audit || failed_groups+=(checkers)
 run_group explanatory-text explanatory_text_report || failed_groups+=(explanatory-text)
 run_group artifact-hygiene artifact_hygiene || failed_groups+=(artifact-hygiene)
 if (( ${#failed_groups[@]} > 0 )); then

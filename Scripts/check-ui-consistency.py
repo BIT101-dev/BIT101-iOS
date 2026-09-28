@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import re
-import json
+import importlib.util
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -318,16 +318,19 @@ COMPONENT_CONTRACTS = (
         ),
     ),
     ComponentContract(
-        name="评论区",
+        name="评论区容器",
         view_names=(
-            "CourseCommentsSection", "CourseCommentRow", "CourseCommentImagesView",
-            "GalleryPosterCommentsSection", "GalleryCommentRow",
-            "PaperCommentsSection", "PaperCommentRow",
+            "CourseCommentsSection", "GalleryPosterCommentsSection", "PaperCommentsSection",
         ),
+        requirements=(("appCommentSectionStyle", "必须使用评论公共结构"), ("AppFailureState", "必须使用公共失败状态")),
+    ),
+    ComponentContract(
+        name="评论行",
+        view_names=("CourseCommentRow", "GalleryCommentRow", "PaperCommentRow"),
         requirements=tuple((token, "必须使用评论公共结构") for token in (
-            "AppDesignSystem.Comment.", "appCommentSectionStyle",
+            "AppDesignSystem.Comment.",
             "AppCommentThread", "AppCommentBubble", "AppCommentIdentityHeader",
-            "AppCommentActionBar", "AppAvatarView", "AppDateText", "AppFailureState",
+            "AppCommentActionBar", "AppAvatarView", "AppDateText",
         )),
     ),
     ComponentContract(
@@ -344,13 +347,18 @@ COMPONENT_CONTRACTS = (
     ),
     ComponentContract(
         name="顶部切换页",
-        view_names=("ScheduleRootView", "ScheduleSectionTabs"),
+        view_names=("ScheduleSectionTabs",),
         discovery_tokens=("AppTopSegmentedPicker",),
-        requirements=(("AppTopSegmentedPicker", "必须使用公共顶部切换控件"), ("AppDesignSystem.Spacing.none", "必须使用统一顶部安全区布局")),
+        requirements=(("AppTopSegmentedPicker", "必须使用公共顶部切换控件"),),
+    ),
+    ComponentContract(
+        name="顶部安全区",
+        view_names=("ScheduleRootView",),
+        requirements=(("AppDesignSystem.Spacing.none", "必须使用统一顶部安全区布局"),),
     ),
     ComponentContract(
         name="设置导航入口",
-        view_names=("MineRootView", "UserProfileRootView", "SettingsRootView", "SettingsIndexPage", "SettingsIndexCard"),
+        view_names=("MineRootView", "SettingsIndexPage", "SettingsIndexCard"),
         requirements=(("AppNavigationRowLabel", "必须使用公共图标标题行"),),
     ),
     ComponentContract(
@@ -381,7 +389,7 @@ COMPONENT_CONTRACTS = (
     ),
     ComponentContract(
         name="比例数据页",
-        view_names=("CourseRootView", "CoursePageContent", "CourseListRow", "ScoreRootView", "ScoreListPage", "ScoreListRowCard"),
+        view_names=("CoursePageContent", "CourseListRow", "ScoreListPage", "ScoreListRowCard"),
         requirements=(("AppFixedColumnRow", "必须使用公共比例数据行"),),
     ),
     ComponentContract(
@@ -409,7 +417,6 @@ COMPONENT_CONTRACTS = (
     ComponentContract(
         name="日程根页",
         view_names=("ScheduleRootView",),
-        discovery_tokens=("ScheduleSectionTabs",),
         requirements=((".safeAreaInset(edge: .bottom, spacing: AppDesignSystem.Spacing.none)", "内容必须使用统一的底部安全区间隙"),),
     ),
 )
@@ -421,13 +428,12 @@ def swift_files() -> list[Path]:
 
 def syntax_index() -> dict[str, dict]:
     checker = ROOT / "Scripts/check-code-quality.py"
-    result = subprocess.run(
-        [sys.executable, str(checker), "--swift-syntax-index"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return json.loads(result.stdout)
+    spec = importlib.util.spec_from_file_location("check_code_quality", checker)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"SwiftSyntax 索引器加载失败：{checker}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.swift_syntax_index(module.swift_files())
 
 
 def ast_has_marker(facts: dict, marker: str, scope: list[str] | None = None) -> bool:
@@ -646,6 +652,22 @@ def ast_marker_boundary_findings() -> list[str]:
     delegated_syntax = {"moved/Parent.swift": parent_facts, "shared/Child.swift": child_facts}
     if not view_or_child_has_marker(delegated_syntax, parent_facts, ["ParentView"], "appSelectionFeedback"):
         findings.append("UI 契约规则边界自检失败：直接子 View 的公共触感调用识别")
+    contract = ComponentContract(name="样例", requirements=(("AppFailureState", "需要公共失败状态"),))
+    first = {**parent_facts, "calls": [{"value": "AppFailureState", "scope": ["FirstView"]}]}
+    second = {**parent_facts, "calls": []}
+    contract_syntax = {"first.swift": first, "second.swift": second}
+    if contract_scope_findings(contract, contract_syntax, first, ["FirstView"], Path("first.swift")):
+        findings.append("UI 契约规则边界自检失败：已满足契约的 View 被报告")
+    if not contract_scope_findings(contract, contract_syntax, second, ["SecondView"], Path("second.swift")):
+        findings.append("UI 契约规则边界自检失败：相邻 View 的组件掩盖契约缺口")
+    list_control = {"name": "List", "invocation": "List { Text(\"A\") }", "scope": ["FirstView"], "start": 10}
+    other_style = {"name": "appGroupedListStyle", "base": "List { Text(\"B\") }", "scope": ["FirstView"], "baseStart": 40}
+    if list_has_grouped_style(list_control, [other_style]):
+        findings.append("UI 契约规则边界自检失败：相邻 List 的样式掩盖归属缺口")
+    if not list_has_grouped_style(list_control, [{**other_style, "base": list_control["invocation"], "baseStart": 10}]):
+        findings.append("UI 契约规则边界自检失败：List 自身的样式归属识别")
+    if list_has_grouped_style(list_control, [{**other_style, "base": list_control["invocation"]}]):
+        findings.append("UI 契约规则边界自检失败：同文本相邻 List 的样式归属识别")
     return findings
 
 
@@ -658,6 +680,31 @@ def selection_control_has_feedback(control: dict, modifiers: list[dict]) -> bool
         and control["invocation"] in modifier["base"]
         for modifier in modifiers
     )
+
+
+def list_has_grouped_style(control: dict, modifiers: list[dict]) -> bool:
+    return any(
+        modifier["name"] == "appGroupedListStyle"
+        and modifier["scope"] == control["scope"]
+        and modifier["baseStart"] == control["start"]
+        and modifier["base"].lstrip().startswith(control["invocation"])
+        for modifier in modifiers
+    )
+
+
+def contract_scope_findings(
+    contract: ComponentContract, syntax: dict[str, dict], facts: dict, scope: list[str], path: Path
+) -> list[str]:
+    findings: list[str] = []
+    if contract.any_tokens and not any(
+        view_or_child_has_marker(syntax, facts, scope, token)
+        for token in contract.any_tokens
+    ):
+        findings.append(f"{path}: {'.'.join(scope)} {contract.name}缺少首屏状态公共组件")
+    for token, message in contract.requirements:
+        if not view_or_child_has_marker(syntax, facts, scope, token):
+            findings.append(f"{path}: {'.'.join(scope)} {contract.name}{message}（缺少 {token}）")
+    return findings
 
 
 def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> None:
@@ -708,15 +755,8 @@ def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> Non
             if not scopes:
                 errors.append(f"{relative}: {contract.name}契约没有对应的 SwiftUI View 声明")
                 continue
-            if contract.any_tokens and not any(
-                view_or_child_has_marker(syntax, facts, scope, token)
-                for token in contract.any_tokens
-                for scope in scopes
-            ):
-                errors.append(f"{relative}: {contract.name}缺少首屏状态公共组件")
-            for token, message in contract.requirements:
-                if not any(view_or_child_has_marker(syntax, facts, scope, token) for scope in scopes):
-                    errors.append(f"{relative}: {contract.name}{message}（缺少 {token}）")
+            for scope in scopes:
+                errors.extend(contract_scope_findings(contract, syntax, facts, scope, relative))
 
     forbidden_duplicate_wrappers = (
         "GalleryFloatingActionButton",
@@ -1143,7 +1183,7 @@ def check_refresh_status_contract(errors: list[str], syntax: dict[str, dict]) ->
         errors.append("CourseScheduleTabView: 分享操作必须使用当前显示课表的数据源")
 
 
-def main() -> int:
+def main(shared_syntax: dict[str, dict] | None = None) -> int:
     if sys.argv[1:] == ["--self-test"]:
         findings = ast_marker_boundary_findings()
         if findings:
@@ -1158,11 +1198,14 @@ def main() -> int:
         return 1
 
     errors: list[str] = []
-    try:
-        syntax = syntax_index()
-    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as error:
-        print(f"[失败] SwiftSyntax 索引：{error}", file=sys.stderr)
-        return 1
+    if shared_syntax is None:
+        try:
+            syntax = syntax_index()
+        except (OSError, subprocess.CalledProcessError, RuntimeError) as error:
+            print(f"[失败] SwiftSyntax 索引：{error}", file=sys.stderr)
+            return 1
+    else:
+        syntax = shared_syntax
     errors.extend(ast_marker_boundary_findings())
     check_component_contracts(errors, syntax)
     check_refresh_status_contract(errors, syntax)
@@ -1265,18 +1308,16 @@ def main() -> int:
     if floating_stack_uses == 0:
         errors.append("未发现 AppFloatingActionStack 调用，右下角操作组没有实际复用")
 
-    # 所有分组内容列表统一使用同一修饰器；消息页是刻意保留的 plain 列表例外。
+    # 按 List 表达式检查样式归属，消息页沿用 plain 列表。
     for path in swift_files():
         if path == DESIGN_SYSTEM:
             continue
-        source = mask_literals_and_comments(path.read_text(encoding="utf-8"))
-        if re.search(r"\bList\s*\{", source) and path.relative_to(SOURCE_ROOT).as_posix() not in PLAIN_LIST_EXCEPTIONS:
-            list_count = len(re.findall(r"\bList\s*\{", source))
-            style_count = source.count("appGroupedListStyle()")
-            if style_count < list_count:
-                errors.append(
-                    f"{path.relative_to(ROOT)}: {list_count} 个分组列表必须逐个使用 appGroupedListStyle（当前 {style_count} 个）"
-                )
+        if path.relative_to(SOURCE_ROOT).as_posix() in PLAIN_LIST_EXCEPTIONS:
+            continue
+        facts = syntax[str(path)]
+        for control in facts["listControls"]:
+            if not list_has_grouped_style(control, facts["listStyleModifiers"]):
+                errors.append(f"{path.relative_to(ROOT)}: {'.'.join(control['scope'])} List 必须由自身表达式接入 appGroupedListStyle")
 
     if errors:
         lines = ["[失败] UI 一致性检查：", *errors]

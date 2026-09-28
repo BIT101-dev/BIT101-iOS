@@ -172,7 +172,7 @@ BIT101_NETWORK_SMOKE_SCOPE=ddl Scripts/release-network-smoke.sh
 
 CI 和其它自动化沿用同一模拟器排除要求。GitHub Actions 的 PR / main 门禁运行静态审计、iOS Release `build-for-testing`、Watch 与 Widget schemes Release 编译、Mac Catalyst XCTest 和锁定依赖漏洞审计；Apple generic device 编译继续使用 Release 配置。真机流程提供逐 target 行覆盖率并覆盖真实设备行为，Widget 时间线和 Live Activity 时序按 `MODULE_PLAYBOOK.md` 验证。
 
-GitHub Actions 默认执行 `Static audit (Apple toolchain)` 与 `Release build and extension schemes`。静态审计包含 SwiftSyntax 契约、阻塞式文档新鲜度、锁定依赖漏洞扫描和项目配置检查；Release Job 编译 iOS 测试 target、Watch App、iOS Widget 与 Watch Widget，随后在 Mac Catalyst runtime 执行行为用例，保持无模拟器 destination，Swift 和 Clang 警告均按错误处理。两个 Job 校验 Xcode 27.x。手动 `release_check` 用于确认准备发布的公开版本高于 App Store 当前版本。
+GitHub Actions 默认执行 `Static audit (Apple toolchain)` 与 `Release build and extension schemes`。两个 Job 固定使用 GitHub `xcode-27` runner，确保工具链门禁与项目 Xcode 27 目标一致。静态审计包含 SwiftSyntax 契约、阻塞式文档新鲜度、锁定依赖漏洞扫描和项目配置检查；Release Job 编译 iOS 测试 target、Watch App、iOS Widget 与 Watch Widget，随后在 Mac Catalyst runtime 执行行为用例，保持无模拟器 destination，Swift 和 Clang 警告均按错误处理。手动 `release_check` 用于确认准备发布的公开版本高于 App Store 当前版本。
 
 本机继续负责 Release 真机构建、真机测试、网络 Smoke、iCloud Smoke、Widget 和 Watch 验证。GitHub Actions 不承载真机测试。
 
@@ -257,23 +257,19 @@ Scripts/build-install-device.sh
 用户错误处理规则：用户错误归入普通提示，错误报告范围限定为软件、网络、服务器、解析和数据链路故障。
 
 ```sh
-Scripts/error-reports.sh list
-Scripts/error-reports.sh latest
-Scripts/error-reports.sh delete '<report-key>'
 Scripts/fetch-issues-and-reports.sh
 Scripts/run-static-audit.sh
 Scripts/run-extended-tests.sh
 ```
 
 覆盖检查确保用户可见的错误弹窗和主要失败占位页保留 App Store 与错误报告入口。
-报告直接通过当前 Wrangler 登录读取远端 KV，管理网页不参与流程。
-`Scripts/fetch-issues-and-reports.sh` 使用默认用户目录中的 GitHub CLI 认证，并将 `HOME` 单独设为 `$HOME/Library/Preferences` 供 Wrangler 读取 Cloudflare 授权。脚本拉取仓库 Issues、GitHub Actions 失败运行和 Cloudflare KV 报告，结果写入 `.build/issue-report-inbox`。报告直接按 `开发版/正式版/来源未知` 与 `错误报告/用户建议` 分类。本地报告快照每次覆盖为本次新拉取内容；`report-keys.txt` 记录 7 天保留窗口内已经处理的报告键，重复运行保持增量拉取。汇总与 Wrangler 命令输出不超过 1000 行时显示在 terminal，较长输出覆盖对应固定文本报告。远端仅清理接收时间早于当前时间 7 天的 Cloudflare 报告。GitHub Issues 与 CI 元数据保存在目录根部，完整报告留在本机，仓库保持不变。
+报告汇总统一通过 `Scripts/fetch-issues-and-reports.sh` 无参数运行。该入口一次拉取 GitHub Issues、GitHub Actions 失败记录和 Cloudflare KV 报告；报告按 `开发版/正式版/来源未知` 与 `错误报告/用户建议` 分类，结果写入 `.build/issue-report-inbox`。本地快照使用 7 天增量窗口，`report-keys.txt` 记录窗口内已处理的报告键；Cloudflare 中超过 7 天的报告按现有保留策略清理。`Scripts/error-reports.sh` 提供单条报告查看与维护命令，完整拉取和归因沿用汇总入口。汇总与 Wrangler 命令输出不超过 1000 行时显示在 terminal，较长输出覆盖对应固定文本报告。GitHub Issues 与 CI 元数据保存在目录根部，完整报告留在本机。
 
 用户输入校验提示采用 `AppAlert.userInput` 或 `ScheduleNotice.userInput`，保留页面提示并关闭错误报告入口。页面失败状态通过 `AppFailureState.allowsDiagnostics` 控制诊断入口。空字段、标签数量、空评论、验证码输入、图片处理状态、无效分享数据、本地日程格式、日历权限和可信成绩单短信验证取消等用户操作提示归入此类；网络请求、服务器响应和数据解析故障继续提供错误报告入口。
 
 `run-static-audit.sh` 执行检查器自测、Swift、Shell、Python、Worker、Git、文档、UI、源码质量与锁定依赖检查，并汇总各组结果；过期文档和高危依赖会阻断结果。学校接口连接、网络 smoke 和发布归档由独立流程负责。源码质量报告超过 1000 行时覆盖 `.build/code-quality-report.txt`，较短结果直接显示在 terminal。CI 强制执行这一入口，并额外阻止编译警告进入门禁。
 
-UI 契约检查由 `check-ui-consistency.py` 统一维护：视觉令牌、页面和公共组件、控件修饰器归属、触感、错误报告入口依据 SwiftSyntax View 类型与表达式作用域匹配。文件整理沿用类型契约；新增页面角色时，在契约表登记对应 View 类型和规则。两个检查器的 `--self-test` 使用内存样例验证标记作用域、控件修饰器归属及源码迁移边界。
+UI 契约检查由 `check-ui-consistency.py` 统一维护：视觉令牌、页面和公共组件、列表样式与控件修饰器归属、触感、错误报告入口依据 SwiftSyntax View 类型与表达式作用域匹配。统一静态审计为 UI 与源码质量检查共用一份 SwiftSyntax 索引。文件整理沿用类型契约；新增页面角色时，在契约表登记对应 View 类型和规则。两个检查器的 `--self-test` 使用内存样例验证标记作用域、修饰器归属、CI 接线及源码迁移边界。
 
 ## 扩展自动化测试
 
