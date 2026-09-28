@@ -172,7 +172,7 @@ nonisolated enum ScheduleExternalSnapshotStore {
             outputFormatting: [.prettyPrinted, .sortedKeys]
         )
         try data.write(to: fileURL, options: [.atomic])
-        DispatchQueue.main.async {
+        Task { @MainActor in
             NotificationCenter.default.post(name: .scheduleExternalSnapshotDidChange, object: nil)
         }
     }
@@ -191,7 +191,7 @@ nonisolated enum ScheduleExternalSnapshotStore {
     static func clear() {
         guard let fileURL else { return }
         try? FileManager.default.removeItem(at: fileURL)
-        DispatchQueue.main.async {
+        Task { @MainActor in
             NotificationCenter.default.post(name: .scheduleExternalSnapshotDidChange, object: nil)
         }
     }

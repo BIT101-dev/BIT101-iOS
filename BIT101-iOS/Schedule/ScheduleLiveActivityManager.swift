@@ -7,9 +7,9 @@
 
 #if canImport(ActivityKit) && !targetEnvironment(macCatalyst)
 
-// ActivityKit 27 exposes update/end as concurrent methods; keep handle use
-// behind this manager's serialized MainActor operation path.
-@preconcurrency import ActivityKit
+// ActivityKit update/end execute concurrently; handles stay inside concurrent
+// operations while MainActor serializes the manager's operation order.
+import ActivityKit
 import Foundation
 import os
 import UserNotifications
@@ -22,6 +22,30 @@ private struct CourseReminderOccurrence {
     let teacher: String
     let startDate: Date
     let endDate: Date
+}
+
+private nonisolated struct ExistingActivitySnapshot: Sendable {
+    let id: String
+    let contentState: CourseReminderActivityAttributes.ContentState
+}
+
+private nonisolated enum ExistingActivitySyncResult: Sendable {
+    case needsRequest
+    case unchanged
+    case updated
+    case cancelled
+}
+
+private nonisolated struct ExistingActivitySyncReport: Sendable {
+    let result: ExistingActivitySyncResult
+    let activeSnapshot: ExistingActivitySnapshot?
+    let endedActivityIDs: [String]
+    let activityCount: Int
+}
+
+private nonisolated struct ActivityEndingReport: Sendable {
+    let endedActivityIDs: [String]
+    let activityCount: Int
 }
 
 @MainActor
@@ -207,30 +231,20 @@ final class ScheduleLiveActivityManager {
     private func syncActivitySerially(with occurrence: CourseReminderOccurrence?, studentID: String) async {
         guard !Task.isCancelled, isCurrentSession(for: studentID) else { return }
 
-        let activities = Activity<CourseReminderActivityAttributes>.activities
-        let activeActivity = activities.first { $0.attributes.studentID == studentID }
-        logger.debug("syncActivity activeCount=\(activities.count, privacy: .public) currentStudentID=\(studentID, privacy: .private(mask: .hash))")
-
         // 当前没有提醒对象时结束现有活动。
         guard let occ = occurrence else {
-            for activity in activities {
-                guard !Task.isCancelled, isCurrentSession(for: studentID) else { return }
-                logger.debug("ending activity id=\(activity.id, privacy: .public) because occurrence is nil")
-                await activity.end(nil, dismissalPolicy: .immediate)
+            let report = await Self.endActivities { [weak self] in
+                guard let self else { return false }
+                return !Task.isCancelled && self.isCurrentSession(for: studentID)
             }
-            if activities.isEmpty {
+            for activityID in report.endedActivityIDs {
+                logger.debug("ending activity id=\(activityID, privacy: .public) because occurrence is nil")
+            }
+            if report.activityCount == 0 {
                 logger.debug("no occurrence and no active activity; nothing to end")
             }
             return
         }
-
-        for activity in activities where activity.id != activeActivity?.id {
-            guard !Task.isCancelled, isCurrentSession(for: studentID) else { return }
-            logger.debug("ending stale activity id=\(activity.id, privacy: .public) before syncing current occurrence")
-            await activity.end(nil, dismissalPolicy: .immediate)
-        }
-
-        guard !Task.isCancelled, isCurrentSession(for: studentID) else { return }
 
         let newState = CourseReminderActivityAttributes.ContentState(
             kindText: occ.kindText,
@@ -241,25 +255,38 @@ final class ScheduleLiveActivityManager {
             countdownTargetDate: occ.startDate
         )
 
-        let content = ActivityContent(state: newState, staleDate: occ.startDate)
-        let attributes = CourseReminderActivityAttributes(studentID: studentID)
+        let result = await Self.synchronizeExistingActivities(
+            studentID: studentID,
+            contentState: newState,
+            staleDate: occ.startDate
+        ) { [weak self] in
+            guard let self else { return false }
+            return !Task.isCancelled && self.isCurrentSession(for: studentID)
+        }
 
-        if let activity = activeActivity {
+        logger.debug("syncActivity activeCount=\(result.activityCount, privacy: .public) currentStudentID=\(studentID, privacy: .private(mask: .hash))")
+        for activityID in result.endedActivityIDs {
+            logger.debug("ending stale activity id=\(activityID, privacy: .public) before syncing current occurrence")
+        }
+        if let activeSnapshot = result.activeSnapshot {
             logger.debug(
-                "active activity id=\(activity.id, privacy: .public) state=\(Self.describe(activity.content.state), privacy: .private) next=\(Self.describe(newState), privacy: .private)"
+                "active activity id=\(activeSnapshot.id, privacy: .public) state=\(Self.describe(activeSnapshot.contentState), privacy: .private) next=\(Self.describe(newState), privacy: .private)"
             )
-            // 内容未变化时跳过更新，避免 UI 闪烁。
-            if activity.content.state == newState {
-                logger.debug("skipping update because content state is unchanged")
-                return
-            }
+        }
 
-            // 内容变化时使用 update，保留当前灵动岛状态。
-            logger.debug("updating activity id=\(activity.id, privacy: .public)")
-            await activity.update(content)
-        } else {
+        guard !Task.isCancelled, isCurrentSession(for: studentID) else { return }
+        switch result.result {
+        case .needsRequest:
             // 当前没有 activity 时创建新的 activity。
+            let content = ActivityContent(state: newState, staleDate: occ.startDate)
+            let attributes = CourseReminderActivityAttributes(studentID: studentID)
             await requestActivity(attributes: attributes, content: content, reason: "no_active_activity")
+        case .unchanged:
+            logger.debug("skipping update because content state is unchanged")
+        case .updated:
+            logger.debug("activity content updated")
+        case .cancelled:
+            return
         }
     }
 
@@ -314,14 +341,15 @@ final class ScheduleLiveActivityManager {
         await performSerializedActivityOperation {
             guard !Task.isCancelled, self.isCurrentSession(for: expectedStudentID) else { return }
             guard #available(iOS 16.2, *) else { return }
-            let matchingActivities = Activity<CourseReminderActivityAttributes>.activities.filter {
-                $0.attributes.studentID == expectedStudentID
-                    && $0.content.state.countdownTargetDate == expectedTarget
+            let report = await Self.endActivities(
+                matchingStudentID: expectedStudentID,
+                expectedTarget: expectedTarget
+            ) { [weak self] in
+                guard let self else { return false }
+                return !Task.isCancelled && self.isCurrentSession(for: expectedStudentID)
             }
-            for activity in matchingActivities {
-                guard !Task.isCancelled, self.isCurrentSession(for: expectedStudentID) else { return }
-                self.logger.debug("ending activity id=\(activity.id, privacy: .public) because countdown target reached")
-                await activity.end(nil, dismissalPolicy: .immediate)
+            for activityID in report.endedActivityIDs {
+                self.logger.debug("ending activity id=\(activityID, privacy: .public) because countdown target reached")
             }
         }
     }
@@ -349,10 +377,9 @@ final class ScheduleLiveActivityManager {
         }
         await performSerializedActivityOperation {
             guard !Task.isCancelled, #available(iOS 16.2, *) else { return }
-            for activity in Activity<CourseReminderActivityAttributes>.activities {
-                guard !Task.isCancelled else { return }
-                self.logger.debug("endAllActivities ending id=\(activity.id, privacy: .public)")
-                await activity.end(nil, dismissalPolicy: .immediate)
+            let report = await Self.endActivities { !Task.isCancelled }
+            for activityID in report.endedActivityIDs {
+                self.logger.debug("endAllActivities ending id=\(activityID, privacy: .public)")
             }
         }
     }
@@ -516,6 +543,91 @@ final class ScheduleLiveActivityManager {
             "requesting new activity reason=\(reason, privacy: .public) state=\(Self.describe(content.state), privacy: .private)"
         )
         _ = try? Activity.request(attributes: attributes, content: content)
+    }
+
+    @concurrent
+    private static func endActivities(
+        matchingStudentID: String? = nil,
+        expectedTarget: Date? = nil,
+        shouldContinue: @MainActor @Sendable () -> Bool
+    ) async -> ActivityEndingReport {
+        let activities = Activity<CourseReminderActivityAttributes>.activities
+        var endedActivityIDs: [String] = []
+        for activity in activities {
+            guard !Task.isCancelled, await shouldContinue() else {
+                return ActivityEndingReport(endedActivityIDs: endedActivityIDs, activityCount: activities.count)
+            }
+            if let matchingStudentID, activity.attributes.studentID != matchingStudentID {
+                continue
+            }
+            if let expectedTarget, activity.content.state.countdownTargetDate != expectedTarget {
+                continue
+            }
+            endedActivityIDs.append(activity.id)
+            await activity.end(nil, dismissalPolicy: .immediate)
+        }
+        return ActivityEndingReport(endedActivityIDs: endedActivityIDs, activityCount: activities.count)
+    }
+
+    @concurrent
+    private static func synchronizeExistingActivities(
+        studentID: String,
+        contentState: CourseReminderActivityAttributes.ContentState,
+        staleDate: Date,
+        shouldContinue: @MainActor @Sendable () -> Bool
+    ) async -> ExistingActivitySyncReport {
+        let activities = Activity<CourseReminderActivityAttributes>.activities
+        let activeActivity = activities.first { $0.attributes.studentID == studentID }
+        let activeSnapshot = activeActivity.map {
+            ExistingActivitySnapshot(id: $0.id, contentState: $0.content.state)
+        }
+        var endedActivityIDs: [String] = []
+
+        for activity in activities where activity.id != activeSnapshot?.id {
+            guard !Task.isCancelled, await shouldContinue() else {
+                return ExistingActivitySyncReport(
+                    result: .cancelled,
+                    activeSnapshot: activeSnapshot,
+                    endedActivityIDs: endedActivityIDs,
+                    activityCount: activities.count
+                )
+            }
+            endedActivityIDs.append(activity.id)
+            await activity.end(nil, dismissalPolicy: .immediate)
+        }
+
+        guard !Task.isCancelled, await shouldContinue() else {
+            return ExistingActivitySyncReport(
+                result: .cancelled,
+                activeSnapshot: activeSnapshot,
+                endedActivityIDs: endedActivityIDs,
+                activityCount: activities.count
+            )
+        }
+        guard let activeActivity else {
+            return ExistingActivitySyncReport(
+                result: .needsRequest,
+                activeSnapshot: nil,
+                endedActivityIDs: endedActivityIDs,
+                activityCount: activities.count
+            )
+        }
+        guard activeActivity.content.state != contentState else {
+            return ExistingActivitySyncReport(
+                result: .unchanged,
+                activeSnapshot: activeSnapshot,
+                endedActivityIDs: endedActivityIDs,
+                activityCount: activities.count
+            )
+        }
+        let content = ActivityContent(state: contentState, staleDate: staleDate)
+        await activeActivity.update(content)
+        return ExistingActivitySyncReport(
+            result: .updated,
+            activeSnapshot: activeSnapshot,
+            endedActivityIDs: endedActivityIDs,
+            activityCount: activities.count
+        )
     }
 
     private static func describe(_ state: CourseReminderActivityAttributes.ContentState) -> String {

@@ -289,11 +289,11 @@ PLAIN_LIST_EXCEPTIONS = {"Gallery/GalleryMessagesView.swift"}
 
 @dataclass(frozen=True)
 class ComponentContract:
-    """按页面角色和公共组件用法自动发现同类 UI 的复用契约。"""
+    """按稳定的 View 声明名和公共组件用法发现同类 UI 契约。"""
 
     name: str
     requirements: tuple[tuple[str, str], ...]
-    path_globs: tuple[str, ...] = ()
+    view_names: tuple[str, ...] = ()
     discovery_tokens: tuple[str, ...] = ()
     any_tokens: tuple[str, ...] = ()
 
@@ -310,6 +310,7 @@ COMPONENT_GROUPS = (
 COMPONENT_CONTRACTS = (
     ComponentContract(
         name="详情页",
+        view_names=("CourseDetailView", "PaperDetailView", "GalleryPosterDetailView"),
         discovery_tokens=("AppDetailShareLink", "AppDetailCircleButton"),
         requirements=(
             ("AppDetailShareLink", "必须使用公共分享入口"),
@@ -318,7 +319,11 @@ COMPONENT_CONTRACTS = (
     ),
     ComponentContract(
         name="评论区",
-        path_globs=("**/*CommentViews.swift",),
+        view_names=(
+            "CourseCommentsSection", "CourseCommentRow", "CourseCommentImagesView",
+            "GalleryPosterCommentsSection", "GalleryCommentRow",
+            "PaperCommentsSection", "PaperCommentRow",
+        ),
         requirements=tuple((token, "必须使用评论公共结构") for token in (
             "AppDesignSystem.Comment.", "appCommentSectionStyle",
             "AppCommentThread", "AppCommentBubble", "AppCommentIdentityHeader",
@@ -327,24 +332,25 @@ COMPONENT_CONTRACTS = (
     ),
     ComponentContract(
         name="评论编辑页",
-        path_globs=("Course/*CommentViews.swift", "Gallery/*CommentViews.swift", "Paper/*ComposerViews.swift"),
+        view_names=("CourseCommentComposerSheet", "GalleryCommentComposerSheet", "PaperCommentComposerSheet"),
         discovery_tokens=("AppCommentComposerContentSection",),
         requirements=(("AppCommentComposerContentSection", "必须使用公共内容段"), ("AppComposerToolbar", "必须使用公共工具栏")),
     ),
     ComponentContract(
         name="排序搜索页",
-        path_globs=("**/*SearchView.swift", "**/*SearchViews.swift"),
+        view_names=("GallerySearchView", "PaperSearchView"),
         discovery_tokens=("AppOrderedSearchBar", "AppSearchBarContainer"),
         requirements=(("AppOrderedSearchBar", "必须使用公共搜索栏"), ("AppSearchBarContainer", "必须使用公共顶部容器")),
     ),
     ComponentContract(
         name="顶部切换页",
+        view_names=("ScheduleRootView", "ScheduleSectionTabs"),
         discovery_tokens=("AppTopSegmentedPicker",),
         requirements=(("AppTopSegmentedPicker", "必须使用公共顶部切换控件"), ("AppDesignSystem.Spacing.none", "必须使用统一顶部安全区布局")),
     ),
     ComponentContract(
         name="设置导航入口",
-        path_globs=("**/Mine/*RootView.swift", "**/Settings/*RootView.swift"),
+        view_names=("MineRootView", "UserProfileRootView", "SettingsRootView", "SettingsIndexPage", "SettingsIndexCard"),
         requirements=(("AppNavigationRowLabel", "必须使用公共图标标题行"),),
     ),
     ComponentContract(
@@ -354,40 +360,43 @@ COMPONENT_CONTRACTS = (
     ),
     ComponentContract(
         name="信息流卡片",
-        path_globs=("**/*FeedViews.swift", "**/*SummaryViews.swift"),
+        view_names=("GalleryFeedView", "GalleryPosterCard", "PaperSummaryCard"),
         requirements=(("appFeedCardStyle", "必须使用公共 Feed 样式"),),
     ),
     ComponentContract(
         name="首屏状态页",
-        path_globs=(
-            "**/Course/*RootView.swift", "**/Gallery/*MessagesView.swift",
-            "**/Mine/*RootView.swift", "**/Score/*RootView.swift", "**/Paper/*RootView.swift", "**/Paper/*SearchViews.swift",
+        view_names=(
+            "CourseRootView", "CoursePageContent", "GalleryMessagesView",
+            "MineRootView", "UserProfileRootView", "MineUserListView", "MinePosterListView",
+            "ScoreRootView", "ScoreListPage", "TrustedTranscriptPage",
+            "PaperRootView", "PaperSearchView",
         ),
         any_tokens=("AppLoadingState", "AppInlineLoadingState"),
         requirements=(("AppFailureState", "必须使用公共失败状态"),),
     ),
     ComponentContract(
         name="滚动信息流",
-        path_globs=("**/Gallery/*FeedViews.swift", "**/Paper/*RootView.swift", "**/Paper/*SearchViews.swift"),
+        view_names=("GalleryFeedView", "PaperRootView", "PaperSearchView"),
         requirements=(("AppScrollStateContainer", "必须使用公共滚动状态容器"),),
     ),
     ComponentContract(
         name="比例数据页",
-        path_globs=("**/Course/*RootView.swift", "**/Score/*RootView.swift"),
+        view_names=("CourseRootView", "CoursePageContent", "CourseListRow", "ScoreRootView", "ScoreListPage", "ScoreListRowCard"),
         requirements=(("AppFixedColumnRow", "必须使用公共比例数据行"),),
     ),
     ComponentContract(
         name="验证码页面",
-        path_globs=("**/Schedule/*RootView.swift", "**/Score/*RootView.swift", "**/Settings/*ScheduleViews.swift"),
+        view_names=("ScheduleRootView", "ScoreListPage", "TrustedTranscriptPage", "CalendarSettingsPage"),
         requirements=(("AppSMSVerificationSheet", "必须使用公共验证码面板"),),
     ),
     ComponentContract(
         name="标签页面",
-        path_globs=("**/Gallery/*FeedViews.swift", "**/Gallery/*PosterDetailView.swift", "**/Gallery/*ComposerView.swift"),
+        view_names=("GalleryFeedView", "GalleryPosterCard", "GalleryPosterDetailView", "GalleryComposerView"),
         requirements=(("AppTagChip", "必须使用公共标签组件"),),
     ),
     ComponentContract(
         name="课表网格",
+        view_names=("CourseScheduleCalendarView",),
         discovery_tokens=("orderedBackgroundLayers",),
         requirements=(
             ("orderedBackgroundLayers", "叠加课程必须按中心位置统一排序"),
@@ -399,6 +408,7 @@ COMPONENT_CONTRACTS = (
     ),
     ComponentContract(
         name="日程根页",
+        view_names=("ScheduleRootView",),
         discovery_tokens=("ScheduleSectionTabs",),
         requirements=((".safeAreaInset(edge: .bottom, spacing: AppDesignSystem.Spacing.none)", "内容必须使用统一的底部安全区间隙"),),
     ),
@@ -420,27 +430,45 @@ def syntax_index() -> dict[str, dict]:
     return json.loads(result.stdout)
 
 
-def ast_has_marker(facts: dict, marker: str) -> bool:
+def ast_has_marker(facts: dict, marker: str, scope: list[str] | None = None) -> bool:
     normalized = re.sub(r"\s+", " ", marker).strip()
+    in_scope = lambda item: scope is None or item.get("scope") == scope
     if normalized.startswith("struct "):
         name = normalized.removeprefix("struct ").strip()
-        return any(declaration["kind"] == "struct" and declaration["name"] == name for declaration in facts["declarations"])
+        return any(
+            declaration["kind"] == "struct"
+            and declaration["name"] == name
+            and (scope is None or declaration["scope"] + [declaration["name"]] == scope)
+            for declaration in facts["declarations"]
+        )
 
     if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", normalized):
         return any(
             declaration["name"] == normalized
+            and in_scope({"scope": declaration["scope"] + [declaration["name"]]})
             for declaration in facts["declarations"]
         ) or any(
-            call["value"] == normalized or call["value"].endswith("." + normalized)
+            (
+                call["value"] == normalized
+                or call["value"].endswith("." + normalized)
+                or call["value"].startswith(normalized + ".")
+            )
+            and in_scope(call)
             for call in facts["calls"]
         ) or any(
-            member["value"] == normalized or member["value"].endswith("." + normalized)
+            (
+                member["value"] == normalized
+                or member["value"].endswith("." + normalized)
+                or member["value"].startswith(normalized + ".")
+            )
+            and in_scope(member)
             for member in facts["members"]
         ) or any(
             re.search(
                 rf"(?<![A-Za-z0-9_$]){re.escape(normalized)}(?![A-Za-z0-9_$])",
                 binding["value"].split("=", 1)[0],
             )
+            and in_scope(binding)
             for binding in facts["bindings"]
         )
 
@@ -454,8 +482,11 @@ def ast_has_marker(facts: dict, marker: str) -> bool:
     )
     if any(
         any(
-            expected == re.sub(r"\s+", " ", item["value"]).strip()
-            or expected in re.sub(r"\s+", " ", item["value"]).strip()
+            (
+                expected == re.sub(r"\s+", " ", item["value"]).strip()
+                or expected in re.sub(r"\s+", " ", item["value"]).strip()
+            )
+            and in_scope(item)
             for expected in variants
         )
         for collection in collections
@@ -463,9 +494,51 @@ def ast_has_marker(facts: dict, marker: str) -> bool:
     ):
         return True
 
-    if any(normalized in segment for segment in facts["stringSegments"]):
+    if any(normalized in segment["value"] and in_scope(segment) for segment in facts["stringSegments"]):
         return True
     return False
+
+
+def view_scopes(facts: dict) -> list[list[str]]:
+    return [
+        declaration["scope"] + [declaration["name"]]
+        for declaration in facts["declarations"]
+        if any(inherited.rsplit(".", 1)[-1] == "View" for inherited in declaration["inheritedTypes"])
+    ]
+
+
+def view_entries(syntax: dict[str, dict], view_name: str) -> list[tuple[Path, dict, list[str]]]:
+    return [
+        (Path(path), facts, scope)
+        for path, facts in syntax.items()
+        for scope in view_scopes(facts)
+        if scope[-1] == view_name
+    ]
+
+
+def type_entries(syntax: dict[str, dict], type_name: str) -> list[tuple[Path, dict, list[str]]]:
+    return [
+        (Path(path), facts, declaration["scope"] + [declaration["name"]])
+        for path, facts in syntax.items()
+        for declaration in facts["declarations"]
+        if declaration["name"] == type_name
+        and declaration["kind"] in {"struct", "class", "actor", "extension"}
+    ]
+
+
+def view_or_child_has_marker(syntax: dict[str, dict], facts: dict, scope: list[str], marker: str) -> bool:
+    if ast_has_marker(facts, marker, scope):
+        return True
+    child_names = {
+        call["value"].split(".")[-1]
+        for call in facts["calls"]
+        if call["scope"] == scope
+    }
+    return any(
+        ast_has_marker(child_facts, marker, child_scope)
+        for child_name in child_names
+        for _, child_facts, child_scope in view_entries(syntax, child_name)
+    )
 
 
 def ast_marker_boundary_findings() -> list[str]:
@@ -481,7 +554,7 @@ def ast_marker_boundary_findings() -> list[str]:
         "controlFlow": [],
         "typeNames": [],
         "identifiers": ["AppFailureState", "Text"],
-        "stringSegments": ["课程暂未发布说明"],
+        "stringSegments": [{"value": "课程暂未发布说明", "scope": ["SampleView"]}],
     }
     findings = []
     if not ast_has_marker(facts, "AppFailureState"):
@@ -492,6 +565,19 @@ def ast_marker_boundary_findings() -> list[str]:
         findings.append("UI 契约规则边界自检失败：调用文案联合识别")
     if ast_has_marker(facts, 'Text("课程未发布说明")'):
         findings.append("UI 契约规则边界自检失败：字符串片段精确匹配")
+    unrelated_scope_facts = {
+        **facts,
+        "calls": [{"value": "AppFailureState", "scope": ["OtherView"]}],
+        "stringSegments": [{"value": "课程暂未发布说明", "scope": ["OtherView"]}],
+    }
+    if ast_has_marker(unrelated_scope_facts, "AppFailureState", ["SampleView"]):
+        findings.append("UI 契约规则边界自检失败：组件调用严格遵循当前 View 作用域")
+    qualified_facts = {
+        **facts,
+        "calls": [{"value": "AppDateText.relativeText", "scope": ["SampleView"]}],
+    }
+    if not ast_has_marker(qualified_facts, "AppDateText", ["SampleView"]):
+        findings.append("UI 契约规则边界自检失败：模块限定调用的根类型识别")
 
     scattered_facts = {
         "declarations": [],
@@ -503,7 +589,7 @@ def ast_marker_boundary_findings() -> list[str]:
         "controlFlow": [],
         "typeNames": [],
         "identifiers": ["AppFailureState", "Text"],
-        "stringSegments": ["课程暂未发布说明"],
+        "stringSegments": [{"value": "课程暂未发布说明", "scope": ["SampleView"]}],
     }
     if ast_has_marker(scattered_facts, "AppFailureState"):
         findings.append("UI 契约规则边界自检失败：分散标识符被识别为组件契约")
@@ -513,11 +599,65 @@ def ast_marker_boundary_findings() -> list[str]:
         **scattered_facts,
         "calls": [{"value": "Text", "scope": ["SampleView"]}],
         "invocations": [{"value": 'Text("AppFailureState")', "scope": ["SampleView"]}],
-        "stringSegments": ["AppFailureState"],
+        "stringSegments": [{"value": "AppFailureState", "scope": ["SampleView"]}],
     }
     if ast_has_marker(literal_only_facts, "AppFailureState"):
         findings.append("UI 契约规则边界自检失败：源码字面量被识别为组件调用")
+    control = {"name": "Toggle", "invocation": 'Toggle("sample", isOn: $value)', "scope": ["SampleView"]}
+    attached_modifier = {
+        "name": "appSelectionFeedback",
+        "base": 'Toggle("sample", isOn: $value)',
+        "scope": ["SampleView"],
+    }
+    unrelated_modifier = {
+        **attached_modifier,
+        "base": 'Button("sample") {}',
+        "scope": ["OtherView"],
+    }
+    if not selection_control_has_feedback(control, [attached_modifier]):
+        findings.append("UI 契约规则边界自检失败：控件上的触感修饰器识别")
+    if selection_control_has_feedback(control, [unrelated_modifier]):
+        findings.append("UI 契约规则边界自检失败：控件与触感修饰器保持同一表达式")
+
+    parent_facts = {
+        "declarations": [{"kind": "struct", "name": "ParentView", "scope": [], "inheritedTypes": ["View"]}],
+        "calls": [{"value": "ChildView", "scope": ["ParentView"]}],
+        "invocations": [],
+        "members": [],
+        "expressions": [],
+        "bindings": [],
+        "controlFlow": [],
+        "typeNames": [],
+        "scopedIdentifiers": [],
+        "stringSegments": [],
+    }
+    child_facts = {
+        "declarations": [{"kind": "struct", "name": "ChildView", "scope": [], "inheritedTypes": ["View"]}],
+        "calls": [{"value": "appSelectionFeedback", "scope": ["ChildView"]}],
+        "invocations": [],
+        "members": [],
+        "expressions": [],
+        "bindings": [],
+        "controlFlow": [],
+        "typeNames": [],
+        "scopedIdentifiers": [],
+        "stringSegments": [],
+    }
+    delegated_syntax = {"moved/Parent.swift": parent_facts, "shared/Child.swift": child_facts}
+    if not view_or_child_has_marker(delegated_syntax, parent_facts, ["ParentView"], "appSelectionFeedback"):
+        findings.append("UI 契约规则边界自检失败：直接子 View 的公共触感调用识别")
     return findings
+
+
+def selection_control_has_feedback(control: dict, modifiers: list[dict]) -> bool:
+    prefix = re.compile(rf"^(?:SwiftUI\.)?{re.escape(control['name'])}\s*\(")
+    return any(
+        modifier["name"] == "appSelectionFeedback"
+        and modifier["scope"] == control["scope"]
+        and prefix.search(modifier["base"].lstrip())
+        and control["invocation"] in modifier["base"]
+        for modifier in modifiers
+    )
 
 
 def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> None:
@@ -541,24 +681,41 @@ def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> Non
                 errors.append(f"公共组件组「{group}」缺少 {symbol}")
 
     for contract in COMPONENT_CONTRACTS:
-        members = set()
-        for pattern in contract.path_globs:
-            members.update(SOURCE_ROOT.glob(pattern))
+        members: dict[Path, list[list[str]]] = {}
+        for view_name in contract.view_names:
+            entries = view_entries(syntax, view_name)
+            if not entries:
+                errors.append(f"{contract.name}: 必需的 View 声明缺失：{view_name}")
+            for path, _, scope in entries:
+                members.setdefault(path, []).append(scope)
         for path, source in code_sources.items():
-            if (
-                contract.discovery_tokens
-                and is_view_source(path, source)
-                and path.parent != DESIGN_SYSTEM.parent
-                and any(ast_has_marker(syntax[str(path)], token) for token in contract.discovery_tokens)
-            ):
-                members.add(path)
-        for path in sorted(path for path in members if path.is_file()):
+            if not contract.discovery_tokens or path.parent == DESIGN_SYSTEM.parent:
+                continue
+            facts = syntax[str(path)]
+            discovered_scopes = [
+                scope
+                for scope in view_scopes(facts)
+                if any(ast_has_marker(facts, token, scope) for token in contract.discovery_tokens)
+            ]
+            if discovered_scopes:
+                members.setdefault(path, []).extend(discovered_scopes)
+        for path, candidate_scopes in sorted(members.items()):
+            if not path.is_file():
+                continue
             facts = syntax[str(path)]
             relative = path.relative_to(ROOT)
-            if contract.any_tokens and not any(ast_has_marker(facts, token) for token in contract.any_tokens):
+            scopes = list({tuple(scope): scope for scope in candidate_scopes}.values())
+            if not scopes:
+                errors.append(f"{relative}: {contract.name}契约没有对应的 SwiftUI View 声明")
+                continue
+            if contract.any_tokens and not any(
+                view_or_child_has_marker(syntax, facts, scope, token)
+                for token in contract.any_tokens
+                for scope in scopes
+            ):
                 errors.append(f"{relative}: {contract.name}缺少首屏状态公共组件")
             for token, message in contract.requirements:
-                if not ast_has_marker(facts, token):
+                if not any(view_or_child_has_marker(syntax, facts, scope, token) for scope in scopes):
                     errors.append(f"{relative}: {contract.name}{message}（缺少 {token}）")
 
     forbidden_duplicate_wrappers = (
@@ -582,18 +739,24 @@ def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> Non
 
     # 页面级公共规则：只按语义模式发现，不按业务文件名列白名单。
     for path, source in code_sources.items():
-        if not is_view_source(path, source):
-            continue
-        if re.search(r"\b(List|Form|Section)\b", source) and "ContentUnavailableView" in syntax[str(path)]["identifiers"]:
-            identifiers = syntax[str(path)]["identifiers"]
-            if "AppFailureState" not in identifiers and "AppEmptyState" not in identifiers:
-                errors.append(f"{path.relative_to(ROOT)}: 页面状态必须使用公共空态/失败态组件")
-        identifiers = syntax[str(path)]["identifiers"]
-        if re.search(r"\b(?:Gallery|Paper|Course|Mine|Settings)\b", str(path)) and any(
-            identifier.lower() == "avatar" for identifier in identifiers
-        ):
-            if "AppAvatarView" not in identifiers and "AppAvatarComponents.swift" not in str(path):
-                errors.append(f"{path.relative_to(ROOT)}: 头像页面必须使用 AppAvatarView")
+        facts = syntax[str(path)]
+        for scope in view_scopes(facts):
+            scoped_identifiers = {
+                item["value"]
+                for item in facts["scopedIdentifiers"]
+                if item["scope"] == scope
+            }
+            if scoped_identifiers & {"List", "Form", "Section"} and "ContentUnavailableView" in scoped_identifiers:
+                if not any(
+                    view_or_child_has_marker(syntax, facts, scope, marker)
+                    for marker in ("AppFailureState", "AppEmptyState")
+                ):
+                    errors.append(f"{path.relative_to(ROOT)}: {'.'.join(scope)} 页面状态必须使用公共空态/失败态组件")
+            if re.search(r"\b(?:Gallery|Paper|Course|Mine|Settings)\b", str(path)) and any(
+                identifier.lower() == "avatar" for identifier in scoped_identifiers
+            ):
+                if not view_or_child_has_marker(syntax, facts, scope, "AppAvatarView") and "AppAvatarComponents.swift" not in str(path):
+                    errors.append(f"{path.relative_to(ROOT)}: {'.'.join(scope)} 头像页面必须使用 AppAvatarView")
 
     # 列表/表单内的图标按位置审计：状态、右侧导航和交互控件可保留，
     # 其它左侧图标必须先进入公共组件契约。
@@ -631,7 +794,7 @@ def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> Non
     errors.extend(f"页面不得直接实现空态/失败态：{item}" for item in direct_states)
 
 
-def check_haptic_consistency(errors: list[str]) -> None:
+def check_haptic_consistency(errors: list[str], syntax: dict[str, dict]) -> None:
     sources = {path: mask_literals_and_comments(path.read_text(encoding="utf-8")) for path in swift_files()}
     required = (
         ("Shared/DesignSystem/AppHapticFeedback.swift", "func appSelectionFeedback"),
@@ -650,25 +813,35 @@ def check_haptic_consistency(errors: list[str]) -> None:
         if marker not in sources.get(path, ""):
             errors.append(f"{path.relative_to(ROOT)}: 缺少系统触感入口 {marker}")
 
-    selection_pattern = re.compile(
-        r"\bPicker\s*\(|\bToggle\s*\(|checkmark\.circle\.fill|checkmark\.square\.fill|"
-        r"toggleTag\(|selectedTags|setRating\("
-    )
+    interactive_markers = {
+        "toggleTag", "selectedTags", "setRating", "selectedValues", "sortIndex",
+        "sortOrder", "onToggleDone",
+    }
     for path, source in sources.items():
-        if selection_pattern.search(source) and "appSelectionFeedback" not in source:
-            errors.append(f"{path.relative_to(ROOT)}: 选择控件缺少公共触感修饰器")
+        facts = syntax[str(path)]
+        for control in facts["selectionControls"]:
+            if not selection_control_has_feedback(control, facts["feedbackModifiers"]):
+                errors.append(
+                    f"{path.relative_to(ROOT)}: {control['name']} 控件必须由自身表达式接入 appSelectionFeedback"
+                )
 
-        lines = source.splitlines()
-        for index, line in enumerate(lines):
-            if not re.search(r"\b(?:Picker|Toggle)\s*\(", line):
+        for scope in view_scopes(facts):
+            identifiers = {
+                item["value"]
+                for item in facts["scopedIdentifiers"]
+                if item["scope"] == scope
+            }
+            if not identifiers & interactive_markers:
                 continue
-            end = min(index + 28, len(lines))
-            for candidate in range(index + 1, len(lines)):
-                if re.search(r"\b(?:Picker|Toggle)\s*\(", lines[candidate]):
-                    end = candidate
-                    break
-            if "appSelectionFeedback" not in "\n".join(lines[index:end]):
-                errors.append(f"{path.relative_to(ROOT)}:{index + 1}: 原生选择控件未接入公共触感")
+            if not view_or_child_has_marker(syntax, facts, scope, "appSelectionFeedback"):
+                errors.append(f"{path.relative_to(ROOT)}: {'.'.join(scope)} 选择交互缺少公共触感修饰器")
+
+    multiselection_entries = view_entries(syntax, "AppMultiSelectionList")
+    if not multiselection_entries:
+        errors.append("AppMultiSelectionList: 公共多选列表 View 声明缺失")
+    for path, facts, scope in multiselection_entries:
+        if not ast_has_marker(facts, "appSelectionFeedback", scope):
+            errors.append(f"{path.relative_to(ROOT)}: AppMultiSelectionList 必须为选择变化提供公共触感")
 
     button_components = (
         ("Shared/DesignSystem/AppLayoutComponents.swift", "struct AppFloatingActionButton: View"),
@@ -714,7 +887,7 @@ def _swift_block(source: str, start: int) -> str:
     return source[start:end]
 
 
-def check_error_report_coverage(errors: list[str]) -> None:
+def check_error_report_coverage(errors: list[str], syntax: dict[str, dict]) -> None:
     schedule_notice_presenters = 0
     for path in swift_files():
         source = mask_literals_and_comments(path.read_text(encoding="utf-8"))
@@ -734,17 +907,20 @@ def check_error_report_coverage(errors: list[str]) -> None:
                     )
                 position = start + max(len(block), 1)
 
-        if not any(word in path.name for word in ("View", "Screen")):
-            continue
-        lines = source.splitlines()
-        for index, line in enumerate(lines):
-            if not re.search(r"(?:case|if case|else if case) let \.failed\(message\)", line):
-                continue
-            window = "\n".join(lines[index:index + 35])
-            if "ContentUnavailableView" not in window:
-                continue
-            if "DiagnosticRecoveryActions" not in window and "PaperEmptyState" not in window:
-                errors.append(f"{path.relative_to(ROOT)}:{index + 1}: 失败态缺少错误报告入口")
+        facts = syntax[str(path)]
+        for scope in view_scopes(facts):
+            failed_states = [
+                flow["value"]
+                for flow in facts["controlFlow"]
+                if flow["scope"] == scope
+                and re.search(r"(?:case|if case|else if case) let \.failed\(message\)", flow["value"])
+                and "ContentUnavailableView" in flow["value"]
+            ]
+            if any(
+                "DiagnosticRecoveryActions" not in flow and "PaperEmptyState" not in flow
+                for flow in failed_states
+            ):
+                errors.append(f"{path.relative_to(ROOT)}: {'.'.join(scope)} 失败态缺少错误报告入口")
 
     if schedule_notice_presenters != 1:
         errors.append(f"日程共享错误展示器数量异常：引用数 {schedule_notice_presenters}")
@@ -885,22 +1061,21 @@ def is_reviewed_fixed_geometry(path: Path, source: str, pattern: re.Pattern[str]
 
 
 def check_refresh_status_contract(errors: list[str], syntax: dict[str, dict]) -> None:
-    status_component_path = DESIGN_SYSTEM.parent / "AppRefreshStatusComponents.swift"
-    status_facts = syntax[str(status_component_path)]
-    refresh_pages = (
-        SOURCE_ROOT / "Score/ScoreRootView.swift",
-        SOURCE_ROOT / "Schedule/ScheduleDDLViews.swift",
-        SOURCE_ROOT / "Schedule/FreeClassroomViews.swift",
-    )
-    for page_path in refresh_pages:
-        page_facts = syntax[str(page_path)]
-        if not any(call["value"] == "AppRefreshStatusRow" for call in page_facts["calls"]):
-            errors.append(f"{page_path.relative_to(ROOT)}: 刷新数据页必须使用 AppRefreshStatusRow")
-        if not any(call["value"].endswith("appGroupedListStyle") for call in page_facts["calls"]):
-            errors.append(f"{page_path.relative_to(ROOT)}: 刷新数据页必须使用统一分组列表样式")
+    refresh_pages = ("ScoreListPage", "DDLScheduleTabView", "FreeClassroomTabView")
+    for view_name in refresh_pages:
+        entries = view_entries(syntax, view_name)
+        if not entries:
+            errors.append(f"{view_name}: 刷新数据页 View 声明缺失")
+            continue
+        for path, facts, scope in entries:
+            if not ast_has_marker(facts, "AppRefreshStatusRow", scope):
+                errors.append(f"{path.relative_to(ROOT)}: {view_name} 必须使用 AppRefreshStatusRow")
+            if not ast_has_marker(facts, "appGroupedListStyle", scope):
+                errors.append(f"{path.relative_to(ROOT)}: {view_name} 必须使用统一分组列表样式")
 
-    path = SOURCE_ROOT / "Schedule/CourseScheduleTabView.swift"
-    facts = syntax[str(path)]
+    schedule_views = view_entries(syntax, "CourseScheduleTabView")
+    if not schedule_views:
+        errors.append("CourseScheduleTabView: 课表顶部行 View 声明缺失")
     header_contract = (
         "if activeSchedule.isPrimary",
         "lastUpdatedText: activeSchedule.importedAt.map",
@@ -909,44 +1084,75 @@ def check_refresh_status_contract(errors: list[str], syntax: dict[str, dict]) ->
         "ScheduleRefreshStatusContentHeightKey.self",
         "onPreferenceChange(ScheduleRefreshStatusContentHeightKey.self)",
     )
-    missing = [item for item in header_contract if not ast_has_marker(facts, item)]
-    if missing:
-        errors.append(
-            f"{path.relative_to(ROOT)}: 我的课表与分享课表必须共用顶部行组件（缺少 {', '.join(missing)}）"
+    for path, facts, scope in schedule_views:
+        missing = [item for item in header_contract if not ast_has_marker(facts, item, scope)]
+        if missing:
+            errors.append(
+                f"{path.relative_to(ROOT)}: 我的课表与分享课表必须共用顶部行组件（缺少 {', '.join(missing)}）"
+            )
+
+        status_row_calls = sum(
+            call["value"] == "AppRefreshStatusRow" and call["scope"] == scope
+            for call in facts["calls"]
         )
+        if status_row_calls != 2:
+            errors.append(f"{path.relative_to(ROOT)}: 主课表与分享课表顶部行共用 AppRefreshStatusRow")
+        if not ast_has_marker(facts, "refreshStatusContentHeight", scope) or not ast_has_marker(
+            facts, "rowProxy.size.height", scope
+        ):
+            errors.append(f"{path.relative_to(ROOT)}: 课表日历按实际更新时间行高度计算剩余空间")
 
-    if any(call["value"].endswith("frame") for call in status_facts["calls"]):
-        errors.append(f"{status_component_path.relative_to(ROOT)}: 公共更新时间行保留列表自然行高")
-    for token in ("trailingText: String?", "else if let trailingText"):
-        if not ast_has_marker(status_facts, token):
-            errors.append(f"{status_component_path.relative_to(ROOT)}: 只读课表顶部行必须复用更新时间行（缺少 {token}）")
+        height_bindings = [
+            binding["value"]
+            for binding in facts["bindings"]
+            if binding["scope"] == scope and binding["value"].startswith("calendarHeight =")
+        ]
+        if not height_bindings or any("activeSchedule" in binding for binding in height_bindings):
+            errors.append(f"{path.relative_to(ROOT)}: 两种课表变体使用同一日历高度计算")
 
-    status_row_calls = sum(call["value"] == "AppRefreshStatusRow" for call in facts["calls"])
-    if status_row_calls != 2:
-        errors.append(f"{path.relative_to(ROOT)}: 主课表与分享课表顶部行共用 AppRefreshStatusRow")
-    if not ast_has_marker(facts, "refreshStatusContentHeight") or not ast_has_marker(facts, "rowProxy.size.height"):
-        errors.append(f"{path.relative_to(ROOT)}: 课表日历按实际更新时间行高度计算剩余空间")
+    status_entries = view_entries(syntax, "AppRefreshStatusRow")
+    if not status_entries:
+        errors.append("AppRefreshStatusRow: 公共更新时间行 View 声明缺失")
+    for path, facts, scope in status_entries:
+        if any(call["value"].endswith("frame") and call["scope"] == scope for call in facts["calls"]):
+            errors.append(f"{path.relative_to(ROOT)}: 公共更新时间行保留列表自然行高")
+        for token in ("trailingText: String?", "else if let trailingText"):
+            if not ast_has_marker(facts, token, scope):
+                errors.append(f"{path.relative_to(ROOT)}: 只读课表顶部行必须复用更新时间行（缺少 {token}）")
 
-    schedule_design_path = SOURCE_ROOT / "Schedule/ScheduleDesignSystem.swift"
-    if "refreshStatusRowHeight" not in syntax[str(schedule_design_path)]["identifiers"]:
-        errors.append(f"{schedule_design_path.relative_to(ROOT)}: 列表行高派生逻辑归入课表设计系统")
-
-    height_binding = next(
-        (binding["value"] for binding in facts["bindings"] if binding["value"].startswith("calendarHeight =")),
-        "",
-    )
-    if not height_binding or "activeSchedule" in height_binding:
-        errors.append(f"{path.relative_to(ROOT)}: 两种课表变体使用同一日历高度计算")
-
-    actions_path = SOURCE_ROOT / "Schedule/CourseScheduleTabViewActions.swift"
-    actions_facts = syntax[str(actions_path)]
-    if not any(call["value"].endswith("encodeLatest") for call in actions_facts["calls"]) or not any(
-        member["value"] == "activeSchedule.courses" for member in actions_facts["members"]
+    if not any(
+        item["value"] == "refreshStatusRowHeight" and "AppDesignSystem" in item["scope"]
+        for facts in syntax.values()
+        for item in facts["scopedIdentifiers"]
     ):
-        errors.append(f"{actions_path.relative_to(ROOT)}: 分享操作必须使用当前显示课表的数据源")
+        errors.append("AppDesignSystem.Schedule: 列表行高派生逻辑归入课表设计系统")
+
+    actions_entries = type_entries(syntax, "CourseScheduleTabView")
+    actions_have_current_data = any(
+        any(
+            call["value"].endswith("encodeLatest") and call["scope"] == scope
+            for call in facts["calls"]
+        )
+        and any(
+            member["value"] == "activeSchedule.courses" and member["scope"] == scope
+            for member in facts["members"]
+        )
+        for _, facts, scope in actions_entries
+    )
+    if not actions_entries or not actions_have_current_data:
+        errors.append("CourseScheduleTabView: 分享操作必须使用当前显示课表的数据源")
 
 
 def main() -> int:
+    if sys.argv[1:] == ["--self-test"]:
+        findings = ast_marker_boundary_findings()
+        if findings:
+            print("[失败] UI 一致性检查器自测：", file=sys.stderr)
+            print("\n".join(findings), file=sys.stderr)
+            return 1
+        print("[通过] UI 一致性检查器自测")
+        return 0
+
     if not DESIGN_SYSTEM.is_file():
         print(f"[失败] 缺少设计系统入口：{DESIGN_SYSTEM.relative_to(ROOT)}", file=sys.stderr)
         return 1
@@ -960,8 +1166,8 @@ def main() -> int:
     errors.extend(ast_marker_boundary_findings())
     check_component_contracts(errors, syntax)
     check_refresh_status_contract(errors, syntax)
-    check_haptic_consistency(errors)
-    check_error_report_coverage(errors)
+    check_haptic_consistency(errors, syntax)
+    check_error_report_coverage(errors, syntax)
     check_fonts(errors)
     check_design_token_boundaries(errors)
     check_page_theme_consistency(errors)

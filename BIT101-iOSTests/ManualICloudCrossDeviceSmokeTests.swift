@@ -7,8 +7,7 @@ import XCTest
 ///
 /// The dedicated script compiles this file with `ICLOUD_CROSS_DEVICE_SMOKE`.
 /// The app target and Release builds exclude these tests.
-@MainActor
-final class ICloudCrossDeviceSmokeTests: XCTestCase {
+nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     private enum Stage: String, Codable {
         case preparing
         case phoneUploaded
@@ -24,9 +23,10 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
         var phoneScoreUpdatedAt: Date?
     }
 
-    private let cloud = NSUbiquitousKeyValueStore.default
-    private let manager = ExperimentalPreferenceCloudSync.shared
+    @MainActor private var cloud: NSUbiquitousKeyValueStore { .default }
+    @MainActor private var manager: ExperimentalPreferenceCloudSync { .shared }
 
+    @MainActor
     func testPhoneUpload() async {
         let account = ScheduleCacheStore.currentAccountIdentifier()
         guard account != "guest", account != "__default__" else {
@@ -72,6 +72,7 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
         print("ICLOUD_SMOKE_PHONE_UPLOADED token=\(coordination.token) scores=\(scoreDescription)")
     }
 
+    @MainActor
     func testMacReceiveAndRestore() async throws {
         let coordination = try await requireCoordination(stage: .phoneUploaded)
         let currentStudentID = LoginStorage.shared.currentStudentID
@@ -122,6 +123,7 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
         print("ICLOUD_SMOKE_MAC_RECEIVED_AND_RESTORED token=\(coordination.token)")
     }
 
+    @MainActor
     func testPhoneVerifyAndCleanup() async throws {
         let coordination = try await requireCoordination(stage: .macRestored)
         manager.setEnabled(true)
@@ -146,6 +148,7 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
         print("ICLOUD_SMOKE_PHONE_VERIFIED token=\(coordination.token) scores=\(scoreDescription)")
     }
 
+    @MainActor
     private func scoreSnapshotMatches(
         _ envelope: ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload>?,
         expectedCount: Int?,
@@ -156,6 +159,7 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
             && envelope?.payload.updatedAt == expectedUpdatedAt
     }
 
+    @MainActor
     private func localScoreSnapshotMatches(expectedCount: Int?, expectedUpdatedAt: Date?) -> Bool {
         guard let expectedCount else { return true }
         return ScoreCacheStore.loadRows()?.count == expectedCount
@@ -163,6 +167,7 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
     }
 
     /// 脚本异常退出后，测试在当前账号存在协调状态时恢复实验开关并清除协调标记。
+    @MainActor
     func testCleanup() async {
         let account = ScheduleCacheStore.currentAccountIdentifier()
         guard let coordination = loadCoordination(account: account) else { return }
@@ -171,6 +176,7 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
         removeCoordination(account: account)
     }
 
+    @MainActor
     private func requireCoordination(stage: Stage) async throws -> Coordination {
         var result: Coordination?
         let received = await waitUntil {
@@ -190,6 +196,7 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
         return try XCTUnwrap(result)
     }
 
+    @MainActor
     private func waitUntil(
         timeout: TimeInterval = 30,
         condition: @escaping @MainActor () -> Bool
@@ -203,6 +210,7 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
         return false
     }
 
+    @MainActor
     private func remoteEnvelope<Payload: Codable>(
         account: String,
         domain: ExperimentalPreferenceSyncDomain
@@ -212,21 +220,25 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
         return try? JSONDecoder().decode(ExperimentalPreferenceSyncEnvelope<Payload>.self, from: data)
     }
 
+    @MainActor
     private func coordinationKey(account: String) -> String {
         "manual.preference-cloud-sync.smoke.v1.\(account)"
     }
 
+    @MainActor
     private func save(_ coordination: Coordination) {
         let data = try? JSONEncoder().encode(coordination)
         cloud.set(data, forKey: coordinationKey(account: coordination.account))
         cloud.synchronize()
     }
 
+    @MainActor
     private func loadCoordination(account: String) -> Coordination? {
         guard let data = cloud.data(forKey: coordinationKey(account: account)) else { return nil }
         return try? JSONDecoder().decode(Coordination.self, from: data)
     }
 
+    @MainActor
     private func loadCoordination(stage: Stage) -> Coordination? {
         let prefix = "manual.preference-cloud-sync.smoke.v1."
         var matches: [Coordination] = []
@@ -241,6 +253,7 @@ final class ICloudCrossDeviceSmokeTests: XCTestCase {
         return matches[0]
     }
 
+    @MainActor
     private func removeCoordination(account: String) {
         cloud.removeObject(forKey: coordinationKey(account: account))
         cloud.synchronize()

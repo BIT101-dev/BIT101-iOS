@@ -46,7 +46,7 @@ run_group() {
     echo "[通过] $name"
   else
     echo "[失败] $name" >&2
-    exit 1
+    return 1
   fi
 }
 
@@ -89,6 +89,12 @@ docs_check() {
 ui_consistency() { "$ROOT_DIR/Scripts/check-ui-consistency.sh"; }
 explanatory_text_report() { "$ROOT_DIR/Scripts/report-explanatory-text.sh"; }
 code_quality() { "$ROOT_DIR/Scripts/check-code-quality.sh"; }
+checker_self_test() {
+  local self_test_status=0
+  python3 "$ROOT_DIR/Scripts/check-code-quality.py" --self-test || self_test_status=1
+  python3 "$ROOT_DIR/Scripts/check-ui-consistency.py" --self-test || self_test_status=1
+  return $self_test_status
+}
 artifact_hygiene() {
   python3 - "$ROOT_DIR" <<'PY'
 from pathlib import Path
@@ -135,15 +141,21 @@ print("[通过] artifact-hygiene")
 PY
 }
 
-run_group swift-parse swift_parse
-run_group shell-parse shell_parse
-run_group python-parse python_parse
-run_group worker-parse worker_parse
-run_group dependency-audit dependency_audit
-run_group git-diff git_check
-run_group docs docs_check
-run_group ui-consistency ui_consistency
-run_group code-quality code_quality
-run_group explanatory-text explanatory_text_report
-run_group artifact-hygiene artifact_hygiene
+failed_groups=()
+run_group checker-self-test checker_self_test || failed_groups+=(checker-self-test)
+run_group swift-parse swift_parse || failed_groups+=(swift-parse)
+run_group shell-parse shell_parse || failed_groups+=(shell-parse)
+run_group python-parse python_parse || failed_groups+=(python-parse)
+run_group worker-parse worker_parse || failed_groups+=(worker-parse)
+run_group dependency-audit dependency_audit || failed_groups+=(dependency-audit)
+run_group git-diff git_check || failed_groups+=(git-diff)
+run_group docs docs_check || failed_groups+=(docs)
+run_group ui-consistency ui_consistency || failed_groups+=(ui-consistency)
+run_group code-quality code_quality || failed_groups+=(code-quality)
+run_group explanatory-text explanatory_text_report || failed_groups+=(explanatory-text)
+run_group artifact-hygiene artifact_hygiene || failed_groups+=(artifact-hygiene)
+if (( ${#failed_groups[@]} > 0 )); then
+  printf '[失败汇总] %s\n' "${(j:, :)failed_groups}" >&2
+  exit 1
+fi
 echo "静态审计全部通过。"

@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CoreFoundation
 
 private nonisolated enum ScheduleJSONResponseResult<Value: Sendable>: Sendable {
     case decoded(Value)
@@ -101,35 +102,41 @@ extension ScheduleService {
         let recordKeys: Set<String> = ["rows", "items", "records", "courses", "list"]
         var candidates: [(priority: Int, depth: Int, path: String, message: String)] = []
 
+        func field(_ dictionary: [String: Any], named name: String) -> Any? {
+            guard let key = dictionary.keys.sorted().first(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) else {
+                return nil
+            }
+            return dictionary[key]
+        }
+
         func inspect(_ value: Any, path: [String]) {
             guard !Task.isCancelled else { return }
             if let dictionary = value as? [String: Any] {
-                let explicitError = (dictionary["error"] as? String)?
+                let explicitError = (field(dictionary, named: "error") as? String)?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let explicitErrorMessage = explicitError?.isEmpty == false ? explicitError : nil
                 let message = explicitErrorMessage
-                    ?? (dictionary["msg"] as? String)
-                    ?? (dictionary["message"] as? String)
+                    ?? (field(dictionary, named: "msg") as? String)
+                    ?? (field(dictionary, named: "message") as? String)
                 let trimmed = message?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 let normalizedPath = path.map { $0.lowercased() }
                 let isRecord = normalizedPath.contains(where: recordKeys.contains)
+                let isEnvelope = path.isEmpty || normalizedPath.last.map(envelopeKeys.contains) == true
                 if !trimmed.isEmpty, !isRecord {
-                    let code = normalizedBusinessCode(dictionary["code"])
-                    let success = dictionary["success"] as? Bool
+                    let code = normalizedBusinessCode(field(dictionary, named: "code"))
+                    let success = normalizedBusinessFlag(field(dictionary, named: "success"))
                     let reportsSuccess = success == true || businessMessageIndicatesSuccess(trimmed)
-                    let isEnvelope = path.isEmpty
-                        || normalizedPath.contains(where: envelopeKeys.contains)
                     let priority: Int?
                     if explicitErrorMessage != nil {
                         priority = 0
-                    } else if success == false {
+                    } else if isEnvelope, success == false {
                         priority = 1
                     } else if isEnvelope,
                               success != true,
                               businessMessageIndicatesFailure(trimmed)
                     {
                         priority = 2
-                    } else if let code, !successCodes.contains(code), !reportsSuccess {
+                    } else if isEnvelope, let code, !successCodes.contains(code), !reportsSuccess {
                         priority = 3
                     } else {
                         priority = nil
@@ -166,8 +173,9 @@ extension ScheduleService {
 
     private nonisolated static func businessMessageIndicatesFailure(_ message: String) -> Bool {
         let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let failureMarkers = ["失败", "不成功", "错误", "异常", "未发布", "尚未发布", "无效", "不可用"]
+        let failureMarkers = ["失败", "不成功", "未成功", "错误", "异常", "未发布", "尚未发布", "无效", "不可用"]
         return failureMarkers.contains(where: normalized.contains)
+            || ["failed", "failure", "error", "invalid", "unavailable"].contains(where: normalized.contains)
     }
 
     private nonisolated static func businessMessageIndicatesSuccess(_ message: String) -> Bool {
@@ -177,9 +185,19 @@ extension ScheduleService {
     }
 
     private nonisolated static func normalizedBusinessCode(_ value: Any?) -> Int? {
-        if let number = value as? NSNumber { return number.intValue }
+        if let number = value as? NSNumber {
+            guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+            let integer = number.doubleValue
+            guard integer.isFinite, integer.rounded(.towardZero) == integer else { return nil }
+            return number.intValue
+        }
         if let string = value as? String { return Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) }
         return nil
+    }
+
+    private nonisolated static func normalizedBusinessFlag(_ value: Any?) -> Bool? {
+        guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
+        return number.boolValue
     }
 
     /// 发送返回字符串正文的请求，主要用于 HTML 页和 ICS 文件。

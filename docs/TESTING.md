@@ -43,7 +43,7 @@ Mac Catalyst Release 装机使用同一脚本：
 BIT101_INSTALL_TARGET=macCatalyst Scripts/build-install-device.sh
 ```
 
-应用安装到 `~/Applications/BIT101-iOS.app` 并自动启动。
+应用安装到 `~/Applications/BIT101-iOS.app`。脚本先结束该安装路径对应的旧进程，再覆盖安装并启动新进程。
 
 ## 本地工具链
 
@@ -57,7 +57,7 @@ BIT101_INSTALL_TARGET=macCatalyst Scripts/build-install-device.sh
 Scripts/run-extended-tests.sh
 ```
 
-脚本在一次真机测试进程中编译并运行默认测试与扩展测试，详细失败日志写入 `.build/extended-automation/all-tests.log`。测试宿主使用 `BIT101_AUTOMATED_TESTING` 注入可测试的网络提示依赖，网络提示门禁仍由专门回归用例验证。真机测试开启代码覆盖率，测试数量、结果与逐 target 覆盖率按输出行数处理：不超过 1000 行时显示在 terminal，超过阈值时写入固定的 `.build/extended-automation/test-metrics.txt`。
+脚本在一次真机测试进程中编译并运行默认测试与扩展测试，Xcode 测试输出不超过 1000 行时显示在 terminal，超过阈值时覆盖 `.build/extended-automation/all-tests.log`。测试宿主使用 `BIT101_AUTOMATED_TESTING` 注入可测试的网络提示依赖，网络提示门禁仍由专门回归用例验证。真机测试开启代码覆盖率，测试数量、结果与逐 target 覆盖率同样按 1000 行阈值输出；较长指标报告覆盖 `.build/extended-automation/test-metrics.txt`。`.xcresult` 是供测试结果与覆盖率解析使用的固定结构化产物。覆盖率归档状态与测试汇总分开记录，报告保留对应归档诊断。
 需要缩短开发反馈周期时按组运行：
 
 ```sh
@@ -68,7 +68,7 @@ Scripts/run-extended-tests.sh login
 Scripts/run-extended-tests.sh extensions
 ```
 
-`extensions` 分组执行 Watch 与 Widget 共用快照、传输协议、状态解析和时间线规划的运行测试。该指标记录这些共享逻辑的运行情况；Watch 与 Widget 二进制运行情况由设备验证流程单独记录。各组日志使用固定类别文件名，指标文件随每次测试覆盖。
+`extensions` 分组执行 Watch 与 Widget 共用快照、传输协议、状态解析和时间线规划的运行测试。该指标记录这些共享逻辑的运行情况；Watch 与 Widget 二进制运行情况由设备验证流程单独记录。各组输出按 1000 行阈值送往 terminal 或固定类别日志路径，指标随每次测试覆盖。
 
 CI 使用同一入口执行 Mac Catalyst 行为测试：
 
@@ -118,7 +118,7 @@ Scripts/capture-screenshot-device.sh
 
 脚本会自动寻找可用的 iPhone 真机；设备未连接或未信任时给出提示并退出。脚本执行内容包含 Release 真机构建、安装和启动，发布归档由发布流程负责。
 
-产物路径：同一性质保持一个固定路径；构建、测试、截图和 Smoke 结果都覆盖既有路径，产物目录中每类结果保留一份。文件名格式为类别名，`latest`、设备名、时间、UUID 和序号作为额外修饰语排除；临时的 DerivedData、截图和日志在验证结束后清理。Finder 自动生成的 `.DS_Store` 属于 `.gitignore` 忽略的系统元数据，脚本处理范围外。
+产物路径：同一性质保持一个固定路径；构建、测试、截图和 Smoke 结构化结果都覆盖既有路径，产物目录中每类结果保留一份。文件名格式为类别名，`latest`、设备名、时间、UUID 和序号作为额外修饰语排除。命令输出不超过 1000 行时显示在 terminal；超过阈值时覆盖固定类别日志并在 terminal 显示路径。`.xcresult`、Smoke JSON、截图等结构化或二进制结果按既有路径保存。Finder 自动生成的 `.DS_Store` 属于 `.gitignore` 忽略的系统元数据，脚本处理范围外。
 
 ### Watch 与 iOS 构建说明
 
@@ -161,7 +161,7 @@ Smoke 报告记录 `executedProbes`、`skippedProbes` 和 `schoolSMSCoverage`。
 命令行最多等待 30 分钟读取完整报告，覆盖全量范围的串行探针时长。
 依赖详情探针的列表返回空集时，详情记录为带原因的跳过项；报告的 `passed` 表示服务健康，`coverageComplete` 表示依赖探针覆盖完整度。部分覆盖由命令行以状态码 2 标记。图片与可信成绩单页面要求 ImageIO 图像解码成功。外部网页检查最终 host 和 HTML 文档标记，App Store Lookup 校验 BIT101 身份，紧急更新配置校验 schema 版本。
 
-网络 Smoke 报告写入 `.build/release-network-smoke/report/release-network-smoke.json`。
+网络 Smoke 汇总与失败详情不超过 1000 行时直接显示在 terminal，较长输出覆盖 `.build/release-network-smoke/report/network-smoke-summary.txt`。机器可读的 Smoke 报告固定写入 `.build/release-network-smoke/report/release-network-smoke.json`，供命令行判定与后续审查。
 可信成绩单归入学校链路；当前冒烟范围为 `all`、`bit101`、`school`、`transcript`、`schedule` 和 `ddl`。局部开发使用对应范围，开发结束后运行全量 Smoke。例如，开发 DDL 链路时使用 `ddl` 范围：
 
 ```sh
@@ -195,6 +195,7 @@ Scripts/run_icloud_cross_device_smoke.sh
 
 测试会让手机上传成绩缓存，Mac 收到后由手机确认。正常完成或脚本异常退出时都会恢复实验开关并清除协调数据。
 Mac Catalyst 测试会依据协调状态加载手机账号上下文，流程结束后恢复 Mac 本地登录状态。
+各阶段的 Xcode 输出实时显示；超过 1000 行时后续内容覆盖对应固定日志路径并显示路径。
 
 ## App Store 更新提醒真机测试
 
@@ -266,13 +267,13 @@ Scripts/run-extended-tests.sh
 
 覆盖检查确保用户可见的错误弹窗和主要失败占位页保留 App Store 与错误报告入口。
 报告直接通过当前 Wrangler 登录读取远端 KV，管理网页不参与流程。
-`Scripts/fetch-issues-and-reports.sh` 使用默认用户目录中的 GitHub CLI 认证，并将 `HOME` 单独设为 `$HOME/Library/Preferences` 供 Wrangler 读取 Cloudflare 授权。脚本拉取仓库 Issues、GitHub Actions 失败运行和 Cloudflare KV 报告，结果写入 `.build/issue-report-inbox`。报告直接按 `开发版/正式版/来源未知` 与 `错误报告/用户建议` 分类。本地报告快照每次覆盖为本次新拉取内容；`report-keys.txt` 记录 7 天保留窗口内已经处理的报告键，重复运行保持增量拉取。远端仅清理接收时间早于当前时间 7 天的 Cloudflare 报告。GitHub Issues 与 CI 元数据保存在目录根部，完整报告留在本机，仓库保持不变。
+`Scripts/fetch-issues-and-reports.sh` 使用默认用户目录中的 GitHub CLI 认证，并将 `HOME` 单独设为 `$HOME/Library/Preferences` 供 Wrangler 读取 Cloudflare 授权。脚本拉取仓库 Issues、GitHub Actions 失败运行和 Cloudflare KV 报告，结果写入 `.build/issue-report-inbox`。报告直接按 `开发版/正式版/来源未知` 与 `错误报告/用户建议` 分类。本地报告快照每次覆盖为本次新拉取内容；`report-keys.txt` 记录 7 天保留窗口内已经处理的报告键，重复运行保持增量拉取。汇总与 Wrangler 命令输出不超过 1000 行时显示在 terminal，较长输出覆盖对应固定文本报告。远端仅清理接收时间早于当前时间 7 天的 Cloudflare 报告。GitHub Issues 与 CI 元数据保存在目录根部，完整报告留在本机，仓库保持不变。
 
 用户输入校验提示采用 `AppAlert.userInput` 或 `ScheduleNotice.userInput`，保留页面提示并关闭错误报告入口。页面失败状态通过 `AppFailureState.allowsDiagnostics` 控制诊断入口。空字段、标签数量、空评论、验证码输入、图片处理状态、无效分享数据、本地日程格式、日历权限和可信成绩单短信验证取消等用户操作提示归入此类；网络请求、服务器响应和数据解析故障继续提供错误报告入口。
 
-`run-static-audit.sh` 执行 Swift、Shell、Python、Worker、Git、文档、UI、源码质量与锁定依赖检查；过期文档和高危依赖会阻断结果。学校接口连接、网络 smoke 和发布归档由独立流程负责。源码质量报告超过 1000 行时覆盖 `.build/code-quality-report.txt`，较短结果直接显示在 terminal。CI 强制执行这一入口，并额外阻止编译警告进入门禁。
+`run-static-audit.sh` 执行检查器自测、Swift、Shell、Python、Worker、Git、文档、UI、源码质量与锁定依赖检查，并汇总各组结果；过期文档和高危依赖会阻断结果。学校接口连接、网络 smoke 和发布归档由独立流程负责。源码质量报告超过 1000 行时覆盖 `.build/code-quality-report.txt`，较短结果直接显示在 terminal。CI 强制执行这一入口，并额外阻止编译警告进入门禁。
 
-UI 契约检查由 `check-ui-consistency.py` 统一维护：视觉令牌、页面和公共组件、触感、错误报告入口按目录模式、页面后缀及公共组件用法自动发现，再套用同类契约。新增同类页面沿用统一检查逻辑，契约表登记必要的平台与功能例外。
+UI 契约检查由 `check-ui-consistency.py` 统一维护：视觉令牌、页面和公共组件、控件修饰器归属、触感、错误报告入口依据 SwiftSyntax View 类型与表达式作用域匹配。文件整理沿用类型契约；新增页面角色时，在契约表登记对应 View 类型和规则。两个检查器的 `--self-test` 使用内存样例验证标记作用域、控件修饰器归属及源码迁移边界。
 
 ## 扩展自动化测试
 
@@ -285,4 +286,4 @@ Scripts/run-extended-tests.sh infrastructure
 Scripts/run-extended-tests.sh login
 ```
 
-脚本在真机上执行课程表策略、基础设施和登录状态测试；未连接真机时直接提示，模拟器保持停用。测试日志保存在 `.build/extended-automation`。
+脚本在真机上执行课程表策略、基础设施和登录状态测试；未连接真机时直接提示，模拟器保持停用。每组测试输出按 1000 行阈值显示在 terminal 或覆盖 `.build/extended-automation` 中对应的固定日志路径。

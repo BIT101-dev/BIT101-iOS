@@ -22,7 +22,28 @@ mkdir -p "$OUTPUT_DIR"
 find "$OUTPUT_DIR" -mindepth 1 -maxdepth 1 -type d ! -name ".incoming" -exec rm -rf {} +
 rm -rf "$STAGING_DIR"
 mkdir -p "$STAGING_DIR"
-rm -f "$OUTPUT_DIR/github-issues.json" "$OUTPUT_DIR/error-report-keys.json" "$OUTPUT_DIR/summary.txt" "$CI_RUNS_PATH" "$CI_REPORT_PATH"
+rm -f "$OUTPUT_DIR/github-issues.json" "$OUTPUT_DIR/error-report-keys.json" "$OUTPUT_DIR/summary.txt" "$OUTPUT_DIR/wrangler.log" "$CI_RUNS_PATH" "$CI_REPORT_PATH"
+
+emit_output() {
+  local output_path="$1"
+  local label="$2"
+  local output="$3"
+  local line_count
+
+  if [[ -z "$output" ]]; then
+    rm -f "$output_path"
+    return 0
+  fi
+
+  line_count="$(printf '%s\n' "$output" | wc -l | tr -d '[:space:]')"
+  if (( line_count <= 1000 )); then
+    rm -f "$output_path"
+    print -r -- "$output"
+  else
+    printf '%s\n' "$output" > "$output_path"
+    echo "[输出] $label 共 $line_count 行，详情写入 $output_path"
+  fi
+}
 
 echo "拉取 GitHub Issues..."
 if ! gh api \
@@ -84,12 +105,16 @@ output_path.write_text(
 PY
 
 echo "拉取 Cloudflare 错误报告..."
-if ! (cd "$WRANGLER_DIR" && HOME="$WRANGLER_HOME" npx wrangler kv key list \
-  --remote \
-  --prefix report: \
-  --namespace-id "$NAMESPACE_ID" \
-  > "$OUTPUT_DIR/error-report-keys.json" 2> "$WRANGLER_LOG"); then
-  cat "$WRANGLER_LOG" >&2
+if WRANGLER_OUTPUT="$(
+  (cd "$WRANGLER_DIR" && HOME="$WRANGLER_HOME" npx wrangler kv key list \
+    --remote \
+    --prefix report: \
+    --namespace-id "$NAMESPACE_ID" \
+    > "$OUTPUT_DIR/error-report-keys.json") 2>&1
+)"; then
+  emit_output "$WRANGLER_LOG" "Wrangler 命令输出" "$WRANGLER_OUTPUT"
+else
+  emit_output "$WRANGLER_LOG" "Wrangler 命令错误输出" "$WRANGLER_OUTPUT" >&2
   exit 1
 fi
 
@@ -327,9 +352,14 @@ lines.append(
     f"开发版 {current_sources['开发版']}，正式版 {current_sources['正式版']}，来源未知 {current_sources['来源未知']}）"
 )
 
-summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-print(summary_path.read_text(encoding="utf-8"), end="")
+summary = "\n".join(lines) + "\n"
+if len(lines) <= 1000:
+    summary_path.unlink(missing_ok=True)
+    print(summary, end="")
+else:
+    summary_path.write_text(summary, encoding="utf-8")
+    print(f"汇总共 {len(lines)} 行，详情写入 {summary_path}")
 PY
 
-rm -f "$WRANGLER_LOG" "$CI_RUNS_PATH"
+rm -f "$CI_RUNS_PATH"
 echo "本地报告目录：$OUTPUT_DIR"

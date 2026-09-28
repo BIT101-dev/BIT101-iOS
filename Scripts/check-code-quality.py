@@ -51,10 +51,13 @@ import SwiftParser
 struct FileFacts: Encodable {
     let hasParseErrors: Bool
     let identifiers: [String]
-    let stringSegments: [String]
+    let scopedIdentifiers: [ScopedFact]
+    let stringSegments: [ScopedFact]
     let declarations: [DeclarationFact]
     let calls: [ScopedFact]
     let invocations: [ScopedFact]
+    let selectionControls: [SelectionControlFact]
+    let feedbackModifiers: [FeedbackModifierFact]
     let members: [ScopedFact]
     let expressions: [ScopedFact]
     let bindings: [ScopedFact]
@@ -74,10 +77,26 @@ struct ScopedFact: Encodable {
     let scope: [String]
 }
 
+struct SelectionControlFact: Encodable {
+    let name: String
+    let invocation: String
+    let scope: [String]
+}
+
+struct FeedbackModifierFact: Encodable {
+    let name: String
+    let base: String
+    let scope: [String]
+}
+
 final class FactVisitor: SyntaxVisitor {
     private(set) var declarations: [DeclarationFact] = []
     private(set) var calls: [ScopedFact] = []
     private(set) var invocations: [ScopedFact] = []
+    private(set) var scopedIdentifiers: [ScopedFact] = []
+    private(set) var stringSegments: [ScopedFact] = []
+    private(set) var selectionControls: [SelectionControlFact] = []
+    private(set) var feedbackModifiers: [FeedbackModifierFact] = []
     private(set) var members: [ScopedFact] = []
     private(set) var expressions: [ScopedFact] = []
     private(set) var bindings: [ScopedFact] = []
@@ -120,8 +139,38 @@ final class FactVisitor: SyntaxVisitor {
     override func visitPost(_ node: ExtensionDeclSyntax) { leave() }
 
     override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
-        calls.append(fact(node.calledExpression.trimmedDescription))
+        let calledExpression = node.calledExpression.trimmedDescription
+        calls.append(fact(calledExpression))
         invocations.append(fact(node.trimmedDescription))
+        let calledName = calledExpression.split(separator: ".").last.map(String.init) ?? calledExpression
+        if calledName == "Picker" || calledName == "Toggle" {
+            selectionControls.append(SelectionControlFact(
+                name: calledName,
+                invocation: node.trimmedDescription,
+                scope: scope
+            ))
+        }
+        if let memberAccess = node.calledExpression.as(MemberAccessExprSyntax.self),
+           memberAccess.trimmedDescription.hasSuffix(".appSelectionFeedback")
+        {
+            feedbackModifiers.append(FeedbackModifierFact(
+                name: "appSelectionFeedback",
+                base: memberAccess.base?.trimmedDescription ?? "",
+                scope: scope
+            ))
+        }
+        return .visitChildren
+    }
+
+    override func visit(_ token: TokenSyntax) -> SyntaxVisitorContinueKind {
+        switch token.tokenKind {
+        case .identifier(let value):
+            scopedIdentifiers.append(fact(value))
+        case .stringSegment(let value):
+            stringSegments.append(fact(value))
+        default:
+            break
+        }
         return .visitChildren
     }
 
@@ -141,6 +190,11 @@ final class FactVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: IfExprSyntax) -> SyntaxVisitorContinueKind {
+        controlFlow.append(fact(node.trimmedDescription))
+        return .visitChildren
+    }
+
+    override func visit(_ node: SwitchCaseSyntax) -> SyntaxVisitorContinueKind {
         controlFlow.append(fact(node.trimmedDescription))
         return .visitChildren
     }
@@ -165,17 +219,16 @@ for path in input.paths {
         if case .identifier(let name) = token.tokenKind { return name }
         return nil
     }
-    let stringSegments = tree.tokens(viewMode: .sourceAccurate).compactMap { token -> String? in
-        if case .stringSegment(let value) = token.tokenKind { return value }
-        return nil
-    }
     output[path] = FileFacts(
         hasParseErrors: tree.hasError,
         identifiers: identifiers,
-        stringSegments: stringSegments,
+        scopedIdentifiers: visitor.scopedIdentifiers,
+        stringSegments: visitor.stringSegments,
         declarations: visitor.declarations,
         calls: visitor.calls,
         invocations: visitor.invocations,
+        selectionControls: visitor.selectionControls,
+        feedbackModifiers: visitor.feedbackModifiers,
         members: visitor.members,
         expressions: visitor.expressions,
         bindings: visitor.bindings,
@@ -461,6 +514,48 @@ def add_matches(
         findings.append(f"{relative(path)}:{line_number(source, match.start())}: {message}")
 
 
+def owner_scopes(syntax_index: dict[str, dict], owner: str) -> list[tuple[dict, list[str]]]:
+    return [
+        (facts, declaration["scope"] + [declaration["name"]])
+        for facts in syntax_index.values()
+        for declaration in facts["declarations"]
+        if declaration["name"] == owner
+        and declaration["kind"] in {"struct", "class", "actor", "extension"}
+    ]
+
+
+def owner_has_call(syntax_index: dict[str, dict], owner: str, call_name: str) -> bool:
+    return any(
+        any(
+            (call["value"] == call_name or call["value"].endswith("." + call_name))
+            and call["scope"] == scope
+            for call in facts["calls"]
+        )
+        for facts, scope in owner_scopes(syntax_index, owner)
+    )
+
+
+def owner_has_member_suffix(syntax_index: dict[str, dict], owner: str, suffix: str) -> bool:
+    return any(
+        any(member["value"].endswith(suffix) and member["scope"] == scope for member in facts["members"])
+        for facts, scope in owner_scopes(syntax_index, owner)
+    )
+
+
+def owner_has_identifier(syntax_index: dict[str, dict], owner: str, identifier: str) -> bool:
+    return any(
+        any(item["value"] == identifier and item["scope"] == scope for item in facts["scopedIdentifiers"])
+        for facts, scope in owner_scopes(syntax_index, owner)
+    )
+
+
+def owner_has_literal(syntax_index: dict[str, dict], owner: str, literal: str) -> bool:
+    return any(
+        any(item["value"] == literal and item["scope"] == scope for item in facts["stringSegments"])
+        for facts, scope in owner_scopes(syntax_index, owner)
+    )
+
+
 def checker_boundary_findings() -> list[str]:
     findings: list[str] = []
     shared_session_source = '''
@@ -502,6 +597,19 @@ let comparison = left != right
     }
     if not ast_has_view_request(view_facts) or ast_has_view_request(model_facts):
         findings.append("代码质量规则边界自检失败：SwiftSyntax View 请求范围匹配")
+
+    relocated_facts = {
+        "declarations": [{"kind": "struct", "name": "ExampleView", "scope": []}],
+        "calls": [{"value": "restoreCache", "scope": ["ExampleView"]}],
+        "members": [],
+        "scopedIdentifiers": [],
+        "stringSegments": [],
+    }
+    relocated_index = {"Moved/ExampleView.swift": relocated_facts}
+    if not owner_has_call(relocated_index, "ExampleView", "restoreCache"):
+        findings.append("代码质量规则边界自检失败：类型迁移后仍按声明作用域匹配契约")
+    if owner_has_call(relocated_index, "MissingView", "restoreCache"):
+        findings.append("代码质量规则边界自检失败：缺少契约类型应保持失败")
     return findings
 
 
@@ -656,52 +764,36 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
             if ast_has_identifier(facts, term):
                 errors.append(f"{relative(path)}: 不得重新引入学校/WebVPN 自动请求：{term}")
         for term in forbidden_literals:
-            if any(term in literal for literal in facts["stringSegments"]):
+            if any(term in literal["value"] for literal in facts["stringSegments"]):
                 errors.append(f"{relative(path)}: 不得重新引入学校/WebVPN 自动请求：{term}")
 
-    app_facts = syntax_index[str(ROOT / "BIT101-iOS/BIT101_iOSApp.swift")]
-    if ast_has_call(app_facts, "refreshFromCloudIfNeeded"):
-        errors.append("BIT101-iOS/BIT101_iOSApp.swift: 启动生命周期不得自动拉取 iCloud 数据")
+    if owner_has_call(syntax_index, "BIT101_iOSApp", "refreshFromCloudIfNeeded"):
+        errors.append("BIT101_iOSApp: 启动生命周期不得自动拉取 iCloud 数据")
+    if owner_has_call(syntax_index, "ScheduleViewModel", "refreshFromCloudIfNeeded"):
+        errors.append("ScheduleViewModel: 日程页面本地恢复不得自动拉取 iCloud")
+    if owner_has_call(syntax_index, "ScoreListPage", "bootstrapIfNeeded"):
+        errors.append("ScoreListPage: 成绩页不得自动触发学校查询")
 
-    schedule_facts = syntax_index[str(ROOT / "BIT101-iOS/Schedule/ScheduleViewModel.swift")]
-    if any(
-        call["value"] == "ScheduleCloudSyncManager.shared.refreshFromCloudIfNeeded"
-        for call in schedule_facts["calls"]
-    ):
-        errors.append("BIT101-iOS/Schedule/ScheduleViewModel.swift: 日程页面本地恢复不得自动拉取 iCloud")
-
-    score_facts = syntax_index[str(ROOT / "BIT101-iOS/Score/ScoreRootView.swift")]
-    if any(call["value"] == "viewModel.bootstrapIfNeeded" for call in score_facts["calls"]):
-        errors.append("BIT101-iOS/Score/ScoreRootView.swift: 成绩页不得自动触发学校查询")
-    required_manual_contracts = {
-        "BIT101-iOS/Score/ScoreRootView.swift": (
-            lambda facts: ast_has_call(facts, "restoreCachedDataIfNeeded"),
-            "restoreCachedDataIfNeeded",
+    required_manual_contracts = (
+        ("ScoreListPage", lambda: owner_has_call(syntax_index, "ScoreListPage", "restoreCachedDataIfNeeded"), "restoreCachedDataIfNeeded"),
+        (
+            "FreeClassroomTabView",
+            lambda: owner_has_literal(syntax_index, "FreeClassroomTabView", "刷新空教室")
+            and owner_has_identifier(syntax_index, "FreeClassroomTabView", "actionTitle"),
+            "刷新空教室 actionTitle",
         ),
-        "BIT101-iOS/Schedule/FreeClassroomViews.swift": (
-            lambda facts: "刷新空教室" in facts["stringSegments"]
-            and ast_has_identifier(facts, "actionTitle"),
-            "刷新空教室",
-        ),
-        "BIT101-iOS/Schedule/ScheduleRootView.swift": (
-            lambda facts: ast_has_call(facts, "startClassroomPageRefresh"),
-            "startClassroomPageRefresh",
-        ),
-        "BIT101-iOS/Schedule/ScheduleViewModel+Classroom.swift": (
-            lambda facts: ast_has_call(facts, "waitForClassroomAuthentication"),
-            "waitForClassroomAuthentication",
-        ),
-        "BIT101-iOS/Schedule/ScheduleViewModel+CourseSync.swift": (
-            lambda facts: any(member["value"].endswith(".classroomRefresh") for member in facts["members"]),
-            ".classroomRefresh",
-        ),
-    }
-    for file_name, (predicate, marker) in required_manual_contracts.items():
-        path = ROOT / file_name
-        if path.is_file():
-            if predicate(syntax_index[str(path)]):
-                continue
-            errors.append(f"{file_name}: 缺少显式学校请求/验证码入口：{marker}")
+        ("ScheduleRootView", lambda: owner_has_call(syntax_index, "ScheduleRootView", "startClassroomPageRefresh"), "startClassroomPageRefresh"),
+        ("ScheduleViewModel", lambda: owner_has_call(syntax_index, "ScheduleViewModel", "waitForClassroomAuthentication"), "waitForClassroomAuthentication"),
+        ("ScheduleViewModel", lambda: owner_has_member_suffix(syntax_index, "ScheduleViewModel", ".classroomRefresh"), ".classroomRefresh"),
+    )
+    missing_owners: set[str] = set()
+    for owner, predicate, marker in required_manual_contracts:
+        if not owner_scopes(syntax_index, owner):
+            missing_owners.add(owner)
+        elif not predicate():
+            errors.append(f"{owner}: 缺少显式学校请求/验证码入口：{marker}")
+    for owner in sorted(missing_owners):
+        errors.append(f"{owner}: 找不到必需的类型或 extension；学校请求契约保持启用")
     return errors
 
 
@@ -844,6 +936,7 @@ def audit_wiring_findings() -> list[str]:
         test_source = test_script.read_text(encoding="utf-8")
         required_test_metrics = (
             ("-enableCodeCoverage YES", "真机测试未启用代码覆盖率"),
+            ("ENABLE_CODE_COVERAGE=YES", "Release 测试构建未覆盖项目级关闭项"),
             ("xccov", "真机测试未提取代码覆盖率"),
             ("test-metrics.txt", "真机测试指标未写入固定报告"),
             ("extensions)", "缺少扩展共享逻辑测试分组"),
@@ -867,6 +960,15 @@ def main() -> int:
         except (OSError, subprocess.CalledProcessError, RuntimeError) as error:
             print(f"SwiftSyntax 索引失败：{error}", file=sys.stderr)
             return 1
+
+    if sys.argv[1:] == ["--self-test"]:
+        findings = checker_boundary_findings()
+        if findings:
+            print("[失败] 代码质量检查器自测：", file=sys.stderr)
+            print("\n".join(findings), file=sys.stderr)
+            return 1
+        print("[通过] 代码质量检查器自测")
+        return 0
 
     errors: list[str] = []
     try:

@@ -26,6 +26,9 @@ struct ScheduleICSParserTests {
         #expect(service.shouldAttemptDirectTeachingCenterFallback(
             for: ScheduleServiceError.authenticationFailed("统一身份认证请求超时，请稍后重试")
         ))
+        #expect(service.shouldAttemptDirectTeachingCenterFallback(
+            for: ScheduleServiceError.authenticationFailed("jxzxehall: 解析 service url 失败")
+        ))
         #expect(!service.shouldAttemptDirectTeachingCenterFallback(
             for: ScheduleServiceError.authenticationFailed("用户名或密码错误")
         ))

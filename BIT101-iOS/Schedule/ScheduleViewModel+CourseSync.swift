@@ -219,6 +219,9 @@ extension ScheduleViewModel {
             smsVerificationError = nil
             courseSyncCoordinator.reset()
             notice = ScheduleNotice.userInput(title: "验证已失效", message: message)
+        } catch ScheduleServiceError.authenticationFailed(let message) {
+            guard accountGeneration == generation, !Task.isCancelled else { return }
+            smsVerificationError = "认证服务处理失败，请点击取消后重新同步课表。\n\(message)"
         } catch let error as ScheduleServiceError where error.isUnpublishedCourseSchedule {
             guard accountGeneration == generation, !Task.isCancelled else { return }
             notice = ScheduleNotice.userInput(title: "课表暂未发布", message: error.localizedDescription)

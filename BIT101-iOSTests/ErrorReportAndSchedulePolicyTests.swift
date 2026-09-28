@@ -200,6 +200,34 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         )
     }
 
+    func testSchoolBusinessInspectorIgnoresStatusLikeMetadataOutsideKnownEnvelopes() {
+        let data = Data(#"{"data":{"metadata":{"code":9,"msg":"仅供诊断的字段"}}}"#.utf8)
+
+        XCTAssertNil(ScheduleService.schoolBusinessErrorMessage(from: data))
+    }
+
+    func testSchoolBusinessInspectorReadsCaseInsensitiveEnvelopeFields() {
+        let data = Data(#"{"DATA":{"ExtParams":{"CODE":"3","MSG":"查询失败"}}}"#.utf8)
+
+        XCTAssertEqual(
+            ScheduleService.schoolBusinessErrorMessage(from: data),
+            "查询失败"
+        )
+    }
+
+    func testSchoolBusinessInspectorUsesTypedStatusValuesAndEnglishFailureMessages() {
+        let numericFlag = Data(#"{"success":0,"msg":"查询成功"}"#.utf8)
+        let fractionalCode = Data(#"{"code":2.5,"msg":"其他提示"}"#.utf8)
+        let englishFailure = Data(#"{"data":{"message":"Request failed"}}"#.utf8)
+
+        XCTAssertNil(ScheduleService.schoolBusinessErrorMessage(from: numericFlag))
+        XCTAssertNil(ScheduleService.schoolBusinessErrorMessage(from: fractionalCode))
+        XCTAssertEqual(
+            ScheduleService.schoolBusinessErrorMessage(from: englishFailure),
+            "Request failed"
+        )
+    }
+
     func testSchoolBusinessInspectorSelectsNestedFailuresDeterministically() {
         let data = Data(
             #"{"datas":{"z":{"extParams":{"code":3,"msg":"课表暂未发布"}},"a":{"extParams":{"code":4,"msg":"此学年学期的课表未发布"}}}}"#.utf8

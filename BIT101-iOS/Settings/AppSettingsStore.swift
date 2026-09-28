@@ -101,7 +101,7 @@ final class AppSettingsStore: ObservableObject {
     /// 尚未登录时使用的设置分区。
     nonisolated static let defaultAccountIdentifier = "__default__"
     /// 当前安装版本的更新内容版本号；每个版本展示一次。
-    nonisolated static let currentStartupNoticeVersion = "1.8.1"
+    nonisolated static let currentStartupNoticeVersion = "1.8.3"
     /// 更新内容公告已读状态保存在全局 key，账号切换后继续复用该状态。
     nonisolated static let startupNoticeSeenKey = "app.startup.notice.seen.version"
     /// 历史成绩疑似补考学期筛选按账号保存。

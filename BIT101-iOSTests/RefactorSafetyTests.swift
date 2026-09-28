@@ -270,6 +270,18 @@ struct ScheduleCacheMigrationTests {
 @Suite("Free-classroom request lifecycle")
 @MainActor
 struct ScheduleClassroomCoordinatorTests {
+    private actor CancellationProbe {
+        private var didObserveCancellation = false
+
+        func recordCancellation() {
+            didObserveCancellation = true
+        }
+
+        func observedCancellation() -> Bool {
+            didObserveCancellation
+        }
+    }
+
     @Test("Only the newest request can finish shared loading state")
     func staleRequestsCannotFinish() {
         let coordinator = ScheduleClassroomCoordinator()
@@ -299,15 +311,22 @@ struct ScheduleClassroomCoordinatorTests {
     @Test("Classroom operation timeout remains enforced after authentication")
     func operationTimeoutIsEnforced() async {
         let coordinator = ScheduleClassroomCoordinator(timeoutNanoseconds: 5_000_000)
+        let cancellationProbe = CancellationProbe()
 
         do {
             _ = try await coordinator.withAuthenticationThenTimeout {
             } operation: {
-                try await Task.sleep(for: .milliseconds(20))
+                do {
+                    try await Task.sleep(for: .seconds(30))
+                } catch is CancellationError {
+                    await cancellationProbe.recordCancellation()
+                    throw CancellationError()
+                }
                 return 42
             }
             Issue.record("空教室请求超时契约失败")
         } catch is ClassroomRequestTimeoutError {
+            #expect(await cancellationProbe.observedCancellation())
         } catch {
             Issue.record("空教室请求错误：\(error)")
         }

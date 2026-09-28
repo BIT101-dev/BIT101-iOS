@@ -303,7 +303,7 @@ enum ScheduleCacheStore {
     /// 保存与清空缓存后都要发送这条通知，两个入口共用这一实现。
     fileprivate static func postCacheDidChange() {
         let accountIdentifier = currentAccountIdentifier()
-        DispatchQueue.main.async {
+        Task { @MainActor in
             guard currentAccountIdentifier() == accountIdentifier else { return }
             NotificationCenter.default.post(name: .scheduleCacheDidChange, object: accountIdentifier)
         }

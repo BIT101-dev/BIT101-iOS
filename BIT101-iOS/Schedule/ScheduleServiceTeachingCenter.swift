@@ -66,14 +66,32 @@ extension ScheduleService {
         do {
             return try await withWebVPNTeachingCenterSessionRetry(operation: operation)
         } catch {
+            let webVPNError = error
             guard shouldAttemptDirectTeachingCenterFallback(for: error) else { throw error }
 
-            // 部分校园网 DNS 对 bit-login 或 WebVPN 域名解析失败。学校教学中心位于校内并
-            // 支持直连，此时改用本机已有的学校 SSO 会话继续课表和空教室请求。
+            // 校内 SSO 直连可绕开部分 WebVPN 路由与 bit-login service URL 解析故障。
             teachingCenterState.invalidate()
-            try await ensureSchoolSession()
-            teachingCenterState.markDirectPreferred(for: studentID)
-            return try await operation()
+            do {
+                try await ensureSchoolSession()
+                teachingCenterState.markDirectPreferred(for: studentID)
+                return try await withDirectTeachingCenterSessionRetry(operation: operation)
+            } catch {
+                if Task.isCancelled || TaskCancellation.matches(error) {
+                    throw error
+                }
+                if let scheduleError = error as? ScheduleServiceError {
+                    switch scheduleError {
+                    case .secondFactorRequired(_), .schoolSecondFactorRequired:
+                        throw scheduleError
+                    default:
+                        break
+                    }
+                }
+                throw ScheduleServiceError.authenticationFailed(
+                    "WebVPN 教学中心恢复失败：\(webVPNError.localizedDescription)；"
+                        + "学校 SSO 直连恢复失败：\(error.localizedDescription)"
+                )
+            }
         }
     }
 
@@ -104,7 +122,10 @@ extension ScheduleService {
         switch error {
         case ScheduleServiceError.authenticationFailed(let message),
              ScheduleServiceError.challengeInvalid(let message):
+            let normalized = message.lowercased()
+            // bit-login service URL 解析故障时，改由本机学校 SSO 会话连接教学中心。
             return isTransientAuthenticationFailure(message)
+                || normalized.contains("解析 service url 失败")
         case ScheduleServiceError.schoolTransportFailure:
             return true
         default:

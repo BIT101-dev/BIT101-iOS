@@ -150,12 +150,12 @@ struct GalleryFeedView: View {
         guard let pendingRestorePosterID else { return }
 
         if availableIDs.contains(pendingRestorePosterID) {
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 scrollToTopPoster(pendingRestorePosterID, with: proxy)
                 self.pendingRestorePosterID = nil
             }
         } else if let fallbackID = availableIDs.first {
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 scrollToTopPoster(fallbackID, with: proxy)
                 self.pendingRestorePosterID = nil
             }

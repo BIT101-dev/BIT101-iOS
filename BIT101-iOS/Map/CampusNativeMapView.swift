@@ -240,14 +240,24 @@ struct CampusNativeMapView: UIViewRepresentable {
 
         /// 过滤 `locationUnknown` 瞬时回调，将需要用户处理的定位错误交给页面提示。
         func mapView(_ mapView: MKMapView, didFailToLocateUserWithError error: Error) {
-            let nsError = error as NSError
-            if nsError.domain == kCLErrorDomain,
-               let code = CLError.Code(rawValue: nsError.code),
-               code == .locationUnknown {
+            if Self.containsLocationUnknownError(error) {
                 return
             }
 
             onLocationFailure?(error)
+        }
+
+        private static func containsLocationUnknownError(_ error: Error) -> Bool {
+            var current: NSError? = error as NSError
+            for _ in 0 ..< 8 {
+                guard let candidate = current else { return false }
+                if candidate.domain == kCLErrorDomain,
+                   CLError.Code(rawValue: candidate.code) == .locationUnknown {
+                    return true
+                }
+                current = candidate.userInfo[NSUnderlyingErrorKey] as? NSError
+            }
+            return false
         }
 
         /// 过滤掉无效或缺失的用户坐标。

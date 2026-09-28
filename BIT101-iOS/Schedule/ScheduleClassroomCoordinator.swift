@@ -48,6 +48,8 @@ final class ScheduleClassroomCoordinator {
     ) async throws -> T where T: Sendable {
         try Task.checkCancellation()
 
+        // The task-group scope waits for its losing child to finish after cancellation.
+        // Keep operations cancellation-cooperative through cancellable awaits or polling.
         return try await withThrowingTaskGroup(of: T.self) { group in
             group.addTask {
                 try await operation()

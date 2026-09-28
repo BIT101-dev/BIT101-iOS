@@ -9,7 +9,7 @@ import Foundation
 /// 多个 target 通过此处的共享定义保持 attributes 契约一致。
 nonisolated struct CourseReminderActivityAttributes: ActivityAttributes {
     /// `ContentState` 为锁屏与灵动岛提供课程提醒的最小动态状态。
-    public struct ContentState: Codable, Hashable {
+    public struct ContentState: Codable, Hashable, Sendable {
         let kindText: String
         let title: String
         let classroom: String

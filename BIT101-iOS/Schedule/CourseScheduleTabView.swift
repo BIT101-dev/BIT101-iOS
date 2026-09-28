@@ -607,7 +607,7 @@ private struct ScheduleTabBarOverlapReader: UIViewRepresentable {
             let overlap = bottomOverlap(with: window)
             guard lastOverlap.map({ abs($0 - overlap) < 0.5 }) != true else { return }
             lastOverlap = overlap
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 self?.onChange(overlap)
             }
         }

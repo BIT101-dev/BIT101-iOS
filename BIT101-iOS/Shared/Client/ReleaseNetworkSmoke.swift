@@ -76,10 +76,12 @@ final class ReleaseNetworkSmokeRunner {
 
         let gallery = GalleryService()
         let courses = CourseService()
-        _ = await probe("open.aihelpme.dev 首页", area: .bit101, scope: scope) {
+        // The Worker root intentionally redirects to the public gallery landing page.
+        _ = await probe("open.aihelpme.dev 首页跳转", area: .bit101, scope: scope) {
             try await Self.fetchHTMLCount(
                 urlString: "https://open.aihelpme.dev",
-                expectedHost: "open.aihelpme.dev"
+                expectedHost: "bit101.cn",
+                initialHost: "open.aihelpme.dev"
             )
         }
         let posters = await probe("话廊最新列表", area: .bit101, scope: scope) {
@@ -208,8 +210,7 @@ final class ReleaseNetworkSmokeRunner {
         let scoreService = ScoreService()
         _ = await probe("可信成绩单接口", area: .transcript, scope: scope) {
             let pages = try await scoreService.fetchTrustedTranscriptPages()
-            try Self.validateTrustedTranscriptPages(pages)
-            return pages.count
+            return try Self.validateTrustedTranscriptPages(pages)
         }
 
         let schedule = ScheduleService()
@@ -568,9 +569,12 @@ final class ReleaseNetworkSmokeRunner {
 
     private nonisolated static func fetchHTMLCount(
         urlString: String,
-        expectedHost: String
+        expectedHost: String,
+        initialHost: String? = nil
     ) async throws -> Int {
-        guard let url = URL(string: urlString), url.host?.lowercased() == expectedHost else {
+        guard let url = URL(string: urlString),
+              url.host?.lowercased() == (initialHost ?? expectedHost).lowercased()
+        else {
             throw URLError(.badURL)
         }
         let response = try await fetchResponse(url)

@@ -7,6 +7,9 @@ struct ScheduleInlineWeekSlider: View {
     let highlightedWeek: Int
     let onSelectWeek: (Int) -> Void
     @State private var selectedWeek: Int?
+#if targetEnvironment(macCatalyst)
+    @State private var dragStartIndex: Int?
+#endif
 
     init(
         weeks: [Int],
@@ -26,7 +29,7 @@ struct ScheduleInlineWeekSlider: View {
         GeometryReader { proxy in
             let itemWidth = AppDesignSystem.Schedule.WeekSlider.itemWidth
             let barHeight = AppDesignSystem.Schedule.WeekSlider.barHeight
-            let horizontalPadding = max((proxy.size.width - itemWidth) / 2, 0).rounded()
+            let horizontalPadding = max((proxy.size.width - itemWidth) / 2, 0)
 
             ScrollView(.horizontal) {
                 LazyHStack(spacing: AppDesignSystem.Schedule.WeekSlider.itemSpacing) {
@@ -71,9 +74,26 @@ struct ScheduleInlineWeekSlider: View {
                 .frame(minHeight: AppDesignSystem.Schedule.WeekSlider.itemHeight)
             }
             .scrollIndicators(.hidden)
-            .scrollTargetBehavior(.viewAligned)
+            .contentMargins(.horizontal, horizontalPadding, for: .scrollContent)
+            .scrollTargetBehavior(weekScrollTargetBehavior)
             .scrollPosition(id: $selectedWeek, anchor: .center)
-            .safeAreaPadding(.horizontal, horizontalPadding)
+#if targetEnvironment(macCatalyst)
+            .simultaneousGesture(DragGesture().onChanged { _ in
+                if dragStartIndex == nil {
+                    dragStartIndex = weeks.firstIndex(of: selectedWeek ?? currentWeek)
+                }
+            }.onEnded { value in
+                defer { dragStartIndex = nil }
+                let itemSpacing = AppDesignSystem.Schedule.WeekSlider.itemSpacing
+                let steps = Int((value.translation.width / (itemWidth + itemSpacing)).rounded())
+                guard abs(value.translation.width) > abs(value.translation.height),
+                      let index = dragStartIndex, !weeks.isEmpty else { return }
+                let target = weeks[min(max(index - steps, 0), weeks.count - 1)]
+                withAnimation(.snappy) {
+                    selectedWeek = target
+                }
+            })
+#endif
             .overlay(alignment: .top) {
                 Image(systemName: "triangle.fill")
                     .font(AppDesignSystem.Typography.caption)
@@ -103,5 +123,12 @@ struct ScheduleInlineWeekSlider: View {
 
     private func isMajorWeek(_ week: Int) -> Bool {
         week == 1 || week % 5 == 0
+    }
+
+    private var weekScrollTargetBehavior: ViewAlignedScrollTargetBehavior {
+        if #available(iOS 26.0, *) {
+            return .init(anchor: .center)
+        }
+        return .init()
     }
 }

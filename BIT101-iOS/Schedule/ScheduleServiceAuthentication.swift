@@ -225,7 +225,7 @@ extension ScheduleService {
         case "expired":
             throw ScheduleServiceError.challengeInvalid("验证码已过期，请重新同步课表。")
         case "failed":
-            throw ScheduleServiceError.challengeInvalid("教学中心统一认证失败，请重新同步课表。")
+            throw ScheduleServiceError.authenticationFailed("教学中心统一认证失败，请重新同步课表。")
         default:
             throw ScheduleServiceError.authenticationFailed("统一身份认证处理超时，请重试。")
         }
@@ -254,7 +254,7 @@ extension ScheduleService {
         }
 
         if payload.status == "failed", let error = payload.error, !error.isEmpty {
-            throw ScheduleServiceError.challengeInvalid(error)
+            throw ScheduleServiceError.authenticationFailed(error)
         }
         return BITLoginChallengeSupport.challenge(from: payload, accessToken: accessToken)
     }

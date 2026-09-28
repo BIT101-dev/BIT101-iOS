@@ -31,6 +31,11 @@ private enum TestCommunityError: LocalizedError, CommunityAPIServiceError {
     static var communityInvalidResponse: Self { .invalidResponse }
 }
 
+private func makeTestURL(_ value: String) throws -> URL {
+    guard let url = URL(string: value) else { throw URLError(.badURL) }
+    return url
+}
+
 @Suite("Network stack")
 struct NetworkClientTests {
     nonisolated private struct UserPayload: Decodable, Equatable, Sendable {
@@ -517,7 +522,7 @@ struct NetworkClientTests {
         }
         let service = ScheduleService(transport: transport)
         let payload: SchoolProbePayload = try await service.sendJSONRequest(
-            baseURL: try #require(URL(string: "http://school.example")),
+            baseURL: try makeTestURL("http://school.example"),
             path: "/api/courses.do",
             method: "POST",
             body: [("term", "2025-2026-1"), ("search", "software & engineering")]
@@ -543,7 +548,7 @@ struct NetworkClientTests {
 
         do {
             let _: SchoolProbePayload = try await service.sendJSONRequest(
-                baseURL: try #require(URL(string: "https://school.example")),
+                baseURL: try makeTestURL("https://school.example"),
                 path: "/api/courses.do"
             )
             Issue.record("Expected a school business error")
@@ -687,6 +692,13 @@ struct NetworkClientTests {
         }
 
         let html = Data("<!doctype html><html><body>BIT101</body></html>".utf8)
+        #expect(
+            try ReleaseNetworkSmokeRunner.validateHTMLResponse(
+                html,
+                finalURL: URL(string: "https://bit101.cn/gallery/"),
+                expectedHost: "bit101.cn"
+            ) == html.count
+        )
         #expect(
             try ReleaseNetworkSmokeRunner.validateHTMLResponse(
                 html,

@@ -92,7 +92,7 @@ final class PaperNetworkObserver: ObservableObject {
     init() {
         monitor.pathUpdateHandler = { [weak self] path in
             let isReachable = path.status == .satisfied
-            DispatchQueue.main.async {
+            Task { @MainActor [weak self] in
                 self?.isReachable = isReachable
             }
         }

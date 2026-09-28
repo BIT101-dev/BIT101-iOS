@@ -43,17 +43,85 @@ fi
 mkdir -p "$DERIVED_ROOT"
 rm -rf "$RESULT_BUNDLE"
 
+emit_output() {
+  local output_path="$1"
+  local label="$2"
+  local output="$3"
+  local line_count
+
+  if [[ -z "$output" ]]; then
+    rm -f "$output_path"
+    return 0
+  fi
+
+  line_count="$(printf '%s\n' "$output" | wc -l | tr -d '[:space:]')"
+  if (( line_count <= 1000 )); then
+    rm -f "$output_path"
+    print -r -- "$output"
+  else
+    printf '%s\n' "$output" > "$output_path"
+    echo "[输出] $label 共 $line_count 行，详情写入 $output_path"
+  fi
+}
+
+run_with_output_threshold() {
+  local output_path="$1"
+  local label="$2"
+  shift 2
+
+  python3 - "$output_path" "$label" "$@" <<'PY'
+from pathlib import Path
+import subprocess
+import sys
+
+report_path = Path(sys.argv[1])
+label = sys.argv[2]
+command = sys.argv[3:]
+report_path.unlink(missing_ok=True)
+process = subprocess.Popen(
+    command,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True,
+    bufsize=1,
+)
+buffered = []
+report = None
+for line in process.stdout:
+    if report is None:
+        buffered.append(line)
+        if len(buffered) <= 1000:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            continue
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report = report_path.open("w", encoding="utf-8")
+        report.writelines(buffered)
+        buffered.clear()
+    else:
+        report.write(line)
+
+if report is not None:
+    report.close()
+    print(f"[输出] {label} 超过 1000 行，详情写入 {report_path}")
+
+raise SystemExit(process.wait())
+PY
+}
+
 run_tests() {
   local group="$1"
   local log="$DERIVED_ROOT/$group.log"
   local conditions="$2"
   local only_testing="$TEST_BUNDLE"
+  local failure_summary
+  local exit_code
   if [[ "$group" != "all-tests" && "$group" != "default-tests" ]]; then
     only_testing="$TEST_BUNDLE/$group"
   fi
 
   echo "[测试] $group"
-  if ! xcodebuild test -quiet \
+  if run_with_output_threshold "$log" "$group 测试输出" xcodebuild test -quiet \
     -project "$PROJECT" \
     -scheme BIT101-iOS \
     -configuration Release \
@@ -63,13 +131,18 @@ run_tests() {
     -collect-test-diagnostics never \
     -enableCodeCoverage YES \
     "SWIFT_ACTIVE_COMPILATION_CONDITIONS=$conditions" \
+    ENABLE_CODE_COVERAGE=YES \
     ENABLE_TESTABILITY=YES \
     "-only-testing:$only_testing" \
-    "${SIGNING_ARGS[@]}" > "$log" 2>&1
-  then
+    "${SIGNING_ARGS[@]}"; then
+    exit_code=0
+  else
+    exit_code=$?
+  fi
+
+  if (( exit_code != 0 )); then
     echo "测试失败：$group" >&2
-    tail -n 80 "$log" >&2
-    python3 - "$RESULT_BUNDLE" <<'PY' >&2
+    failure_summary="$(python3 - "$RESULT_BUNDLE" <<'PY'
 import json
 import subprocess
 import sys
@@ -85,8 +158,13 @@ if result.returncode == 0:
     if failures:
         print(json.dumps(failures, ensure_ascii=False, indent=2))
 PY
-    exit 1
+    )"
+    if [[ -n "$failure_summary" ]]; then
+      emit_output "$DERIVED_ROOT/test-failures.txt" "XCTest 失败摘要" "$failure_summary"
+    fi
   fi
+
+  (( exit_code == 0 )) || exit 1
   echo "[通过] $group"
 }
 
@@ -103,10 +181,20 @@ summary = json.loads(subprocess.check_output([
     "--path", result_bundle,
 ], text=True))
 coverage = None
+coverage_error = None
 if mode != "catalyst":
-    coverage = json.loads(subprocess.check_output([
+    coverage_result = subprocess.run([
         "xcrun", "xccov", "view", "--report", "--json", result_bundle,
-    ], text=True))
+    ], capture_output=True, text=True)
+    if coverage_result.returncode == 0:
+        try:
+            coverage = json.loads(coverage_result.stdout)
+        except json.JSONDecodeError as error:
+            coverage_error = f"xccov returned invalid JSON: {error}"
+    else:
+        coverage_error = (coverage_result.stderr or coverage_result.stdout).strip()
+        if not coverage_error:
+            coverage_error = f"xccov exited with status {coverage_result.returncode}"
 
 def count_fields(value):
     if isinstance(value, dict):
@@ -129,7 +217,12 @@ lines = [
     "## 逐 target 行覆盖率",
 ]
 if coverage is None:
-    lines.append("Mac Catalyst runtime does not provide an xccov archive.")
+    if mode == "catalyst":
+        lines.append("Mac Catalyst runtime does not provide an xccov archive.")
+    else:
+        lines.append("设备测试汇总已采集；Xcode 覆盖率归档诊断如下。")
+        if coverage_error:
+            lines.append(coverage_error)
 else:
     target_rows = coverage.get("targets", [])
     for target in target_rows:

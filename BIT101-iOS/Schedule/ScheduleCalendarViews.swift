@@ -65,7 +65,9 @@ final class ScheduleBlankContextMenuControl: UIControl {
         isOpaque = false
         tintColor = UIColor(AppDesignSystem.Palette.Accent.primary)
         isContextMenuInteractionEnabled = true
-        addTarget(self, action: #selector(handleTap), for: .touchUpInside)
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+        tapGesture.cancelsTouchesInView = false
+        addGestureRecognizer(tapGesture)
     }
 
     required init?(coder: NSCoder) {

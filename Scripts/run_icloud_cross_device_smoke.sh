@@ -21,6 +21,51 @@ fi
 
 mkdir -p "$DERIVED_ROOT"
 
+run_with_output_threshold() {
+  local output_path="$1"
+  local label="$2"
+  shift 2
+
+  python3 - "$output_path" "$label" "$@" <<'PY'
+from pathlib import Path
+import subprocess
+import sys
+
+report_path = Path(sys.argv[1])
+label = sys.argv[2]
+command = sys.argv[3:]
+report_path.unlink(missing_ok=True)
+process = subprocess.Popen(
+    command,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True,
+    bufsize=1,
+)
+buffered = []
+report = None
+for line in process.stdout:
+    if report is None:
+        buffered.append(line)
+        if len(buffered) <= 1000:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            continue
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report = report_path.open("w", encoding="utf-8")
+        report.writelines(buffered)
+        buffered.clear()
+    else:
+        report.write(line)
+
+if report is not None:
+    report.close()
+    print(f"[输出] {label} 超过 1000 行，详情写入 {report_path}")
+
+raise SystemExit(process.wait())
+PY
+}
+
 common_args=(
   -quiet
   -project "$PROJECT"
@@ -34,19 +79,19 @@ common_args=(
 run_phone_test() {
   local method="$1"
   local log="$DERIVED_ROOT/$method.log"
-  if ! xcodebuild test "${common_args[@]}" \
+  if run_with_output_threshold "$log" "$method 真机测试输出" xcodebuild test "${common_args[@]}" \
       -destination "platform=iOS,id=$DEVICE_ID" \
       -derivedDataPath "$DERIVED_ROOT/Phone" \
-      "-only-testing:$TEST_CLASS/$method" > "$log" 2>&1
-  then
-    tail -n 80 "$log" >&2
-    return 1
+      "-only-testing:$TEST_CLASS/$method"; then
+    return 0
+  else
+    return $?
   fi
 }
 
 cleanup() {
   echo "尝试恢复真机设置并清理 Smoke 协调数据……" >&2
-  run_phone_test testCleanup >/dev/null 2>&1 || true
+  run_phone_test testCleanup || true
 }
 trap cleanup EXIT INT TERM
 
@@ -55,13 +100,16 @@ run_phone_test testPhoneUpload
 
 echo "[2/3] Mac Catalyst 接收手机数据并写回原设置"
 MAC_LOG="$DERIVED_ROOT/mac-receive.log"
-if ! xcodebuild test "${common_args[@]}" \
+if run_with_output_threshold "$MAC_LOG" "Mac Catalyst 接收测试输出" xcodebuild test "${common_args[@]}" \
     -destination 'platform=macOS,variant=Mac Catalyst' \
     -derivedDataPath "$DERIVED_ROOT/Mac" \
     ONLY_ACTIVE_ARCH=YES ARCHS=arm64 \
-    "-only-testing:$TEST_CLASS/testMacReceiveAndRestore" > "$MAC_LOG" 2>&1
-then
-  tail -n 80 "$MAC_LOG" >&2
+    "-only-testing:$TEST_CLASS/testMacReceiveAndRestore"; then
+  MAC_STATUS=0
+else
+  MAC_STATUS=$?
+fi
+if (( MAC_STATUS != 0 )); then
   exit 1
 fi
 
