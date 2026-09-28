@@ -327,16 +327,17 @@ struct AboutSettingsPage: View {
         isClearingCaches = true
         defer { isClearingCaches = false }
 
-        let manager = FileManager.default
-        let cachesURL = manager.urls(for: .cachesDirectory, in: .userDomainMask).first
-        let temporaryURL = manager.temporaryDirectory
-        let reclaimedBytes = (cachesURL.map { directorySize(at: $0) } ?? 0) + directorySize(at: temporaryURL)
+        let files = AppFileDirectories.files
+        let cachesURL = files.directoryURL(.cachesDirectory)
+        let temporaryURL = files.temporaryDirectoryURL
+        let reclaimedBytes = (cachesURL.map { files.totalRegularFileSize(at: $0) } ?? 0)
+            + files.totalRegularFileSize(at: temporaryURL)
         var hasDeletionFailure = false
 
         if let cachesURL {
-            hasDeletionFailure = !deleteContents(of: cachesURL, using: manager)
+            hasDeletionFailure = !files.removeContents(of: cachesURL)
         }
-        hasDeletionFailure = !deleteContents(of: temporaryURL, using: manager) || hasDeletionFailure
+        hasDeletionFailure = !files.removeContents(of: temporaryURL) || hasDeletionFailure
         URLCache.shared.removeAllCachedResponses()
         await CachedRemoteImageCacheMaintenance.clearAll()
 
@@ -353,13 +354,13 @@ struct AboutSettingsPage: View {
 
     private func clearUserDefaults() {
         if let bundleID = Bundle.main.bundleIdentifier {
-            UserDefaults.standard.removePersistentDomain(forName: bundleID)
+            AppFileDirectories.defaults.removePersistentDomain(forName: bundleID)
         }
     }
 
     /// 该方法清空文稿、应用支持、缓存和临时目录中的内容。
     private func clearFileSystemCaches() {
-        let manager = FileManager.default
+        let files = AppFileDirectories.files
         let directories: [FileManager.SearchPathDirectory] = [
             .documentDirectory,
             .applicationSupportDirectory,
@@ -367,57 +368,11 @@ struct AboutSettingsPage: View {
         ]
 
         for directory in directories {
-            guard let url = manager.urls(for: directory, in: .userDomainMask).first else { continue }
-            deleteContents(of: url, using: manager)
+            guard let url = files.directoryURL(directory) else { continue }
+            _ = files.removeContents(of: url)
         }
 
-        deleteContents(of: manager.temporaryDirectory, using: manager)
-    }
-
-    /// 该方法删除目录中的全部内容。
-    @discardableResult
-    private func deleteContents(of directory: URL, using manager: FileManager) -> Bool {
-        guard manager.fileExists(atPath: directory.path) else { return true }
-        guard let urls = try? manager.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: nil,
-            options: []
-        ) else {
-            return false
-        }
-
-        var succeeded = true
-        for url in urls {
-            do {
-                try manager.removeItem(at: url)
-            } catch {
-                succeeded = false
-            }
-        }
-        return succeeded
-    }
-
-    private func directorySize(at directory: URL) -> Int64 {
-        guard let enumerator = FileManager.default.enumerator(
-            at: directory,
-            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
-            options: []
-        ) else {
-            return 0
-        }
-
-        var total: Int64 = 0
-        for case let url as URL in enumerator {
-            guard
-                let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
-                values.isRegularFile == true,
-                let fileSize = values.fileSize
-            else {
-                continue
-            }
-            total += Int64(fileSize)
-        }
-        return total
+        _ = files.removeContents(of: files.temporaryDirectoryURL)
     }
 
     /// 该方法清空 `WKWebView` 站点数据。

@@ -15,13 +15,13 @@ enum GalleryImageCachePreferences {
 
     nonisolated static var limitMB: Int {
         get {
-            guard UserDefaults.standard.object(forKey: limitMBKey) != nil else {
+            guard AppFileDirectories.defaults.object(forKey: limitMBKey) != nil else {
                 return defaultLimitMB
             }
-            return max(UserDefaults.standard.integer(forKey: limitMBKey), 0)
+            return max(AppFileDirectories.defaults.integer(forKey: limitMBKey), 0)
         }
         set {
-            UserDefaults.standard.set(max(newValue, 0), forKey: limitMBKey)
+            AppFileDirectories.defaults.set(max(newValue, 0), forKey: limitMBKey)
         }
     }
 }
@@ -49,7 +49,7 @@ actor GalleryImageCache {
         let task: Task<DownloadResult, Error>
     }
 
-    private let fileManager = FileManager.default
+    private let files = AppFileDirectories.files
     private let directory: URL
     private var downloads: [String: DownloadOperation] = [:]
     private let supportedExtensions = ["jpg", "jpeg", "png", "gif", "heic", "heif", "webp", "bin"]
@@ -57,10 +57,9 @@ actor GalleryImageCache {
     private var lastPruneDate = Date()
 
     init() {
-        let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        directory = caches.appendingPathComponent("BIT101GalleryImages", isDirectory: true)
-        try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        directory = AppFileDirectories.cacheDirectoryURL(named: "BIT101GalleryImages")
+            ?? files.temporaryDirectoryURL.appending(path: "BIT101GalleryImages", directoryHint: .isDirectory)
+        try? files.createDirectory(at: directory)
     }
 
     /// 返回已有缓存并刷新其 LRU 时间，不发起网络请求。
@@ -68,9 +67,9 @@ actor GalleryImageCache {
         let prefix = filePrefix(for: remoteURL, variant: variant)
         for extensionName in supportedExtensions {
             let file = directory.appendingPathComponent("\(prefix).\(extensionName)")
-            guard fileManager.fileExists(atPath: file.path) else { continue }
+            guard files.fileExists(at: file) else { continue }
             guard hasData(at: file) else {
-                try? fileManager.removeItem(at: file)
+                try? files.removeItem(at: file)
                 continue
             }
             touch(file)
@@ -106,8 +105,8 @@ actor GalleryImageCache {
             }
             let ext = preferredExtension(for: remoteURL, mimeType: result.mimeType)
             let target = directory.appendingPathComponent("\(filePrefix(for: remoteURL, variant: variant)).\(ext)")
-            if !fileManager.fileExists(atPath: target.path) {
-                try result.data.write(to: target, options: .atomic)
+            if !files.fileExists(at: target) {
+                try files.writeData(result.data, to: target, options: [.atomic])
             }
             touch(target)
             pruneIfNeeded(protecting: Set([target]))
@@ -125,7 +124,7 @@ actor GalleryImageCache {
         let digest = SHA256.hash(data: data).hexString
         let target = directory.appendingPathComponent("local-\(digest).\(pathExtension)")
         if !hasData(at: target) {
-            try data.write(to: target, options: .atomic)
+            try files.writeData(data, to: target, options: [.atomic])
         }
         touch(target)
         pruneIfNeeded(protecting: Set([target]))
@@ -139,7 +138,7 @@ actor GalleryImageCache {
             // 1 × 1 透明 PNG。
             let encoded = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL1WQAAAABJRU5ErkJggg=="
             guard let data = Data(base64Encoded: encoded) else { throw CocoaError(.fileWriteUnknown) }
-            try data.write(to: target, options: .atomic)
+            try files.writeData(data, to: target, options: [.atomic])
         }
         return target
     }
@@ -153,18 +152,14 @@ actor GalleryImageCache {
     ///
     /// 统计统一图片缓存目录；URLCache 与其他模块的缓存维持独立。
     func usedBytes() -> Int64 {
-        guard let children = try? fileManager.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
-            options: [.skipsHiddenFiles]
-        ) else { return 0 }
+        guard let children = try? files.contentsOfDirectory(at: directory, options: [.skipsHiddenFiles]) else { return 0 }
 
         return children.reduce(Int64(0)) { total, url in
             guard
-                let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
-                values.isRegularFile == true
+                files.isRegularFile(at: url),
+                let fileSize = files.regularFileSize(at: url)
             else { return total }
-            return total + Int64(values.fileSize ?? 0)
+            return total + Int64(fileSize)
         }
     }
 
@@ -186,15 +181,12 @@ actor GalleryImageCache {
     }
 
     private func touch(_ url: URL) {
-        try? fileManager.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
+        try? files.setModificationDate(Date(), at: url)
     }
 
     private func hasData(at url: URL) -> Bool {
-        guard
-            let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
-            values.isRegularFile == true
-        else { return false }
-        return (values.fileSize ?? 0) > 0
+        guard let fileSize = files.regularFileSize(at: url) else { return false }
+        return fileSize > 0
     }
 
     private func pruneIfNeeded(protecting protectedURLs: Set<URL>, force: Bool = false) {
@@ -206,32 +198,27 @@ actor GalleryImageCache {
         guard limitMB > 0 else { return }
         let limit = Int64(limitMB) * 1_024 * 1_024
 
-        guard let children = try? fileManager.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else { return }
+        guard let children = try? files.contentsOfDirectory(at: directory, options: [.skipsHiddenFiles]) else { return }
 
-        let files = children.compactMap { url -> (URL, Int64, Date)? in
+        let cacheFiles = children.compactMap { url -> (URL, Int64, Date)? in
             guard
                 !protectedURLs.contains(url),
                 url.lastPathComponent != "preview-placeholder.png",
-                let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]),
-                values.isRegularFile == true
+                let fileSize = files.regularFileSize(at: url)
             else { return nil }
-            return (url, Int64(values.fileSize ?? 0), values.contentModificationDate ?? .distantPast)
+            return (url, Int64(fileSize), files.modificationDate(at: url) ?? .distantPast)
         }
         let protectedSize = children
             .filter(protectedURLs.contains)
             .reduce(Int64(0)) { result, url in
-                result + Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+                result + Int64(files.regularFileSize(at: url) ?? 0)
             }
-        var total = files.reduce(protectedSize) { $0 + $1.1 }
+        var total = cacheFiles.reduce(protectedSize) { $0 + $1.1 }
         guard total > limit else { return }
 
         let target = Int64(Double(limit) * 0.85)
-        for file in files.sorted(by: { $0.2 < $1.2 }) where total > target {
-            if (try? fileManager.removeItem(at: file.0)) != nil {
+        for file in cacheFiles.sorted(by: { $0.2 < $1.2 }) where total > target {
+            if (try? files.removeItem(at: file.0)) != nil {
                 total -= file.1
             }
         }

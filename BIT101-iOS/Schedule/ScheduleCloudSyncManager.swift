@@ -589,7 +589,7 @@ actor ScheduleCloudSyncManager {
         let initialAccount = await MainActor.run {
             (
                 studentID: LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines),
-                accountIdentifier: ScheduleCacheStore.currentAccountIdentifier()
+                accountIdentifier: AppFileDirectories.currentSession.accountDirectoryName
             )
         }
         guard !initialAccount.studentID.isEmpty else { return nil }
@@ -597,7 +597,7 @@ actor ScheduleCloudSyncManager {
         let loadResult = await ScheduleCacheStore.loadResultAsync()
         guard let cache = loadResult.cacheIfReadable else { return nil }
         return await MainActor.run {
-            guard ScheduleCacheStore.currentAccountIdentifier() == initialAccount.accountIdentifier,
+            guard AppFileDirectories.currentSession.accountDirectoryName == initialAccount.accountIdentifier,
                   cache.iCloudSyncEnabled
             else { return nil }
             let account = CloudAccountContext(
@@ -616,7 +616,7 @@ actor ScheduleCloudSyncManager {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let currentAccount = CloudAccountContext(
                 studentID: studentID,
-                accountIdentifier: ScheduleCacheStore.currentAccountIdentifier()
+                accountIdentifier: AppFileDirectories.currentSession.accountDirectoryName
             )
             guard currentAccount == account, cache.iCloudSyncEnabled else { return nil }
             return LocalCloudState(cache: cache, account: currentAccount)
@@ -644,7 +644,7 @@ actor ScheduleCloudSyncManager {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let currentAccount = CloudAccountContext(
                 studentID: currentStudentID,
-                accountIdentifier: ScheduleCacheStore.currentAccountIdentifier()
+                accountIdentifier: AppFileDirectories.currentSession.accountDirectoryName
             )
             guard currentAccount == account else { return false }
 
@@ -676,7 +676,7 @@ actor ScheduleCloudSyncManager {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let currentAccount = CloudAccountContext(
                 studentID: currentStudentID,
-                accountIdentifier: ScheduleCacheStore.currentAccountIdentifier()
+                accountIdentifier: AppFileDirectories.currentSession.accountDirectoryName
             )
             guard currentAccount == account else { return nil }
 

@@ -141,22 +141,22 @@ struct InfrastructureTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        var account = "student-a"
+        var session = AppStorageSession(accountIdentifier: "student-a")
         let store = AccountScopedCodableStore<[String]>(
             keyPrefix: "test.snapshot",
             defaults: defaults,
-            accountIdentifier: { account }
+            session: { session }
         )
 
         store.save(["A"])
         #expect(store.load() == ["A"])
 
-        account = "student-b"
+        session = AppStorageSession(accountIdentifier: "student-b")
         #expect(store.load() == nil)
         store.save(["B"])
         #expect(store.load() == ["B"])
 
-        account = "student-a"
+        session = AppStorageSession(accountIdentifier: "student-a")
         #expect(store.load() == ["A"])
     }
 
@@ -164,10 +164,22 @@ struct InfrastructureTests {
     func blankAccountsUseGuestNamespace() {
         let store = AccountScopedCodableStore<[String]>(
             keyPrefix: "test.snapshot",
-            accountIdentifier: { "  " }
+            session: { AppStorageSession(accountIdentifier: "  ") }
         )
 
         #expect(store.storageKey == "test.snapshot.guest")
+    }
+
+    @Test("Storage sessions centralize account keys and filesystem-safe names")
+    func storageSessionNames() {
+        let guest = AppStorageSession(accountIdentifier: " \n ")
+        #expect(guest.key("test.snapshot") == "test.snapshot.guest")
+        #expect(guest.accountDirectoryName == "__default__")
+
+        let account = AppStorageSession(accountIdentifier: "student/a")
+        #expect(account.key("test.snapshot") == "test.snapshot.student/a")
+        #expect(account.accountDirectoryName == "__encoded__73747564656E742F61")
+        #expect(account.legacyAccountDirectoryName == "student_a")
     }
 
     @Test("Paged state advances and stops on an empty page")

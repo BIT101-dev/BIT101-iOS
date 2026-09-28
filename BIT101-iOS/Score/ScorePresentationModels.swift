@@ -10,10 +10,7 @@ nonisolated struct ScoreFilterPreferenceSnapshot: Codable, Sendable {
 
 enum ScoreFilterPreferenceStore {
     private static let store = AccountScopedCodableStore<ScoreFilterPreferenceSnapshot>(
-        keyPrefix: "score.filter.preferences",
-        accountIdentifier: {
-            LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        keyPrefix: "score.filter.preferences"
     )
 
     static func load() -> ScoreFilterPreferenceSnapshot? {

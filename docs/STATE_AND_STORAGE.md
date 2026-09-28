@@ -21,9 +21,19 @@
 6. 页面级瞬时状态
 7. 学校业务的短期认证状态
 
-## 2. 会话与凭据
+## 2. 本地存储基础设施
 
-### 2.1 保存内容
+- `Shared/AppFileService.swift` 定义文件服务接口与本机实现。App、Widget 和 Watch 的文件读写、目录查询、缓存清理与文件属性访问共用 `AppFileSystem`。
+- `Shared/Client/AppFileDirectories.swift` 统一提供 Application Support、Caches、Documents、App Group 路径与当前账号 `AppStorageSession`。
+- `AppStorageSession` 统一生成账号级 UserDefaults 键和稳定、安全的账号目录名；访客状态使用固定默认分区。
+- 业务仓库按单用户语义暴露读取、保存和清理入口；`AccountScopedCodableStore` 负责 Codable 快照的本地编码和账号分区。
+- 全局偏好继续使用应用级键，凭据继续由 Keychain 保存，扩展快照继续写入 App Group。
+- 日程异步写入在任务创建时固定账号目录，并在切换账号后校验写入和导出归属。
+- 发帖草稿按当前账号分区；首次读取时将旧版 `Application Support/ComposerDrafts` 文件迁入当前账号目录。
+
+## 3. 会话与凭据
+
+### 3.1 保存内容
 
 会话与凭据包括：
 
@@ -32,7 +42,7 @@
 - 与登录恢复相关的敏感凭据
 - BIT101 侧会话恢复所需信息
 
-### 2.2 保存位置
+### 3.2 保存位置
 
 这些状态分布在以下存储中：
 
@@ -45,7 +55,7 @@
 - `Login/LoginStorage.swift`
 - `Login/LoginService.swift`
 
-### 2.3 维护原则
+### 3.3 维护原则
 
 - 敏感信息始终使用 Keychain，普通 `UserDefaults` 承载非敏感状态
 - 登录字段或恢复逻辑调整时，核对 `fake-cookie` 从 UserDefaults 迁入 Keychain 的迁移入口
@@ -53,7 +63,7 @@
 - 登录态检查将“无法确认”保留为待确认状态。网络不稳、学校页面解析失败、缺少静默恢复材料等情况保留本地 session 并向上抛错；远端明确返回凭据无效时，系统清除 `fake-cookie`、cookie 和本地密码。
 - `fake-cookie` 为空时，外部课表快照将其导出为 `isLoggedIn = false`，并同步到 widget / Apple Watch。登录检查的清除策略决定手表端是否显示“请先登录”。
 
-### 2.4 学校业务的短期认证状态
+### 3.4 学校业务的短期认证状态
 
 课表、成绩、空教室和可信成绩单通过 bit-login 使用短期 challenge，包括
 `challenge_id`、access token、短信状态、掩码手机号和有效期。教学中心认证状态和当前
@@ -66,9 +76,9 @@
 - challenge 过期或重复提交后进入失效状态
 - 普通成绩使用 `jwb` challenge，可信成绩单使用独立的 `jwb_cjd` challenge
 
-## 3. 课表、DDL、考试与自定义日程
+## 4. 课表、DDL、考试与自定义日程
 
-### 3.1 保存内容
+### 4.1 保存内容
 
 - 课程表
 - 考试
@@ -76,7 +86,7 @@
 - 自定义日程
 - 一些查询所需的本地上下文
 
-### 3.2 保存位置
+### 4.2 保存位置
 
 这类数据主要存储于：
 
@@ -88,13 +98,13 @@
 - `Schedule/ScheduleModels.swift`
 - `Schedule/ScheduleViewModel.swift`
 
-### 3.3 特点
+### 4.3 特点
 
 - 系统先恢复缓存，再同步远端
 - 系统按账号隔离保存这类数据
 - 切号后，系统按当前账号加载课表
 
-### 3.4 覆盖更新与本地课表
+### 4.4 覆盖更新与本地课表
 
 App 覆盖更新会保留 Application Support 中按账号保存的日程缓存。
 
@@ -106,7 +116,7 @@ App 覆盖更新会保留 Application Support 中按账号保存的日程缓存�
 
 用户直接升级新版本、保留 App 安装状态和本地数据时，“别人分享给我的课表”原则上随缓存保留。
 
-### 3.5 分享课表的导入范围
+### 4.5 分享课表的导入范围
 
 分享课表的导入流程追加一份只读课表，当前日程数据保持原有内容。
 
@@ -129,7 +139,7 @@ App 覆盖更新会保留 Application Support 中按账号保存的日程缓存�
 
 分享课表作为当前账号本地收藏的只读记录保存。
 
-### 3.6 本地数据清理与读取故障
+### 4.6 本地数据清理与读取故障
 
 本地数据会在以下操作后清理：
 
@@ -139,7 +149,7 @@ App 覆盖更新会保留 Application Support 中按账号保存的日程缓存�
 
 `ScheduleCache` 的新增字段按默认值解码。文件读取或解码失败时，系统保留原文件、暂停本地写入，并在日程页提示恢复状态。字段语义、字段类型或关键结构变化仍需明确迁移策略。
 
-### 3.7 iCloud 课表同步
+### 4.7 iCloud 课表同步
 
 用户开启课表 iCloud 同步后，`ScheduleCloudSyncManager` 会把当前账号的完整
 `ScheduleCache` 同步到 CloudKit 私有数据库：
@@ -155,16 +165,16 @@ App 覆盖更新会保留 Application Support 中按账号保存的日程缓存�
 - `Schedule/ScheduleCloudSyncManager.swift`
 - `Schedule/ScheduleCacheStore.swift`
 
-## 4. 设置与偏好
+## 5. 设置与偏好
 
-### 4.1 保存内容
+### 5.1 保存内容
 
 包括但不限于：
 
 - 灵动岛提前显示阈值
 - 一部分查询筛选结果
 
-### 4.2 保存位置
+### 5.2 保存位置
 
 偏好主要存储于：
 
@@ -175,9 +185,9 @@ App 覆盖更新会保留 Application Support 中按账号保存的日程缓存�
 
 - `Settings/AppSettingsStore.swift`
 
-### 4.3 两类偏好的区别
+### 5.3 两类偏好的区别
 
-#### 4.3.1 全局偏好
+#### 5.3.1 全局偏好
 
 例如：
 
@@ -186,7 +196,7 @@ App 覆盖更新会保留 Application Support 中按账号保存的日程缓存�
 
 这类偏好按全局设置保存，账号切换时沿用原值。
 
-#### 4.3.2 账号隔离偏好
+#### 5.3.2 账号隔离偏好
 
 例如：
 
@@ -199,7 +209,7 @@ App 覆盖更新会保留 Application Support 中按账号保存的日程缓存�
 可信成绩单的图片采用 ephemeral URLSession 从学校生成的短期 URL 下载，并由申请页 ViewModel 持有
 `UIImage`；退出页面时结束持有，`CachedRemoteImage` 的磁盘缓存排除该图片。
 
-### 4.4 实验性偏好 iCloud 同步
+### 5.4 实验性偏好 iCloud 同步
 
 用户单独开启实验开关后，`ExperimentalPreferenceCloudSync` 使用 iCloud Key-Value Store
 同步设置、成绩筛选、成绩缓存和话廊消息已读状态：
@@ -213,9 +223,9 @@ App 覆盖更新会保留 Application Support 中按账号保存的日程缓存�
 - `Shared/Client/ExperimentalPreferenceCloudSync.swift`
 - `Score/ScoreCacheStore.swift`
 
-## 5. 话廊的本地状态
+## 6. 话廊的本地状态
 
-### 5.1 服务端状态
+### 6.1 服务端状态
 
 服务端提供：
 
@@ -223,7 +233,7 @@ App 覆盖更新会保留 Application Support 中按账号保存的日程缓存�
 - 评论
 - 分类未读数
 
-### 5.2 本地派生状态
+### 6.2 本地派生状态
 
 客户端额外维护：
 
@@ -233,13 +243,13 @@ App 覆盖更新会保留 Application Support 中按账号保存的日程缓存�
 
 消息已读状态使用服务端分类未读数，客户端按该计数进行本地近似展示。该状态属于 UI 体验状态，消息存档一致性范围限于分类未读数。
 
-## 6. 小组件与锁屏组件的数据来源
+## 7. 小组件与锁屏组件的数据来源
 
-### 6.1 扩展使用独立快照
+### 7.1 扩展使用独立快照
 
 主 App 缓存结构更复杂，扩展 target 与业务内部对象保持解耦，共享边界限定为扩展所需的快照数据。
 
-### 6.2 当前做法
+### 7.2 当前做法
 
 数据流如下：
 
@@ -247,7 +257,7 @@ App 覆盖更新会保留 Application Support 中按账号保存的日程缓存�
 2. `ScheduleWidgetSupport.swift` 导出精简快照
 3. widget / 锁屏组件 / Live Activity 的读取入口限定为共享快照
 
-### 6.3 保存位置
+### 7.3 保存位置
 
 共享快照保存在：
 
@@ -257,7 +267,7 @@ App 覆盖更新会保留 Application Support 中按账号保存的日程缓存�
 
 - `group.BIT101-dev.BIT101-iOS.shared`
 
-## 7. Live Activity 的额外运行时状态
+## 8. Live Activity 的额外运行时状态
 
 Live Activity 同时依赖静态数据和运行时判断：
 
@@ -275,13 +285,13 @@ Live Activity 使用以下数据：
 
 Live Activity 的显示结果根据这些数据动态计算。
 
-## 8. 头像缓存
+## 9. 头像缓存
 
-### 8.1 当前状态
+### 9.1 当前状态
 
 头像使用显式缓存层，并保留系统默认网络缓存。
 
-### 8.2 作用
+### 9.2 作用
 
 显式缓存层用于：
 
@@ -289,7 +299,7 @@ Live Activity 的显示结果根据这些数据动态计算。
 - 减少列表滚动中的图片抖动
 - 提高“我的”“话廊”“消息中心”的稳定性
 
-### 8.3 保存位置
+### 9.3 保存位置
 
 这部分使用：
 
@@ -300,7 +310,7 @@ Live Activity 的显示结果根据这些数据动态计算。
 
 - `CachedRemoteImage.swift`
 
-## 9. 页面瞬时状态
+## 10. 页面瞬时状态
 
 状态按生命周期分别处理。
 
@@ -321,7 +331,7 @@ Live Activity 的显示结果根据这些数据动态计算。
 
 瞬时状态保留在内存，需要跨启动恢复的数据进入持久化层。
 
-## 10. 新增状态的存储判断
+## 11. 新增状态的存储判断
 
 新增状态时，按以下顺序判断存储位置：
 

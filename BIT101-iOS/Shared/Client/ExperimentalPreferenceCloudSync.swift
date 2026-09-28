@@ -323,6 +323,6 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     }
 
     private var accountIdentifier: String {
-        ScheduleCacheStore.currentAccountIdentifier()
+        AppFileDirectories.currentSession.accountDirectoryName
     }
 }

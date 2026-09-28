@@ -75,31 +75,19 @@ enum ScheduleCacheStore {
     ///
     /// 路径按当前学号区分账号缓存。
     private static var fileURL: URL {
-        cacheFileURL(for: currentAccountIdentifier())
-    }
-
-    /// 把当前学号转换成目录名。
-    static func currentAccountIdentifier() -> String {
-        let raw = rawAccountIdentifier()
-        if raw.isEmpty {
-            return "__default__"
-        }
-
-        let invalid = CharacterSet.alphanumerics.inverted
-        guard raw.rangeOfCharacter(from: invalid) != nil else { return raw }
-        return "__encoded__" + raw.utf8.map { String(format: "%02X", $0) }.joined()
+        cacheFileURL(for: AppFileDirectories.currentSession.accountDirectoryName)
     }
 
     /// 读取当前账号的缓存快照。
     static func load() -> ScheduleCache {
         loadResult(
-            accountIdentifier: currentAccountIdentifier(),
+            accountIdentifier: AppFileDirectories.currentSession.accountDirectoryName,
             legacyAccountIdentifier: legacyAccountIdentifier()
         ).cacheIfReadable ?? ScheduleCache()
     }
 
     static func loadResultAsync() async -> LoadResult {
-        let accountIdentifier = currentAccountIdentifier()
+        let accountIdentifier = AppFileDirectories.currentSession.accountDirectoryName
         let legacyIdentifier = legacyAccountIdentifier()
         return await Task.detached(priority: .utility) {
             Self.loadResult(
@@ -138,7 +126,7 @@ enum ScheduleCacheStore {
                 cacheToSave.hasUnpushedCloudChanges = true
             }
         }
-        let accountIdentifier = currentAccountIdentifier()
+        let accountIdentifier = AppFileDirectories.currentSession.accountDirectoryName
         guard expectedAccountIdentifier == nil || expectedAccountIdentifier == accountIdentifier else {
             return false
         }
@@ -221,7 +209,7 @@ enum ScheduleCacheStore {
         accountIdentifier: String,
         source: SaveSource
     ) async {
-        guard currentAccountIdentifier() == accountIdentifier else { return }
+        guard AppFileDirectories.currentSession.accountDirectoryName == accountIdentifier else { return }
         await ScheduleWidgetExporter.syncAsync(cache: cache)
         postCacheDidChange()
 
@@ -232,10 +220,6 @@ enum ScheduleCacheStore {
             }
         }
         #endif
-    }
-
-    private static func rawAccountIdentifier() -> String {
-        LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     fileprivate nonisolated static func loadResult(
@@ -257,9 +241,9 @@ enum ScheduleCacheStore {
     }
 
     fileprivate nonisolated static func readCacheFile(at url: URL) -> LoadResult {
-        guard FileManager.default.fileExists(atPath: url.path) else { return .missing }
+        guard AppFileDirectories.files.fileExists(at: url) else { return .missing }
         do {
-            let data = try Data(contentsOf: url)
+            let data = try AppFileDirectories.files.readData(at: url)
             let result = decodeCache(data)
             if result.isUnreadable {
                 logger.error("课表缓存解码失败，保留原文件：\(url.lastPathComponent, privacy: .public)")
@@ -285,26 +269,23 @@ enum ScheduleCacheStore {
     }
 
     fileprivate nonisolated static func cacheFileURL(for accountIdentifier: String) -> URL {
-        let directory = AppFileDirectories.applicationSupport
-            .appending(path: "BIT101-iOS", directoryHint: .isDirectory)
-            .appending(path: accountIdentifier, directoryHint: .isDirectory)
-        return directory.appending(path: "schedule-cache.json")
+        AppFileDirectories.accountSupportFileURL(
+            accountDirectoryName: accountIdentifier,
+            named: "schedule-cache.json"
+        )
     }
 
     private static func legacyAccountIdentifier() -> String {
-        let raw = rawAccountIdentifier()
-        if raw.isEmpty { return "__default__" }
-        let invalid = CharacterSet.alphanumerics.inverted
-        return raw.components(separatedBy: invalid).joined(separator: "_")
+        AppFileDirectories.currentSession.legacyAccountDirectoryName
     }
 
     /// 在主线程广播“课表缓存已变化”。
     ///
     /// 保存与清空缓存后都要发送这条通知，两个入口共用这一实现。
     fileprivate static func postCacheDidChange() {
-        let accountIdentifier = currentAccountIdentifier()
+        let accountIdentifier = AppFileDirectories.currentSession.accountDirectoryName
         Task { @MainActor in
-            guard currentAccountIdentifier() == accountIdentifier else { return }
+            guard AppFileDirectories.currentSession.accountDirectoryName == accountIdentifier else { return }
             NotificationCenter.default.post(name: .scheduleCacheDidChange, object: accountIdentifier)
         }
     }
@@ -348,9 +329,9 @@ private actor ScheduleCacheWriteQueue {
         }
 
         do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try AppFileDirectories.files.createDirectory(at: directory)
             let data = try ScheduleCacheStore.makeEncoder().encode(cache)
-            try data.write(to: url, options: [.atomic])
+            try AppFileDirectories.files.writeData(data, to: url, options: [.atomic])
         } catch {
             ScheduleCacheStore.logger.error("保存课表缓存失败：\(String(describing: error), privacy: .public)")
             return false
@@ -360,14 +341,14 @@ private actor ScheduleCacheWriteQueue {
 
     func clear(urls: [URL]) -> Bool {
         do {
-            for url in urls where FileManager.default.fileExists(atPath: url.path) {
-                try FileManager.default.removeItem(at: url)
+            for url in urls where AppFileDirectories.files.fileExists(at: url) {
+                try AppFileDirectories.files.removeItem(at: url)
             }
 
             for directory in Set(urls.map({ $0.deletingLastPathComponent() })) {
-                if FileManager.default.fileExists(atPath: directory.path),
-                   (try? FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty) == true {
-                    try FileManager.default.removeItem(at: directory)
+                if AppFileDirectories.files.fileExists(at: directory),
+                   (try? AppFileDirectories.files.contentsOfDirectory(at: directory, options: []).isEmpty) == true {
+                    try AppFileDirectories.files.removeItem(at: directory)
                 }
             }
         } catch {

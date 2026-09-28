@@ -10,16 +10,16 @@ private let accountScopedStoreLogger = Logger(
 struct AccountScopedCodableStore<Value: Codable> {
     private let keyPrefix: String
     private let defaults: UserDefaults
-    private let accountIdentifier: () -> String
+    private let session: () -> AppStorageSession
 
     init(
         keyPrefix: String,
-        defaults: UserDefaults = .standard,
-        accountIdentifier: @escaping () -> String
+        defaults: UserDefaults = AppFileDirectories.defaults,
+        session: @escaping () -> AppStorageSession = { AppFileDirectories.currentSession }
     ) {
         self.keyPrefix = keyPrefix
         self.defaults = defaults
-        self.accountIdentifier = accountIdentifier
+        self.session = session
     }
 
     func load() -> Value? {
@@ -50,7 +50,6 @@ struct AccountScopedCodableStore<Value: Codable> {
     }
 
     var storageKey: String {
-        let identifier = accountIdentifier().trimmingCharacters(in: .whitespacesAndNewlines)
-        return "\(keyPrefix).\(identifier.isEmpty ? "guest" : identifier)"
+        session().key(keyPrefix)
     }
 }

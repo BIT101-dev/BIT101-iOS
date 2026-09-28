@@ -177,7 +177,7 @@ private actor CachedRemoteImageStore {
         cache.totalCostLimit = 24 * 1_024 * 1_024
         return cache
     }()
-    private let fileManager = FileManager.default
+    private let files = AppFileDirectories.files
     /// 磁盘缓存根目录。
     private let directoryURL: URL
 
@@ -185,10 +185,9 @@ private actor CachedRemoteImageStore {
     ///
     /// 缓存目录位于 `Caches`，系统可在空间不足时删除其中的内容。
     init() {
-        let cachesDirectory = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        let directoryURL = cachesDirectory.appendingPathComponent("BIT101ImageCache", isDirectory: true)
-        try? fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let directoryURL = AppFileDirectories.cacheDirectoryURL(named: "BIT101ImageCache")
+            ?? files.temporaryDirectoryURL.appending(path: "BIT101ImageCache", directoryHint: .isDirectory)
+        try? files.createDirectory(at: directoryURL)
         self.directoryURL = directoryURL
     }
 
@@ -201,7 +200,7 @@ private actor CachedRemoteImageStore {
         }
 
         let fileURL = directoryURL.appendingPathComponent(key)
-        guard let data = try? Data(contentsOf: fileURL) else { return nil }
+        guard let data = try? files.readData(at: fileURL) else { return nil }
         memoryCache.setObject(data as NSData, forKey: key as NSString, cost: data.count)
         return data
     }
@@ -223,7 +222,7 @@ private actor CachedRemoteImageStore {
         let key = cacheKey(for: url)
         memoryCache.setObject(data as NSData, forKey: key as NSString, cost: data.count)
         let fileURL = directoryURL.appendingPathComponent(key)
-        try? data.write(to: fileURL, options: .atomic)
+        try? files.writeData(data, to: fileURL, options: [.atomic])
     }
 
     /// 写入下载数据，并缓存准备显示的位图。
@@ -241,14 +240,10 @@ private actor CachedRemoteImageStore {
         memoryCache.removeAllObjects()
         imageCache.removeAllObjects()
 
-        guard fileManager.fileExists(atPath: directoryURL.path) else { return }
-        if let children = try? fileManager.contentsOfDirectory(
-            at: directoryURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ) {
+        guard files.fileExists(at: directoryURL) else { return }
+        if let children = try? files.contentsOfDirectory(at: directoryURL, options: [.skipsHiddenFiles]) {
             for child in children {
-                try? fileManager.removeItem(at: child)
+                try? files.removeItem(at: child)
             }
         }
     }

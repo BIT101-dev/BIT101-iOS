@@ -23,7 +23,7 @@ private actor GalleryAnimatedImageDecoder {
             return cached
         }
 
-        guard let data = try? Data(contentsOf: file) else { return nil }
+        guard let data = try? AppFileDirectories.files.readData(at: file) else { return nil }
         guard let decoded = Self.animatedImage(from: data, reduceMotion: reduceMotion) else { return nil }
         let pixelCost = (decoded.images ?? [decoded]).reduce(0) { total, frame in
             let width = Int(frame.size.width * frame.scale)

@@ -239,15 +239,15 @@ enum ComposerDraftStore {
     }
 
     private static var directoryURL: URL {
-        AppFileDirectories.applicationSupport
-            .appendingPathComponent(directoryName, isDirectory: true)
+        AppFileDirectories.applicationSupportDirectoryURL(named: directoryName)
     }
 
     private static func save<T: Encodable>(_ value: T, filename: String) {
+        let fileURL = currentFileURL(for: filename)
         do {
-            try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+            try AppFileDirectories.files.createDirectory(at: fileURL.deletingLastPathComponent())
             let data = try JSONEncoder().encode(value)
-            try data.write(to: directoryURL.appendingPathComponent(filename), options: .atomic)
+            try AppFileDirectories.files.writeData(data, to: fileURL, options: [.atomic])
         } catch {
             // 草稿保存失败允许用户退出，日志保留诊断信息。
             logger.error("保存草稿失败：\(String(describing: error), privacy: .public)")
@@ -255,12 +255,37 @@ enum ComposerDraftStore {
     }
 
     private static func load<T: Decodable>(filename: String) -> T? {
-        guard let data = try? Data(contentsOf: directoryURL.appendingPathComponent(filename)) else { return nil }
-        return try? JSONDecoder().decode(T.self, from: data)
+        let fileURL = currentFileURL(for: filename)
+        if let data = try? AppFileDirectories.files.readData(at: fileURL) {
+            return try? JSONDecoder().decode(T.self, from: data)
+        }
+
+        let legacyURL = directoryURL.appendingPathComponent(filename)
+        guard
+            let data = try? AppFileDirectories.files.readData(at: legacyURL),
+            let value = try? JSONDecoder().decode(T.self, from: data)
+        else { return nil }
+
+        do {
+            try AppFileDirectories.files.createDirectory(at: fileURL.deletingLastPathComponent())
+            try AppFileDirectories.files.writeData(data, to: fileURL, options: [.atomic])
+            try AppFileDirectories.files.removeItem(at: legacyURL)
+        } catch {
+            logger.error("迁移草稿失败：\(String(describing: error), privacy: .public)")
+        }
+        return value
     }
 
     private static func remove(filename: String) {
-        try? FileManager.default.removeItem(at: directoryURL.appendingPathComponent(filename))
+        try? AppFileDirectories.files.removeItem(at: currentFileURL(for: filename))
+        try? AppFileDirectories.files.removeItem(at: directoryURL.appendingPathComponent(filename))
+    }
+
+    private static func currentFileURL(for filename: String) -> URL {
+        AppFileDirectories.accountSupportFileURL(
+            accountDirectoryName: AppFileDirectories.currentSession.accountDirectoryName,
+            named: "composer-\(filename)"
+        )
     }
 }
 

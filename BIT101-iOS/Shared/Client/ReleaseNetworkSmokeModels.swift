@@ -112,16 +112,11 @@ enum ReleaseNetworkSmokeReportStore {
     private static let rawCourseCaptureKey = "release-network-smoke.capture.raw-course-response"
 
     static var fileURL: URL? {
-        guard let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: ScheduleSharedContainer.identifier
-        ) else {
-            return nil
-        }
-
-        return containerURL
-            .appending(path: "Library", directoryHint: .isDirectory)
-            .appending(path: directoryName, directoryHint: .isDirectory)
-            .appending(path: "release-network-smoke.json")
+        AppFileDirectories.appGroupFileURL(
+            groupIdentifier: ScheduleSharedContainer.identifier,
+            directories: ["Library", directoryName],
+            named: "release-network-smoke.json"
+        )
     }
 
     static func write(_ report: ReleaseNetworkSmokeReport) throws {
@@ -129,44 +124,38 @@ enum ReleaseNetworkSmokeReportStore {
             throw ScheduleExternalSnapshotStoreError.sharedContainerUnavailable
         }
 
-        try FileManager.default.createDirectory(
-            at: fileURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
+        try AppFileDirectories.files.createDirectory(at: fileURL.deletingLastPathComponent())
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(report)
-        try data.write(to: fileURL, options: [.atomic, .completeFileProtection])
+        try AppFileDirectories.files.writeData(data, to: fileURL, options: [.atomic, .completeFileProtection])
     }
 
     static var rawCourseCaptureEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: rawCourseCaptureKey) }
-        set { UserDefaults.standard.set(newValue, forKey: rawCourseCaptureKey) }
+        get { AppFileDirectories.defaults.bool(forKey: rawCourseCaptureKey) }
+        set { AppFileDirectories.defaults.set(newValue, forKey: rawCourseCaptureKey) }
     }
 
     static func clearRawCourseResponse() {
-        guard let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: ScheduleSharedContainer.identifier
+        guard let fileURL = AppFileDirectories.appGroupFileURL(
+            groupIdentifier: ScheduleSharedContainer.identifier,
+            directories: ["Library", directoryName],
+            named: rawCourseResponseFileName
         ) else { return }
-        let fileURL = containerURL
-            .appending(path: "Library/NetworkSmoke", directoryHint: .isDirectory)
-            .appending(path: rawCourseResponseFileName)
-        try? FileManager.default.removeItem(at: fileURL)
+        try? AppFileDirectories.files.removeItem(at: fileURL)
     }
 
     static func writeRawCourseResponse(_ data: Data) {
         guard rawCourseCaptureEnabled,
-              let containerURL = FileManager.default.containerURL(
-                  forSecurityApplicationGroupIdentifier: ScheduleSharedContainer.identifier
+              let fileURL = AppFileDirectories.appGroupFileURL(
+                  groupIdentifier: ScheduleSharedContainer.identifier,
+                  directories: ["Library", directoryName],
+                  named: rawCourseResponseFileName
               )
         else { return }
-        let directory = containerURL.appending(path: "Library/NetworkSmoke", directoryHint: .isDirectory)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try? data.write(
-            to: directory.appending(path: rawCourseResponseFileName),
-            options: [.atomic, .completeFileProtection]
-        )
+        try? AppFileDirectories.files.createDirectory(at: fileURL.deletingLastPathComponent())
+        try? AppFileDirectories.files.writeData(data, to: fileURL, options: [.atomic, .completeFileProtection])
     }
 
 }
@@ -179,17 +168,14 @@ struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
     let term: String?
 
     private static var pendingFileURL: URL? {
-        FileManager.default
-            .urls(for: .documentDirectory, in: .userDomainMask)
-            .first?
-            .appending(path: "network-smoke-request.json")
+        AppFileDirectories.documentFileURL(named: "network-smoke-request.json")
     }
 
     static func readPendingFile() -> Self? {
         guard let pendingFileURL,
-              let data = try? Data(contentsOf: pendingFileURL)
+              let data = try? AppFileDirectories.files.readData(at: pendingFileURL)
         else { return nil }
-        try? FileManager.default.removeItem(at: pendingFileURL)
+        try? AppFileDirectories.files.removeItem(at: pendingFileURL)
         return try? JSONDecoder().decode(Self.self, from: data)
     }
 

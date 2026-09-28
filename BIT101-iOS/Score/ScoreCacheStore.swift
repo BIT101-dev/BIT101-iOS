@@ -11,37 +11,17 @@ nonisolated struct ScoreCacheSyncPayload: Codable, Sendable {
 ///
 /// 按学号隔离，切换账号后读取当前账号的成绩。
 enum ScoreCacheStore {
-    /// Hosted tests run inside the installed app and share its standard defaults.
-    /// Stub responses use a dedicated account namespace, while the signed-in user's score cache remains separate.
-    private static var cacheAccountIdentifier: String {
-#if ICLOUD_CROSS_DEVICE_SMOKE
-        // ICLOUD_CROSS_DEVICE_SMOKE reads the signed-in account's real cache.
-        return LoginStorage.shared.currentStudentID
-#elseif DEBUG
-        let environment = ProcessInfo.processInfo.environment
-        if NSClassFromString("XCTestCase") != nil
-            || environment["XCTestConfigurationFilePath"] != nil
-            || environment["XCTestBundlePath"] != nil {
-            return "__bit101_tests__"
-        }
-        return LoginStorage.shared.currentStudentID
-#else
-        // Release builds resolve the account identifier from LoginStorage and compile without the XCTest detection branch.
-        return LoginStorage.shared.currentStudentID
-#endif
-    }
-
     private static let store = AccountScopedCodableStore<[ScoreRow]>(
         keyPrefix: "score.detail.cache",
-        accountIdentifier: { cacheAccountIdentifier }
+        session: { AppFileDirectories.scoreCacheSession }
     )
     private static let updatedAtStore = AccountScopedCodableStore<Date>(
         keyPrefix: "score.detail.cache.updated-at",
-        accountIdentifier: { cacheAccountIdentifier }
+        session: { AppFileDirectories.scoreCacheSession }
     )
     private static let detailedUpdatedAtStore = AccountScopedCodableStore<Date>(
         keyPrefix: "score.detail.cache.full-updated-at",
-        accountIdentifier: { cacheAccountIdentifier }
+        session: { AppFileDirectories.scoreCacheSession }
     )
 
     static func loadRows() -> [ScoreRow]? {

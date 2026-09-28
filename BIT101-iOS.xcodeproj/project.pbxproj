@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		F0A1C2D3E4B5678901234501 /* AppFileService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A1C2D3E4B5678901234510 /* AppFileService.swift */; };
+		F0A1C2D3E4B5678901234502 /* AppFileService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A1C2D3E4B5678901234510 /* AppFileService.swift */; };
+		F0A1C2D3E4B5678901234503 /* AppFileService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A1C2D3E4B5678901234510 /* AppFileService.swift */; };
 		0D6CC15DA5636384C904E0AD /* BIT101WatchWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 796D7A3D2666B8F0197201E6 /* BIT101WatchWidgetsBundle.swift */; };
 		14721303F52951498981FB7F /* ScheduleSharedOccurrence.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2C0A347C3DFB45B555EAF0 /* ScheduleSharedOccurrence.swift */; };
 		31C4ED6573B18E57E68C9998 /* WatchScheduleSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72A1F6AF2FB00A16DDC8068E /* WatchScheduleSyncManager.swift */; };
@@ -113,6 +116,7 @@
 		3CF4896F51E6C19BBE15048C /* ScheduleSharedLiveActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScheduleSharedLiveActivity.swift; sourceTree = "<group>"; };
 		4162B327CBFEC0829F8AB242 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
 		498515EF1571216B6C662577 /* ScheduleSharedSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScheduleSharedSnapshot.swift; sourceTree = "<group>"; };
+		F0A1C2D3E4B5678901234510 /* AppFileService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppFileService.swift; sourceTree = "<group>"; };
 		5CB43A1BB6CE6CCCBDC41D5C /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		66582305EDF75198F3070B6C /* BIT101ScheduleWidgetsBundle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BIT101ScheduleWidgetsBundle.swift; sourceTree = "<group>"; };
 		6C427FABBA6FB6C2CF4098BE /* BIT101WatchWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BIT101WatchWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -241,6 +245,7 @@
 			children = (
 				D51000000000000000000001 /* DesignSystem/DesignPrimitives.swift */,
 				D51000000000000000000005 /* DesignSystem/ExternalDesignSystem.swift */,
+				F0A1C2D3E4B5678901234510 /* AppFileService.swift */,
 				498515EF1571216B6C662577 /* ScheduleSharedSnapshot.swift */,
 				DE2C0A347C3DFB45B555EAF0 /* ScheduleSharedOccurrence.swift */,
 				3CF4896F51E6C19BBE15048C /* ScheduleSharedLiveActivity.swift */,
@@ -488,6 +493,7 @@
 				C8618324F1CB0A8EB9CB55F9 /* BIT101ScheduleWidgetsBundle.swift in Sources */,
 				85798F727C7A8202CDFECFA1 /* BIT101ScheduleWidgets.swift in Sources */,
 				7E481656A9CBB85EA5FA51AD /* ScheduleSharedSnapshot.swift in Sources */,
+				F0A1C2D3E4B5678901234501 /* AppFileService.swift in Sources */,
 				D51000000000000000000006 /* DesignSystem/ExternalDesignSystem.swift in Sources */,
 				D51000000000000000000002 /* DesignSystem/DesignPrimitives.swift in Sources */,
 				14721303F52951498981FB7F /* ScheduleSharedOccurrence.swift in Sources */,
@@ -509,6 +515,7 @@
 				0D6CC15DA5636384C904E0AD /* BIT101WatchWidgetsBundle.swift in Sources */,
 				8FD3C2B3B8C6D5E68B474DD7 /* BIT101WatchScheduleWidget.swift in Sources */,
 				A44A833C45CA0AA37FAD6708 /* ScheduleSharedSnapshot.swift in Sources */,
+				F0A1C2D3E4B5678901234502 /* AppFileService.swift in Sources */,
 				D51000000000000000000007 /* DesignSystem/ExternalDesignSystem.swift in Sources */,
 				D51000000000000000000003 /* DesignSystem/DesignPrimitives.swift in Sources */,
 				33BCD239CC2949787F9D7E6F /* ScheduleSharedOccurrence.swift in Sources */,
@@ -524,6 +531,7 @@
 				32D8F834E87443B18CE8F6B1 /* WatchScheduleStatusModel.swift in Sources */,
 				F52E9C051CAF65D91825FB7A /* WatchScheduleRootView.swift in Sources */,
 				80FEE566078E573A01F25942 /* ScheduleSharedSnapshot.swift in Sources */,
+				F0A1C2D3E4B5678901234503 /* AppFileService.swift in Sources */,
 				D51000000000000000000008 /* DesignSystem/ExternalDesignSystem.swift in Sources */,
 				D51000000000000000000004 /* DesignSystem/DesignPrimitives.swift in Sources */,
 				86480E32AA132F273CEFA205 /* ScheduleSharedOccurrence.swift in Sources */,

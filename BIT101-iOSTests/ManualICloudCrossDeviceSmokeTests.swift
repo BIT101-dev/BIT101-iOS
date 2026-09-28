@@ -28,7 +28,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
 
     @MainActor
     func testPhoneUpload() async {
-        let account = ScheduleCacheStore.currentAccountIdentifier()
+        let account = AppFileDirectories.currentSession.accountDirectoryName
         guard account != "guest", account != "__default__" else {
             XCTFail("请先在真机登录账号")
             return
@@ -169,7 +169,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     /// 脚本异常退出后，测试在当前账号存在协调状态时恢复实验开关并清除协调标记。
     @MainActor
     func testCleanup() async {
-        let account = ScheduleCacheStore.currentAccountIdentifier()
+        let account = AppFileDirectories.currentSession.accountDirectoryName
         guard let coordination = loadCoordination(account: account) else { return }
 
         manager.setEnabled(coordination.phoneSyncWasEnabled)
@@ -180,7 +180,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     private func requireCoordination(stage: Stage) async throws -> Coordination {
         var result: Coordination?
         let received = await waitUntil {
-            let account = ScheduleCacheStore.currentAccountIdentifier()
+            let account = AppFileDirectories.currentSession.accountDirectoryName
             let value = self.loadCoordination(account: account) ?? self.loadCoordination(stage: stage)
             guard let value, value.stage == stage else { return false }
             result = value

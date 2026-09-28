@@ -26,7 +26,7 @@ final class LoginStorage {
     }
 
     private let keychainService = "harrybit.BIT101-iOS.login"
-    private let defaults = UserDefaults.standard
+    private let defaults = AppFileDirectories.defaults
     private init() {
         purgePersistedCredentialsIfNeededAfterReinstall()
         migrateLegacyFakeCookieIfNeeded()

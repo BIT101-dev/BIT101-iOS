@@ -476,8 +476,9 @@ struct GalleryMessageReadSnapshot: Codable, Equatable {
 final class GalleryMessageReadStore {
     static let shared = GalleryMessageReadStore()
 
-    private let defaults = UserDefaults.standard
-    private let keyPrefix = "gallery.message.read.snapshot"
+    private let snapshotStore = AccountScopedCodableStore<GalleryMessageReadSnapshot>(
+        keyPrefix: "gallery.message.read.snapshot"
+    )
 
     private init() {}
 
@@ -485,19 +486,12 @@ final class GalleryMessageReadStore {
     ///
     /// 这里故意完全按账号隔离，避免切换学号后把上一个账号的消息已读状态串过来。
     private func loadSnapshot() -> GalleryMessageReadSnapshot {
-        guard
-            let data = defaults.data(forKey: storageKey),
-            let snapshot = try? JSONDecoder().decode(GalleryMessageReadSnapshot.self, from: data)
-        else {
-            return GalleryMessageReadSnapshot()
-        }
-        return snapshot
+        snapshotStore.load() ?? GalleryMessageReadSnapshot()
     }
 
     /// 回写当前账号的本地快照。
     private func saveSnapshot(_ snapshot: GalleryMessageReadSnapshot, shouldSync: Bool = true) {
-        guard let data = try? JSONEncoder().encode(snapshot) else { return }
-        defaults.set(data, forKey: storageKey)
+        snapshotStore.save(snapshot)
         if shouldSync {
             Task { @MainActor in
                 ExperimentalPreferenceCloudSync.shared.localValueDidChange(in: .galleryMessageRead)
@@ -556,12 +550,6 @@ final class GalleryMessageReadStore {
         guard latest.contains(id) else { return false }
         let seen = Set(snapshot.seenIDsByType[type.rawValue] ?? [])
         return !seen.contains(id)
-    }
-
-    private var storageKey: String {
-        let studentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let suffix = studentID.isEmpty ? "guest" : studentID
-        return "\(keyPrefix).\(suffix)"
     }
 
     /// 去重同时保留原始顺序。

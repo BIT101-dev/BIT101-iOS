@@ -163,15 +163,12 @@ nonisolated enum ScheduleExternalSnapshotStore {
             throw ScheduleExternalSnapshotStoreError.sharedContainerUnavailable
         }
 
-        try FileManager.default.createDirectory(
-            at: fileURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
+        try AppFileSystem.files.createDirectory(at: fileURL.deletingLastPathComponent())
         let data = try ScheduleExternalSnapshotCodec.encode(
             snapshot,
             outputFormatting: [.prettyPrinted, .sortedKeys]
         )
-        try data.write(to: fileURL, options: [.atomic])
+        try AppFileSystem.files.writeData(data, to: fileURL, options: [.atomic])
         Task { @MainActor in
             NotificationCenter.default.post(name: .scheduleExternalSnapshotDidChange, object: nil)
         }
@@ -180,7 +177,7 @@ nonisolated enum ScheduleExternalSnapshotStore {
     static func load() -> ScheduleExternalSnapshot? {
         guard
             let fileURL,
-            let data = try? Data(contentsOf: fileURL)
+            let data = try? AppFileSystem.files.readData(at: fileURL)
         else {
             return nil
         }
@@ -190,7 +187,7 @@ nonisolated enum ScheduleExternalSnapshotStore {
 
     static func clear() {
         guard let fileURL else { return }
-        try? FileManager.default.removeItem(at: fileURL)
+        try? AppFileSystem.files.removeItem(at: fileURL)
         Task { @MainActor in
             NotificationCenter.default.post(name: .scheduleExternalSnapshotDidChange, object: nil)
         }
@@ -198,9 +195,7 @@ nonisolated enum ScheduleExternalSnapshotStore {
 
     static var fileURL: URL? {
         guard
-            let containerURL = FileManager.default.containerURL(
-                forSecurityApplicationGroupIdentifier: ScheduleSharedContainer.identifier
-            )
+            let containerURL = AppFileSystem.files.appGroupContainerURL(identifier: ScheduleSharedContainer.identifier)
         else {
             return nil
         }
