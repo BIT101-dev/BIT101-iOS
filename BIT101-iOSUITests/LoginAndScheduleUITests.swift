@@ -182,6 +182,75 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
     }
 
     @MainActor
+    func testMainTabsRemainAccessibleAtAccessibilityDynamicType() throws {
+        app = launchApp(resetStorage: true)
+        signIn(app)
+        app.terminate()
+        for style in ["Light", "Dark"] {
+            app = launchApp(
+                resetStorage: false,
+                accessibilityTextSize: true,
+                userInterfaceStyle: style
+            )
+            assertMainTabsRemainAccessible(style: style)
+            app.terminate()
+        }
+    }
+
+    @MainActor
+    private func assertMainTabsRemainAccessible(style: String) {
+        let window = app.windows.firstMatch
+        for identifier in ["app.tab.schedule", "app.tab.home", "app.tab.gallery", "app.tab.mine"] {
+            let tab = app.tabBars.buttons[identifier]
+            assertUI(tab.waitForExistence(timeout: 10), "辅助功能大字号下主 Tab 应可见：\(identifier)")
+            tab.tap()
+            assertUI(tab.isSelected, "辅助功能大字号下点按后应选中对应 Tab：\(identifier)")
+            if identifier == "app.tab.gallery" {
+                let offlineAlert = app.alerts["加载话廊失败"]
+                assertUI(offlineAlert.waitForExistence(timeout: 10), "离线话廊请求应展示失败提示。")
+                offlineAlert.buttons["知道了"].tap()
+            }
+            let tabFrame = tab.frame
+            let windowFrame = window.frame
+            let tabIsHittable = tab.isHittable
+            let tabLabel = tab.label
+            assertUI(
+                window.exists && tabIsHittable && windowFrame.contains(tabFrame) && tabLabel.count > 0,
+                "辅助功能大字号下 Tab 应保持可见、可触达并具有名称：\(identifier)；window=\(windowFrame)，tab=\(tabFrame)，hittable=\(tabIsHittable)，label=\(tabLabel)"
+            )
+            let contentTarget: XCUIElement?
+            let contentDescription: String
+            switch identifier {
+            case "app.tab.schedule":
+                contentTarget = app.descendants(matching: .any)
+                    .matching(identifier: "schedule.blank-context-menu")
+                    .firstMatch
+                contentDescription = "课表空白操作区"
+            case "app.tab.home":
+                contentTarget = app.buttons["score.query"]
+                contentDescription = "成绩查询操作"
+            case "app.tab.mine":
+                contentTarget = app.buttons["settings.route.account"]
+                contentDescription = "账号设置入口"
+            default:
+                contentTarget = nil
+                contentDescription = ""
+            }
+            if let contentTarget {
+                assertUI(
+                    contentTarget.waitForExistence(timeout: 10),
+                    "辅助功能大字号与\(style)外观下应展示\(contentDescription)"
+                )
+                let contentFrame = contentTarget.frame
+                assertUI(
+                    contentTarget.isHittable && windowFrame.contains(contentFrame),
+                    "\(contentDescription)应位于可见窗口且保持可触达：\(contentFrame)"
+                )
+            }
+        }
+    }
+
+    @MainActor
     func testScoreChallengeContinuesAfterSMSVerification() throws {
         app = launchApp(resetStorage: true)
         signIn(app)
@@ -288,10 +357,23 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchApp(resetStorage: Bool) -> XCUIApplication {
+    private func launchApp(
+        resetStorage: Bool,
+        accessibilityTextSize: Bool = false,
+        userInterfaceStyle: String? = nil
+    ) -> XCUIApplication {
         continueAfterFailure = false
         let application = XCUIApplication()
         application.launchArguments = ["--ui-testing"]
+        if accessibilityTextSize {
+            application.launchArguments += [
+                "-UIPreferredContentSizeCategoryName",
+                "UICTContentSizeCategoryAccessibilityL",
+            ]
+        }
+        if let userInterfaceStyle {
+            application.launchArguments += ["-UIUserInterfaceStyle", userInterfaceStyle]
+        }
         application.launchEnvironment["BIT101_UI_TESTING"] = "1"
         application.launchEnvironment["BIT101_UI_TEST_RUN_ID"] = runIdentifier
         application.launchEnvironment["BIT101_UI_TEST_RESET_STORAGE"] = resetStorage ? "1" : "0"

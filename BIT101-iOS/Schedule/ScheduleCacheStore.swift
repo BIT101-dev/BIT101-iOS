@@ -49,6 +49,8 @@ enum ScheduleCacheStore {
         case local
         case localWithoutCloudPush
         case cloud
+        /// 记录已确认的云端基线，同时保留后续本地编辑的待上传状态。
+        case cloudBaseline
     }
 
     fileprivate nonisolated static func makeEncoder() -> JSONEncoder {
@@ -87,8 +89,13 @@ enum ScheduleCacheStore {
     }
 
     static func loadResultAsync() async -> LoadResult {
-        let accountIdentifier = AppFileDirectories.currentSession.accountDirectoryName
-        let legacyIdentifier = legacyAccountIdentifier()
+        await loadResultAsync(for: AppFileDirectories.currentSession)
+    }
+
+    /// 读取调用方捕获的账号缓存，避免异步期间账号切换后改读另一账号。
+    static func loadResultAsync(for session: AppStorageSession) async -> LoadResult {
+        let accountIdentifier = session.accountDirectoryName
+        let legacyIdentifier = session.legacyAccountDirectoryNameForMigration
         return await Task.detached(priority: .utility) {
             Self.loadResult(
                 accountIdentifier: accountIdentifier,
@@ -117,7 +124,7 @@ enum ScheduleCacheStore {
         var cacheToSave = cache
         if source == .cloud {
             cacheToSave.hasUnpushedCloudChanges = false
-        } else {
+        } else if source == .local || source == .localWithoutCloudPush {
             cacheToSave.updatedAt = ScheduleCacheTimestamp.next(
                 after: max(cache.updatedAt, cache.cloudSyncBaselineAt),
                 now: Date()
@@ -209,14 +216,15 @@ enum ScheduleCacheStore {
         accountIdentifier: String,
         source: SaveSource
     ) async {
-        guard AppFileDirectories.currentSession.accountDirectoryName == accountIdentifier else { return }
+        let session = AppFileDirectories.currentSession
+        guard session.accountDirectoryName == accountIdentifier else { return }
 #if BIT101_UI_TESTING
         if AppFileDirectories.isRunningUITest {
             postCacheDidChange()
             return
         }
 #endif
-        await ScheduleWidgetExporter.syncAsync(cache: cache)
+        await ScheduleWidgetExporter.syncAsync(cache: cache, session: session)
         postCacheDidChange()
 
         #if canImport(CloudKit)

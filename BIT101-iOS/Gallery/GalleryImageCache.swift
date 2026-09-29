@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import ImageIO
 import OSLog
 import SwiftUI
 import UniformTypeIdentifiers
@@ -12,16 +13,21 @@ import UIKit
 enum GalleryImageCachePreferences {
     nonisolated static let limitMBKey = "gallery.image-cache.limit-mb"
     nonisolated static let defaultLimitMB = 500
+    nonisolated static let maximumLimitMB = Int(Int64.max / 1_048_576)
+
+    nonisolated static func normalizedLimitMB(_ value: Int) -> Int {
+        min(max(value, 0), maximumLimitMB)
+    }
 
     nonisolated static var limitMB: Int {
         get {
             guard AppFileDirectories.defaults.object(forKey: limitMBKey) != nil else {
                 return defaultLimitMB
             }
-            return max(AppFileDirectories.defaults.integer(forKey: limitMBKey), 0)
+            return normalizedLimitMB(AppFileDirectories.defaults.integer(forKey: limitMBKey))
         }
         set {
-            AppFileDirectories.defaults.set(max(newValue, 0), forKey: limitMBKey)
+            AppFileDirectories.defaults.set(normalizedLimitMB(newValue), forKey: limitMBKey)
         }
     }
 }
@@ -152,7 +158,7 @@ actor GalleryImageCache {
         for extensionName in supportedExtensions {
             let file = directory.appendingPathComponent("\(prefix).\(extensionName)")
             guard files.fileExists(at: file) else { continue }
-            guard hasData(at: file) else {
+            guard hasData(at: file), isDecodableImage(at: file) else {
                 try? files.removeItem(at: file)
                 continue
             }
@@ -187,6 +193,9 @@ actor GalleryImageCache {
             let result = try await operation.task.value
             if downloads[requestKey]?.id == operation.id {
                 downloads[requestKey] = nil
+            }
+            guard isDecodableImage(data: result.data) else {
+                throw CocoaError(.fileReadCorruptFile)
             }
             let ext = preferredExtension(for: remoteURL, mimeType: result.mimeType)
             let target = directory.appendingPathComponent("\(filePrefix(for: remoteURL, variant: variant)).\(ext)")
@@ -264,6 +273,26 @@ actor GalleryImageCache {
     private func hasData(at url: URL) -> Bool {
         guard let fileSize = files.regularFileSize(at: url) else { return false }
         return fileSize > 0
+    }
+
+    private func isDecodableImage(at url: URL) -> Bool {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return false }
+        return containsDecodableImage(source)
+    }
+
+    private func isDecodableImage(data: Data) -> Bool {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return false }
+        return containsDecodableImage(source)
+    }
+
+    private func containsDecodableImage(_ source: CGImageSource) -> Bool {
+        guard CGImageSourceGetCount(source) > 0 else { return false }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: 64,
+            kCGImageSourceShouldCacheImmediately: true,
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) != nil
     }
 
     private func pruneIfNeeded(protecting protectedURLs: Set<URL>, force: Bool = false) async {

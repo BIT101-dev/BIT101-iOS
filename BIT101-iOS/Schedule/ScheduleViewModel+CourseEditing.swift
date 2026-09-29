@@ -209,27 +209,10 @@ extension ScheduleViewModel {
         _ courses: [CourseRecord],
         previousCourses: [CourseRecord]
     ) {
-        cache.courses = courses
-        guard !cache.currentTerm.isEmpty else { return }
-
-        let baselineCourses = cache.schoolCoursesByTerm[cache.currentTerm]
-            ?? cache.termSchedulesByTerm[cache.currentTerm]?.courses
-            ?? previousCourses
-        cache.schoolCoursesByTerm[cache.currentTerm] = baselineCourses
-        cache.manualCourseRulesByTerm[cache.currentTerm] = ScheduleCourseEditor.updatingRules(
-            existing: cache.manualCourseRulesByTerm[cache.currentTerm] ?? [],
-            baselineCourses: baselineCourses,
+        ScheduleCourseEditor.updateCacheForManualCourseChange(
+            in: &cache,
             previousCourses: previousCourses,
             currentCourses: courses
-        )
-        cache.cachedCoursesByTerm[cache.currentTerm] = courses
-        guard let snapshot = cache.termSchedulesByTerm[cache.currentTerm] else { return }
-        cache.termSchedulesByTerm[cache.currentTerm] = TermScheduleSnapshot(
-            term: snapshot.term,
-            firstDayString: snapshot.firstDayString,
-            courses: baselineCourses,
-            exams: snapshot.exams,
-            updatedAt: snapshot.updatedAt
         )
     }
 

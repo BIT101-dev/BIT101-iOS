@@ -42,7 +42,7 @@
 
 ## 检查入口
 
-- `Scripts/check-ui-consistency.sh`：视觉令牌、字体、布局、页面角色、公共组件、控件修饰器归属、系统触感和错误报告入口。
+- `Scripts/check-ui-consistency.sh`：SwiftSyntax 节点范围内的视觉令牌、字体、布局、页面角色、递归公共组件契约、控件修饰器归属、系统触感、错误报告入口与图片型操作控件无障碍名称；动态 SF Symbol、固定几何和主题例外均由自动契约约束。
 - `Scripts/check-code-quality.sh`：客户端网络、存储、日期、并发、源码与脚本规范；结构契约通过 Xcode toolchain 自带的 SwiftSyntax 解析声明、调用、类型、作用域和成员访问。
 - `Scripts/check-code-quality.py --self-test` 与 `Scripts/check-ui-consistency.py --self-test`：用内存样例验证规则边界，统一审计入口逐项执行。
 - `Scripts/run-static-audit.sh`：统一运行静态检查、阻塞式文档新鲜度检查和锁定依赖漏洞审计，并汇总各检查组结果。

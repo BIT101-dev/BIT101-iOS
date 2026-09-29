@@ -113,6 +113,17 @@ func convertMinutesToSection(minutes: Int, timeTable: [TimeSlot]) -> CGFloat {
     return CGFloat(sectionIndex) + ratio
 }
 
+func isRepresentableOnQuantizedAxis(
+    startMinutes: Int,
+    endMinutes: Int,
+    timeTable: [TimeSlot]
+) -> Bool {
+    guard endMinutes > startMinutes else { return false }
+    let startSection = convertMinutesToSection(minutes: startMinutes, timeTable: timeTable)
+    let endSection = convertMinutesToSection(minutes: endMinutes, timeTable: timeTable)
+    return endSection > startSection + 0.05
+}
+
 /// 根据首周日期计算课表页当前周次。
 func resolvedCurrentWeek(firstDay: Date) -> Int {
     let start = ScheduleDateCodec.calendar.startOfDay(for: firstDay)

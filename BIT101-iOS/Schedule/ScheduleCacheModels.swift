@@ -146,7 +146,7 @@ nonisolated struct ScheduleCache: Codable, Sendable {
         ) ?? [:]
         // 将根级课程数组合入当前学期缓存项。
         if !currentTerm.isEmpty, !courses.isEmpty, cachedCoursesByTerm[currentTerm]?.isEmpty ?? true {
-            cachedCoursesByTerm[currentTerm] = courses
+            cachedCoursesByTerm[currentTerm] = schoolCoursesByTerm[currentTerm] ?? courses
         }
         exams = try container.decodeIfPresent([ExamRecord].self, forKey: .exams) ?? []
         customSchedules = try container.decodeIfPresent([CustomScheduleRecord].self, forKey: .customSchedules) ?? []
@@ -209,11 +209,26 @@ nonisolated struct ScheduleCache: Codable, Sendable {
 
         let baselineTerms = Set(termSchedulesByTerm.keys)
             .union(cachedCoursesByTerm.keys)
+            .union(schoolCoursesByTerm.keys)
             .union(currentTerm.isEmpty ? [] : [currentTerm])
         for term in baselineTerms where schoolCoursesByTerm[term] == nil {
             schoolCoursesByTerm[term] = termSchedulesByTerm[term]?.courses
                 ?? cachedCoursesByTerm[term]
                 ?? (term == currentTerm ? courses : [])
+        }
+        for term in baselineTerms {
+            if let schoolCourses = schoolCoursesByTerm[term] {
+                cachedCoursesByTerm[term] = schoolCourses
+                if let snapshot = termSchedulesByTerm[term], snapshot.courses != schoolCourses {
+                    termSchedulesByTerm[term] = TermScheduleSnapshot(
+                        term: snapshot.term,
+                        firstDayString: snapshot.firstDayString,
+                        courses: schoolCourses,
+                        exams: snapshot.exams,
+                        updatedAt: snapshot.updatedAt
+                    )
+                }
+            }
         }
 
         // 解析器版本低于当前版本时，按行级周次规范化 `-1` 小学期记录。
@@ -270,7 +285,7 @@ nonisolated struct ScheduleCache: Codable, Sendable {
                 with: baseline
             )
             courses = reconciliation.courses
-            cachedCoursesByTerm[currentTerm] = reconciliation.courses
+            cachedCoursesByTerm[currentTerm] = baseline
             manualCourseRulesByTerm[currentTerm] = reconciliation.validRules
         }
     }

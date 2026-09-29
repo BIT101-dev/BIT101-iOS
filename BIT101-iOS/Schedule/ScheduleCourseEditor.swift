@@ -120,6 +120,37 @@ nonisolated enum ScheduleCourseEditor {
         return updatedRules
     }
 
+    /// 把编辑结果应用到显示缓存，同时保留学校课程快照供成绩和后续同步使用。
+    static func updateCacheForManualCourseChange(
+        in cache: inout ScheduleCache,
+        previousCourses: [CourseRecord],
+        currentCourses: [CourseRecord]
+    ) {
+        cache.courses = currentCourses
+        guard !cache.currentTerm.isEmpty else { return }
+
+        let term = cache.currentTerm
+        let baselineCourses = cache.schoolCoursesByTerm[term]
+            ?? cache.termSchedulesByTerm[term]?.courses
+            ?? previousCourses
+        cache.schoolCoursesByTerm[term] = baselineCourses
+        cache.cachedCoursesByTerm[term] = baselineCourses
+        cache.manualCourseRulesByTerm[term] = updatingRules(
+            existing: cache.manualCourseRulesByTerm[term] ?? [],
+            baselineCourses: baselineCourses,
+            previousCourses: previousCourses,
+            currentCourses: currentCourses
+        )
+        guard let snapshot = cache.termSchedulesByTerm[term] else { return }
+        cache.termSchedulesByTerm[term] = TermScheduleSnapshot(
+            term: snapshot.term,
+            firstDayString: snapshot.firstDayString,
+            courses: baselineCourses,
+            exams: snapshot.exams,
+            updatedAt: snapshot.updatedAt
+        )
+    }
+
     struct ResolvedDraft: Equatable {
         let title: String
         let teacher: String

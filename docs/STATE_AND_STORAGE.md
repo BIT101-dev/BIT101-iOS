@@ -27,12 +27,15 @@
 - `Shared/Client/AppFileDirectories.swift` 统一提供 Application Support、Caches、Documents、App Group 路径与当前账号 `AppStorageSession`。
 - `AppStorageSession` 统一生成账号级 UserDefaults 键和稳定、安全的账号目录名；访客状态使用固定默认分区。
 - 业务仓库按单用户语义暴露读取、保存和清理入口；`AccountScopedCodableStore` 与 `AccountScopedFileCodableStore` 负责 Codable 快照的本地编码和账号分区。
+- `AccountScopedFileCodableStore` 写入前校验已有快照；校验失败时保留原文件并返回失败。
 - 成绩明细、课表缓存、发帖草稿及其图片保存在账号隔离的 `Application Support` 文件中，写入使用原子替换和 `completeFileProtectionUntilFirstUserAuthentication`。
 - App Group 课表快照使用相同的数据保护级别，首次解锁后供 Widget 与 Watch 读取。
+- Widget/Watch 导出在账号切换时先替换共享快照，再按捕获的账号读取；写入队列按 generation 串行化并丢弃迟到的旧导出。
 - 持久化容器数据遵循 iOS 应用容器备份策略；可重建的头像和话廊图片放在 `Caches`，由容量策略回收。
 - 全局偏好继续使用应用级键，凭据继续由 Keychain 保存，扩展快照继续写入 App Group。
 - 日程异步写入在任务创建时固定账号目录，并在切换账号后校验写入和导出归属。
-- 发帖草稿按当前账号分区；图片以独立 JPEG 文件保存，单张文件上限为 1 MiB，JSON 清单采用原子替换；首次读取时迁移旧版内嵌图片数据。
+- 成绩文件的读取、JSON 编解码和原子写入由 actor 串行执行；损坏文件会阻止覆盖，也会暂停该域的 iCloud 缓存同步。
+- 发帖草稿按当前账号分区；图片以独立 JPEG 文件保存，单张文件上限为 1 MiB，JSON 清单采用原子替换；串行后台 actor 承载读写、图片压缩和旧版内嵌图片迁移。
 - CloudKit 承载手动日程调整、个人日程、导入课表、手动 DDL、乐学 DDL 完成状态和日程偏好；学校接口返回的课程、考试、乐学 DDL 正文与查询缓存保留在本机。
 
 ## 3. 会话与凭据
@@ -116,6 +119,8 @@ App 覆盖更新会保留 Application Support 中按账号保存的日程缓存�
 
 - `ScheduleCacheStore` 会把缓存写到 `Application Support/BIT101-iOS/<account>/schedule-cache.json`
 - 这份缓存包含主课表、考试、DDL、自定义日程和导入的分享课表
+- `schoolCoursesByTerm`、`cachedCoursesByTerm` 与学期快照保留学校返回的原始课程；放假、删课和换课写入 `manualCourseRulesByTerm`，`courses` 保存当前展示结果
+- 成绩页使用原始学期缓存估算未出分课程，课表编辑结果持续通过规则叠加展示
 - 历史账号目录在旧路径与账号标识原样一致时参与自动回退；字符替换后的目录作为隔离历史数据留在原位
 - 导入别人分享的课表后，本地记录会进入 `sharedSchedules`
 
@@ -154,6 +159,8 @@ App 覆盖更新会保留 Application Support 中按账号保存的日程缓存�
 
 `ScheduleCache` 的新增字段按默认值解码。文件读取或解码失败时，系统保留原文件、暂停本地写入，并在日程页提示恢复状态；Widget/Watch 改用当前账号的空课表快照，维持账号归属一致。字段语义、字段类型或关键结构变化仍需明确迁移策略。
 
+成绩缓存文件读取或解码失败时，仓库保留原文件并跳过本地替换；实验性偏好同步也跳过成绩缓存域，避免空载荷覆盖本机或云端数据。退出登录会清理会话凭据，账号隔离的课表、成绩和草稿仍保留，供该账号下次登录恢复；“删除所有文稿与数据”会清除这些本地持久数据。
+
 设置页的“删除所有文稿与数据”会清理主 App 沙盒与 App Group 中的日程快照、网络 Smoke 报告和原始课程响应；文件清理遇到错误时，App 呈现部分完成提示。已同步至 iCloud 的课表与偏好属于远端数据，保留在用户 iCloud 账户中。
 
 ### 4.7 iCloud 课表同步
@@ -164,7 +171,7 @@ App 覆盖更新会保留 Application Support 中按账号保存的日程缓存�
 - CloudKit 服务器修改时间记录每台设备的同步基线，本地编辑单独标记为待上传
 - 手动调课、调休与放假规则、个人日程、分享课表、手动 DDL、乐学 DDL 完成状态和日程偏好参与跨设备同步
 - 课程、考试、乐学 DDL 正文、乐学订阅链接、课程历史快照、校区和教学楼查询缓存留在本机
-- 双端都在共同基线后修改用户创建内容或日程偏好时，应用提供本机/iCloud 版本选择；课程等学校抓取数据保留在本机
+- 本机存在待上传修改且 iCloud 版本与同步基线分歧时，应用提供本机/iCloud 版本选择；课程等学校抓取数据保留在本机
 - 关闭 `iCloudSyncEnabled` 后，管理器停止拉取和上传
 - App 和扩展导出流程直接读取本地文件缓存，CloudKit 承载云端同步
 
@@ -216,7 +223,7 @@ CloudKit 载荷使用带版本号的精简 envelope。升级时，应用可读�
 
 这类偏好按账号分桶保存在 `UserDefaults`。成绩行和更新时间保存在账号隔离的
 `Application Support/BIT101-iOS/<account>/score-cache.json`，三个值组成单一原子快照；旧版
-`UserDefaults` 成绩键在首次读取时迁入文件并清理来源键。
+`UserDefaults` 成绩键在首次读取时迁入文件并清理来源键。文件访问和编解码在后台 actor 中串行处理，成绩页从单次快照读取所需字段；文件不可读时保留源文件并暂停该成绩域的云同步。
 
 可信成绩单的图片采用 ephemeral URLSession 从学校生成的短期 URL 下载，并由申请页 ViewModel 持有
 `UIImage`；退出页面时结束持有，`CachedRemoteImage` 的磁盘缓存排除该图片。

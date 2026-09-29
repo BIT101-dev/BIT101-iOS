@@ -81,7 +81,7 @@ struct GallerySettingsPage: View {
                     TextField("缓存上限", value: $imageCacheLimitMB, format: .number)
                         .keyboardType(.numberPad)
                         .onChange(of: imageCacheLimitMB) { _, newValue in
-                            let normalized = max(newValue, 0)
+                            let normalized = GalleryImageCachePreferences.normalizedLimitMB(newValue)
                             if normalized != newValue {
                                 imageCacheLimitMB = normalized
                                 return
@@ -313,7 +313,7 @@ struct AboutSettingsPage: View {
         // clearWebData 等待期间可能弹出版本公告，登录页随后替换 AppShell。
         onLogout()
         await ScheduleCacheStore.clear()
-        let didClearSharedSnapshot = ScheduleExternalSnapshotStore.clear()
+        let didClearSharedSnapshot = await ScheduleWidgetExporter.clearSharedSnapshot()
         let didClearSmokeArtifacts = ReleaseNetworkSmokeReportStore.clearLocalArtifacts()
         clearUserDefaults()
         let didClearSandboxFiles = clearSandboxFileData()

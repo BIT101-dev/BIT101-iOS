@@ -496,6 +496,13 @@ struct CourseScheduleTabView: View {
                 isEditing: editingCustomScheduleID != nil,
                 onSubmit: {
                     do {
+                        let shouldRecommendLinearAxis = editingCustomScheduleID == nil
+                            && calendarAxisMode == .quantized
+                            && !isRepresentableOnQuantizedAxis(
+                                startMinutes: ScheduleDateCodec.minutesOfDay(from: customScheduleDraft.beginTime),
+                                endMinutes: ScheduleDateCodec.minutesOfDay(from: customScheduleDraft.endTime),
+                                timeTable: activeSchedule.timeTable
+                            )
                         if let editingCustomScheduleID {
                             try viewModel.updateCustomSchedule(id: editingCustomScheduleID, draft: customScheduleDraft)
                         } else {
@@ -503,6 +510,12 @@ struct CourseScheduleTabView: View {
                         }
                         editingCustomScheduleID = nil
                         isShowingEditSchedule = false
+                        if shouldRecommendLinearAxis {
+                            viewModel.notice = ScheduleNotice.informational(
+                                title: "日程显示提示",
+                                message: "该日程请使用线性时间轴查看。前往“我的 - 课程表设置”，将“时间轴”切换为“线性”即可查看。"
+                            )
+                        }
                     } catch {
                         presentSaveError(error)
                     }

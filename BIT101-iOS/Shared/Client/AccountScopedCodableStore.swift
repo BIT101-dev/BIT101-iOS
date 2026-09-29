@@ -99,6 +99,18 @@ struct AccountScopedFileCodableStore<Value: Codable> {
     @discardableResult
     func save(_ value: Value) -> Bool {
         let targetURL = fileURL
+        if files.fileExists(at: targetURL) {
+            do {
+                let existingData = try files.readData(at: targetURL)
+                _ = try JSONDecoder().decode(Value.self, from: existingData)
+            } catch {
+                accountScopedStoreLogger.error(
+                    "Account-scoped file write skipped after existing snapshot validation failed filename=\(filename, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                )
+                return false
+            }
+        }
+
         do {
             try files.createDirectory(at: targetURL.deletingLastPathComponent())
             let data = try JSONEncoder().encode(value)

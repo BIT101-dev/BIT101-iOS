@@ -14,6 +14,7 @@ import Foundation
 nonisolated enum CampusPreset: String, CaseIterable, Identifiable {
     case liangxiang
     case zhongguancun
+    case zhuhai
 
     /// 供切换按钮绑定的稳定标识。
     var id: String { rawValue }
@@ -25,6 +26,8 @@ nonisolated enum CampusPreset: String, CaseIterable, Identifiable {
             return "乡"
         case .zhongguancun:
             return "村"
+        case .zhuhai:
+            return "珠"
         }
     }
 
@@ -35,6 +38,8 @@ nonisolated enum CampusPreset: String, CaseIterable, Identifiable {
             return "良乡校区"
         case .zhongguancun:
             return "中关村校区"
+        case .zhuhai:
+            return "珠海校区"
         }
     }
 
@@ -42,9 +47,11 @@ nonisolated enum CampusPreset: String, CaseIterable, Identifiable {
     var coordinate: CLLocationCoordinate2D {
         switch self {
         case .liangxiang:
-            return CLLocationCoordinate2D(latitude: 39.73027614839699, longitude: 116.17276949062236)
+            return CLLocationCoordinate2D(latitude: 39.7293778, longitude: 116.1733546)
         case .zhongguancun:
-            return CLLocationCoordinate2D(latitude: 39.95966806175981, longitude: 116.31597988552478)
+            return CLLocationCoordinate2D(latitude: 39.9551764, longitude: 116.31597988552478)
+        case .zhuhai:
+            return CLLocationCoordinate2D(latitude: 22.363905, longitude: 113.542184)
         }
     }
 
@@ -54,7 +61,9 @@ nonisolated enum CampusPreset: String, CaseIterable, Identifiable {
         case .liangxiang:
             return 4500
         case .zhongguancun:
-            return 5000
+            return 5500
+        case .zhuhai:
+            return 7000
         }
     }
 }
@@ -165,6 +174,7 @@ nonisolated enum CampusMapPlaceCatalog {
     static func campus(campusName: String, classroom: String) -> CampusPreset? {
         if campusName.contains("良乡") { return .liangxiang }
         if campusName.contains("中关村") { return .zhongguancun }
+        if campusName.contains("珠海") { return .zhuhai }
 
         let liangxiangPrefixes = [
             "文萃", "综教", "理教", "理学", "工训", "工业生态", "化学实验",
@@ -224,6 +234,9 @@ nonisolated enum CampusMapPlaceCatalog {
             if classroom.contains("疏桐") { return "疏桐A地下" }
             if classroom.contains("综教A") { return "综教A" }
             if classroom.contains("综教B") { return "综教B" }
+
+        case .zhuhai:
+            break
         }
         return nil
     }

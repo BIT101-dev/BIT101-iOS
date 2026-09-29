@@ -20,8 +20,11 @@ DESIGN_SYSTEM_SOURCES = {
     SOURCE_ROOT / "Course/CourseDesignSystem.swift",
     SOURCE_ROOT / "Schedule/ScheduleDesignSystem.swift",
     SOURCE_ROOT / "Gallery/GalleryDesignSystem.swift",
-    SOURCE_ROOT / "Map/CampusMapScreen.swift",
 }
+MAP_THEME_COLOR_CONTRACT = (
+    "Map/CampusMapScreen.swift",
+    "static let tabAccent = Color.green",
+)
 PRIMITIVE_OPACITY_SOURCE = SOURCE_ROOT / "Shared/DesignSystem/DesignPrimitives.swift"
 REPORT_PATH = ROOT / ".build/ui-consistency-report.txt"
 
@@ -50,7 +53,33 @@ def mask_comments(source: str) -> str:
             else:
                 _blank_segment(output, source, index, index + 1)
                 index += 1
-        elif source.startswith("//", index):
+            continue
+
+        raw_match = re.match(r'(#+)("{1,3})', source[index:])
+        if raw_match:
+            hashes, quote = raw_match.groups()
+            terminator = quote + hashes
+            content_start = index + len(hashes) + len(quote)
+            end = source.find(terminator, content_start)
+            index = len(source) if end < 0 else end + len(terminator)
+            continue
+        if source.startswith('"""', index):
+            end = source.find('"""', index + 3)
+            index = len(source) if end < 0 else end + 3
+            continue
+        if source[index] == '"':
+            index += 1
+            while index < len(source):
+                if source[index] == "\\":
+                    index += 2
+                elif source[index] == '"':
+                    index += 1
+                    break
+                else:
+                    index += 1
+            continue
+
+        if source.startswith("//", index):
             end = source.find("\n", index)
             end = len(source) if end < 0 else end
             _blank_segment(output, source, index, end)
@@ -82,18 +111,6 @@ def mask_literals_and_comments(source: str) -> str:
             else:
                 _blank_segment(output, source, index, index + 1)
                 index += 1
-            continue
-
-        if source.startswith("//", index):
-            end = source.find("\n", index)
-            end = len(source) if end < 0 else end
-            _blank_segment(output, source, index, end)
-            index = end
-            continue
-        if source.startswith("/*", index):
-            comment_depth = 1
-            _blank_segment(output, source, index, index + 2)
-            index += 2
             continue
 
         raw_match = re.match(r"(#+)(\"{1,3})", source[index:])
@@ -128,6 +145,18 @@ def mask_literals_and_comments(source: str) -> str:
                     index += 1
             continue
 
+        if source.startswith("//", index):
+            end = source.find("\n", index)
+            end = len(source) if end < 0 else end
+            _blank_segment(output, source, index, end)
+            index = end
+            continue
+        if source.startswith("/*", index):
+            comment_depth = 1
+            _blank_segment(output, source, index, index + 2)
+            index += 2
+            continue
+
         index += 1
     return "".join(output)
 
@@ -140,31 +169,38 @@ def is_view_source(path: Path, code: str) -> bool:
         code,
     ) is not None
 
-FIXED_GEOMETRY_REVIEW = (
+FIXED_GEOMETRY_CONTRACTS = (
     (
         "Course/CourseCommentViews.swift",
-        "thumbnailButton(image: displayedImages[0]",
-        "评论图片的首图、横图和尾图使用不同的构图尺寸，保留业务视觉契约",
+        "thumbnailButton(image: displayedImages[0], index: 0, width: 180",
+    ),
+    (
+        "Course/CourseCommentViews.swift",
+        "thumbnailButton(image: image, index: index, width: nil, maxHeight: 150",
+    ),
+    (
+        "Course/CourseCommentViews.swift",
+        "thumbnailButton(image: image, index: index, width: nil, maxHeight: 78",
     ),
     (
         "Gallery/GalleryComposerView.swift",
         "GridItem(.adaptive(minimum: 64)",
-        "自定义标签网格的 64pt 最小列宽暂无公共尺寸可表达",
     ),
     (
         "Course/CourseHistoryGradesViews.swift",
         "StrokeStyle(lineWidth: 2, dash: [5, 4])",
-        "历史成绩图表选中线使用独立线型，保留图表可读性",
     ),
     (
-        "Settings/SettingsRootView.swift",
-        "max(1, width * scale)",
-        "图片导出尺寸的 1pt 是 CoreGraphics 防零尺寸保护值",
+        "Gallery/GalleryComposerView.swift",
+        "width: max(1, width * scale)",
     ),
     (
         "Schedule/ScheduleLinearCalendarViews.swift",
         "max(proxy.size.height - headerHeight, 1)",
-        "时间轴画布的 1pt 是布局防零尺寸保护值",
+    ),
+    (
+        "Schedule/ScheduleCourseCardViews.swift",
+        "lowerBound: CGFloat = 1",
     ),
 )
 
@@ -179,7 +215,7 @@ DIRECT_OPACITY_LITERAL = re.compile(
     r"\.opacity\s*\(\s*(?:0\.[0-9]+|1(?:\.0+)?)\s*\)"
 )
 DIRECT_OPACITY_ASSIGNMENT = re.compile(
-    r"\b(?:let|var)\s+[A-Za-z_][A-Za-z0-9_]*Opacity\s*(?::\s*(?:CGFloat|Double))?\s*=\s*(?:0\.[0-9]+|1(?:\.0+)?)"
+    r"\b[A-Za-z_][A-Za-z0-9_]*Opacity\s*(?::\s*(?:CGFloat|Double))?\s*=\s*(?:0\.[0-9]+|1(?:\.0+)?)"
 )
 DIRECT_FOREGROUND_STYLE = re.compile(
     r"\.foregroundStyle\s*\(\s*\.(?:primary|secondary|tertiary|quaternary|quinary|white|black)\s*\)"
@@ -218,16 +254,10 @@ PAGE_THEME_RULES = (
         "AppDesignSystem.Course.accent",
     ),
 )
-PAGE_THEME_REVIEW = (
+PAGE_THEME_CONTRACTS = (
     (
         "Course/CourseHistoryGradesViews.swift",
         '.foregroundStyle(by: .value("指标", point.series))',
-        "历史成绩多指标线按数据系列使用多色，保留图表可读性",
-    ),
-    (
-        "Course/CourseHistoryGradesViews.swift",
-        "Palette.Status.info",
-        "历史成绩人数指标使用状态色，保留数据类别区分",
     ),
 )
 THEME_SENSITIVE_ROOTS = (
@@ -273,7 +303,7 @@ DIRECT_EDGE_INSETS_LITERAL = re.compile(
     r"(?:[1-9][0-9]*(?:\.[0-9]+)?|0\.[0-9]*[1-9][0-9]*)"
 )
 DIRECT_LOCAL_CGFLOAT_LITERAL = re.compile(
-    r"\blet\s+[A-Za-z_][A-Za-z0-9_]*\s*:\s*CGFloat\s*=\s*"
+    r"\b[A-Za-z_][A-Za-z0-9_]*\s*:\s*CGFloat\s*=\s*"
     r"(?:[1-9][0-9]*(?:\.[0-9]+)?|0\.[0-9]*[1-9][0-9]*)"
 )
 PADDING_LITERAL = re.compile(
@@ -282,6 +312,32 @@ PADDING_LITERAL = re.compile(
 STACK_SPACING_LITERAL = re.compile(
     r"\b(?:VStack|HStack|ZStack|LazyVStack|LazyHStack)\s*\([^)]*"
     r"\bspacing\s*:\s*([0-9]+(?:\.[0-9]+)?)"
+)
+DIRECT_VISUAL_RULES = (
+    (DIRECT_ROUNDED_RECTANGLE, "请使用 AppDesignSystem.roundedRectangle"),
+    (DIRECT_CORNER_RADIUS, "圆角半径必须通过 AppDesignSystem.Radius 和 roundedRectangle 统一"),
+    (DIRECT_SYSTEM_COLOR, "请使用 AppDesignSystem.Palette"),
+    (DIRECT_ACCENT_COLOR, "请使用 AppDesignSystem.Palette.Accent.primary"),
+    (DIRECT_FLOATING_SIZE, "圆形操作按钮尺寸必须使用 AppDesignSystem.Size"),
+    (DIRECT_TOUCH_TARGET, "触控区域尺寸必须使用 AppDesignSystem.Size.Control.touchTarget"),
+    (DIRECT_FLOATING_MATERIAL, "圆形操作按钮背景必须使用 AppFloatingActionButtonSurface"),
+    (DIRECT_GROUPED_LIST_STYLE, "分组列表必须使用 appGroupedListStyle"),
+    (DIRECT_LIST_SECTION_SPACING, "列表 section 间距必须通过 appGroupedListStyle 统一"),
+    (DIRECT_ANIMATION_DURATION, "优先使用系统动画时长，不要在页面单独指定 duration"),
+    (DIRECT_INPUT_PLACEHOLDER, "输入提示必须使用 AppInputPrompt"),
+    (DIRECT_CUSTOM_SECTION_HEADER, "列表自定义标题必须使用 AppListSectionHeader"),
+    (DIRECT_BARE_HSTACK, "HStack 必须显式使用 AppDesignSystem.Spacing 语义间距"),
+    (DIRECT_HSTACK_LITERAL, "HStack 间距必须使用 AppDesignSystem.Spacing 语义令牌"),
+    (DIRECT_FRAME_LITERAL, "固定 frame 尺寸必须使用 AppDesignSystem.Size 或专用语义令牌"),
+    (DIRECT_EDGE_INSETS_LITERAL, "EdgeInsets 必须使用 AppDesignSystem.Spacing"),
+    (DIRECT_LOCAL_CGFLOAT_LITERAL, "页面布局常量必须提升为设计系统语义令牌"),
+    (DIRECT_FOREGROUND_STYLE, "前景层级必须使用 AppDesignSystem.Foreground"),
+    (DIRECT_HIERARCHICAL_COLOR, "系统前景颜色必须使用 AppDesignSystem.Foreground"),
+    (DIRECT_FONT_MODIFIER, "字体角色必须使用 AppDesignSystem.Typography"),
+    (DIRECT_GRID_ITEM_GEOMETRY, "GridItem 尺寸必须使用 AppDesignSystem.Size 或模块语义令牌"),
+    (DIRECT_STROKE_GEOMETRY, "图表线宽和虚线必须使用模块设计令牌"),
+    (DIRECT_BLUR_GEOMETRY, "模糊半径必须使用 AppDesignSystem.Size.Effect"),
+    (DIRECT_THUMBNAIL_GEOMETRY, "缩略图几何必须使用模块设计令牌"),
 )
 DERIVED_DESIGN_TOKEN = re.compile(
     r"(?:\bAppDesignSystem\.[A-Za-z_][\w.]*\s*[*/]\s*[A-Za-z0-9_.]+|"
@@ -534,19 +590,51 @@ def view_scopes(facts: dict) -> list[list[str]]:
     ]
 
 
-def view_entries(syntax: dict[str, dict], view_name: str) -> list[tuple[Path, dict, list[str]]]:
+def view_entries(
+    syntax: dict[str, dict], view_name: str, source_root: Path = SOURCE_ROOT
+) -> list[tuple[Path, dict, list[str]]]:
     return [
         (Path(path), facts, scope)
         for path, facts in syntax.items()
+        if Path(path).is_relative_to(source_root)
         for scope in view_scopes(facts)
         if scope[-1] == view_name
     ]
 
 
-def type_entries(syntax: dict[str, dict], type_name: str) -> list[tuple[Path, dict, list[str]]]:
+def child_view_entries(
+    syntax: dict[str, dict], call_name: str, parent_scope: list[str]
+) -> list[tuple[Path, dict, list[str]]]:
+    components = call_name.split(".")
+    candidates = view_entries(syntax, components[-1])
+    if len(components) > 1:
+        qualified = [
+            entry for entry in candidates
+            if entry[2][-len(components):] == components
+        ]
+        return qualified if qualified else []
+
+    for end in range(len(parent_scope), -1, -1):
+        lexical_parent = parent_scope[:end]
+        local = [entry for entry in candidates if entry[2][:-1] == lexical_parent]
+        if local:
+            return local
+
+    top_level = [entry for entry in candidates if len(entry[2]) == 1]
+    if len(top_level) == 1:
+        return top_level
+    if len(candidates) == 1:
+        return candidates
+    return []
+
+
+def type_entries(
+    syntax: dict[str, dict], type_name: str, source_root: Path = SOURCE_ROOT
+) -> list[tuple[Path, dict, list[str]]]:
     return [
         (Path(path), facts, declaration["scope"] + [declaration["name"]])
         for path, facts in syntax.items()
+        if Path(path).is_relative_to(source_root)
         for declaration in facts["declarations"]
         if declaration["name"] == type_name
         and declaration["kind"] in {"struct", "class", "actor", "extension"}
@@ -570,29 +658,91 @@ def has_component_declaration(symbol: str, declarations: list[dict]) -> bool:
 
 
 def list_icon_findings(path: Path, facts: dict) -> list[str]:
-    if "Mine" in path.parts:
-        return []
-    return [
-        f"{path}: {'.'.join(icon['scope'])} 列表/表单左侧图标必须通过公共组件提供（{icon['name']}: {icon['symbol']}）"
-        for icon in facts.get("listIcons", [])
-        if icon["containers"]
-        and not re.search(r"checkmark|circle|chevron|xmark|minus|star", icon["symbol"])
-    ]
+    findings: list[str] = []
+    for icon in facts.get("listIcons", []):
+        if not icon["containers"]:
+            continue
+        symbol = icon["symbol"].strip()
+        possible_symbols = resolved_icon_symbols(symbol, facts, icon["scope"])
+        all_symbols_are_standard = bool(possible_symbols) and all(
+            re.search(r"checkmark|circle|chevron|xmark|minus|star", candidate)
+            for candidate in possible_symbols
+        )
+        if not all_symbols_are_standard:
+            findings.append(
+                f"{path}: {'.'.join(icon['scope'])} 列表/表单左侧图标需使用公共组件或静态可验证的标准符号"
+                f"（{icon['name']}: {symbol}）"
+            )
+    return findings
 
 
-def view_or_child_has_marker(syntax: dict[str, dict], facts: dict, scope: list[str], marker: str) -> bool:
+def resolved_icon_symbols(symbol: str, facts: dict, scope: list[str]) -> list[str]:
+    literal = re.fullmatch(r'(?:#+)?"([^"\n]*)"(?:#+)?', symbol.strip())
+    if literal:
+        return [literal.group(1)]
+
+    candidates = re.findall(r'"([^"\n]*)"', symbol)
+    if candidates:
+        return candidates
+
+    variable = re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", symbol.strip())
+    if variable:
+        for binding in facts.get("bindings", []):
+            if binding["scope"] != scope:
+                continue
+            match = re.match(rf"{re.escape(symbol.strip())}\s*=\s*(.+)$", binding["value"], re.S)
+            if match:
+                candidates = re.findall(r'"([^"\n]*)"', match.group(1))
+                if candidates:
+                    return candidates
+
+    called_function = re.match(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(", symbol.strip())
+    if called_function:
+        function_name = called_function.group(1)
+        candidates = []
+        for function in facts.get("functions", []):
+            if function["scope"] != scope or not re.search(
+                rf"\bfunc\s+{re.escape(function_name)}\s*\(", function["value"]
+            ):
+                continue
+            candidates.extend(re.findall(r'"([^"\n]*)"', mask_comments(function["value"])))
+        if candidates:
+            return candidates
+    return []
+
+
+def view_or_child_has_marker(
+    syntax: dict[str, dict],
+    facts: dict,
+    scope: list[str],
+    marker: str,
+    visited: set[tuple[int, tuple[str, ...]]] | None = None,
+) -> bool:
     if ast_has_marker(facts, marker, scope):
         return True
-    child_names = {
-        call["value"].split(".")[-1]
+    visited = set() if visited is None else visited
+    identity = (id(facts), tuple(scope))
+    if identity in visited:
+        return False
+    visited.add(identity)
+    child_calls = {
+        call["value"]
         for call in facts["calls"]
         if call["scope"] == scope
     }
-    return any(
-        ast_has_marker(child_facts, marker, child_scope)
-        for child_name in child_names
-        for _, child_facts, child_scope in view_entries(syntax, child_name)
-    )
+    for child_call in child_calls:
+        for _, child_facts, child_scope in child_view_entries(syntax, child_call, scope):
+            if view_or_child_has_marker(syntax, child_facts, child_scope, marker, visited):
+                return True
+    return False
+
+
+def image_only_button_findings(path: Path, facts: dict) -> list[str]:
+    return [
+        f"{path}: {'.'.join(invocation['scope'])} 图片型操作控件需提供 accessibilityLabel"
+        f"（{invocation['value'][:96].replace(chr(10), ' ')}）"
+        for invocation in image_only_label_facts(facts)
+    ]
 
 
 def ast_marker_boundary_findings() -> list[str]:
@@ -697,9 +847,87 @@ def ast_marker_boundary_findings() -> list[str]:
         "scopedIdentifiers": [],
         "stringSegments": [],
     }
-    delegated_syntax = {"moved/Parent.swift": parent_facts, "shared/Child.swift": child_facts}
+    delegated_syntax = {
+        str(SOURCE_ROOT / "moved/Parent.swift"): parent_facts,
+        str(SOURCE_ROOT / "shared/Child.swift"): child_facts,
+    }
     if not view_or_child_has_marker(delegated_syntax, parent_facts, ["ParentView"], "appSelectionFeedback"):
         findings.append("UI 契约规则边界自检失败：直接子 View 的公共触感调用识别")
+    wrapped_parent_facts = {
+        **parent_facts,
+        "calls": [{"value": "WrapperView", "scope": ["ParentView"]}],
+    }
+    wrapper_facts = {
+        **parent_facts,
+        "declarations": [{"kind": "struct", "name": "WrapperView", "scope": [], "inheritedTypes": ["View"]}],
+        "calls": [{"value": "LeafView", "scope": ["WrapperView"]}],
+    }
+    leaf_facts = {
+        **child_facts,
+        "declarations": [{"kind": "struct", "name": "LeafView", "scope": [], "inheritedTypes": ["View"]}],
+        "calls": [{"value": "appSelectionFeedback", "scope": ["LeafView"]}],
+    }
+    deep_syntax = {
+        str(SOURCE_ROOT / "parent.swift"): wrapped_parent_facts,
+        str(SOURCE_ROOT / "wrapper.swift"): wrapper_facts,
+        str(SOURCE_ROOT / "leaf.swift"): leaf_facts,
+    }
+    if not view_or_child_has_marker(deep_syntax, wrapped_parent_facts, ["ParentView"], "appSelectionFeedback"):
+        findings.append("UI 契约规则边界自检失败：多层子 View 的契约归属识别")
+    cyclic_parent = {
+        **parent_facts,
+        "calls": [{"value": "WrapperView", "scope": ["ParentView"]}],
+    }
+    cyclic_wrapper = {
+        **wrapper_facts,
+        "calls": [{"value": "ParentView", "scope": ["WrapperView"]}],
+    }
+    cycle_syntax = {
+        str(SOURCE_ROOT / "parent.swift"): cyclic_parent,
+        str(SOURCE_ROOT / "wrapper.swift"): cyclic_wrapper,
+    }
+    if view_or_child_has_marker(cycle_syntax, cyclic_parent, ["ParentView"], "appSelectionFeedback"):
+        findings.append("UI 契约规则边界自检失败：递归组件循环终止")
+    plain_wrapper = {
+        **wrapper_facts,
+        "calls": [{"value": "PlainLeafView", "scope": ["WrapperView"]}],
+    }
+    unrelated_leaf = {
+        **leaf_facts,
+        "declarations": [{"kind": "struct", "name": "UnrelatedLeafView", "scope": [], "inheritedTypes": ["View"]}],
+    }
+    isolated_syntax = {
+        str(SOURCE_ROOT / "parent.swift"): wrapped_parent_facts,
+        str(SOURCE_ROOT / "wrapper.swift"): plain_wrapper,
+        str(SOURCE_ROOT / "unrelated.swift"): unrelated_leaf,
+    }
+    if view_or_child_has_marker(isolated_syntax, wrapped_parent_facts, ["ParentView"], "appSelectionFeedback"):
+        findings.append("UI 契约规则边界自检失败：独立同名子树掩盖契约缺口")
+    nested_child_facts = {
+        **leaf_facts,
+        "declarations": [{
+            "kind": "struct", "name": "ChildView", "scope": ["Outer", "ParentView"], "inheritedTypes": ["View"]
+        }],
+    }
+    top_level_child_facts = {
+        **leaf_facts,
+        "declarations": [{"kind": "struct", "name": "ChildView", "scope": [], "inheritedTypes": ["View"]}],
+        "calls": [],
+    }
+    nested_parent_facts = {
+        **parent_facts,
+        "declarations": [{"kind": "struct", "name": "ParentView", "scope": ["Outer"], "inheritedTypes": ["View"]}],
+        "calls": [{"value": "ChildView", "scope": ["Outer", "ParentView"]}],
+    }
+    shadow_syntax = {
+        str(SOURCE_ROOT / "nested-parent.swift"): nested_parent_facts,
+        str(SOURCE_ROOT / "nested-child.swift"): nested_child_facts,
+        str(SOURCE_ROOT / "top-level-child.swift"): top_level_child_facts,
+    }
+    if child_view_entries(shadow_syntax, "ChildView", ["Outer", "ParentView"]) != [
+        (SOURCE_ROOT / "nested-child.swift", nested_child_facts, ["Outer", "ParentView", "ChildView"])
+    ]:
+        findings.append("UI 契约规则边界自检失败：嵌套 View 名称优先解析")
     contract = ComponentContract(name="样例", requirements=(("AppFailureState", "需要公共失败状态"),))
     first = {**parent_facts, "calls": [{"value": "AppFailureState", "scope": ["FirstView"]}]}
     second = {**parent_facts, "calls": []}
@@ -943,6 +1171,18 @@ def alert_coverage_findings(facts: dict, path: Path) -> list[str]:
         if re.search(r"\bAppAlert\b", variable["type"])
     ]
     findings: list[str] = []
+    diagnostic_bindings: set[tuple[tuple[str, ...], str]] = set()
+    for call, invocation in zip(facts.get("calls", []), facts.get("invocations", [])):
+        if call["value"].split(".")[-1] != "diagnosticAlert":
+            continue
+        source = mask_literals_and_comments(invocation["value"])
+        for variable in app_alert_variables:
+            if variable["scope"] != invocation["scope"]:
+                continue
+            binding = re.compile(rf"\bitem\s*:\s*\${re.escape(variable['name'])}\b")
+            if binding.search(source):
+                diagnostic_bindings.add((tuple(variable["scope"]), variable["name"]))
+
     for alert in facts.get("alertModifiers", []):
         item_binding = ""
         for label, argument in zip(alert["labels"], alert["arguments"]):
@@ -964,6 +1204,8 @@ def alert_coverage_findings(facts: dict, path: Path) -> list[str]:
             used_variables.add(item_binding)
 
         for variable_name in sorted(used_variables):
+            if (tuple(alert["scope"]), variable_name) in diagnostic_bindings:
+                continue
             view_name = alert["scope"][-1] if alert["scope"] else ""
             exact_local_exception = (
                 view_name, variable_name
@@ -1022,6 +1264,20 @@ struct ConfirmationAlertSample: View {
     }
 }
 
+struct DiagnosticConfirmationAlertSample: View {
+    @State private var alert: AppAlert?
+    @State private var isPresented = false
+    var body: some View {
+        Text("Sample")
+            .alert("Save draft?", isPresented: $isPresented) {
+                Button("Save") {
+                    alert = AppAlert(title: "Save failed", message: "Retry")
+                }
+            }
+            .diagnosticAlert(item: $alert)
+    }
+}
+
 struct CourseEvaluationLink: View {
     @State private var alert: AppAlert?
     @State private var diagnosticAlert: AppAlert?
@@ -1042,6 +1298,7 @@ struct CourseEvaluationDestination: View {
 }
 
 struct ListIconSample: View {
+    let iconName = "gearshape"
     var body: some View {
         List {
             Image(
@@ -1050,6 +1307,83 @@ struct ListIconSample: View {
             Image(
                 systemName: "checkmark.circle"
             )
+            Image(systemName: iconName)
+            Image(systemName: isDone ? "checkmark.circle" : "circle")
+            Image(systemName: safeSystemIcon(isDone: isDone))
+        }
+    }
+
+    private func safeSystemIcon(isDone: Bool) -> String {
+        isDone ? "checkmark.circle.fill" : "circle"
+    }
+}
+
+struct MissingButtonLabelSample: View {
+    var body: some View {
+        Button(action: {}) {
+            Image(systemName: "magnifyingglass")
+        }
+    }
+}
+
+struct AccessibleButtonLabelSample: View {
+    var body: some View {
+        Button(action: {}) {
+            Image(systemName: "magnifyingglass")
+        }
+        .accessibilityLabel("搜索")
+    }
+}
+
+struct ImageMenuLabelWithTextItemsSample: View {
+    var body: some View {
+        Menu {
+            Button("设置") {}
+        } label: {
+            Image(systemName: "ellipsis")
+        }
+    }
+}
+
+struct ImageButtonLabelWithTextActionSample: View {
+    var body: some View {
+        Button(action: { _ = Text("操作内容") }) {
+            Image(systemName: "magnifyingglass")
+        }
+    }
+}
+
+struct AccessibleMenuLabelSample: View {
+    var body: some View {
+        Menu {
+            Button("设置") {}
+        } label: {
+            Image(systemName: "ellipsis")
+                .accessibilityLabel("更多")
+        }
+    }
+}
+
+struct MenuChildLabelScopeSample: View {
+    var body: some View {
+        Menu {
+            Button(action: {}, label: {
+                Image(systemName: "folder")
+                    .accessibilityLabel("打开文件夹")
+            })
+        } label: {
+            Image(systemName: "ellipsis")
+        }
+    }
+}
+
+struct TitledMenuSample: View {
+    var body: some View {
+        Menu("更多") {
+            Button(action: {}) {
+                Image(systemName: "gearshape")
+            }
+            .accessibilityLabel("设置")
         }
     }
 }
@@ -1077,6 +1411,26 @@ struct AppFixedColumnItem {}
         for view_name in expected_invalid
     ):
         findings.append("UI 检查器自测：SwiftSyntax 未识别 item 与 isPresented 两种 AppAlert 展示路径")
+    diagnostic_scope = {
+        "typedVariables": [
+            variable for variable in facts["typedVariables"]
+            if variable["scope"][-1] == "DiagnosticConfirmationAlertSample"
+        ],
+        "alertModifiers": [
+            alert for alert in facts["alertModifiers"]
+            if alert["scope"][-1] == "DiagnosticConfirmationAlertSample"
+        ],
+        "calls": [
+            call for call in facts["calls"]
+            if call["scope"][-1] == "DiagnosticConfirmationAlertSample"
+        ],
+        "invocations": [
+            invocation for invocation in facts["invocations"]
+            if invocation["scope"][-1] == "DiagnosticConfirmationAlertSample"
+        ],
+    }
+    if alert_coverage_findings(diagnostic_scope, Path("ui-self-test.swift")):
+        findings.append("UI 检查器自测：诊断提示与确认弹层共享 AppAlert 时的归属识别")
 
     allowed_alerts = [
         finding
@@ -1098,12 +1452,22 @@ struct AppFixedColumnItem {}
     if allowed_alerts:
         findings.append("UI 检查器自测：既有用户输入提示例外未按 View 与绑定精确匹配")
 
-    icon_findings = list_icon_findings(
-        Path("UI/ListIconSample.swift"),
-        {"listIcons": facts["listIcons"]},
-    )
-    if len(icon_findings) != 1 or "person.fill" not in icon_findings[0]:
-        findings.append("UI 检查器自测：多行列表图标归属识别异常")
+    icon_findings = list_icon_findings(Path("UI/ListIconSample.swift"), facts)
+    if len(icon_findings) != 2 or not any("person.fill" in finding for finding in icon_findings) or not any(
+        "iconName" in finding for finding in icon_findings
+    ):
+        findings.append("UI 检查器自测：静态与动态列表图标契约识别异常")
+
+    button_labels = image_only_label_facts(facts)
+    expected_image_only_controls = {
+        "MissingButtonLabelSample",
+        "ImageMenuLabelWithTextItemsSample",
+        "ImageButtonLabelWithTextActionSample",
+        "MenuChildLabelScopeSample",
+    }
+    observed_image_only_controls = {item["scope"][-1] for item in button_labels}
+    if observed_image_only_controls != expected_image_only_controls:
+        findings.append("UI 检查器自测：控件标签闭包与菜单项/操作闭包归属识别异常")
 
     wrapped_calls = """
     withAnimation(
@@ -1134,6 +1498,157 @@ struct AppFixedColumnItem {}
     if not all(pattern.search(masked_calls) for pattern in wrapped_patterns):
         findings.append("UI 检查器自测：多行视觉规则调用识别异常")
 
+    visual_source = r'''
+import SwiftUI
+struct VisualRuleSample: View {
+    @State private var query = ""
+    private let sampleOpacity: Double = 0.4
+    private let fixedWidth: CGFloat = 40
+    private let derivedWidth = AppDesignSystem.Size.avatar * 2
+    private let repeatedWidth = AppDesignSystem.Size.avatar + AppDesignSystem.Size.avatar
+
+    var body: some View {
+        Text("https://example.invalid RoundedRectangle() Color.orange .frame(width: 42, height: 42) TextField(\"提示\", text: $query)")
+        RoundedRectangle(
+            cornerRadius: 12
+        )
+        Color(uiColor: .systemBackground)
+        Color.accentColor
+        Color.orange
+        Color.red
+        Color.blue
+        Color.green
+        Color.gray
+        Color.pink
+        Color.indigo
+        Color.teal
+        Color.brown
+        Color.primary
+        Color.secondary
+        Text("Rule")
+            .padding(12)
+            .opacity(0.5)
+            .foregroundStyle(.secondary)
+            .font(.body)
+            .blur(radius: 2)
+            .frame(width: 40, height: 40)
+            .cornerRadius(8)
+            .frame(minHeight: 44)
+        GridItem(.adaptive(minimum: 32))
+        StrokeStyle(lineWidth: 2, dash: [1, 2])
+        EdgeInsets(top: 1, leading: 2, bottom: 3, trailing: 4)
+        VStack(spacing: 12) {
+            HStack { Text("row") }
+            HStack(spacing: 12) { Text("row") }
+        }
+        TextField("搜索提示", text: $query)
+        List { Text("row") }
+            .listStyle(.insetGrouped)
+            .listSectionSpacing(12)
+        List { Text("row") }
+            .listStyle(.plain)
+        Section(header: { Text("标题") }) { Text("row") }
+        withAnimation(
+            .spring(
+                duration: 0.2
+            )
+        ) {}
+        thumbnailButton(
+            image: image,
+            width: 40
+        )
+        .background(
+            .ultraThinMaterial,
+            in: Circle()
+        )
+        .frame(
+            width: 42,
+            height: 42
+        )
+    }
+}
+'''
+    try:
+        visual_facts = module.swift_syntax_index_sources(
+            {"visual-rule-self-test.swift": visual_source}
+        )["visual-rule-self-test.swift"]
+    except (OSError, subprocess.CalledProcessError, RuntimeError, KeyError) as error:
+        return [f"UI 检查器自测无法解析视觉规则样例：{error}"]
+    rectangle_nodes = pattern_nodes(visual_facts, DIRECT_ROUNDED_RECTANGLE)
+    if len(rectangle_nodes) != 1 or not DIRECT_ROUNDED_RECTANGLE.search(
+        mask_literals_and_comments(rectangle_nodes[0]["value"])
+    ):
+        findings.append("UI 检查器自测：AST 视觉规则未识别多行形状调用")
+    text_invocations = [
+        invocation
+        for call, invocation in zip(visual_facts["calls"], visual_facts["invocations"])
+        if call_name(call["value"]) == "Text" and "https://example.invalid" in invocation["value"]
+    ]
+    if not all(
+        any(
+            pattern.search(mask_literals_and_comments(node["value"]))
+            for node in pattern_nodes(visual_facts, pattern)
+        )
+        for pattern in wrapped_patterns
+    ):
+        findings.append("UI 检查器自测：AST 范围未覆盖多行视觉规则表达式")
+    coverage_patterns = [
+        *(pattern for pattern, _ in DIRECT_VISUAL_RULES),
+        *(pattern for pattern, _ in DIRECT_SEMANTIC_COLOR_RULES),
+        DIRECT_OPACITY_LITERAL,
+        DIRECT_OPACITY_ASSIGNMENT,
+        PADDING_LITERAL,
+        STACK_SPACING_LITERAL,
+        DIRECT_PLAIN_LIST_STYLE,
+        DERIVED_DESIGN_TOKEN,
+        REPEATED_DESIGN_TOKEN,
+    ]
+    text_starts = {int(node.get("start", -1)) for node in text_invocations}
+    text_candidate_rules = [
+        pattern.pattern
+        for pattern in dict.fromkeys(coverage_patterns)
+        for node in pattern_nodes(visual_facts, pattern)
+        if int(node.get("start", -2)) in text_starts
+    ]
+    if text_candidate_rules:
+        findings.append("UI 检查器自测：Text 文案进入视觉规则候选节点（" + ", ".join(text_candidate_rules) + "）")
+    uncovered_rules = [
+        pattern.pattern
+        for pattern in dict.fromkeys(coverage_patterns)
+        if not any(
+            pattern.search(
+                mask_comments(node["value"])
+                if pattern is DIRECT_INPUT_PLACEHOLDER
+                else mask_literals_and_comments(node["value"])
+            )
+            for node in pattern_nodes(visual_facts, pattern)
+        )
+    ]
+    if uncovered_rules:
+        examples = {
+            pattern.pattern: [node["value"][:72].replace("\n", " ") for node in pattern_nodes(visual_facts, pattern)[:2]]
+            for pattern in dict.fromkeys(coverage_patterns)
+            if pattern.pattern in uncovered_rules
+        }
+        findings.append("UI 检查器自测：AST 规则映射缺少样例：" + repr(examples))
+    reviewed_path = SOURCE_ROOT / "Course/CourseCommentViews.swift"
+    reviewed_source = "thumbnailButton(image: displayedImages[0], index: 0, width: 180)"
+    if not is_reviewed_fixed_geometry(
+        reviewed_path,
+        reviewed_source,
+        DIRECT_THUMBNAIL_GEOMETRY,
+        {"value": reviewed_source},
+    ):
+        findings.append("UI 检查器自测：登记几何变体未精确命中")
+    unregistered_source = "thumbnailButton(image: anotherImage, index: 1, width: 52)"
+    if is_reviewed_fixed_geometry(
+        reviewed_path,
+        reviewed_source + "\n" + unregistered_source,
+        DIRECT_THUMBNAIL_GEOMETRY,
+        {"value": unregistered_source},
+    ):
+        findings.append("UI 检查器自测：登记几何例外覆盖同文件的其它表达式")
+
     declarations = facts["declarations"]
     if has_component_declaration("AppTagChip", declarations):
         findings.append("UI 检查器自测：非 View 同名枚举通过公共组件声明检查")
@@ -1148,6 +1663,23 @@ struct AppFixedColumnItem {}
     if not has_component_declaration("AppFixedColumnItem", declarations):
         findings.append("UI 检查器自测：无协议继承的模型结构声明识别失败")
     return findings
+
+
+def map_theme_color_contract_findings() -> list[str]:
+    path = SOURCE_ROOT / MAP_THEME_COLOR_CONTRACT[0]
+    source = "extension AppDesignSystem {\n    enum Map {\n        " + MAP_THEME_COLOR_CONTRACT[1] + "\n    }\n}"
+    start = source.encode("utf-8").find(b"Color.green")
+    node = {"scope": ["AppDesignSystem", "Map"], "start": start}
+    if not is_registered_map_theme_color_definition(path, source, node):
+        return ["UI 检查器自测：地图主题令牌的精确源码例外无法识别"]
+
+    unrelated_source = source.replace(MAP_THEME_COLOR_CONTRACT[1], "static let otherAccent = Color.green")
+    if is_registered_map_theme_color_definition(path, unrelated_source, node):
+        return ["UI 检查器自测：地图主题令牌例外覆盖了相邻声明"]
+    wrong_scope_node = {**node, "scope": ["OtherDesignSystem", "Map"]}
+    if is_registered_map_theme_color_definition(path, source, wrong_scope_node):
+        return ["UI 检查器自测：地图主题令牌例外覆盖了其它词法作用域"]
+    return []
 
 
 def check_error_report_coverage(errors: list[str], syntax: dict[str, dict]) -> None:
@@ -1175,7 +1707,7 @@ def check_error_report_coverage(errors: list[str], syntax: dict[str, dict]) -> N
         errors.append(f"日程共享错误展示器数量异常：引用数 {schedule_notice_presenters}")
 
 
-def check_fonts(errors: list[str]) -> None:
+def check_fonts(errors: list[str], syntax: dict[str, dict]) -> None:
     swift_explicit_font_size = re.compile(
         r"(?:\bFont\.system|\.system)\s*\(\s*size\s*:\s*(?P<value>[^,\)\n]+)"
     )
@@ -1184,69 +1716,83 @@ def check_fonts(errors: list[str]) -> None:
     )
     custom_font = re.compile(r"\bFont\.custom\s*\(")
 
-    roots = (SOURCE_ROOT, ROOT / "BIT101ScheduleWidgets", ROOT / "BIT101Watch", ROOT / "BIT101WatchWidgets", ROOT / "BIT101-iOSTests")
-    for path in sorted(path for root in roots for path in root.rglob("*.swift")):
-        source = mask_literals_and_comments(path.read_text(encoding="utf-8"))
+    for path_string, facts in syntax.items():
+        path = Path(path_string)
+        if not path.is_file():
+            continue
+        raw_source = path.read_text(encoding="utf-8")
         relative = path.relative_to(ROOT)
         if path not in DESIGN_SYSTEM_SOURCES:
-            for match in swift_explicit_font_size.finditer(source):
-                value = match.group("value").strip()
-                if "AppDesignSystem." not in value:
-                    errors.append(
-                        f"{relative}:{source.count(chr(10), 0, match.start()) + 1}: "
-                        f"字体字号必须使用设计系统令牌或系统语义字体：{value}"
-                    )
-            for match in ui_explicit_font_size.finditer(source):
-                value = match.group("value").strip()
-                if "AppDesignSystem." not in value:
-                    errors.append(
-                        f"{relative}:{source.count(chr(10), 0, match.start()) + 1}: "
-                        f"UIFont 字号必须使用设计系统令牌或系统语义字体：{value}"
-                    )
-            for match in custom_font.finditer(source):
-                errors.append(f"{relative}: 字体采用系统语义或公共令牌")
+            for call, invocation in zip(facts.get("calls", []), facts.get("invocations", [])):
+                name = call_name(call["value"])
+                source = mask_literals_and_comments(invocation["value"])
+                if name == "system":
+                    for match in swift_explicit_font_size.finditer(source):
+                        value = match.group("value").strip()
+                        if "AppDesignSystem." not in value:
+                            line = pattern_line_number(raw_source, invocation, match.start())
+                            errors.append(
+                                f"{relative}:{line}: 字体字号必须使用设计系统令牌或系统语义字体：{value}"
+                            )
+                if name == "systemFont":
+                    for match in ui_explicit_font_size.finditer(source):
+                        value = match.group("value").strip()
+                        if "AppDesignSystem." not in value:
+                            line = pattern_line_number(raw_source, invocation, match.start())
+                            errors.append(
+                                f"{relative}:{line}: UIFont 字号必须使用设计系统令牌或系统语义字体：{value}"
+                            )
+                if name == "custom" and custom_font.search(source):
+                    errors.append(f"{relative}:{pattern_line_number(raw_source, invocation, 0)}: 字体采用系统语义或公共令牌")
 
 
-def check_design_token_boundaries(errors: list[str]) -> None:
+def check_design_token_boundaries(errors: list[str], syntax: dict[str, dict]) -> None:
     """透明度数字只允许存在于跨 target 基础刻度层。"""
     for path in swift_files():
         if path == PRIMITIVE_OPACITY_SOURCE:
             continue
-        source = mask_literals_and_comments(path.read_text(encoding="utf-8"))
+        raw_source = path.read_text(encoding="utf-8")
+        facts = syntax[str(path)]
         relative = path.relative_to(ROOT)
+        emitted: set[tuple[str, int, str]] = set()
         for pattern, message in (
             (DIRECT_OPACITY_LITERAL, "透明度数字必须通过 AppDesignSystem.Opacity 派生"),
             (DIRECT_OPACITY_ASSIGNMENT, "透明度标量必须引用 AppDesignSystem.Opacity"),
         ):
-            for match in pattern.finditer(source):
-                line_number = source.count("\n", 0, match.start()) + 1
-                errors.append(f"{relative}:{line_number}: {message}")
+            for node in pattern_nodes(facts, pattern):
+                source = mask_literals_and_comments(node["value"])
+                for match in pattern.finditer(source):
+                    line_number = pattern_line_number(raw_source, node, match.start())
+                    append_rule_finding(errors, emitted, relative, line_number, message, pattern)
 
 
-def check_page_theme_consistency(errors: list[str]) -> None:
+def check_page_theme_consistency(errors: list[str], syntax: dict[str, dict]) -> None:
     """页面强调色必须使用所属模块的主题令牌。"""
     for path in swift_files():
         if path in DESIGN_SYSTEM_SOURCES:
             continue
         source_relative = path.relative_to(SOURCE_ROOT).as_posix()
-        source = mask_literals_and_comments(path.read_text(encoding="utf-8"))
+        raw_source = path.read_text(encoding="utf-8")
+        facts = syntax[str(path)]
         for prefixes, forbidden_tokens, expected_token in PAGE_THEME_RULES:
             if not source_relative.startswith(prefixes):
                 continue
+            emitted: set[tuple[int, str]] = set()
             for token in forbidden_tokens:
-                start = 0
-                while True:
-                    index = source.find(token, start)
-                    if index < 0:
-                        break
-                    line_number = source.count("\n", 0, index) + 1
+                for node in facts.get("members", []):
+                    if token not in node["value"]:
+                        continue
+                    line_number = pattern_line_number(raw_source, node, 0)
+                    marker = (line_number, token)
+                    if marker in emitted:
+                        continue
+                    emitted.add(marker)
                     errors.append(
                         f"{path.relative_to(ROOT)}:{line_number}: 页面主题色应使用 {expected_token}，当前发现 {token}"
                     )
-                    start = index + len(token)
 
 
-def check_contextual_component_colors(errors: list[str]) -> None:
+def check_contextual_component_colors(errors: list[str], syntax: dict[str, dict]) -> None:
     """复用内容与组件使用页面强调色，避免绕过环境 tint 的固定高亮色。"""
     for path in swift_files():
         if path in DESIGN_SYSTEM_SOURCES:
@@ -1259,43 +1805,41 @@ def check_contextual_component_colors(errors: list[str]) -> None:
             continue
 
         raw_source = path.read_text(encoding="utf-8")
-        source = mask_literals_and_comments(raw_source)
+        facts = syntax[str(path)]
         for token, expected_token in CONTEXTUAL_COLOR_BYPASSES:
-            start = 0
-            while True:
-                index = source.find(token, start)
-                if index < 0:
-                    break
-                line_number = raw_source.count("\n", 0, index) + 1
+            emitted: set[int] = set()
+            for node in facts.get("members", []):
+                if token not in node["value"]:
+                    continue
+                line_number = pattern_line_number(raw_source, node, 0)
+                if line_number in emitted:
+                    continue
+                emitted.add(line_number)
                 errors.append(
                     f"{path.relative_to(ROOT)}:{line_number}: "
                     f"复用组件的页面主题色应使用 {expected_token}，当前发现 {token}"
                 )
-                start = index + len(token)
 
 
-def collect_fixed_geometry_review_notes() -> list[str]:
-    notes: list[str] = []
-    for relative_path, marker, message in FIXED_GEOMETRY_REVIEW:
+def check_registered_visual_contracts(errors: list[str]) -> None:
+    contracts = (
+        *FIXED_GEOMETRY_CONTRACTS,
+        *PAGE_THEME_CONTRACTS,
+        MAP_THEME_COLOR_CONTRACT,
+    )
+    for relative_path, marker in contracts:
         path = SOURCE_ROOT / relative_path
         if not path.is_file():
+            errors.append(f"{path.relative_to(ROOT)}: 自动视觉契约引用的源码缺失")
             continue
-        source = path.read_text(encoding="utf-8")
-        if marker in source:
-            notes.append(f"{path.relative_to(ROOT)}: {message}")
-    return notes
+        source = mask_comments(path.read_text(encoding="utf-8"))
+        if marker not in source:
+            errors.append(f"{path.relative_to(ROOT)}: 自动视觉契约已变化，请同步更新契约声明（{marker}）")
 
 
-def collect_page_theme_review_notes() -> list[str]:
-    notes: list[str] = []
-    for relative_path, marker, message in PAGE_THEME_REVIEW:
-        path = SOURCE_ROOT / relative_path
-        if path.is_file() and marker in path.read_text(encoding="utf-8"):
-            notes.append(f"{path.relative_to(ROOT)}: {message}")
-    return notes
-
-
-def is_reviewed_fixed_geometry(path: Path, source: str, pattern: re.Pattern[str]) -> bool:
+def is_reviewed_fixed_geometry(
+    path: Path, source: str, pattern: re.Pattern[str], node: dict
+) -> bool:
     relative_path = path.relative_to(SOURCE_ROOT).as_posix()
     reviewed_paths = {
         "Course/CourseCommentViews.swift": DIRECT_THUMBNAIL_GEOMETRY,
@@ -1303,10 +1847,156 @@ def is_reviewed_fixed_geometry(path: Path, source: str, pattern: re.Pattern[str]
         "Gallery/GalleryComposerView.swift": DIRECT_GRID_ITEM_GEOMETRY,
     }
     expected_pattern = reviewed_paths.get(relative_path)
+    normalized_node = " ".join(node["value"].split())
     return expected_pattern is pattern and any(
-        entry_path == relative_path and marker in source
-        for entry_path, marker, _ in FIXED_GEOMETRY_REVIEW
+        entry_path == relative_path
+        and " ".join(marker.split()) in " ".join(source.split())
+        and " ".join(marker.split()) in normalized_node
+        for entry_path, marker in FIXED_GEOMETRY_CONTRACTS
     )
+
+
+def is_registered_cgfloat_contract(path: Path, node: dict) -> bool:
+    relative_path = path.relative_to(SOURCE_ROOT).as_posix()
+    normalized_node = " ".join(node["value"].split())
+    return any(
+        entry_path == relative_path and " ".join(marker.split()) in normalized_node
+        for entry_path, marker in FIXED_GEOMETRY_CONTRACTS
+    )
+
+
+def is_registered_map_theme_color_definition(path: Path, source: str, node: dict) -> bool:
+    relative_path = path.relative_to(SOURCE_ROOT).as_posix()
+    if relative_path != MAP_THEME_COLOR_CONTRACT[0] or node.get("scope") != ["AppDesignSystem", "Map"]:
+        return False
+    start = max(0, int(node.get("start", 0)))
+    encoded_source = source.encode("utf-8")
+    line_start = encoded_source.rfind(b"\n", 0, start) + 1
+    line_end = encoded_source.find(b"\n", start)
+    line_end = len(encoded_source) if line_end < 0 else line_end
+    return encoded_source[line_start:line_end].decode("utf-8").strip() == MAP_THEME_COLOR_CONTRACT[1]
+
+
+def call_name(value: str) -> str:
+    name = value.rsplit(".", 1)[-1]
+    return name.split("<", 1)[0]
+
+
+CALL_RULE_NAMES = {
+    DIRECT_ROUNDED_RECTANGLE: {"RoundedRectangle"},
+    DIRECT_CORNER_RADIUS: {"cornerRadius"},
+    DIRECT_SYSTEM_COLOR: {"Color"},
+    DIRECT_OPACITY_LITERAL: {"opacity"},
+    DIRECT_FOREGROUND_STYLE: {"foregroundStyle"},
+    DIRECT_FONT_MODIFIER: {"font"},
+    DIRECT_GRID_ITEM_GEOMETRY: {"GridItem"},
+    DIRECT_STROKE_GEOMETRY: {"StrokeStyle"},
+    DIRECT_BLUR_GEOMETRY: {"blur"},
+    DIRECT_THUMBNAIL_GEOMETRY: {"thumbnailButton"},
+    DIRECT_FLOATING_SIZE: {"frame"},
+    DIRECT_TOUCH_TARGET: {"frame"},
+    DIRECT_FLOATING_MATERIAL: {"background"},
+    DIRECT_GROUPED_LIST_STYLE: {"listStyle"},
+    DIRECT_PLAIN_LIST_STYLE: {"listStyle"},
+    DIRECT_LIST_SECTION_SPACING: {"listSectionSpacing"},
+    DIRECT_INPUT_PLACEHOLDER: {"TextField", "SecureField"},
+    DIRECT_CUSTOM_SECTION_HEADER: {"Section"},
+    DIRECT_ANIMATION_DURATION: {"withAnimation", "animation"},
+    DIRECT_BARE_HSTACK: {"HStack"},
+    DIRECT_HSTACK_LITERAL: {"HStack"},
+    DIRECT_FRAME_LITERAL: {"frame"},
+    DIRECT_EDGE_INSETS_LITERAL: {"EdgeInsets"},
+}
+MEMBER_RULES = {
+    DIRECT_ACCENT_COLOR,
+    DIRECT_HIERARCHICAL_COLOR,
+    *(pattern for pattern, _ in DIRECT_SEMANTIC_COLOR_RULES),
+}
+BINDING_RULES = {DIRECT_OPACITY_ASSIGNMENT, DIRECT_LOCAL_CGFLOAT_LITERAL}
+EXPRESSION_RULES = {DERIVED_DESIGN_TOKEN, REPEATED_DESIGN_TOKEN}
+SPACING_CALL_NAMES = {"padding", "VStack", "HStack", "ZStack", "LazyVStack", "LazyHStack"}
+
+
+def pattern_nodes(facts: dict, pattern: re.Pattern[str]) -> list[dict]:
+    if pattern in CALL_RULE_NAMES:
+        names = CALL_RULE_NAMES[pattern]
+        return [
+            invocation
+            for call, invocation in zip(facts.get("calls", []), facts.get("invocations", []))
+            if call_name(call["value"]) in names
+        ]
+    if pattern is PADDING_LITERAL or pattern is STACK_SPACING_LITERAL:
+        names = {"padding"} if pattern is PADDING_LITERAL else SPACING_CALL_NAMES
+        return [
+            invocation
+            for call, invocation in zip(facts.get("calls", []), facts.get("invocations", []))
+            if call_name(call["value"]) in names
+        ]
+    if pattern in MEMBER_RULES:
+        return facts.get("members", [])
+    if pattern in BINDING_RULES:
+        return facts.get("bindings", [])
+    if pattern in EXPRESSION_RULES:
+        return facts.get("expressions", [])
+    return []
+
+
+def pattern_line_number(source: str, node: dict, local_position: int) -> int:
+    byte_start = max(0, int(node.get("start", 0)))
+    prior_lines = source.encode("utf-8")[:byte_start].count(b"\n")
+    local_lines = node["value"][:local_position].count("\n")
+    return prior_lines + local_lines + 1
+
+
+def append_rule_finding(
+    errors: list[str],
+    emitted: set[tuple[str, int, str]],
+    path: Path,
+    line: int,
+    message: str,
+    pattern: re.Pattern[str],
+) -> None:
+    key = (pattern.pattern, line, message)
+    if key in emitted:
+        return
+    emitted.add(key)
+    errors.append(f"{path}:{line}: {message}")
+
+
+def image_only_label_facts(facts: dict) -> list[dict]:
+    """Collect image-only interactive expressions that need an accessible name."""
+    results: list[dict] = []
+    for control in facts.get("accessibilityControls", []):
+        source = mask_literals_and_comments(control["label"])
+        if not re.search(r"\bImage\s*\(", source):
+            continue
+        if re.search(r"\b(?:Text|Label)\s*\(", source):
+            continue
+        if control.get("hasTextTitle"):
+            continue
+        if any(
+            modifier["name"] == "accessibilityLabel"
+            and modifier["scope"] == control["scope"]
+            and (
+                modifier.get("baseStart", -1) == control["start"]
+                or control.get("labelStart", -1) <= modifier.get("baseStart", -1) < control.get("labelEnd", -1)
+            )
+            for modifier in facts.get("accessibilityModifiers", [])
+        ):
+            continue
+        results.append({"scope": control["scope"], "value": control["invocation"]})
+    return results
+
+
+def check_accessibility_coverage(errors: list[str], syntax: dict[str, dict]) -> None:
+    for path, facts in syntax.items():
+        if not path.startswith(str(ROOT) + "/") or "/BIT101-iOSTests/" in path:
+            continue
+        for invocation in image_only_label_facts(facts):
+            errors.append(
+                f"{Path(path).relative_to(ROOT)}: {'.'.join(invocation['scope'])} 图片型操作控件需提供 accessibilityLabel"
+                f"（{invocation['value'][:96].replace(chr(10), ' ')}）"
+            )
 
 
 def check_refresh_status_contract(errors: list[str], syntax: dict[str, dict]) -> None:
@@ -1394,7 +2084,11 @@ def check_refresh_status_contract(errors: list[str], syntax: dict[str, dict]) ->
 
 def main(shared_syntax: dict[str, dict] | None = None) -> int:
     if sys.argv[1:] == ["--self-test"]:
-        findings = [*ast_marker_boundary_findings(), *source_boundary_findings()]
+        findings = [
+            *ast_marker_boundary_findings(),
+            *source_boundary_findings(),
+            *map_theme_color_contract_findings(),
+        ]
         if findings:
             print("[失败] UI 一致性检查器自测：", file=sys.stderr)
             print("\n".join(findings), file=sys.stderr)
@@ -1420,10 +2114,12 @@ def main(shared_syntax: dict[str, dict] | None = None) -> int:
     check_refresh_status_contract(errors, syntax)
     check_haptic_consistency(errors, syntax)
     check_error_report_coverage(errors, syntax)
-    check_fonts(errors)
-    check_design_token_boundaries(errors)
-    check_page_theme_consistency(errors)
-    check_contextual_component_colors(errors)
+    check_accessibility_coverage(errors, syntax)
+    check_fonts(errors, syntax)
+    check_design_token_boundaries(errors, syntax)
+    check_page_theme_consistency(errors, syntax)
+    check_contextual_component_colors(errors, syntax)
+    check_registered_visual_contracts(errors)
     app_card_uses = 0
     floating_stack_uses = 0
     for path in swift_files():
@@ -1432,85 +2128,97 @@ def main(shared_syntax: dict[str, dict] | None = None) -> int:
         relative = path.relative_to(ROOT)
         source_relative = path.relative_to(SOURCE_ROOT).as_posix()
         raw_source = path.read_text(encoding="utf-8")
-        source = mask_literals_and_comments(raw_source)
-        comment_free_source = mask_comments(raw_source)
-        if "AppFloatingActionStack" in source:
-            floating_stack_uses += 1
-        if "ZStack(alignment: .bottomTrailing)" in source and re.search(r"Floating|FAB", source):
-            if "AppFloatingActionStack" not in source:
-                errors.append(f"{relative}: 右下角操作组必须使用 AppFloatingActionStack")
-        rules = (
-            (DIRECT_ROUNDED_RECTANGLE, "请使用 AppDesignSystem.roundedRectangle"),
-            (DIRECT_CORNER_RADIUS, "圆角半径必须通过 AppDesignSystem.Radius 和 roundedRectangle 统一"),
-            (DIRECT_SYSTEM_COLOR, "请使用 AppDesignSystem.Palette"),
-            (DIRECT_ACCENT_COLOR, "请使用 AppDesignSystem.Palette.Accent.primary"),
-            (DIRECT_FLOATING_SIZE, "圆形操作按钮尺寸必须使用 AppDesignSystem.Size"),
-            (DIRECT_TOUCH_TARGET, "触控区域尺寸必须使用 AppDesignSystem.Size.Control.touchTarget"),
-            (DIRECT_FLOATING_MATERIAL, "圆形操作按钮背景必须使用 AppFloatingActionButtonSurface"),
-            (DIRECT_GROUPED_LIST_STYLE, "分组列表必须使用 appGroupedListStyle"),
-            (DIRECT_LIST_SECTION_SPACING, "列表 section 间距必须通过 appGroupedListStyle 统一"),
-            (DIRECT_ANIMATION_DURATION, "优先使用系统动画时长，不要在页面单独指定 duration"),
-            (DIRECT_INPUT_PLACEHOLDER, "输入提示必须使用 AppInputPrompt"),
-            (DIRECT_CUSTOM_SECTION_HEADER, "列表自定义标题必须使用 AppListSectionHeader"),
-            (DIRECT_BARE_HSTACK, "HStack 必须显式使用 AppDesignSystem.Spacing 语义间距"),
-            (DIRECT_HSTACK_LITERAL, "HStack 间距必须使用 AppDesignSystem.Spacing 语义令牌"),
-            (DIRECT_FRAME_LITERAL, "固定 frame 尺寸必须使用 AppDesignSystem.Size 或专用语义令牌"),
-            (DIRECT_EDGE_INSETS_LITERAL, "EdgeInsets 必须使用 AppDesignSystem.Spacing"),
-            (DIRECT_LOCAL_CGFLOAT_LITERAL, "页面布局常量必须提升为设计系统语义令牌"),
-            (DIRECT_FOREGROUND_STYLE, "前景层级必须使用 AppDesignSystem.Foreground"),
-            (DIRECT_HIERARCHICAL_COLOR, "系统前景颜色必须使用 AppDesignSystem.Foreground"),
-            (DIRECT_FONT_MODIFIER, "字体角色必须使用 AppDesignSystem.Typography"),
-            (DIRECT_GRID_ITEM_GEOMETRY, "GridItem 尺寸必须使用 AppDesignSystem.Size 或模块语义令牌"),
-            (DIRECT_STROKE_GEOMETRY, "图表线宽和虚线必须使用模块设计令牌"),
-            (DIRECT_BLUR_GEOMETRY, "模糊半径必须使用 AppDesignSystem.Size.Effect"),
-            (DIRECT_THUMBNAIL_GEOMETRY, "缩略图几何必须使用模块设计令牌"),
-        )
-        for pattern, message in rules:
+        facts = syntax[str(path)]
+        call_pairs = zip(facts.get("calls", []), facts.get("invocations", []))
+        for call, invocation in call_pairs:
+            name = call_name(call["value"])
+            invocation_source = mask_literals_and_comments(invocation["value"])
+            if name == "AppFloatingActionStack":
+                floating_stack_uses += 1
+            if name == "ZStack" and re.match(
+                r"ZStack\s*\(\s*alignment\s*:\s*\.bottomTrailing\s*\)", invocation_source
+            ) and re.search(r"\b(?:Floating|FAB)", invocation_source):
+                if "AppFloatingActionStack" not in invocation_source:
+                    errors.append(f"{relative}: 右下角操作组必须使用 AppFloatingActionStack")
+        emitted_rule_findings: set[tuple[str, int, str]] = set()
+        for pattern, message in DIRECT_VISUAL_RULES:
             if path.name == "AppLayoutComponents.swift" and pattern in (
                 DIRECT_GROUPED_LIST_STYLE, DIRECT_LIST_SECTION_SPACING, DIRECT_FLOATING_MATERIAL
             ):
                 continue
-            pattern_source = comment_free_source if pattern is DIRECT_INPUT_PLACEHOLDER else source
-            for match in pattern.finditer(pattern_source):
+            for node in pattern_nodes(facts, pattern):
+                if pattern is DIRECT_LOCAL_CGFLOAT_LITERAL and is_registered_cgfloat_contract(path, node):
+                    continue
                 if pattern in (
                     DIRECT_GRID_ITEM_GEOMETRY,
                     DIRECT_STROKE_GEOMETRY,
                     DIRECT_THUMBNAIL_GEOMETRY,
-                ) and is_reviewed_fixed_geometry(path, source, pattern):
+                ) and is_reviewed_fixed_geometry(path, raw_source, pattern, node):
                     continue
-                line_number = raw_source.count("\n", 0, match.start()) + 1
-                errors.append(f"{relative}:{line_number}: {message}")
+                pattern_source = mask_comments(node["value"]) if pattern is DIRECT_INPUT_PLACEHOLDER else mask_literals_and_comments(node["value"])
+                for match in pattern.finditer(pattern_source):
+                    line_number = pattern_line_number(raw_source, node, match.start())
+                    append_rule_finding(errors, emitted_rule_findings, relative, line_number, message, pattern)
         for pattern, palette_name in DIRECT_SEMANTIC_COLOR_RULES:
-            for match in pattern.finditer(source):
-                line_number = raw_source.count("\n", 0, match.start()) + 1
-                errors.append(f"{relative}:{line_number}: 请使用 {palette_name}")
+            for node in pattern_nodes(facts, pattern):
+                if is_registered_map_theme_color_definition(path, raw_source, node):
+                    continue
+                pattern_source = mask_literals_and_comments(node["value"])
+                for match in pattern.finditer(pattern_source):
+                    line_number = pattern_line_number(raw_source, node, match.start())
+                    append_rule_finding(
+                        errors, emitted_rule_findings, relative, line_number, f"请使用 {palette_name}", pattern
+                    )
 
         for pattern, label in (
             (PADDING_LITERAL, "padding"),
             (STACK_SPACING_LITERAL, "stack spacing"),
         ):
-            for match in pattern.finditer(source):
-                if float(match.group(1)) == 0:
-                    continue
-                line_number = raw_source.count("\n", 0, match.start()) + 1
-                errors.append(
-                    f"{relative}:{line_number}: {label} 必须使用 AppDesignSystem.Spacing 或专用语义令牌"
-                )
+            for node in pattern_nodes(facts, pattern):
+                pattern_source = mask_literals_and_comments(node["value"])
+                for match in pattern.finditer(pattern_source):
+                    if float(match.group(1)) == 0:
+                        continue
+                    line_number = pattern_line_number(raw_source, node, match.start())
+                    append_rule_finding(
+                        errors,
+                        emitted_rule_findings,
+                        relative,
+                        line_number,
+                        f"{label} 必须使用 AppDesignSystem.Spacing 或专用语义令牌",
+                        pattern,
+                    )
 
         if path not in DESIGN_SYSTEM_SOURCES:
             for pattern in (DERIVED_DESIGN_TOKEN, REPEATED_DESIGN_TOKEN):
-                for match in pattern.finditer(source):
-                    line_number = raw_source.count("\n", 0, match.start()) + 1
-                    errors.append(
-                        f"{relative}:{line_number}: 设计令牌不得通过比例或重复相加/相减二次运算；请直接使用语义令牌"
-                    )
+                for node in pattern_nodes(facts, pattern):
+                    pattern_source = mask_literals_and_comments(node["value"])
+                    for match in pattern.finditer(pattern_source):
+                        line_number = pattern_line_number(raw_source, node, match.start())
+                        append_rule_finding(
+                            errors,
+                            emitted_rule_findings,
+                            relative,
+                            line_number,
+                            "设计令牌不得通过比例或重复相加/相减二次运算；请直接使用语义令牌",
+                            pattern,
+                        )
 
         if source_relative not in PLAIN_LIST_EXCEPTIONS:
-            for match in DIRECT_PLAIN_LIST_STYLE.finditer(source):
-                line_number = raw_source.count("\n", 0, match.start()) + 1
-                errors.append(f"{relative}:{line_number}: plain 列表只允许消息中心使用")
+            for node in pattern_nodes(facts, DIRECT_PLAIN_LIST_STYLE):
+                pattern_source = mask_literals_and_comments(node["value"])
+                for match in DIRECT_PLAIN_LIST_STYLE.finditer(pattern_source):
+                    line_number = pattern_line_number(raw_source, node, match.start())
+                    append_rule_finding(
+                        errors,
+                        emitted_rule_findings,
+                        relative,
+                        line_number,
+                        "plain 列表只允许消息中心使用",
+                        DIRECT_PLAIN_LIST_STYLE,
+                    )
 
-        app_card_uses += len(re.findall(r"\bAppCard\s*(?:<[^>]+>)?\s*(?:\(|\{)", source))
+        app_card_uses += sum(call_name(call["value"]) == "AppCard" for call in facts.get("calls", []))
 
     if app_card_uses == 0:
         errors.append("未发现 AppCard 调用，公共卡片组件没有实际复用")

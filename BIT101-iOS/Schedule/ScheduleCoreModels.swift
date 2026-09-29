@@ -81,7 +81,7 @@ nonisolated enum ScheduleCalendarAxisMode: String, CaseIterable, Identifiable, S
         case .quantized:
             return "节次"
         case .linear:
-            return "时间"
+            return "线性"
         }
     }
 

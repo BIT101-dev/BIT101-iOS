@@ -69,7 +69,11 @@ extension CourseScheduleTabView {
             let endSection = convertTimeToSection(timeText: exam.endTime, timeTable: activeSchedule.timeTable)
 
             guard endMinutes > startMinutes,
-                  calendarAxisMode == .linear || endSection > startSection + 0.05
+                  calendarAxisMode == .linear || isRepresentableOnQuantizedAxis(
+                      startMinutes: startMinutes,
+                      endMinutes: endMinutes,
+                      timeTable: activeSchedule.timeTable
+                  )
             else {
                 return nil
             }
@@ -113,7 +117,11 @@ extension CourseScheduleTabView {
             let startSection = convertTimeToSection(timeText: schedule.beginTime, timeTable: activeSchedule.timeTable)
             let endSection = convertTimeToSection(timeText: schedule.endTime, timeTable: activeSchedule.timeTable)
             guard endMinutes > startMinutes,
-                  calendarAxisMode == .linear || endSection > startSection + 0.05
+                  calendarAxisMode == .linear || isRepresentableOnQuantizedAxis(
+                      startMinutes: startMinutes,
+                      endMinutes: endMinutes,
+                      timeTable: activeSchedule.timeTable
+                  )
             else {
                 return nil
             }

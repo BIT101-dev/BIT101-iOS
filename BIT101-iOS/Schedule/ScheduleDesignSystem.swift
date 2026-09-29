@@ -46,7 +46,7 @@ extension AppDesignSystem {
             static let minorBarHeight: CGFloat = 16
             static let selectedBarWidth: CGFloat = 4
             static let barWidth: CGFloat = 3
-            static let sliderHeight: CGFloat = 36
+            static let sliderHeight: CGFloat = AppDesignSystem.Size.Control.touchTarget
             static let dateHeaderHeight: CGFloat = 26
             static let compactHeaderHeight: CGFloat = 42
         }

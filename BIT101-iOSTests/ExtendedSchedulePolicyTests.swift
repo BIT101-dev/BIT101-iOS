@@ -4,6 +4,33 @@ import Testing
 
 @Suite("Extended schedule invariants")
 struct ExtendedSchedulePolicyTests {
+    @Test("External schedule exports discard stale accounts and generations")
+    func externalSnapshotExportGeneration() {
+        let accountA = AppStorageSession(accountIdentifier: "schedule-account-a")
+        let accountB = AppStorageSession(accountIdentifier: "schedule-account-b")
+
+        #expect(!ScheduleSnapshotExportPolicy.isCurrent(
+            capturedSession: accountA,
+            currentSession: accountB,
+            generation: 4,
+            currentGeneration: 4
+        ))
+        #expect(!ScheduleSnapshotExportPolicy.isCurrent(
+            capturedSession: accountB,
+            currentSession: accountB,
+            generation: 3,
+            currentGeneration: 4
+        ))
+        #expect(ScheduleSnapshotExportPolicy.isCurrent(
+            capturedSession: accountB,
+            currentSession: accountB,
+            generation: 4,
+            currentGeneration: 4
+        ))
+        #expect(ScheduleSnapshotExportPolicy.acceptsWrite(generation: 4, latestGeneration: 4))
+        #expect(!ScheduleSnapshotExportPolicy.acceptsWrite(generation: 3, latestGeneration: 4))
+    }
+
     @Test("Display modes expose stable identifiers and titles")
     func displayModesAreStable() {
         #expect(ScheduleDisplayMode.allCases.map(\.rawValue) == ["weekly", "allWeeks"])
@@ -84,6 +111,80 @@ struct ExtendedSchedulePolicyTests {
         #expect(result.invalidRules.isEmpty)
         #expect(result.validRules.count == 1)
         #expect(result.courses == [replacement])
+    }
+
+    @Test("Holiday deletion keeps school snapshots raw and persists a manual rule")
+    func holidayDeletionPreservesRawCourses() throws {
+        let repeating = course(id: "repeat", number: "MATH-1", weeks: [1, 2, 3], weekday: 2)
+        let singleWeek = course(id: "single", number: "ENG-1", weeks: [2], weekday: 2)
+        let originals = [repeating, singleWeek]
+        let holidayCourses = ScheduleCourseEditor.removingOccurrences(
+            from: originals,
+            week: 2,
+            weekday: 2
+        )
+        var cache = manualEditCache(with: originals)
+
+        ScheduleCourseEditor.updateCacheForManualCourseChange(
+            in: &cache,
+            previousCourses: originals,
+            currentCourses: holidayCourses
+        )
+
+        #expect(cache.courses == holidayCourses)
+        #expect(cache.schoolCoursesByTerm[repeating.term] == originals)
+        #expect(cache.cachedCoursesByTerm[repeating.term] == originals)
+        #expect(cache.termSchedulesByTerm[repeating.term]?.courses == originals)
+        #expect(cache.manualCourseRulesByTerm[repeating.term]?.count == 2)
+        let restoredHolidayCourses = ScheduleCourseEditor.reconcile(
+            rules: cache.manualCourseRulesByTerm[repeating.term] ?? [],
+            with: originals
+        )
+        #expect(Set(restoredHolidayCourses.courses) == Set(holidayCourses))
+
+        let decoded = try JSONDecoder().decode(ScheduleCache.self, from: JSONEncoder().encode(cache))
+        #expect(Set(decoded.courses) == Set(holidayCourses))
+        #expect(decoded.schoolCoursesByTerm[repeating.term] == originals)
+        #expect(decoded.cachedCoursesByTerm[repeating.term] == originals)
+        #expect(decoded.termSchedulesByTerm[repeating.term]?.courses == originals)
+    }
+
+    @Test("Day transfer keeps school snapshots raw and persists a manual rule")
+    func transferPreservesRawCourses() throws {
+        let source = course(id: "source", number: "MATH-1", weeks: [1, 2, 3], weekday: 2)
+        let target = course(id: "target", number: "ENG-1", weeks: [2], weekday: 4)
+        let originals = [source, target]
+        let movedCourses = ScheduleCourseEditor.transferring(
+            courses: originals,
+            fromWeek: 2,
+            fromWeekday: 2,
+            toWeek: 2,
+            toWeekday: 4,
+            makeID: { "moved" }
+        )
+        var cache = manualEditCache(with: originals)
+
+        ScheduleCourseEditor.updateCacheForManualCourseChange(
+            in: &cache,
+            previousCourses: originals,
+            currentCourses: movedCourses
+        )
+
+        #expect(cache.courses == movedCourses)
+        #expect(cache.schoolCoursesByTerm[source.term] == originals)
+        #expect(cache.cachedCoursesByTerm[source.term] == originals)
+        #expect(cache.termSchedulesByTerm[source.term]?.courses == originals)
+        let restoredMovedCourses = ScheduleCourseEditor.reconcile(
+            rules: cache.manualCourseRulesByTerm[source.term] ?? [],
+            with: originals
+        )
+        #expect(Set(restoredMovedCourses.courses) == Set(movedCourses))
+
+        let decoded = try JSONDecoder().decode(ScheduleCache.self, from: JSONEncoder().encode(cache))
+        #expect(Set(decoded.courses) == Set(movedCourses))
+        #expect(decoded.schoolCoursesByTerm[source.term] == originals)
+        #expect(decoded.cachedCoursesByTerm[source.term] == originals)
+        #expect(decoded.termSchedulesByTerm[source.term]?.courses == originals)
     }
 
     @Test("Changes in another course leave this rule active")
@@ -381,5 +482,23 @@ struct ExtendedSchedulePolicyTests {
             category: "",
             department: ""
         )
+    }
+
+    private func manualEditCache(with courses: [CourseRecord]) -> ScheduleCache {
+        let term = courses[0].term
+        var cache = ScheduleCache()
+        cache.currentTerm = term
+        cache.firstDayString = "2026-09-07"
+        cache.courses = courses
+        cache.schoolCoursesByTerm[term] = courses
+        cache.cachedCoursesByTerm[term] = courses
+        cache.termSchedulesByTerm[term] = TermScheduleSnapshot(
+            term: term,
+            firstDayString: cache.firstDayString,
+            courses: courses,
+            exams: [],
+            updatedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        return cache
     }
 }

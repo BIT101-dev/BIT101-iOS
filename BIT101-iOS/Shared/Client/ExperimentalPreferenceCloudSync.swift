@@ -197,14 +197,40 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     }
 
     /// 本地业务数据发生变化时记录时间；只有实验开关打开才立即上传。
-    func localValueDidChange(in domain: ExperimentalPreferenceSyncDomain) {
+    func localValueDidChange(
+        in domain: ExperimentalPreferenceSyncDomain,
+        for session: AppStorageSession? = nil
+    ) {
+        let scoreSession = session ?? AppFileDirectories.scoreCacheSession
+        if domain == .scoreCache, AppFileDirectories.scoreCacheSession != scoreSession { return }
         let updatedAt = nextLocalUpdatedAt(
             for: domain,
             remoteUpdatedAt: remoteUpdatedAt(for: domain)
         )
         defaults.set(updatedAt, forKey: localUpdatedAtKey(for: domain))
         guard isEnabled else { return }
-        upload(domain: domain, updatedAt: updatedAt)
+        switch domain {
+        case .appSettings:
+            upload(
+                payload: AppSettingsSyncPayload(snapshot: AppSettingsStore.shared.snapshot),
+                domain: domain,
+                updatedAt: updatedAt
+            )
+        case .scoreFilters:
+            upload(
+                payload: ScoreFilterPreferenceStore.load() ?? ScoreFilterPreferenceSnapshot(),
+                domain: domain,
+                updatedAt: updatedAt
+            )
+        case .scoreCache:
+            Task { await uploadScoreCache(updatedAt: updatedAt, session: scoreSession) }
+        case .galleryMessageRead:
+            upload(
+                payload: GalleryMessageReadStore.shared.syncSnapshot(),
+                domain: domain,
+                updatedAt: updatedAt
+            )
+        }
     }
 
     /// 启动和回到前台时补做一次拉取，兼容系统没有及时投递外部变更通知的情况。
@@ -262,7 +288,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
                 for domain in ExperimentalPreferenceSyncDomain.allCases
                 where domains.contains(domain) {
                     guard !Task.isCancelled, self.isEnabled else { return }
-                    self.reconcile(domain: domain)
+                    await self.reconcile(domain: domain)
                 }
             }
 
@@ -270,33 +296,49 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         }
     }
 
-    private func reconcile(domain: ExperimentalPreferenceSyncDomain) {
+    private func reconcile(domain: ExperimentalPreferenceSyncDomain) async {
         switch domain {
         case .appSettings:
-            reconcile(
+            await reconcile(
                 domain: domain,
                 localPayload: AppSettingsSyncPayload(snapshot: AppSettingsStore.shared.snapshot),
-                applyRemote: { AppSettingsStore.shared.applySyncedPreferences($0) }
+                applyRemote: { payload in
+                    AppSettingsStore.shared.applySyncedPreferences(payload)
+                    return true
+                }
             )
         case .scoreFilters:
-            reconcile(
+            await reconcile(
                 domain: domain,
                 localPayload: ScoreFilterPreferenceStore.load() ?? ScoreFilterPreferenceSnapshot(),
-                applyRemote: { ScoreFilterPreferenceStore.applySynced($0) }
+                applyRemote: { payload in
+                    ScoreFilterPreferenceStore.applySynced(payload)
+                    return true
+                }
             )
         case .scoreCache:
-            let localPayload = ScoreCacheStore.syncPayload()
+            let session = AppFileDirectories.scoreCacheSession
+            guard let localPayload = await ScoreCacheStore.syncPayload(for: session),
+                  !Task.isCancelled,
+                  AppFileDirectories.scoreCacheSession == session
+            else { return }
             preserveLegacyLocalScoreCacheIfNeeded(localPayload)
-            reconcile(
+            await reconcile(
                 domain: domain,
                 localPayload: localPayload,
-                applyRemote: { ScoreCacheStore.applySynced($0) }
+                scoreSession: session,
+                applyRemote: { payload in
+                    await ScoreCacheStore.applySynced(payload, for: session)
+                }
             )
         case .galleryMessageRead:
-            reconcile(
+            await reconcile(
                 domain: domain,
                 localPayload: GalleryMessageReadStore.shared.syncSnapshot(),
-                applyRemote: { GalleryMessageReadStore.shared.applySyncedSnapshot($0) }
+                applyRemote: { payload in
+                    GalleryMessageReadStore.shared.applySyncedSnapshot(payload)
+                    return true
+                }
             )
         }
     }
@@ -304,8 +346,10 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     private func reconcile<Payload: Codable>(
         domain: ExperimentalPreferenceSyncDomain,
         localPayload: Payload,
-        applyRemote: (Payload) -> Void
-    ) {
+        scoreSession: AppStorageSession? = nil,
+        applyRemote: (Payload) async -> Bool
+    ) async {
+        if let scoreSession, AppFileDirectories.scoreCacheSession != scoreSession { return }
         let remote: ExperimentalPreferenceSyncEnvelope<Payload>? = remoteEnvelope(for: domain)
         let localUpdatedAt = defaults.object(forKey: localUpdatedAtKey(for: domain)) as? Date
 
@@ -313,7 +357,11 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         if remote == nil, localUpdatedAt == nil {
             let updatedAt = nextLocalUpdatedAt(for: domain)
             defaults.set(updatedAt, forKey: localUpdatedAtKey(for: domain))
-            upload(payload: localPayload, domain: domain, updatedAt: updatedAt)
+            upload(
+                payload: localPayload,
+                domain: domain,
+                updatedAt: updatedAt
+            )
             return
         }
 
@@ -323,43 +371,30 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         ) {
         case .applyRemote:
             guard let remote else { return }
-            applyRemote(remote.payload)
+            guard await applyRemote(remote.payload) else { return }
+            guard !Task.isCancelled,
+                  scoreSession == nil || AppFileDirectories.scoreCacheSession == scoreSession
+            else { return }
             defaults.set(remote.updatedAt, forKey: localUpdatedAtKey(for: domain))
         case .uploadLocal:
             guard let localUpdatedAt else { return }
-            upload(payload: localPayload, domain: domain, updatedAt: localUpdatedAt)
+            upload(
+                payload: localPayload,
+                domain: domain,
+                updatedAt: localUpdatedAt
+            )
         case .noChange:
             break
         }
     }
 
-    private func upload(domain: ExperimentalPreferenceSyncDomain, updatedAt: Date) {
-        switch domain {
-        case .appSettings:
-            upload(
-                payload: AppSettingsSyncPayload(snapshot: AppSettingsStore.shared.snapshot),
-                domain: domain,
-                updatedAt: updatedAt
-            )
-        case .scoreFilters:
-            upload(
-                payload: ScoreFilterPreferenceStore.load() ?? ScoreFilterPreferenceSnapshot(),
-                domain: domain,
-                updatedAt: updatedAt
-            )
-        case .scoreCache:
-            upload(
-                payload: ScoreCacheStore.syncPayload(),
-                domain: domain,
-                updatedAt: updatedAt
-            )
-        case .galleryMessageRead:
-            upload(
-                payload: GalleryMessageReadStore.shared.syncSnapshot(),
-                domain: domain,
-                updatedAt: updatedAt
-            )
-        }
+    private func uploadScoreCache(updatedAt: Date, session: AppStorageSession) async {
+        guard AppFileDirectories.scoreCacheSession == session,
+              let payload = await ScoreCacheStore.syncPayload(for: session),
+              !Task.isCancelled,
+              AppFileDirectories.scoreCacheSession == session
+        else { return }
+        upload(payload: payload, domain: .scoreCache, updatedAt: updatedAt)
     }
 
     /// 升级前已有的成绩缓存没有实验同步时间戳；云端为空时优先保留并上传本机成绩。

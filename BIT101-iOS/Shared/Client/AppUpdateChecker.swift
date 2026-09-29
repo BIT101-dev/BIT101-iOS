@@ -21,7 +21,15 @@ nonisolated enum BIT101AppStore {
 struct AppStoreRelease: Codable, Equatable, Identifiable {
     let version: String
     let releaseNotes: String?
+    let releaseDate: Date?
     let trackViewURL: URL?
+
+    init(version: String, releaseNotes: String?, releaseDate: Date? = nil, trackViewURL: URL?) {
+        self.version = version
+        self.releaseNotes = releaseNotes
+        self.releaseDate = releaseDate
+        self.trackViewURL = trackViewURL
+    }
 
     var id: String { version }
 
@@ -50,6 +58,7 @@ private struct AppStoreLookupResponse: Decodable {
     struct Result: Decodable {
         let version: String
         let releaseNotes: String?
+        let releaseDate: String?
         let trackViewUrl: URL?
     }
 
@@ -69,6 +78,7 @@ final class AppUpdateChecker {
     typealias DataLoader = (URLRequest) async throws -> (Data, URLResponse)
 
     nonisolated static let queryInterval: TimeInterval = 24 * 60 * 60
+    nonisolated static let minimumReleaseAge: TimeInterval = 7 * 24 * 60 * 60
     nonisolated static let lastAttemptKey = "app.update-check.last-attempt"
     nonisolated static let cachedReleaseKey = "app.update-check.cached-release"
     nonisolated static let ignoredVersionKey = "app.update-check.ignored-version"
@@ -191,6 +201,7 @@ final class AppUpdateChecker {
         return AppStoreRelease(
             version: result.version,
             releaseNotes: result.releaseNotes,
+            releaseDate: result.releaseDate.flatMap { ISO8601DateFormatter().date(from: $0) },
             trackViewURL: result.trackViewUrl
         )
     }
@@ -208,6 +219,7 @@ final class AppUpdateChecker {
 
     private func eligibleRelease(from release: AppStoreRelease?) -> AppStoreRelease? {
         guard let release,
+              isOldEnoughToPresent(release),
               AppVersionComparison.isNewer(release.version, than: installedVersion()),
               defaults.string(forKey: Self.ignoredVersionKey) != release.version,
               !wasRecentlyPresented(version: release.version)
@@ -215,6 +227,11 @@ final class AppUpdateChecker {
             return nil
         }
         return release
+    }
+
+    private func isOldEnoughToPresent(_ release: AppStoreRelease) -> Bool {
+        guard let releaseDate = release.releaseDate else { return false }
+        return now().timeIntervalSince(releaseDate) >= Self.minimumReleaseAge
     }
 
     private func wasRecentlyPresented(version: String) -> Bool {

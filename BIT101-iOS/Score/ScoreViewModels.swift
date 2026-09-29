@@ -75,7 +75,7 @@ final class ScoreViewModel: ObservableObject {
         scoreCacheObserverTask = Task { @MainActor [weak self] in
             for await _ in NotificationCenter.default.notifications(named: .scoreCacheDidChange) {
                 guard let self else { return }
-                self.applySyncedScoreCacheIfAvailable()
+                await self.applySyncedScoreCacheIfAvailable()
             }
         }
         scheduleCacheObserverTask = Task { @MainActor [weak self] in
@@ -128,7 +128,7 @@ final class ScoreViewModel: ObservableObject {
     func restoreCachedDataIfNeeded() async {
         guard state == .idle else { return }
         await refreshCachedScheduleCourses()
-        restoreCachedRowsIfAvailable()
+        await restoreCachedRowsIfAvailable()
         if rows.isEmpty {
             state = .loaded
         }
@@ -284,8 +284,12 @@ final class ScoreViewModel: ObservableObject {
         authenticatedBy challenge: BITLoginAuthenticationChallenge,
         forceDetailedRefresh: Bool
     ) async throws {
-        let cachedRows = ScoreCacheStore.loadRows()
+        let session = AppFileDirectories.scoreCacheSession
+        let cachedSnapshot = await ScoreCacheStore.loadSnapshot(for: session)
+        guard AppFileDirectories.scoreCacheSession == session else { return }
+        let cachedRows = cachedSnapshot?.rows
         let briefRows = try await service.fetchScores(detail: false, authenticatedBy: challenge)
+        guard AppFileDirectories.scoreCacheSession == session else { return }
         applyRows(briefRows)
         syncStatusText = "简略成绩同步完成"
 
@@ -294,13 +298,14 @@ final class ScoreViewModel: ObservableObject {
             : ScoreDetailRefreshPolicy.decision(
                 briefRows: briefRows,
                 cachedRows: cachedRows,
-                detailedUpdatedAt: ScoreCacheStore.loadDetailedUpdatedAt(),
+                detailedUpdatedAt: cachedSnapshot?.detailedUpdatedAt,
                 now: Date()
             )
         if detailDecision != .fetch, let cachedRows {
             applyRows(cachedRows)
-            ScoreCacheStore.markChecked()
-            lastUpdatedAt = ScoreCacheStore.loadUpdatedAt()
+            let updatedAt = await ScoreCacheStore.markChecked(for: session)
+            guard AppFileDirectories.scoreCacheSession == session else { return }
+            lastUpdatedAt = updatedAt ?? cachedSnapshot?.updatedAt
             syncStatusText = "成绩已是最新"
             presentUnchangedNotice()
             return
@@ -317,23 +322,28 @@ final class ScoreViewModel: ObservableObject {
         syncStatusText = "同步详细信息中"
         do {
             let detailedRows = try await detailedRowsTask.value
+            guard AppFileDirectories.scoreCacheSession == session else { return }
             let scoresAreIdentical = cachedRows.map { ScoreDetailRefreshPolicy.rowsMatch(detailedRows, $0) } ?? false
             applyRows(detailedRows)
-            ScoreCacheStore.saveDetailed(rows: detailedRows)
-            lastUpdatedAt = ScoreCacheStore.loadUpdatedAt()
+            let updatedAt = await ScoreCacheStore.saveDetailed(rows: detailedRows, for: session)
+            guard AppFileDirectories.scoreCacheSession == session else { return }
+            lastUpdatedAt = updatedAt ?? cachedSnapshot?.updatedAt
             if scoresAreIdentical {
                 presentUnchangedNotice()
             }
         } catch {
+            guard AppFileDirectories.scoreCacheSession == session else { return }
             if let cachedRows,
                ScoreDetailRefreshPolicy.briefRowsMatchCache(briefRows, cachedRows: cachedRows)
             {
                 // 简略成绩保持一致时，详细刷新失败会继续使用缓存中的完整字段。
                 applyRows(cachedRows)
+                lastUpdatedAt = cachedSnapshot?.updatedAt
             } else {
-                ScoreCacheStore.save(rows: briefRows)
+                let updatedAt = await ScoreCacheStore.save(rows: briefRows, for: session)
+                guard AppFileDirectories.scoreCacheSession == session else { return }
+                lastUpdatedAt = updatedAt ?? cachedSnapshot?.updatedAt
             }
-            lastUpdatedAt = ScoreCacheStore.loadUpdatedAt()
             throw error
         }
     }
@@ -510,20 +520,30 @@ final class ScoreViewModel: ObservableObject {
     }
 
     /// 恢复本机缓存的成绩列表。
-    private func restoreCachedRowsIfAvailable() {
+    private func restoreCachedRowsIfAvailable() async {
         guard !didRestoreCachedRows else { return }
         didRestoreCachedRows = true
-        guard let rows = ScoreCacheStore.loadRows(), !rows.isEmpty else { return }
-        lastUpdatedAt = ScoreCacheStore.loadUpdatedAt()
+        let session = AppFileDirectories.scoreCacheSession
+        guard let snapshot = await ScoreCacheStore.loadSnapshot(for: session),
+              AppFileDirectories.scoreCacheSession == session,
+              let rows = snapshot.rows,
+              !rows.isEmpty
+        else { return }
+        lastUpdatedAt = snapshot.updatedAt
         applyRows(rows)
     }
 
     /// iCloud 成绩缓存到达时立即刷新当前页面，页面继续使用本地缓存数据。
-    private func applySyncedScoreCacheIfAvailable() {
+    private func applySyncedScoreCacheIfAvailable() async {
         guard !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil else { return }
-        guard let cachedRows = ScoreCacheStore.loadRows(), !cachedRows.isEmpty else { return }
+        let session = AppFileDirectories.scoreCacheSession
+        guard let snapshot = await ScoreCacheStore.loadSnapshot(for: session),
+              AppFileDirectories.scoreCacheSession == session,
+              let cachedRows = snapshot.rows,
+              !cachedRows.isEmpty
+        else { return }
         didRestoreCachedRows = true
-        lastUpdatedAt = ScoreCacheStore.loadUpdatedAt()
+        lastUpdatedAt = snapshot.updatedAt
         applyRows(cachedRows)
     }
 

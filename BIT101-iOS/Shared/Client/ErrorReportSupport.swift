@@ -139,6 +139,7 @@ private struct ErrorReportPayload: Encodable {
     let mode: String
     let isDevelopmentBuild: Bool
     let comment: String?
+    let contact: String?
     let errorTitle: String
     let errorMessage: String
     let appVersion: String
@@ -236,6 +237,7 @@ final class ErrorReportViewModel: ObservableObject {
 
     @Published var mode: Mode = .sanitized
     @Published var comment = ""
+    @Published var contact = ""
     @Published var diagnostics: [NetworkDiagnosticRecord] = []
     @Published var isSubmitting = false
     @Published var resultMessage: String?
@@ -260,11 +262,13 @@ final class ErrorReportViewModel: ObservableObject {
             )
         }
         let trimmedComment = comment.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedContact = contact.trimmingCharacters(in: .whitespacesAndNewlines)
         let context = FeedbackDeviceContext.current
         let payload = ErrorReportPayload(
             mode: mode.rawValue,
             isDevelopmentBuild: AppBuildEnvironment.isDevelopment,
             comment: trimmedComment.isEmpty ? nil : viewModelRedactor(trimmedComment),
+            contact: trimmedContact.isEmpty ? nil : trimmedContact,
             errorTitle: viewModelRedactor(alert.title),
             errorMessage: viewModelRedactor(alert.message),
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?",

@@ -80,6 +80,31 @@ struct AppUpdateCheckerTests {
         #expect(await checker.noticeToPresentAtLaunch() == nil)
     }
 
+    @Test("Automatic App Store reminders wait until the release is seven days old")
+    func automaticReminderWaitsSevenDays() async throws {
+        let context = try TestContext()
+        defer { context.cleanUp() }
+        var releaseDate = context.now.addingTimeInterval(-AppUpdateChecker.minimumReleaseAge + 1)
+
+        let checker = AppUpdateChecker(
+            defaults: context.defaults,
+            now: { context.now },
+            installedVersion: { "1.7.0" },
+            loadData: { request in
+                try Self.lookupResponse(
+                    for: try #require(request.url),
+                    releaseDate: ISO8601DateFormatter().string(from: releaseDate)
+                )
+            }
+        )
+
+        #expect(await checker.releaseToPresentAtLaunch() == nil)
+
+        context.now.addTimeInterval(AppUpdateChecker.queryInterval + 1)
+        releaseDate = context.now.addingTimeInterval(-AppUpdateChecker.minimumReleaseAge)
+        #expect(await checker.releaseToPresentAtLaunch()?.version == "1.7.1")
+    }
+
     @Test("Global prompt coordinator presents one prompt at a time in queue order")
     func promptQueueIsSerial() throws {
         let coordinator = AppPromptCoordinator(advanceDelay: .zero)
@@ -282,6 +307,7 @@ struct AppUpdateCheckerTests {
         #expect(result == .update(AppStoreRelease(
             version: "1.7.1",
             releaseNotes: "修复问题并优化体验。",
+            releaseDate: ISO8601DateFormatter().date(from: "2026-01-01T00:00:00Z"),
             trackViewURL: URL(string: "https://apps.apple.com/cn/app/bit101/id6761147125?uo=4")
         )))
         #expect(requestCount == 2)
@@ -306,7 +332,8 @@ struct AppUpdateCheckerTests {
 
     private static func lookupResponse(
         for url: URL,
-        version: String = "1.7.1"
+        version: String = "1.7.1",
+        releaseDate: String = "2026-01-01T00:00:00Z"
     ) throws -> (Data, URLResponse) {
         let data = Data("""
         {
@@ -314,6 +341,7 @@ struct AppUpdateCheckerTests {
           "results": [{
             "version": "\(version)",
             "releaseNotes": "修复问题并优化体验。",
+            "releaseDate": "\(releaseDate)",
             "trackViewUrl": "https://apps.apple.com/cn/app/bit101/id6761147125?uo=4"
           }]
         }

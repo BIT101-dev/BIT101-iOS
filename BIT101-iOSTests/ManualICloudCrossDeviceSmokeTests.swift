@@ -34,8 +34,9 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
             return
         }
 
-        let scoreCount = ScoreCacheStore.loadRows()?.count
-        let scoreUpdatedAt = ScoreCacheStore.loadUpdatedAt()
+        let scoreSnapshot = await ScoreCacheStore.loadSnapshot()
+        let scoreCount = scoreSnapshot?.rows?.count
+        let scoreUpdatedAt = scoreSnapshot?.updatedAt
 
         var coordination = Coordination(
             token: UUID().uuidString,
@@ -105,7 +106,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
 
         let received = await waitUntil {
             self.manager.refreshFromCloudIfNeeded()
-            return self.localScoreSnapshotMatches(
+            return await self.localScoreSnapshotMatches(
                     expectedCount: coordination.phoneScoreCount,
                     expectedUpdatedAt: coordination.phoneScoreUpdatedAt
                 )
@@ -160,10 +161,11 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     }
 
     @MainActor
-    private func localScoreSnapshotMatches(expectedCount: Int?, expectedUpdatedAt: Date?) -> Bool {
+    private func localScoreSnapshotMatches(expectedCount: Int?, expectedUpdatedAt: Date?) async -> Bool {
         guard let expectedCount else { return true }
-        return ScoreCacheStore.loadRows()?.count == expectedCount
-            && ScoreCacheStore.loadUpdatedAt() == expectedUpdatedAt
+        let snapshot = await ScoreCacheStore.loadSnapshot()
+        return snapshot?.rows?.count == expectedCount
+            && snapshot?.updatedAt == expectedUpdatedAt
     }
 
     /// 脚本异常退出后，测试在当前账号存在协调状态时恢复实验开关并清除协调标记。
@@ -199,12 +201,12 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     @MainActor
     private func waitUntil(
         timeout: TimeInterval = 30,
-        condition: @escaping @MainActor () -> Bool
+        condition: @escaping @MainActor () async -> Bool
     ) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
             cloud.synchronize()
-            if condition() { return true }
+            if await condition() { return true }
             try? await Task.sleep(nanoseconds: 500_000_000)
         } while Date() < deadline
         return false

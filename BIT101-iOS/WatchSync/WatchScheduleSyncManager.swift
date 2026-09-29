@@ -9,10 +9,21 @@ import WatchConnectivity
 import WidgetKit
 #endif
 
+private nonisolated struct WatchScheduleDataReplyContext: @unchecked Sendable {
+    let session: WCSession
+    let replyHandler: (Data) -> Void
+}
+
+private nonisolated struct WatchScheduleDictionaryReplyContext: @unchecked Sendable {
+    let session: WCSession
+    let replyHandler: ([String: Any]) -> Void
+}
+
 enum WatchScheduleSyncError: Error, Equatable {
     case notSupported
     case noSnapshot
     case invalidPayload
+    case staleSnapshot
     case persistenceFailed
     case transferFailed
 }
@@ -63,8 +74,10 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     }
 
     /// 从共享仓库读取并编码当前快照。
-    private nonisolated static func currentSnapshotDataIfAvailable() -> Data? {
-        guard let snapshot = ScheduleExternalSnapshotStore.load() else { return nil }
+    private nonisolated static func currentSnapshotDataIfAvailable(for studentID: String) -> Data? {
+        guard let snapshot = ScheduleExternalSnapshotStore.load(),
+              snapshot.studentID == studentID
+        else { return nil }
         do {
             return try ScheduleExternalSnapshotCodec.encode(snapshot)
         } catch {
@@ -91,6 +104,9 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     #if os(iOS)
     /// 将最新课表快照推送给已配对的 watch。
     func push(snapshot: ScheduleExternalSnapshot) {
+        guard snapshot.studentID == LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return
+        }
         activateIfNeeded()
 
         let session = WCSession.default
@@ -108,7 +124,10 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     func pushCurrentSnapshotIfAvailable() {
         activateIfNeeded()
         let session = WCSession.default
-        guard session.isPaired, let data = Self.currentSnapshotDataIfAvailable() else { return }
+        let studentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard session.isPaired,
+              let data = Self.currentSnapshotDataIfAvailable(for: studentID)
+        else { return }
         guard session.activationState == .activated else {
             pendingSnapshotData = data
             return
@@ -190,6 +209,8 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
             Task { @MainActor in
                 guard let data = self.pendingSnapshotData else { return }
                 self.pendingSnapshotData = nil
+                let studentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard Self.isSnapshotData(data, for: studentID) else { return }
                 Self.updateApplicationContext(withSnapshotData: data, session: WCSession.default)
             }
         }
@@ -221,11 +242,15 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     ) {
         #if os(iOS)
         if messageData == WatchScheduleTransferProtocol.requestData {
-            if let data = Self.currentSnapshotDataIfAvailable() {
-                Self.updateApplicationContext(withSnapshotData: data, session: session)
-                replyHandler(data)
-            } else {
-                replyHandler(Data())
+            let replyContext = WatchScheduleDataReplyContext(session: session, replyHandler: replyHandler)
+            Task { @MainActor in
+                let studentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let data = Self.currentSnapshotDataIfAvailable(for: studentID) {
+                    Self.updateApplicationContext(withSnapshotData: data, session: replyContext.session)
+                    replyContext.replyHandler(data)
+                } else {
+                    replyContext.replyHandler(Data())
+                }
             }
             return
         }
@@ -245,14 +270,16 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     ) {
         #if os(iOS)
         if WatchScheduleTransferProtocol.requestsLatestSnapshot(message) {
-            let payload: [String: Any]
-            if let data = Self.currentSnapshotDataIfAvailable() {
-                Self.updateApplicationContext(withSnapshotData: data, session: session)
-                payload = WatchScheduleTransferProtocol.snapshotContext(data)
-            } else {
-                payload = [:]
+            let replyContext = WatchScheduleDictionaryReplyContext(session: session, replyHandler: replyHandler)
+            Task { @MainActor in
+                let studentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let data = Self.currentSnapshotDataIfAvailable(for: studentID) {
+                    Self.updateApplicationContext(withSnapshotData: data, session: replyContext.session)
+                    replyContext.replyHandler(WatchScheduleTransferProtocol.snapshotContext(data))
+                } else {
+                    replyContext.replyHandler([:])
+                }
             }
-            replyHandler(payload)
             return
         }
         #endif
@@ -303,6 +330,13 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
             return .failure(.invalidPayload)
         }
 
+        #if os(iOS)
+        let currentStudentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard snapshot.studentID == currentStudentID else {
+            return .failure(.staleSnapshot)
+        }
+        #endif
+
         do {
             try ScheduleExternalSnapshotStore.write(snapshot)
             #if canImport(WidgetKit)
@@ -314,6 +348,13 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
             return .failure(.persistenceFailed)
         }
     }
+
+    #if os(iOS)
+    private nonisolated static func isSnapshotData(_ data: Data, for studentID: String) -> Bool {
+        guard let snapshot = try? ScheduleExternalSnapshotCodec.decode(data) else { return false }
+        return snapshot.studentID == studentID
+    }
+    #endif
 }
 
 #endif

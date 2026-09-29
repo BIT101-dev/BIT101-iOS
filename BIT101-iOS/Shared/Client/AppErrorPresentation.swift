@@ -332,10 +332,18 @@ struct DiagnosticRecoveryActions: View {
     }
 }
 
+private enum ErrorReportConfirmation: String, Identifiable {
+    case missingContact
+    case rawResponse
+
+    var id: String { rawValue }
+}
+
 private struct AppErrorReportSheet: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: ErrorReportViewModel
-    @State private var confirmsRaw = false
+    @State private var confirmation: ErrorReportConfirmation?
+    @FocusState private var isContactFocused: Bool
     let onClose: (() -> Void)?
 
     init(alert: any DiagnosticAlertPresentable, onClose: (() -> Void)? = nil) {
@@ -385,27 +393,68 @@ private struct AppErrorReportSheet: View {
                     TextField("", text: $viewModel.comment, prompt: AppInputPrompt.text("可补充问题现象或复现步骤"), axis: .vertical)
                         .lineLimit(3...6)
                 }
+                Section("联系方式（可选）") {
+                    TextField("", text: $viewModel.contact, prompt: AppInputPrompt.text("微信、QQ 或邮箱"), axis: .vertical)
+                        .lineLimit(1 ... 3)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .focused($isContactFocused)
+                        .accessibilityLabel("联系方式")
+                        .accessibilityHint("可填写微信、QQ、邮箱或其他联系方式")
+                }
             }
             .navigationTitle("分享错误信息")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { close() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(viewModel.isSubmitting ? "提交中" : "提交") {
-                        if viewModel.mode == .raw { confirmsRaw = true }
-                        else { Task { if await viewModel.submit() { close() } } }
+                        requestSubmission()
                     }.disabled(viewModel.isSubmitting)
                 }
             }
             .task { await viewModel.load() }
-            .alert("确认提交原始网络响应？", isPresented: $confirmsRaw) {
-                Button("确认提交") {
-                    Task { if await viewModel.submit() { close() } }
+            .alert(item: $confirmation) { item in
+                switch item {
+                case .missingContact:
+                    Alert(
+                        title: Text("你没有填写联系方式"),
+                        message: Text("开发者非常希望与你沟通，向你反馈。"),
+                        primaryButton: .default(Text("继续提交"), action: continueSubmission),
+                        secondaryButton: .cancel(Text("返回补充"), action: { isContactFocused = true })
+                    )
+                case .rawResponse:
+                    Alert(
+                        title: Text("确认提交原始网络响应？"),
+                        message: Text("你选择了原始网络响应，其中可能包含你的学号、姓名、课程、成绩等个人信息。\n\n密码、Cookie、Token 等认证信息会强制脱敏。\n\n提交后，开发者仅将这些信息用于排查本 App 的故障，不用于其他用途，不会公开传播，并会在排查完成后删除。如需了解信息利用情况，可通过 systemd@linux.do 联系开发者。"),
+                        primaryButton: .default(Text("确认提交"), action: submitAndClose),
+                        secondaryButton: .cancel(Text("取消"))
+                    )
                 }
-                Button("取消", role: .cancel) {}
-            } message: {
-                Text("你选择了原始网络响应，其中可能包含你的学号、姓名、课程、成绩等个人信息。\n\n密码、Cookie、Token 等认证信息会强制脱敏。\n\n提交后，开发者仅将这些信息用于排查本 App 的故障，不用于其他用途，不会公开传播，并会在排查完成后删除。如需了解信息利用情况，可通过 systemd@linux.do 联系开发者。")
             }
         }
+    }
+
+    private func requestSubmission() {
+        if viewModel.contact.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            confirmation = .missingContact
+        } else {
+            continueSubmission()
+        }
+    }
+
+    private func continueSubmission() {
+        if viewModel.mode == .raw {
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(350))
+                confirmation = .rawResponse
+            }
+        } else {
+            submitAndClose()
+        }
+    }
+
+    private func submitAndClose() {
+        Task { if await viewModel.submit() { close() } }
     }
 
     private func close() {

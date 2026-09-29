@@ -196,22 +196,37 @@ struct ScheduleCacheMigrationTests {
         #expect(!ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
             localHasUnpushedChanges: false,
             localBaselineRecordTag: "record-v1",
-            remoteRecordTag: "record-v2"
+            remoteRecordTag: "record-v2",
+            localUpdatedAt: new,
+            remoteUpdatedAt: old
         ))
         #expect(!ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
             localHasUnpushedChanges: true,
             localBaselineRecordTag: "record-v1",
-            remoteRecordTag: "record-v1"
+            remoteRecordTag: "record-v1",
+            localUpdatedAt: new,
+            remoteUpdatedAt: old
         ))
         #expect(ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
             localHasUnpushedChanges: true,
             localBaselineRecordTag: "record-v1",
-            remoteRecordTag: "record-v2"
+            remoteRecordTag: "record-v2",
+            localUpdatedAt: new,
+            remoteUpdatedAt: old
+        ))
+        #expect(!ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
+            localHasUnpushedChanges: true,
+            localBaselineRecordTag: "",
+            remoteRecordTag: "record-v2",
+            localUpdatedAt: new,
+            remoteUpdatedAt: old
         ))
         #expect(ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
             localHasUnpushedChanges: true,
             localBaselineRecordTag: "",
-            remoteRecordTag: "record-v2"
+            remoteRecordTag: "record-v2",
+            localUpdatedAt: old,
+            remoteUpdatedAt: new
         ))
     }
 

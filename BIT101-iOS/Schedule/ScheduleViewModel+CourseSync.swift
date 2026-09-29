@@ -256,7 +256,7 @@ extension ScheduleViewModel {
         cache.manualCourseRulesByTerm[payload.term] = reconciliation.validRules
         let snapshot = makeTermSnapshot(from: payload, now: now)
         cache.termSchedulesByTerm[payload.term] = snapshot
-        cache.cachedCoursesByTerm[payload.term] = reconciliation.courses
+        cache.cachedCoursesByTerm[payload.term] = incomingCourses
 
         if cache.currentTerm == payload.term {
             activate(snapshot)
@@ -323,7 +323,7 @@ extension ScheduleViewModel {
             with: baseline
         ).courses
         cache.exams = snapshot.exams
-        cache.cachedCoursesByTerm[snapshot.term] = cache.courses
+        cache.cachedCoursesByTerm[snapshot.term] = baseline
     }
 
     /// 将学期快照数量限制为最多两个，并保留当前显示学期与显式同步的目标学期。

@@ -182,6 +182,14 @@ private struct DeveloperSuggestionPayload: Encodable {
     let attachments: [DeveloperSuggestionAttachment]
 }
 
+private enum DeveloperSuggestionConfirmation: String, Identifiable {
+    case saveDraft
+    case restoreDraft
+    case missingContact
+
+    var id: String { rawValue }
+}
+
 /// 此页面向开发者提交功能建议，并复用错误反馈 Worker 与邮件通知链路。
 struct DeveloperSuggestionPage: View {
     @Environment(\.dismiss) private var dismiss
@@ -191,8 +199,8 @@ struct DeveloperSuggestionPage: View {
     @State private var imageDrafts: [GalleryComposerImageDraft] = []
     @State private var isSubmitting = false
     @State private var alert: AppAlert?
-    @State private var isShowingDraftAlert = false
-    @State private var isShowingDraftRestoreAlert = false
+    @State private var confirmation: DeveloperSuggestionConfirmation?
+    @FocusState private var isContactFocused: Bool
     @State private var didCheckDraft = false
 
     var body: some View {
@@ -215,6 +223,7 @@ struct DeveloperSuggestionPage: View {
                     .lineLimit(1 ... 3)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .focused($isContactFocused)
                     .accessibilityLabel("联系方式")
                     .accessibilityHint("可填写微信、QQ、邮箱或其他联系方式")
             }
@@ -255,7 +264,7 @@ struct DeveloperSuggestionPage: View {
                     requestDismiss()
                 },
                 onSubmit: {
-                    Task { await submit() }
+                    requestSubmission()
                 }
             )
         }
@@ -263,36 +272,66 @@ struct DeveloperSuggestionPage: View {
             guard !newValue.isEmpty else { return }
             Task { await addImages(from: newValue) }
         }
-        .onAppear { checkDraftOnAppear() }
-        .alert("保存草稿？", isPresented: $isShowingDraftAlert) {
-            Button("保存草稿") {
-                if saveDraft() {
-                    dismiss()
-                } else {
-                    alert = AppAlert.informational(
-                        title: "草稿暂存遇到问题",
-                        message: "当前页面内容已保留，请稍后重试保存。"
-                    )
-                }
+        .task { await checkDraftOnAppear() }
+        .alert(item: $confirmation) { item in
+            switch item {
+            case .saveDraft:
+                Alert(
+                    title: Text("保存草稿？"),
+                    message: Text("保存后下次打开时可以加载草稿。"),
+                    primaryButton: .default(Text("保存草稿"), action: {
+                        Task {
+                            if await saveDraft() {
+                                dismiss()
+                            } else {
+                                alert = AppAlert.informational(
+                                    title: "草稿暂存遇到问题",
+                                    message: "当前页面内容已保留，请稍后重试保存。"
+                                )
+                            }
+                        }
+                    }),
+                    secondaryButton: .cancel(Text("不保存"), action: {
+                        Task {
+                            await ComposerDraftStore.removeSuggestion()
+                            dismiss()
+                        }
+                    })
+                )
+            case .restoreDraft:
+                Alert(
+                    title: Text("加载草稿？"),
+                    message: Text("发现上次保存的建议草稿。"),
+                    primaryButton: .default(Text("加载草稿"), action: {
+                        Task { await loadSavedDraft() }
+                    }),
+                    secondaryButton: .cancel(Text("不加载"), action: {
+                        Task { await ComposerDraftStore.removeSuggestion() }
+                    })
+                )
+            case .missingContact:
+                Alert(
+                    title: Text("你没有填写联系方式"),
+                    message: Text("开发者非常希望与你沟通，向你反馈。"),
+                    primaryButton: .default(Text("继续提交"), action: {
+                        Task { await submit() }
+                    }),
+                    secondaryButton: .cancel(Text("返回补充"), action: {
+                        isContactFocused = true
+                    })
+                )
             }
-            Button("不保存") {
-                ComposerDraftStore.removeSuggestion()
-                dismiss()
-            }
-        } message: {
-            Text("保存后下次打开时可以加载草稿。")
-        }
-        .alert("加载草稿？", isPresented: $isShowingDraftRestoreAlert) {
-            Button("加载草稿") {
-                loadSavedDraft()
-            }
-            Button("不加载") {
-                ComposerDraftStore.removeSuggestion()
-            }
-        } message: {
-            Text("发现上次保存的建议草稿。")
         }
         .diagnosticAlert(item: $alert)
+    }
+
+    private func requestSubmission() {
+        guard !isSubmitting else { return }
+        if contact.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            confirmation = .missingContact
+        } else {
+            Task { await submit() }
+        }
     }
 
     @MainActor
@@ -340,7 +379,7 @@ struct DeveloperSuggestionPage: View {
             )
             text = ""
             contact = ""
-            ComposerDraftStore.removeSuggestion()
+            await ComposerDraftStore.removeSuggestion()
             alert = nil
             dismiss()
         } catch {
@@ -354,11 +393,11 @@ struct DeveloperSuggestionPage: View {
             dismiss()
             return
         }
-        isShowingDraftAlert = true
+        confirmation = .saveDraft
     }
 
-    private func saveDraft() -> Bool {
-        ComposerDraftStore.saveSuggestion(
+    private func saveDraft() async -> Bool {
+        await ComposerDraftStore.saveSuggestion(
             DeveloperSuggestionDraftSnapshot(
                 text: text,
                 images: imageDrafts.map {
@@ -373,14 +412,16 @@ struct DeveloperSuggestionPage: View {
         )
     }
 
-    private func checkDraftOnAppear() {
+    private func checkDraftOnAppear() async {
         guard !didCheckDraft else { return }
+        let hasDraft = await ComposerDraftStore.loadSuggestion() != nil
+        guard !Task.isCancelled else { return }
         didCheckDraft = true
-        isShowingDraftRestoreAlert = ComposerDraftStore.loadSuggestion() != nil
+        if hasDraft { confirmation = .restoreDraft }
     }
 
-    private func loadSavedDraft() {
-        guard let draft = ComposerDraftStore.loadSuggestion() else { return }
+    private func loadSavedDraft() async {
+        guard let draft = await ComposerDraftStore.loadSuggestion() else { return }
 
         text = draft.text
         contact = draft.contact

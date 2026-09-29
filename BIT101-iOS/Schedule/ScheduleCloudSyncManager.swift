@@ -12,7 +12,7 @@ import os
 #if canImport(CloudKit)
 import CloudKit
 
-/// Timestamp-only conflict policy used by CloudKit reconciliation.
+/// Baseline tags identify known concurrent writes; timestamps resolve incomplete baselines.
 ///
 /// Keeping the decision pure makes the behavior testable without constructing a
 /// signed CloudKit container or touching the current account's on-device cache.
@@ -40,11 +40,15 @@ nonisolated enum ScheduleCacheReconciliationPolicy {
     static func hasConcurrentChanges(
         localHasUnpushedChanges: Bool,
         localBaselineRecordTag: String,
-        remoteRecordTag: String
+        remoteRecordTag: String,
+        localUpdatedAt: Date,
+        remoteUpdatedAt: Date
     ) -> Bool {
         guard localHasUnpushedChanges else { return false }
-        return localBaselineRecordTag.isEmpty || remoteRecordTag.isEmpty
-            || localBaselineRecordTag != remoteRecordTag
+        guard !localBaselineRecordTag.isEmpty, !remoteRecordTag.isEmpty else {
+            return remoteUpdatedAt > localUpdatedAt
+        }
+        return localBaselineRecordTag != remoteRecordTag
     }
 }
 
@@ -315,7 +319,9 @@ actor ScheduleCloudSyncManager {
             if ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
                 localHasUnpushedChanges: currentLocalState.cache.hasUnpushedCloudChanges,
                 localBaselineRecordTag: currentLocalState.cache.cloudSyncBaselineRecordTag,
-                remoteRecordTag: remoteRecordTag
+                remoteRecordTag: remoteRecordTag,
+                localUpdatedAt: currentLocalState.cache.updatedAt,
+                remoteUpdatedAt: remoteCache.updatedAt
             ) {
                 await enqueueCloudConflict(
                     localCache: currentLocalState.cache,
@@ -427,8 +433,8 @@ actor ScheduleCloudSyncManager {
         await MainActor.run {
             AppPromptCoordinator.shared.enqueue(AppPrompt(
                 id: "schedule-cache-conflict-\(signature)-\(UUID().uuidString)",
-                title: "课表设置在两台设备上都有修改",
-                message: "本机手动调整、个人日程、DDL 或设置和 iCloud 版本都在上次同步后发生变化。请选择本机版本或 iCloud 版本；选择会替换另一侧这部分用户数据，学校抓取数据保留本机版本。",
+                title: "本机和 iCloud 课表存在版本差异",
+                message: "本机与 iCloud 中的手动调整、个人日程、DDL 或设置存在版本差异。请选择保留本机版本或使用 iCloud 版本；选择会替换另一侧这部分用户数据，学校抓取数据保留本机版本。",
                 actions: [
                     AppPromptAction(id: "keep-local", title: "保留本机", isDefault: true) {
                         Task {
@@ -584,7 +590,9 @@ actor ScheduleCloudSyncManager {
             if ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
                 localHasUnpushedChanges: cache.hasUnpushedCloudChanges,
                 localBaselineRecordTag: cache.cloudSyncBaselineRecordTag,
-                remoteRecordTag: remoteRecordTag
+                remoteRecordTag: remoteRecordTag,
+                localUpdatedAt: cache.updatedAt,
+                remoteUpdatedAt: remoteCache.updatedAt
             ) {
                 await enqueueCloudConflict(
                     localCache: cache,
@@ -661,7 +669,9 @@ actor ScheduleCloudSyncManager {
             if ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
                 localHasUnpushedChanges: cache.hasUnpushedCloudChanges,
                 localBaselineRecordTag: cache.cloudSyncBaselineRecordTag,
-                remoteRecordTag: remoteRecordTag
+                remoteRecordTag: remoteRecordTag,
+                localUpdatedAt: cache.updatedAt,
+                remoteUpdatedAt: currentRemoteCache.updatedAt
             ) {
                 await enqueueCloudConflict(
                     localCache: cache,
@@ -841,7 +851,8 @@ actor ScheduleCloudSyncManager {
         guard !recordTag.isEmpty else { return }
         let loadResult = await ScheduleCacheStore.loadResultAsync()
         guard let currentCache = loadResult.cacheIfReadable else { return }
-        let cacheToSave = await MainActor.run { () -> ScheduleCache? in
+        let baselineUpdate = await MainActor.run {
+            () -> (cache: ScheduleCache, expectedUpdatedAt: Date, source: ScheduleCacheStore.SaveSource)? in
             let currentStudentID = LoginStorage.shared.currentStudentID
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let currentAccount = CloudAccountContext(
@@ -850,26 +861,29 @@ actor ScheduleCloudSyncManager {
             )
             guard currentAccount == account else { return nil }
 
-            guard currentCache.iCloudSyncEnabled,
-                  currentCache.updatedAt == expectedLocalUpdatedAt
-            else { return nil }
+            guard currentCache.iCloudSyncEnabled else { return nil }
 
             var cacheToSave = currentCache
-            cacheToSave.updatedAt = ScheduleCacheTimestamp.afterCloudSave(
-                serverModifiedAt,
-                currentDate: currentCache.updatedAt
-            )
             cacheToSave.cloudSyncBaselineAt = serverModifiedAt
             cacheToSave.cloudSyncBaselineRecordTag = recordTag
-            cacheToSave.hasUnpushedCloudChanges = false
-            return cacheToSave
+            if currentCache.updatedAt == expectedLocalUpdatedAt {
+                cacheToSave.updatedAt = ScheduleCacheTimestamp.afterCloudSave(
+                    serverModifiedAt,
+                    currentDate: currentCache.updatedAt
+                )
+                cacheToSave.hasUnpushedCloudChanges = false
+                return (cacheToSave, expectedLocalUpdatedAt, .cloud)
+            }
+
+            guard currentCache.hasUnpushedCloudChanges else { return nil }
+            return (cacheToSave, currentCache.updatedAt, .cloudBaseline)
         }
-        guard let cacheToSave else { return }
+        guard let baselineUpdate else { return }
         _ = await ScheduleCacheStore.saveAndWait(
-            cacheToSave,
-            source: .cloud,
+            baselineUpdate.cache,
+            source: baselineUpdate.source,
             expectedAccountIdentifier: account.accountIdentifier,
-            expectedUpdatedAt: expectedLocalUpdatedAt
+            expectedUpdatedAt: baselineUpdate.expectedUpdatedAt
         )
     }
 

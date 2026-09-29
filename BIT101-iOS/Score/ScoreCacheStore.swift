@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 /// 成绩 iCloud 同步快照，保留详细字段和本地新鲜度，使新设备直接复用已有数据。
 nonisolated struct ScoreCacheSyncPayload: Codable, Sendable {
@@ -18,131 +19,314 @@ nonisolated struct ScoreCacheSnapshot: Codable, Sendable {
     }
 }
 
+nonisolated struct ScoreCacheLegacyData: Sendable {
+    let rows: Data?
+    let updatedAt: Data?
+    let detailedUpdatedAt: Data?
+
+    static let empty = ScoreCacheLegacyData(rows: nil, updatedAt: nil, detailedUpdatedAt: nil)
+}
+
+nonisolated enum ScoreCacheDiskReadResult: Sendable {
+    case loaded(ScoreCacheSnapshot, migratedLegacy: Bool)
+    case missing
+    case unreadable
+
+    var isUnreadable: Bool {
+        if case .unreadable = self { return true }
+        return false
+    }
+}
+
+nonisolated enum ScoreCacheMutation: Sendable {
+    case rows([ScoreRow])
+    case detailedRows([ScoreRow])
+    case markChecked
+    case synced(ScoreCacheSyncPayload)
+}
+
+nonisolated enum ScoreCacheDiskWriteResult: Sendable {
+    case saved(ScoreCacheSnapshot)
+    case unreadable
+    case failed
+
+    var isSaved: Bool {
+        if case .saved = self { return true }
+        return false
+    }
+
+    var isUnreadable: Bool {
+        if case .unreadable = self { return true }
+        return false
+    }
+}
+
 /// 成绩缓存仓库。
 ///
-/// 按学号隔离，切换账号后读取当前账号的成绩。
+/// 按学号隔离；文件读写、JSON 编解码和变更串行化均在专用 actor 执行。
 enum ScoreCacheStore {
-    private static let fileStore = AccountScopedFileCodableStore<ScoreCacheSnapshot>(
-        filename: "score-cache.json",
-        session: { AppFileDirectories.scoreCacheSession }
-    )
-    private static let legacyRowsStore = AccountScopedCodableStore<[ScoreRow]>(
-        keyPrefix: "score.detail.cache",
-        session: { AppFileDirectories.scoreCacheSession }
-    )
-    private static let legacyUpdatedAtStore = AccountScopedCodableStore<Date>(
-        keyPrefix: "score.detail.cache.updated-at",
-        session: { AppFileDirectories.scoreCacheSession }
-    )
-    private static let legacyDetailedUpdatedAtStore = AccountScopedCodableStore<Date>(
-        keyPrefix: "score.detail.cache.full-updated-at",
-        session: { AppFileDirectories.scoreCacheSession }
-    )
+    private nonisolated static let logger = Logger(subsystem: "BIT101", category: "ScoreCache")
+    private static let repository = ScoreCacheDiskRepository()
 
-    static func loadRows() -> [ScoreRow]? {
-        loadSnapshot()?.rows
-    }
-
-    static func save(rows: [ScoreRow]) {
-        var snapshot = loadSnapshot() ?? ScoreCacheSnapshot()
-        snapshot.rows = rows
-        snapshot.updatedAt = Date()
-        if rows.isEmpty {
-            snapshot.detailedUpdatedAt = nil
-        }
-        if persist(snapshot) {
-            notifyCacheDidChange()
+    static func loadSnapshot(for session: AppStorageSession? = nil) async -> ScoreCacheSnapshot? {
+        let session = session ?? AppFileDirectories.scoreCacheSession
+        let result = await repository.load(for: session, legacyData: legacyData(for: session))
+        switch result {
+        case .loaded(let snapshot, let migratedLegacy):
+            if migratedLegacy { clearLegacyDefaults(for: session) }
+            return snapshot
+        case .missing, .unreadable:
+            return nil
         }
     }
 
-    static func saveDetailed(rows: [ScoreRow]) {
-        let now = Date()
-        var snapshot = loadSnapshot() ?? ScoreCacheSnapshot()
-        snapshot.rows = rows
-        snapshot.updatedAt = now
-        snapshot.detailedUpdatedAt = now
-        if persist(snapshot) {
-            notifyCacheDidChange()
-        }
+    static func loadRows(for session: AppStorageSession? = nil) async -> [ScoreRow]? {
+        await loadSnapshot(for: session)?.rows
     }
 
-    /// 一次成功的简略比较更新可见的新鲜度时间戳，并保留缓存中更完整的成绩行。
-    static func markChecked() {
-        var snapshot = loadSnapshot() ?? ScoreCacheSnapshot()
-        snapshot.updatedAt = Date()
-        guard persist(snapshot) else { return }
-        notifyCacheDidChange()
+    static func loadUpdatedAt(for session: AppStorageSession? = nil) async -> Date? {
+        await loadSnapshot(for: session)?.updatedAt
     }
 
-    static func loadUpdatedAt() -> Date? {
-        loadSnapshot()?.updatedAt
-    }
-
-    static func loadDetailedUpdatedAt() -> Date? {
-        loadSnapshot()?.detailedUpdatedAt
-    }
-
-    static func syncPayload() -> ScoreCacheSyncPayload {
-        let snapshot = loadSnapshot() ?? ScoreCacheSnapshot()
-        return ScoreCacheSyncPayload(
-            rows: snapshot.rows ?? [],
-            updatedAt: snapshot.updatedAt,
-            detailedUpdatedAt: snapshot.detailedUpdatedAt
-        )
-    }
-
-    /// 写入来自 iCloud 的成绩缓存，完成云端到本地的单向落地；该操作仅更新本地缓存和变更通知。
-    static func applySynced(_ payload: ScoreCacheSyncPayload) {
-        // 空云端快照保留本机已有成绩，首次启用实验功能时继续使用本机缓存。
-        guard !payload.rows.isEmpty else { return }
-        let snapshot = ScoreCacheSnapshot(
-            rows: payload.rows,
-            updatedAt: payload.updatedAt,
-            detailedUpdatedAt: payload.detailedUpdatedAt
-        )
-        guard persist(snapshot, syncPreference: false) else { return }
-        notifyCacheDidChange()
-    }
-
-    private static func loadSnapshot() -> ScoreCacheSnapshot? {
-        if fileStore.hasStoredFile {
-            return fileStore.load()
-        }
-
-        let legacySnapshot = ScoreCacheSnapshot(
-            rows: legacyRowsStore.load(),
-            updatedAt: legacyUpdatedAtStore.load(),
-            detailedUpdatedAt: legacyDetailedUpdatedAtStore.load()
-        )
-        guard legacySnapshot.containsData else { return nil }
-        if persistFile(legacySnapshot) {
-            clearLegacyDefaults()
-        }
-        return legacySnapshot
+    static func loadDetailedUpdatedAt(for session: AppStorageSession? = nil) async -> Date? {
+        await loadSnapshot(for: session)?.detailedUpdatedAt
     }
 
     @discardableResult
-    private static func persist(_ snapshot: ScoreCacheSnapshot, syncPreference: Bool = true) -> Bool {
-        guard persistFile(snapshot) else { return false }
-        clearLegacyDefaults()
-        if syncPreference {
-            ExperimentalPreferenceCloudSync.shared.localValueDidChange(in: .scoreCache)
+    static func save(rows: [ScoreRow], for session: AppStorageSession? = nil) async -> Date? {
+        let session = session ?? AppFileDirectories.scoreCacheSession
+        let result = await repository.mutate(
+            .rows(rows),
+            for: session,
+            legacyData: legacyData(for: session)
+        )
+        return finishWrite(result, for: session, syncPreference: true)
+    }
+
+    @discardableResult
+    static func saveDetailed(rows: [ScoreRow], for session: AppStorageSession? = nil) async -> Date? {
+        let session = session ?? AppFileDirectories.scoreCacheSession
+        let result = await repository.mutate(
+            .detailedRows(rows),
+            for: session,
+            legacyData: legacyData(for: session)
+        )
+        return finishWrite(result, for: session, syncPreference: true)
+    }
+
+    /// 一次成功的简略比较更新可见的新鲜度时间戳，并保留缓存中更完整的成绩行。
+    @discardableResult
+    static func markChecked(for session: AppStorageSession? = nil) async -> Date? {
+        let session = session ?? AppFileDirectories.scoreCacheSession
+        let result = await repository.mutate(
+            .markChecked,
+            for: session,
+            legacyData: legacyData(for: session)
+        )
+        return finishWrite(result, for: session, syncPreference: true)
+    }
+
+    /// 文件损坏时返回 nil，使同步协调暂停该域，避免把空快照上传覆盖云端数据。
+    static func syncPayload(for session: AppStorageSession? = nil) async -> ScoreCacheSyncPayload? {
+        let session = session ?? AppFileDirectories.scoreCacheSession
+        let result = await repository.load(for: session, legacyData: legacyData(for: session))
+        switch result {
+        case .loaded(let snapshot, let migratedLegacy):
+            if migratedLegacy { clearLegacyDefaults(for: session) }
+            return ScoreCacheSyncPayload(
+                rows: snapshot.rows ?? [],
+                updatedAt: snapshot.updatedAt,
+                detailedUpdatedAt: snapshot.detailedUpdatedAt
+            )
+        case .missing:
+            return ScoreCacheSyncPayload(rows: [], updatedAt: nil, detailedUpdatedAt: nil)
+        case .unreadable:
+            return nil
         }
+    }
+
+    /// 写入来自 iCloud 的成绩缓存；损坏的本地文件保留原样，等待明确恢复。
+    @discardableResult
+    static func applySynced(
+        _ payload: ScoreCacheSyncPayload,
+        for session: AppStorageSession? = nil
+    ) async -> Bool {
+        guard !payload.rows.isEmpty else { return false }
+        let session = session ?? AppFileDirectories.scoreCacheSession
+        let result = await repository.mutate(
+            .synced(payload),
+            for: session,
+            legacyData: legacyData(for: session)
+        )
+        guard result.isSaved else {
+            _ = finishWrite(result, for: session, syncPreference: false)
+            return false
+        }
+        _ = finishWrite(result, for: session, syncPreference: false)
         return true
     }
 
-    private static func persistFile(_ snapshot: ScoreCacheSnapshot) -> Bool {
-        fileStore.save(snapshot)
-    }
+    private static func finishWrite(
+        _ result: ScoreCacheDiskWriteResult,
+        for session: AppStorageSession,
+        syncPreference: Bool
+    ) -> Date? {
+        guard case .saved(let snapshot) = result else {
+            if result.isUnreadable {
+                logger.error("保留无法读取的成绩缓存，跳过保存")
+            }
+            return nil
+        }
 
-    private static func clearLegacyDefaults() {
-        legacyRowsStore.remove()
-        legacyUpdatedAtStore.remove()
-        legacyDetailedUpdatedAtStore.remove()
-    }
-
-    private static func notifyCacheDidChange() {
+        clearLegacyDefaults(for: session)
+        if syncPreference {
+            ExperimentalPreferenceCloudSync.shared.localValueDidChange(in: .scoreCache, for: session)
+        }
         NotificationCenter.default.post(name: .scoreCacheDidChange, object: nil)
+        return snapshot.updatedAt
+    }
+
+    private static func legacyData(for session: AppStorageSession) -> ScoreCacheLegacyData {
+        let defaults = AppFileDirectories.defaults
+        return ScoreCacheLegacyData(
+            rows: defaults.data(forKey: session.key("score.detail.cache")),
+            updatedAt: defaults.data(forKey: session.key("score.detail.cache.updated-at")),
+            detailedUpdatedAt: defaults.data(forKey: session.key("score.detail.cache.full-updated-at"))
+        )
+    }
+
+    private static func clearLegacyDefaults(for session: AppStorageSession) {
+        let defaults = AppFileDirectories.defaults
+        defaults.removeObject(forKey: session.key("score.detail.cache"))
+        defaults.removeObject(forKey: session.key("score.detail.cache.updated-at"))
+        defaults.removeObject(forKey: session.key("score.detail.cache.full-updated-at"))
+    }
+}
+
+/// 对账号成绩文件的全部操作都在 actor 内同步执行，避免主线程 I/O 与并发读改写丢失。
+actor ScoreCacheDiskRepository {
+    nonisolated private static let logger = Logger(subsystem: "BIT101", category: "ScoreCache")
+
+    private let files: any AppFileService
+    private let storageRoot: URL?
+
+    init(files: any AppFileService = AppFileDirectories.files, storageRoot: URL? = nil) {
+        self.files = files
+        self.storageRoot = storageRoot
+    }
+
+    func load(for session: AppStorageSession, legacyData: ScoreCacheLegacyData) -> ScoreCacheDiskReadResult {
+        switch readFile(for: session) {
+        case .loaded(let snapshot):
+            return .loaded(snapshot, migratedLegacy: false)
+        case .unreadable:
+            return .unreadable
+        case .missing:
+            guard let snapshot = decodeLegacy(legacyData), snapshot.containsData else { return .missing }
+            do {
+                try write(snapshot, for: session)
+                return .loaded(snapshot, migratedLegacy: true)
+            } catch {
+                Self.logger.error("成绩缓存迁移写入失败：\(String(describing: error), privacy: .public)")
+                return .loaded(snapshot, migratedLegacy: false)
+            }
+        }
+    }
+
+    func mutate(
+        _ mutation: ScoreCacheMutation,
+        for session: AppStorageSession,
+        legacyData: ScoreCacheLegacyData
+    ) -> ScoreCacheDiskWriteResult {
+        var snapshot: ScoreCacheSnapshot
+        switch readFile(for: session) {
+        case .loaded(let stored):
+            snapshot = stored
+        case .missing:
+            snapshot = decodeLegacy(legacyData) ?? ScoreCacheSnapshot()
+        case .unreadable:
+            return .unreadable
+        }
+
+        switch mutation {
+        case .rows(let rows):
+            snapshot.rows = rows
+            snapshot.updatedAt = Date()
+            if rows.isEmpty { snapshot.detailedUpdatedAt = nil }
+        case .detailedRows(let rows):
+            let now = Date()
+            snapshot.rows = rows
+            snapshot.updatedAt = now
+            snapshot.detailedUpdatedAt = now
+        case .markChecked:
+            snapshot.updatedAt = Date()
+        case .synced(let payload):
+            snapshot = ScoreCacheSnapshot(
+                rows: payload.rows,
+                updatedAt: payload.updatedAt,
+                detailedUpdatedAt: payload.detailedUpdatedAt
+            )
+        }
+
+        do {
+            try write(snapshot, for: session)
+            return .saved(snapshot)
+        } catch {
+            Self.logger.error("保存成绩缓存失败：\(String(describing: error), privacy: .public)")
+            return .failed
+        }
+    }
+
+    private enum ExistingFileResult {
+        case loaded(ScoreCacheSnapshot)
+        case missing
+        case unreadable
+    }
+
+    private func readFile(for session: AppStorageSession) -> ExistingFileResult {
+        let url = fileURL(for: session)
+        guard files.fileExists(at: url) else { return .missing }
+        try? files.setPrivateFileProtection(at: url)
+        guard let data = try? files.readData(at: url),
+              let snapshot = try? JSONDecoder().decode(ScoreCacheSnapshot.self, from: data)
+        else {
+            Self.logger.error("成绩缓存无法读取，保留原文件：\(url.lastPathComponent, privacy: .public)")
+            return .unreadable
+        }
+        return .loaded(snapshot)
+    }
+
+    private func decodeLegacy(_ legacyData: ScoreCacheLegacyData) -> ScoreCacheSnapshot? {
+        let decoder = JSONDecoder()
+        let snapshot = ScoreCacheSnapshot(
+            rows: legacyData.rows.flatMap { try? decoder.decode([ScoreRow].self, from: $0) },
+            updatedAt: legacyData.updatedAt.flatMap { try? decoder.decode(Date.self, from: $0) },
+            detailedUpdatedAt: legacyData.detailedUpdatedAt.flatMap { try? decoder.decode(Date.self, from: $0) }
+        )
+        return snapshot.containsData ? snapshot : nil
+    }
+
+    private func write(_ snapshot: ScoreCacheSnapshot, for session: AppStorageSession) throws {
+        let url = fileURL(for: session)
+        try files.createDirectory(at: url.deletingLastPathComponent())
+        let data = try JSONEncoder().encode(snapshot)
+        try files.writeData(
+            data,
+            to: url,
+            options: AppFileSystem.protectedDataWritingOptions
+        )
+    }
+
+    private func fileURL(for session: AppStorageSession) -> URL {
+        if let storageRoot {
+            return storageRoot
+                .appending(path: session.accountDirectoryName, directoryHint: .isDirectory)
+                .appending(path: "score-cache.json")
+        }
+        return AppFileDirectories.accountSupportFileURL(
+            accountDirectoryName: session.accountDirectoryName,
+            named: "score-cache.json"
+        )
     }
 }
 

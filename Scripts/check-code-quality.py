@@ -57,6 +57,7 @@ struct FileFacts: Encodable {
     let declarations: [DeclarationFact]
     let calls: [ScopedFact]
     let invocations: [ScopedFact]
+    let functions: [ScopedFact]
     let selectionControls: [SelectionControlFact]
     let feedbackModifiers: [FeedbackModifierFact]
     let alertModifiers: [AlertModifierFact]
@@ -64,6 +65,8 @@ struct FileFacts: Encodable {
     let listIcons: [ListIconFact]
     let listControls: [SelectionControlFact]
     let listStyleModifiers: [FeedbackModifierFact]
+    let accessibilityModifiers: [FeedbackModifierFact]
+    let accessibilityControls: [AccessibilityControlFact]
     let members: [ScopedFact]
     let expressions: [ScopedFact]
     let bindings: [ScopedFact]
@@ -81,6 +84,7 @@ struct DeclarationFact: Encodable {
 struct ScopedFact: Encodable {
     let value: String
     let scope: [String]
+    let start: Int
 }
 
 struct SelectionControlFact: Encodable {
@@ -95,6 +99,17 @@ struct FeedbackModifierFact: Encodable {
     let base: String
     let scope: [String]
     let baseStart: Int
+}
+
+struct AccessibilityControlFact: Encodable {
+    let name: String
+    let invocation: String
+    let label: String
+    let hasTextTitle: Bool
+    let scope: [String]
+    let start: Int
+    let labelStart: Int
+    let labelEnd: Int
 }
 
 struct AlertModifierFact: Encodable {
@@ -122,6 +137,7 @@ final class FactVisitor: SyntaxVisitor {
     private(set) var declarations: [DeclarationFact] = []
     private(set) var calls: [ScopedFact] = []
     private(set) var invocations: [ScopedFact] = []
+    private(set) var functions: [ScopedFact] = []
     private(set) var scopedIdentifiers: [ScopedFact] = []
     private(set) var stringSegments: [ScopedFact] = []
     private(set) var selectionControls: [SelectionControlFact] = []
@@ -131,6 +147,8 @@ final class FactVisitor: SyntaxVisitor {
     private(set) var listIcons: [ListIconFact] = []
     private(set) var listControls: [SelectionControlFact] = []
     private(set) var listStyleModifiers: [FeedbackModifierFact] = []
+    private(set) var accessibilityModifiers: [FeedbackModifierFact] = []
+    private(set) var accessibilityControls: [AccessibilityControlFact] = []
     private(set) var members: [ScopedFact] = []
     private(set) var expressions: [ScopedFact] = []
     private(set) var bindings: [ScopedFact] = []
@@ -146,12 +164,19 @@ final class FactVisitor: SyntaxVisitor {
     }
 
     private func leave() { _ = scope.popLast() }
-    private func fact(_ value: String) -> ScopedFact { ScopedFact(value: value, scope: scope) }
+    private func fact(_ value: String, start: Int) -> ScopedFact {
+        ScopedFact(value: value, scope: scope, start: start)
+    }
 
     override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
         enter("struct", node.name.text, node.inheritanceClause?.inheritedTypes.map { $0.type.trimmedDescription } ?? [])
     }
     override func visitPost(_ node: StructDeclSyntax) { leave() }
+
+    override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
+        functions.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
+        return .visitChildren
+    }
 
     override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
         enter("class", node.name.text, node.inheritanceClause?.inheritedTypes.map { $0.type.trimmedDescription } ?? [])
@@ -175,18 +200,32 @@ final class FactVisitor: SyntaxVisitor {
 
     override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
         let calledExpression = node.calledExpression.trimmedDescription
-        calls.append(fact(calledExpression))
-        invocations.append(fact(node.trimmedDescription))
+        calls.append(fact(calledExpression, start: node.calledExpression.positionAfterSkippingLeadingTrivia.utf8Offset))
+        invocations.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
         let calledName = calledExpression.split(separator: ".").last.map(String.init) ?? calledExpression
         if calledName == "alert", node.calledExpression.as(MemberAccessExprSyntax.self) != nil {
             alertModifiers.append(AlertModifierFact(
                 labels: node.arguments.map { $0.label?.text ?? "" },
                 arguments: node.arguments.map { $0.expression.trimmedDescription },
                 invocation: node.trimmedDescription,
-                identifiers: node.tokens(viewMode: .sourceAccurate).compactMap { token -> String? in
-                    if case .identifier(let name) = token.tokenKind { return name }
-                    return nil
-                },
+                identifiers: (
+                    node.arguments.flatMap { argument in
+                        argument.expression.tokens(viewMode: .sourceAccurate).compactMap { token -> String? in
+                            if case .identifier(let name) = token.tokenKind { return name }
+                            return nil
+                        }
+                    }
+                    + (node.trailingClosure?.tokens(viewMode: .sourceAccurate).compactMap { token -> String? in
+                        if case .identifier(let name) = token.tokenKind { return name }
+                        return nil
+                    } ?? [])
+                    + node.additionalTrailingClosures.flatMap { closure in
+                        closure.closure.tokens(viewMode: .sourceAccurate).compactMap { token -> String? in
+                            if case .identifier(let name) = token.tokenKind { return name }
+                            return nil
+                        }
+                    }
+                ),
                 scope: scope
             ))
         }
@@ -200,6 +239,47 @@ final class FactVisitor: SyntaxVisitor {
                 symbol: imageArgument.expression.trimmedDescription,
                 scope: scope,
                 containers: listContainers
+            ))
+        }
+        if ["Button", "NavigationLink", "Menu"].contains(calledName) {
+            let labelArgument = node.arguments.first(where: { $0.label?.text == "label" })
+            let labelClosure = node.additionalTrailingClosures.first(where: { $0.label.text == "label" })?.closure
+            let singleTrailingLabel: ClosureExprSyntax? = {
+                guard labelArgument == nil, labelClosure == nil, let trailingClosure = node.trailingClosure else {
+                    return nil
+                }
+                let argumentLabels = Set(node.arguments.compactMap { $0.label?.text })
+                switch calledName {
+                case "Button":
+                    return argumentLabels.contains("action") ? trailingClosure : nil
+                case "NavigationLink":
+                    return argumentLabels.contains("destination") || argumentLabels.contains("value")
+                        ? trailingClosure
+                        : nil
+                default:
+                    return nil
+                }
+            }()
+            let labelSyntax: Syntax?
+            if let labelArgument {
+                labelSyntax = Syntax(labelArgument.expression)
+            } else if let labelClosure {
+                labelSyntax = Syntax(labelClosure)
+            } else if let singleTrailingLabel {
+                labelSyntax = Syntax(singleTrailingLabel)
+            } else {
+                labelSyntax = nil
+            }
+            let titleArgument = node.arguments.first(where: { $0.label == nil })?.expression
+            accessibilityControls.append(AccessibilityControlFact(
+                name: calledName,
+                invocation: node.trimmedDescription,
+                label: labelSyntax?.trimmedDescription ?? "",
+                hasTextTitle: titleArgument != nil,
+                scope: scope,
+                start: node.positionAfterSkippingLeadingTrivia.utf8Offset,
+                labelStart: labelSyntax?.positionAfterSkippingLeadingTrivia.utf8Offset ?? -1,
+                labelEnd: labelSyntax?.endPositionBeforeTrailingTrivia.utf8Offset ?? -1
             ))
         }
         if ["List", "Form", "Section"].contains(calledName) {
@@ -241,6 +321,16 @@ final class FactVisitor: SyntaxVisitor {
                 baseStart: memberAccess.base?.positionAfterSkippingLeadingTrivia.utf8Offset ?? -1
             ))
         }
+        if let memberAccess = node.calledExpression.as(MemberAccessExprSyntax.self),
+           memberAccess.trimmedDescription.hasSuffix(".accessibilityLabel")
+        {
+            accessibilityModifiers.append(FeedbackModifierFact(
+                name: "accessibilityLabel",
+                base: memberAccess.base?.trimmedDescription ?? "",
+                scope: scope,
+                baseStart: memberAccess.base?.positionAfterSkippingLeadingTrivia.utf8Offset ?? -1
+            ))
+        }
         return .visitChildren
     }
 
@@ -255,9 +345,9 @@ final class FactVisitor: SyntaxVisitor {
     override func visit(_ token: TokenSyntax) -> SyntaxVisitorContinueKind {
         switch token.tokenKind {
         case .identifier(let value):
-            scopedIdentifiers.append(fact(value))
+            scopedIdentifiers.append(fact(value, start: token.positionAfterSkippingLeadingTrivia.utf8Offset))
         case .stringSegment(let value):
-            stringSegments.append(fact(value))
+            stringSegments.append(fact(value, start: token.positionAfterSkippingLeadingTrivia.utf8Offset))
         default:
             break
         }
@@ -265,17 +355,22 @@ final class FactVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
-        members.append(fact(node.trimmedDescription))
+        members.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
         return .visitChildren
     }
 
     override func visit(_ node: InfixOperatorExprSyntax) -> SyntaxVisitorContinueKind {
-        expressions.append(fact(node.trimmedDescription))
+        expressions.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
+        return .visitChildren
+    }
+
+    override func visit(_ node: SequenceExprSyntax) -> SyntaxVisitorContinueKind {
+        expressions.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
         return .visitChildren
     }
 
     override func visit(_ node: PatternBindingSyntax) -> SyntaxVisitorContinueKind {
-        bindings.append(fact(node.trimmedDescription))
+        bindings.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
         if let pattern = node.pattern.as(IdentifierPatternSyntax.self),
            let type = node.typeAnnotation?.type
         {
@@ -289,17 +384,17 @@ final class FactVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: IfExprSyntax) -> SyntaxVisitorContinueKind {
-        controlFlow.append(fact(node.trimmedDescription))
+        controlFlow.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
         return .visitChildren
     }
 
     override func visit(_ node: SwitchCaseSyntax) -> SyntaxVisitorContinueKind {
-        controlFlow.append(fact(node.trimmedDescription))
+        controlFlow.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
         return .visitChildren
     }
 
     override func visit(_ node: IdentifierTypeSyntax) -> SyntaxVisitorContinueKind {
-        typeNames.append(fact(node.trimmedDescription))
+        typeNames.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
         return .visitChildren
     }
 }
@@ -326,6 +421,7 @@ func indexSource(_ source: String, as key: String) {
         declarations: visitor.declarations,
         calls: visitor.calls,
         invocations: visitor.invocations,
+        functions: visitor.functions,
         selectionControls: visitor.selectionControls,
         feedbackModifiers: visitor.feedbackModifiers,
         alertModifiers: visitor.alertModifiers,
@@ -333,6 +429,8 @@ func indexSource(_ source: String, as key: String) {
         listIcons: visitor.listIcons,
         listControls: visitor.listControls,
         listStyleModifiers: visitor.listStyleModifiers,
+        accessibilityModifiers: visitor.accessibilityModifiers,
+        accessibilityControls: visitor.accessibilityControls,
         members: visitor.members,
         expressions: visitor.expressions,
         bindings: visitor.bindings,

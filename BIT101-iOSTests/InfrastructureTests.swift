@@ -57,6 +57,46 @@ struct ImageCacheDiskQuotaTests {
     }
 }
 
+@Suite("Score cache file safety")
+struct ScoreCacheDiskRepositoryTests {
+    @Test("Unreadable score snapshots block replacement and remain intact")
+    func preservesUnreadableSnapshot() async throws {
+        let files = AppFileDirectories.files
+        let root = files.temporaryDirectoryURL.appending(
+            path: "score-cache-safety-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        let session = AppStorageSession(accountIdentifier: "score-store-\(UUID().uuidString)")
+        let repository = ScoreCacheDiskRepository(files: files, storageRoot: root)
+        defer { try? files.removeItem(at: root) }
+
+        let rows = [ScoreRow(index: 0, headers: ["课程名称"], values: ["离散数学"])]
+        let saved = await repository.mutate(
+            .detailedRows(rows),
+            for: session,
+            legacyData: .empty
+        )
+        #expect(saved.isSaved)
+
+        let fileURL = root
+            .appending(path: session.accountDirectoryName, directoryHint: .isDirectory)
+            .appending(path: "score-cache.json")
+        let corruptData = Data("invalid score cache".utf8)
+        try files.writeData(corruptData, to: fileURL, options: [.atomic])
+
+        let loadResult = await repository.load(for: session, legacyData: .empty)
+        #expect(loadResult.isUnreadable)
+
+        let replacement = await repository.mutate(
+            .rows([]),
+            for: session,
+            legacyData: .empty
+        )
+        #expect(replacement.isUnreadable)
+        #expect(try files.readData(at: fileURL) == corruptData)
+    }
+}
+
 @Suite("Experimental preference iCloud sync")
 struct ExperimentalPreferenceCloudSyncTests {
     @Test("Independent domain timestamps choose the newest value")
@@ -533,14 +573,14 @@ struct ScorePresentationTests {
             values: ["MATH-1", "高等数学", "90", "82.5", "4", "2025-2026-1", "必修"]
         )]
         let service = ScoreServiceSpy(detailedRows: rows)
-        ScoreCacheStore.saveDetailed(rows: rows)
-        defer { ScoreCacheStore.save(rows: []) }
+        await ScoreCacheStore.saveDetailed(rows: rows)
 
         let viewModel = ScoreViewModel(service: service)
         await viewModel.refresh()
 
         #expect(viewModel.alert?.title == "成绩已是最新")
         #expect(viewModel.alert?.message == "本次获取结果与本地成绩完全一致。")
+        await ScoreCacheStore.save(rows: [])
     }
 
     @Test("Qualitative scores use their numeric ordering")
