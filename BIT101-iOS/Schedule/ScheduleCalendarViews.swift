@@ -8,36 +8,37 @@
 import SwiftUI
 import UIKit
 
-/// 空白课表区域的原生上下文菜单，按真实长按坐标定位菜单。
-struct ScheduleBlankContextMenuView: View {
+/// 空白课表区域的原生操作菜单，按真实长按坐标定位菜单。
+struct ScheduleBlankContextMenuView: UIViewRepresentable {
     let onShare: () -> Void
     let onImport: () -> Void
+    let onMenuWillPresent: () -> Void
 
-    var body: some View {
-        Color.clear
-            .contentShape(Rectangle())
-            .accessibilityElement()
-            .accessibilityLabel("课表空白区域")
-            .accessibilityHint("长按查看课表操作")
-            .accessibilityIdentifier("schedule.blank-context-menu")
-            .accessibilityAddTraits(.isButton)
-            .contextMenu {
-                Button(action: self.onShare) {
-                    Label("分享课表", systemImage: "square.and.arrow.up")
-                }
-                .accessibilityIdentifier("schedule.menu.share")
+    func makeUIView(context: Context) -> ScheduleBlankContextMenuControl {
+        let view = ScheduleBlankContextMenuControl()
+        view.isAccessibilityElement = true
+        view.accessibilityLabel = "课表空白区域"
+        view.accessibilityHint = "长按查看课表操作"
+        view.accessibilityIdentifier = "schedule.blank-context-menu"
+        view.accessibilityTraits = .button
+        view.shareTitle = "分享课表"
+        view.showsImport = true
+        view.onMenuWillPresent = onMenuWillPresent
+        view.onShare = onShare
+        view.onImport = onImport
+        return view
+    }
 
-                Button(action: self.onImport) {
-                    Label("导入课表", systemImage: "square.and.arrow.down")
-                }
-                .accessibilityIdentifier("schedule.menu.import")
-            }
+    func updateUIView(_ uiView: ScheduleBlankContextMenuControl, context: Context) {
+        uiView.onMenuWillPresent = onMenuWillPresent
+        uiView.onShare = onShare
+        uiView.onImport = onImport
     }
 }
 
 struct ScheduleCourseContextMenuView: UIViewRepresentable {
     let onTap: () -> Void
-    let onBegan: () -> Void
+    let onMenuWillPresent: () -> Void
     let onShare: () -> Void
 
     func makeUIView(context: Context) -> ScheduleBlankContextMenuControl {
@@ -49,14 +50,14 @@ struct ScheduleCourseContextMenuView: UIViewRepresentable {
         view.shareTitle = "分享课程"
         view.showsImport = false
         view.onTap = onTap
-        view.onBegan = onBegan
+        view.onMenuWillPresent = onMenuWillPresent
         view.onShare = onShare
         return view
     }
 
     func updateUIView(_ uiView: ScheduleBlankContextMenuControl, context: Context) {
         uiView.onTap = onTap
-        uiView.onBegan = onBegan
+        uiView.onMenuWillPresent = onMenuWillPresent
         uiView.onShare = onShare
     }
 }
@@ -65,7 +66,7 @@ final class ScheduleBlankContextMenuControl: UIControl {
     var shareTitle = "分享课表"
     var showsImport = true
     var onTap: (() -> Void)?
-    var onBegan: (() -> Void)?
+    var onMenuWillPresent: (() -> Void)?
     var onShare: (() -> Void)?
     var onImport: (() -> Void)?
     private var lastInteractionLocation: CGPoint = .zero
@@ -102,7 +103,6 @@ final class ScheduleBlankContextMenuControl: UIControl {
         configurationForMenuAtLocation location: CGPoint
     ) -> UIContextMenuConfiguration? {
         lastInteractionLocation = location
-        onBegan?()
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
             guard let self else { return UIMenu(children: []) }
             var actions: [UIMenuElement] = [UIAction(
@@ -123,6 +123,14 @@ final class ScheduleBlankContextMenuControl: UIControl {
             }
             return UIMenu(children: actions)
         }
+    }
+
+    override func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction,
+        willDisplayMenuFor configuration: UIContextMenuConfiguration,
+        animator: (any UIContextMenuInteractionAnimating)?
+    ) {
+        onMenuWillPresent?()
     }
 
     override func menuAttachmentPoint(for configuration: UIContextMenuConfiguration) -> CGPoint {
@@ -355,7 +363,8 @@ struct CourseScheduleCalendarView: View {
                         .allowsHitTesting(false)
                     ScheduleBlankContextMenuView(
                         onShare: onShareSchedule,
-                        onImport: onImportSchedule
+                        onImport: onImportSchedule,
+                        onMenuWillPresent: { contextMenuFeedbackToken &+= 1 }
                     )
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .padding(.trailing, AppDesignSystem.Size.Control.touchTarget + AppDesignSystem.Spacing.regular)
@@ -398,7 +407,7 @@ struct CourseScheduleCalendarView: View {
                         if entry.kind == .course {
                             ScheduleCourseContextMenuView(
                                 onTap: { onSelect(entry) },
-                                onBegan: {
+                                onMenuWillPresent: {
                                     contextMenuFeedbackToken &+= 1
                                     onPrepareCourseShare(entry)
                                 },

@@ -2,6 +2,26 @@ import Foundation
 import SwiftUI
 import UIKit
 
+nonisolated enum AppRecoveryAction: Equatable, Sendable {
+    case openAppSettings
+
+    var title: String {
+        switch self {
+        case .openAppSettings: "打开系统设置"
+        }
+    }
+
+    @MainActor
+    func perform() {
+        switch self {
+        case .openAppSettings:
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url)
+            }
+        }
+    }
+}
+
 nonisolated struct AppErrorPresentation: Identifiable {
     let id = UUID()
     let title: String
@@ -9,7 +29,7 @@ nonisolated struct AppErrorPresentation: Identifiable {
     let allowsDiagnostics: Bool
     let showsRecoveryLinks: Bool
     let schoolServiceURL: URL?
-    let shouldOpenSettings: Bool
+    let recoveryAction: AppRecoveryAction?
 
     var allowsSchoolServiceLink: Bool { allowsDiagnostics && schoolServiceURL != nil }
 
@@ -75,7 +95,7 @@ final class AppErrorPresenter {
                 allowsDiagnostics: alert.allowsDiagnostics,
                 showsRecoveryLinks: alert.showsRecoveryLinks,
                 schoolServiceURL: schoolServiceURL,
-                shouldOpenSettings: (alert as? ScheduleNotice)?.shouldOpenSettings ?? false
+                recoveryAction: alert.recoveryAction
             ))
             presentNextIfPossible()
         }
@@ -120,7 +140,7 @@ final class AppErrorPresenter {
             allowsDiagnostics: alert.allowsDiagnostics,
             showsRecoveryLinks: alert.showsRecoveryLinks,
             schoolServiceURL: nil,
-            shouldOpenSettings: (alert as? ScheduleNotice)?.shouldOpenSettings ?? false
+            recoveryAction: alert.recoveryAction
         )
     }
 
@@ -140,16 +160,14 @@ final class AppErrorPresenter {
             ? "\(item.message)\n\n版本 \(AppErrorPresentation.versionText)"
             : item.message
         let controller = UIAlertController(title: item.title, message: message, preferredStyle: .alert)
-        var settingsAction: UIAlertAction?
+        var recoveryActionButton: UIAlertAction?
 
-        if item.shouldOpenSettings {
-            let action = UIAlertAction(title: "打开系统设置", style: .default) { [weak self] _ in
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
-                }
+        if let recoveryAction = item.recoveryAction {
+            let action = UIAlertAction(title: recoveryAction.title, style: .default) { [weak self] _ in
+                recoveryAction.perform()
                 self?.finishAlert()
             }
-            settingsAction = action
+            recoveryActionButton = action
             controller.addAction(action)
         }
 
@@ -176,7 +194,7 @@ final class AppErrorPresenter {
             self?.finishAlert()
         }
         controller.addAction(dismissAction)
-        controller.preferredAction = settingsAction ?? dismissAction
+        controller.preferredAction = recoveryActionButton ?? dismissAction
         presenter.present(controller, animated: true)
     }
 

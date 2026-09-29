@@ -416,7 +416,8 @@ private struct LinearScheduleCanvasView: View {
 
                 ScheduleBlankContextMenuView(
                     onShare: configuration.onShareSchedule,
-                    onImport: configuration.onImportSchedule
+                    onImport: configuration.onImportSchedule,
+                    onMenuWillPresent: { contextMenuFeedbackToken &+= 1 }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.trailing, AppDesignSystem.Size.Control.touchTarget + AppDesignSystem.Spacing.regular)
@@ -550,7 +551,7 @@ private struct LinearScheduleCanvasView: View {
             if entry.kind == .course {
                 ScheduleCourseContextMenuView(
                     onTap: { configuration.onSelect(entry) },
-                    onBegan: {
+                    onMenuWillPresent: {
                         contextMenuFeedbackToken &+= 1
                         configuration.onPrepareCourseShare(entry)
                     },

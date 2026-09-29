@@ -14,23 +14,35 @@ nonisolated struct MapNotice: Identifiable {
     let id = UUID()
     let title: String
     let message: String
+    let recoveryAction: AppRecoveryAction?
     let allowsDiagnostics: Bool
     let showsRecoveryLinks: Bool
 
     init(
         title: String,
         message: String,
+        recoveryAction: AppRecoveryAction? = nil,
         allowsDiagnostics: Bool = true,
         showsRecoveryLinks: Bool = true
     ) {
         self.title = title
         self.message = message
+        self.recoveryAction = recoveryAction
         self.allowsDiagnostics = allowsDiagnostics
         self.showsRecoveryLinks = showsRecoveryLinks
     }
 
-    static func userInput(title: String, message: String) -> MapNotice {
-        MapNotice(title: title, message: message, allowsDiagnostics: false)
+    static func userInput(
+        title: String,
+        message: String,
+        recoveryAction: AppRecoveryAction? = nil
+    ) -> MapNotice {
+        MapNotice(
+            title: title,
+            message: message,
+            recoveryAction: recoveryAction,
+            allowsDiagnostics: false
+        )
     }
 }
 
@@ -66,7 +78,8 @@ final class CampusLocationController: NSObject, ObservableObject, CLLocationMana
         case .denied, .restricted:
             notice = MapNotice.userInput(
                 title: "定位不可用",
-                message: "请在系统设置中允许 BIT101 使用定位后，再尝试回到我的位置。"
+                message: "请在系统设置中允许 BIT101 使用定位后，再尝试回到我的位置。",
+                recoveryAction: .openAppSettings
             )
         @unknown default:
             notice = MapNotice.userInput(
@@ -76,8 +89,38 @@ final class CampusLocationController: NSObject, ObservableObject, CLLocationMana
         }
     }
 
+    func handleLocationFailure(_ error: Error) {
+        notice = CampusLocationFailurePolicy.notice(for: error)
+    }
+
     /// 更新定位授权状态；当前位置由地图桥接层继续处理。
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authorizationStatus = manager.authorizationStatus
+    }
+}
+
+nonisolated enum CampusLocationFailurePolicy {
+    static func notice(for error: Error) -> MapNotice {
+        if contains(error, code: .denied) {
+            return .userInput(
+                title: "定位不可用",
+                message: "请在系统设置中允许 BIT101 使用定位服务后，再尝试回到我的位置。",
+                recoveryAction: .openAppSettings
+            )
+        }
+        return MapNotice(title: "定位失败", message: error.localizedDescription)
+    }
+
+    static func contains(_ error: Error, code: CLError.Code) -> Bool {
+        var current: NSError? = error as NSError
+        for _ in 0 ..< 8 {
+            guard let candidate = current else { return false }
+            if candidate.domain == kCLErrorDomain,
+               CLError.Code(rawValue: candidate.code) == code {
+                return true
+            }
+            current = candidate.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return false
     }
 }

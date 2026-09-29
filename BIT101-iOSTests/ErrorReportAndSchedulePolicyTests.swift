@@ -1,5 +1,6 @@
 import XCTest
 import UIKit
+import CoreLocation
 @testable import BIT101_iOS
 
 nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
@@ -103,6 +104,15 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertFalse(notice.allowsDiagnostics)
     }
 
+    func testDeniedLocationFailureOffersSettingsWithoutErrorReporting() {
+        let denied = NSError(domain: kCLErrorDomain, code: CLError.Code.denied.rawValue)
+        let wrapped = NSError(domain: "MapKit", code: 1, userInfo: [NSUnderlyingErrorKey: denied])
+        let notice = CampusLocationFailurePolicy.notice(for: wrapped)
+
+        XCTAssertFalse(notice.allowsDiagnostics)
+        XCTAssertEqual(notice.recoveryAction, .openAppSettings)
+    }
+
     @MainActor
     func testUserCancelledTranscriptVerificationDoesNotOfferErrorReporting() {
         let viewModel = TrustedTranscriptViewModel(service: StubTrustedTranscriptService())
@@ -122,14 +132,14 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     }
 
     func testCalendarPermissionNoticeOffersSystemSettings() {
-        XCTAssertTrue(ScheduleSystemCalendarError.permissionDenied.shouldOpenSettings)
-        XCTAssertTrue(ScheduleSystemCalendarError.noWritableCalendarSource.shouldOpenSettings)
-        XCTAssertFalse(ScheduleSystemCalendarError.missingSchedule.shouldOpenSettings)
-        XCTAssertTrue(ScheduleNotice(
+        XCTAssertEqual(ScheduleSystemCalendarError.permissionDenied.recoveryAction, .openAppSettings)
+        XCTAssertEqual(ScheduleSystemCalendarError.noWritableCalendarSource.recoveryAction, .openAppSettings)
+        XCTAssertNil(ScheduleSystemCalendarError.missingSchedule.recoveryAction)
+        XCTAssertEqual(ScheduleNotice(
             title: "导入失败",
             message: "日历权限需要调整。",
-            shouldOpenSettings: true
-        ).shouldOpenSettings)
+            recoveryAction: .openAppSettings
+        ).recoveryAction, .openAppSettings)
     }
 
     func testCertificateFailureIsNotPresentedAsExpiredVerification() {

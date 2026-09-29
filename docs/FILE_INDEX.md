@@ -35,6 +35,8 @@
 ### 话廊与文章
 
 - `BIT101-iOS/Gallery/`：信息流、搜索、消息、帖子详情、评论、图片缓存和发帖。
+- `BIT101-iOS/Gallery/GalleryViewModel.swift`：话廊信息流与搜索状态。
+- `BIT101-iOS/Gallery/GalleryMessageViewModel.swift`：消息中心、未读状态与账号隔离的本地已读快照。
 - `BIT101-iOS/Paper/`：文章列表、详情、评论、编辑、搜索和点赞。
 
 各模块的 `*RootView.swift` 是页面入口，`*Service.swift` 是网络门面，`*ViewModel.swift` 管理页面状态，`*Models.swift` 保存载荷模型。
@@ -60,6 +62,8 @@
 - `ScheduleViewModel*.swift`：同步、学期、空教室、编辑、DDL 和偏好分支。
 - `ScheduleService*.swift`：教学中心、乐学、认证、传输及响应模型。
 - `ScheduleCacheStore.swift`、`ScheduleWidgetSupport.swift`：缓存持久化和 widget 导出。
+- `ScheduleCloudSyncManager.swift`：CloudKit 同步编排、冲突协调与账号上下文。
+- `ScheduleCloudSyncSupport.swift`：云同步载荷、可测试的冲突策略与缓存合并。
 - `ScheduleSystemCalendarManager.swift`：系统日历权限、课程/考试/自定义日程导入删除。
 - `Shared/Client/NetworkDiagnostics.swift`：网络路径提示、诊断探针、请求记录和诊断缓存。
 - `Shared/Client/ErrorReportSupport.swift`：错误报告载荷、脱敏和诊断摘要。

@@ -20,7 +20,7 @@ private enum ScoreSurface: String, CaseIterable, Identifiable, Hashable {
 ///
 /// 页面提供“成绩 / 课程”的顶部切换。
 struct ScoreRootView: View {
-    @StateObject private var scoreViewModel = SchoolDataViewModelStore.shared.scoreViewModel
+    @EnvironmentObject private var scoreViewModel: ScoreViewModel
     @StateObject private var courseViewModel = CourseListViewModel()
     @State private var selectedSurface: ScoreSurface = .score
     @Binding private var requestedCourse: CourseNavigationRequest?

@@ -91,12 +91,13 @@ actor ImageCacheDiskQuota {
         let limitMB = cacheLimitMB()
         guard limitMB > 0 else { return }
         let limit = Int64(limitMB) * 1_024 * 1_024
+        let protectedPaths = Set(protectedURLs.map { Self.canonicalPath(for: $0) })
         let cacheFiles = directories.flatMap { directory -> [(URL, Int64, Date)] in
             guard let children = try? files.contentsOfDirectory(at: directory, options: [.skipsHiddenFiles]) else {
                 return []
             }
             return children.compactMap { url in
-                guard !protectedURLs.contains(url),
+                guard !protectedPaths.contains(Self.canonicalPath(for: url)),
                       url.lastPathComponent != "preview-placeholder.png",
                       let size = files.regularFileSize(at: url)
                 else { return nil }
@@ -104,7 +105,9 @@ actor ImageCacheDiskQuota {
             }
         }
         var total = cacheFiles.reduce(Int64(0)) { $0 + $1.1 }
-        total += protectedURLs.reduce(Int64(0)) { $0 + Int64(files.regularFileSize(at: $1) ?? 0) }
+        total += protectedPaths.reduce(Int64(0)) {
+            $0 + Int64(files.regularFileSize(at: URL(fileURLWithPath: $1)) ?? 0)
+        }
         guard total > limit else { return }
 
         let target = Int64(Double(limit) * 0.85)
@@ -123,6 +126,10 @@ actor ImageCacheDiskQuota {
             ImageCacheDirectories.gallery(using: files),
             ImageCacheDirectories.avatars(using: files),
         ]
+    }
+
+    private nonisolated static func canonicalPath(for url: URL) -> String {
+        url.resolvingSymlinksInPath().standardizedFileURL.path
     }
 }
 

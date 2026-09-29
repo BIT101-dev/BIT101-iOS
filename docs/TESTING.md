@@ -310,7 +310,7 @@ Scripts/run-extended-tests.sh
 
 `run-static-audit.sh` 执行检查器自测、Swift、Shell、Python、Worker、Git、文档、UI、源码质量与锁定依赖检查，并汇总各组结果；过期文档和高危依赖会阻断结果。学校接口连接、网络 smoke 和发布归档由独立流程负责。源码质量报告超过 1000 行时覆盖 `.build/code-quality-report.txt`，较短结果直接显示在 terminal。CI 强制执行这一入口，并额外阻止编译警告进入门禁。
 
-UI 契约检查由 `check-ui-consistency.py` 统一维护：视觉令牌、页面和公共组件、列表样式与控件修饰器归属、触感、错误报告入口及图片型操作控件的无障碍名称依据 SwiftSyntax 节点和递归 View 调用树匹配。视觉正则限定在对应调用、成员或绑定节点内，字符串和注释由词法扫描屏蔽。统一静态审计为 UI 与源码质量检查共用一份 SwiftSyntax 索引。文件整理沿用类型契约；新增、改名或拆分承载公共 UI 契约的页面时，在契约表登记 View 角色并核对对应自测。UI 检查器的 `--self-test` 通过内存 Swift 源码验证 alert 重载、静态与动态列表图标、多行视觉规则、字符串隔离、菜单项与操作闭包文本隔离、父子控件无障碍标签归属、递归组件归属、嵌套类型解析、组件声明类型和匹配规则；两个检查器的自测同时覆盖标记作用域、修饰器归属、CI 接线及源码迁移边界。
+UI 契约检查由 `check-ui-consistency.py` 统一维护：视觉令牌、页面和公共组件、列表样式与控件修饰器归属、触感、错误报告入口及图片型操作控件的无障碍名称依据 SwiftSyntax 节点和递归 View 调用树匹配。视觉正则限定在对应调用、成员或绑定节点内，字符串和注释由词法扫描屏蔽。统一静态审计为 UI 与源码质量检查共用一份 SwiftSyntax 索引。文件整理沿用类型契约；新增、改名或拆分承载公共 UI 契约的页面时，在契约表登记 View 角色并核对对应自测。UI 检查器的 `--self-test` 通过内存 Swift 源码验证 alert 重载、静态、动态与混合分支列表图标、多行视觉规则、字符串隔离、菜单项与操作闭包文本隔离、父子控件无障碍标签归属、递归组件归属、View 辅助方法可达性、交互回调闭包隔离、嵌套类型解析、组件声明类型和匹配规则；两个检查器的自测同时覆盖标记作用域、修饰器归属、CI 接线及源码迁移边界。
 
 UI 自动化另有 `testMainTabsRemainAccessibleAtAccessibilityDynamicType`，在辅助功能大字号与浅色/深色外观下检查主 Tab 的名称、可见区域、触达状态和窗口边界，并检查课表、成绩、账号页的关键操作元素。真机诊断截图通过 `Scripts/capture-screenshot-device.sh` 固定写入 `.build/screenshot.png`；画面验收由 XCUITest 断言和 SwiftSyntax UI 契约自动完成。
 

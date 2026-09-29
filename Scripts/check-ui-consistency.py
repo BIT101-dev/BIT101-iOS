@@ -677,38 +677,259 @@ def list_icon_findings(path: Path, facts: dict) -> list[str]:
 
 
 def resolved_icon_symbols(symbol: str, facts: dict, scope: list[str]) -> list[str]:
-    literal = re.fullmatch(r'(?:#+)?"([^"\n]*)"(?:#+)?', symbol.strip())
-    if literal:
-        return [literal.group(1)]
+    return static_symbol_values(symbol, facts, scope)
 
-    candidates = re.findall(r'"([^"\n]*)"', symbol)
-    if candidates:
-        return candidates
 
-    variable = re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", symbol.strip())
+def _string_literal_value(expression: str) -> str | None:
+    expression = expression.strip()
+    match = re.fullmatch(r'"([^"\\\n]*)"', expression)
+    if match:
+        return match.group(1)
+    match = re.fullmatch(r'(?P<hashes>#+)"(?P<value>[^"\\\n]*)"(?P=hashes)', expression)
+    return match.group("value") if match else None
+
+
+def _skip_swift_string(source: str, start: int) -> int | None:
+    quote_start = start
+    while quote_start < len(source) and source[quote_start] == "#":
+        quote_start += 1
+    if quote_start >= len(source) or source[quote_start] != '"':
+        return None
+    hashes = source[start:quote_start]
+    quote = '"""' if source.startswith('"""', quote_start) else '"'
+    terminator = quote + hashes
+    index = quote_start + len(quote)
+    while index < len(source):
+        if not hashes and source[index] == "\\":
+            index += 2
+            continue
+        if source.startswith(terminator, index):
+            return index + len(terminator)
+        index += 1
+    return None
+
+
+def _top_level_ternary(expression: str) -> tuple[str, str] | None:
+    depths = {"(": 0, "[": 0, "{": 0}
+    closing = {")": "(", "]": "[", "}": "{"}
+    question = None
+    index = 0
+    while index < len(expression):
+        string_end = _skip_swift_string(expression, index)
+        if string_end is not None:
+            index = string_end
+            continue
+        character = expression[index]
+        if character in depths:
+            depths[character] += 1
+        elif character in closing:
+            depths[closing[character]] -= 1
+        elif not any(depths.values()) and character == "?":
+            if expression.startswith(("?.", "??"), index) or index > 0 and expression[index - 1] == "?":
+                index += 1
+                continue
+            question = index
+            break
+        index += 1
+    if question is None:
+        return None
+
+    nested_questions = 0
+    depths = {"(": 0, "[": 0, "{": 0}
+    index = question + 1
+    while index < len(expression):
+        string_end = _skip_swift_string(expression, index)
+        if string_end is not None:
+            index = string_end
+            continue
+        character = expression[index]
+        if character in depths:
+            depths[character] += 1
+        elif character in closing:
+            depths[closing[character]] -= 1
+        elif not any(depths.values()):
+            if character == "?" and not expression.startswith(("?.", "??"), index):
+                nested_questions += 1
+            elif character == ":":
+                if nested_questions == 0:
+                    return expression[question + 1:index].strip(), expression[index + 1:].strip()
+                nested_questions -= 1
+        index += 1
+    return None
+
+
+def _outer_parenthesized_expression(expression: str) -> str:
+    expression = expression.strip()
+    while expression.startswith("(") and expression.endswith(")"):
+        depth = 0
+        closes_at_end = False
+        index = 0
+        while index < len(expression):
+            string_end = _skip_swift_string(expression, index)
+            if string_end is not None:
+                index = string_end
+                continue
+            if expression[index] == "(":
+                depth += 1
+            elif expression[index] == ")":
+                depth -= 1
+                if depth == 0:
+                    closes_at_end = index == len(expression) - 1
+                    break
+            index += 1
+        if not closes_at_end:
+            break
+        expression = expression[1:-1].strip()
+    return expression
+
+
+def static_symbol_values(
+    expression: str,
+    facts: dict,
+    scope: list[str],
+    resolving: frozenset[str] = frozenset(),
+) -> list[str]:
+    expression = _outer_parenthesized_expression(mask_comments(expression))
+    if re.search(r"\\#*\(", expression):
+        return []
+    literal = _string_literal_value(expression)
+    if literal is not None:
+        return [literal]
+
+    conditional = _top_level_ternary(expression)
+    if conditional:
+        then_values = static_symbol_values(conditional[0], facts, scope, resolving)
+        else_values = static_symbol_values(conditional[1], facts, scope, resolving)
+        return then_values + else_values if then_values and else_values else []
+
+    variable = re.fullmatch(r"(?:self\.)?([A-Za-z_][A-Za-z0-9_]*)", expression)
     if variable:
+        name = variable.group(1)
+        if name in resolving:
+            return []
+        bindings = []
         for binding in facts.get("bindings", []):
             if binding["scope"] != scope:
                 continue
-            match = re.match(rf"{re.escape(symbol.strip())}\s*=\s*(.+)$", binding["value"], re.S)
+            match = re.match(rf"(?:let\s+|var\s+)?{re.escape(name)}\s*=\s*(.+)$", binding["value"], re.S)
             if match:
-                candidates = re.findall(r'"([^"\n]*)"', match.group(1))
-                if candidates:
-                    return candidates
+                bindings.append(match.group(1).strip())
+        if len(bindings) == 1:
+            return static_symbol_values(bindings[0], facts, scope, resolving | {name})
+        return []
 
-    called_function = re.match(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(", symbol.strip())
-    if called_function:
+    called_function = re.match(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(", expression)
+    if called_function and expression.endswith(")"):
         function_name = called_function.group(1)
-        candidates = []
-        for function in facts.get("functions", []):
-            if function["scope"] != scope or not re.search(
-                rf"\bfunc\s+{re.escape(function_name)}\s*\(", function["value"]
-            ):
-                continue
-            candidates.extend(re.findall(r'"([^"\n]*)"', mask_comments(function["value"])))
-        if candidates:
-            return candidates
+        if function_name in resolving:
+            return []
+        functions = [
+            function for function in facts.get("functions", [])
+            if function["scope"] == scope
+            and re.search(rf"\bfunc\s+{re.escape(function_name)}\s*\(", function["value"])
+        ]
+        if len(functions) != 1:
+            return []
+        return_expressions = [
+            item["value"] for item in facts.get("functionReturns", [])
+            if item["name"] == function_name and item["scope"] == scope
+        ]
+        if not return_expressions:
+            return []
+        values = []
+        for returned in return_expressions:
+            branch_values = static_symbol_values(returned, facts, scope, resolving | {function_name})
+            if not branch_values:
+                return []
+            values.extend(branch_values)
+        return values
     return []
+
+
+def rendered_scope_facts(facts: dict, scope: list[str], syntax: dict[str, dict] | None = None) -> dict:
+    """Limit a View's contract search to rendered expressions and reachable View helpers."""
+    parts = [(facts, True)]
+    if syntax:
+        parts.extend(
+            (other_facts, False)
+            for path, other_facts in syntax.items()
+            if Path(path).is_relative_to(SOURCE_ROOT)
+            if other_facts is not facts
+            and any(item["scope"] == scope for item in other_facts.get("functionRanges", []))
+        )
+    functions = [
+        (part, item)
+        for part, _ in parts
+        for item in part.get("functionRanges", [])
+        if item["scope"] == scope
+    ]
+
+    def containing_function(part: dict, start: int) -> dict | None:
+        candidates = [
+            item for owner, item in functions
+            if owner is part and item["start"] <= start < item["end"]
+        ]
+        return min(candidates, key=lambda item: item["end"] - item["start"]) if candidates else None
+
+    def in_callback(part: dict, start: int) -> bool:
+        return any(
+            item["scope"] == scope and item["start"] <= start < item["end"]
+            for item in part.get("nonRenderedRanges", [])
+        )
+
+    reachable: set[tuple[int, str, int, int]] = set()
+    changed = True
+    while changed:
+        changed = False
+        for part, is_root in parts:
+            for call in part.get("calls", []):
+                call_start = call.get("start", -1)
+                if call["scope"] != scope or in_callback(part, call_start):
+                    continue
+                owner = containing_function(part, call_start)
+                if owner:
+                    owner_key = (id(part), owner["name"], owner["start"], owner["end"])
+                    if owner_key not in reachable:
+                        continue
+                elif not is_root:
+                    continue
+                called_name = call["value"].rsplit(".", 1)[-1].split("<", 1)[0]
+                candidates = [item for _, item in functions if item["name"] == called_name]
+                if len(candidates) != 1 or not candidates[0].get("returnsView", False):
+                    continue
+                function = candidates[0]
+                function_part = next(part for part, item in functions if item is function)
+                key = (id(function_part), function["name"], function["start"], function["end"])
+                if key not in reachable:
+                    reachable.add(key)
+                    changed = True
+
+    def is_visible(part: dict, is_root: bool, item: dict) -> bool:
+        if item.get("scope") != scope or in_callback(part, item.get("start", -1)):
+            return False
+        owner = containing_function(part, item.get("start", -1))
+        if owner is None:
+            return is_root
+        return (id(part), owner["name"], owner["start"], owner["end"]) in reachable
+
+    filtered = dict(facts)
+    for collection in (
+        "calls", "invocations", "members", "expressions", "bindings",
+        "controlFlow", "typeNames", "stringSegments",
+    ):
+        filtered[collection] = [
+            item
+            for part, is_root in parts
+            for item in part.get(collection, [])
+            if is_visible(part, is_root, item)
+        ]
+    return filtered
+
+
+def rendered_view_has_marker(
+    facts: dict, scope: list[str], marker: str, syntax: dict[str, dict] | None = None
+) -> bool:
+    return ast_has_marker(rendered_scope_facts(facts, scope, syntax), marker, scope)
 
 
 def view_or_child_has_marker(
@@ -718,7 +939,8 @@ def view_or_child_has_marker(
     marker: str,
     visited: set[tuple[int, tuple[str, ...]]] | None = None,
 ) -> bool:
-    if ast_has_marker(facts, marker, scope):
+    visible_facts = rendered_scope_facts(facts, scope, syntax)
+    if ast_has_marker(visible_facts, marker, scope):
         return True
     visited = set() if visited is None else visited
     identity = (id(facts), tuple(scope))
@@ -727,7 +949,7 @@ def view_or_child_has_marker(
     visited.add(identity)
     child_calls = {
         call["value"]
-        for call in facts["calls"]
+        for call in visible_facts["calls"]
         if call["scope"] == scope
     }
     for child_call in child_calls:
@@ -903,6 +1125,57 @@ def ast_marker_boundary_findings() -> list[str]:
     }
     if view_or_child_has_marker(isolated_syntax, wrapped_parent_facts, ["ParentView"], "appSelectionFeedback"):
         findings.append("UI 契约规则边界自检失败：独立同名子树掩盖契约缺口")
+    helper_scope = ["RenderedParent"]
+    helper_view_facts = {
+        "declarations": [],
+        "calls": [{"value": "AppFailureState", "scope": helper_scope, "start": 120}],
+        "invocations": [],
+        "members": [],
+        "expressions": [],
+        "bindings": [],
+        "controlFlow": [],
+        "typeNames": [],
+        "stringSegments": [],
+        "functionRanges": [{"name": "unusedContent", "returnsView": True, "scope": helper_scope, "start": 100, "end": 200}],
+        "nonRenderedRanges": [],
+    }
+    if rendered_view_has_marker(helper_view_facts, helper_scope, "AppFailureState"):
+        findings.append("UI 契约规则边界自检失败：未引用的 View 辅助方法满足页面契约")
+    reachable_helper_facts = {
+        **helper_view_facts,
+        "calls": [
+            {"value": "unusedContent", "scope": helper_scope, "start": 20},
+            {"value": "AppFailureState", "scope": helper_scope, "start": 120},
+        ],
+    }
+    if not rendered_view_has_marker(reachable_helper_facts, helper_scope, "AppFailureState"):
+        findings.append("UI 契约规则边界自检失败：body 引用的 View 辅助方法未进入契约")
+    extension_helper_facts = {
+        **helper_view_facts,
+        "calls": [{"value": "AppFailureState", "scope": helper_scope, "start": 120}],
+        "functionRanges": [{"name": "extensionContent", "returnsView": True, "scope": helper_scope, "start": 100, "end": 200}],
+        "nonRenderedRanges": [],
+    }
+    extension_parent_facts = {
+        **helper_view_facts,
+        "calls": [{"value": "extensionContent", "scope": helper_scope, "start": 20}],
+        "functionRanges": [],
+        "nonRenderedRanges": [],
+    }
+    extension_syntax = {
+        str(SOURCE_ROOT / "parent.swift"): extension_parent_facts,
+        str(SOURCE_ROOT / "extension.swift"): extension_helper_facts,
+    }
+    if not rendered_view_has_marker(extension_parent_facts, helper_scope, "AppFailureState", extension_syntax):
+        findings.append("UI 契约规则边界自检失败：跨文件 View 辅助方法未进入契约")
+    callback_facts = {
+        **helper_view_facts,
+        "calls": [{"value": "AppFailureState", "scope": helper_scope, "start": 35}],
+        "functionRanges": [],
+        "nonRenderedRanges": [{"scope": helper_scope, "start": 30, "end": 40}],
+    }
+    if rendered_view_has_marker(callback_facts, helper_scope, "AppFailureState"):
+        findings.append("UI 契约规则边界自检失败：交互回调中的组件满足页面契约")
     nested_child_facts = {
         **leaf_facts,
         "declarations": [{
@@ -1017,7 +1290,7 @@ def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> Non
             discovered_scopes = [
                 scope
                 for scope in view_scopes(facts)
-                if any(ast_has_marker(facts, token, scope) for token in contract.discovery_tokens)
+                if any(rendered_view_has_marker(facts, scope, token, syntax) for token in contract.discovery_tokens)
             ]
             if discovered_scopes:
                 members.setdefault(path, []).extend(discovered_scopes)
@@ -1132,7 +1405,7 @@ def check_haptic_consistency(errors: list[str], syntax: dict[str, dict]) -> None
     if not multiselection_entries:
         errors.append("AppMultiSelectionList: 公共多选列表 View 声明缺失")
     for path, facts, scope in multiselection_entries:
-        if not ast_has_marker(facts, "appSelectionFeedback", scope):
+        if not rendered_view_has_marker(facts, scope, "appSelectionFeedback", syntax):
             errors.append(f"{path.relative_to(ROOT)}: AppMultiSelectionList 必须为选择变化提供公共触感")
 
     button_components = (
@@ -1309,12 +1582,20 @@ struct ListIconSample: View {
             )
             Image(systemName: iconName)
             Image(systemName: isDone ? "checkmark.circle" : "circle")
+            Image(systemName: isDone ? "checkmark.circle" : iconName)
+            Image(systemName: "checkmark.\(isDone ? "circle" : "square")")
             Image(systemName: safeSystemIcon(isDone: isDone))
+            Image(systemName: unsafeSystemIcon(isDone: isDone))
         }
     }
 
     private func safeSystemIcon(isDone: Bool) -> String {
-        isDone ? "checkmark.circle.fill" : "circle"
+        return isDone ? "checkmark.circle.fill" : "circle"
+    }
+
+    private func unsafeSystemIcon(isDone: Bool) -> String {
+        if isDone { return "checkmark.circle" }
+        return dynamicName
     }
 }
 
@@ -1377,6 +1658,25 @@ struct MenuChildLabelScopeSample: View {
     }
 }
 
+struct UnrenderedHelperComponentSample: View {
+    var body: some View { Text("Visible") }
+    private func unusedContent() -> some View { AppFailureState() }
+}
+
+struct ReachableHelperComponentSample: View {
+    var body: some View { helperContent() }
+    private func helperContent() -> some View { AppFailureState() }
+}
+
+struct ActionClosureComponentSample: View {
+    var body: some View {
+        Button(action: { _ = AppFailureState() }) {
+            Image(systemName: "magnifyingglass")
+        }
+        .accessibilityLabel("示例操作")
+    }
+}
+
 struct TitledMenuSample: View {
     var body: some View {
         Menu("更多") {
@@ -1401,6 +1701,12 @@ struct AppFixedColumnItem {}
         return [f"UI 检查器自测无法解析内存 Swift 样例：{error}"]
 
     findings: list[str] = []
+    if rendered_view_has_marker(facts, ["UnrenderedHelperComponentSample"], "AppFailureState"):
+        findings.append("UI 检查器自测：未引用的 View 辅助方法满足页面契约")
+    if not rendered_view_has_marker(facts, ["ReachableHelperComponentSample"], "AppFailureState"):
+        findings.append("UI 检查器自测：body 引用的 View 辅助方法未进入契约")
+    if rendered_view_has_marker(facts, ["ActionClosureComponentSample"], "AppFailureState"):
+        findings.append("UI 检查器自测：交互回调中的组件满足页面契约")
     item_alerts = alert_coverage_findings(facts, Path("ui-self-test.swift"))
     expected_invalid = {
         "ItemAlertSample",
@@ -1453,10 +1759,12 @@ struct AppFixedColumnItem {}
         findings.append("UI 检查器自测：既有用户输入提示例外未按 View 与绑定精确匹配")
 
     icon_findings = list_icon_findings(Path("UI/ListIconSample.swift"), facts)
-    if len(icon_findings) != 2 or not any("person.fill" in finding for finding in icon_findings) or not any(
+    if len(icon_findings) != 5 or not any("person.fill" in finding for finding in icon_findings) or sum(
         "iconName" in finding for finding in icon_findings
+    ) != 2 or not any(r"checkmark.\(" in finding for finding in icon_findings) or not any(
+        "unsafeSystemIcon" in finding for finding in icon_findings
     ):
-        findings.append("UI 检查器自测：静态与动态列表图标契约识别异常")
+        findings.append("UI 检查器自测：静态、动态与混合分支列表图标契约识别异常")
 
     button_labels = image_only_label_facts(facts)
     expected_image_only_controls = {
@@ -2007,9 +2315,9 @@ def check_refresh_status_contract(errors: list[str], syntax: dict[str, dict]) ->
             errors.append(f"{view_name}: 刷新数据页 View 声明缺失")
             continue
         for path, facts, scope in entries:
-            if not ast_has_marker(facts, "AppRefreshStatusRow", scope):
+            if not rendered_view_has_marker(facts, scope, "AppRefreshStatusRow", syntax):
                 errors.append(f"{path.relative_to(ROOT)}: {view_name} 必须使用 AppRefreshStatusRow")
-            if not ast_has_marker(facts, "appGroupedListStyle", scope):
+            if not rendered_view_has_marker(facts, scope, "appGroupedListStyle", syntax):
                 errors.append(f"{path.relative_to(ROOT)}: {view_name} 必须使用统一分组列表样式")
 
     schedule_views = view_entries(syntax, "CourseScheduleTabView")
@@ -2024,7 +2332,7 @@ def check_refresh_status_contract(errors: list[str], syntax: dict[str, dict]) ->
         "onPreferenceChange(ScheduleRefreshStatusContentHeightKey.self)",
     )
     for path, facts, scope in schedule_views:
-        missing = [item for item in header_contract if not ast_has_marker(facts, item, scope)]
+        missing = [item for item in header_contract if not rendered_view_has_marker(facts, scope, item, syntax)]
         if missing:
             errors.append(
                 f"{path.relative_to(ROOT)}: 我的课表与分享课表必须共用顶部行组件（缺少 {', '.join(missing)}）"
@@ -2036,8 +2344,8 @@ def check_refresh_status_contract(errors: list[str], syntax: dict[str, dict]) ->
         )
         if status_row_calls != 2:
             errors.append(f"{path.relative_to(ROOT)}: 主课表与分享课表顶部行共用 AppRefreshStatusRow")
-        if not ast_has_marker(facts, "refreshStatusContentHeight", scope) or not ast_has_marker(
-            facts, "rowProxy.size.height", scope
+        if not rendered_view_has_marker(facts, scope, "refreshStatusContentHeight", syntax) or not rendered_view_has_marker(
+            facts, scope, "rowProxy.size.height", syntax
         ):
             errors.append(f"{path.relative_to(ROOT)}: 课表日历按实际更新时间行高度计算剩余空间")
 
@@ -2056,7 +2364,7 @@ def check_refresh_status_contract(errors: list[str], syntax: dict[str, dict]) ->
         if any(call["value"].endswith("frame") and call["scope"] == scope for call in facts["calls"]):
             errors.append(f"{path.relative_to(ROOT)}: 公共更新时间行保留列表自然行高")
         for token in ("trailingText: String?", "else if let trailingText"):
-            if not ast_has_marker(facts, token, scope):
+            if not rendered_view_has_marker(facts, scope, token, syntax):
                 errors.append(f"{path.relative_to(ROOT)}: 只读课表顶部行必须复用更新时间行（缺少 {token}）")
 
     if not any(

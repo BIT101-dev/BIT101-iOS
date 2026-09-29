@@ -11,41 +11,6 @@ protocol CommunityAPIServiceError: Error {
     static var communityInvalidResponse: Self { get }
 }
 
-@MainActor
-private final class CommunitySessionRefreshCoordinator {
-    static let shared = CommunitySessionRefreshCoordinator()
-
-    private var refreshTask: Task<Void, Error>?
-
-    private init() {}
-
-    func refreshIfNeeded(observedCookie: String, storage: LoginStorage) async throws {
-        guard storage.fakeCookie == observedCookie else { return }
-        if let refreshTask {
-            try await refreshTask.value
-            return
-        }
-
-        let task = Task { @MainActor in
-            guard let credentials = try storage.loadCredentials() else {
-                throw LoginServiceError.unableToRestoreSchoolSession
-            }
-            _ = try await LoginService(storage: storage).login(
-                studentID: credentials.studentID,
-                password: credentials.password
-            )
-        }
-        refreshTask = task
-        do {
-            try await task.value
-            refreshTask = nil
-        } catch {
-            refreshTask = nil
-            throw error
-        }
-    }
-}
-
 /// `CommunityAPIClient` 统一处理 BIT101 社区后端的认证、URL、HTTP 状态码和 JSON 边界。
 struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
     private let baseURL: URL
@@ -53,24 +18,6 @@ struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
     private let fakeCookieProvider: () -> String
     private let refreshHandler: (String) async throws -> Void
     private let errorDomain: String
-
-    init(
-        storage: LoginStorage = .shared,
-        httpClient: HTTPClient = .community,
-        baseURL: URL = AppURL.required("https://bit101.flwfdd.xyz"),
-        errorDomain: String
-    ) {
-        fakeCookieProvider = { storage.fakeCookie }
-        refreshHandler = { observedCookie in
-            try await CommunitySessionRefreshCoordinator.shared.refreshIfNeeded(
-                observedCookie: observedCookie,
-                storage: storage
-            )
-        }
-        self.httpClient = httpClient
-        self.baseURL = baseURL
-        self.errorDomain = errorDomain
-    }
 
     init(
         httpClient: HTTPClient,

@@ -7,6 +7,7 @@ nonisolated protocol DiagnosticAlertPresentable: Identifiable {
     var message: String { get }
     var allowsDiagnostics: Bool { get }
     var showsRecoveryLinks: Bool { get }
+    var recoveryAction: AppRecoveryAction? { get }
 }
 
 extension AppAlert: DiagnosticAlertPresentable {}

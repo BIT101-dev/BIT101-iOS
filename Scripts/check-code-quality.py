@@ -58,6 +58,7 @@ struct FileFacts: Encodable {
     let calls: [ScopedFact]
     let invocations: [ScopedFact]
     let functions: [ScopedFact]
+    let functionReturns: [FunctionReturnFact]
     let selectionControls: [SelectionControlFact]
     let feedbackModifiers: [FeedbackModifierFact]
     let alertModifiers: [AlertModifierFact]
@@ -67,6 +68,8 @@ struct FileFacts: Encodable {
     let listStyleModifiers: [FeedbackModifierFact]
     let accessibilityModifiers: [FeedbackModifierFact]
     let accessibilityControls: [AccessibilityControlFact]
+    let functionRanges: [FunctionRangeFact]
+    let nonRenderedRanges: [ScopedRangeFact]
     let members: [ScopedFact]
     let expressions: [ScopedFact]
     let bindings: [ScopedFact]
@@ -133,11 +136,32 @@ struct ListIconFact: Encodable {
     let containers: [String]
 }
 
+struct FunctionRangeFact: Encodable {
+    let name: String
+    let returnsView: Bool
+    let scope: [String]
+    let start: Int
+    let end: Int
+}
+
+struct FunctionReturnFact: Encodable {
+    let name: String
+    let scope: [String]
+    let value: String
+}
+
+struct ScopedRangeFact: Encodable {
+    let scope: [String]
+    let start: Int
+    let end: Int
+}
+
 final class FactVisitor: SyntaxVisitor {
     private(set) var declarations: [DeclarationFact] = []
     private(set) var calls: [ScopedFact] = []
     private(set) var invocations: [ScopedFact] = []
     private(set) var functions: [ScopedFact] = []
+    private(set) var functionReturns: [FunctionReturnFact] = []
     private(set) var scopedIdentifiers: [ScopedFact] = []
     private(set) var stringSegments: [ScopedFact] = []
     private(set) var selectionControls: [SelectionControlFact] = []
@@ -149,6 +173,8 @@ final class FactVisitor: SyntaxVisitor {
     private(set) var listStyleModifiers: [FeedbackModifierFact] = []
     private(set) var accessibilityModifiers: [FeedbackModifierFact] = []
     private(set) var accessibilityControls: [AccessibilityControlFact] = []
+    private(set) var functionRanges: [FunctionRangeFact] = []
+    private(set) var nonRenderedRanges: [ScopedRangeFact] = []
     private(set) var members: [ScopedFact] = []
     private(set) var expressions: [ScopedFact] = []
     private(set) var bindings: [ScopedFact] = []
@@ -156,6 +182,8 @@ final class FactVisitor: SyntaxVisitor {
     private(set) var typeNames: [ScopedFact] = []
     private var scope: [String] = []
     private var listContainers: [String] = []
+    private var functionStack: [(name: String, scope: [String], closureDepth: Int)] = []
+    private var closureDepth = 0
 
     private func enter(_ kind: String, _ name: String, _ inherited: [String]) -> SyntaxVisitorContinueKind {
         declarations.append(DeclarationFact(kind: kind, name: name, inheritedTypes: inherited, scope: scope))
@@ -167,6 +195,14 @@ final class FactVisitor: SyntaxVisitor {
     private func fact(_ value: String, start: Int) -> ScopedFact {
         ScopedFact(value: value, scope: scope, start: start)
     }
+    private func excludeFromRenderedContent(_ closure: ClosureExprSyntax?) {
+        guard let closure else { return }
+        nonRenderedRanges.append(ScopedRangeFact(
+            scope: scope,
+            start: closure.positionAfterSkippingLeadingTrivia.utf8Offset,
+            end: closure.endPositionBeforeTrailingTrivia.utf8Offset
+        ))
+    }
 
     override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
         enter("struct", node.name.text, node.inheritanceClause?.inheritedTypes.map { $0.type.trimmedDescription } ?? [])
@@ -175,6 +211,35 @@ final class FactVisitor: SyntaxVisitor {
 
     override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
         functions.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
+        functionRanges.append(FunctionRangeFact(
+            name: node.name.text,
+            returnsView: node.signature.returnClause?.type.trimmedDescription.contains("View") ?? false,
+            scope: scope,
+            start: node.positionAfterSkippingLeadingTrivia.utf8Offset,
+            end: node.endPositionBeforeTrailingTrivia.utf8Offset
+        ))
+        functionStack.append((node.name.text, scope, closureDepth))
+        return .visitChildren
+    }
+    override func visitPost(_ node: FunctionDeclSyntax) { _ = functionStack.popLast() }
+
+    override func visit(_ node: ClosureExprSyntax) -> SyntaxVisitorContinueKind {
+        closureDepth += 1
+        return .visitChildren
+    }
+    override func visitPost(_ node: ClosureExprSyntax) { closureDepth -= 1 }
+
+    override func visit(_ node: ReturnStmtSyntax) -> SyntaxVisitorContinueKind {
+        if let function = functionStack.last,
+           closureDepth == function.closureDepth,
+           let expression = node.expression
+        {
+            functionReturns.append(FunctionReturnFact(
+                name: function.name,
+                scope: function.scope,
+                value: expression.trimmedDescription
+            ))
+        }
         return .visitChildren
     }
 
@@ -281,6 +346,35 @@ final class FactVisitor: SyntaxVisitor {
                 labelStart: labelSyntax?.positionAfterSkippingLeadingTrivia.utf8Offset ?? -1,
                 labelEnd: labelSyntax?.endPositionBeforeTrailingTrivia.utf8Offset ?? -1
             ))
+
+            switch calledName {
+            case "Button":
+                excludeFromRenderedContent(
+                    node.arguments.first(where: { $0.label?.text == "action" })?.expression.as(ClosureExprSyntax.self)
+                )
+                if labelClosure != nil || titleArgument != nil {
+                    excludeFromRenderedContent(node.trailingClosure)
+                }
+            case "Menu":
+                break
+            case "NavigationLink":
+                break
+            default:
+                break
+            }
+        }
+        if [
+            "onTapGesture", "onLongPressGesture", "onAppear", "onDisappear", "onChange",
+            "onReceive", "task", "refreshable", "onSubmit", "onDelete", "onMove",
+            "alert", "confirmationDialog",
+        ].contains(calledName) {
+            excludeFromRenderedContent(node.trailingClosure)
+            for closure in node.additionalTrailingClosures {
+                excludeFromRenderedContent(closure.closure)
+            }
+            for argument in node.arguments {
+                excludeFromRenderedContent(argument.expression.as(ClosureExprSyntax.self))
+            }
         }
         if ["List", "Form", "Section"].contains(calledName) {
             listContainers.append(calledName)
@@ -422,6 +516,7 @@ func indexSource(_ source: String, as key: String) {
         calls: visitor.calls,
         invocations: visitor.invocations,
         functions: visitor.functions,
+        functionReturns: visitor.functionReturns,
         selectionControls: visitor.selectionControls,
         feedbackModifiers: visitor.feedbackModifiers,
         alertModifiers: visitor.alertModifiers,
@@ -431,6 +526,8 @@ func indexSource(_ source: String, as key: String) {
         listStyleModifiers: visitor.listStyleModifiers,
         accessibilityModifiers: visitor.accessibilityModifiers,
         accessibilityControls: visitor.accessibilityControls,
+        functionRanges: visitor.functionRanges,
+        nonRenderedRanges: visitor.nonRenderedRanges,
         members: visitor.members,
         expressions: visitor.expressions,
         bindings: visitor.bindings,

@@ -549,6 +549,59 @@ struct ScorePresentationTests {
         }
     }
 
+    @MainActor
+    private final class ScoreCacheSessionHolder {
+        var session: AppStorageSession
+
+        init(session: AppStorageSession) {
+            self.session = session
+        }
+    }
+
+    @MainActor
+    private final class DelayedScoreServiceSpy: ScoreListServicing {
+        private var challengeContinuation: CheckedContinuation<BITLoginAuthenticationChallenge, Error>?
+        private var startContinuation: CheckedContinuation<Void, Never>?
+        private var hasStarted = false
+        private(set) var fetchCount = 0
+
+        func startScoreChallenge() async throws -> BITLoginAuthenticationChallenge {
+            hasStarted = true
+            startContinuation?.resume()
+            startContinuation = nil
+            return try await withCheckedThrowingContinuation { continuation in
+                challengeContinuation = continuation
+            }
+        }
+
+        func waitUntilStarted() async {
+            guard !hasStarted else { return }
+            await withCheckedContinuation { continuation in
+                startContinuation = continuation
+            }
+        }
+
+        func completeStart(with challenge: BITLoginAuthenticationChallenge) {
+            challengeContinuation?.resume(returning: challenge)
+            challengeContinuation = nil
+        }
+
+        func fetchScores(
+            detail: Bool,
+            authenticatedBy challenge: BITLoginAuthenticationChallenge
+        ) async throws -> [ScoreRow] {
+            fetchCount += 1
+            return []
+        }
+
+        func submitScoreSMSCode(
+            _ code: String,
+            for challenge: BITLoginAuthenticationChallenge
+        ) async throws -> BITLoginAuthenticationChallenge {
+            challenge
+        }
+    }
+
     @Test("Score refresh requests fields required by the detail UI")
     @MainActor
     func scoreRefreshRequestsDetailedRows() async {
@@ -572,6 +625,39 @@ struct ScorePresentationTests {
 
         #expect(service.requestedDetailValues == [false, true])
         #expect(viewModel.rows.first?.averageScore == "82.5")
+    }
+
+    @Test("A delayed score challenge cannot write into the newly selected account")
+    @MainActor
+    func delayedScoreChallengeIsDiscardedAfterAccountSwitch() async {
+        let activeSession = ScoreCacheSessionHolder(
+            session: AppStorageSession(accountIdentifier: "score-account-a")
+        )
+        let service = DelayedScoreServiceSpy()
+        let viewModel = ScoreViewModel(
+            service: service,
+            currentScoreCacheSession: { activeSession.session }
+        )
+
+        let refreshTask = Task { await viewModel.refresh() }
+        await service.waitUntilStarted()
+
+        activeSession.session = AppStorageSession(accountIdentifier: "score-account-b")
+        viewModel.resetForCurrentAccount()
+        service.completeStart(with: BITLoginAuthenticationChallenge(
+            challengeID: "account-a-challenge",
+            accessToken: "account-a-token",
+            status: "authenticated",
+            maskedPhone: nil,
+            expiresIn: 300
+        ))
+        await refreshTask.value
+
+        let fetchCount = service.fetchCount
+        #expect(fetchCount == 0)
+        #expect(viewModel.rows.isEmpty)
+        #expect(viewModel.smsChallenge == nil)
+        #expect(!viewModel.isSyncing)
     }
 
     @Test("Unchanged score refresh presents the latest-state notice")

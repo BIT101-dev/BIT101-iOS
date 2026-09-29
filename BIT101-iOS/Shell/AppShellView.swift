@@ -96,7 +96,7 @@ struct AppShellView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var settings = AppSettingsStore.shared
-    @ObservedObject private var schoolDataViewModels = SchoolDataViewModelStore.shared
+    @EnvironmentObject private var scheduleViewModel: ScheduleViewModel
     @ObservedObject private var promptCoordinator = AppPromptCoordinator.shared
     @State private var selectedTab: AppTab = .schedule
     @State private var requestedScheduleSection: ScheduleSection?
@@ -131,9 +131,10 @@ struct AppShellView: View {
                         )
                     case .map:
                         CampusMapScreen(
-                            scheduleViewModel: schoolDataViewModels.scheduleViewModel,
+                            nextCourseTarget: UpcomingCourseMapResolver.nextTarget(in: scheduleViewModel.cache),
                             requestedLocation: requestedMapLocation
                         )
+                        .task { await scheduleViewModel.loadIfNeeded() }
                     case .score:
                         ScoreRootView(requestedCourse: $requestedCourse)
                     case .gallery:
@@ -172,8 +173,8 @@ struct AppShellView: View {
             handleIncomingURL(url)
             AppDeepLinkCoordinator.shared.consume(url)
         }
-        .onReceive(schoolDataViewModels.scheduleViewModel.$notice.compactMap { $0 }) { notice in
-            schoolDataViewModels.scheduleViewModel.notice = nil
+        .onReceive(scheduleViewModel.$notice.compactMap { $0 }) { notice in
+            scheduleViewModel.notice = nil
             AppErrorPresenter.shared.present(notice)
         }
     }

@@ -18,7 +18,7 @@ struct ScheduleRootView: View {
     @Binding var requestedSection: ScheduleSection?
     let onOpenAcademicCourse: (CourseNavigationRequest) -> Void
     let onOpenCourseLocation: (CampusMapLocationRequest) -> Void
-    @StateObject private var viewModel = SchoolDataViewModelStore.shared.scheduleViewModel
+    @EnvironmentObject private var viewModel: ScheduleViewModel
     @State private var courseTabResetSignal = 0
 
     init(

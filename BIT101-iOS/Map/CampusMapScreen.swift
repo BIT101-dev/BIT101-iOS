@@ -66,7 +66,7 @@ private enum CampusMapDisplayMode: String {
 ///
 /// 使用原生 MapKit 展示下一节课的位置，并提供校区切换和系统地图导航入口。
 struct CampusMapScreen: View {
-    @ObservedObject var scheduleViewModel: ScheduleViewModel
+    let nextCourseTarget: UpcomingCourseMapTarget?
     let requestedLocation: CampusMapLocationRequest?
     @AppStorage(MapPreferenceKey.selectedCampus) private var selectedCampusID = CampusPreset.liangxiang.rawValue
     @AppStorage(MapPreferenceKey.displayMode) private var storedDisplayMode = CampusMapDisplayMode.standard.rawValue
@@ -83,10 +83,10 @@ struct CampusMapScreen: View {
     @State private var activeRequestedLocation: CampusMapLocationRequest?
 
     init(
-        scheduleViewModel: ScheduleViewModel,
+        nextCourseTarget: UpcomingCourseMapTarget?,
         requestedLocation: CampusMapLocationRequest? = nil
     ) {
-        self.scheduleViewModel = scheduleViewModel
+        self.nextCourseTarget = nextCourseTarget
         self.requestedLocation = requestedLocation
     }
 
@@ -101,10 +101,7 @@ struct CampusMapScreen: View {
                 mapConfiguration: displayMode.configuration,
                 mapConfigurationID: displayMode.rawValue,
                 onLocationFailure: { error in
-                    locationController.notice = MapNotice(
-                        title: "定位失败",
-                        message: error.localizedDescription
-                    )
+                    locationController.handleLocationFailure(error)
                 }
             )
             .ignoresSafeArea(edges: [.top, .bottom])
@@ -151,10 +148,6 @@ struct CampusMapScreen: View {
             hasRestoredStoredCampus = true
             focusOnNextCourseIfPossible(animated: false)
             consumeRequestedLocationIfNeeded()
-        }
-        .task {
-            await scheduleViewModel.loadIfNeeded()
-            focusOnNextCourseIfPossible(animated: false)
         }
         .onChange(of: nextCourseTarget) { _, _ in
             focusOnNextCourseIfPossible(animated: false)
@@ -241,10 +234,6 @@ struct CampusMapScreen: View {
         CampusMapDisplayMode(rawValue: storedDisplayMode) ?? .standard
     }
 
-    /// 主课表中尚未开始的最近一节课程。
-    private var nextCourseTarget: UpcomingCourseMapTarget? {
-        UpcomingCourseMapResolver.nextTarget(in: scheduleViewModel.cache)
-    }
 }
 
 /// 校区快捷切换按钮。

@@ -37,20 +37,20 @@ nonisolated struct ScheduleNotice: Identifiable {
     let id = UUID()
     let title: String
     let message: String
-    let shouldOpenSettings: Bool
+    let recoveryAction: AppRecoveryAction?
     let allowsDiagnostics: Bool
     let showsRecoveryLinks: Bool
 
     init(
         title: String,
         message: String,
-        shouldOpenSettings: Bool = false,
+        recoveryAction: AppRecoveryAction? = nil,
         allowsDiagnostics: Bool = true,
         showsRecoveryLinks: Bool = true
     ) {
         self.title = title
         self.message = message
-        self.shouldOpenSettings = shouldOpenSettings
+        self.recoveryAction = recoveryAction
         self.allowsDiagnostics = allowsDiagnostics
         self.showsRecoveryLinks = showsRecoveryLinks
     }
@@ -58,12 +58,12 @@ nonisolated struct ScheduleNotice: Identifiable {
     static func userInput(
         title: String,
         message: String,
-        shouldOpenSettings: Bool = false
+        recoveryAction: AppRecoveryAction? = nil
     ) -> ScheduleNotice {
         ScheduleNotice(
             title: title,
             message: message,
-            shouldOpenSettings: shouldOpenSettings,
+            recoveryAction: recoveryAction,
             allowsDiagnostics: false
         )
     }

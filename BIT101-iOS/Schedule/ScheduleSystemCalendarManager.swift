@@ -233,12 +233,12 @@ enum ScheduleSystemCalendarError: LocalizedError {
     case missingSchedule
     case noImportedEvents
 
-    var shouldOpenSettings: Bool {
+    var recoveryAction: AppRecoveryAction? {
         switch self {
         case .permissionDenied, .noWritableCalendarSource:
-            return true
+            return .openAppSettings
         case .missingSchedule, .noImportedEvents:
-            return false
+            return nil
         }
     }
 

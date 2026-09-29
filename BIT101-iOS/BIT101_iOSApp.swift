@@ -16,12 +16,10 @@ import UIKit
 /// 所有可能触发 WebVPN / 短信验证的学校请求都只能由用户进入对应页面后显式发起。
 @MainActor
 final class SchoolDataViewModelStore: ObservableObject {
-    static let shared = SchoolDataViewModelStore()
-
     let scheduleViewModel = ScheduleViewModel()
     let scoreViewModel: ScoreViewModel
 
-    private init() {
+    init() {
 #if BIT101_UI_TESTING
         if AppFileDirectories.isRunningUITest {
             scoreViewModel = ScoreViewModel(service: UITestScoreService())
@@ -117,6 +115,7 @@ enum ScheduleReminderBackgroundRefresh {
 /// 挂载根视图，并协调课表缓存与外部展示同步。
 @main
 struct BIT101_iOSApp: App {
+    @StateObject private var schoolDataViewModels = SchoolDataViewModelStore()
     @Environment(\.scenePhase) private var scenePhase
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
@@ -184,6 +183,8 @@ struct BIT101_iOSApp: App {
                 }
             #else
             ContentView()
+                .environmentObject(schoolDataViewModels.scheduleViewModel)
+                .environmentObject(schoolDataViewModels.scoreViewModel)
                 .appKeyboardDismissSupport()
                 .appPromptHost()
                 .onOpenURL { url in
@@ -203,7 +204,6 @@ struct BIT101_iOSApp: App {
                     // 账号切换后清掉失去上下文的全局提示队列。
                     AppErrorPresenter.shared.reset()
                     // 只重置内存状态；学校请求仍由用户主动操作触发。
-                    let schoolDataViewModels = SchoolDataViewModelStore.shared
                     schoolDataViewModels.scheduleViewModel.resetForCurrentAccount()
                     schoolDataViewModels.scoreViewModel.resetForCurrentAccount()
                     // 切换账号后，组件和灵动岛立即改读新账号的本地缓存。

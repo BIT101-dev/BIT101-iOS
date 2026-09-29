@@ -20,6 +20,8 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.education</string>
 	<key>WKCompanionAppBundleIdentifier</key>
 	<string>BIT101-dev.BIT101-iOS</string>
 	<key>WKApplication</key>

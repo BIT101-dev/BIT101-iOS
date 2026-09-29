@@ -248,6 +248,12 @@ nonisolated enum ComposerDraftStore {
         let previousRevision = storedGalleryRevision(at: fileURL)
         var newRevision: String?
         do {
+            // 清理上次保存留下的版本后再创建新目录；清理失败时本轮写入停止，限制孤立版本数量。
+            try removeObsoleteAssetRevisions(
+                for: "gallery.json",
+                keeping: previousRevision,
+                session: session
+            )
             let (revision, images) = try writeImages(snapshot.images, filename: "gallery.json", session: session)
             newRevision = revision
             let stored = StoredGalleryComposerDraft(
@@ -263,10 +269,7 @@ nonisolated enum ComposerDraftStore {
                 images: images
             )
             try write(stored, to: fileURL)
-            removeObsoleteAssetRevisions(for: "gallery.json", keeping: revision, session: session)
-            if let previousRevision, previousRevision != revision {
-                removeAssets(for: "gallery.json", revision: previousRevision, session: session)
-            }
+            try? removeObsoleteAssetRevisions(for: "gallery.json", keeping: revision, session: session)
             return true
         } catch {
             if let newRevision { removeAssets(for: "gallery.json", revision: newRevision, session: session) }
@@ -362,6 +365,12 @@ nonisolated enum ComposerDraftStore {
         let previousRevision = storedSuggestionRevision(at: fileURL)
         var newRevision: String?
         do {
+            // 清理上次保存留下的版本后再创建新目录；清理失败时本轮写入停止，限制孤立版本数量。
+            try removeObsoleteAssetRevisions(
+                for: "suggestion.json",
+                keeping: previousRevision,
+                session: session
+            )
             let (revision, images) = try writeImages(snapshot.images, filename: "suggestion.json", session: session)
             newRevision = revision
             let stored = StoredDeveloperSuggestionDraft(
@@ -372,10 +381,7 @@ nonisolated enum ComposerDraftStore {
                 images: images
             )
             try write(stored, to: fileURL)
-            removeObsoleteAssetRevisions(for: "suggestion.json", keeping: revision, session: session)
-            if let previousRevision, previousRevision != revision {
-                removeAssets(for: "suggestion.json", revision: previousRevision, session: session)
-            }
+            try? removeObsoleteAssetRevisions(for: "suggestion.json", keeping: revision, session: session)
             return true
         } catch {
             if let newRevision { removeAssets(for: "suggestion.json", revision: newRevision, session: session) }
@@ -578,11 +584,16 @@ nonisolated enum ComposerDraftStore {
         try? AppFileDirectories.files.removeItem(at: assetDirectoryURL(for: filename, revision: revision, session: session))
     }
 
-    private static func removeObsoleteAssetRevisions(for filename: String, keeping revision: String, session: AppStorageSession) {
+    private static func removeObsoleteAssetRevisions(
+        for filename: String,
+        keeping revision: String?,
+        session: AppStorageSession
+    ) throws {
         let root = assetRootURL(for: filename, session: session)
-        guard let revisions = try? AppFileDirectories.files.contentsOfDirectory(at: root, options: []) else { return }
+        guard AppFileDirectories.files.fileExists(at: root) else { return }
+        let revisions = try AppFileDirectories.files.contentsOfDirectory(at: root, options: [])
         for oldRevision in revisions where oldRevision.lastPathComponent != revision {
-            try? AppFileDirectories.files.removeItem(at: oldRevision)
+            try AppFileDirectories.files.removeItem(at: oldRevision)
         }
     }
 }

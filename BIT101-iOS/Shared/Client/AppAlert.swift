@@ -7,6 +7,7 @@ nonisolated struct AppAlert: Identifiable {
     let message: String
     let allowsDiagnostics: Bool
     let showsRecoveryLinks: Bool
+    var recoveryAction: AppRecoveryAction? { nil }
 
     init(
         title: String,

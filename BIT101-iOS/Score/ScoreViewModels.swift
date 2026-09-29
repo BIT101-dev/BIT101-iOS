@@ -37,7 +37,12 @@ final class ScoreViewModel: ObservableObject {
     @Published var alert: AppAlert?
 
     private let service: any ScoreListServicing
+    private let currentScoreCacheSession: @MainActor () -> AppStorageSession
     private var isRefreshing = false
+    /// 账号切换后递增，使此前启动的请求失去页面与缓存写入资格。
+    private(set) var accountGeneration = 0
+    private var activeRequestID: UUID?
+    private var cancelActiveRequest: (() -> Void)?
     private var didRestoreCachedRows = false
     private var didInitializeTermSelection = false
     private var didInitializeCourseTypeSelection = false
@@ -51,9 +56,13 @@ final class ScoreViewModel: ObservableObject {
     private var cachedCoursesByTerm: [String: [CourseRecord]] = [:]
 
     init(
-        service: any ScoreListServicing
+        service: any ScoreListServicing,
+        currentScoreCacheSession: @escaping @MainActor () -> AppStorageSession = {
+            AppFileDirectories.scoreCacheSession
+        }
     ) {
         self.service = service
+        self.currentScoreCacheSession = currentScoreCacheSession
         if
             let rawSortIndex = preferenceSnapshot?.sortIndex,
             let persistedSortIndex = ScoreSortIndex(rawValue: rawSortIndex)
@@ -98,6 +107,10 @@ final class ScoreViewModel: ObservableObject {
 
     /// 切换账号后重置内存状态；下一次启动按新学号恢复磁盘缓存。
     func resetForCurrentAccount() {
+        accountGeneration &+= 1
+        cancelActiveRequest?()
+        cancelActiveRequest = nil
+        activeRequestID = nil
         rows = []
         state = .idle
         availableTerms = []
@@ -127,15 +140,29 @@ final class ScoreViewModel: ObservableObject {
     /// “查询成绩”和下拉刷新触发真实成绩查询，短信验证码在当前操作链路中展示。
     func restoreCachedDataIfNeeded() async {
         guard state == .idle else { return }
-        await refreshCachedScheduleCourses()
-        await restoreCachedRowsIfAvailable()
+        let session = currentScoreCacheSession()
+        let generation = accountGeneration
+        await refreshCachedScheduleCourses(for: session, generation: generation)
+        guard isCurrent(session, generation: generation) else { return }
+        await restoreCachedRowsIfAvailable(for: session, generation: generation)
+        guard isCurrent(session, generation: generation) else { return }
         if rows.isEmpty {
             state = .loaded
         }
     }
 
     private func refreshCachedScheduleCourses() async {
-        let cache = await ScheduleCacheStore.loadAsync()
+        let session = currentScoreCacheSession()
+        await refreshCachedScheduleCourses(for: session, generation: accountGeneration)
+    }
+
+    private func refreshCachedScheduleCourses(
+        for session: AppStorageSession,
+        generation: Int
+    ) async {
+        let result = await ScheduleCacheStore.loadResultAsync(for: session)
+        guard isCurrent(session, generation: generation) else { return }
+        let cache = result.cacheIfReadable ?? ScheduleCache()
         cachedCoursesByTerm = cache.cachedCoursesByTerm
         if !rows.isEmpty {
             pendingCourses = calculatePendingCourses()
@@ -151,6 +178,8 @@ final class ScoreViewModel: ObservableObject {
     ) async {
         guard !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil else { return }
 
+        let session = currentScoreCacheSession()
+        let generation = accountGeneration
         let hadContent = !rows.isEmpty || state == .loaded
         smsChallenge = nil
         smsVerificationError = nil
@@ -164,20 +193,30 @@ final class ScoreViewModel: ObservableObject {
         }
 
         defer {
-            isRefreshing = false
-            isSyncing = false
+            if isCurrent(session, generation: generation) {
+                isRefreshing = false
+                isSyncing = false
+            }
         }
 
         do {
-            let challenge = try await service.startScoreChallenge()
+            let challengeTask = Task { @MainActor [service = self.service] in
+                try await service.startScoreChallenge()
+            }
+            let challenge = try await awaitTrackedRequest(challengeTask)
+            guard isCurrent(session, generation: generation) else { return }
             try await synchronizeScores(
                 authenticatedBy: challenge,
-                forceDetailedRefresh: forceDetailedRefresh
+                forceDetailedRefresh: forceDetailedRefresh,
+                session: session,
+                generation: generation
             )
         } catch ScoreServiceError.secondFactorRequired(let challenge) {
+            guard isCurrent(session, generation: generation) else { return }
             smsChallenge = challenge
             state = hadContent ? .loaded : .loading
         } catch ScoreServiceError.challengeInvalid(let message) {
+            guard isCurrent(session, generation: generation) else { return }
             smsChallenge = nil
             smsVerificationError = nil
             pendingRefreshForcesDetailed = false
@@ -194,6 +233,7 @@ final class ScoreViewModel: ObservableObject {
                 }
             }
         } catch {
+            guard isCurrent(session, generation: generation) else { return }
             if isCancellation(error) {
                 pendingRefreshForcesDetailed = false
                 state = hadContent ? .loaded : .idle
@@ -224,6 +264,8 @@ final class ScoreViewModel: ObservableObject {
     /// 提交原生验证码输入框中的一次性代码，并在认证成功后完成成绩刷新。
     func submitSMSCode(_ code: String) async {
         guard let challenge = smsChallenge, !isSubmittingSMSCode else { return }
+        let session = currentScoreCacheSession()
+        let generation = accountGeneration
 
         let normalizedCode = code.filter(\.isNumber)
         guard (4 ... 8).contains(normalizedCode.count) else {
@@ -233,27 +275,40 @@ final class ScoreViewModel: ObservableObject {
 
         isSubmittingSMSCode = true
         smsVerificationError = nil
-        defer { isSubmittingSMSCode = false }
+        defer {
+            if isCurrent(session, generation: generation) {
+                isSubmittingSMSCode = false
+            }
+        }
 
         do {
-            let authenticatedChallenge = try await service.submitScoreSMSCode(
-                normalizedCode,
-                for: challenge
-            )
+            let submitTask = Task { @MainActor [service = self.service] in
+                try await service.submitScoreSMSCode(normalizedCode, for: challenge)
+            }
+            let authenticatedChallenge = try await awaitTrackedRequest(submitTask)
+            guard isCurrent(session, generation: generation) else { return }
             smsChallenge = nil
             isSyncing = true
             syncStatusText = "同步简略成绩中"
-            defer { isSyncing = false }
+            defer {
+                if isCurrent(session, generation: generation) {
+                    isSyncing = false
+                }
+            }
             let forceDetailedRefresh = pendingRefreshForcesDetailed
             pendingRefreshForcesDetailed = false
             try await synchronizeScores(
                 authenticatedBy: authenticatedChallenge,
-                forceDetailedRefresh: forceDetailedRefresh
+                forceDetailedRefresh: forceDetailedRefresh,
+                session: session,
+                generation: generation
             )
         } catch ScoreServiceError.secondFactorRequired(let challenge) {
+            guard isCurrent(session, generation: generation) else { return }
             smsChallenge = challenge
             smsVerificationError = "请输入最新收到的短信验证码。"
         } catch ScoreServiceError.challengeInvalid(let message) {
+            guard isCurrent(session, generation: generation) else { return }
             smsChallenge = nil
             smsVerificationError = nil
             pendingRefreshForcesDetailed = false
@@ -263,6 +318,7 @@ final class ScoreViewModel: ObservableObject {
             }
             alert = AppAlert.userInput(title: "验证已失效", message: message)
         } catch {
+            guard isCurrent(session, generation: generation) else { return }
             if isCancellation(error) {
                 state = rows.isEmpty ? .idle : .loaded
                 return
@@ -282,14 +338,18 @@ final class ScoreViewModel: ObservableObject {
     /// 详细请求的状态文案至少展示半秒。
     private func synchronizeScores(
         authenticatedBy challenge: BITLoginAuthenticationChallenge,
-        forceDetailedRefresh: Bool
+        forceDetailedRefresh: Bool,
+        session: AppStorageSession,
+        generation: Int
     ) async throws {
-        let session = AppFileDirectories.scoreCacheSession
         let cachedSnapshot = await ScoreCacheStore.loadSnapshot(for: session)
-        guard AppFileDirectories.scoreCacheSession == session else { return }
+        guard isCurrent(session, generation: generation) else { return }
         let cachedRows = cachedSnapshot?.rows
-        let briefRows = try await service.fetchScores(detail: false, authenticatedBy: challenge)
-        guard AppFileDirectories.scoreCacheSession == session else { return }
+        let briefTask = Task { @MainActor [service = self.service] in
+            try await service.fetchScores(detail: false, authenticatedBy: challenge)
+        }
+        let briefRows = try await awaitTrackedRequest(briefTask)
+        guard isCurrent(session, generation: generation) else { return }
         applyRows(briefRows)
         syncStatusText = "简略成绩同步完成"
 
@@ -304,14 +364,14 @@ final class ScoreViewModel: ObservableObject {
         if detailDecision != .fetch, let cachedRows {
             applyRows(cachedRows)
             let updatedAt = await ScoreCacheStore.markChecked(for: session)
-            guard AppFileDirectories.scoreCacheSession == session else { return }
+            guard isCurrent(session, generation: generation) else { return }
             lastUpdatedAt = updatedAt ?? cachedSnapshot?.updatedAt
             syncStatusText = "成绩已是最新"
             presentUnchangedNotice()
             return
         }
 
-        let detailedRowsTask = Task { @MainActor [self] in
+        let detailedRowsTask = Task { @MainActor [service = self.service] in
             try await service.fetchScores(
                 detail: true,
                 authenticatedBy: challenge
@@ -319,20 +379,24 @@ final class ScoreViewModel: ObservableObject {
         }
         try await Task.sleep(for: .milliseconds(500))
 
+        guard isCurrent(session, generation: generation) else {
+            detailedRowsTask.cancel()
+            return
+        }
         syncStatusText = "同步详细信息中"
         do {
-            let detailedRows = try await detailedRowsTask.value
-            guard AppFileDirectories.scoreCacheSession == session else { return }
+            let detailedRows = try await awaitTrackedRequest(detailedRowsTask)
+            guard isCurrent(session, generation: generation) else { return }
             let scoresAreIdentical = cachedRows.map { ScoreDetailRefreshPolicy.rowsMatch(detailedRows, $0) } ?? false
             applyRows(detailedRows)
             let updatedAt = await ScoreCacheStore.saveDetailed(rows: detailedRows, for: session)
-            guard AppFileDirectories.scoreCacheSession == session else { return }
+            guard isCurrent(session, generation: generation) else { return }
             lastUpdatedAt = updatedAt ?? cachedSnapshot?.updatedAt
             if scoresAreIdentical {
                 presentUnchangedNotice()
             }
         } catch {
-            guard AppFileDirectories.scoreCacheSession == session else { return }
+            guard isCurrent(session, generation: generation) else { return }
             if let cachedRows,
                ScoreDetailRefreshPolicy.briefRowsMatchCache(briefRows, cachedRows: cachedRows)
             {
@@ -341,7 +405,7 @@ final class ScoreViewModel: ObservableObject {
                 lastUpdatedAt = cachedSnapshot?.updatedAt
             } else {
                 let updatedAt = await ScoreCacheStore.save(rows: briefRows, for: session)
-                guard AppFileDirectories.scoreCacheSession == session else { return }
+                guard isCurrent(session, generation: generation) else { return }
                 lastUpdatedAt = updatedAt ?? cachedSnapshot?.updatedAt
             }
             throw error
@@ -520,12 +584,14 @@ final class ScoreViewModel: ObservableObject {
     }
 
     /// 恢复本机缓存的成绩列表。
-    private func restoreCachedRowsIfAvailable() async {
+    private func restoreCachedRowsIfAvailable(
+        for session: AppStorageSession,
+        generation: Int
+    ) async {
         guard !didRestoreCachedRows else { return }
         didRestoreCachedRows = true
-        let session = AppFileDirectories.scoreCacheSession
         guard let snapshot = await ScoreCacheStore.loadSnapshot(for: session),
-              AppFileDirectories.scoreCacheSession == session,
+              isCurrent(session, generation: generation),
               let rows = snapshot.rows,
               !rows.isEmpty
         else { return }
@@ -536,9 +602,10 @@ final class ScoreViewModel: ObservableObject {
     /// iCloud 成绩缓存到达时立即刷新当前页面，页面继续使用本地缓存数据。
     private func applySyncedScoreCacheIfAvailable() async {
         guard !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil else { return }
-        let session = AppFileDirectories.scoreCacheSession
+        let session = currentScoreCacheSession()
+        let generation = accountGeneration
         guard let snapshot = await ScoreCacheStore.loadSnapshot(for: session),
-              AppFileDirectories.scoreCacheSession == session,
+              isCurrent(session, generation: generation),
               let cachedRows = snapshot.rows,
               !cachedRows.isEmpty
         else { return }
@@ -657,5 +724,25 @@ final class ScoreViewModel: ObservableObject {
     /// 同时兼容 Swift Concurrency 和 URLSession 的取消错误。
     private func isCancellation(_ error: Error) -> Bool {
         TaskCancellation.matches(error)
+    }
+
+    private func isCurrent(_ session: AppStorageSession, generation: Int) -> Bool {
+        accountGeneration == generation && currentScoreCacheSession() == session
+    }
+
+    private func awaitTrackedRequest<Value: Sendable>(
+        _ task: Task<Value, Error>
+    ) async throws -> Value {
+        let requestID = UUID()
+        activeRequestID = requestID
+        cancelActiveRequest = { task.cancel() }
+        defer {
+            task.cancel()
+            if activeRequestID == requestID {
+                activeRequestID = nil
+                cancelActiveRequest = nil
+            }
+        }
+        return try await task.value
     }
 }

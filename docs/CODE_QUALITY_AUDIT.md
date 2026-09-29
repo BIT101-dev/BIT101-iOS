@@ -1,6 +1,6 @@
 # BIT101-iOS 代码质量审查
 
-更新时间：2026-09-27
+更新时间：2026-09-29
 
 ## 当前工程约束
 
@@ -82,6 +82,14 @@ Apple Lookup 于 9 月 27 日返回线上版本 1.8.1，发布时间为 `2026-09
 - 课程详情点击建议来自 1.8.2（38）。该版本将课程卡片触摸交由带 `UIContextMenuInteraction` 的透明 `UIControl`，其 `.touchUpInside` 动作未稳定触发。当前改用 `UITapGestureRecognizer` 响应短按，并沿用系统默认手势仲裁处理长按分享；build 39 的同时识别尝试影响了原生长按菜单，build 40 移除同时识别配置。
 - 最新「定位失败」报告包含 `kCLErrorDomain` 代码 1，即 `locationUnknown`；10 条网络记录均为 HTTP 200。MapKit 可能将该 Core Location 错误包装在 `NSUnderlyingErrorKey` 中，当前已递归检查错误链并过滤该瞬时状态，保留其它定位失败的提示。
 - 版本提升为 1.8.3（40）；启动公告和更新文案已同步。iPhone Release 真机构建、安装和启动通过。当前尚未取得课程点击与地图错误提示的实机录屏反馈。
+
+## 2026-09-29 成绩请求账号隔离与职责分层
+
+- `ScoreViewModel` 在成绩刷新、短信提交和缓存恢复开始时捕获账号 session 与 generation；账号切换递增 generation 并取消当前受管请求。异步结果和错误状态回写前校验 session 与 generation，成绩和关联课表缓存读取沿用捕获的账号 session。
+- `InfrastructureTests` 新增延迟认证 challenge 回归用例，覆盖账号切换后丢弃旧账号 challenge 的路径。
+- 话廊消息状态机与本地已读仓库位于 `Gallery/GalleryMessageViewModel.swift`；话廊 feed 与搜索状态保留在 `Gallery/GalleryViewModel.swift`。
+- CloudKit 载荷、冲突策略和缓存合并位于 `Schedule/ScheduleCloudSyncSupport.swift`；CloudKit 请求编排保留在 `Schedule/ScheduleCloudSyncManager.swift`。
+- `Scripts/build-install-device.sh` 真机 Release 构建、安装和启动流程完成。
 
 ## 1.8.2（38）全量验证
 

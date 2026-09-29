@@ -30,7 +30,7 @@ struct CalendarSettingsPage: View {
         let title: String
     }
 
-    @StateObject private var viewModel = SchoolDataViewModelStore.shared.scheduleViewModel
+    @EnvironmentObject private var viewModel: ScheduleViewModel
     @AppStorage("schedule.calendar.axisMode") private var storedCalendarAxisMode = ScheduleCalendarAxisMode.quantized.rawValue
     @State private var isShowingTimeTableEditor = false
     @State private var timeTableText = ""
@@ -371,7 +371,7 @@ struct CalendarSettingsPage: View {
                     viewModel.notice = ScheduleNotice.userInput(
                         title: "导入失败",
                         message: calendarError.localizedDescription,
-                        shouldOpenSettings: calendarError.shouldOpenSettings
+                        recoveryAction: calendarError.recoveryAction
                     )
                 } else {
                     viewModel.notice = ScheduleNotice(
@@ -406,7 +406,7 @@ struct CalendarSettingsPage: View {
                     viewModel.notice = ScheduleNotice.userInput(
                         title: "删除失败",
                         message: calendarError.localizedDescription,
-                        shouldOpenSettings: calendarError.shouldOpenSettings
+                        recoveryAction: calendarError.recoveryAction
                     )
                 } else {
                     viewModel.notice = ScheduleNotice(
