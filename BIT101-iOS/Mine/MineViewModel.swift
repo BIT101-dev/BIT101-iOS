@@ -1,3 +1,5 @@
+import CommunityCore
+import ClientCore
 //
 //  MineViewModel.swift
 //  BIT101-iOS
@@ -43,7 +45,7 @@ private func appendMinePagedPage<Item>(_ items: [Item], to state: inout MinePage
 /// 生成资料卡展示的帖子数摘要。
 ///
 /// 分页结果的数量后缀 `+` 表示当前页后续可能还有更多帖子。
-private func minePosterCountText(for state: MinePagedState<GalleryPoster>) -> String {
+private func minePosterCountText(for state: MinePagedState<CommunityPoster>) -> String {
     switch state.status {
     case .idle, .loading:
         return "..."
@@ -64,11 +66,11 @@ final class MineViewModel: ObservableObject {
     /// 资料卡加载状态。
     @Published private(set) var profileStatus: MineLoadStatus = .idle
     /// 粉丝列表分页状态。
-    @Published private(set) var followerState = MinePagedState<GalleryUser>()
+    @Published private(set) var followerState = MinePagedState<CommunityUser>()
     /// 关注列表分页状态。
-    @Published private(set) var followingState = MinePagedState<GalleryUser>()
+    @Published private(set) var followingState = MinePagedState<CommunityUser>()
     /// 我的帖子列表分页状态。
-    @Published private(set) var posterState = MinePagedState<GalleryPoster>()
+    @Published private(set) var posterState = MinePagedState<CommunityPoster>()
     /// 社区会话失效时通知页面回到登录流程。
     @Published private(set) var requiresLogin = false
     @Published var alert: AppAlert?
@@ -178,7 +180,7 @@ final class MineViewModel: ObservableObject {
     }
 
     /// 粉丝列表的分页加载。
-    func loadMoreFollowersIfNeeded(currentUser: GalleryUser?) async {
+    func loadMoreFollowersIfNeeded(currentUser: CommunityUser?) async {
         guard let currentUser else { return }
         guard followerState.status == .loaded, followerState.shouldLoadMore(currentID: currentUser.id) else { return }
 
@@ -236,7 +238,7 @@ final class MineViewModel: ObservableObject {
     }
 
     /// 关注列表的分页加载。
-    func loadMoreFollowingsIfNeeded(currentUser: GalleryUser?) async {
+    func loadMoreFollowingsIfNeeded(currentUser: CommunityUser?) async {
         guard let currentUser else { return }
         guard followingState.status == .loaded, followingState.shouldLoadMore(currentID: currentUser.id) else { return }
 
@@ -303,7 +305,7 @@ final class MineViewModel: ObservableObject {
     }
 
     /// “我的帖子”列表的分页加载。
-    func loadMorePostersIfNeeded(currentPoster: GalleryPoster?) async {
+    func loadMorePostersIfNeeded(currentPoster: CommunityPoster?) async {
         guard let currentPoster else { return }
         guard posterState.status == .loaded, posterState.shouldLoadMore(currentID: currentPoster.id) else { return }
 
@@ -341,7 +343,7 @@ final class UserProfileViewModel: ObservableObject {
     /// 资料卡加载状态。
     @Published private(set) var profileStatus: MineLoadStatus = .idle
     /// 他人帖子列表分页状态。
-    @Published private(set) var posterState = MinePagedState<GalleryPoster>()
+    @Published private(set) var posterState = MinePagedState<CommunityPoster>()
     @Published private(set) var isFollowingUser = false
     /// 社区会话失效时通知页面回到登录流程。
     @Published private(set) var requiresLogin = false
@@ -481,7 +483,7 @@ final class UserProfileViewModel: ObservableObject {
     }
 
     /// 指定用户帖子列表分页加载。
-    func loadMorePostersIfNeeded(currentPoster: GalleryPoster?) async {
+    func loadMorePostersIfNeeded(currentPoster: CommunityPoster?) async {
         guard let currentPoster else { return }
         guard posterState.status == .loaded, posterState.shouldLoadMore(currentID: currentPoster.id) else { return }
 

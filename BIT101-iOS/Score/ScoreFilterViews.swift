@@ -1,3 +1,4 @@
+import DesignSystemKit
 import SwiftUI
 
 private struct ScoreSelectionRow: View {

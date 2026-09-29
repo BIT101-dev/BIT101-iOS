@@ -1,3 +1,4 @@
+import DesignSystemKit
 //
 //  ScheduleRootView.swift
 //  BIT101-iOS
@@ -69,7 +70,7 @@ struct ScheduleRootView: View {
             guard viewModel.selectedSection == .classroom else { return }
             // 进入空教室分栏表示用户发起明确查询；查询从这里开始加载，
             // App 启动和回前台生命周期保持独立。
-            viewModel.startClassroomPageRefresh()
+            viewModel.classroom.startClassroomPageRefresh()
         }
         .onAppear {
             consumeRequestedSectionIfNeeded()
@@ -98,22 +99,7 @@ struct ScheduleRootView: View {
                 }
             )
         }
-        .sheet(
-            item: Binding(
-                get: { viewModel.schoolSMSCodeRequest },
-                set: { request in
-                    if request == nil {
-                        viewModel.dismissSchoolSMSCode()
-                    }
-                }
-            )
-        ) { request in
-            AppSchoolSMSVerificationSheet(
-                maskedPhone: request.maskedPhone,
-                onCancel: viewModel.dismissSchoolSMSCode,
-                onSubmit: viewModel.submitSchoolSMSCode
-            )
-        }
+        .scheduleSchoolVerification(viewModel: viewModel.ddl)
     }
 
     /// 根据当前分区切换渲染不同内容页。
@@ -128,9 +114,9 @@ struct ScheduleRootView: View {
                 onOpenCourseLocation: onOpenCourseLocation
             )
         case .ddl:
-            DDLScheduleTabView(viewModel: viewModel)
+            DDLScheduleTabView(viewModel: viewModel.ddl)
         case .classroom:
-            FreeClassroomTabView(viewModel: viewModel)
+            FreeClassroomTabView(viewModel: viewModel.classroom)
         }
     }
 

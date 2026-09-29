@@ -23,7 +23,7 @@ extension LoginService {
 }
 
 #if BIT101_UI_TESTING
-private struct UITestLoginService: LoginServicing {
+struct UITestLoginService: LoginServicing {
     private enum Key {
         static let studentID = "ui-test.session.student-id"
         static let hasSession = "ui-test.session.has-session"

@@ -1,3 +1,4 @@
+import ScheduleContracts
 //
 //  ScheduleCourseEntries.swift
 //  BIT101-iOS

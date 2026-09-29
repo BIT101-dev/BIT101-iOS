@@ -1,3 +1,4 @@
+import ClientCore
 #if EXTENDED_AUTOMATION
 import Foundation
 import Testing

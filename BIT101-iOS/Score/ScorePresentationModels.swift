@@ -1,3 +1,4 @@
+import ClientCore
 import Foundation
 
 /// 成绩页本地筛选偏好快照。

@@ -1,11 +1,102 @@
 //
-//  ScheduleViewModel+DDL.swift
+//  ScheduleDDLViewModel.swift
 //  BIT101-iOS
 //
 
+import Combine
+import ClientCore
 import Foundation
 
-extension ScheduleViewModel {
+@MainActor
+final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer {
+    let repository: ScheduleRepository
+    private let service: any ScheduleDDLServicing
+    @Published var isSyncingDDL = false
+    @Published var notice: ScheduleNotice?
+    @Published var schoolSMSCodeRequest: SchoolSMSCodeRequest?
+    private var schoolSMSContinuation: CheckedContinuation<String, Error>?
+    private var subscription: AnyCancellable?
+
+    init(service: any ScheduleDDLServicing, repository: ScheduleRepository) {
+        self.service = service
+        self.repository = repository
+        subscription = repository.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
+    }
+
+    func reset() {
+        isSyncingDDL = false
+        notice = nil
+        cancelSchoolSMSWait()
+    }
+
+    func loadIfNeeded() async { await repository.loadIfNeeded() }
+
+    func isCancellation(_ error: Error) -> Bool { TaskCancellation.matches(error) }
+
+    func submitSchoolSMSCode(_ code: String) {
+        let normalized = code.filter(\.isNumber)
+        guard (4 ... 8).contains(normalized.count) else { return }
+        let continuation = schoolSMSContinuation
+        schoolSMSContinuation = nil
+        schoolSMSCodeRequest = nil
+        continuation?.resume(returning: normalized)
+    }
+
+    func dismissSchoolSMSCode() {
+        cancelSchoolSMSWait()
+    }
+
+    func makeSchoolSMSCodeHandler(for generation: Int? = nil) -> SchoolSMSCodeHandler {
+        { @MainActor [weak self] request in
+            guard let self else { throw CancellationError() }
+            if let generation, self.accountGeneration != generation {
+                throw CancellationError()
+            }
+            guard self.schoolSMSContinuation == nil else { throw CancellationError() }
+            self.schoolSMSCodeRequest = request
+            return try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    self.schoolSMSContinuation = continuation
+                }
+            } onCancel: {
+                Task { @MainActor [weak self] in
+                    self?.cancelSchoolSMSWait()
+                }
+            }
+        }
+    }
+
+    private func cancelSchoolSMSWait() {
+        let continuation = schoolSMSContinuation
+        schoolSMSContinuation = nil
+        schoolSMSCodeRequest = nil
+        continuation?.resume(throwing: CancellationError())
+    }
+
+    /// DDL 列表默认向前展示的天数。
+    var beforeDay: Int { min(max(cache.ddlBeforeDay, 0), 30) }
+    /// DDL 列表默认向后保留的天数。
+    var afterDay: Int { min(max(cache.ddlAfterDay, 0), 30) }
+
+    /// 是否已经拿到乐学订阅地址。
+    var hasLexueCalendarURL: Bool {
+        !cache.lexueCalendarURL.isEmpty
+    }
+
+    /// 经过时间窗口裁剪后的 DDL 列表。
+    var visibleDDLEvents: [DDLEventRecord] {
+        let threshold = Date().addingTimeInterval(TimeInterval(-afterDay * 24 * 3600))
+        return cache.ddlEvents
+            .filter { $0.dueAt >= threshold }
+            .sorted { lhs, rhs in
+                if lhs.done != rhs.done {
+                    return !lhs.done
+                }
+                return lhs.dueAt < rhs.dueAt
+            }
+    }
+
+
     /// 同步乐学 DDL，并保留本地手动项目和完成状态。
     @discardableResult
     func syncDDL(showSuccessNotice: Bool = true, showErrorNotice: Bool = true) async -> Bool {
@@ -108,10 +199,11 @@ extension ScheduleViewModel {
         }
 
         do {
-            cache.lexueCalendarURL = try await service.refreshLexueCalendarURL(
+            let url = try await service.refreshLexueCalendarURL(
                 schoolSMSCodeHandler: makeSchoolSMSCodeHandler(for: generation)
             )
             guard accountGeneration == generation else { return }
+            cache.lexueCalendarURL = url
             persist()
             if showSuccessNotice {
                 notice = ScheduleNotice.informational(title: "订阅链接更新成功", message: "已重新获取乐学订阅链接。")

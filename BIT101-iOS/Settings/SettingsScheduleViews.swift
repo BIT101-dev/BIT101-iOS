@@ -1,3 +1,4 @@
+import DesignSystemKit
 //
 //  SettingsScheduleViews.swift
 //  BIT101-iOS
@@ -34,6 +35,7 @@ struct CalendarSettingsPage: View {
     @AppStorage("schedule.calendar.axisMode") private var storedCalendarAxisMode = ScheduleCalendarAxisMode.quantized.rawValue
     @State private var isShowingTimeTableEditor = false
     @State private var timeTableText = ""
+    @State private var isShowingSemesterStartDatePicker = false
     @State private var isShowingLiveActivityLeadMinutesPicker = false
     @State private var isShowingEmptyScheduleExportConfirmation = false
     @State private var isShowingSharedScheduleImportGuide = false
@@ -88,6 +90,14 @@ struct CalendarSettingsPage: View {
                     Text("当前学期")
                         .foregroundStyle(.tint)
                 }
+            }
+            if viewModel.cache.firstDay != nil {
+                Button {
+                    isShowingSemesterStartDatePicker = true
+                } label: {
+                    LabeledContent("学期起始日期", value: viewModel.cache.firstDayString)
+                }
+                .disabled(viewModel.cache.currentTerm.isEmpty || !viewModel.isCacheWritable)
             }
             Button("时间表") {
                 timeTableText = viewModel.cache.timeTable.map { "\($0.start), \($0.end)" }.joined(separator: "\n")
@@ -252,6 +262,17 @@ struct CalendarSettingsPage: View {
                     }
                 }
             )
+        }
+        .sheet(isPresented: $isShowingSemesterStartDatePicker) {
+            if let firstDay = viewModel.cache.firstDay {
+                NavigationStack {
+                    ScheduleSemesterStartDatePickerPage(
+                        date: firstDay,
+                        schoolDate: viewModel.cache.termSchedulesByTerm[viewModel.cache.currentTerm]?.firstDay,
+                        onSubmit: viewModel.setSemesterStartDate
+                    )
+                }
+            }
         }
         .sheet(isPresented: $isShowingLiveActivityLeadMinutesPicker) {
             NavigationStack {

@@ -1,3 +1,5 @@
+import DesignSystemKit
+import ScheduleContracts
 import SwiftUI
 import WidgetKit
 

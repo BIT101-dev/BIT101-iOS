@@ -1,21 +1,7 @@
+import CommunityCore
+import ClientCore
 import Combine
 import Foundation
-
-/// 帖子详情评论列表的分页状态。
-struct GalleryCommentState {
-    /// 当前已加载的顶层评论列表。
-    var items: [GalleryComment] = []
-    /// 评论区当前的整体加载状态。
-    var status: GalleryFeedStatus = .idle
-    /// 下一页评论请求是否进行中。
-    var isLoadingMore = false
-    /// 下一页评论页码。
-    var nextPage = 0
-    /// 服务端是否还有更多评论。
-    var canLoadMore = true
-}
-
-extension GalleryCommentState: PagedItemsState {}
 
 /// 评论输入的目标。
 ///
@@ -23,7 +9,7 @@ extension GalleryCommentState: PagedItemsState {}
 /// 这两种场景使用不同的接口参数，这个枚举统一表示两个评论目标。
 enum GalleryCommentComposerTarget: Identifiable, Equatable {
     case poster(posterID: Int)
-    case comment(mainComment: GalleryComment, targetComment: GalleryComment)
+    case comment(mainComment: CommunityComment, targetComment: CommunityComment)
 
     /// 供 sheet 和焦点状态使用的稳定标识。
     var id: String {
@@ -96,11 +82,11 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     /// 当前正在展示的帖子详情。
     @Published private(set) var poster: GalleryPosterDetail
     /// 帖子正文区域的加载状态。
-    @Published private(set) var posterStatus: GalleryFeedStatus = .idle
+    @Published private(set) var posterStatus: CommunityLoadStatus = .idle
     /// 评论区的分页状态。
-    @Published private(set) var commentState = GalleryCommentState()
+    @Published private(set) var commentState = CommunityCommentState()
     /// 当前评论排序方式。
-    @Published var commentOrder: GalleryCommentOrder = .newest
+    @Published var commentOrder: CommunityCommentOrder = .newest
     /// 点赞请求是否进行中，重复操作直接返回。
     @Published private(set) var isLikingPoster = false
     /// 当前正在点赞的评论 ID 集合。
@@ -127,13 +113,13 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     ///
     /// 详情页通常从帖子卡片进入，初始化时先用列表数据生成临时详情对象，
     /// 详情请求完成后替换为真实详情，页面首帧保留已有内容。
-    init(initialPoster: GalleryPoster, service: any GalleryPosterDetailServicing) {
+    init(initialPoster: CommunityPoster, service: any GalleryPosterDetailServicing) {
         posterID = initialPoster.id
         poster = GalleryPosterDetail(poster: initialPoster)
         self.service = service
     }
 
-    convenience init(initialPoster: GalleryPoster) {
+    convenience init(initialPoster: CommunityPoster) {
         self.init(initialPoster: initialPoster, service: GalleryService())
     }
 
@@ -193,7 +179,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     /// 当滚动到尾部附近时触发评论分页。
     ///
     /// 评论分页使用“最后几条触发”策略，评论列表接近尾部时请求下一页。
-    func loadMoreCommentsIfNeeded(currentComment: GalleryComment?) async {
+    func loadMoreCommentsIfNeeded(currentComment: CommunityComment?) async {
         guard let currentComment else { return }
         let generation = refreshGeneration
         guard commentState.status == .loaded,
@@ -227,7 +213,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     /// 切换评论排序后立刻重新请求第一页。
     ///
     /// 评论排序会改变整棵评论树的结构，排序切换后直接重新拉取第一页，保持与服务端结果一致。
-    func setCommentOrder(_ order: GalleryCommentOrder) async {
+    func setCommentOrder(_ order: CommunityCommentOrder) async {
         guard commentOrder != order else { return }
         commentOrder = order
         await refreshComments()
@@ -253,7 +239,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     /// 点赞或取消点赞某条评论。
     ///
     /// 评论可能嵌套在多级子评论里，所以更新时需要递归地重建评论树。
-    func likeComment(_ comment: GalleryComment) async {
+    func likeComment(_ comment: CommunityComment) async {
         guard !likingCommentIDs.contains(comment.id) else { return }
         likingCommentIDs.insert(comment.id)
         defer { likingCommentIDs.remove(comment.id) }
@@ -304,7 +290,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
         }
     }
 
-    func deleteComment(_ comment: GalleryComment) async {
+    func deleteComment(_ comment: CommunityComment) async {
         guard comment.own, !deletingCommentIDs.contains(comment.id) else { return }
         deletingCommentIDs.insert(comment.id)
         defer { deletingCommentIDs.remove(comment.id) }
@@ -343,7 +329,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     /// 取消请求时恢复刷新前状态，页面快速切换时静默处理网络取消。
     private func handlePosterResult(
         _ result: Result<GalleryPosterDetail, Error>,
-        previousStatus: GalleryFeedStatus
+        previousStatus: CommunityLoadStatus
     ) {
         switch result {
         case let .success(poster):
@@ -361,8 +347,8 @@ final class GalleryPosterDetailViewModel: ObservableObject {
 
     /// 统一处理“刷新第一页评论”的结果。
     private func handleCommentRefreshResult(
-        _ result: Result<[GalleryComment], Error>,
-        previousState: GalleryCommentState
+        _ result: Result<[CommunityComment], Error>,
+        previousState: CommunityCommentState
     ) {
         switch result {
         case let .success(comments):
@@ -403,12 +389,12 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     }
 }
 
-private extension Array where Element == GalleryComment {
+private extension Array where Element == CommunityComment {
     /// 递归更新评论树中的点赞状态。
     ///
     /// 顶层评论和子评论使用同一模型，这个数组扩展递归更新评论树，
     /// 视图模型只调用数组扩展处理嵌套评论。
-    func updatingLike(for commentID: Int, like: Bool, likeNum: Int) -> [GalleryComment] {
+    func updatingLike(for commentID: Int, like: Bool, likeNum: Int) -> [CommunityComment] {
         map { comment in
             let updatedSub = comment.sub.updatingLike(for: commentID, like: like, likeNum: likeNum)
             let updated = comment.replacingSubComments(updatedSub)

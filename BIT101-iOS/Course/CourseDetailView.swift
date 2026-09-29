@@ -1,3 +1,6 @@
+import CommunityCore
+import DesignSystemKit
+import ClientCore
 //
 //  CourseDetailView.swift
 //  BIT101-iOS
@@ -6,6 +9,7 @@
 import SwiftUI
 
 struct CourseDetailView: View {
+    @Environment(CommunityDestinations.self) private var destinations
     private struct UserRoute: Identifiable, Hashable {
         let userID: Int
         var id: Int { userID }
@@ -17,7 +21,7 @@ struct CourseDetailView: View {
     @StateObject private var viewModel: CourseDetailViewModel
     @ObservedObject private var appSettings = AppSettingsStore.shared
     @State private var composerTarget: CourseCommentComposerTarget?
-    @State private var imageViewer: GalleryImageViewerState?
+    @State private var imageViewer: ImagePreviewRequest?
     @State private var userRoute: UserRoute?
 
     init(initialCourse: CourseSummary) {
@@ -48,7 +52,7 @@ struct CourseDetailView: View {
                         }
                     },
                     onOpenImage: { index, images in
-                        imageViewer = GalleryImageViewerState(images: images, initialIndex: index)
+                        imageViewer = ImagePreviewRequest(images: images, initialIndex: index)
                     },
                     onOpenUser: { user in
                         guard user.id > 0 else { return }
@@ -78,7 +82,7 @@ struct CourseDetailView: View {
             }
         }
         .navigationDestination(item: $userRoute) { route in
-            UserProfileRootView(userID: route.userID)
+            destinations.profile(route.userID)
         }
         .task {
             await viewModel.bootstrapIfNeeded()
@@ -97,7 +101,7 @@ struct CourseDetailView: View {
                 }
             }
         }
-        .gallerySystemImagePreview(item: $imageViewer)
+        .systemImagePreview(item: $imageViewer)
         .diagnosticAlert(item: $viewModel.alert)
     }
 

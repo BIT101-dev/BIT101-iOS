@@ -1,11 +1,68 @@
 //
-//  ScheduleViewModel+Classroom.swift
+//  ScheduleClassroomViewModel.swift
 //  BIT101-iOS
 //
 
+import Combine
+import ClientCore
 import Foundation
 
-extension ScheduleViewModel {
+@MainActor
+final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateConsumer {
+    let repository: ScheduleRepository
+    private let service: any ScheduleClassroomServicing
+    private let classroomCoordinator = ScheduleClassroomCoordinator()
+    @Published var selectedBuildingID = ""
+    @Published var notice: ScheduleNotice?
+    var onAuthenticationRequired: ((BITLoginAuthenticationChallenge) -> Void)?
+    private var classroomRecords: [ClassroomRecord] = []
+    private var classroomPageTask: Task<Void, Never>?
+    private var classroomPageTaskID: UUID?
+    private var subscription: AnyCancellable?
+    private var cacheSubscription: AnyCancellable?
+
+    init(service: any ScheduleClassroomServicing, repository: ScheduleRepository) {
+        self.service = service
+        self.repository = repository
+        subscription = repository.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
+        cacheSubscription = repository.$cache.sink { [weak self] in self?.selectedBuildingID = $0.selectedBuildingID }
+    }
+
+    deinit { classroomPageTask?.cancel() }
+
+    func restoreSelection() { selectedBuildingID = cache.selectedBuildingID }
+
+    func reset() {
+        classroomPageTask?.cancel()
+        classroomPageTask = nil
+        classroomPageTaskID = nil
+        classroomCoordinator.reset()
+        isLoadingClassroomMeta = false
+        isLoadingClassrooms = false
+        classroomLastUpdatedAt = nil
+        shouldShowInitialClassroomSpinner = false
+        campuses = []
+        buildings = []
+        classroomRecords = []
+        classroomAvailabilities = []
+        selectedBuildingID = ""
+        notice = nil
+    }
+
+    func isCancellation(_ error: Error) -> Bool { TaskCancellation.matches(error) }
+
+    /// 是否正在加载空教室元数据（校区/教学楼）。
+    @Published var isLoadingClassroomMeta = false
+    /// 是否正在加载空教室结果。
+    @Published var isLoadingClassrooms = false
+    /// 当前教学楼最近一次成功刷新空教室结果的时间。
+    @Published var classroomLastUpdatedAt: Date?
+    /// 首次进入空教室页且结果数组为空时，加载指示器显示为无文案状态。
+    @Published var shouldShowInitialClassroomSpinner = false
+    @Published var campuses: [CampusRecord] = []
+    @Published var buildings: [BuildingRecord] = []
+    @Published var classroomAvailabilities: [ClassroomAvailability] = []
+
     /// 空教室页面展示的最近一次成功刷新时间。
     var classroomLastUpdatedText: String {
         guard let updatedAt = classroomLastUpdatedAt else { return "更新时间：暂无记录" }
@@ -345,9 +402,7 @@ extension ScheduleViewModel {
 
         if let scheduleError = error as? ScheduleServiceError {
             if case let .secondFactorRequired(challenge) = scheduleError {
-                courseSyncCoordinator.waitForClassroomAuthentication()
-                smsChallenge = challenge
-                smsVerificationError = nil
+                onAuthenticationRequired?(challenge)
                 return
             }
             if case .schoolSecondFactorRequired = scheduleError {

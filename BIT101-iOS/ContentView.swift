@@ -1,3 +1,4 @@
+import ClientCore
 //
 //  ContentView.swift
 //  BIT101-iOS

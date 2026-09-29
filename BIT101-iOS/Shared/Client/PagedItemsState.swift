@@ -1,5 +1,5 @@
 /// 页码分页列表共享的最小状态契约。
-protocol PagedItemsState {
+public protocol PagedItemsState {
     associatedtype Item
 
     var items: [Item] { get set }
@@ -9,21 +9,21 @@ protocol PagedItemsState {
 }
 
 extension PagedItemsState {
-    mutating func resetPagination() {
+    public mutating func resetPagination() {
         items = []
         nextPage = 0
         isLoadingMore = false
         canLoadMore = true
     }
 
-    mutating func applyFirstPage(_ newItems: [Item]) {
+    public mutating func applyFirstPage(_ newItems: [Item]) {
         items = newItems
         nextPage = 1
         isLoadingMore = false
         canLoadMore = !newItems.isEmpty
     }
 
-    mutating func appendPage(_ newItems: [Item]) {
+    public mutating func appendPage(_ newItems: [Item]) {
         items.append(contentsOf: newItems)
         nextPage += 1
         isLoadingMore = false
@@ -45,7 +45,7 @@ private func shouldLoadMoreItems<Item: Identifiable>(
 }
 
 extension PagedItemsState where Item: Identifiable {
-    func shouldLoadMore(currentID: Item.ID, preloadCount: Int = 4) -> Bool {
+    public func shouldLoadMore(currentID: Item.ID, preloadCount: Int = 4) -> Bool {
         shouldLoadMoreItems(
             items: items,
             currentID: currentID,
@@ -60,7 +60,7 @@ extension PagedItemsState where Item: Identifiable {
 ///
 /// 消息中心和页码列表使用不同分页协议，加载更多的状态转移保持一致；
 /// 公共分页协议提供列表操作；页码与后端游标由具体分页状态分别表示。
-protocol CursorPagedItemsState {
+public protocol CursorPagedItemsState {
     associatedtype Item: Identifiable
     associatedtype Cursor: Equatable where Item.ID == Cursor
 
@@ -71,7 +71,7 @@ protocol CursorPagedItemsState {
 }
 
 extension CursorPagedItemsState {
-    func shouldLoadMore(currentID: Item.ID, preloadCount: Int = 4) -> Bool {
+    public func shouldLoadMore(currentID: Item.ID, preloadCount: Int = 4) -> Bool {
         shouldLoadMoreItems(
             items: items,
             currentID: currentID,
@@ -81,21 +81,21 @@ extension CursorPagedItemsState {
         )
     }
 
-    mutating func resetCursorPagination() {
+    public mutating func resetCursorPagination() {
         items = []
         nextCursor = nil
         isLoadingMore = false
         canLoadMore = true
     }
 
-    mutating func applyFirstCursorPage(_ newItems: [Item]) {
+    public mutating func applyFirstCursorPage(_ newItems: [Item]) {
         items = newItems
         nextCursor = newItems.last?.id
         isLoadingMore = false
         canLoadMore = !newItems.isEmpty
     }
 
-    mutating func appendCursorPage(_ newItems: [Item]) {
+    public mutating func appendCursorPage(_ newItems: [Item]) {
         items.append(contentsOf: newItems)
         nextCursor = newItems.last?.id ?? nextCursor
         isLoadingMore = false

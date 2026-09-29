@@ -1,3 +1,5 @@
+import DesignSystemKit
+import ScheduleContracts
 //
 //  ScheduleEntryDetailView.swift
 //  BIT101-iOS

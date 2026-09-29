@@ -1,3 +1,4 @@
+import CommunityCore
 protocol PaperListServicing {
     func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary]
     func fetchPaper(id: Int) async throws -> PaperDetail
@@ -5,16 +6,16 @@ protocol PaperListServicing {
 
 protocol PaperDetailServicing {
     func fetchPaper(id: Int) async throws -> PaperDetail
-    func fetchComments(paperID: Int, order: GalleryCommentOrder, page: Int?) async throws -> [GalleryComment]
-    func likePaper(id: Int) async throws -> GalleryLikeResult
-    func sendLike(objectID: String) async throws -> GalleryLikeResult
+    func fetchComments(paperID: Int, order: CommunityCommentOrder, page: Int?) async throws -> [CommunityComment]
+    func likePaper(id: Int) async throws -> CommunityLikeResult
+    func sendLike(objectID: String) async throws -> CommunityLikeResult
     func createComment(
         objectID: String,
         text: String,
         replyObjectID: String?,
         replyUID: Int?,
         anonymous: Bool
-    ) async throws -> GalleryComment
+    ) async throws -> CommunityComment
     func updatePaper(
         id: Int,
         title: String,

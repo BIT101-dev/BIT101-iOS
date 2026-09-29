@@ -1,3 +1,6 @@
+import CommunityCore
+import DesignSystemKit
+import ClientCore
 import CryptoKit
 import Foundation
 import ImageIO
@@ -32,7 +35,7 @@ enum GalleryImageCachePreferences {
     }
 }
 
-enum GalleryImageCacheVariant: String, Sendable {
+enum RemoteImageCacheVariant: String, Sendable {
     case thumbnail = "low"
     case original = "high"
     case local
@@ -137,8 +140,8 @@ actor ImageCacheDiskQuota {
 ///
 /// 读取时更新文件修改时间，将其作为轻量 LRU 的“最近使用时间”；写入后若超过用户
 /// 设置的上限，会从最久未使用的文件开始清理到上限的 85%，避免反复触发清理。
-actor GalleryImageCache {
-    static let shared = GalleryImageCache()
+actor RemoteImageCache {
+    static let shared = RemoteImageCache()
 
     private struct DownloadResult: Sendable {
         let data: Data
@@ -160,7 +163,7 @@ actor GalleryImageCache {
     }
 
     /// 返回已有缓存并刷新其 LRU 时间，不发起网络请求。
-    func cachedFile(for remoteURL: URL, variant: GalleryImageCacheVariant) async -> URL? {
+    func cachedFile(for remoteURL: URL, variant: RemoteImageCacheVariant) async -> URL? {
         let prefix = filePrefix(for: remoteURL, variant: variant)
         for extensionName in supportedExtensions {
             let file = directory.appendingPathComponent("\(prefix).\(extensionName)")
@@ -177,7 +180,7 @@ actor GalleryImageCache {
     }
 
     /// 获取缓存文件；同一 URL 的并发请求会合并成一次下载。
-    func file(for remoteURL: URL, variant: GalleryImageCacheVariant) async throws -> URL {
+    func file(for remoteURL: URL, variant: RemoteImageCacheVariant) async throws -> URL {
         if let cached = await cachedFile(for: remoteURL, variant: variant) {
             return cached
         }
@@ -256,7 +259,7 @@ actor GalleryImageCache {
         await ImageCacheDiskQuota.shared.usedBytes()
     }
 
-    private func filePrefix(for url: URL, variant: GalleryImageCacheVariant) -> String {
+    private func filePrefix(for url: URL, variant: RemoteImageCacheVariant) -> String {
         let digest = SHA256.hash(data: Data(url.absoluteString.utf8)).hexString
         return "\(variant.rawValue)-\(digest)"
     }
@@ -339,7 +342,7 @@ private actor GalleryThumbnailDecoder {
 }
 
 /// 静态话廊缩略图视图，确保首页显示过的低清图进入统一持久缓存。
-struct GalleryCachedStillImage: View {
+struct RemoteCachedStillImage: View {
     let url: URL?
     var contentMode: ContentMode = .fit
     var onAspectRatioResolved: ((CGFloat) -> Void)? = nil
@@ -364,7 +367,7 @@ struct GalleryCachedStillImage: View {
             image = nil
             guard let url else { return }
             do {
-                let file = try await GalleryImageCache.shared.file(for: url, variant: .thumbnail)
+                let file = try await RemoteImageCache.shared.file(for: url, variant: .thumbnail)
                 guard !Task.isCancelled else { return }
                 let decoded = await GalleryThumbnailDecoder.shared.image(at: file)
                 guard !Task.isCancelled else { return }
@@ -381,8 +384,8 @@ struct GalleryCachedStillImage: View {
 }
 
 /// 详情页图片先显示低清缓存，再在同一视图中替换为原图。
-struct GalleryProgressiveStillImage: View {
-    private static let logger = Logger(subsystem: "BIT101", category: "GalleryImage")
+struct RemoteProgressiveStillImage: View {
+    private static let logger = Logger(subsystem: "BIT101", category: "CommunityImage")
     let thumbnailURL: URL?
     let originalURL: URL?
     var contentMode: ContentMode = .fit
@@ -415,7 +418,7 @@ struct GalleryProgressiveStillImage: View {
     private func loadThumbnail() async {
         guard let thumbnailURL else { return }
         do {
-            let file = try await GalleryImageCache.shared.file(for: thumbnailURL, variant: .thumbnail)
+            let file = try await RemoteImageCache.shared.file(for: thumbnailURL, variant: .thumbnail)
             guard !Task.isCancelled else { return }
             let decoded = await GalleryThumbnailDecoder.shared.image(at: file)
             guard !Task.isCancelled else { return }
@@ -431,7 +434,7 @@ struct GalleryProgressiveStillImage: View {
               originalURL != thumbnailURL
         else { return }
         do {
-            let file = try await GalleryImageCache.shared.file(for: originalURL, variant: .original)
+            let file = try await RemoteImageCache.shared.file(for: originalURL, variant: .original)
             guard !Task.isCancelled else { return }
             let decoded = await GalleryThumbnailDecoder.shared.image(at: file)
             guard !Task.isCancelled, let decoded else { return }

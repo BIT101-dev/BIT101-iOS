@@ -1,3 +1,4 @@
+import ScheduleContracts
 import Foundation
 
 /// 从本地课表缓存中解析“下一节课 + 校区 + 建筑”。

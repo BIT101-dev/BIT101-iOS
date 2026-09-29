@@ -7,38 +7,37 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		F0A1C2D3E4B5678901234501 /* AppFileService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A1C2D3E4B5678901234510 /* AppFileService.swift */; };
-		F0A1C2D3E4B5678901234502 /* AppFileService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A1C2D3E4B5678901234510 /* AppFileService.swift */; };
-		F0A1C2D3E4B5678901234503 /* AppFileService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A1C2D3E4B5678901234510 /* AppFileService.swift */; };
 		0D6CC15DA5636384C904E0AD /* BIT101WatchWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 796D7A3D2666B8F0197201E6 /* BIT101WatchWidgetsBundle.swift */; };
-		14721303F52951498981FB7F /* ScheduleSharedOccurrence.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2C0A347C3DFB45B555EAF0 /* ScheduleSharedOccurrence.swift */; };
 		31C4ED6573B18E57E68C9998 /* WatchScheduleSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72A1F6AF2FB00A16DDC8068E /* WatchScheduleSyncManager.swift */; };
 		32D8F834E87443B18CE8F6B1 /* WatchScheduleStatusModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C00AD7820D43C986738C15 /* WatchScheduleStatusModel.swift */; };
-		33BCD239CC2949787F9D7E6F /* ScheduleSharedOccurrence.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2C0A347C3DFB45B555EAF0 /* ScheduleSharedOccurrence.swift */; };
-		46FBCFC063C5DE6022EC19D0 /* ScheduleSharedLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CF4896F51E6C19BBE15048C /* ScheduleSharedLiveActivity.swift */; };
-		6B9445E6F09E8957FC4C25BE /* ScheduleSharedLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CF4896F51E6C19BBE15048C /* ScheduleSharedLiveActivity.swift */; };
-		7E481656A9CBB85EA5FA51AD /* ScheduleSharedSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 498515EF1571216B6C662577 /* ScheduleSharedSnapshot.swift */; };
-		80FEE566078E573A01F25942 /* ScheduleSharedSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 498515EF1571216B6C662577 /* ScheduleSharedSnapshot.swift */; };
 		85798F727C7A8202CDFECFA1 /* BIT101ScheduleWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E4DE63842E0A7A6C0DE9F9 /* BIT101ScheduleWidgets.swift */; };
-		86480E32AA132F273CEFA205 /* ScheduleSharedOccurrence.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2C0A347C3DFB45B555EAF0 /* ScheduleSharedOccurrence.swift */; };
 		86E934E59E093F63ED817276 /* BIT101WatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21A95B6C96CDD83709030EF8 /* BIT101WatchApp.swift */; };
 		8FD3C2B3B8C6D5E68B474DD7 /* BIT101WatchScheduleWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 819ECA98BC5A0A39D0B68FD5 /* BIT101WatchScheduleWidget.swift */; };
 		9AF91C20457A617C9030DE46 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4162B327CBFEC0829F8AB242 /* Foundation.framework */; };
-		A44A833C45CA0AA37FAD6708 /* ScheduleSharedSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 498515EF1571216B6C662577 /* ScheduleSharedSnapshot.swift */; };
 		B979F16E6900E1E884772F00 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C87F2B27CDB14AC63D666139 /* Foundation.framework */; };
 		C0683505889D51D1ED727339 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F8E44554F89A8994A3C6A41E /* Assets.xcassets */; };
 		C8618324F1CB0A8EB9CB55F9 /* BIT101ScheduleWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66582305EDF75198F3070B6C /* BIT101ScheduleWidgetsBundle.swift */; };
-		D51000000000000000000002 /* DesignSystem/DesignPrimitives.swift in Sources */ = {isa = PBXBuildFile; fileRef = D51000000000000000000001 /* DesignSystem/DesignPrimitives.swift */; };
-		D51000000000000000000003 /* DesignSystem/DesignPrimitives.swift in Sources */ = {isa = PBXBuildFile; fileRef = D51000000000000000000001 /* DesignSystem/DesignPrimitives.swift */; };
-		D51000000000000000000004 /* DesignSystem/DesignPrimitives.swift in Sources */ = {isa = PBXBuildFile; fileRef = D51000000000000000000001 /* DesignSystem/DesignPrimitives.swift */; };
-		D51000000000000000000006 /* DesignSystem/ExternalDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = D51000000000000000000005 /* DesignSystem/ExternalDesignSystem.swift */; };
-		D51000000000000000000007 /* DesignSystem/ExternalDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = D51000000000000000000005 /* DesignSystem/ExternalDesignSystem.swift */; };
-		D51000000000000000000008 /* DesignSystem/ExternalDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = D51000000000000000000005 /* DesignSystem/ExternalDesignSystem.swift */; };
 		D6E1110C49C701CB6C8B3080 /* BIT101Watch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 027903073181F16453D11398 /* BIT101Watch.app */; platformFilter = ios; };
-		E89B1AAE46D4FFA1A056C483 /* ScheduleSharedLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CF4896F51E6C19BBE15048C /* ScheduleSharedLiveActivity.swift */; };
 		E8DF51F6326A8FA9797F82E9 /* BIT101WatchWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 6C427FABBA6FB6C2CF4098BE /* BIT101WatchWidgets.appex */; };
 		F52E9C051CAF65D91825FB7A /* WatchScheduleRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6C2ACF3AF5C705FD407FBA /* WatchScheduleRootView.swift */; };
 		F65927450E15455FB026D9C1 /* BIT101ScheduleWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0382F3A6842C7256F74D4FCC /* BIT101ScheduleWidgets.appex */; platformFilter = ios; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		9A63A7222DF24409FFD6A3AB /* ClientCore in Frameworks */ = {isa = PBXBuildFile; productRef = D0A5E3BB52E43C8F82CAA183 /* ClientCore */; };
+		1DFF345786F241724D6D9C1A /* ScheduleContracts in Frameworks */ = {isa = PBXBuildFile; productRef = A04A346E5E5B410DE3DFB912 /* ScheduleContracts */; };
+		2C8A92460E47CBB5982C7378 /* ClientCore in Frameworks */ = {isa = PBXBuildFile; productRef = 691CF7BA2A6082513465A60E /* ClientCore */; };
+		97121C8954BA2E41DB14515D /* ScheduleContracts in Frameworks */ = {isa = PBXBuildFile; productRef = AC6F2F4A31E6D9396C54EEE0 /* ScheduleContracts */; };
+		97FEB1DDBCF15DD2EF1A428B /* ClientCore in Frameworks */ = {isa = PBXBuildFile; productRef = 2B77494D10B217E6EC6F180C /* ClientCore */; };
+		DA6863F36EB0F5ABF2E66E98 /* ScheduleContracts in Frameworks */ = {isa = PBXBuildFile; productRef = AF217DC91C3BFB409152C4CE /* ScheduleContracts */; };
+		127E0A1A1877850DDCE22752 /* ClientCore in Frameworks */ = {isa = PBXBuildFile; productRef = 87D8BDE8213C1A2A76D8A32F /* ClientCore */; };
+		8375A1B3DF8F6C8C218A696B /* ScheduleContracts in Frameworks */ = {isa = PBXBuildFile; productRef = 2A84F90961F4700AA1AA78E7 /* ScheduleContracts */; };
+		F5ED71C2820112F5322415D5 /* ClientCore in Frameworks */ = {isa = PBXBuildFile; productRef = 32F6F283A9673EB87FEBA638 /* ClientCore */; };
+		BA5C24E0BF3885EBDFF87A59 /* ScheduleContracts in Frameworks */ = {isa = PBXBuildFile; productRef = CEF0E9D39638D26CD4BB54B8 /* ScheduleContracts */; };
+		FA769C642F9A7B6358E654C0 /* DesignSystemKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4F60F1F3FB8EF1007B335D11 /* DesignSystemKit */; };
+		3EBD93356F075030A1105B4E /* DesignSystemKit in Frameworks */ = {isa = PBXBuildFile; productRef = 5E0DD7F22D10F8E5D32ADADB /* DesignSystemKit */; };
+		89AF1831DEC4D073778CCEA8 /* DesignSystemKit in Frameworks */ = {isa = PBXBuildFile; productRef = 483CD3498C9E5349CD20B011 /* DesignSystemKit */; };
+		DDE2042B8413EE475156DB1B /* DesignSystemKit in Frameworks */ = {isa = PBXBuildFile; productRef = 61CC6C874899C16178921804 /* DesignSystemKit */; };
+		0AB18AED0E7D236E6FC50F9E /* DesignSystemKit in Frameworks */ = {isa = PBXBuildFile; productRef = D6F7FF202E439325C8F8226D /* DesignSystemKit */; };
+		9EE23B0D73908879CC3616B6 /* CommunityCore in Frameworks */ = {isa = PBXBuildFile; productRef = 526C65C88155FF01BD8AEABD /* CommunityCore */; };
+		4DFB6AD7D45876E14B2224C7 /* CommunityCore in Frameworks */ = {isa = PBXBuildFile; productRef = E48AC335EF6A17C0D70A2CBA /* CommunityCore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -147,7 +146,46 @@
 		F8E44554F89A8994A3C6A41E /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		A6BBEAEDAEA69F783DE2893E /* Package sources in BIT101-iOS */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Shared/Client/AccountScopedCodableStore.swift,
+				Shared/Client/AppStorageSession.swift,
+				Shared/CommunityCore/CommunityCommentState.swift,
+				Shared/CommunityCore/CommunityModels.swift,
+				Shared/Client/PagedItemsState.swift,
+				Shared/DesignSystem/ExternalDesignSystem.swift,
+				Shared/DesignSystem/AppContentControlComponents.swift,
+				Shared/DesignSystem/AppStateComponents.swift,
+				Shared/DesignSystem/AppFixedColumnComponents.swift,
+				Shared/DesignSystem/DesignPrimitives.swift,
+				Shared/DesignSystem/AppRefreshStatusComponents.swift,
+				Shared/DesignSystem/AppLayoutComponents.swift,
+				Shared/DesignSystem/AppAvatarComponents.swift,
+				Shared/DesignSystem/AppFeedComponents.swift,
+				Shared/DesignSystem/AppTagComponents.swift,
+				Shared/DesignSystem/AppCommentComposerComponents.swift,
+				Shared/DesignSystem/AppCommentComponents.swift,
+				Shared/DesignSystem/AppDesignSystem.swift,
+				Shared/DesignSystem/AppVerificationComponents.swift,
+				Shared/DesignSystem/AppHapticFeedback.swift,
+				Shared/Client/HTTPClient.swift,
+				Shared/Client/CommunityAPIClient.swift,
+				Shared/Client/SecureURLTransport.swift,
+				Shared/Client/TaskCancellation.swift,
+				Shared/Client/AppURL.swift,
+				Shared/AppFileService.swift,
+				Shared/ScheduleSharedSnapshot.swift,
+				Shared/ScheduleSharedOccurrence.swift,
+				Shared/ScheduleSharedLiveActivity.swift,
+			);
+			target = D2FF4C952F729DB4000FA1C1 /* BIT101-iOS */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+
 		111111111111111111111113 /* BIT101-iOSTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "BIT101-iOSTests";
@@ -160,6 +198,9 @@
 		};
 		D2FF4C982F729DB4000FA1C1 /* BIT101-iOS */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A6BBEAEDAEA69F783DE2893E /* Package sources in BIT101-iOS */,
+			);
 			path = "BIT101-iOS";
 			sourceTree = "<group>";
 		};
@@ -170,6 +211,10 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4DFB6AD7D45876E14B2224C7 /* CommunityCore in Frameworks */,
+				0AB18AED0E7D236E6FC50F9E /* DesignSystemKit in Frameworks */,
+				F5ED71C2820112F5322415D5 /* ClientCore in Frameworks */,
+				BA5C24E0BF3885EBDFF87A59 /* ScheduleContracts in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -177,6 +222,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DDE2042B8413EE475156DB1B /* DesignSystemKit in Frameworks */,
+				127E0A1A1877850DDCE22752 /* ClientCore in Frameworks */,
+				8375A1B3DF8F6C8C218A696B /* ScheduleContracts in Frameworks */,
 				B979F16E6900E1E884772F00 /* Foundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -185,6 +233,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3EBD93356F075030A1105B4E /* DesignSystemKit in Frameworks */,
+				2C8A92460E47CBB5982C7378 /* ClientCore in Frameworks */,
+				97121C8954BA2E41DB14515D /* ScheduleContracts in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -192,6 +243,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				89AF1831DEC4D073778CCEA8 /* DesignSystemKit in Frameworks */,
+				97FEB1DDBCF15DD2EF1A428B /* ClientCore in Frameworks */,
+				DA6863F36EB0F5ABF2E66E98 /* ScheduleContracts in Frameworks */,
 				9AF91C20457A617C9030DE46 /* Foundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -200,6 +254,10 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9EE23B0D73908879CC3616B6 /* CommunityCore in Frameworks */,
+				FA769C642F9A7B6358E654C0 /* DesignSystemKit in Frameworks */,
+				9A63A7222DF24409FFD6A3AB /* ClientCore in Frameworks */,
+				1DFF345786F241724D6D9C1A /* ScheduleContracts in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -336,6 +394,12 @@
 /* Begin PBXNativeTarget section */
 		111111111111111111111111 /* BIT101-iOSTests */ = {
 			isa = PBXNativeTarget;
+			packageProductDependencies = (
+				E48AC335EF6A17C0D70A2CBA /* CommunityCore */,
+				D6F7FF202E439325C8F8226D /* DesignSystemKit */,
+				32F6F283A9673EB87FEBA638 /* ClientCore */,
+				CEF0E9D39638D26CD4BB54B8 /* ScheduleContracts */,
+			);
 			buildConfigurationList = 11111111111111111111111B /* Build configuration list for PBXNativeTarget "BIT101-iOSTests" */;
 			buildPhases = (
 				111111111111111111111114 /* Sources */,
@@ -378,6 +442,11 @@
 		};
 		A222C4EBA765A745DE78B6CF /* BIT101ScheduleWidgets */ = {
 			isa = PBXNativeTarget;
+			packageProductDependencies = (
+				61CC6C874899C16178921804 /* DesignSystemKit */,
+				87D8BDE8213C1A2A76D8A32F /* ClientCore */,
+				2A84F90961F4700AA1AA78E7 /* ScheduleContracts */,
+			);
 			buildConfigurationList = F1F65253CDF96455497F6E74 /* Build configuration list for PBXNativeTarget "BIT101ScheduleWidgets" */;
 			buildPhases = (
 				0EF4EDC316C0A2A17A0BF63F /* Sources */,
@@ -395,6 +464,11 @@
 		};
 		C8AF9C40C472741950BEAF70 /* BIT101Watch */ = {
 			isa = PBXNativeTarget;
+			packageProductDependencies = (
+				5E0DD7F22D10F8E5D32ADADB /* DesignSystemKit */,
+				691CF7BA2A6082513465A60E /* ClientCore */,
+				AC6F2F4A31E6D9396C54EEE0 /* ScheduleContracts */,
+			);
 			buildConfigurationList = 916EFE8BFF170D72CCE1CE13 /* Build configuration list for PBXNativeTarget "BIT101Watch" */;
 			buildPhases = (
 				B7329DD3099B96EF917410BF /* Sources */,
@@ -414,6 +488,12 @@
 		};
 		D2FF4C952F729DB4000FA1C1 /* BIT101-iOS */ = {
 			isa = PBXNativeTarget;
+			packageProductDependencies = (
+				526C65C88155FF01BD8AEABD /* CommunityCore */,
+				4F60F1F3FB8EF1007B335D11 /* DesignSystemKit */,
+				D0A5E3BB52E43C8F82CAA183 /* ClientCore */,
+				A04A346E5E5B410DE3DFB912 /* ScheduleContracts */,
+			);
 			buildConfigurationList = D2FF4CA12F729DB5000FA1C1 /* Build configuration list for PBXNativeTarget "BIT101-iOS" */;
 			buildPhases = (
 				D2FF4C922F729DB4000FA1C1 /* Sources */,
@@ -438,6 +518,11 @@
 		};
 		E14C33A004A034143423AAE7 /* BIT101WatchWidgets */ = {
 			isa = PBXNativeTarget;
+			packageProductDependencies = (
+				483CD3498C9E5349CD20B011 /* DesignSystemKit */,
+				2B77494D10B217E6EC6F180C /* ClientCore */,
+				AF217DC91C3BFB409152C4CE /* ScheduleContracts */,
+			);
 			buildConfigurationList = 453A22FEB7A39D1F95247516 /* Build configuration list for PBXNativeTarget "BIT101WatchWidgets" */;
 			buildPhases = (
 				2322558692781FE16FC88427 /* Sources */,
@@ -455,7 +540,35 @@
 		};
 /* End PBXNativeTarget section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		7C9122F01F25CC7D4C833049 /* XCLocalSwiftPackageReference "." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = .;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		D0A5E3BB52E43C8F82CAA183 /* ClientCore */ = {isa = XCSwiftPackageProductDependency; productName = ClientCore; };
+		A04A346E5E5B410DE3DFB912 /* ScheduleContracts */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleContracts; };
+		691CF7BA2A6082513465A60E /* ClientCore */ = {isa = XCSwiftPackageProductDependency; productName = ClientCore; };
+		AC6F2F4A31E6D9396C54EEE0 /* ScheduleContracts */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleContracts; };
+		2B77494D10B217E6EC6F180C /* ClientCore */ = {isa = XCSwiftPackageProductDependency; productName = ClientCore; };
+		AF217DC91C3BFB409152C4CE /* ScheduleContracts */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleContracts; };
+		87D8BDE8213C1A2A76D8A32F /* ClientCore */ = {isa = XCSwiftPackageProductDependency; productName = ClientCore; };
+		2A84F90961F4700AA1AA78E7 /* ScheduleContracts */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleContracts; };
+		32F6F283A9673EB87FEBA638 /* ClientCore */ = {isa = XCSwiftPackageProductDependency; productName = ClientCore; };
+		CEF0E9D39638D26CD4BB54B8 /* ScheduleContracts */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleContracts; };
+		4F60F1F3FB8EF1007B335D11 /* DesignSystemKit */ = {isa = XCSwiftPackageProductDependency; productName = DesignSystemKit; };
+		5E0DD7F22D10F8E5D32ADADB /* DesignSystemKit */ = {isa = XCSwiftPackageProductDependency; productName = DesignSystemKit; };
+		483CD3498C9E5349CD20B011 /* DesignSystemKit */ = {isa = XCSwiftPackageProductDependency; productName = DesignSystemKit; };
+		61CC6C874899C16178921804 /* DesignSystemKit */ = {isa = XCSwiftPackageProductDependency; productName = DesignSystemKit; };
+		D6F7FF202E439325C8F8226D /* DesignSystemKit */ = {isa = XCSwiftPackageProductDependency; productName = DesignSystemKit; };
+		526C65C88155FF01BD8AEABD /* CommunityCore */ = {isa = XCSwiftPackageProductDependency; productName = CommunityCore; };
+		E48AC335EF6A17C0D70A2CBA /* CommunityCore */ = {isa = XCSwiftPackageProductDependency; productName = CommunityCore; };
+/* End XCSwiftPackageProductDependency section */
+
 /* Begin PBXProject section */
+
 		D2FF4C8E2F729DB4000FA1C1 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
@@ -485,6 +598,9 @@
 			);
 			mainGroup = D2FF4C8D2F729DB4000FA1C1;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				7C9122F01F25CC7D4C833049 /* XCLocalSwiftPackageReference "." */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D2FF4C972F729DB4000FA1C1 /* Products */;
 			projectDirPath = "";
@@ -553,12 +669,6 @@
 			files = (
 				C8618324F1CB0A8EB9CB55F9 /* BIT101ScheduleWidgetsBundle.swift in Sources */,
 				85798F727C7A8202CDFECFA1 /* BIT101ScheduleWidgets.swift in Sources */,
-				7E481656A9CBB85EA5FA51AD /* ScheduleSharedSnapshot.swift in Sources */,
-				F0A1C2D3E4B5678901234501 /* AppFileService.swift in Sources */,
-				D51000000000000000000006 /* DesignSystem/ExternalDesignSystem.swift in Sources */,
-				D51000000000000000000002 /* DesignSystem/DesignPrimitives.swift in Sources */,
-				14721303F52951498981FB7F /* ScheduleSharedOccurrence.swift in Sources */,
-				6B9445E6F09E8957FC4C25BE /* ScheduleSharedLiveActivity.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -575,12 +685,6 @@
 			files = (
 				0D6CC15DA5636384C904E0AD /* BIT101WatchWidgetsBundle.swift in Sources */,
 				8FD3C2B3B8C6D5E68B474DD7 /* BIT101WatchScheduleWidget.swift in Sources */,
-				A44A833C45CA0AA37FAD6708 /* ScheduleSharedSnapshot.swift in Sources */,
-				F0A1C2D3E4B5678901234502 /* AppFileService.swift in Sources */,
-				D51000000000000000000007 /* DesignSystem/ExternalDesignSystem.swift in Sources */,
-				D51000000000000000000003 /* DesignSystem/DesignPrimitives.swift in Sources */,
-				33BCD239CC2949787F9D7E6F /* ScheduleSharedOccurrence.swift in Sources */,
-				46FBCFC063C5DE6022EC19D0 /* ScheduleSharedLiveActivity.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -591,12 +695,6 @@
 				86E934E59E093F63ED817276 /* BIT101WatchApp.swift in Sources */,
 				32D8F834E87443B18CE8F6B1 /* WatchScheduleStatusModel.swift in Sources */,
 				F52E9C051CAF65D91825FB7A /* WatchScheduleRootView.swift in Sources */,
-				80FEE566078E573A01F25942 /* ScheduleSharedSnapshot.swift in Sources */,
-				F0A1C2D3E4B5678901234503 /* AppFileService.swift in Sources */,
-				D51000000000000000000008 /* DesignSystem/ExternalDesignSystem.swift in Sources */,
-				D51000000000000000000004 /* DesignSystem/DesignPrimitives.swift in Sources */,
-				86480E32AA132F273CEFA205 /* ScheduleSharedOccurrence.swift in Sources */,
-				E89B1AAE46D4FFA1A056C483 /* ScheduleSharedLiveActivity.swift in Sources */,
 				31C4ED6573B18E57E68C9998 /* WatchScheduleSyncManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -614,6 +712,7 @@
 		0BA56A68ABF5ED6A9D65BFD9 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			name = BIT101Watch;
+			platformFilter = ios;
 			target = C8AF9C40C472741950BEAF70 /* BIT101Watch */;
 			targetProxy = BE604201BA457AA12707C74F /* PBXContainerItemProxy */;
 		};

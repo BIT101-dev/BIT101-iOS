@@ -1,25 +1,25 @@
 import Foundation
 
-enum CommunityAuthentication {
+public enum CommunityAuthentication {
     case required
     case optional
     case none
 }
 
-protocol CommunityAPIServiceError: Error {
+public protocol CommunityAPIServiceError: Error {
     static var communityNotLoggedIn: Self { get }
     static var communityInvalidResponse: Self { get }
 }
 
 /// `CommunityAPIClient` 统一处理 BIT101 社区后端的认证、URL、HTTP 状态码和 JSON 边界。
-struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
+public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
     private let baseURL: URL
     private let httpClient: HTTPClient
     private let fakeCookieProvider: () -> String
     private let refreshHandler: (String) async throws -> Void
     private let errorDomain: String
 
-    init(
+    public init(
         httpClient: HTTPClient,
         baseURL: URL,
         errorDomain: String,
@@ -33,7 +33,7 @@ struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         self.refreshHandler = refreshHandler
     }
 
-    func request<Response: Decodable & Sendable>(
+    public func request<Response: Decodable & Sendable>(
         path: String,
         queryItems: [URLQueryItem] = [],
         method: String = "GET",
@@ -60,7 +60,7 @@ struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         }
     }
 
-    func requestData(
+    public func requestData(
         path: String,
         queryItems: [URLQueryItem] = [],
         method: String = "GET",
@@ -78,7 +78,7 @@ struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         ).data
     }
 
-    func requestVoid(
+    public func requestVoid(
         path: String,
         method: String,
         body: Data? = nil,
@@ -94,7 +94,7 @@ struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         )
     }
 
-    func encode<Body: Encodable>(_ body: Body) throws -> Data {
+    public func encode<Body: Encodable>(_ body: Body) throws -> Data {
         try JSONEncoder().encode(body)
     }
 
@@ -203,8 +203,8 @@ struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
     }
 }
 
-enum MultipartFormData {
-    static func jpegFile(data: Data, filename: String, fieldName: String = "file") -> (body: Data, contentType: String) {
+public enum MultipartFormData {
+    public static func jpegFile(data: Data, filename: String, fieldName: String = "file") -> (body: Data, contentType: String) {
         let boundary = "Boundary-\(UUID().uuidString)"
         let safeFieldName = escapedHeaderParameter(fieldName)
         let safeFilename = escapedHeaderParameter(filename)

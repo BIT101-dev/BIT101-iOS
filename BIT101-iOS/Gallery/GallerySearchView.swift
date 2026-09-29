@@ -1,3 +1,4 @@
+import DesignSystemKit
 //
 //  GallerySearchView.swift
 //  BIT101-iOS

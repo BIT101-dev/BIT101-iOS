@@ -1,3 +1,6 @@
+import CommunityCore
+import DesignSystemKit
+import ClientCore
 //
 //  GalleryMessagesView.swift
 //  BIT101-iOS
@@ -12,7 +15,7 @@ struct GalleryMessagesView: View {
     @ObservedObject var viewModel: GalleryMessageViewModel
     @Environment(\.dismiss) private var dismiss
     @StateObject private var networkObserver = GalleryNetworkObserver()
-    @State private var selectedPoster: GalleryPoster?
+    @State private var selectedPoster: CommunityPoster?
     @State private var localAlert: AppAlert?
     private let service = GalleryService()
 

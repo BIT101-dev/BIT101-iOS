@@ -1,3 +1,5 @@
+import ClientCore
+import CommunityCore
 //
 //  GalleryModels.swift
 //  BIT101-iOS
@@ -112,93 +114,17 @@ struct GallerySearchQuery: Equatable {
     var order: GallerySearchOrder = .newest
 }
 
-/// 图片资源。
-///
-/// 后端同时返回原图和低清图。列表优先使用低清图，大图浏览使用原图。
-nonisolated struct GalleryImage: Decodable, Identifiable, Hashable, Sendable {
-    let mid: String
-    let url: String
-    let lowUrl: String
-
-    /// 图片资源的稳定标识。
-    var id: String { mid }
-
-    /// 识别服务端返回的 GIF 地址；查询参数中的扩展名也纳入判断。
-    var isGIF: Bool {
-        [url, lowUrl].contains { value in
-            let normalized = value.lowercased()
-            guard let url = URL(string: value) else {
-                return normalized.contains(".gif")
-            }
-            return url.pathExtension.lowercased() == "gif"
-                || url.absoluteString.lowercased().contains(".gif")
-        }
-    }
-}
-
-/// 用户身份标签。
-///
-/// 模型保留服务端返回的完整字段，供昵称旁的 badge 和身份展示使用。
-nonisolated struct GalleryIdentity: Decodable, Hashable, Sendable {
-    let id: Int
-    let color: String
-    let text: String
-    let createTime: String
-    let updateTime: String
-    let deleteTime: String?
-}
-
-/// 话廊用户模型。
-///
-/// 帖子、评论等话廊模块共用这份基础用户结构。
-nonisolated struct GalleryUser: Decodable, Identifiable, Hashable, Sendable {
-    let id: Int
-    let createTime: String
-    let nickname: String
-    let avatar: GalleryImage
-    let motto: String
-    let identity: GalleryIdentity
-}
-
-/// 帖子所属 claim。
-///
-/// claim 用于发帖选择、帖子卡片和详情展示。
-nonisolated struct GalleryClaim: Codable, Hashable, Identifiable, Sendable {
-    let id: Int
-    let text: String
-}
-
-/// 信息流帖子卡片模型。
-///
-/// 模型包含列表渲染所需字段，详情状态由 `GalleryPosterDetail` 提供。
-nonisolated struct GalleryPoster: Decodable, Identifiable, Hashable, Sendable {
-    let anonymous: Bool
-    let claim: GalleryClaim
-    let commentNum: Int
-    let createTime: String
-    let editTime: String
-    let id: Int
-    let images: [GalleryImage]
-    let likeNum: Int
-    let `public`: Bool
-    let tags: [String]
-    let text: String
-    let title: String
-    let updateTime: String
-    let user: GalleryUser
-}
-
 /// 帖子详情模型。
 ///
 /// 详情包含当前用户的点赞、归属和插件字段。
 nonisolated struct GalleryPosterDetail: Decodable, Identifiable, Hashable, Sendable {
     let anonymous: Bool
-    let claim: GalleryClaim
+    let claim: CommunityClaim
     let commentNum: Int
     let createTime: String
     let editTime: String
     let id: Int
-    let images: [GalleryImage]
+    let images: [CommunityImage]
     let like: Bool
     let likeNum: Int
     let own: Bool
@@ -208,11 +134,11 @@ nonisolated struct GalleryPosterDetail: Decodable, Identifiable, Hashable, Senda
     let text: String
     let title: String
     let updateTime: String
-    let user: GalleryUser
+    let user: CommunityUser
 
     /// 将详情模型转换为列表卡片模型，供“我的帖子”等列表复用。
-    var asPoster: GalleryPoster {
-        GalleryPoster(
+    var asPoster: CommunityPoster {
+        CommunityPoster(
             anonymous: anonymous,
             claim: claim,
             commentNum: commentNum,
@@ -258,7 +184,7 @@ extension GalleryPosterDetail {
     /// 根据列表卡片构造占位详情。
     ///
     /// 消息页可以先展示卡片数据，详情请求完成后替换对象。
-    init(poster: GalleryPoster) {
+    init(poster: CommunityPoster) {
         self.init(
             anonymous: poster.anonymous,
             claim: poster.claim,
@@ -281,120 +207,14 @@ extension GalleryPosterDetail {
     }
 }
 
-/// 评论列表的排序方式。
-enum GalleryCommentOrder: String, CaseIterable, Identifiable {
-    case newest = "new"
-    case oldest = "old"
-    case like
-
-    /// 供评论排序菜单绑定的稳定标识。
-    var id: String { rawValue }
-
-    /// 评论排序菜单展示的标题。
-    var title: String {
-        switch self {
-        case .newest:
-            return "最新"
-        case .oldest:
-            return "最旧"
-        case .like:
-            return "高赞"
-        }
-    }
-}
-
-/// 话廊评论模型。
-///
-/// 顶层评论和子评论使用同一结构，`sub` 保存子评论树。
-nonisolated struct GalleryComment: Decodable, Identifiable, Hashable, Sendable {
-    let id: Int
-    let obj: String
-    let images: [GalleryImage]
-    let user: GalleryUser
-    let anonymous: Bool
-    let createTime: String
-    let updateTime: String
-    let like: Bool
-    let likeNum: Int
-    let commentNum: Int
-    let own: Bool
-    let rate: Int
-    let replyUser: GalleryUser
-    let replyObj: String
-    let text: String
-    let sub: [GalleryComment]
-
-    /// 返回替换子评论列表的评论副本。
-    nonisolated func replacingSubComments(_ sub: [GalleryComment]) -> GalleryComment {
-        GalleryComment(
-            id: id,
-            obj: obj,
-            images: images,
-            user: user,
-            anonymous: anonymous,
-            createTime: createTime,
-            updateTime: updateTime,
-            like: like,
-            likeNum: likeNum,
-            commentNum: commentNum,
-            own: own,
-            rate: rate,
-            replyUser: replyUser,
-            replyObj: replyObj,
-            text: text,
-            sub: sub
-        )
-    }
-
-    /// 返回替换点赞状态和数量的评论副本。
-    func updatingLike(_ like: Bool, likeNum: Int) -> GalleryComment {
-        GalleryComment(
-            id: id,
-            obj: obj,
-            images: images,
-            user: user,
-            anonymous: anonymous,
-            createTime: createTime,
-            updateTime: updateTime,
-            like: like,
-            likeNum: likeNum,
-            commentNum: commentNum,
-            own: own,
-            rate: rate,
-            replyUser: replyUser,
-            replyObj: replyObj,
-            text: text,
-            sub: sub
-        )
-    }
-}
-
-/// 点赞接口返回的点赞状态和数量。
-///
-/// 点赞请求只返回这两个字段，模型保持接口边界。
-nonisolated struct GalleryLikeResult: Decodable, Sendable {
-    let like: Bool
-    let likeNum: Int
-}
-
 /// 单个 feed 的整体加载状态。
 ///
 /// 分页加载状态由 `GalleryFeedState.isLoadingMore` 管理。
-enum GalleryFeedStatus: Equatable {
-    case idle
-    case loading
-    case loaded
-    case failed(String)
-}
-
-/// 单个 feed 的状态快照。
-///
-/// 列表、加载状态和分页信息按 feed 键统一存放。
 struct GalleryFeedState {
     /// 当前已经加载到客户端的帖子列表。
-    var posters: [GalleryPoster] = []
+    var posters: [CommunityPoster] = []
     /// 列表当前所处的加载状态。
-    var status: GalleryFeedStatus = .idle
+    var status: CommunityLoadStatus = .idle
     /// 是否正在请求下一页。
     var isLoadingMore = false
     /// 下一次分页请求的页码。
@@ -404,7 +224,7 @@ struct GalleryFeedState {
 }
 
 extension GalleryFeedState: PagedItemsState {
-    var items: [GalleryPoster] {
+    var items: [CommunityPoster] {
         get { posters }
         set { posters = newValue }
     }
@@ -638,7 +458,7 @@ nonisolated struct GalleryMessageListState {
     /// 当前已经加载到客户端的消息列表。
     var items: [GalleryMessage] = []
     /// 列表当前所处的加载状态。
-    var status: GalleryFeedStatus = .idle
+    var status: CommunityLoadStatus = .idle
     /// 是否正在请求下一页。
     var isLoadingMore = false
     /// 下一次分页请求要带的最后一条消息 ID。
@@ -649,45 +469,17 @@ nonisolated struct GalleryMessageListState {
 
 extension GalleryMessageListState: CursorPagedItemsState {}
 
-private extension GalleryImage {
-    /// 返回占位 UI 使用的空图片模型。
-    static var placeholder: GalleryImage {
-        GalleryImage(mid: "", url: "", lowUrl: "")
-    }
-}
-
-private extension GalleryIdentity {
-    /// 返回占位用户使用的空身份模型。
-    static var placeholder: GalleryIdentity {
-        GalleryIdentity(id: 0, color: "#FF9500", text: "", createTime: "", updateTime: "", deleteTime: nil)
-    }
-}
-
-extension GalleryUser {
-    /// 构造消息页跳转帖子详情时使用的占位用户。
-    static func placeholder(id: Int = 0, nickname: String = "加载中") -> GalleryUser {
-        GalleryUser(
-            id: id,
-            createTime: "",
-            nickname: nickname,
-            avatar: .placeholder,
-            motto: "",
-            identity: .placeholder
-        )
-    }
-}
-
-extension GalleryClaim {
+extension CommunityClaim {
     /// 返回占位帖子使用的空 claim。
-    static var placeholder: GalleryClaim {
-        GalleryClaim(id: 0, text: "")
+    static var placeholder: CommunityClaim {
+        CommunityClaim(id: 0, text: "")
     }
 }
 
-extension GalleryPoster {
+extension CommunityPoster {
     /// 构造消息页详情请求完成前使用的占位帖子。
-    static func placeholder(id: Int, title: String = "正在打开帖子") -> GalleryPoster {
-        GalleryPoster(
+    static func placeholder(id: Int, title: String = "正在打开帖子") -> CommunityPoster {
+        CommunityPoster(
             anonymous: false,
             claim: .placeholder,
             commentNum: 0,

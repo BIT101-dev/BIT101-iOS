@@ -1,3 +1,5 @@
+import CommunityCore
+import ClientCore
 //
 //  PaperService.swift
 //  BIT101-iOS
@@ -106,7 +108,7 @@ struct PaperService {
     }
 
     /// 拉取文章评论。
-    func fetchComments(paperID: Int, order: GalleryCommentOrder, page: Int?) async throws -> [GalleryComment] {
+    func fetchComments(paperID: Int, order: CommunityCommentOrder, page: Int?) async throws -> [CommunityComment] {
         var queryItems = [
             URLQueryItem(name: "obj", value: "paper\(paperID)"),
             URLQueryItem(name: "order", value: order.rawValue),
@@ -118,14 +120,14 @@ struct PaperService {
     }
 
     /// 点赞或取消点赞文章。
-    func likePaper(id: Int) async throws -> GalleryLikeResult {
+    func likePaper(id: Int) async throws -> CommunityLikeResult {
         try await sendLike(objectID: "paper\(id)")
     }
 
     /// 点赞或取消点赞评论。
     ///
     /// 文章详情评论通过 reaction 接口处理。这个方法为评论点赞提供通用入口。
-    func sendLike(objectID: String) async throws -> GalleryLikeResult {
+    func sendLike(objectID: String) async throws -> CommunityLikeResult {
         try await api.request(
             path: "reaction/like",
             method: "POST",
@@ -140,7 +142,7 @@ struct PaperService {
         replyObjectID: String? = nil,
         replyUID: Int? = nil,
         anonymous: Bool = false
-    ) async throws -> GalleryComment {
+    ) async throws -> CommunityComment {
         try await api.request(
             path: "reaction/comments",
             method: "POST",

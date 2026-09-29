@@ -1,55 +1,6 @@
+import ScheduleContracts
+import ClientCore
 import Foundation
-
-/// 当前登录账号的本地存储会话。
-///
-/// 业务模块按当前用户读写数据；账号标识、稳定键后缀与磁盘目录名由存储层统一映射。
-nonisolated struct AppStorageSession: Sendable, Equatable {
-    let accountIdentifier: String
-
-    init(accountIdentifier: String) {
-        self.accountIdentifier = accountIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    var isGuest: Bool { accountIdentifier.isEmpty }
-
-    func key(_ prefix: String, guestIdentifier: String = "guest") -> String {
-        "\(prefix).\(isGuest ? guestIdentifier : accountStorageIdentifier)"
-    }
-
-    /// Previous defaults key used the account identifier verbatim.
-    func legacyKey(_ prefix: String, guestIdentifier: String = "guest") -> String {
-        "\(prefix).\(isGuest ? guestIdentifier : accountIdentifier)"
-    }
-
-    /// 保留旧版账号映射，供 CloudKit 标识和本地数据迁移沿用。
-    var accountDirectoryName: String {
-        guard !isGuest else { return "__default__" }
-        let invalid = CharacterSet.alphanumerics.inverted
-        guard accountIdentifier.rangeOfCharacter(from: invalid) != nil else { return accountIdentifier }
-        return "__encoded__" + accountIdentifier.utf8.map { String(format: "%02X", $0) }.joined()
-    }
-
-    /// 本地存储使用稳定摘要作为账号命名空间。
-    var accountStorageIdentifier: String {
-        guard !isGuest else { return "__default__" }
-#if BIT101_UI_TESTING
-        if accountIdentifier.hasPrefix("__ui_tests__.") { return accountDirectoryName }
-#endif
-        return ScheduleSharedAccountIdentity.stableToken(for: accountIdentifier)
-    }
-
-    /// 旧版账号文件夹名，用于现有缓存迁移。
-    var legacyAccountDirectoryName: String {
-        guard !isGuest else { return "__default__" }
-        let invalid = CharacterSet.alphanumerics.inverted
-        return accountIdentifier.components(separatedBy: invalid).joined(separator: "_")
-    }
-
-    /// 兼容迁移沿用既有稳定账号目录名；规范化旧目录保留为独立历史路径。
-    var legacyAccountDirectoryNameForMigration: String {
-        accountDirectoryName
-    }
-}
 
 /// App 持久化路径、当前账号会话和本地文件服务的统一入口。
 enum AppFileDirectories {

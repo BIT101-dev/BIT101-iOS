@@ -37,6 +37,10 @@
 
 - `Schedule/ScheduleModels.swift`
 - `Schedule/ScheduleViewModel.swift`
+- `Schedule/ScheduleRepository.swift`
+- `Schedule/ScheduleDDLViewModel.swift`
+- `Schedule/ScheduleClassroomViewModel.swift`
+- `Shell/AppScheduleCacheEffects.swift`
 - `Schedule/ScheduleRootView.swift`
 - `Schedule/ScheduleService.swift`
 - `Schedule/ScheduleCacheStore.swift`

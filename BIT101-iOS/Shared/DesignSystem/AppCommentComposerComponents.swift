@@ -1,13 +1,14 @@
+#if os(iOS)
 import SwiftUI
 
 /// 评论和开发者建议输入区共用内容段；组件承载匿名选项和选择触感。
-struct AppCommentComposerContentSection<Content: View>: View {
+public struct AppCommentComposerContentSection<Content: View>: View {
     private let title: String
     private let anonymousLabel: String
     @Binding private var anonymous: Bool
     private let content: Content
 
-    init(
+    public init(
         title: String = "内容",
         anonymous: Binding<Bool>,
         anonymousLabel: String = "匿名评论",
@@ -19,7 +20,7 @@ struct AppCommentComposerContentSection<Content: View>: View {
         self.content = content()
     }
 
-    var body: some View {
+    public var body: some View {
         Section(title) {
             content
             Toggle(anonymousLabel, isOn: $anonymous)
@@ -29,7 +30,7 @@ struct AppCommentComposerContentSection<Content: View>: View {
 }
 
 /// 评论和建议编辑页共用工具栏；工具栏提供取消和提交入口。
-struct AppComposerToolbar: ToolbarContent {
+public struct AppComposerToolbar: ToolbarContent {
     let isSubmitting: Bool
     let submitTitle: String
     let submittingTitle: String
@@ -37,7 +38,7 @@ struct AppComposerToolbar: ToolbarContent {
     let onCancel: () -> Void
     let onSubmit: () -> Void
 
-    init(
+    public init(
         isSubmitting: Bool,
         submitTitle: String,
         submittingTitle: String = "发送中…",
@@ -53,7 +54,7 @@ struct AppComposerToolbar: ToolbarContent {
         self.onSubmit = onSubmit
     }
 
-    var body: some ToolbarContent {
+    public var body: some ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
             Button("取消", action: onCancel)
         }
@@ -64,3 +65,4 @@ struct AppComposerToolbar: ToolbarContent {
         }
     }
 }
+#endif

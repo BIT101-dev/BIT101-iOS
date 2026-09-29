@@ -1,3 +1,5 @@
+import DesignSystemKit
+import ClientCore
 import SwiftUI
 import WebKit
 
@@ -88,7 +90,7 @@ struct GallerySettingsPage: View {
                             }
                             GalleryImageCachePreferences.limitMB = normalized
                             Task {
-                                await GalleryImageCache.shared.enforceCurrentLimit()
+                                await RemoteImageCache.shared.enforceCurrentLimit()
                                 await refreshImageCacheUsage()
                             }
                         }
@@ -136,7 +138,7 @@ struct GallerySettingsPage: View {
     private func refreshImageCacheUsage() async {
         imageCacheUsageGeneration &+= 1
         let generation = imageCacheUsageGeneration
-        let bytes = await GalleryImageCache.shared.usedBytes()
+        let bytes = await RemoteImageCache.shared.usedBytes()
         guard generation == imageCacheUsageGeneration else { return }
         let formatter = ByteCountFormatter()
         imageCacheUsageText = formatter.string(fromByteCount: bytes)

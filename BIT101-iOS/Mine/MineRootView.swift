@@ -1,3 +1,5 @@
+import CommunityCore
+import DesignSystemKit
 //
 //  MineRootView.swift
 //  BIT101-iOS
@@ -165,13 +167,14 @@ struct MineRootView: View {
 ///
 /// 复用“我的”页的资料卡和话题卡片样式，统一用户主页的视觉表现。
 struct UserProfileRootView: View {
+    @Environment(CommunityDestinations.self) private var destinations
     let userID: Int
     let onLogout: () -> Void
 
     /// 指定用户主页状态机。
     @StateObject private var viewModel: UserProfileViewModel
-    @State private var selectedPoster: GalleryPoster?
-    @State private var imageViewer: GalleryImageViewerState?
+    @State private var selectedPoster: CommunityPoster?
+    @State private var imageViewer: ImagePreviewRequest?
 
     init(userID: Int, onLogout: @escaping () -> Void = {}) {
         self.userID = userID
@@ -201,12 +204,12 @@ struct UserProfileRootView: View {
         }
         .sheet(item: $selectedPoster) { poster in
             NavigationStack {
-                GalleryPosterDetailView(poster: poster)
+                destinations.poster(poster, nil)
             }
             .presentationDetents([.large])
             .presentationDragIndicator(.hidden)
         }
-        .gallerySystemImagePreview(item: $imageViewer)
+        .systemImagePreview(item: $imageViewer)
         .diagnosticAlert(item: $viewModel.alert)
     }
 
@@ -231,7 +234,7 @@ struct UserProfileRootView: View {
                     info: info,
                     posterCountText: viewModel.posterCountText,
                     onOpenAvatar: {
-                        imageViewer = GalleryImageViewerState(images: [info.user.avatar], initialIndex: 0)
+                        imageViewer = ImagePreviewRequest(images: [info.user.avatar], initialIndex: 0)
                     },
                     onFollow: {
                         Task { await viewModel.followUser() }
@@ -263,11 +266,11 @@ struct UserProfileRootView: View {
             } else {
                 ForEach(Array(visiblePosters.enumerated()), id: \.element.id) { index, poster in
                     AppFeedRow(isLast: index == visiblePosters.count - 1) {
-                        GalleryPosterCard(
+                        CommunityPosterCard(
                             poster: poster,
                             onOpenPoster: { selectedPoster = poster },
                             onOpenImage: { index, images in
-                                imageViewer = GalleryImageViewerState(images: images, initialIndex: index)
+                                imageViewer = ImagePreviewRequest(images: images, initialIndex: index)
                             },
                             onDelete: nil,
                             onReport: nil
@@ -412,12 +415,12 @@ private struct MineProfileCard: View {
 /// 页面展示一类用户数组，刷新和分页操作由上层 ViewModel 传入。
 private struct MineUserListView: View {
     let title: String
-    let users: [GalleryUser]
+    let users: [CommunityUser]
     let status: MineLoadStatus
     let isLoadingMore: Bool
     let onRefresh: () async -> Void
-    let onLoadMore: (GalleryUser?) async -> Void
-    let onOpenUser: (GalleryUser) -> Void
+    let onLoadMore: (CommunityUser?) async -> Void
+    let onOpenUser: (CommunityUser) -> Void
 
     var body: some View {
         Group {
@@ -503,22 +506,22 @@ private struct MineUserListView: View {
 ///
 /// 复用话题卡片与详情实现，统一“我的帖子”和“话题详情”的视觉和交互逻辑。
 private struct MinePosterListView: View {
-    let posters: [GalleryPoster]
+    @Environment(CommunityDestinations.self) private var destinations
+    let posters: [CommunityPoster]
     let status: MineLoadStatus
     let isLoadingMore: Bool
     let onRefresh: () async -> Void
-    let onLoadMore: (GalleryPoster?) async -> Void
-    @State private var selectedPoster: GalleryPoster?
-    @State private var imageViewer: GalleryImageViewerState?
-    @State private var deletingPoster: GalleryPoster?
+    let onLoadMore: (CommunityPoster?) async -> Void
+    @State private var selectedPoster: CommunityPoster?
+    @State private var imageViewer: ImagePreviewRequest?
+    @State private var deletingPoster: CommunityPoster?
     @State private var alert: AppAlert?
     @State private var deletedPosterIDs: Set<Int> = []
-    private let service = GalleryService()
 
     /// 当前真正可展示的帖子列表。
     ///
     /// 过滤服务端刷新前已删除的帖子，保持删除后的列表状态。
-    private var visiblePosters: [GalleryPoster] {
+    private var visiblePosters: [CommunityPoster] {
         posters.filter { !deletedPosterIDs.contains($0.id) }
     }
 
@@ -542,11 +545,11 @@ private struct MinePosterListView: View {
                     LazyVStack(spacing: AppDesignSystem.Spacing.none) {
                         ForEach(Array(visiblePosters.enumerated()), id: \.element.id) { index, poster in
                             AppFeedRow(isLast: index == visiblePosters.count - 1) {
-                                GalleryPosterCard(
+                                CommunityPosterCard(
                                     poster: poster,
                                     onOpenPoster: { selectedPoster = poster },
                                     onOpenImage: { index, images in
-                                        imageViewer = GalleryImageViewerState(images: images, initialIndex: index)
+                                        imageViewer = ImagePreviewRequest(images: images, initialIndex: index)
                                     },
                                     onDelete: { deletingPoster = poster },
                                     onReport: nil
@@ -577,9 +580,9 @@ private struct MinePosterListView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $selectedPoster) { poster in
             NavigationStack {
-                GalleryPosterDetailView(
-                    poster: poster,
-                    onDeleted: {
+                destinations.poster(
+                    poster,
+                    {
                         deletedPosterIDs.insert(poster.id)
                         Task { await onRefresh() }
                     }
@@ -588,7 +591,7 @@ private struct MinePosterListView: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.hidden)
         }
-        .gallerySystemImagePreview(item: $imageViewer)
+        .systemImagePreview(item: $imageViewer)
         .alert(
             "删除帖子",
             isPresented: Binding(
@@ -621,9 +624,9 @@ private struct MinePosterListView: View {
     }
 
     /// 删除帖子后先本地移除，再请求上层刷新列表。
-    private func deletePoster(_ poster: GalleryPoster) async {
+    private func deletePoster(_ poster: CommunityPoster) async {
         do {
-            try await service.deletePoster(id: poster.id)
+            try await destinations.deletePoster(poster.id)
             deletedPosterIDs.insert(poster.id)
             if selectedPoster?.id == poster.id {
                 selectedPoster = nil

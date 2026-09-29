@@ -6,7 +6,7 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
 
     @MainActor
     func testLoginFormTracksRequiredCredentialsAndOpensSchedule() throws {
-        app = launchApp(resetStorage: true)
+        app = launchApp(resetStorage: true, account: nil)
 
         let studentID = app.textFields["login.student-id"]
         let password = app.secureTextFields["login.password"]
@@ -16,8 +16,8 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
         assertUI(password.exists, "登录页应展示密码输入框。")
         assertUI(!submit.isEnabled, "凭据完整前登录按钮应保持禁用。")
 
-        studentID.tap()
-        studentID.typeText("ui-test-student\n")
+        replaceAccount("ui-test-student", in: studentID)
+        studentID.typeText("\n")
         assertUI(!submit.isEnabled, "仅输入学号时登录按钮应保持禁用。")
 
         password.typeText("ui-test-password")
@@ -32,7 +32,6 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
     @MainActor
     func testLongPressOpensScheduleContextMenuAndImportSheet() throws {
         app = launchApp(resetStorage: true)
-        signIn(app)
 
         let contextArea = app.descendants(matching: .any)
             .matching(identifier: "schedule.blank-context-menu")
@@ -40,12 +39,8 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
         assertUI(contextArea.waitForExistence(timeout: 10), "日程页面应展示可操作的空白课表区域。")
         contextArea.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 1)
 
-        let shareAction = app.descendants(matching: .any)
-            .matching(identifier: "schedule.menu.share")
-            .firstMatch
-        let importAction = app.descendants(matching: .any)
-            .matching(identifier: "schedule.menu.import")
-            .firstMatch
+        let shareAction = app.buttons["分享课表"]
+        let importAction = app.buttons["导入课表"]
         assertUI(
             shareAction.waitForExistence(timeout: 5),
             "长按课表区域后应展示分享操作。\(focusedAccessibilitySnapshot(app, matching: ["分享", "导入", "课表", "menu"]))"
@@ -60,12 +55,12 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
     @MainActor
     func testManualSchedulePersistsAcrossAppRelaunch() throws {
         app = launchApp(resetStorage: true)
-        signIn(app)
 
         addCustomSchedule("自动化测试日程", in: app)
 
         app.terminate()
         app = launchApp(resetStorage: false)
+        assertUI(app.tabBars.buttons["app.tab.schedule"].waitForExistence(timeout: 10), "重新启动后应恢复测试登录会话。")
         let savedSchedule = app.descendants(matching: .any)
             .matching(NSPredicate(format: "label CONTAINS %@", "自动化测试日程"))
             .firstMatch
@@ -77,8 +72,7 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
 
     @MainActor
     func testCustomSchedulesAreIsolatedBetweenAccounts() throws {
-        app = launchApp(resetStorage: true)
-        signIn(app, studentID: "ui-test-account-a")
+        app = launchApp(resetStorage: true, account: "ui-test-account-a")
         addCustomSchedule("A 账户专属日程", in: app)
 
         app.tabBars.buttons["app.tab.mine"].tap()
@@ -91,19 +85,9 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
         logout.tap()
 
         let studentID = app.textFields["login.student-id"]
-        let password = app.secureTextFields["login.password"]
         assertUI(studentID.waitForExistence(timeout: 10), "退出后应返回登录表单。")
-        studentID.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
-        studentID.typeText("-account-b\n")
-        password.typeText("ui-test-password")
-        assertUI(app.buttons["login.submit"].isEnabled, "账号 B 登录前应完成表单输入。")
-        password.typeText("\n")
-        dismissCredentialSavePrompt(in: app)
-        assertUI(app.tabBars.buttons["app.tab.schedule"].waitForExistence(timeout: 10), "账号 B 登录后应进入日程页。")
-        let scheduleReady = app.descendants(matching: .any)
-            .matching(identifier: "schedule.blank-context-menu")
-            .firstMatch
-        assertUI(scheduleReady.waitForExistence(timeout: 10), "账号 B 的课表缓存应完成加载。")
+        assertUI(studentID.value as? String == "ui-test-account-a", "退出后表单应保留账号 A。")
+        signIn(app, studentID: "ui-test-account-b")
         let accountASchedule = app.descendants(matching: .any)
             .matching(NSPredicate(format: "label == %@", "自定义日程，A 账户专属日程"))
             .firstMatch
@@ -147,21 +131,8 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
     }
 
     @MainActor
-    func testTestSessionSurvivesAppRelaunch() throws {
-        app = launchApp(resetStorage: true)
-        signIn(app)
-        app.terminate()
-
-        app = launchApp(resetStorage: false)
-        let scheduleTab = app.tabBars.buttons["app.tab.schedule"]
-        assertUI(scheduleTab.waitForExistence(timeout: 10), "重新启动后应恢复测试登录会话。")
-        assertUI(!app.buttons["login.submit"].exists, "会话恢复后应进入 App 主界面。")
-    }
-
-    @MainActor
     func testMainTabsNavigateWithOfflineServices() throws {
         app = launchApp(resetStorage: true)
-        signIn(app)
 
         for identifier in ["app.tab.schedule", "app.tab.home", "app.tab.gallery", "app.tab.mine"] {
             let tab = app.tabBars.buttons[identifier]
@@ -183,12 +154,9 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
 
     @MainActor
     func testMainTabsRemainAccessibleAtAccessibilityDynamicType() throws {
-        app = launchApp(resetStorage: true)
-        signIn(app)
-        app.terminate()
         for style in ["Light", "Dark"] {
             app = launchApp(
-                resetStorage: false,
+                resetStorage: true,
                 accessibilityTextSize: true,
                 userInterfaceStyle: style
             )
@@ -253,11 +221,6 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
     @MainActor
     func testScoreChallengeContinuesAfterSMSVerification() throws {
         app = launchApp(resetStorage: true)
-        signIn(app)
-
-        let scheduleTab = app.tabBars.buttons["app.tab.schedule"]
-        scheduleTab.tap()
-        assertUI(scheduleTab.isSelected, "日程 Tab 应完成首屏聚焦。")
         let scoreTab = app.tabBars.buttons["app.tab.home"]
         scoreTab.tap()
         assertUI(
@@ -292,8 +255,8 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
         let submit = application.buttons["login.submit"]
         assertUI(studentID.waitForExistence(timeout: 10), "测试启动后应展示登录页。")
 
-        studentID.tap()
-        studentID.typeText("\(inputStudentID)\n")
+        replaceAccount(inputStudentID, in: studentID)
+        studentID.typeText("\n")
         password.typeText("ui-test-password")
         assertUI(submit.isEnabled, "完整填写账号信息后，登录按钮应启用。")
         password.typeText("\n")
@@ -309,9 +272,20 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
     }
 
     @MainActor
+    private func replaceAccount(_ value: String, in field: XCUIElement) {
+        field.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
+        let existingValue = field.value as? String ?? ""
+        if !existingValue.isEmpty {
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existingValue.count))
+        }
+        field.typeText(value)
+        assertUI(field.value as? String == value, "账号输入框应完整替换为指定测试账号。")
+    }
+
+    @MainActor
     private func dismissCredentialSavePrompt(in application: XCUIApplication) {
         let prompt = application.sheets["保存密码？"]
-        guard prompt.waitForExistence(timeout: 3) else { return }
+        guard prompt.exists else { return }
         let nonSavingActions = ["取消", "不保存", "稍后", "暂不", "以后", "以后再说", "稍后再说", "关闭"]
         let buttons = prompt.buttons.allElementsBoundByIndex
         guard let dismissAction = buttons.first(where: { nonSavingActions.contains($0.label) }) else {
@@ -359,6 +333,7 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
     @MainActor
     private func launchApp(
         resetStorage: Bool,
+        account: String? = "ui-test-student",
         accessibilityTextSize: Bool = false,
         userInterfaceStyle: String? = nil
     ) -> XCUIApplication {
@@ -377,7 +352,16 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
         application.launchEnvironment["BIT101_UI_TESTING"] = "1"
         application.launchEnvironment["BIT101_UI_TEST_RUN_ID"] = runIdentifier
         application.launchEnvironment["BIT101_UI_TEST_RESET_STORAGE"] = resetStorage ? "1" : "0"
+        if resetStorage, let account {
+            application.launchEnvironment["BIT101_UI_TEST_ACCOUNT"] = account
+        }
         application.launch()
+        app = application
+        if account != nil {
+            let scheduleReady = application.descendants(matching: .any)
+                .matching(identifier: "schedule.blank-context-menu").firstMatch
+            assertUI(scheduleReady.waitForExistence(timeout: 10), "测试会话与课表应完成加载。")
+        }
         return application
     }
 }

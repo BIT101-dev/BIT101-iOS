@@ -1,3 +1,4 @@
+import DesignSystemKit
 //
 //  SettingsDDLViews.swift
 //  BIT101-iOS
@@ -8,7 +9,7 @@
 import SwiftUI
 
 struct DDLSettingsPage: View {
-    @EnvironmentObject private var viewModel: ScheduleViewModel
+    @EnvironmentObject private var viewModel: ScheduleDDLViewModel
     @State private var pickerRoute: DDLSettingsNumberPickerRoute?
 
     var body: some View {
@@ -59,6 +60,7 @@ struct DDLSettingsPage: View {
         }
         .appGroupedListStyle()
         .task { await viewModel.loadIfNeeded() }
+        .scheduleSchoolVerification(viewModel: viewModel)
         .sheet(item: $pickerRoute) { route in
             switch route {
             case .beforeDay:

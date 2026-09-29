@@ -8,6 +8,7 @@ import importlib.util
 import subprocess
 import sys
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +36,7 @@ def _blank_segment(output: list[str], source: str, start: int, end: int) -> None
             output[index] = " "
 
 
+@cache
 def mask_comments(source: str) -> str:
     """移除注释并保留字符串，供需要识别 UI 文案结构的规则使用。"""
     output = list(source)
@@ -93,6 +95,7 @@ def mask_comments(source: str) -> str:
     return "".join(output)
 
 
+@cache
 def mask_literals_and_comments(source: str) -> str:
     """保留换行，忽略字符串和注释，避免文案伪造 UI 契约。"""
     output = list(source)
@@ -445,7 +448,7 @@ COMPONENT_CONTRACTS = (
     ),
     ComponentContract(
         name="信息流卡片",
-        view_names=("GalleryFeedView", "GalleryPosterCard", "PaperSummaryCard"),
+        view_names=("GalleryFeedView", "CommunityPosterCard", "PaperSummaryCard"),
         requirements=(("appFeedCardStyle", "必须使用公共 Feed 样式"),),
     ),
     ComponentContract(
@@ -476,7 +479,7 @@ COMPONENT_CONTRACTS = (
     ),
     ComponentContract(
         name="标签页面",
-        view_names=("GalleryFeedView", "GalleryPosterCard", "GalleryPosterDetailView", "GalleryComposerView"),
+        view_names=("GalleryFeedView", "CommunityPosterCard", "GalleryPosterDetailView", "GalleryComposerView"),
         requirements=(("AppTagChip", "必须使用公共标签组件"),),
     ),
     ComponentContract(
@@ -499,8 +502,14 @@ COMPONENT_CONTRACTS = (
 )
 
 
+@cache
 def swift_files() -> list[Path]:
     return sorted(SOURCE_ROOT.rglob("*.swift"))
+
+
+@cache
+def source_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
 
 
 def syntax_index() -> dict[str, dict]:
@@ -1257,7 +1266,7 @@ def contract_scope_findings(
 
 
 def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> None:
-    sources = {path: path.read_text(encoding="utf-8") for path in swift_files()}
+    sources = {path: source_text(path) for path in swift_files()}
     code_sources = {path: mask_literals_and_comments(source) for path, source in sources.items()}
     comment_free_sources = {path: mask_comments(source) for path, source in sources.items()}
 
@@ -1360,7 +1369,7 @@ def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> Non
 
 
 def check_haptic_consistency(errors: list[str], syntax: dict[str, dict]) -> None:
-    sources = {path: mask_literals_and_comments(path.read_text(encoding="utf-8")) for path in swift_files()}
+    sources = {path: mask_literals_and_comments(source_text(path)) for path in swift_files()}
     required = (
         ("Shared/DesignSystem/AppHapticFeedback.swift", "func appSelectionFeedback"),
         ("Shared/DesignSystem/AppHapticFeedback.swift", "sensoryFeedback(.selection, trigger:"),
@@ -1993,8 +2002,8 @@ def map_theme_color_contract_findings() -> list[str]:
 def check_error_report_coverage(errors: list[str], syntax: dict[str, dict]) -> None:
     schedule_notice_presenters = 0
     for path in swift_files():
-        source = mask_literals_and_comments(path.read_text(encoding="utf-8"))
-        schedule_notice_presenters += len(re.findall(r"\.scheduleViewModel\.\$notice\.compactMap", source))
+        source = mask_literals_and_comments(source_text(path))
+        schedule_notice_presenters += len(re.findall(r"\bscheduleViewModel\.\$notice\.compactMap", source))
         facts = syntax[str(path)]
         errors.extend(alert_coverage_findings(facts, path.relative_to(ROOT)))
         for scope in view_scopes(facts):
@@ -2028,7 +2037,7 @@ def check_fonts(errors: list[str], syntax: dict[str, dict]) -> None:
         path = Path(path_string)
         if not path.is_file():
             continue
-        raw_source = path.read_text(encoding="utf-8")
+        raw_source = source_text(path)
         relative = path.relative_to(ROOT)
         if path not in DESIGN_SYSTEM_SOURCES:
             for call, invocation in zip(facts.get("calls", []), facts.get("invocations", [])):
@@ -2059,7 +2068,7 @@ def check_design_token_boundaries(errors: list[str], syntax: dict[str, dict]) ->
     for path in swift_files():
         if path == PRIMITIVE_OPACITY_SOURCE:
             continue
-        raw_source = path.read_text(encoding="utf-8")
+        raw_source = source_text(path)
         facts = syntax[str(path)]
         relative = path.relative_to(ROOT)
         emitted: set[tuple[str, int, str]] = set()
@@ -2080,7 +2089,7 @@ def check_page_theme_consistency(errors: list[str], syntax: dict[str, dict]) -> 
         if path in DESIGN_SYSTEM_SOURCES:
             continue
         source_relative = path.relative_to(SOURCE_ROOT).as_posix()
-        raw_source = path.read_text(encoding="utf-8")
+        raw_source = source_text(path)
         facts = syntax[str(path)]
         for prefixes, forbidden_tokens, expected_token in PAGE_THEME_RULES:
             if not source_relative.startswith(prefixes):
@@ -2112,7 +2121,7 @@ def check_contextual_component_colors(errors: list[str], syntax: dict[str, dict]
         ):
             continue
 
-        raw_source = path.read_text(encoding="utf-8")
+        raw_source = source_text(path)
         facts = syntax[str(path)]
         for token, expected_token in CONTEXTUAL_COLOR_BYPASSES:
             emitted: set[int] = set()
@@ -2140,7 +2149,7 @@ def check_registered_visual_contracts(errors: list[str]) -> None:
         if not path.is_file():
             errors.append(f"{path.relative_to(ROOT)}: 自动视觉契约引用的源码缺失")
             continue
-        source = mask_comments(path.read_text(encoding="utf-8"))
+        source = mask_comments(source_text(path))
         if marker not in source:
             errors.append(f"{path.relative_to(ROOT)}: 自动视觉契约已变化，请同步更新契约声明（{marker}）")
 
@@ -2390,7 +2399,9 @@ def check_refresh_status_contract(errors: list[str], syntax: dict[str, dict]) ->
         errors.append("CourseScheduleTabView: 分享操作必须使用当前显示课表的数据源")
 
 
-def main(shared_syntax: dict[str, dict] | None = None) -> int:
+def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[str] | None = None) -> int:
+    swift_files.cache_clear()
+    source_text.cache_clear()
     if sys.argv[1:] == ["--self-test"]:
         findings = [
             *ast_marker_boundary_findings(),
@@ -2417,7 +2428,7 @@ def main(shared_syntax: dict[str, dict] | None = None) -> int:
             return 1
     else:
         syntax = shared_syntax
-    errors.extend(ast_marker_boundary_findings())
+    errors.extend(ast_marker_boundary_findings() if boundary_findings is None else boundary_findings)
     check_component_contracts(errors, syntax)
     check_refresh_status_contract(errors, syntax)
     check_haptic_consistency(errors, syntax)
@@ -2435,7 +2446,7 @@ def main(shared_syntax: dict[str, dict] | None = None) -> int:
             continue
         relative = path.relative_to(ROOT)
         source_relative = path.relative_to(SOURCE_ROOT).as_posix()
-        raw_source = path.read_text(encoding="utf-8")
+        raw_source = source_text(path)
         facts = syntax[str(path)]
         call_pairs = zip(facts.get("calls", []), facts.get("invocations", []))
         for call, invocation in call_pairs:

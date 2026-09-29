@@ -5,13 +5,21 @@
 网络代码分成三层：
 
 1. `HTTPClient`
-   只负责发送 `URLRequest`、校验 `HTTPURLResponse`、检查状态码并提取服务端错误消息。
+   负责发送 `URLRequest`、校验 `HTTPURLResponse`、检查状态码并提取服务端错误消息。
 2. `CommunityAPIClient`
    负责 BIT101 社区域名、查询参数、`fake-cookie`、JSON 编解码和业务错误映射。
 3. 各模块 `Service`
    描述 endpoint、请求体和业务特有的数据组合，社区 `URLSession` 由共享网络层管理。
 
 各 ViewModel 通过场景化 `Servicing` 协议依赖 Service，不直接依赖网络基础设施。
+
+`HTTPClient`、`CommunityAPIClient`、HTTPS 重定向和取消判断编译为本地 `ClientCore` 模块。
+应用层通过 `HTTPClientObserving` 注入发送前策略与请求结果记录；
+`Shell/AppNetworkClients.swift` 组装网络提示、诊断记录和连接池。
+`Login/CommunitySessionSupport.swift` 注入 cookie 读取及并发合并的登录恢复动作。
+`Shell/NetworkDiagnosisRunner.swift` 负责用户主动发起的跨业务诊断。
+
+基础模块通过 `HTTPTransport` 接收传输实现，离线验证通过内存 transport 与 observer 检查请求准入、状态码和结果记录顺序。
 
 ## 2. 会话边界
 

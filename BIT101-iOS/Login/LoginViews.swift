@@ -1,3 +1,4 @@
+import DesignSystemKit
 //
 //  LoginViews.swift
 //  BIT101-iOS
@@ -55,7 +56,7 @@ private struct LoginFormView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
 #if BIT101_UI_TESTING
-                    .textContentType(AppFileDirectories.isRunningUITest ? nil : .username)
+                    .textContentType(AppFileDirectories.isRunningUITest ? .oneTimeCode : .username)
 #else
                     .textContentType(.username)
 #endif
@@ -72,7 +73,7 @@ private struct LoginFormView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
 #if BIT101_UI_TESTING
-                    .textContentType(AppFileDirectories.isRunningUITest ? nil : .password)
+                    .textContentType(AppFileDirectories.isRunningUITest ? .oneTimeCode : .password)
 #else
                     .textContentType(.password)
 #endif

@@ -1,3 +1,5 @@
+import CommunityCore
+import DesignSystemKit
 //
 //  PaperSearchViews.swift
 //  BIT101-iOS

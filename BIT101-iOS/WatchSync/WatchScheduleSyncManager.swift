@@ -1,3 +1,5 @@
+import ClientCore
+import ScheduleContracts
 #if canImport(WatchConnectivity)
 
 import Foundation

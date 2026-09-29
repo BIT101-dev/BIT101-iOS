@@ -951,6 +951,24 @@ let comparison = left != right
     misplaced_audit += "\n# Scripts/run-static-audit.sh\n"
     if not any("静态审计 Job 缺少执行入口" in item for item in ci_wiring_findings(misplaced_audit)):
         findings.append("代码质量规则边界自检失败：CI 注释中的审计标记隔离")
+    extension_graph = {"objects": {
+        "app": {"isa": "PBXNativeTarget", "name": "BIT101-iOS", "dependencies": ["widget-edge", "watch-edge"]},
+        "widget": {"isa": "PBXNativeTarget", "name": "BIT101ScheduleWidgets"},
+        "watch": {"isa": "PBXNativeTarget", "name": "BIT101Watch", "dependencies": ["watch-widget-edge"]},
+        "watch-widget": {"isa": "PBXNativeTarget", "name": "BIT101WatchWidgets"},
+        "widget-edge": {"target": "widget", "platformFilter": "ios"},
+        "watch-edge": {"target": "watch", "platformFilter": "ios"},
+        "watch-widget-edge": {"target": "watch-widget"},
+    }}
+    if extension_dependency_findings(extension_graph):
+        findings.append("代码质量规则边界自检失败：父 target 的扩展编译覆盖识别")
+    extension_graph["objects"]["watch-edge"].pop("platformFilter")
+    if not extension_dependency_findings(extension_graph):
+        findings.append("代码质量规则边界自检失败：Mac Catalyst 的扩展平台隔离")
+    extension_graph["objects"]["watch-edge"]["platformFilter"] = "ios"
+    extension_graph["objects"]["watch"]["dependencies"] = []
+    if not extension_dependency_findings(extension_graph):
+        findings.append("代码质量规则边界自检失败：扩展依赖断开应触发门禁")
     return findings
 
 
@@ -1146,7 +1164,7 @@ def architectural_contract_findings(syntax_index: dict[str, dict]) -> list[str]:
         "CoursePagedState": "PagedItemsState",
         "GalleryFeedState": "PagedItemsState",
         "GalleryMessageListState": "CursorPagedItemsState",
-        "GalleryCommentState": "PagedItemsState",
+        "CommunityCommentState": "PagedItemsState",
         "MinePagedState": "PagedItemsState",
         "PaperListState": "PagedItemsState",
     }
@@ -1241,6 +1259,10 @@ def audit_wiring_findings() -> list[str]:
         errors.append(".github/workflows/ci.yml: CI 工作流不存在")
     else:
         errors.extend(ci_wiring_findings(workflow_path.read_text(encoding="utf-8")))
+    project = json.loads(subprocess.check_output([
+        "plutil", "-convert", "json", "-o", "-", str(ROOT / "BIT101-iOS.xcodeproj/project.pbxproj"),
+    ], text=True))
+    errors.extend(extension_dependency_findings(project))
 
     test_script = ROOT / "Scripts/run-extended-tests.sh"
     if not test_script.is_file():
@@ -1262,6 +1284,27 @@ def audit_wiring_findings() -> list[str]:
     hook_path = ROOT / ".githooks/pre-commit"
     if not hook_path.is_file() or "Scripts/check_stale_docs.py --all" not in hook_path.read_text(encoding="utf-8"):
         errors.append(".githooks/pre-commit: 提交前必须阻塞过期文档")
+    return errors
+
+
+def extension_dependency_findings(project: dict) -> list[str]:
+    objects = project["objects"]
+    targets = {value["name"]: key for key, value in objects.items() if value.get("isa") == "PBXNativeTarget"}
+    errors = []
+    for parent, child in (
+        ("BIT101-iOS", "BIT101ScheduleWidgets"),
+        ("BIT101-iOS", "BIT101Watch"),
+        ("BIT101Watch", "BIT101WatchWidgets"),
+    ):
+        dependencies = objects.get(targets.get(parent), {}).get("dependencies", [])
+        children = {objects[dependency].get("target") for dependency in dependencies}
+        if targets.get(child) is None or targets[child] not in children:
+            errors.append(f"project.pbxproj: {parent} 必须通过 target 依赖编译 {child}")
+        if parent == "BIT101-iOS":
+            for dependency in dependencies:
+                edge = objects[dependency]
+                if edge.get("target") == targets.get(child) and edge.get("platformFilter") != "ios":
+                    errors.append(f"project.pbxproj: {child} 的 App 依赖应限定为 iOS 平台")
     return errors
 
 
@@ -1312,10 +1355,6 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         ("Scripts/run-extended-tests.sh catalyst", "CI 默认 Job 缺少 Mac Catalyst 行为测试"),
         ("xcodebuild build-for-testing", "默认编译 Job 未编译 iOS 测试 target"),
         ("-scheme BIT101-iOS", "CI 未编译 iOS scheme"),
-        ("-scheme BIT101Watch", "CI 未编译 Watch scheme"),
-        ("-scheme BIT101ScheduleWidgets", "CI 未编译 iOS Widget scheme"),
-        ("-scheme BIT101WatchWidgets", "CI 未编译 Watch Widget scheme"),
-        ("generic/platform=watchOS", "Watch 编译不得选择模拟器"),
         ("generic/platform=iOS", "iOS 编译不得选择模拟器"),
         ("SWIFT_TREAT_WARNINGS_AS_ERRORS=YES", "发布编译未将 Swift 警告视为错误"),
         ("GCC_TREAT_WARNINGS_AS_ERRORS=YES", "发布编译未将 Clang 警告视为错误"),
@@ -1327,7 +1366,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     return errors
 
 
-def main(shared_syntax: dict[str, dict] | None = None) -> int:
+def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[str] | None = None) -> int:
     if sys.argv[1:] == ["--swift-syntax-index"]:
         try:
             print(json.dumps(swift_syntax_index(swift_files()), ensure_ascii=False))
@@ -1356,7 +1395,7 @@ def main(shared_syntax: dict[str, dict] | None = None) -> int:
         syntax_index = shared_syntax
     source_errors, review = source_findings(syntax_index or None)
     errors.extend(source_errors)
-    errors.extend(checker_boundary_findings())
+    errors.extend(checker_boundary_findings() if boundary_findings is None else boundary_findings)
     errors.extend(script_findings())
     errors.extend(documentation_findings())
     if syntax_index:
@@ -1407,8 +1446,18 @@ def combined_main() -> int:
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
-    ui_status = module.main(syntax_index)
-    quality_status = main(syntax_index)
+    quality_boundaries = checker_boundary_findings()
+    ui_boundaries = [
+        *module.ast_marker_boundary_findings(),
+        *module.source_boundary_findings(),
+        *module.map_theme_color_contract_findings(),
+    ]
+    if not quality_boundaries:
+        print("[通过] 代码质量检查器自测")
+    if not ui_boundaries:
+        print("[通过] UI 一致性检查器自测")
+    ui_status = module.main(syntax_index, ui_boundaries)
+    quality_status = main(syntax_index, quality_boundaries)
     return int(ui_status != 0 or quality_status != 0)
 
 

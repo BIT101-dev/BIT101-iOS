@@ -20,6 +20,8 @@ nonisolated struct ScheduleCache: Codable, Sendable {
     var storedCourseScheduleParserVersion = Self.courseScheduleParserVersion
     var currentTerm: String = ""
     var firstDayString: String = ""
+    /// 当前账号在本机为各学期选择的首周日期；学期快照保留学校同步日期。
+    var manualFirstDayStringsByTerm: [String: String] = [:]
     /// 最近一次从学校成功同步课表与考试的时间，用于缓存迁移和快照时间戳。
     var coursesUpdatedAt: Date = .distantPast
     var lexueCalendarURL: String = ""
@@ -73,6 +75,7 @@ nonisolated struct ScheduleCache: Codable, Sendable {
         case storedCourseScheduleParserVersion
         case currentTerm
         case firstDayString
+        case manualFirstDayStringsByTerm
         case coursesUpdatedAt
         case lexueCalendarURL
         case courses
@@ -125,6 +128,10 @@ nonisolated struct ScheduleCache: Codable, Sendable {
             try container.decodeIfPresent(String.self, forKey: .primaryScheduleTitle) ?? "课表"
         )
         firstDayString = try container.decodeIfPresent(String.self, forKey: .firstDayString) ?? ""
+        manualFirstDayStringsByTerm = try container.decodeIfPresent(
+            [String: String].self,
+            forKey: .manualFirstDayStringsByTerm
+        ) ?? [:]
         let decodedCoursesUpdatedAt = try container.decodeIfPresent(Date.self, forKey: .coursesUpdatedAt)
         lexueCalendarURL = try container.decodeIfPresent(String.self, forKey: .lexueCalendarURL) ?? ""
         courses = try container.decodeIfPresent([CourseRecord].self, forKey: .courses) ?? []
@@ -288,6 +295,7 @@ nonisolated struct ScheduleCache: Codable, Sendable {
             cachedCoursesByTerm[currentTerm] = baseline
             manualCourseRulesByTerm[currentTerm] = reconciliation.validRules
         }
+        firstDayString = manualFirstDayStringsByTerm[currentTerm] ?? firstDayString
     }
 
     /// 把课表标题裁到统一长度上限。调用方先提供默认标题，再传入需要裁切的文本。

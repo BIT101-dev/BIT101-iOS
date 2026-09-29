@@ -1,3 +1,5 @@
+import ClientCore
+import CommunityCore
 //
 //  MineModels.swift
 //  BIT101-iOS
@@ -13,7 +15,7 @@ import Foundation
 /// 模型包含基础用户信息、关注关系和是否本人这些关系态字段。
 nonisolated struct MineUserInfo: Decodable, Sendable {
     /// 当前主页主体用户。
-    let user: GalleryUser
+    let user: CommunityUser
     /// 当前主页用户关注的人数。
     let followingNum: Int
     /// 当前主页用户的粉丝人数。

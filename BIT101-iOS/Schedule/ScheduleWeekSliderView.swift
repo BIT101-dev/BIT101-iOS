@@ -1,3 +1,4 @@
+import DesignSystemKit
 import SwiftUI
 
 /// 课表顶部的周次滑动条，直接切换当前周。

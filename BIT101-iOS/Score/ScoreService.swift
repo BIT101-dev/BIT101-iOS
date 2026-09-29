@@ -1,3 +1,4 @@
+import ClientCore
 import Foundation
 
 /// 普通成绩与可信成绩单共用的错误定义。

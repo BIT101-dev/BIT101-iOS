@@ -1,3 +1,4 @@
+import DesignSystemKit
 import Foundation
 
 nonisolated enum ScheduleSection: String, CaseIterable, Identifiable, Hashable, Sendable {

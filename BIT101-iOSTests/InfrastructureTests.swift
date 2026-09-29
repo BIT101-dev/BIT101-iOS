@@ -1,3 +1,5 @@
+import ScheduleContracts
+import ClientCore
 import Foundation
 import Security
 import Testing
@@ -349,7 +351,7 @@ struct InfrastructureTests {
         let storageIdentifier = "account-f075dae4022cfb12f24efad0580c7d242ff6360fc0287305a8a399231e4a62ae"
         #expect(account.key("test.snapshot") == "test.snapshot.\(storageIdentifier)")
         #expect(account.accountStorageIdentifier == storageIdentifier)
-        #expect(ScheduleSharedAccountIdentity.stableToken(for: storageIdentifier) == storageIdentifier)
+        #expect(AccountStorageIdentity.stableToken(for: storageIdentifier) == storageIdentifier)
         #expect(!account.accountStorageIdentifier.contains("student"))
         #expect(account.accountDirectoryName == "__encoded__73747564656E742F61")
         #expect(account.legacyAccountDirectoryName == "student_a")

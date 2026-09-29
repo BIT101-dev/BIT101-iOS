@@ -34,26 +34,16 @@ jobs:
           version="$(xcodebuild -version)"
           printf '%s\n' "$version"
           grep -Eq '^Xcode (2[7-9]|[3-9][0-9]|[1-9][0-9]{2,})\.' <<<"$version"
-      - name: Validate project
-        run: plutil -lint BIT101-iOS.xcodeproj/project.pbxproj
-      - name: Validate versions
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -n "${GITHUB_BASE_REF:-}" ]]; then
-            python3 Scripts/validate_versions.py \
-              --compare-git-ref "origin/${GITHUB_BASE_REF}"
-          else
-            python3 Scripts/validate_versions.py
-          fi
-      - name: Validate release against App Store
-        if: github.event_name == 'workflow_dispatch' && inputs.release_check
-        run: python3 Scripts/validate_versions.py --check-app-store
       - name: Run static audit
+        env:
+          BIT101_VERSION_BASE_REF: ${{ github.base_ref && format('origin/{0}', github.base_ref) || '' }}
+          BIT101_RELEASE_CHECK: ${{ github.event_name == 'workflow_dispatch' && inputs.release_check }}
         run: Scripts/run-static-audit.sh
+      - name: Test local Swift modules
+        run: Scripts/run-extended-tests.sh modules
 
   release-build:
-    name: Release build and extension schemes
+    name: Release build and behavior tests
     needs: static-audit
     runs-on: xcode-27
     timeout-minutes: 45
@@ -67,11 +57,7 @@ jobs:
           version="$(xcodebuild -version)"
           printf '%s\n' "$version"
           grep -Eq '^Xcode (2[7-9]|[3-9][0-9]|[1-9][0-9]{2,})\.' <<<"$version"
-      - name: Validate project
-        run: plutil -lint BIT101-iOS.xcodeproj/project.pbxproj
-      - name: Validate versions
-        run: python3 Scripts/validate_versions.py
-      - name: Build iOS app and tests without a simulator
+      - name: Build iOS app, Watch, widgets and tests
         run: >-
           xcodebuild build-for-testing
           -project BIT101-iOS.xcodeproj
@@ -81,39 +67,6 @@ jobs:
           -derivedDataPath build/CI
           CODE_SIGNING_ALLOWED=NO
           ENABLE_TESTABILITY=YES
-          SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
-          GCC_TREAT_WARNINGS_AS_ERRORS=YES
-      - name: Build Watch app and Watch Widget without a simulator
-        run: >-
-          xcodebuild build
-          -project BIT101-iOS.xcodeproj
-          -scheme BIT101Watch
-          -configuration Release
-          -destination 'generic/platform=watchOS'
-          -derivedDataPath build/CI
-          CODE_SIGNING_ALLOWED=NO
-          SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
-          GCC_TREAT_WARNINGS_AS_ERRORS=YES
-      - name: Build iOS Widget without a simulator
-        run: >-
-          xcodebuild build
-          -project BIT101-iOS.xcodeproj
-          -scheme BIT101ScheduleWidgets
-          -configuration Release
-          -destination 'generic/platform=iOS'
-          -derivedDataPath build/CI
-          CODE_SIGNING_ALLOWED=NO
-          SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
-          GCC_TREAT_WARNINGS_AS_ERRORS=YES
-      - name: Build Watch Widget without a simulator
-        run: >-
-          xcodebuild build
-          -project BIT101-iOS.xcodeproj
-          -scheme BIT101WatchWidgets
-          -configuration Release
-          -destination 'generic/platform=watchOS'
-          -derivedDataPath build/CI
-          CODE_SIGNING_ALLOWED=NO
           SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
           GCC_TREAT_WARNINGS_AS_ERRORS=YES
       - name: Run behavior tests on Mac Catalyst

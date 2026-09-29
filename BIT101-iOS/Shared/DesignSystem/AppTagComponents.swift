@@ -1,7 +1,8 @@
+#if os(iOS)
 import SwiftUI
 
 /// AppTagChipVariant 为信息流、详情页和编辑页提供标签胶囊样式变体。
-enum AppTagChipVariant {
+public enum AppTagChipVariant {
     case display
     case selection(isSelected: Bool)
 
@@ -30,11 +31,16 @@ enum AppTagChipVariant {
 }
 
 /// AppTagChip 根据变体显示标签文本并应用内边距、前景色和胶囊背景。
-struct AppTagChip: View {
+public struct AppTagChip: View {
+    public init(title: String, variant: AppTagChipVariant) {
+        self.title = title
+        self.variant = variant
+    }
+
     let title: String
     let variant: AppTagChipVariant
 
-    var body: some View {
+    public var body: some View {
         Text(title)
             .font(variant.font)
             .padding(.horizontal, variant.horizontalPadding)
@@ -65,3 +71,4 @@ struct AppTagChip: View {
         }
     }
 }
+#endif

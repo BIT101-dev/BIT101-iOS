@@ -1,3 +1,6 @@
+import CommunityCore
+import DesignSystemKit
+import ClientCore
 //
 //  GalleryCommentViews.swift
 //  BIT101-iOS
@@ -10,26 +13,26 @@ import UIKit
 import PhotosUI
 
 struct GalleryPosterCommentsSection: View {
-    let comments: [GalleryComment]
+    let comments: [CommunityComment]
     let totalCommentCount: Int
-    let status: GalleryFeedStatus
+    let status: CommunityLoadStatus
     let isLoadingMore: Bool
-    let selectedOrder: GalleryCommentOrder
+    let selectedOrder: CommunityCommentOrder
     let likingCommentIDs: Set<Int>
-    let onSelectOrder: @MainActor (GalleryCommentOrder) -> Void
+    let onSelectOrder: @MainActor (CommunityCommentOrder) -> Void
     let onReply: (GalleryCommentReplyTarget) -> Void
-    let onLikeComment: (GalleryComment) -> Void
-    let onReportComment: (GalleryComment) -> Void
-    let onDeleteComment: (GalleryComment) -> Void
-    let onOpenImage: (Int, [GalleryImage]) -> Void
-    let onOpenUser: (GalleryUser) -> Void
-    let onLoadMore: (GalleryComment?) -> Void
+    let onLikeComment: (CommunityComment) -> Void
+    let onReportComment: (CommunityComment) -> Void
+    let onDeleteComment: (CommunityComment) -> Void
+    let onOpenImage: (Int, [CommunityImage]) -> Void
+    let onOpenUser: (CommunityUser) -> Void
+    let onLoadMore: (CommunityComment?) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
             AppCommentSectionHeader(count: totalCommentCount) {
                 Picker("排序", selection: Binding(get: { selectedOrder }, set: onSelectOrder)) {
-                    ForEach(GalleryCommentOrder.allCases) { order in
+                    ForEach(CommunityCommentOrder.allCases) { order in
                         Text(order.title).tag(order)
                     }
                 }
@@ -94,23 +97,23 @@ struct GalleryPosterCommentsSection: View {
 /// `mainComment` 表示发评论接口真正要挂靠的主评论，
 /// `targetComment` 表示当前 UI 上用户实际点中的那条评论。
 struct GalleryCommentReplyTarget {
-    let mainComment: GalleryComment
-    let targetComment: GalleryComment
+    let mainComment: CommunityComment
+    let targetComment: CommunityComment
 }
 
 /// 单条评论及其子评论预览。
 ///
 /// 主评论和子评论共用同一套气泡视图；组件决定嵌套结构的呈现方式。
 private struct GalleryCommentRow: View {
-    let comment: GalleryComment
+    let comment: CommunityComment
     let likingCommentIDs: Set<Int>
     let onReply: (GalleryCommentReplyTarget) -> Void
-    let onLikeComment: (GalleryComment) -> Void
-    let onReportComment: (GalleryComment) -> Void
-    let onDeleteComment: (GalleryComment) -> Void
-    let onOpenImage: (Int, [GalleryImage]) -> Void
-    let onOpenUser: (GalleryUser) -> Void
-    @State private var pendingDeleteComment: GalleryComment?
+    let onLikeComment: (CommunityComment) -> Void
+    let onReportComment: (CommunityComment) -> Void
+    let onDeleteComment: (CommunityComment) -> Void
+    let onOpenImage: (Int, [CommunityImage]) -> Void
+    let onOpenUser: (CommunityUser) -> Void
+    @State private var pendingDeleteComment: CommunityComment?
     @State private var isShowingDeleteConfirmation = false
 
     var body: some View {
@@ -134,15 +137,15 @@ private struct GalleryCommentRow: View {
         }
     }
 
-    private var flattenedSubcomments: [GalleryComment] {
+    private var flattenedSubcomments: [CommunityComment] {
         comment.sub.flatMap { flattenedComments(from: $0) }
     }
 
-    private func flattenedComments(from comment: GalleryComment) -> [GalleryComment] {
+    private func flattenedComments(from comment: CommunityComment) -> [CommunityComment] {
         [comment] + comment.sub.flatMap { flattenedComments(from: $0) }
     }
 
-    private func commentAvatarURL(for comment: GalleryComment) -> URL? {
+    private func commentAvatarURL(for comment: CommunityComment) -> URL? {
         let rawURL = comment.user.avatar.lowUrl.isEmpty
             ? comment.user.avatar.url
             : comment.user.avatar.lowUrl
@@ -150,7 +153,7 @@ private struct GalleryCommentRow: View {
     }
 
     @ViewBuilder
-    private func commentBubble(_ comment: GalleryComment, isSubComment: Bool) -> some View {
+    private func commentBubble(_ comment: CommunityComment, isSubComment: Bool) -> some View {
         AppCommentBubble {
             AppAvatarView(
                 imageURL: comment.anonymous ? nil : commentAvatarURL(for: comment),
@@ -170,7 +173,7 @@ private struct GalleryCommentRow: View {
             commentText(for: comment)
 
             if !comment.images.isEmpty {
-                GalleryPosterImagesView(images: comment.images, onOpenImage: onOpenImage)
+                CommunityPosterImagesView(images: comment.images, onOpenImage: onOpenImage)
             }
 
             AppCommentActionBar(
@@ -201,24 +204,24 @@ private struct GalleryCommentRow: View {
         }
     }
 
-    private func canOpenUserProfile(_ comment: GalleryComment) -> Bool {
+    private func canOpenUserProfile(_ comment: CommunityComment) -> Bool {
         !comment.anonymous && comment.user.id > 0
     }
 
     /// 处理“回复某人”的前缀文本拼接。
     @ViewBuilder
-    private func commentText(for comment: GalleryComment) -> some View {
+    private func commentText(for comment: CommunityComment) -> some View {
         if comment.replyUser.id != 0, !comment.replyUser.nickname.isEmpty {
             (
                 Text("回复 @\(comment.replyUser.nickname)：")
                     .foregroundStyle(AppDesignSystem.Foreground.secondary) +
-                    Text(galleryLinkifiedText(comment.text))
+                    Text(communityLinkifiedText(comment.text))
             )
             .font(AppDesignSystem.Typography.body)
             .lineSpacing(AppDesignSystem.Comment.bodyLineSpacing)
             .frame(maxWidth: .infinity, alignment: .leading)
         } else {
-            Text(galleryLinkifiedText(comment.text))
+            Text(communityLinkifiedText(comment.text))
                 .font(AppDesignSystem.Typography.body)
                 .lineSpacing(AppDesignSystem.Comment.bodyLineSpacing)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -232,16 +235,16 @@ private struct GalleryCommentRow: View {
 struct GalleryCommentComposerSheet: View {
     let target: GalleryCommentComposerTarget
     let isSubmitting: Bool
-    let onSubmit: (String, Bool, [GalleryImage]) -> Void
+    let onSubmit: (String, Bool, [CommunityImage]) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var anonymous = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
-    @State private var uploadedImages: [GalleryImage] = []
+    @State private var uploadedImages: [CommunityImage] = []
     @State private var isUploadingImages = false
     @State private var uploadError: String?
-    @State private var imageViewer: GalleryImageViewerState?
+    @State private var imageViewer: ImagePreviewRequest?
     private let service = GalleryService()
 
     var body: some View {
@@ -276,8 +279,8 @@ struct GalleryCommentComposerSheet: View {
                         Text("已添加 \(uploadedImages.count) 张图片")
                             .font(AppDesignSystem.Typography.caption)
                             .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                        GalleryPosterImagesView(images: uploadedImages) { index, images in
-                            imageViewer = GalleryImageViewerState(images: images, initialIndex: index)
+                        CommunityPosterImagesView(images: uploadedImages) { index, images in
+                            imageViewer = ImagePreviewRequest(images: images, initialIndex: index)
                         }
                     }
                 }
@@ -301,7 +304,7 @@ struct GalleryCommentComposerSheet: View {
                 guard !selectedPhotoItems.isEmpty else { return }
                 await upload(items: selectedPhotoItems)
             }
-            .gallerySystemImagePreview(item: $imageViewer)
+            .systemImagePreview(item: $imageViewer)
         }
     }
 

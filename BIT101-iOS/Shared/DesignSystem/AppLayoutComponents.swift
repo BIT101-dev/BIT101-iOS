@@ -1,7 +1,8 @@
+#if os(iOS)
 import SwiftUI
 
 /// 公共卡片容器。页面通过变体表达布局差异，背景、圆角和内边距由组件统一处理。
-enum AppCardVariant {
+public enum AppCardVariant {
     case standard
     case compact
     case secondaryGrouped
@@ -36,11 +37,11 @@ enum AppCardVariant {
     }
 }
 
-struct AppCard<Content: View>: View {
+public struct AppCard<Content: View>: View {
     private let variant: AppCardVariant
     private let content: Content
 
-    init(
+    public init(
         variant: AppCardVariant = .standard,
         @ViewBuilder content: () -> Content
     ) {
@@ -48,7 +49,7 @@ struct AppCard<Content: View>: View {
         self.content = content()
     }
 
-    var body: some View {
+    public var body: some View {
         content
             .padding(variant.padding)
             .background(
@@ -59,12 +60,18 @@ struct AppCard<Content: View>: View {
 }
 
 /// 课程、帖子和文章详情页共用的系统分享按钮。
-struct AppDetailShareLink: View {
+public struct AppDetailShareLink: View {
+    public init(item: URL, subject: String, accessibilityLabel: String) {
+        self.item = item
+        self.subject = subject
+        self.accessibilityLabel = accessibilityLabel
+    }
+
     let item: URL
     let subject: String
     let accessibilityLabel: String
 
-    var body: some View {
+    public var body: some View {
         ShareLink(item: item, subject: Text(subject)) {
             Image(systemName: "square.and.arrow.up")
                 .frame(
@@ -77,12 +84,12 @@ struct AppDetailShareLink: View {
 }
 
 /// 帖子、文章和课程详情页共用的圆形评论/点赞按钮。
-struct AppDetailCircleButton<Label: View>: View {
+public struct AppDetailCircleButton<Label: View>: View {
     let action: () -> Void
     let accessibilityLabel: String
     private let label: Label
 
-    init(
+    public init(
         accessibilityLabel: String,
         action: @escaping () -> Void,
         @ViewBuilder label: () -> Label
@@ -92,7 +99,7 @@ struct AppDetailCircleButton<Label: View>: View {
         self.label = label()
     }
 
-    var body: some View {
+    public var body: some View {
         Button(action: action) {
             label
                 .frame(
@@ -112,14 +119,14 @@ struct AppDetailCircleButton<Label: View>: View {
 }
 
 /// 右下角圆形操作按钮的公共主体，统一尺寸、背景和图标排布。
-struct AppFloatingActionButton: View {
+public struct AppFloatingActionButton: View {
     let systemImage: String
     let badgeText: String?
     let accessibilityLabel: String
     let action: () -> Void
     @State private var feedbackToken = 0
 
-    init(
+    public init(
         systemImage: String,
         badgeText: String? = nil,
         accessibilityLabel: String,
@@ -131,7 +138,7 @@ struct AppFloatingActionButton: View {
         self.action = action
     }
 
-    var body: some View {
+    public var body: some View {
         Button {
             feedbackToken &+= 1
             action()
@@ -161,10 +168,14 @@ struct AppFloatingActionButton: View {
 }
 
 /// 菜单标签复用圆形操作按钮主体，`Button` 和 `Menu` 保持相同的尺寸。
-struct AppFloatingActionButtonLabel: View {
+public struct AppFloatingActionButtonLabel: View {
+    public init(systemImage: String) {
+        self.systemImage = systemImage
+    }
+
     let systemImage: String
 
-    var body: some View {
+    public var body: some View {
         AppFloatingActionButtonSurface {
             Image(systemName: systemImage)
                 .font(AppDesignSystem.Typography.bodyEmphasis)
@@ -174,16 +185,16 @@ struct AppFloatingActionButtonLabel: View {
 }
 
 /// 圆形按钮的可复用背景容器，支持校区按钮的选中填充色。
-struct AppFloatingActionButtonSurface<Content: View>: View {
+public struct AppFloatingActionButtonSurface<Content: View>: View {
     private let fill: Color?
     private let content: Content
 
-    init(fill: Color? = nil, @ViewBuilder content: () -> Content) {
+    public init(fill: Color? = nil, @ViewBuilder content: () -> Content) {
         self.fill = fill
         self.content = content()
     }
 
-    var body: some View {
+    public var body: some View {
         content
             .frame(
                 width: AppDesignSystem.Size.Control.touchTarget,
@@ -200,14 +211,14 @@ struct AppFloatingActionButtonSurface<Content: View>: View {
 }
 
 /// 右下角操作按钮组，统一按钮间距和安全区内边距。
-struct AppFloatingActionStack<Content: View>: View {
+public struct AppFloatingActionStack<Content: View>: View {
     private let content: Content
 
-    init(@ViewBuilder content: () -> Content) {
+    public init(@ViewBuilder content: () -> Content) {
         self.content = content()
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .trailing, spacing: AppDesignSystem.Spacing.regular) {
             content
         }
@@ -218,7 +229,7 @@ struct AppFloatingActionStack<Content: View>: View {
 
 /// 统一所有分组列表的系统样式、section 间距和横向内容边距。
 extension View {
-    func appGroupedListStyle() -> some View {
+    public func appGroupedListStyle() -> some View {
         listStyle(.insetGrouped)
             .listSectionSpacing(AppDesignSystem.Spacing.content)
             .contentMargins(.top, 0, for: .scrollContent)
@@ -231,7 +242,7 @@ extension View {
             ))
     }
 
-    func appCommentSectionStyle() -> some View {
+    public func appCommentSectionStyle() -> some View {
         background(
             AppDesignSystem.Palette.Background.system,
             in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped)
@@ -242,10 +253,11 @@ extension View {
         }
     }
 
-    func appFeedCardStyle() -> some View {
+    public func appFeedCardStyle() -> some View {
         padding(AppDesignSystem.Spacing.content)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(AppDesignSystem.Palette.Background.system)
             .contentShape(Rectangle())
     }
 }
+#endif

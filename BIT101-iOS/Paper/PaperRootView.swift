@@ -1,3 +1,5 @@
+import CommunityCore
+import DesignSystemKit
 //
 //  PaperRootView.swift
 //  BIT101-iOS
@@ -14,15 +16,15 @@ struct PaperRootView: View {
     @State private var isShowingSearch = false
     @State private var selectedPaper: PaperSummary?
     @Binding var requestedPaperID: Int?
-    @Binding private var selectedGallerySurfaceRawValue: String
+    private let onShowFeed: () -> Void
     @State private var deepLinkedPaper: PaperSummary?
 
     init(
         requestedPaperID: Binding<Int?> = .constant(nil),
-        selectedGallerySurfaceRawValue: Binding<String> = .constant("paper")
+        onShowFeed: @escaping () -> Void = {}
     ) {
         _requestedPaperID = requestedPaperID
-        _selectedGallerySurfaceRawValue = selectedGallerySurfaceRawValue
+        self.onShowFeed = onShowFeed
     }
 
     var body: some View {
@@ -201,7 +203,7 @@ struct PaperRootView: View {
 
         if (currentIndex == 0 && step == -1) || (currentIndex == lastIndex && step == 1) {
             withAnimation(.easeInOut) {
-                selectedGallerySurfaceRawValue = "gallery"
+                onShowFeed()
             }
             return
         }

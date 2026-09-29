@@ -1,5 +1,5 @@
 /// Coordinates request generations and timeouts for explicit free-classroom requests.
-/// `ScheduleViewModel` owns UI state, and this type owns request lifecycle rules.
+/// `ScheduleClassroomViewModel` owns UI state, and this type owns request lifecycle rules.
 @MainActor
 final class ScheduleClassroomCoordinator {
     struct RequestStart: Equatable {

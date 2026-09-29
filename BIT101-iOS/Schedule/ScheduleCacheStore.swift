@@ -1,3 +1,4 @@
+import ClientCore
 //
 //  ScheduleCacheStore.swift
 //  BIT101-iOS
@@ -67,6 +68,8 @@ enum ScheduleCacheStore {
     }
 
     fileprivate nonisolated static let logger = Logger(subsystem: "BIT101", category: "ScheduleCache")
+    static var effects: (any ScheduleCacheEffects)?
+
     private static let writeQueue = ScheduleCacheWriteQueue()
     private static var diskOperationTask: Task<Bool, Never>?
     private static var diskOperationID: UUID?
@@ -118,8 +121,8 @@ enum ScheduleCacheStore {
     }
 
     /// 写回缓存，并导出小组件快照、发送全局变更通知。
-    static func save(_ cache: ScheduleCache, source: SaveSource = .local) {
-        Task { await saveAndWait(cache, source: source) }
+    static func save(_ cache: ScheduleCache, source: SaveSource = .local, session: AppStorageSession = AppFileDirectories.currentSession) {
+        Task { await saveAndWait(cache, source: source, expectedAccountIdentifier: session.accountDirectoryName) }
     }
 
     @discardableResult
@@ -206,7 +209,7 @@ enum ScheduleCacheStore {
         let clearExportTask = Task<Void, Never> {
             await previousExportTask?.value
             if await clearTask.value {
-                await ScheduleWidgetExporter.syncFromCurrentCache()
+                await effects?.didClear()
                 postCacheDidChange()
             }
             if exportOperationID == exportID {
@@ -233,16 +236,8 @@ enum ScheduleCacheStore {
             return
         }
 #endif
-        await ScheduleWidgetExporter.syncAsync(cache: cache, session: session)
+        await effects?.didSave(cache, session: session, source: source)
         postCacheDidChange()
-
-        #if canImport(CloudKit)
-        if source == .local, cache.iCloudSyncEnabled {
-            Task {
-                await ScheduleCloudSyncManager.shared.pushLatestLocalCacheIfNeeded()
-            }
-        }
-        #endif
     }
 
     fileprivate nonisolated static func loadResult(

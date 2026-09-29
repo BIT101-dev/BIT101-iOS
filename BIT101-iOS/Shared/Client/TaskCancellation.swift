@@ -1,8 +1,8 @@
 import Foundation
 
-enum TaskCancellation {
+public nonisolated enum TaskCancellation {
     /// 同时识别 Swift Concurrency 和 URLSession 发出的取消信号。
-    static func matches(_ error: Error) -> Bool {
+    public static func matches(_ error: Error) -> Bool {
         var current: Error? = error
         var visitedErrors = Set<ObjectIdentifier>()
 

@@ -1,3 +1,5 @@
+import DesignSystemKit
+import ClientCore
 import SwiftUI
 
 /// 课程页根视图。

@@ -115,6 +115,7 @@ enum ScheduleReminderBackgroundRefresh {
 /// 挂载根视图，并协调课表缓存与外部展示同步。
 @main
 struct BIT101_iOSApp: App {
+    @State private var communityDestinations = CommunityDestinations.appDestinations()
     @StateObject private var schoolDataViewModels = SchoolDataViewModelStore()
     @Environment(\.scenePhase) private var scenePhase
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -123,6 +124,7 @@ struct BIT101_iOSApp: App {
 #if BIT101_UI_TESTING
         AppUITestBootstrap.prepareForLaunch()
 #endif
+        ScheduleCacheStore.effects = AppScheduleCacheEffects()
     }
 
     /// 把本地课表缓存同步到 Widget、Watch 和 Live Activity。
@@ -183,7 +185,9 @@ struct BIT101_iOSApp: App {
                 }
             #else
             ContentView()
+                .environment(communityDestinations)
                 .environmentObject(schoolDataViewModels.scheduleViewModel)
+                .environmentObject(schoolDataViewModels.scheduleViewModel.ddl)
                 .environmentObject(schoolDataViewModels.scoreViewModel)
                 .appKeyboardDismissSupport()
                 .appPromptHost()

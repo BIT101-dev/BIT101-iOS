@@ -1,3 +1,4 @@
+import CommunityCore
 import Foundation
 import Testing
 @testable import BIT101_iOS
@@ -70,6 +71,7 @@ struct ScheduleCacheMigrationTests {
         let decoded = try decoder.decode(ScheduleCache.self, from: encoder.encode(legacy))
 
         #expect(decoded.courses == [course])
+        #expect(decoded.manualFirstDayStringsByTerm.isEmpty)
         #expect(decoded.cachedCoursesByTerm[course.term] == [course])
         #expect(decoded.termSchedulesByTerm[course.term]?.courses == [course])
         #expect(decoded.termSchedulesByTerm[course.term]?.updatedAt == timestamp)
@@ -393,7 +395,7 @@ struct GalleryRecommendationPrefetchTests {
             await requestLog.snapshot()
         }
 
-        func fetchFeed(kind: GalleryFeedKind, page: Int?) async throws -> [GalleryPoster] { [] }
+        func fetchFeed(kind: GalleryFeedKind, page: Int?) async throws -> [CommunityPoster] { [] }
 
         func fetchRecommendPage(sourcePage: Int) async throws -> GalleryRecommendFeedBatch {
             await requestLog.append(sourcePage)
@@ -408,7 +410,7 @@ struct GalleryRecommendationPrefetchTests {
             GalleryBotFeedBatch(posters: [], nextSourcePage: startPage + 1, canLoadMore: false)
         }
 
-        func searchPosters(query: GallerySearchQuery, page: Int?) async throws -> [GalleryPoster] { [] }
+        func searchPosters(query: GallerySearchQuery, page: Int?) async throws -> [CommunityPoster] { [] }
 
         private actor RequestLog {
             private var pages: [Int] = []
@@ -462,7 +464,7 @@ struct GalleryRecommendationPrefetchTests {
         return await condition()
     }
 
-    private func makePoster(id: Int) throws -> GalleryPoster {
+    private func makePoster(id: Int) throws -> CommunityPoster {
         let json = """
         {
           "anonymous": false,
@@ -497,6 +499,6 @@ struct GalleryRecommendationPrefetchTests {
         """
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
-        return try decoder.decode(GalleryPoster.self, from: Data(json.utf8))
+        return try decoder.decode(CommunityPoster.self, from: Data(json.utf8))
     }
 }

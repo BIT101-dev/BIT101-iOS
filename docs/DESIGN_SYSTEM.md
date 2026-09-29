@@ -28,7 +28,8 @@
 | `Shared/DesignSystem/AppVerificationComponents.swift` | 数据无关的短信验证码输入面板 |
 | `Schedule/ScheduleDesignSystem.swift` | 课表网格、周次栏、时间轴、课程块颜色与模块强调色 |
 | `Course/CourseDesignSystem.swift` | 课程历史图表、指标样式与课程评价行 |
-| `Gallery/GalleryDesignSystem.swift` | 话廊缩略图、消息标记、覆盖层与模块强调色 |
+| `Gallery/GalleryDesignSystem.swift` | 话廊消息标记、覆盖层与模块强调色 |
+| `Shared/CommunityUI/CommunityDesignSystem.swift` | 社区卡片、缩略图与身份标签派生参数 |
 | `Map/CampusMapScreen.swift` | 地图模块强调色令牌 |
 | `Shared/DesignSystem/ExternalDesignSystem.swift` | 主 App、Widget、Watch、Live Activity 共用 SwiftUI 字体、尺寸与缩放 |
 

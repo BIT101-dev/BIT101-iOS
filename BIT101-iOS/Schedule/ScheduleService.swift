@@ -1,3 +1,4 @@
+import ClientCore
 //
 //  ScheduleService.swift
 //  BIT101-iOS

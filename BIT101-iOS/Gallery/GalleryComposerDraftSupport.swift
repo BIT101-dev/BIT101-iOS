@@ -1,3 +1,6 @@
+import CommunityCore
+import DesignSystemKit
+import ClientCore
 import Foundation
 import ImageIO
 import OSLog
@@ -9,7 +12,7 @@ struct GalleryComposerImageDraft: Identifiable {
         case uploading
         case compressing
         case prepared
-        case uploaded(GalleryImage)
+        case uploaded(CommunityImage)
         case failed(String)
     }
 
@@ -35,7 +38,7 @@ struct GalleryComposerImageDraft: Identifiable {
     }
 
     /// 上传成功的图片会拿到可提交给发帖接口的 `mid`。
-    var uploadedImage: GalleryImage? {
+    var uploadedImage: CommunityImage? {
         guard case .uploaded(let image) = status else { return nil }
         return image
     }

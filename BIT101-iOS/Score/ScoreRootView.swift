@@ -1,3 +1,4 @@
+import DesignSystemKit
 import SwiftUI
 
 private enum ScoreSurface: String, CaseIterable, Identifiable, Hashable {
@@ -316,7 +317,7 @@ private struct ScoreListPage: View {
 /// 学校可信成绩单申请与预览页。
 private struct TrustedTranscriptPage: View {
     @StateObject private var viewModel = TrustedTranscriptViewModel()
-    @State private var imageViewer: GalleryImageViewerState?
+    @State private var imageViewer: ImagePreviewRequest?
 
     var body: some View {
         Group {
@@ -346,7 +347,7 @@ private struct TrustedTranscriptPage: View {
                             LazyVStack(spacing: AppDesignSystem.Spacing.content) {
                                 ForEach(Array(viewModel.images.enumerated()), id: \.offset) { index, image in
                                     Button {
-                                        imageViewer = GalleryImageViewerState(
+                                        imageViewer = ImagePreviewRequest(
                                             localImages: viewModel.images,
                                             initialIndex: index
                                         )
@@ -375,7 +376,7 @@ private struct TrustedTranscriptPage: View {
             // 页面从成绩页进入后立即申请可信成绩单，入口直接执行申请操作。
             await viewModel.apply()
         }
-        .gallerySystemImagePreview(item: $imageViewer)
+        .systemImagePreview(item: $imageViewer)
         .sheet(
             item: Binding(
                 get: { viewModel.smsChallenge },

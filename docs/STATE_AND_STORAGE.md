@@ -115,6 +115,10 @@
 
 App 覆盖更新会保留 Application Support 中按账号保存的日程缓存。
 
+日程页面的课表、DDL 和空教室状态分别管理，共同使用 `ScheduleRepository` 的账号缓存。
+仓库捕获账号、加载代际与本机修订，确保磁盘和异步服务结果按当前会话回写。
+`ScheduleCacheStore` 保持串行持久化；应用通过 `ScheduleCacheEffects` 连接外部展示与云同步。
+
 当前日程模块的主缓存存储在当前账号对应的本地文件中：
 
 - `ScheduleCacheStore` 会把缓存写到 `Application Support/BIT101-iOS/<account>/schedule-cache.json`
@@ -241,7 +245,7 @@ CloudKit 载荷使用带版本号的精简 envelope。升级时，应用可读�
 
 相关代码主要在：
 
-- `Shared/Client/ExperimentalPreferenceCloudSync.swift`
+- `Shell/ExperimentalPreferenceCloudSync.swift`
 - `Score/ScoreCacheStore.swift`
 
 ## 6. 话廊的本地状态
@@ -335,8 +339,8 @@ Live Activity 的显示结果根据这些数据动态计算。
 
 相关代码在：
 
-- `CachedRemoteImage.swift`
-- `Gallery/GalleryImageCache.swift`
+- `Shared/Media/CachedRemoteImage.swift`
+- `Shared/Media/RemoteImageCache.swift`
 
 ## 10. 页面瞬时状态
 

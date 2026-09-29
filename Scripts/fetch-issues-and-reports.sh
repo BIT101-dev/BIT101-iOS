@@ -22,7 +22,7 @@ mkdir -p "$OUTPUT_DIR"
 find "$OUTPUT_DIR" -mindepth 1 -maxdepth 1 -type d ! -name ".incoming" -exec rm -rf {} +
 rm -rf "$STAGING_DIR"
 mkdir -p "$STAGING_DIR"
-rm -f "$OUTPUT_DIR/github-issues.json" "$OUTPUT_DIR/error-report-keys.json" "$OUTPUT_DIR/summary.txt" "$OUTPUT_DIR/wrangler.log" "$CI_RUNS_PATH" "$CI_REPORT_PATH"
+rm -f "$OUTPUT_DIR/github-issues.json" "$OUTPUT_DIR/error-report-keys.json" "$OUTPUT_DIR/summary.txt" "$OUTPUT_DIR/wrangler.log" "$CI_RUNS_PATH"
 
 emit_output() {
   local output_path="$1"
@@ -76,8 +76,22 @@ runs_path = pathlib.Path(sys.argv[1])
 output_path = pathlib.Path(sys.argv[2])
 repo = sys.argv[3]
 runs = json.loads(runs_path.read_text(encoding="utf-8"))
+try:
+    previous = json.loads(output_path.read_text(encoding="utf-8"))
+except (FileNotFoundError, json.JSONDecodeError):
+    previous = []
+cached_runs = {item["databaseId"]: item for item in previous if "failedLogTail" in item}
+
+def cached_log(run):
+    cached = cached_runs.get(run["databaseId"])
+    if cached and all(cached.get(key) == run.get(key) for key in ("updatedAt", "headSha")):
+        return cached["failedLogTail"]
+    return None
 
 def fetch_log(run):
+    cached = cached_log(run)
+    if cached is not None:
+        return dict(run, failedLogTail=cached)
     result = subprocess.run(
         [
             "gh", "run", "view", str(run["databaseId"]),
@@ -98,6 +112,8 @@ def fetch_log(run):
 with ThreadPoolExecutor(max_workers=4) as executor:
     enriched = list(executor.map(fetch_log, runs))
 
+reused = sum(cached_log(run) is not None for run in runs)
+print(f"GitHub CI 日志：复用 {reused} 份，读取 {len(runs) - reused} 份")
 output_path.write_text(
     json.dumps(enriched, ensure_ascii=False, indent=2) + "\n",
     encoding="utf-8",

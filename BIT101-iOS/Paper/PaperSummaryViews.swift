@@ -1,3 +1,4 @@
+import DesignSystemKit
 //
 //  PaperSummaryViews.swift
 //  BIT101-iOS

@@ -1,3 +1,5 @@
+import CommunityCore
+import ClientCore
 //
 //  GalleryViewModel.swift
 //  BIT101-iOS
@@ -65,13 +67,13 @@ final class GalleryViewModel: ObservableObject {
         }
     }
 
-    func enqueuePrefetch(for feed: GalleryFeedKind, currentPoster: GalleryPoster) {
+    func enqueuePrefetch(for feed: GalleryFeedKind, currentPoster: CommunityPoster) {
         enqueueInteractionTask(key: "prefetch:\(feed.rawValue)") { [weak self] in
             await self?.prefetchIfNeeded(for: feed, currentPoster: currentPoster)
         }
     }
 
-    func enqueueLoadMore(for feed: GalleryFeedKind, currentPoster: GalleryPoster) {
+    func enqueueLoadMore(for feed: GalleryFeedKind, currentPoster: CommunityPoster) {
         enqueueInteractionTask(key: "load-more:\(feed.rawValue)") { [weak self] in
             await self?.loadMoreIfNeeded(for: feed, currentPoster: currentPoster)
         }
@@ -205,7 +207,7 @@ final class GalleryViewModel: ObservableObject {
     /// 推荐流接近尾部时提前预取；列表到达末项后追加下一页。
     ///
     /// 后台预取提前完成网络请求；追加页面时保持当前位置和滚动条比例。
-    func prefetchIfNeeded(for feed: GalleryFeedKind, currentPoster: GalleryPoster?) async {
+    func prefetchIfNeeded(for feed: GalleryFeedKind, currentPoster: CommunityPoster?) async {
         guard feed == .recommend else { return }
         guard let currentPoster else { return }
 
@@ -225,7 +227,7 @@ final class GalleryViewModel: ObservableObject {
     /// 当用户滚动到尾部附近时触发分页加载。
     ///
     /// 普通 feed 直接请求下一页；推荐 feed 则优先消费本地预取页，必要时继续向后跳过空页。
-    func loadMoreIfNeeded(for feed: GalleryFeedKind, currentPoster: GalleryPoster?) async {
+    func loadMoreIfNeeded(for feed: GalleryFeedKind, currentPoster: CommunityPoster?) async {
         guard let currentPoster else { return }
         let generation = refreshGenerations[feed] ?? 0
         let state = state(for: feed)
@@ -337,7 +339,7 @@ final class GalleryViewModel: ObservableObject {
     /// 搜索结果页的分页加载。
     ///
     /// 搜索结果按需加载；无关键词时保持预取请求链路空闲。
-    func loadMoreSearchResultsIfNeeded(currentPoster: GalleryPoster?) async {
+    func loadMoreSearchResultsIfNeeded(currentPoster: CommunityPoster?) async {
         guard let currentPoster else { return }
         let generation = searchGeneration
 
@@ -393,7 +395,7 @@ final class GalleryViewModel: ObservableObject {
     /// 推荐流可能出现重复帖子，这里按帖子 ID 去重后再拼接。
     ///
     /// 去重和拼接放到后台队列执行，让大数组操作离开主线程滚动流程。
-    private func mergeUniqueInBackground(existing: [GalleryPoster], incoming: [GalleryPoster]) async throws -> [GalleryPoster] {
+    private func mergeUniqueInBackground(existing: [CommunityPoster], incoming: [CommunityPoster]) async throws -> [CommunityPoster] {
         let task = Task.detached(priority: .utility) {
             try Task.checkCancellation()
             let result = try Self.mergeUniqueSync(existing: existing, incoming: incoming)
@@ -410,7 +412,7 @@ final class GalleryViewModel: ObservableObject {
     }
 
     /// 首屏列表也走同一套去重逻辑，并放到后台队列执行，保持刷新时的滚动响应。
-    private func deduplicateInBackground(_ posters: [GalleryPoster]) async throws -> [GalleryPoster] {
+    private func deduplicateInBackground(_ posters: [CommunityPoster]) async throws -> [CommunityPoster] {
         let task = Task.detached(priority: .utility) {
             try Task.checkCancellation()
             let result = try Self.deduplicateSync(posters)
@@ -427,9 +429,9 @@ final class GalleryViewModel: ObservableObject {
     }
 
     nonisolated private static func mergeUniqueSync(
-        existing: [GalleryPoster],
-        incoming: [GalleryPoster]
-    ) throws -> [GalleryPoster] {
+        existing: [CommunityPoster],
+        incoming: [CommunityPoster]
+    ) throws -> [CommunityPoster] {
         var seenIDs = Set<Int>()
         seenIDs.reserveCapacity(existing.count + incoming.count)
         var merged = existing
@@ -455,7 +457,7 @@ final class GalleryViewModel: ObservableObject {
     }
 
     /// 首屏返回的推荐结果也可能包含重复项，先做一次稳定去重。
-    nonisolated private static func deduplicateSync(_ posters: [GalleryPoster]) throws -> [GalleryPoster] {
+    nonisolated private static func deduplicateSync(_ posters: [CommunityPoster]) throws -> [CommunityPoster] {
         try mergeUniqueSync(existing: [], incoming: posters)
     }
 

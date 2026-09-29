@@ -38,6 +38,7 @@ def stale_files(days: int) -> list[tuple[int, str]]:
     now = dt.datetime.now(dt.timezone.utc)
     threshold = now - dt.timedelta(days=days)
     result: list[tuple[int, str]] = []
+    modified = set(git("diff", "--name-only", "-z", "HEAD", "--", "*.md").split("\0"))
 
     for name in git("ls-files", "-z").split("\0"):
         if not name:
@@ -47,10 +48,7 @@ def stale_files(days: int) -> list[tuple[int, str]]:
             continue
 
         # 正在参与本次提交或仍有工作区修改的文件显然不属于“久未编辑”。
-        if subprocess.run(
-            ["git", "diff", "--quiet", "HEAD", "--", name],
-            check=False,
-        ).returncode != 0:
+        if name in modified:
             continue
 
         timestamp = git("log", "-1", "--format=%ct", "--", name)

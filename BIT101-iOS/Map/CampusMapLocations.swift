@@ -1,3 +1,4 @@
+import ScheduleContracts
 //
 //  CampusMapLocations.swift
 //  BIT101-iOS

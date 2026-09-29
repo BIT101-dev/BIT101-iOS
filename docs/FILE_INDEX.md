@@ -7,13 +7,27 @@
 - `BIT101-iOS/BIT101_iOSApp.swift`：应用入口、全局主题、方向策略。
 - `BIT101-iOS/ContentView.swift`：按登录状态切换登录页和主壳层。
 - `BIT101-iOS/Shell/AppShellView.swift`：登录后 tab、全局路由、深链和跨模块弹层。
+- `BIT101-iOS/Shell/ScheduleMapAdapter.swift`：将课表缓存转换为地图消费的下一节课地点快照。
+- `BIT101-iOS/Shell/AppNetworkClients.swift`：组装应用网络提示、诊断记录和会话连接池。
+- `BIT101-iOS/Shell/AppAccountStores.swift`：为基础账号仓库注入当前会话、偏好容器与存储路径。
+- `BIT101-iOS/Shell/AppCommunityDestinations.swift`：组装用户主页、帖子详情、文章入口和删除帖子动作。
+- `BIT101-iOS/Shell/AppScheduleCacheEffects.swift`：连接日程持久化、共享展示导出与云同步。
+- `BIT101-iOS/Shell/NetworkDiagnosisRunner.swift`：协调各业务服务的用户主动诊断。
+- `BIT101-iOS/Shell/ExperimentalPreferenceCloudSync.swift`：协调设置、成绩和消息已读状态的实验性偏好同步。
 - `BIT101-iOS/Settings/AppSettingsStore.swift`：全局设置、账号隔离和公告状态。
 
 ## 共享层
 
 设计规则按 [UI 设计系统](DESIGN_SYSTEM.md) 分层：`DesignPrimitives.swift` 保存跨 target 基础值和透明度刻度，`ExternalDesignSystem.swift` 保存跨 target 的 SwiftUI 字体、前景层级和外部展示规则，`AppDesignSystem.swift` 保存主 App 尺寸、颜色和平台桥接，`Shared/DesignSystem/*Components.swift` 保存主 App 公共组件。课程、日程、话廊和地图的特化规则分别位于所属模块文件。
 
-- `BIT101-iOS/Shared/Client/`：提供网络、提示模型、深链、更新检查、紧急更新、错误报告提交界面、键盘收起、分页、账号存储、手势、任务取消、偏好同步和网络 smoke。
+- `Package.swift`：声明 `ClientCore`、`ScheduleContracts`、`CommunityCore` 和 `DesignSystemKit` 的源码归属及编译依赖。
+- `ModuleTests/`：独立模块的内存传输、账号存储、社区模型、共享快照与时间线契约测试。
+- `BIT101-iOS/Shared/CommunityCore/`：跨业务共用的图片、用户、帖子摘要、评论和点赞模型及评论分页状态。
+- `BIT101-iOS/Shared/CommunityUI/`：社区帖子卡片、图片网格、缩略图、菜单与链接文本展示。
+- `BIT101-iOS/Shared/CommunityDestinations.swift`：跨社区页面的目标与动作接口。
+- `BIT101-iOS/Shared/Media/`：Quick Look 图片预览、远程动图、静态图片与头像缓存。
+- `BIT101-iOS/Shared/Client/AppStorageSession.swift`：账号摘要、稳定存储键和历史目录映射。
+- `BIT101-iOS/Shared/Client/`：提供网络、提示模型、深链、更新检查、紧急更新、错误报告提交界面、键盘收起、分页、账号存储、手势、任务取消和网络 smoke。
 - `BIT101-iOS/Shared/AppFileService.swift`：提供 App、Widget 与 Watch 共用的文件服务接口和本机实现。
 - `BIT101-iOS/Shared/Client/AppFileDirectories.swift`：统一当前账号存储会话与应用、账号、缓存和共享容器路径。
 - `BIT101-iOS/Shared/Client/ErrorReportSupport.swift`：负责反馈脱敏、诊断摘要和提交载荷。
@@ -22,7 +36,7 @@
 - `BIT101-iOS/Shared/DesignSystem/AppStateComponents.swift`：提供加载、空态、失败与滚动状态组件。
 - `BIT101-iOS/Shared/ScheduleShared*.swift`：定义主 App、Widget、Live Activity 和 Watch 共用的课表快照与 occurrence 规范。
 - `BIT101-iOS/WatchSync/WatchScheduleSyncManager.swift`：负责 iPhone 与 Apple Watch 的课表镜像同步。
-- `BIT101-iOS/CachedRemoteImage.swift`：缓存头像等远程图片，并使用内存与磁盘存储；`AppAvatarView` 负责远程图片到 `AppAvatarContainer` 的适配。
+- `BIT101-iOS/Shared/Media/CachedRemoteImage.swift`：缓存头像等远程图片，并使用内存与磁盘存储；`AppAvatarView` 负责远程图片到 `AppAvatarContainer` 的适配。
 
 ## 业务模块
 
@@ -32,9 +46,11 @@
 
 `LoginViews.swift` 是表单入口，`LoginViewModel.swift` 管理状态，`LoginService.swift` 协调登录与会话，`BIT101APIClient.swift` 负责学校与 BIT101 网络请求；其余文件负责模型、存储、加密和 CAS 页面解析。
 
+`CommunitySessionSupport.swift` 为社区客户端注入登录存储和合并并发请求的会话恢复动作。
+
 ### 话廊与文章
 
-- `BIT101-iOS/Gallery/`：信息流、搜索、消息、帖子详情、评论、图片缓存和发帖。
+- `BIT101-iOS/Gallery/`：信息流、搜索、消息、帖子详情、评论和发帖。
 - `BIT101-iOS/Gallery/GalleryViewModel.swift`：话廊信息流与搜索状态。
 - `BIT101-iOS/Gallery/GalleryMessageViewModel.swift`：消息中心、未读状态与账号隔离的本地已读快照。
 - `BIT101-iOS/Paper/`：文章列表、详情、评论、编辑、搜索和点赞。
@@ -63,9 +79,15 @@
 - `ScheduleService*.swift`：教学中心、乐学、认证、传输及响应模型。
 - `ScheduleCacheStore.swift`、`ScheduleWidgetSupport.swift`：缓存持久化和 widget 导出。
 - `ScheduleCloudSyncManager.swift`：CloudKit 同步编排、冲突协调与账号上下文。
+- `ScheduleRepository.swift`：当前账号数据源、加载代际与本机修订控制。
+- `ScheduleDDLViewModel.swift`：DDL 请求、短信验证与编辑状态。
+- `ScheduleClassroomViewModel.swift`：空教室目录、筛选与请求状态。
+- `ScheduleNotice.swift`：日程子功能共享的错误与恢复提示。
+- `ScheduleSchoolVerification.swift`：观察 DDL 短信状态并呈现验证表单。
+- `ScheduleCacheEffects.swift`：持久化后副作用接口。
 - `ScheduleCloudSyncSupport.swift`：云同步载荷、可测试的冲突策略与缓存合并。
 - `ScheduleSystemCalendarManager.swift`：系统日历权限、课程/考试/自定义日程导入删除。
-- `Shared/Client/NetworkDiagnostics.swift`：网络路径提示、诊断探针、请求记录和诊断缓存。
+- `Shared/Client/NetworkDiagnostics.swift`：网络路径提示、请求记录和诊断缓存。
 - `Shared/Client/ErrorReportSupport.swift`：错误报告载荷、脱敏和诊断摘要。
 - `Shared/Client/AppErrorPresentation.swift`：诊断弹窗、恢复操作和报告 Sheet。
 - `Shared/Client/ReleaseNetworkSmoke.swift`、`ReleaseNetworkSmokeModels.swift`：网络 Smoke runner、探针模型和报告存储。
@@ -87,7 +109,7 @@
 
 目录：`BIT101-iOS/Map/`
 
-`CampusMapScreen.swift` 是地图入口，`CampusNativeMapView.swift` 桥接 MapKit，`CampusMapLocations.swift` 保存校区与教室匹配规则；定位和下一节课解析分别由同目录辅助文件负责。
+`CampusMapScreen.swift` 是地图入口，`CampusNativeMapView.swift` 桥接 MapKit，`CampusMapLocations.swift` 保存校区与教室匹配规则；`UpcomingCourseMapResolver.swift` 定义地点快照，`Shell/ScheduleMapAdapter.swift` 负责课表数据到该快照的适配。
 
 ### 我的与设置
 

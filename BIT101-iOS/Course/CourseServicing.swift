@@ -1,3 +1,4 @@
+import CommunityCore
 protocol CourseListServicing {
     func fetchCourses(search: String, page: Int) async throws -> [CourseSummary]
 }
@@ -5,8 +6,8 @@ protocol CourseListServicing {
 protocol CourseDetailServicing {
     func fetchCourse(id: Int) async throws -> CourseDetail
     func fetchCourseHistories(number: String) async throws -> [CourseHistoryGrade]
-    func fetchComments(courseID: Int, page: Int?) async throws -> [GalleryComment]
-    func like(objectID: String) async throws -> GalleryLikeResult
+    func fetchComments(courseID: Int, page: Int?) async throws -> [CommunityComment]
+    func like(objectID: String) async throws -> CommunityLikeResult
     func createComment(
         objectID: String,
         text: String,
@@ -14,7 +15,7 @@ protocol CourseDetailServicing {
         replyUID: Int?,
         anonymous: Bool,
         rate: Int?
-    ) async throws -> GalleryComment
+    ) async throws -> CommunityComment
 }
 
 extension CourseService: CourseListServicing, CourseDetailServicing {}

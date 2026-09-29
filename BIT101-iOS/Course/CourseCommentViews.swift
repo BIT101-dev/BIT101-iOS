@@ -1,3 +1,5 @@
+import CommunityCore
+import DesignSystemKit
 //
 //  CourseCommentViews.swift
 //  BIT101-iOS
@@ -6,16 +8,16 @@
 import SwiftUI
 
 struct CourseCommentsSection: View {
-    let comments: [GalleryComment]
+    let comments: [CommunityComment]
     let totalCommentCount: Int
-    let status: GalleryFeedStatus
+    let status: CommunityLoadStatus
     let isLoadingMore: Bool
     let likingCommentIDs: Set<Int>
     let onReply: (CourseCommentReplyTarget) -> Void
-    let onLikeComment: (GalleryComment) -> Void
-    let onOpenImage: (Int, [GalleryImage]) -> Void
-    let onOpenUser: (GalleryUser) -> Void
-    let onLoadMore: (GalleryComment?) -> Void
+    let onLikeComment: (CommunityComment) -> Void
+    let onOpenImage: (Int, [CommunityImage]) -> Void
+    let onOpenUser: (CommunityUser) -> Void
+    let onLoadMore: (CommunityComment?) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
@@ -75,17 +77,17 @@ struct CourseCommentsSection: View {
 
 /// 保存回复所属的主评论和当前目标评论。
 struct CourseCommentReplyTarget {
-    let mainComment: GalleryComment
-    let targetComment: GalleryComment
+    let mainComment: CommunityComment
+    let targetComment: CommunityComment
 }
 
 private struct CourseCommentRow: View {
-    let comment: GalleryComment
+    let comment: CommunityComment
     let likingCommentIDs: Set<Int>
     let onReply: (CourseCommentReplyTarget) -> Void
-    let onLikeComment: (GalleryComment) -> Void
-    let onOpenImage: (Int, [GalleryImage]) -> Void
-    let onOpenUser: (GalleryUser) -> Void
+    let onLikeComment: (CommunityComment) -> Void
+    let onOpenImage: (Int, [CommunityImage]) -> Void
+    let onOpenUser: (CommunityUser) -> Void
 
     var body: some View {
         AppCommentThread(comment: comment, subcomments: comment.sub) { comment, isSubComment in
@@ -93,7 +95,7 @@ private struct CourseCommentRow: View {
         }
     }
     @ViewBuilder
-    private func commentBubble(_ comment: GalleryComment, isSubComment: Bool) -> some View {
+    private func commentBubble(_ comment: CommunityComment, isSubComment: Bool) -> some View {
         AppCommentBubble {
             AppAvatarView(
                 imageURL: comment.anonymous
@@ -139,12 +141,12 @@ private struct CourseCommentRow: View {
         }
     }
 
-    private func canOpenUserProfile(_ comment: GalleryComment) -> Bool {
+    private func canOpenUserProfile(_ comment: CommunityComment) -> Bool {
         !comment.anonymous && comment.user.id > 0
     }
 
     @ViewBuilder
-    private func commentText(for comment: GalleryComment) -> some View {
+    private func commentText(for comment: CommunityComment) -> some View {
         if comment.replyUser.id != 0, !comment.replyUser.nickname.isEmpty {
             (
                 Text("回复 @\(comment.replyUser.nickname)：")
@@ -166,8 +168,8 @@ private struct CourseCommentRow: View {
 }
 
 private struct CourseCommentImagesView: View {
-    let images: [GalleryImage]
-    let onOpenImage: (Int, [GalleryImage]) -> Void
+    let images: [CommunityImage]
+    let onOpenImage: (Int, [CommunityImage]) -> Void
 
     var body: some View {
         let displayedImages = Array(images.prefix(4))
@@ -195,11 +197,11 @@ private struct CourseCommentImagesView: View {
         }
     }
 
-    private func thumbnailButton(image: GalleryImage, index: Int, width: CGFloat?, maxHeight: CGFloat?, aspectRatio: CGFloat) -> some View {
+    private func thumbnailButton(image: CommunityImage, index: Int, width: CGFloat?, maxHeight: CGFloat?, aspectRatio: CGFloat) -> some View {
         Button {
             onOpenImage(index, images)
         } label: {
-            GalleryPosterThumbnail(
+            CommunityImageThumbnail(
                 image: image,
                 width: width,
                 maxHeight: maxHeight,

@@ -1,3 +1,5 @@
+import CommunityCore
+import ClientCore
 //
 //  PaperViewModel.swift
 //  BIT101-iOS
@@ -269,9 +271,9 @@ final class PaperSearchViewModel: ObservableObject {
 final class PaperDetailViewModel: ObservableObject {
     @Published private(set) var paper: PaperDetail?
     @Published private(set) var contentBlocks: [PaperContentBlock] = []
-    @Published private(set) var paperStatus: GalleryFeedStatus = .idle
-    @Published private(set) var commentState = GalleryCommentState()
-    @Published var commentOrder: GalleryCommentOrder = .newest
+    @Published private(set) var paperStatus: CommunityLoadStatus = .idle
+    @Published private(set) var commentState = CommunityCommentState()
+    @Published var commentOrder: CommunityCommentOrder = .newest
     @Published private(set) var isLikingPaper = false
     @Published private(set) var likingCommentIDs: Set<Int> = []
     @Published private(set) var isSubmittingComment = false
@@ -334,7 +336,7 @@ final class PaperDetailViewModel: ObservableObject {
         handleCommentRefreshResult(result, previousState: previousState)
     }
 
-    func loadMoreCommentsIfNeeded(currentComment: GalleryComment?) async {
+    func loadMoreCommentsIfNeeded(currentComment: CommunityComment?) async {
         guard let currentComment else { return }
         let generation = refreshGeneration
         guard commentState.status == .loaded,
@@ -370,7 +372,7 @@ final class PaperDetailViewModel: ObservableObject {
     }
 
     /// 切换评论排序时刷新评论区，文章正文保持当前内容。
-    func setCommentOrder(_ order: GalleryCommentOrder) async {
+    func setCommentOrder(_ order: CommunityCommentOrder) async {
         guard commentOrder != order else { return }
         commentOrder = order
         await refreshComments()
@@ -427,7 +429,7 @@ final class PaperDetailViewModel: ObservableObject {
         }
     }
 
-    func toggleCommentLike(_ comment: GalleryComment) async {
+    func toggleCommentLike(_ comment: CommunityComment) async {
         guard !likingCommentIDs.contains(comment.id) else { return }
         let generation = refreshGeneration
         likingCommentIDs.insert(comment.id)
@@ -472,7 +474,7 @@ final class PaperDetailViewModel: ObservableObject {
         }
     }
 
-    private func handlePaperResult(_ result: Result<PaperDetail, Error>, previousStatus: GalleryFeedStatus) {
+    private func handlePaperResult(_ result: Result<PaperDetail, Error>, previousStatus: CommunityLoadStatus) {
         switch result {
         case let .success(paper):
             self.paper = paper
@@ -496,8 +498,8 @@ final class PaperDetailViewModel: ObservableObject {
     }
 
     private func handleCommentRefreshResult(
-        _ result: Result<[GalleryComment], Error>,
-        previousState: GalleryCommentState
+        _ result: Result<[CommunityComment], Error>,
+        previousState: CommunityCommentState
     ) {
         switch result {
         case let .success(comments):
@@ -536,8 +538,8 @@ final class PaperDetailViewModel: ObservableObject {
     }
 }
 
-private extension Array where Element == GalleryComment {
-    func updatingLike(for commentID: Int, like: Bool, likeNum: Int) -> [GalleryComment] {
+private extension Array where Element == CommunityComment {
+    func updatingLike(for commentID: Int, like: Bool, likeNum: Int) -> [CommunityComment] {
         map { comment in
             let updatedSub = comment.sub.updatingLike(for: commentID, like: like, likeNum: likeNum)
             let updated = comment.replacingSubComments(updatedSub)

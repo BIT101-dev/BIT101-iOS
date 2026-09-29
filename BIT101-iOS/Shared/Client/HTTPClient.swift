@@ -1,23 +1,28 @@
 import Foundation
 
-protocol HTTPTransport {
+public protocol HTTPTransport {
     func data(for request: URLRequest) async throws -> (Data, URLResponse)
 }
 
 extension URLSession: HTTPTransport {}
 
-struct HTTPResponse {
-    let data: Data
-    let response: HTTPURLResponse
+public nonisolated struct HTTPResponse: Sendable {
+    public init(data: Data, response: HTTPURLResponse) {
+        self.data = data
+        self.response = response
+    }
 
-    var statusCode: Int { response.statusCode }
+    public let data: Data
+    public let response: HTTPURLResponse
+
+    public var statusCode: Int { response.statusCode }
 }
 
-enum HTTPClientError: LocalizedError {
+public nonisolated enum HTTPClientError: LocalizedError {
     case invalidResponse
     case unacceptableStatus(code: Int, message: String?)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .invalidResponse:
             return "服务器返回了无法识别的响应。"
@@ -27,44 +32,40 @@ enum HTTPClientError: LocalizedError {
     }
 }
 
+/// 传输观察接口。应用层实现提示、诊断与测试传输策略。
+public protocol HTTPClientObserving {
+    func willSend(_ request: URLRequest) async throws
+    func didFinish(
+        request: URLRequest,
+        data: Data?,
+        response: URLResponse?,
+        error: Error?,
+        elapsed: TimeInterval
+    ) async
+}
+
 /// 处理请求发送和 HTTP 协议层校验；业务认证规则由上层 Service 处理。
-struct HTTPClient {
-    let transport: any HTTPTransport
-    let networkWarningCenter: NetworkMagicWarningCenter?
+public struct HTTPClient {
+    private let transport: any HTTPTransport
+    private let observer: (any HTTPClientObserving)?
 
-#if BIT101_AUTOMATED_TESTING
-    private static let defaultNetworkWarningCenter: NetworkMagicWarningCenter? = nil
-#else
-    private static let defaultNetworkWarningCenter: NetworkMagicWarningCenter? = .shared
-#endif
-
-    init(
-        transport: any HTTPTransport,
-        networkWarningCenter: NetworkMagicWarningCenter? = HTTPClient.defaultNetworkWarningCenter
-    ) {
+    public init(transport: any HTTPTransport, observer: (any HTTPClientObserving)?) {
         self.transport = transport
-        self.networkWarningCenter = networkWarningCenter
+        self.observer = observer
     }
 
-    func send(
+    public func send(
         _ request: URLRequest,
         accepting statusCodes: Range<Int> = 200 ..< 300
     ) async throws -> HTTPResponse {
-#if BIT101_UI_TESTING
-        if AppFileDirectories.isRunningUITest {
-            throw URLError(.notConnectedToInternet)
-        }
-#endif
-        if let url = request.url, let networkWarningCenter {
-            _ = await networkWarningCenter.consider(url: url)
-        }
+        try await observer?.willSend(request)
         let startedAt = Date()
         let data: Data
         let response: URLResponse
         do {
             (data, response) = try await transport.data(for: request)
         } catch {
-            await NetworkDiagnosticStore.shared.record(
+            await observer?.didFinish(
                 request: request, data: nil, response: nil, error: error,
                 elapsed: Date().timeIntervalSince(startedAt)
             )
@@ -72,7 +73,7 @@ struct HTTPClient {
         }
         guard let httpResponse = response as? HTTPURLResponse else {
             let error = HTTPClientError.invalidResponse
-            await NetworkDiagnosticStore.shared.record(
+            await observer?.didFinish(
                 request: request, data: data, response: response, error: error,
                 elapsed: Date().timeIntervalSince(startedAt)
             )
@@ -86,23 +87,20 @@ struct HTTPClient {
                 code: httpResponse.statusCode,
                 message: message
             )
-            await NetworkDiagnosticStore.shared.record(
+            await observer?.didFinish(
                 request: request, data: data, response: httpResponse, error: error,
                 elapsed: Date().timeIntervalSince(startedAt)
             )
             throw error
         }
-        await NetworkDiagnosticStore.shared.record(
+        await observer?.didFinish(
             request: request, data: data, response: httpResponse, error: nil,
             elapsed: Date().timeIntervalSince(startedAt)
         )
         return HTTPResponse(data: data, response: httpResponse)
     }
 
-    static let community = HTTPClient(transport: NetworkSessionPool.community)
-    static let shared = HTTPClient(transport: NetworkSessionPool.shared)
-
-    nonisolated static func errorMessage(from data: Data) -> String? {
+    public nonisolated static func errorMessage(from data: Data) -> String? {
         if
             let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         {
@@ -117,52 +115,4 @@ struct HTTPClient {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return text?.isEmpty == false ? text : nil
     }
-}
-
-enum NetworkSessionPool {
-    static let shared: URLSession = {
-        let configuration = URLSessionConfiguration.default
-        return URLSession(
-            configuration: configuration,
-            delegate: HTTPSUpgradingRedirectDelegate(),
-            delegateQueue: nil
-        )
-    }()
-
-    /// BIT101 社区接口共享连接池、Cookie 容器和 URLCache，供各 Service 复用 TLS 连接。
-    static let community: URLSession = {
-        let configuration = URLSessionConfiguration.default
-        configuration.httpCookieAcceptPolicy = .always
-        configuration.waitsForConnectivity = true
-        return URLSession(
-            configuration: configuration,
-            delegate: HTTPSUpgradingRedirectDelegate(),
-            delegateQueue: nil
-        )
-    }()
-
-    static let scoreAuthentication: URLSession = {
-        let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 25
-        configuration.timeoutIntervalForResource = 90
-        configuration.waitsForConnectivity = true
-        return URLSession(
-            configuration: configuration,
-            delegate: HTTPSUpgradingRedirectDelegate(),
-            delegateQueue: nil
-        )
-    }()
-
-    /// 可信成绩单图片使用内存态 ephemeral 会话，并与共享磁盘缓存隔离。
-    static let sensitiveDownloads: URLSession = {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 25
-        configuration.timeoutIntervalForResource = 90
-        configuration.waitsForConnectivity = true
-        return URLSession(
-            configuration: configuration,
-            delegate: HTTPSUpgradingRedirectDelegate(),
-            delegateQueue: nil
-        )
-    }()
 }

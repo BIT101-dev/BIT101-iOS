@@ -121,7 +121,9 @@ restore_normal_app() {
   fi
   return $smoke_status
 }
-trap restore_normal_app EXIT
+if [[ "${BIT101_DEFER_APP_RESTORE:-0}" != "1" ]]; then
+  trap restore_normal_app EXIT
+fi
 
 echo "发布前网络冒烟开始：scope=$SMOKE_SCOPE"
 echo "设备: $DEVICE_ID"
@@ -149,9 +151,6 @@ fi
 
 SMOKE_APP_PATH="$DERIVED_DATA/Build/Products/Release-iphoneos/BIT101-iOS.app"
 echo "安装网络数据采样宿主..."
-xcrun devicectl device process terminate \
-  --device "$DEVICETCL_DEVICE_ID" \
-  "$APP_BUNDLE_ID" >/dev/null 2>&1 || true
 xcrun devicectl device install app \
   --device "$DEVICETCL_DEVICE_ID" \
   "$SMOKE_APP_PATH" >/dev/null

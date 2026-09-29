@@ -1,3 +1,5 @@
+import CommunityCore
+import ClientCore
 import Foundation
 import ImageIO
 

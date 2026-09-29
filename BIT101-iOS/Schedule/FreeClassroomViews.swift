@@ -1,10 +1,11 @@
+import DesignSystemKit
 import SwiftUI
 
 /// 空教室查询页。
 ///
 /// 页面引导用户按“选校区 -> 手动刷新教学楼 -> 再选楼”的顺序操作，减少无效点击。
 struct FreeClassroomTabView: View {
-    @ObservedObject var viewModel: ScheduleViewModel
+    @ObservedObject var viewModel: ScheduleClassroomViewModel
 
     private var isClassroomRefreshing: Bool {
         viewModel.shouldShowInitialClassroomSpinner

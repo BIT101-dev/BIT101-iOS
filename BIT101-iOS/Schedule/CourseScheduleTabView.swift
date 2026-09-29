@@ -1,3 +1,4 @@
+import DesignSystemKit
 //
 //  CourseScheduleTabView.swift
 //  BIT101-iOS
@@ -293,9 +294,9 @@ struct CourseScheduleTabView: View {
                     onOpenCourseLocation(request)
                 },
                 timeTable: viewModel.cache.timeTable,
-                buildings: viewModel.buildings.isEmpty
+                buildings: viewModel.classroom.buildings.isEmpty
                     ? viewModel.cache.cachedClassroomBuildingsByCampusCode.values.flatMap { $0 }
-                    : viewModel.buildings,
+                    : viewModel.classroom.buildings,
                 courseArrangementDraftsForCourse: { courseID in
                     viewModel.courseArrangementDrafts(forCourseID: courseID)
                 },

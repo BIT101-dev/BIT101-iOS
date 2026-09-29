@@ -1,3 +1,4 @@
+import ClientCore
 import Foundation
 import SwiftUI
 import Combine

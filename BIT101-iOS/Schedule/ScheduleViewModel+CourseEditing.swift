@@ -245,7 +245,7 @@ extension ScheduleViewModel {
 
     private func classroomParts(for classroom: String) -> (buildingName: String, roomNumber: String) {
         let trimmed = classroom.trimmingCharacters(in: .whitespacesAndNewlines)
-        let buildings = (buildings + cache.cachedClassroomBuildingsByCampusCode.values.flatMap { $0 })
+        let buildings = (self.classroom.buildings + cache.cachedClassroomBuildingsByCampusCode.values.flatMap { $0 })
             .reduce(into: [String]()) { names, building in
                 guard !names.contains(building.name) else { return }
                 names.append(building.name)

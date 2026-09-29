@@ -1,16 +1,17 @@
+#if os(iOS)
 import SwiftUI
 
 private enum AppVerificationMetrics {
-    static let minimumCodeLength = 4
-    static let maximumCodeLength = 8
-    static let validCodeLength = minimumCodeLength ... maximumCodeLength
+    public static let minimumCodeLength = 4
+    public static let maximumCodeLength = 8
+    public static let validCodeLength = minimumCodeLength ... maximumCodeLength
 }
 
 /// 课表、成绩和可信成绩单共用的短信验证码面板。
 ///
 /// 验证码输入、清洗、焦点、错误展示和提交状态采用统一实现；业务传入掩码手机号、
 /// 提交文案、取消操作和提交操作。
-struct AppSMSVerificationSheet: View {
+public struct AppSMSVerificationSheet: View {
     let maskedPhone: String?
     let isSubmitting: Bool
     let errorMessage: String?
@@ -21,7 +22,7 @@ struct AppSMSVerificationSheet: View {
     @State private var code = ""
     @FocusState private var isCodeFieldFocused: Bool
 
-    init(
+    public init(
         maskedPhone: String?,
         isSubmitting: Bool,
         errorMessage: String?,
@@ -37,7 +38,7 @@ struct AppSMSVerificationSheet: View {
         self.onSubmit = onSubmit
     }
 
-    var body: some View {
+    public var body: some View {
         NavigationStack {
             Form {
                 Section {
@@ -111,12 +112,12 @@ struct AppSMSVerificationSheet: View {
 }
 
 /// 学校 SSO 网页短信二次验证面板。
-struct AppSchoolSMSVerificationSheet: View {
+public struct AppSchoolSMSVerificationSheet: View {
     let maskedPhone: String
     let onCancel: () -> Void
     let onSubmit: (String) -> Void
 
-    init(
+    public init(
         maskedPhone: String,
         onCancel: @escaping () -> Void,
         onSubmit: @escaping (String) -> Void
@@ -129,7 +130,7 @@ struct AppSchoolSMSVerificationSheet: View {
     @State private var code = ""
     @FocusState private var isCodeFieldFocused: Bool
 
-    var body: some View {
+    public var body: some View {
         NavigationStack {
             Form {
                 Section {
@@ -176,3 +177,4 @@ struct AppSchoolSMSVerificationSheet: View {
 private func normalizedVerificationCode(_ value: String) -> String {
     String(value.filter(\.isNumber).prefix(AppVerificationMetrics.maximumCodeLength))
 }
+#endif

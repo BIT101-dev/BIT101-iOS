@@ -1,37 +1,42 @@
+#if os(iOS)
 import SwiftUI
 
-typealias AppFailureDiagnosticsBuilder = (String, String) -> AnyView
+public typealias AppFailureDiagnosticsBuilder = (String, String) -> AnyView
 
 private struct AppFailureDiagnosticsKey: EnvironmentKey {
     static let defaultValue: AppFailureDiagnosticsBuilder? = nil
 }
 
 extension EnvironmentValues {
-    var appFailureDiagnostics: AppFailureDiagnosticsBuilder? {
+    public var appFailureDiagnostics: AppFailureDiagnosticsBuilder? {
         get { self[AppFailureDiagnosticsKey.self] }
         set { self[AppFailureDiagnosticsKey.self] = newValue }
     }
 }
 
 /// AppLoadingState 为页面级首屏加载状态提供统一的进度样式和可用空间约束。
-struct AppLoadingState: View {
+public struct AppLoadingState: View {
+    public init(title: String) {
+        self.title = title
+    }
+
     let title: String
 
-    var body: some View {
+    public var body: some View {
         ProgressView(title)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
 /// AppInlineLoadingState 为列表分区和滚动内容提供统一的加载状态与居中布局。
-struct AppInlineLoadingState: View {
+public struct AppInlineLoadingState: View {
     let title: String?
 
-    init(_ title: String? = nil) {
+    public init(_ title: String? = nil) {
         self.title = title
     }
 
-    var body: some View {
+    public var body: some View {
         HStack(spacing: AppDesignSystem.Spacing.regular) {
             Spacer()
             if let title {
@@ -46,14 +51,14 @@ struct AppInlineLoadingState: View {
 }
 
 /// AppScrollStateContainer 通过容器提供的垂直空间居中呈现滚动页首屏状态，并适配不同设备的可用高度。
-struct AppScrollStateContainer<Content: View>: View {
+public struct AppScrollStateContainer<Content: View>: View {
     private let content: Content
 
-    init(@ViewBuilder content: () -> Content) {
+    public init(@ViewBuilder content: () -> Content) {
         self.content = content()
     }
 
-    var body: some View {
+    public var body: some View {
         VStack {
             Spacer(minLength: AppDesignSystem.Spacing.none)
             content
@@ -65,7 +70,7 @@ struct AppScrollStateContainer<Content: View>: View {
 }
 
 /// AppFailureState 统一提供加载失败状态的图标、重试入口和诊断入口。
-struct AppFailureState: View {
+public struct AppFailureState: View {
     let title: String
     let systemImage: String
     let message: String
@@ -74,7 +79,7 @@ struct AppFailureState: View {
     let allowsDiagnostics: Bool
     @Environment(\.appFailureDiagnostics) private var appFailureDiagnostics
 
-    init(
+    public init(
         title: String,
         systemImage: String,
         message: String,
@@ -90,7 +95,7 @@ struct AppFailureState: View {
         self.allowsDiagnostics = allowsDiagnostics
     }
 
-    var body: some View {
+    public var body: some View {
         ContentUnavailableView {
             Label(title, systemImage: systemImage)
         } description: {
@@ -107,14 +112,14 @@ struct AppFailureState: View {
 }
 
 /// AppEmptyState 统一提供无数据状态的图标、说明和可选操作入口。
-struct AppEmptyState: View {
+public struct AppEmptyState: View {
     let title: String
     let systemImage: String
     let message: String?
     let actionTitle: String?
     let onAction: (() -> Void)?
 
-    init(
+    public init(
         title: String,
         systemImage: String,
         message: String? = nil,
@@ -128,7 +133,7 @@ struct AppEmptyState: View {
         self.onAction = onAction
     }
 
-    var body: some View {
+    public var body: some View {
         ContentUnavailableView {
             Label(title, systemImage: systemImage)
         } description: {
@@ -142,3 +147,4 @@ struct AppEmptyState: View {
         }
     }
 }
+#endif

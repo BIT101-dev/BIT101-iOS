@@ -1,3 +1,4 @@
+import ClientCore
 import Foundation
 import Testing
 @testable import BIT101_iOS

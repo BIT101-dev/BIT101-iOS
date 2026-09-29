@@ -63,6 +63,36 @@ UI 令牌、组件和交互契约由 [UI 设计系统](DESIGN_SYSTEM.md) 维护�
 
 ## 3. 模块分层约定
 
+### 编译与应用组装边界
+
+仓库根目录 `Package.swift` 声明本地模块，源文件沿用固定路径：
+
+- `ClientCore`：文件服务、账号命名空间与 Codable 仓库、HTTP 传输、社区协议处理、分页、HTTPS 重定向和取消判断。
+- `ScheduleContracts`：共享快照、编解码、时间线计算及共享容器读写，依赖 `ClientCore`。
+- `CommunityCore`：社区图片、用户、帖子摘要、评论、点赞与评论分页状态，依赖 `ClientCore`。
+- `DesignSystemKit`：公共令牌和组件，iOS 组件通过平台条件编译，Watch 复用基础令牌和外部展示规则。
+
+主 App、Widget、Watch App 和 Watch Widget 通过模块导入消费共享契约。
+应用侧的登录恢复、网络提示和诊断由 `Login/CommunitySessionSupport.swift` 与
+`Shell/AppNetworkClients.swift` 注入；跨业务诊断和偏好云同步由 Shell 协调。
+学业状态对象由 App 生命周期创建，通过 SwiftUI 环境传给页面。
+地图页面接收地点快照，课表解析由 `Shell/ScheduleMapAdapter.swift` 完成。
+
+`Shell/AppAccountStores.swift` 为基础存储提供当前账号和应用容器。
+跨社区目标页面由 `Shell/AppCommunityDestinations.swift` 组装，业务页通过
+`CommunityDestinations` 传递用户、帖子和文章请求；卡片、图片预览与缓存分别归
+`Shared/CommunityUI`、`Shared/Media`。
+
+日程由 `ScheduleViewModel` 持有课表同步与编辑状态，`ScheduleDDLViewModel` 持有
+DDL 同步与短信状态，`ScheduleClassroomViewModel` 持有空教室请求与选择状态。
+三者通过 `ScheduleRepository` 共享账号数据；服务接口按这三个场景划分。
+仓库记录账号、加载代际与本机修订，异步回写前逐项核对。
+`ScheduleCacheEffects` 定义保存后的副作用，`Shell/AppScheduleCacheEffects.swift`
+负责连接 Widget、Watch 和 CloudKit；磁盘写入与导出顺序继续串行维护。
+
+模块调整以 `Scripts/run-extended-tests.sh modules` 验证基础契约，App 适配与账号行为
+通过既有真机测试入口验证，编译装机统一使用 `Scripts/build-install-device.sh`。
+
 业务模块按以下职责分层：
 
 ### 3.1 Model

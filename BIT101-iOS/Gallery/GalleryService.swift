@@ -1,3 +1,5 @@
+import CommunityCore
+import ClientCore
 //
 //  GalleryService.swift
 //  BIT101-iOS
@@ -59,7 +61,7 @@ enum GalleryContentFilter {
 /// 机器人流没有对应的后端 feed。iOS 从最新流读取源页并在本地按标签筛选，
 /// 因此需要记录源分页已经推进到哪一页。
 struct GalleryBotFeedBatch {
-    let posters: [GalleryPoster]
+    let posters: [CommunityPoster]
     let nextSourcePage: Int
     let canLoadMore: Bool
 }
@@ -68,7 +70,7 @@ struct GalleryBotFeedBatch {
 ///
 /// 推荐流会跳过本地过滤后为空的源页，继续读取下一源页。
 struct GalleryRecommendFeedBatch {
-    let posters: [GalleryPoster]
+    let posters: [CommunityPoster]
     let nextSourcePage: Int
     let canLoadMore: Bool
 }
@@ -184,7 +186,7 @@ struct GalleryService {
     /// 拉取某个 feed 的帖子列表。
     ///
     /// 普通 feed 直接映射到后端帖子接口；机器人 feed 走本地标签分页逻辑。
-    func fetchFeed(kind: GalleryFeedKind, page: Int?) async throws -> [GalleryPoster] {
+    func fetchFeed(kind: GalleryFeedKind, page: Int?) async throws -> [CommunityPoster] {
         if kind.isBotFeed {
             let batch = try await fetchBotFeed(startPage: page ?? 0)
             return batch.posters
@@ -228,7 +230,7 @@ struct GalleryService {
     /// 根据搜索关键词和排序条件查询帖子。
     ///
     /// 搜索页与其它普通帖子页面共用机器人隐藏设置。
-    func searchPosters(query: GallerySearchQuery, page: Int?) async throws -> [GalleryPoster] {
+    func searchPosters(query: GallerySearchQuery, page: Int?) async throws -> [CommunityPoster] {
         let hideBot = await shouldHideBotPosters()
         return try await fetchPosters(
             mode: "search",
@@ -247,7 +249,7 @@ struct GalleryService {
     /// 扫描上限主要是为了避免一次请求链拉得过深，影响滚动体验。
     func fetchBotFeed(startPage: Int) async throws -> GalleryBotFeedBatch {
         var sourcePage = startPage
-        var collected: [GalleryPoster] = []
+        var collected: [CommunityPoster] = []
         var canLoadMore = true
         let maxScanCount = 5
 
@@ -272,12 +274,12 @@ struct GalleryService {
         )
     }
 
-    private func applyBotFilterIfNeeded(_ posters: [GalleryPoster], hideBot: Bool) -> [GalleryPoster] {
+    private func applyBotFilterIfNeeded(_ posters: [CommunityPoster], hideBot: Bool) -> [CommunityPoster] {
         guard hideBot else { return posters }
         return posters.filter { !GalleryBotClassifier.matches(tags: $0.tags) }
     }
 
-    private func applyGalleryFilters(_ posters: [GalleryPoster]) async -> [GalleryPoster] {
+    private func applyGalleryFilters(_ posters: [CommunityPoster]) async -> [CommunityPoster] {
         let settings = await MainActor.run {
             AppSettingsStore.loadSnapshotFromDefaults()
         }
@@ -288,14 +290,14 @@ struct GalleryService {
         }
     }
 
-    private func applyGalleryFilters(_ comments: [GalleryComment]) async -> [GalleryComment] {
+    private func applyGalleryFilters(_ comments: [CommunityComment]) async -> [CommunityComment] {
         let settings = await MainActor.run {
             AppSettingsStore.loadSnapshotFromDefaults()
         }
         let hiddenIDs = Set(settings?.galleryHiddenUserIDs ?? [])
         let hideAnonymousContent = settings?.galleryHideAnonymousContent ?? false
 
-        func filter(_ comment: GalleryComment) -> GalleryComment? {
+        func filter(_ comment: CommunityComment) -> CommunityComment? {
             guard !GalleryContentFilter.shouldHideComment(
                 authorID: comment.user.id,
                 replyTargetID: comment.replyUser.id,
@@ -318,14 +320,14 @@ struct GalleryService {
     /// 获取可选的帖子 claim 列表。
     ///
     /// claim 会驱动发帖页里的“声明”选择器，因此它属于一个低频但必须成功的基础数据。
-    func fetchClaims() async throws -> [GalleryClaim] {
+    func fetchClaims() async throws -> [CommunityClaim] {
         try await api.request(path: "posters/claims")
     }
 
     /// 上传一张发帖图片，返回服务端生成的图片资源对象。
     ///
     /// 图片上传返回服务端资源对象；发帖请求通过 `image_mids` 引用该资源。
-    func uploadImage(data: Data, filename: String = "poster.jpg") async throws -> GalleryImage {
+    func uploadImage(data: Data, filename: String = "poster.jpg") async throws -> CommunityImage {
         let multipart = MultipartFormData.jpegFile(data: data, filename: filename)
         do {
             return try await api.request(
@@ -437,9 +439,9 @@ struct GalleryService {
     /// 评论列表接口同时服务帖子评论和评论回复，因此通过 `obj` 参数区分目标对象。
     func fetchComments(
         objectID: String,
-        order: GalleryCommentOrder,
+        order: CommunityCommentOrder,
         page: Int?
-    ) async throws -> [GalleryComment] {
+    ) async throws -> [CommunityComment] {
         var queryItems = [
             URLQueryItem(name: "obj", value: objectID),
             URLQueryItem(name: "order", value: order.rawValue),
@@ -447,14 +449,14 @@ struct GalleryService {
         if let page {
             queryItems.append(URLQueryItem(name: "page", value: String(page)))
         }
-        let comments: [GalleryComment] = try await api.request(path: "reaction/comments", queryItems: queryItems)
+        let comments: [CommunityComment] = try await api.request(path: "reaction/comments", queryItems: queryItems)
         return await applyGalleryFilters(comments)
     }
 
     /// 对帖子或评论执行点赞操作。
     ///
     /// 后端使用同一个接口处理帖子和评论的点赞，因此这里只传对象 ID。
-    func like(objectID: String) async throws -> GalleryLikeResult {
+    func like(objectID: String) async throws -> CommunityLikeResult {
         try await api.request(
             path: "reaction/like",
             method: "POST",
@@ -473,7 +475,7 @@ struct GalleryService {
         replyUID: Int? = nil,
         anonymous: Bool = false,
         imageMids: [String] = []
-    ) async throws -> GalleryComment {
+    ) async throws -> CommunityComment {
         try await api.request(
             path: "reaction/comments",
             method: "POST",
@@ -490,7 +492,7 @@ struct GalleryService {
         )
     }
 
-    func uploadCommentImage(data: Data, filename: String) async throws -> GalleryImage {
+    func uploadCommentImage(data: Data, filename: String) async throws -> CommunityImage {
         try await uploadImage(data: data, filename: filename)
     }
 
@@ -527,7 +529,7 @@ struct GalleryService {
         uid: Int?,
         page: Int?,
         hideBot: Bool
-    ) async throws -> [GalleryPoster] {
+    ) async throws -> [CommunityPoster] {
         let posters = try await fetchRawPosters(
             mode: mode,
             order: order,
@@ -547,7 +549,7 @@ struct GalleryService {
         uid: Int?,
         page: Int?,
         hideBot: Bool
-    ) async throws -> [GalleryPoster] {
+    ) async throws -> [CommunityPoster] {
         var queryItems: [URLQueryItem] = []
 
         if let page {

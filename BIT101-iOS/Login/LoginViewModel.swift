@@ -1,3 +1,4 @@
+import ClientCore
 //
 //  LoginViewModel.swift
 //  BIT101-iOS
@@ -64,6 +65,9 @@ final class LoginViewModel: ObservableObject {
         guard !hasBootstrapped else { return }
         hasBootstrapped = true
 
+#if BIT101_UI_TESTING
+        await AppUITestBootstrap.prepareSessionIfNeeded()
+#endif
         guard service.hasCachedSession else {
             screenState = .signedOut
             return

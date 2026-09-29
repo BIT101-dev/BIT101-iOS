@@ -1,3 +1,4 @@
+import ScheduleContracts
 import Foundation
 
 enum ScheduleDateCodec {

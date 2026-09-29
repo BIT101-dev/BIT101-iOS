@@ -7,22 +7,22 @@ private let accountScopedStoreLogger = Logger(
 )
 
 /// AccountScopedCodableStore 使用稳定前缀和账号后缀生成账号隔离的 Codable 快照存储键。
-struct AccountScopedCodableStore<Value: Codable> {
+public struct AccountScopedCodableStore<Value: Codable> {
     private let keyPrefix: String
     private let defaults: UserDefaults
     private let session: () -> AppStorageSession
 
-    init(
+    public init(
         keyPrefix: String,
-        defaults: UserDefaults = AppFileDirectories.defaults,
-        session: @escaping () -> AppStorageSession = { AppFileDirectories.currentSession }
+        defaults: UserDefaults,
+        sessionProvider: @escaping () -> AppStorageSession
     ) {
         self.keyPrefix = keyPrefix
         self.defaults = defaults
-        self.session = session
+        self.session = sessionProvider
     }
 
-    func load() -> Value? {
+    public func load() -> Value? {
         let key = storageKey
         if let data = defaults.data(forKey: key) {
             return decode(data)
@@ -49,7 +49,7 @@ struct AccountScopedCodableStore<Value: Codable> {
         }
     }
 
-    func save(_ value: Value) {
+    public func save(_ value: Value) {
         do {
             let data = try JSONEncoder().encode(value)
             let key = storageKey
@@ -63,46 +63,49 @@ struct AccountScopedCodableStore<Value: Codable> {
         }
     }
 
-    func remove() {
+    public func remove() {
         let key = storageKey
         defaults.removeObject(forKey: key)
         let legacyKey = session().legacyKey(keyPrefix)
         if legacyKey != key { defaults.removeObject(forKey: legacyKey) }
     }
 
-    var storageKey: String {
+    public var storageKey: String {
         session().key(keyPrefix)
     }
 }
 
 /// AccountScopedFileCodableStore 保存需要持久保留的账号快照。
-struct AccountScopedFileCodableStore<Value: Codable> {
+public struct AccountScopedFileCodableStore<Value: Codable> {
+    private let directory: URL
     private let filename: String
     private let files: any AppFileService
     private let session: () -> AppStorageSession
 
-    init(
+    public init(
         filename: String,
-        files: any AppFileService = AppFileDirectories.files,
-        session: @escaping () -> AppStorageSession = { AppFileDirectories.currentSession }
+        files: any AppFileService,
+        session: @escaping () -> AppStorageSession,
+        directory: URL
     ) {
+        self.directory = directory
         self.filename = filename
         self.files = files
         self.session = session
     }
 
-    var fileURL: URL {
-        AppFileDirectories.accountSupportFileURL(
-            accountDirectoryName: session().accountStorageIdentifier,
-            named: filename
-        )
+    public var fileURL: URL {
+        directory
+            .appending(path: "BIT101-iOS", directoryHint: .isDirectory)
+            .appending(path: session().accountStorageIdentifier, directoryHint: .isDirectory)
+            .appending(path: filename)
     }
 
-    var hasStoredFile: Bool {
+    public var hasStoredFile: Bool {
         files.fileExists(at: fileURL)
     }
 
-    func load() -> Value? {
+    public func load() -> Value? {
         let sourceURL = fileURL
         guard files.fileExists(at: sourceURL) else {
             let oldURL = legacyFileURL
@@ -127,7 +130,7 @@ struct AccountScopedFileCodableStore<Value: Codable> {
     }
 
     @discardableResult
-    func save(_ value: Value) -> Bool {
+    public func save(_ value: Value) -> Bool {
         let targetURL = fileURL
         if files.fileExists(at: targetURL) {
             do {
@@ -159,7 +162,7 @@ struct AccountScopedFileCodableStore<Value: Codable> {
         }
     }
 
-    func remove() {
+    public func remove() {
         let targetURL = fileURL
         if files.fileExists(at: targetURL) {
             do {
@@ -175,10 +178,10 @@ struct AccountScopedFileCodableStore<Value: Codable> {
     }
 
     private var legacyFileURL: URL {
-        AppFileDirectories.accountSupportFileURL(
-            accountDirectoryName: session().legacyAccountDirectoryNameForMigration,
-            named: filename
-        )
+        directory
+            .appending(path: "BIT101-iOS", directoryHint: .isDirectory)
+            .appending(path: session().legacyAccountDirectoryNameForMigration, directoryHint: .isDirectory)
+            .appending(path: filename)
     }
 
     private func removeLegacyFileIfValid() {

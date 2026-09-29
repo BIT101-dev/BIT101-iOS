@@ -1,3 +1,4 @@
+import ScheduleContracts
 //
 //  ScheduleLiveActivityManager.swift
 //  BIT101-iOS

@@ -1,3 +1,5 @@
+import ClientCore
+import ScheduleContracts
 //
 //  ScheduleWidgetSupport.swift
 //  BIT101-iOS

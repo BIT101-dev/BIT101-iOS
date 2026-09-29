@@ -1,3 +1,4 @@
+import ScheduleContracts
 import SwiftUI
 
 enum WatchScheduleRefreshState: Equatable {

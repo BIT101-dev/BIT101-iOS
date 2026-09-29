@@ -7,16 +7,16 @@ import Foundation
 /// - 课程标题压缩
 ///
 /// 主 App、Widget、Watch、Live Activity 共用这份展示约定。
-nonisolated enum ScheduleDisplayNormalizer {
+public nonisolated enum ScheduleDisplayNormalizer {
     /// 压缩教室名称里的冗长楼名，适配小屏与卡片场景。
-    static func normalizeClassroom(_ value: String) -> String {
+    public static func normalizeClassroom(_ value: String) -> String {
         compactLocation(for: value).lightText
     }
 
     /// 规范课程标题的本地展示文本。
     ///
     /// 目前主要把 `体育/xx` 压缩成 `xx`，并把中文全角括号改成半角括号。
-    static func normalizeCourseTitle(_ value: String) -> String {
+    public static func normalizeCourseTitle(_ value: String) -> String {
         let withoutSportsPrefix = value.hasPrefix("体育/")
             ? String(value.dropFirst("体育/".count))
             : value
@@ -26,7 +26,7 @@ nonisolated enum ScheduleDisplayNormalizer {
     }
 
     /// 课程卡片使用“楼房\n教室”的紧凑地点格式；位置包含楼名和教室号时按两行展示，其他情况使用压缩后的原文。
-    static func courseCardClassroomText(_ value: String) -> String {
+    public static func courseCardClassroomText(_ value: String) -> String {
         let location = compactLocation(for: value)
         guard let room = location.room,
               !location.lightBuilding.isEmpty,
@@ -51,7 +51,7 @@ nonisolated enum ScheduleDisplayNormalizer {
     }
 
     /// 提供跨 target 展示所需的简洁文本、完整文本、楼名和教室号。
-    static func compactLocation(for value: String) -> ScheduleCompactLocation {
+    public static func compactLocation(for value: String) -> ScheduleCompactLocation {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             return ScheduleCompactLocation(lightText: "", maxText: "", lightBuilding: "", maxBuilding: "", room: nil)
@@ -226,20 +226,20 @@ nonisolated enum ScheduleDisplayNormalizer {
 }
 
 /// 跨 target 展示使用的地点结构。
-struct ScheduleCompactLocation: Hashable {
-    let lightText: String
-    let maxText: String
-    let lightBuilding: String
-    let maxBuilding: String
-    let room: String?
+public nonisolated struct ScheduleCompactLocation: Hashable, Sendable {
+    public let lightText: String
+    public let maxText: String
+    public let lightBuilding: String
+    public let maxBuilding: String
+    public let room: String?
 }
 
 /// 日程相关跨 target 共用的日期编解码与时间组合规则。
 ///
 /// 共享层、Widget、Watch、Live Activity 使用同一套“日期字符串 / 节次时间 -> 绝对时间”规则。
-enum ScheduleSharedDateCodec {
+public nonisolated enum ScheduleSharedDateCodec {
     /// 日历固定为公历，周数计算使用统一时区。
-    static let calendar: Calendar = {
+    public static let calendar: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 8 * 3600) ?? .current
         return calendar
@@ -272,7 +272,7 @@ enum ScheduleSharedDateCodec {
         return formatter
     }()
 
-    static func parseDate(_ string: String) -> Date? {
+    public static func parseDate(_ string: String) -> Date? {
         guard !string.isEmpty else { return nil }
         guard let date = dateFormatter.date(from: string), dateFormatter.string(from: date) == string else {
             return nil
@@ -280,19 +280,19 @@ enum ScheduleSharedDateCodec {
         return date
     }
 
-    static func formatDate(_ date: Date) -> String {
+    public static func formatDate(_ date: Date) -> String {
         dateFormatter.string(from: date)
     }
 
-    static func formatTime(_ date: Date) -> String {
+    public static func formatTime(_ date: Date) -> String {
         timeFormatter.string(from: date)
     }
 
-    static func formatShortDate(_ date: Date) -> String {
+    public static func formatShortDate(_ date: Date) -> String {
         shortDateFormatter.string(from: date)
     }
 
-    static func combine(firstDay: Date, week: Int, weekday: Int, time: String) -> Date? {
+    public static func combine(firstDay: Date, week: Int, weekday: Int, time: String) -> Date? {
         let weekOffset = week > 0 ? week - 1 : week
         let dayOffset = weekOffset * 7 + (weekday - 1)
         guard let day = calendar.date(byAdding: .day, value: dayOffset, to: firstDay) else {
@@ -301,7 +301,7 @@ enum ScheduleSharedDateCodec {
         return combine(date: day, time: time)
     }
 
-    static func combine(date: Date, time: String) -> Date? {
+    public static func combine(date: Date, time: String) -> Date? {
         let parts = time.split(separator: ":")
         guard
             parts.count == 2,
@@ -325,28 +325,38 @@ enum ScheduleSharedDateCodec {
 ///
 /// 结构保存“周次 + 星期 + 节次”展开后的最终结果。
 /// Widget 和 Watch 直接使用它进行排序、展示和倒计时。
-struct ScheduleExternalOccurrence: Identifiable, Hashable {
-    let id: String
-    let title: String
-    let classroom: String
-    let teacher: String
-    let startDate: Date
-    let endDate: Date
-    let displayUntilDate: Date
+public nonisolated struct ScheduleExternalOccurrence: Identifiable, Hashable, Sendable {
+    public init(id: String, title: String, classroom: String, teacher: String, startDate: Date, endDate: Date, displayUntilDate: Date) {
+        self.id = id
+        self.title = title
+        self.classroom = classroom
+        self.teacher = teacher
+        self.startDate = startDate
+        self.endDate = endDate
+        self.displayUntilDate = displayUntilDate
+    }
 
-    func isCurrent(at date: Date = Date()) -> Bool {
+    public let id: String
+    public let title: String
+    public let classroom: String
+    public let teacher: String
+    public let startDate: Date
+    public let endDate: Date
+    public let displayUntilDate: Date
+
+    public func isCurrent(at date: Date = Date()) -> Bool {
         startDate <= date && date < displayUntilDate
     }
 
-    func countdownTargetDate(at date: Date = Date()) -> Date {
+    public func countdownTargetDate(at date: Date = Date()) -> Date {
         isCurrent(at: date) ? displayUntilDate : startDate
     }
 
-    var rangeText: String {
+    public var rangeText: String {
         "\(ScheduleSharedDateCodec.formatTime(startDate))-\(ScheduleSharedDateCodec.formatTime(endDate))"
     }
 
-    func relativeDayText(referenceDate: Date = Date()) -> String {
+    public func relativeDayText(referenceDate: Date = Date()) -> String {
         let startOfToday = Self.calendar.startOfDay(for: referenceDate)
         let startOfClassDay = Self.calendar.startOfDay(for: startDate)
         let dayDiff = Self.calendar.dateComponents([.day], from: startOfToday, to: startOfClassDay).day ?? 0
@@ -376,12 +386,12 @@ struct ScheduleExternalOccurrence: Identifiable, Hashable {
 /// 3. 取出第一节作为“当前 / 下一节”
 ///
 /// 解析结果统一提供快照、未来课程和“当前 / 下一节”候选。
-struct ScheduleExternalResolvedSnapshot {
-    let snapshot: ScheduleExternalSnapshot?
-    let upcomingOccurrences: [ScheduleExternalOccurrence]
-    let contentState: ScheduleExternalContentState
+public nonisolated struct ScheduleExternalResolvedSnapshot: Sendable {
+    public let snapshot: ScheduleExternalSnapshot?
+    public let upcomingOccurrences: [ScheduleExternalOccurrence]
+    public let contentState: ScheduleExternalContentState
 
-    var nextOccurrence: ScheduleExternalOccurrence? {
+    public var nextOccurrence: ScheduleExternalOccurrence? {
         upcomingOccurrences.first
     }
 }
@@ -389,7 +399,7 @@ struct ScheduleExternalResolvedSnapshot {
 /// 外部课表展示层共同消费的业务状态。
 ///
 /// 各端自行决定文案，同一份损坏快照在 Widget 与 Watch 中统一映射为 invalid。
-enum ScheduleExternalContentState: Equatable {
+public nonisolated enum ScheduleExternalContentState: Equatable, Sendable {
     case missing
     case loggedOut
     case invalid
@@ -398,8 +408,8 @@ enum ScheduleExternalContentState: Equatable {
 }
 
 /// Widget 时间线的统一刷新时间规划器。
-enum ScheduleTimelineRefreshPlanner {
-    static func nextRefreshDate(
+public nonisolated enum ScheduleTimelineRefreshPlanner {
+    public static func nextRefreshDate(
         for occurrences: [ScheduleExternalOccurrence],
         now: Date = Date(),
         includeDisplayUntilDates: Bool,
@@ -432,10 +442,10 @@ enum ScheduleTimelineRefreshPlanner {
 /// 共享快照到课程 occurrence 的统一解析器。
 ///
 /// Widget、Watch App 和 Watch Widget 共用“首周 + 周次 + 节次 -> 实际上课时间”的推导逻辑。
-enum ScheduleOccurrenceResolver {
-    static let defaultCurrentCourseDisplayDuration: TimeInterval = 5 * 60
+public nonisolated enum ScheduleOccurrenceResolver {
+    public static let defaultCurrentCourseDisplayDuration: TimeInterval = 5 * 60
 
-    static func upcomingOccurrences(
+    public static func upcomingOccurrences(
         from snapshot: ScheduleExternalSnapshot,
         now: Date = Date(),
         currentCourseDisplayDuration: TimeInterval = defaultCurrentCourseDisplayDuration
@@ -520,14 +530,14 @@ enum ScheduleOccurrenceResolver {
         }
     }
 
-    static func parseDate(_ string: String) -> Date? {
+    public static func parseDate(_ string: String) -> Date? {
         ScheduleSharedDateCodec.parseDate(string)
     }
 
     /// 从一份共享快照解析外部展示层真正关心的最小状态。
     ///
     /// `limit` 让 Watch 这类小屏设备保留前若干节候选，统一 UI 所需的切片与状态分发。
-    static func resolvedSnapshot(
+    public static func resolvedSnapshot(
         from snapshot: ScheduleExternalSnapshot?,
         now: Date = Date(),
         currentCourseDisplayDuration: TimeInterval = defaultCurrentCourseDisplayDuration,
@@ -595,7 +605,7 @@ enum ScheduleOccurrenceResolver {
     }
 
     /// 直接从共享仓库读取并解析。
-    static func loadResolvedSnapshot(
+    public static func loadResolvedSnapshot(
         now: Date = Date(),
         currentCourseDisplayDuration: TimeInterval = defaultCurrentCourseDisplayDuration,
         limit: Int? = nil

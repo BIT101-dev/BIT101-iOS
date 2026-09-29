@@ -1,3 +1,6 @@
+import CommunityCore
+import DesignSystemKit
+import ClientCore
 //
 //  PaperDetailView.swift
 //  BIT101-iOS
@@ -11,7 +14,7 @@ struct PaperDetailView: View {
     @StateObject private var viewModel: PaperDetailViewModel
     @StateObject private var networkObserver = PaperNetworkObserver()
     @State private var composerTarget: PaperCommentComposerTarget?
-    @State private var imageViewer: GalleryImageViewerState?
+    @State private var imageViewer: ImagePreviewRequest?
     @State private var isShowingEditor = false
     @State private var isShowingDeleteConfirmation = false
     @Environment(\.dismiss) private var dismiss
@@ -189,7 +192,7 @@ struct PaperDetailView: View {
             }
             .presentationDragIndicator(.visible)
         }
-        .gallerySystemImagePreview(item: $imageViewer)
+        .systemImagePreview(item: $imageViewer)
         .sheet(isPresented: $isShowingEditor) {
             NavigationStack {
                 if let paper = viewModel.paper {
@@ -271,8 +274,8 @@ struct PaperDetailView: View {
                         block: block,
                         onOpenImage: { image in
                             guard let initialIndex = inlineImages.firstIndex(of: image) else { return }
-                            imageViewer = GalleryImageViewerState(
-                                images: inlineImages.map(\.asGalleryImage),
+                            imageViewer = ImagePreviewRequest(
+                                images: inlineImages.map(\.asCommunityImage),
                                 initialIndex: initialIndex
                             )
                         }
@@ -409,7 +412,7 @@ private struct PaperContentBlockView: View {
                 onOpenImage(image)
             } label: {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
-                    GalleryCachedStillImage(url: image.preferredRemoteURL)
+                    RemoteCachedStillImage(url: image.preferredRemoteURL)
                     .frame(maxWidth: .infinity, minHeight: AppDesignSystem.Size.Media.draft)
                     .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
 

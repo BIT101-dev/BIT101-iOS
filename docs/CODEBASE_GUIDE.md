@@ -87,7 +87,7 @@ Widget、锁屏组件、Apple Watch、Live Activity 通过共享快照和最小�
 
 主要文件：
 
-- `CachedRemoteImage.swift`
+- `Shared/Media/CachedRemoteImage.swift`
 - `Gallery/GalleryRootView.swift`
 - `Mine/MineRootView.swift`
 
@@ -150,7 +150,15 @@ Widget、锁屏组件、Apple Watch、Live Activity 通过共享快照和最小�
 - `Schedule/ScheduleService.swift`
   教务、乐学、空教室相关的网络请求与数据解析
 - `Schedule/ScheduleViewModel.swift`
-  日程主状态机
+  课表同步、编辑与选择状态，组装 DDL 和空教室子功能
+- `Schedule/ScheduleRepository.swift`
+  当前账号的共享缓存、加载代际、修订控制与保存入口
+- `Schedule/ScheduleDDLViewModel.swift`
+  DDL 同步、编辑、窗口偏好与乐学短信状态
+- `Schedule/ScheduleClassroomViewModel.swift`
+  空教室目录、查询、筛选和请求生命周期
+- `Schedule/ScheduleCacheEffects.swift`
+  保存后的外部展示与同步接口，由 Shell 连接具体平台能力
 - `Schedule/ScheduleRootView.swift`
   课表 / DDL / 空教室 UI
 - `Schedule/ScheduleWidgetSupport.swift`

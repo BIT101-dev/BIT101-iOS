@@ -1,3 +1,5 @@
+import ClientCore
+import ScheduleContracts
 import EventKit
 import Foundation
 

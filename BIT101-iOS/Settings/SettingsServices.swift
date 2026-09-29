@@ -1,3 +1,5 @@
+import CommunityCore
+import ClientCore
 //
 //  SettingsServices.swift
 //  BIT101-iOS
@@ -66,7 +68,7 @@ struct SettingsNetworkService {
     /// 上传头像并返回服务端生成的图片资源对象。
     ///
     /// 上传成功后，调用方再次调用 `updateUser`，将返回的 `mid` 绑定到用户资料。
-    func uploadAvatar(data: Data, filename: String = "avatar.jpg") async throws -> GalleryImage {
+    func uploadAvatar(data: Data, filename: String = "avatar.jpg") async throws -> CommunityImage {
         let multipart = MultipartFormData.jpegFile(data: data, filename: filename)
         do {
             return try await api.request(

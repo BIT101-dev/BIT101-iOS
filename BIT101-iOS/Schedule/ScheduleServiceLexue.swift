@@ -1,3 +1,4 @@
+import ClientCore
 //
 //  ScheduleServiceLexue.swift
 //  BIT101-iOS

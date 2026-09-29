@@ -1,3 +1,4 @@
+import ClientCore
 //
 //  BIT101APIClient.swift
 //  BIT101-iOS

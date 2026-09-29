@@ -11,6 +11,24 @@ extension ScheduleViewModel {
         selectedWeek = resolvedAutomaticWeek()
     }
 
+    /// 按当前账号和学期保存首周周一；传入 nil 时恢复最近同步的学校日期。
+    func setSemesterStartDate(_ date: Date?) {
+        let term = cache.currentTerm
+        guard isCacheWritable, !term.isEmpty else { return }
+        let firstDayString: String
+        if let date {
+            firstDayString = ScheduleDateCodec.formatDate(ScheduleDateCodec.monday(containing: date))
+            cache.manualFirstDayStringsByTerm[term] = firstDayString
+        } else {
+            guard let snapshot = cache.termSchedulesByTerm[term] else { return }
+            firstDayString = snapshot.firstDayString
+            cache.manualFirstDayStringsByTerm.removeValue(forKey: term)
+        }
+        cache.firstDayString = firstDayString
+        selectedWeek = resolvedAutomaticWeek()
+        persist(source: .localWithoutCloudPush)
+    }
+
     private func validatedScheduleTitle(_ title: String) throws -> String {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {

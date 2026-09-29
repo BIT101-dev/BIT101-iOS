@@ -184,7 +184,7 @@ extension ScheduleViewModel {
                 smsChallenge = nil
                 courseSyncCoordinator.reset()
                 if continuation == .classroomRefresh {
-                    await refreshClassroomPage()
+                    await classroom.refreshClassroomPage()
                 } else {
                     await loadAvailableTerms()
                 }
@@ -314,7 +314,7 @@ extension ScheduleViewModel {
 
     private func activate(_ snapshot: TermScheduleSnapshot) {
         cache.currentTerm = snapshot.term
-        cache.firstDayString = snapshot.firstDayString
+        cache.firstDayString = cache.manualFirstDayStringsByTerm[snapshot.term] ?? snapshot.firstDayString
         cache.coursesUpdatedAt = snapshot.updatedAt
         let baseline = cache.schoolCoursesByTerm[snapshot.term] ?? snapshot.courses
         cache.schoolCoursesByTerm[snapshot.term] = baseline

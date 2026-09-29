@@ -1,9 +1,10 @@
+import CommunityCore
 import Foundation
 
 /// Recommendation results and pagination state for one source page.
 struct GalleryPrefetchedPage {
     let page: Int
-    let posters: [GalleryPoster]
+    let posters: [CommunityPoster]
     let nextPage: Int
     let canLoadMore: Bool
 }

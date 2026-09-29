@@ -1,7 +1,8 @@
+#if os(iOS)
 import SwiftUI
 
 /// AppRefreshStatusRow 统一呈现课表、成绩、DDL、空教室等数据页的最近更新时间和手动刷新入口。
-struct AppRefreshStatusRow: View {
+public struct AppRefreshStatusRow: View {
     let isRefreshing: Bool
     let refreshingText: String
     let lastUpdatedText: String
@@ -11,7 +12,7 @@ struct AppRefreshStatusRow: View {
     let actionAccessibilityIdentifier: String?
     @State private var feedbackToken = 0
 
-    init(
+    public init(
         isRefreshing: Bool,
         refreshingText: String,
         lastUpdatedText: String,
@@ -29,7 +30,7 @@ struct AppRefreshStatusRow: View {
         self.actionAccessibilityIdentifier = actionAccessibilityIdentifier
     }
 
-    var body: some View {
+    public var body: some View {
         HStack(spacing: AppDesignSystem.Spacing.regular) {
             Group {
                 if isRefreshing {
@@ -60,3 +61,4 @@ struct AppRefreshStatusRow: View {
         }
     }
 }
+#endif

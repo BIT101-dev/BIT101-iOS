@@ -1,3 +1,4 @@
+import ClientCore
 //
 //  ScheduleServiceTransport.swift
 //  BIT101-iOS

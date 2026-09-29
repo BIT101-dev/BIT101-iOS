@@ -1,18 +1,19 @@
+#if os(iOS)
 import SwiftUI
 
 /// 课程、话题和文章评论区共用这个标题行。
 ///
 /// 业务传入右侧可选操作；组件保持标题、数量和占位关系完全一致。
-struct AppCommentSectionHeader<Trailing: View>: View {
+public struct AppCommentSectionHeader<Trailing: View>: View {
     let count: Int
     private let trailing: Trailing
 
-    init(count: Int, @ViewBuilder trailing: () -> Trailing) {
+    public init(count: Int, @ViewBuilder trailing: () -> Trailing) {
         self.count = count
         self.trailing = trailing()
     }
 
-    var body: some View {
+    public var body: some View {
         HStack(spacing: AppDesignSystem.Spacing.regular) {
             Text("评论")
                 .font(AppDesignSystem.Typography.title)
@@ -28,13 +29,20 @@ struct AppCommentSectionHeader<Trailing: View>: View {
 }
 
 /// 评论区使用这个标题行展示昵称和时间。
-struct AppCommentIdentityHeader: View {
+public struct AppCommentIdentityHeader: View {
+    public init(nickname: String, isSubComment: Bool, timeText: String, onOpenProfile: (() -> Void)?) {
+        self.nickname = nickname
+        self.isSubComment = isSubComment
+        self.timeText = timeText
+        self.onOpenProfile = onOpenProfile
+    }
+
     let nickname: String
     let isSubComment: Bool
     let timeText: String
     let onOpenProfile: (() -> Void)?
 
-    var body: some View {
+    public var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.regular) {
             if let onOpenProfile {
                 Button(action: onOpenProfile) {
@@ -65,14 +73,22 @@ struct AppCommentIdentityHeader: View {
 }
 
 /// 评论区使用这个操作行展示回复和点赞操作。
-struct AppCommentActionBar: View {
+public struct AppCommentActionBar: View {
+    public init(likeCount: Int, isLiked: Bool, isLiking: Bool, onReply: @escaping () -> Void, onLike: @escaping () -> Void) {
+        self.likeCount = likeCount
+        self.isLiked = isLiked
+        self.isLiking = isLiking
+        self.onReply = onReply
+        self.onLike = onLike
+    }
+
     let likeCount: Int
     let isLiked: Bool
     let isLiking: Bool
     let onReply: () -> Void
     let onLike: () -> Void
 
-    var body: some View {
+    public var body: some View {
         HStack(spacing: AppDesignSystem.Spacing.regular) {
             Button(action: onReply) {
                 Label("回复", systemImage: "arrowshape.turn.up.left")
@@ -107,11 +123,11 @@ struct AppCommentActionBar: View {
 }
 
 /// 评论气泡使用统一的头像和内容列间距。
-struct AppCommentBubble<Avatar: View, Content: View>: View {
+public struct AppCommentBubble<Avatar: View, Content: View>: View {
     private let avatar: Avatar
     private let content: Content
 
-    init(
+    public init(
         @ViewBuilder avatar: () -> Avatar,
         @ViewBuilder content: () -> Content
     ) {
@@ -119,7 +135,7 @@ struct AppCommentBubble<Avatar: View, Content: View>: View {
         self.content = content()
     }
 
-    var body: some View {
+    public var body: some View {
         HStack(alignment: .top, spacing: AppDesignSystem.Spacing.regular) {
             avatar
 
@@ -131,14 +147,14 @@ struct AppCommentBubble<Avatar: View, Content: View>: View {
 }
 
 /// 评论主项使用统一的内容间距和内边距。
-struct AppCommentRowContainer<Content: View>: View {
+public struct AppCommentRowContainer<Content: View>: View {
     private let content: Content
 
-    init(@ViewBuilder content: () -> Content) {
+    public init(@ViewBuilder content: () -> Content) {
         self.content = content()
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
             content
         }
@@ -149,12 +165,12 @@ struct AppCommentRowContainer<Content: View>: View {
 /// 评论主项和嵌套回复使用这个线程结构。
 ///
 /// 课程、话题和文章提供单条气泡内容；组件统一维护回复缩进、分隔线和上下层级。
-struct AppCommentThread<Comment: Identifiable, Content: View>: View {
+public struct AppCommentThread<Comment: Identifiable, Content: View>: View {
     let comment: Comment
     let subcomments: [Comment]
     private let content: (Comment, Bool) -> Content
 
-    init(
+    public init(
         comment: Comment,
         subcomments: [Comment],
         @ViewBuilder content: @escaping (Comment, Bool) -> Content
@@ -164,7 +180,7 @@ struct AppCommentThread<Comment: Identifiable, Content: View>: View {
         self.content = content
     }
 
-    var body: some View {
+    public var body: some View {
         AppCommentRowContainer {
             content(comment, false)
 
@@ -187,3 +203,4 @@ struct AppCommentThread<Comment: Identifiable, Content: View>: View {
         }
     }
 }
+#endif

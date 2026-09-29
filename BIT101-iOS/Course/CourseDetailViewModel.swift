@@ -1,3 +1,6 @@
+import CommunityCore
+import DesignSystemKit
+import ClientCore
 import Combine
 import Foundation
 
@@ -11,7 +14,7 @@ private func isCourseDetailCancellation(_ error: Error) -> Bool {
 /// 这样既能正确决定提交对象，也能在 UI 上还原“回复谁”的文案。
 enum CourseCommentComposerTarget: Identifiable, Equatable {
     case course(courseID: Int)
-    case comment(mainComment: GalleryComment, targetComment: GalleryComment)
+    case comment(mainComment: CommunityComment, targetComment: CommunityComment)
 
     var id: String {
         switch self {
@@ -40,7 +43,7 @@ enum CourseCommentComposerTarget: Identifiable, Equatable {
         }
     }
 
-    private func targetCommentDisplayName(_ comment: GalleryComment) -> String {
+    private func targetCommentDisplayName(_ comment: CommunityComment) -> String {
         comment.anonymous ? AppUserPresentation.anonymousName : comment.user.nickname
     }
 
@@ -79,7 +82,7 @@ final class CourseDetailViewModel: ObservableObject {
     @Published private(set) var course: CourseDetail?
     @Published private(set) var status: CourseDetailLoadStatus = .idle
     @Published private(set) var isLikingCourse = false
-    @Published private(set) var commentState = GalleryCommentState()
+    @Published private(set) var commentState = CommunityCommentState()
     @Published private(set) var historyGrades: [CourseHistoryGrade] = []
     @Published private(set) var historyGradeStatus: CourseHistoryGradeLoadStatus = .idle
     @Published private(set) var historyGradesAllowsDiagnostics = true
@@ -210,7 +213,7 @@ final class CourseDetailViewModel: ObservableObject {
         handleCommentRefreshResult(resolvedCommentResult, previousState: previousCommentState)
     }
 
-    func loadMoreCommentsIfNeeded(currentComment: GalleryComment?) async {
+    func loadMoreCommentsIfNeeded(currentComment: CommunityComment?) async {
         guard let currentComment else { return }
         let generation = refreshGeneration
         guard
@@ -308,7 +311,7 @@ final class CourseDetailViewModel: ObservableObject {
         }
     }
 
-    func likeComment(_ comment: GalleryComment) async {
+    func likeComment(_ comment: CommunityComment) async {
         guard !likingCommentIDs.contains(comment.id) else { return }
         let generation = refreshGeneration
         likingCommentIDs.insert(comment.id)
@@ -400,8 +403,8 @@ final class CourseDetailViewModel: ObservableObject {
     }
 
     private func handleCommentRefreshResult(
-        _ result: Result<[GalleryComment], Error>,
-        previousState: GalleryCommentState
+        _ result: Result<[CommunityComment], Error>,
+        previousState: CommunityCommentState
     ) {
         switch result {
         case let .success(comments):
@@ -456,8 +459,8 @@ final class CourseDetailViewModel: ObservableObject {
     }
 }
 
-private extension Array where Element == GalleryComment {
-    func updatingLike(for commentID: Int, like: Bool, likeNum: Int) -> [GalleryComment] {
+private extension Array where Element == CommunityComment {
+    func updatingLike(for commentID: Int, like: Bool, likeNum: Int) -> [CommunityComment] {
         map { comment in
             let updatedSub = comment.sub.updatingLike(for: commentID, like: like, likeNum: likeNum)
             let updated = comment.replacingSubComments(updatedSub)

@@ -1,3 +1,4 @@
+import ClientCore
 //
 //  CourseViewModel.swift
 //  BIT101-iOS

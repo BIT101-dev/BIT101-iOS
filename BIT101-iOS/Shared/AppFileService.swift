@@ -1,7 +1,7 @@
 import Foundation
 
 /// 文件服务接口。业务仓库使用逻辑路径和原子读写能力，不直接依赖 FileManager。
-nonisolated protocol AppFileService: Sendable {
+public nonisolated protocol AppFileService: Sendable {
     func directoryURL(_ directory: FileManager.SearchPathDirectory) -> URL?
     func appGroupContainerURL(identifier: String) -> URL?
     var temporaryDirectoryURL: URL { get }
@@ -22,70 +22,72 @@ nonisolated protocol AppFileService: Sendable {
 }
 
 /// 本机文件系统的默认实现。
-nonisolated struct LocalAppFileService: AppFileService, Sendable {
+public nonisolated struct LocalAppFileService: AppFileService, Sendable {
+    public init() {}
+
     private var manager: FileManager { .default }
 
-    func directoryURL(_ directory: FileManager.SearchPathDirectory) -> URL? {
+    public func directoryURL(_ directory: FileManager.SearchPathDirectory) -> URL? {
         manager.urls(for: directory, in: .userDomainMask).first
     }
 
-    func appGroupContainerURL(identifier: String) -> URL? {
+    public func appGroupContainerURL(identifier: String) -> URL? {
         manager.containerURL(forSecurityApplicationGroupIdentifier: identifier)
     }
 
-    var temporaryDirectoryURL: URL { manager.temporaryDirectory }
-    func fileExists(at url: URL) -> Bool { manager.fileExists(atPath: url.path) }
-    func readData(at url: URL) throws -> Data {
+    public var temporaryDirectoryURL: URL { manager.temporaryDirectory }
+    public func fileExists(at url: URL) -> Bool { manager.fileExists(atPath: url.path) }
+    public func readData(at url: URL) throws -> Data {
         try setExcludedFromBackup(at: url)
         return try Data(contentsOf: url)
     }
 
-    func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws {
+    public func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws {
         try data.write(to: url, options: options)
         try setExcludedFromBackup(at: url)
     }
 
-    func createDirectory(at url: URL) throws {
+    public func createDirectory(at url: URL) throws {
         try manager.createDirectory(at: url, withIntermediateDirectories: true)
         try setExcludedFromBackup(at: url)
     }
-    func removeItem(at url: URL) throws { try manager.removeItem(at: url) }
-    func setPrivateFileProtection(at url: URL) throws {
+    public func removeItem(at url: URL) throws { try manager.removeItem(at: url) }
+    public func setPrivateFileProtection(at url: URL) throws {
         try manager.setAttributes(
             [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
             ofItemAtPath: url.path
         )
     }
 
-    func setExcludedFromBackup(at url: URL) throws {
+    public func setExcludedFromBackup(at url: URL) throws {
         var resourceValues = URLResourceValues()
         resourceValues.isExcludedFromBackup = true
         var targetURL = url
         try targetURL.setResourceValues(resourceValues)
     }
 
-    func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL] {
+    public func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL] {
         try manager.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: options)
     }
 
-    func regularFileSize(at url: URL) -> Int? {
+    public func regularFileSize(at url: URL) -> Int? {
         guard isRegularFile(at: url) else { return nil }
         return try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize
     }
 
-    func isRegularFile(at url: URL) -> Bool {
+    public func isRegularFile(at url: URL) -> Bool {
         (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
     }
 
-    func modificationDate(at url: URL) -> Date? {
+    public func modificationDate(at url: URL) -> Date? {
         try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
     }
 
-    func setModificationDate(_ date: Date, at url: URL) throws {
+    public func setModificationDate(_ date: Date, at url: URL) throws {
         try manager.setAttributes([.modificationDate: date], ofItemAtPath: url.path)
     }
 
-    func removeContents(of directory: URL) -> Bool {
+    public func removeContents(of directory: URL) -> Bool {
         guard fileExists(at: directory) else { return true }
         guard let children = try? contentsOfDirectory(at: directory, options: []) else { return false }
         var succeeded = true
@@ -99,7 +101,7 @@ nonisolated struct LocalAppFileService: AppFileService, Sendable {
         return succeeded
     }
 
-    func totalRegularFileSize(at directory: URL) -> Int64 {
+    public func totalRegularFileSize(at directory: URL) -> Int64 {
         guard let enumerator = manager.enumerator(
             at: directory,
             includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
@@ -114,9 +116,9 @@ nonisolated struct LocalAppFileService: AppFileService, Sendable {
 }
 
 /// App 及其扩展共享的文件服务入口。
-nonisolated enum AppFileSystem {
-    static let files: any AppFileService = LocalAppFileService()
-    static let protectedDataWritingOptions: Data.WritingOptions = [
+public nonisolated enum AppFileSystem {
+    public static let files: any AppFileService = LocalAppFileService()
+    public static let protectedDataWritingOptions: Data.WritingOptions = [
         .atomic,
         .completeFileProtectionUntilFirstUserAuthentication,
     ]

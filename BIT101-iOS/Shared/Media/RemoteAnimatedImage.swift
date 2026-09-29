@@ -1,3 +1,5 @@
+import DesignSystemKit
+import ClientCore
 import ImageIO
 import SwiftUI
 import UIKit
@@ -6,8 +8,8 @@ import UIKit
 ///
 /// 首页继续自动播放动图，下载后的逐帧 ImageIO 解码在独立 actor 中执行。
 /// 串行 actor 将快速滑过多个 GIF 的帧创建排队，有上限的内存缓存复用最近解码结果。
-private actor GalleryAnimatedImageDecoder {
-    static let shared = GalleryAnimatedImageDecoder()
+private actor RemoteAnimatedImageDecoder {
+    static let shared = RemoteAnimatedImageDecoder()
 
     private let images: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
@@ -83,7 +85,7 @@ private actor GalleryAnimatedImageDecoder {
 ///
 /// SwiftUI 负责容器布局，GIF 原图由 UIKit 播放器处理。
 /// 视图离开屏幕后取消任务并停止 `UIImageView` 播放。
-struct GalleryAnimatedImage: UIViewRepresentable {
+struct RemoteAnimatedImage: UIViewRepresentable {
     let url: URL
     let isActive: Bool
     let contentMode: ContentMode
@@ -143,9 +145,9 @@ struct GalleryAnimatedImage: UIViewRepresentable {
 
             task = Task { [weak self, weak imageView] in
                 do {
-                    let file = try await GalleryImageCache.shared.file(for: url, variant: .original)
+                    let file = try await RemoteImageCache.shared.file(for: url, variant: .original)
                     guard !Task.isCancelled else { return }
-                    let decoded = await GalleryAnimatedImageDecoder.shared.image(
+                    let decoded = await RemoteAnimatedImageDecoder.shared.image(
                         at: file,
                         reduceMotion: UIAccessibility.isReduceMotionEnabled
                     )
@@ -176,14 +178,14 @@ struct GalleryAnimatedImage: UIViewRepresentable {
 
 /// 播放处于 LazyVStack 活跃区域的 GIF，快速划过时停止对应播放器和解码任务。
 /// 屏幕外的动图保持停止，降低 CPU/GPU 消耗。
-struct GalleryAutoplayingImage: View {
+struct RemoteAutoplayingImage: View {
     let url: URL
     var contentMode: ContentMode = .fit
     var cornerRadius: CGFloat = AppDesignSystem.Spacing.none
     @State private var isActive = false
 
     var body: some View {
-        GalleryAnimatedImage(
+        RemoteAnimatedImage(
             url: url,
             isActive: isActive,
             contentMode: contentMode,

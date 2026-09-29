@@ -1,7 +1,19 @@
+import ClientCore
 #if BIT101_UI_TESTING
 import Foundation
 
 enum AppUITestBootstrap {
+    static func prepareSessionIfNeeded() async {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["BIT101_UI_TEST_RESET_STORAGE"] == "1",
+              let account = environment["BIT101_UI_TEST_ACCOUNT"], !account.isEmpty else { return }
+        do {
+            _ = try await UITestLoginService().login(studentID: account, password: "ui-test-password")
+        } catch {
+            preconditionFailure("UI test session preparation failed: \(error)")
+        }
+    }
+
     static func prepareForLaunch() {
         let environment = ProcessInfo.processInfo.environment
         guard AppFileDirectories.isRunningUITest else {

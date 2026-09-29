@@ -1,3 +1,5 @@
+import CommunityCore
+import ClientCore
 //
 //  MineService.swift
 //  BIT101-iOS
@@ -63,30 +65,30 @@ struct MineService {
     /// 获取我关注的用户列表。
     ///
     /// 关注/粉丝接口都使用页码分页，第一页从 0 开始。
-    func fetchFollowings(page: Int) async throws -> [GalleryUser] {
+    func fetchFollowings(page: Int) async throws -> [CommunityUser] {
         try await api.request(path: "user/followings", queryItems: [URLQueryItem(name: "page", value: String(page))])
     }
 
     /// 获取我的粉丝列表。
-    func fetchFollowers(page: Int) async throws -> [GalleryUser] {
+    func fetchFollowers(page: Int) async throws -> [CommunityUser] {
         try await api.request(path: "user/followers", queryItems: [URLQueryItem(name: "page", value: String(page))])
     }
 
     /// 获取“我的帖子”列表；普通帖子页面按设置隐藏机器人帖子。
     ///
     /// 服务端通过 `uid=0` 约定当前登录用户。
-    func fetchMyPosters(page: Int) async throws -> [GalleryPoster] {
+    func fetchMyPosters(page: Int) async throws -> [CommunityPoster] {
         try await fetchPosters(userID: 0, page: page)
     }
 
     /// 获取指定用户的帖子列表；普通帖子页面按设置隐藏机器人帖子。
     ///
     /// 这里复用帖子搜索接口的 `uid` 语义，用户帖子接口保持独立路径。
-    func fetchUserPosters(userID: Int, page: Int) async throws -> [GalleryPoster] {
+    func fetchUserPosters(userID: Int, page: Int) async throws -> [CommunityPoster] {
         try await fetchPosters(userID: userID, page: page)
     }
 
-    private func fetchPosters(userID: Int, page: Int) async throws -> [GalleryPoster] {
+    private func fetchPosters(userID: Int, page: Int) async throws -> [CommunityPoster] {
         var queryItems = [
             URLQueryItem(name: "mode", value: "search"),
             URLQueryItem(name: "uid", value: String(userID)),

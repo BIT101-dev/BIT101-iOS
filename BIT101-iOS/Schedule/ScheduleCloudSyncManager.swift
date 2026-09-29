@@ -1,3 +1,4 @@
+import ClientCore
 //
 //  ScheduleCloudSyncManager.swift
 //  BIT101-iOS

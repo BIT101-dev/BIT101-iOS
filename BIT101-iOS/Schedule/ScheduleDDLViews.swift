@@ -1,3 +1,4 @@
+import DesignSystemKit
 //
 //  ScheduleDDLViews.swift
 //  BIT101-iOS
@@ -11,7 +12,7 @@ import SwiftUI
 ///
 /// DDL 页使用 `appGroupedListStyle()`，与成绩和空教室保持一致。
 struct DDLScheduleTabView: View {
-    @ObservedObject var viewModel: ScheduleViewModel
+    @ObservedObject var viewModel: ScheduleDDLViewModel
     @State private var selectedEvent: DDLEventRecord?
     @State private var draft = DDLDraft()
     @State private var editingEventID: String?

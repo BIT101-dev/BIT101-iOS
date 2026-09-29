@@ -1,3 +1,5 @@
+import CommunityCore
+import DesignSystemKit
 //
 //  PaperCommentViews.swift
 //  BIT101-iOS
@@ -6,23 +8,23 @@ import Network
 import Combine
 
 struct PaperCommentsSection: View {
-    let comments: [GalleryComment]
+    let comments: [CommunityComment]
     let totalCommentCount: Int
-    let status: GalleryFeedStatus
+    let status: CommunityLoadStatus
     let isLoadingMore: Bool
-    let selectedOrder: GalleryCommentOrder
+    let selectedOrder: CommunityCommentOrder
     let likingCommentIDs: Set<Int>
-    let onSelectOrder: @MainActor (GalleryCommentOrder) -> Void
+    let onSelectOrder: @MainActor (CommunityCommentOrder) -> Void
     let onReply: (PaperCommentReplyTarget) -> Void
-    let onLikeComment: (GalleryComment) -> Void
-    let onLoadMore: (GalleryComment?) -> Void
+    let onLikeComment: (CommunityComment) -> Void
+    let onLoadMore: (CommunityComment?) -> Void
     let onRetry: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
             AppCommentSectionHeader(count: totalCommentCount) {
                 Picker("排序", selection: Binding(get: { selectedOrder }, set: onSelectOrder)) {
-                    ForEach(GalleryCommentOrder.allCases) { order in
+                    ForEach(CommunityCommentOrder.allCases) { order in
                         Text(order.title).tag(order)
                     }
                 }
@@ -105,15 +107,15 @@ final class PaperNetworkObserver: ObservableObject {
 }
 
 struct PaperCommentReplyTarget {
-    let mainComment: GalleryComment
-    let targetComment: GalleryComment
+    let mainComment: CommunityComment
+    let targetComment: CommunityComment
 }
 
 private struct PaperCommentRow: View {
-    let comment: GalleryComment
+    let comment: CommunityComment
     let likingCommentIDs: Set<Int>
     let onReply: (PaperCommentReplyTarget) -> Void
-    let onLikeComment: (GalleryComment) -> Void
+    let onLikeComment: (CommunityComment) -> Void
 
     var body: some View {
         AppCommentThread(comment: comment, subcomments: comment.sub) { comment, isSubComment in
@@ -122,7 +124,7 @@ private struct PaperCommentRow: View {
     }
 
     @ViewBuilder
-    private func commentBubble(_ comment: GalleryComment, isSubComment: Bool) -> some View {
+    private func commentBubble(_ comment: CommunityComment, isSubComment: Bool) -> some View {
         AppCommentBubble {
             AppAvatarView(
                 imageURL: comment.anonymous ? nil : comment.user.avatar.preferredRemoteURL,

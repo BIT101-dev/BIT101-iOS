@@ -1,11 +1,13 @@
+import CommunityCore
+import DesignSystemKit
 import QuickLook
 import SwiftUI
 import UIKit
 
 /// 一次系统图片预览请求。
-struct GalleryImageViewerState: Identifiable {
+struct ImagePreviewRequest: Identifiable {
     fileprivate enum Source {
-        case remote([GalleryImage])
+        case remote([CommunityImage])
         case local([UIImage])
     }
 
@@ -13,7 +15,7 @@ struct GalleryImageViewerState: Identifiable {
     fileprivate let source: Source
     let initialIndex: Int
 
-    init(images: [GalleryImage], initialIndex: Int) {
+    init(images: [CommunityImage], initialIndex: Int) {
         source = .remote(images)
         self.initialIndex = initialIndex
     }
@@ -26,8 +28,8 @@ struct GalleryImageViewerState: Identifiable {
 
 extension View {
     /// 直接从当前页面呈现系统 Quick Look，不增加自定义“正在准备”中间页。
-    func gallerySystemImagePreview(item: Binding<GalleryImageViewerState?>) -> some View {
-        background(GalleryQuickLookPresenter(viewer: item).frame(width: AppDesignSystem.Spacing.none, height: AppDesignSystem.Spacing.none))
+    func systemImagePreview(item: Binding<ImagePreviewRequest?>) -> some View {
+        background(ImageQuickLookPresenter(viewer: item).frame(width: AppDesignSystem.Spacing.none, height: AppDesignSystem.Spacing.none))
     }
 }
 
@@ -35,8 +37,8 @@ extension View {
 ///
 /// 相比 SwiftUI `.quickLookPreview`，`QLPreviewController` 允许预览期间刷新数据源，
 /// 因而可以先显示低清缓存，再在同一预览器内原地替换成高清文件。
-private struct GalleryQuickLookPresenter: UIViewControllerRepresentable {
-    @Binding var viewer: GalleryImageViewerState?
+private struct ImageQuickLookPresenter: UIViewControllerRepresentable {
+    @Binding var viewer: ImagePreviewRequest?
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -72,7 +74,7 @@ private struct GalleryQuickLookPresenter: UIViewControllerRepresentable {
     @MainActor
     final class Coordinator: NSObject, QLPreviewControllerDataSource, QLPreviewControllerDelegate {
         private var requestID: UUID?
-        private var pendingRequest: GalleryImageViewerState?
+        private var pendingRequest: ImagePreviewRequest?
         private var preparationTask: Task<Void, Never>?
         private var upgradeTask: Task<Void, Never>?
         private var previewController: QLPreviewController?
@@ -81,7 +83,7 @@ private struct GalleryQuickLookPresenter: UIViewControllerRepresentable {
         private var pendingCurrentRefresh = false
         var onDismiss: (() -> Void)?
 
-        func receive(_ request: GalleryImageViewerState?, from host: HostViewController) {
+        func receive(_ request: ImagePreviewRequest?, from host: HostViewController) {
             guard let request else {
                 if previewController == nil { cancel() }
                 return
@@ -157,7 +159,7 @@ private struct GalleryQuickLookPresenter: UIViewControllerRepresentable {
 
         /// 用户点击的图片先准备可读文件；其它图片使用缓存或占位，高清资源在预览展示后继续准备。
         private func prepareInitialItems(
-            for request: GalleryImageViewerState
+            for request: ImagePreviewRequest
         ) async throws -> (items: [MutableQuickLookItem], initialIndex: Int) {
             switch request.source {
             case let .local(images):
@@ -166,7 +168,7 @@ private struct GalleryQuickLookPresenter: UIViewControllerRepresentable {
                 for (index, image) in images.enumerated() {
                     try Task.checkCancellation()
                     guard let data = image.pngData() else { continue }
-                    let file = try await GalleryImageCache.shared.localFile(data: data)
+                    let file = try await RemoteImageCache.shared.localFile(data: data)
                     prepared.append(MutableQuickLookItem(url: file))
                     sourceIndexes.append(index)
                 }
@@ -180,23 +182,23 @@ private struct GalleryQuickLookPresenter: UIViewControllerRepresentable {
             case let .remote(images):
                 guard !images.isEmpty else { throw QuickLookPreparationError.noImages }
                 let initialIndex = min(max(request.initialIndex, 0), images.count - 1)
-                let placeholder = try await GalleryImageCache.shared.placeholderFile()
+                let placeholder = try await RemoteImageCache.shared.placeholderFile()
                 let prepared = images.map { _ in MutableQuickLookItem(url: placeholder) }
 
                 let initialImage = images[initialIndex]
                 let highURL = originalURL(for: initialImage)
                 if let highURL,
-                   let high = await GalleryImageCache.shared.cachedFile(for: highURL, variant: .original) {
+                   let high = await RemoteImageCache.shared.cachedFile(for: highURL, variant: .original) {
                     prepared[initialIndex].url = high
                 } else if let lowURL = thumbnailURL(for: initialImage) {
                     // 首页已经展示过的缩略图必然已进入统一磁盘缓存；点击时只做
                     // 一次缓存查询，不重新编码图片，也不等待帖子内其它图片。
-                    if let cached = await GalleryImageCache.shared.cachedFile(
+                    if let cached = await RemoteImageCache.shared.cachedFile(
                         for: lowURL,
                         variant: .thumbnail
                     ) {
                         prepared[initialIndex].url = cached
-                    } else if let lowFile = try? await GalleryImageCache.shared.file(
+                    } else if let lowFile = try? await RemoteImageCache.shared.file(
                         for: lowURL,
                         variant: .thumbnail
                     ) {
@@ -206,13 +208,13 @@ private struct GalleryQuickLookPresenter: UIViewControllerRepresentable {
                     } else if let highURL {
                         // 缩略图服务异常时仍尝试原图，避免高清图可用却因低清失败而
                         // 直接关闭系统预览。
-                        prepared[initialIndex].url = try await GalleryImageCache.shared.file(
+                        prepared[initialIndex].url = try await RemoteImageCache.shared.file(
                             for: highURL,
                             variant: .original
                         )
                     }
                 } else if let highURL {
-                    prepared[initialIndex].url = try await GalleryImageCache.shared.file(
+                    prepared[initialIndex].url = try await RemoteImageCache.shared.file(
                         for: highURL,
                         variant: .original
                     )
@@ -222,7 +224,7 @@ private struct GalleryQuickLookPresenter: UIViewControllerRepresentable {
         }
 
         /// 当前图优先升级高清，其余图片随后逐张补低清并缓存高清。
-        private func upgradeRemoteItems(for request: GalleryImageViewerState, initialIndex: Int) async {
+        private func upgradeRemoteItems(for request: ImagePreviewRequest, initialIndex: Int) async {
             guard case let .remote(images) = request.source else { return }
             let remainingIndices = images.indices.filter { $0 != initialIndex }
 
@@ -240,7 +242,7 @@ private struct GalleryQuickLookPresenter: UIViewControllerRepresentable {
                 if items.indices.contains(index),
                    items[index].url.lastPathComponent == "preview-placeholder.png",
                    let lowURL = thumbnailURL(for: image),
-                   let lowFile = try? await GalleryImageCache.shared.file(for: lowURL, variant: .thumbnail) {
+                   let lowFile = try? await RemoteImageCache.shared.file(for: lowURL, variant: .thumbnail) {
                     items[index].url = lowFile
                 }
             }
@@ -252,9 +254,9 @@ private struct GalleryQuickLookPresenter: UIViewControllerRepresentable {
             }
         }
 
-        private func upgradeOriginal(_ image: GalleryImage, at index: Int, requestID expectedID: UUID) async {
+        private func upgradeOriginal(_ image: CommunityImage, at index: Int, requestID expectedID: UUID) async {
             guard let highURL = originalURL(for: image) else { return }
-            guard let highFile = try? await GalleryImageCache.shared.file(for: highURL, variant: .original) else {
+            guard let highFile = try? await RemoteImageCache.shared.file(for: highURL, variant: .original) else {
                 return
             }
             guard !Task.isCancelled, requestID == expectedID, items.indices.contains(index) else { return }
@@ -300,11 +302,11 @@ private struct GalleryQuickLookPresenter: UIViewControllerRepresentable {
             }
         }
 
-        private func originalURL(for image: GalleryImage) -> URL? {
+        private func originalURL(for image: CommunityImage) -> URL? {
             URL(string: image.url.isEmpty ? image.lowUrl : image.url)
         }
 
-        private func thumbnailURL(for image: GalleryImage) -> URL? {
+        private func thumbnailURL(for image: CommunityImage) -> URL? {
             URL(string: image.lowUrl.isEmpty ? image.url : image.lowUrl)
         }
     }

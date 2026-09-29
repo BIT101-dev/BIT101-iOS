@@ -1,3 +1,6 @@
+import CommunityCore
+import DesignSystemKit
+import ClientCore
 //
 //  GalleryRootView.swift
 //  BIT101-iOS
@@ -35,6 +38,7 @@ private enum GallerySurface: String, CaseIterable, Identifiable, Hashable {
 ///
 /// 顶部负责 feed 切换，下方负责承载当前选中的帖子流，并支持左右轻扫切换分区。
 struct GalleryRootView: View {
+    @Environment(CommunityDestinations.self) private var destinations
     @Environment(\.scenePhase) private var scenePhase
     /// 主 feed 视图模型，负责帖子流、搜索和详情入口状态。
     @StateObject private var viewModel = GalleryViewModel()
@@ -49,7 +53,7 @@ struct GalleryRootView: View {
     @Binding private var requestedPosterID: Int?
     @State private var selectedSurface: GallerySurface = .gallery
     @State private var isShowingNativePaperRoute = false
-    @State private var deepLinkedPoster: GalleryPoster?
+    @State private var deepLinkedPoster: CommunityPoster?
     @State private var deepLinkAlert: AppAlert?
     private let posterService: any GalleryPosterDetailServicing
 
@@ -72,9 +76,9 @@ struct GalleryRootView: View {
                 case .gallery:
                     galleryContent
                 case .paper:
-                    PaperRootView(
-                        requestedPaperID: $requestedPaperID,
-                        selectedGallerySurfaceRawValue: Binding(
+                    destinations.papers(
+                        $requestedPaperID,
+                        Binding(
                             get: { selectedSurface.rawValue },
                             set: { newValue in
                                 selectedSurface = GallerySurface(rawValue: newValue) ?? .gallery

@@ -1,18 +1,19 @@
+#if os(iOS)
 import SwiftUI
 
-nonisolated enum AppUserPresentation {
-    static let anonymousName = "匿名用户"
+public nonisolated enum AppUserPresentation {
+    public static let anonymousName = "匿名用户"
 }
 
 /// 头像统一的占位、裁切、无障碍和尺寸容器。
-struct AppAvatarContainer: View {
+public struct AppAvatarContainer: View {
     let image: Image?
     let size: CGFloat
     let tint: Color
     let systemImage: String
     let accessibilityLabel: String?
 
-    init(
+    public init(
         image: Image?,
         size: CGFloat = AppDesignSystem.Size.Avatar.standard,
         tint: Color = AppDesignSystem.Palette.Accent.primary,
@@ -26,7 +27,7 @@ struct AppAvatarContainer: View {
         self.accessibilityLabel = accessibilityLabel
     }
 
-    var body: some View {
+    public var body: some View {
         Group {
             if let image {
                 image
@@ -53,3 +54,4 @@ struct AppAvatarContainer: View {
         .accessibilityLabel(accessibilityLabel ?? "")
     }
 }
+#endif

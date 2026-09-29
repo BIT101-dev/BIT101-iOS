@@ -1,3 +1,4 @@
+import DesignSystemKit
 import SwiftUI
 
 struct ScheduleTermPickerPage: View {
@@ -46,6 +47,65 @@ struct ScheduleTermPickerPage: View {
         }
         .refreshable {
             await viewModel.loadAvailableTerms()
+        }
+    }
+}
+
+/// 学期起始日期的滚轮选择页。
+struct ScheduleSemesterStartDatePickerPage: View {
+    let schoolDate: Date?
+    let onSubmit: (Date?) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var draftDate: Date
+    @State private var usesSchoolDate = false
+
+    init(date: Date, schoolDate: Date?, onSubmit: @escaping (Date?) -> Void) {
+        self.schoolDate = schoolDate
+        self.onSubmit = onSubmit
+        _draftDate = State(initialValue: date)
+    }
+
+    var body: some View {
+        VStack(spacing: AppDesignSystem.Spacing.section) {
+            DatePicker(
+                "学期起始日期",
+                selection: Binding(
+                    get: { draftDate },
+                    set: {
+                        draftDate = $0
+                        usesSchoolDate = false
+                    }
+                ),
+                displayedComponents: .date
+            )
+            .datePickerStyle(.wheel)
+            .labelsHidden()
+            .environment(\.calendar, ScheduleDateCodec.calendar)
+            .environment(\.timeZone, ScheduleDateCodec.calendar.timeZone)
+            .appSelectionFeedback(trigger: draftDate)
+
+            if let schoolDate {
+                Button("使用学校日期") {
+                    draftDate = schoolDate
+                    usesSchoolDate = true
+                }
+            }
+        }
+        .navigationTitle("学期起始日期")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("取消") {
+                    dismiss()
+                }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("完成") {
+                    onSubmit(usesSchoolDate ? nil : draftDate)
+                    dismiss()
+                }
+            }
         }
     }
 }

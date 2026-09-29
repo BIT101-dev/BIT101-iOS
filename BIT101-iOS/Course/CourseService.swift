@@ -1,3 +1,5 @@
+import CommunityCore
+import ClientCore
 //
 //  CourseService.swift
 //  BIT101-iOS
@@ -95,10 +97,10 @@ struct CourseService {
     /// 拉取课程评论。
     ///
     /// 课程评论按“最新”顺序请求。
-    func fetchComments(courseID: Int, page: Int?) async throws -> [GalleryComment] {
+    func fetchComments(courseID: Int, page: Int?) async throws -> [CommunityComment] {
         var queryItems = [
             URLQueryItem(name: "obj", value: "course\(courseID)"),
-            URLQueryItem(name: "order", value: GalleryCommentOrder.newest.rawValue),
+            URLQueryItem(name: "order", value: CommunityCommentOrder.newest.rawValue),
         ]
         if let page {
             queryItems.append(URLQueryItem(name: "page", value: String(page)))
@@ -107,7 +109,7 @@ struct CourseService {
     }
 
     /// 对课程评论执行点赞或取消点赞。
-    func like(objectID: String) async throws -> GalleryLikeResult {
+    func like(objectID: String) async throws -> CommunityLikeResult {
         try await api.request(
             path: "reaction/like",
             method: "POST",
@@ -123,7 +125,7 @@ struct CourseService {
         replyUID: Int? = nil,
         anonymous: Bool = false,
         rate: Int? = nil
-    ) async throws -> GalleryComment {
+    ) async throws -> CommunityComment {
         try await api.request(
             path: "reaction/comments",
             method: "POST",

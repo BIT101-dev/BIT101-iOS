@@ -1,3 +1,5 @@
+import CommunityCore
+import DesignSystemKit
 import PhotosUI
 import SwiftUI
 import UIKit
@@ -39,7 +41,7 @@ struct GalleryComposerView: View {
     /// 已经加入发帖草稿的图片列表。
     @State private var imageDrafts: [GalleryComposerImageDraft] = []
     /// 编辑帖子时保留的原有图片列表。
-    @State private var existingImages: [GalleryImage] = []
+    @State private var existingImages: [CommunityImage] = []
     /// 当前批量读取图片并加入上传队列。
     @State private var isAddingImages = false
     /// 是否匿名发布。
@@ -47,7 +49,7 @@ struct GalleryComposerView: View {
     /// 是否公开出现在信息流中。
     @State private var isPublic = true
     /// 服务端返回的声明列表。
-    @State private var claims: [GalleryClaim] = [GalleryClaim(id: 0, text: "无声明")]
+    @State private var claims: [CommunityClaim] = [CommunityClaim(id: 0, text: "无声明")]
     /// 当前选中的声明 ID。
     @State private var selectedClaimID = 0
     /// 是否正在加载声明列表。
@@ -184,7 +186,7 @@ struct GalleryComposerView: View {
                         ) {
                             ForEach(existingImages) { image in
                                 ZStack(alignment: .topTrailing) {
-                                    GalleryPosterThumbnail(image: image, contentMode: .fill)
+                                    CommunityImageThumbnail(image: image, contentMode: .fill)
                                         .frame(
                                             width: AppDesignSystem.Size.Media.draft,
                                             height: AppDesignSystem.Size.Media.draft
@@ -592,7 +594,7 @@ struct GalleryComposerView: View {
     }
 
     /// 移除编辑帖子时保留的原有图片。
-    private func removeExistingImage(id: GalleryImage.ID) {
+    private func removeExistingImage(id: CommunityImage.ID) {
         existingImages.removeAll { $0.id == id }
     }
 

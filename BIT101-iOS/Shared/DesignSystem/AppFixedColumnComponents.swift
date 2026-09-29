@@ -1,17 +1,18 @@
+#if os(iOS)
 import SwiftUI
 
 /// AppFixedColumnItem 定义紧凑数据行的一列文本及其显示参数。
 ///
 /// 课程列表和成绩列表使用比例列、单行截断和等宽数字。
 /// AppFixedColumnRow 统一列宽、截断规则和数字显示；业务页面传入列含义。
-struct AppFixedColumnItem {
+public struct AppFixedColumnItem {
     let text: String
     let ratio: CGFloat
     let font: Font
     let color: Color
     let alignment: Alignment
 
-    init(
+    public init(
         text: String,
         ratio: CGFloat,
         font: Font,
@@ -27,11 +28,16 @@ struct AppFixedColumnItem {
 }
 
 /// AppFixedColumnRow 按比例分配可用宽度，并使用指定高度显示单行列文本。
-struct AppFixedColumnRow: View {
+public struct AppFixedColumnRow: View {
+    public init(items: [AppFixedColumnItem], height: CGFloat) {
+        self.items = items
+        self.height = height
+    }
+
     let items: [AppFixedColumnItem]
     let height: CGFloat
 
-    var body: some View {
+    public var body: some View {
         GeometryReader { proxy in
             let totalRatio = items.reduce(CGFloat.zero) { total, item in
                 total + max(item.ratio, 0)
@@ -60,3 +66,4 @@ struct AppFixedColumnRow: View {
         .frame(height: height)
     }
 }
+#endif

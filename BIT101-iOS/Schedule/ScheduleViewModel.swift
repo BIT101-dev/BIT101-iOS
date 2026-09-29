@@ -1,3 +1,4 @@
+import ClientCore
 //
 //  ScheduleViewModel.swift
 //  BIT101-iOS
@@ -30,104 +31,13 @@ extension Int {
     }
 }
 
-/// 日程页统一使用的提示模型。
-///
-/// 日程模块的同步、保存和空教室查询动作通过这个提示模型向视图层传递错误。
-nonisolated struct ScheduleNotice: Identifiable {
-    let id = UUID()
-    let title: String
-    let message: String
-    let recoveryAction: AppRecoveryAction?
-    let allowsDiagnostics: Bool
-    let showsRecoveryLinks: Bool
-
-    init(
-        title: String,
-        message: String,
-        recoveryAction: AppRecoveryAction? = nil,
-        allowsDiagnostics: Bool = true,
-        showsRecoveryLinks: Bool = true
-    ) {
-        self.title = title
-        self.message = message
-        self.recoveryAction = recoveryAction
-        self.allowsDiagnostics = allowsDiagnostics
-        self.showsRecoveryLinks = showsRecoveryLinks
-    }
-
-    static func userInput(
-        title: String,
-        message: String,
-        recoveryAction: AppRecoveryAction? = nil
-    ) -> ScheduleNotice {
-        ScheduleNotice(
-            title: title,
-            message: message,
-            recoveryAction: recoveryAction,
-            allowsDiagnostics: false
-        )
-    }
-
-    static func informational(title: String, message: String) -> ScheduleNotice {
-        ScheduleNotice(title: title, message: message, allowsDiagnostics: false)
-    }
-}
-
-extension ScheduleViewModel {
-    func schoolFailureNotice(
-        title: String,
-        message: String,
-        networkFailure: Bool = false
-    ) -> ScheduleNotice {
-        let snapshot = NetworkConnectionDescription.shared.snapshot
-        guard networkFailure, snapshot.virtualNetworkLikely else {
-            return ScheduleNotice(title: title, message: message)
-        }
-        return ScheduleNotice(
-            title: title,
-            message: "\(message)\n\n先关掉魔法试试。",
-            allowsDiagnostics: false,
-            showsRecoveryLinks: false
-        )
-    }
-
-    nonisolated static func isLikelySchoolTransportError(_ error: Error) -> Bool {
-        if let urlError = error as? URLError {
-            return [
-                .cannotConnectToHost,
-                .cannotFindHost,
-                .dnsLookupFailed,
-                .networkConnectionLost,
-                .notConnectedToInternet,
-                .secureConnectionFailed,
-                .timedOut
-            ].contains(urlError.code)
-        }
-
-        let nsError = error as NSError
-        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error {
-            return isLikelySchoolTransportError(underlying)
-        }
-        return false
-    }
-}
-
-/// 空教室页业务级超时错误。
-struct ClassroomRequestTimeoutError: LocalizedError {
-    var errorDescription: String? {
-        "请求超时，请稍后重试。"
-    }
-}
-
 @MainActor
-/// 日程模块状态机。
+/// 课表状态机与日程子功能组装入口。
 ///
 /// 负责：
-/// 1. 本地缓存恢复
-/// 2. 课表 / DDL / 空教室同步
-/// 3. 自定义日程和自定义 DDL 的本地 CRUD
-/// 4. 与设置中心共享缓存后的状态回写
-final class ScheduleViewModel: ObservableObject {
+/// 课表同步、编辑与选择状态归此对象；DDL 和空教室各自拥有状态与服务接口。
+/// 三个子功能通过 ScheduleRepository 共享当前账号的持久化数据。
+final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
     /// 课表页当前正在显示的课表分身。
     ///
     /// 主课表来自当前账号缓存；导入的课表作为只读分身追加到列表，供上下滑循环切换。
@@ -155,151 +65,63 @@ final class ScheduleViewModel: ObservableObject {
 
     /// 当前选中的一级分栏。
     @Published var selectedSection: ScheduleSection = .courses
-    /// 当前账号的日程缓存快照。
-    @Published var cache = ScheduleCache()
-    /// 本地缓存读取状态确定前，以及原文件不可读时暂停写入。
-    @Published private(set) var isCacheWritable = false
-    /// 是否正在做首次本地缓存恢复。
-    @Published var isLoadingCache = true
     /// 是否正在同步课表/考试。
     @Published var isSyncingCourses = false
-    /// 是否正在同步乐学 DDL。
-    @Published var isSyncingDDL = false
-    /// 是否正在加载空教室元数据（校区/教学楼）。
-    @Published var isLoadingClassroomMeta = false
-    /// 是否正在加载空教室结果。
-    @Published var isLoadingClassrooms = false
-    /// 当前教学楼最近一次成功刷新空教室结果的时间。
-    @Published var classroomLastUpdatedAt: Date?
-    /// 首次进入空教室页且结果数组为空时，加载指示器显示为无文案状态。
-    @Published var shouldShowInitialClassroomSpinner = false
-    @Published var campuses: [CampusRecord] = []
-    @Published var buildings: [BuildingRecord] = []
-    @Published var classroomAvailabilities: [ClassroomAvailability] = []
     @Published var selectedWeek = 1
     @Published var selectedCourseScheduleIndex = 0
-    @Published var selectedBuildingID = ""
     @Published var notice: ScheduleNotice?
     @Published var smsChallenge: BITLoginAuthenticationChallenge?
     @Published var smsVerificationError: String?
     @Published var isSubmittingSMSCode = false
-    @Published var schoolSMSCodeRequest: SchoolSMSCodeRequest?
     /// 学校提供的可切换学期列表。
     @Published var availableTerms: [String] = []
     @Published var isLoadingTerms = false
     @Published var hasLoadedAvailableTerms = false
     @Published var syncingTerm: String?
 
-    let service: any ScheduleServicing
-    let classroomCoordinator = ScheduleClassroomCoordinator()
+    let repository: ScheduleRepository
+    let service: any ScheduleCourseServicing
+    let ddl: ScheduleDDLViewModel
+    let classroom: ScheduleClassroomViewModel
     let courseSyncCoordinator = ScheduleCourseSyncCoordinator()
+    private var subscriptions = Set<AnyCancellable>()
     private var hasLoaded = false
-    /// 账号切换后撤销在途请求对页面状态的写入资格。
-    private(set) var accountGeneration = 0
-    private var schoolSMSContinuation: CheckedContinuation<String, Error>?
-    /// 当前教学楼最近一次拉下来的原始空教室记录。
-    var classroomRecords: [ClassroomRecord] = []
-    /// 监听设置和缓存变化，用于跨页面同步。
-    private var cacheObserverTask: Task<Void, Never>?
-    /// ViewModel 持有空教室页面请求；请求在页面离开分栏后继续执行。
-    var classroomPageTask: Task<Void, Never>?
-    var classroomPageTaskID: UUID?
 
-    /// 初始化日程状态机，并监听缓存变化通知。
-    init(service: any ScheduleServicing) {
+    init(service: any ScheduleServicing, repository: ScheduleRepository = ScheduleRepository()) {
+        self.repository = repository
         self.service = service
-        cacheObserverTask = Task { @MainActor [weak self] in
-            for await _ in NotificationCenter.default.notifications(named: .scheduleCacheDidChange) {
-                guard let self else { return }
-                // 设置中心修改课表显示项后，ViewModel 从磁盘重新载入缓存，页面与设置页共享同一份持久化状态。
-                await self.reloadFromDisk()
-            }
+        ddl = ScheduleDDLViewModel(service: service, repository: repository)
+        classroom = ScheduleClassroomViewModel(service: service, repository: repository)
+        repository.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &subscriptions)
+        repository.$notice.compactMap { $0 }.sink { [weak self] in self?.notice = $0 }.store(in: &subscriptions)
+        ddl.$notice.compactMap { $0 }.sink { [weak self] in self?.notice = $0 }.store(in: &subscriptions)
+        classroom.$notice.compactMap { $0 }.sink { [weak self] in self?.notice = $0 }.store(in: &subscriptions)
+        classroom.onAuthenticationRequired = { [weak self] challenge in
+            guard let self else { return }
+            self.courseSyncCoordinator.waitForClassroomAuthentication()
+            self.smsChallenge = challenge
+            self.smsVerificationError = nil
         }
     }
 
-    convenience init() {
-        self.init(service: ScheduleService())
-    }
+    convenience init() { self.init(service: ScheduleService()) }
 
-    deinit {
-        cacheObserverTask?.cancel()
-    }
-
-    /// 切换账号后重置页面内存态，并从新账号的隔离缓存重新开始加载。
     func resetForCurrentAccount() {
-        accountGeneration &+= 1
-        classroomPageTask?.cancel()
-        classroomPageTask = nil
-        classroomPageTaskID = nil
-        classroomCoordinator.reset()
+        repository.resetForCurrentAccount()
+        classroom.reset()
+        ddl.reset()
         hasLoaded = false
-        isLoadingCache = true
-        isCacheWritable = false
-        cache = ScheduleCache()
         isSyncingCourses = false
-        isSyncingDDL = false
         isLoadingTerms = false
         syncingTerm = nil
         isSubmittingSMSCode = false
-        isLoadingClassroomMeta = false
-        isLoadingClassrooms = false
-        classroomLastUpdatedAt = nil
-        shouldShowInitialClassroomSpinner = false
-        campuses = []
-        buildings = []
-        classroomRecords = []
-        classroomAvailabilities = []
         availableTerms = []
         hasLoadedAvailableTerms = false
-        selectedBuildingID = ""
         smsChallenge = nil
         smsVerificationError = nil
-        cancelSchoolSMSWait()
         courseSyncCoordinator.reset()
         notice = nil
-        Task { @MainActor [weak self] in
-            await self?.reloadFromDisk()
-        }
-    }
-
-    func submitSchoolSMSCode(_ code: String) {
-        let normalized = code.filter(\.isNumber)
-        guard (4 ... 8).contains(normalized.count) else { return }
-        let continuation = schoolSMSContinuation
-        schoolSMSContinuation = nil
-        schoolSMSCodeRequest = nil
-        continuation?.resume(returning: normalized)
-    }
-
-    func dismissSchoolSMSCode() {
-        cancelSchoolSMSWait()
-    }
-
-    func makeSchoolSMSCodeHandler(for generation: Int? = nil) -> SchoolSMSCodeHandler {
-        { @MainActor [weak self] request in
-            guard let self else { throw CancellationError() }
-            if let generation, self.accountGeneration != generation {
-                throw CancellationError()
-            }
-            guard self.schoolSMSContinuation == nil else { throw CancellationError() }
-            self.schoolSMSCodeRequest = request
-            return try await withTaskCancellationHandler {
-                try await withCheckedThrowingContinuation { continuation in
-                    self.schoolSMSContinuation = continuation
-                }
-            } onCancel: {
-                Task { @MainActor [weak self] in
-                    self?.cancelSchoolSMSWait()
-                }
-            }
-        }
-    }
-
-    private func cancelSchoolSMSWait() {
-        let continuation = schoolSMSContinuation
-        schoolSMSContinuation = nil
-        schoolSMSCodeRequest = nil
-        continuation?.resume(throwing: CancellationError())
+        Task { @MainActor [weak self] in await self?.reloadFromDisk() }
     }
 
     /// 构造日程模块统一使用的本地校验错误。
@@ -313,11 +135,6 @@ final class ScheduleViewModel: ObservableObject {
             userInfo: [NSLocalizedDescriptionKey: message]
         )
     }
-
-    /// DDL 列表默认向前展示的天数。
-    var beforeDay: Int { min(max(cache.ddlBeforeDay, 0), 30) }
-    /// DDL 列表默认向后保留的天数。
-    var afterDay: Int { min(max(cache.ddlAfterDay, 0), 30) }
 
     /// 当前显示课表的标题。
     var activeCourseScheduleTitle: String {
@@ -375,24 +192,6 @@ final class ScheduleViewModel: ObservableObject {
         return variants[normalizedIndex]
     }
 
-    /// 是否已经拿到乐学订阅地址。
-    var hasLexueCalendarURL: Bool {
-        !cache.lexueCalendarURL.isEmpty
-    }
-
-    /// 经过时间窗口裁剪后的 DDL 列表。
-    var visibleDDLEvents: [DDLEventRecord] {
-        let threshold = Date().addingTimeInterval(TimeInterval(-afterDay * 24 * 3600))
-        return cache.ddlEvents
-            .filter { $0.dueAt >= threshold }
-            .sorted { lhs, rhs in
-                if lhs.done != rhs.done {
-                    return !lhs.done
-                }
-                return lhs.dueAt < rhs.dueAt
-            }
-    }
-
     /// 首次进入日程页时从本地磁盘恢复缓存。
     ///
     /// 日程页先展示本地缓存，联网同步由用户主动触发；冷启动直接进入缓存内容。
@@ -404,7 +203,6 @@ final class ScheduleViewModel: ObservableObject {
         // 周次按当前课表首周计算，学期选择保持本地缓存值。
         await reloadFromDisk()
         selectedWeek = resolvedAutomaticWeek()
-        isLoadingCache = false
     }
 
     /// 根据首周日期推导当前周次。
@@ -426,33 +224,9 @@ final class ScheduleViewModel: ObservableObject {
 
     /// 从磁盘重新加载缓存，保留用户当前正在浏览的周次和课表分身。
     func reloadFromDisk() async {
-        let previousScheduleIndex = selectedCourseScheduleIndex
-        let previousWeek = selectedWeek
-        switch await ScheduleCacheStore.loadResultAsync() {
-        case .loaded(let loadedCache):
-            cache = loadedCache
-            isCacheWritable = true
-            if notice?.title == "本地课表缓存读取失败" { notice = nil }
-        case .missing:
-            cache = ScheduleCache()
-            isCacheWritable = true
-            if notice?.title == "本地课表缓存读取失败" { notice = nil }
-        case .unreadable:
-            isCacheWritable = false
-            notice = .informational(
-                title: "本地课表缓存读取失败",
-                message: "原文件已保留，当前课表只读并暂停保存。请联系维护者恢复缓存后重试。"
-            )
-        }
-        selectedCourseScheduleIndex = min(max(previousScheduleIndex, 0), max(courseSchedules.count - 1, 0))
-        selectedWeek = previousWeek
-        selectedBuildingID = cache.selectedBuildingID
-    }
-
-    /// 写回缓存。
-    func persist(source: ScheduleCacheStore.SaveSource = .local) {
-        guard isCacheWritable else { return }
-        ScheduleCacheStore.save(cache, source: source)
+        await repository.reload()
+        selectedCourseScheduleIndex = min(max(selectedCourseScheduleIndex, 0), max(courseSchedules.count - 1, 0))
+        classroom.restoreSelection()
     }
 
     /// 统一兼容任务取消错误。

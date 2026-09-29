@@ -8,36 +8,146 @@ TEST_BUNDLE="BIT101-iOSTests"
 TEST_SCHEME="BIT101-iOS"
 CONDITIONS="DEBUG EXTENDED_AUTOMATION BIT101_AUTOMATED_TESTING"
 RESULT_BUNDLE="$DERIVED_ROOT/test-results.xcresult"
-UI_TEST_SELECTION=""
+typeset -aU TEST_SELECTIONS
+TEST_SELECTIONS=()
+BUILD_ONLY=false
 
 MODE="all"
 if [[ $# -gt 0 ]]; then
   case "$1" in
-    all|default|schedule|schedule-share|infrastructure|login|extensions|ui|catalyst)
+    all|default|schedule|schedule-share|infrastructure|login|extensions|ui|catalyst|modules|verify)
       MODE="$1"
       shift
       ;;
   esac
 fi
 
+if [[ "$MODE" == "verify" ]]; then
+  typeset -aU verification_groups verification_ui_selections
+  verification_groups=()
+  verification_ui_selections=()
+  while (( $# > 0 )); do
+    case "$1" in
+      --ui-test)
+        if [[ $# -lt 2 || -z "$2" || "$2" == --* ]]; then
+          echo "--ui-test 后填写 UI 测试类或测试类/方法" >&2
+          exit 64
+        fi
+        verification_groups+=(ui)
+        verification_ui_selections+=("$2")
+        shift 2
+        ;;
+      *) verification_groups+=("$1"); shift ;;
+    esac
+  done
+  verification_ui_args=()
+  for selection in "${verification_ui_selections[@]}"; do
+    verification_ui_args+=(--only-testing "$selection")
+  done
+  if (( ${#verification_groups[@]} == 0 )); then
+    verification_groups=(modules all catalyst ui network icloud audit)
+  fi
+  verification_needs_device=false
+  verification_device_id=""
+  for group in "${verification_groups[@]}"; do
+    case "$group" in
+      all|ui|network|ddl|icloud) verification_needs_device=true ;;
+      modules|catalyst|audit) ;;
+      *) echo "验证组：modules all catalyst ui network ddl icloud audit" >&2; exit 64 ;;
+    esac
+  done
+  if $verification_needs_device; then
+    source "$ROOT_DIR/Scripts/device-support.sh"
+    bit101_require_device "$PROJECT" || exit 1
+    verification_device_id="$BIT101_XCODE_DEVICE_ID"
+  fi
+  export BIT101_DEFER_APP_RESTORE=1
+  verification_failures=()
+  finish_verification() {
+    local verification_status=$?
+    trap - EXIT INT TERM
+    if $verification_needs_device; then
+      echo "[恢复] 安装并启动常规 Release App"
+      "$ROOT_DIR/Scripts/build-install-device.sh" "$verification_device_id" || verification_status=1
+    fi
+    exit "$verification_status"
+  }
+  trap finish_verification EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  verify_step() {
+    local label="$1"
+    shift
+    local started_at=$SECONDS
+    if "$@"; then
+      echo "[验证通过] $label · $(( SECONDS - started_at )) 秒"
+    else
+      verification_failures+=("$label")
+      echo "[验证失败] $label · $(( SECONDS - started_at )) 秒" >&2
+    fi
+  }
+  for group in "${verification_groups[@]}"; do
+    case "$group" in
+      modules|catalyst) verify_step "$group" "$0" "$group" ;;
+      all) verify_step all "$0" all "$verification_device_id" ;;
+      ui) verify_step ui "$0" ui "${verification_ui_args[@]}" "$verification_device_id" ;;
+      network) verify_step network env BIT101_NETWORK_SMOKE_SCOPE=all "$ROOT_DIR/Scripts/release-network-smoke.sh" "$verification_device_id" ;;
+      ddl) verify_step ddl env BIT101_NETWORK_SMOKE_SCOPE=ddl "$ROOT_DIR/Scripts/release-network-smoke.sh" "$verification_device_id" ;;
+      icloud) verify_step icloud "$ROOT_DIR/Scripts/run_icloud_cross_device_smoke.sh" "$verification_device_id" ;;
+      audit) verify_step audit "$ROOT_DIR/Scripts/run-static-audit.sh" ;;
+    esac
+  done
+  if (( ${#verification_failures[@]} > 0 )); then
+    echo "[失败汇总] ${(j:, :)verification_failures}" >&2
+    exit 1
+  fi
+  echo "所选验证组全部通过。"
+  exit 0
+fi
+
 if [[ "$MODE" == "ui" ]]; then
   TEST_BUNDLE="BIT101-iOSUITests"
   TEST_SCHEME="BIT101-iOS-UIAutomation"
   CONDITIONS="EXTENDED_AUTOMATION BIT101_AUTOMATED_TESTING BIT101_UI_TESTING"
-  if [[ $# -gt 0 && "$1" == */* ]]; then
-    UI_TEST_SELECTION="$1"
+  while [[ $# -gt 0 && "$1" == */* ]]; do
+    TEST_SELECTIONS+=("$1")
     shift
-  fi
+  done
 fi
 
+while (( $# > 0 )); do
+  case "$1" in
+    --build-only) BUILD_ONLY=true; shift ;;
+    --only-testing)
+      if [[ $# -lt 2 || -z "$2" || "$2" == --* ]]; then
+        echo "--only-testing 后填写测试类或测试类/方法" >&2
+        exit 64
+      fi
+      TEST_SELECTIONS+=("$2")
+      shift 2
+      ;;
+    --*) echo "测试选项：--build-only、--only-testing 测试类/方法" >&2; exit 64 ;;
+    *) break ;;
+  esac
+done
+
 UI_RESTORE_DEVICE_ID=""
-if [[ "$MODE" == "catalyst" ]]; then
+if [[ "$MODE" == "modules" ]]; then
+  if [[ $# -gt 0 || "$BUILD_ONLY" == true || ${#TEST_SELECTIONS[@]} -gt 0 ]]; then
+    echo "用法：Scripts/run-extended-tests.sh modules" >&2
+    exit 64
+  fi
+elif [[ "$MODE" == "catalyst" ]]; then
   if [[ $# -gt 0 ]]; then
     echo "用法：Scripts/run-extended-tests.sh catalyst" >&2
     exit 64
   fi
   TEST_DESTINATION="platform=macOS,variant=Mac Catalyst"
-  SIGNING_ARGS=(CODE_SIGNING_ALLOWED=NO)
+  if [[ "${GITHUB_ACTIONS:-false}" == "true" ]]; then
+    SIGNING_ARGS=(CODE_SIGNING_ALLOWED=NO)
+  else
+    SIGNING_ARGS=(-allowProvisioningUpdates)
+  fi
 elif [[ $# -eq 0 ]]; then
   source "$ROOT_DIR/Scripts/device-support.sh"
   bit101_require_device "$PROJECT" || exit 1
@@ -45,8 +155,8 @@ elif [[ $# -eq 0 ]]; then
   SIGNING_ARGS=(-allowProvisioningUpdates)
   UI_RESTORE_DEVICE_ID="$BIT101_XCODE_DEVICE_ID"
 else
-  if [[ $# -gt 2 ]]; then
-    echo "用法：Scripts/run-extended-tests.sh [all|default|schedule|schedule-share|infrastructure|login|extensions|ui] [UI测试类/用例] [真机设备ID]" >&2
+  if [[ $# -gt 1 ]]; then
+    echo "用法：Scripts/run-extended-tests.sh [模式] [--only-testing 测试类/用例]... [真机设备ID]" >&2
     exit 64
   fi
   DEVICE_ID="$1"
@@ -55,7 +165,7 @@ else
   UI_RESTORE_DEVICE_ID="$DEVICE_ID"
 fi
 
-if [[ "$MODE" == "ui" ]]; then
+if [[ "$MODE" == "ui" && "$BUILD_ONLY" == false && "${BIT101_DEFER_APP_RESTORE:-0}" != "1" ]]; then
   restore_release_app() {
     local test_exit_code=$?
     trap - EXIT
@@ -138,22 +248,46 @@ raise SystemExit(process.wait())
 PY
 }
 
+if [[ "$MODE" == "modules" ]]; then
+  rm -f "$DERIVED_ROOT/test-metrics.txt"
+  echo "[测试] BIT101ModulesTests · macOS 原生 Release"
+  run_with_output_threshold "$DERIVED_ROOT/module-tests.log" "模块离线测试" \
+    xcrun swift test \
+      --package-path "$ROOT_DIR" \
+      --scratch-path "$DERIVED_ROOT" \
+      --configuration release
+  echo "[通过] BIT101ModulesTests"
+  exit 0
+fi
+
 run_tests() {
   local group="$1"
   local log="$DERIVED_ROOT/$group.log"
   local conditions="$2"
-  local only_testing="$TEST_BUNDLE"
+  local only_testing=("-only-testing:$TEST_BUNDLE")
   local failure_summary
   local exit_code
   local diagnostics="never"
-  if [[ "$group" == "ui-tests" && -n "$UI_TEST_SELECTION" ]]; then
-    only_testing="$TEST_BUNDLE/$UI_TEST_SELECTION"
+  local test_action=test
+  local execution_args=()
+  if $BUILD_ONLY; then
+    test_action=build-for-testing
+  fi
+  if [[ "$MODE" == "ui" ]]; then
+    execution_args+=(-parallel-testing-enabled NO)
+  fi
+  if (( ${#TEST_SELECTIONS[@]} > 0 )); then
+    only_testing=()
+    local selection
+    for selection in "${TEST_SELECTIONS[@]}"; do
+      only_testing+=("-only-testing:$TEST_BUNDLE/$selection")
+    done
   elif [[ "$group" != "all-tests" && "$group" != "default-tests" && "$group" != "ui-tests" ]]; then
-    only_testing="$TEST_BUNDLE/$group"
+    only_testing=("-only-testing:$TEST_BUNDLE/$group")
   fi
 
-  echo "[测试] $group"
-  if run_with_output_threshold "$log" "$group 测试输出" xcodebuild test -quiet \
+  echo "[$test_action] $group"
+  if run_with_output_threshold "$log" "$group 输出" xcodebuild "$test_action" -quiet \
     -project "$PROJECT" \
     -scheme "$TEST_SCHEME" \
     -configuration Release \
@@ -165,14 +299,15 @@ run_tests() {
     "SWIFT_ACTIVE_COMPILATION_CONDITIONS=$conditions" \
     ENABLE_CODE_COVERAGE=YES \
     ENABLE_TESTABILITY=YES \
-    "-only-testing:$only_testing" \
+    "${execution_args[@]}" \
+    "${only_testing[@]}" \
     "${SIGNING_ARGS[@]}"; then
     exit_code=0
   else
     exit_code=$?
   fi
 
-  if (( exit_code != 0 )); then
+  if (( exit_code != 0 )) && ! $BUILD_ONLY; then
     echo "测试失败：$group" >&2
     failure_summary="$(python3 - "$RESULT_BUNDLE" <<'PY'
 import json
@@ -197,7 +332,7 @@ PY
   fi
 
   (( exit_code == 0 )) || exit 1
-  echo "[通过] $group"
+  echo "[通过] $test_action · $group"
 }
 
 record_metrics() {
@@ -228,23 +363,12 @@ if mode != "catalyst":
         if not coverage_error:
             coverage_error = f"xccov exited with status {coverage_result.returncode}"
 
-def count_fields(value):
-    if isinstance(value, dict):
-        for key, item in value.items():
-            normalized = key.lower().replace("_", "")
-            if normalized in {"totaltestcount", "passedtests", "failedtests", "skippedtests"}:
-                yield key, item
-            yield from count_fields(item)
-    elif isinstance(value, list):
-        for item in value:
-            yield from count_fields(item)
-
 lines = [
     "# XCTest 与覆盖率指标",
     f"测试分组：{mode}",
     "",
     "## 测试汇总",
-    json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True),
+    f"结果：{summary.get('result', '?')}；总计 {summary.get('totalTestCount', '?')}；通过 {summary.get('passedTests', 0)}；失败 {summary.get('failedTests', 0)}；跳过 {summary.get('skippedTests', 0)}",
     "",
     "## 逐 target 行覆盖率",
 ]
@@ -267,27 +391,22 @@ else:
     if not target_rows:
         lines.append(json.dumps(coverage, ensure_ascii=False, indent=2, sort_keys=True))
 
-counts = list(count_fields(summary))
-if counts:
-    lines.extend(["", "## 测试计数", *(f"- {key}: {value}" for key, value in counts)])
 report = "\n".join(lines) + "\n"
-if len(lines) <= 1000:
+if len(report.splitlines()) <= 1000:
     Path(report_path).unlink(missing_ok=True)
     print(report, end="")
 else:
     Path(report_path).write_text(report, encoding="utf-8")
-    print(f"测试指标共 {len(lines)} 行，详情写入 {report_path}")
+    print(f"测试指标共 {len(report.splitlines())} 行，详情写入 {report_path}")
 PY
 }
 
 case "$MODE" in
   all)
     run_tests all-tests "$CONDITIONS"
-    echo "默认测试与扩展自动化测试全部通过。"
     ;;
   default)
     run_tests default-tests "DEBUG BIT101_AUTOMATED_TESTING"
-    echo "默认测试全部通过。"
     ;;
   schedule)
     run_tests ExtendedSchedulePolicyTests "$CONDITIONS"
@@ -309,8 +428,11 @@ case "$MODE" in
     ;;
   catalyst)
     run_tests all-tests "$CONDITIONS"
-    echo "Mac Catalyst 行为测试全部通过。"
     ;;
 esac
 
-record_metrics
+if $BUILD_ONLY; then
+  echo "测试宿主编译完成，可通过同一入口批量执行用例。"
+else
+  record_metrics
+fi

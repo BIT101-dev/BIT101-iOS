@@ -1,3 +1,4 @@
+import ClientCore
 import CryptoKit
 import Foundation
 
@@ -7,7 +8,7 @@ extension Notification.Name {
     /// 当前进程的 Watch App 页面监听这条通知，在本地镜像更新后刷新视图；
     /// Widget 通过 `WidgetCenter` 刷新时间线。iPhone 与 Watch 的跨进程更新
     /// 通过 App Group 文件和 WatchConnectivity 传递。
-    static let scheduleExternalSnapshotDidChange = Notification.Name("BIT101.ScheduleExternalSnapshotDidChange")
+    public static let scheduleExternalSnapshotDidChange = Notification.Name("BIT101.ScheduleExternalSnapshotDidChange")
 }
 
 /// 课表外部展示能力共用的 App Group 标识。
@@ -15,55 +16,51 @@ extension Notification.Name {
 /// 桌面/锁屏 Widget、Apple Watch App 和 Smart Stack 共用这份共享快照；
 /// Live Activity 由 ActivityKit 状态契约承载展示内容。各外部展示层复用这一层抽象，
 /// 保持容器标识和文件路径一致。
-nonisolated enum ScheduleSharedContainer {
-    static let identifier = "group.BIT101-dev.BIT101-iOS.shared"
-    static let directoryName = "Widgets"
+public nonisolated enum ScheduleSharedContainer {
+    public static let identifier = "group.BIT101-dev.BIT101-iOS.shared"
+    public static let directoryName = "Widgets"
     /// 主 App、Widget 与 Watch 通过 App Group 使用此快照文件名。
-    static let snapshotFileName = "schedule-widget-snapshot.json"
-}
-
-/// Shared opaque account identity used by the app, widgets, and watch snapshot.
-nonisolated enum ScheduleSharedAccountIdentity {
-    private static let tokenPrefix = "account-"
-    private static let tokenCharacters = CharacterSet(charactersIn: "0123456789abcdef")
-
-    static func stableToken(for accountIdentifier: String) -> String {
-        let normalizedIdentifier = accountIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedIdentifier.isEmpty else { return "__default__" }
-        guard !isStableToken(normalizedIdentifier) else { return normalizedIdentifier }
-
-        let digest = SHA256.hash(data: Data(normalizedIdentifier.utf8))
-        return tokenPrefix + digest.map { String(format: "%02x", $0) }.joined()
-    }
-
-    private static func isStableToken(_ identifier: String) -> Bool {
-        guard identifier.hasPrefix(tokenPrefix) else { return false }
-        let digest = identifier.dropFirst(tokenPrefix.count)
-        return digest.count == 64 && digest.unicodeScalars.allSatisfy(tokenCharacters.contains)
-    }
+    public static let snapshotFileName = "schedule-widget-snapshot.json"
 }
 
 /// 对外部展示层暴露的精简节次模型。
 ///
 /// 该模型独立于主 App 的 `TimeSlot`，供 Watch、Widget 和 Live Activity 依赖。
-nonisolated struct ScheduleExternalTimeSlotSnapshot: Codable, Hashable, Sendable {
-    let id: Int
-    let start: String
-    let end: String
+public nonisolated struct ScheduleExternalTimeSlotSnapshot: Codable, Hashable, Sendable {
+    public init(id: Int, start: String, end: String) {
+        self.id = id
+        self.start = start
+        self.end = end
+    }
+
+    public let id: Int
+    public let start: String
+    public let end: String
 }
 
 /// 对外部展示层暴露的精简课程模型。
 ///
 /// 共享模型包含计算当前课程与后续课程所需字段。
-nonisolated struct ScheduleExternalCourseSnapshot: Codable, Hashable, Sendable {
-    let id: String
-    let name: String
-    let classroom: String
-    let teacher: String
-    let weeks: [Int]
-    let weekday: Int
-    let startSection: Int
-    let endSection: Int
+public nonisolated struct ScheduleExternalCourseSnapshot: Codable, Hashable, Sendable {
+    public init(id: String, name: String, classroom: String, teacher: String, weeks: [Int], weekday: Int, startSection: Int, endSection: Int) {
+        self.id = id
+        self.name = name
+        self.classroom = classroom
+        self.teacher = teacher
+        self.weeks = weeks
+        self.weekday = weekday
+        self.startSection = startSection
+        self.endSection = endSection
+    }
+
+    public let id: String
+    public let name: String
+    public let classroom: String
+    public let teacher: String
+    public let weeks: [Int]
+    public let weekday: Int
+    public let startSection: Int
+    public let endSection: Int
 }
 
 /// 主 App 导出、Widget 和 Watch 读取的统一课表快照。
@@ -71,16 +68,16 @@ nonisolated struct ScheduleExternalCourseSnapshot: Codable, Hashable, Sendable {
 /// 这份结构定义跨 target 的稳定边界：
 /// - 主 App 从完整缓存裁剪出可共享的最小信息
 /// - Widget 和 Watch 依赖这份快照，与主 App 状态机保持解耦
-nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable {
-    let generatedAt: Date
-    let isLoggedIn: Bool
+public nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable {
+    public let generatedAt: Date
+    public let isLoggedIn: Bool
     /// 跨设备账号隔离使用的稳定摘要；字段名沿用既有传输约定。
-    let studentID: String
-    let firstDayString: String
-    let timeTable: [ScheduleExternalTimeSlotSnapshot]
-    let courses: [ScheduleExternalCourseSnapshot]
+    public let studentID: String
+    public let firstDayString: String
+    public let timeTable: [ScheduleExternalTimeSlotSnapshot]
+    public let courses: [ScheduleExternalCourseSnapshot]
 
-    init(
+    public init(
         generatedAt: Date = Date(),
         isLoggedIn: Bool,
         studentID: String,
@@ -97,7 +94,7 @@ nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable {
     }
 
     /// Returns a copy carrying the opaque local account namespace used for cross-device validation.
-    func replacingStudentID(with identifier: String) -> ScheduleExternalSnapshot {
+    public func replacingStudentID(with identifier: String) -> ScheduleExternalSnapshot {
         ScheduleExternalSnapshot(
             generatedAt: generatedAt,
             isLoggedIn: isLoggedIn,
@@ -117,7 +114,7 @@ nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable {
         case courses
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         generatedAt = try container.decodeIfPresent(Date.self, forKey: .generatedAt) ?? .distantPast
         isLoggedIn = try container.decodeIfPresent(Bool.self, forKey: .isLoggedIn) ?? false
@@ -132,8 +129,8 @@ nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable {
 ///
 /// 磁盘快照和 WatchConnectivity 采用相同的日期策略。每次调用创建独立的
 /// encoder / decoder，隔离并发消费方的可变 Foundation 编码器。
-nonisolated enum ScheduleExternalSnapshotCodec {
-    nonisolated static func encode(
+public nonisolated enum ScheduleExternalSnapshotCodec {
+    public nonisolated static func encode(
         _ snapshot: ScheduleExternalSnapshot,
         outputFormatting: JSONEncoder.OutputFormatting = []
     ) throws -> Data {
@@ -143,7 +140,7 @@ nonisolated enum ScheduleExternalSnapshotCodec {
         return try encoder.encode(snapshot)
     }
 
-    nonisolated static func decode(_ data: Data) throws -> ScheduleExternalSnapshot {
+    public nonisolated static func decode(_ data: Data) throws -> ScheduleExternalSnapshot {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(ScheduleExternalSnapshot.self, from: data)
@@ -151,29 +148,29 @@ nonisolated enum ScheduleExternalSnapshotCodec {
 }
 
 /// iPhone 与 Watch 之间传输课表镜像时使用的稳定字段约定。
-enum WatchScheduleTransferProtocol {
-    nonisolated static let snapshotDataKey = "schedule_external_snapshot_data"
-    nonisolated static let requestLatestSnapshotKey = "request_latest_schedule_snapshot"
-    nonisolated static let requestData = Data(requestLatestSnapshotKey.utf8)
+public enum WatchScheduleTransferProtocol {
+    public nonisolated static let snapshotDataKey = "schedule_external_snapshot_data"
+    public nonisolated static let requestLatestSnapshotKey = "request_latest_schedule_snapshot"
+    public nonisolated static let requestData = Data(requestLatestSnapshotKey.utf8)
 
-    nonisolated static func snapshotContext(_ data: Data) -> [String: Any] {
+    public nonisolated static func snapshotContext(_ data: Data) -> [String: Any] {
         [snapshotDataKey: data]
     }
 
-    nonisolated static var requestContext: [String: Any] {
+    public nonisolated static var requestContext: [String: Any] {
         [requestLatestSnapshotKey: true]
     }
 
-    nonisolated static func snapshotData(from context: [String: Any]) -> Data? {
+    public nonisolated static func snapshotData(from context: [String: Any]) -> Data? {
         context[snapshotDataKey] as? Data
     }
 
-    nonisolated static func requestsLatestSnapshot(_ context: [String: Any]) -> Bool {
+    public nonisolated static func requestsLatestSnapshot(_ context: [String: Any]) -> Bool {
         context[requestLatestSnapshotKey] as? Bool == true
     }
 }
 
-enum ScheduleExternalSnapshotStoreError: Error {
+public enum ScheduleExternalSnapshotStoreError: Error {
     case sharedContainerUnavailable
 }
 
@@ -181,9 +178,9 @@ enum ScheduleExternalSnapshotStoreError: Error {
 ///
 /// 主 App 写入这份快照，Widget 和 Watch 读取这份快照；
 /// 各 target 复用这里的路径拼接与编解码逻辑。
-nonisolated enum ScheduleExternalSnapshotStore {
+public nonisolated enum ScheduleExternalSnapshotStore {
     @discardableResult
-    static func save(_ snapshot: ScheduleExternalSnapshot) -> Bool {
+    public static func save(_ snapshot: ScheduleExternalSnapshot) -> Bool {
         do {
             try write(snapshot)
             return true
@@ -193,7 +190,7 @@ nonisolated enum ScheduleExternalSnapshotStore {
     }
 
     /// 可抛错的写入入口供同步链路使用，让传输层能够区分解码失败与落盘失败。
-    static func write(_ snapshot: ScheduleExternalSnapshot) throws {
+    public static func write(_ snapshot: ScheduleExternalSnapshot) throws {
         guard let fileURL else {
             throw ScheduleExternalSnapshotStoreError.sharedContainerUnavailable
         }
@@ -213,7 +210,7 @@ nonisolated enum ScheduleExternalSnapshotStore {
         }
     }
 
-    static func load() -> ScheduleExternalSnapshot? {
+    public static func load() -> ScheduleExternalSnapshot? {
         guard
             let fileURL,
             AppFileSystem.files.fileExists(at: fileURL)
@@ -224,7 +221,7 @@ nonisolated enum ScheduleExternalSnapshotStore {
         try? AppFileSystem.files.setPrivateFileProtection(at: fileURL)
         guard let data = try? AppFileSystem.files.readData(at: fileURL) else { return nil }
         guard let snapshot = try? ScheduleExternalSnapshotCodec.decode(data) else { return nil }
-        let accountToken = ScheduleSharedAccountIdentity.stableToken(for: snapshot.studentID)
+        let accountToken = AccountStorageIdentity.stableToken(for: snapshot.studentID)
         guard snapshot.studentID != accountToken else { return snapshot }
         let sanitizedSnapshot = snapshot.replacingStudentID(with: accountToken)
         try? write(sanitizedSnapshot)
@@ -232,7 +229,7 @@ nonisolated enum ScheduleExternalSnapshotStore {
     }
 
     @discardableResult
-    static func clear() -> Bool {
+    public static func clear() -> Bool {
         guard let fileURL else { return false }
         let succeeded: Bool
         if !AppFileSystem.files.fileExists(at: fileURL) {
@@ -251,7 +248,7 @@ nonisolated enum ScheduleExternalSnapshotStore {
         return succeeded
     }
 
-    static var fileURL: URL? {
+    public static var fileURL: URL? {
         guard
             let containerURL = AppFileSystem.files.appGroupContainerURL(identifier: ScheduleSharedContainer.identifier)
         else {

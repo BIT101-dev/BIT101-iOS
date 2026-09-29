@@ -89,6 +89,11 @@ iOS 端目前支持以下主要能力：
 
 主 App 内的核心模块：
 
+仓库根目录 `Package.swift` 定义四个本地编译模块：`ClientCore`（网络与存储基础能力）、
+`ScheduleContracts`（跨设备课表契约）、`CommunityCore`（社区公共模型）和
+`DesignSystemKit`（设计令牌与组件）。App 壳层组装账号、路由和平台副作用。
+业务目录按以下职责组织：
+
 - `Login/`
   App 登录、凭据恢复、学校 SSO 与 BIT101 登录桥接
 - `Schedule/`

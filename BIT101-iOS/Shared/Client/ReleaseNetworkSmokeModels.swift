@@ -1,3 +1,5 @@
+import ClientCore
+import ScheduleContracts
 import Foundation
 
 enum NetworkSmokeScope: String, Codable, CaseIterable, Sendable {

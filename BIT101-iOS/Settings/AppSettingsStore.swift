@@ -1,3 +1,4 @@
+import ClientCore
 //
 //  AppSettingsStore.swift
 //  BIT101-iOS

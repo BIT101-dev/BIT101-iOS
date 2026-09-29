@@ -1,3 +1,4 @@
+import ClientCore
 #if ICLOUD_CROSS_DEVICE_SMOKE
 import Foundation
 import XCTest
@@ -131,7 +132,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
 
         let received = await waitUntil {
             self.manager.refreshFromCloudIfNeeded()
-            return self.localScoreSnapshotMatches(
+            return await self.localScoreSnapshotMatches(
                     expectedCount: coordination.phoneScoreCount,
                     expectedUpdatedAt: coordination.phoneScoreUpdatedAt
                 )

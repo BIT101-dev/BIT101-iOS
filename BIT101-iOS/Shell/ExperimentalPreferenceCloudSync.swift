@@ -1,3 +1,4 @@
+import ClientCore
 import Combine
 import Compression
 import Foundation

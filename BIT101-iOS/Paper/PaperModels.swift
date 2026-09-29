@@ -1,3 +1,6 @@
+import ClientCore
+import CommunityCore
+import DesignSystemKit
 //
 //  PaperModels.swift
 //  BIT101-iOS
@@ -71,7 +74,7 @@ nonisolated struct PaperDetail: Decodable, Identifiable, Hashable, Sendable {
     let content: String
     let createTime: String
     let updateTime: String
-    let updateUser: GalleryUser
+    let updateUser: CommunityUser
     let anonymous: Bool
     let likeNum: Int
     let commentNum: Int
@@ -111,7 +114,7 @@ nonisolated struct PaperDetail: Decodable, Identifiable, Hashable, Sendable {
 /// 文章列表分页状态。
 struct PaperListState {
     var items: [PaperSummary] = []
-    var status: GalleryFeedStatus = .idle
+    var status: CommunityLoadStatus = .idle
     var isLoadingMore = false
     var nextPage = 0
     var canLoadMore = true
@@ -122,7 +125,7 @@ extension PaperListState: PagedItemsState {}
 /// 文章评论输入目标。
 enum PaperCommentComposerTarget: Identifiable, Equatable {
     case paper(paperID: Int)
-    case comment(mainComment: GalleryComment, targetComment: GalleryComment)
+    case comment(mainComment: CommunityComment, targetComment: CommunityComment)
 
     var id: String {
         switch self {
@@ -151,7 +154,7 @@ enum PaperCommentComposerTarget: Identifiable, Equatable {
         }
     }
 
-    private func targetCommentDisplayName(_ comment: GalleryComment) -> String {
+    private func targetCommentDisplayName(_ comment: CommunityComment) -> String {
         comment.anonymous ? AppUserPresentation.anonymousName : comment.user.nickname
     }
 
@@ -215,8 +218,8 @@ struct PaperInlineImage: Identifiable, Hashable {
     let lowURL: String
     let caption: AttributedString?
 
-    var asGalleryImage: GalleryImage {
-        GalleryImage(
+    var asCommunityImage: CommunityImage {
+        CommunityImage(
             mid: id,
             url: validatedRemoteURL(from: url)?.absoluteString ?? "",
             lowUrl: validatedRemoteURL(from: lowURL)?.absoluteString ?? ""
@@ -453,7 +456,7 @@ enum PaperContentRenderer {
     }
 }
 
-extension GalleryImage {
+extension CommunityImage {
     /// 文章模块优先使用低清图地址，低清图地址为空时使用原图地址。
     nonisolated var preferredRemoteURL: URL? {
         makePreferredRemoteURL(lowURL: lowUrl, originalURL: url)

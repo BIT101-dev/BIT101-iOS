@@ -1,3 +1,6 @@
+import CommunityCore
+import DesignSystemKit
+import ClientCore
 //
 //  GalleryPosterDetailView.swift
 //  BIT101-iOS
@@ -8,13 +11,14 @@
 import SwiftUI
 
 struct GalleryPosterDetailView: View {
+    @Environment(CommunityDestinations.self) private var destinations
     private struct UserRoute: Identifiable, Hashable {
         let userID: Int
         var id: Int { userID }
     }
 
     @StateObject private var viewModel: GalleryPosterDetailViewModel
-    @State private var imageViewer: GalleryImageViewerState?
+    @State private var imageViewer: ImagePreviewRequest?
     @State private var composerTarget: GalleryCommentComposerTarget?
     @State private var userRoute: UserRoute?
     @State private var isShowingDeleteConfirmation = false
@@ -24,7 +28,7 @@ struct GalleryPosterDetailView: View {
     let onDeleted: (() -> Void)?
 
     init(
-        poster: GalleryPoster,
+        poster: CommunityPoster,
         onDeleted: (() -> Void)? = nil
     ) {
         _viewModel = StateObject(wrappedValue: GalleryPosterDetailViewModel(initialPoster: poster))
@@ -107,7 +111,7 @@ struct GalleryPosterDetailView: View {
                     .foregroundStyle(AppDesignSystem.Palette.Accent.primary)
                 }
 
-                Text(galleryLinkifiedText(viewModel.poster.text))
+                Text(communityLinkifiedText(viewModel.poster.text))
                     .font(AppDesignSystem.Typography.body)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -116,9 +120,9 @@ struct GalleryPosterDetailView: View {
                         ForEach(Array(viewModel.poster.images.enumerated()), id: \.element.id) { index, image in
                             let imageAccessibilityLabel = "图片 \(index + 1)"
                             Button {
-                                imageViewer = GalleryImageViewerState(images: viewModel.poster.images, initialIndex: index)
+                                imageViewer = ImagePreviewRequest(images: viewModel.poster.images, initialIndex: index)
                             } label: {
-                                GalleryPosterThumbnail(
+                                CommunityImageThumbnail(
                                     image: image,
                                     contentMode: .fit,
                                     loadsOriginal: true,
@@ -129,7 +133,7 @@ struct GalleryPosterDetailView: View {
                                 )
                                 .aspectRatio(
                                     imageAspectRatios[index]
-                                        ?? AppDesignSystem.Gallery.thumbnailLandscapeAspectRatio,
+                                        ?? AppDesignSystem.Community.thumbnailLandscapeAspectRatio,
                                     contentMode: .fit
                                 )
                                 .frame(maxWidth: .infinity)
@@ -195,7 +199,7 @@ struct GalleryPosterDetailView: View {
                         Task { await viewModel.deleteComment(comment) }
                     },
                     onOpenImage: { index, images in
-                        imageViewer = GalleryImageViewerState(images: images, initialIndex: index)
+                        imageViewer = ImagePreviewRequest(images: images, initialIndex: index)
                     },
                     onOpenUser: { user in
                         guard user.id > 0 else { return }
@@ -218,7 +222,7 @@ struct GalleryPosterDetailView: View {
         .navigationTitle("帖子详情")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $userRoute) { route in
-            UserProfileRootView(userID: route.userID)
+            destinations.profile(route.userID)
         }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -237,7 +241,7 @@ struct GalleryPosterDetailView: View {
                     .accessibilityLabel("编辑帖子")
                 }
 
-                GalleryPosterActionMenu(
+                CommunityPosterActionMenu(
                     onDelete: viewModel.poster.own ? {
                         isShowingDeleteConfirmation = true
                     } : nil,
@@ -250,7 +254,7 @@ struct GalleryPosterDetailView: View {
         .task {
             await viewModel.bootstrapIfNeeded()
         }
-        .gallerySystemImagePreview(item: $imageViewer)
+        .systemImagePreview(item: $imageViewer)
         .sheet(isPresented: $isShowingEditor) {
             NavigationStack {
                 GalleryComposerView(editingPoster: viewModel.poster) {

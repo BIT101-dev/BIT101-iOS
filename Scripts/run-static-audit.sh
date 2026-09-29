@@ -59,21 +59,31 @@ swift_parse() {
     | xargs -0 "$SWIFT_FRONTEND" -frontend -parse -D DEBUG -D EXTENDED_AUTOMATION
 }
 
-shell_parse() { zsh -n "$ROOT_DIR"/Scripts/*.sh; }
+shell_parse() {
+  local script
+  for script in "$ROOT_DIR"/Scripts/*.sh; do
+    zsh -n "$script" || return 1
+  done
+}
 python_parse() {
   python3 - "$ROOT_DIR" <<'PY'
 from pathlib import Path
+import re
 import sys
 
 root = Path(sys.argv[1]) / "Scripts"
 for path in sorted(root.glob("*.py")):
     compile(path.read_text(encoding="utf-8"), str(path), "exec")
+for path in sorted(root.glob("*.sh")):
+    for block in re.finditer(r"<<'PY'\n(.*?)^PY$", path.read_text(encoding="utf-8"), re.MULTILINE | re.DOTALL):
+        compile(block[1], str(path), "exec")
 PY
 }
 worker_parse() {
   find "$ROOT_DIR/Cloudflare" \
     -path '*/node_modules' -prune -o \
-    -type f -name '*.js' -exec node --check {} +
+    -type f -name '*.js' -print0 \
+    | xargs -0 -n 1 node --check
 }
 dependency_audit() {
   (cd "$ROOT_DIR/Cloudflare/EmergencyUpdateWorker" && npm audit --audit-level=high)
@@ -83,17 +93,18 @@ git_check() {
   git -C "$ROOT_DIR" diff --cached --check
 }
 docs_check() {
+  local version_args=()
+  if [[ -n "${BIT101_VERSION_BASE_REF:-}" ]]; then
+    version_args+=(--compare-git-ref "$BIT101_VERSION_BASE_REF")
+  fi
+  if [[ "${BIT101_RELEASE_CHECK:-false}" == "true" ]]; then
+    version_args+=(--check-app-store)
+  fi
   (cd "$ROOT_DIR" && python3 Scripts/check_stale_docs.py --all)
-  (cd "$ROOT_DIR" && python3 Scripts/validate_versions.py)
+  (cd "$ROOT_DIR" && python3 Scripts/validate_versions.py "${version_args[@]}")
 }
 explanatory_text_report() { "$ROOT_DIR/Scripts/report-explanatory-text.sh"; }
 checker_audit() { python3 "$ROOT_DIR/Scripts/check-code-quality.py" --combined; }
-checker_self_test() {
-  local self_test_status=0
-  python3 "$ROOT_DIR/Scripts/check-code-quality.py" --self-test || self_test_status=1
-  python3 "$ROOT_DIR/Scripts/check-ui-consistency.py" --self-test || self_test_status=1
-  return $self_test_status
-}
 artifact_hygiene() {
   python3 - "$ROOT_DIR" <<'PY'
 from pathlib import Path
@@ -136,12 +147,10 @@ if violations:
     print("[失败] 产物目录不符合固定路径规则：")
     print("\n".join(violations))
     raise SystemExit(1)
-print("[通过] artifact-hygiene")
 PY
 }
 
 failed_groups=()
-run_group checker-self-test checker_self_test || failed_groups+=(checker-self-test)
 run_group swift-parse swift_parse || failed_groups+=(swift-parse)
 run_group shell-parse shell_parse || failed_groups+=(shell-parse)
 run_group python-parse python_parse || failed_groups+=(python-parse)

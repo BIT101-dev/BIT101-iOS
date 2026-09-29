@@ -1,20 +1,20 @@
 import Foundation
 
 /// 学校系统偶发将 HTTPS 重定向到 HTTP；所有学校网络链路统一在这里升级为 HTTPS。
-enum HTTPSURLUpgrade {
-    nonisolated static func upgradedURL(from url: URL) -> URL {
+public enum HTTPSURLUpgrade {
+    public nonisolated static func upgradedURL(from url: URL) -> URL {
         guard url.scheme?.lowercased() == "http" else { return url }
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         components?.scheme = "https"
         return components?.url ?? url
     }
 
-    nonisolated static func upgradedURLString(from string: String) -> String {
+    public nonisolated static func upgradedURLString(from string: String) -> String {
         guard let url = URL(string: string) else { return string }
         return upgradedURL(from: url).absoluteString
     }
 
-    nonisolated static func resolvedURL(from location: String, relativeTo baseURL: URL) -> URL? {
+    public nonisolated static func resolvedURL(from location: String, relativeTo baseURL: URL) -> URL? {
         if let candidate = URL(string: location), candidate.scheme != nil {
             let resolved = upgradedURL(from: candidate)
             return isHTTPURL(resolved) ? resolved : nil
@@ -37,8 +37,8 @@ enum HTTPSURLUpgrade {
 }
 
 /// 认证请求手动检查 `Location`；这套 delegate 终止自动重定向。
-final class NoRedirectURLSessionDelegate: NSObject, URLSessionTaskDelegate {
-    func urlSession(
+public final class NoRedirectURLSessionDelegate: NSObject, URLSessionTaskDelegate {
+    public func urlSession(
         _ session: URLSession,
         task: URLSessionTask,
         willPerformHTTPRedirection response: HTTPURLResponse,
@@ -50,8 +50,8 @@ final class NoRedirectURLSessionDelegate: NSObject, URLSessionTaskDelegate {
 }
 
 /// 正常跟随重定向；学校链接中的 HTTP 目标在此升级为 HTTPS。
-final class HTTPSUpgradingRedirectDelegate: NSObject, URLSessionTaskDelegate {
-    func urlSession(
+public final class HTTPSUpgradingRedirectDelegate: NSObject, URLSessionTaskDelegate {
+    public func urlSession(
         _ session: URLSession,
         task: URLSessionTask,
         willPerformHTTPRedirection response: HTTPURLResponse,
