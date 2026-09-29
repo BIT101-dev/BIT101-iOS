@@ -17,11 +17,12 @@ enum AppUITestBootstrap {
         let supportDirectory = AppFileDirectories.applicationSupportDirectoryURL(named: "BIT101-iOS")
         guard AppFileDirectories.files.fileExists(at: supportDirectory) else { return }
         do {
-            let testAccountPrefix = AppStorageSession(
+            let testSession = AppStorageSession(
                 accountIdentifier: "__ui_tests__.\(AppFileDirectories.uiTestRunIdentifier)."
-            ).accountDirectoryName
+            )
+            let testAccountPrefixes = [testSession.accountStorageIdentifier, testSession.accountDirectoryName]
             let directories = try AppFileDirectories.files.contentsOfDirectory(at: supportDirectory, options: [])
-            for directory in directories where directory.lastPathComponent.hasPrefix(testAccountPrefix) {
+            for directory in directories where testAccountPrefixes.contains(where: directory.lastPathComponent.hasPrefix) {
                 try AppFileDirectories.files.removeItem(at: directory)
             }
         } catch {

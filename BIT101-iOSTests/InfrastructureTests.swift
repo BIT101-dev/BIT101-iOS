@@ -79,7 +79,7 @@ struct ScoreCacheDiskRepositoryTests {
         #expect(saved.isSaved)
 
         let fileURL = root
-            .appending(path: session.accountDirectoryName, directoryHint: .isDirectory)
+            .appending(path: session.accountStorageIdentifier, directoryHint: .isDirectory)
             .appending(path: "score-cache.json")
         let corruptData = Data("invalid score cache".utf8)
         try files.writeData(corruptData, to: fileURL, options: [.atomic])
@@ -313,6 +313,10 @@ struct InfrastructureTests {
             session: { session }
         )
 
+        let oldKey = session.legacyKey("test.snapshot")
+        defaults.set(try JSONEncoder().encode(["A"]), forKey: oldKey)
+        #expect(store.load() == ["A"])
+        #expect(defaults.object(forKey: oldKey) == nil)
         store.save(["A"])
         #expect(store.load() == ["A"])
 
@@ -342,7 +346,11 @@ struct InfrastructureTests {
         #expect(guest.accountDirectoryName == "__default__")
 
         let account = AppStorageSession(accountIdentifier: "student/a")
-        #expect(account.key("test.snapshot") == "test.snapshot.student/a")
+        let storageIdentifier = "account-f075dae4022cfb12f24efad0580c7d242ff6360fc0287305a8a399231e4a62ae"
+        #expect(account.key("test.snapshot") == "test.snapshot.\(storageIdentifier)")
+        #expect(account.accountStorageIdentifier == storageIdentifier)
+        #expect(ScheduleSharedAccountIdentity.stableToken(for: storageIdentifier) == storageIdentifier)
+        #expect(!account.accountStorageIdentifier.contains("student"))
         #expect(account.accountDirectoryName == "__encoded__73747564656E742F61")
         #expect(account.legacyAccountDirectoryName == "student_a")
         #expect(account.legacyAccountDirectoryNameForMigration == account.accountDirectoryName)
@@ -351,10 +359,11 @@ struct InfrastructureTests {
         #expect(underscoreAccount.legacyAccountDirectoryName == "student_a")
         #expect(underscoreAccount.legacyAccountDirectoryNameForMigration == underscoreAccount.accountDirectoryName)
         #expect(account.accountDirectoryName != underscoreAccount.accountDirectoryName)
+        #expect(account.accountStorageIdentifier != underscoreAccount.accountStorageIdentifier)
     }
 
     @Test("Account-scoped file snapshots round-trip and remain isolated")
-    func accountScopedFileSnapshots() {
+    func accountScopedFileSnapshots() throws {
         let files = AppFileDirectories.files
         let firstSession = AppStorageSession(accountIdentifier: "file-store-\(UUID().uuidString)")
         var session = firstSession
@@ -367,6 +376,7 @@ struct InfrastructureTests {
 
         #expect(store.save(["first-account"]))
         #expect(store.load() == ["first-account"])
+        #expect(try store.fileURL.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup == true)
 
         session = AppStorageSession(accountIdentifier: "file-store-\(UUID().uuidString)")
         let secondDirectory = store.fileURL.deletingLastPathComponent()
@@ -456,7 +466,7 @@ struct ComposerDraftStorageTests {
     }
 }
 
-@Suite("Score presentation logic")
+@Suite("Score presentation logic", .serialized)
 struct ScorePresentationTests {
     @Test("Successful empty score response returns an empty result")
     func successfulEmptyScoreResponse() throws {

@@ -235,6 +235,7 @@ final class AppSettingsStore: ObservableObject {
     /// 账号切换通知会重新触发这里。缺少快照或 `firstOpenDate` 时，这里补齐默认值并保存快照；
     /// 已有快照直接恢复。
     private func load() {
+        migrateLegacyScopedDefaults()
         loadCourseHistoryPreference()
         loadAutomaticUpdatePreference()
         let accountID = Self.currentAccountIdentifier()
@@ -294,6 +295,11 @@ final class AppSettingsStore: ObservableObject {
     private func save(syncPreferences: Bool = false) {
         if let data = try? Self.encoder.encode(snapshot) {
             defaults.set(data, forKey: currentStorageKey)
+            let legacyKey = AppFileDirectories.currentSession.legacyKey(
+                Self.storageKeyPrefix,
+                guestIdentifier: Self.defaultAccountIdentifier
+            )
+            if legacyKey != currentStorageKey { defaults.removeObject(forKey: legacyKey) }
         }
         if syncPreferences {
             ExperimentalPreferenceCloudSync.shared.localValueDidChange(in: .appSettings)
@@ -307,11 +313,14 @@ final class AppSettingsStore: ObservableObject {
 
     /// 读取指定账号对应的设置快照。
     static func loadSnapshotFromDefaults(for accountID: String) -> AppSettingsSnapshot? {
-        guard
-            let data = AppFileDirectories.defaults.data(forKey: storageKey(for: accountID)),
-            let snapshot = try? decoder.decode(AppSettingsSnapshot.self, from: data)
-        else {
-            return nil
+        let defaults = AppFileDirectories.defaults
+        let currentKey = storageKey(for: accountID)
+        let legacyKey = legacyStorageKey(for: accountID)
+        guard let data = defaults.data(forKey: currentKey) ?? defaults.data(forKey: legacyKey),
+              let snapshot = try? decoder.decode(AppSettingsSnapshot.self, from: data) else { return nil }
+        if defaults.data(forKey: currentKey) == nil {
+            defaults.set(data, forKey: currentKey)
+            if legacyKey != currentKey { defaults.removeObject(forKey: legacyKey) }
         }
         return snapshot
     }
@@ -358,6 +367,30 @@ final class AppSettingsStore: ObservableObject {
             storageKeyPrefix,
             guestIdentifier: defaultAccountIdentifier
         )
+    }
+
+    private static func legacyStorageKey(for accountID: String) -> String {
+        AppStorageSession(accountIdentifier: accountID).legacyKey(
+            storageKeyPrefix,
+            guestIdentifier: defaultAccountIdentifier
+        )
+    }
+
+    private func migrateLegacyScopedDefaults() {
+        let session = AppFileDirectories.currentSession
+        for prefix in [
+            Self.galleryBotFilterDefaultMigrationKeyPrefix,
+            Self.courseHistoryHidesMakeupOutliersKey,
+        ] {
+            let currentKey = session.key(prefix, guestIdentifier: Self.defaultAccountIdentifier)
+            let legacyKey = session.legacyKey(prefix, guestIdentifier: Self.defaultAccountIdentifier)
+            guard currentKey != legacyKey,
+                  defaults.object(forKey: currentKey) == nil,
+                  let value = defaults.object(forKey: legacyKey)
+            else { continue }
+            defaults.set(value, forKey: currentKey)
+            defaults.removeObject(forKey: legacyKey)
+        }
     }
 
     private static func normalizedGalleryHiddenUserIDs(_ values: [Int]) -> [Int] {

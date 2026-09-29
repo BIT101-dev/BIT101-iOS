@@ -13,15 +13,29 @@ nonisolated struct AppStorageSession: Sendable, Equatable {
     var isGuest: Bool { accountIdentifier.isEmpty }
 
     func key(_ prefix: String, guestIdentifier: String = "guest") -> String {
+        "\(prefix).\(isGuest ? guestIdentifier : accountStorageIdentifier)"
+    }
+
+    /// Previous defaults key used the account identifier verbatim.
+    func legacyKey(_ prefix: String, guestIdentifier: String = "guest") -> String {
         "\(prefix).\(isGuest ? guestIdentifier : accountIdentifier)"
     }
 
-    /// 账号级文件夹名沿用稳定的安全编码规则。
+    /// 保留旧版账号映射，供 CloudKit 标识和本地数据迁移沿用。
     var accountDirectoryName: String {
         guard !isGuest else { return "__default__" }
         let invalid = CharacterSet.alphanumerics.inverted
         guard accountIdentifier.rangeOfCharacter(from: invalid) != nil else { return accountIdentifier }
         return "__encoded__" + accountIdentifier.utf8.map { String(format: "%02X", $0) }.joined()
+    }
+
+    /// 本地存储使用稳定摘要作为账号命名空间。
+    var accountStorageIdentifier: String {
+        guard !isGuest else { return "__default__" }
+#if BIT101_UI_TESTING
+        if accountIdentifier.hasPrefix("__ui_tests__.") { return accountDirectoryName }
+#endif
+        return ScheduleSharedAccountIdentity.stableToken(for: accountIdentifier)
     }
 
     /// 旧版账号文件夹名，用于现有缓存迁移。
@@ -31,19 +45,26 @@ nonisolated struct AppStorageSession: Sendable, Equatable {
         return accountIdentifier.components(separatedBy: invalid).joined(separator: "_")
     }
 
-    /// 自动迁移沿用与账号标识完全相同的旧路径，字符替换后的目录作为隔离历史数据留在原位。
+    /// 兼容迁移沿用既有稳定账号目录名；规范化旧目录保留为独立历史路径。
     var legacyAccountDirectoryNameForMigration: String {
-        let legacyName = legacyAccountDirectoryName
-        guard accountIdentifier == legacyName else { return accountDirectoryName }
-        return legacyName
+        accountDirectoryName
     }
 }
 
 /// App 持久化路径、当前账号会话和本地文件服务的统一入口。
 enum AppFileDirectories {
     nonisolated static let files = AppFileSystem.files
+    private nonisolated static let backupExclusionConfiguration: Bool = {
+        for directory in [FileManager.SearchPathDirectory.libraryDirectory, .documentDirectory] {
+            if let url = files.directoryURL(directory) {
+                try? files.setExcludedFromBackup(at: url)
+            }
+        }
+        return true
+    }()
 
     nonisolated static var defaults: UserDefaults {
+        _ = backupExclusionConfiguration
 #if BIT101_UI_TESTING
         if isRunningUITest {
             guard let suite = UserDefaults(suiteName: uiTestDefaultsSuiteName) else {
@@ -80,6 +101,7 @@ enum AppFileDirectories {
         guard let url = files.directoryURL(.applicationSupportDirectory) else {
             preconditionFailure("Application Support directory is unavailable")
         }
+        try? files.setExcludedFromBackup(at: url)
         return url
     }()
 
@@ -132,7 +154,9 @@ enum AppFileDirectories {
     }
 
     nonisolated static func documentFileURL(named filename: String) -> URL? {
-        files.directoryURL(.documentDirectory)?.appending(path: filename)
+        guard let directory = files.directoryURL(.documentDirectory) else { return nil }
+        try? files.setExcludedFromBackup(at: directory)
+        return directory.appending(path: filename)
     }
 
     nonisolated static func appGroupFileURL(
@@ -140,7 +164,9 @@ enum AppFileDirectories {
         directories: [String],
         named filename: String
     ) -> URL? {
-        directories.reduce(files.appGroupContainerURL(identifier: groupIdentifier)) { url, directory in
+        let container = files.appGroupContainerURL(identifier: groupIdentifier)
+        if let container { try? files.setExcludedFromBackup(at: container) }
+        return directories.reduce(container) { url, directory in
             url?.appending(path: directory, directoryHint: .isDirectory)
         }?.appending(path: filename)
     }

@@ -49,10 +49,13 @@ nonisolated enum ScoreCacheSyncPayloadCodec {
         var compressed = Data(count: json.count + 64)
         let compressedCount = json.withUnsafeBytes { source in
             compressed.withUnsafeMutableBytes { destination in
-                compression_encode_buffer(
-                    destination.bindMemory(to: UInt8.self).baseAddress!,
+                guard let destinationBase = destination.bindMemory(to: UInt8.self).baseAddress,
+                      let sourceBase = source.bindMemory(to: UInt8.self).baseAddress
+                else { return 0 }
+                return compression_encode_buffer(
+                    destinationBase,
                     destination.count,
-                    source.bindMemory(to: UInt8.self).baseAddress!,
+                    sourceBase,
                     source.count,
                     nil,
                     COMPRESSION_LZFSE
@@ -89,10 +92,13 @@ nonisolated enum ScoreCacheSyncPayloadCodec {
         let compressed = data.dropFirst(payloadStart)
         let decodedCount = compressed.withUnsafeBytes { source in
             decoded.withUnsafeMutableBytes { destination in
-                compression_decode_buffer(
-                    destination.bindMemory(to: UInt8.self).baseAddress!,
+                guard let destinationBase = destination.bindMemory(to: UInt8.self).baseAddress,
+                      let sourceBase = source.bindMemory(to: UInt8.self).baseAddress
+                else { return 0 }
+                return compression_decode_buffer(
+                    destinationBase,
                     destination.count,
-                    source.bindMemory(to: UInt8.self).baseAddress!,
+                    sourceBase,
                     source.count,
                     nil,
                     COMPRESSION_LZFSE
@@ -152,7 +158,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     ) {
         self.defaults = defaults
         self.cloudStore = cloudStore
-        isEnabled = defaults.bool(forKey: enabledKey)
+        isEnabled = loadEnabledPreference()
 
         cloudObserverTask = Task { @MainActor [weak self, cloudStore] in
             for await notification in NotificationCenter.default.notifications(
@@ -182,6 +188,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     func setEnabled(_ enabled: Bool) {
         guard isEnabled != enabled else { return }
         defaults.set(enabled, forKey: enabledKey)
+        defaults.removeObject(forKey: legacyEnabledKey)
         isEnabled = enabled
         guard enabled else {
             reconciliationTask?.cancel()
@@ -207,7 +214,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
             for: domain,
             remoteUpdatedAt: remoteUpdatedAt(for: domain)
         )
-        defaults.set(updatedAt, forKey: localUpdatedAtKey(for: domain))
+        setLocalUpdatedAt(updatedAt, for: domain)
         guard isEnabled else { return }
         switch domain {
         case .appSettings:
@@ -246,7 +253,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         pendingReconciliationDomains.removeAll()
         syncIssue = nil
         syncIssueDomain = nil
-        isEnabled = defaults.bool(forKey: enabledKey)
+        isEnabled = loadEnabledPreference()
         guard isEnabled else { return }
         cloudStore.synchronize()
         scheduleReconciliation(for: ExperimentalPreferenceSyncDomain.allCases)
@@ -351,12 +358,12 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     ) async {
         if let scoreSession, AppFileDirectories.scoreCacheSession != scoreSession { return }
         let remote: ExperimentalPreferenceSyncEnvelope<Payload>? = remoteEnvelope(for: domain)
-        let localUpdatedAt = defaults.object(forKey: localUpdatedAtKey(for: domain)) as? Date
+        let localUpdatedAt = localUpdatedAt(for: domain)
 
         // 云端还没有该域时，把当前设备现有值作为初始值上传。
         if remote == nil, localUpdatedAt == nil {
             let updatedAt = nextLocalUpdatedAt(for: domain)
-            defaults.set(updatedAt, forKey: localUpdatedAtKey(for: domain))
+            setLocalUpdatedAt(updatedAt, for: domain)
             upload(
                 payload: localPayload,
                 domain: domain,
@@ -375,7 +382,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
             guard !Task.isCancelled,
                   scoreSession == nil || AppFileDirectories.scoreCacheSession == scoreSession
             else { return }
-            defaults.set(remote.updatedAt, forKey: localUpdatedAtKey(for: domain))
+            setLocalUpdatedAt(remote.updatedAt, for: domain)
         case .uploadLocal:
             guard let localUpdatedAt else { return }
             upload(
@@ -401,11 +408,11 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     private func preserveLegacyLocalScoreCacheIfNeeded(_ localPayload: ScoreCacheSyncPayload) {
         guard !localPayload.rows.isEmpty else { return }
         let domain = ExperimentalPreferenceSyncDomain.scoreCache
-        guard defaults.object(forKey: localUpdatedAtKey(for: domain)) == nil else { return }
+        guard localUpdatedAt(for: domain) == nil else { return }
         let remote: ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload>? = remoteEnvelope(for: domain)
         guard remote?.payload.rows.isEmpty != false else { return }
         let updatedAt = nextLocalUpdatedAt(for: domain, remoteUpdatedAt: remote?.updatedAt)
-        defaults.set(updatedAt, forKey: localUpdatedAtKey(for: domain))
+        setLocalUpdatedAt(updatedAt, for: domain)
     }
 
     private func upload<Payload: Codable>(
@@ -500,7 +507,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         remoteUpdatedAt: Date? = nil
     ) -> Date {
         var updatedAt = Date()
-        if let localUpdatedAt = defaults.object(forKey: localUpdatedAtKey(for: domain)) as? Date,
+        if let localUpdatedAt = localUpdatedAt(for: domain),
            updatedAt <= localUpdatedAt {
             updatedAt = laterDate(after: localUpdatedAt)
         }
@@ -515,10 +522,18 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     }
 
     private var enabledKey: String {
+        "experimental.preference-cloud-sync.enabled.\(localAccountIdentifier)"
+    }
+
+    private var legacyEnabledKey: String {
         "experimental.preference-cloud-sync.enabled.\(accountIdentifier)"
     }
 
     private func localUpdatedAtKey(for domain: ExperimentalPreferenceSyncDomain) -> String {
+        "experimental.preference-cloud-sync.local-updated.\(localAccountIdentifier).\(domain.rawValue)"
+    }
+
+    private func legacyLocalUpdatedAtKey(for domain: ExperimentalPreferenceSyncDomain) -> String {
         "experimental.preference-cloud-sync.local-updated.\(accountIdentifier).\(domain.rawValue)"
     }
 
@@ -528,5 +543,31 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
 
     private var accountIdentifier: String {
         AppFileDirectories.currentSession.accountDirectoryName
+    }
+
+    private var localAccountIdentifier: String {
+        AppFileDirectories.currentSession.accountStorageIdentifier
+    }
+
+    private func loadEnabledPreference() -> Bool {
+        if let value = defaults.object(forKey: enabledKey) as? Bool { return value }
+        guard let legacyValue = defaults.object(forKey: legacyEnabledKey) as? Bool else { return false }
+        defaults.set(legacyValue, forKey: enabledKey)
+        defaults.removeObject(forKey: legacyEnabledKey)
+        return legacyValue
+    }
+
+    private func localUpdatedAt(for domain: ExperimentalPreferenceSyncDomain) -> Date? {
+        if let value = defaults.object(forKey: localUpdatedAtKey(for: domain)) as? Date { return value }
+        let legacyKey = legacyLocalUpdatedAtKey(for: domain)
+        guard let value = defaults.object(forKey: legacyKey) as? Date else { return nil }
+        defaults.set(value, forKey: localUpdatedAtKey(for: domain))
+        defaults.removeObject(forKey: legacyKey)
+        return value
+    }
+
+    private func setLocalUpdatedAt(_ value: Date, for domain: ExperimentalPreferenceSyncDomain) {
+        defaults.set(value, forKey: localUpdatedAtKey(for: domain))
+        defaults.removeObject(forKey: legacyLocalUpdatedAtKey(for: domain))
     }
 }

@@ -47,11 +47,11 @@ nonisolated enum CampusPreset: String, CaseIterable, Identifiable {
     var coordinate: CLLocationCoordinate2D {
         switch self {
         case .liangxiang:
-            return CLLocationCoordinate2D(latitude: 39.7293778, longitude: 116.1733546)
+            return CLLocationCoordinate2D(latitude: 39.731174, longitude: 116.172184)
         case .zhongguancun:
-            return CLLocationCoordinate2D(latitude: 39.9551764, longitude: 116.31597988552478)
+            return CLLocationCoordinate2D(latitude: 39.959668, longitude: 116.315393)
         case .zhuhai:
-            return CLLocationCoordinate2D(latitude: 22.363905, longitude: 113.542184)
+            return CLLocationCoordinate2D(latitude: 22.359413, longitude: 113.542184)
         }
     }
 

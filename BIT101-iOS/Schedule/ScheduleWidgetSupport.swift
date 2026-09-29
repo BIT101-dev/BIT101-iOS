@@ -125,7 +125,7 @@ enum ScheduleWidgetExporter {
 
         return ScheduleExternalSnapshot(
             isLoggedIn: isLoggedIn,
-            studentID: session.accountIdentifier,
+            studentID: session.accountStorageIdentifier,
             firstDayString: cache.firstDayString,
             timeTable: cache.timeTable.map {
                 ScheduleExternalTimeSlotSnapshot(id: $0.id, start: $0.start, end: $0.end)

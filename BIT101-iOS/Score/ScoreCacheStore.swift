@@ -188,18 +188,23 @@ enum ScoreCacheStore {
 
     private static func legacyData(for session: AppStorageSession) -> ScoreCacheLegacyData {
         let defaults = AppFileDirectories.defaults
+        func value(_ prefix: String) -> Data? {
+            defaults.data(forKey: session.key(prefix))
+                ?? defaults.data(forKey: session.legacyKey(prefix))
+        }
         return ScoreCacheLegacyData(
-            rows: defaults.data(forKey: session.key("score.detail.cache")),
-            updatedAt: defaults.data(forKey: session.key("score.detail.cache.updated-at")),
-            detailedUpdatedAt: defaults.data(forKey: session.key("score.detail.cache.full-updated-at"))
+            rows: value("score.detail.cache"),
+            updatedAt: value("score.detail.cache.updated-at"),
+            detailedUpdatedAt: value("score.detail.cache.full-updated-at")
         )
     }
 
     private static func clearLegacyDefaults(for session: AppStorageSession) {
         let defaults = AppFileDirectories.defaults
-        defaults.removeObject(forKey: session.key("score.detail.cache"))
-        defaults.removeObject(forKey: session.key("score.detail.cache.updated-at"))
-        defaults.removeObject(forKey: session.key("score.detail.cache.full-updated-at"))
+        for prefix in ["score.detail.cache", "score.detail.cache.updated-at", "score.detail.cache.full-updated-at"] {
+            defaults.removeObject(forKey: session.key(prefix))
+            defaults.removeObject(forKey: session.legacyKey(prefix))
+        }
     }
 }
 
@@ -270,6 +275,7 @@ actor ScoreCacheDiskRepository {
 
         do {
             try write(snapshot, for: session)
+            removeLegacyFile(for: session)
             return .saved(snapshot)
         } catch {
             Self.logger.error("保存成绩缓存失败：\(String(describing: error), privacy: .public)")
@@ -285,7 +291,23 @@ actor ScoreCacheDiskRepository {
 
     private func readFile(for session: AppStorageSession) -> ExistingFileResult {
         let url = fileURL(for: session)
-        guard files.fileExists(at: url) else { return .missing }
+        guard files.fileExists(at: url) else {
+            let legacyURL = legacyFileURL(for: session)
+            guard legacyURL != url, files.fileExists(at: legacyURL) else { return .missing }
+            let legacyResult = readFile(at: legacyURL)
+            guard case .loaded(let snapshot) = legacyResult else { return legacyResult }
+            do {
+                try write(snapshot, for: session)
+                removeLegacyFile(for: session)
+            } catch {
+                Self.logger.error("成绩缓存迁移写入失败：\(String(describing: error), privacy: .public)")
+            }
+            return .loaded(snapshot)
+        }
+        return readFile(at: url)
+    }
+
+    private func readFile(at url: URL) -> ExistingFileResult {
         try? files.setPrivateFileProtection(at: url)
         guard let data = try? files.readData(at: url),
               let snapshot = try? JSONDecoder().decode(ScoreCacheSnapshot.self, from: data)
@@ -320,13 +342,38 @@ actor ScoreCacheDiskRepository {
     private func fileURL(for session: AppStorageSession) -> URL {
         if let storageRoot {
             return storageRoot
-                .appending(path: session.accountDirectoryName, directoryHint: .isDirectory)
+                .appending(path: session.accountStorageIdentifier, directoryHint: .isDirectory)
                 .appending(path: "score-cache.json")
         }
         return AppFileDirectories.accountSupportFileURL(
-            accountDirectoryName: session.accountDirectoryName,
+            accountDirectoryName: session.accountStorageIdentifier,
             named: "score-cache.json"
         )
+    }
+
+    private func legacyFileURL(for session: AppStorageSession) -> URL {
+        if let storageRoot {
+            return storageRoot
+                .appending(path: session.legacyAccountDirectoryNameForMigration, directoryHint: .isDirectory)
+                .appending(path: "score-cache.json")
+        }
+        return AppFileDirectories.accountSupportFileURL(
+            accountDirectoryName: session.legacyAccountDirectoryNameForMigration,
+            named: "score-cache.json"
+        )
+    }
+
+    private func removeLegacyFile(for session: AppStorageSession) {
+        let url = legacyFileURL(for: session)
+        guard url != fileURL(for: session), files.fileExists(at: url),
+              let data = try? files.readData(at: url),
+              (try? JSONDecoder().decode(ScoreCacheSnapshot.self, from: data)) != nil
+        else { return }
+        try? files.removeItem(at: url)
+        let directory = url.deletingLastPathComponent()
+        if (try? files.contentsOfDirectory(at: directory, options: []).isEmpty) == true {
+            try? files.removeItem(at: directory)
+        }
     }
 }
 

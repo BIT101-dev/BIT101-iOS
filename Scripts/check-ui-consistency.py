@@ -191,7 +191,7 @@ FIXED_GEOMETRY_CONTRACTS = (
         "StrokeStyle(lineWidth: 2, dash: [5, 4])",
     ),
     (
-        "Gallery/GalleryComposerView.swift",
+        "Gallery/GalleryComposerDraftSupport.swift",
         "width: max(1, width * scale)",
     ),
     (

@@ -9,16 +9,6 @@ import WatchConnectivity
 import WidgetKit
 #endif
 
-private nonisolated struct WatchScheduleDataReplyContext: @unchecked Sendable {
-    let session: WCSession
-    let replyHandler: (Data) -> Void
-}
-
-private nonisolated struct WatchScheduleDictionaryReplyContext: @unchecked Sendable {
-    let session: WCSession
-    let replyHandler: ([String: Any]) -> Void
-}
-
 enum WatchScheduleSyncError: Error, Equatable {
     case notSupported
     case noSnapshot
@@ -75,11 +65,16 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
 
     /// 从共享仓库读取并编码当前快照。
     private nonisolated static func currentSnapshotDataIfAvailable(for studentID: String) -> Data? {
+        let accountToken = AppStorageSession(accountIdentifier: studentID).accountStorageIdentifier
         guard let snapshot = ScheduleExternalSnapshotStore.load(),
-              snapshot.studentID == studentID
+              snapshot.studentID == studentID || snapshot.studentID == accountToken
         else { return nil }
+        let normalizedSnapshot = snapshot.replacingStudentID(with: accountToken)
         do {
-            return try ScheduleExternalSnapshotCodec.encode(snapshot)
+            if normalizedSnapshot != snapshot {
+                try ScheduleExternalSnapshotStore.write(normalizedSnapshot)
+            }
+            return try ScheduleExternalSnapshotCodec.encode(normalizedSnapshot)
         } catch {
             Self.logger.error("Failed to encode the watch schedule snapshot: \(String(describing: error), privacy: .public)")
             return nil
@@ -104,7 +99,8 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     #if os(iOS)
     /// 将最新课表快照推送给已配对的 watch。
     func push(snapshot: ScheduleExternalSnapshot) {
-        guard snapshot.studentID == LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines) else {
+        let studentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard snapshot.studentID == AppStorageSession(accountIdentifier: studentID).accountStorageIdentifier else {
             return
         }
         activateIfNeeded()
@@ -233,8 +229,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     /// 处理 `sendMessageData` 的前台即时请求。
     ///
     /// 该回调服务 watch -> iPhone 的“拉最新课表”请求。
-    /// delegate 回调运行在 nonisolated 上下文，读取共享快照的动作通过
-    /// `MainActor` 执行，以满足并发隔离要求。
+    /// delegate 回调运行在后台串行队列；登录态通过主线程同步读取，快照编码与回复留在回调上下文。
     nonisolated func session(
         _ session: WCSession,
         didReceiveMessageData messageData: Data,
@@ -242,15 +237,16 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     ) {
         #if os(iOS)
         if messageData == WatchScheduleTransferProtocol.requestData {
-            let replyContext = WatchScheduleDataReplyContext(session: session, replyHandler: replyHandler)
-            Task { @MainActor in
-                let studentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
-                if let data = Self.currentSnapshotDataIfAvailable(for: studentID) {
-                    Self.updateApplicationContext(withSnapshotData: data, session: replyContext.session)
-                    replyContext.replyHandler(data)
-                } else {
-                    replyContext.replyHandler(Data())
+            let studentID = DispatchQueue.main.sync {
+                MainActor.assumeIsolated {
+                    LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
+            }
+            if let data = Self.currentSnapshotDataIfAvailable(for: studentID) {
+                Self.updateApplicationContext(withSnapshotData: data, session: session)
+                replyHandler(data)
+            } else {
+                replyHandler(Data())
             }
             return
         }
@@ -270,15 +266,16 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     ) {
         #if os(iOS)
         if WatchScheduleTransferProtocol.requestsLatestSnapshot(message) {
-            let replyContext = WatchScheduleDictionaryReplyContext(session: session, replyHandler: replyHandler)
-            Task { @MainActor in
-                let studentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
-                if let data = Self.currentSnapshotDataIfAvailable(for: studentID) {
-                    Self.updateApplicationContext(withSnapshotData: data, session: replyContext.session)
-                    replyContext.replyHandler(WatchScheduleTransferProtocol.snapshotContext(data))
-                } else {
-                    replyContext.replyHandler([:])
+            let studentID = DispatchQueue.main.sync {
+                MainActor.assumeIsolated {
+                    LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
+            }
+            if let data = Self.currentSnapshotDataIfAvailable(for: studentID) {
+                Self.updateApplicationContext(withSnapshotData: data, session: session)
+                replyHandler(WatchScheduleTransferProtocol.snapshotContext(data))
+            } else {
+                replyHandler([:])
             }
             return
         }
@@ -332,13 +329,17 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
 
         #if os(iOS)
         let currentStudentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard snapshot.studentID == currentStudentID else {
+        let accountToken = AppStorageSession(accountIdentifier: currentStudentID).accountStorageIdentifier
+        guard snapshot.studentID == currentStudentID || snapshot.studentID == accountToken else {
             return .failure(.staleSnapshot)
         }
+        let snapshotToPersist = snapshot.replacingStudentID(with: accountToken)
+        #else
+        let snapshotToPersist = snapshot
         #endif
 
         do {
-            try ScheduleExternalSnapshotStore.write(snapshot)
+            try ScheduleExternalSnapshotStore.write(snapshotToPersist)
             #if canImport(WidgetKit)
             WidgetCenter.shared.reloadAllTimelines()
             #endif
@@ -352,7 +353,8 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     #if os(iOS)
     private nonisolated static func isSnapshotData(_ data: Data, for studentID: String) -> Bool {
         guard let snapshot = try? ScheduleExternalSnapshotCodec.decode(data) else { return false }
-        return snapshot.studentID == studentID
+        let accountToken = AppStorageSession(accountIdentifier: studentID).accountStorageIdentifier
+        return snapshot.studentID == accountToken
     }
     #endif
 }

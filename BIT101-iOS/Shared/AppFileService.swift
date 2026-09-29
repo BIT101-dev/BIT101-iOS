@@ -11,6 +11,7 @@ nonisolated protocol AppFileService: Sendable {
     func createDirectory(at url: URL) throws
     func removeItem(at url: URL) throws
     func setPrivateFileProtection(at url: URL) throws
+    func setExcludedFromBackup(at url: URL) throws
     func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL]
     func regularFileSize(at url: URL) -> Int?
     func isRegularFile(at url: URL) -> Bool
@@ -34,15 +35,33 @@ nonisolated struct LocalAppFileService: AppFileService, Sendable {
 
     var temporaryDirectoryURL: URL { manager.temporaryDirectory }
     func fileExists(at url: URL) -> Bool { manager.fileExists(atPath: url.path) }
-    func readData(at url: URL) throws -> Data { try Data(contentsOf: url) }
-    func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws { try data.write(to: url, options: options) }
-    func createDirectory(at url: URL) throws { try manager.createDirectory(at: url, withIntermediateDirectories: true) }
+    func readData(at url: URL) throws -> Data {
+        try setExcludedFromBackup(at: url)
+        return try Data(contentsOf: url)
+    }
+
+    func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws {
+        try data.write(to: url, options: options)
+        try setExcludedFromBackup(at: url)
+    }
+
+    func createDirectory(at url: URL) throws {
+        try manager.createDirectory(at: url, withIntermediateDirectories: true)
+        try setExcludedFromBackup(at: url)
+    }
     func removeItem(at url: URL) throws { try manager.removeItem(at: url) }
     func setPrivateFileProtection(at url: URL) throws {
         try manager.setAttributes(
             [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
             ofItemAtPath: url.path
         )
+    }
+
+    func setExcludedFromBackup(at url: URL) throws {
+        var resourceValues = URLResourceValues()
+        resourceValues.isExcludedFromBackup = true
+        var targetURL = url
+        try targetURL.setResourceValues(resourceValues)
     }
 
     func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL] {

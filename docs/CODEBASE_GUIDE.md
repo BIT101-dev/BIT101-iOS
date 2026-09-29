@@ -284,6 +284,8 @@ Widget、锁屏组件、Apple Watch、Live Activity 通过共享快照和最小�
   帖子、评论、搜索、消息、用户等模型
 - `Gallery/GalleryComposerView.swift`
   发帖页
+- `Gallery/GalleryComposerDraftSupport.swift`
+  图片草稿、图片压缩和发帖/建议草稿持久化
 - `Gallery/GalleryPosterDetailViewModel.swift`
   帖子详情页状态机
 - `Gallery/GalleryService.swift`

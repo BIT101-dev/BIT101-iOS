@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 extension Notification.Name {
@@ -19,6 +20,27 @@ nonisolated enum ScheduleSharedContainer {
     static let directoryName = "Widgets"
     /// 主 App、Widget 与 Watch 通过 App Group 使用此快照文件名。
     static let snapshotFileName = "schedule-widget-snapshot.json"
+}
+
+/// Shared opaque account identity used by the app, widgets, and watch snapshot.
+nonisolated enum ScheduleSharedAccountIdentity {
+    private static let tokenPrefix = "account-"
+    private static let tokenCharacters = CharacterSet(charactersIn: "0123456789abcdef")
+
+    static func stableToken(for accountIdentifier: String) -> String {
+        let normalizedIdentifier = accountIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedIdentifier.isEmpty else { return "__default__" }
+        guard !isStableToken(normalizedIdentifier) else { return normalizedIdentifier }
+
+        let digest = SHA256.hash(data: Data(normalizedIdentifier.utf8))
+        return tokenPrefix + digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func isStableToken(_ identifier: String) -> Bool {
+        guard identifier.hasPrefix(tokenPrefix) else { return false }
+        let digest = identifier.dropFirst(tokenPrefix.count)
+        return digest.count == 64 && digest.unicodeScalars.allSatisfy(tokenCharacters.contains)
+    }
 }
 
 /// 对外部展示层暴露的精简节次模型。
@@ -52,6 +74,7 @@ nonisolated struct ScheduleExternalCourseSnapshot: Codable, Hashable, Sendable {
 nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable {
     let generatedAt: Date
     let isLoggedIn: Bool
+    /// 跨设备账号隔离使用的稳定摘要；字段名沿用既有传输约定。
     let studentID: String
     let firstDayString: String
     let timeTable: [ScheduleExternalTimeSlotSnapshot]
@@ -71,6 +94,18 @@ nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable {
         self.firstDayString = firstDayString
         self.timeTable = timeTable
         self.courses = courses
+    }
+
+    /// Returns a copy carrying the opaque local account namespace used for cross-device validation.
+    func replacingStudentID(with identifier: String) -> ScheduleExternalSnapshot {
+        ScheduleExternalSnapshot(
+            generatedAt: generatedAt,
+            isLoggedIn: isLoggedIn,
+            studentID: identifier,
+            firstDayString: firstDayString,
+            timeTable: timeTable,
+            courses: courses
+        )
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -188,7 +223,12 @@ nonisolated enum ScheduleExternalSnapshotStore {
 
         try? AppFileSystem.files.setPrivateFileProtection(at: fileURL)
         guard let data = try? AppFileSystem.files.readData(at: fileURL) else { return nil }
-        return try? ScheduleExternalSnapshotCodec.decode(data)
+        guard let snapshot = try? ScheduleExternalSnapshotCodec.decode(data) else { return nil }
+        let accountToken = ScheduleSharedAccountIdentity.stableToken(for: snapshot.studentID)
+        guard snapshot.studentID != accountToken else { return snapshot }
+        let sanitizedSnapshot = snapshot.replacingStudentID(with: accountToken)
+        try? write(sanitizedSnapshot)
+        return sanitizedSnapshot
     }
 
     @discardableResult

@@ -23,7 +23,22 @@ struct AccountScopedCodableStore<Value: Codable> {
     }
 
     func load() -> Value? {
-        guard let data = defaults.data(forKey: storageKey) else { return nil }
+        let key = storageKey
+        if let data = defaults.data(forKey: key) {
+            return decode(data)
+        }
+
+        let legacyKey = session().legacyKey(keyPrefix)
+        guard legacyKey != key, let data = defaults.data(forKey: legacyKey),
+              let value = decode(data)
+        else { return nil }
+
+        defaults.set(data, forKey: key)
+        defaults.removeObject(forKey: legacyKey)
+        return value
+    }
+
+    private func decode(_ data: Data) -> Value? {
         do {
             return try JSONDecoder().decode(Value.self, from: data)
         } catch {
@@ -37,7 +52,10 @@ struct AccountScopedCodableStore<Value: Codable> {
     func save(_ value: Value) {
         do {
             let data = try JSONEncoder().encode(value)
-            defaults.set(data, forKey: storageKey)
+            let key = storageKey
+            defaults.set(data, forKey: key)
+            let legacyKey = session().legacyKey(keyPrefix)
+            if legacyKey != key { defaults.removeObject(forKey: legacyKey) }
         } catch {
             accountScopedStoreLogger.error(
                 "Failed to encode account-scoped value keyPrefix=\(keyPrefix, privacy: .public) error=\(String(describing: error), privacy: .public)"
@@ -46,7 +64,10 @@ struct AccountScopedCodableStore<Value: Codable> {
     }
 
     func remove() {
-        defaults.removeObject(forKey: storageKey)
+        let key = storageKey
+        defaults.removeObject(forKey: key)
+        let legacyKey = session().legacyKey(keyPrefix)
+        if legacyKey != key { defaults.removeObject(forKey: legacyKey) }
     }
 
     var storageKey: String {
@@ -72,7 +93,7 @@ struct AccountScopedFileCodableStore<Value: Codable> {
 
     var fileURL: URL {
         AppFileDirectories.accountSupportFileURL(
-            accountDirectoryName: session().accountDirectoryName,
+            accountDirectoryName: session().accountStorageIdentifier,
             named: filename
         )
     }
@@ -83,7 +104,16 @@ struct AccountScopedFileCodableStore<Value: Codable> {
 
     func load() -> Value? {
         let sourceURL = fileURL
-        guard files.fileExists(at: sourceURL) else { return nil }
+        guard files.fileExists(at: sourceURL) else {
+            let oldURL = legacyFileURL
+            guard oldURL != sourceURL, files.fileExists(at: oldURL) else { return nil }
+            try? files.setPrivateFileProtection(at: oldURL)
+            guard let data = try? files.readData(at: oldURL),
+                  let value = try? JSONDecoder().decode(Value.self, from: data)
+            else { return nil }
+            _ = save(value)
+            return value
+        }
         try? files.setPrivateFileProtection(at: sourceURL)
         guard let data = try? files.readData(at: sourceURL) else { return nil }
         do {
@@ -119,6 +149,7 @@ struct AccountScopedFileCodableStore<Value: Codable> {
                 to: targetURL,
                 options: AppFileSystem.protectedDataWritingOptions
             )
+            removeLegacyFileIfValid()
             return true
         } catch {
             accountScopedStoreLogger.error(
@@ -130,13 +161,32 @@ struct AccountScopedFileCodableStore<Value: Codable> {
 
     func remove() {
         let targetURL = fileURL
-        guard files.fileExists(at: targetURL) else { return }
-        do {
-            try files.removeItem(at: targetURL)
-        } catch {
-            accountScopedStoreLogger.error(
-                "Failed to remove account-scoped file filename=\(filename, privacy: .public) error=\(String(describing: error), privacy: .public)"
-            )
+        if files.fileExists(at: targetURL) {
+            do {
+                try files.removeItem(at: targetURL)
+            } catch {
+                accountScopedStoreLogger.error(
+                    "Failed to remove account-scoped file filename=\(filename, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                )
+            }
         }
+        let oldURL = legacyFileURL
+        if oldURL != targetURL, files.fileExists(at: oldURL) { try? files.removeItem(at: oldURL) }
+    }
+
+    private var legacyFileURL: URL {
+        AppFileDirectories.accountSupportFileURL(
+            accountDirectoryName: session().legacyAccountDirectoryNameForMigration,
+            named: filename
+        )
+    }
+
+    private func removeLegacyFileIfValid() {
+        let oldURL = legacyFileURL
+        guard oldURL != fileURL, files.fileExists(at: oldURL),
+              let data = try? files.readData(at: oldURL),
+              (try? JSONDecoder().decode(Value.self, from: data)) != nil
+        else { return }
+        try? files.removeItem(at: oldURL)
     }
 }

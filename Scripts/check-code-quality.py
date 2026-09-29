@@ -777,6 +777,16 @@ def owner_has_literal(syntax_index: dict[str, dict], owner: str, literal: str) -
     )
 
 
+def uses_application_support_storage(member: dict) -> bool:
+    return any(
+        entry in member["value"]
+        for entry in (
+            "AppFileDirectories.applicationSupport",
+            "AppFileDirectories.accountSupportFileURL",
+        )
+    )
+
+
 def checker_boundary_findings() -> list[str]:
     findings: list[str] = []
     shared_session_source = '''
@@ -818,6 +828,11 @@ let comparison = left != right
     }
     if not ast_has_view_request(view_facts) or ast_has_view_request(model_facts):
         findings.append("代码质量规则边界自检失败：SwiftSyntax View 请求范围匹配")
+
+    if not uses_application_support_storage({"value": "AppFileDirectories.accountSupportFileURL"}) or uses_application_support_storage(
+        {"value": "FileManager.default.urls(for: .applicationSupportDirectory)"}
+    ):
+        findings.append("代码质量规则边界自检失败：持久化仓库的统一存储入口识别")
 
     relocated_facts = {
         "declarations": [{"kind": "struct", "name": "ExampleView", "scope": []}],
@@ -1089,7 +1104,7 @@ def architectural_contract_findings(syntax_index: dict[str, dict]) -> list[str]:
     for type_name, file_name in storage_contracts:
         stores_in_scope = any(
             type_name in member["scope"]
-            and "AppFileDirectories.applicationSupport" in member["value"]
+            and uses_application_support_storage(member)
             for facts in syntax_index.values()
             for member in facts["members"]
         )
