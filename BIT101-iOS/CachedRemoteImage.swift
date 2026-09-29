@@ -185,49 +185,61 @@ private actor CachedRemoteImageStore {
     ///
     /// 缓存目录位于 `Caches`，系统可在空间不足时删除其中的内容。
     init() {
-        let directoryURL = AppFileDirectories.cacheDirectoryURL(named: "BIT101ImageCache")
-            ?? files.temporaryDirectoryURL.appending(path: "BIT101ImageCache", directoryHint: .isDirectory)
+        let directoryURL = ImageCacheDirectories.avatars(using: files)
         try? files.createDirectory(at: directoryURL)
         self.directoryURL = directoryURL
     }
 
     /// 按“内存 -> 磁盘”顺序读取缓存数据。
-    func data(for url: URL) -> Data? {
+    func data(for url: URL) async -> Data? {
         let key = cacheKey(for: url)
+        let fileURL = directoryURL.appendingPathComponent(key)
 
         if let cached = memoryCache.object(forKey: key as NSString) {
+            touchDiskEntry(for: key)
+            await ImageCacheDiskQuota.shared.enforce(protecting: Set([fileURL]))
             return Data(referencing: cached)
         }
 
-        let fileURL = directoryURL.appendingPathComponent(key)
-        guard let data = try? files.readData(at: fileURL) else { return nil }
+        guard let data = try? files.readData(at: fileURL) else {
+            await ImageCacheDiskQuota.shared.enforce()
+            return nil
+        }
+        try? files.setModificationDate(Date(), at: fileURL)
+        await ImageCacheDiskQuota.shared.enforce(protecting: Set([fileURL]))
         memoryCache.setObject(data as NSData, forKey: key as NSString, cost: data.count)
         return data
     }
 
     /// 读取缓存图片，并准备其显示位图。
-    func image(for url: URL) -> UIImage? {
+    func image(for url: URL) async -> UIImage? {
         let key = cacheKey(for: url)
         if let cached = imageCache.object(forKey: key as NSString) {
+            touchDiskEntry(for: key)
+            await ImageCacheDiskQuota.shared.enforce(
+                protecting: Set([directoryURL.appendingPathComponent(key)])
+            )
             return cached
         }
-        guard let data = data(for: url), let source = UIImage(data: data) else { return nil }
+        guard let data = await data(for: url), let source = UIImage(data: data) else { return nil }
         let decoded = source.preparingForDisplay() ?? source
         imageCache.setObject(decoded, forKey: key as NSString, cost: decodedPixelCost(decoded))
         return decoded
     }
 
     /// 将图片数据写入内存缓存和磁盘。
-    func store(_ data: Data, for url: URL) {
+    func store(_ data: Data, for url: URL) async {
         let key = cacheKey(for: url)
         memoryCache.setObject(data as NSData, forKey: key as NSString, cost: data.count)
         let fileURL = directoryURL.appendingPathComponent(key)
         try? files.writeData(data, to: fileURL, options: [.atomic])
+        try? files.setModificationDate(Date(), at: fileURL)
+        await ImageCacheDiskQuota.shared.enforce(protecting: Set([fileURL]))
     }
 
     /// 写入下载数据，并缓存准备显示的位图。
-    func storeAndDecode(_ data: Data, for url: URL) -> UIImage? {
-        store(data, for: url)
+    func storeAndDecode(_ data: Data, for url: URL) async -> UIImage? {
+        await store(data, for: url)
         guard let source = UIImage(data: data) else { return nil }
         let decoded = source.preparingForDisplay() ?? source
         let key = cacheKey(for: url) as NSString
@@ -256,6 +268,11 @@ private actor CachedRemoteImageStore {
             value = value &* 1_099_511_628_211
         }
         return String(value, radix: 16)
+    }
+
+    private func touchDiskEntry(for key: String) {
+        let fileURL = directoryURL.appendingPathComponent(key)
+        try? files.setModificationDate(Date(), at: fileURL)
     }
 
     private func decodedPixelCost(_ image: UIImage) -> Int {

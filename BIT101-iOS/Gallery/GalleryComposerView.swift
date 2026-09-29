@@ -1,3 +1,4 @@
+import ImageIO
 import PhotosUI
 import OSLog
 import SwiftUI
@@ -210,24 +211,166 @@ struct DeveloperSuggestionDraftSnapshot: Codable {
     }
 }
 
+private struct StoredComposerDraftImage: Codable {
+    let filename: String
+}
+
+private struct StoredGalleryComposerDraft: Codable {
+    let schemaVersion: Int
+    let assetRevision: String
+    let title: String
+    let text: String
+    let selectedTags: [String]
+    let customTags: [String]
+    let anonymous: Bool
+    let isPublic: Bool
+    let selectedClaimID: Int
+    let images: [StoredComposerDraftImage]
+}
+
+private struct StoredDeveloperSuggestionDraft: Codable {
+    let schemaVersion: Int
+    let assetRevision: String
+    let text: String
+    let contact: String
+    let images: [StoredComposerDraftImage]
+}
+
 enum ComposerDraftStore {
     private static let directoryName = "ComposerDrafts"
     private static let logger = Logger(subsystem: "BIT101", category: "ComposerDraft")
+    private static let currentSchemaVersion = 1
 
-    static func saveGallery(_ snapshot: GalleryComposerDraftSnapshot) {
-        save(snapshot, filename: "gallery.json")
+    @discardableResult
+    static func saveGallery(_ snapshot: GalleryComposerDraftSnapshot) -> Bool {
+        persistGallery(snapshot)
+    }
+
+    @discardableResult
+    private static func persistGallery(_ snapshot: GalleryComposerDraftSnapshot) -> Bool {
+        let fileURL = currentFileURL(for: "gallery.json")
+        let previousRevision = storedGalleryRevision(at: fileURL)
+        var newRevision: String?
+        do {
+            let (revision, images) = try writeImages(snapshot.images, filename: "gallery.json")
+            newRevision = revision
+            let stored = StoredGalleryComposerDraft(
+                schemaVersion: currentSchemaVersion,
+                assetRevision: revision,
+                title: snapshot.title,
+                text: snapshot.text,
+                selectedTags: snapshot.selectedTags,
+                customTags: snapshot.customTags,
+                anonymous: snapshot.anonymous,
+                isPublic: snapshot.isPublic,
+                selectedClaimID: snapshot.selectedClaimID,
+                images: images
+            )
+            try write(stored, to: fileURL)
+            removeObsoleteAssetRevisions(for: "gallery.json", keeping: revision)
+            if let previousRevision, previousRevision != revision {
+                removeAssets(for: "gallery.json", revision: previousRevision)
+            }
+            return true
+        } catch {
+            if let newRevision { removeAssets(for: "gallery.json", revision: newRevision) }
+            logger.error("保存发帖草稿失败：\(String(describing: error), privacy: .public)")
+            return false
+        }
     }
 
     static func loadGallery() -> GalleryComposerDraftSnapshot? {
-        load(filename: "gallery.json")
+        let currentURL = currentFileURL(for: "gallery.json")
+        if let data = readData(at: currentURL) {
+            if let stored = try? JSONDecoder().decode(StoredGalleryComposerDraft.self, from: data),
+               stored.schemaVersion == currentSchemaVersion,
+               let images = readImages(stored.images, filename: "gallery.json", revision: stored.assetRevision) {
+                return GalleryComposerDraftSnapshot(
+                    title: stored.title,
+                    text: stored.text,
+                    selectedTags: stored.selectedTags,
+                    customTags: stored.customTags,
+                    anonymous: stored.anonymous,
+                    isPublic: stored.isPublic,
+                    selectedClaimID: stored.selectedClaimID,
+                    images: images
+                )
+            }
+            if let legacy = try? JSONDecoder().decode(GalleryComposerDraftSnapshot.self, from: data) {
+                _ = persistGallery(legacy)
+                return legacy
+            }
+        }
+
+        let legacyURL = directoryURL.appendingPathComponent("gallery.json")
+        guard let data = readData(at: legacyURL),
+              let legacy = try? JSONDecoder().decode(GalleryComposerDraftSnapshot.self, from: data)
+        else { return nil }
+        if persistGallery(legacy) {
+            try? AppFileDirectories.files.removeItem(at: legacyURL)
+        }
+        return legacy
     }
 
-    static func saveSuggestion(_ snapshot: DeveloperSuggestionDraftSnapshot) {
-        save(snapshot, filename: "suggestion.json")
+    @discardableResult
+    static func saveSuggestion(_ snapshot: DeveloperSuggestionDraftSnapshot) -> Bool {
+        persistSuggestion(snapshot)
+    }
+
+    @discardableResult
+    private static func persistSuggestion(_ snapshot: DeveloperSuggestionDraftSnapshot) -> Bool {
+        let fileURL = currentFileURL(for: "suggestion.json")
+        let previousRevision = storedSuggestionRevision(at: fileURL)
+        var newRevision: String?
+        do {
+            let (revision, images) = try writeImages(snapshot.images, filename: "suggestion.json")
+            newRevision = revision
+            let stored = StoredDeveloperSuggestionDraft(
+                schemaVersion: currentSchemaVersion,
+                assetRevision: revision,
+                text: snapshot.text,
+                contact: snapshot.contact,
+                images: images
+            )
+            try write(stored, to: fileURL)
+            removeObsoleteAssetRevisions(for: "suggestion.json", keeping: revision)
+            if let previousRevision, previousRevision != revision {
+                removeAssets(for: "suggestion.json", revision: previousRevision)
+            }
+            return true
+        } catch {
+            if let newRevision { removeAssets(for: "suggestion.json", revision: newRevision) }
+            logger.error("保存建议草稿失败：\(String(describing: error), privacy: .public)")
+            return false
+        }
     }
 
     static func loadSuggestion() -> DeveloperSuggestionDraftSnapshot? {
-        load(filename: "suggestion.json")
+        let currentURL = currentFileURL(for: "suggestion.json")
+        if let data = readData(at: currentURL) {
+            if let stored = try? JSONDecoder().decode(StoredDeveloperSuggestionDraft.self, from: data),
+               stored.schemaVersion == currentSchemaVersion,
+               let images = readImages(stored.images, filename: "suggestion.json", revision: stored.assetRevision) {
+                return DeveloperSuggestionDraftSnapshot(
+                    text: stored.text,
+                    images: images,
+                    contact: stored.contact
+                )
+            }
+            if let legacy = try? JSONDecoder().decode(DeveloperSuggestionDraftSnapshot.self, from: data) {
+                _ = persistSuggestion(legacy)
+                return legacy
+            }
+        }
+
+        let legacyURL = directoryURL.appendingPathComponent("suggestion.json")
+        guard let data = readData(at: legacyURL),
+              let legacy = try? JSONDecoder().decode(DeveloperSuggestionDraftSnapshot.self, from: data)
+        else { return nil }
+        if persistSuggestion(legacy) {
+            try? AppFileDirectories.files.removeItem(at: legacyURL)
+        }
+        return legacy
     }
 
     static func removeGallery() {
@@ -242,43 +385,75 @@ enum ComposerDraftStore {
         AppFileDirectories.applicationSupportDirectoryURL(named: directoryName)
     }
 
-    private static func save<T: Encodable>(_ value: T, filename: String) {
-        let fileURL = currentFileURL(for: filename)
+    private static func readData(at url: URL) -> Data? {
+        try? AppFileDirectories.files.setPrivateFileProtection(at: url)
+        return try? AppFileDirectories.files.readData(at: url)
+    }
+
+    private static func write<T: Encodable>(_ value: T, to fileURL: URL) throws {
+        try AppFileDirectories.files.createDirectory(at: fileURL.deletingLastPathComponent())
+        let data = try JSONEncoder().encode(value)
+        try AppFileDirectories.files.writeData(
+            data,
+            to: fileURL,
+            options: AppFileSystem.protectedDataWritingOptions
+        )
+    }
+
+    private static func writeImages(
+        _ images: [ComposerImageDraftSnapshot],
+        filename: String
+    ) throws -> (revision: String, references: [StoredComposerDraftImage]) {
+        let revision = UUID().uuidString.lowercased()
+        let directory = assetDirectoryURL(for: filename, revision: revision)
+        try AppFileDirectories.files.createDirectory(at: directory)
         do {
-            try AppFileDirectories.files.createDirectory(at: fileURL.deletingLastPathComponent())
-            let data = try JSONEncoder().encode(value)
-            try AppFileDirectories.files.writeData(data, to: fileURL, options: [.atomic])
+            let references = try images.enumerated().map { index, image in
+                let source = image.uploadData ?? image.previewData
+                let data: Data
+                if let uploadData = image.uploadData,
+                   uploadData.count <= ComposerDraftImageCompressor.maximumBytes {
+                    data = uploadData
+                } else {
+                    data = try ComposerDraftImageCompressor.compress(source)
+                }
+                try AppFileDirectories.files.writeData(
+                    data,
+                    to: directory.appending(path: "image-\(index).jpg"),
+                    options: AppFileSystem.protectedDataWritingOptions
+                )
+                return StoredComposerDraftImage(filename: image.filename)
+            }
+            return (revision, references)
         } catch {
-            // 草稿保存失败允许用户退出，日志保留诊断信息。
-            logger.error("保存草稿失败：\(String(describing: error), privacy: .public)")
+            try? AppFileDirectories.files.removeItem(at: directory)
+            throw error
         }
     }
 
-    private static func load<T: Decodable>(filename: String) -> T? {
-        let fileURL = currentFileURL(for: filename)
-        if let data = try? AppFileDirectories.files.readData(at: fileURL) {
-            return try? JSONDecoder().decode(T.self, from: data)
+    private static func readImages(
+        _ references: [StoredComposerDraftImage],
+        filename: String,
+        revision: String
+    ) -> [ComposerImageDraftSnapshot]? {
+        let directory = assetDirectoryURL(for: filename, revision: revision)
+        var images: [ComposerImageDraftSnapshot] = []
+        for (index, reference) in references.enumerated() {
+            let fileURL = directory.appending(path: "image-\(index).jpg")
+            guard let data = readData(at: fileURL) else { return nil }
+            images.append(ComposerImageDraftSnapshot(
+                filename: reference.filename,
+                previewData: data,
+                uploadData: data
+            ))
         }
-
-        let legacyURL = directoryURL.appendingPathComponent(filename)
-        guard
-            let data = try? AppFileDirectories.files.readData(at: legacyURL),
-            let value = try? JSONDecoder().decode(T.self, from: data)
-        else { return nil }
-
-        do {
-            try AppFileDirectories.files.createDirectory(at: fileURL.deletingLastPathComponent())
-            try AppFileDirectories.files.writeData(data, to: fileURL, options: [.atomic])
-            try AppFileDirectories.files.removeItem(at: legacyURL)
-        } catch {
-            logger.error("迁移草稿失败：\(String(describing: error), privacy: .public)")
-        }
-        return value
+        return images
     }
 
     private static func remove(filename: String) {
         try? AppFileDirectories.files.removeItem(at: currentFileURL(for: filename))
         try? AppFileDirectories.files.removeItem(at: directoryURL.appendingPathComponent(filename))
+        try? AppFileDirectories.files.removeItem(at: assetRootURL(for: filename))
     }
 
     private static func currentFileURL(for filename: String) -> URL {
@@ -286,6 +461,88 @@ enum ComposerDraftStore {
             accountDirectoryName: AppFileDirectories.currentSession.accountDirectoryName,
             named: "composer-\(filename)"
         )
+    }
+
+    private static func assetRootURL(for filename: String) -> URL {
+        currentFileURL(for: filename).appendingPathExtension("assets")
+    }
+
+    private static func assetDirectoryURL(for filename: String, revision: String) -> URL {
+        assetRootURL(for: filename).appending(path: revision, directoryHint: .isDirectory)
+    }
+
+    private static func storedGalleryRevision(at url: URL) -> String? {
+        guard let data = readData(at: url) else { return nil }
+        return try? JSONDecoder().decode(StoredGalleryComposerDraft.self, from: data).assetRevision
+    }
+
+    private static func storedSuggestionRevision(at url: URL) -> String? {
+        guard let data = readData(at: url) else { return nil }
+        return try? JSONDecoder().decode(StoredDeveloperSuggestionDraft.self, from: data).assetRevision
+    }
+
+    private static func removeAssets(for filename: String, revision: String) {
+        try? AppFileDirectories.files.removeItem(at: assetDirectoryURL(for: filename, revision: revision))
+    }
+
+    private static func removeObsoleteAssetRevisions(for filename: String, keeping revision: String) {
+        let root = assetRootURL(for: filename)
+        guard let revisions = try? AppFileDirectories.files.contentsOfDirectory(at: root, options: []) else { return }
+        for oldRevision in revisions where oldRevision.lastPathComponent != revision {
+            try? AppFileDirectories.files.removeItem(at: oldRevision)
+        }
+    }
+}
+
+enum ComposerDraftImageCompressor {
+    nonisolated static let maximumBytes = 1 * 1_024 * 1_024
+
+    nonisolated static func compress(_ data: Data) throws -> Data {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(
+                  source,
+                  0,
+                  [
+                      kCGImageSourceCreateThumbnailFromImageAlways: true,
+                      kCGImageSourceCreateThumbnailWithTransform: true,
+                      kCGImageSourceThumbnailMaxPixelSize: 1600
+                  ] as CFDictionary
+              ) else {
+            throw GalleryServiceError.uploadFailed
+        }
+
+        var best = render(image: image, maxDimension: 1600, quality: 0.68)
+        if best.count <= maximumBytes { return best }
+
+        for quality in [0.48, 0.32, 0.2] {
+            best = render(image: image, maxDimension: 1600, quality: quality)
+            if best.count <= maximumBytes { return best }
+        }
+
+        for dimension in [1200, 900, 700, 512, 384, 256] {
+            best = render(image: image, maxDimension: CGFloat(dimension), quality: 0.5)
+            if best.count <= maximumBytes { return best }
+        }
+        guard best.count <= maximumBytes else { throw CocoaError(.fileWriteOutOfSpace) }
+        return best
+    }
+
+    private nonisolated static func render(
+        image: CGImage,
+        maxDimension: CGFloat,
+        quality: CGFloat
+    ) -> Data {
+        let width = CGFloat(image.width)
+        let height = CGFloat(image.height)
+        let scale = min(1, maxDimension / max(width, height))
+        let size = CGSize(
+            width: max(1, width * scale),
+            height: max(1, height * scale)
+        )
+        return UIGraphicsImageRenderer(size: size).jpegData(withCompressionQuality: quality) { context in
+            context.cgContext.interpolationQuality = .medium
+            UIImage(cgImage: image).draw(in: CGRect(origin: .zero, size: size))
+        }
     }
 }
 
@@ -535,8 +792,14 @@ struct GalleryComposerView: View {
             .onAppear { checkDraftOnAppear() }
             .alert("保存草稿？", isPresented: $isShowingDraftAlert) {
                 Button("保存草稿") {
-                    saveDraft()
-                    dismiss()
+                    if saveDraft() {
+                        dismiss()
+                    } else {
+                        alert = AppAlert.informational(
+                            title: "草稿暂存遇到问题",
+                            message: "当前页面内容已保留，请稍后重试保存。"
+                        )
+                    }
                 }
                 Button("不保存") {
                     ComposerDraftStore.removeGallery()
@@ -572,7 +835,7 @@ struct GalleryComposerView: View {
         isShowingDraftAlert = true
     }
 
-    private func saveDraft() {
+    private func saveDraft() -> Bool {
         ComposerDraftStore.saveGallery(
             GalleryComposerDraftSnapshot(
                 title: title,

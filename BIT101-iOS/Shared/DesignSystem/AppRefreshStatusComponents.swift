@@ -8,6 +8,7 @@ struct AppRefreshStatusRow: View {
     let actionTitle: String?
     let onRefresh: (() -> Void)?
     let trailingText: String?
+    let actionAccessibilityIdentifier: String?
     @State private var feedbackToken = 0
 
     init(
@@ -16,7 +17,8 @@ struct AppRefreshStatusRow: View {
         lastUpdatedText: String,
         actionTitle: String? = nil,
         onRefresh: (() -> Void)? = nil,
-        trailingText: String? = nil
+        trailingText: String? = nil,
+        actionAccessibilityIdentifier: String? = nil
     ) {
         self.isRefreshing = isRefreshing
         self.refreshingText = refreshingText
@@ -24,6 +26,7 @@ struct AppRefreshStatusRow: View {
         self.actionTitle = actionTitle
         self.onRefresh = onRefresh
         self.trailingText = trailingText
+        self.actionAccessibilityIdentifier = actionAccessibilityIdentifier
     }
 
     var body: some View {
@@ -46,6 +49,7 @@ struct AppRefreshStatusRow: View {
                     feedbackToken &+= 1
                     onRefresh()
                 }
+                .accessibilityIdentifier(actionAccessibilityIdentifier ?? "app.refresh-status.action")
                 .disabled(isRefreshing)
                 .appImpactFeedback(trigger: feedbackToken)
             } else if let trailingText {

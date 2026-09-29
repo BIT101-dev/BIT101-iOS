@@ -35,6 +35,8 @@ nonisolated struct ScheduleCache: Codable, Sendable {
     var exams: [ExamRecord] = []
     var customSchedules: [CustomScheduleRecord] = []
     var ddlEvents: [DDLEventRecord] = []
+    /// 乐学 DDL 的完成状态按事件 ID 保存，便于与可刷新事件正文分离同步。
+    var lexueDDLCompletionByID: [String: Bool] = [:]
     /// 最近一次成功同步乐学 DDL 的时间；为空表示尚未成功同步。
     var ddlUpdatedAt: Date?
     var ddlBeforeDay = 7
@@ -81,6 +83,7 @@ nonisolated struct ScheduleCache: Codable, Sendable {
         case exams
         case customSchedules
         case ddlEvents
+        case lexueDDLCompletionByID
         case ddlUpdatedAt
         case ddlBeforeDay
         case ddlAfterDay
@@ -148,6 +151,10 @@ nonisolated struct ScheduleCache: Codable, Sendable {
         exams = try container.decodeIfPresent([ExamRecord].self, forKey: .exams) ?? []
         customSchedules = try container.decodeIfPresent([CustomScheduleRecord].self, forKey: .customSchedules) ?? []
         ddlEvents = try container.decodeIfPresent([DDLEventRecord].self, forKey: .ddlEvents) ?? []
+        lexueDDLCompletionByID = try container.decodeIfPresent(
+            [String: Bool].self,
+            forKey: .lexueDDLCompletionByID
+        ) ?? [:]
         ddlUpdatedAt = try container.decodeIfPresent(Date.self, forKey: .ddlUpdatedAt)
         ddlBeforeDay = try container.decodeIfPresent(Int.self, forKey: .ddlBeforeDay) ?? 7
         ddlAfterDay = try container.decodeIfPresent(Int.self, forKey: .ddlAfterDay) ?? 3

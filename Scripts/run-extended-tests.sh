@@ -5,19 +5,32 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT="$ROOT_DIR/BIT101-iOS.xcodeproj"
 DERIVED_ROOT="$ROOT_DIR/.build/extended-automation"
 TEST_BUNDLE="BIT101-iOSTests"
+TEST_SCHEME="BIT101-iOS"
 CONDITIONS="DEBUG EXTENDED_AUTOMATION BIT101_AUTOMATED_TESTING"
 RESULT_BUNDLE="$DERIVED_ROOT/test-results.xcresult"
+UI_TEST_SELECTION=""
 
 MODE="all"
 if [[ $# -gt 0 ]]; then
   case "$1" in
-    all|default|schedule|schedule-share|infrastructure|login|extensions|catalyst)
+    all|default|schedule|schedule-share|infrastructure|login|extensions|ui|catalyst)
       MODE="$1"
       shift
       ;;
   esac
 fi
 
+if [[ "$MODE" == "ui" ]]; then
+  TEST_BUNDLE="BIT101-iOSUITests"
+  TEST_SCHEME="BIT101-iOS-UIAutomation"
+  CONDITIONS="EXTENDED_AUTOMATION BIT101_AUTOMATED_TESTING BIT101_UI_TESTING"
+  if [[ $# -gt 0 && "$1" == */* ]]; then
+    UI_TEST_SELECTION="$1"
+    shift
+  fi
+fi
+
+UI_RESTORE_DEVICE_ID=""
 if [[ "$MODE" == "catalyst" ]]; then
   if [[ $# -gt 0 ]]; then
     echo "用法：Scripts/run-extended-tests.sh catalyst" >&2
@@ -30,14 +43,30 @@ elif [[ $# -eq 0 ]]; then
   bit101_require_device "$PROJECT" || exit 1
   TEST_DESTINATION="platform=iOS,id=$BIT101_XCODE_DEVICE_ID"
   SIGNING_ARGS=(-allowProvisioningUpdates)
+  UI_RESTORE_DEVICE_ID="$BIT101_XCODE_DEVICE_ID"
 else
   if [[ $# -gt 2 ]]; then
-    echo "用法：Scripts/run-extended-tests.sh [all|default|schedule|schedule-share|infrastructure|login|extensions] [真机设备ID]" >&2
+    echo "用法：Scripts/run-extended-tests.sh [all|default|schedule|schedule-share|infrastructure|login|extensions|ui] [UI测试类/用例] [真机设备ID]" >&2
     exit 64
   fi
   DEVICE_ID="$1"
   TEST_DESTINATION="platform=iOS,id=$DEVICE_ID"
   SIGNING_ARGS=(-allowProvisioningUpdates)
+  UI_RESTORE_DEVICE_ID="$DEVICE_ID"
+fi
+
+if [[ "$MODE" == "ui" ]]; then
+  restore_release_app() {
+    local test_exit_code=$?
+    trap - EXIT
+    echo "[恢复] 安装并启动常规 Release App"
+    if ! "$ROOT_DIR/Scripts/build-install-device.sh" "$UI_RESTORE_DEVICE_ID"; then
+      echo "常规 Release App 恢复失败，请运行 Scripts/build-install-device.sh $UI_RESTORE_DEVICE_ID" >&2
+      (( test_exit_code == 0 )) && test_exit_code=1
+    fi
+    exit "$test_exit_code"
+  }
+  trap restore_release_app EXIT
 fi
 
 mkdir -p "$DERIVED_ROOT"
@@ -116,19 +145,22 @@ run_tests() {
   local only_testing="$TEST_BUNDLE"
   local failure_summary
   local exit_code
-  if [[ "$group" != "all-tests" && "$group" != "default-tests" ]]; then
+  local diagnostics="never"
+  if [[ "$group" == "ui-tests" && -n "$UI_TEST_SELECTION" ]]; then
+    only_testing="$TEST_BUNDLE/$UI_TEST_SELECTION"
+  elif [[ "$group" != "all-tests" && "$group" != "default-tests" && "$group" != "ui-tests" ]]; then
     only_testing="$TEST_BUNDLE/$group"
   fi
 
   echo "[测试] $group"
   if run_with_output_threshold "$log" "$group 测试输出" xcodebuild test -quiet \
     -project "$PROJECT" \
-    -scheme BIT101-iOS \
+    -scheme "$TEST_SCHEME" \
     -configuration Release \
     -destination "$TEST_DESTINATION" \
     -derivedDataPath "$DERIVED_ROOT" \
     -resultBundlePath "$RESULT_BUNDLE" \
-    -collect-test-diagnostics never \
+    -collect-test-diagnostics "$diagnostics" \
     -enableCodeCoverage YES \
     "SWIFT_ACTIVE_COMPILATION_CONDITIONS=$conditions" \
     ENABLE_CODE_COVERAGE=YES \
@@ -271,6 +303,9 @@ case "$MODE" in
     ;;
   extensions)
     run_tests ExternalScheduleInfrastructureTests "$CONDITIONS"
+    ;;
+  ui)
+    run_tests ui-tests "$CONDITIONS"
     ;;
   catalyst)
     run_tests all-tests "$CONDITIONS"

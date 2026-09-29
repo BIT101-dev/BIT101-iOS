@@ -168,7 +168,11 @@ nonisolated enum ScheduleExternalSnapshotStore {
             snapshot,
             outputFormatting: [.prettyPrinted, .sortedKeys]
         )
-        try AppFileSystem.files.writeData(data, to: fileURL, options: [.atomic])
+        try AppFileSystem.files.writeData(
+            data,
+            to: fileURL,
+            options: AppFileSystem.protectedDataWritingOptions
+        )
         Task { @MainActor in
             NotificationCenter.default.post(name: .scheduleExternalSnapshotDidChange, object: nil)
         }
@@ -177,20 +181,34 @@ nonisolated enum ScheduleExternalSnapshotStore {
     static func load() -> ScheduleExternalSnapshot? {
         guard
             let fileURL,
-            let data = try? AppFileSystem.files.readData(at: fileURL)
+            AppFileSystem.files.fileExists(at: fileURL)
         else {
             return nil
         }
 
+        try? AppFileSystem.files.setPrivateFileProtection(at: fileURL)
+        guard let data = try? AppFileSystem.files.readData(at: fileURL) else { return nil }
         return try? ScheduleExternalSnapshotCodec.decode(data)
     }
 
-    static func clear() {
-        guard let fileURL else { return }
-        try? AppFileSystem.files.removeItem(at: fileURL)
+    @discardableResult
+    static func clear() -> Bool {
+        guard let fileURL else { return false }
+        let succeeded: Bool
+        if !AppFileSystem.files.fileExists(at: fileURL) {
+            succeeded = true
+        } else {
+            do {
+                try AppFileSystem.files.removeItem(at: fileURL)
+                succeeded = true
+            } catch {
+                succeeded = false
+            }
+        }
         Task { @MainActor in
             NotificationCenter.default.post(name: .scheduleExternalSnapshotDidChange, object: nil)
         }
+        return succeeded
     }
 
     static var fileURL: URL? {

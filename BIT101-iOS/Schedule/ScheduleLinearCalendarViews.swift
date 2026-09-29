@@ -415,11 +415,13 @@ private struct LinearScheduleCanvasView: View {
                 )
 
                 ScheduleBlankContextMenuView(
-                    onBegan: { contextMenuFeedbackToken &+= 1 },
                     onShare: configuration.onShareSchedule,
                     onImport: configuration.onImportSchedule
                 )
-                .frame(width: proxy.size.width, height: contentHeight)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.trailing, AppDesignSystem.Size.Control.touchTarget + AppDesignSystem.Spacing.regular)
+                .padding(.bottom, AppDesignSystem.Size.Control.touchTarget + AppDesignSystem.Spacing.regular)
+                .frame(width: proxy.size.width, height: contentHeight, alignment: .topLeading)
 
                 ForEach(configuration.entries.filter { visibleWeekdays.contains($0.dayOfWeek) }) { entry in
                     entryView(

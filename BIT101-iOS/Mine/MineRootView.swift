@@ -95,6 +95,9 @@ struct MineRootView: View {
             }
         }
         .task {
+#if BIT101_UI_TESTING
+            guard !AppFileDirectories.isRunningUITest else { return }
+#endif
             await viewModel.bootstrapIfNeeded()
         }
         .diagnosticAlert(item: $viewModel.alert)
@@ -153,6 +156,7 @@ struct MineRootView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("settings.route.\(route.id)")
         }
     }
 }

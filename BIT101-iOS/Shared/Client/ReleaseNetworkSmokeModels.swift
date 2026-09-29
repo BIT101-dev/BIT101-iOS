@@ -119,6 +119,14 @@ enum ReleaseNetworkSmokeReportStore {
         )
     }
 
+    private static var rawCourseResponseFileURL: URL? {
+        AppFileDirectories.appGroupFileURL(
+            groupIdentifier: ScheduleSharedContainer.identifier,
+            directories: ["Library", directoryName],
+            named: rawCourseResponseFileName
+        )
+    }
+
     static func write(_ report: ReleaseNetworkSmokeReport) throws {
         guard let fileURL else {
             throw ScheduleExternalSnapshotStoreError.sharedContainerUnavailable
@@ -138,21 +146,34 @@ enum ReleaseNetworkSmokeReportStore {
     }
 
     static func clearRawCourseResponse() {
-        guard let fileURL = AppFileDirectories.appGroupFileURL(
-            groupIdentifier: ScheduleSharedContainer.identifier,
-            directories: ["Library", directoryName],
-            named: rawCourseResponseFileName
-        ) else { return }
+        guard let fileURL = rawCourseResponseFileURL else { return }
         try? AppFileDirectories.files.removeItem(at: fileURL)
+    }
+
+    @discardableResult
+    static func clearLocalArtifacts() -> Bool {
+        guard let directoryURL = fileURL?.deletingLastPathComponent() else {
+            rawCourseCaptureEnabled = false
+            return false
+        }
+        let succeeded: Bool
+        if !AppFileDirectories.files.fileExists(at: directoryURL) {
+            succeeded = true
+        } else {
+            do {
+                try AppFileDirectories.files.removeItem(at: directoryURL)
+                succeeded = true
+            } catch {
+                succeeded = false
+            }
+        }
+        rawCourseCaptureEnabled = false
+        return succeeded
     }
 
     static func writeRawCourseResponse(_ data: Data) {
         guard rawCourseCaptureEnabled,
-              let fileURL = AppFileDirectories.appGroupFileURL(
-                  groupIdentifier: ScheduleSharedContainer.identifier,
-                  directories: ["Library", directoryName],
-                  named: rawCourseResponseFileName
-              )
+              let fileURL = rawCourseResponseFileURL
         else { return }
         try? AppFileDirectories.files.createDirectory(at: fileURL.deletingLastPathComponent())
         try? AppFileDirectories.files.writeData(data, to: fileURL, options: [.atomic, .completeFileProtection])

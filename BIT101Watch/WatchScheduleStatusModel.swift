@@ -38,7 +38,7 @@ struct WatchScheduleStatusDependencies {
         loadResolvedSnapshot: { now, limit in
             ScheduleOccurrenceResolver.loadResolvedSnapshot(now: now, limit: limit)
         },
-        clearSnapshot: ScheduleExternalSnapshotStore.clear,
+        clearSnapshot: { _ = ScheduleExternalSnapshotStore.clear() },
         activateSync: WatchScheduleSyncManager.shared.activateIfNeeded,
         requestLatestSnapshot: WatchScheduleSyncManager.shared.requestLatestSnapshotFromPhone
     )

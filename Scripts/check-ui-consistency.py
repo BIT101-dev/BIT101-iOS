@@ -194,7 +194,7 @@ DIRECT_STROKE_GEOMETRY = re.compile(
 )
 DIRECT_BLUR_GEOMETRY = re.compile(r"\.blur\s*\(\s*radius\s*:\s*[0-9]+(?:\.[0-9]+)?")
 DIRECT_THUMBNAIL_GEOMETRY = re.compile(
-    r"\bthumbnailButton\s*\([^\n]*(?:width|maxHeight|aspectRatio)\s*:\s*[0-9]+(?:\.[0-9]+)?"
+    r"\bthumbnailButton\s*\([^)]*(?:width|maxHeight|aspectRatio)\s*:\s*[0-9]+(?:\.[0-9]+)?"
 )
 DIRECT_SEMANTIC_COLOR_RULES = (
     (re.compile(r"\bColor\.orange\b|(?<![\w.])\.orange\b"), "AppDesignSystem.Palette.Highlight.primary"),
@@ -240,11 +240,15 @@ CONTEXTUAL_COLOR_BYPASSES = (
     ("AppDesignSystem.Palette.Highlight.primary", "AppDesignSystem.Palette.Accent.primary"),
     ("AppDesignSystem.Palette.Highlight.surface", "AppDesignSystem.Palette.Accent.surface"),
 )
-DIRECT_FLOATING_SIZE = re.compile(r"\.frame\(\s*width:\s*42\s*,\s*height:\s*42\s*\)")
+DIRECT_FLOATING_SIZE = re.compile(
+    r"\.frame\(\s*width\s*:\s*42\s*,\s*height\s*:\s*42\s*\)"
+)
 DIRECT_TOUCH_TARGET = re.compile(
     r"\.frame\([^)]*(?:minHeight\s*:\s*44|width\s*:\s*44\s*,\s*height\s*:\s*44)"
 )
-DIRECT_FLOATING_MATERIAL = re.compile(r"\.background\(\s*\.ultraThinMaterial\s*,\s*in:\s*Circle\(\)\s*\)")
+DIRECT_FLOATING_MATERIAL = re.compile(
+    r"\.background\(\s*\.ultraThinMaterial\s*,\s*in\s*:\s*Circle\s*\(\s*\)\s*\)"
+)
 DIRECT_GROUPED_LIST_STYLE = re.compile(r"\.listStyle\(\s*\.insetGrouped\s*\)")
 DIRECT_PLAIN_LIST_STYLE = re.compile(r"\.listStyle\(\s*\.plain\s*\)")
 DIRECT_LIST_SECTION_SPACING = re.compile(r"\.listSectionSpacing\(")
@@ -252,7 +256,9 @@ DIRECT_INPUT_PLACEHOLDER = re.compile(
     r"\b(?:TextField|SecureField)\s*\(\s*\"[^\"]+\"\s*,\s*text\s*:"
 )
 DIRECT_CUSTOM_SECTION_HEADER = re.compile(r"header\s*:\s*\{\s*Text\s*\(")
-DIRECT_ANIMATION_DURATION = re.compile(r"\b(?:withAnimation|animation)\s*\([^\n]*\bduration\s*:")
+DIRECT_ANIMATION_DURATION = re.compile(
+    r"\b(?:withAnimation|animation)\s*\([^)]*\bduration\s*:"
+)
 DIRECT_BARE_HSTACK = re.compile(r"\bHStack\s*\{")
 DIRECT_HSTACK_LITERAL = re.compile(
     r"\bHStack\s*\([^)]*\bspacing\s*:\s*[0-9]+(?:\.[0-9]+)?"
@@ -306,6 +312,21 @@ COMPONENT_GROUPS = (
     ("数据行", ("AppFixedColumnItem", "AppFixedColumnRow", "AppRefreshStatusRow", "AppFeedRow", "AppCourseEvaluationRow")),
     ("验证码", ("AppSMSVerificationSheet",)),
 )
+
+COMPONENT_INHERITANCE = {
+    **{
+        symbol: "View"
+        for _, symbols in COMPONENT_GROUPS
+        for symbol in symbols
+    },
+    "AppComposerToolbar": "ToolbarContent",
+    "AppFixedColumnItem": None,
+}
+
+LOCAL_APP_ALERT_BINDINGS = {
+    ("CourseEvaluationLink", "alert"),
+    ("CourseEvaluationDestination", "expectedAlert"),
+}
 
 COMPONENT_CONTRACTS = (
     ComponentContract(
@@ -532,6 +553,33 @@ def type_entries(syntax: dict[str, dict], type_name: str) -> list[tuple[Path, di
     ]
 
 
+def has_component_declaration(symbol: str, declarations: list[dict]) -> bool:
+    expected_inheritance = COMPONENT_INHERITANCE[symbol]
+    return any(
+        declaration["name"] == symbol
+        and declaration["kind"] == "struct"
+        and (
+            expected_inheritance is None
+            or any(
+                inherited.rsplit(".", 1)[-1] == expected_inheritance
+                for inherited in declaration["inheritedTypes"]
+            )
+        )
+        for declaration in declarations
+    )
+
+
+def list_icon_findings(path: Path, facts: dict) -> list[str]:
+    if "Mine" in path.parts:
+        return []
+    return [
+        f"{path}: {'.'.join(icon['scope'])} 列表/表单左侧图标必须通过公共组件提供（{icon['name']}: {icon['symbol']}）"
+        for icon in facts.get("listIcons", [])
+        if icon["containers"]
+        and not re.search(r"checkmark|circle|chevron|xmark|minus|star", icon["symbol"])
+    ]
+
+
 def view_or_child_has_marker(syntax: dict[str, dict], facts: dict, scope: list[str], marker: str) -> bool:
     if ast_has_marker(facts, marker, scope):
         return True
@@ -721,11 +769,10 @@ def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> Non
     ]
     for group, symbols in COMPONENT_GROUPS:
         for symbol in symbols:
-            if not any(
-                declaration["name"] == symbol
-                for declaration in component_declarations
-            ):
-                errors.append(f"公共组件组「{group}」缺少 {symbol}")
+            if not has_component_declaration(symbol, component_declarations):
+                expected = COMPONENT_INHERITANCE[symbol]
+                requirement = "struct" if expected is None else f"struct: {expected}"
+                errors.append(f"公共组件组「{group}」缺少符合 {requirement} 的 {symbol}")
 
     for contract in COMPONENT_CONTRACTS:
         members: dict[Path, list[list[str]]] = {}
@@ -798,38 +845,15 @@ def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> Non
                 if not view_or_child_has_marker(syntax, facts, scope, "AppAvatarView") and "AppAvatarComponents.swift" not in str(path):
                     errors.append(f"{path.relative_to(ROOT)}: {'.'.join(scope)} 头像页面必须使用 AppAvatarView")
 
-    # 列表/表单内的图标按位置审计：状态、右侧导航和交互控件可保留，
-    # 其它左侧图标必须先进入公共组件契约。
-    container_pattern = re.compile(r"\b(List|Form|Section)\b")
-    icon_pattern = re.compile(
-        r"\b(Label\s*\([^\n]*systemImage\s*:|Button\s*\([^\n]*systemImage\s*:|"
-        r"NavigationLink\s*\([^\n]*systemImage\s*:|Image\s*\(systemName\s*:)")
-    right_pattern = re.compile(r"checkmark|circle|chevron|xmark|minus|star")
-    for path, source in code_sources.items():
-        if "Mine" in path.parts:
-            continue
-        containers = []
-        depth = 0
-        literal_source = comment_free_sources[path]
-        for line_number, (line, literal_line) in enumerate(
-            zip(source.splitlines(), literal_source.splitlines()), 1
-        ):
-            code = line
-            if container_pattern.search(code) and "{" in code:
-                containers.append(depth)
-            match = icon_pattern.search(literal_line)
-            if match and containers and not right_pattern.search(literal_line):
-                errors.append(f"{path.relative_to(ROOT)}:{line_number}: 列表/表单左侧图标必须通过公共组件提供")
-            depth += code.count("{") - code.count("}")
-            while containers and depth <= containers[-1]:
-                containers.pop()
+    # 列表/表单内的图标按语法树调用关系审计，跨行参数与闭包仍保持归属。
+    for path in swift_files():
+        errors.extend(list_icon_findings(path.relative_to(ROOT), syntax[str(path)]))
 
     direct_states = [
         str(path.relative_to(ROOT))
         for path in swift_files()
         if "ContentUnavailableView" in syntax[str(path)]["identifiers"]
         and "AppStateComponents.swift" not in str(path)
-        and "Schedule/FreeClassroomViews.swift" not in str(path)
     ]
     errors.extend(f"页面不得直接实现空态/失败态：{item}" for item in direct_states)
 
@@ -912,19 +936,218 @@ def check_haptic_consistency(errors: list[str], syntax: dict[str, dict]) -> None
             errors.append(f"{path.relative_to(ROOT)}: 公共触感接口不得重复声明")
 
 
-def _swift_block(source: str, start: int) -> str:
-    opening = source.find("{", start)
-    if opening < 0:
-        return ""
-    depth = 1
-    end = opening + 1
-    while end < len(source) and depth:
-        if source[end] == "{":
-            depth += 1
-        elif source[end] == "}":
-            depth -= 1
-        end += 1
-    return source[start:end]
+def alert_coverage_findings(facts: dict, path: Path) -> list[str]:
+    app_alert_variables = [
+        variable
+        for variable in facts.get("typedVariables", [])
+        if re.search(r"\bAppAlert\b", variable["type"])
+    ]
+    findings: list[str] = []
+    for alert in facts.get("alertModifiers", []):
+        item_binding = ""
+        for label, argument in zip(alert["labels"], alert["arguments"]):
+            if label == "item":
+                match = re.fullmatch(r"\$([A-Za-z_][A-Za-z0-9_]*)", argument.strip())
+                item_binding = match.group(1) if match else ""
+                break
+
+        used_variables = {
+            variable["name"]
+            for variable in app_alert_variables
+            if variable["scope"] == alert["scope"]
+            and variable["name"] in alert.get("identifiers", [])
+        }
+        if item_binding and any(
+            variable["name"] == item_binding and variable["scope"] == alert["scope"]
+            for variable in app_alert_variables
+        ):
+            used_variables.add(item_binding)
+
+        for variable_name in sorted(used_variables):
+            view_name = alert["scope"][-1] if alert["scope"] else ""
+            exact_local_exception = (
+                view_name, variable_name
+            ) in LOCAL_APP_ALERT_BINDINGS and item_binding == variable_name
+            if exact_local_exception:
+                continue
+            findings.append(
+                f"{path}: {'.'.join(alert['scope'])} 的 AppAlert「{variable_name}」"
+                "必须通过 diagnosticAlert 展示"
+            )
+    return findings
+
+
+def source_boundary_findings() -> list[str]:
+    checker = ROOT / "Scripts/check-code-quality.py"
+    spec = importlib.util.spec_from_file_location("check_code_quality_ui_self_test", checker)
+    if spec is None or spec.loader is None:
+        return ["UI 检查器自测无法加载 SwiftSyntax 索引器"]
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    source = r'''
+import SwiftUI
+
+struct ItemAlertSample: View {
+    @State private var failure: AppAlert?
+    var body: some View {
+        Text("Sample").alert(
+            item: $failure
+        ) { item in
+            Alert(title: Text(item.title), message: Text(item.message))
+        }
+    }
+}
+
+struct AlternateAlertSample: View {
+    @State private var failure: AppAlert?
+    @State private var isPresented = false
+    var body: some View {
+        Text("Sample").alert("Failure", isPresented: $isPresented) {
+            Button("Dismiss") {}
+        } message: {
+            Text(failure?.message ?? "")
+        }
+    }
+}
+
+struct ConfirmationAlertSample: View {
+    @State private var failure: AppAlert?
+    @State private var isPresented = false
+    var body: some View {
+        Text("Sample").alert("failure", isPresented: $isPresented) {
+            Button("Dismiss") {}
+        }
+    }
+}
+
+struct CourseEvaluationLink: View {
+    @State private var alert: AppAlert?
+    @State private var diagnosticAlert: AppAlert?
+    var body: some View {
+        Text("Sample").alert(item: $alert) { item in
+            Alert(title: Text(item.title), message: Text(item.message))
+        }.diagnosticAlert(item: $diagnosticAlert)
+    }
+}
+
+struct CourseEvaluationDestination: View {
+    @State private var expectedAlert: AppAlert?
+    var body: some View {
+        Text("Sample").alert(item: $expectedAlert) { item in
+            Alert(title: Text(item.title), message: Text(item.message))
+        }
+    }
+}
+
+struct ListIconSample: View {
+    var body: some View {
+        List {
+            Image(
+                systemName: "person.fill"
+            )
+            Image(
+                systemName: "checkmark.circle"
+            )
+        }
+    }
+}
+
+enum AppTagChip { case sample }
+class AppSMSVerificationSheet: View {}
+extension AppSearchBarContainer: View {}
+struct AppLoadingState {}
+struct AppAvatarView: View { var body: some View { Text("avatar") } }
+struct AppFixedColumnItem {}
+'''
+    try:
+        facts = module.swift_syntax_index_sources({"ui-self-test.swift": source})["ui-self-test.swift"]
+    except (OSError, subprocess.CalledProcessError, RuntimeError, KeyError) as error:
+        return [f"UI 检查器自测无法解析内存 Swift 样例：{error}"]
+
+    findings: list[str] = []
+    item_alerts = alert_coverage_findings(facts, Path("ui-self-test.swift"))
+    expected_invalid = {
+        "ItemAlertSample",
+        "AlternateAlertSample",
+    }
+    if len(item_alerts) != len(expected_invalid) or not all(
+        any(view_name in finding for finding in item_alerts)
+        for view_name in expected_invalid
+    ):
+        findings.append("UI 检查器自测：SwiftSyntax 未识别 item 与 isPresented 两种 AppAlert 展示路径")
+
+    allowed_alerts = [
+        finding
+        for view_name in ("CourseEvaluationLink", "CourseEvaluationDestination")
+        for finding in alert_coverage_findings(
+            {
+                "typedVariables": [
+                    variable for variable in facts["typedVariables"]
+                    if variable["scope"][-1] == view_name
+                ],
+                "alertModifiers": [
+                    alert for alert in facts["alertModifiers"]
+                    if alert["scope"][-1] == view_name
+                ],
+            },
+            Path("ui-self-test.swift"),
+        )
+    ]
+    if allowed_alerts:
+        findings.append("UI 检查器自测：既有用户输入提示例外未按 View 与绑定精确匹配")
+
+    icon_findings = list_icon_findings(
+        Path("UI/ListIconSample.swift"),
+        {"listIcons": facts["listIcons"]},
+    )
+    if len(icon_findings) != 1 or "person.fill" not in icon_findings[0]:
+        findings.append("UI 检查器自测：多行列表图标归属识别异常")
+
+    wrapped_calls = """
+    withAnimation(
+        .spring(
+            duration: 0.2
+        )
+    ) {}
+    thumbnailButton(
+        image: image,
+        width: 40
+    )
+    .background(
+        .ultraThinMaterial,
+        in: Circle()
+    )
+    .frame(
+        width: 42,
+        height: 42
+    )
+    """
+    masked_calls = mask_literals_and_comments(wrapped_calls)
+    wrapped_patterns = (
+        DIRECT_ANIMATION_DURATION,
+        DIRECT_THUMBNAIL_GEOMETRY,
+        DIRECT_FLOATING_MATERIAL,
+        DIRECT_FLOATING_SIZE,
+    )
+    if not all(pattern.search(masked_calls) for pattern in wrapped_patterns):
+        findings.append("UI 检查器自测：多行视觉规则调用识别异常")
+
+    declarations = facts["declarations"]
+    if has_component_declaration("AppTagChip", declarations):
+        findings.append("UI 检查器自测：非 View 同名枚举通过公共组件声明检查")
+    if has_component_declaration("AppSMSVerificationSheet", declarations):
+        findings.append("UI 检查器自测：同名 class 通过公共组件声明检查")
+    if has_component_declaration("AppSearchBarContainer", declarations):
+        findings.append("UI 检查器自测：同名 extension 通过公共组件声明检查")
+    if has_component_declaration("AppLoadingState", declarations):
+        findings.append("UI 检查器自测：未实现 View 的同名结构通过公共组件声明检查")
+    if not has_component_declaration("AppAvatarView", declarations):
+        findings.append("UI 检查器自测：View 公共组件声明识别失败")
+    if not has_component_declaration("AppFixedColumnItem", declarations):
+        findings.append("UI 检查器自测：无协议继承的模型结构声明识别失败")
+    return findings
 
 
 def check_error_report_coverage(errors: list[str], syntax: dict[str, dict]) -> None:
@@ -932,22 +1155,8 @@ def check_error_report_coverage(errors: list[str], syntax: dict[str, dict]) -> N
     for path in swift_files():
         source = mask_literals_and_comments(path.read_text(encoding="utf-8"))
         schedule_notice_presenters += len(re.findall(r"\.scheduleViewModel\.\$notice\.compactMap", source))
-        if path.name != "ErrorReportSupport.swift":
-            position = 0
-            while (start := source.find(".alert(item:", position)) >= 0:
-                binding_match = re.search(r"\.alert\(item:\s*\$(\w+)", source[start:])
-                binding = binding_match.group(1) if binding_match else ""
-                block = _swift_block(source, start)
-                approved_local_alert = binding == "expectedAlert" or (
-                    binding == "alert" and "$diagnosticAlert" in source
-                )
-                if not approved_local_alert and binding != "diagnosticAlert" and ".title" in block and ".message" in block and "primaryButton" not in block:
-                    errors.append(
-                        f"{path.relative_to(ROOT)}:{source.count(chr(10), 0, start) + 1}: AppAlert 必须使用 diagnosticAlert"
-                    )
-                position = start + max(len(block), 1)
-
         facts = syntax[str(path)]
+        errors.extend(alert_coverage_findings(facts, path.relative_to(ROOT)))
         for scope in view_scopes(facts):
             failed_states = [
                 flow["value"]
@@ -1185,7 +1394,7 @@ def check_refresh_status_contract(errors: list[str], syntax: dict[str, dict]) ->
 
 def main(shared_syntax: dict[str, dict] | None = None) -> int:
     if sys.argv[1:] == ["--self-test"]:
-        findings = ast_marker_boundary_findings()
+        findings = [*ast_marker_boundary_findings(), *source_boundary_findings()]
         if findings:
             print("[失败] UI 一致性检查器自测：", file=sys.stderr)
             print("\n".join(findings), file=sys.stderr)

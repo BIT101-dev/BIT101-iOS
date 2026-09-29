@@ -203,6 +203,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B10100000000000000000008 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B10100000000000000000009 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -341,6 +355,27 @@
 			productReference = 111111111111111111111112 /* BIT101-iOSTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		B10100000000000000000005 /* BIT101-iOSUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B10100000000000000000006 /* Build configuration list for PBXNativeTarget "BIT101-iOSUITests" */;
+			buildPhases = (
+				B10100000000000000000008 /* Sources */,
+				B10100000000000000000009 /* Frameworks */,
+				B1010000000000000000000A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B10100000000000000000003 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				B10100000000000000000007 /* BIT101-iOSUITests */,
+			);
+			name = BIT101-iOSUITests;
+			productName = BIT101-iOSUITests;
+			productReference = B10100000000000000000004 /* BIT101-iOSUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		A222C4EBA765A745DE78B6CF /* BIT101ScheduleWidgets */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = F1F65253CDF96455497F6E74 /* Build configuration list for PBXNativeTarget "BIT101ScheduleWidgets" */;
@@ -432,6 +467,10 @@
 						CreatedOnToolsVersion = 27.0;
 						TestTargetID = D2FF4C952F729DB4000FA1C1;
 					};
+					B10100000000000000000005 = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = D2FF4C952F729DB4000FA1C1;
+					};
 					D2FF4C952F729DB4000FA1C1 = {
 						CreatedOnToolsVersion = 26.3;
 					};
@@ -453,6 +492,7 @@
 			targets = (
 				D2FF4C952F729DB4000FA1C1 /* BIT101-iOS */,
 				111111111111111111111111 /* BIT101-iOSTests */,
+				B10100000000000000000005 /* BIT101-iOSUITests */,
 				A222C4EBA765A745DE78B6CF /* BIT101ScheduleWidgets */,
 				C8AF9C40C472741950BEAF70 /* BIT101Watch */,
 				E14C33A004A034143423AAE7 /* BIT101WatchWidgets */,
@@ -484,6 +524,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		D2FF4C942F729DB4000FA1C1 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B1010000000000000000000A /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -574,6 +621,11 @@
 			isa = PBXTargetDependency;
 			target = D2FF4C952F729DB4000FA1C1 /* BIT101-iOS */;
 			targetProxy = 111111111111111111111117 /* PBXContainerItemProxy */;
+		};
+		B10100000000000000000003 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D2FF4C952F729DB4000FA1C1 /* BIT101-iOS */;
+			targetProxy = B10100000000000000000002 /* PBXContainerItemProxy */;
 		};
 		63B9195EB1C2E887B0BC4A6D /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -1004,6 +1056,28 @@
 			};
 			name = Release;
 		};
+		B1010000000000000000000B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 40;
+				DEVELOPMENT_TEAM = Y2T72736G3;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "BIT101-dev.BIT101-iOSUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = iphoneos;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "BIT101-iOS";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -1057,6 +1131,14 @@
 			buildConfigurations = (
 				9CA0EE69C55FF3495340685A /* Release */,
 				6009FAA3F529547D9DDBDD3B /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B10100000000000000000006 /* Build configuration list for PBXNativeTarget "BIT101-iOSUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B1010000000000000000000B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

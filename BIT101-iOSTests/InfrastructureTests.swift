@@ -1,5 +1,7 @@
 import Foundation
+import Security
 import Testing
+import UIKit
 @testable import BIT101_iOS
 
 @Suite("App deep links")
@@ -18,6 +20,43 @@ struct AppDeepLinkRouteTests {
     }
 }
 
+@Suite("Image cache disk quota")
+struct ImageCacheDiskQuotaTests {
+    @Test("Quota pruning evicts least-recently-used entries and protects active files")
+    func prunesOldestFilesAndProtectsActiveEntry() async throws {
+        let files = AppFileDirectories.files
+        let directory = files.temporaryDirectoryURL.appending(
+            path: "image-cache-quota-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try files.createDirectory(at: directory)
+        defer { try? files.removeItem(at: directory) }
+
+        let oldest = directory.appending(path: "oldest.jpg")
+        let middle = directory.appending(path: "middle.jpg")
+        let protected = directory.appending(path: "protected.jpg")
+        let imageData = Data(repeating: 1, count: 600_000)
+        for file in [oldest, middle, protected] {
+            try files.writeData(imageData, to: file, options: [.atomic])
+        }
+        try files.setModificationDate(Date(timeIntervalSince1970: 1), at: oldest)
+        try files.setModificationDate(Date(timeIntervalSince1970: 2), at: middle)
+        try files.setModificationDate(Date(timeIntervalSince1970: 3), at: protected)
+
+        let quota = ImageCacheDiskQuota(
+            files: files,
+            directories: [directory],
+            cacheLimitMB: { 1 },
+            pruneInterval: 0
+        )
+        await quota.enforce(force: true, protecting: Set([protected]))
+
+        #expect(!files.fileExists(at: oldest))
+        #expect(!files.fileExists(at: middle))
+        #expect(files.fileExists(at: protected))
+    }
+}
+
 @Suite("Experimental preference iCloud sync")
 struct ExperimentalPreferenceCloudSyncTests {
     @Test("Independent domain timestamps choose the newest value")
@@ -31,6 +70,92 @@ struct ExperimentalPreferenceCloudSyncTests {
         #expect(ExperimentalPreferenceSyncPolicy.decision(localUpdatedAt: old, remoteUpdatedAt: new) == .applyRemote)
         #expect(ExperimentalPreferenceSyncPolicy.decision(localUpdatedAt: new, remoteUpdatedAt: old) == .uploadLocal)
         #expect(ExperimentalPreferenceSyncPolicy.decision(localUpdatedAt: new, remoteUpdatedAt: new) == .noChange)
+    }
+
+    @Test("Score sync compresses payloads and reads existing JSON envelopes")
+    func scorePayloadCodec() throws {
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let rows = (0..<300).map { index in
+            ScoreRow(
+                index: index,
+                headers: ["课程名称", "成绩", "课程性质"],
+                values: ["数据结构与算法", "95", "必修"]
+            )
+        }
+        let envelope = ExperimentalPreferenceSyncEnvelope(
+            updatedAt: timestamp,
+            payload: ScoreCacheSyncPayload(
+                rows: rows,
+                updatedAt: timestamp,
+                detailedUpdatedAt: timestamp
+            )
+        )
+
+        let legacyData = try JSONEncoder().encode(envelope)
+        let compressedData = try ScoreCacheSyncPayloadCodec.encode(envelope)
+        #expect(compressedData.count < legacyData.count)
+
+        let compressed = try ScoreCacheSyncPayloadCodec.decode(
+            ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload>.self,
+            from: compressedData
+        )
+        #expect(compressed.payload.rows.count == rows.count)
+        #expect(compressed.payload.rows.first?.courseName == "数据结构与算法")
+
+        let legacy = try ScoreCacheSyncPayloadCodec.decode(
+            ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload>.self,
+            from: legacyData
+        )
+        #expect(legacy.payload.rows.count == rows.count)
+        #expect(legacy.payload.updatedAt == timestamp)
+    }
+
+    @Test("KVS writes honor per-value, total-space, key-count and key-length quotas")
+    func keyValueStoreQuotaPolicy() {
+        let maximum = ExperimentalPreferenceCloudQuotaPolicy.maximumValueSize
+
+        #expect(ExperimentalPreferenceCloudQuotaPolicy.canStore(
+            valueSize: 64,
+            existingValueBytes: maximum - 64,
+            existingKeyCount: 1_023,
+            replacingExistingKey: false,
+            keyUTF16Count: 128
+        ))
+        #expect(!ExperimentalPreferenceCloudQuotaPolicy.canStore(
+            valueSize: maximum + 1,
+            existingValueBytes: 0,
+            existingKeyCount: 0,
+            replacingExistingKey: false,
+            keyUTF16Count: 1
+        ))
+        #expect(!ExperimentalPreferenceCloudQuotaPolicy.canStore(
+            valueSize: 2,
+            existingValueBytes: maximum - 1,
+            existingKeyCount: 0,
+            replacingExistingKey: false,
+            keyUTF16Count: 1
+        ))
+        #expect(!ExperimentalPreferenceCloudQuotaPolicy.canStore(
+            valueSize: 1,
+            existingValueBytes: 0,
+            existingKeyCount: 1_024,
+            replacingExistingKey: false,
+            keyUTF16Count: 1
+        ))
+        #expect(ExperimentalPreferenceCloudQuotaPolicy.canStore(
+            valueSize: 1,
+            existingValueBytes: 0,
+            existingKeyCount: 1_024,
+            replacingExistingKey: true,
+            keyUTF16Count: 1
+        ))
+        #expect(!ExperimentalPreferenceCloudQuotaPolicy.canStore(
+            valueSize: 1,
+            existingValueBytes: 0,
+            existingKeyCount: 0,
+            replacingExistingKey: false,
+            keyUTF16Count: 129
+        ))
     }
 }
 
@@ -180,6 +305,55 @@ struct InfrastructureTests {
         #expect(account.key("test.snapshot") == "test.snapshot.student/a")
         #expect(account.accountDirectoryName == "__encoded__73747564656E742F61")
         #expect(account.legacyAccountDirectoryName == "student_a")
+        #expect(account.legacyAccountDirectoryNameForMigration == account.accountDirectoryName)
+
+        let underscoreAccount = AppStorageSession(accountIdentifier: "student_a")
+        #expect(underscoreAccount.legacyAccountDirectoryName == "student_a")
+        #expect(underscoreAccount.legacyAccountDirectoryNameForMigration == underscoreAccount.accountDirectoryName)
+        #expect(account.accountDirectoryName != underscoreAccount.accountDirectoryName)
+    }
+
+    @Test("Account-scoped file snapshots round-trip and remain isolated")
+    func accountScopedFileSnapshots() {
+        let files = AppFileDirectories.files
+        let firstSession = AppStorageSession(accountIdentifier: "file-store-\(UUID().uuidString)")
+        var session = firstSession
+        let store = AccountScopedFileCodableStore<[String]>(
+            filename: "snapshot-test.json",
+            session: { session }
+        )
+        let firstDirectory = store.fileURL.deletingLastPathComponent()
+        defer { try? files.removeItem(at: firstDirectory) }
+
+        #expect(store.save(["first-account"]))
+        #expect(store.load() == ["first-account"])
+
+        session = AppStorageSession(accountIdentifier: "file-store-\(UUID().uuidString)")
+        let secondDirectory = store.fileURL.deletingLastPathComponent()
+        defer { try? files.removeItem(at: secondDirectory) }
+        #expect(store.load() == nil)
+        #expect(store.save(["second-account"]))
+
+        session = firstSession
+        #expect(store.load() == ["first-account"])
+
+        #expect(AppFileSystem.protectedDataWritingOptions.contains(.atomic))
+        #expect(
+            AppFileSystem.protectedDataWritingOptions.contains(
+                .completeFileProtectionUntilFirstUserAuthentication
+            )
+        )
+        session = firstSession
+        store.remove()
+        #expect(!store.hasStoredFile)
+        #expect(store.load() == nil)
+    }
+
+    @Test("Keychain deletion status accepts completed and absent items")
+    func keychainDeletionStatus() {
+        #expect(LoginStorage.keychainDeleteSucceeded(status: errSecSuccess))
+        #expect(LoginStorage.keychainDeleteSucceeded(status: errSecItemNotFound))
+        #expect(!LoginStorage.keychainDeleteSucceeded(status: errSecNotAvailable))
     }
 
     @Test("Paged state advances and stops on an empty page")
@@ -223,6 +397,22 @@ struct InfrastructureTests {
         #expect(state.items.isEmpty)
         #expect(state.nextCursor == nil)
         #expect(state.canLoadMore)
+    }
+}
+
+@Suite("Composer draft storage")
+struct ComposerDraftStorageTests {
+    @Test("Persisted image assets are bounded JPEG data")
+    func persistedImageSizeAndEncoding() throws {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 80, height: 80))
+        let source = renderer.jpegData(withCompressionQuality: 1) { context in
+            UIColor.systemBlue.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 80, height: 80))
+        }
+
+        let persisted = try ComposerDraftImageCompressor.compress(source)
+        #expect(persisted.count <= ComposerDraftImageCompressor.maximumBytes)
+        #expect(UIImage(data: persisted) != nil)
     }
 }
 

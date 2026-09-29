@@ -210,6 +210,12 @@ enum ScheduleCacheStore {
         source: SaveSource
     ) async {
         guard AppFileDirectories.currentSession.accountDirectoryName == accountIdentifier else { return }
+#if BIT101_UI_TESTING
+        if AppFileDirectories.isRunningUITest {
+            postCacheDidChange()
+            return
+        }
+#endif
         await ScheduleWidgetExporter.syncAsync(cache: cache)
         postCacheDidChange()
 
@@ -243,6 +249,7 @@ enum ScheduleCacheStore {
     fileprivate nonisolated static func readCacheFile(at url: URL) -> LoadResult {
         guard AppFileDirectories.files.fileExists(at: url) else { return .missing }
         do {
+            try? AppFileDirectories.files.setPrivateFileProtection(at: url)
             let data = try AppFileDirectories.files.readData(at: url)
             let result = decodeCache(data)
             if result.isUnreadable {
@@ -276,7 +283,7 @@ enum ScheduleCacheStore {
     }
 
     private static func legacyAccountIdentifier() -> String {
-        AppFileDirectories.currentSession.legacyAccountDirectoryName
+        AppFileDirectories.currentSession.legacyAccountDirectoryNameForMigration
     }
 
     /// 在主线程广播“课表缓存已变化”。
@@ -331,7 +338,11 @@ private actor ScheduleCacheWriteQueue {
         do {
             try AppFileDirectories.files.createDirectory(at: directory)
             let data = try ScheduleCacheStore.makeEncoder().encode(cache)
-            try AppFileDirectories.files.writeData(data, to: url, options: [.atomic])
+            try AppFileDirectories.files.writeData(
+                data,
+                to: url,
+                options: AppFileSystem.protectedDataWritingOptions
+            )
         } catch {
             ScheduleCacheStore.logger.error("保存课表缓存失败：\(String(describing: error), privacy: .public)")
             return false

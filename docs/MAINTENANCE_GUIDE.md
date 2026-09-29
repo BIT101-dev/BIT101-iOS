@@ -91,8 +91,9 @@ Keychain 保存以下数据：
 - `Login/LoginStorage.swift`
 - `Login/LoginService.swift`
 
-学号和密码存入 Keychain；`fake-cookie` 和安装标记存入 `UserDefaults`；学校认证 cookie
-由系统 `HTTPCookieStorage` 管理。维护和排查时按这三类存储分别处理。
+学号、密码和 `fake-cookie` 存入 Keychain；安装标记存入 `UserDefaults`；学校认证 cookie
+由系统 `HTTPCookieStorage` 管理。旧版 `fake-cookie` 在首次读取时迁入 Keychain。
+Keychain 项采用 `AfterFirstUnlockThisDeviceOnly` 可访问级别。
 
 bit-login 返回的 `challenge_id`、access token、短信状态和教学中心准备状态属于短期状态。
 对应 `Service` / `ViewModel` 仅在内存中保存这些状态；退出、切号、过期或收到明确失效响应时，
@@ -106,6 +107,7 @@ UserDefaults 保存以下数据：
 - 账号隔离设置快照
 - 话廊相关偏好
 - 一些查询筛选偏好
+- 成绩筛选与排序偏好
 - 历史成绩“隐藏疑似补考学期”开关；使用全局 key，默认开启，跨账号和重启保留
 
 对应入口包括：
@@ -120,17 +122,21 @@ UserDefaults 保存以下数据：
 - DDL
 - 考试
 - 自定义日程
+- 按账号隔离的成绩行与新鲜度时间
+- 发帖与建议草稿及其图片
 
-基础成绩列表另存于按学号分桶的 `UserDefaults`；可信成绩单图片不落盘。
+成绩快照位于 `Application Support/BIT101-iOS/<account>/score-cache.json`，旧版成绩
+`UserDefaults` 键在首次读取时迁入原子文件。课表、成绩和草稿文件采用
+`completeFileProtectionUntilFirstUserAuthentication`；持久化容器数据遵循 iOS 应用容器备份策略。
+可信成绩单图片不落盘。
 
 对应入口包括：
 
 - `Schedule/ScheduleCacheStore.swift`
 - `Schedule/ScheduleModels.swift`
+- `Score/ScoreCacheStore.swift`
 
-课表缓存可按用户开关同步到 CloudKit 私有数据库，记录仍按当前学号隔离。同步以 CloudKit
-服务器修改时间作为基线，本地改动单独追踪；双方都在共同基线后更新时，提示用户选择保留本机
-版本或使用 iCloud 版本。实验性的偏好同步使用 iCloud Key-Value Store，覆盖设置、成绩筛选与缓存、话廊消息已读状态。
+课表用户创建内容与日程偏好可按用户开关同步到 CloudKit 私有数据库，记录仍按当前学号隔离。学校课表、考试、乐学 DDL 正文与查询缓存保留在本机；手动 DDL 和乐学 DDL 完成状态参与同步。升级时，应用从旧版完整课表载荷提取手动调整、个人 DDL 和偏好，与本机缓存合并，再写入带版本号的精简载荷；旧版客户端保留本机数据并暂停该版本的云端同步，所有设备升级到兼容版本后恢复跨设备同步。同步以 CloudKit 服务器修改时间作为基线，本地改动单独追踪；双方都在共同基线后更新用户内容时，提示用户选择保留本机版本或使用 iCloud 版本。实验性的偏好同步使用 iCloud Key-Value Store，覆盖设置、成绩筛选与缓存、话廊消息已读状态。成绩载荷采用 LZFSE 压缩，上传前核验 KVS 的值大小、总容量与键数量；额度反馈显示在同步设置页。
 
 对应入口包括：
 
@@ -147,6 +153,8 @@ App Group 共享快照保存以下数据：
 
 - `Schedule/ScheduleWidgetSupport.swift`
 - `BIT101ScheduleWidgets/BIT101ScheduleWidgets.swift`
+
+完整本地清理同时移除 App Group 中的课表快照与 `Library/NetworkSmoke` 报告目录。已同步到 CloudKit 或 iCloud Key-Value Store 的远端数据保留在用户账户，清理确认文案会标示该范围。
 
 ### 3.5 覆盖更新与本地数据保留
 
@@ -179,6 +187,8 @@ App Group 共享快照保存以下数据：
 - `AppSettingsSnapshot`
 - 登录恢复相关本地状态
 - 分享课表导入 / 删除 / 重命名逻辑
+
+话廊图片与头像共用应用侧容量上限及 LRU 回收。发帖草稿的图片以独立 JPEG 文件保存，单张上限 1 MiB，并随 Application Support 备份。
 
 升级路径通过实际覆盖安装验证，步骤如下：
 

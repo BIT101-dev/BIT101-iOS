@@ -57,11 +57,20 @@ struct CalendarSettingsPage: View {
                 set: { viewModel.setICloudSyncEnabled($0) }
             ))
             .appSelectionFeedback(trigger: viewModel.cache.iCloudSyncEnabled)
+            Text("同步手动调课、放假、个人日程、分享课表、DDL 状态和日程偏好。课程、考试与乐学 DDL 正文由本机刷新。")
+                .font(AppDesignSystem.Typography.footnote)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
             Toggle("同步设置与使用偏好（实验性）", isOn: Binding(
                 get: { preferenceCloudSync.isEnabled },
                 set: { preferenceCloudSync.setEnabled($0) }
             ))
             .appSelectionFeedback(trigger: preferenceCloudSync.isEnabled)
+            if let syncIssue = preferenceCloudSync.syncIssue {
+                Text(syncIssue)
+                    .font(AppDesignSystem.Typography.footnote)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                    .accessibilityLabel("iCloud 同步状态：\(syncIssue)")
+            }
         } header: {
             AppListSectionHeader("iCloud 同步")
         }

@@ -9,27 +9,29 @@ import SwiftUI
 import UIKit
 
 /// 空白课表区域的原生上下文菜单，按真实长按坐标定位菜单。
-struct ScheduleBlankContextMenuView: UIViewRepresentable {
-    let onBegan: () -> Void
+struct ScheduleBlankContextMenuView: View {
     let onShare: () -> Void
     let onImport: () -> Void
 
-    func makeUIView(context: Context) -> ScheduleBlankContextMenuControl {
-        let view = ScheduleBlankContextMenuControl()
-        view.isAccessibilityElement = true
-        view.accessibilityLabel = "课表空白区域"
-        view.accessibilityIdentifier = "schedule.blank-context-menu"
-        view.accessibilityTraits = .button
-        view.onBegan = onBegan
-        view.onShare = onShare
-        view.onImport = onImport
-        return view
-    }
+    var body: some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .accessibilityElement()
+            .accessibilityLabel("课表空白区域")
+            .accessibilityHint("长按查看课表操作")
+            .accessibilityIdentifier("schedule.blank-context-menu")
+            .accessibilityAddTraits(.isButton)
+            .contextMenu {
+                Button(action: self.onShare) {
+                    Label("分享课表", systemImage: "square.and.arrow.up")
+                }
+                .accessibilityIdentifier("schedule.menu.share")
 
-    func updateUIView(_ uiView: ScheduleBlankContextMenuControl, context: Context) {
-        uiView.onBegan = onBegan
-        uiView.onShare = onShare
-        uiView.onImport = onImport
+                Button(action: self.onImport) {
+                    Label("导入课表", systemImage: "square.and.arrow.down")
+                }
+                .accessibilityIdentifier("schedule.menu.import")
+            }
     }
 }
 
@@ -105,14 +107,16 @@ final class ScheduleBlankContextMenuControl: UIControl {
             guard let self else { return UIMenu(children: []) }
             var actions: [UIMenuElement] = [UIAction(
                 title: self.shareTitle,
-                image: Self.coloredMenuImage("square.and.arrow.up")
+                image: Self.coloredMenuImage("square.and.arrow.up"),
+                identifier: UIAction.Identifier(self.showsImport ? "schedule.menu.share" : "schedule.course.menu.share")
             ) { [weak self] _ in
                 self?.onShare?()
             }]
             if self.showsImport {
                 actions.append(UIAction(
                     title: "导入课表",
-                    image: Self.coloredMenuImage("square.and.arrow.down")
+                    image: Self.coloredMenuImage("square.and.arrow.down"),
+                    identifier: UIAction.Identifier("schedule.menu.import")
                 ) { [weak self] _ in
                     self?.onImport?()
                 })
@@ -350,11 +354,12 @@ struct CourseScheduleCalendarView: View {
                         .frame(height: headerHeight)
                         .allowsHitTesting(false)
                     ScheduleBlankContextMenuView(
-                        onBegan: { contextMenuFeedbackToken &+= 1 },
                         onShare: onShareSchedule,
                         onImport: onImportSchedule
                     )
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.trailing, AppDesignSystem.Size.Control.touchTarget + AppDesignSystem.Spacing.regular)
+                        .padding(.bottom, AppDesignSystem.Size.Control.touchTarget + AppDesignSystem.Spacing.regular)
                 }
                 .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
 

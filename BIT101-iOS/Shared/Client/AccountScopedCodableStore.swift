@@ -53,3 +53,78 @@ struct AccountScopedCodableStore<Value: Codable> {
         session().key(keyPrefix)
     }
 }
+
+/// AccountScopedFileCodableStore 保存需要持久保留的账号快照。
+struct AccountScopedFileCodableStore<Value: Codable> {
+    private let filename: String
+    private let files: any AppFileService
+    private let session: () -> AppStorageSession
+
+    init(
+        filename: String,
+        files: any AppFileService = AppFileDirectories.files,
+        session: @escaping () -> AppStorageSession = { AppFileDirectories.currentSession }
+    ) {
+        self.filename = filename
+        self.files = files
+        self.session = session
+    }
+
+    var fileURL: URL {
+        AppFileDirectories.accountSupportFileURL(
+            accountDirectoryName: session().accountDirectoryName,
+            named: filename
+        )
+    }
+
+    var hasStoredFile: Bool {
+        files.fileExists(at: fileURL)
+    }
+
+    func load() -> Value? {
+        let sourceURL = fileURL
+        guard files.fileExists(at: sourceURL) else { return nil }
+        try? files.setPrivateFileProtection(at: sourceURL)
+        guard let data = try? files.readData(at: sourceURL) else { return nil }
+        do {
+            return try JSONDecoder().decode(Value.self, from: data)
+        } catch {
+            accountScopedStoreLogger.error(
+                "Failed to decode account-scoped file filename=\(filename, privacy: .public) error=\(String(describing: error), privacy: .public)"
+            )
+            return nil
+        }
+    }
+
+    @discardableResult
+    func save(_ value: Value) -> Bool {
+        let targetURL = fileURL
+        do {
+            try files.createDirectory(at: targetURL.deletingLastPathComponent())
+            let data = try JSONEncoder().encode(value)
+            try files.writeData(
+                data,
+                to: targetURL,
+                options: AppFileSystem.protectedDataWritingOptions
+            )
+            return true
+        } catch {
+            accountScopedStoreLogger.error(
+                "Failed to write account-scoped file filename=\(filename, privacy: .public) error=\(String(describing: error), privacy: .public)"
+            )
+            return false
+        }
+    }
+
+    func remove() {
+        let targetURL = fileURL
+        guard files.fileExists(at: targetURL) else { return }
+        do {
+            try files.removeItem(at: targetURL)
+        } catch {
+            accountScopedStoreLogger.error(
+                "Failed to remove account-scoped file filename=\(filename, privacy: .public) error=\(String(describing: error), privacy: .public)"
+            )
+        }
+    }
+}

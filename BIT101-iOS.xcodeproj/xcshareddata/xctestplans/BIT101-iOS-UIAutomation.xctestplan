@@ -1,0 +1,23 @@
+{
+  "configurations" : [
+    {
+      "id" : "B1010000-0000-4000-8000-000000000001",
+      "name" : "默认真机配置",
+      "options" : { }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : true
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : false,
+      "target" : {
+        "containerPath" : "container:BIT101-iOS.xcodeproj",
+        "identifier" : "B10100000000000000000005",
+        "name" : "BIT101-iOSUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

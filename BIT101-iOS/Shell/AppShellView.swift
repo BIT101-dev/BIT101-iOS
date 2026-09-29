@@ -152,6 +152,7 @@ struct AppShellView: View {
                 }
             }
         }
+        .accessibilityIdentifier("app.shell")
         .tint(selectedTab.tintColor)
         .appSelectionFeedback(trigger: selectedTab.rawValue)
         .onAppear {
@@ -234,6 +235,9 @@ struct AppShellView: View {
     ///
     /// 提示状态集中在这里处理，多个入口共享同一套判断。
     private func refreshScheduleNotificationPromptIfNeeded() {
+#if BIT101_UI_TESTING
+        guard !AppFileDirectories.isRunningUITest else { return }
+#endif
         Task {
             let authorizationState = await ScheduleLiveActivityManager.shared.notificationAuthorizationStateForReminderFallback()
             guard authorizationState == .denied else { return }

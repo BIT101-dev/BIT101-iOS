@@ -27,8 +27,17 @@ extension ScheduleViewModel {
             )
             guard accountGeneration == generation else { return false }
             cache.lexueCalendarURL = payload.url
+            for event in cache.ddlEvents where event.group == "lexue" {
+                cache.lexueDDLCompletionByID[event.id] = event.done
+            }
+            let syncedEvents = payload.events.map { event in
+                var event = event
+                event.done = cache.lexueDDLCompletionByID[event.id] ?? event.done
+                cache.lexueDDLCompletionByID[event.id] = event.done
+                return event
+            }
             cache.ddlEvents = ScheduleDDLEditor.mergingSyncedEvents(
-                payload.events,
+                syncedEvents,
                 into: cache.ddlEvents
             )
             cache.ddlUpdatedAt = Date()
@@ -141,6 +150,9 @@ extension ScheduleViewModel {
     func toggleDDLDone(_ event: DDLEventRecord) {
         guard cache.ddlEvents.contains(where: { $0.id == event.id }) else { return }
         cache.ddlEvents = ScheduleDDLEditor.togglingDone(id: event.id, in: cache.ddlEvents)
+        if let updated = cache.ddlEvents.first(where: { $0.id == event.id }), updated.group == "lexue" {
+            cache.lexueDDLCompletionByID[updated.id] = updated.done
+        }
         persist()
     }
 

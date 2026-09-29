@@ -70,6 +70,44 @@ Scripts/run-extended-tests.sh extensions
 
 `extensions` 分组执行 Watch 与 Widget 共用快照、传输协议、状态解析和时间线规划的运行测试。该指标记录这些共享逻辑的运行情况；Watch 与 Widget 二进制运行情况由设备验证流程单独记录。各组输出按 1000 行阈值送往 terminal 或固定类别日志路径，指标随每次测试覆盖。
 
+## UI 自动化
+
+UI 自动化使用独立的 `BIT101-iOSUITests` target、`BIT101-iOS-UIAutomation` Release scheme 和共享 Test Plan。测试通过 `XCUIApplication` 在已连接真机上启动正式 App 页面，自动执行点按、输入、长按与导航，再依据界面元素树断言结果。
+
+首批回归路径覆盖：
+
+- 登录表单校验、自动登录到日程页；
+- 长按课表空白区域，检查“分享课表”和“导入课表”菜单，再打开导入面板；
+- 新建自定义日程，重启 App 后检查本地缓存恢复；
+- 切换合成账号，确认课表记录按账号隔离；
+- 日程、成绩、话廊和我的 Tab 的自动导航；
+- 成绩短信挑战、验证码输入、成绩结果展示；
+- 终止并重启 App，检查测试登录会话可恢复。
+
+App 测试宿主仅在 `BIT101_UI_TESTING` 条件下提供隔离登录服务与空课表种子。UI 自动化共用固定测试空间，隔离 Keychain service、UserDefaults suite 和按账号划分的文件缓存；每个用例首次启动重置该空间并清理测试账号目录，同一用例重启沿用测试数据。测试宿主的 HTTP 请求使用离线错误响应，启动期间的 Widget、Watch、Live Activity 与后台提醒同步保持停用。正式发布构建排除 UI 测试入口。
+
+登录字段、主 Tab、日程上下文菜单和课表编码编辑区使用稳定的 `accessibilityIdentifier`。UI 测试按控件标识读取文本、启用状态和弹层；失败诊断保存在同一 `.xcresult` 内，自动附带界面元素树和截图。
+
+连接并信任 iPhone 后运行：
+
+```sh
+Scripts/run-extended-tests.sh ui
+```
+
+调试单个用例时可指定测试类与方法：
+
+```sh
+Scripts/run-extended-tests.sh ui LoginAndScheduleUITests/testLongPressOpensScheduleContextMenuAndImportSheet
+```
+
+也可指定真机设备 ID：
+
+```sh
+Scripts/run-extended-tests.sh ui <真机设备ID>
+```
+
+该入口只运行 UI Test target，使用 Release 配置与真机 destination；结果复用 `.build/extended-automation/test-results.xcresult`、`test-metrics.txt` 和 `ui-tests.log` 固定产物路径。UI 自动化保持串行运行。
+
 CI 使用同一入口执行 Mac Catalyst 行为测试：
 
 ```sh
@@ -80,7 +118,8 @@ Scripts/run-extended-tests.sh catalyst
 
 自动化测试覆盖范围包括：
 
-- 取消错误、页码分页、账号隔离 Codable 快照
+- 取消错误、页码分页、账号隔离 UserDefaults/文件快照、历史目录隔离策略、Keychain 删除状态
+- 图片缓存 LRU 配额清理与活动文件保护
 - HTTP 状态边界、社区与学校请求契约、CAS/跨域重定向、短信 challenge 续接和错误映射
 - 网络 Smoke scope 与业务探针分组映射
 - 登录启动状态、CAS HTML 解析、AES/MD5 兼容向量
@@ -269,7 +308,7 @@ Scripts/run-extended-tests.sh
 
 `run-static-audit.sh` 执行检查器自测、Swift、Shell、Python、Worker、Git、文档、UI、源码质量与锁定依赖检查，并汇总各组结果；过期文档和高危依赖会阻断结果。学校接口连接、网络 smoke 和发布归档由独立流程负责。源码质量报告超过 1000 行时覆盖 `.build/code-quality-report.txt`，较短结果直接显示在 terminal。CI 强制执行这一入口，并额外阻止编译警告进入门禁。
 
-UI 契约检查由 `check-ui-consistency.py` 统一维护：视觉令牌、页面和公共组件、列表样式与控件修饰器归属、触感、错误报告入口依据 SwiftSyntax View 类型与表达式作用域匹配。统一静态审计为 UI 与源码质量检查共用一份 SwiftSyntax 索引。文件整理沿用类型契约；新增页面角色时，在契约表登记对应 View 类型和规则。两个检查器的 `--self-test` 使用内存样例验证标记作用域、修饰器归属、CI 接线及源码迁移边界。
+UI 契约检查由 `check-ui-consistency.py` 统一维护：视觉令牌、页面和公共组件、列表样式与控件修饰器归属、触感、错误报告入口依据 SwiftSyntax View 类型与表达式作用域匹配。统一静态审计为 UI 与源码质量检查共用一份 SwiftSyntax 索引。文件整理沿用类型契约；新增页面角色时，在契约表登记对应 View 类型和规则。UI 检查器的 `--self-test` 通过内存 Swift 源码验证多种 alert 重载、多行列表图标、组件声明类型和匹配规则；两个检查器的自测同时覆盖标记作用域、修饰器归属、CI 接线及源码迁移边界。
 
 ## 扩展自动化测试
 

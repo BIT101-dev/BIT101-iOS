@@ -5,7 +5,6 @@
 //  Created by Codex on 2026-03-24.
 //
 
-import ImageIO
 import PhotosUI
 import SwiftUI
 import UIKit
@@ -267,8 +266,14 @@ struct DeveloperSuggestionPage: View {
         .onAppear { checkDraftOnAppear() }
         .alert("保存草稿？", isPresented: $isShowingDraftAlert) {
             Button("保存草稿") {
-                saveDraft()
-                dismiss()
+                if saveDraft() {
+                    dismiss()
+                } else {
+                    alert = AppAlert.informational(
+                        title: "草稿暂存遇到问题",
+                        message: "当前页面内容已保留，请稍后重试保存。"
+                    )
+                }
             }
             Button("不保存") {
                 ComposerDraftStore.removeSuggestion()
@@ -352,7 +357,7 @@ struct DeveloperSuggestionPage: View {
         isShowingDraftAlert = true
     }
 
-    private func saveDraft() {
+    private func saveDraft() -> Bool {
         ComposerDraftStore.saveSuggestion(
             DeveloperSuggestionDraftSnapshot(
                 text: text,
@@ -409,7 +414,7 @@ struct DeveloperSuggestionPage: View {
         await withTaskGroup(of: (GalleryComposerImageDraft.ID, Data?).self) { group in
             for draft in drafts {
                 group.addTask {
-                    (draft.id, try? SuggestionImageCompressor.compress(draft.previewData))
+                    (draft.id, try? ComposerDraftImageCompressor.compress(draft.previewData))
                 }
             }
             for await result in group {
@@ -521,55 +526,5 @@ private extension GalleryComposerImageDraft.Status {
     var isCompressing: Bool {
         if case .compressing = self { return true }
         return false
-    }
-}
-
-private enum SuggestionImageCompressor {
-    nonisolated static func compress(_ data: Data) throws -> Data {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let image = CGImageSourceCreateThumbnailAtIndex(
-                  source,
-                  0,
-                  [
-                      kCGImageSourceCreateThumbnailFromImageAlways: true,
-                      kCGImageSourceCreateThumbnailWithTransform: true,
-                      kCGImageSourceThumbnailMaxPixelSize: 1600
-                  ] as CFDictionary
-              ) else {
-            throw GalleryServiceError.uploadFailed
-        }
-
-        let maxBytes = 1 * 1024 * 1024
-        var best = render(image: image, maxDimension: 1600, quality: 0.68)
-        if best.count <= maxBytes { return best }
-
-        for quality in [0.48, 0.32, 0.2] {
-            best = render(image: image, maxDimension: 1600, quality: quality)
-            if best.count <= maxBytes { return best }
-        }
-
-        for dimension in [1200, 900, 700] {
-            best = render(image: image, maxDimension: CGFloat(dimension), quality: 0.5)
-            if best.count <= maxBytes { return best }
-        }
-        return best
-    }
-
-    private nonisolated static func render(
-        image: CGImage,
-        maxDimension: CGFloat,
-        quality: CGFloat
-    ) -> Data {
-        let width = CGFloat(image.width)
-        let height = CGFloat(image.height)
-        let scale = min(1, maxDimension / max(width, height))
-        let size = CGSize(
-            width: max(1, width * scale),
-            height: max(1, height * scale)
-        )
-        return UIGraphicsImageRenderer(size: size).jpegData(withCompressionQuality: quality) { context in
-            context.cgContext.interpolationQuality = .medium
-            UIImage(cgImage: image).draw(in: CGRect(origin: .zero, size: size))
-        }
     }
 }

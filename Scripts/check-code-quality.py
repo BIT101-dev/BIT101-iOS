@@ -59,6 +59,9 @@ struct FileFacts: Encodable {
     let invocations: [ScopedFact]
     let selectionControls: [SelectionControlFact]
     let feedbackModifiers: [FeedbackModifierFact]
+    let alertModifiers: [AlertModifierFact]
+    let typedVariables: [TypedVariableFact]
+    let listIcons: [ListIconFact]
     let listControls: [SelectionControlFact]
     let listStyleModifiers: [FeedbackModifierFact]
     let members: [ScopedFact]
@@ -94,6 +97,27 @@ struct FeedbackModifierFact: Encodable {
     let baseStart: Int
 }
 
+struct AlertModifierFact: Encodable {
+    let labels: [String]
+    let arguments: [String]
+    let invocation: String
+    let identifiers: [String]
+    let scope: [String]
+}
+
+struct TypedVariableFact: Encodable {
+    let name: String
+    let type: String
+    let scope: [String]
+}
+
+struct ListIconFact: Encodable {
+    let name: String
+    let symbol: String
+    let scope: [String]
+    let containers: [String]
+}
+
 final class FactVisitor: SyntaxVisitor {
     private(set) var declarations: [DeclarationFact] = []
     private(set) var calls: [ScopedFact] = []
@@ -102,6 +126,9 @@ final class FactVisitor: SyntaxVisitor {
     private(set) var stringSegments: [ScopedFact] = []
     private(set) var selectionControls: [SelectionControlFact] = []
     private(set) var feedbackModifiers: [FeedbackModifierFact] = []
+    private(set) var alertModifiers: [AlertModifierFact] = []
+    private(set) var typedVariables: [TypedVariableFact] = []
+    private(set) var listIcons: [ListIconFact] = []
     private(set) var listControls: [SelectionControlFact] = []
     private(set) var listStyleModifiers: [FeedbackModifierFact] = []
     private(set) var members: [ScopedFact] = []
@@ -110,6 +137,7 @@ final class FactVisitor: SyntaxVisitor {
     private(set) var controlFlow: [ScopedFact] = []
     private(set) var typeNames: [ScopedFact] = []
     private var scope: [String] = []
+    private var listContainers: [String] = []
 
     private func enter(_ kind: String, _ name: String, _ inherited: [String]) -> SyntaxVisitorContinueKind {
         declarations.append(DeclarationFact(kind: kind, name: name, inheritedTypes: inherited, scope: scope))
@@ -150,6 +178,33 @@ final class FactVisitor: SyntaxVisitor {
         calls.append(fact(calledExpression))
         invocations.append(fact(node.trimmedDescription))
         let calledName = calledExpression.split(separator: ".").last.map(String.init) ?? calledExpression
+        if calledName == "alert", node.calledExpression.as(MemberAccessExprSyntax.self) != nil {
+            alertModifiers.append(AlertModifierFact(
+                labels: node.arguments.map { $0.label?.text ?? "" },
+                arguments: node.arguments.map { $0.expression.trimmedDescription },
+                invocation: node.trimmedDescription,
+                identifiers: node.tokens(viewMode: .sourceAccurate).compactMap { token -> String? in
+                    if case .identifier(let name) = token.tokenKind { return name }
+                    return nil
+                },
+                scope: scope
+            ))
+        }
+        if ["Label", "Button", "NavigationLink", "Image"].contains(calledName),
+           let imageArgument = node.arguments.first(where: {
+               $0.label?.text == "systemImage" || $0.label?.text == "systemName"
+           })
+        {
+            listIcons.append(ListIconFact(
+                name: calledName,
+                symbol: imageArgument.expression.trimmedDescription,
+                scope: scope,
+                containers: listContainers
+            ))
+        }
+        if ["List", "Form", "Section"].contains(calledName) {
+            listContainers.append(calledName)
+        }
         if calledName == "Picker" || calledName == "Toggle" {
             selectionControls.append(SelectionControlFact(
                 name: calledName,
@@ -189,6 +244,14 @@ final class FactVisitor: SyntaxVisitor {
         return .visitChildren
     }
 
+    override func visitPost(_ node: FunctionCallExprSyntax) {
+        let calledExpression = node.calledExpression.trimmedDescription
+        let calledName = calledExpression.split(separator: ".").last.map(String.init) ?? calledExpression
+        if ["List", "Form", "Section"].contains(calledName), listContainers.last == calledName {
+            _ = listContainers.popLast()
+        }
+    }
+
     override func visit(_ token: TokenSyntax) -> SyntaxVisitorContinueKind {
         switch token.tokenKind {
         case .identifier(let value):
@@ -213,6 +276,15 @@ final class FactVisitor: SyntaxVisitor {
 
     override func visit(_ node: PatternBindingSyntax) -> SyntaxVisitorContinueKind {
         bindings.append(fact(node.trimmedDescription))
+        if let pattern = node.pattern.as(IdentifierPatternSyntax.self),
+           let type = node.typeAnnotation?.type
+        {
+            typedVariables.append(TypedVariableFact(
+                name: pattern.identifier.text,
+                type: type.trimmedDescription,
+                scope: scope
+            ))
+        }
         return .visitChildren
     }
 
@@ -232,13 +304,13 @@ final class FactVisitor: SyntaxVisitor {
     }
 }
 
-struct Input: Decodable { let paths: [String] }
+struct SourceInput: Decodable { let name: String; let source: String }
+struct Input: Decodable { let paths: [String]; let sources: [SourceInput]? }
 
 let inputData = FileHandle.standardInput.readDataToEndOfFile()
 let input = try JSONDecoder().decode(Input.self, from: inputData)
 var output: [String: FileFacts] = [:]
-for path in input.paths {
-    let source = try String(contentsOfFile: path, encoding: .utf8)
+func indexSource(_ source: String, as key: String) {
     let tree = Parser.parse(source: source)
     let visitor = FactVisitor(viewMode: .sourceAccurate)
     visitor.walk(tree)
@@ -246,7 +318,7 @@ for path in input.paths {
         if case .identifier(let name) = token.tokenKind { return name }
         return nil
     }
-    output[path] = FileFacts(
+    output[key] = FileFacts(
         hasParseErrors: tree.hasError,
         identifiers: identifiers,
         scopedIdentifiers: visitor.scopedIdentifiers,
@@ -256,6 +328,9 @@ for path in input.paths {
         invocations: visitor.invocations,
         selectionControls: visitor.selectionControls,
         feedbackModifiers: visitor.feedbackModifiers,
+        alertModifiers: visitor.alertModifiers,
+        typedVariables: visitor.typedVariables,
+        listIcons: visitor.listIcons,
         listControls: visitor.listControls,
         listStyleModifiers: visitor.listStyleModifiers,
         members: visitor.members,
@@ -265,12 +340,18 @@ for path in input.paths {
         typeNames: visitor.typeNames
     )
 }
+for path in input.paths {
+    indexSource(try String(contentsOfFile: path, encoding: .utf8), as: path)
+}
+for source in input.sources ?? [] {
+    indexSource(source.source, as: source.name)
+}
 let encoded = try JSONEncoder().encode(output)
 print(String(decoding: encoded, as: UTF8.self))
 '''
 
 
-def swift_syntax_index(files: list[Path]) -> dict[str, dict]:
+def _run_swift_syntax_index(request: dict) -> dict[str, dict]:
     swift = os.environ.get("SWIFT")
     if not swift:
         swift = subprocess.check_output(["xcrun", "--find", "swift"], text=True).strip()
@@ -278,13 +359,12 @@ def swift_syntax_index(files: list[Path]) -> dict[str, dict]:
     host_modules = swift_path.parent.parent / "lib/swift/host"
     if not (host_modules / "SwiftSyntax.swiftmodule").is_dir():
         raise RuntimeError(f"Xcode SwiftSyntax modules not found: {host_modules}")
-    request = json.dumps({"paths": [str(path) for path in files]})
     result = subprocess.run(
         [
             str(swift_path), "-I", str(host_modules), "-L", str(host_modules),
             "-lSwiftSyntax", "-lSwiftParser", "-e", SWIFT_SYNTAX_INDEXER,
         ],
-        input=request,
+        input=json.dumps(request),
         text=True,
         capture_output=True,
     )
@@ -298,6 +378,20 @@ def swift_syntax_index(files: list[Path]) -> dict[str, dict]:
     if parse_failures:
         raise RuntimeError("SwiftSyntax parse errors: " + ", ".join(parse_failures))
     return index
+
+
+def swift_syntax_index(files: list[Path]) -> dict[str, dict]:
+    return _run_swift_syntax_index({"paths": [str(path) for path in files]})
+
+
+def swift_syntax_index_sources(sources: dict[str, str]) -> dict[str, dict]:
+    return _run_swift_syntax_index({
+        "paths": [],
+        "sources": [
+            {"name": name, "source": source}
+            for name, source in sources.items()
+        ],
+    })
 
 
 def ast_has_identifier(facts: dict, name: str) -> bool:

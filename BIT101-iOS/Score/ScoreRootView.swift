@@ -159,7 +159,8 @@ private struct ScoreListPage: View {
                             actionTitle: viewModel.rows.isEmpty ? "查询成绩" : "刷新",
                             onRefresh: {
                                 Task { await viewModel.refresh() }
-                            }
+                            },
+                            actionAccessibilityIdentifier: "score.query"
                         )
                     }
 

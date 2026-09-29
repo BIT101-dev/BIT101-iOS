@@ -15,10 +15,27 @@ import WidgetKit
 enum ScheduleWidgetExporter {
     /// 重新读取当前账号缓存，并同步到共享容器。
     ///
-    /// 应用生命周期、登录切换等未持有最新缓存对象的场景使用此入口。
+    /// 应用生命周期、登录切换等需要重新读取当前缓存的场景使用此入口。
     static func syncFromCurrentCache() async {
-        guard let cache = await ScheduleCacheStore.loadResultAsync().cacheIfReadable else { return }
-        await syncAsync(cache: cache)
+        let result = await ScheduleCacheStore.loadResultAsync()
+        switch result {
+        case .loaded(let cache):
+            await syncAsync(cache: cache)
+        case .missing:
+            await syncAsync(cache: ScheduleCache())
+        case .unreadable:
+            let snapshot = makeSnapshot(cache: ScheduleCache())
+            let didSave = await Task.detached(priority: .utility) {
+                ScheduleExternalSnapshotStore.save(snapshot)
+            }.value
+            if !didSave {
+                _ = await Task.detached(priority: .utility) {
+                    ScheduleExternalSnapshotStore.clear()
+                }.value
+            }
+            WatchScheduleSyncManager.shared.push(snapshot: snapshot)
+            WidgetCenter.shared.reloadAllTimelines()
+        }
     }
 
     /// 把指定缓存同步给外部展示层，并主动刷新 widget 时间线。

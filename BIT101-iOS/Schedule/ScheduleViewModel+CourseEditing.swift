@@ -301,6 +301,15 @@ extension ScheduleViewModel {
     /// 把已有自定义日程转成编辑草稿；记录为空时生成一份默认草稿。
     func customScheduleDraft(for record: CustomScheduleRecord?) -> CustomScheduleDraft {
         guard let record else {
+#if BIT101_UI_TESTING
+            if AppFileDirectories.isRunningUITest {
+                let calendar = ScheduleDateCodec.calendar
+                let today = calendar.startOfDay(for: Date())
+                let begin = calendar.date(bySettingHour: 9, minute: 0, second: 0, of: today) ?? today
+                let end = calendar.date(bySettingHour: 10, minute: 0, second: 0, of: today) ?? begin
+                return CustomScheduleDraft(date: today, beginTime: begin, endTime: end)
+            }
+#endif
             let now = Date()
             let end = Calendar.current.date(byAdding: .minute, value: 60, to: now) ?? now
             return CustomScheduleDraft(date: now, beginTime: now, endTime: end)

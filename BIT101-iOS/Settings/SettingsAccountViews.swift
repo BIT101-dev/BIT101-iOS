@@ -103,6 +103,7 @@ struct AccountSettingsPage: View {
                 .disabled(isCheckingLogin)
 
                 Button("退出登录", role: .destructive, action: onLogout)
+                    .accessibilityIdentifier("settings.account.logout")
                     .disabled(isUpdating)
             }
         }

@@ -295,6 +295,7 @@ struct AddEditCustomScheduleSheet: View {
             Form {
                 Section("内容") {
                     TextField("", text: $draft.title, prompt: AppInputPrompt.text("标题"))
+                        .accessibilityIdentifier("schedule.custom.title")
                     TextField("", text: $draft.subtitle, prompt: AppInputPrompt.text("副标题（通常为地点）"))
                     TextField("", text: $draft.description, prompt: AppInputPrompt.text("描述（详情页显示）"), axis: .vertical)
                         .lineLimit(3, reservesSpace: true)
@@ -319,6 +320,7 @@ struct AddEditCustomScheduleSheet: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("确定", action: onSubmit)
+                        .accessibilityIdentifier("schedule.custom.save")
                 }
             }
         }

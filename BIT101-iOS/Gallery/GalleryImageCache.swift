@@ -32,6 +32,94 @@ enum GalleryImageCacheVariant: String, Sendable {
     case local
 }
 
+nonisolated enum ImageCacheDirectories {
+    static func gallery(using files: any AppFileService = AppFileDirectories.files) -> URL {
+        files.directoryURL(.cachesDirectory)?.appending(path: "BIT101GalleryImages", directoryHint: .isDirectory)
+            ?? files.temporaryDirectoryURL.appending(path: "BIT101GalleryImages", directoryHint: .isDirectory)
+    }
+
+    static func avatars(using files: any AppFileService = AppFileDirectories.files) -> URL {
+        files.directoryURL(.cachesDirectory)?.appending(path: "BIT101ImageCache", directoryHint: .isDirectory)
+            ?? files.temporaryDirectoryURL.appending(path: "BIT101ImageCache", directoryHint: .isDirectory)
+    }
+}
+
+/// Enforces the image-cache setting across gallery media and avatar files as one LRU pool.
+actor ImageCacheDiskQuota {
+    static let shared = ImageCacheDiskQuota()
+
+    private let files: any AppFileService
+    private let configuredDirectories: [URL]?
+    private let cacheLimitMB: @Sendable () -> Int
+    private let pruneInterval: TimeInterval
+    private var lastPruneDate = Date.distantPast
+
+    init(
+        files: any AppFileService = AppFileDirectories.files,
+        directories: [URL]? = nil,
+        cacheLimitMB: @escaping @Sendable () -> Int = { GalleryImageCachePreferences.limitMB },
+        pruneInterval: TimeInterval = 60
+    ) {
+        self.files = files
+        configuredDirectories = directories
+        self.cacheLimitMB = cacheLimitMB
+        self.pruneInterval = pruneInterval
+    }
+
+    func usedBytes() -> Int64 {
+        directories.reduce(Int64(0)) { total, directory in
+            guard let children = try? files.contentsOfDirectory(at: directory, options: [.skipsHiddenFiles]) else {
+                return total
+            }
+            return total + children.reduce(Int64(0)) { subtotal, url in
+                subtotal + Int64(files.regularFileSize(at: url) ?? 0)
+            }
+        }
+    }
+
+    func enforce(force: Bool = false, protecting protectedURLs: Set<URL> = []) {
+        let now = Date()
+        guard force || now.timeIntervalSince(lastPruneDate) >= pruneInterval else { return }
+        lastPruneDate = now
+
+        let limitMB = cacheLimitMB()
+        guard limitMB > 0 else { return }
+        let limit = Int64(limitMB) * 1_024 * 1_024
+        let cacheFiles = directories.flatMap { directory -> [(URL, Int64, Date)] in
+            guard let children = try? files.contentsOfDirectory(at: directory, options: [.skipsHiddenFiles]) else {
+                return []
+            }
+            return children.compactMap { url in
+                guard !protectedURLs.contains(url),
+                      url.lastPathComponent != "preview-placeholder.png",
+                      let size = files.regularFileSize(at: url)
+                else { return nil }
+                return (url, Int64(size), files.modificationDate(at: url) ?? .distantPast)
+            }
+        }
+        var total = cacheFiles.reduce(Int64(0)) { $0 + $1.1 }
+        total += protectedURLs.reduce(Int64(0)) { $0 + Int64(files.regularFileSize(at: $1) ?? 0) }
+        guard total > limit else { return }
+
+        let target = Int64(Double(limit) * 0.85)
+        for (url, size, _) in cacheFiles.sorted(by: { $0.2 < $1.2 }) where total > target {
+            do {
+                try files.removeItem(at: url)
+                total -= size
+            } catch {
+                continue
+            }
+        }
+    }
+
+    private var directories: [URL] {
+        configuredDirectories ?? [
+            ImageCacheDirectories.gallery(using: files),
+            ImageCacheDirectories.avatars(using: files),
+        ]
+    }
+}
+
 /// 低清图、高清图和 GIF 共用的持久磁盘缓存。
 ///
 /// 读取时更新文件修改时间，将其作为轻量 LRU 的“最近使用时间”；写入后若超过用户
@@ -53,17 +141,13 @@ actor GalleryImageCache {
     private let directory: URL
     private var downloads: [String: DownloadOperation] = [:]
     private let supportedExtensions = ["jpg", "jpeg", "png", "gif", "heic", "heif", "webp", "bin"]
-    /// 不在每张缩略图落盘后遍历整个缓存目录；最多每分钟执行一次容量整理。
-    private var lastPruneDate = Date()
-
     init() {
-        directory = AppFileDirectories.cacheDirectoryURL(named: "BIT101GalleryImages")
-            ?? files.temporaryDirectoryURL.appending(path: "BIT101GalleryImages", directoryHint: .isDirectory)
+        directory = ImageCacheDirectories.gallery(using: files)
         try? files.createDirectory(at: directory)
     }
 
     /// 返回已有缓存并刷新其 LRU 时间，不发起网络请求。
-    func cachedFile(for remoteURL: URL, variant: GalleryImageCacheVariant) -> URL? {
+    func cachedFile(for remoteURL: URL, variant: GalleryImageCacheVariant) async -> URL? {
         let prefix = filePrefix(for: remoteURL, variant: variant)
         for extensionName in supportedExtensions {
             let file = directory.appendingPathComponent("\(prefix).\(extensionName)")
@@ -73,6 +157,7 @@ actor GalleryImageCache {
                 continue
             }
             touch(file)
+            await ImageCacheDiskQuota.shared.enforce(protecting: Set([file]))
             return file
         }
         return nil
@@ -80,7 +165,7 @@ actor GalleryImageCache {
 
     /// 获取缓存文件；同一 URL 的并发请求会合并成一次下载。
     func file(for remoteURL: URL, variant: GalleryImageCacheVariant) async throws -> URL {
-        if let cached = cachedFile(for: remoteURL, variant: variant) {
+        if let cached = await cachedFile(for: remoteURL, variant: variant) {
             return cached
         }
 
@@ -109,7 +194,7 @@ actor GalleryImageCache {
                 try files.writeData(result.data, to: target, options: [.atomic])
             }
             touch(target)
-            pruneIfNeeded(protecting: Set([target]))
+            await ImageCacheDiskQuota.shared.enforce(protecting: Set([target]))
             return target
         } catch {
             if downloads[requestKey]?.id == operation.id {
@@ -120,14 +205,14 @@ actor GalleryImageCache {
     }
 
     /// 把内存图片持久化为系统预览可读取的本地文件。
-    func localFile(data: Data, pathExtension: String = "png") throws -> URL {
+    func localFile(data: Data, pathExtension: String = "png") async throws -> URL {
         let digest = SHA256.hash(data: data).hexString
         let target = directory.appendingPathComponent("local-\(digest).\(pathExtension)")
         if !hasData(at: target) {
             try files.writeData(data, to: target, options: [.atomic])
         }
         touch(target)
-        pruneIfNeeded(protecting: Set([target]))
+        await ImageCacheDiskQuota.shared.enforce(protecting: Set([target]))
         return target
     }
 
@@ -144,23 +229,15 @@ actor GalleryImageCache {
     }
 
     /// 设置改变后立即按新上限执行一次清理。
-    func enforceCurrentLimit() {
-        pruneIfNeeded(protecting: [], force: true)
+    func enforceCurrentLimit() async {
+        await pruneIfNeeded(protecting: [], force: true)
     }
 
-    /// 当前话廊图片缓存实际占用的磁盘空间。
+    /// 当前本地图片缓存实际占用的磁盘空间。
     ///
-    /// 统计统一图片缓存目录；URLCache 与其他模块的缓存维持独立。
-    func usedBytes() -> Int64 {
-        guard let children = try? files.contentsOfDirectory(at: directory, options: [.skipsHiddenFiles]) else { return 0 }
-
-        return children.reduce(Int64(0)) { total, url in
-            guard
-                files.isRegularFile(at: url),
-                let fileSize = files.regularFileSize(at: url)
-            else { return total }
-            return total + Int64(fileSize)
-        }
+    /// 统计话廊图片与头像目录；URLCache 维持独立。
+    func usedBytes() async -> Int64 {
+        await ImageCacheDiskQuota.shared.usedBytes()
     }
 
     private func filePrefix(for url: URL, variant: GalleryImageCacheVariant) -> String {
@@ -189,39 +266,8 @@ actor GalleryImageCache {
         return fileSize > 0
     }
 
-    private func pruneIfNeeded(protecting protectedURLs: Set<URL>, force: Bool = false) {
-        let now = Date()
-        guard force || now.timeIntervalSince(lastPruneDate) >= 60 else { return }
-        lastPruneDate = now
-
-        let limitMB = GalleryImageCachePreferences.limitMB
-        guard limitMB > 0 else { return }
-        let limit = Int64(limitMB) * 1_024 * 1_024
-
-        guard let children = try? files.contentsOfDirectory(at: directory, options: [.skipsHiddenFiles]) else { return }
-
-        let cacheFiles = children.compactMap { url -> (URL, Int64, Date)? in
-            guard
-                !protectedURLs.contains(url),
-                url.lastPathComponent != "preview-placeholder.png",
-                let fileSize = files.regularFileSize(at: url)
-            else { return nil }
-            return (url, Int64(fileSize), files.modificationDate(at: url) ?? .distantPast)
-        }
-        let protectedSize = children
-            .filter(protectedURLs.contains)
-            .reduce(Int64(0)) { result, url in
-                result + Int64(files.regularFileSize(at: url) ?? 0)
-            }
-        var total = cacheFiles.reduce(protectedSize) { $0 + $1.1 }
-        guard total > limit else { return }
-
-        let target = Int64(Double(limit) * 0.85)
-        for file in cacheFiles.sorted(by: { $0.2 < $1.2 }) where total > target {
-            if (try? files.removeItem(at: file.0)) != nil {
-                total -= file.1
-            }
-        }
+    private func pruneIfNeeded(protecting protectedURLs: Set<URL>, force: Bool = false) async {
+        await ImageCacheDiskQuota.shared.enforce(force: force, protecting: protectedURLs)
     }
 }
 

@@ -254,7 +254,7 @@ struct AboutSettingsPage: View {
                 Task { await resetAllLocalData() }
             }
         } message: {
-            Text("此操作不可撤销。应用将清空本地数据并返回登录页。")
+            Text("此操作不可撤销。应用将清空本机数据并返回登录页；已同步到 iCloud 的数据继续保留。")
         }
     }
 
@@ -308,16 +308,24 @@ struct AboutSettingsPage: View {
         isResettingLocalData = true
         defer { isResettingLocalData = false }
 
-        LoginStorage.shared.clearAllLocalData()
+        let didClearLoginData = LoginStorage.shared.clearAllLocalData()
         // 根状态机先退出主壳层，网页数据清理随后执行。清除公告已读标记后，AppShell 在
         // clearWebData 等待期间可能弹出版本公告，登录页随后替换 AppShell。
         onLogout()
         await ScheduleCacheStore.clear()
+        let didClearSharedSnapshot = ScheduleExternalSnapshotStore.clear()
+        let didClearSmokeArtifacts = ReleaseNetworkSmokeReportStore.clearLocalArtifacts()
         clearUserDefaults()
-        clearFileSystemCaches()
+        let didClearSandboxFiles = clearSandboxFileData()
         URLCache.shared.removeAllCachedResponses()
         await clearWebData()
         AppSettingsStore.shared.resetToDefaults()
+        if !didClearLoginData || !didClearSharedSnapshot || !didClearSmokeArtifacts || !didClearSandboxFiles {
+            AppErrorPresenter.shared.present(AppAlert.informational(
+                title: "本机数据清理部分完成",
+                message: "部分本机数据仍待清理，可稍后重试。"
+            ))
+        }
     }
 
     /// 该方法清空应用 bundle 对应的 `UserDefaults` 域。
@@ -359,20 +367,22 @@ struct AboutSettingsPage: View {
     }
 
     /// 该方法清空文稿、应用支持、缓存和临时目录中的内容。
-    private func clearFileSystemCaches() {
+    private func clearSandboxFileData() -> Bool {
         let files = AppFileDirectories.files
         let directories: [FileManager.SearchPathDirectory] = [
             .documentDirectory,
             .applicationSupportDirectory,
             .cachesDirectory,
         ]
+        var succeeded = true
 
         for directory in directories {
             guard let url = files.directoryURL(directory) else { continue }
-            _ = files.removeContents(of: url)
+            succeeded = files.removeContents(of: url) && succeeded
         }
 
-        _ = files.removeContents(of: files.temporaryDirectoryURL)
+        succeeded = files.removeContents(of: files.temporaryDirectoryURL) && succeeded
+        return succeeded
     }
 
     /// 该方法清空 `WKWebView` 站点数据。

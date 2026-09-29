@@ -19,9 +19,19 @@ final class SchoolDataViewModelStore: ObservableObject {
     static let shared = SchoolDataViewModelStore()
 
     let scheduleViewModel = ScheduleViewModel()
-    let scoreViewModel = ScoreViewModel()
+    let scoreViewModel: ScoreViewModel
 
-    private init() {}
+    private init() {
+#if BIT101_UI_TESTING
+        if AppFileDirectories.isRunningUITest {
+            scoreViewModel = ScoreViewModel(service: UITestScoreService())
+        } else {
+            scoreViewModel = ScoreViewModel()
+        }
+#else
+        scoreViewModel = ScoreViewModel()
+#endif
+    }
 }
 
 final class AppDelegate: NSObject, UIApplicationDelegate {

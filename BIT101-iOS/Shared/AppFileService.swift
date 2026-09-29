@@ -10,6 +10,7 @@ nonisolated protocol AppFileService: Sendable {
     func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws
     func createDirectory(at url: URL) throws
     func removeItem(at url: URL) throws
+    func setPrivateFileProtection(at url: URL) throws
     func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL]
     func regularFileSize(at url: URL) -> Int?
     func isRegularFile(at url: URL) -> Bool
@@ -37,6 +38,12 @@ nonisolated struct LocalAppFileService: AppFileService, Sendable {
     func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws { try data.write(to: url, options: options) }
     func createDirectory(at url: URL) throws { try manager.createDirectory(at: url, withIntermediateDirectories: true) }
     func removeItem(at url: URL) throws { try manager.removeItem(at: url) }
+    func setPrivateFileProtection(at url: URL) throws {
+        try manager.setAttributes(
+            [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+            ofItemAtPath: url.path
+        )
+    }
 
     func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL] {
         try manager.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: options)
@@ -90,4 +97,8 @@ nonisolated struct LocalAppFileService: AppFileService, Sendable {
 /// App 及其扩展共享的文件服务入口。
 nonisolated enum AppFileSystem {
     static let files: any AppFileService = LocalAppFileService()
+    static let protectedDataWritingOptions: Data.WritingOptions = [
+        .atomic,
+        .completeFileProtectionUntilFirstUserAuthentication,
+    ]
 }

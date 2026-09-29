@@ -48,6 +48,7 @@ struct AppSMSVerificationSheet: View {
                         .font(AppDesignSystem.Typography.title.monospacedDigit())
                         .focused($isCodeFieldFocused)
                         .accessibilityLabel("短信验证码")
+                        .accessibilityIdentifier("verification.code")
                         .disabled(isSubmitting)
                         .onChange(of: code) { _, newValue in
                             let digits = normalizedVerificationCode(newValue)

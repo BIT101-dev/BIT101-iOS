@@ -117,14 +117,16 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
             guard existingAccessory == nil else { return }
 
             let toolbar = UIToolbar()
+            let doneButton = UIBarButtonItem(
+                title: "✓ 完成",
+                style: .done,
+                target: self,
+                action: #selector(donePressed)
+            )
+            doneButton.accessibilityIdentifier = "keyboard.dismiss"
             toolbar.items = [
                 UIBarButtonItem(systemItem: .flexibleSpace),
-                UIBarButtonItem(
-                    title: "✓ 完成",
-                    style: .done,
-                    target: self,
-                    action: #selector(donePressed)
-                )
+                doneButton,
             ]
             toolbar.sizeToFit()
 

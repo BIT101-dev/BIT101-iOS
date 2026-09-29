@@ -42,6 +42,7 @@ struct CourseScheduleTabView: View {
     @State var isShowingCourseEditor = false
     @State var courseEditorMode: CourseEditorMode = .add
     @State var isShowingScheduleImport = false
+    @State private var isShowingAddContentMenu = false
     @State var exportedSchedule: ScheduleCodePresentation?
     @State var courseSharePresentation: CourseSharePresentation?
     @State var courseShareAlert: AppAlert?
@@ -63,6 +64,42 @@ struct CourseScheduleTabView: View {
 
     var supportsEditingDisplayedSchedule: Bool {
         activeSchedule.isPrimary
+    }
+
+    private var addContentMenu: some View {
+        AppFloatingActionStack {
+            if supportsEditingDisplayedSchedule {
+                Button {
+                    isShowingAddContentMenu = true
+                } label: {
+                    CourseScheduleFABLabel(systemImage: "plus")
+                }
+                .buttonStyle(.plain)
+                .tint(.primary)
+                .contentShape(Circle())
+                .accessibilityLabel("添加课表内容")
+                .accessibilityIdentifier("schedule.add-content")
+                .accessibilityAddTraits(.isButton)
+                .confirmationDialog(
+                    "添加课表内容",
+                    isPresented: $isShowingAddContentMenu,
+                    titleVisibility: .hidden
+                ) {
+                    Button("添加日程") {
+                        editingCustomScheduleID = nil
+                        customScheduleDraft = viewModel.customScheduleDraft(for: nil)
+                        isShowingEditSchedule = true
+                    }
+                    .accessibilityIdentifier("schedule.add-custom")
+
+                    Button("添加课程") {
+                        courseEditorMode = .add
+                        courseDraft = viewModel.courseDraft(for: viewModel.selectedWeek)
+                        isShowingCourseEditor = true
+                    }
+                }
+            }
+        }
     }
 
     /// 课表分区主体。
@@ -127,52 +164,55 @@ struct CourseScheduleTabView: View {
                     // 手动添加日程入口保持可用。
                     if let firstDay = activeSchedule.firstDay {
                         Section {
-                            CourseScheduleCalendarView(
-                                entries: scheduleEntries,
-                                week: viewModel.selectedWeek,
-                                availableWeeks: weekPickerWeeks,
-                                displayMode: viewModel.cache.scheduleDisplayMode,
-                                cardContentMode: viewModel.cache.scheduleCardContentMode,
-                                axisMode: calendarAxisMode,
-                                axisZoomScale: $calendarAxisZoomScale,
-                                firstDay: firstDay,
-                                timeTable: activeSchedule.timeTable,
-                                currentWeek: resolvedCurrentWeek(firstDay: firstDay),
-                                showSaturday: viewModel.cache.showSaturday,
-                                showSunday: viewModel.cache.showSunday,
-                                onSelect: { entry in
-                                    selectedEntry = entry
-                                },
-                                onSelectDay: { date, weekday in
-                                    guard viewModel.cache.scheduleDisplayMode == .weekly else { return }
-                                    guard supportsEditingDisplayedSchedule else {
-                                        viewModel.notice = ScheduleNotice.userInput(
-                                            title: "无法调整分享课表",
-                                            message: "分享课表是只读副本。调休 / 放假操作面向当前账号自己的课表，导入的分享课表保持原样。"
+                            ZStack(alignment: .bottomTrailing) {
+                                CourseScheduleCalendarView(
+                                    entries: scheduleEntries,
+                                    week: viewModel.selectedWeek,
+                                    availableWeeks: weekPickerWeeks,
+                                    displayMode: viewModel.cache.scheduleDisplayMode,
+                                    cardContentMode: viewModel.cache.scheduleCardContentMode,
+                                    axisMode: calendarAxisMode,
+                                    axisZoomScale: $calendarAxisZoomScale,
+                                    firstDay: firstDay,
+                                    timeTable: activeSchedule.timeTable,
+                                    currentWeek: resolvedCurrentWeek(firstDay: firstDay),
+                                    showSaturday: viewModel.cache.showSaturday,
+                                    showSunday: viewModel.cache.showSunday,
+                                    onSelect: { entry in
+                                        selectedEntry = entry
+                                    },
+                                    onSelectDay: { date, weekday in
+                                        guard viewModel.cache.scheduleDisplayMode == .weekly else { return }
+                                        guard supportsEditingDisplayedSchedule else {
+                                            viewModel.notice = ScheduleNotice.userInput(
+                                                title: "无法调整分享课表",
+                                                message: "分享课表是只读副本。调休 / 放假操作面向当前账号自己的课表，导入的分享课表保持原样。"
+                                            )
+                                            return
+                                        }
+                                        selectedDayAdjustmentContext = ScheduleDayAdjustmentContext(
+                                            date: date,
+                                            week: viewModel.selectedWeek,
+                                            weekday: weekday
                                         )
-                                        return
-                                    }
-                                    selectedDayAdjustmentContext = ScheduleDayAdjustmentContext(
-                                        date: date,
-                                        week: viewModel.selectedWeek,
-                                        weekday: weekday
-                                    )
-                                    dayAdjustmentDraft = ScheduleDayAdjustmentDraft(
-                                        targetDate: ScheduleDateCodec.calendar.date(byAdding: .day, value: 1, to: date) ?? date
-                                    )
-                                },
-                                onSelectWeekValue: { week in
-                                    viewModel.selectedWeek = week
-                                },
-                                onLongPressCourse: { entry in
-                                    shareCourse(from: entry)
-                                },
-                                onPrepareCourseShare: { entry in
-                                    prepareCourseShare(from: entry)
-                                },
-                                onShareSchedule: { exportScheduleCode() },
-                                onImportSchedule: { isShowingScheduleImport = true }
-                            )
+                                        dayAdjustmentDraft = ScheduleDayAdjustmentDraft(
+                                            targetDate: ScheduleDateCodec.calendar.date(byAdding: .day, value: 1, to: date) ?? date
+                                        )
+                                    },
+                                    onSelectWeekValue: { week in
+                                        viewModel.selectedWeek = week
+                                    },
+                                    onLongPressCourse: { entry in
+                                        shareCourse(from: entry)
+                                    },
+                                    onPrepareCourseShare: { entry in
+                                        prepareCourseShare(from: entry)
+                                    },
+                                    onShareSchedule: { exportScheduleCode() },
+                                    onImportSchedule: { isShowingScheduleImport = true }
+                                )
+                                addContentMenu
+                            }
                             .frame(height: calendarHeight)
                             // 课表自身绘制白色分组背景；List 行背景保持在悬浮 Tab 栏上方。
                             .listRowInsets(EdgeInsets())
@@ -180,27 +220,30 @@ struct CourseScheduleTabView: View {
                         }
                     } else {
                         Section {
-                            VStack(spacing: AppDesignSystem.Spacing.section) {
-                                Text(activeSchedule.isPrimary ? "课表尚未同步学期起始日期" : "分享课表缺少起始日期")
-                                    .font(AppDesignSystem.Typography.title)
-                                Text(activeSchedule.isPrimary ? "请先同步所选学期。" : "试试上下滑切换到别的课表，或重新导入一份分享课表。")
-                                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                                if supportsEditingDisplayedSchedule {
-                                    Button {
-                                        Task { await viewModel.syncSelectedTerm() }
-                                    } label: {
-                                        HStack(spacing: AppDesignSystem.Spacing.regular) {
-                                            if viewModel.isSyncingCourses {
-                                                ProgressView()
+                            ZStack(alignment: .bottomTrailing) {
+                                VStack(spacing: AppDesignSystem.Spacing.section) {
+                                    Text(activeSchedule.isPrimary ? "课表尚未同步学期起始日期" : "分享课表缺少起始日期")
+                                        .font(AppDesignSystem.Typography.title)
+                                    Text(activeSchedule.isPrimary ? "请先同步所选学期。" : "试试上下滑切换到别的课表，或重新导入一份分享课表。")
+                                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                                    if supportsEditingDisplayedSchedule {
+                                        Button {
+                                            Task { await viewModel.syncSelectedTerm() }
+                                        } label: {
+                                            HStack(spacing: AppDesignSystem.Spacing.regular) {
+                                                if viewModel.isSyncingCourses {
+                                                    ProgressView()
+                                                }
+                                                Text("重新获取所选学期")
                                             }
-                                            Text("重新获取所选学期")
                                         }
+                                        .buttonStyle(.borderedProminent)
+                                        .disabled(viewModel.isSyncingCourses)
                                     }
-                                    .buttonStyle(.borderedProminent)
-                                    .disabled(viewModel.isSyncingCourses)
                                 }
+                                .frame(maxWidth: .infinity)
+                                addContentMenu
                             }
-                            .frame(maxWidth: .infinity)
                         }
                     }
                 }
@@ -208,33 +251,10 @@ struct CourseScheduleTabView: View {
                 .scrollContentBackground(.hidden)
                 .scrollDisabled(true)
                 .frame(height: listHeight, alignment: .top)
+                .zIndex(0)
                 .onPreferenceChange(ScheduleRefreshStatusContentHeightKey.self) { height in
                     guard height > 0 else { return }
                     refreshStatusContentHeight = max(height, AppDesignSystem.Size.Control.touchTarget)
-                }
-
-                AppFloatingActionStack {
-                    if supportsEditingDisplayedSchedule {
-                        Menu {
-                            Button("添加日程") {
-                                editingCustomScheduleID = nil
-                                customScheduleDraft = viewModel.customScheduleDraft(for: nil)
-                                isShowingEditSchedule = true
-                            }
-
-                            Button("添加课程") {
-                                courseEditorMode = .add
-                                courseDraft = viewModel.courseDraft(for: viewModel.selectedWeek)
-                                isShowingCourseEditor = true
-                            }
-                        } label: {
-                            CourseScheduleFABLabel(systemImage: "plus")
-                        }
-                        .buttonStyle(.plain)
-                        .tint(.primary)
-                        .accessibilityLabel("添加课表内容")
-                    }
-
                 }
 
             }

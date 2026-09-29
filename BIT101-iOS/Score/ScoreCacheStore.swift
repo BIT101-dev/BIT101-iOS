@@ -7,56 +7,87 @@ nonisolated struct ScoreCacheSyncPayload: Codable, Sendable {
     var detailedUpdatedAt: Date?
 }
 
+/// 成绩本地快照，把行数据和新鲜度时间放在同一个原子文件中。
+nonisolated struct ScoreCacheSnapshot: Codable, Sendable {
+    var rows: [ScoreRow]?
+    var updatedAt: Date?
+    var detailedUpdatedAt: Date?
+
+    var containsData: Bool {
+        rows != nil || updatedAt != nil || detailedUpdatedAt != nil
+    }
+}
+
 /// 成绩缓存仓库。
 ///
 /// 按学号隔离，切换账号后读取当前账号的成绩。
 enum ScoreCacheStore {
-    private static let store = AccountScopedCodableStore<[ScoreRow]>(
+    private static let fileStore = AccountScopedFileCodableStore<ScoreCacheSnapshot>(
+        filename: "score-cache.json",
+        session: { AppFileDirectories.scoreCacheSession }
+    )
+    private static let legacyRowsStore = AccountScopedCodableStore<[ScoreRow]>(
         keyPrefix: "score.detail.cache",
         session: { AppFileDirectories.scoreCacheSession }
     )
-    private static let updatedAtStore = AccountScopedCodableStore<Date>(
+    private static let legacyUpdatedAtStore = AccountScopedCodableStore<Date>(
         keyPrefix: "score.detail.cache.updated-at",
         session: { AppFileDirectories.scoreCacheSession }
     )
-    private static let detailedUpdatedAtStore = AccountScopedCodableStore<Date>(
+    private static let legacyDetailedUpdatedAtStore = AccountScopedCodableStore<Date>(
         keyPrefix: "score.detail.cache.full-updated-at",
         session: { AppFileDirectories.scoreCacheSession }
     )
 
     static func loadRows() -> [ScoreRow]? {
-        store.load()
+        loadSnapshot()?.rows
     }
 
     static func save(rows: [ScoreRow]) {
-        persist(rows: rows, updatedAt: Date(), clearDetailedUpdatedAt: rows.isEmpty)
+        var snapshot = loadSnapshot() ?? ScoreCacheSnapshot()
+        snapshot.rows = rows
+        snapshot.updatedAt = Date()
+        if rows.isEmpty {
+            snapshot.detailedUpdatedAt = nil
+        }
+        if persist(snapshot) {
+            notifyCacheDidChange()
+        }
     }
 
     static func saveDetailed(rows: [ScoreRow]) {
         let now = Date()
-        persist(rows: rows, updatedAt: now, detailedUpdatedAt: now)
+        var snapshot = loadSnapshot() ?? ScoreCacheSnapshot()
+        snapshot.rows = rows
+        snapshot.updatedAt = now
+        snapshot.detailedUpdatedAt = now
+        if persist(snapshot) {
+            notifyCacheDidChange()
+        }
     }
 
     /// 一次成功的简略比较更新可见的新鲜度时间戳，并保留缓存中更完整的成绩行。
     static func markChecked() {
-        updatedAtStore.save(Date())
-        ExperimentalPreferenceCloudSync.shared.localValueDidChange(in: .scoreCache)
+        var snapshot = loadSnapshot() ?? ScoreCacheSnapshot()
+        snapshot.updatedAt = Date()
+        guard persist(snapshot) else { return }
         notifyCacheDidChange()
     }
 
     static func loadUpdatedAt() -> Date? {
-        updatedAtStore.load()
+        loadSnapshot()?.updatedAt
     }
 
     static func loadDetailedUpdatedAt() -> Date? {
-        detailedUpdatedAtStore.load()
+        loadSnapshot()?.detailedUpdatedAt
     }
 
     static func syncPayload() -> ScoreCacheSyncPayload {
-        ScoreCacheSyncPayload(
-            rows: store.load() ?? [],
-            updatedAt: updatedAtStore.load(),
-            detailedUpdatedAt: detailedUpdatedAtStore.load()
+        let snapshot = loadSnapshot() ?? ScoreCacheSnapshot()
+        return ScoreCacheSyncPayload(
+            rows: snapshot.rows ?? [],
+            updatedAt: snapshot.updatedAt,
+            detailedUpdatedAt: snapshot.detailedUpdatedAt
         )
     }
 
@@ -64,35 +95,50 @@ enum ScoreCacheStore {
     static func applySynced(_ payload: ScoreCacheSyncPayload) {
         // 空云端快照保留本机已有成绩，首次启用实验功能时继续使用本机缓存。
         guard !payload.rows.isEmpty else { return }
-        store.save(payload.rows)
-        if let updatedAt = payload.updatedAt {
-            updatedAtStore.save(updatedAt)
-        } else {
-            updatedAtStore.remove()
-        }
-        if let detailedUpdatedAt = payload.detailedUpdatedAt {
-            detailedUpdatedAtStore.save(detailedUpdatedAt)
-        } else {
-            detailedUpdatedAtStore.remove()
-        }
+        let snapshot = ScoreCacheSnapshot(
+            rows: payload.rows,
+            updatedAt: payload.updatedAt,
+            detailedUpdatedAt: payload.detailedUpdatedAt
+        )
+        guard persist(snapshot, syncPreference: false) else { return }
         notifyCacheDidChange()
     }
 
-    private static func persist(
-        rows: [ScoreRow],
-        updatedAt: Date,
-        detailedUpdatedAt: Date? = nil,
-        clearDetailedUpdatedAt: Bool = false
-    ) {
-        store.save(rows)
-        updatedAtStore.save(updatedAt)
-        if let detailedUpdatedAt {
-            detailedUpdatedAtStore.save(detailedUpdatedAt)
-        } else if clearDetailedUpdatedAt {
-            detailedUpdatedAtStore.remove()
+    private static func loadSnapshot() -> ScoreCacheSnapshot? {
+        if fileStore.hasStoredFile {
+            return fileStore.load()
         }
-        ExperimentalPreferenceCloudSync.shared.localValueDidChange(in: .scoreCache)
-        notifyCacheDidChange()
+
+        let legacySnapshot = ScoreCacheSnapshot(
+            rows: legacyRowsStore.load(),
+            updatedAt: legacyUpdatedAtStore.load(),
+            detailedUpdatedAt: legacyDetailedUpdatedAtStore.load()
+        )
+        guard legacySnapshot.containsData else { return nil }
+        if persistFile(legacySnapshot) {
+            clearLegacyDefaults()
+        }
+        return legacySnapshot
+    }
+
+    @discardableResult
+    private static func persist(_ snapshot: ScoreCacheSnapshot, syncPreference: Bool = true) -> Bool {
+        guard persistFile(snapshot) else { return false }
+        clearLegacyDefaults()
+        if syncPreference {
+            ExperimentalPreferenceCloudSync.shared.localValueDidChange(in: .scoreCache)
+        }
+        return true
+    }
+
+    private static func persistFile(_ snapshot: ScoreCacheSnapshot) -> Bool {
+        fileStore.save(snapshot)
+    }
+
+    private static func clearLegacyDefaults() {
+        legacyRowsStore.remove()
+        legacyUpdatedAtStore.remove()
+        legacyDetailedUpdatedAtStore.remove()
     }
 
     private static func notifyCacheDidChange() {

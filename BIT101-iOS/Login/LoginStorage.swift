@@ -114,7 +114,7 @@ final class LoginStorage {
     /// 这是“退出登录并保留学号”的语义，适用于远端会话失效后快速回到未登录态。
     func clearSession() {
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
-        deleteKeychainValue(account: KeychainAccount.fakeCookie)
+        _ = deleteKeychainValue(account: KeychainAccount.fakeCookie)
 
         // 清理学校身份相关域，保留 App 内其他服务和调试环境的 Cookie。
 #if BIT101_UI_TESTING
@@ -124,16 +124,18 @@ final class LoginStorage {
 #else
         TeachingCenterSessionState.shared.clearSchoolAuthenticationCookies()
 #endif
-        deleteKeychainValue(account: KeychainAccount.password)
+        _ = deleteKeychainValue(account: KeychainAccount.password)
         notifyAccountChanged()
     }
 
     /// 删除客户端本地保存的所有登录相关数据。
     ///
     /// 这是清除全部本地登录数据的语义，同时删除 Keychain 中的学号和密码。
-    func clearAllLocalData() {
-        clearPersistedLoginData()
+    @discardableResult
+    func clearAllLocalData() -> Bool {
+        let didClear = clearPersistedLoginData()
         notifyAccountChanged()
+        return didClear
     }
 
     /// 检测首次安装标记，并在登录页读取本地凭据前清理 Keychain 中的学号和密码。
@@ -143,13 +145,17 @@ final class LoginStorage {
     private func purgePersistedCredentialsIfNeededAfterReinstall() {
         guard !defaults.bool(forKey: DefaultsKey.installationMarker) else { return }
 
-        clearPersistedLoginData()
+        guard clearPersistedLoginData() else {
+            Self.logger.error("Keychain cleanup after reinstall remains pending")
+            return
+        }
         defaults.set(true, forKey: DefaultsKey.installationMarker)
     }
 
-    private func clearPersistedLoginData() {
+    @discardableResult
+    private func clearPersistedLoginData() -> Bool {
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
-        deleteKeychainValue(account: KeychainAccount.fakeCookie)
+        let didDeleteFakeCookie = deleteKeychainValue(account: KeychainAccount.fakeCookie)
 #if BIT101_UI_TESTING
         if !AppFileDirectories.isRunningUITest {
             TeachingCenterSessionState.shared.clearSchoolAuthenticationCookies()
@@ -157,8 +163,9 @@ final class LoginStorage {
 #else
         TeachingCenterSessionState.shared.clearSchoolAuthenticationCookies()
 #endif
-        deleteKeychainValue(account: KeychainAccount.studentID)
-        deleteKeychainValue(account: KeychainAccount.password)
+        let didDeleteStudentID = deleteKeychainValue(account: KeychainAccount.studentID)
+        let didDeletePassword = deleteKeychainValue(account: KeychainAccount.password)
+        return didDeleteFakeCookie && didDeleteStudentID && didDeletePassword
     }
 
     /// 将 `UserDefaults` 中的共享 fake-cookie 迁入账号对应的 Keychain 项。
@@ -238,9 +245,19 @@ final class LoginStorage {
         return value
     }
 
-    private func deleteKeychainValue(account: String) {
+    @discardableResult
+    private func deleteKeychainValue(account: String) -> Bool {
         let query = baseQuery(account: account)
-        SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(query as CFDictionary)
+        guard Self.keychainDeleteSucceeded(status: status) else {
+            Self.logger.error("Keychain delete failed account=\(account, privacy: .public) status=\(status)")
+            return false
+        }
+        return true
+    }
+
+    nonisolated static func keychainDeleteSucceeded(status: OSStatus) -> Bool {
+        status == errSecSuccess || status == errSecItemNotFound
     }
 
     private func baseQuery(account: String) -> [String: Any] {

@@ -217,7 +217,10 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     ) -> ExperimentalPreferenceSyncEnvelope<Payload>? {
         let key = "preference-sync.v1.\(account).\(domain.rawValue)"
         guard let data = cloud.data(forKey: key) else { return nil }
-        return try? JSONDecoder().decode(ExperimentalPreferenceSyncEnvelope<Payload>.self, from: data)
+        return try? ScoreCacheSyncPayloadCodec.decode(
+            ExperimentalPreferenceSyncEnvelope<Payload>.self,
+            from: data
+        )
     }
 
     @MainActor

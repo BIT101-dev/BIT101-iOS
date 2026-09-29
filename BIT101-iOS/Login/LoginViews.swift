@@ -54,7 +54,11 @@ private struct LoginFormView: View {
                     .keyboardType(.asciiCapable)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+#if BIT101_UI_TESTING
+                    .textContentType(AppFileDirectories.isRunningUITest ? nil : .username)
+#else
                     .textContentType(.username)
+#endif
                     .submitLabel(.next)
                     .focused($focusedField, equals: .studentID)
                     .accessibilityLabel("学号")
@@ -67,7 +71,11 @@ private struct LoginFormView: View {
                 SecureField("", text: $viewModel.password, prompt: AppInputPrompt.text("密码"))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+#if BIT101_UI_TESTING
+                    .textContentType(AppFileDirectories.isRunningUITest ? nil : .password)
+#else
                     .textContentType(.password)
+#endif
                     .submitLabel(.go)
                     .focused($focusedField, equals: .password)
                     .accessibilityLabel("密码")

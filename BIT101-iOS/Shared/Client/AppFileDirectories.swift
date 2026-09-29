@@ -30,11 +30,19 @@ nonisolated struct AppStorageSession: Sendable, Equatable {
         let invalid = CharacterSet.alphanumerics.inverted
         return accountIdentifier.components(separatedBy: invalid).joined(separator: "_")
     }
+
+    /// 自动迁移沿用与账号标识完全相同的旧路径，字符替换后的目录作为隔离历史数据留在原位。
+    var legacyAccountDirectoryNameForMigration: String {
+        let legacyName = legacyAccountDirectoryName
+        guard accountIdentifier == legacyName else { return accountDirectoryName }
+        return legacyName
+    }
 }
 
 /// App 持久化路径、当前账号会话和本地文件服务的统一入口。
 enum AppFileDirectories {
     nonisolated static let files = AppFileSystem.files
+
     nonisolated static var defaults: UserDefaults {
 #if BIT101_UI_TESTING
         if isRunningUITest {
@@ -76,14 +84,14 @@ enum AppFileDirectories {
     }()
 
     @MainActor static var currentSession: AppStorageSession {
-        let studentID = LoginStorage.shared.currentStudentID
 #if BIT101_UI_TESTING
         if isRunningUITest {
+            let studentID = defaults.string(forKey: "ui-test.session.student-id") ?? ""
             let isolatedAccount = studentID.isEmpty ? "guest" : studentID
             return AppStorageSession(accountIdentifier: "__ui_tests__.\(uiTestRunIdentifier).\(isolatedAccount)")
         }
 #endif
-        return AppStorageSession(accountIdentifier: studentID)
+        return AppStorageSession(accountIdentifier: LoginStorage.shared.currentStudentID)
     }
 
     @MainActor static var scoreCacheSession: AppStorageSession {

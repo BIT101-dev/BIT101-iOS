@@ -20,6 +20,7 @@ struct CourseScheduleBlockView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityValue(accessibilityValue)
+        .accessibilityIdentifier("schedule.entry.\(entry.id)")
         .accessibilityHint("双击打开详情")
     }
 

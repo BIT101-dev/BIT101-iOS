@@ -50,6 +50,11 @@ struct HTTPClient {
         _ request: URLRequest,
         accepting statusCodes: Range<Int> = 200 ..< 300
     ) async throws -> HTTPResponse {
+#if BIT101_UI_TESTING
+        if AppFileDirectories.isRunningUITest {
+            throw URLError(.notConnectedToInternet)
+        }
+#endif
         if let url = request.url, let networkWarningCenter {
             _ = await networkWarningCenter.consider(url: url)
         }
