@@ -1,3 +1,5 @@
+@testable import ScheduleFeature
+import ScheduleDomain
 import Foundation
 import Testing
 @testable import BIT101_iOS

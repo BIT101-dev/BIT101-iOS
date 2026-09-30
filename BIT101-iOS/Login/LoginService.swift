@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import ClientCore
 
 /// 登录业务门面。
 ///

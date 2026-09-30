@@ -1,4 +1,5 @@
-import ClientCore
+import TransportCore
+import CommunityTransport
 import Foundation
 
 @MainActor
@@ -54,6 +55,19 @@ extension CommunityAPIClient {
                     observedCookie: observedCookie,
                     storage: storage
                 )
+            }
+        )
+    }
+}
+
+extension CommunitySession {
+    static func appSession(storage: LoginStorage = .shared, httpClient: HTTPClient = .community) -> CommunitySession {
+        CommunitySession(
+            httpClient: httpClient,
+            baseURL: AppURL.required("https://bit101.flwfdd.xyz"),
+            cookie: { storage.fakeCookie },
+            refresh: { observedCookie in
+                try await CommunitySessionRefreshCoordinator.shared.refreshIfNeeded(observedCookie: observedCookie, storage: storage)
             }
         )
     }

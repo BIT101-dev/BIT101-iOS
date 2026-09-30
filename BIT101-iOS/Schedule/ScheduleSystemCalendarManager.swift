@@ -1,4 +1,6 @@
-import ClientCore
+import TransportCore
+import MapFeature
+import ScheduleDomain
 import ScheduleContracts
 import EventKit
 import Foundation
@@ -23,6 +25,25 @@ nonisolated struct ScheduleSystemCalendarEventDraft: Equatable {
 
 /// 将课表里的周次、星期和节次展开成独立日历事件。
 nonisolated enum ScheduleSystemCalendarEventBuilder {
+    static func makeDrafts(for content: ScheduleSystemCalendarContent) throws -> [ScheduleSystemCalendarEventDraft] {
+        switch content {
+        case let .courses(courses, firstDay, timeTable, week):
+            let drafts = ScheduleSystemCalendarEventBuilder.makeDrafts(courses: courses, firstDay: firstDay, timeTable: timeTable)
+            guard let week else { return drafts }
+            return drafts.filter { $0.markerID.hasSuffix("-w\(week)") }
+        case let .exam(exam):
+            guard let draft = ScheduleSystemCalendarEventBuilder.makeDraft(for: exam) else {
+                throw ScheduleSystemCalendarError.invalidEntry("考试时间数据无法生成系统日历事件。")
+            }
+            return [draft]
+        case let .customSchedule(schedule):
+            guard let draft = ScheduleSystemCalendarEventBuilder.makeDraft(for: schedule) else {
+                throw ScheduleSystemCalendarError.invalidEntry("自定义日程时间数据无法生成系统日历事件。")
+            }
+            return [draft]
+        }
+    }
+
     static func makeDrafts(
         courses: [CourseRecord],
         firstDay: Date,
@@ -226,47 +247,6 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 8 * 60 * 60) ?? .current
         return calendar
-    }
-}
-
-enum ScheduleSystemCalendarError: LocalizedError {
-    case permissionDenied
-    case noWritableCalendarSource
-    case missingSchedule
-    case noImportedEvents
-
-    var recoveryAction: AppRecoveryAction? {
-        switch self {
-        case .permissionDenied, .noWritableCalendarSource:
-            return .openAppSettings
-        case .missingSchedule, .noImportedEvents:
-            return nil
-        }
-    }
-
-    var errorDescription: String? {
-        switch self {
-        case .permissionDenied:
-            return "当前日历账户的写入权限需要调整。请在系统设置的“隐私与安全性－日历”中开启 BIT101 权限，并确认 iCloud 或本地日历账户处于可写状态。"
-        case .noWritableCalendarSource:
-            return "未找到可以写入的系统日历账户。请先在“日历”App 中启用 iCloud 或本地日历。"
-        case .missingSchedule:
-            return "当前学期还没有可导入的课程，或尚未取得学期起始日期。"
-        case .noImportedEvents:
-            return "没有找到由 BIT101 导入的日历事件。"
-        }
-    }
-}
-
-enum ScheduleSystemCalendarMutationResult: Equatable {
-    case changed(Int)
-    case noOp
-
-    var count: Int {
-        switch self {
-        case let .changed(count): return count
-        case .noOp: return 0
-        }
     }
 }
 

@@ -1,5 +1,7 @@
+import MineFeature
+import TransportCore
+import CommunityTransport
 import CommunityCore
-import ClientCore
 //
 //  SettingsServices.swift
 //  BIT101-iOS

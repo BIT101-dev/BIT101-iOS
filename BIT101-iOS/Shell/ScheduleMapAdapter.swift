@@ -1,13 +1,15 @@
+import MapFeature
+import ScheduleDomain
 import ScheduleContracts
 import Foundation
 
 /// 从本地课表缓存中解析“下一节课 + 校区 + 建筑”。
 enum UpcomingCourseMapResolver {
-    static func nextTarget(in cache: ScheduleCache, now: Date = Date()) -> UpcomingCourseMapTarget? {
-        guard let firstDay = cache.firstDay else { return nil }
-        let slots = Dictionary(uniqueKeysWithValues: cache.timeTable.map { ($0.id, $0) })
+    static func nextTarget(in snapshot: ScheduleCourseSnapshot, now: Date = Date()) -> UpcomingCourseMapTarget? {
+        guard let firstDay = snapshot.firstDay else { return nil }
+        let slots = Dictionary(uniqueKeysWithValues: snapshot.timeTable.map { ($0.id, $0) })
 
-        return cache.courses.flatMap { course -> [UpcomingCourseMapTarget] in
+        return snapshot.courses.flatMap { course -> [UpcomingCourseMapTarget] in
             guard let startSlot = slots[course.startSection] else { return [] }
             let campus = CampusMapPlaceCatalog.campus(
                 campusName: course.campus,
@@ -34,7 +36,8 @@ enum UpcomingCourseMapResolver {
                     classroom: course.classroom,
                     startDate: startDate,
                     campus: campus,
-                    place: place
+                    place: place,
+                    startDateText: ScheduleDateCodec.formatRelativeDateTime(startDate)
                 )
             }
         }

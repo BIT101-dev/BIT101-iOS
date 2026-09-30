@@ -3,25 +3,6 @@ import Foundation
 import SwiftUI
 import UIKit
 
-nonisolated enum AppRecoveryAction: Equatable, Sendable {
-    case openAppSettings
-
-    var title: String {
-        switch self {
-        case .openAppSettings: "打开系统设置"
-        }
-    }
-
-    @MainActor
-    func perform() {
-        switch self {
-        case .openAppSettings:
-            if let url = URL(string: UIApplication.openSettingsURLString) {
-                UIApplication.shared.open(url)
-            }
-        }
-    }
-}
 
 nonisolated struct AppErrorPresentation: Identifiable {
     let id = UUID()
@@ -298,30 +279,12 @@ private final class ReportPresentationDelegate: NSObject, UIAdaptivePresentation
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) { onDismiss() }
 }
 
-private struct DiagnosticAlertModifier<Item: DiagnosticAlertPresentable>: ViewModifier {
-    @Binding var item: Item?
-
-    func body(content: Content) -> some View {
-        content
-            .onAppear(perform: forwardIfNeeded)
-            .onChange(of: item?.id) { _, _ in forwardIfNeeded() }
-    }
-
-    private func forwardIfNeeded() {
-        guard let alert = item else { return }
-        item = nil
-        AppErrorPresenter.shared.present(alert)
-    }
-}
 
 extension View {
-    func diagnosticAlert<Item: DiagnosticAlertPresentable>(item: Binding<Item?>) -> some View {
-        modifier(DiagnosticAlertModifier(item: item))
-    }
-
     /// 向页面状态组件注入主 App 的诊断恢复操作，保持设计系统与错误基础设施解耦。
     func appDiagnosticRecoveryActions() -> some View {
-        environment(\.appFailureDiagnostics) { title, message in
+        environment(\.appDiagnosticAlert) { AppErrorPresenter.shared.present($0) }
+            .environment(\.appFailureDiagnostics) { title, message in
             AnyView(DiagnosticRecoveryActions(title: title, message: message))
         }
     }

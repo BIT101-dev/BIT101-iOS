@@ -1,356 +1,111 @@
-# BIT101-iOS 架构说明
-
-本文说明 App 的系统边界、主 App 流转、模块分层、数据来源和扩展协作。以下情况可先阅读本文：
-
-- 首次接手这个仓库
-- 准备改动跨模块行为
-- 需要判断某个状态所属的层级
-- 需要了解主 App、widget、Live Activity 的协作方式
-
-## 1. 系统边界
-
-### 客户端精简原则
-
-- 定义少、规则少、层级浅，优先系统能力和直接实现。
-- 同类逻辑集中复用，抽象以降低整体复杂度为依据。
-- 网络、存储、解析、并发和错误分类归客户端工程规范；视觉、布局和交互表现归 UI 设计系统。
-- 检查规则按职责归属，每条规则由一个检查入口维护。
-- 文档集中记录必要约定，功能事实在所属文档维护。
-
-当前项目由五个边界明确的系统组成：
-
-1. 主 App
-   负责登录、页面展示、缓存、设置、用户交互和大部分网络请求。
-2. Widget / 锁屏组件扩展
-   负责桌面与锁屏的课表展示。
-3. Apple Watch App / Smart Stack
-   负责手表上的“当前项 / 下一项”查看，以及 watch 本地镜像消费。
-4. Live Activity / Dynamic Island
-   负责“当前项 / 下一项”的实时提醒。
-5. 服务端系统
-   包括学校 CAS / 教务 / 乐学，以及 BIT101 自己的后端。
-
-维护时需要区分这五层边界。
-
-### 1.1 规范与检查归属
-
-UI 令牌、组件和交互契约由 [UI 设计系统](DESIGN_SYSTEM.md) 维护。
-客户端工程规范集中复用 `HTTPClient`、`CommunityAPIClient`、`TaskCancellation`、`AppFileDirectories` 和账号隔离存储入口。
-`Scripts/check-code-quality.sh` 负责网络调用、日志、社区日期解析、取消处理、存储契约与源码维护；视觉、字体、组件和触感检查归 UI 检查入口。
-`Scripts/run-static-audit.sh` 汇总这些检查。执行依据用户明确指示。
-
-## 2. 主 App 的基本流转
-
-
-主 App 按以下链路运行：
-
-1. `BIT101_iOSApp.swift`
-   设置 app 级环境，例如主题和屏幕方向。
-2. `ContentView.swift`
-   根据登录状态决定进入登录模块还是登录后壳层。
-3. `Shell/AppShellView.swift`
-   进入登录后的 tab 壳层，管理底部栏、深链路由和全局弹层。
-4. 业务模块分别维护：
-   - `Service`
-   - `ViewModel`
-   - `RootView`
-
-状态由以下三部分分别维护：
-
-- App 入口负责全局环境
-- Shell 负责全局路由
-- 每个模块维护自己的 service / state / view
-
-## 3. 模块分层约定
-
-### 编译与应用组装边界
-
-仓库根目录 `Package.swift` 声明本地模块，源文件沿用固定路径：
-
-- `ClientCore`：文件服务、账号命名空间与 Codable 仓库、HTTP 传输、社区协议处理、分页、HTTPS 重定向和取消判断。
-- `ScheduleContracts`：共享快照、编解码、时间线计算及共享容器读写，依赖 `ClientCore`。
-- `CommunityCore`：社区图片、用户、帖子摘要、评论、点赞与评论分页状态，依赖 `ClientCore`。
-- `DesignSystemKit`：公共令牌和组件，iOS 组件通过平台条件编译，Watch 复用基础令牌和外部展示规则。
-
-主 App、Widget、Watch App 和 Watch Widget 通过模块导入消费共享契约。
-应用侧的登录恢复、网络提示和诊断由 `Login/CommunitySessionSupport.swift` 与
-`Shell/AppNetworkClients.swift` 注入；跨业务诊断和偏好云同步由 Shell 协调。
-学业状态对象由 App 生命周期创建，通过 SwiftUI 环境传给页面。
-地图页面接收地点快照，课表解析由 `Shell/ScheduleMapAdapter.swift` 完成。
-
-`Shell/AppAccountStores.swift` 为基础存储提供当前账号和应用容器。
-跨社区目标页面由 `Shell/AppCommunityDestinations.swift` 组装，业务页通过
-`CommunityDestinations` 传递用户、帖子和文章请求；卡片、图片预览与缓存分别归
-`Shared/CommunityUI`、`Shared/Media`。
-
-日程由 `ScheduleViewModel` 持有课表同步与编辑状态，`ScheduleDDLViewModel` 持有
-DDL 同步与短信状态，`ScheduleClassroomViewModel` 持有空教室请求与选择状态。
-三者通过 `ScheduleRepository` 共享账号数据；服务接口按这三个场景划分。
-仓库记录账号、加载代际与本机修订，异步回写前逐项核对。
-`ScheduleCacheEffects` 定义保存后的副作用，`Shell/AppScheduleCacheEffects.swift`
-负责连接 Widget、Watch 和 CloudKit；磁盘写入与导出顺序继续串行维护。
-
-模块调整以 `Scripts/run-extended-tests.sh modules` 验证基础契约，App 适配与账号行为
-通过既有真机测试入口验证，编译装机统一使用 `Scripts/build-install-device.sh`。
-
-业务模块按以下职责分层：
-
-### 3.1 Model
-
-职责：
-
-- 描述数据结构
-- 定义分页状态、筛选状态、缓存结构
-- 提供纯数据层的辅助方法
-
-边界：
-
-- 网络请求由 Service 处理
-- UI 操作由 RootView 处理
-
-### 3.2 Service
-
-职责：
-
-- 网络请求
-- 响应解析
-- 接口兼容处理
-- 某些需要贴近数据源的过滤或归一化
-
-边界：
-
-- 界面状态由 ViewModel 管理
-- 复杂的页面交互由 RootView 管理
-
-### 3.3 ViewModel
-
-职责：
-
-- 刷新、分页、预取、错误态
-- 本地状态管理
-- 页面间状态桥接
-- 写回偏好设置或缓存
-
-边界：
-
-- 复杂 UI 由 RootView 绘制
-- ViewModel 与具体控件实现保持松耦合
-
-### 3.4 RootView
-
-职责：
-
-- 页面布局
-- 手势
-- 路由跳转
-- 弹层与 sheet
-- 将 `ViewModel` 状态投影为 UI
-
-边界：
-
-- 复杂网络逻辑由 Service 处理
-- 大量数据拼接和计算由 Service 或 ViewModel 处理
-
-### 3.5 Shared Client
-
-跨模块、无业务语义的基础能力统一放在 `Shared/Client`，目前包括：
-
-- `AppAlert`：共享层提供页面提示数据，业务模块通过共享层使用。
-- `TaskCancellation`：统一识别 Concurrency 与 URLSession 取消错误。
-- `AccountScopedCodableStore`：统一账号隔离的 Codable 快照存储键。
-- `makeHorizontalSwitchGesture`：为多个 segmented 页面提供一致的轻扫阈值。
-- `PagedItemsState`：统一页码分页列表的重置、首屏回写、追加和尾部预加载判断。
-
-ViewModel 优先通过按页面场景划分的协议依赖 Service。例如，课程列表不需要依赖课程详情的评论接口。协议用于缩小依赖面和支持测试；各 Service 按业务场景保留独立职责。
-
-当前登录、课程、话廊、文章、我的主页、日程和成绩 ViewModel 都通过场景协议依赖网络层。生产环境由原有 Service 实现这些协议；共享层处理通用 HTTP 和社区 API 规则，请求路径与业务认证状态由具体 Service 管理。
-
-网络传输同样位于 `Shared/Client`：
-
-- `HTTPClient` 处理 URLSession 传输、HTTP 响应和状态码。
-- `CommunityAPIClient` 处理社区 API 的 URL、fake-cookie 和 JSON。
-- 社区响应解码运行在可取消的独立并发任务；响应模型以 `Sendable` 作为跨隔离域的数据契约。
-- 学校课表/考试 DTO 与成绩行解码同样运行在可取消的独立并发任务；课表缓存读写由串行后台队列维护顺序。
-- `NetworkSessionPool` 复用社区、成绩认证和敏感下载会话。
-
-学校 CAS、教学中心和成绩 challenge 共享 HTTP 传输能力，各自维护认证状态。详细边界见 `docs/NETWORKING.md`。
-
-大视图文件按可独立维护的功能拆分：话廊 feed/搜索/消息/详情/评论、日程日历/编辑/DDL、设置各域、文章各场景和课程成绩/评论均有独立文件。拆分保持页面路由和视图层级稳定；登录与日程服务也将纯解析、存储和 DTO 从业务门面分离。
-
-## 4. 数据来源分类
-
-当前工程的数据来自五类来源：
-
-### 4.1 服务端接口
-
-例如：
-
-- 话廊 feed
-- 消息中心
-- 我的主页
-- 他人主页
-
-这类数据具备以下特点：
-
-- 可随时刷新
-- 以服务端为准
-- 本地多为短期 UI 状态
-
-### 4.2 学校系统
-
-例如：
-
-- 登录
-- 成绩
-- 课表
-- 考试
-- 空教室
-- 可信成绩单
-
-这类数据具备以下特点：
-
-- 链路更脆
-- 更容易受学校系统变更影响
-- 常常需要额外兼容逻辑
-
-学校业务按链路维护可失效会话。当前课表、考试与空教室通过 bit-login
-建立可失效的教学中心会话；普通成绩和可信成绩单分别使用 `jwb`、`jwb_cjd` challenge。
-服务端要求短信验证时，短期 `challenge_id` 与 access token 只停留在内存中。
-
-### 4.3 本地缓存
-
-例如：
-
-- 课表 / DDL / 考试缓存
-- 自定义日程
-- 图片缓存
-- 按账号隔离的基础成绩缓存
-
-本地缓存用于：
-
-- 支持页面快速打开
-- 服务端不可用时，页面仍显示最近一次数据
-
-可信成绩单单独处理：学校返回的是短期敏感图片，当前保存在内存中预览，通用图片磁盘缓存保持独立。
-
-### 4.4 本地偏好
-
-例如：
-
-- 主题模式
-- 旋转开关
-- 查询筛选
-- 普通帖子页面是否隐藏机器人帖子（搜索、推荐、关注、个人主页等；机器人分栏除外）
-
-写入这类数据前，先确定是否按账号隔离。
-
-### 4.5 共享快照
-
-例如：
-
-- 小组件和锁屏组件读取的课表快照
-- Apple Watch app / Smart Stack 读取的课表快照
-
-共享快照向扩展导出所需的最小信息，主 App 缓存继续由主 App 管理。
-
-## 5. 账号隔离在架构中的位置
-
-账号隔离是整个工程的横切原则。
-
-目前账号隔离至少影响：
-
-- 课表缓存
-- DDL 缓存
-- 成绩缓存与筛选偏好
-- 教学中心内存会话
-- 一部分筛选和偏好
-
-判断新状态的存放层级时，依次回答：
-
-1. 这个状态是否应该随学号切换而变化
-2. 这个状态是否会影响别的账号看到的内容
-3. 退出登录后，这个状态是否还应该保留
-
-如果状态随账号变化，就按账号隔离。
-
-## 6. 为什么话廊和日程不用系统 pager
-
-话廊和日程通过顶部 segmented 控件与轻扫手势切换分栏。页面内容按各模块的滚动、底部栏和 safe area 布局规则呈现。
-
-## 7. 为什么 widget 不直接读主 App 缓存
-
-两个 target 直接读取主 App 缓存会增加耦合和调试成本。
-
-当前结构采用以下数据链路：
-
-1. 主 App 持有完整课表缓存
-2. `ScheduleWidgetSupport` 导出精简快照
-3. widget / 锁屏组件 / Live Activity 全部读取快照
-
-该链路带来以下结果：
-
-- 扩展目标更轻
-- 共享数据边界更清晰
-- 课表内部结构调整时，有明确的导出层可改
-
-## 8. Apple Watch 为什么也走共享快照
-
-watch app 和 watch widget 遵循与桌面 widget 相同的共享快照原则：
-
-1. iPhone 主 App 是真相源
-2. 主 App 导出 `ScheduleExternalSnapshot`
-3. watch 端负责以下工作：
-   - 请求最新镜像
-   - 落地镜像
-   - 读取镜像
-   - 展示“当前 / 下一节 / 后续课程”
-
-桌面 Widget、Watch App 和 Watch Widget 统一通过 `ScheduleExternalContentState`
-区分“未同步 / 未登录 / 快照无效 / 无课 / 有课”，并通过
-`ScheduleTimelineRefreshPlanner` 计算课程切换与跨日刷新时刻。快照磁盘存储和
-WatchConnectivity 传输共同使用 `ScheduleExternalSnapshotCodec`，避免日期策略漂移。
-
-共享快照带来以下结果：
-
-- “首周 + 周次 + 节次 -> 实际上课时间”的推导在主 App 侧完成，watch 端直接使用推导结果
-- watch app 与 watch widget 可以共享同一套最小解析逻辑
-- 同步问题沿 `WatchConnectivity + shared snapshot` 链路排查
-- Watch 同步错误写入 `WatchScheduleSync` 分类日志；该日志不记录课表正文或学生信息
-
-## 9. Live Activity 与 Widget 的区别
-
-Widget、锁屏组件和 Live Activity 都依赖课表快照，各自的设计目标不同：
-
-- Widget
-  适合稳定展示“下一节 / 后续几节”
-- 锁屏组件
-  适合高密度、静态 glance
-- Live Activity
-  适合短时间内围绕“当前项 / 下一项”的提醒
-
-Live Activity 使用独立的生命周期模型，与 widget family 分开维护。
-
-## 10. 平台能力边界
-
-以下实现对应系统能力和明确的交互要求：
-
-- 话廊和日程的自定义轻扫切换
-- 地图页的 `MKMapView` 桥接与 attribution 处理
-- 消息中心基于服务端分类未读数做本地“伪新消息”
-- 一些学校系统登录与跳转兼容逻辑
-- 话题图片与可信成绩单共用的 `UIScrollView` 全屏缩放桥
-
-维护这些部分时沿用其模块职责与平台接口。
-
-## 11. 推荐的接手顺序
-
-首次系统性阅读这个工程时，按下面顺序：
-
-1. `README.md`
-2. `docs/ARCHITECTURE.md`
-3. `docs/CODEBASE_GUIDE.md`
-4. `docs/STATE_AND_STORAGE.md`
-5. `docs/FILE_INDEX.md`
-6. 再进入对应模块代码
-
-该顺序先介绍项目边界，再进入具体实现细节。
+# 架构与数据边界
+
+## 模块职责
+
+`Package.swift` 定义本地模块及直接依赖，是编译边界的维护入口。模块源码位于 `Modules/<模块>/Sources/`。
+
+| 模块 | 职责 |
+| --- | --- |
+| `StorageCore` | 文件服务、账号分区和 Codable 存储 |
+| `TransportCore` | HTTP 传输、重定向、请求观察与取消语义 |
+| `CommunityTransport` | 社区请求、Cookie、JSON 和业务错误映射 |
+| `ClientCore` | 学校认证协议、CAS 解析、会话状态与密码学适配契约 |
+| `ScheduleContracts` | 外部快照、Watch 传输、时间线与展示状态契约 |
+| `ScheduleSharedStore` | App Group 快照文件读写与迁移 |
+| `ScheduleDomain` | 日程模型、服务端口、场景快照与平台操作协议 |
+| `ScheduleInfrastructure` | 学校课表、DDL、空教室与认证服务实现 |
+| `ScheduleFeature` | 日程仓库、场景状态、编辑、分享与页面 |
+| `CommunityCore` | 社区模型与通用列表状态 |
+| `CommunityUI` | 公共社区展示和跨场景目标工厂 |
+| `DesignSystemKit`、`MediaKit` | 公共视觉组件、图片展示与缓存 |
+| `ScoreFeature`、`MapFeature` | 成绩与校园地图场景 |
+| `GalleryFeature`、`CourseFeature`、`PaperFeature`、`MineFeature` | 话廊、课程、文章与个人主页场景 |
+
+依赖按基础能力、领域协议、业务场景、App 组装的职责组织。Feature 间导航通过 App 壳层提供的目标工厂连接。共享能力归所属模块，各模块声明实际使用的直接依赖。
+
+## App 组装与状态流
+
+App 入口位于 `BIT101-iOS/BIT101_iOSApp.swift`。`Login/` 承接凭据恢复和登录；`Shell/` 组装网络、账号仓库、业务依赖和全局路由；`Settings/` 承接设备偏好与用户操作。
+
+```text
+App 入口 → 登录恢复 → AppAccountLifecycle → 各场景状态与页面
+                    ↘ 网络、存储、云同步、系统能力适配
+```
+
+- `AppAccountLifecycle` 接收 `ExperimentalPreferenceCloudSync`，从同一同步实例取得设置和账号仓库，协调切号、状态重载和外部展示刷新。
+- `AppPreferenceCacheEffects.configure(sync:)` 把保存回调绑定到该实例持有的设置、成绩、筛选和消息仓库；根视图传递同一组环境对象。
+- `AppSettingsStore` 注入偏好存储与账号会话提供器。`AppAccountStores` 持有业务仓库及会话提供器，生产默认实例在 App 组装入口选择。
+- ViewModel 通过场景化服务协议接收业务能力；View 绑定状态和操作，平台适配器负责系统副作用。
+- `CommunityDestinations` 提供页面工厂。个人主页的删帖操作通过 `MineDependencies` 注入，业务动作归所属场景。
+- `ScheduleRepository` 持有完整日程缓存与写权限，课表、DDL、空教室通过场景快照提交所属字段。保存时合并当前记录，按账号、加载代际和本机修订处理异步回写。
+- `ScheduleCacheEffects` 连接共享展示和云同步；系统日历、分享、Watch 与 Live Activity 通过平台操作协议接入。
+
+视觉令牌、公共组件和页面约束见 [设计系统](DESIGN_SYSTEM.md)。
+
+## 网络边界
+
+`HTTPClient` 负责 HTTP 响应和状态码；`CommunityAPIClient` 负责社区请求与业务映射；各 Service 描述 endpoint 和场景数据组合。传输通过 `HTTPTransport` 注入，请求准入与结果记录通过 `HTTPClientObserving` 注入。
+
+`Shell/AppNetworkClients.swift` 组装连接池、网络提示与诊断。`Login/CommunitySessionSupport.swift` 提供 Cookie 读取和并发合并的登录恢复动作；用户主动诊断归 `Shell/NetworkDiagnosisRunner.swift`。
+
+| 会话 | 边界 |
+| --- | --- |
+| `community` | 社区场景共用 Cookie、URLCache 与连接池 |
+| `scoreAuthentication` | 普通成绩与可信成绩单共用 bit-login 传输，各自维护业务 challenge |
+| `sensitiveDownloads` | ephemeral 配置下载可信成绩单图片，图片由页面 ViewModel 在内存持有 |
+| 学校 CAS | 按业务需要分开管理手动重定向与 HTTPS 升级重定向会话 |
+| 教学中心 | 使用独立 HTTPS delegate 和可失效的认证状态 |
+
+- 学校会话的 Cookie 容器与传输实现配套注入。普通成绩使用 `jwb` challenge，可信成绩单使用 `jwb_cjd` challenge。
+- 社区认证失败进入一次会话恢复重试；明确失效时进入退出状态。学校认证与有副作用的请求按业务条件处理重试。
+- 取消、超时、证书错误和业务失败保持各自语义。HTTP 状态和错误正文由共享传输层校验。
+- JSON 解码使用可取消的并发任务，跨隔离域模型满足 `Sendable`；文件保存由串行队列或 actor 承接。
+- 日志记录必要状态与错误分类，凭据、课表正文和学生信息保持在业务数据边界内。
+
+## 存储与账号隔离
+
+`AppStorageSession` 统一生成账号级偏好键和安全目录名，访客使用固定分区。任务创建时捕获账号归属；切号后根据代际处理迟到结果。
+
+| 数据 | 保存位置与生命周期 |
+| --- | --- |
+| 学号、密码、`fake-cookie` | Keychain；安装标记位于 UserDefaults |
+| 学校 Cookie | 对应会话的 Cookie 容器 |
+| challenge、access token、短信状态 | 业务会话内存；退出、切号、过期或明确失效时清除 |
+| 主题、旋转等设备偏好 | 应用级 UserDefaults |
+| 账号设置、成绩筛选、消息已读状态 | 账号级偏好或业务仓库 |
+| 日程、成绩、发帖草稿 | 账号隔离的 Application Support 文件 |
+| 可重建图片与头像 | Caches，按容量和 LRU 策略回收 |
+| 外部课表展示 | App Group 中的精简快照 |
+
+- 文件保存采用原子替换及首次解锁后的数据保护。草稿图片以独立 JPEG 文件保存，单张上限 1 MiB。
+- 日程缓存保存学校原始课程、手动调整规则和展示结果。分享导入追加 `sharedSchedules` 中的只读记录，导入字段为学期、首周、时间表与课程，当前账号日程保持原值。
+- 日程和成绩缓存读取失败时保留源文件，暂停对应写入和同步，呈现恢复状态；扩展使用当前账号的空快照。
+- 正常覆盖升级保留本地缓存、分享课表和偏好。新增 Codable 字段提供默认值，字段语义或类型变化维护迁移路径。
+- 退出登录清理会话凭据，账号缓存和草稿保留供下次登录恢复。设置中的“删除所有文稿与数据”清理本地持久数据及 App Group 内容，远端 iCloud 数据继续保留。
+- 重装后的首次启动依据安装标记清理旧 Keychain 凭据。登录恢复暂时受阻时保留待确认会话，远端明确返回凭据失效时清理登录凭据。
+
+## iCloud 同步
+
+两条同步链路分别维护开关、数据范围和冲突处理：
+
+- **课表 CloudKit**：`ScheduleCloudSyncManager` 使用私有数据库，按账号同步手动调课、放假规则、个人日程、分享课表、手动 DDL、乐学 DDL 完成状态和日程偏好。学校课程、考试、DDL 正文和查询缓存保存在本机。
+- **实验性偏好 KVS**：`ExperimentalPreferenceCloudSync` 同步设置、成绩筛选、成绩缓存与消息已读状态。开关保存在当前设备并按账号隔离，默认关闭；各域分别记录修改时间。成绩快照使用 LZFSE 压缩并检查配额。
+
+CloudKit 使用带版本的精简载荷，本地记录保留服务器基线和待上传状态；本机编辑与远端分歧时提供版本选择。历史载荷通过已有迁移入口合并，版本兼容性决定同步准入。损坏的成绩缓存暂停该域的 KVS 同步。
+
+## Widget、Watch 与 Live Activity
+
+主 App 持有完整日程，导出 `ScheduleExternalSnapshot` 供外部展示消费：
+
+```text
+日程仓库 → 快照导出 → App Group → Widget / Live Activity
+                   ↘ WatchConnectivity → Watch 本地镜像 → Watch App / Smart Stack
+```
+
+- App Group：`group.BIT101-dev.BIT101-iOS.shared`；快照路径：`Widgets/schedule-widget-snapshot.json`。
+- 快照使用稳定的账号摘要表达归属；账号切换后的导出按 generation 串行协调。
+- `ScheduleContracts` 提供共享编码、状态解析和时间线规划；`ScheduleSharedStore` 注入文件服务、容器地址和通知中心。
+- `ScheduleExternalContentState` 区分同步、登录、快照有效性与课程状态；`ScheduleTimelineRefreshPlanner` 规划课程切换和跨日刷新。
+- Watch 负责请求、落地和展示镜像；Live Activity 单独管理提醒生命周期。模型调整同步关注 App、iOS Widget、Watch App 和 Watch Widget。
+
+分享链接与自定义 Scheme 的契约见 [Cloudflare 资源](../Cloudflare/README.md)。构建、测试和固定 fixture 的维护入口见 [构建与测试](TESTING.md)。

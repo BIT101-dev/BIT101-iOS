@@ -1,5 +1,6 @@
-import ClientCore
+@testable import ScoreFeature
 #if ICLOUD_CROSS_DEVICE_SMOKE
+import StorageCore
 import Foundation
 import XCTest
 @testable import BIT101_iOS
@@ -35,7 +36,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
             return
         }
 
-        let scoreSnapshot = await ScoreCacheStore.loadSnapshot()
+        let scoreSnapshot = await AppAccountStores.shared.scoreCache.loadSnapshot()
         let scoreCount = scoreSnapshot?.rows?.count
         let scoreUpdatedAt = scoreSnapshot?.updatedAt
 
@@ -164,7 +165,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     @MainActor
     private func localScoreSnapshotMatches(expectedCount: Int?, expectedUpdatedAt: Date?) async -> Bool {
         guard let expectedCount else { return true }
-        let snapshot = await ScoreCacheStore.loadSnapshot()
+        let snapshot = await AppAccountStores.shared.scoreCache.loadSnapshot()
         return snapshot?.rows?.count == expectedCount
             && snapshot?.updatedAt == expectedUpdatedAt
     }

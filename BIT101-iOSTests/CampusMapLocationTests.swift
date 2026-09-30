@@ -1,3 +1,5 @@
+@testable import ScheduleFeature
+@testable import MapFeature
 import ScheduleContracts
 import Foundation
 import Testing

@@ -51,7 +51,7 @@ run_group() {
 }
 
 swift_parse() {
-  find "$ROOT_DIR/BIT101-iOS" "$ROOT_DIR/BIT101ScheduleWidgets" \
+  find "$ROOT_DIR/Modules" "$ROOT_DIR/BIT101-iOS" "$ROOT_DIR/BIT101ScheduleWidgets" \
     "$ROOT_DIR/BIT101Watch" "$ROOT_DIR/BIT101WatchWidgets" \
     -type f -name '*.swift' -print0 \
     | xargs -0 "$SWIFT_FRONTEND" -frontend -parse -D DEBUG
@@ -105,6 +105,7 @@ docs_check() {
 }
 explanatory_text_report() { "$ROOT_DIR/Scripts/report-explanatory-text.sh"; }
 checker_audit() { python3 "$ROOT_DIR/Scripts/check-code-quality.py" --combined; }
+module_boundary_audit() { python3 "$ROOT_DIR/Scripts/check-module-boundaries.py"; }
 artifact_hygiene() {
   python3 - "$ROOT_DIR" <<'PY'
 from pathlib import Path
@@ -129,6 +130,7 @@ allowed_dirs = {
     ".build/icloud-cross-device-smoke",
     ".build/release-" + "network-smoke",
     ".build/issue-report-inbox",
+    ".build/ui-authorization.logarchive",
 }
 violations = []
 for parent in (root / "build", root / ".build"):
@@ -156,6 +158,7 @@ run_group shell-parse shell_parse || failed_groups+=(shell-parse)
 run_group python-parse python_parse || failed_groups+=(python-parse)
 run_group worker-parse worker_parse || failed_groups+=(worker-parse)
 run_group dependency-audit dependency_audit || failed_groups+=(dependency-audit)
+run_group module-boundary module_boundary_audit || failed_groups+=(module-boundary)
 run_group git-diff git_check || failed_groups+=(git-diff)
 run_group docs docs_check || failed_groups+=(docs)
 run_group checkers checker_audit || failed_groups+=(checkers)

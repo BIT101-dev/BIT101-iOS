@@ -1,3 +1,8 @@
+import ScheduleDomain
+@testable import ScheduleFeature
+@testable import ScheduleInfrastructure
+import TransportCore
+import CommunityTransport
 import ClientCore
 import Foundation
 import Testing
@@ -521,7 +526,7 @@ struct NetworkClientTests {
             ))
             return (Data(#"{"accepted":true}"#.utf8), response)
         }
-        let service = ScheduleService(transport: transport)
+        let service = ScheduleServiceFactory.make(transport: transport)
         let payload: SchoolProbePayload = try await service.sendJSONRequest(
             baseURL: try makeTestURL("http://school.example"),
             path: "/api/courses.do",
@@ -545,7 +550,7 @@ struct NetworkClientTests {
             let data = Data(#"{"datas":{"cxxszhxqkb":{"extParams":{"code":3,"msg":"此学年学期的课表未发布"},"rows":[]}}}"#.utf8)
             return (data, response)
         }
-        let service = ScheduleService(transport: transport)
+        let service = ScheduleServiceFactory.make(transport: transport)
 
         do {
             let _: SchoolProbePayload = try await service.sendJSONRequest(
@@ -582,7 +587,7 @@ struct NetworkClientTests {
             )
             return (data, response)
         }
-        let service = ScheduleService(transport: transport)
+        let service = ScheduleServiceFactory.make(transport: transport)
         let challenge = BITLoginAuthenticationChallenge(
             challengeID: "challenge-1",
             accessToken: "access-token",
@@ -616,7 +621,7 @@ struct NetworkClientTests {
             ))
             return (Data(#"{"message":"challenge expired"}"#.utf8), response)
         }
-        let service = ScheduleService(transport: transport)
+        let service = ScheduleServiceFactory.make(transport: transport)
         let challenge = BITLoginAuthenticationChallenge(
             challengeID: "challenge-1",
             accessToken: "access-token",

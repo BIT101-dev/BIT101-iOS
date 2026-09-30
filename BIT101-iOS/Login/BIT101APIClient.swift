@@ -1,10 +1,11 @@
-import ClientCore
 //
 //  BIT101APIClient.swift
 //  BIT101-iOS
 //
 
+import TransportCore
 import Foundation
+import ClientCore
 
 private struct LoginServerResponseError: LocalizedError {
     let statusCode: Int

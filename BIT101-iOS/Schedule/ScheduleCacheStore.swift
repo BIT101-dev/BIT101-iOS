@@ -1,4 +1,5 @@
-import ClientCore
+import StorageCore
+import ScheduleDomain
 //
 //  ScheduleCacheStore.swift
 //  BIT101-iOS
@@ -25,35 +26,6 @@ nonisolated enum ScheduleCacheTimestamp {
 ///
 /// 统一负责 `ScheduleCache` 的磁盘读写和变更通知发送。
 enum ScheduleCacheStore {
-    nonisolated enum LoadResult: Sendable {
-        case loaded(ScheduleCache)
-        case missing
-        case unreadable
-
-        var isUnreadable: Bool {
-            if case .unreadable = self { return true }
-            return false
-        }
-
-        var allowsWrite: Bool { !isUnreadable }
-
-        var cacheIfReadable: ScheduleCache? {
-            switch self {
-            case .loaded(let cache): return cache
-            case .missing: return ScheduleCache()
-            case .unreadable: return nil
-            }
-        }
-    }
-
-    nonisolated enum SaveSource: Sendable {
-        case local
-        case localWithoutCloudPush
-        case cloud
-        /// 记录已确认的云端基线，同时保留后续本地编辑的待上传状态。
-        case cloudBaseline
-    }
-
     fileprivate nonisolated static func makeEncoder() -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -91,12 +63,12 @@ enum ScheduleCacheStore {
         ).cacheIfReadable ?? ScheduleCache()
     }
 
-    static func loadResultAsync() async -> LoadResult {
+    static func loadResultAsync() async -> ScheduleCacheLoadResult {
         await loadResultAsync(for: AppFileDirectories.currentSession)
     }
 
     /// 读取调用方捕获的账号缓存，避免异步期间账号切换后改读另一账号。
-    static func loadResultAsync(for session: AppStorageSession) async -> LoadResult {
+    static func loadResultAsync(for session: AppStorageSession) async -> ScheduleCacheLoadResult {
         let accountIdentifier = session.accountStorageIdentifier
         let legacyIdentifier = session.legacyAccountDirectoryNameForMigration
         let result = await Task.detached(priority: .utility) {
@@ -121,14 +93,14 @@ enum ScheduleCacheStore {
     }
 
     /// 写回缓存，并导出小组件快照、发送全局变更通知。
-    static func save(_ cache: ScheduleCache, source: SaveSource = .local, session: AppStorageSession = AppFileDirectories.currentSession) {
+    static func save(_ cache: ScheduleCache, source: ScheduleCacheSaveSource = .local, session: AppStorageSession = AppFileDirectories.currentSession) {
         Task { await saveAndWait(cache, source: source, expectedAccountIdentifier: session.accountDirectoryName) }
     }
 
     @discardableResult
     static func saveAndWait(
         _ cache: ScheduleCache,
-        source: SaveSource = .local,
+        source: ScheduleCacheSaveSource = .local,
         expectedAccountIdentifier: String? = nil,
         expectedUpdatedAt: Date? = nil
     ) async -> Bool {
@@ -152,12 +124,13 @@ enum ScheduleCacheStore {
         let legacyIdentifier = legacyAccountIdentifier()
         let operationID = UUID()
         let previousTask = diskOperationTask
-        let writeTask = Task<Bool, Never> {
+        let writeTask = Task<ScheduleCache?, Never> {
             _ = await previousTask?.value
             let didWrite = await writeQueue.write(
                 cacheToSave,
                 accountIdentifier: accountIdentifier,
                 legacyAccountIdentifier: legacyIdentifier,
+                source: source,
                 expectedUpdatedAt: expectedUpdatedAt
             )
             if diskOperationID == operationID {
@@ -166,14 +139,14 @@ enum ScheduleCacheStore {
             }
             return didWrite
         }
-        diskOperationTask = writeTask
+        diskOperationTask = Task { await writeTask.value != nil }
         diskOperationID = operationID
         let exportID = UUID()
         let previousExportTask = exportOperationTask
         let exportTask = Task<Void, Never> {
             await previousExportTask?.value
-            if await writeTask.value {
-                await finishSave(cacheToSave, accountIdentifier: accountIdentifier, source: source)
+            if let savedCache = await writeTask.value {
+                await finishSave(savedCache, accountIdentifier: accountIdentifier, source: source)
             }
             if exportOperationID == exportID {
                 exportOperationTask = nil
@@ -183,7 +156,7 @@ enum ScheduleCacheStore {
         exportOperationTask = exportTask
         exportOperationID = exportID
         await exportTask.value
-        return await writeTask.value
+        return await writeTask.value != nil
     }
 
     /// 清空当前账号的日程缓存。
@@ -226,7 +199,7 @@ enum ScheduleCacheStore {
     private static func finishSave(
         _ cache: ScheduleCache,
         accountIdentifier: String,
-        source: SaveSource
+        source: ScheduleCacheSaveSource
     ) async {
         let session = AppFileDirectories.currentSession
         guard session.accountStorageIdentifier == accountIdentifier else { return }
@@ -236,14 +209,14 @@ enum ScheduleCacheStore {
             return
         }
 #endif
-        await effects?.didSave(cache, session: session, source: source)
+        await effects?.didSave(cache.courseSnapshot, session: session, source: source, cloudSyncEnabled: cache.iCloudSyncEnabled)
         postCacheDidChange()
     }
 
     fileprivate nonisolated static func loadResult(
         accountIdentifier: String,
         legacyAccountIdentifier: String
-    ) -> LoadResult {
+    ) -> ScheduleCacheLoadResult {
         let currentURL = cacheFileURL(for: accountIdentifier)
         let currentResult = readCacheFile(at: currentURL)
         switch currentResult {
@@ -258,7 +231,7 @@ enum ScheduleCacheStore {
         return readCacheFile(at: legacyURL)
     }
 
-    fileprivate nonisolated static func readCacheFile(at url: URL) -> LoadResult {
+    fileprivate nonisolated static func readCacheFile(at url: URL) -> ScheduleCacheLoadResult {
         guard AppFileDirectories.files.fileExists(at: url) else { return .missing }
         do {
             try? AppFileDirectories.files.setPrivateFileProtection(at: url)
@@ -274,7 +247,7 @@ enum ScheduleCacheStore {
         }
     }
 
-    nonisolated static func decodeCache(_ data: Data) -> LoadResult {
+    nonisolated static func decodeCache(_ data: Data) -> ScheduleCacheLoadResult {
         guard let cache = try? makeDecoder().decode(ScheduleCache.self, from: data) else {
             return .unreadable
         }
@@ -346,18 +319,21 @@ private actor ScheduleCacheWriteQueue {
         _ cache: ScheduleCache,
         accountIdentifier: String,
         legacyAccountIdentifier: String,
+        source: ScheduleCacheSaveSource,
         expectedUpdatedAt: Date?
-    ) -> Bool {
+    ) -> ScheduleCache? {
         let url = ScheduleCacheStore.cacheFileURL(for: accountIdentifier)
         let directory = url.deletingLastPathComponent()
         let currentResult = ScheduleCacheStore.readCacheFile(at: url)
         guard currentResult.allowsWrite else {
             ScheduleCacheStore.logger.error("保留无法读取的课表缓存，跳过保存")
-            return false
+            return nil
         }
         var storedUpdatedAt = Date.distantPast
+        var storedCache: ScheduleCache?
         if case .loaded(let currentCache) = currentResult {
             storedUpdatedAt = currentCache.updatedAt
+            storedCache = currentCache
         }
         if case .missing = currentResult,
            legacyAccountIdentifier != accountIdentifier
@@ -366,18 +342,32 @@ private actor ScheduleCacheWriteQueue {
             let legacyResult = ScheduleCacheStore.readCacheFile(at: legacyURL)
             guard legacyResult.allowsWrite else {
                 ScheduleCacheStore.logger.error("保留无法读取的旧版课表缓存，跳过保存")
-                return false
+                return nil
             }
             if case .loaded(let legacyCache) = legacyResult {
                 storedUpdatedAt = legacyCache.updatedAt
+                storedCache = legacyCache
             }
         }
         if let expectedUpdatedAt, expectedUpdatedAt != storedUpdatedAt {
             ScheduleCacheStore.logger.debug("缓存写入跳过，磁盘版本已变化")
-            return false
+            return nil
         }
 
         do {
+            var cache = cache
+            if source == .local || source == .localWithoutCloudPush,
+               let storedCache {
+                cache.cloudSyncBaselineAt = storedCache.cloudSyncBaselineAt
+                cache.cloudSyncBaselineRecordTag = storedCache.cloudSyncBaselineRecordTag
+                let userStateChanged = try !ScheduleCloudSyncState.matches(cache, storedCache)
+                cache.hasUnpushedCloudChanges = storedCache.hasUnpushedCloudChanges
+                    || (cache.iCloudSyncEnabled && userStateChanged)
+                cache.updatedAt = ScheduleCacheTimestamp.next(
+                    after: max(storedCache.updatedAt, storedCache.cloudSyncBaselineAt),
+                    now: cache.updatedAt
+                )
+            }
             try AppFileDirectories.files.createDirectory(at: directory)
             let data = try ScheduleCacheStore.makeEncoder().encode(cache)
             try AppFileDirectories.files.writeData(
@@ -389,11 +379,11 @@ private actor ScheduleCacheWriteQueue {
                 accountIdentifier: accountIdentifier,
                 legacyAccountIdentifier: legacyAccountIdentifier
             )
+            return cache
         } catch {
             ScheduleCacheStore.logger.error("保存课表缓存失败：\(String(describing: error), privacy: .public)")
-            return false
+            return nil
         }
-        return true
     }
 
     func clear(urls: [URL]) -> Bool {

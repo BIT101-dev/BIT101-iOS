@@ -1,3 +1,10 @@
+import MineFeature
+import GalleryFeature
+import CourseFeature
+import ScoreFeature
+import ScheduleFeature
+import MapFeature
+import ScheduleDomain
 import DesignSystemKit
 //
 //  AppShellView.swift
@@ -84,6 +91,7 @@ enum AppTab: String, Identifiable, Codable {
 ///
 /// 壳层负责底部 tab、跨模块路由、全局提示和退出登录回调。
 struct AppShellView: View {
+    @Environment(AppCommunityDependencies.self) private var community
     private static let startupNoticeTitle = "1.8.3 版本更新"
     private static let startupNoticeBody = """
     优化使用体验。
@@ -91,12 +99,13 @@ struct AppShellView: View {
     private static let linuxDoThanksTitle = "特别鸣谢 LINUX DO"
     private static let linuxDoThanksBody = "特别感谢 LINUX DO（L站）以及佬友们。这个 App 的诞生，离不开他们提供的免费 tokens 与无私的支持。L站倡导“真诚、友善、团结、专业，共建你我引以为荣之社区。”某种意义上，BIT101 也是在这样的氛围里，被一点点推出来的。\n\n如果你也想加入，可以向开发者发送邮件索要 L 站邀请码：systemd@linux.do"
 
+    let transcriptService: any TrustedTranscriptServicing
     let studentID: String
     let onLogout: () -> Void
 
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
-    @ObservedObject private var settings = AppSettingsStore.shared
+    @EnvironmentObject private var settings: AppSettingsStore
     @EnvironmentObject private var scheduleViewModel: ScheduleViewModel
     @ObservedObject private var promptCoordinator = AppPromptCoordinator.shared
     @State private var selectedTab: AppTab = .schedule
@@ -121,30 +130,31 @@ struct AppShellView: View {
                     case .schedule:
                         ScheduleRootView(
                             requestedSection: $requestedScheduleSection,
-                            onOpenAcademicCourse: { request in
+                            destinations: .appDestinations(courses: community.course, onOpenAcademicCourse: { request in
                                 selectTab(.score)
                                 requestedCourse = request
                             },
                             onOpenCourseLocation: { request in
                                 requestedMapLocation = request
                                 selectTab(.map)
-                            }
+                            })
                         )
                     case .map:
                         CampusMapScreen(
-                            nextCourseTarget: UpcomingCourseMapResolver.nextTarget(in: scheduleViewModel.cache),
+                            nextCourseTarget: UpcomingCourseMapResolver.nextTarget(in: scheduleViewModel.courseSnapshot),
                             requestedLocation: requestedMapLocation
                         )
                         .task { await scheduleViewModel.loadIfNeeded() }
                     case .score:
-                        ScoreRootView(requestedCourse: $requestedCourse)
+                        ScoreRootView(courses: community.course, transcriptService: transcriptService, requestedCourse: $requestedCourse)
                     case .gallery:
                         GalleryRootView(
+                            dependencies: community.gallery,
                             requestedPaperID: $requestedPaperID,
                             requestedPosterID: $requestedPosterID
                         )
                     case .mine:
-                        MineRootView(fallbackStudentID: studentID, onLogout: onLogout)
+                        MineRootView(dependencies: community.mine, fallbackStudentID: studentID, onLogout: onLogout)
                     }
                 }
                 .tag(tab)
@@ -175,7 +185,7 @@ struct AppShellView: View {
             AppDeepLinkCoordinator.shared.consume(url)
         }
         .onReceive(scheduleViewModel.$notice.compactMap { $0 }) { notice in
-            scheduleViewModel.notice = nil
+            scheduleViewModel.dismissNotice()
             AppErrorPresenter.shared.present(notice)
         }
     }

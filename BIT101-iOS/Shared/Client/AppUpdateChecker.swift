@@ -1,4 +1,4 @@
-import ClientCore
+import TransportCore
 import Foundation
 import SwiftUI
 import Combine

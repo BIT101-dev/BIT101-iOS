@@ -133,8 +133,8 @@ done
 
 UI_RESTORE_DEVICE_ID=""
 if [[ "$MODE" == "modules" ]]; then
-  if [[ $# -gt 0 || "$BUILD_ONLY" == true || ${#TEST_SELECTIONS[@]} -gt 0 ]]; then
-    echo "用法：Scripts/run-extended-tests.sh modules" >&2
+  if [[ $# -gt 0 || ${#TEST_SELECTIONS[@]} -gt 0 ]]; then
+    echo "用法：Scripts/run-extended-tests.sh modules [--build-only]" >&2
     exit 64
   fi
 elif [[ "$MODE" == "catalyst" ]]; then
@@ -227,6 +227,10 @@ process = subprocess.Popen(
 buffered = []
 report = None
 for line in process.stdout:
+    if not line.strip() or line.startswith(("note: Removed stale file ", "Failed frontend command:")):
+        continue
+    if (line.startswith("/") and "swift-frontend -frontend" in line) or line.lstrip().startswith("builtin-SwiftDriver -- "):
+        continue
     if report is None:
         buffered.append(line)
         if len(buffered) <= 1000:
@@ -250,13 +254,23 @@ PY
 
 if [[ "$MODE" == "modules" ]]; then
   rm -f "$DERIVED_ROOT/test-metrics.txt"
-  echo "[测试] BIT101ModulesTests · macOS 原生 Release"
-  run_with_output_threshold "$DERIVED_ROOT/module-tests.log" "模块离线测试" \
-    xcrun swift test \
-      --package-path "$ROOT_DIR" \
-      --scratch-path "$DERIVED_ROOT" \
-      --configuration release
-  echo "[通过] BIT101ModulesTests"
+  if $BUILD_ONLY; then
+    echo "[编译] BIT101ModulesTests · macOS 原生 Release"
+    run_with_output_threshold "$DERIVED_ROOT/module-tests.log" "模块编译" \
+      xcrun swift build --build-tests -Xswiftc -enable-testing \
+        --package-path "$ROOT_DIR" \
+        --scratch-path "$DERIVED_ROOT" \
+        --configuration release
+    echo "[编译通过] BIT101ModulesTests"
+  else
+    echo "[测试] BIT101ModulesTests · macOS 原生 Release"
+    run_with_output_threshold "$DERIVED_ROOT/module-tests.log" "模块离线测试" \
+      xcrun swift test \
+        --package-path "$ROOT_DIR" \
+        --scratch-path "$DERIVED_ROOT" \
+        --configuration release
+    echo "[通过] BIT101ModulesTests"
+  fi
   exit 0
 fi
 

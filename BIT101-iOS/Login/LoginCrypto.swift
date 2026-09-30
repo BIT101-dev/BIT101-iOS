@@ -7,6 +7,7 @@ import CommonCrypto
 import CryptoKit
 import Foundation
 import Security
+import ClientCore
 
 /// 学校认证链路使用的口令变换和 URL 加密算法。
 enum LoginCrypto {
@@ -194,5 +195,25 @@ enum LoginCrypto {
             throw (error?.takeRetainedValue() as Error?) ?? LoginServiceError.invalidServerResponse
         }
         return key
+    }
+}
+
+struct AppScheduleServiceCrypto: SchoolServiceCryptoProviding, Sendable {
+    var schoolURLCryptoPublicKey: String { LoginCrypto.schoolURLCryptoPublicKey }
+    var browserUserAgent: String { BIT101APIClient.browserUserAgent }
+
+    func schoolProtectedHeaders() -> [String: String] {
+        LoginCrypto.schoolProtectedHeaders()
+    }
+
+    func encryptSchoolURLCryptoBody(
+        object: [String: String],
+        publicKeyPEM: String
+    ) throws -> (body: String, encryptedKey: String, aesKey: Data) {
+        try LoginCrypto.encryptSchoolURLCryptoBody(object: object, publicKeyPEM: publicKeyPEM)
+    }
+
+    func decryptSchoolURLCryptoResponse(_ data: Data, aesKey: Data) throws -> Data {
+        try LoginCrypto.decryptSchoolURLCryptoResponse(data, aesKey: aesKey)
     }
 }

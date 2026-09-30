@@ -1,5 +1,5 @@
+import StorageCore
 import ScheduleContracts
-import ClientCore
 import Foundation
 
 /// App 持久化路径、当前账号会话和本地文件服务的统一入口。

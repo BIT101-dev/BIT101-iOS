@@ -1,384 +1,128 @@
-# 测试与持续集成
+# 构建与测试
 
-## 项目责任边界
+## 执行约定
 
-用户负责 BIT101 iOS 客户端、iOS 扩展和 iOS 真机装机验证。Android 客户端、Web 前端和服务端由对应主体维护；本项目对这些系统执行接口阅读、功能对照与问题记录，改动、构建、安装、部署与上线动作转交对应维护主体。
+- 构建使用 Xcode 27.x、有效签名和已连接并受信任的真机，默认完成 Release 构建、装机与启动。
+- 本机构建、装机和启动统一使用 `Scripts/build-install-device.sh`；脚本封装所需 Xcode 流程。
+- iOS / watchOS 验证使用真机；包级逻辑测试使用 macOS 原生宿主，Catalyst 行为测试使用 macOS runtime。
+- 测试、静态审计、网络 Smoke 和 iCloud Smoke 按用户明确授权的范围执行。失败修复后重跑受影响的分组。
+- 界面验证使用既有 UI 测试、截图脚本与命令行流程。设备自动化授权由 iOS 管理，系统要求时由用户在设备上输入密码，设备继续保留密码保护。
+- `BIT101-iOSTests/Fixtures/` 和测试 target 内的样例、fixture、校准及人工准备数据属于长期资产，沿用固定路径。清理或改写前确认来源、用途和恢复方式，并取得用户明确同意。
 
-## 网络冒烟测试授权边界
+## 构建、装机与截图
 
-网络侧冒烟测试仅在用户明确指示后执行。构建、静态检查和本地离线验证属于独立操作；执行范围仍按当前任务要求决定。
+```sh
+Scripts/build-install-device.sh
+Scripts/build-install-device.sh --compile-only
+Scripts/build-install-device.sh --compile-only <真机设备ID>
+Scripts/capture-screenshot-device.sh
+```
 
-## 测试执行策略
-
-- 开发阶段依据本次改动范围选择对应测试入口，每个改动范围默认执行一次。
-- 测试失败后，围绕失败项修复并重跑对应测试；修复过程保持局部验证。
-- 全量扩展测试与网络 Smoke 归入发布前验证，执行前等待用户明确授权。
-- 构建与装机沿用 `Scripts/build-install-device.sh`，装机流程和测试流程分开记录。
-- UI 复测先汇总本轮失败项和待验证改动，随后通过一次调用批量执行；同一次调用保持一个串行 Runner 会话。
-
-## 开发阶段验证选择
-
-以下流程用于用户已授权的验证范围，按改动选择对应入口。
-
-- Swift、脚本、文档或设计系统改动：运行一次 `Scripts/run-static-audit.sh`。
-- 业务逻辑改动：选择对应测试组或现有局部用例执行一次；测试范围跟随改动模块。
-- UI 改动：执行静态 UI/组件/触感审计，并通过 `Scripts/build-install-device.sh` 完成 Release 真机构建与装机。
-- 网络层改动：执行 Mock transport、错误分类、请求顺序和缓存策略相关测试。
-- 缓存、账号隔离和 CloudKit 逻辑改动：执行对应 Codable、状态机和策略测试。
-- 测试失败：修复后重跑对应局部测试，形成“修改—验证”闭环。
-- 全量扩展测试、网络 Smoke、iCloud 双向 Smoke：等待用户明确授权。
-- 设备交互、截图和 Dynamic Type 核对：在改动涉及对应界面时按专项要求执行。
-
-## 设备使用要求
-
-**iOS / watchOS 行为验证使用已连接并受信任的真机，模拟器保持停用。**
-
-- 验证流程排除 `simctl boot`、Simulator destination 以及任何会隐式启动模拟器的自动化操作。
-- iOS / watchOS 构建、安装和运行验证使用当前已连接并受信任的真机。
-- 可运行的 XCTest 同时通过 Mac Catalyst 原生宿主执行；该流程使用 macOS runtime，不启动模拟器。
-- 真机可用性是 iOS / watchOS 验证前提；真机不可用时按设备流程说明状态。
-- 编译、装机和启动统一通过 `Scripts/build-install-device.sh` 使用已连接真机完成。
-- 维护者、CI 脚本和自动化代理遵循同一设备要求。
-
-Mac Catalyst Release 装机使用同一脚本：
+Mac Catalyst 构建与安装沿用同一入口：
 
 ```sh
 BIT101_INSTALL_TARGET=macCatalyst Scripts/build-install-device.sh
 ```
 
-应用安装到 `~/Applications/BIT101-iOS.app`。脚本先结束该安装路径对应的旧进程，再覆盖安装并启动新进程。
+Catalyst 安装路径为 `~/Applications/BIT101-iOS.app`。截图固定覆盖 `.build/screenshot.png`。课表模型和共享展示改动同时关注主 App、Widget、Watch App 与 Watch Widget。
 
-## 本地工具链
+## 包级与 App 行为测试
 
-工程使用系统当前 Xcode 工具链。执行构建或测试前，先确认当前连接的真机状态。
-
-## 运行真机自动化测试
-
-### 全量验证
-
-用户授权全量测试、网络与 iCloud 冒烟后执行：
-
-```sh
-Scripts/run-extended-tests.sh verify
-```
-
-此入口依次执行独立模块、真机全量逻辑测试、Mac Catalyst、UI、完整网络冒烟、
-iCloud 双向冒烟和静态审计，汇总失败组与各组耗时。设备发现执行一次；常规 Release
-App 的构建装机统一在退出时执行一次。单独运行 UI 或网络冒烟入口继续自动恢复常规 App。
-开发中通过已验证的分组沿用当前结果，修复后重跑受影响的分组。
-例如 `Scripts/run-extended-tests.sh verify ui ddl audit` 聚合 UI、DDL 网络链路和审计，
-结束时恢复一次常规 App。重复传入的分组合并执行；纯本机分组直接使用本机环境。
-批次内可重复使用 `--ui-test 测试类/方法` 选择 UI 用例，所选用例自动归入一次 UI 执行：
-
-```sh
-Scripts/run-extended-tests.sh verify audit \
-  --ui-test LoginAndScheduleUITests/testLongPressOpensScheduleContextMenuAndImportSheet \
-  --ui-test LoginAndScheduleUITests/testManualSchedulePersistsAcrossAppRelaunch
-```
-
-### 独立模块离线测试
+| 分组 | 宿主与范围 |
+| --- | --- |
+| `modules` | macOS 原生 Release；本地模块的领域、服务、存储和场景状态 |
+| `default` | 真机 App 常规行为与平台适配 |
+| `schedule` | 日程、编辑、缓存、分享和同步策略 |
+| `infrastructure` | 网络、存储、取消和账号隔离 |
+| `login` | 登录恢复、CAS、学校认证与短信 challenge |
+| `extensions` | Widget / Watch 共用快照、传输、状态与时间线 |
+| `catalyst` | Mac Catalyst 行为测试 |
 
 ```sh
 Scripts/run-extended-tests.sh modules
-```
-
-该分组通过 macOS 原生 Release 运行 `Package.swift` 中的 `BIT101ModulesTests`，
-验证共享快照、账号摘要、Watch 传输字段、时间线计算、HTTP 注入与结果记录。
-测试依赖 `ClientCore`、`ScheduleContracts` 和 `CommunityCore`；测试宿主为 Swift Package。
-构建及结果复用 `.build/extended-automation/`，较长输出覆盖该目录的 `module-tests.log`。
-GitHub Actions 的静态审计 job 同时执行此入口，模块契约随 PR 与 main 分支持续验证。
-
-### App 与平台适配测试
-
-`ScheduleModuleBoundaryTests` 使用延迟的内存服务和注入仓库验证账号切换、加载回写、
-本机编辑保留、损坏缓存写入门禁、保存来源以及 DDL 子状态，纳入 `default` 分组。
-
-连接并信任真机后，直接运行全量自动化测试：
-
-```sh
-Scripts/run-extended-tests.sh
-```
-
-脚本在一次真机测试进程中编译并运行默认测试与扩展测试，Xcode 测试输出不超过 1000 行时显示在 terminal，超过阈值时覆盖 `.build/extended-automation/all-tests.log`。测试宿主使用 `BIT101_AUTOMATED_TESTING` 注入可测试的网络提示依赖，网络提示门禁仍由专门回归用例验证。真机测试开启代码覆盖率，测试数量、结果与逐 target 覆盖率同样按 1000 行阈值输出；较长指标报告覆盖 `.build/extended-automation/test-metrics.txt`。`.xcresult` 是供测试结果与覆盖率解析使用的固定结构化产物。覆盖率归档状态与测试汇总分开记录，报告保留对应归档诊断。
-需要缩短开发反馈周期时按组运行：
-
-```sh
 Scripts/run-extended-tests.sh default
 Scripts/run-extended-tests.sh schedule
 Scripts/run-extended-tests.sh infrastructure
 Scripts/run-extended-tests.sh login
 Scripts/run-extended-tests.sh extensions
+Scripts/run-extended-tests.sh catalyst
 ```
 
-`extensions` 分组执行 Watch 与 Widget 共用快照、传输协议、状态解析和时间线规划的运行测试。该指标记录这些共享逻辑的运行情况；Watch 与 Widget 二进制运行情况由设备验证流程单独记录。各组输出按 1000 行阈值送往 terminal 或固定类别日志路径，指标随每次测试覆盖。
+包级测试由 `Package.swift` 的 `BIT101ModulesTests` 管理，代码位于 `ModuleTests/`，使用内存传输、文件服务、偏好和通知中心。学校课表解析沿用 `BIT101-iOSTests/Fixtures/schedule-service-response.json`。MapKit、UIKit、Quick Look 和可信成绩单展示通过 App 宿主验证。
+
+按现有测试类或方法选择范围，多个筛选项在同一次调用执行：
+
+```sh
+Scripts/run-extended-tests.sh default \
+  --only-testing ExperimentalPreferenceCloudSyncTests \
+  --only-testing ScheduleModuleBoundaryTests \
+  --only-testing NetworkClientTests
+```
+
+`modules`、`ui`、`catalyst` 支持 `--build-only` 编译测试产物。全量逻辑测试使用 `Scripts/run-extended-tests.sh`。
 
 ## UI 自动化
 
-UI 自动化使用独立的 `BIT101-iOSUITests` target、`BIT101-iOS-UIAutomation` Release scheme 和共享 Test Plan。测试通过 `XCUIApplication` 在已连接真机上启动正式 App 页面，自动执行点按、输入、长按与导航，再依据界面元素树断言结果。
+`BIT101-iOSUITests` 使用 `BIT101-iOS-UIAutomation` Release scheme 和真机宿主。`BIT101_UI_TESTING` 构建隔离 Keychain、偏好和账号缓存，使用合成会话及离线服务；正式 App 由生产组装入口启动。
 
-首批回归路径覆盖：
-
-- 登录表单校验、自动登录到日程页；
-- 长按课表空白区域，检查“分享课表”和“导入课表”菜单，再打开导入面板；
-- 新建自定义日程，重启 App 后检查本地缓存恢复；
-- 切换合成账号，确认课表记录按账号隔离；
-- 日程、成绩、话廊和我的 Tab 的自动导航；
-- 成绩短信挑战、验证码输入、成绩结果展示；
-- 终止并重启 App，检查测试登录会话可恢复。
-
-App 测试宿主仅在 `BIT101_UI_TESTING` 条件下提供隔离登录服务与空课表种子。UI 自动化共用固定测试空间，隔离 Keychain service、UserDefaults suite 和按账号划分的文件缓存；每个用例首次启动重置该空间并清理测试账号目录，同一用例重启沿用测试数据。页面用例通过 `BIT101_UI_TEST_ACCOUNT` 注入合成会话，登录表单与账号切换用例实际输入凭据。输入替换后先断言完整账号值，再提交登录；测试构建的字段类型隔离系统密码建议。测试宿主的 HTTP 请求使用离线错误响应，启动期间的 Widget、Watch、Live Activity 与后台提醒同步保持停用。正式发布构建排除 UI 测试入口。
-
-UI 套件共七项用例、九次 App 启动、两次表单登录；会话恢复与日程持久化共用一次重启验证。
-浅色和深色大字号分别使用隔离启动配置。每项用例独立建立前置状态，执行顺序由 XCTest 管理。
-
-登录字段、主 Tab 和课表编码编辑区使用稳定的 `accessibilityIdentifier`；原生日程菜单按系统暴露的按钮名称定位。UI 测试读取文本、启用状态和弹层；失败诊断保存在同一 `.xcresult` 内，自动附带界面元素树和截图。
-
-连接并信任 iPhone 后运行：
+UI 用例覆盖登录、账号切换、日程菜单、持久化、主 Tab、成绩短信挑战以及浅色、深色大字号。多项用例合并到同一串行 Runner 会话，结束后恢复常规 App：
 
 ```sh
 Scripts/run-extended-tests.sh ui
-```
-
-调试时可指定一个或多个测试类与方法，同一调用共用一次构建和结果包：
-
-```sh
+Scripts/run-extended-tests.sh ui <真机设备ID>
 Scripts/run-extended-tests.sh ui \
   --only-testing LoginAndScheduleUITests/testLongPressOpensScheduleContextMenuAndImportSheet \
   --only-testing LoginAndScheduleUITests/testManualSchedulePersistsAcrossAppRelaunch
 ```
 
-编译问题排查可先执行 `Scripts/run-extended-tests.sh ui --build-only`，完成测试宿主与 Runner 的签名编译。此步骤的 UI 会话启动次数为零。待改动集中完成后，再使用上述批量入口执行所选用例；Xcode 沿用同一固定目录的增量构建产物。
+稳定的 `accessibilityIdentifier` 用于字段、主 Tab 和编辑入口定位；失败的元素树和截图保存在既有 `.xcresult`。
 
-也可指定真机设备 ID：
-
-```sh
-Scripts/run-extended-tests.sh ui <真机设备ID>
-```
-
-该入口执行 UI Test target，使用 Release 配置与真机 destination；结果复用 `.build/extended-automation/test-results.xcresult`、`test-metrics.txt` 和 `ui-tests.log` 固定产物路径。UI 自动化通过命令参数保持串行运行。普通 App 启动次数、Runner 会话数量和设备密码提示次数分别记录；iOS 管理每次自动化授权，合并用例用于减少独立建立会话的次数。
-
-CI 使用同一入口执行 Mac Catalyst 行为测试：
+## 静态审计
 
 ```sh
-Scripts/run-extended-tests.sh catalyst
+Scripts/run-static-audit.sh
+Scripts/check-module-boundaries.py
 ```
 
-通过 `--only-testing ScheduleModuleBoundaryTests` 等参数可选择测试类；`all`、`default` 和 `catalyst` 同样支持此筛选。
+统一入口汇总 SwiftSyntax 契约、UI 规则、客户端工程规范、模块依赖、文档链接、工程配置和锁定依赖检查。规则按职责由对应检查器维护；设计系统的入口与规则见 [设计系统](DESIGN_SYSTEM.md)。
 
-该模式默认在 Mac Catalyst runtime 上运行完整测试组，XCTest 汇总写入既有 `.build/extended-automation/` 固定路径；逐 target 行覆盖率由真机测试结果提供。
-本机 Catalyst 测试沿用工程的自动开发签名，与常规安装和 iCloud 测试使用相同团队及 App 标识。GitHub Actions 临时 runner 使用免证书配置，由 `GITHUB_ACTIONS=true` 限定。`catalyst --build-only` 可用于编译与签名验证，此模式完成后输出构建结果。
+## 网络与 iCloud Smoke
 
-自动化测试覆盖范围包括：
-
-- 取消错误、页码分页、账号隔离 UserDefaults/文件快照、历史目录隔离策略、Keychain 删除状态
-- 图片缓存 LRU 配额清理与活动文件保护
-- HTTP 状态边界、社区与学校请求契约、CAS/跨域重定向、短信 challenge 续接和错误映射
-- 网络 Smoke scope 与业务探针分组映射
-- 登录启动状态、CAS HTML 解析、AES/MD5 兼容向量
-- 成绩详细模式与排序
-- 课程草稿/周次、空教室筛选和文案
-- 放假删课、日程调动与学校原始课表快照隔离
-- CloudKit 本地/远端基线标签及时间戳冲突判定
-- ICS 折行/转义/时区解析
-- 课程列表与文章搜索 ViewModel 的成功、失败、取消和分页状态
-- widget/watch 共享快照与时间线计算
-
-## 真机验证
-
-连接并信任设备后，直接运行一键真机脚本：
-
-```sh
-Scripts/build-install-device.sh
-```
-
-编译检查可通过参数旁路装机、启动流程：
-
-```sh
-Scripts/build-install-device.sh --compile-only
-Scripts/build-install-device.sh --compile-only <真机设备ID>
-BIT101_INSTALL_TARGET=macCatalyst Scripts/build-install-device.sh --compile-only
-```
-
-脚本默认行为保持 Release 真机构建、装机和启动；`--compile-only` 保留具体真机编译目标并结束于编译完成。
-
-构建后可把当前真机截图覆盖保存到固定路径：
-
-```sh
-Scripts/capture-screenshot-device.sh
-```
-
-截图固定写入 `.build/screenshot.png`；脚本支持传入设备 ID。
-
-脚本会自动寻找可用的 iPhone 真机；设备未连接或未信任时给出提示并退出。脚本执行内容包含 Release 真机构建、安装和启动，发布归档由发布流程负责。
-
-产物路径：同一性质保持一个固定路径；构建、测试、截图和 Smoke 结构化结果都覆盖既有路径，产物目录中每类结果保留一份。文件名格式为类别名，`latest`、设备名、时间、UUID 和序号作为额外修饰语排除。命令输出不超过 1000 行时显示在 terminal；超过阈值时覆盖固定类别日志并在 terminal 显示路径。`.xcresult`、Smoke JSON、截图等结构化或二进制结果按既有路径保存。Finder 自动生成的 `.DS_Store` 属于 `.gitignore` 忽略的系统元数据，脚本处理范围外。
-
-### Watch 与 iOS 构建说明
-
-1. 发布验证使用发布专用流程；维护构建采用具体真机脚本。
-2. Release 装机使用具体 iPhone 设备 ID。
-3. Watch 单独使用 watchOS scheme/destination 构建。
-4. 正式发布可行性通过发布构建结果判断；iOS 真机 Release 构建结果用于设备验证。
-
-Xcode 27 Beta 的 Watch target 通过具体真机构建目标保持 watchOS SDK 边界；Watch 图标和 Watch 代码沿用跨 target 契约。
-
-## CI 门禁
-
-发布前网络冒烟按依赖边界提供两个入口：
-
-- `Scripts/release-network-smoke-bit101.sh`：BIT101 自有 API、社区/学业只读接口、网页中转、远程配置，以及自有反馈 Worker 的临时写入/读取/删除；
-- `Scripts/release-network-smoke-school.sh`：学校教学中心、WebVPN、乐学、课表、成绩及可信成绩单相关链路。
-
-### 正式 App 网络冒烟说明
-
-`release-network-smoke.sh` 使用 Release 构建和专用 `RELEASE_NETWORK_SMOKE` 条件；smoke runner 和触发路由编译入该专用构建，App Store Release 构建内容排除这两项；
-它会先构建并安装专用宿主，把本次范围、运行 ID 和采集选项写入宿主文档目录，再启动宿主读取请求文件，
-在同一进程内触发探针；退出恢复沿用本次 iPhone 设备 ID。`bit101://network-smoke/<scope>?run=<uuid>` 仍保留为手动调试入口。BIT101 自有反馈 Worker 的测试数据会在同一请求内写入、读取并删除，
-邮件发送量为零，远端报告保留量为零。会话来源为正式 App 当前保存的登录态、Cookie 与缓存。
-
-脚本会把结果写到应用组目录 `group.BIT101-dev.BIT101-iOS.shared/Library/NetworkSmoke/` 下的
-`release-network-smoke.json`，再由命令行读取并判断是否通过；每次运行覆盖上一份结果。
-
-默认直接运行对应入口即可，脚本会自动寻找可用的 iPhone 真机：
+网络 Smoke 使用正式 App 保存的会话、Cookie 与缓存，专用 Release 宿主完成探针后恢复常规 App：
 
 ```sh
 Scripts/release-network-smoke-bit101.sh
 Scripts/release-network-smoke-school.sh
-```
-
-仍可传入设备 ID 覆盖自动发现结果。
-
-学校范围 Smoke 的乐学 DDL 探针会先完成短信手机号预检；学校触发短信验证时记录为 `auth_blocked`，短信发送状态保持关闭，界面验证码继续由真机流程验证。
-
-Smoke 报告记录 `executedProbes`、`skippedProbes` 和 `schoolSMSCoverage`。`ddl` 范围要求 BIT101 登录状态、乐学订阅地址、乐学 DDL 下载三项探针进入执行列表；短信输入 UI 状态采用真机手动验证。
-命令行最多等待 30 分钟读取完整报告，覆盖全量范围的串行探针时长。
-依赖详情探针的列表返回空集时，详情记录为带原因的跳过项；报告的 `passed` 表示服务健康，`coverageComplete` 表示依赖探针覆盖完整度。部分覆盖由命令行以状态码 2 标记。图片与可信成绩单页面要求 ImageIO 图像解码成功。外部网页检查最终 host 和 HTML 文档标记，App Store Lookup 校验 BIT101 身份，紧急更新配置校验 schema 版本。
-
-网络 Smoke 汇总与失败详情不超过 1000 行时直接显示在 terminal，较长输出覆盖 `.build/release-network-smoke/report/network-smoke-summary.txt`。机器可读的 Smoke 报告固定写入 `.build/release-network-smoke/report/release-network-smoke.json`，供命令行判定与后续审查。
-可信成绩单归入学校链路；当前冒烟范围为 `all`、`bit101`、`school`、`transcript`、`schedule` 和 `ddl`。局部开发使用对应范围，开发结束后运行全量 Smoke。例如，开发 DDL 链路时使用 `ddl` 范围：
-
-```sh
 BIT101_NETWORK_SMOKE_SCOPE=ddl Scripts/release-network-smoke.sh
 ```
 
-发布前再运行完整 `all` 范围，重新认证入口归入对应范围。
+可选范围为 `all`、`bit101`、`school`、`transcript`、`schedule` 和 `ddl`。报告分别记录服务健康、执行探针和覆盖完整度，部分覆盖返回状态码 2。学校短信 challenge 记录为认证受阻，短信输入由真机流程验证；反馈探针在同一请求内创建、读取并清理临时报告。
 
-CI 和其它自动化沿用同一模拟器排除要求。GitHub Actions 的 PR / main 门禁运行静态审计、iOS Release `build-for-testing`、Mac Catalyst XCTest 和锁定依赖漏洞审计；Watch 和两个 Widget 通过 iOS 父 target 的依赖图一起编译，静态门禁检查这些依赖及平台过滤。版本、plist 与 PR 基线校验集中在静态 job 执行一次。Apple generic device 编译继续使用 Release 配置。真机流程提供逐 target 行覆盖率并覆盖真实设备行为，Widget 时间线和 Live Activity 时序按 `MODULE_PLAYBOOK.md` 验证。
-
-GitHub Actions 默认执行 `Static audit (Apple toolchain)` 与 `Release build and behavior tests`。两个 Job 固定使用 GitHub `xcode-27` runner，确保工具链门禁与项目 Xcode 27 目标一致。静态审计包含 SwiftSyntax 契约、阻塞式文档新鲜度、锁定依赖漏洞扫描和项目配置检查；Release Job 编译 iOS 测试 target、Watch App、iOS Widget 与 Watch Widget，随后在 Mac Catalyst runtime 执行行为用例，保持无模拟器 destination，Swift 和 Clang 警告均按错误处理。手动 `release_check` 用于确认准备发布的公开版本高于 App Store 当前版本。
-
-本机继续负责 Release 真机构建、真机测试、网络 Smoke、iCloud Smoke、Widget 和 Watch 验证。GitHub Actions 不承载真机测试。
-
-## iCloud 跨设备双向 Smoke
-
-`BIT101-iOSTests/ManualICloudCrossDeviceSmokeTests.swift` 提供“真机 → Mac Catalyst → 真机”的双向验证，该验证仅在显式加入 `ICLOUD_CROSS_DEVICE_SMOKE` 编译条件时编译生成：
-
-- App Target 和 Release 包均排除专用验证用例；
-- 默认构建和默认测试的用例集合均排除这些用例；
-- 用例通过专用脚本运行，脚本的设备目标限定为真机；
-- 两端使用同一 Apple ID 和同一 BIT101 学号，真机处于解锁状态并保存过成绩缓存。
-
-运行方式：
+iCloud 双向验证要求 iPhone 与 Catalyst 使用同一 Apple ID 和 BIT101 账号，手机处于解锁状态并保存成绩缓存：
 
 ```sh
 Scripts/run_icloud_cross_device_smoke.sh
+Scripts/run_icloud_cross_device_smoke.sh --report
+Scripts/run_icloud_cross_device_smoke.sh --cleanup
 ```
 
-脚本默认自动寻找可用的 iPhone 真机；也兼容显式传入设备 ID。
+该专用流程通过 `ICLOUD_CROSS_DEVICE_SMOKE` 条件编译执行“真机 → Catalyst → 真机”，结束时恢复实验开关、协调数据和 Catalyst 本地登录状态。中断后的恢复使用既有 `--cleanup` 入口。
 
-测试会让手机上传成绩缓存，Mac 收到后由手机确认。正常完成或脚本异常退出时都会恢复实验开关并清除协调数据。
-Mac Catalyst 测试会依据协调状态加载手机账号上下文，流程结束后恢复 Mac 本地登录状态。
-手机测试宿主构建一次，上传、确认和失败清理阶段使用 `test-without-building` 复用产物。
-Mac Catalyst 阶段按平台单独构建。各阶段复用 `.build/icloud-cross-device-smoke/test-results.xcresult`，失败摘要随命令输出显示；结果包由下一阶段覆盖。各阶段的 Xcode 输出实时显示；超过 1000 行时后续内容覆盖对应固定日志路径并显示路径。
+获得全量测试及网络、iCloud 授权后，通过 `Scripts/run-extended-tests.sh verify` 聚合验证；可选择分组，UI 筛选通过重复的 `--ui-test 测试类/方法` 参数合并到同一批次。
 
-`Scripts/run_icloud_cross_device_smoke.sh --report` 读取已有结果；可追加具体结果包路径。
-`Scripts/run_icloud_cross_device_smoke.sh --cleanup` 使用已构建的手机测试宿主恢复实验开关和协调数据，随后安装并启动常规 Release App。此入口适合处理中断后的清理。
+## 固定产物与 CI
 
-## App Store 更新提醒真机测试
+| 类别 | 固定路径 |
+| --- | --- |
+| 测试构建、结果与日志 | `.build/extended-automation/`，结果包 `test-results.xcresult` |
+| 测试指标 | `.build/extended-automation/test-metrics.txt` |
+| 包级测试日志 | `.build/extended-automation/module-tests.log` |
+| 设备截图 | `.build/screenshot.png` |
+| 网络 Smoke | `.build/release-network-smoke/report/release-network-smoke.json` |
+| iCloud Smoke | `.build/icloud-cross-device-smoke/` |
 
-工程版本号保持原值，验证使用真机。手机重新连接后，通过真机脚本临时覆盖验证包的公开版本，例如把本机伪装成 `1.7.0`：
+同类产物覆盖既有路径，文件名使用稳定类别名。脚本按输出规模显示终端结果或固定日志路径。
 
-```sh
-BIT101_MARKETING_VERSION=1.7.0 \
-BIT101_BUILD_NUMBER=9001 \
-Scripts/build-install-device.sh
-```
+GitHub Actions 的 `.github/workflows/ci.yml` 使用 `xcode-27` runner，执行静态审计与包级测试、Release 测试构建及 Catalyst 行为用例。App 依赖图同时编译 Watch 和两种 Widget，Swift / Clang 警告按错误处理。版本、plist 和 PR 基线在静态 job 校验，手动 `release_check` 校验公开版本。
 
-脚本会把 Release 验证包安装到真机并启动，随后依次验证：
-
-更新提醒专用入口使用开发验证条件编译，Release 验证包沿用正常应用启动流程，登录、课表和其它用户数据保持不变。
-
-1. 首次启动显示“发现新版本 1.7.1”，正文与 App Store 的开发者更新内容一致，三个操作均可见。
-2. 点击“前往 App Store”，确认打开 BIT101 的中国区 App Store 页面。
-3. 点击“本次忽略”，弹窗应立即关闭；强制退出并重新启动后，24 小时内提醒次数和网络查询次数均保持不变。
-4. 点击“忽略此版本”，弹窗应立即关闭；超过 24 小时后 `1.7.1` 保持忽略状态，更高版本可以再次出现。
-5. 清理验证包的 `UserDefaults` 后重新安装，再断网启动；查询失败静默处理，登录和主界面保持可用。
-6. 最后安装正常 `1.7.1` Release 包；线上版本与本地版本相同时，更新提醒状态为不显示。
-7. 关于页的“自动检查更新”默认开启；关闭后重启应用，启动流程跳过 App Store 自动查询；点击“检查更新”仍可主动查询并展示新版本或“已是最新版本”。
-
-自动化测试覆盖数字版本比较、24 小时查询节流、24 小时展示冷却、更新内容缓存、失败静默和“忽略此版本”。真机可用性恢复前，验证范围限于静态检查与 CI Release 编译门禁；实际弹窗和 App Store 跳转在真机恢复后执行。
-
-## 学期滚动缓存与手动同步
-
-- App 启动只恢复本地课表/成绩缓存，学校和 WebVPN 请求数为 0；课表同步、DDL、空教室和成绩查询均由用户主动操作触发。
-- 课表手动同步仍按 3 月 1 日、9 月 1 日推导当前及下一学期，并保存两份转换后的完整快照（首周、课程、考试）。
-- 学校返回的首周日期优先于日历分界；新学期快照尚无课程/考试时，当前课表保持原值。
-- 手动同步返回非空但课程数少于本机时，应弹出“本机有 X 节课，获取到 Y 节课，是否替换？”；选择“否”保留原课表，选择“是”才替换。空响应或学校明确未发布时，确认弹窗保持关闭。
-- 学校明确返回“课表未发布”时显示状态提示；版本号保持原值，错误上报入口保持关闭。
-- 手动选择学期先更新当前选择；课表请求失败时保留该选择并显示错误；已有快照继续展示，所选学期缺少快照时展示空课表。
-- 手动选择的学期写入本地缓存，冷启动沿用该选择；手动周次浏览范围超过课程最后一周，按首周日期定位时结果范围为第 -12 至 +20 周。
-- 成绩页进入时恢复本地缓存；认证由点击“查询成绩”、刷新按钮或下拉刷新触发。验证码挑战展示在当前操作链路中，错误报告弹窗保持关闭。
-- 点击进入空教室分栏即开始加载；“刷新空教室”、切换校区/教学楼或下拉刷新用于再次查询。认证需要短信时展示验证码面板，重试流程保持显式。
-- DDL 同步由用户主动触发，启动和前台阶段的静默同步请求数为 0；用户主动同步遇到学校短信二次验证时，显示“需要短信验证”提示，错误报告入口保持关闭。
-- 真机 smoke 应确认冷启动、回前台和切换账号时学校/WebVPN 请求数均为 0；显式同步和验证码续接仍需单独验证。
-
-## 系统日历导入
-
-- 验证入口限定为真机的“我的－设置－课程表设置”，验证设备为真机。
-- 首次导入应请求完整日历权限，并创建“BIT101 课表”日历；课程日期、起止时间、地点应与当前学期一致。
-- 日历事件的地点文本包含校区和教室；命中地图建筑目录时，同时写入 `EKStructuredLocation` 坐标。良乡校区与中关村校区分别验证，地图目录暂无匹配的地点保留文本地点。
-- 同一学期连续导入两次，事件数量保持单份；第二次应替换已存在的 `bit101://calendar-course/` 标记事件。
-- “删除已导入的日历事件”限定为 BIT101 标记事件，用户自己创建的日程保持不变。
-- 拒绝权限、无课表或没有已导入事件时，系统给出可理解的错误提示并继续运行。
-
-## 成绩详细信息缓存
-
-- 每次成绩刷新仍先获取简略列表；比较范围为除“序号、操作栏”外的简略字段，比较方式为无序比较。
-- 新增、删除、分数或其它简略字段变化时必须重新获取详细信息。
-- 简略列表未变化，且最新学期已知教学班状态全部为“是”时，直接复用详细缓存。
-- 简略列表未变化但仍存在“否”时，详细查询按账号限制为 24 小时最多一次。
-- 主动下拉刷新优先级最高，直接绕过详细缓存并完整查询简略与详细成绩。
-
-## 错误报告
-
-用户错误处理规则：用户错误归入普通提示，错误报告范围限定为软件、网络、服务器、解析和数据链路故障。
-
-```sh
-Scripts/fetch-issues-and-reports.sh
-Scripts/run-static-audit.sh
-Scripts/run-extended-tests.sh
-```
-
-覆盖检查确保用户可见的错误弹窗和主要失败占位页保留 App Store 与错误报告入口。
-报告汇总统一通过 `Scripts/fetch-issues-and-reports.sh` 无参数运行。该入口一次拉取 GitHub Issues、GitHub Actions 失败记录和 Cloudflare KV 报告；报告按 `开发版/正式版/来源未知` 与 `错误报告/用户建议` 分类，结果写入 `.build/issue-report-inbox`。本地快照使用 7 天增量窗口，`report-keys.txt` 记录窗口内已处理的报告键；Cloudflare 中超过 7 天的报告按现有保留策略清理。`Scripts/error-reports.sh` 提供单条报告查看与维护命令，完整拉取和归因沿用汇总入口。汇总与 Wrangler 命令输出不超过 1000 行时显示在 terminal，较长输出覆盖对应固定文本报告。GitHub Issues 与 CI 元数据保存在目录根部，完整报告留在本机。
-
-用户输入校验提示采用 `AppAlert.userInput` 或 `ScheduleNotice.userInput`，保留页面提示并关闭错误报告入口。页面失败状态通过 `AppFailureState.allowsDiagnostics` 控制诊断入口。空字段、标签数量、空评论、验证码输入、图片处理状态、无效分享数据、本地日程格式、日历权限和可信成绩单短信验证取消等用户操作提示归入此类；网络请求、服务器响应和数据解析故障继续提供错误报告入口。
-
-`run-static-audit.sh` 执行检查器自测、Swift、Shell、Python、Worker、Git、文档、UI、源码质量与锁定依赖检查，并汇总各组结果；过期文档和高危依赖会阻断结果。学校接口连接、网络 smoke 和发布归档由独立流程负责。源码质量报告超过 1000 行时覆盖 `.build/code-quality-report.txt`，较短结果直接显示在 terminal。CI 强制执行这一入口，并额外阻止编译警告进入门禁。
-
-UI 契约检查由 `check-ui-consistency.py` 统一维护：视觉令牌、页面和公共组件、列表样式与控件修饰器归属、触感、错误报告入口及图片型操作控件的无障碍名称依据 SwiftSyntax 节点和递归 View 调用树匹配。视觉正则限定在对应调用、成员或绑定节点内，字符串和注释由词法扫描屏蔽。统一静态审计为 UI 与源码质量检查共用一份 SwiftSyntax 索引，自测各执行一次，源码读取和文本解析结果在进程内复用。文件整理沿用类型契约；新增、改名或拆分承载公共 UI 契约的页面时，在契约表登记 View 角色并核对对应自测。UI 检查器的 `--self-test` 通过内存 Swift 源码验证 alert 重载、静态、动态与混合分支列表图标、多行视觉规则、字符串隔离、菜单项与操作闭包文本隔离、父子控件无障碍标签归属、递归组件归属、View 辅助方法可达性、交互回调闭包隔离、嵌套类型解析、组件声明类型和匹配规则；两个检查器的自测同时覆盖标记作用域、修饰器归属、CI 接线及源码迁移边界。
-
-UI 自动化另有 `testMainTabsRemainAccessibleAtAccessibilityDynamicType`，在辅助功能大字号与浅色/深色外观下检查主 Tab 的名称、可见区域、触达状态和窗口边界，并检查课表、成绩、账号页的关键操作元素。真机诊断截图通过 `Scripts/capture-screenshot-device.sh` 固定写入 `.build/screenshot.png`；画面验收由 XCUITest 断言和 SwiftSyntax UI 契约自动完成。
-
-## 扩展自动化测试
-
-扩展测试使用 `EXTENDED_AUTOMATION` 条件编译。全量入口一次运行默认测试与扩展测试；分组入口适合开发阶段快速定位：
-
-```sh
-Scripts/run-extended-tests.sh
-Scripts/run-extended-tests.sh schedule
-Scripts/run-extended-tests.sh infrastructure
-Scripts/run-extended-tests.sh login
-```
-
-脚本在真机上执行课程表策略、基础设施和登录状态测试；未连接真机时直接提示，模拟器保持停用。每组测试输出按 1000 行阈值显示在 terminal 或覆盖 `.build/extended-automation` 中对应的固定日志路径。
+本机承接真机行为、UI、网络和 iCloud 验证；发布操作按对应授权执行。

@@ -10,30 +10,17 @@ import SwiftUI
 
 /// 登录模块根视图。
 ///
-/// 根据 `LoginViewModel` 的状态，在登录表单和主应用壳层之间切换。
-/// 有本地会话时立即挂载主壳层，后台静默完成登录校验。
+/// 展示应用根容器提供的登录状态与表单。
 struct LoginRootView: View {
-    /// 登录模块唯一状态机。
-    @StateObject private var viewModel = LoginViewModel()
+    @ObservedObject var viewModel: LoginViewModel
 
     /// 登录模块根视图主体。
     ///
-    /// 根视图根据 `screenState` 在“登录表单”和“主壳层”之间切换，复杂路由由对应页面承接。
+    /// 应用根容器管理登录成功后的页面切换。
     var body: some View {
-        Group {
-            switch viewModel.screenState {
-            case .signedOut:
-                NavigationStack {
-                    LoginFormView(viewModel: viewModel)
-                }
-            case let .signedIn(studentID):
-                AppShellView(studentID: studentID, onLogout: viewModel.logout)
-            }
+        NavigationStack {
+            LoginFormView(viewModel: viewModel)
         }
-        .task {
-            await viewModel.bootstrapIfNeeded()
-        }
-        .diagnosticAlert(item: $viewModel.alert)
     }
 }
 

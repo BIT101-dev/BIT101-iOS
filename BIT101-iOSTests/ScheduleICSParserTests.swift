@@ -1,3 +1,6 @@
+@testable import ScheduleFeature
+@testable import ScheduleInfrastructure
+import ScheduleDomain
 import Foundation
 import Testing
 @testable import BIT101_iOS
@@ -20,7 +23,7 @@ struct ScheduleICSParserTests {
 
     @Test("Teaching center falls back for DNS and transient authentication failures")
     func recognizesDirectTeachingCenterFallbackErrors() {
-        let service = ScheduleService()
+        let service = ScheduleServiceFactory.make()
 
         #expect(service.shouldAttemptDirectTeachingCenterFallback(for: URLError(.cannotFindHost)))
         #expect(service.shouldAttemptDirectTeachingCenterFallback(
@@ -78,6 +81,6 @@ struct ScheduleICSParserTests {
     @Test("Valid empty calendars are accepted while non-calendar responses are rejected")
     func handlesEmptyAndInvalidCalendars() throws {
         #expect(try ScheduleICSParser.parse("BEGIN:VCALENDAR\nEND:VCALENDAR").isEmpty)
-        #expect(throws: ScheduleServiceError.self) { try ScheduleICSParser.parse("<html>login</html>") }
+        #expect(throws: ScheduleICSParser.ParseError.self) { try ScheduleICSParser.parse("<html>login</html>") }
     }
 }

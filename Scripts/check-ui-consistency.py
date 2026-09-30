@@ -13,20 +13,28 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = ROOT / "BIT101-iOS"
-DESIGN_SYSTEM = SOURCE_ROOT / "Shared/DesignSystem/AppDesignSystem.swift"
+SOURCE_ROOTS = (SOURCE_ROOT, ROOT / "Modules")
+DESIGN_SYSTEM = ROOT / "Modules/DesignSystemKit/Sources/AppDesignSystem.swift"
 DESIGN_SYSTEM_SOURCES = {
     DESIGN_SYSTEM,
-    SOURCE_ROOT / "Shared/DesignSystem/DesignPrimitives.swift",
-    SOURCE_ROOT / "Shared/DesignSystem/ExternalDesignSystem.swift",
-    SOURCE_ROOT / "Course/CourseDesignSystem.swift",
-    SOURCE_ROOT / "Schedule/ScheduleDesignSystem.swift",
-    SOURCE_ROOT / "Gallery/GalleryDesignSystem.swift",
+    ROOT / "Modules/DesignSystemKit/Sources/DesignPrimitives.swift",
+    ROOT / "Modules/DesignSystemKit/Sources/ExternalDesignSystem.swift",
+    ROOT / "Modules/ScheduleFeature/Sources/ScheduleDesignSystem.swift",
+    ROOT / "Modules/GalleryFeature/Sources/GalleryDesignSystem.swift",
 }
 MAP_THEME_COLOR_CONTRACT = (
-    "Map/CampusMapScreen.swift",
-    "static let tabAccent = Color.green",
+    "Modules/MapFeature/Sources/CampusMapScreen.swift",
+    "public static let tabAccent = Color.green",
 )
-PRIMITIVE_OPACITY_SOURCE = SOURCE_ROOT / "Shared/DesignSystem/DesignPrimitives.swift"
+PRIMITIVE_OPACITY_SOURCE = ROOT / "Modules/DesignSystemKit/Sources/DesignPrimitives.swift"
+
+
+def source_path(relative_path: str) -> Path:
+    return ROOT / relative_path if relative_path.startswith("Modules/") else SOURCE_ROOT / relative_path
+
+
+def source_relative(path: Path) -> str:
+    return path.relative_to(SOURCE_ROOT).as_posix() if path.is_relative_to(SOURCE_ROOT) else path.relative_to(ROOT).as_posix()
 REPORT_PATH = ROOT / ".build/ui-consistency-report.txt"
 
 
@@ -174,35 +182,35 @@ def is_view_source(path: Path, code: str) -> bool:
 
 FIXED_GEOMETRY_CONTRACTS = (
     (
-        "Course/CourseCommentViews.swift",
+        "Modules/CourseFeature/Sources/CourseCommentViews.swift",
         "thumbnailButton(image: displayedImages[0], index: 0, width: 180",
     ),
     (
-        "Course/CourseCommentViews.swift",
+        "Modules/CourseFeature/Sources/CourseCommentViews.swift",
         "thumbnailButton(image: image, index: index, width: nil, maxHeight: 150",
     ),
     (
-        "Course/CourseCommentViews.swift",
+        "Modules/CourseFeature/Sources/CourseCommentViews.swift",
         "thumbnailButton(image: image, index: index, width: nil, maxHeight: 78",
     ),
     (
-        "Gallery/GalleryComposerView.swift",
+        "Modules/GalleryFeature/Sources/GalleryComposerView.swift",
         "GridItem(.adaptive(minimum: 64)",
     ),
     (
-        "Course/CourseHistoryGradesViews.swift",
+        "Modules/CourseFeature/Sources/CourseHistoryGradesViews.swift",
         "StrokeStyle(lineWidth: 2, dash: [5, 4])",
     ),
     (
-        "Gallery/GalleryComposerDraftSupport.swift",
+        "Modules/GalleryFeature/Sources/GalleryComposerDraftSupport.swift",
         "width: max(1, width * scale)",
     ),
     (
-        "Schedule/ScheduleLinearCalendarViews.swift",
+        "Modules/ScheduleFeature/Sources/ScheduleLinearCalendarViews.swift",
         "max(proxy.size.height - headerHeight, 1)",
     ),
     (
-        "Schedule/ScheduleCourseCardViews.swift",
+        "Modules/ScheduleFeature/Sources/ScheduleCourseCardViews.swift",
         "lowerBound: CGFloat = 1",
     ),
 )
@@ -248,7 +256,7 @@ DIRECT_SEMANTIC_COLOR_RULES = (
 )
 PAGE_THEME_RULES = (
     (
-        ("Course/", "Score/"),
+        ("Modules/CourseFeature/Sources/", "Modules/ScoreFeature/Sources/"),
         (
             "AppDesignSystem.Palette.Accent.primary",
             "AppDesignSystem.Palette.Highlight.primary",
@@ -259,15 +267,15 @@ PAGE_THEME_RULES = (
 )
 PAGE_THEME_CONTRACTS = (
     (
-        "Course/CourseHistoryGradesViews.swift",
+        "Modules/CourseFeature/Sources/CourseHistoryGradesViews.swift",
         '.foregroundStyle(by: .value("指标", point.series))',
     ),
 )
 THEME_SENSITIVE_ROOTS = (
-    "Shared/DesignSystem",
-    "Gallery",
-    "Paper",
-    "Mine",
+    "Modules/DesignSystemKit/Sources",
+    "Modules/GalleryFeature/Sources",
+    "Modules/PaperFeature/Sources",
+    "Modules/MineFeature/Sources",
 )
 CONTEXTUAL_COLOR_BYPASSES = (
     ("AppDesignSystem.Palette.Highlight.primary", "AppDesignSystem.Palette.Accent.primary"),
@@ -350,7 +358,7 @@ REPEATED_DESIGN_TOKEN = re.compile(
     r"(AppDesignSystem\.[A-Za-z_][\w.]*)\s*[+\-]\s*\1"
 )
 
-PLAIN_LIST_EXCEPTIONS = {"Gallery/GalleryMessagesView.swift"}
+PLAIN_LIST_EXCEPTIONS = {"Modules/GalleryFeature/Sources/GalleryMessagesView.swift"}
 
 @dataclass(frozen=True)
 class ComponentContract:
@@ -504,7 +512,12 @@ COMPONENT_CONTRACTS = (
 
 @cache
 def swift_files() -> list[Path]:
-    return sorted(SOURCE_ROOT.rglob("*.swift"))
+    return sorted(
+        path
+        for source_root in SOURCE_ROOTS
+        if source_root.is_dir()
+        for path in source_root.rglob("*.swift")
+    )
 
 
 @cache
@@ -600,7 +613,7 @@ def view_scopes(facts: dict) -> list[list[str]]:
 
 
 def view_entries(
-    syntax: dict[str, dict], view_name: str, source_root: Path = SOURCE_ROOT
+    syntax: dict[str, dict], view_name: str, source_root: Path = ROOT
 ) -> list[tuple[Path, dict, list[str]]]:
     return [
         (Path(path), facts, scope)
@@ -638,7 +651,7 @@ def child_view_entries(
 
 
 def type_entries(
-    syntax: dict[str, dict], type_name: str, source_root: Path = SOURCE_ROOT
+    syntax: dict[str, dict], type_name: str, source_root: Path = ROOT
 ) -> list[tuple[Path, dict, list[str]]]:
     return [
         (Path(path), facts, declaration["scope"] + [declaration["name"]])
@@ -862,7 +875,7 @@ def rendered_scope_facts(facts: dict, scope: list[str], syntax: dict[str, dict] 
         parts.extend(
             (other_facts, False)
             for path, other_facts in syntax.items()
-            if Path(path).is_relative_to(SOURCE_ROOT)
+            if Path(path).is_relative_to(ROOT)
             if other_facts is not facts
             and any(item["scope"] == scope for item in other_facts.get("functionRanges", []))
         )
@@ -1274,7 +1287,7 @@ def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> Non
     component_declarations = [
         declaration
         for path, facts in syntax.items()
-        if Path(path).is_relative_to(SOURCE_ROOT)
+        if Path(path).is_relative_to(ROOT)
         for declaration in facts["declarations"]
     ]
     for group, symbols in COMPONENT_GROUPS:
@@ -1328,7 +1341,7 @@ def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> Non
 
     # 首屏文字加载状态必须走公共状态组件；按钮内的无文字进度条仍可保留。
     for path in swift_files():
-        if path == ROOT / "BIT101-iOS/Shared/DesignSystem/AppStateComponents.swift":
+        if path == ROOT / "Modules/DesignSystemKit/Sources/AppStateComponents.swift":
             continue
         source = comment_free_sources[path]
         if re.search(r"\bProgressView\s*\(\s*\"", source):
@@ -1371,19 +1384,19 @@ def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> Non
 def check_haptic_consistency(errors: list[str], syntax: dict[str, dict]) -> None:
     sources = {path: mask_literals_and_comments(source_text(path)) for path in swift_files()}
     required = (
-        ("Shared/DesignSystem/AppHapticFeedback.swift", "func appSelectionFeedback"),
-        ("Shared/DesignSystem/AppHapticFeedback.swift", "sensoryFeedback(.selection, trigger:"),
-        ("Shared/DesignSystem/AppHapticFeedback.swift", "func appImpactFeedback"),
-        ("Shared/DesignSystem/AppHapticFeedback.swift", "sensoryFeedback(.impact, trigger:"),
-        ("Shared/DesignSystem/AppLayoutComponents.swift", "appImpactFeedback"),
-        ("Shared/DesignSystem/AppContentControlComponents.swift", "appSelectionFeedback"),
+        ("Modules/DesignSystemKit/Sources/AppHapticFeedback.swift", "func appSelectionFeedback"),
+        ("Modules/DesignSystemKit/Sources/AppHapticFeedback.swift", "sensoryFeedback(.selection, trigger:"),
+        ("Modules/DesignSystemKit/Sources/AppHapticFeedback.swift", "func appImpactFeedback"),
+        ("Modules/DesignSystemKit/Sources/AppHapticFeedback.swift", "sensoryFeedback(.impact, trigger:"),
+        ("Modules/DesignSystemKit/Sources/AppLayoutComponents.swift", "appImpactFeedback"),
+        ("Modules/DesignSystemKit/Sources/AppContentControlComponents.swift", "appSelectionFeedback"),
         ("Shell/AppShellView.swift", "appSelectionFeedback"),
-        ("Schedule/ScheduleCalendarViews.swift", "appSelectionFeedback"),
-        ("Schedule/ScheduleCalendarViews.swift", "appImpactFeedback"),
-        ("Map/CampusMapScreen.swift", "appImpactFeedback"),
+        ("Modules/ScheduleFeature/Sources/ScheduleCalendarViews.swift", "appSelectionFeedback"),
+        ("Modules/ScheduleFeature/Sources/ScheduleCalendarViews.swift", "appImpactFeedback"),
+        ("Modules/MapFeature/Sources/CampusMapScreen.swift", "appImpactFeedback"),
     )
     for relative_path, marker in required:
-        path = SOURCE_ROOT / relative_path
+        path = source_path(relative_path)
         if marker not in sources.get(path, ""):
             errors.append(f"{path.relative_to(ROOT)}: 缺少系统触感入口 {marker}")
 
@@ -1418,11 +1431,11 @@ def check_haptic_consistency(errors: list[str], syntax: dict[str, dict]) -> None
             errors.append(f"{path.relative_to(ROOT)}: AppMultiSelectionList 必须为选择变化提供公共触感")
 
     button_components = (
-        ("Shared/DesignSystem/AppLayoutComponents.swift", "struct AppFloatingActionButton: View"),
-        ("Map/CampusMapScreen.swift", "struct FloatingMapLabelButton: View"),
+        ("Modules/DesignSystemKit/Sources/AppLayoutComponents.swift", "struct AppFloatingActionButton: View"),
+        ("Modules/MapFeature/Sources/CampusMapScreen.swift", "struct FloatingMapLabelButton: View"),
     )
     for relative_path, declaration in button_components:
-        source = sources.get(SOURCE_ROOT / relative_path, "")
+        source = sources.get(source_path(relative_path), "")
         start = source.find(declaration)
         if start < 0 or "appImpactFeedback" not in source[start:]:
             errors.append(f"{relative_path}: 右下角操作按钮缺少公共触感")
@@ -1432,7 +1445,7 @@ def check_haptic_consistency(errors: list[str], syntax: dict[str, dict]) -> None
         r"impactOccurred\(|selectionChanged\(|notificationOccurred\(|AudioServicesPlaySystemSound|"
         r"kSystemSoundID_Vibrate|CHHapticEngine|NSHapticFeedbackManager|WKInterfaceDevice.*\.play"
     )
-    haptic_file = SOURCE_ROOT / "Shared/DesignSystem/AppHapticFeedback.swift"
+    haptic_file = ROOT / "Modules/DesignSystemKit/Sources/AppHapticFeedback.swift"
     for path, source in sources.items():
         if path != haptic_file and direct_patterns.search(source):
             errors.append(f"{path.relative_to(ROOT)}: 页面不得绕过公共触感修饰器")
@@ -1948,7 +1961,7 @@ struct VisualRuleSample: View {
             if pattern.pattern in uncovered_rules
         }
         findings.append("UI 检查器自测：AST 规则映射缺少样例：" + repr(examples))
-    reviewed_path = SOURCE_ROOT / "Course/CourseCommentViews.swift"
+    reviewed_path = source_path("Modules/CourseFeature/Sources/CourseCommentViews.swift")
     reviewed_source = "thumbnailButton(image: displayedImages[0], index: 0, width: 180)"
     if not is_reviewed_fixed_geometry(
         reviewed_path,
@@ -1983,7 +1996,7 @@ struct VisualRuleSample: View {
 
 
 def map_theme_color_contract_findings() -> list[str]:
-    path = SOURCE_ROOT / MAP_THEME_COLOR_CONTRACT[0]
+    path = source_path(MAP_THEME_COLOR_CONTRACT[0])
     source = "extension AppDesignSystem {\n    enum Map {\n        " + MAP_THEME_COLOR_CONTRACT[1] + "\n    }\n}"
     start = source.encode("utf-8").find(b"Color.green")
     node = {"scope": ["AppDesignSystem", "Map"], "start": start}
@@ -2088,11 +2101,11 @@ def check_page_theme_consistency(errors: list[str], syntax: dict[str, dict]) -> 
     for path in swift_files():
         if path in DESIGN_SYSTEM_SOURCES:
             continue
-        source_relative = path.relative_to(SOURCE_ROOT).as_posix()
+        relative_source = source_relative(path)
         raw_source = source_text(path)
         facts = syntax[str(path)]
         for prefixes, forbidden_tokens, expected_token in PAGE_THEME_RULES:
-            if not source_relative.startswith(prefixes):
+            if not relative_source.startswith(prefixes):
                 continue
             emitted: set[tuple[int, str]] = set()
             for token in forbidden_tokens:
@@ -2114,9 +2127,9 @@ def check_contextual_component_colors(errors: list[str], syntax: dict[str, dict]
     for path in swift_files():
         if path in DESIGN_SYSTEM_SOURCES:
             continue
-        source_relative = path.relative_to(SOURCE_ROOT).as_posix()
+        relative_source = source_relative(path)
         if not any(
-            source_relative == root or source_relative.startswith(f"{root}/")
+            relative_source == root or relative_source.startswith(f"{root}/")
             for root in THEME_SENSITIVE_ROOTS
         ):
             continue
@@ -2145,7 +2158,7 @@ def check_registered_visual_contracts(errors: list[str]) -> None:
         MAP_THEME_COLOR_CONTRACT,
     )
     for relative_path, marker in contracts:
-        path = SOURCE_ROOT / relative_path
+        path = source_path(relative_path)
         if not path.is_file():
             errors.append(f"{path.relative_to(ROOT)}: 自动视觉契约引用的源码缺失")
             continue
@@ -2157,11 +2170,11 @@ def check_registered_visual_contracts(errors: list[str]) -> None:
 def is_reviewed_fixed_geometry(
     path: Path, source: str, pattern: re.Pattern[str], node: dict
 ) -> bool:
-    relative_path = path.relative_to(SOURCE_ROOT).as_posix()
+    relative_path = source_relative(path)
     reviewed_paths = {
-        "Course/CourseCommentViews.swift": DIRECT_THUMBNAIL_GEOMETRY,
-        "Course/CourseHistoryGradesViews.swift": DIRECT_STROKE_GEOMETRY,
-        "Gallery/GalleryComposerView.swift": DIRECT_GRID_ITEM_GEOMETRY,
+        "Modules/CourseFeature/Sources/CourseCommentViews.swift": DIRECT_THUMBNAIL_GEOMETRY,
+        "Modules/CourseFeature/Sources/CourseHistoryGradesViews.swift": DIRECT_STROKE_GEOMETRY,
+        "Modules/GalleryFeature/Sources/GalleryComposerView.swift": DIRECT_GRID_ITEM_GEOMETRY,
     }
     expected_pattern = reviewed_paths.get(relative_path)
     normalized_node = " ".join(node["value"].split())
@@ -2174,7 +2187,7 @@ def is_reviewed_fixed_geometry(
 
 
 def is_registered_cgfloat_contract(path: Path, node: dict) -> bool:
-    relative_path = path.relative_to(SOURCE_ROOT).as_posix()
+    relative_path = source_relative(path)
     normalized_node = " ".join(node["value"].split())
     return any(
         entry_path == relative_path and " ".join(marker.split()) in normalized_node
@@ -2183,7 +2196,7 @@ def is_registered_cgfloat_contract(path: Path, node: dict) -> bool:
 
 
 def is_registered_map_theme_color_definition(path: Path, source: str, node: dict) -> bool:
-    relative_path = path.relative_to(SOURCE_ROOT).as_posix()
+    relative_path = source_relative(path)
     if relative_path != MAP_THEME_COLOR_CONTRACT[0] or node.get("scope") != ["AppDesignSystem", "Map"]:
         return False
     start = max(0, int(node.get("start", 0)))
@@ -2445,7 +2458,7 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
         if path in DESIGN_SYSTEM_SOURCES:
             continue
         relative = path.relative_to(ROOT)
-        source_relative = path.relative_to(SOURCE_ROOT).as_posix()
+        relative_source = source_relative(path)
         raw_source = source_text(path)
         facts = syntax[str(path)]
         call_pairs = zip(facts.get("calls", []), facts.get("invocations", []))
@@ -2523,7 +2536,7 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
                             pattern,
                         )
 
-        if source_relative not in PLAIN_LIST_EXCEPTIONS:
+        if relative_source not in PLAIN_LIST_EXCEPTIONS:
             for node in pattern_nodes(facts, DIRECT_PLAIN_LIST_STYLE):
                 pattern_source = mask_literals_and_comments(node["value"])
                 for match in DIRECT_PLAIN_LIST_STYLE.finditer(pattern_source):
@@ -2548,7 +2561,7 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
     for path in swift_files():
         if path == DESIGN_SYSTEM:
             continue
-        if path.relative_to(SOURCE_ROOT).as_posix() in PLAIN_LIST_EXCEPTIONS:
+        if source_relative(path) in PLAIN_LIST_EXCEPTIONS:
             continue
         facts = syntax[str(path)]
         for control in facts["listControls"]:

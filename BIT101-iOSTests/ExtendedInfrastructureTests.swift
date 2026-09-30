@@ -1,4 +1,7 @@
-import ClientCore
+@testable import ScheduleFeature
+@testable import ScheduleInfrastructure
+import TransportCore
+import ScheduleDomain
 #if EXTENDED_AUTOMATION
 import Foundation
 import Testing

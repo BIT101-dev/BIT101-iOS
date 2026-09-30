@@ -1,4 +1,6 @@
-import ClientCore
+import GalleryFeature
+import StorageCore
+import ScoreFeature
 import Combine
 import Compression
 import Foundation
@@ -133,12 +135,21 @@ nonisolated enum ExperimentalPreferenceCloudQuotaPolicy {
     }
 }
 
+protocol PreferenceCloudStoring: AnyObject {
+    var dictionaryRepresentation: [String: Any] { get }
+    func data(forKey key: String) -> Data?
+    func set(_ value: Any?, forKey key: String)
+    @discardableResult func synchronize() -> Bool
+}
+
+extension NSUbiquitousKeyValueStore: PreferenceCloudStoring {}
+
 /// 使用 iCloud Key-Value Store 同步设置、成绩筛选偏好、成绩缓存和消息已读状态。
 ///
 /// 开关只保存在当前设备并按学号隔离，默认关闭；同步内容按域独立做时间戳冲突决策。
 @MainActor
 final class ExperimentalPreferenceCloudSync: ObservableObject {
-    static let shared = ExperimentalPreferenceCloudSync()
+    static let shared = ExperimentalPreferenceCloudSync(settings: .shared, stores: .shared)
 
     private static let logger = Logger(subsystem: "BIT101", category: "PreferenceCloudSync")
 
@@ -147,22 +158,28 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     private var syncIssueDomain: ExperimentalPreferenceSyncDomain?
 
     private let defaults: UserDefaults
-    private let cloudStore: NSUbiquitousKeyValueStore
+    let settings: AppSettingsStore
+    let stores: AppAccountStores
+    private let cloudStore: any PreferenceCloudStoring
     private var cloudObserverTask: Task<Void, Never>?
-    private var accountObserverTask: Task<Void, Never>?
     private var reconciliationTask: Task<Void, Never>?
     private var pendingReconciliationDomains = Set<ExperimentalPreferenceSyncDomain>()
 
-    private init(
+    init(
+        settings: AppSettingsStore,
+        stores: AppAccountStores,
         defaults: UserDefaults = .standard,
-        cloudStore: NSUbiquitousKeyValueStore = .default
+        cloudStore: any PreferenceCloudStoring = NSUbiquitousKeyValueStore.default,
+        notificationCenter: NotificationCenter = .default
     ) {
         self.defaults = defaults
         self.cloudStore = cloudStore
+        self.settings = settings
+        self.stores = stores
         isEnabled = loadEnabledPreference()
 
         cloudObserverTask = Task { @MainActor [weak self, cloudStore] in
-            for await notification in NotificationCenter.default.notifications(
+            for await notification in notificationCenter.notifications(
                 named: NSUbiquitousKeyValueStore.didChangeExternallyNotification
             ) {
                 guard (notification.object as AnyObject?) === cloudStore else { continue }
@@ -172,17 +189,11 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
                 self.handleExternalChange(changedKeys: changedKeys, changeReason: changeReason)
             }
         }
-        accountObserverTask = Task { @MainActor [weak self] in
-            for await _ in NotificationCenter.default.notifications(named: .loginStorageDidChange) {
-                guard let self else { return }
-                self.reloadForCurrentAccount()
-            }
-        }
+
     }
 
     deinit {
         cloudObserverTask?.cancel()
-        accountObserverTask?.cancel()
         reconciliationTask?.cancel()
     }
 
@@ -209,8 +220,8 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         in domain: ExperimentalPreferenceSyncDomain,
         for session: AppStorageSession? = nil
     ) {
-        let scoreSession = session ?? AppFileDirectories.scoreCacheSession
-        if domain == .scoreCache, AppFileDirectories.scoreCacheSession != scoreSession { return }
+        let scoreSession = session ?? stores.scoreSession()
+        if domain == .scoreCache, stores.scoreSession() != scoreSession { return }
         let updatedAt = nextLocalUpdatedAt(
             for: domain,
             remoteUpdatedAt: remoteUpdatedAt(for: domain)
@@ -220,13 +231,13 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         switch domain {
         case .appSettings:
             upload(
-                payload: AppSettingsSyncPayload(snapshot: AppSettingsStore.shared.snapshot),
+                payload: AppSettingsSyncPayload(snapshot: settings.snapshot),
                 domain: domain,
                 updatedAt: updatedAt
             )
         case .scoreFilters:
             upload(
-                payload: ScoreFilterPreferenceStore.load() ?? ScoreFilterPreferenceSnapshot(),
+                payload: stores.scoreFilterPreferences.load() ?? ScoreFilterPreferenceSnapshot(),
                 domain: domain,
                 updatedAt: updatedAt
             )
@@ -234,7 +245,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
             Task { await uploadScoreCache(updatedAt: updatedAt, session: scoreSession) }
         case .galleryMessageRead:
             upload(
-                payload: GalleryMessageReadStore.shared.syncSnapshot(),
+                payload: stores.communityMessages.syncSnapshot(),
                 domain: domain,
                 updatedAt: updatedAt
             )
@@ -248,7 +259,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         scheduleReconciliation(for: ExperimentalPreferenceSyncDomain.allCases)
     }
 
-    private func reloadForCurrentAccount() {
+    func reloadForCurrentAccount() {
         reconciliationTask?.cancel()
         reconciliationTask = nil
         pendingReconciliationDomains.removeAll()
@@ -309,26 +320,26 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         case .appSettings:
             await reconcile(
                 domain: domain,
-                localPayload: AppSettingsSyncPayload(snapshot: AppSettingsStore.shared.snapshot),
+                localPayload: AppSettingsSyncPayload(snapshot: settings.snapshot),
                 applyRemote: { payload in
-                    AppSettingsStore.shared.applySyncedPreferences(payload)
+                    settings.applySyncedPreferences(payload)
                     return true
                 }
             )
         case .scoreFilters:
             await reconcile(
                 domain: domain,
-                localPayload: ScoreFilterPreferenceStore.load() ?? ScoreFilterPreferenceSnapshot(),
+                localPayload: stores.scoreFilterPreferences.load() ?? ScoreFilterPreferenceSnapshot(),
                 applyRemote: { payload in
-                    ScoreFilterPreferenceStore.applySynced(payload)
+                    stores.scoreFilterPreferences.applySynced(payload)
                     return true
                 }
             )
         case .scoreCache:
-            let session = AppFileDirectories.scoreCacheSession
-            guard let localPayload = await ScoreCacheStore.syncPayload(for: session),
+            let session = stores.scoreSession()
+            guard let localPayload = await stores.scoreCache.syncPayload(for: session),
                   !Task.isCancelled,
-                  AppFileDirectories.scoreCacheSession == session
+                  stores.scoreSession() == session
             else { return }
             preserveLegacyLocalScoreCacheIfNeeded(localPayload)
             await reconcile(
@@ -336,15 +347,15 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
                 localPayload: localPayload,
                 scoreSession: session,
                 applyRemote: { payload in
-                    await ScoreCacheStore.applySynced(payload, for: session)
+                    await stores.scoreCache.applySynced(payload, for: session)
                 }
             )
         case .galleryMessageRead:
             await reconcile(
                 domain: domain,
-                localPayload: GalleryMessageReadStore.shared.syncSnapshot(),
+                localPayload: stores.communityMessages.syncSnapshot(),
                 applyRemote: { payload in
-                    GalleryMessageReadStore.shared.applySyncedSnapshot(payload)
+                    stores.communityMessages.applySyncedSnapshot(payload)
                     return true
                 }
             )
@@ -357,7 +368,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         scoreSession: AppStorageSession? = nil,
         applyRemote: (Payload) async -> Bool
     ) async {
-        if let scoreSession, AppFileDirectories.scoreCacheSession != scoreSession { return }
+        if let scoreSession, stores.scoreSession() != scoreSession { return }
         let remote: ExperimentalPreferenceSyncEnvelope<Payload>? = remoteEnvelope(for: domain)
         let localUpdatedAt = localUpdatedAt(for: domain)
 
@@ -381,7 +392,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
             guard let remote else { return }
             guard await applyRemote(remote.payload) else { return }
             guard !Task.isCancelled,
-                  scoreSession == nil || AppFileDirectories.scoreCacheSession == scoreSession
+                  scoreSession == nil || stores.scoreSession() == scoreSession
             else { return }
             setLocalUpdatedAt(remote.updatedAt, for: domain)
         case .uploadLocal:
@@ -397,10 +408,10 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     }
 
     private func uploadScoreCache(updatedAt: Date, session: AppStorageSession) async {
-        guard AppFileDirectories.scoreCacheSession == session,
-              let payload = await ScoreCacheStore.syncPayload(for: session),
+        guard stores.scoreSession() == session,
+              let payload = await stores.scoreCache.syncPayload(for: session),
               !Task.isCancelled,
-              AppFileDirectories.scoreCacheSession == session
+              stores.scoreSession() == session
         else { return }
         upload(payload: payload, domain: .scoreCache, updatedAt: updatedAt)
     }
@@ -543,11 +554,11 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     }
 
     private var accountIdentifier: String {
-        AppFileDirectories.currentSession.accountDirectoryName
+        stores.currentSession().accountDirectoryName
     }
 
     private var localAccountIdentifier: String {
-        AppFileDirectories.currentSession.accountStorageIdentifier
+        stores.currentSession().accountStorageIdentifier
     }
 
     private func loadEnabledPreference() -> Bool {

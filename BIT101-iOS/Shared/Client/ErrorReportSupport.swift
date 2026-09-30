@@ -1,19 +1,10 @@
-import ClientCore
+import TransportCore
+import DesignSystemKit
 import Foundation
 import Combine
 import UIKit
 
-nonisolated protocol DiagnosticAlertPresentable: Identifiable {
-    var title: String { get }
-    var message: String { get }
-    var allowsDiagnostics: Bool { get }
-    var showsRecoveryLinks: Bool { get }
-    var recoveryAction: AppRecoveryAction? { get }
-}
 
-extension AppAlert: DiagnosticAlertPresentable {}
-extension ScheduleNotice: DiagnosticAlertPresentable {}
-extension MapNotice: DiagnosticAlertPresentable {}
 
 /// 反馈载荷标记本地 Debug 安装或正式 Release 构建，用户身份字段保持空缺。
 enum AppBuildEnvironment {

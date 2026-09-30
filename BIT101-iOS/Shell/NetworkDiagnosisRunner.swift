@@ -1,4 +1,9 @@
-import ClientCore
+import ScheduleDomain
+import PaperFeature
+import GalleryFeature
+import TransportCore
+import ScoreFeature
+import ScheduleInfrastructure
 import Combine
 import Foundation
 
@@ -93,10 +98,10 @@ final class NetworkDiagnosisRunner: ObservableObject {
                 _ = try await PaperService().fetchPapers(search: nil, order: .newest, page: 0)
                 detail = "通过"
             case .currentTerm:
-                currentTermForDiagnosis = try await ScheduleService().fetchCurrentTermOnly()
+                currentTermForDiagnosis = try await ScheduleServiceFactory.make().fetchCurrentTermOnly()
                 detail = "通过"
             case .schedule:
-                let service = ScheduleService()
+                let service = ScheduleServiceFactory.make()
                 let term: String
                 if let currentTermForDiagnosis {
                     term = currentTermForDiagnosis
@@ -106,10 +111,7 @@ final class NetworkDiagnosisRunner: ObservableObject {
                 _ = try await service.syncCourses(term: term)
                 detail = "通过"
             case .ddl:
-                _ = try await ScheduleService().refreshLexueCalendarURL(
-                    schoolSMSCodeHandler: nil,
-                    smsDeliveryMode: .preflight
-                )
+                _ = try await ScheduleServiceFactory.make().refreshLexueCalendarURLForPreflight()
                 detail = "通过"
             case .transcript:
                 _ = try await ScoreService().fetchTrustedTranscriptPages()
@@ -133,4 +135,3 @@ final class NetworkDiagnosisRunner: ObservableObject {
         return response.data
     }
 }
-

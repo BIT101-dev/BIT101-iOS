@@ -1,3 +1,6 @@
+@testable import GalleryFeature
+@testable import ScheduleFeature
+import ScheduleDomain
 import CommunityCore
 import Foundation
 import Testing
@@ -88,7 +91,7 @@ struct ScheduleCacheMigrationTests {
 
         #expect(unreadable.isUnreadable)
         #expect(!unreadable.allowsWrite)
-        #expect(ScheduleCacheStore.LoadResult.missing.allowsWrite)
+        #expect(ScheduleCacheLoadResult.missing.allowsWrite)
 
         let cache = ScheduleCache()
         let encoder = JSONEncoder()
@@ -230,6 +233,22 @@ struct ScheduleCacheMigrationTests {
             localUpdatedAt: old,
             remoteUpdatedAt: new
         ))
+    }
+
+    @Test("Cloud state comparison tracks user content across school refreshes")
+    func cloudStateComparison() throws {
+        let original = ScheduleCache()
+        var refreshed = original
+        refreshed.currentTerm = "2026-2027-1"
+        refreshed.coursesUpdatedAt = Date()
+        refreshed.updatedAt = Date()
+        refreshed.cloudSyncBaselineAt = Date()
+        refreshed.cloudSyncBaselineRecordTag = "confirmed-record"
+        refreshed.hasUnpushedCloudChanges = true
+        #expect(try ScheduleCloudSyncState.matches(original, refreshed))
+
+        refreshed.showSunday.toggle()
+        #expect(try ScheduleCloudSyncState.matches(original, refreshed) == false)
     }
 
     @Test("Local cache timestamps advance when the device clock moves backward")

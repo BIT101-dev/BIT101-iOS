@@ -17,6 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOTS = (
+    ROOT / "Modules",
     ROOT / "BIT101-iOS",
     ROOT / "BIT101-iOSTests",
     ROOT / "BIT101ScheduleWidgets",
@@ -1203,7 +1204,19 @@ def architectural_contract_findings(syntax_index: dict[str, dict]) -> list[str]:
             for reference in facts["typeNames"]
         )
         initializes_client = any(
-            type_name in call["scope"] and call["value"].startswith("CommunityAPIClient")
+            type_name in call["scope"] and (
+                call["value"].startswith("CommunityAPIClient")
+                or (
+                    call["value"] == "session.client"
+                    and any("CommunitySession" in ref["value"] for ref in facts["typeNames"])
+                    and any(
+                        "CommunitySession" in factory["scope"]
+                        and factory["value"].startswith("CommunityAPIClient")
+                        for session_facts in syntax_index.values()
+                        for factory in session_facts["calls"]
+                    )
+                )
+            )
             for facts in scoped_facts
             for call in facts["calls"]
         )
@@ -1214,7 +1227,7 @@ def architectural_contract_findings(syntax_index: dict[str, dict]) -> list[str]:
 
     storage_contracts = (
         ("ScheduleCacheStore", "BIT101-iOS/Schedule/ScheduleCacheStore.swift"),
-        ("ComposerDraftStore", "BIT101-iOS/Gallery/GalleryComposerView.swift"),
+        ("ComposerDraftStore", "Modules/GalleryFeature/Sources/GalleryComposerDraftSupport.swift"),
     )
     for type_name, file_name in storage_contracts:
         stores_in_scope = any(
@@ -1223,6 +1236,14 @@ def architectural_contract_findings(syntax_index: dict[str, dict]) -> list[str]:
             for facts in syntax_index.values()
             for member in facts["members"]
         )
+        if type_name == "ComposerDraftStore":
+            store_source = (ROOT / file_name).read_text(encoding="utf-8")
+            assembly_source = (ROOT / "BIT101-iOS/Shell/AppAccountStores.swift").read_text(encoding="utf-8")
+            stores_in_scope = all(marker in store_source for marker in (
+                "private let applicationSupport: URL",
+                "self.applicationSupport = applicationSupport",
+                "applicationSupport.appending(path: Self.directoryName",
+            )) and "applicationSupport: AppFileDirectories.applicationSupport" in assembly_source
         if not stores_in_scope:
             errors.append(
                 f"{file_name}: 持久化仓库必须复用 AppFileDirectories.applicationSupport"
@@ -1402,9 +1423,6 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
         errors.extend(automatic_school_fetch_findings(syntax_index))
         errors.extend(architectural_contract_findings(syntax_index))
     errors.extend(audit_wiring_findings())
-    audit_doc = (ROOT / "docs/CODE_QUALITY_AUDIT.md").read_text(encoding="utf-8")
-    if re.search(r"行号|行数", audit_doc):
-        errors.append("docs/CODE_QUALITY_AUDIT.md: 不记录行号或行数")
 
     report_lines = [
         "# 逐份源码质量审查",

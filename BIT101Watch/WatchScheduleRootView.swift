@@ -1,5 +1,6 @@
 import DesignSystemKit
 import SwiftUI
+import ScheduleContracts
 
 /// watch 主页面。
 ///

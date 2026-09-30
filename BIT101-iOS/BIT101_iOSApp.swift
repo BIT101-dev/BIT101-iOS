@@ -1,3 +1,4 @@
+import ScheduleFeature
 //
 //  BIT101_iOSApp.swift
 //  BIT101-iOS
@@ -6,31 +7,8 @@
 //
 
 import SwiftUI
-import Combine
 import BackgroundTasks
 import UIKit
-
-/// 学业页面共享的状态对象。
-///
-/// 这里复用页面状态；应用启动、回前台或切换账号时，学校请求由用户主动操作触发。
-/// 所有可能触发 WebVPN / 短信验证的学校请求都只能由用户进入对应页面后显式发起。
-@MainActor
-final class SchoolDataViewModelStore: ObservableObject {
-    let scheduleViewModel = ScheduleViewModel()
-    let scoreViewModel: ScoreViewModel
-
-    init() {
-#if BIT101_UI_TESTING
-        if AppFileDirectories.isRunningUITest {
-            scoreViewModel = ScoreViewModel(service: UITestScoreService())
-        } else {
-            scoreViewModel = ScoreViewModel()
-        }
-#else
-        scoreViewModel = ScoreViewModel()
-#endif
-    }
-}
 
 final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(
@@ -115,8 +93,7 @@ enum ScheduleReminderBackgroundRefresh {
 /// 挂载根视图，并协调课表缓存与外部展示同步。
 @main
 struct BIT101_iOSApp: App {
-    @State private var communityDestinations = CommunityDestinations.appDestinations()
-    @StateObject private var schoolDataViewModels = SchoolDataViewModelStore()
+    @StateObject private var lifecycle: AppAccountLifecycle
     @Environment(\.scenePhase) private var scenePhase
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
@@ -124,34 +101,10 @@ struct BIT101_iOSApp: App {
 #if BIT101_UI_TESTING
         AppUITestBootstrap.prepareForLaunch()
 #endif
+        let preferenceCloudSync = ExperimentalPreferenceCloudSync.shared
         ScheduleCacheStore.effects = AppScheduleCacheEffects()
-    }
-
-    /// 把本地课表缓存同步到 Widget、Watch 和 Live Activity。
-    ///
-    /// 这条链路读取本地缓存并刷新外部展示；学校数据同步由用户显式操作触发。
-    private func refreshScheduleExternalDisplays(trigger: String, syncWidgetSnapshot: Bool) {
-#if BIT101_UI_TESTING
-        guard !AppFileDirectories.isRunningUITest else { return }
-#endif
-        Task {
-            if syncWidgetSnapshot {
-                await ScheduleWidgetExporter.syncFromCurrentCache()
-            }
-            let fakeCookie = LoginStorage.shared.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            // 退出登录后取消后台刷新，隔离当前账号的提醒任务。
-            guard !fakeCookie.isEmpty else {
-                ScheduleReminderBackgroundRefresh.schedule(earliestBeginDate: nil)
-                await ScheduleLiveActivityManager.shared.endAllActivities()
-                return
-            }
-
-            let nextBeginDate = await ScheduleLiveActivityManager.shared.preferredBackgroundRefreshBeginDate()
-            ScheduleReminderBackgroundRefresh.schedule(earliestBeginDate: nextBeginDate)
-
-            await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(trigger: trigger)
-        }
+        AppPreferenceCacheEffects.configure(sync: preferenceCloudSync)
+        _lifecycle = StateObject(wrappedValue: AppAccountLifecycle(preferenceCloudSync: preferenceCloudSync))
     }
 
     /// 根场景定义。主题模式由设置快照驱动；登录态、课表缓存和场景状态变化时，
@@ -184,40 +137,25 @@ struct BIT101_iOSApp: App {
                     }
                 }
             #else
-            ContentView()
-                .environment(communityDestinations)
-                .environmentObject(schoolDataViewModels.scheduleViewModel)
-                .environmentObject(schoolDataViewModels.scheduleViewModel.ddl)
-                .environmentObject(schoolDataViewModels.scoreViewModel)
+            ContentView(transcriptService: lifecycle.transcriptService)
+                .environment(lifecycle.communityDestinations)
+                .environment(lifecycle.community)
+                .environment(lifecycle.community.gallery)
+                .environment(lifecycle.community.course)
+                .environment(lifecycle.community.paper)
+                .environment(lifecycle.community.mine)
+                .environment(AppMedia.environment)
+                .environmentObject(lifecycle.scheduleViewModel)
+                .environmentObject(lifecycle.scheduleViewModel.ddl)
+                .environmentObject(lifecycle.scoreViewModel)
+                .environmentObject(lifecycle.settings)
+                .environmentObject(lifecycle.preferenceCloudSync)
                 .appKeyboardDismissSupport()
                 .appPromptHost()
                 .onOpenURL { url in
                     AppDeepLinkCoordinator.shared.receive(url)
                 }
-                .task {
-#if BIT101_UI_TESTING
-                    guard !AppFileDirectories.isRunningUITest else { return }
-#endif
-                    // 先激活 WatchConnectivity，接收 watch 端发来的“重新同步”请求。
-                    WatchScheduleSyncManager.shared.activateIfNeeded()
-
-                    // 启动时导出本地缓存并刷新外部展示；学校请求由用户显式操作触发。
-                    refreshScheduleExternalDisplays(trigger: "app_launch_task", syncWidgetSnapshot: true)
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .loginStorageDidChange)) { _ in
-                    // 账号切换后清掉失去上下文的全局提示队列。
-                    AppErrorPresenter.shared.reset()
-                    // 只重置内存状态；学校请求仍由用户主动操作触发。
-                    schoolDataViewModels.scheduleViewModel.resetForCurrentAccount()
-                    schoolDataViewModels.scoreViewModel.resetForCurrentAccount()
-                    // 切换账号后，组件和灵动岛立即改读新账号的本地缓存。
-                    refreshScheduleExternalDisplays(trigger: "login_storage_changed", syncWidgetSnapshot: true)
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .scheduleCacheDidChange)) { _ in
-                    // 课表缓存变化时主要刷新 Live Activity；Widget 快照已在
-                    // `ScheduleCacheStore.save` 时同步导出。
-                    refreshScheduleExternalDisplays(trigger: "schedule_cache_changed", syncWidgetSnapshot: false)
-                }
+                .task { lifecycle.start() }
             #endif
         }
         #if !RELEASE_NETWORK_SMOKE
@@ -227,7 +165,7 @@ struct BIT101_iOSApp: App {
                 guard !AppFileDirectories.isRunningUITest else { return }
 #endif
                 // 回到前台时导出本地快照并刷新时间线；学校请求由用户显式操作触发。
-                refreshScheduleExternalDisplays(trigger: "scene_active", syncWidgetSnapshot: true)
+                lifecycle.sceneBecameActive()
             }
         }
         #endif

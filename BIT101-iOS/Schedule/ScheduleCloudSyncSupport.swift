@@ -1,3 +1,4 @@
+import ScheduleDomain
 import Foundation
 
 #if canImport(CloudKit)
@@ -50,6 +51,13 @@ nonisolated enum ScheduleCacheConflictResolution: Sendable {
 
 /// Cross-device user state. School-provided schedule data remains in the local cache.
 nonisolated struct ScheduleCloudSyncState: Codable, Sendable {
+    static func matches(_ lhs: ScheduleCache, _ rhs: ScheduleCache) throws -> Bool {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        return try encoder.encode(Self(cache: lhs)) == encoder.encode(Self(cache: rhs))
+    }
+
     var primaryScheduleTitle: String
     var manualCourseRulesByTerm: [String: [ScheduleCourseRule]]
     var manualDDLEvents: [DDLEventRecord]

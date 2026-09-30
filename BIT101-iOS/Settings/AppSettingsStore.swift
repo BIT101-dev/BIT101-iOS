@@ -1,4 +1,3 @@
-import ClientCore
 //
 //  AppSettingsStore.swift
 //  BIT101-iOS
@@ -6,6 +5,7 @@ import ClientCore
 //  Created by Codex on 2026-03-24.
 //
 
+import StorageCore
 import Combine
 import Foundation
 
@@ -94,6 +94,7 @@ struct AppSettingsSyncPayload: Codable, Equatable {
 ///
 /// 当前账号的账号偏好和话廊筛选偏好都会统一写入这里，再由具体页面按需读取。
 final class AppSettingsStore: ObservableObject {
+    var didSave: (() -> Void)?
     static let shared = AppSettingsStore()
     /// 各账号设置快照在 `UserDefaults` 中使用的 key 前缀。
     nonisolated static let storageKeyPrefix = "app.settings.snapshot"
@@ -120,23 +121,20 @@ final class AppSettingsStore: ObservableObject {
     @Published private(set) var hidesCourseHistoryMakeupOutliers = true
     @Published private(set) var automaticUpdateChecksEnabled = true
 
-    private let defaults = AppFileDirectories.defaults
-    private var accountObserverTask: Task<Void, Never>?
-
-    /// 初始化设置仓库，并监听账号切换。
-    private init() {
+    private let defaults: UserDefaults
+    private let session: () -> AppStorageSession
+    /// 初始化当前账号的设置快照。
+    init(
+        defaults: UserDefaults = AppFileDirectories.defaults,
+        session: @escaping () -> AppStorageSession = { AppFileDirectories.currentSession }
+    ) {
+        self.defaults = defaults
+        self.session = session
         load()
-        accountObserverTask = Task { @MainActor [weak self] in
-            for await _ in NotificationCenter.default.notifications(named: .loginStorageDidChange) {
-                guard let self else { return }
-                self.load()
-            }
-        }
     }
 
-    deinit {
-        accountObserverTask?.cancel()
-    }
+    /// 账号生命周期协调器按顺序重载设置与社区偏好。
+    func reloadForCurrentAccount() { load() }
 
     /// 以下计算属性为视图层提供读取入口；设置方法集中处理 snapshot 写入。
     var galleryHideBotPosterInSearch: Bool { snapshot.galleryHideBotPosterInSearch }
@@ -157,7 +155,7 @@ final class AppSettingsStore: ObservableObject {
 
         let dueDate = Calendar.current.date(
             byAdding: .day,
-            value: Self.linuxDoThanksNoticeDelayDays(for: Self.currentAccountIdentifier()),
+            value: Self.linuxDoThanksNoticeDelayDays(for: currentAccountIdentifier),
             to: firstOpenDate
         ) ?? firstOpenDate
         return Date() >= dueDate
@@ -239,9 +237,9 @@ final class AppSettingsStore: ObservableObject {
         migrateLegacyScopedDefaults()
         loadCourseHistoryPreference()
         loadAutomaticUpdatePreference()
-        let accountID = Self.currentAccountIdentifier()
-        guard let snapshot = Self.loadSnapshotFromDefaults(for: accountID)
-                ?? Self.migrateLegacySnapshotIfNeeded(for: accountID) else {
+        let accountID = currentAccountIdentifier
+        guard let snapshot = Self.loadSnapshotFromDefaults(for: accountID, defaults: defaults)
+                ?? Self.migrateLegacySnapshotIfNeeded(for: accountID, defaults: defaults) else {
             self.snapshot = AppSettingsSnapshot()
             self.snapshot.firstOpenDate = Date()
             defaults.set(true, forKey: galleryBotFilterDefaultMigrationKey)
@@ -296,25 +294,24 @@ final class AppSettingsStore: ObservableObject {
     private func save(syncPreferences: Bool = false) {
         if let data = try? Self.encoder.encode(snapshot) {
             defaults.set(data, forKey: currentStorageKey)
-            let legacyKey = AppFileDirectories.currentSession.legacyKey(
+            let legacyKey = session().legacyKey(
                 Self.storageKeyPrefix,
                 guestIdentifier: Self.defaultAccountIdentifier
             )
             if legacyKey != currentStorageKey { defaults.removeObject(forKey: legacyKey) }
         }
         if syncPreferences {
-            ExperimentalPreferenceCloudSync.shared.localValueDidChange(in: .appSettings)
+            didSave?()
         }
     }
 
     /// 提供设置快照的静态读取入口。
     static func loadSnapshotFromDefaults() -> AppSettingsSnapshot? {
-        loadSnapshotFromDefaults(for: currentAccountIdentifier())
+        loadSnapshotFromDefaults(for: shared.currentAccountIdentifier)
     }
 
     /// 读取指定账号对应的设置快照。
-    static func loadSnapshotFromDefaults(for accountID: String) -> AppSettingsSnapshot? {
-        let defaults = AppFileDirectories.defaults
+    static func loadSnapshotFromDefaults(for accountID: String, defaults: UserDefaults = AppFileDirectories.defaults) -> AppSettingsSnapshot? {
         let currentKey = storageKey(for: accountID)
         let legacyKey = legacyStorageKey(for: accountID)
         guard let data = defaults.data(forKey: currentKey) ?? defaults.data(forKey: legacyKey),
@@ -327,36 +324,36 @@ final class AppSettingsStore: ObservableObject {
     }
 
     /// 把账号隔离前的快照迁移到当前账号分区。
-    private static func migrateLegacySnapshotIfNeeded(for accountID: String) -> AppSettingsSnapshot? {
+    private static func migrateLegacySnapshotIfNeeded(for accountID: String, defaults: UserDefaults) -> AppSettingsSnapshot? {
         guard accountID != defaultAccountIdentifier else { return nil }
         guard
-            let data = AppFileDirectories.defaults.data(forKey: legacyStorageKey),
+            let data = defaults.data(forKey: legacyStorageKey),
             let snapshot = try? decoder.decode(AppSettingsSnapshot.self, from: data)
         else {
             return nil
         }
 
-        AppFileDirectories.defaults.set(data, forKey: storageKey(for: accountID))
-        AppFileDirectories.defaults.removeObject(forKey: legacyStorageKey)
+        defaults.set(data, forKey: storageKey(for: accountID))
+        defaults.removeObject(forKey: legacyStorageKey)
         return snapshot
     }
 
     private var currentStorageKey: String {
-        AppFileDirectories.currentSession.key(
+        session().key(
             Self.storageKeyPrefix,
             guestIdentifier: Self.defaultAccountIdentifier
         )
     }
 
     private var galleryBotFilterDefaultMigrationKey: String {
-        AppFileDirectories.currentSession.key(
+        session().key(
             Self.galleryBotFilterDefaultMigrationKeyPrefix,
             guestIdentifier: Self.defaultAccountIdentifier
         )
     }
 
     private var currentCourseHistoryHidesMakeupOutliersKey: String {
-        AppFileDirectories.currentSession.key(
+        session().key(
             Self.courseHistoryHidesMakeupOutliersKey,
             guestIdentifier: Self.defaultAccountIdentifier
         )
@@ -378,7 +375,7 @@ final class AppSettingsStore: ObservableObject {
     }
 
     private func migrateLegacyScopedDefaults() {
-        let session = AppFileDirectories.currentSession
+        let session = session()
         for prefix in [
             Self.galleryBotFilterDefaultMigrationKeyPrefix,
             Self.courseHistoryHidesMakeupOutliersKey,
@@ -399,9 +396,9 @@ final class AppSettingsStore: ObservableObject {
     }
 
     /// 读取当前账号标识；学号为空时使用默认分区。
-    private static func currentAccountIdentifier() -> String {
-        let session = AppFileDirectories.currentSession
-        return session.isGuest ? defaultAccountIdentifier : session.accountIdentifier
+    private var currentAccountIdentifier: String {
+        let session = session()
+        return session.isGuest ? Self.defaultAccountIdentifier : session.accountIdentifier
     }
 
     /// 按账号稳定地映射到首周内的某一天。

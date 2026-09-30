@@ -1,32 +1,9 @@
+import TransportCore
 import ClientCore
+import ScoreFeature
 import Foundation
 
 /// 普通成绩与可信成绩单共用的错误定义。
-enum ScoreServiceError: LocalizedError {
-    case missingCredentials
-    case invalidResponse
-    case requestTimedOut
-    case secondFactorRequired(BITLoginAuthenticationChallenge)
-    case challengeInvalid(String)
-    case queryFailed(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .missingCredentials:
-            return "未找到已保存的学号和密码，请先重新登录。"
-        case .invalidResponse:
-            return "服务返回了无法识别的数据。"
-        case .requestTimedOut:
-            return "请求超时，请稍后重试。"
-        case .secondFactorRequired:
-            return "需要短信验证码才能继续执行此操作。"
-        case let .challengeInvalid(message):
-            return message
-        case let .queryFailed(message):
-            return message
-        }
-    }
-}
 
 /// 成绩接口层。
 ///
@@ -547,3 +524,5 @@ struct ScoreService {
     }
 
 }
+
+extension ScoreService: ScoreListServicing, TrustedTranscriptServicing {}

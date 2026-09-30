@@ -1,6 +1,13 @@
+import MineFeature
+import PaperFeature
+import CourseFeature
+import GalleryFeature
+import TransportCore
+import ScoreFeature
 import CommunityCore
-import ClientCore
 import Foundation
+import ScheduleDomain
+import ScheduleInfrastructure
 import ImageIO
 
 // MARK: - Release network smoke
@@ -215,7 +222,7 @@ final class ReleaseNetworkSmokeRunner {
             return try Self.validateTrustedTranscriptPages(pages)
         }
 
-        let schedule = ScheduleService()
+        let schedule = ScheduleServiceFactory.make()
         _ = await probe("当前学期", area: .schedule, scope: scope) { try await schedule.fetchCurrentTermOnly() }
         let terms = await probe("切换学期列表", area: .schedule, scope: scope) {
             try await schedule.fetchAvailableTerms()
@@ -262,18 +269,13 @@ final class ReleaseNetworkSmokeRunner {
             recordSkip("空教室占用数据", reason, area: .schedule, scope: scope)
         }
         let calendarURL = await probe("乐学日历订阅地址", area: .ddl, scope: scope) {
-            try await schedule.refreshLexueCalendarURL(
-                schoolSMSCodeHandler: nil,
-                smsDeliveryMode: .preflight
-            )
+            try await schedule.refreshLexueCalendarURLForPreflight()
         }
         if let calendarURL {
             _ = await probe("乐学 DDL 下载", area: .ddl, scope: scope) {
-                try await schedule.syncDDLEvents(
+                try await schedule.syncDDLEventsForPreflight(
                     existingEvents: [],
-                    storedURL: calendarURL,
-                    schoolSMSCodeHandler: nil,
-                    smsDeliveryMode: .preflight
+                    storedURL: calendarURL
                 )
             }
         } else {

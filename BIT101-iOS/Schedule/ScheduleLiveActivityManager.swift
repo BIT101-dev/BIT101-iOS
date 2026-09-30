@@ -1,3 +1,5 @@
+import Foundation
+import ScheduleDomain
 import ScheduleContracts
 //
 //  ScheduleLiveActivityManager.swift
@@ -11,7 +13,6 @@ import ScheduleContracts
 // ActivityKit update/end execute concurrently; handles stay inside concurrent
 // operations while MainActor serializes the manager's operation order.
 import ActivityKit
-import Foundation
 import os
 import UserNotifications
 
@@ -804,7 +805,6 @@ final class ScheduleLiveActivityManager {
 
 #else
 
-import Foundation
 
 /// Mac Catalyst 不支持 ActivityKit。
 ///

@@ -28,6 +28,16 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+filter_build_output() {
+  awk '
+    /^[[:space:]]*$/ { next }
+    /^Failed frontend command:/ { next }
+    /^\/Applications\/.*swift-frontend / { next }
+    /^note: Removed stale file / { next }
+    { print; fflush() }
+  '
+}
+
 if [[ "${BIT101_INSTALL_TARGET:-iPhone}" == "macCatalyst" ]]; then
   mkdir -p "$DERIVED_DATA"
   BUILD_OVERRIDES=()
@@ -50,7 +60,7 @@ if [[ "${BIT101_INSTALL_TARGET:-iPhone}" == "macCatalyst" ]]; then
     -destination "platform=macOS,variant=Mac Catalyst" \
     -derivedDataPath "$DERIVED_DATA" \
     "${BUILD_OVERRIDES[@]}" \
-    -allowProvisioningUpdates
+    -allowProvisioningUpdates 2>&1 | filter_build_output
 
   if $COMPILE_ONLY; then
     echo "Mac Catalyst 编译完成。"
@@ -115,7 +125,7 @@ xcodebuild "$BUILD_ACTION" \
   -destination "platform=iOS,id=$BIT101_XCODE_DEVICE_ID" \
   -derivedDataPath "$DERIVED_DATA" \
   "${BUILD_OVERRIDES[@]}" \
-    -allowProvisioningUpdates
+    -allowProvisioningUpdates 2>&1 | filter_build_output
 
 if $COMPILE_ONLY; then
   echo "iPhone Release 编译完成。"

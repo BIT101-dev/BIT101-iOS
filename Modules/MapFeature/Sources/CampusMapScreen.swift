@@ -1,0 +1,270 @@
+#if os(iOS)
+import DesignSystemKit
+//
+//  CampusMapScreen.swift
+//  BIT101-iOS
+//
+//  Created by Codex on 2026-03-24.
+//
+
+import Combine
+import MapKit
+import SwiftUI
+
+extension AppDesignSystem {
+    public enum Map {
+        public static let tabAccent = Color.green
+    }
+}
+
+/// 地图页用到的本地偏好键。
+///
+/// 地图模块持久化用户上次选择的校区和地图图层。
+private enum MapPreferenceKey {
+    static let selectedCampus = "map.selectedCampus"
+    static let displayMode = "map.displayMode"
+}
+
+private enum CampusMapDisplayMode: String {
+    case standard
+    case satellite
+
+    var title: String {
+        switch self {
+        case .standard:
+            return "常规地图"
+        case .satellite:
+            return "卫星图"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .standard:
+            return "map"
+        case .satellite:
+            return "globe.americas.fill"
+        }
+    }
+
+    var configuration: MKMapConfiguration {
+        switch self {
+        case .standard:
+            let configuration = MKStandardMapConfiguration()
+            configuration.pointOfInterestFilter = .excludingAll
+            configuration.showsTraffic = false
+            return configuration
+        case .satellite:
+            // 混合图层保留卫星影像，并叠加道路标注，兼容性高于纯影像图层。
+            let configuration = MKHybridMapConfiguration()
+            configuration.pointOfInterestFilter = .excludingAll
+            configuration.showsTraffic = false
+            return configuration
+        }
+    }
+}
+
+/// 校园地图主页面。
+///
+/// 使用原生 MapKit 展示下一节课的位置，并提供校区切换和系统地图导航入口。
+public struct CampusMapScreen: View {
+    let nextCourseTarget: UpcomingCourseMapTarget?
+    let requestedLocation: CampusMapLocationRequest?
+    @AppStorage(MapPreferenceKey.selectedCampus) private var selectedCampusID = CampusPreset.liangxiang.rawValue
+    @AppStorage(MapPreferenceKey.displayMode) private var storedDisplayMode = CampusMapDisplayMode.standard.rawValue
+    @StateObject private var locationController = CampusLocationController()
+    /// SwiftUI 发给地图桥接层的聚焦请求。
+    @State private var focusRequest = MapFocusRequest(preset: .liangxiang, animated: false)
+    /// “回到我的位置”动作的请求版本号。
+    @State private var centerOnUserRequestID: UUID?
+    /// 如果授权弹窗尚未结束，先挂起一次回到当前位置请求。
+    @State private var pendingCenterOnUserAfterAuthorization = false
+    /// 防止 `onAppear` 重复覆盖用户当前选中的校区。
+    @State private var hasRestoredStoredCampus = false
+    /// 课程详情传入的临时地点；只在当前进程内展示。
+    @State private var activeRequestedLocation: CampusMapLocationRequest?
+
+    public init(
+        nextCourseTarget: UpcomingCourseMapTarget?,
+        requestedLocation: CampusMapLocationRequest? = nil
+    ) {
+        self.nextCourseTarget = nextCourseTarget
+        self.requestedLocation = requestedLocation
+    }
+
+    /// 地图主页主体。
+    public var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            CampusNativeMapView(
+                focusRequest: focusRequest,
+                centerOnUserRequestID: centerOnUserRequestID,
+                nextCourseTarget: nextCourseTarget,
+                requestedLocation: activeRequestedLocation,
+                mapConfiguration: displayMode.configuration,
+                mapConfigurationID: displayMode.rawValue,
+                onLocationFailure: { error in
+                    locationController.handleLocationFailure(error)
+                }
+            )
+            .ignoresSafeArea(edges: [.top, .bottom])
+
+            AppFloatingActionStack {
+                AppFloatingActionButton(
+                    systemImage: displayMode.systemImage,
+                    accessibilityLabel: "切换地图图层"
+                ) {
+                    toggleDisplayMode()
+                }
+                .accessibilityValue(displayMode.title)
+
+                if let place = nextCourseTarget?.place {
+                    AppFloatingActionButton(
+                        systemImage: "arrow.triangle.turn.up.right.diamond.fill",
+                        accessibilityLabel: "导航到下一节课"
+                    ) {
+                        openDirections(to: place)
+                    }
+                }
+
+                AppFloatingActionButton(
+                    systemImage: locationController.isAuthorized ? "location.fill" : "location",
+                    accessibilityLabel: "定位到我的位置"
+                ) {
+                    centerOnUser()
+                }
+
+                ForEach(CampusPreset.allCases) { preset in
+                    FloatingMapLabelButton(
+                        label: preset.shortLabel,
+                        accessibilityLabel: "切换到\(preset.displayName)",
+                        isSelected: preset == selectedCampus
+                    ) {
+                        jump(to: preset, animated: false)
+                    }
+                }
+            }
+        }
+        .toolbar(.hidden, for: .navigationBar)
+        .onAppear {
+            guard !hasRestoredStoredCampus else { return }
+            hasRestoredStoredCampus = true
+            focusOnNextCourseIfPossible(animated: false)
+            consumeRequestedLocationIfNeeded()
+        }
+        .onChange(of: nextCourseTarget) { _, _ in
+            focusOnNextCourseIfPossible(animated: false)
+        }
+        .onChange(of: requestedLocation?.id) { _, _ in
+            consumeRequestedLocationIfNeeded()
+        }
+        .onReceive(locationController.$authorizationStatus.dropFirst()) { status in
+            guard pendingCenterOnUserAfterAuthorization else { return }
+
+            if status == .authorizedAlways || status == .authorizedWhenInUse {
+                pendingCenterOnUserAfterAuthorization = false
+                centerOnUserRequestID = UUID()
+            } else if status != .notDetermined {
+                pendingCenterOnUserAfterAuthorization = false
+            }
+        }
+        .diagnosticAlert(item: $locationController.notice)
+    }
+
+    /// 读取课程详情传入的临时地点请求。请求包含地点时，更新持久化的选中校区并聚焦对应校区。
+    private func consumeRequestedLocationIfNeeded() {
+        guard let requestedLocation,
+              activeRequestedLocation?.id != requestedLocation.id else { return }
+        activeRequestedLocation = requestedLocation
+        if let place = requestedLocation.places.first {
+            selectedCampusID = place.campus.rawValue
+            focusRequest = MapFocusRequest(preset: place.campus, animated: true)
+        }
+    }
+
+    /// 切换到指定校区并更新本地持久化。
+    private func jump(to preset: CampusPreset, animated: Bool) {
+        selectedCampusID = preset.rawValue
+        focusRequest = MapFocusRequest(preset: preset, animated: animated)
+    }
+
+    private func toggleDisplayMode() {
+        storedDisplayMode = displayMode == .standard
+            ? CampusMapDisplayMode.satellite.rawValue
+            : CampusMapDisplayMode.standard.rawValue
+    }
+
+    /// 地图首次出现或课表缓存更新后，自动切换到下一节课所在校区。
+    private func focusOnNextCourseIfPossible(animated: Bool) {
+        guard let target = nextCourseTarget else {
+            focusRequest = MapFocusRequest(preset: selectedCampus, animated: animated)
+            return
+        }
+
+        if let campus = target.campus {
+            selectedCampusID = campus.rawValue
+            focusRequest = MapFocusRequest(preset: campus, animated: animated)
+        }
+    }
+
+    /// 交给系统地图提供步行导航；App 内地图聚焦校园定位，转向播报由系统处理。
+    private func openDirections(to place: CampusMapPlace) {
+        let placemark = MKPlacemark(coordinate: place.coordinate)
+        let destination = MKMapItem(placemark: placemark)
+        destination.name = place.name
+        destination.openInMaps(launchOptions: [
+            MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeWalking
+        ])
+    }
+
+    /// 聚焦到当前位置，必要时先触发授权流程。
+    private func centerOnUser() {
+        if locationController.isAuthorized {
+            pendingCenterOnUserAfterAuthorization = false
+            centerOnUserRequestID = UUID()
+        } else {
+            pendingCenterOnUserAfterAuthorization = locationController.authorizationStatus == .notDetermined
+            locationController.requestAuthorizationIfNeeded()
+        }
+    }
+
+    /// 当前持久化选中的校区。
+    private var selectedCampus: CampusPreset {
+        CampusPreset(rawValue: selectedCampusID) ?? .liangxiang
+    }
+
+    private var displayMode: CampusMapDisplayMode {
+        CampusMapDisplayMode(rawValue: storedDisplayMode) ?? .standard
+    }
+
+}
+
+/// 校区快捷切换按钮。
+///
+/// 这里使用短标签节省按钮空间，完整校区名通过无障碍标签提供。
+private struct FloatingMapLabelButton: View {
+    let label: String
+    let accessibilityLabel: String
+    let isSelected: Bool
+    let action: () -> Void
+    @State private var feedbackToken = 0
+
+    /// 校区切换按钮主体。
+    var body: some View {
+        Button {
+            feedbackToken &+= 1
+            action()
+        } label: {
+            AppFloatingActionButtonSurface(fill: isSelected ? AppDesignSystem.Palette.Accent.primary : nil) {
+                Text(label)
+                    .font(AppDesignSystem.Typography.floatingLabel)
+                    .foregroundStyle(isSelected ? AppDesignSystem.Palette.Highlight.foreground : AppDesignSystem.Foreground.primaryColor)
+            }
+        }
+        .buttonStyle(.plain)
+        .appImpactFeedback(trigger: feedbackToken)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+#endif

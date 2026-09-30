@@ -1,4 +1,4 @@
-import ClientCore
+import TransportCore
 import Foundation
 
 private enum EmergencyUpdateURLPolicy {

@@ -1,3 +1,7 @@
+@testable import CourseFeature
+@testable import ScheduleFeature
+@testable import ScheduleInfrastructure
+@testable import ScheduleDomain
 import ScheduleContracts
 import Foundation
 import Testing
@@ -18,7 +22,7 @@ private func shanghaiDate(_ year: Int, _ month: Int, _ day: Int) -> Date {
 @Suite("System calendar schedule export")
 struct ScheduleSystemCalendarEventBuilderTests {
     @Test("Course weeks expand into exact class dates and timetable bounds")
-    func expandsCourseOccurrences() {
+    func expandsCourseOccurrences() throws {
         let course = CourseRecord(
             id: "course-a",
             term: "2026-2027-1",
@@ -45,6 +49,18 @@ struct ScheduleSystemCalendarEventBuilderTests {
             timeTable: TimeSlot.default
         )
 
+        let selectedContent = ScheduleSystemCalendarContent.courses(
+            [course], firstDay: shanghaiDate(2026, 9, 7), timeTable: TimeSlot.default, week: 1
+        )
+        #expect(try ScheduleSystemCalendarEventBuilder.makeDrafts(for: selectedContent).map(\.markerID) == ["course-a-w1"])
+        let previousWeekContent = ScheduleSystemCalendarContent.courses(
+            [course], firstDay: shanghaiDate(2026, 9, 7), timeTable: TimeSlot.default, week: -1
+        )
+        #expect(try ScheduleSystemCalendarEventBuilder.makeDrafts(for: previousWeekContent).map(\.markerID) == ["course-a-w-1"])
+        let wholeCourseContent = ScheduleSystemCalendarContent.courses(
+            [course], firstDay: shanghaiDate(2026, 9, 7), timeTable: TimeSlot.default
+        )
+        #expect(try ScheduleSystemCalendarEventBuilder.makeDrafts(for: wholeCourseContent) == drafts)
         #expect(drafts.count == 3)
         #expect(ScheduleDateCodec.formatDate(drafts[0].startDate) == "2026-09-02")
         #expect(ScheduleDateCodec.formatDate(drafts[1].startDate) == "2026-09-09")
@@ -95,7 +111,7 @@ struct ScheduleSystemCalendarEventBuilderTests {
     }
 
     @Test("Exam and custom schedule records share calendar event drafts")
-    func buildsExamAndCustomDrafts() {
+    func buildsExamAndCustomDrafts() throws {
         let exam = ExamRecord(
             id: "exam-1",
             term: "2026-2027-1",
@@ -121,6 +137,9 @@ struct ScheduleSystemCalendarEventBuilderTests {
 
         let examDraft = ScheduleSystemCalendarEventBuilder.makeDraft(for: exam)
         let customDraft = ScheduleSystemCalendarEventBuilder.makeDraft(for: custom)
+        #expect(try ScheduleSystemCalendarEventBuilder.makeDrafts(for: .exam(exam)) == [examDraft].compactMap { $0 })
+        #expect(try ScheduleSystemCalendarEventBuilder.makeDrafts(for: .customSchedule(custom)) == [customDraft].compactMap { $0 })
+
 
         #expect(examDraft?.markerID == "exam-exam-1")
         #expect(examDraft?.title == "[考试] 软件工程导论")
@@ -678,7 +697,7 @@ struct ScheduleCourseEditorTests {
     @Test("Week ranges accept Chinese punctuation, deduplicate and sort")
     func parsesWeekRanges() throws {
         #expect(try ScheduleCourseEditor.parseWeeks("3，1-2, 2,5-6") == [1, 2, 3, 5, 6])
-        #expect(ScheduleCourseEditor.formatWeeks([6, 2, 1, 5, 2, 3]) == "1-3,5-6")
+        #expect(ScheduleWeekCodec.formatWeeks([6, 2, 1, 5, 2, 3]) == "1-3,5-6")
     }
 
     @Test("Invalid week ranges are rejected")

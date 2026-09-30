@@ -1,3 +1,5 @@
+import ScheduleFeature
+import GalleryFeature
 import DesignSystemKit
 //
 //  SettingsRootView.swift
@@ -136,6 +138,7 @@ private struct SettingsIndexCard: View {
 ///
 /// 其它模块通过 `route` 进入对应的设置页面。
 private struct SettingsRoutePage: View {
+    @EnvironmentObject private var scheduleViewModel: ScheduleViewModel
     let route: SettingsRoute
     let studentID: String
     let onLogout: () -> Void
@@ -145,9 +148,9 @@ private struct SettingsRoutePage: View {
         case .account:
             AccountSettingsPage(studentID: studentID, onLogout: onLogout)
         case .calendar:
-            CalendarSettingsPage()
+            AppCalendarSettingsPage(viewModel: scheduleViewModel)
         case .ddl:
-            DDLSettingsPage()
+            DDLSettingsPage(viewModel: scheduleViewModel.ddl)
         case .gallery:
             GallerySettingsPage()
         case .suggestion:
@@ -294,7 +297,7 @@ struct DeveloperSuggestionPage: View {
                     }),
                     secondaryButton: .cancel(Text("不保存"), action: {
                         Task {
-                            await ComposerDraftStore.removeSuggestion()
+                            await AppAccountStores.shared.composerDrafts.removeSuggestion()
                             dismiss()
                         }
                     })
@@ -307,7 +310,7 @@ struct DeveloperSuggestionPage: View {
                         Task { await loadSavedDraft() }
                     }),
                     secondaryButton: .cancel(Text("不加载"), action: {
-                        Task { await ComposerDraftStore.removeSuggestion() }
+                        Task { await AppAccountStores.shared.composerDrafts.removeSuggestion() }
                     })
                 )
             case .missingContact:
@@ -380,7 +383,7 @@ struct DeveloperSuggestionPage: View {
             )
             text = ""
             contact = ""
-            await ComposerDraftStore.removeSuggestion()
+            await AppAccountStores.shared.composerDrafts.removeSuggestion()
             alert = nil
             dismiss()
         } catch {
@@ -398,7 +401,7 @@ struct DeveloperSuggestionPage: View {
     }
 
     private func saveDraft() async -> Bool {
-        await ComposerDraftStore.saveSuggestion(
+        await AppAccountStores.shared.composerDrafts.saveSuggestion(
             DeveloperSuggestionDraftSnapshot(
                 text: text,
                 images: imageDrafts.map {
@@ -415,14 +418,14 @@ struct DeveloperSuggestionPage: View {
 
     private func checkDraftOnAppear() async {
         guard !didCheckDraft else { return }
-        let hasDraft = await ComposerDraftStore.loadSuggestion() != nil
+        let hasDraft = await AppAccountStores.shared.composerDrafts.loadSuggestion() != nil
         guard !Task.isCancelled else { return }
         didCheckDraft = true
         if hasDraft { confirmation = .restoreDraft }
     }
 
     private func loadSavedDraft() async {
-        guard let draft = await ComposerDraftStore.loadSuggestion() else { return }
+        guard let draft = await AppAccountStores.shared.composerDrafts.loadSuggestion() else { return }
 
         text = draft.text
         contact = draft.contact

@@ -1,5 +1,6 @@
 import DesignSystemKit
 import ScheduleContracts
+import ScheduleSharedStore
 import ActivityKit
 import Foundation
 import SwiftUI

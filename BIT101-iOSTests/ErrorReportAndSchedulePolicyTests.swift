@@ -1,3 +1,10 @@
+@testable import ScheduleFeature
+@testable import ScheduleInfrastructure
+@testable import ScoreFeature
+@testable import MapFeature
+import ClientCore
+import DesignSystemKit
+import ScheduleDomain
 import XCTest
 import UIKit
 import CoreLocation
@@ -132,9 +139,9 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     }
 
     func testCalendarPermissionNoticeOffersSystemSettings() {
-        XCTAssertEqual(ScheduleSystemCalendarError.permissionDenied.recoveryAction, .openAppSettings)
-        XCTAssertEqual(ScheduleSystemCalendarError.noWritableCalendarSource.recoveryAction, .openAppSettings)
-        XCTAssertNil(ScheduleSystemCalendarError.missingSchedule.recoveryAction)
+        XCTAssertTrue(ScheduleSystemCalendarError.permissionDenied.requiresCalendarSettings)
+        XCTAssertTrue(ScheduleSystemCalendarError.noWritableCalendarSource.requiresCalendarSettings)
+        XCTAssertFalse(ScheduleSystemCalendarError.missingSchedule.requiresCalendarSettings)
         XCTAssertEqual(ScheduleNotice(
             title: "导入失败",
             message: "日历权限需要调整。",

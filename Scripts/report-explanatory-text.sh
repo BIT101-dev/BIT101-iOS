@@ -27,8 +27,7 @@ APPROVED_TEXTS = {
     "请调整学期或种类筛选条件。",
 }
 APPROVED_DYNAMIC = {
-    ("BIT101-iOS/Schedule/ScheduleVerificationView.swift", "verificationHint"),
-    ("BIT101-iOS/Score/ScoreRootView.swift", "verificationHint"),
+    ("Modules/DesignSystemKit/Sources/AppVerificationComponents.swift", "verificationHint"),
 }
 
 

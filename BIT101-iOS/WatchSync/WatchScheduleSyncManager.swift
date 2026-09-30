@@ -1,5 +1,6 @@
-import ClientCore
+import StorageCore
 import ScheduleContracts
+import ScheduleSharedStore
 #if canImport(WatchConnectivity)
 
 import Foundation

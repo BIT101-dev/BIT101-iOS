@@ -1,3 +1,5 @@
+import ClientCore
+import ScoreFeature
 #if BIT101_UI_TESTING
 import Foundation
 

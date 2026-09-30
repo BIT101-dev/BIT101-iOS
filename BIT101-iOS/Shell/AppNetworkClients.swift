@@ -1,4 +1,6 @@
-import ClientCore
+import StorageCore
+import TransportCore
+import MediaKit
 import Foundation
 
 /// 应用侧组装传输提示和诊断记录。
@@ -93,4 +95,14 @@ enum NetworkSessionPool {
             delegateQueue: nil
         )
     }()
+}
+
+/// 媒体缓存与下载在应用入口共用同一配置。
+enum AppMedia {
+    static let environment = MediaEnvironment(
+        files: AppFileDirectories.files,
+        defaults: AppFileDirectories.defaults,
+        imageHTTPClient: .community,
+        avatarHTTPClient: .shared
+    )
 }

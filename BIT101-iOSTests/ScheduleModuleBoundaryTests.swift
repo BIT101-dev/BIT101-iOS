@@ -1,49 +1,85 @@
+import GalleryFeature
+@testable import MineFeature
+import CommunityTransport
+import TransportCore
+@testable import ScheduleFeature
+@testable import ScheduleInfrastructure
+@testable import MediaKit
+import CommunityCore
+import ScoreFeature
+import Combine
+import StorageCore
 import ClientCore
+import ScheduleDomain
 import Foundation
 import Testing
 @testable import BIT101_iOS
 
 @MainActor
-private final class DeferredScheduleLoad {
-    var continuation: CheckedContinuation<ScheduleCacheStore.LoadResult, Never>?
-    private var startContinuation: CheckedContinuation<Void, Never>?
+private final class RecordingSchedulePlatformActions: SchedulePlatformActions {
+    var cloudCache: ScheduleCache?
+    var cloudSession: AppStorageSession?
+    var reminderSession: AppStorageSession?
+    var importedCache: ScheduleCache?
+    var calendarContent: ScheduleSystemCalendarContent?
+    var calendarTerm: String?
+    var calendarMarkerIDs: Set<String>?
+    var deleteCount = 0
+    var importError: Error?
+    private var enableContinuation: CheckedContinuation<Void, Never>?
 
-    func load(_ session: AppStorageSession) async -> ScheduleCacheStore.LoadResult {
-        await withCheckedContinuation {
-            continuation = $0
-            startContinuation?.resume()
-            startContinuation = nil
-        }
+    func enableCloudSync(cache: ScheduleCache, session: AppStorageSession) async {
+        cloudCache = cache
+        cloudSession = session
+        finishEnablingIfReady()
     }
 
-    func waitUntilStarted() async {
-        guard continuation == nil else { return }
-        await withCheckedContinuation { startContinuation = $0 }
-    }
-}
-
-@MainActor
-private final class DeferredDDLService: ScheduleDDLServicing {
-    var continuation: CheckedContinuation<String, Never>?
-    private var startContinuation: CheckedContinuation<Void, Never>?
-
-    func syncDDLEvents(
-        existingEvents: [DDLEventRecord], storedURL: String, schoolSMSCodeHandler: SchoolSMSCodeHandler?
-    ) async throws -> DDLSyncPayload {
-        DDLSyncPayload(url: storedURL, events: existingEvents)
+    func enableCourseReminder(session: AppStorageSession) async {
+        reminderSession = session
+        finishEnablingIfReady()
     }
 
-    func refreshLexueCalendarURL(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> String {
-        await withCheckedContinuation {
-            continuation = $0
-            startContinuation?.resume()
-            startContinuation = nil
-        }
+    func importSystemCalendar(cache: ScheduleCache) async throws -> Int {
+        if let importError { throw importError }
+        importedCache = cache
+        return 7
     }
 
-    func waitUntilStarted() async {
-        guard continuation == nil else { return }
-        await withCheckedContinuation { startContinuation = $0 }
+    func deleteImportedSystemCalendarEvents() async throws -> ScheduleSystemCalendarMutationResult {
+        deleteCount += 1
+        return .changed(3)
+    }
+
+    func importSystemCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws -> Int {
+        if let importError { throw importError }
+        calendarContent = content
+        calendarTerm = term
+        return 2
+    }
+
+    func deleteSystemCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws -> ScheduleSystemCalendarMutationResult {
+        if let importError { throw importError }
+        calendarContent = content
+        calendarTerm = term
+        return .changed(2)
+    }
+
+    func deleteSystemCalendarEntries(markerIDs: Set<String>, term: String) async throws -> ScheduleSystemCalendarMutationResult {
+        if let importError { throw importError }
+        calendarMarkerIDs = markerIDs
+        calendarTerm = term
+        return .noOp
+    }
+
+    func waitForEnabledActions() async {
+        guard cloudSession == nil || reminderSession == nil else { return }
+        await withCheckedContinuation { enableContinuation = $0 }
+    }
+
+    private func finishEnablingIfReady() {
+        guard cloudSession != nil, reminderSession != nil else { return }
+        enableContinuation?.resume()
+        enableContinuation = nil
     }
 }
 
@@ -86,6 +122,30 @@ private final class SemesterStartDateService: ScheduleServicing {
 
 @MainActor
 struct ScheduleModuleBoundaryTests {
+    private func makeRepository(
+        session: @escaping () -> AppStorageSession = { AppStorageSession(accountIdentifier: "schedule-boundary-tests") },
+        load: @escaping (AppStorageSession) async -> ScheduleCacheLoadResult,
+        save: @escaping (ScheduleCache, ScheduleCacheSaveSource, AppStorageSession) -> Void
+    ) -> ScheduleRepository {
+        ScheduleRepository(session: session, load: load, save: save, cacheDidChange: Notification.Name("schedule-boundary-tests-cache-change"))
+    }
+
+    private func makeViewModel(
+        service: any ScheduleServicing,
+        repository: ScheduleRepository,
+        platformActions: any SchedulePlatformActions = RecordingSchedulePlatformActions(),
+        newCustomScheduleDraft: @escaping () -> CustomScheduleDraft = { CustomScheduleDraft() }
+    ) -> ScheduleViewModel {
+        ScheduleViewModel(
+            service: service,
+            repository: repository,
+            ddl: ScheduleDDLViewModel(service: service, repository: repository),
+            classroom: ScheduleClassroomViewModel(service: service, repository: repository),
+            platformActions: platformActions,
+            newCustomScheduleDraft: newCustomScheduleDraft
+        )
+    }
+
     @Test func semesterStartDatePreservesCoursesAcrossRefreshAndTermSwitch() async throws {
         let bundle = Bundle(for: ErrorReportAndSchedulePolicyTests.self)
         let fixtureURL = bundle.url(
@@ -95,161 +155,176 @@ struct ScheduleModuleBoundaryTests {
         let courses = try JSONDecoder().decode(CourseResponse.self, from: Data(contentsOf: fixture)).courseRecords
         let service = SemesterStartDateService()
         service.courses = courses
-        let repository = ScheduleRepository(load: { _ in .missing }, save: { _, _, _ in })
+        let repository = makeRepository(load: { _ in .missing }, save: { _, _, _ in })
         await repository.loadIfNeeded()
-        let viewModel = ScheduleViewModel(service: service, repository: repository)
+        let viewModel = makeViewModel(service: service, repository: repository)
         let term = "2026-2027-1"
 
         await viewModel.syncCourses(term: term)
-        #expect(viewModel.cache.firstDayString == "2026-09-07")
-        #expect(viewModel.cache.manualFirstDayStringsByTerm.isEmpty)
-        #expect(viewModel.cache.courses == courses)
+        #expect(viewModel.persistenceSnapshot.firstDayString == "2026-09-07")
+        #expect(viewModel.persistenceSnapshot.manualFirstDayStringsByTerm.isEmpty)
+        #expect(viewModel.persistenceSnapshot.courses == courses)
 
         let chosenDate = try #require(ScheduleDateCodec.parseDate("2026-09-23"))
         viewModel.setSemesterStartDate(chosenDate)
-        #expect(viewModel.cache.firstDayString == "2026-09-21")
-        #expect(viewModel.cache.termSchedulesByTerm[term]?.firstDayString == "2026-09-07")
-        #expect(viewModel.cache.courses == courses)
+        #expect(viewModel.persistenceSnapshot.firstDayString == "2026-09-21")
+        #expect(viewModel.persistenceSnapshot.termSchedulesByTerm[term]?.firstDayString == "2026-09-07")
+        #expect(viewModel.persistenceSnapshot.courses == courses)
         #expect(viewModel.selectedWeek == viewModel.resolvedAutomaticWeek())
 
         service.firstDayString = "2026-09-14"
         await viewModel.syncCourses(term: term)
-        #expect(viewModel.cache.firstDayString == "2026-09-21")
-        #expect(viewModel.cache.termSchedulesByTerm[term]?.firstDayString == "2026-09-14")
-        #expect(viewModel.cache.courses == courses)
+        #expect(viewModel.persistenceSnapshot.firstDayString == "2026-09-21")
+        #expect(viewModel.persistenceSnapshot.termSchedulesByTerm[term]?.firstDayString == "2026-09-14")
+        #expect(viewModel.persistenceSnapshot.courses == courses)
 
         await viewModel.syncCourses(term: "2026-2027-2")
-        #expect(viewModel.cache.firstDayString == "2026-09-14")
+        #expect(viewModel.persistenceSnapshot.firstDayString == "2026-09-14")
         await viewModel.syncCourses(term: term)
-        #expect(viewModel.cache.firstDayString == "2026-09-21")
+        #expect(viewModel.persistenceSnapshot.firstDayString == "2026-09-21")
 
         viewModel.setSemesterStartDate(nil)
-        #expect(viewModel.cache.firstDayString == "2026-09-14")
-        #expect(viewModel.cache.manualFirstDayStringsByTerm.isEmpty)
-        #expect(viewModel.cache.courses == courses)
+        #expect(viewModel.persistenceSnapshot.firstDayString == "2026-09-14")
+        #expect(viewModel.persistenceSnapshot.manualFirstDayStringsByTerm.isEmpty)
+        #expect(viewModel.persistenceSnapshot.courses == courses)
     }
 
-    @Test func semesterStartDatePersistsWithinItsAccount() async throws {
-        var account = AppStorageSession(accountIdentifier: "semester-account-a")
-        var savedCaches: [String: ScheduleCache] = [:]
-        let repository = ScheduleRepository(
-            session: { account },
-            load: { session in
-                savedCaches[session.accountIdentifier].map(ScheduleCacheStore.LoadResult.loaded) ?? .missing
-            },
-            save: { cache, _, session in savedCaches[session.accountIdentifier] = cache }
+    @Test func restorationMapsEveryLoginFailureIntoScheduleErrors() async {
+        let errors: [LoginServiceError] = [
+            .invalidSchoolLoginPage, .schoolLoginFailed, .invalidCredentials,
+            .schoolSMSCodeInvalid("验证码错误"), .schoolSMSUnavailable("短信服务暂时繁忙"),
+            .unableToRestoreSchoolSession, .invalidServerResponse,
+            .keychainWriteFailed(-1), .keychainReadFailed(-1)
+        ]
+        for original in errors {
+            let restorer = AppScheduleSchoolSessionRestorer(restore: { throw original })
+            do {
+                _ = try await restorer.restoreSchoolSessionIfNeeded()
+                Issue.record("Expected a schedule restoration error")
+            } catch let mapped as ScheduleServiceError {
+                #expect(mapped.localizedDescription == original.localizedDescription)
+                switch (original, mapped) {
+                case (.schoolSMSCodeInvalid, .schoolSMSCodeInvalid),
+                     (.schoolSMSUnavailable, .schoolSMSUnavailable):
+                    break
+                default:
+                    if case .authenticationFailed = mapped { } else {
+                        Issue.record("Expected a schedule authentication failure")
+                    }
+                }
+            } catch {
+                Issue.record("Expected the schedule error contract: \(error)")
+            }
+        }
+    }
+
+    @Test func restorationPreservesSecondFactorContextAndTransportCancellation() async throws {
+        let baseURL = try #require(URL(string: "https://sso.bit.edu.cn/cas/"))
+        let context = try #require(SchoolLoginHTMLParser.parseSecondFactorPage(
+            html: #"<form action="/cas/login"><input id="login-page-flowkey" value="flow"><input id="user-object-id" value="user"><div id="secondSmsLoginForm">短信验证</div></form>"#,
+            baseURL: baseURL
+        ))
+        let challenged = AppScheduleSchoolSessionRestorer(restore: { throw LoginServiceError.schoolSMSRequired(context) })
+        do {
+            _ = try await challenged.restoreSchoolSessionIfNeeded()
+            Issue.record("Expected a second-factor context")
+        } catch let error as SchoolSessionRestorationError {
+            if case let .secondFactorRequired(mapped) = error {
+                #expect(mapped.execution == context.execution)
+                #expect(mapped.userObjectID == context.userObjectID)
+                #expect(mapped.formAction == context.formAction)
+            }
+        }
+        let cancelled = AppScheduleSchoolSessionRestorer(restore: { throw CancellationError() })
+        await #expect(throws: CancellationError.self) {
+            _ = try await cancelled.restoreSchoolSessionIfNeeded()
+        }
+        let timedOut = AppScheduleSchoolSessionRestorer(restore: { throw URLError(.timedOut) })
+        do {
+            _ = try await timedOut.restoreSchoolSessionIfNeeded()
+            Issue.record("Expected a transport timeout")
+        } catch let error as URLError {
+            #expect(error.code == .timedOut)
+        }
+    }
+
+    @Test func scoreProjectionPreservesIdentityAndPresentationFields() {
+        let course = CourseRecord(
+            id: "summary-course", term: "2026-2027-1", name: "高等数学", teacher: "教师",
+            classroom: "教学楼101", description: "课程备注", weeks: [1, 2, 3, 5],
+            weekday: 1, startSection: 1, endSection: 2, campus: "良乡", number: "MATH",
+            credit: 3.5, hour: 48, type: "必修", category: "基础", department: "学院"
         )
-        await repository.loadIfNeeded()
-        let viewModel = ScheduleViewModel(service: SemesterStartDateService(), repository: repository)
-        await viewModel.syncCourses(term: "2026-2027-1")
-        let chosenDate = try #require(ScheduleDateCodec.parseDate("2026-09-21"))
-        viewModel.setSemesterStartDate(chosenDate)
-        let encoded = try JSONEncoder().encode(viewModel.cache)
-        let decoded = try JSONDecoder().decode(ScheduleCache.self, from: encoded)
-        #expect(decoded.firstDayString == "2026-09-21")
-        #expect(decoded.manualFirstDayStringsByTerm == ["2026-2027-1": "2026-09-21"])
-        #expect(decoded.termSchedulesByTerm["2026-2027-1"]?.firstDayString == "2026-09-07")
-        let reloaded = try JSONDecoder().decode(ScheduleCache.self, from: JSONEncoder().encode(decoded))
-        #expect(reloaded.firstDayString == decoded.firstDayString)
-
-        account = AppStorageSession(accountIdentifier: "semester-account-b")
-        repository.resetForCurrentAccount()
-        await repository.loadIfNeeded()
-        await viewModel.syncCourses(term: "2026-2027-1")
-        #expect(viewModel.cache.firstDayString == "2026-09-07")
-        #expect(viewModel.cache.manualFirstDayStringsByTerm.isEmpty)
-
-        account = AppStorageSession(accountIdentifier: "semester-account-a")
-        repository.resetForCurrentAccount()
-        await repository.loadIfNeeded()
-        #expect(viewModel.cache.firstDayString == "2026-09-21")
+        let summary = ScoreCourseSummary(course: course)
+        #expect(summary.id == course.id)
+        #expect(summary.term == course.term)
+        #expect(summary.name == course.name)
+        #expect(summary.number == course.number)
+        #expect(summary.creditText == "3.5")
+        #expect(summary.scheduleText == "星期一 第1-2节")
+        #expect(summary.weeksText == ScheduleWeekCodec.formatWeeks(course.weeks).replacingOccurrences(of: ",", with: "、"))
+        #expect(summary.teacher == course.teacher)
+        #expect(summary.classroom == course.classroom)
+        #expect(summary.campus == course.campus)
+        #expect(summary.type == course.type)
+        #expect(summary.description == course.description)
+        #expect(summary.hourText == "48")
     }
 
-    @Test func lateLoadKeepsCurrentAccountData() async throws {
-        var account = AppStorageSession(accountIdentifier: "module-account-a")
-        let loader = DeferredScheduleLoad()
-        let repository = ScheduleRepository(session: { account }, load: loader.load, save: { _, _, _ in })
-        let task = Task { await repository.reload() }
-        await loader.waitUntilStarted()
-        account = AppStorageSession(accountIdentifier: "module-account-b")
-        repository.resetForCurrentAccount()
-        repository.cache.currentTerm = "account-b-term"
-        var old = ScheduleCache()
-        old.currentTerm = "account-a-term"
-        loader.continuation?.resume(returning: .loaded(old))
-        await task.value
-        #expect(repository.cache.currentTerm == "account-b-term")
-        #expect(repository.isWritable == false)
+
+    @Test func mineDeletionUsesTheInjectedSession() async throws {
+        let transport = RecordingCommunityDeletionTransport()
+        let session = CommunitySession(
+            httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: try #require(URL(string: "https://example.invalid")), cookie: { "module-cookie" }, refresh: { _ in }
+        )
+        let defaults = try #require(UserDefaults(suiteName: "BIT101ModulesTests.community"))
+        let dependencies = AppCommunityDependencies(
+            settings: AppSettingsStore(defaults: defaults, session: { AppStorageSession(accountIdentifier: "module-community") }),
+            session: session,
+            messages: GalleryMessageReadStore(
+                defaults: defaults,
+                session: { AppStorageSession(accountIdentifier: "module-community") }, notificationCenter: NotificationCenter()
+            ),
+            drafts: ComposerDraftStore(
+                files: AppFileSystem.files, applicationSupport: URL(fileURLWithPath: "/module-community"),
+                session: { AppStorageSession(accountIdentifier: "module-community") }
+            )
+        )
+        try await dependencies.mine.deletePoster(42)
+        let requests = transport.requests
+        #expect(requests.count == 1)
+        #expect(requests.first?.httpMethod == "DELETE")
+        #expect(requests.first?.url?.host == "example.invalid")
+        #expect(requests.first?.url?.path == "/posters/42")
     }
 
-    @Test func delayedReloadPreservesEditsMadeDuringRead() async {
-        let loader = DeferredScheduleLoad()
-        let repository = ScheduleRepository(load: loader.load, save: { _, _, _ in })
-        let task = Task { await repository.reload() }
-        await loader.waitUntilStarted()
-        repository.cache.primaryScheduleTitle = "本机编辑"
-        loader.continuation?.resume(returning: .loaded(ScheduleCache()))
-        await task.value
-        #expect(repository.cache.primaryScheduleTitle == "本机编辑")
+    @Test func mediaProjectionPreservesOriginalThumbnailAndSingleAddressImages() throws {
+        let original = "https://example.com/original.png"
+        let thumbnail = "https://example.com/thumbnail.png"
+        let images = [
+            CommunityImage(mid: "both", url: original, lowUrl: thumbnail),
+            CommunityImage(mid: "original", url: original, lowUrl: ""),
+            CommunityImage(mid: "thumbnail", url: "", lowUrl: thumbnail)
+        ]
+        let projected = images.map(\.previewImage)
+        #expect(projected[0].originalURL == URL(string: original))
+        #expect(projected[0].thumbnailURL == URL(string: thumbnail))
+        #expect(projected[1].originalURL == projected[1].thumbnailURL)
+        #expect(projected[2].originalURL == projected[2].thumbnailURL)
+        let request = ImagePreviewRequest(remoteImages: projected, initialIndex: 2)
+        #expect(request.initialIndex == 2)
     }
+}
 
-    @Test func unreadableCachePreservesMemoryAndWriteGate() async {
-        var savedCount = 0
-        let repository = ScheduleRepository(load: { _ in .unreadable }, save: { _, _, _ in savedCount += 1 })
-        repository.cache.primaryScheduleTitle = "保留内容"
-        await repository.reload()
-        repository.persist()
-        #expect(repository.cache.primaryScheduleTitle == "保留内容")
-        #expect(repository.isWritable == false)
-        #expect(repository.notice?.title == "本地课表缓存读取失败")
-        #expect(savedCount == 0)
-    }
+@MainActor
+private final class RecordingCommunityDeletionTransport: HTTPTransport {
+    private(set) var requests: [URLRequest] = []
 
-    @Test func persistenceReceivesAccountAndSource() async {
-        let account = AppStorageSession(accountIdentifier: "module-account")
-        var recordedAccount: AppStorageSession?
-        var recordedSource: ScheduleCacheStore.SaveSource?
-        var recordedTitle: String?
-        let repository = ScheduleRepository(session: { account }, load: { _ in .missing }, save: { cache, source, session in
-            recordedTitle = cache.primaryScheduleTitle
-            recordedSource = source
-            recordedAccount = session
-        })
-        await repository.loadIfNeeded()
-        repository.cache.primaryScheduleTitle = "课程"
-        repository.persist(source: .cloudBaseline)
-        #expect(recordedAccount == account)
-        #expect(recordedSource == .cloudBaseline)
-        #expect(recordedTitle == "课程")
-    }
-
-    @Test func ddlResponseAfterAccountSwitchKeepsNewAccountURL() async {
-        let repository = ScheduleRepository(load: { _ in .missing }, save: { _, _, _ in })
-        await repository.loadIfNeeded()
-        let service = DeferredDDLService()
-        let ddl = ScheduleDDLViewModel(service: service, repository: repository)
-        let task = Task { await ddl.refreshLexueCalendarURL() }
-        await service.waitUntilStarted()
-        #expect(ddl.isSyncingDDL)
-        repository.resetForCurrentAccount()
-        ddl.reset()
-        repository.cache.lexueCalendarURL = "account-b-calendar"
-        service.continuation?.resume(returning: "account-a-calendar")
-        await task.value
-        #expect(repository.cache.lexueCalendarURL == "account-b-calendar")
-        #expect(ddl.isSyncingDDL == false)
-        #expect(ddl.notice == nil)
-    }
-
-    @Test func ddlPreferencesUseSharedAccountRepository() async {
-        let repository = ScheduleRepository(load: { _ in .missing }, save: { _, _, _ in })
-        await repository.loadIfNeeded()
-        let ddl = ScheduleDDLViewModel(service: DeferredDDLService(), repository: repository)
-        ddl.setDDLBeforeDay(12)
-        ddl.setDDLAfterDay(4)
-        #expect(repository.cache.ddlBeforeDay == 12)
-        #expect(repository.cache.ddlAfterDay == 4)
-        #expect(ddl.beforeDay == 12)
-        #expect(ddl.afterDay == 4)
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        requests.append(request)
+        let url = try #require(request.url)
+        let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+        return (Data(), response)
     }
 }

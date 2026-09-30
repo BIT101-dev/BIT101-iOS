@@ -1,4 +1,7 @@
-import ClientCore
+@testable import ScheduleFeature
+@testable import ScheduleInfrastructure
+import StorageCore
+import ScheduleDomain
 import Foundation
 import Testing
 @testable import BIT101_iOS
@@ -306,7 +309,7 @@ struct ExtendedSchedulePolicyTests {
     @Test("Course week parser accepts Chinese commas and removes duplicates")
     func courseWeekParser() throws {
         #expect(try ScheduleCourseEditor.parseWeeks("1-3，3，5") == [1, 2, 3, 5])
-        #expect(ScheduleCourseEditor.formatWeeks([5, 3, 2, 1, 3]) == "1-3,5")
+        #expect(ScheduleWeekCodec.formatWeeks([5, 3, 2, 1, 3]) == "1-3,5")
     }
 
     @Test("Course editor rejects malformed week ranges")

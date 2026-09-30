@@ -1,5 +1,5 @@
-import ClientCore
 #if BIT101_UI_TESTING
+import StorageCore
 import Foundation
 
 enum AppUITestBootstrap {

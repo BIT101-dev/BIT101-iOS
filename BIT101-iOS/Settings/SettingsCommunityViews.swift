@@ -1,11 +1,12 @@
+import StorageCore
+import TransportCore
+import MediaKit
 import DesignSystemKit
-import ClientCore
 import SwiftUI
-import WebKit
 
 struct GallerySettingsPage: View {
-    @ObservedObject private var settings = AppSettingsStore.shared
-    @State private var imageCacheLimitMB = GalleryImageCachePreferences.limitMB
+    @EnvironmentObject private var settings: AppSettingsStore
+    @State private var imageCacheLimitMB = AppMedia.environment.cacheLimitMB
     @State private var imageCacheUsageText = "计算中"
     @State private var imageCacheUsageGeneration = 0
     @State private var hiddenUserIDsText = ""
@@ -83,14 +84,14 @@ struct GallerySettingsPage: View {
                     TextField("缓存上限", value: $imageCacheLimitMB, format: .number)
                         .keyboardType(.numberPad)
                         .onChange(of: imageCacheLimitMB) { _, newValue in
-                            let normalized = GalleryImageCachePreferences.normalizedLimitMB(newValue)
+                            let normalized = MediaEnvironment.normalizedCacheLimitMB(newValue)
                             if normalized != newValue {
                                 imageCacheLimitMB = normalized
                                 return
                             }
-                            GalleryImageCachePreferences.limitMB = normalized
+                            AppMedia.environment.cacheLimitMB = normalized
                             Task {
-                                await RemoteImageCache.shared.enforceCurrentLimit()
+                                await AppMedia.environment.enforceCurrentLimit()
                                 await refreshImageCacheUsage()
                             }
                         }
@@ -109,7 +110,7 @@ struct GallerySettingsPage: View {
         .diagnosticAlert(item: $hiddenUserIDsAlert)
         .diagnosticAlert(item: $diagnosisAlert)
         .task {
-            imageCacheLimitMB = GalleryImageCachePreferences.limitMB
+            imageCacheLimitMB = AppMedia.environment.cacheLimitMB
             hiddenUserIDsText = settings.galleryHiddenUserIDs.map(String.init).joined(separator: ",")
             await refreshImageCacheUsage()
         }
@@ -138,7 +139,7 @@ struct GallerySettingsPage: View {
     private func refreshImageCacheUsage() async {
         imageCacheUsageGeneration &+= 1
         let generation = imageCacheUsageGeneration
-        let bytes = await RemoteImageCache.shared.usedBytes()
+        let bytes = await AppMedia.environment.usedBytes()
         guard generation == imageCacheUsageGeneration else { return }
         let formatter = ByteCountFormatter()
         imageCacheUsageText = formatter.string(fromByteCount: bytes)
@@ -149,9 +150,10 @@ struct GallerySettingsPage: View {
 /// 关于页显示致谢、联系方式、ICP备案、开源声明和本地数据清理入口。
 struct AboutSettingsPage: View {
     let onLogout: () -> Void
+    var localData = AppLocalDataService()
 
     @Environment(\.openURL) private var openURL
-    @ObservedObject private var settings = AppSettingsStore.shared
+    @EnvironmentObject private var settings: AppSettingsStore
     @State private var alert: AppAlert?
     @State private var isResettingLocalData = false
     @State private var isClearingCaches = false
@@ -303,26 +305,13 @@ struct AboutSettingsPage: View {
         }
     }
 
-    /// 该方法清空本地用户数据，并调用登录态回调切换到登录页。
     @MainActor
     private func resetAllLocalData() async {
         guard !isResettingLocalData else { return }
         isResettingLocalData = true
         defer { isResettingLocalData = false }
-
-        let didClearLoginData = LoginStorage.shared.clearAllLocalData()
-        // 根状态机先退出主壳层，网页数据清理随后执行。清除公告已读标记后，AppShell 在
-        // clearWebData 等待期间可能弹出版本公告，登录页随后替换 AppShell。
-        onLogout()
-        await ScheduleCacheStore.clear()
-        let didClearSharedSnapshot = await ScheduleWidgetExporter.clearSharedSnapshot()
-        let didClearSmokeArtifacts = ReleaseNetworkSmokeReportStore.clearLocalArtifacts()
-        clearUserDefaults()
-        let didClearSandboxFiles = clearSandboxFileData()
-        URLCache.shared.removeAllCachedResponses()
-        await clearWebData()
-        AppSettingsStore.shared.resetToDefaults()
-        if !didClearLoginData || !didClearSharedSnapshot || !didClearSmokeArtifacts || !didClearSandboxFiles {
+        let succeeded = await localData.resetAllLocalData(onLogout: onLogout)
+        if !succeeded {
             AppErrorPresenter.shared.present(AppAlert.informational(
                 title: "本机数据清理部分完成",
                 message: "部分本机数据仍待清理，可稍后重试。"
@@ -330,73 +319,20 @@ struct AboutSettingsPage: View {
         }
     }
 
-    /// 该方法清空应用 bundle 对应的 `UserDefaults` 域。
     @MainActor
     private func clearCaches() async {
         guard !isClearingCaches, !isResettingLocalData else { return }
         isClearingCaches = true
         defer { isClearingCaches = false }
-
-        let files = AppFileDirectories.files
-        let cachesURL = files.directoryURL(.cachesDirectory)
-        let temporaryURL = files.temporaryDirectoryURL
-        let reclaimedBytes = (cachesURL.map { files.totalRegularFileSize(at: $0) } ?? 0)
-            + files.totalRegularFileSize(at: temporaryURL)
-        var hasDeletionFailure = false
-
-        if let cachesURL {
-            hasDeletionFailure = !files.removeContents(of: cachesURL)
-        }
-        hasDeletionFailure = !files.removeContents(of: temporaryURL) || hasDeletionFailure
-        URLCache.shared.removeAllCachedResponses()
-        await CachedRemoteImageCacheMaintenance.clearAll()
-
+        let result = await localData.clearCaches()
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useMB]
-        let formatted = formatter.string(fromByteCount: max(reclaimedBytes, 0))
+        let formatted = formatter.string(fromByteCount: max(result.reclaimedBytes, 0))
         alert = AppAlert.informational(
-            title: hasDeletionFailure ? "清理部分完成" : "清理完成",
-            message: hasDeletionFailure
-                ? "已清理约 \(formatted) 缓存，部分文件仍在使用中。"
-                : "已清理约 \(formatted) 缓存。"
+            title: result.succeeded ? "清理完成" : "清理部分完成",
+            message: result.succeeded
+                ? "已清理约 \(formatted) 缓存。"
+                : "已清理约 \(formatted) 缓存，部分文件仍在使用中。"
         )
-    }
-
-    private func clearUserDefaults() {
-        if let bundleID = Bundle.main.bundleIdentifier {
-            AppFileDirectories.defaults.removePersistentDomain(forName: bundleID)
-        }
-    }
-
-    /// 该方法清空文稿、应用支持、缓存和临时目录中的内容。
-    private func clearSandboxFileData() -> Bool {
-        let files = AppFileDirectories.files
-        let directories: [FileManager.SearchPathDirectory] = [
-            .documentDirectory,
-            .applicationSupportDirectory,
-            .cachesDirectory,
-        ]
-        var succeeded = true
-
-        for directory in directories {
-            guard let url = files.directoryURL(directory) else { continue }
-            succeeded = files.removeContents(of: url) && succeeded
-        }
-
-        succeeded = files.removeContents(of: files.temporaryDirectoryURL) && succeeded
-        return succeeded
-    }
-
-    /// 该方法清空 `WKWebView` 站点数据。
-    private func clearWebData() async {
-        let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
-        await withCheckedContinuation { continuation in
-            WKWebsiteDataStore.default().removeData(
-                ofTypes: dataTypes,
-                modifiedSince: .distantPast
-            ) {
-                continuation.resume()
-            }
-        }
     }
 }

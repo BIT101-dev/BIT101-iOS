@@ -1,3 +1,6 @@
+import ClientCore
+@testable import ScheduleFeature
+@testable import ScheduleInfrastructure
 import Foundation
 import Testing
 @testable import BIT101_iOS

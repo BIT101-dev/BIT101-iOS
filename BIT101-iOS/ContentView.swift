@@ -1,4 +1,6 @@
-import ClientCore
+import ScoreFeature
+import TransportCore
+import DesignSystemKit
 //
 //  ContentView.swift
 //  BIT101-iOS
@@ -14,11 +16,23 @@ enum AppLegalInfo {
     static let icpPublicNoticeURL = AppURL.required("https://beian.miit.gov.cn/")
 }
 
-/// 应用根容器，由登录模块根据会话状态显示登录页或登录后壳层。
+/// 应用根容器持有会话状态，组装登录页和登录后壳层。
 struct ContentView: View {
+    let transcriptService: any TrustedTranscriptServicing
+    @StateObject private var loginViewModel = LoginViewModel()
+
     var body: some View {
-        LoginRootView()
-            .appDiagnosticRecoveryActions()
-            .defaultAppStorage(AppFileDirectories.defaults)
+        Group {
+            switch loginViewModel.screenState {
+            case .signedOut:
+                LoginRootView(viewModel: loginViewModel)
+            case let .signedIn(studentID):
+                AppShellView(transcriptService: transcriptService, studentID: studentID, onLogout: loginViewModel.logout)
+            }
+        }
+        .task { await loginViewModel.bootstrapIfNeeded() }
+        .diagnosticAlert(item: $loginViewModel.alert)
+        .appDiagnosticRecoveryActions()
+        .defaultAppStorage(AppFileDirectories.defaults)
     }
 }
