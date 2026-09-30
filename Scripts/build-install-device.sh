@@ -7,19 +7,23 @@ DERIVED_DATA="$ROOT_DIR/build/DeviceInstall"
 source "$ROOT_DIR/Scripts/device-support.sh"
 
 COMPILE_ONLY=false
+GENERIC_BUILD=false
 DEVICE_ID=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --compile-only)
       COMPILE_ONLY=true
       ;;
+    --generic)
+      GENERIC_BUILD=true
+      ;;
     -h|--help)
-      echo "用法：Scripts/build-install-device.sh [--compile-only] [真机设备ID]"
+      echo "用法：Scripts/build-install-device.sh [--compile-only [--generic]] [真机设备ID]"
       exit 0
       ;;
     *)
       if [[ -n "$DEVICE_ID" ]]; then
-        echo "用法：Scripts/build-install-device.sh [--compile-only] [真机设备ID]" >&2
+        echo "用法：Scripts/build-install-device.sh [--compile-only [--generic]] [真机设备ID]" >&2
         exit 64
       fi
       DEVICE_ID="$1"
@@ -27,6 +31,13 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+if $GENERIC_BUILD; then
+  $COMPILE_ONLY && [[ -z "$DEVICE_ID" ]] || {
+    echo "通用 iOS 编译使用 --compile-only --generic。" >&2
+    exit 64
+  }
+fi
 
 filter_build_output() {
   awk '
@@ -90,14 +101,19 @@ if [[ "${BIT101_INSTALL_TARGET:-iPhone}" == "macCatalyst" ]]; then
   exit 0
 fi
 
-if [[ -z "$DEVICE_ID" ]]; then
+if $GENERIC_BUILD; then
+  BUILD_DESTINATION="generic/platform=iOS"
+elif [[ -z "$DEVICE_ID" ]]; then
   bit101_require_device "$PROJECT" || {
-    echo "用法：Scripts/build-install-device.sh [--compile-only] [真机设备ID]" >&2
+    echo "用法：Scripts/build-install-device.sh [--compile-only [--generic]] [真机设备ID]" >&2
     exit 1
   }
 else
   BIT101_XCODE_DEVICE_ID="$DEVICE_ID"
   BIT101_DEVICETCL_DEVICE_ID="$DEVICE_ID"
+fi
+if ! $GENERIC_BUILD; then
+  BUILD_DESTINATION="platform=iOS,id=$BIT101_XCODE_DEVICE_ID"
 fi
 
 mkdir -p "$DERIVED_DATA"
@@ -111,7 +127,12 @@ fi
 if [[ -n "${BIT101_BUILD_NUMBER:-}" ]]; then
   BUILD_OVERRIDES+=("CURRENT_PROJECT_VERSION=$BIT101_BUILD_NUMBER")
 fi
-echo "使用 iPhone 真机构建并安装（不执行 Archive）..."
+if $GENERIC_BUILD; then
+  BUILD_OVERRIDES+=("CODE_SIGNING_ALLOWED=NO")
+  echo "使用通用 iOS Release 编译..."
+else
+  echo "使用 iPhone Release 构建..."
+fi
 BUILD_ACTION=build
 if [[ "${BIT101_BUILD_FOR_TESTING:-0}" == "1" ]]; then
   BUILD_ACTION=build-for-testing
@@ -122,13 +143,13 @@ xcodebuild "$BUILD_ACTION" \
   -project "$PROJECT" \
   -scheme BIT101-iOS \
   -configuration Release \
-  -destination "platform=iOS,id=$BIT101_XCODE_DEVICE_ID" \
+  -destination "$BUILD_DESTINATION" \
   -derivedDataPath "$DERIVED_DATA" \
   "${BUILD_OVERRIDES[@]}" \
     -allowProvisioningUpdates 2>&1 | filter_build_output
 
 if $COMPILE_ONLY; then
-  echo "iPhone Release 编译完成。"
+  echo "iOS Release 编译完成。"
   exit 0
 fi
 

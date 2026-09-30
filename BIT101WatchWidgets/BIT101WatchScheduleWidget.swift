@@ -1,3 +1,4 @@
+import StorageCore
 import DesignSystemKit
 import ScheduleContracts
 import ScheduleSharedStore
@@ -5,6 +6,10 @@ import SwiftUI
 import WidgetKit
 
 /// 镜像同步前使用的提示文案。
+private nonisolated enum WidgetSnapshotStorage {
+    static let store = ScheduleExternalSnapshotStore(files: AppFileSystem.files, containerURL: AppFileSystem.files.appGroupContainerURL(identifier: ScheduleSharedContainer.identifier))
+}
+
 private let watchScheduleWidgetSyncMessage = "打开手机 App 同步课表"
 private let watchScheduleWidgetInvalidMessage = "请在手机上重新同步课表"
 /// Watch 端需要登录时使用的提示文案。
@@ -137,7 +142,7 @@ private struct WatchScheduleProvider: TimelineProvider {
     ///
     /// 时间线以当前时刻之后的课程作为展示对象。
     private func loadEntry(now: Date = Date()) -> WatchScheduleEntry {
-        let resolved = ScheduleOccurrenceResolver.loadResolvedSnapshot(now: now, limit: 32)
+        let resolved = ScheduleOccurrenceResolver.loadResolvedSnapshot(store: WidgetSnapshotStorage.store, now: now, limit: 32)
 
         switch resolved.contentState {
         case .missing:

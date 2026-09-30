@@ -1,3 +1,6 @@
+import SchedulePorts
+import ScoreDomain
+import ScoreInfrastructure
 import ScheduleDomain
 import PaperFeature
 import GalleryFeature

@@ -1,3 +1,4 @@
+import SchedulePorts
 import ScheduleDomain
 //
 //  ScheduleViewModel+CourseSync.swift
@@ -33,7 +34,8 @@ extension ScheduleViewModel {
         do {
             let payload = try await service.syncCourses(term: syncTerm)
             guard accountGeneration == generation, !Task.isCancelled else { return }
-            applyCourseSyncPayload(payload)
+            await applyCourseSyncPayload(payload)
+            guard accountGeneration == generation, !Task.isCancelled else { return }
             courseSyncCoordinator.reset()
         } catch ScheduleServiceError.secondFactorRequired(let challenge) {
             guard accountGeneration == generation, !Task.isCancelled else { return }
@@ -196,7 +198,8 @@ extension ScheduleViewModel {
                     term: term
                 )
                 guard accountGeneration == generation, !Task.isCancelled else { return }
-                applyCourseSyncPayload(payload)
+                await applyCourseSyncPayload(payload)
+                guard accountGeneration == generation, !Task.isCancelled else { return }
                 smsChallenge = nil
                 courseSyncCoordinator.reset()
             }
@@ -240,7 +243,8 @@ extension ScheduleViewModel {
         courseSyncCoordinator.reset()
     }
 
-    private func applyCourseSyncPayload(_ payload: CourseSyncPayload) {
+    private func applyCourseSyncPayload(_ payload: CourseSyncPayload) async {
+        let generation = accountGeneration
         let incomingCourses = payload.courses
         let now = Date()
         let existingBaseline = courseState.schoolCoursesByTerm[payload.term]
@@ -264,7 +268,7 @@ extension ScheduleViewModel {
             selectedWeek = resolvedAutomaticWeek()
         }
         trimTermSnapshots(preserving: Set([payload.term]))
-        persist()
+        guard await persistAndWait(), accountGeneration == generation else { return }
 
         if !reconciliation.invalidRules.isEmpty {
             let names = uniqueCourseNames(from: reconciliation.invalidRules)

@@ -1,3 +1,4 @@
+import ScheduleDomain
 import ClientCore
 /// 日程状态机使用的学校系统能力；账号数据归仓库，UI 状态归各子功能。
 public protocol ScheduleCourseServicing {

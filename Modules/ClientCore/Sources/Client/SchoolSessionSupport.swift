@@ -43,8 +43,6 @@ public nonisolated struct SchoolLoginContext: Sendable {
 ///
 /// 认证状态属于学校网络基础设施，页面层通过服务协议消费它。
 public final class TeachingCenterSessionState {
-    public static let shared = TeachingCenterSessionState()
-
     private let lock = NSLock()
     public let cookieStorage: HTTPCookieStorage
     private var authenticatedStudentID: String?
@@ -52,7 +50,7 @@ public final class TeachingCenterSessionState {
     private var directStudentID: String?
     private var directPreferenceUntil: Date?
 
-    public init(cookieStorage: HTTPCookieStorage = .shared) {
+    public init(cookieStorage: HTTPCookieStorage) {
         self.cookieStorage = cookieStorage
     }
 

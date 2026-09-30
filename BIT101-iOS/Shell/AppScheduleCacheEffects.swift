@@ -1,3 +1,4 @@
+import SchedulePorts
 import ClientCore
 import ScheduleFeature
 import TransportCore
@@ -7,9 +8,8 @@ import ScheduleDomain
 import Foundation
 
 /// 应用层连接持久化、组件导出与云同步。
-struct AppScheduleCacheEffects: ScheduleCacheEffects, SchedulePlatformActions {
-    func didSave(_ courses: ScheduleCourseSnapshot, session: AppStorageSession, source: ScheduleCacheSaveSource, cloudSyncEnabled: Bool) async {
-        await ScheduleWidgetExporter.syncAsync(courses: courses, session: session)
+struct AppScheduleCacheEffects: SchedulePlatformActions {
+    func didSave(session: AppStorageSession, source: ScheduleCacheSaveSource, cloudSyncEnabled: Bool) async {
 #if canImport(CloudKit)
         if source == .local, cloudSyncEnabled {
             Task {
@@ -18,10 +18,6 @@ struct AppScheduleCacheEffects: ScheduleCacheEffects, SchedulePlatformActions {
             }
         }
 #endif
-    }
-
-    func didClear() async {
-        await ScheduleWidgetExporter.syncFromCurrentCache()
     }
 
     func enableCloudSync(cache: ScheduleCache, session: AppStorageSession) async {
@@ -38,8 +34,8 @@ struct AppScheduleCacheEffects: ScheduleCacheEffects, SchedulePlatformActions {
         await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(trigger: "reminder_toggle_enabled")
     }
 
-    func importSystemCalendar(cache: ScheduleCache) async throws -> Int {
-        try await ScheduleSystemCalendarManager.shared.importCurrentTerm(from: cache)
+    func importSystemCalendar(courses: ScheduleCourseSnapshot, term: String) async throws -> Int {
+        try await ScheduleSystemCalendarManager.shared.importCurrentTerm(from: courses, term: term)
     }
 
     func importSystemCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws -> Int {
@@ -93,7 +89,12 @@ enum ScheduleServiceFactory {
         let repository = ScheduleRepository(
             session: { AppFileDirectories.currentSession },
             load: { await ScheduleCacheStore.loadResultAsync(for: $0) },
-            save: { ScheduleCacheStore.save($0, source: $1, session: $2) },
+            save: { cache, source, session in
+                guard await ScheduleCacheStore.saveAndWait(cache, source: source, expectedAccountIdentifier: session.accountDirectoryName) else {
+                    throw CocoaError(.fileWriteUnknown)
+                }
+                await AppScheduleCacheEffects().didSave(session: session, source: source, cloudSyncEnabled: cache.iCloudSyncEnabled)
+            },
             cacheDidChange: .scheduleCacheDidChange
         )
         return ScheduleViewModel(
@@ -129,6 +130,7 @@ enum ScheduleServiceFactory {
             credentials: LoginStorage.shared,
             crypto: AppScheduleServiceCrypto(),
             schoolSessionRestorer: AppScheduleSchoolSessionRestorer(),
+            teachingCenterState: AppSchoolSession.teachingCenter,
             rawCourseResponseHandler: ReleaseNetworkSmokeReportStore.writeRawCourseResponse,
             transport: transport
         )

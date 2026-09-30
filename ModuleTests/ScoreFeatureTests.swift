@@ -1,9 +1,11 @@
+import ScoreDomain
 import TransportCore
 import CommunityCore
 import DesignSystemKit
 import ClientCore
 import StorageCore
 import Foundation
+import os
 import Testing
 @testable import ScoreFeature
 
@@ -17,9 +19,9 @@ struct ScoreFeatureTests {
     private func makeViewModel(
         service: any ScoreListServicing,
         session: @escaping @MainActor () -> AppStorageSession = { AppStorageSession(accountIdentifier: "module-score") }
-    ) -> (ScoreViewModel, ScoreCacheStore) {
+    ) throws -> (ScoreViewModel, ScoreCacheStore) {
         clearPreferences()
-        let defaults = UserDefaults(suiteName: "BIT101ModulesTests.score")!
+        let defaults = try #require(UserDefaults(suiteName: "BIT101ModulesTests.score"))
         let notifications = NotificationCenter()
         let cache = ScoreCacheStore(
             files: ModuleScoreFiles(), storageRoot: URL(fileURLWithPath: "/module-score"), defaults: defaults,
@@ -154,9 +156,9 @@ struct ScoreFeatureTests {
 
     @Test("Score refresh requests fields required by the detail UI")
     @MainActor
-    func scoreRefreshRequestsDetailedRows() async {
+    func scoreRefreshRequestsDetailedRows() async throws {
         let service = ScoreServiceSpy()
-        let (viewModel, _) = makeViewModel(service: service)
+        let (viewModel, _) = try makeViewModel(service: service)
         defer { clearPreferences() }
 
         await viewModel.refresh()
@@ -167,9 +169,9 @@ struct ScoreFeatureTests {
 
     @Test("Score refresh preserves detailed mode after SMS authentication")
     @MainActor
-    func scoreSMSRefreshRequestsDetailedRows() async {
+    func scoreSMSRefreshRequestsDetailedRows() async throws {
         let service = ScoreServiceSpy(requiresSMS: true)
-        let (viewModel, _) = makeViewModel(service: service)
+        let (viewModel, _) = try makeViewModel(service: service)
         defer { clearPreferences() }
 
         await viewModel.refresh()
@@ -181,12 +183,12 @@ struct ScoreFeatureTests {
 
     @Test("A delayed score challenge cannot write into the newly selected account")
     @MainActor
-    func delayedScoreChallengeIsDiscardedAfterAccountSwitch() async {
+    func delayedScoreChallengeIsDiscardedAfterAccountSwitch() async throws {
         let activeSession = ScoreCacheSessionHolder(
             session: AppStorageSession(accountIdentifier: "score-account-a")
         )
         let service = DelayedScoreServiceSpy()
-        let (viewModel, _) = makeViewModel(service: service, session: { activeSession.session })
+        let (viewModel, _) = try makeViewModel(service: service, session: { activeSession.session })
         defer { clearPreferences() }
 
         let refreshTask = Task { await viewModel.refresh() }
@@ -212,14 +214,14 @@ struct ScoreFeatureTests {
 
     @Test("Unchanged score refresh presents the latest-state notice")
     @MainActor
-    func unchangedScoreRefreshPresentsNotice() async {
+    func unchangedScoreRefreshPresentsNotice() async throws {
         let rows = [ScoreRow(
             index: 0,
             headers: ["课程编号", "课程名称", "成绩", "平均分", "学分", "开课学期", "课程性质"],
             values: ["MATH-1", "高等数学", "90", "82.5", "4", "2025-2026-1", "必修"]
         )]
         let service = ScoreServiceSpy(detailedRows: rows)
-        let (viewModel, cache) = makeViewModel(service: service)
+        let (viewModel, cache) = try makeViewModel(service: service)
         await cache.saveDetailed(rows: rows)
         defer { clearPreferences() }
         await viewModel.refresh()
@@ -230,7 +232,7 @@ struct ScoreFeatureTests {
     }
 
     @Test("Qualitative scores use their numeric ordering")
-    func qualitativeScoresUseNumericOrdering() {
+    func qualitativeScoresUseNumericOrdering() throws {
         let excellent = makeRow(index: 0, score: "优秀")
         let pass = makeRow(index: 1, score: "及格")
 
@@ -239,7 +241,7 @@ struct ScoreFeatureTests {
     }
 
     @Test("Missing values are identified independently from sort direction")
-    func missingValuesAreIdentified() {
+    func missingValuesAreIdentified() throws {
         let missing = makeRow(index: 0, score: "")
         #expect(ScoreSortIndex.score.isMissingValue(in: missing))
         #expect(ScoreSortOrder.ascending.toggled == .descending)
@@ -255,82 +257,97 @@ struct ScoreFeatureTests {
 }
 
 
-nonisolated final class ModuleScoreFiles: AppFileService, @unchecked Sendable {
-    private let lock = NSLock()
-    private var data: [URL: Data] = [:]
-    private var dates: [URL: Date] = [:]
-    private var directories: Set<URL> = []
-    private var failsWriting = false
-    private var failsRemoval = false
-    private var options: [URL: Data.WritingOptions] = [:]
+nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
+    private let state = OSAllocatedUnfairLock(initialState: State())
+    private struct State {
+        var data: [URL: Data] = [:]
+        var dates: [URL: Date] = [:]
+        var directories: Set<URL> = []
+        var failsWriting = false
+        var failsRemoval = false
+        var options: [URL: Data.WritingOptions] = [:]
+    }
     func setFailures(writing: Bool = false, removal: Bool = false) {
-        lock.lock(); defer { lock.unlock() }
-        failsWriting = writing
-        failsRemoval = removal
+        return state.withLock { state in
+            state.failsWriting = writing
+            state.failsRemoval = removal
+        }
     }
     func writingOptions(at url: URL) -> Data.WritingOptions? {
-        lock.lock(); defer { lock.unlock() }
-        return options[url]
+        return state.withLock { state in
+            return state.options[url]
+        }
     }
     var temporaryDirectoryURL: URL { URL(fileURLWithPath: "/module-score") }
     func directoryURL(_ directory: FileManager.SearchPathDirectory) -> URL? { temporaryDirectoryURL }
     func appGroupContainerURL(identifier: String) -> URL? { temporaryDirectoryURL }
     func fileExists(at url: URL) -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        return data[url] != nil || directories.contains(url)
+        return state.withLock { state in
+            return state.data[url] != nil || state.directories.contains(url)
+        }
     }
     func readData(at url: URL) throws -> Data {
-        lock.lock(); defer { lock.unlock() }
-        guard let value = data[url] else { throw CocoaError(.fileReadNoSuchFile) }
-        return value
+        return try state.withLock { state in
+            guard let value = state.data[url] else { throw CocoaError(.fileReadNoSuchFile) }
+            return value
+        }
     }
     func writeData(_ value: Data, to url: URL, options: Data.WritingOptions) throws {
-        lock.lock(); defer { lock.unlock() }
-        if failsWriting { throw CocoaError(.fileWriteNoPermission) }
-        data[url] = value
-        dates[url] = Date()
-        self.options[url] = options
+        return try state.withLock { state in
+            if state.failsWriting { throw CocoaError(.fileWriteNoPermission) }
+            state.data[url] = value
+            state.dates[url] = Date()
+            state.options[url] = options
+        }
     }
     func createDirectory(at url: URL) throws {
-        lock.lock(); defer { lock.unlock() }
-        directories.insert(url)
+        return state.withLock { state in
+            _ = state.directories.insert(url)
+        }
     }
     func removeItem(at url: URL) throws {
-        lock.lock(); defer { lock.unlock() }
-        if failsRemoval { throw CocoaError(.fileWriteNoPermission) }
-        data.removeValue(forKey: url)
-        dates.removeValue(forKey: url)
-        directories.remove(url)
+        return try state.withLock { state in
+            if state.failsRemoval { throw CocoaError(.fileWriteNoPermission) }
+            state.data.removeValue(forKey: url)
+            state.dates.removeValue(forKey: url)
+            state.directories.remove(url)
+        }
     }
     func setPrivateFileProtection(at url: URL) throws {}
     func setExcludedFromBackup(at url: URL) throws {}
     func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL] {
-        lock.lock(); defer { lock.unlock() }
-        return Array(Set(data.keys).union(directories)).filter { $0.deletingLastPathComponent() == url }
+        return state.withLock { state in
+            return Array(Set(state.data.keys).union(state.directories)).filter { $0.deletingLastPathComponent() == url }
+        }
     }
     func regularFileSize(at url: URL) -> Int? {
-        lock.lock(); defer { lock.unlock() }
-        return data[url]?.count
+        return state.withLock { state in
+            return state.data[url]?.count
+        }
     }
     func isRegularFile(at url: URL) -> Bool { regularFileSize(at: url) != nil }
     func modificationDate(at url: URL) -> Date? {
-        lock.lock(); defer { lock.unlock() }
-        return dates[url]
+        return state.withLock { state in
+            return state.dates[url]
+        }
     }
     func setModificationDate(_ date: Date, at url: URL) throws {
-        lock.lock(); defer { lock.unlock() }
-        dates[url] = date
+        return state.withLock { state in
+            state.dates[url] = date
+        }
     }
     func removeContents(of directory: URL) -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        let prefix = directory.path + "/"
-        data = data.filter { !$0.key.path.hasPrefix(prefix) }
-        dates = dates.filter { !$0.key.path.hasPrefix(prefix) }
-        directories = Set(directories.filter { !$0.path.hasPrefix(prefix) })
-        return true
+        return state.withLock { state in
+            let prefix = directory.path + "/"
+            state.data = state.data.filter { !$0.key.path.hasPrefix(prefix) }
+            state.dates = state.dates.filter { !$0.key.path.hasPrefix(prefix) }
+            state.directories = Set(state.directories.filter { !$0.path.hasPrefix(prefix) })
+            return true
+        }
     }
     func totalRegularFileSize(at directory: URL) -> Int64 {
-        lock.lock(); defer { lock.unlock() }
-        return data.filter { $0.key.path.hasPrefix(directory.path + "/") }.values.reduce(0) { $0 + Int64($1.count) }
+        return state.withLock { state in
+            return state.data.filter { $0.key.path.hasPrefix(directory.path + "/") }.values.reduce(0) { $0 + Int64($1.count) }
+        }
     }
 }

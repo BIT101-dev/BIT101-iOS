@@ -20,6 +20,7 @@ SOURCE_ROOTS = (
     ROOT / "Modules",
     ROOT / "BIT101-iOS",
     ROOT / "BIT101-iOSTests",
+    ROOT / "ModuleTests",
     ROOT / "BIT101ScheduleWidgets",
     ROOT / "BIT101Watch",
     ROOT / "BIT101WatchWidgets",

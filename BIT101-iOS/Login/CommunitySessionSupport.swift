@@ -2,42 +2,7 @@ import TransportCore
 import CommunityTransport
 import Foundation
 
-@MainActor
-private final class CommunitySessionRefreshCoordinator {
-    static let shared = CommunitySessionRefreshCoordinator()
-
-    private var refreshTask: Task<Void, Error>?
-
-    private init() {}
-
-    func refreshIfNeeded(observedCookie: String, storage: LoginStorage) async throws {
-        guard storage.fakeCookie == observedCookie else { return }
-        if let refreshTask {
-            try await refreshTask.value
-            return
-        }
-
-        let task = Task { @MainActor in
-            guard let credentials = try storage.loadCredentials() else {
-                throw LoginServiceError.unableToRestoreSchoolSession
-            }
-            _ = try await LoginService(storage: storage).login(
-                studentID: credentials.studentID,
-                password: credentials.password
-            )
-        }
-        refreshTask = task
-        do {
-            try await task.value
-            refreshTask = nil
-        } catch {
-            refreshTask = nil
-            throw error
-        }
-    }
-}
-
-/// 应用认证适配：为社区传输注入当前会话及恢复动作。
+/// 应用认证适配将账号身份与凭据恢复交给社区会话契约。
 extension CommunityAPIClient {
     init(
         storage: LoginStorage = .shared,
@@ -45,16 +10,16 @@ extension CommunityAPIClient {
         baseURL: URL = AppURL.required("https://bit101.flwfdd.xyz"),
         errorDomain: String
     ) {
+        let coordinator = CommunitySessionRefreshCoordinator()
         self.init(
             httpClient: httpClient,
             baseURL: baseURL,
             errorDomain: errorDomain,
-            fakeCookieProvider: { storage.fakeCookie },
-            refreshHandler: { observedCookie in
-                try await CommunitySessionRefreshCoordinator.shared.refreshIfNeeded(
-                    observedCookie: observedCookie,
-                    storage: storage
-                )
+            credentials: { storage.communityCredentials },
+            refreshHandler: { observed in
+                try await coordinator.refresh(observed: observed, current: { storage.communityCredentials }) {
+                    try await LoginService(storage: storage).renewCommunitySession(expectedIdentity: observed.identity)
+                }
             }
         )
     }
@@ -62,12 +27,15 @@ extension CommunityAPIClient {
 
 extension CommunitySession {
     static func appSession(storage: LoginStorage = .shared, httpClient: HTTPClient = .community) -> CommunitySession {
-        CommunitySession(
+        let coordinator = CommunitySessionRefreshCoordinator()
+        return CommunitySession(
             httpClient: httpClient,
             baseURL: AppURL.required("https://bit101.flwfdd.xyz"),
-            cookie: { storage.fakeCookie },
-            refresh: { observedCookie in
-                try await CommunitySessionRefreshCoordinator.shared.refreshIfNeeded(observedCookie: observedCookie, storage: storage)
+            credentials: { storage.communityCredentials },
+            refresh: { observed in
+                try await coordinator.refresh(observed: observed, current: { storage.communityCredentials }) {
+                    try await LoginService(storage: storage).renewCommunitySession(expectedIdentity: observed.identity)
+                }
             }
         )
     }

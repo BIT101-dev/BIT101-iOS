@@ -7,6 +7,7 @@ import Foundation
 import OSLog
 import Security
 import ClientCore
+import CommunityTransport
 
 /// 登录状态存储。
 ///
@@ -35,6 +36,11 @@ final class LoginStorage: SchoolCredentialsProviding {
         return "harrybit.BIT101-iOS.login"
     }
     private let defaults = AppFileDirectories.defaults
+    private var sessionGeneration = 0
+
+    var communityCredentials: CommunityCredentials {
+        CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: currentStudentID, generation: sessionGeneration), cookie: fakeCookie)
+    }
 
 #if BIT101_UI_TESTING
     nonisolated static var uiTestKeychainService: String {
@@ -103,27 +109,32 @@ final class LoginStorage: SchoolCredentialsProviding {
             throw LoginServiceError.invalidServerResponse
         }
 
+        let accountChanged = currentStudentID != normalizedStudentID || self.fakeCookie.isEmpty
         try saveKeychainValue(normalizedStudentID, account: KeychainAccount.studentID)
         try saveKeychainValue(password, account: KeychainAccount.password)
         try saveKeychainValue(normalizedFakeCookie, account: KeychainAccount.fakeCookie)
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
-        notifyAccountChanged()
+        if accountChanged {
+            sessionGeneration &+= 1
+            notifyAccountChanged()
+        }
     }
 
     /// 清除当前会话和已保存密码，保留学号供下次输入。
     ///
     /// 这是“退出登录并保留学号”的语义，适用于远端会话失效后快速回到未登录态。
     func clearSession() {
+        sessionGeneration &+= 1
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
         _ = deleteKeychainValue(account: KeychainAccount.fakeCookie)
 
         // 清理学校身份相关域，保留 App 内其他服务和调试环境的 Cookie。
 #if BIT101_UI_TESTING
         if !AppFileDirectories.isRunningUITest {
-            TeachingCenterSessionState.shared.clearSchoolAuthenticationCookies()
+            AppSchoolSession.teachingCenter.clearSchoolAuthenticationCookies()
         }
 #else
-        TeachingCenterSessionState.shared.clearSchoolAuthenticationCookies()
+        AppSchoolSession.teachingCenter.clearSchoolAuthenticationCookies()
 #endif
         _ = deleteKeychainValue(account: KeychainAccount.password)
         notifyAccountChanged()
@@ -134,6 +145,7 @@ final class LoginStorage: SchoolCredentialsProviding {
     /// 这是清除全部本地登录数据的语义，同时删除 Keychain 中的学号和密码。
     @discardableResult
     func clearAllLocalData() -> Bool {
+        sessionGeneration &+= 1
         let didClear = clearPersistedLoginData()
         notifyAccountChanged()
         return didClear
@@ -159,10 +171,10 @@ final class LoginStorage: SchoolCredentialsProviding {
         let didDeleteFakeCookie = deleteKeychainValue(account: KeychainAccount.fakeCookie)
 #if BIT101_UI_TESTING
         if !AppFileDirectories.isRunningUITest {
-            TeachingCenterSessionState.shared.clearSchoolAuthenticationCookies()
+            AppSchoolSession.teachingCenter.clearSchoolAuthenticationCookies()
         }
 #else
-        TeachingCenterSessionState.shared.clearSchoolAuthenticationCookies()
+        AppSchoolSession.teachingCenter.clearSchoolAuthenticationCookies()
 #endif
         let didDeleteStudentID = deleteKeychainValue(account: KeychainAccount.studentID)
         let didDeletePassword = deleteKeychainValue(account: KeychainAccount.password)

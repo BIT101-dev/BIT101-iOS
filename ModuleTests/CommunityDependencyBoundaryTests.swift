@@ -16,7 +16,7 @@ struct CommunityDependencyBoundaryTests {
     private var session: CommunitySession {
         CommunitySession(
             httpClient: HTTPClient(transport: OfflineCommunityTransport(), observer: nil),
-            baseURL: URL(string: "https://example.invalid")!, cookie: { "module-cookie" }, refresh: { _ in }
+            baseURL: AppURL.required("https://example.invalid"), credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "test-account"), cookie: "module-cookie") }, refresh: { _ in }
         )
     }
 

@@ -1,3 +1,4 @@
+import ScoreDomain
 import CourseFeature
 import MediaKit
 import ScoreFeature
@@ -25,7 +26,7 @@ private enum ScoreSurface: String, CaseIterable, Identifiable, Hashable {
 ///
 /// 页面提供“成绩 / 课程”的顶部切换。
 struct ScoreRootView: View {
-    @Environment(AppCommunityDependencies.self) private var community
+    private let courses: CourseDependencies
     @EnvironmentObject private var scoreViewModel: ScoreViewModel
     @StateObject private var courseViewModel: CourseListViewModel
     private let transcriptService: any TrustedTranscriptServicing
@@ -38,6 +39,7 @@ struct ScoreRootView: View {
         transcriptService: any TrustedTranscriptServicing,
         requestedCourse: Binding<CourseNavigationRequest?> = .constant(nil)
     ) {
+        self.courses = courses
         _courseViewModel = StateObject(wrappedValue: courses.makeListViewModel())
         self.transcriptService = transcriptService
         _requestedCourse = requestedCourse
@@ -58,7 +60,7 @@ struct ScoreRootView: View {
                     .simultaneousGesture(surfaceSwitchGesture)
                     .transition(.opacity)
             case .course:
-                CoursePageContent(viewModel: courseViewModel)
+                CoursePageContent(viewModel: courseViewModel, dependencies: courses)
                     .simultaneousGesture(surfaceSwitchGesture)
                     .transition(.opacity)
             }
@@ -75,10 +77,10 @@ struct ScoreRootView: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(item: $requestedCourse) { request in
             if let preparedCourse = request.preparedCourse {
-                CourseDetailView(dependencies: community.course, initialCourse: preparedCourse)
+                CourseDetailView(dependencies: courses, initialCourse: preparedCourse)
                     .id(preparedCourse.id)
             } else {
-                CourseEvaluationDestination(request: request)
+                CourseEvaluationDestination(dependencies: courses, request: request)
             }
         }
         .task(id: requestedCourse?.id) {

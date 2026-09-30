@@ -14,7 +14,7 @@ import DesignSystemKit
 import SwiftUI
 
 public struct GalleryPosterDetailView: View {
-    @Environment(GalleryDependencies.self) private var dependencies
+    private let dependencies: GalleryDependencies
     @Environment(CommunityDestinations.self) private var destinations
     private struct UserRoute: Identifiable, Hashable {
         let userID: Int
@@ -36,6 +36,7 @@ public struct GalleryPosterDetailView: View {
         poster: CommunityPoster,
         onDeleted: (() -> Void)? = nil
     ) {
+        self.dependencies = dependencies
         _viewModel = StateObject(wrappedValue: GalleryPosterDetailViewModel(initialPoster: poster, service: dependencies.posterDetail))
         self.onDeleted = onDeleted
     }
@@ -43,6 +44,10 @@ public struct GalleryPosterDetailView: View {
     @Environment(\.dismiss) private var dismiss
 
     public var body: some View {
+        content.environment(dependencies)
+    }
+
+    private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.section) {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {

@@ -11,7 +11,7 @@ import SwiftUI
 import UIKit
 
 struct PaperDetailView: View {
-    @Environment(PaperDependencies.self) private var dependencies
+    private let dependencies: PaperDependencies
     @Environment(\.scenePhase) private var scenePhase
     let initialPaper: PaperSummary
 
@@ -24,11 +24,14 @@ struct PaperDetailView: View {
     @Environment(\.dismiss) private var dismiss
 
     init(dependencies: PaperDependencies, initialPaper: PaperSummary) {
+        self.dependencies = dependencies
         self.initialPaper = initialPaper
         _viewModel = StateObject(wrappedValue: PaperDetailViewModel(initialPaper: initialPaper, service: dependencies.detail))
     }
 
-    var body: some View {
+    var body: some View { content.environment(dependencies) }
+
+    private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.section) {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {

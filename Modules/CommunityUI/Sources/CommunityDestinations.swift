@@ -10,7 +10,7 @@ import SwiftUI
 public final class CommunityDestinations {
     public let profile: (Int) -> AnyView
     public let poster: (CommunityPoster, (() -> Void)?) -> AnyView
-    public let papers: (Binding<Int?>, Binding<String>) -> AnyView
+    public let papers: (Binding<Int?>, @escaping () -> Void) -> AnyView
 
     public let settingsEntries: [CommunitySettingsEntry]
     public let settings: (CommunitySettingsRequest) -> AnyView
@@ -22,7 +22,7 @@ public final class CommunityDestinations {
         suggestion: @escaping () -> AnyView,
         profile: @escaping (Int) -> AnyView,
         poster: @escaping (CommunityPoster, (() -> Void)?) -> AnyView,
-        papers: @escaping (Binding<Int?>, Binding<String>) -> AnyView
+        papers: @escaping (Binding<Int?>, @escaping () -> Void) -> AnyView
     ) {
         self.settingsEntries = settingsEntries
         self.settings = settings

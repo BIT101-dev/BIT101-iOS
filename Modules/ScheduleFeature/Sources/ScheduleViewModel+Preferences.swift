@@ -1,3 +1,4 @@
+import SchedulePorts
 import ScheduleDomain
 import StorageCore
 //
@@ -19,7 +20,7 @@ extension ScheduleViewModel {
     }
 
     public func importCurrentTermToSystemCalendar() async throws -> Int {
-        try await platformActions.importSystemCalendar(cache: persistenceSnapshot)
+        try await platformActions.importSystemCalendar(courses: courseSnapshot, term: persistenceSnapshot.currentTerm)
     }
 
     func importSystemCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws -> Int {

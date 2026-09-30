@@ -55,11 +55,14 @@
 		EAC4DEFB18B11ADC9C091518 /* CommunityUI in Frameworks */ = {isa = PBXBuildFile; productRef = 6DEEE94B44858A735EDBFC13 /* CommunityUI */; };
 		F1A1B2C3D4E5F60718293A4C /* ScheduleSharedStore in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A4C /* ScheduleSharedStore */; };
 		F1A1B2C3D4E5F60718293A4D /* ScheduleSharedStore in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A4D /* ScheduleSharedStore */; };
+		E291A3F5762E5EFC6828D630 /* StorageCore in Frameworks */ = {isa = PBXBuildFile; productRef = A333A6801922ACA17A6EB881 /* StorageCore */; };
 		F1A1B2C3D4E5F60718293A4E /* ScheduleSharedStore in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A4E /* ScheduleSharedStore */; };
 		F1A1B2C3D4E5F60718293A4F /* ScheduleInfrastructure in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A4F /* ScheduleInfrastructure */; };
 		F1A1B2C3D4E5F60718293A50 /* ScheduleInfrastructure in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A50 /* ScheduleInfrastructure */; };
 		F1A1B2C3D4E5F60718293A51 /* ScheduleSharedStore in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A51 /* ScheduleSharedStore */; };
+		C3F802EED398BF60F18F07B1 /* StorageCore in Frameworks */ = {isa = PBXBuildFile; productRef = DCA07B2FBA1D92CD252A8559 /* StorageCore */; };
 		F1A1B2C3D4E5F60718293A52 /* ScheduleSharedStore in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A52 /* ScheduleSharedStore */; };
+		3B94E983EE81C883E38D3F35 /* StorageCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8E966C97842A92F8D495E7C8 /* StorageCore */; };
 		F1A1B2C3D4E5F60718293A53 /* StorageCore in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A53 /* StorageCore */; };
 		F1A1B2C3D4E5F60718293A54 /* TransportCore in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A54 /* TransportCore */; };
 		F1A1B2C3D4E5F60718293A55 /* CommunityTransport in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A55 /* CommunityTransport */; };
@@ -68,6 +71,14 @@
 		F1A1B2C3D4E5F60718293A58 /* CommunityTransport in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A58 /* CommunityTransport */; };
 		F1A1B2C3D4E5F60718293A59 /* ScheduleFeature in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A59 /* ScheduleFeature */; };
 		F1A1B2C3D4E5F60718293A5A /* ScheduleFeature in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A5A /* ScheduleFeature */; };
+		40EABF5ED7206B1E680F8388 /* ScoreInfrastructure in Frameworks */ = {isa = PBXBuildFile; productRef = 42DFEE69C216B563286C4011 /* ScoreInfrastructure */; };
+		3447B0C588E40B4C9B074583 /* ScoreDomain in Frameworks */ = {isa = PBXBuildFile; productRef = 05153CD820801D97643A1F7D /* ScoreDomain */; };
+		E16C7A1087364907C6B94043 /* SchedulePorts in Frameworks */ = {isa = PBXBuildFile; productRef = D4D7935CFBC4EA46757BDFB1 /* SchedulePorts */; };
+		F3D54C9D0226C94569DEE989 /* ScoreInfrastructure in Frameworks */ = {isa = PBXBuildFile; productRef = A2B94E395290A1E5A3F23E04 /* ScoreInfrastructure */; };
+		8FA9C907E4D1687F506BDD6D /* ScoreDomain in Frameworks */ = {isa = PBXBuildFile; productRef = 111F6611B090CC4D2DF592D8 /* ScoreDomain */; };
+		24F8686B745A63E46B237A9D /* SchedulePorts in Frameworks */ = {isa = PBXBuildFile; productRef = FB1D38BC8B55E84CDBA4F660 /* SchedulePorts */; };
+		009B686E2F9835D54B1056E7 /* SchedulePersistence in Frameworks */ = {isa = PBXBuildFile; productRef = 39D6896F25B63166BE422A45 /* SchedulePersistence */; };
+		91364FB2EB25C51247279A10 /* SchedulePersistence in Frameworks */ = {isa = PBXBuildFile; productRef = F0E619A1F89C757C599CDC8C /* SchedulePersistence */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -211,8 +222,12 @@
 				EAC4DEFB18B11ADC9C091518 /* CommunityUI in Frameworks */,
 				B9352F74ACEC0F548F392804 /* MediaKit in Frameworks */,
 				D8C6001CB5BA59F6C872D46D /* ScoreFeature in Frameworks */,
+				F3D54C9D0226C94569DEE989 /* ScoreInfrastructure in Frameworks */,
+				8FA9C907E4D1687F506BDD6D /* ScoreDomain in Frameworks */,
+				24F8686B745A63E46B237A9D /* SchedulePorts in Frameworks */,
 				EC1D2BA26957933D6BD7EB2E /* MapFeature in Frameworks */,
 				3E373A8566B8B1899AECBC46 /* ScheduleDomain in Frameworks */,
+				91364FB2EB25C51247279A10 /* SchedulePersistence in Frameworks */,
 				4DFB6AD7D45876E14B2224C7 /* CommunityCore in Frameworks */,
 				0AB18AED0E7D236E6FC50F9E /* DesignSystemKit in Frameworks */,
 				F5ED71C2820112F5322415D5 /* ClientCore in Frameworks */,
@@ -229,6 +244,7 @@
 				DDE2042B8413EE475156DB1B /* DesignSystemKit in Frameworks */,
 				8375A1B3DF8F6C8C218A696B /* ScheduleContracts in Frameworks */,
 				F1A1B2C3D4E5F60718293A51 /* ScheduleSharedStore in Frameworks */,
+				C3F802EED398BF60F18F07B1 /* StorageCore in Frameworks */,
 				B979F16E6900E1E884772F00 /* Foundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -240,6 +256,7 @@
 				3EBD93356F075030A1105B4E /* DesignSystemKit in Frameworks */,
 				97121C8954BA2E41DB14515D /* ScheduleContracts in Frameworks */,
 				F1A1B2C3D4E5F60718293A4D /* ScheduleSharedStore in Frameworks */,
+				E291A3F5762E5EFC6828D630 /* StorageCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -250,6 +267,7 @@
 				89AF1831DEC4D073778CCEA8 /* DesignSystemKit in Frameworks */,
 				DA6863F36EB0F5ABF2E66E98 /* ScheduleContracts in Frameworks */,
 				F1A1B2C3D4E5F60718293A52 /* ScheduleSharedStore in Frameworks */,
+				3B94E983EE81C883E38D3F35 /* StorageCore in Frameworks */,
 				9AF91C20457A617C9030DE46 /* Foundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -269,8 +287,12 @@
 				0D089A6C2EEE14EC8315EE51 /* CommunityUI in Frameworks */,
 				2BF6BDA61F30052E17BF3107 /* MediaKit in Frameworks */,
 				C72A13E39DF1E1CB29139600 /* ScoreFeature in Frameworks */,
+				40EABF5ED7206B1E680F8388 /* ScoreInfrastructure in Frameworks */,
+				3447B0C588E40B4C9B074583 /* ScoreDomain in Frameworks */,
+				E16C7A1087364907C6B94043 /* SchedulePorts in Frameworks */,
 				4365DC5079A3208148BF0F24 /* MapFeature in Frameworks */,
 				F196EF1F4706B2B3FF27C320 /* ScheduleDomain in Frameworks */,
+				009B686E2F9835D54B1056E7 /* SchedulePersistence in Frameworks */,
 				9EE23B0D73908879CC3616B6 /* CommunityCore in Frameworks */,
 				FA769C642F9A7B6358E654C0 /* DesignSystemKit in Frameworks */,
 				9A63A7222DF24409FFD6A3AB /* ClientCore in Frameworks */,
@@ -425,8 +447,12 @@
 				6DEEE94B44858A735EDBFC13 /* CommunityUI */,
 				3B75038DEE8ADEDB8D845413 /* MediaKit */,
 				087CF839BD691F065FEB70F2 /* ScoreFeature */,
+				A2B94E395290A1E5A3F23E04 /* ScoreInfrastructure */,
+				111F6611B090CC4D2DF592D8 /* ScoreDomain */,
+				FB1D38BC8B55E84CDBA4F660 /* SchedulePorts */,
 				B45DC2CE0D2B1CB09CF6739B /* MapFeature */,
 				B9AF37FCEB945F186A0CB8B8 /* ScheduleDomain */,
+				F0E619A1F89C757C599CDC8C /* SchedulePersistence */,
 				E48AC335EF6A17C0D70A2CBA /* CommunityCore */,
 				D6F7FF202E439325C8F8226D /* DesignSystemKit */,
 				32F6F283A9673EB87FEBA638 /* ClientCore */,
@@ -480,6 +506,7 @@
 				61CC6C874899C16178921804 /* DesignSystemKit */,
 				2A84F90961F4700AA1AA78E7 /* ScheduleContracts */,
 				F0A1B2C3D4E5F60718293A51 /* ScheduleSharedStore */,
+				DCA07B2FBA1D92CD252A8559 /* StorageCore */,
 			);
 			buildConfigurationList = F1F65253CDF96455497F6E74 /* Build configuration list for PBXNativeTarget "BIT101ScheduleWidgets" */;
 			buildPhases = (
@@ -502,6 +529,7 @@
 				5E0DD7F22D10F8E5D32ADADB /* DesignSystemKit */,
 				AC6F2F4A31E6D9396C54EEE0 /* ScheduleContracts */,
 				F0A1B2C3D4E5F60718293A4D /* ScheduleSharedStore */,
+				A333A6801922ACA17A6EB881 /* StorageCore */,
 			);
 			buildConfigurationList = 916EFE8BFF170D72CCE1CE13 /* Build configuration list for PBXNativeTarget "BIT101Watch" */;
 			buildPhases = (
@@ -534,8 +562,12 @@
 				FE4BC822948E0C8939F52BA7 /* CommunityUI */,
 				1DB066E2ABA48D63E088A8DE /* MediaKit */,
 				73D62B0964E0FD0487217875 /* ScoreFeature */,
+				42DFEE69C216B563286C4011 /* ScoreInfrastructure */,
+				05153CD820801D97643A1F7D /* ScoreDomain */,
+				D4D7935CFBC4EA46757BDFB1 /* SchedulePorts */,
 				4F7F02739FE9F57829100A3A /* MapFeature */,
 				E12C7EF1B12124EA4A24C83F /* ScheduleDomain */,
+				39D6896F25B63166BE422A45 /* SchedulePersistence */,
 				526C65C88155FF01BD8AEABD /* CommunityCore */,
 				4F60F1F3FB8EF1007B335D11 /* DesignSystemKit */,
 				D0A5E3BB52E43C8F82CAA183 /* ClientCore */,
@@ -571,6 +603,7 @@
 				483CD3498C9E5349CD20B011 /* DesignSystemKit */,
 				AF217DC91C3BFB409152C4CE /* ScheduleContracts */,
 				F0A1B2C3D4E5F60718293A52 /* ScheduleSharedStore */,
+				8E966C97842A92F8D495E7C8 /* StorageCore */,
 			);
 			buildConfigurationList = 453A22FEB7A39D1F95247516 /* Build configuration list for PBXNativeTarget "BIT101WatchWidgets" */;
 			buildPhases = (
@@ -631,11 +664,14 @@
 		6DEEE94B44858A735EDBFC13 /* CommunityUI */ = {isa = XCSwiftPackageProductDependency; productName = CommunityUI; };
 		F0A1B2C3D4E5F60718293A4C /* ScheduleSharedStore */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleSharedStore; };
 		F0A1B2C3D4E5F60718293A4D /* ScheduleSharedStore */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleSharedStore; };
+		A333A6801922ACA17A6EB881 /* StorageCore */ = {isa = XCSwiftPackageProductDependency; productName = StorageCore; };
 		F0A1B2C3D4E5F60718293A4E /* ScheduleSharedStore */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleSharedStore; };
 		F0A1B2C3D4E5F60718293A4F /* ScheduleInfrastructure */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleInfrastructure; };
 		F0A1B2C3D4E5F60718293A50 /* ScheduleInfrastructure */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleInfrastructure; };
 		F0A1B2C3D4E5F60718293A51 /* ScheduleSharedStore */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleSharedStore; };
+		DCA07B2FBA1D92CD252A8559 /* StorageCore */ = {isa = XCSwiftPackageProductDependency; productName = StorageCore; };
 		F0A1B2C3D4E5F60718293A52 /* ScheduleSharedStore */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleSharedStore; };
+		8E966C97842A92F8D495E7C8 /* StorageCore */ = {isa = XCSwiftPackageProductDependency; productName = StorageCore; };
 		F0A1B2C3D4E5F60718293A53 /* StorageCore */ = {isa = XCSwiftPackageProductDependency; productName = StorageCore; };
 		F0A1B2C3D4E5F60718293A54 /* TransportCore */ = {isa = XCSwiftPackageProductDependency; productName = TransportCore; };
 		F0A1B2C3D4E5F60718293A55 /* CommunityTransport */ = {isa = XCSwiftPackageProductDependency; productName = CommunityTransport; };
@@ -644,6 +680,14 @@
 		F0A1B2C3D4E5F60718293A58 /* CommunityTransport */ = {isa = XCSwiftPackageProductDependency; productName = CommunityTransport; };
 		F0A1B2C3D4E5F60718293A59 /* ScheduleFeature */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleFeature; };
 		F0A1B2C3D4E5F60718293A5A /* ScheduleFeature */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleFeature; };
+		42DFEE69C216B563286C4011 /* ScoreInfrastructure */ = {isa = XCSwiftPackageProductDependency; productName = ScoreInfrastructure; };
+		05153CD820801D97643A1F7D /* ScoreDomain */ = {isa = XCSwiftPackageProductDependency; productName = ScoreDomain; };
+		D4D7935CFBC4EA46757BDFB1 /* SchedulePorts */ = {isa = XCSwiftPackageProductDependency; productName = SchedulePorts; };
+		A2B94E395290A1E5A3F23E04 /* ScoreInfrastructure */ = {isa = XCSwiftPackageProductDependency; productName = ScoreInfrastructure; };
+		111F6611B090CC4D2DF592D8 /* ScoreDomain */ = {isa = XCSwiftPackageProductDependency; productName = ScoreDomain; };
+		FB1D38BC8B55E84CDBA4F660 /* SchedulePorts */ = {isa = XCSwiftPackageProductDependency; productName = SchedulePorts; };
+		39D6896F25B63166BE422A45 /* SchedulePersistence */ = {isa = XCSwiftPackageProductDependency; productName = SchedulePersistence; };
+		F0E619A1F89C757C599CDC8C /* SchedulePersistence */ = {isa = XCSwiftPackageProductDependency; productName = SchedulePersistence; };
 /* End XCSwiftPackageProductDependency section */
 
 /* Begin PBXProject section */

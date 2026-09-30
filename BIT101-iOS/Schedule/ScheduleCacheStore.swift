@@ -1,3 +1,4 @@
+import SchedulePersistence
 import StorageCore
 import ScheduleDomain
 //
@@ -5,48 +6,18 @@ import ScheduleDomain
 //  BIT101-iOS
 //
 import Foundation
-import OSLog
-
-nonisolated enum ScheduleCacheTimestamp {
-    static func next(after previous: Date, now: Date) -> Date {
-        max(now, previous.addingTimeInterval(0.001))
-    }
-
-    static func restored(recordDate: Date, payloadDate: Date, serverDate: Date? = nil) -> Date? {
-        guard abs(recordDate.timeIntervalSince(payloadDate)) <= 1.1 else { return nil }
-        return max(recordDate, serverDate ?? recordDate)
-    }
-
-    static func afterCloudSave(_ serverDate: Date, currentDate: Date) -> Date {
-        max(serverDate, currentDate)
-    }
-}
 
 /// 日程模块本地缓存仓库。
 ///
 /// 统一负责 `ScheduleCache` 的磁盘读写和变更通知发送。
 enum ScheduleCacheStore {
-    fileprivate nonisolated static func makeEncoder() -> JSONEncoder {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        return encoder
-    }
-
-    private nonisolated static func makeDecoder() -> JSONDecoder {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return decoder
-    }
-
-    fileprivate nonisolated static let logger = Logger(subsystem: "BIT101", category: "ScheduleCache")
-    static var effects: (any ScheduleCacheEffects)?
-
-    private static let writeQueue = ScheduleCacheWriteQueue()
+    private nonisolated static let writeQueue = SchedulePersistenceStore(
+        files: AppFileDirectories.files,
+        storageRoot: AppFileDirectories.applicationSupportDirectoryURL(named: "BIT101-iOS"),
+        userStateMatches: ScheduleCloudSyncState.matches
+    )
     private static var diskOperationTask: Task<Bool, Never>?
     private static var diskOperationID: UUID?
-    private static var exportOperationTask: Task<Void, Never>?
-    private static var exportOperationID: UUID?
 
     /// 当前账号对应的缓存文件路径。
     ///
@@ -69,22 +40,7 @@ enum ScheduleCacheStore {
 
     /// 读取调用方捕获的账号缓存，避免异步期间账号切换后改读另一账号。
     static func loadResultAsync(for session: AppStorageSession) async -> ScheduleCacheLoadResult {
-        let accountIdentifier = session.accountStorageIdentifier
-        let legacyIdentifier = session.legacyAccountDirectoryNameForMigration
-        let result = await Task.detached(priority: .utility) {
-            Self.loadResult(
-                accountIdentifier: accountIdentifier,
-                legacyAccountIdentifier: legacyIdentifier
-            )
-        }.value
-        if case .loaded(let cache) = result {
-            await writeQueue.migrateLegacyIfNeeded(
-                cache,
-                accountIdentifier: accountIdentifier,
-                legacyAccountIdentifier: legacyIdentifier
-            )
-        }
-        return result
+        await writeQueue.load(for: session)
     }
 
     /// 将缓存文件读取与解码移到独立任务，避免页面恢复阶段阻塞 MainActor。
@@ -92,7 +48,7 @@ enum ScheduleCacheStore {
         await loadResultAsync().cacheIfReadable ?? ScheduleCache()
     }
 
-    /// 写回缓存，并导出小组件快照、发送全局变更通知。
+    /// 写回账号缓存并广播变更，外部展示由应用生命周期协调。
     static func save(_ cache: ScheduleCache, source: ScheduleCacheSaveSource = .local, session: AppStorageSession = AppFileDirectories.currentSession) {
         Task { await saveAndWait(cache, source: source, expectedAccountIdentifier: session.accountDirectoryName) }
     }
@@ -141,28 +97,16 @@ enum ScheduleCacheStore {
         }
         diskOperationTask = Task { await writeTask.value != nil }
         diskOperationID = operationID
-        let exportID = UUID()
-        let previousExportTask = exportOperationTask
-        let exportTask = Task<Void, Never> {
-            await previousExportTask?.value
-            if let savedCache = await writeTask.value {
-                await finishSave(savedCache, accountIdentifier: accountIdentifier, source: source)
-            }
-            if exportOperationID == exportID {
-                exportOperationTask = nil
-                exportOperationID = nil
-            }
-        }
-        exportOperationTask = exportTask
-        exportOperationID = exportID
-        await exportTask.value
-        return await writeTask.value != nil
+        guard await writeTask.value != nil else { return false }
+        if AppFileDirectories.currentSession == session { postCacheDidChange() }
+        return true
     }
 
     /// 清空当前账号的日程缓存。
     ///
     /// 清空操作定位当前账号目录，并保留其它账号目录。
     static func clear() async {
+        let session = AppFileDirectories.currentSession
         let urls = cacheURLs()
         let operationID = UUID()
         let previousTask = diskOperationTask
@@ -177,81 +121,15 @@ enum ScheduleCacheStore {
         }
         diskOperationTask = clearTask
         diskOperationID = operationID
-        let exportID = UUID()
-        let previousExportTask = exportOperationTask
-        let clearExportTask = Task<Void, Never> {
-            await previousExportTask?.value
-            if await clearTask.value {
-                await effects?.didClear()
-                postCacheDidChange()
-            }
-            if exportOperationID == exportID {
-                exportOperationTask = nil
-                exportOperationID = nil
-            }
-        }
-        exportOperationTask = clearExportTask
-        exportOperationID = exportID
-        _ = await clearTask.value
-        await clearExportTask.value
+        if await clearTask.value, AppFileDirectories.currentSession == session { postCacheDidChange() }
     }
 
-    private static func finishSave(
-        _ cache: ScheduleCache,
-        accountIdentifier: String,
-        source: ScheduleCacheSaveSource
-    ) async {
-        let session = AppFileDirectories.currentSession
-        guard session.accountStorageIdentifier == accountIdentifier else { return }
-#if BIT101_UI_TESTING
-        if AppFileDirectories.isRunningUITest {
-            postCacheDidChange()
-            return
-        }
-#endif
-        await effects?.didSave(cache.courseSnapshot, session: session, source: source, cloudSyncEnabled: cache.iCloudSyncEnabled)
-        postCacheDidChange()
-    }
-
-    fileprivate nonisolated static func loadResult(
-        accountIdentifier: String,
-        legacyAccountIdentifier: String
-    ) -> ScheduleCacheLoadResult {
-        let currentURL = cacheFileURL(for: accountIdentifier)
-        let currentResult = readCacheFile(at: currentURL)
-        switch currentResult {
-        case .loaded, .unreadable:
-            return currentResult
-        case .missing:
-            break
-        }
-
-        let legacyURL = cacheFileURL(for: legacyAccountIdentifier)
-        guard legacyURL != currentURL else { return .missing }
-        return readCacheFile(at: legacyURL)
-    }
-
-    fileprivate nonisolated static func readCacheFile(at url: URL) -> ScheduleCacheLoadResult {
-        guard AppFileDirectories.files.fileExists(at: url) else { return .missing }
-        do {
-            try? AppFileDirectories.files.setPrivateFileProtection(at: url)
-            let data = try AppFileDirectories.files.readData(at: url)
-            let result = decodeCache(data)
-            if result.isUnreadable {
-                logger.error("课表缓存解码失败，保留原文件：\(url.lastPathComponent, privacy: .public)")
-            }
-            return result
-        } catch {
-            logger.error("课表缓存读取失败，保留原文件：\(String(describing: error), privacy: .public)")
-            return .unreadable
-        }
+    fileprivate nonisolated static func loadResult(accountIdentifier: String, legacyAccountIdentifier: String) -> ScheduleCacheLoadResult {
+        writeQueue.read(accountIdentifier: accountIdentifier, legacyAccountIdentifier: legacyAccountIdentifier)
     }
 
     nonisolated static func decodeCache(_ data: Data) -> ScheduleCacheLoadResult {
-        guard let cache = try? makeDecoder().decode(ScheduleCache.self, from: data) else {
-            return .unreadable
-        }
-        return .loaded(cache)
+        SchedulePersistenceStore.decodeCache(data)
     }
 
     private static func cacheURLs() -> [URL] {
@@ -261,10 +139,7 @@ enum ScheduleCacheStore {
     }
 
     fileprivate nonisolated static func cacheFileURL(for accountIdentifier: String) -> URL {
-        AppFileDirectories.accountSupportFileURL(
-            accountDirectoryName: accountIdentifier,
-            named: "schedule-cache.json"
-        )
+        writeQueue.cacheFileURL(for: accountIdentifier)
     }
 
     private static func legacyAccountIdentifier() -> String {
@@ -275,151 +150,6 @@ enum ScheduleCacheStore {
     ///
     /// 保存与清空缓存后都要发送这条通知，两个入口共用这一实现。
     fileprivate static func postCacheDidChange() {
-        let accountIdentifier = AppFileDirectories.currentSession.accountStorageIdentifier
-        Task { @MainActor in
-            guard AppFileDirectories.currentSession.accountStorageIdentifier == accountIdentifier else { return }
-            NotificationCenter.default.post(name: .scheduleCacheDidChange, object: accountIdentifier)
-        }
-    }
-}
-
-/// 串行处理缓存文件写入，保持快速连续编辑的保存顺序，并把编码和磁盘操作移出 MainActor。
-private actor ScheduleCacheWriteQueue {
-    func migrateLegacyIfNeeded(
-        _ cache: ScheduleCache,
-        accountIdentifier: String,
-        legacyAccountIdentifier: String
-    ) {
-        guard accountIdentifier != legacyAccountIdentifier else { return }
-        let currentURL = ScheduleCacheStore.cacheFileURL(for: accountIdentifier)
-        let legacyURL = ScheduleCacheStore.cacheFileURL(for: legacyAccountIdentifier)
-        guard !AppFileDirectories.files.fileExists(at: currentURL),
-              case .loaded = ScheduleCacheStore.readCacheFile(at: legacyURL)
-        else { return }
-
-        do {
-            try AppFileDirectories.files.createDirectory(at: currentURL.deletingLastPathComponent())
-            let data = try ScheduleCacheStore.makeEncoder().encode(cache)
-            try AppFileDirectories.files.writeData(
-                data,
-                to: currentURL,
-                options: AppFileSystem.protectedDataWritingOptions
-            )
-            try AppFileDirectories.files.removeItem(at: legacyURL)
-            let directory = legacyURL.deletingLastPathComponent()
-            if (try? AppFileDirectories.files.contentsOfDirectory(at: directory, options: []).isEmpty) == true {
-                try AppFileDirectories.files.removeItem(at: directory)
-            }
-        } catch {
-            ScheduleCacheStore.logger.error("旧课表缓存迁移失败：\(String(describing: error), privacy: .public)")
-        }
-    }
-
-    func write(
-        _ cache: ScheduleCache,
-        accountIdentifier: String,
-        legacyAccountIdentifier: String,
-        source: ScheduleCacheSaveSource,
-        expectedUpdatedAt: Date?
-    ) -> ScheduleCache? {
-        let url = ScheduleCacheStore.cacheFileURL(for: accountIdentifier)
-        let directory = url.deletingLastPathComponent()
-        let currentResult = ScheduleCacheStore.readCacheFile(at: url)
-        guard currentResult.allowsWrite else {
-            ScheduleCacheStore.logger.error("保留无法读取的课表缓存，跳过保存")
-            return nil
-        }
-        var storedUpdatedAt = Date.distantPast
-        var storedCache: ScheduleCache?
-        if case .loaded(let currentCache) = currentResult {
-            storedUpdatedAt = currentCache.updatedAt
-            storedCache = currentCache
-        }
-        if case .missing = currentResult,
-           legacyAccountIdentifier != accountIdentifier
-        {
-            let legacyURL = ScheduleCacheStore.cacheFileURL(for: legacyAccountIdentifier)
-            let legacyResult = ScheduleCacheStore.readCacheFile(at: legacyURL)
-            guard legacyResult.allowsWrite else {
-                ScheduleCacheStore.logger.error("保留无法读取的旧版课表缓存，跳过保存")
-                return nil
-            }
-            if case .loaded(let legacyCache) = legacyResult {
-                storedUpdatedAt = legacyCache.updatedAt
-                storedCache = legacyCache
-            }
-        }
-        if let expectedUpdatedAt, expectedUpdatedAt != storedUpdatedAt {
-            ScheduleCacheStore.logger.debug("缓存写入跳过，磁盘版本已变化")
-            return nil
-        }
-
-        do {
-            var cache = cache
-            if source == .local || source == .localWithoutCloudPush,
-               let storedCache {
-                cache.cloudSyncBaselineAt = storedCache.cloudSyncBaselineAt
-                cache.cloudSyncBaselineRecordTag = storedCache.cloudSyncBaselineRecordTag
-                let userStateChanged = try !ScheduleCloudSyncState.matches(cache, storedCache)
-                cache.hasUnpushedCloudChanges = storedCache.hasUnpushedCloudChanges
-                    || (cache.iCloudSyncEnabled && userStateChanged)
-                cache.updatedAt = ScheduleCacheTimestamp.next(
-                    after: max(storedCache.updatedAt, storedCache.cloudSyncBaselineAt),
-                    now: cache.updatedAt
-                )
-            }
-            try AppFileDirectories.files.createDirectory(at: directory)
-            let data = try ScheduleCacheStore.makeEncoder().encode(cache)
-            try AppFileDirectories.files.writeData(
-                data,
-                to: url,
-                options: AppFileSystem.protectedDataWritingOptions
-            )
-            removeMigratedCacheIfPossible(
-                accountIdentifier: accountIdentifier,
-                legacyAccountIdentifier: legacyAccountIdentifier
-            )
-            return cache
-        } catch {
-            ScheduleCacheStore.logger.error("保存课表缓存失败：\(String(describing: error), privacy: .public)")
-            return nil
-        }
-    }
-
-    func clear(urls: [URL]) -> Bool {
-        do {
-            for url in urls where AppFileDirectories.files.fileExists(at: url) {
-                try AppFileDirectories.files.removeItem(at: url)
-            }
-
-            for directory in Set(urls.map({ $0.deletingLastPathComponent() })) {
-                if AppFileDirectories.files.fileExists(at: directory),
-                   (try? AppFileDirectories.files.contentsOfDirectory(at: directory, options: []).isEmpty) == true {
-                    try AppFileDirectories.files.removeItem(at: directory)
-                }
-            }
-        } catch {
-            ScheduleCacheStore.logger.error("清理课表缓存失败：\(String(describing: error), privacy: .public)")
-            return false
-        }
-        return true
-    }
-
-    private func removeMigratedCacheIfPossible(
-        accountIdentifier: String,
-        legacyAccountIdentifier: String
-    ) {
-        guard accountIdentifier != legacyAccountIdentifier else { return }
-        let legacyURL = ScheduleCacheStore.cacheFileURL(for: legacyAccountIdentifier)
-        guard case .loaded = ScheduleCacheStore.readCacheFile(at: legacyURL) else { return }
-        do {
-            try AppFileDirectories.files.removeItem(at: legacyURL)
-            let directory = legacyURL.deletingLastPathComponent()
-            if (try? AppFileDirectories.files.contentsOfDirectory(at: directory, options: []).isEmpty) == true {
-                try AppFileDirectories.files.removeItem(at: directory)
-            }
-        } catch {
-            ScheduleCacheStore.logger.error("迁移旧课表缓存清理失败：\(String(describing: error), privacy: .public)")
-        }
+        NotificationCenter.default.post(name: .scheduleCacheDidChange, object: AppFileDirectories.currentSession.accountStorageIdentifier)
     }
 }

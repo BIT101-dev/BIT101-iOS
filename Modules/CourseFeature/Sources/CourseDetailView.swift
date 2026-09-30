@@ -12,7 +12,7 @@ import DesignSystemKit
 import SwiftUI
 
 public struct CourseDetailView: View {
-    @Environment(CourseDependencies.self) private var dependencies
+    private let dependencies: CourseDependencies
     @Environment(CommunityDestinations.self) private var destinations
     private struct UserRoute: Identifiable, Hashable {
         let userID: Int
@@ -29,12 +29,17 @@ public struct CourseDetailView: View {
     @State private var userRoute: UserRoute?
 
     public init(dependencies: CourseDependencies, initialCourse: CourseSummary) {
+        self.dependencies = dependencies
         self.initialCourse = initialCourse
         _appSettings = ObservedObject(wrappedValue: dependencies.preferences)
         _viewModel = StateObject(wrappedValue: CourseDetailViewModel(initialCourse: initialCourse, service: dependencies.detail, loadCourseCredits: dependencies.loadCourseCredits))
     }
 
     public var body: some View {
+        content.environment(dependencies)
+    }
+
+    private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.section) {
                 summarySection

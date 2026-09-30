@@ -1,19 +1,13 @@
+import ScheduleDomain
 import StorageCore
 import Foundation
-
-/// 持久化完成后的外部展示与同步接口。
-@MainActor
-public protocol ScheduleCacheEffects {
-    func didSave(_ courses: ScheduleCourseSnapshot, session: AppStorageSession, source: ScheduleCacheSaveSource, cloudSyncEnabled: Bool) async
-    func didClear() async
-}
 
 /// 用户操作触发的平台能力，由应用组装层提供。
 @MainActor
 public protocol SchedulePlatformActions {
     func enableCloudSync(cache: ScheduleCache, session: AppStorageSession) async
     func enableCourseReminder(session: AppStorageSession) async
-    func importSystemCalendar(cache: ScheduleCache) async throws -> Int
+    func importSystemCalendar(courses: ScheduleCourseSnapshot, term: String) async throws -> Int
     func importSystemCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws -> Int
     func deleteSystemCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws -> ScheduleSystemCalendarMutationResult
     func deleteSystemCalendarEntries(markerIDs: Set<String>, term: String) async throws -> ScheduleSystemCalendarMutationResult

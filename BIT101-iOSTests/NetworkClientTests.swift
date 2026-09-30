@@ -1,3 +1,4 @@
+import SchedulePorts
 import ScheduleDomain
 @testable import ScheduleFeature
 @testable import ScheduleInfrastructure
@@ -216,7 +217,7 @@ struct NetworkClientTests {
             httpClient: HTTPClient(transport: transport),
             baseURL: try #require(URL(string: "https://example.com")),
             errorDomain: "Test",
-            fakeCookieProvider: { "session-token" }
+            credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "test-account"), cookie: "session-token") }
         )
 
         do {
@@ -250,7 +251,7 @@ struct NetworkClientTests {
             httpClient: HTTPClient(transport: transport),
             baseURL: try #require(URL(string: "https://example.com")),
             errorDomain: "Test",
-            fakeCookieProvider: { "session-token" }
+            credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "test-account"), cookie: "session-token") }
         )
 
         let payload: UserPayload = try await api.request(
@@ -270,7 +271,7 @@ struct NetworkClientTests {
             httpClient: HTTPClient(transport: transport),
             baseURL: try #require(URL(string: "https://example.com")),
             errorDomain: "Test",
-            fakeCookieProvider: { "" }
+            credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "test-account"), cookie: "") }
         )
 
         do {
@@ -299,7 +300,7 @@ struct NetworkClientTests {
             httpClient: HTTPClient(transport: transport),
             baseURL: try #require(URL(string: "https://example.com")),
             errorDomain: "Test",
-            fakeCookieProvider: { "" }
+            credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "test-account"), cookie: "") }
         )
 
         let payload: UserPayload = try await api.request(
@@ -339,7 +340,7 @@ struct NetworkClientTests {
             httpClient: HTTPClient(transport: transport),
             baseURL: try #require(URL(string: "https://example.com")),
             errorDomain: "Test",
-            fakeCookieProvider: { state.cookie },
+            credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "test-account"), cookie: state.cookie) },
             refreshHandler: { _ in state.cookie = "refreshed-token" }
         )
 
@@ -373,7 +374,7 @@ struct NetworkClientTests {
             httpClient: HTTPClient(transport: transport),
             baseURL: try #require(URL(string: "https://example.com")),
             errorDomain: "Test",
-            fakeCookieProvider: { state.cookie },
+            credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "test-account"), cookie: state.cookie) },
             refreshHandler: { _ in
                 state.refreshCount += 1
                 state.cookie = "refreshed-token"

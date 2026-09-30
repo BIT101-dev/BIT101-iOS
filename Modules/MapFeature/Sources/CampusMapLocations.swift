@@ -1,4 +1,3 @@
-#if os(iOS)
 import ScheduleContracts
 //
 //  CampusMapLocations.swift
@@ -251,5 +250,3 @@ public nonisolated enum CampusMapPlaceCatalog {
         ) != nil
     }
 }
-
-#endif

@@ -35,6 +35,7 @@ Scripts/build-install-device.sh
 ```
 
 - [架构与数据边界](docs/ARCHITECTURE.md)：模块职责、依赖注入、网络、存储与扩展协作。
+- [模块化审计](docs/MODULARITY_AUDIT.md)：解耦重构、依赖指标、验证证据与后续边界。
 - [设计系统](docs/DESIGN_SYSTEM.md)：公共令牌、组件和界面规范。
 - [构建与测试](docs/TESTING.md)：真机流程、测试分组、固定产物和 CI。
 - [Cloudflare 资源](Cloudflare/README.md)：域名、链接契约与部署入口。

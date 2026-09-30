@@ -1,3 +1,4 @@
+import SchedulePorts
 import TransportCore
 import ClientCore
 import ScheduleDomain
@@ -46,7 +47,7 @@ public struct ScheduleService {
         credentials: any SchoolCredentialsProviding,
         crypto: any SchoolServiceCryptoProviding,
         schoolSessionRestorer: any SchoolSessionRestoring,
-        teachingCenterState: TeachingCenterSessionState = .shared,
+        teachingCenterState: TeachingCenterSessionState,
         rawCourseResponseHandler: ((Data) -> Void)? = nil,
         transport: (any HTTPTransport)? = nil
     ) {

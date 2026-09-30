@@ -15,6 +15,7 @@
 Scripts/build-install-device.sh
 Scripts/build-install-device.sh --compile-only
 Scripts/build-install-device.sh --compile-only <真机设备ID>
+Scripts/build-install-device.sh --compile-only --generic
 Scripts/capture-screenshot-device.sh
 ```
 
@@ -25,6 +26,8 @@ BIT101_INSTALL_TARGET=macCatalyst Scripts/build-install-device.sh
 ```
 
 Catalyst 安装路径为 `~/Applications/BIT101-iOS.app`。截图固定覆盖 `.build/screenshot.png`。课表模型和共享展示改动同时关注主 App、Widget、Watch App 与 Watch Widget。
+
+`--compile-only --generic` 使用通用 iOS 目的地编译 Release App 及扩展，产物覆盖 `build/DeviceInstall/`。真机行为、系统权限和实际跨端传输由设备测试验证。
 
 ## 包级与 App 行为测试
 
@@ -48,7 +51,9 @@ Scripts/run-extended-tests.sh extensions
 Scripts/run-extended-tests.sh catalyst
 ```
 
-包级测试由 `Package.swift` 的 `BIT101ModulesTests` 管理，代码位于 `ModuleTests/`，使用内存传输、文件服务、偏好和通知中心。学校课表解析沿用 `BIT101-iOSTests/Fixtures/schedule-service-response.json`。MapKit、UIKit、Quick Look 和可信成绩单展示通过 App 宿主验证。
+包级测试由 `Package.swift` 的 `BIT101ModulesTests` 管理，代码位于 `ModuleTests/`，使用内存传输、文件服务、偏好和通知中心。覆盖社区身份与恢复隔离、日程保存排队、文件损坏、账号切换、生产成绩服务注入和地图身份规则。学校课表解析沿用 `BIT101-iOSTests/Fixtures/schedule-service-response.json`。MapKit 页面、UIKit、Quick Look 和可信成绩单展示通过 App 宿主验证。
+
+`FeatureCompositionTests` 在 App 宿主组合不同的环境依赖，验证课程入口的构造依赖。`ExperimentalPreferenceCloudSyncTests` 使用独立通知中心和平台替身验证生命周期实例隔离。
 
 按现有测试类或方法选择范围，多个筛选项在同一次调用执行：
 
@@ -84,7 +89,7 @@ Scripts/run-static-audit.sh
 Scripts/check-module-boundaries.py
 ```
 
-统一入口汇总 SwiftSyntax 契约、UI 规则、客户端工程规范、模块依赖、文档链接、工程配置和锁定依赖检查。规则按职责由对应检查器维护；设计系统的入口与规则见 [设计系统](DESIGN_SYSTEM.md)。
+统一入口汇总 SwiftSyntax 契约、UI 规则、客户端工程规范、模块依赖、文档链接、工程配置和锁定依赖检查。源码质量和语法检查覆盖 `ModuleTests/`。模块检查器自测导入解析、循环与依赖方向，校验声明、实际导入、测试依赖以及 App 和扩展的直接产品依赖。规则按职责由对应检查器维护；设计系统的入口与规则见 [设计系统](DESIGN_SYSTEM.md)。
 
 ## 网络与 iCloud Smoke
 

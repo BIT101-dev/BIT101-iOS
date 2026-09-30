@@ -1,3 +1,7 @@
+import ScoreDomain
+import ScheduleDomain
+import SchedulePorts
+@testable import ScoreInfrastructure
 import CommunityCore
 @testable import GalleryFeature
 @testable import CommunityUI
@@ -9,6 +13,7 @@ import TransportCore
 import ClientCore
 import ScheduleContracts
 import Foundation
+import os
 import Security
 import Testing
 import UIKit
@@ -131,9 +136,10 @@ struct ExperimentalPreferenceCloudSyncTests {
         }
     }
 
-    private func context() throws -> (ExperimentalPreferenceCloudSync, UserDefaults, MemoryCloud, Account) {
-        let defaults = try #require(UserDefaults(suiteName: preferenceDomain))
-        defaults.removePersistentDomain(forName: preferenceDomain)
+    private func context(domain: String? = nil) throws -> (ExperimentalPreferenceCloudSync, UserDefaults, MemoryCloud, Account) {
+        let domain = domain ?? preferenceDomain
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
         let account = Account()
         let center = NotificationCenter()
         let files = PreferenceMemoryFiles()
@@ -153,6 +159,72 @@ struct ExperimentalPreferenceCloudSyncTests {
         )
         AppPreferenceCacheEffects.configure(sync: sync)
         return (sync, defaults, cloud, account)
+    }
+
+    private final class ExternalDisplays: AppExternalDisplayCoordinating {
+        var activationCount = 0
+        var resetCount = 0
+        var refreshes: [(String, AppStorageSession)] = []
+        private var waiter: CheckedContinuation<Void, Never>?
+        private var expectedCount = 0
+        func activate() { activationCount += 1 }
+        func resetAccountPresentation() { resetCount += 1 }
+        func refresh(trigger: String, syncWidgetSnapshot: Bool, session: AppStorageSession) async {
+            #expect(syncWidgetSnapshot)
+            refreshes.append((trigger, session))
+            if refreshes.count >= expectedCount { waiter?.resume(); waiter = nil }
+        }
+        func waitForRefreshes(_ count: Int) async {
+            if refreshes.count >= count { return }
+            expectedCount = count
+            await withCheckedContinuation { waiter = $0 }
+        }
+    }
+
+    private func lifecycle(sync: ExperimentalPreferenceCloudSync, account: Account, center: NotificationCenter, displays: ExternalDisplays) -> AppAccountLifecycle {
+        let repository = ScheduleRepository(session: { account.session }, load: { _ in .missing }, save: { _, _, _ in }, cacheDidChange: .scheduleCacheDidChange, notificationCenter: center)
+        let service = SemesterStartDateService()
+        let schedule = ScheduleViewModel(service: service, repository: repository, ddl: ScheduleDDLViewModel(service: service, repository: repository), classroom: ScheduleClassroomViewModel(service: service, repository: repository), platformActions: RecordingSchedulePlatformActions(), newCustomScheduleDraft: { CustomScheduleDraft() })
+        return AppAccountLifecycle(scheduleViewModel: schedule, preferenceCloudSync: sync, notifications: center, externalDisplays: displays)
+    }
+
+    @Test func lifecycleInstancesOwnTheirNotificationsSettingsAndPlatformEffects() async throws {
+        let firstDomain = preferenceDomain + ".first"
+        let secondDomain = preferenceDomain + ".second"
+        let (firstSync, firstDefaults, _, firstAccount) = try context(domain: firstDomain)
+        let (secondSync, secondDefaults, _, secondAccount) = try context(domain: secondDomain)
+        defer {
+            firstDefaults.removePersistentDomain(forName: firstDomain)
+            secondDefaults.removePersistentDomain(forName: secondDomain)
+        }
+        let firstCenter = NotificationCenter()
+        let secondCenter = NotificationCenter()
+        let firstDisplays = ExternalDisplays()
+        let secondDisplays = ExternalDisplays()
+        let first = lifecycle(sync: firstSync, account: firstAccount, center: firstCenter, displays: firstDisplays)
+        let second = lifecycle(sync: secondSync, account: secondAccount, center: secondCenter, displays: secondDisplays)
+        first.start()
+        second.start()
+        await firstDisplays.waitForRefreshes(1)
+        await secondDisplays.waitForRefreshes(1)
+        #expect(first.settings === firstSync.settings)
+        #expect(second.settings === secondSync.settings)
+        #expect(firstDisplays.activationCount == 1)
+        #expect(secondDisplays.activationCount == 1)
+        first.settings.updateGallerySettings(useWebView: true)
+        #expect(first.community.preferences.galleryUseWebView)
+        #expect(second.community.preferences.galleryUseWebView == false)
+        firstAccount.session = AppStorageSession(accountIdentifier: "changed-account")
+        firstCenter.post(name: .loginStorageDidChange, object: nil)
+        await firstDisplays.waitForRefreshes(2)
+        #expect(firstDisplays.resetCount == 1)
+        #expect(secondDisplays.resetCount == 0)
+        #expect(firstDisplays.refreshes.last?.1 == firstAccount.session)
+        #expect(secondDisplays.refreshes.count == 1)
+        firstCenter.post(name: .scheduleCacheDidChange, object: nil)
+        await firstDisplays.waitForRefreshes(3)
+        #expect(firstDisplays.refreshes.last?.0 == "schedule_cache_changed")
+        #expect(secondDisplays.refreshes.count == 1)
     }
 
     private func key(_ domain: ExperimentalPreferenceSyncDomain, account: Account) -> String {
@@ -327,37 +399,46 @@ struct ExperimentalPreferenceCloudSyncTests {
     }
 }
 
-private nonisolated final class PreferenceMemoryFiles: AppFileService, @unchecked Sendable {
-    private let lock = NSLock()
-    private var data: [URL: Data] = [:]
+private nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
+    private let state = OSAllocatedUnfairLock(initialState: State())
+    private struct State {
+        var data: [URL: Data] = [:]
+    }
     var temporaryDirectoryURL: URL { URL(fileURLWithPath: "/preference-sync") }
     func directoryURL(_ directory: FileManager.SearchPathDirectory) -> URL? { temporaryDirectoryURL }
     func appGroupContainerURL(identifier: String) -> URL? { temporaryDirectoryURL }
-    func fileExists(at url: URL) -> Bool { lock.lock(); defer { lock.unlock() }; return data[url] != nil }
+    func fileExists(at url: URL) -> Bool { state.withLock { $0.data[url] != nil } }
     func readData(at url: URL) throws -> Data {
-        lock.lock(); defer { lock.unlock() }
-        guard let value = data[url] else { throw CocoaError(.fileReadNoSuchFile) }
-        return value
+        try state.withLock { state in
+            guard let value = state.data[url] else { throw CocoaError(.fileReadNoSuchFile) }
+            return value
+        }
     }
     func writeData(_ value: Data, to url: URL, options: Data.WritingOptions) throws {
-        lock.lock(); defer { lock.unlock() }; data[url] = value
+        state.withLock { state in
+            state.data[url] = value
+        }
     }
-    func removeItem(at url: URL) throws { lock.lock(); defer { lock.unlock() }; data.removeValue(forKey: url) }
+    func removeItem(at url: URL) throws { state.withLock { $0.data[url] = nil } }
     func createDirectory(at url: URL) throws {}
     func setPrivateFileProtection(at url: URL) throws {}
     func setExcludedFromBackup(at url: URL) throws {}
     func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL] {
-        lock.lock(); defer { lock.unlock() }; return data.keys.filter { $0.deletingLastPathComponent() == url }
+        state.withLock { state in state.data.keys.filter { $0.deletingLastPathComponent() == url } }
     }
-    func regularFileSize(at url: URL) -> Int? { lock.lock(); defer { lock.unlock() }; return data[url]?.count }
+    func regularFileSize(at url: URL) -> Int? { state.withLock { $0.data[url]?.count } }
     func isRegularFile(at url: URL) -> Bool { regularFileSize(at: url) != nil }
     func modificationDate(at url: URL) -> Date? { nil }
     func setModificationDate(_ date: Date, at url: URL) throws {}
     func removeContents(of directory: URL) -> Bool {
-        lock.lock(); defer { lock.unlock() }; data = data.filter { !$0.key.path.hasPrefix(directory.path + "/") }; return true
+        return state.withLock { state in
+            state.data = state.data.filter { !$0.key.path.hasPrefix(directory.path + "/") }; return true
+        }
     }
     func totalRegularFileSize(at directory: URL) -> Int64 {
-        lock.lock(); defer { lock.unlock() }; return data.filter { $0.key.path.hasPrefix(directory.path + "/") }.values.reduce(0) { $0 + Int64($1.count) }
+        return state.withLock { state in
+            return state.data.filter { $0.key.path.hasPrefix(directory.path + "/") }.values.reduce(0) { $0 + Int64($1.count) }
+        }
     }
 }
 

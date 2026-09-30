@@ -29,7 +29,7 @@ private enum MineRoute: Hashable, Identifiable {
 ///
 /// 页面包含资料卡、入口列表和子页面，交互使用 iOS 导航和列表样式。
 public struct MineRootView: View {
-    @Environment(MineDependencies.self) private var dependencies
+    private let dependencies: MineDependencies
     @Environment(CommunityDestinations.self) private var destinations
     /// 兜底学号，用于传给设置页的账号区域。
     let fallbackStudentID: String
@@ -39,6 +39,7 @@ public struct MineRootView: View {
     @StateObject private var viewModel: MineViewModel
 
     public init(dependencies: MineDependencies, fallbackStudentID: String, onLogout: @escaping () -> Void) {
+        self.dependencies = dependencies
         _viewModel = StateObject(wrappedValue: MineViewModel(service: dependencies.overview))
         self.fallbackStudentID = fallbackStudentID
         self.onLogout = onLogout
@@ -54,6 +55,10 @@ public struct MineRootView: View {
     ///
     /// 主页面展示资料卡和设置入口，列表内容进入子页面，保持主页层级清晰。
     public var body: some View {
+        content.environment(dependencies)
+    }
+
+    private var content: some View {
         List {
             Section {
                 profileSection
@@ -176,7 +181,7 @@ public struct MineRootView: View {
 ///
 /// 复用“我的”页的资料卡和话题卡片样式，统一用户主页的视觉表现。
 public struct UserProfileRootView: View {
-    @Environment(MineDependencies.self) private var dependencies
+    private let dependencies: MineDependencies
     @Environment(CommunityDestinations.self) private var destinations
     let userID: Int
     let onLogout: () -> Void
@@ -187,12 +192,17 @@ public struct UserProfileRootView: View {
     @State private var imageViewer: ImagePreviewRequest?
 
     public init(dependencies: MineDependencies, userID: Int, onLogout: @escaping () -> Void = {}) {
+        self.dependencies = dependencies
         self.userID = userID
         self.onLogout = onLogout
         _viewModel = StateObject(wrappedValue: UserProfileViewModel(userID: userID, service: dependencies.profile))
     }
 
     public var body: some View {
+        content.environment(dependencies)
+    }
+
+    private var content: some View {
         List {
             Section {
                 profileSection

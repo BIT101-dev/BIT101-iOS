@@ -4,7 +4,7 @@ import ScheduleContracts
 public extension ScheduleOccurrenceResolver {
     /// 直接从共享仓库读取并解析。
     static func loadResolvedSnapshot(
-        store: ScheduleExternalSnapshotStore = .shared,
+        store: ScheduleExternalSnapshotStore,
         now: Date = Date(),
         currentCourseDisplayDuration: TimeInterval = defaultCurrentCourseDisplayDuration,
         limit: Int? = nil

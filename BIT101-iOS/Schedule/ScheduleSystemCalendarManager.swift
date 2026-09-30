@@ -1,3 +1,4 @@
+import SchedulePorts
 import TransportCore
 import MapFeature
 import ScheduleDomain
@@ -390,18 +391,18 @@ final class ScheduleSystemCalendarManager {
         try await deleteImportedEvents(markerIDs: Set(drafts.map(\.markerID)), term: term)
     }
 
-    func importCurrentTerm(from cache: ScheduleCache) async throws -> Int {
-        guard let firstDay = cache.firstDay, !cache.courses.isEmpty else {
+    func importCurrentTerm(from courses: ScheduleCourseSnapshot, term: String) async throws -> Int {
+        guard let firstDay = courses.firstDay, !courses.courses.isEmpty else {
             throw ScheduleSystemCalendarError.missingSchedule
         }
         let drafts = ScheduleSystemCalendarEventBuilder.makeDrafts(
-            courses: cache.courses,
+            courses: courses.courses,
             firstDay: firstDay,
-            timeTable: cache.timeTable
+            timeTable: courses.timeTable
         )
         return try await importDrafts(
             drafts,
-            term: cache.currentTerm,
+            term: term,
             replacingTerm: true
         )
     }

@@ -11,11 +11,6 @@ public enum ScheduleExternalSnapshotStoreError: Error, Equatable {
 /// 主 App 写入这份快照，Widget 和 Watch 读取这份快照；
 /// 纯数据模型和时间线规则保留在 `ScheduleContracts`。
 public nonisolated struct ScheduleExternalSnapshotStore: Sendable {
-    public static let shared = ScheduleExternalSnapshotStore(
-        files: AppFileSystem.files,
-        containerURL: AppFileSystem.files.appGroupContainerURL(identifier: ScheduleSharedContainer.identifier)
-    )
-
     private let files: any AppFileService
     private let containerURL: URL?
     private let notificationCenter: NotificationCenter
@@ -25,14 +20,6 @@ public nonisolated struct ScheduleExternalSnapshotStore: Sendable {
         self.containerURL = containerURL
         self.notificationCenter = notificationCenter
     }
-
-    @discardableResult
-    public static func save(_ snapshot: ScheduleExternalSnapshot) -> Bool { shared.save(snapshot) }
-    public static func write(_ snapshot: ScheduleExternalSnapshot) throws { try shared.write(snapshot) }
-    public static func load() -> ScheduleExternalSnapshot? { shared.load() }
-    @discardableResult
-    public static func clear() -> Bool { shared.clear() }
-    public static var fileURL: URL? { shared.fileURL }
 
     @discardableResult
     public func save(_ snapshot: ScheduleExternalSnapshot) -> Bool {

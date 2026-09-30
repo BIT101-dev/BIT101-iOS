@@ -11,7 +11,7 @@ import SwiftUI
 ///
 /// 这里承接底部栏里的“文章”入口，负责文章列表、搜索和详情跳转。
 public struct PaperRootView: View {
-    @Environment(PaperDependencies.self) private var dependencies
+    private let dependencies: PaperDependencies
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var viewModel: PaperListViewModel
     @StateObject private var networkObserver = PaperNetworkObserver()
@@ -27,12 +27,17 @@ public struct PaperRootView: View {
         requestedPaperID: Binding<Int?> = .constant(nil),
         onShowFeed: @escaping () -> Void = {}
     ) {
+        self.dependencies = dependencies
         _requestedPaperID = requestedPaperID
         _viewModel = StateObject(wrappedValue: PaperListViewModel(service: dependencies.list))
         self.onShowFeed = onShowFeed
     }
 
     public var body: some View {
+        content.environment(dependencies)
+    }
+
+    private var content: some View {
         ZStack(alignment: .bottomTrailing) {
             AppDesignSystem.Palette.Background.grouped
                 .ignoresSafeArea(edges: .bottom)

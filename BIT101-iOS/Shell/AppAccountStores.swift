@@ -1,3 +1,5 @@
+import ScoreDomain
+import ScoreInfrastructure
 import GalleryFeature
 import StorageCore
 import ScoreFeature

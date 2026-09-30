@@ -38,9 +38,9 @@ struct WatchScheduleStatusDependencies {
     static let live = WatchScheduleStatusDependencies(
         now: Date.init,
         loadResolvedSnapshot: { now, limit in
-            ScheduleOccurrenceResolver.loadResolvedSnapshot(now: now, limit: limit)
+            ScheduleOccurrenceResolver.loadResolvedSnapshot(store: PlatformScheduleSnapshotStorage.store, now: now, limit: limit)
         },
-        clearSnapshot: { _ = ScheduleExternalSnapshotStore.clear() },
+        clearSnapshot: { _ = PlatformScheduleSnapshotStorage.store.clear() },
         activateSync: WatchScheduleSyncManager.shared.activateIfNeeded,
         requestLatestSnapshot: WatchScheduleSyncManager.shared.requestLatestSnapshotFromPhone
     )

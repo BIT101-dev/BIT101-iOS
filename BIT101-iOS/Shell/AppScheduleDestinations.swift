@@ -24,7 +24,7 @@ extension ScheduleDestinations {
         return ScheduleDestinations(
             appStoreURL: BIT101AppStore.url,
             academicCourse: { course, onDismiss in
-                AnyView(CourseEvaluationLink(request: .lookup(
+                AnyView(CourseEvaluationLink(dependencies: courses, request: .lookup(
                     courseName: course.name, courseNumber: course.number, teacher: course.teacher
                 )) { request in
                     onDismiss()

@@ -1,3 +1,4 @@
+import TransportCore
 import StorageCore
 import ScheduleDomain
 import Combine
@@ -19,14 +20,17 @@ public final class ScheduleRepository: ObservableObject {
     private var ownerSession: AppStorageSession
     var accountSession: AppStorageSession { ownerSession }
     private var observer: Task<Void, Never>?
+    private var persistenceTask: Task<Bool, Never>?
+    private var persistenceGeneration = 0
+    private var reloadAfterPersistence = false
     private let session: () -> AppStorageSession
     private let load: (AppStorageSession) async -> ScheduleCacheLoadResult
-    private let save: (ScheduleCache, ScheduleCacheSaveSource, AppStorageSession) -> Void
+    private let save: (ScheduleCache, ScheduleCacheSaveSource, AppStorageSession) async throws -> Void
 
     public init(
         session: @escaping () -> AppStorageSession,
         load: @escaping (AppStorageSession) async -> ScheduleCacheLoadResult,
-        save: @escaping (ScheduleCache, ScheduleCacheSaveSource, AppStorageSession) -> Void,
+        save: @escaping (ScheduleCache, ScheduleCacheSaveSource, AppStorageSession) async throws -> Void,
         cacheDidChange: Notification.Name,
         notificationCenter: NotificationCenter = .default
     ) {
@@ -44,6 +48,10 @@ public final class ScheduleRepository: ObservableObject {
     deinit { observer?.cancel() }
 
     func resetForCurrentAccount() {
+        persistenceTask?.cancel()
+        persistenceTask = nil
+        persistenceGeneration &+= 1
+        reloadAfterPersistence = false
         ownerSession = session()
         accountGeneration &+= 1
         loadGeneration &+= 1
@@ -61,6 +69,10 @@ public final class ScheduleRepository: ObservableObject {
     }
 
     func reload() async {
+        guard persistenceTask == nil else {
+            reloadAfterPersistence = true
+            return
+        }
         let account = session()
         guard account == ownerSession else { return }
         let generation = accountGeneration
@@ -90,8 +102,53 @@ public final class ScheduleRepository: ObservableObject {
     }
 
     func persist(source: ScheduleCacheSaveSource = .local) {
-        guard isWritable, ownerSession == session() else { return }
-        save(cache, source, ownerSession)
+        _ = enqueuePersistence(source: source)
+    }
+
+    @discardableResult
+    func persistAndWait(source: ScheduleCacheSaveSource = .local) async -> Bool {
+        guard !Task.isCancelled else { return false }
+        guard let task = enqueuePersistence(source: source) else { return false }
+        let saved = await task.value
+        return saved && !Task.isCancelled
+    }
+
+    private func enqueuePersistence(source: ScheduleCacheSaveSource) -> Task<Bool, Never>? {
+        guard isWritable, ownerSession == session() else { return nil }
+        let account = ownerSession
+        let generation = accountGeneration
+        let snapshot = cache
+        let localRevision = revision
+        let previous = persistenceTask
+        persistenceGeneration &+= 1
+        let operation = persistenceGeneration
+        let task = Task { @MainActor [weak self, save] in
+            _ = await previous?.value
+            guard let self, !Task.isCancelled,
+                  self.accountGeneration == generation, account == self.session() else { return false }
+            defer {
+                if self.persistenceGeneration == operation { self.persistenceTask = nil }
+            }
+            do {
+                try await save(snapshot, source, account)
+                guard self.accountGeneration == generation, account == self.session() else { return false }
+                if self.persistenceGeneration == operation, self.reloadAfterPersistence {
+                    self.reloadAfterPersistence = false
+                    self.persistenceTask = nil
+                    if self.revision == localRevision { await self.reload() }
+                }
+                guard self.accountGeneration == generation, account == self.session() else { return false }
+                return true
+            } catch {
+                if TaskCancellation.matches(error) { return false }
+                guard self.accountGeneration == generation, account == self.session(),
+                      !Task.isCancelled else { return false }
+                self.notice = ScheduleNotice(title: "日程保存失败", message: error.localizedDescription)
+                return false
+            }
+        }
+        persistenceTask = task
+        return task
     }
 
     var persistenceSnapshot: ScheduleCache { cache }
@@ -140,6 +197,10 @@ extension ScheduleStateConsumer {
 
     func persist(source: ScheduleCacheSaveSource = .local) {
         repository.persist(source: source)
+    }
+
+    func persistAndWait(source: ScheduleCacheSaveSource = .local) async -> Bool {
+        await repository.persistAndWait(source: source)
     }
 }
 

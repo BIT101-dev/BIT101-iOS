@@ -1,3 +1,5 @@
+import SchedulePorts
+import ScoreDomain
 import GalleryFeature
 @testable import MineFeature
 import CommunityTransport
@@ -16,11 +18,12 @@ import Testing
 @testable import BIT101_iOS
 
 @MainActor
-private final class RecordingSchedulePlatformActions: SchedulePlatformActions {
+final class RecordingSchedulePlatformActions: SchedulePlatformActions {
     var cloudCache: ScheduleCache?
     var cloudSession: AppStorageSession?
     var reminderSession: AppStorageSession?
-    var importedCache: ScheduleCache?
+    var importedCourses: ScheduleCourseSnapshot?
+    var importedTerm: String?
     var calendarContent: ScheduleSystemCalendarContent?
     var calendarTerm: String?
     var calendarMarkerIDs: Set<String>?
@@ -39,9 +42,10 @@ private final class RecordingSchedulePlatformActions: SchedulePlatformActions {
         finishEnablingIfReady()
     }
 
-    func importSystemCalendar(cache: ScheduleCache) async throws -> Int {
+    func importSystemCalendar(courses: ScheduleCourseSnapshot, term: String) async throws -> Int {
         if let importError { throw importError }
-        importedCache = cache
+        importedCourses = courses
+        importedTerm = term
         return 7
     }
 
@@ -84,7 +88,7 @@ private final class RecordingSchedulePlatformActions: SchedulePlatformActions {
 }
 
 @MainActor
-private final class SemesterStartDateService: ScheduleServicing {
+final class SemesterStartDateService: ScheduleServicing {
     var firstDayString = "2026-09-07"
     var courses: [CourseRecord] = []
 
@@ -125,7 +129,7 @@ struct ScheduleModuleBoundaryTests {
     private func makeRepository(
         session: @escaping () -> AppStorageSession = { AppStorageSession(accountIdentifier: "schedule-boundary-tests") },
         load: @escaping (AppStorageSession) async -> ScheduleCacheLoadResult,
-        save: @escaping (ScheduleCache, ScheduleCacheSaveSource, AppStorageSession) -> Void
+        save: @escaping (ScheduleCache, ScheduleCacheSaveSource, AppStorageSession) async throws -> Void
     ) -> ScheduleRepository {
         ScheduleRepository(session: session, load: load, save: save, cacheDidChange: Notification.Name("schedule-boundary-tests-cache-change"))
     }
@@ -276,7 +280,7 @@ struct ScheduleModuleBoundaryTests {
         let transport = RecordingCommunityDeletionTransport()
         let session = CommunitySession(
             httpClient: HTTPClient(transport: transport, observer: nil),
-            baseURL: try #require(URL(string: "https://example.invalid")), cookie: { "module-cookie" }, refresh: { _ in }
+            baseURL: try #require(URL(string: "https://example.invalid")), credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "test-account"), cookie: "module-cookie") }, refresh: { _ in }
         )
         let defaults = try #require(UserDefaults(suiteName: "BIT101ModulesTests.community"))
         let dependencies = AppCommunityDependencies(

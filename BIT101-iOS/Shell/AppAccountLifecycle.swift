@@ -1,3 +1,5 @@
+import ScoreDomain
+import ScoreInfrastructure
 import ScheduleDomain
 import CommunityUI
 import ScheduleFeature
@@ -18,6 +20,8 @@ final class AppAccountLifecycle: ObservableObject {
     let preferenceCloudSync: ExperimentalPreferenceCloudSync
     private var subscriptions = Set<AnyCancellable>()
     private var externalRefreshTask: Task<Void, Never>?
+    private let externalDisplays: any AppExternalDisplayCoordinating
+    private let currentSession: @MainActor () -> AppStorageSession
 
     init(
         scheduleViewModel: ScheduleViewModel = ScheduleServiceFactory.makeViewModel(),
@@ -25,7 +29,8 @@ final class AppAccountLifecycle: ObservableObject {
         community: AppCommunityDependencies? = nil,
         transcriptService: any TrustedTranscriptServicing = ScoreService(),
         preferenceCloudSync: ExperimentalPreferenceCloudSync,
-        notifications: NotificationCenter = .default
+        notifications: NotificationCenter = .default,
+        externalDisplays: any AppExternalDisplayCoordinating = AppExternalDisplayCoordinator()
     ) {
         let settings = preferenceCloudSync.settings
         let stores = preferenceCloudSync.stores
@@ -49,12 +54,14 @@ final class AppAccountLifecycle: ObservableObject {
         self.communityDestinations = .appDestinations(dependencies: community)
         self.settings = settings
         self.preferenceCloudSync = preferenceCloudSync
+        self.externalDisplays = externalDisplays
+        self.currentSession = stores.currentSession
         notifications.publisher(for: .loginStorageDidChange)
             .sink { [weak self] _ in self?.accountDidChange() }
             .store(in: &subscriptions)
         notifications.publisher(for: .scheduleCacheDidChange)
             .sink { [weak self] _ in
-                self?.refreshExternalDisplays(trigger: "schedule_cache_changed", syncWidgetSnapshot: false)
+                self?.refreshExternalDisplays(trigger: "schedule_cache_changed", syncWidgetSnapshot: true)
             }
             .store(in: &subscriptions)
     }
@@ -65,13 +72,13 @@ final class AppAccountLifecycle: ObservableObject {
 #if BIT101_UI_TESTING
         guard !AppFileDirectories.isRunningUITest else { return }
 #endif
-        WatchScheduleSyncManager.shared.activateIfNeeded()
+        externalDisplays.activate()
         refreshExternalDisplays(trigger: "app_launch_task", syncWidgetSnapshot: true)
     }
 
     func accountDidChange() {
         externalRefreshTask?.cancel()
-        AppErrorPresenter.shared.reset()
+        externalDisplays.resetAccountPresentation()
         preferenceCloudSync.reloadForCurrentAccount()
         settings.reloadForCurrentAccount()
         scheduleViewModel.resetForCurrentAccount()
@@ -88,22 +95,9 @@ final class AppAccountLifecycle: ObservableObject {
         guard !AppFileDirectories.isRunningUITest else { return }
 #endif
         externalRefreshTask?.cancel()
-        let session = AppFileDirectories.currentSession
-        externalRefreshTask = Task {
-            if syncWidgetSnapshot {
-                await ScheduleWidgetExporter.syncFromCurrentCache()
-            }
-            guard !Task.isCancelled, session == AppFileDirectories.currentSession else { return }
-            let fakeCookie = LoginStorage.shared.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !fakeCookie.isEmpty else {
-                ScheduleReminderBackgroundRefresh.schedule(earliestBeginDate: nil)
-                await ScheduleLiveActivityManager.shared.endAllActivities()
-                return
-            }
-            let nextBeginDate = await ScheduleLiveActivityManager.shared.preferredBackgroundRefreshBeginDate()
-            guard !Task.isCancelled, session == AppFileDirectories.currentSession else { return }
-            ScheduleReminderBackgroundRefresh.schedule(earliestBeginDate: nextBeginDate)
-            await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(trigger: trigger)
+        let session = currentSession()
+        externalRefreshTask = Task { [externalDisplays] in
+            await externalDisplays.refresh(trigger: trigger, syncWidgetSnapshot: syncWidgetSnapshot, session: session)
         }
     }
 }

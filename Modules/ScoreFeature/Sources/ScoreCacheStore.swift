@@ -1,3 +1,4 @@
+import ScoreDomain
 import StorageCore
 import Foundation
 import OSLog

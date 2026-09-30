@@ -188,7 +188,7 @@ private actor ScheduleExternalSnapshotWriteQueue {
             latestGeneration: latestGeneration
         ) else { return false }
         latestGeneration = generation
-        return ScheduleExternalSnapshotStore.save(snapshot)
+        return PlatformScheduleSnapshotStorage.store.save(snapshot)
     }
 
     func clear(generation: UInt64) -> Bool {
@@ -197,6 +197,6 @@ private actor ScheduleExternalSnapshotWriteQueue {
             latestGeneration: latestGeneration
         ) else { return false }
         latestGeneration = generation
-        return ScheduleExternalSnapshotStore.clear()
+        return PlatformScheduleSnapshotStorage.store.clear()
     }
 }

@@ -5,6 +5,7 @@
 
 import Foundation
 import ClientCore
+import CommunityTransport
 
 /// 登录业务门面。
 ///
@@ -53,7 +54,10 @@ struct LoginService {
 
         // App 的全局登录态依赖 BIT101 自有 fake-cookie。
         // 学校 SSO 服务课表、空教室等按需功能，App 进入流程以 BIT101 fake-cookie 校验为准。
+        let identity = storage.communityCredentials.identity
         let bit101LoggedIn = try await apiClient.checkBIT101Login(fakeCookie: fakeCookie)
+        try Task.checkCancellation()
+        guard storage.communityCredentials.identity == identity else { throw CancellationError() }
         guard bit101LoggedIn else {
             storage.clearSession()
             return nil
@@ -121,11 +125,43 @@ struct LoginService {
             throw LoginServiceError.invalidCredentials
         }
 
+        let identity = storage.communityCredentials.identity
+        let fakeCookie = try await authenticate(studentID: normalizedStudentID, password: password)
+        try Task.checkCancellation()
+        guard storage.communityCredentials.identity == identity else { throw CancellationError() }
+
+        try storage.saveLoginState(
+            studentID: normalizedStudentID,
+            password: password,
+            fakeCookie: fakeCookie
+        )
+
+        return normalizedStudentID
+    }
+
+    /// 认证恢复在保存前核对账号归属，网络和取消错误沿原语义返回。
+    func renewCommunitySession(expectedIdentity: CommunitySessionIdentity) async throws {
+        guard storage.communityCredentials.identity == expectedIdentity else { throw CancellationError() }
+        guard let credentials = try storage.loadCredentials() else {
+            throw CommunitySessionRestorationError.credentialsRejected
+        }
+        let cookie: String
+        do {
+            cookie = try await authenticate(studentID: credentials.studentID, password: credentials.password)
+        } catch let error as LoginServiceError where error.isCredentialFailure {
+            throw CommunitySessionRestorationError.credentialsRejected
+        }
+        try Task.checkCancellation()
+        guard storage.communityCredentials.identity == expectedIdentity else { throw CancellationError() }
+        try storage.saveLoginState(studentID: credentials.studentID, password: credentials.password, fakeCookie: cookie)
+    }
+
+    private func authenticate(studentID: String, password: String) async throws -> String {
         // 与 BIT101-GO 的现有接口保持一致：初始化验证上下文 -> 校验 WebVPN -> 登录模式注册。
-        let initResponse = try await apiClient.webVPNVerifyInit(studentID: normalizedStudentID)
+        let initResponse = try await apiClient.webVPNVerifyInit(studentID: studentID)
         let encryptedPassword = try LoginCrypto.encryptPassword(password, saltBase64: initResponse.salt)
         let verifyResponse = try await apiClient.webVPNVerify(
-            studentID: normalizedStudentID,
+            studentID: studentID,
             password: encryptedPassword,
             execution: initResponse.execution,
             cookie: initResponse.cookie,
@@ -143,13 +179,7 @@ struct LoginService {
             throw LoginServiceError.invalidServerResponse
         }
 
-        try storage.saveLoginState(
-            studentID: normalizedStudentID,
-            password: password,
-            fakeCookie: fakeCookie
-        )
-
-        return normalizedStudentID
+        return fakeCookie
     }
 
     /// 清除当前登录会话。

@@ -1,3 +1,4 @@
+import ClientCore
 import StorageCore
 import TransportCore
 import MediaKit
@@ -105,4 +106,9 @@ enum AppMedia {
         imageHTTPClient: .community,
         avatarHTTPClient: .shared
     )
+}
+
+/// 学校会话的生产实例在应用组装入口选择。
+enum AppSchoolSession {
+    static let teachingCenter = TeachingCenterSessionState(cookieStorage: .shared)
 }

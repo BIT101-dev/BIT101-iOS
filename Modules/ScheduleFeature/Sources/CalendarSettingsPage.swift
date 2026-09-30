@@ -1,3 +1,4 @@
+import SchedulePorts
 #if os(iOS)
 import ClientCore
 import ScheduleDomain

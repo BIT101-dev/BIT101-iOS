@@ -1,3 +1,4 @@
+import SchedulePorts
 import ClientCore
 import Combine
 import Foundation
@@ -64,7 +65,7 @@ struct ScheduleFeatureTests {
         )
         await repository.loadIfNeeded()
         repository.presentationPreferences.showSaturday = false
-        repository.persist()
+        _ = await repository.persistAndWait()
 
         #expect(saved?.showSaturday == false)
         #expect(saved?.ddlBeforeDay == 3)
@@ -98,7 +99,7 @@ private final class ModuleSchedulePlatformActions: SchedulePlatformActions {
 
     func enableCloudSync(cache: ScheduleCache, session: AppStorageSession) async {}
     func enableCourseReminder(session: AppStorageSession) async {}
-    func importSystemCalendar(cache: ScheduleCache) async throws -> Int { 0 }
+    func importSystemCalendar(courses: ScheduleCourseSnapshot, term: String) async throws -> Int { 0 }
     func deleteImportedSystemCalendarEvents() async throws -> ScheduleSystemCalendarMutationResult { .noOp }
 
     func importSystemCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws -> Int {
@@ -142,7 +143,7 @@ struct ScheduleRepositoryBoundaryTests {
     private func makeRepository(
         session: @escaping () -> AppStorageSession = { AppStorageSession(accountIdentifier: "schedule-boundary-tests") },
         load: @escaping (AppStorageSession) async -> ScheduleCacheLoadResult,
-        save: @escaping (ScheduleCache, ScheduleCacheSaveSource, AppStorageSession) -> Void
+        save: @escaping (ScheduleCache, ScheduleCacheSaveSource, AppStorageSession) async throws -> Void
     ) -> ScheduleRepository {
         ScheduleRepository(session: session, load: load, save: save, cacheDidChange: Notification.Name("schedule-boundary-tests-cache-change"))
     }
@@ -247,6 +248,7 @@ struct ScheduleRepositoryBoundaryTests {
         await viewModel.syncCourses(term: "2026-2027-1")
         let chosenDate = try #require(ScheduleDateCodec.parseDate("2026-09-21"))
         viewModel.setSemesterStartDate(chosenDate)
+        _ = await repository.persistAndWait()
         let encoded = try JSONEncoder().encode(viewModel.persistenceSnapshot)
         let decoded = try JSONDecoder().decode(ScheduleCache.self, from: encoded)
         #expect(decoded.firstDayString == "2026-09-21")
@@ -301,7 +303,7 @@ struct ScheduleRepositoryBoundaryTests {
         let repository = makeRepository(load: { _ in .unreadable }, save: { _, _, _ in savedCount += 1 })
         repository.courseState.primaryScheduleTitle = "保留内容"
         await repository.reload()
-        repository.persist()
+        _ = await repository.persistAndWait()
         #expect(repository.persistenceSnapshot.primaryScheduleTitle == "保留内容")
         #expect(repository.isWritable == false)
         #expect(repository.notice?.title == "本地课表缓存读取失败")
@@ -320,7 +322,7 @@ struct ScheduleRepositoryBoundaryTests {
         })
         await repository.loadIfNeeded()
         repository.courseState.primaryScheduleTitle = "课程"
-        repository.persist(source: .cloudBaseline)
+        _ = await repository.persistAndWait(source: .cloudBaseline)
         #expect(recordedAccount == account)
         #expect(recordedSource == .cloudBaseline)
         #expect(recordedTitle == "课程")
@@ -445,7 +447,8 @@ struct ScheduleRepositoryBoundaryTests {
         #expect(actions.reminderSession == session)
         #expect(actions.cloudCache?.iCloudSyncEnabled == true)
         #expect(try await viewModel.importCurrentTermToSystemCalendar() == 7)
-        #expect(actions.importedCache?.iCloudSyncEnabled == true)
+        #expect(actions.importedCourses == viewModel.courseSnapshot)
+        #expect(actions.importedTerm == viewModel.persistenceSnapshot.currentTerm)
         #expect(try await viewModel.deleteImportedSystemCalendarEvents() == .changed(3))
         #expect(actions.deleteCount == 1)
         let content = ScheduleSystemCalendarContent.courses([], firstDay: Date(timeIntervalSince1970: 0), timeTable: [])
@@ -551,7 +554,8 @@ private final class ModuleRecordingSchedulePlatformActions: SchedulePlatformActi
     var cloudCache: ScheduleCache?
     var cloudSession: AppStorageSession?
     var reminderSession: AppStorageSession?
-    var importedCache: ScheduleCache?
+    var importedCourses: ScheduleCourseSnapshot?
+    var importedTerm: String?
     var calendarContent: ScheduleSystemCalendarContent?
     var calendarTerm: String?
     var calendarMarkerIDs: Set<String>?
@@ -570,9 +574,10 @@ private final class ModuleRecordingSchedulePlatformActions: SchedulePlatformActi
         finishEnablingIfReady()
     }
 
-    func importSystemCalendar(cache: ScheduleCache) async throws -> Int {
+    func importSystemCalendar(courses: ScheduleCourseSnapshot, term: String) async throws -> Int {
         if let importError { throw importError }
-        importedCache = cache
+        importedCourses = courses
+        importedTerm = term
         return 7
     }
 

@@ -76,6 +76,10 @@ public struct GalleryRootView: View {
     }
 
     public var body: some View {
+        content.environment(dependencies)
+    }
+
+    private var content: some View {
         Group {
             if appSettings.galleryUseWebView && !isShowingNativePaperRoute {
                 GalleryWebContentView()
@@ -86,12 +90,7 @@ public struct GalleryRootView: View {
                 case .paper:
                     destinations.papers(
                         $requestedPaperID,
-                        Binding(
-                            get: { selectedSurface.rawValue },
-                            set: { newValue in
-                                selectedSurface = GallerySurface(rawValue: newValue) ?? .gallery
-                            }
-                        )
+                        { selectedSurface = .gallery }
                     )
                 }
             }

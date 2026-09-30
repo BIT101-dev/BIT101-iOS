@@ -1,4 +1,3 @@
-#if os(iOS)
 //
 //  UpcomingCourseMapResolver.swift
 //  BIT101-iOS
@@ -28,5 +27,3 @@ public nonisolated struct UpcomingCourseMapTarget: Equatable, Sendable {
         self.startDateText = startDateText
     }
 }
-
-#endif

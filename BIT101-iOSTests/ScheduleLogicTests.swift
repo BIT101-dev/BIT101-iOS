@@ -1,3 +1,4 @@
+import SchedulePorts
 @testable import CourseFeature
 @testable import ScheduleFeature
 @testable import ScheduleInfrastructure

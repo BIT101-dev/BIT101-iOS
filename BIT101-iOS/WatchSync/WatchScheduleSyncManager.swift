@@ -12,6 +12,11 @@ import WatchConnectivity
 import WidgetKit
 #endif
 
+/// App 与 Watch 入口组装当前进程的共享快照仓库。
+nonisolated enum PlatformScheduleSnapshotStorage {
+    static let store = ScheduleExternalSnapshotStore(files: AppFileSystem.files, containerURL: AppFileSystem.files.appGroupContainerURL(identifier: ScheduleSharedContainer.identifier))
+}
+
 enum WatchScheduleSyncError: Error, Equatable {
     case notSupported
     case noSnapshot
@@ -69,13 +74,13 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     /// 从共享仓库读取并编码当前快照。
     private nonisolated static func currentSnapshotDataIfAvailable(for studentID: String) -> Data? {
         let accountToken = AppStorageSession(accountIdentifier: studentID).accountStorageIdentifier
-        guard let snapshot = ScheduleExternalSnapshotStore.load(),
+        guard let snapshot = PlatformScheduleSnapshotStorage.store.load(),
               snapshot.studentID == studentID || snapshot.studentID == accountToken
         else { return nil }
         let normalizedSnapshot = snapshot.replacingStudentID(with: accountToken)
         do {
             if normalizedSnapshot != snapshot {
-                try ScheduleExternalSnapshotStore.write(normalizedSnapshot)
+                try PlatformScheduleSnapshotStorage.store.write(normalizedSnapshot)
             }
             return try ScheduleExternalSnapshotCodec.encode(normalizedSnapshot)
         } catch {
@@ -342,7 +347,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
         #endif
 
         do {
-            try ScheduleExternalSnapshotStore.write(snapshotToPersist)
+            try PlatformScheduleSnapshotStorage.store.write(snapshotToPersist)
             #if canImport(WidgetKit)
             WidgetCenter.shared.reloadAllTimelines()
             #endif

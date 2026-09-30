@@ -1,3 +1,4 @@
+import ScoreDomain
 import MineFeature
 import GalleryFeature
 import CourseFeature

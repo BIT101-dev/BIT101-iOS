@@ -1,6 +1,6 @@
+import TransportCore
 import ClientCore
 import Foundation
-import ClientCore
 import Testing
 
 struct SchoolAuthenticationTests {
@@ -15,7 +15,7 @@ struct SchoolAuthenticationTests {
         let context = try #require(
             SchoolLoginHTMLParser.parseSecondFactorPage(
                 html: html,
-                baseURL: URL(string: "https://sso.bit.edu.cn/cas/")!
+                baseURL: AppURL.required("https://sso.bit.edu.cn/cas/")
             )
         )
 
@@ -28,15 +28,15 @@ struct SchoolAuthenticationTests {
         let crypto = TestCrypto()
         #expect(crypto.isAcceptedSchoolLoginCompletion(
             statusCode: 200,
-            url: URL(string: "https://sso.bit.edu.cn/cas/login")!
+            url: AppURL.required("https://sso.bit.edu.cn/cas/login")
         ))
         #expect(crypto.isAcceptedSchoolLoginCompletion(
             statusCode: 401,
-            url: URL(string: "https://sso.bit.edu.cn/gate/cas-success")!
+            url: AppURL.required("https://sso.bit.edu.cn/gate/cas-success")
         ))
         #expect(!crypto.isAcceptedSchoolLoginCompletion(
             statusCode: 401,
-            url: URL(string: "https://evil.example/gate/cas-success")!
+            url: AppURL.required("https://evil.example/gate/cas-success")
         ))
     }
 

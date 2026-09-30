@@ -24,7 +24,7 @@ extension CommunityDestinations {
             suggestion: { AnyView(DeveloperSuggestionPage()) },
             profile: { AnyView(UserProfileRootView(dependencies: dependencies.mine, userID: $0)) },
             poster: { AnyView(GalleryPosterDetailView(dependencies: dependencies.gallery, poster: $0, onDeleted: $1)) },
-            papers: { requestedID, surface in AnyView(PaperRootView(dependencies: dependencies.paper, requestedPaperID: requestedID, onShowFeed: { surface.wrappedValue = "gallery" })) }
+            papers: { requestedID, onShowFeed in AnyView(PaperRootView(dependencies: dependencies.paper, requestedPaperID: requestedID, onShowFeed: onShowFeed)) }
         )
     }
 }
@@ -69,7 +69,8 @@ final class AppCommunityDependencies {
         settings: AppSettingsStore = .shared,
         session: CommunitySession = .appSession(),
         messages: GalleryMessageReadStore = AppAccountStores.shared.communityMessages,
-        drafts: ComposerDraftStore = AppAccountStores.shared.composerDrafts
+        drafts: ComposerDraftStore = AppAccountStores.shared.composerDrafts,
+        loadCourseCredits: @escaping @MainActor () async -> [CommunityCourseCredit] = AppCommunityDependencies.loadSchoolCourseCredits
     ) {
         let preferences = CommunityPreferences(
             snapshot: Self.snapshot(for: settings),
@@ -83,14 +84,7 @@ final class AppCommunityDependencies {
             messages: messages, drafts: drafts
         )
         let courseService = CourseService(session: session)
-        course = CourseDependencies(list: courseService, detail: courseService, preferences: preferences, loadCourseCredits: {
-            let session = AppFileDirectories.currentSession
-            let result = await ScheduleCacheStore.loadResultAsync(for: session)
-            guard session == AppFileDirectories.currentSession, let cache = result.cacheIfReadable else { return [] }
-            let records = cache.courses + (cache.cachedCoursesByTerm[cache.currentTerm] ?? [])
-                + cache.termSchedulesByTerm.values.sorted { $0.updatedAt > $1.updatedAt }.flatMap(\.courses)
-            return records.map { CommunityCourseCredit(number: $0.number, name: $0.name, credit: $0.credit) }
-        })
+        course = CourseDependencies(list: courseService, detail: courseService, preferences: preferences, loadCourseCredits: loadCourseCredits)
         let paperService = PaperService(session: session)
         paper = PaperDependencies(list: paperService, detail: paperService, composer: paperService)
         let mineService = MineService(session: session, preferences: { preferences.snapshot })
@@ -110,6 +104,15 @@ final class AppCommunityDependencies {
                 ))
             }
             .store(in: &subscriptions)
+    }
+
+    private static func loadSchoolCourseCredits() async -> [CommunityCourseCredit] {
+        let session = AppFileDirectories.currentSession
+        let result = await ScheduleCacheStore.loadResultAsync(for: session)
+        guard session == AppFileDirectories.currentSession, let cache = result.cacheIfReadable else { return [] }
+        let records = cache.courses + (cache.cachedCoursesByTerm[cache.currentTerm] ?? [])
+            + cache.termSchedulesByTerm.values.sorted { $0.updatedAt > $1.updatedAt }.flatMap(\.courses)
+        return records.map { CommunityCourseCredit(number: $0.number, name: $0.name, credit: $0.credit) }
     }
 
     static var preferenceSnapshot: CommunityPreferenceSnapshot { snapshot(for: .shared) }

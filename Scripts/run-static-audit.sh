@@ -55,7 +55,7 @@ swift_parse() {
     "$ROOT_DIR/BIT101Watch" "$ROOT_DIR/BIT101WatchWidgets" \
     -type f -name '*.swift' -print0 \
     | xargs -0 "$SWIFT_FRONTEND" -frontend -parse -D DEBUG
-  find "$ROOT_DIR/BIT101-iOSTests" -type f -name '*.swift' -print0 \
+  find "$ROOT_DIR/BIT101-iOSTests" "$ROOT_DIR/ModuleTests" -type f -name '*.swift' -print0 \
     | xargs -0 "$SWIFT_FRONTEND" -frontend -parse -D DEBUG -D EXTENDED_AUTOMATION
 }
 

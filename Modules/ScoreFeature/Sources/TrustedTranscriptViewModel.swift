@@ -1,3 +1,4 @@
+import ScoreDomain
 #if os(iOS)
 import TransportCore
 import ClientCore

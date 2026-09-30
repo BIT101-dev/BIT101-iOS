@@ -8,30 +8,36 @@ import SwiftUI
 ///
 /// 提供课程浏览和详情入口。
 struct CourseRootView: View {
-    @Environment(CourseDependencies.self) private var dependencies
+    private let dependencies: CourseDependencies
     @StateObject private var viewModel: CourseListViewModel
 
     @MainActor
     init(dependencies: CourseDependencies) {
+        self.dependencies = dependencies
         _viewModel = StateObject(wrappedValue: CourseListViewModel(service: dependencies.list))
     }
 
     @MainActor
-    init(viewModel: CourseListViewModel) {
+    init(viewModel: CourseListViewModel, dependencies: CourseDependencies) {
+        self.dependencies = dependencies
         _viewModel = StateObject(wrappedValue: viewModel)
     }
 
     var body: some View {
-        CoursePageContent(viewModel: viewModel)
+        CoursePageContent(viewModel: viewModel, dependencies: dependencies)
     }
 }
 
 /// 课程页具体内容，供独立页面和“成绩 / 课程”合并页使用。
 public struct CoursePageContent: View {
-    @Environment(CourseDependencies.self) private var dependencies
+    private let dependencies: CourseDependencies
     @ObservedObject var viewModel: CourseListViewModel
 
     public var body: some View {
+        content.environment(dependencies)
+    }
+
+    private var content: some View {
         Group {
             switch viewModel.state.status {
             case .idle where viewModel.state.items.isEmpty,
@@ -120,7 +126,8 @@ public struct CoursePageContent: View {
             }
         }
     }
-    public init(viewModel: CourseListViewModel) {
+    public init(viewModel: CourseListViewModel, dependencies: CourseDependencies) {
+        self.dependencies = dependencies
         self.viewModel = viewModel
     }
 }
@@ -186,7 +193,7 @@ struct CourseEvaluationRouteResolver {
 ///
 /// 解析成功后进入后续路由，解析失败时在当前页面展示 alert。
 public struct CourseEvaluationLink: View {
-    @Environment(CourseDependencies.self) private var dependencies
+    private let dependencies: CourseDependencies
     let request: CourseNavigationRequest
     let onResolved: (CourseNavigationRequest) -> Void
     @State private var isResolving = false
@@ -194,9 +201,11 @@ public struct CourseEvaluationLink: View {
     @State private var diagnosticAlert: AppAlert?
 
     public init(
+        dependencies: CourseDependencies,
         request: CourseNavigationRequest,
         onResolved: @escaping (CourseNavigationRequest) -> Void
     ) {
+        self.dependencies = dependencies
         self.request = request
         self.onResolved = onResolved
     }
@@ -242,7 +251,7 @@ public struct CourseEvaluationLink: View {
 /// 外部深链在导航后加载课程并显示失败状态；日程和成绩入口使用
 /// `CourseEvaluationLink`，在导航前处理失败。
 public struct CourseEvaluationDestination: View {
-    @Environment(CourseDependencies.self) private var dependencies
+    private let dependencies: CourseDependencies
     let request: CourseNavigationRequest
     @State private var course: CourseSummary?
     @State private var errorMessage: String?
@@ -311,7 +320,8 @@ public struct CourseEvaluationDestination: View {
             errorMessage = error.localizedDescription
         }
     }
-    public init(request: CourseNavigationRequest) {
+    public init(dependencies: CourseDependencies, request: CourseNavigationRequest) {
+        self.dependencies = dependencies
         self.request = request
     }
 }

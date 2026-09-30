@@ -1,3 +1,4 @@
+import SchedulePorts
 import TransportCore
 import ClientCore
 import CommunityTransport
@@ -97,7 +98,8 @@ private final class SequenceTransport: HTTPTransport {
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         requests.append(request)
         let (status, data) = responses.removeFirst()
-        let response = try #require(HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil))
+        let url = try #require(request.url)
+        let response = try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil))
         return (data, response)
     }
 }
@@ -111,9 +113,9 @@ struct CommunityTransportTests {
         let session = CommunitySession(
             httpClient: HTTPClient(transport: transport, observer: nil),
             baseURL: AppURL.required("https://example.invalid"),
-            cookie: { cookie },
+            credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "test-account"), cookie: cookie) },
             refresh: { observed in
-                refreshedCookies.append(observed)
+                refreshedCookies.append(observed.cookie)
                 cookie = "refreshed-cookie"
             }
         )
@@ -130,7 +132,7 @@ struct CommunityTransportTests {
         let session = CommunitySession(
             httpClient: HTTPClient(transport: transport, observer: nil),
             baseURL: AppURL.required("https://example.invalid"),
-            cookie: { "cookie" },
+            credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "test-account"), cookie: "cookie") },
             refresh: { _ in refreshCount += 1 }
         )
         let client: CommunityAPIClient<ModuleCommunityError> = session.client(errorDomain: "ModuleTests")
@@ -146,7 +148,7 @@ struct CommunityTransportTests {
         let session = CommunitySession(
             httpClient: HTTPClient(transport: transport, observer: nil),
             baseURL: AppURL.required("https://example.invalid"),
-            cookie: { "" },
+            credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "test-account"), cookie: "") },
             refresh: { _ in Issue.record("Unexpected session refresh") }
         )
         let client: CommunityAPIClient<ModuleCommunityError> = session.client(errorDomain: "ModuleTests")

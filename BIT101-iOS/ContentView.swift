@@ -1,3 +1,4 @@
+import ScoreDomain
 import ScoreFeature
 import TransportCore
 import DesignSystemKit

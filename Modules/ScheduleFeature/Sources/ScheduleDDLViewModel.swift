@@ -1,3 +1,4 @@
+import SchedulePorts
 import ClientCore
 import TransportCore
 import ScheduleDomain
@@ -143,7 +144,7 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
                 into: cache.ddlEvents
             )
             cache.ddlUpdatedAt = Date()
-            persist()
+            guard await persistAndWait(), accountGeneration == generation else { return false }
             if showSuccessNotice {
                 notice = ScheduleNotice.informational(
                     title: "DDL 同步成功",

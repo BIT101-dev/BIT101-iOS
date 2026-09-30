@@ -1,3 +1,5 @@
+import SchedulePorts
+import ScoreDomain
 @testable import ScheduleFeature
 @testable import ScheduleInfrastructure
 @testable import ScoreFeature

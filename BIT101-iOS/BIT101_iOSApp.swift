@@ -102,7 +102,6 @@ struct BIT101_iOSApp: App {
         AppUITestBootstrap.prepareForLaunch()
 #endif
         let preferenceCloudSync = ExperimentalPreferenceCloudSync.shared
-        ScheduleCacheStore.effects = AppScheduleCacheEffects()
         AppPreferenceCacheEffects.configure(sync: preferenceCloudSync)
         _lifecycle = StateObject(wrappedValue: AppAccountLifecycle(preferenceCloudSync: preferenceCloudSync))
     }

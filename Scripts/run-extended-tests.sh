@@ -229,6 +229,12 @@ report = None
 for line in process.stdout:
     if not line.strip() or line.startswith(("note: Removed stale file ", "Failed frontend command:")):
         continue
+    if line.startswith(("Test case ", "Test suite ", "Test Case ", "Test Suite ")) and " failed " not in line.lower():
+        continue
+    if "IDETestOperationsObserverDebug:" in line:
+        continue
+    if line.startswith(("◇ ", "✔ ")) and "Test run with" not in line:
+        continue
     if (line.startswith("/") and "swift-frontend -frontend" in line) or line.lstrip().startswith("builtin-SwiftDriver -- "):
         continue
     if report is None:

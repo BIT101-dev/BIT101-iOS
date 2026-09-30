@@ -1,3 +1,4 @@
+import StorageCore
 import DesignSystemKit
 import ScheduleContracts
 import ScheduleSharedStore
@@ -5,6 +6,10 @@ import ActivityKit
 import Foundation
 import SwiftUI
 import WidgetKit
+
+private nonisolated enum WidgetSnapshotStorage {
+    static let store = ScheduleExternalSnapshotStore(files: AppFileSystem.files, containerURL: AppFileSystem.files.appGroupContainerURL(identifier: ScheduleSharedContainer.identifier))
+}
 
 private let scheduleWidgetSyncMessage = "请先获取课表"
 private let scheduleWidgetInvalidMessage = "请重新同步课表"
@@ -208,7 +213,7 @@ private struct ScheduleWidgetProvider: TimelineProvider {
     }
 
     private func loadEntry(now: Date = Date()) -> ScheduleWidgetEntry {
-        let resolved = ScheduleOccurrenceResolver.loadResolvedSnapshot(now: now, limit: 6)
+        let resolved = ScheduleOccurrenceResolver.loadResolvedSnapshot(store: WidgetSnapshotStorage.store, now: now, limit: 6)
 
         switch resolved.contentState {
         case .missing:
