@@ -94,6 +94,7 @@ private struct ImageQuickLookPresenter: UIViewControllerRepresentable {
         private var preparationTask: Task<Void, Never>?
         private var upgradeTask: Task<Void, Never>?
         private var previewController: QLPreviewController?
+        private var placeholderURL: URL?
         private var items: [MutableQuickLookItem] = []
         private var isPreviewPresentationComplete = false
         private var pendingCurrentRefresh = false
@@ -184,7 +185,8 @@ private struct ImageQuickLookPresenter: UIViewControllerRepresentable {
                 for (index, image) in images.enumerated() {
                     try Task.checkCancellation()
                     guard let data = image.pngData() else { continue }
-                    let file = try await media.images.localFile(data: data)
+                    let cached = try await media.images.localFile(data: data)
+                    let file = try await media.previewFile(at: cached)
                     prepared.append(MutableQuickLookItem(url: file))
                     sourceIndexes.append(index)
                 }
@@ -198,42 +200,39 @@ private struct ImageQuickLookPresenter: UIViewControllerRepresentable {
             case let .remote(images):
                 guard !images.isEmpty else { throw QuickLookPreparationError.noImages }
                 let initialIndex = min(max(request.initialIndex, 0), images.count - 1)
-                let placeholder = try await media.images.placeholderFile()
+                let cachedPlaceholder = try await media.images.placeholderFile()
+                let placeholder = try await media.previewFile(at: cachedPlaceholder)
+                placeholderURL = placeholder
                 let prepared = images.map { _ in MutableQuickLookItem(url: placeholder) }
 
                 let initialImage = images[initialIndex]
                 let highURL = initialImage.originalURL
                 if let highURL,
                    let high = await media.images.cachedFile(for: highURL, variant: .original) {
-                    prepared[initialIndex].url = high
+                    prepared[initialIndex].url = try await media.previewFile(at: high)
                 } else if let lowURL = initialImage.thumbnailURL {
-                    // 首页已经展示过的缩略图必然已进入统一磁盘缓存；点击时只做
-                    // 一次缓存查询，不重新编码图片，也不等待帖子内其它图片。
+                    // 先查询已展示缩略图的统一缓存，当前图片优先进入系统预览。
                     if let cached = await media.images.cachedFile(
                         for: lowURL,
                         variant: .thumbnail
                     ) {
-                        prepared[initialIndex].url = cached
+                        prepared[initialIndex].url = try await media.previewFile(at: cached)
                     } else if let lowFile = try? await media.images.file(
                         for: lowURL,
                         variant: .thumbnail
                     ) {
                         // 极少数情况下，用户可能在图片尚未加载完成时立即点击；只有
                         // 这种缓存确实缺失的场景才兜底下载当前缩略图。
-                        prepared[initialIndex].url = lowFile
+                        prepared[initialIndex].url = try await media.previewFile(at: lowFile)
                     } else if let highURL {
                         // 缩略图服务异常时仍尝试原图，避免高清图可用却因低清失败而
                         // 直接关闭系统预览。
-                        prepared[initialIndex].url = try await media.images.file(
-                            for: highURL,
-                            variant: .original
-                        )
+                        let cached = try await media.images.file(for: highURL, variant: .original)
+                        prepared[initialIndex].url = try await media.previewFile(at: cached)
                     }
                 } else if let highURL {
-                    prepared[initialIndex].url = try await media.images.file(
-                        for: highURL,
-                        variant: .original
-                    )
+                    let cached = try await media.images.file(for: highURL, variant: .original)
+                    prepared[initialIndex].url = try await media.previewFile(at: cached)
                 }
                 return (prepared, initialIndex)
             }
@@ -256,10 +255,12 @@ private struct ImageQuickLookPresenter: UIViewControllerRepresentable {
                 guard !Task.isCancelled, requestID == request.id else { return }
                 let image = images[index]
                 if items.indices.contains(index),
-                   items[index].url.lastPathComponent == "preview-placeholder.png",
+                   items[index].url == placeholderURL,
                    let lowURL = image.thumbnailURL,
                    let lowFile = try? await media.images.file(for: lowURL, variant: .thumbnail) {
-                    items[index].url = lowFile
+                    guard let preview = try? await media.previewFile(at: lowFile) else { continue }
+                    guard !Task.isCancelled, requestID == request.id, items.indices.contains(index) else { return }
+                    items[index].url = preview
                 }
             }
             await currentUpgrade
@@ -275,8 +276,9 @@ private struct ImageQuickLookPresenter: UIViewControllerRepresentable {
             guard let highFile = try? await media.images.file(for: highURL, variant: .original) else {
                 return
             }
+            guard let preview = try? await media.previewFile(at: highFile) else { return }
             guard !Task.isCancelled, requestID == expectedID, items.indices.contains(index) else { return }
-            items[index].url = highFile
+            items[index].url = preview
 
             if previewController?.currentPreviewItemIndex == index {
                 if isPreviewPresentationComplete {

@@ -26,6 +26,7 @@ private enum ScoreSurface: String, CaseIterable, Identifiable, Hashable {
 ///
 /// 页面提供“成绩 / 课程”的顶部切换。
 struct ScoreRootView: View {
+    @Environment(AppCommunityDestinations.self) private var destinations
     private let courses: CourseDependencies
     @EnvironmentObject private var scoreViewModel: ScoreViewModel
     @StateObject private var courseViewModel: CourseListViewModel
@@ -60,7 +61,7 @@ struct ScoreRootView: View {
                     .simultaneousGesture(surfaceSwitchGesture)
                     .transition(.opacity)
             case .course:
-                CoursePageContent(viewModel: courseViewModel, dependencies: courses)
+                CoursePageContent(viewModel: courseViewModel, dependencies: courses, media: destinations.media, profiles: destinations.profiles)
                     .simultaneousGesture(surfaceSwitchGesture)
                     .transition(.opacity)
             }
@@ -77,10 +78,10 @@ struct ScoreRootView: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(item: $requestedCourse) { request in
             if let preparedCourse = request.preparedCourse {
-                CourseDetailView(dependencies: courses, initialCourse: preparedCourse)
+                CourseDetailView(dependencies: courses, media: destinations.media, profiles: destinations.profiles, initialCourse: preparedCourse)
                     .id(preparedCourse.id)
             } else {
-                CourseEvaluationDestination(dependencies: courses, request: request)
+                CourseEvaluationDestination(dependencies: courses, media: destinations.media, profiles: destinations.profiles, request: request)
             }
         }
         .task(id: requestedCourse?.id) {

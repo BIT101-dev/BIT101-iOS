@@ -15,7 +15,8 @@ import SwiftUI
 
 public struct GalleryPosterDetailView: View {
     private let dependencies: GalleryDependencies
-    @Environment(CommunityDestinations.self) private var destinations
+    private let destinations: CommunityProfileDestination
+    private let media: MediaEnvironment
     private struct UserRoute: Identifiable, Hashable {
         let userID: Int
         var id: Int { userID }
@@ -33,10 +34,14 @@ public struct GalleryPosterDetailView: View {
 
     public init(
         dependencies: GalleryDependencies,
+        media: MediaEnvironment,
+        profiles: CommunityProfileDestination,
         poster: CommunityPoster,
         onDeleted: (() -> Void)? = nil
     ) {
         self.dependencies = dependencies
+        self.media = media
+        self.destinations = profiles
         _viewModel = StateObject(wrappedValue: GalleryPosterDetailViewModel(initialPoster: poster, service: dependencies.posterDetail))
         self.onDeleted = onDeleted
     }
@@ -44,7 +49,7 @@ public struct GalleryPosterDetailView: View {
     @Environment(\.dismiss) private var dismiss
 
     public var body: some View {
-        content.environment(dependencies)
+        content.environment(dependencies).environment(media).environment(destinations)
     }
 
     private var content: some View {

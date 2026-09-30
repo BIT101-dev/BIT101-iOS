@@ -102,7 +102,6 @@ struct BIT101_iOSApp: App {
         AppUITestBootstrap.prepareForLaunch()
 #endif
         let preferenceCloudSync = ExperimentalPreferenceCloudSync.shared
-        AppPreferenceCacheEffects.configure(sync: preferenceCloudSync)
         _lifecycle = StateObject(wrappedValue: AppAccountLifecycle(preferenceCloudSync: preferenceCloudSync))
     }
 
@@ -139,10 +138,6 @@ struct BIT101_iOSApp: App {
             ContentView(transcriptService: lifecycle.transcriptService)
                 .environment(lifecycle.communityDestinations)
                 .environment(lifecycle.community)
-                .environment(lifecycle.community.gallery)
-                .environment(lifecycle.community.course)
-                .environment(lifecycle.community.paper)
-                .environment(lifecycle.community.mine)
                 .environment(AppMedia.environment)
                 .environmentObject(lifecycle.scheduleViewModel)
                 .environmentObject(lifecycle.scheduleViewModel.ddl)

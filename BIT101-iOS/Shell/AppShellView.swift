@@ -93,6 +93,7 @@ enum AppTab: String, Identifiable, Codable {
 /// 壳层负责底部 tab、跨模块路由、全局提示和退出登录回调。
 struct AppShellView: View {
     @Environment(AppCommunityDependencies.self) private var community
+    @Environment(AppCommunityDestinations.self) private var destinations
     private static let startupNoticeTitle = "1.8.3 版本更新"
     private static let startupNoticeBody = """
     优化使用体验。
@@ -130,6 +131,7 @@ struct AppShellView: View {
                     switch tab {
                     case .schedule:
                         ScheduleRootView(
+                            viewModel: scheduleViewModel,
                             requestedSection: $requestedScheduleSection,
                             destinations: .appDestinations(courses: community.course, onOpenAcademicCourse: { request in
                                 selectTab(.score)
@@ -150,12 +152,13 @@ struct AppShellView: View {
                         ScoreRootView(courses: community.course, transcriptService: transcriptService, requestedCourse: $requestedCourse)
                     case .gallery:
                         GalleryRootView(
-                            dependencies: community.gallery,
+                            dependencies: community.gallery, media: destinations.media,
+                            profiles: destinations.profiles, papers: destinations.papers,
                             requestedPaperID: $requestedPaperID,
                             requestedPosterID: $requestedPosterID
                         )
                     case .mine:
-                        MineRootView(dependencies: community.mine, fallbackStudentID: studentID, onLogout: onLogout)
+                        MineRootView(dependencies: community.mine, media: destinations.media, posters: destinations.posters, settings: destinations.settings, fallbackStudentID: studentID, onLogout: onLogout)
                     }
                 }
                 .tag(tab)
@@ -178,7 +181,7 @@ struct AppShellView: View {
             guard newPhase == .active else { return }
             refreshScheduleNotificationPromptIfNeeded()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .scheduleCacheDidChange)) { _ in
+        .onReceive(ScheduleCacheStore.changes) { _ in
             refreshScheduleNotificationPromptIfNeeded()
         }
         .onReceive(AppDeepLinkCoordinator.shared.$pendingURL.compactMap { $0 }) { url in

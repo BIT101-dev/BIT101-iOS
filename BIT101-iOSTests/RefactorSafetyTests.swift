@@ -1,3 +1,4 @@
+import ScheduleSync
 import SchedulePersistence
 @testable import GalleryFeature
 @testable import ScheduleFeature

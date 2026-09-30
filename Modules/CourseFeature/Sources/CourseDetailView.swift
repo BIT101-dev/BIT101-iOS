@@ -13,7 +13,8 @@ import SwiftUI
 
 public struct CourseDetailView: View {
     private let dependencies: CourseDependencies
-    @Environment(CommunityDestinations.self) private var destinations
+    private let destinations: CommunityProfileDestination
+    private let media: MediaEnvironment
     private struct UserRoute: Identifiable, Hashable {
         let userID: Int
         var id: Int { userID }
@@ -28,15 +29,17 @@ public struct CourseDetailView: View {
     @State private var imageViewer: ImagePreviewRequest?
     @State private var userRoute: UserRoute?
 
-    public init(dependencies: CourseDependencies, initialCourse: CourseSummary) {
+    public init(dependencies: CourseDependencies, media: MediaEnvironment, profiles: CommunityProfileDestination, initialCourse: CourseSummary) {
         self.dependencies = dependencies
+        self.media = media
+        self.destinations = profiles
         self.initialCourse = initialCourse
         _appSettings = ObservedObject(wrappedValue: dependencies.preferences)
         _viewModel = StateObject(wrappedValue: CourseDetailViewModel(initialCourse: initialCourse, service: dependencies.detail, loadCourseCredits: dependencies.loadCourseCredits))
     }
 
     public var body: some View {
-        content.environment(dependencies)
+        content.environment(dependencies).environment(media).environment(destinations)
     }
 
     private var content: some View {

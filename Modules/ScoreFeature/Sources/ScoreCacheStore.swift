@@ -1,5 +1,6 @@
 import ScoreDomain
 import StorageCore
+import Combine
 import Foundation
 import OSLog
 
@@ -72,7 +73,8 @@ nonisolated enum ScoreCacheDiskWriteResult: Sendable {
 ///
 /// 按学号隔离；文件读写、JSON 编解码和变更串行化均在专用 actor 执行。
 public final class ScoreCacheStore {
-    public var didSave: ((AppStorageSession) -> Void)?
+    private let saveSubject = PassthroughSubject<AppStorageSession, Never>()
+    public var localSaves: AnyPublisher<AppStorageSession, Never> { saveSubject.eraseToAnyPublisher() }
     private nonisolated static let logger = Logger(subsystem: "BIT101", category: "ScoreCache")
     private let repository: ScoreCacheDiskRepository
     private let defaults: UserDefaults
@@ -198,9 +200,9 @@ public final class ScoreCacheStore {
 
         clearLegacyDefaults(for: session)
         if syncPreference {
-            didSave?(session)
+            saveSubject.send(session)
         }
-        notificationCenter.post(name: .scoreCacheDidChange, object: nil)
+        notificationCenter.post(name: .scoreCacheDidChange, object: self, userInfo: ["session": session])
         return snapshot.updatedAt
     }
 
@@ -384,4 +386,3 @@ actor ScoreCacheDiskRepository {
 extension Notification.Name {
     public static let scoreCacheDidChange = Notification.Name("scoreCacheDidChange")
 }
-

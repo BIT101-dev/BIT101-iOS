@@ -12,6 +12,7 @@ import UIKit
 
 struct PaperDetailView: View {
     private let dependencies: PaperDependencies
+    private let media: MediaEnvironment
     @Environment(\.scenePhase) private var scenePhase
     let initialPaper: PaperSummary
 
@@ -23,13 +24,14 @@ struct PaperDetailView: View {
     @State private var isShowingDeleteConfirmation = false
     @Environment(\.dismiss) private var dismiss
 
-    init(dependencies: PaperDependencies, initialPaper: PaperSummary) {
+    init(dependencies: PaperDependencies, media: MediaEnvironment, initialPaper: PaperSummary) {
         self.dependencies = dependencies
+        self.media = media
         self.initialPaper = initialPaper
         _viewModel = StateObject(wrappedValue: PaperDetailViewModel(initialPaper: initialPaper, service: dependencies.detail))
     }
 
-    var body: some View { content.environment(dependencies) }
+    var body: some View { content.environment(dependencies).environment(media) }
 
     private var content: some View {
         ScrollView {

@@ -58,9 +58,9 @@ public final class ScoreViewModel: ObservableObject {
     private let cacheStore: ScoreCacheStore
     private let preferenceStore: ScoreFilterPreferenceStore
     private var preferenceSnapshot: ScoreFilterPreferenceSnapshot?
-    private var preferenceObserverTask: Task<Void, Never>?
-    private var scoreCacheObserverTask: Task<Void, Never>?
-    private var scheduleCacheObserverTask: Task<Void, Never>?
+    private var preferenceObserver: AnyCancellable?
+    private var scoreCacheObserver: AnyCancellable?
+    private var scheduleCacheObserver: AnyCancellable?
     private var cachedCoursesByTerm: [String: [ScoreCourseSummary]] = [:]
 
     public init(
@@ -68,7 +68,7 @@ public final class ScoreViewModel: ObservableObject {
         cacheStore: ScoreCacheStore,
         preferenceStore: ScoreFilterPreferenceStore,
         currentScoreCacheSession: @escaping @MainActor () -> AppStorageSession,
-        scheduleCoursesDidChange: Notification.Name,
+        scheduleCoursesChanges: AnyPublisher<AppStorageSession, Never>,
         loadScheduleCourses: @escaping @MainActor (AppStorageSession) async -> [String: [ScoreCourseSummary]],
         notificationCenter: NotificationCenter = .default
     ) {
@@ -90,30 +90,28 @@ public final class ScoreViewModel: ObservableObject {
         {
             sortOrder = persistedSortOrder
         }
-        preferenceObserverTask = Task { @MainActor [weak self] in
-            for await _ in notificationCenter.notifications(named: .scoreFilterPreferencesDidChange) {
-                guard let self else { return }
-                self.applyPersistedFilterPreferences()
-            }
+        preferenceObserver = notificationCenter.publisher(for: .scoreFilterPreferencesDidChange).sink { [weak self] notification in
+            guard let self, (notification.object as AnyObject?) === self.preferenceStore,
+                  notification.userInfo?["session"] as? AppStorageSession == self.currentScoreCacheSession() else { return }
+            self.applyPersistedFilterPreferences()
         }
-        scoreCacheObserverTask = Task { @MainActor [weak self] in
-            for await _ in notificationCenter.notifications(named: .scoreCacheDidChange) {
-                guard let self else { return }
+        scoreCacheObserver = notificationCenter.publisher(for: .scoreCacheDidChange).sink { [weak self] notification in
+            guard let self, (notification.object as AnyObject?) === self.cacheStore,
+                  notification.userInfo?["session"] as? AppStorageSession == self.currentScoreCacheSession() else { return }
+            let generation = self.accountGeneration
+            Task { @MainActor [weak self] in
+                guard let self, self.accountGeneration == generation else { return }
                 await self.applySyncedScoreCacheIfAvailable()
             }
         }
-        scheduleCacheObserverTask = Task { @MainActor [weak self] in
-            for await _ in notificationCenter.notifications(named: scheduleCoursesDidChange) {
-                guard let self else { return }
+        scheduleCacheObserver = scheduleCoursesChanges.sink { [weak self] session in
+            guard let self, session == self.currentScoreCacheSession() else { return }
+            let generation = self.accountGeneration
+            Task { @MainActor [weak self] in
+                guard let self, self.accountGeneration == generation, session == self.currentScoreCacheSession() else { return }
                 await self.refreshCachedScheduleCourses()
             }
         }
-    }
-
-    deinit {
-        preferenceObserverTask?.cancel()
-        scoreCacheObserverTask?.cancel()
-        scheduleCacheObserverTask?.cancel()
     }
 
     /// 切换账号后重置内存状态；下一次启动按新学号恢复磁盘缓存。
@@ -756,4 +754,3 @@ public final class ScoreViewModel: ObservableObject {
         return try await task.value
     }
 }
-

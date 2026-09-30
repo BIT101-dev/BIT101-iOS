@@ -52,6 +52,22 @@ public nonisolated struct ScheduleExternalCourseSnapshot: Codable, Hashable, Sen
         self.endSection = endSection
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case id, name, classroom, teacher, weeks, weekday, startSection, endSection
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        name = try values.decode(String.self, forKey: .name)
+        classroom = try values.decodeIfPresent(String.self, forKey: .classroom) ?? ""
+        teacher = try values.decodeIfPresent(String.self, forKey: .teacher) ?? ""
+        weeks = try values.decode([Int].self, forKey: .weeks)
+        weekday = try values.decode(Int.self, forKey: .weekday)
+        startSection = try values.decode(Int.self, forKey: .startSection)
+        endSection = try values.decodeIfPresent(Int.self, forKey: .endSection) ?? startSection
+    }
+
     public let id: String
     public let name: String
     public let classroom: String

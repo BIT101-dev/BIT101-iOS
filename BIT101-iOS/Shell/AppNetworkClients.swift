@@ -102,6 +102,7 @@ enum NetworkSessionPool {
 enum AppMedia {
     static let environment = MediaEnvironment(
         files: AppFileDirectories.files,
+        previewFiles: AppFileDirectories.files,
         defaults: AppFileDirectories.defaults,
         imageHTTPClient: .community,
         avatarHTTPClient: .shared

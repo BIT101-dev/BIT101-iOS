@@ -1,3 +1,4 @@
+import BIT101TestSupport
 import StorageCore
 import Foundation
 import ScheduleContracts
@@ -54,6 +55,23 @@ struct ScheduleContractsTests {
         #expect(course.endSection == 2)
         #expect(shared.currentTerm == cache.currentTerm)
         #expect(shared.firstDayString == cache.firstDayString)
+    }
+
+    @Test func fixedEarlierPayloadAndFutureFieldsUseTheSharedWatchCodec() throws {
+        let payload = Data(#"{"isLoggedIn":true,"studentID":"fixture-account","firstDayString":"2026-09-28","timeTable":[{"id":1,"start":"08:00","end":"08:45","futureTimeField":1}],"courses":[{"id":"fixture-course","name":"固定课程","weeks":[1],"weekday":1,"startSection":1,"futureCourseField":true}],"futureSnapshotField":"value"}"#.utf8)
+        let context = WatchScheduleTransferProtocol.snapshotContext(payload)
+        let decoded = try ScheduleExternalSnapshotCodec.decode(#require(WatchScheduleTransferProtocol.snapshotData(from: context)))
+        #expect(decoded.generatedAt == .distantPast)
+        #expect(decoded.courses.first?.teacher == "")
+        #expect(decoded.courses.first?.classroom == "")
+        #expect(decoded.courses.first?.endSection == 1)
+        #expect(decoded.timeTable.first?.start == "08:00")
+        #expect(try ScheduleExternalSnapshotCodec.decode(ScheduleExternalSnapshotCodec.encode(decoded)) == decoded)
+    }
+
+    @Test func incompleteSchedulingIdentityHasAnExplicitDecodeFailure() {
+        let payload = Data(#"{"courses":[{"id":"fixture-course","name":"课程","weeks":[1],"startSection":1}]}"#.utf8)
+        #expect(throws: DecodingError.self) { try ScheduleExternalSnapshotCodec.decode(payload) }
     }
 
     @Test func snapshotRoundTripPreservesContract() throws {

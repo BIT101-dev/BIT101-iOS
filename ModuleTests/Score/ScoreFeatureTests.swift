@@ -1,3 +1,5 @@
+import Combine
+import BIT101TestSupport
 import ScoreDomain
 import TransportCore
 import CommunityCore
@@ -30,10 +32,49 @@ struct ScoreFeatureTests {
         let preferences = ScoreFilterPreferenceStore(defaults: defaults, session: session, notificationCenter: notifications)
         let viewModel = ScoreViewModel(
             service: service, cacheStore: cache, preferenceStore: preferences, currentScoreCacheSession: session,
-            scheduleCoursesDidChange: Notification.Name("moduleScoreCoursesChanged"), loadScheduleCourses: { _ in [:] },
+            scheduleCoursesChanges: Empty().eraseToAnyPublisher(), loadScheduleCourses: { _ in [:] },
             notificationCenter: notifications
         )
         return (viewModel, cache)
+    }
+
+    @Test func localSaveSubscriptionsFanOutAndCancelByOwner() async throws {
+        let (_, cache) = try makeViewModel(service: ScoreServiceSpy(requiresSMS: false))
+        var first: [AppStorageSession] = []
+        var second: [AppStorageSession] = []
+        let firstSubscription = cache.localSaves.sink { first.append($0) }
+        let secondSubscription = cache.localSaves.sink { second.append($0) }
+        #expect(await cache.save(rows: []) != nil)
+        #expect(first == second)
+        #expect(first.count == 1)
+        firstSubscription.cancel()
+        #expect(await cache.save(rows: []) != nil)
+        #expect(first.count == 1)
+        #expect(second.count == 2)
+        withExtendedLifetime(secondSubscription) {}
+    }
+
+    @Test func sharedNotificationCenterKeepsPreferenceSourcesScoped() async throws {
+        let defaults = try #require(UserDefaults(suiteName: "BIT101ModulesTests.score.scopes"))
+        defer { defaults.removePersistentDomain(forName: "BIT101ModulesTests.score.scopes") }
+        let session = AppStorageSession(accountIdentifier: "same-account")
+        let center = NotificationCenter()
+        let firstStore = ScoreFilterPreferenceStore(defaults: defaults, session: { session }, notificationCenter: center)
+        let secondStore = ScoreFilterPreferenceStore(defaults: defaults, session: { session }, notificationCenter: center)
+        func model(_ preferences: ScoreFilterPreferenceStore) -> ScoreViewModel {
+            ScoreViewModel(service: ScoreServiceSpy(requiresSMS: false),
+                cacheStore: ScoreCacheStore(files: ModuleScoreFiles(), storageRoot: URL(fileURLWithPath: "/module-score"), defaults: defaults, session: { session }, notificationCenter: center),
+                preferenceStore: preferences, currentScoreCacheSession: { session },
+                scheduleCoursesChanges: Empty().eraseToAnyPublisher(), loadScheduleCourses: { _ in [:] }, notificationCenter: center)
+        }
+        let first = model(firstStore)
+        let second = model(secondStore)
+        firstStore.applySynced(.init(sortIndex: "score", sortOrder: "descending"))
+        #expect(first.sortIndex == .score)
+        #expect(second.sortIndex == .courseName)
+        center.post(name: .scoreFilterPreferencesDidChange, object: secondStore,
+                    userInfo: ["session": AppStorageSession(accountIdentifier: "stale-account")])
+        #expect(second.sortIndex == .courseName)
     }
 
     private final class ScoreServiceSpy: ScoreListServicing {
@@ -253,101 +294,5 @@ struct ScoreFeatureTests {
             headers: ["课程编号", "课程名称", "成绩", "学分"],
             values: ["MATH-\(index)", "高等数学", score, "4"]
         )
-    }
-}
-
-
-nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
-    private let state = OSAllocatedUnfairLock(initialState: State())
-    private struct State {
-        var data: [URL: Data] = [:]
-        var dates: [URL: Date] = [:]
-        var directories: Set<URL> = []
-        var failsWriting = false
-        var failsRemoval = false
-        var options: [URL: Data.WritingOptions] = [:]
-    }
-    func setFailures(writing: Bool = false, removal: Bool = false) {
-        return state.withLock { state in
-            state.failsWriting = writing
-            state.failsRemoval = removal
-        }
-    }
-    func writingOptions(at url: URL) -> Data.WritingOptions? {
-        return state.withLock { state in
-            return state.options[url]
-        }
-    }
-    var temporaryDirectoryURL: URL { URL(fileURLWithPath: "/module-score") }
-    func directoryURL(_ directory: FileManager.SearchPathDirectory) -> URL? { temporaryDirectoryURL }
-    func appGroupContainerURL(identifier: String) -> URL? { temporaryDirectoryURL }
-    func fileExists(at url: URL) -> Bool {
-        return state.withLock { state in
-            return state.data[url] != nil || state.directories.contains(url)
-        }
-    }
-    func readData(at url: URL) throws -> Data {
-        return try state.withLock { state in
-            guard let value = state.data[url] else { throw CocoaError(.fileReadNoSuchFile) }
-            return value
-        }
-    }
-    func writeData(_ value: Data, to url: URL, options: Data.WritingOptions) throws {
-        return try state.withLock { state in
-            if state.failsWriting { throw CocoaError(.fileWriteNoPermission) }
-            state.data[url] = value
-            state.dates[url] = Date()
-            state.options[url] = options
-        }
-    }
-    func createDirectory(at url: URL) throws {
-        return state.withLock { state in
-            _ = state.directories.insert(url)
-        }
-    }
-    func removeItem(at url: URL) throws {
-        return try state.withLock { state in
-            if state.failsRemoval { throw CocoaError(.fileWriteNoPermission) }
-            state.data.removeValue(forKey: url)
-            state.dates.removeValue(forKey: url)
-            state.directories.remove(url)
-        }
-    }
-    func setPrivateFileProtection(at url: URL) throws {}
-    func setExcludedFromBackup(at url: URL) throws {}
-    func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL] {
-        return state.withLock { state in
-            return Array(Set(state.data.keys).union(state.directories)).filter { $0.deletingLastPathComponent() == url }
-        }
-    }
-    func regularFileSize(at url: URL) -> Int? {
-        return state.withLock { state in
-            return state.data[url]?.count
-        }
-    }
-    func isRegularFile(at url: URL) -> Bool { regularFileSize(at: url) != nil }
-    func modificationDate(at url: URL) -> Date? {
-        return state.withLock { state in
-            return state.dates[url]
-        }
-    }
-    func setModificationDate(_ date: Date, at url: URL) throws {
-        return state.withLock { state in
-            state.dates[url] = date
-        }
-    }
-    func removeContents(of directory: URL) -> Bool {
-        return state.withLock { state in
-            let prefix = directory.path + "/"
-            state.data = state.data.filter { !$0.key.path.hasPrefix(prefix) }
-            state.dates = state.dates.filter { !$0.key.path.hasPrefix(prefix) }
-            state.directories = Set(state.directories.filter { !$0.path.hasPrefix(prefix) })
-            return true
-        }
-    }
-    func totalRegularFileSize(at directory: URL) -> Int64 {
-        return state.withLock { state in
-            return state.data.filter { $0.key.path.hasPrefix(directory.path + "/") }.values.reduce(0) { $0 + Int64($1.count) }
-        }
     }
 }

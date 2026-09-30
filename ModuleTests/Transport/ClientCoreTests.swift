@@ -44,7 +44,7 @@ struct ScheduleInfrastructureTests {
     }
 
     @Test func schoolFixtureParsingRunsInThePackageHost() throws {
-        let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appending(path: "BIT101-iOSTests/Fixtures/schedule-service-response.json")
         let data = try Data(contentsOf: fixture)
         let response = try JSONDecoder().decode(CourseResponse.self, from: data)

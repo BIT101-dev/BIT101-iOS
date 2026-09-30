@@ -15,6 +15,8 @@ import SwiftUI
 
 struct GalleryMessagesView: View {
     @Environment(GalleryDependencies.self) private var dependencies
+    @Environment(MediaEnvironment.self) private var media
+    @Environment(CommunityProfileDestination.self) private var profiles
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject var viewModel: GalleryMessageViewModel
     @Environment(\.dismiss) private var dismiss
@@ -147,7 +149,7 @@ struct GalleryMessagesView: View {
             }
         }
         .navigationDestination(item: $selectedPoster) { poster in
-            GalleryPosterDetailView(dependencies: dependencies, poster: poster)
+            GalleryPosterDetailView(dependencies: dependencies, media: media, profiles: profiles, poster: poster)
         }
         .diagnosticAlert(item: $viewModel.alert)
         .diagnosticAlert(item: $localAlert)

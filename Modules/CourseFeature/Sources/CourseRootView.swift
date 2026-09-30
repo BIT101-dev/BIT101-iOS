@@ -1,36 +1,15 @@
 #if os(iOS)
+import MediaKit
 import CommunityUI
 import TransportCore
 import DesignSystemKit
 import SwiftUI
 
-/// 课程页根视图。
-///
-/// 提供课程浏览和详情入口。
-struct CourseRootView: View {
-    private let dependencies: CourseDependencies
-    @StateObject private var viewModel: CourseListViewModel
-
-    @MainActor
-    init(dependencies: CourseDependencies) {
-        self.dependencies = dependencies
-        _viewModel = StateObject(wrappedValue: CourseListViewModel(service: dependencies.list))
-    }
-
-    @MainActor
-    init(viewModel: CourseListViewModel, dependencies: CourseDependencies) {
-        self.dependencies = dependencies
-        _viewModel = StateObject(wrappedValue: viewModel)
-    }
-
-    var body: some View {
-        CoursePageContent(viewModel: viewModel, dependencies: dependencies)
-    }
-}
-
 /// 课程页具体内容，供独立页面和“成绩 / 课程”合并页使用。
 public struct CoursePageContent: View {
     private let dependencies: CourseDependencies
+    private let media: MediaEnvironment
+    private let profiles: CommunityProfileDestination
     @ObservedObject var viewModel: CourseListViewModel
 
     public var body: some View {
@@ -111,7 +90,7 @@ public struct CoursePageContent: View {
         } else {
             ForEach(viewModel.state.items) { course in
                 NavigationLink {
-                    CourseDetailView(dependencies: dependencies, initialCourse: course)
+                    CourseDetailView(dependencies: dependencies, media: media, profiles: profiles, initialCourse: course)
                 } label: {
                     CourseListRow(course: course)
                 }
@@ -126,8 +105,10 @@ public struct CoursePageContent: View {
             }
         }
     }
-    public init(viewModel: CourseListViewModel, dependencies: CourseDependencies) {
+    public init(viewModel: CourseListViewModel, dependencies: CourseDependencies, media: MediaEnvironment, profiles: CommunityProfileDestination) {
         self.dependencies = dependencies
+        self.media = media
+        self.profiles = profiles
         self.viewModel = viewModel
     }
 }
@@ -252,6 +233,8 @@ public struct CourseEvaluationLink: View {
 /// `CourseEvaluationLink`，在导航前处理失败。
 public struct CourseEvaluationDestination: View {
     private let dependencies: CourseDependencies
+    private let media: MediaEnvironment
+    private let profiles: CommunityProfileDestination
     let request: CourseNavigationRequest
     @State private var course: CourseSummary?
     @State private var errorMessage: String?
@@ -261,7 +244,7 @@ public struct CourseEvaluationDestination: View {
     public var body: some View {
         Group {
             if let course {
-                CourseDetailView(dependencies: dependencies, initialCourse: course)
+                CourseDetailView(dependencies: dependencies, media: media, profiles: profiles, initialCourse: course)
                     .id(course.id)
             } else if let expectedErrorMessage {
                 AppEmptyState(
@@ -320,8 +303,10 @@ public struct CourseEvaluationDestination: View {
             errorMessage = error.localizedDescription
         }
     }
-    public init(dependencies: CourseDependencies, request: CourseNavigationRequest) {
+    public init(dependencies: CourseDependencies, media: MediaEnvironment, profiles: CommunityProfileDestination, request: CourseNavigationRequest) {
         self.dependencies = dependencies
+        self.media = media
+        self.profiles = profiles
         self.request = request
     }
 }

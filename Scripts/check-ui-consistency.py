@@ -462,7 +462,7 @@ COMPONENT_CONTRACTS = (
     ComponentContract(
         name="首屏状态页",
         view_names=(
-            "CourseRootView", "CoursePageContent", "GalleryMessagesView",
+            "CoursePageContent", "GalleryMessagesView",
             "MineRootView", "UserProfileRootView", "MineUserListView", "MinePosterListView",
             "ScoreRootView", "ScoreListPage", "TrustedTranscriptPage",
             "PaperRootView", "PaperSearchView",

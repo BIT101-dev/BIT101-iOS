@@ -94,7 +94,8 @@ struct AppSettingsSyncPayload: Codable, Equatable {
 ///
 /// 当前账号的账号偏好和话廊筛选偏好都会统一写入这里，再由具体页面按需读取。
 final class AppSettingsStore: ObservableObject {
-    var didSave: (() -> Void)?
+    private let saveSubject = PassthroughSubject<AppStorageSession, Never>()
+    var localSaves: AnyPublisher<AppStorageSession, Never> { saveSubject.eraseToAnyPublisher() }
     static let shared = AppSettingsStore()
     /// 各账号设置快照在 `UserDefaults` 中使用的 key 前缀。
     nonisolated static let storageKeyPrefix = "app.settings.snapshot"
@@ -301,7 +302,7 @@ final class AppSettingsStore: ObservableObject {
             if legacyKey != currentStorageKey { defaults.removeObject(forKey: legacyKey) }
         }
         if syncPreferences {
-            didSave?()
+            saveSubject.send(session())
         }
     }
 

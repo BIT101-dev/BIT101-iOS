@@ -1,0 +1,237 @@
+import Foundation
+import ScheduleDomain
+import ScheduleSync
+import StorageCore
+import Testing
+
+@MainActor
+struct ScheduleSyncTests {
+    private final class Local {
+        var account = ScheduleCloudAccount(studentID: "A", session: AppStorageSession(accountIdentifier: "A"), generation: 1)
+        var cache = ScheduleCache()
+        var sources: [ScheduleCacheSaveSource] = []
+        var failsSave = false
+        private var saveWaiter: CheckedContinuation<Void, Never>?
+        var resolutions: [@Sendable (ScheduleCacheConflictResolution?) async -> Void] = []
+
+        init() {
+            cache.iCloudSyncEnabled = true
+            cache.updatedAt = Date(timeIntervalSince1970: 30)
+            cache.primaryScheduleTitle = "local"
+        }
+
+        var store: ScheduleCloudLocalStore {
+            ScheduleCloudLocalStore(
+                currentAccount: { self.account },
+                load: { session in await MainActor.run { session == self.account.session ? .loaded(self.cache) : .missing } },
+                save: { value, source, account, expected in
+                    guard account == self.account, expected == nil || expected == self.cache.updatedAt,
+                          !self.failsSave else { return false }
+                    self.cache = value
+                    self.sources.append(source)
+                    self.saveWaiter?.resume(); self.saveWaiter = nil
+                    return true
+                }
+            )
+        }
+
+        func waitForSave() async {
+            if !sources.isEmpty { return }
+            await withCheckedContinuation { saveWaiter = $0 }
+        }
+
+        func manager(_ transport: Cloud) -> ScheduleCloudSyncManager {
+            ScheduleCloudSyncManager(local: store, transport: transport,
+                                     presentConflict: { _, resolve in self.resolutions.append(resolve) })
+        }
+    }
+
+    private actor Cloud: ScheduleCloudTransport {
+        var remote: ScheduleCloudRecord?
+        var saved: [ScheduleCloudRecord] = []
+        var readGate: CheckedContinuation<Void, Never>?
+        var saveGate: CheckedContinuation<Void, Never>?
+        var entryWaiter: CheckedContinuation<Void, Never>?
+        var entered = false
+        let holdRead: Bool
+        let holdSave: Bool
+        var conflict: ScheduleCloudRecord?
+
+        init(remote: ScheduleCloudRecord? = nil, holdRead: Bool = false, holdSave: Bool = false,
+             conflict: ScheduleCloudRecord? = nil) {
+            self.remote = remote
+            self.holdRead = holdRead
+            self.holdSave = holdSave
+            self.conflict = conflict
+        }
+
+        func replaceRemote(_ record: ScheduleCloudRecord) { remote = record }
+        func accountAvailable() async throws -> Bool { true }
+        func waitForEntry() async {
+            if entered { return }
+            await withCheckedContinuation { entryWaiter = $0 }
+        }
+        func resume() {
+            readGate?.resume(); readGate = nil
+            saveGate?.resume(); saveGate = nil
+        }
+        private func signal() {
+            entered = true
+            entryWaiter?.resume(); entryWaiter = nil
+        }
+        func record(named name: String) async throws -> ScheduleCloudRecord {
+            if holdRead && !entered {
+                await withCheckedContinuation { readGate = $0; signal() }
+            }
+            guard let remote else { throw ScheduleCloudTransportError.unknownItem }
+            return remote
+        }
+        func save(_ record: ScheduleCloudRecord) async throws -> ScheduleCloudRecord {
+            if let conflict {
+                remote = conflict
+                self.conflict = nil
+                throw ScheduleCloudTransportError.serverRecordChanged
+            }
+            saved.append(record)
+            if holdSave {
+                await withCheckedContinuation { saveGate = $0; signal() }
+            }
+            var result = record
+            result.modificationDate = Date(timeIntervalSince1970: 60)
+            result.recordChangeTag = "saved-tag"
+            remote = result
+            return result
+        }
+    }
+
+    private struct Envelope: Encodable {
+        let schemaVersion: Int
+        let payload: Payload
+        struct Payload: Encodable {
+            let updatedAt: Date
+            let state: ScheduleCloudSyncState
+        }
+    }
+
+    private func record(title: String, updatedAt: TimeInterval, tag: String = "remote-tag",
+                        studentID: String = "A", version: Int = 2, recordName: String = "schedule-cache-A") throws -> ScheduleCloudRecord {
+        var cache = ScheduleCache()
+        cache.primaryScheduleTitle = title
+        cache.updatedAt = Date(timeIntervalSince1970: updatedAt)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let payload = try encoder.encode(Envelope(schemaVersion: version, payload: .init(updatedAt: cache.updatedAt, state: ScheduleCloudSyncState(cache: cache))))
+        return ScheduleCloudRecord(recordName: recordName, recordType: "ScheduleCacheSyncRecord",
+            studentID: studentID, updatedAt: cache.updatedAt, payloadJSON: String(decoding: payload, as: UTF8.self),
+            modificationDate: cache.updatedAt, recordChangeTag: tag, systemFields: Data("lock-token".utf8))
+    }
+
+    @Test func remoteApplyUsesTheInjectedLocalOwnerAndPreservesSchoolData() async throws {
+        let local = Local()
+        local.cache.currentTerm = "school-term"
+        local.cache.cachedCoursesByTerm = ["school-term": []]
+        let manager = local.manager(Cloud(remote: try record(title: "remote", updatedAt: 40)))
+        await manager.refreshFromCloudIfNeeded()
+        #expect(local.cache.primaryScheduleTitle == "remote")
+        #expect(local.cache.currentTerm == "school-term")
+        #expect(local.cache.cachedCoursesByTerm.keys.contains("school-term"))
+        #expect(local.cache.cloudSyncBaselineRecordTag == "remote-tag")
+        #expect(local.sources == [.cloud])
+    }
+
+    @Test func delayedRemoteReadHonorsTheAccountGenerationAcrossRoundTripSwitches() async throws {
+        let local = Local()
+        let cloud = Cloud(remote: try record(title: "remote", updatedAt: 40), holdRead: true)
+        let manager = local.manager(cloud)
+        let task = Task { await manager.refreshFromCloudIfNeeded() }
+        await cloud.waitForEntry()
+        local.account = ScheduleCloudAccount(studentID: "A", session: local.account.session, generation: 3)
+        await cloud.resume()
+        await task.value
+        #expect(local.cache.primaryScheduleTitle == "local")
+        #expect(local.sources.isEmpty)
+        #expect(await cloud.saved.isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aRefreshRequestedDuringAccountSwitchRunsForTheCurrentOwner() async throws {
+        let local = Local()
+        let cloud = Cloud(remote: try record(title: "A remote", updatedAt: 40), holdRead: true)
+        let manager = local.manager(cloud)
+        let first = Task { await manager.refreshFromCloudIfNeeded() }
+        await cloud.waitForEntry()
+        local.account = ScheduleCloudAccount(studentID: "B", session: AppStorageSession(accountIdentifier: "B"), generation: 2)
+        local.cache.primaryScheduleTitle = "B local"
+        await cloud.replaceRemote(try record(title: "B remote", updatedAt: 40, studentID: "B", recordName: "schedule-cache-B"))
+        await manager.refreshFromCloudIfNeeded()
+        await cloud.resume()
+        await first.value
+        await local.waitForSave()
+        #expect(local.cache.primaryScheduleTitle == "B remote")
+        #expect(local.sources == [.cloud])
+    }
+
+    @Test func localEditsDuringCloudSaveKeepTheirDirtyStateAndReceiveTheBaseline() async {
+        let local = Local()
+        local.cache.hasUnpushedCloudChanges = true
+        let cloud = Cloud(holdSave: true)
+        let manager = local.manager(cloud)
+        let task = Task { await manager.pushLatestLocalCacheIfNeeded() }
+        await cloud.waitForEntry()
+        local.cache.primaryScheduleTitle = "continued edit"
+        local.cache.updatedAt = Date(timeIntervalSince1970: 45)
+        await cloud.resume()
+        await task.value
+        #expect(local.cache.primaryScheduleTitle == "continued edit")
+        #expect(local.cache.updatedAt == Date(timeIntervalSince1970: 45))
+        #expect(local.cache.hasUnpushedCloudChanges)
+        #expect(local.cache.cloudSyncBaselineRecordTag == "saved-tag")
+        #expect(local.sources == [.cloudBaseline])
+    }
+
+    @Test func optimisticLockConflictRefetchesAndUsesTheInjectedDecision() async throws {
+        let local = Local()
+        local.cache.hasUnpushedCloudChanges = true
+        local.cache.cloudSyncBaselineRecordTag = "old-tag"
+        let cloud = Cloud(remote: try record(title: "old", updatedAt: 20, tag: "old-tag"),
+                          conflict: try record(title: "concurrent remote", updatedAt: 40))
+        let manager = local.manager(cloud)
+        await manager.pushLatestLocalCacheIfNeeded()
+        #expect(local.resolutions.count == 1)
+        let resolve = try #require(local.resolutions.first)
+        await resolve(.useCloud)
+        #expect(local.cache.primaryScheduleTitle == "concurrent remote")
+        #expect(local.cache.hasUnpushedCloudChanges == false)
+        #expect(local.sources == [.cloud])
+    }
+
+    @Test func invalidIdentityAndFuturePayloadVersionsPreserveLocalState() async throws {
+        for remote in [try record(title: "wrong account", updatedAt: 40, studentID: "B"),
+                       try record(title: "future", updatedAt: 40, version: 3)] {
+            let local = Local()
+            let cloud = Cloud(remote: remote)
+            await local.manager(cloud).refreshFromCloudIfNeeded()
+            #expect(local.cache.primaryScheduleTitle == "local")
+            #expect(local.sources.isEmpty)
+            #expect(await cloud.saved.isEmpty)
+        }
+    }
+
+    @Test func localCompareAndSaveFailurePreservesCache() async throws {
+        let local = Local()
+        local.failsSave = true
+        await local.manager(Cloud(remote: try record(title: "remote", updatedAt: 40))).refreshFromCloudIfNeeded()
+        #expect(local.cache.primaryScheduleTitle == "local")
+        #expect(local.sources.isEmpty)
+    }
+
+    @Test func uploadingAnExistingRecordCarriesItsProviderLockToken() async throws {
+        let local = Local()
+        let cloud = Cloud(remote: try record(title: "old", updatedAt: 20))
+        await local.manager(cloud).pushLatestLocalCacheIfNeeded()
+        let saved = try #require(await cloud.saved.first)
+        #expect(saved.systemFields == Data("lock-token".utf8))
+        #expect(saved.recordName == "schedule-cache-A")
+        #expect(local.cache.cloudSyncBaselineRecordTag == "saved-tag")
+    }
+}

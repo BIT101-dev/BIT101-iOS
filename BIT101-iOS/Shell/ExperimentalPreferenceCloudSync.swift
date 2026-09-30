@@ -164,6 +164,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     private var cloudObserverTask: Task<Void, Never>?
     private var reconciliationTask: Task<Void, Never>?
     private var pendingReconciliationDomains = Set<ExperimentalPreferenceSyncDomain>()
+    private var saveSubscriptions = Set<AnyCancellable>()
 
     init(
         settings: AppSettingsStore,
@@ -177,6 +178,10 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         self.settings = settings
         self.stores = stores
         isEnabled = loadEnabledPreference()
+        settings.localSaves.sink { [weak self] in self?.localValueDidChange(in: .appSettings, for: $0) }.store(in: &saveSubscriptions)
+        stores.scoreCache.localSaves.sink { [weak self] in self?.localValueDidChange(in: .scoreCache, for: $0) }.store(in: &saveSubscriptions)
+        stores.scoreFilterPreferences.localSaves.sink { [weak self] in self?.localValueDidChange(in: .scoreFilters, for: $0) }.store(in: &saveSubscriptions)
+        stores.communityMessages.localSaves.sink { [weak self] in self?.localValueDidChange(in: .galleryMessageRead, for: $0) }.store(in: &saveSubscriptions)
 
         cloudObserverTask = Task { @MainActor [weak self, cloudStore] in
             for await notification in notificationCenter.notifications(

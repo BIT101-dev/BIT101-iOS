@@ -1,5 +1,6 @@
 import ScoreDomain
 import StorageCore
+import Combine
 import Foundation
 
 /// 成绩页本地筛选偏好快照。
@@ -17,12 +18,15 @@ public nonisolated struct ScoreFilterPreferenceSnapshot: Codable, Sendable {
 }
 
 public final class ScoreFilterPreferenceStore {
-    public var didSave: (() -> Void)?
+    private let saveSubject = PassthroughSubject<AppStorageSession, Never>()
+    public var localSaves: AnyPublisher<AppStorageSession, Never> { saveSubject.eraseToAnyPublisher() }
+    private let session: () -> AppStorageSession
     private let store: AccountScopedCodableStore<ScoreFilterPreferenceSnapshot>
     private let notificationCenter: NotificationCenter
 
     public init(defaults: UserDefaults, session: @escaping () -> AppStorageSession, notificationCenter: NotificationCenter = .default) {
         self.notificationCenter = notificationCenter
+        self.session = session
         store = AccountScopedCodableStore(
             keyPrefix: "score.filter.preferences", defaults: defaults, sessionProvider: session
         )
@@ -45,13 +49,13 @@ public final class ScoreFilterPreferenceStore {
             sortOrder: sortOrder.rawValue
         )
         store.save(snapshot)
-        didSave?()
+        saveSubject.send(session())
     }
 
     /// 将 iCloud 筛选偏好写入本地存储，并发布本地筛选变更通知。
     public func applySynced(_ snapshot: ScoreFilterPreferenceSnapshot) {
         store.save(snapshot)
-        notificationCenter.post(name: .scoreFilterPreferencesDidChange, object: nil)
+        notificationCenter.post(name: .scoreFilterPreferencesDidChange, object: self, userInfo: ["session": session()])
     }
 }
 
@@ -156,4 +160,3 @@ enum ScoreSortOrder: String, CaseIterable, Identifiable {
         }
     }
 }
-

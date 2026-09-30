@@ -21,13 +21,16 @@ public struct GalleryMessageReadSnapshot: Codable, Equatable {
 ///
     /// 记录“当前分类最新一批消息”和“已被用户手动标记已读的消息”；系统通知申请保持独立。
 public final class GalleryMessageReadStore {
-    public var didSave: (() -> Void)?
+    private let saveSubject = PassthroughSubject<AppStorageSession, Never>()
+    public var localSaves: AnyPublisher<AppStorageSession, Never> { saveSubject.eraseToAnyPublisher() }
+    let session: () -> AppStorageSession
 
     let notificationCenter: NotificationCenter
     private let snapshotStore: AccountScopedCodableStore<GalleryMessageReadSnapshot>
 
     public init(defaults: UserDefaults, session: @escaping () -> AppStorageSession, notificationCenter: NotificationCenter = .default) {
         self.notificationCenter = notificationCenter
+        self.session = session
         snapshotStore = AccountScopedCodableStore(keyPrefix: "gallery.message.read.snapshot", defaults: defaults, sessionProvider: session)
     }
 
@@ -42,7 +45,7 @@ public final class GalleryMessageReadStore {
     private func saveSnapshot(_ snapshot: GalleryMessageReadSnapshot, shouldSync: Bool = true) {
         snapshotStore.save(snapshot)
         if shouldSync {
-            didSave?()
+            saveSubject.send(session())
         }
     }
 
@@ -52,7 +55,7 @@ public final class GalleryMessageReadStore {
 
     public func applySyncedSnapshot(_ snapshot: GalleryMessageReadSnapshot) {
         saveSnapshot(snapshot, shouldSync: false)
-        notificationCenter.post(name: .galleryMessageReadStateDidChange, object: nil)
+        notificationCenter.post(name: .galleryMessageReadStateDidChange, object: self, userInfo: ["session": session()])
     }
 
     /// 用服务端给出的未读数量，重建当前分类的“候选新消息”集合。
@@ -130,7 +133,7 @@ final class GalleryMessageViewModel: ObservableObject {
 
     private let service: any GalleryMessageServicing
     private let readStore: GalleryMessageReadStore
-    private var readStateObserverTask: Task<Void, Never>?
+    private var readStateObserver: AnyCancellable?
     private var listGenerations: [GalleryMessageType: Int] = [:]
 
     /// 集中初始化服务和已读仓库，供构造器复用。
@@ -142,18 +145,13 @@ final class GalleryMessageViewModel: ObservableObject {
 
 
 
-    deinit {
-        readStateObserverTask?.cancel()
-    }
-
     private func observeSyncedReadState() {
-        let notifications = readStore.notificationCenter
-        readStateObserverTask = Task { @MainActor [weak self] in
-            for await _ in notifications.notifications(named: .galleryMessageReadStateDidChange) {
-                guard let self else { return }
+        readStateObserver = readStore.notificationCenter.publisher(for: .galleryMessageReadStateDidChange)
+            .sink { [weak self] notification in
+                guard let self, (notification.object as AnyObject?) === self.readStore,
+                      notification.userInfo?["session"] as? AppStorageSession == self.readStore.session() else { return }
                 self.localReadVersion += 1
             }
-        }
     }
 
     /// 悬浮消息按钮使用的总未读数。
@@ -319,4 +317,3 @@ final class GalleryMessageViewModel: ObservableObject {
     }
 
 }
-

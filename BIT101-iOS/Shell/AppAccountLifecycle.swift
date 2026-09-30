@@ -15,7 +15,7 @@ final class AppAccountLifecycle: ObservableObject {
     let scoreViewModel: ScoreViewModel
     let transcriptService: any TrustedTranscriptServicing
     let community: AppCommunityDependencies
-    let communityDestinations: CommunityDestinations
+    let communityDestinations: AppCommunityDestinations
     let settings: AppSettingsStore
     let preferenceCloudSync: ExperimentalPreferenceCloudSync
     private var subscriptions = Set<AnyCancellable>()
@@ -30,6 +30,7 @@ final class AppAccountLifecycle: ObservableObject {
         transcriptService: any TrustedTranscriptServicing = ScoreService(),
         preferenceCloudSync: ExperimentalPreferenceCloudSync,
         notifications: NotificationCenter = .default,
+        scheduleChanges: AnyPublisher<AppStorageSession, Never> = ScheduleCacheStore.changes,
         externalDisplays: any AppExternalDisplayCoordinating = AppExternalDisplayCoordinator()
     ) {
         let settings = preferenceCloudSync.settings
@@ -51,7 +52,7 @@ final class AppAccountLifecycle: ObservableObject {
         )
         self.community = community
         self.transcriptService = transcriptService
-        self.communityDestinations = .appDestinations(dependencies: community)
+        self.communityDestinations = AppCommunityDestinations(dependencies: community)
         self.settings = settings
         self.preferenceCloudSync = preferenceCloudSync
         self.externalDisplays = externalDisplays
@@ -59,9 +60,10 @@ final class AppAccountLifecycle: ObservableObject {
         notifications.publisher(for: .loginStorageDidChange)
             .sink { [weak self] _ in self?.accountDidChange() }
             .store(in: &subscriptions)
-        notifications.publisher(for: .scheduleCacheDidChange)
-            .sink { [weak self] _ in
-                self?.refreshExternalDisplays(trigger: "schedule_cache_changed", syncWidgetSnapshot: true)
+        scheduleChanges
+            .sink { [weak self] session in
+                guard let self, session == self.currentSession() else { return }
+                self.refreshExternalDisplays(trigger: "schedule_cache_changed", syncWidgetSnapshot: true)
             }
             .store(in: &subscriptions)
     }

@@ -1,21 +1,16 @@
 import ScheduleDomain
 import Foundation
 
-#if canImport(CloudKit)
-import CloudKit
 
 /// Baseline tags identify known concurrent writes; timestamps resolve incomplete baselines.
-///
-/// Keeping the decision pure makes the behavior testable without constructing a
-/// signed CloudKit container or touching the current account's on-device cache.
-nonisolated enum ScheduleCacheReconciliationDecision: Equatable {
+public nonisolated enum ScheduleCacheReconciliationDecision: Equatable {
     case applyRemote
     case uploadLocal
     case noChange
 }
 
-nonisolated enum ScheduleCacheReconciliationPolicy {
-    static func decision(
+public nonisolated enum ScheduleCacheReconciliationPolicy {
+    public static func decision(
         localUpdatedAt: Date,
         remoteUpdatedAt: Date,
         allowsRemoteApply: Bool
@@ -29,7 +24,7 @@ nonisolated enum ScheduleCacheReconciliationPolicy {
         return .noChange
     }
 
-    static func hasConcurrentChanges(
+    public static func hasConcurrentChanges(
         localHasUnpushedChanges: Bool,
         localBaselineRecordTag: String,
         remoteRecordTag: String,
@@ -44,14 +39,14 @@ nonisolated enum ScheduleCacheReconciliationPolicy {
     }
 }
 
-nonisolated enum ScheduleCacheConflictResolution: Sendable {
+public nonisolated enum ScheduleCacheConflictResolution: Sendable {
     case keepLocal
     case useCloud
 }
 
 /// Cross-device user state. School-provided schedule data remains in the local cache.
-nonisolated struct ScheduleCloudSyncState: Codable, Sendable {
-    static func matches(_ lhs: ScheduleCache, _ rhs: ScheduleCache) throws -> Bool {
+public nonisolated struct ScheduleCloudSyncState: Codable, Sendable {
+    public static func matches(_ lhs: ScheduleCache, _ rhs: ScheduleCache) throws -> Bool {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
@@ -80,7 +75,7 @@ nonisolated struct ScheduleCloudSyncState: Codable, Sendable {
     var timeTable: [TimeSlot]
     var sharedSchedules: [SharedScheduleRecord]
 
-    init(cache: ScheduleCache) {
+    public init(cache: ScheduleCache) {
         primaryScheduleTitle = cache.primaryScheduleTitle
         manualCourseRulesByTerm = cache.manualCourseRulesByTerm
         manualDDLEvents = cache.ddlEvents.filter { $0.group != "lexue" }
@@ -108,7 +103,7 @@ nonisolated struct ScheduleCloudSyncState: Codable, Sendable {
         sharedSchedules = cache.sharedSchedules
     }
 
-    func apply(to cache: inout ScheduleCache) {
+    public func apply(to cache: inout ScheduleCache) {
         cache.primaryScheduleTitle = primaryScheduleTitle
         cache.manualCourseRulesByTerm = manualCourseRulesByTerm
         let localLexueEvents = cache.ddlEvents
@@ -163,11 +158,9 @@ nonisolated struct DecodedScheduleCloudCache {
 }
 
 nonisolated extension ScheduleCache {
-    func applyingCloudSyncState(from source: ScheduleCache) -> ScheduleCache {
+    public func applyingCloudSyncState(from source: ScheduleCache) -> ScheduleCache {
         var result = self
         ScheduleCloudSyncState(cache: source).apply(to: &result)
         return result
     }
 }
-
-#endif

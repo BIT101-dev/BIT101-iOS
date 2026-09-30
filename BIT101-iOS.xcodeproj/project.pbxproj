@@ -57,9 +57,13 @@
 		F1A1B2C3D4E5F60718293A4D /* ScheduleSharedStore in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A4D /* ScheduleSharedStore */; };
 		E291A3F5762E5EFC6828D630 /* StorageCore in Frameworks */ = {isa = PBXBuildFile; productRef = A333A6801922ACA17A6EB881 /* StorageCore */; };
 		F1A1B2C3D4E5F60718293A4E /* ScheduleSharedStore in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A4E /* ScheduleSharedStore */; };
+		F1A1B2C3D4E5F60718293A73 /* ScheduleActivityContracts in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A73 /* ScheduleActivityContracts */; };
 		F1A1B2C3D4E5F60718293A4F /* ScheduleInfrastructure in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A4F /* ScheduleInfrastructure */; };
+		F1A1B2C3D4E5F60718293A71 /* ScheduleSync in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A71 /* ScheduleSync */; };
 		F1A1B2C3D4E5F60718293A50 /* ScheduleInfrastructure in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A50 /* ScheduleInfrastructure */; };
+		F1A1B2C3D4E5F60718293A72 /* ScheduleSync in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A72 /* ScheduleSync */; };
 		F1A1B2C3D4E5F60718293A51 /* ScheduleSharedStore in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A51 /* ScheduleSharedStore */; };
+		F1A1B2C3D4E5F60718293A74 /* ScheduleActivityContracts in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A74 /* ScheduleActivityContracts */; };
 		C3F802EED398BF60F18F07B1 /* StorageCore in Frameworks */ = {isa = PBXBuildFile; productRef = DCA07B2FBA1D92CD252A8559 /* StorageCore */; };
 		F1A1B2C3D4E5F60718293A52 /* ScheduleSharedStore in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A52 /* ScheduleSharedStore */; };
 		3B94E983EE81C883E38D3F35 /* StorageCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8E966C97842A92F8D495E7C8 /* StorageCore */; };
@@ -234,6 +238,7 @@
 				BA5C24E0BF3885EBDFF87A59 /* ScheduleContracts in Frameworks */,
 				F1A1B2C3D4E5F60718293A4C /* ScheduleSharedStore in Frameworks */,
 				F1A1B2C3D4E5F60718293A50 /* ScheduleInfrastructure in Frameworks */,
+				F1A1B2C3D4E5F60718293A72 /* ScheduleSync in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -244,6 +249,7 @@
 				DDE2042B8413EE475156DB1B /* DesignSystemKit in Frameworks */,
 				8375A1B3DF8F6C8C218A696B /* ScheduleContracts in Frameworks */,
 				F1A1B2C3D4E5F60718293A51 /* ScheduleSharedStore in Frameworks */,
+				F1A1B2C3D4E5F60718293A74 /* ScheduleActivityContracts in Frameworks */,
 				C3F802EED398BF60F18F07B1 /* StorageCore in Frameworks */,
 				B979F16E6900E1E884772F00 /* Foundation.framework in Frameworks */,
 			);
@@ -298,7 +304,9 @@
 				9A63A7222DF24409FFD6A3AB /* ClientCore in Frameworks */,
 				1DFF345786F241724D6D9C1A /* ScheduleContracts in Frameworks */,
 				F1A1B2C3D4E5F60718293A4E /* ScheduleSharedStore in Frameworks */,
+				F1A1B2C3D4E5F60718293A73 /* ScheduleActivityContracts in Frameworks */,
 				F1A1B2C3D4E5F60718293A4F /* ScheduleInfrastructure in Frameworks */,
+				F1A1B2C3D4E5F60718293A71 /* ScheduleSync in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -459,6 +467,7 @@
 				CEF0E9D39638D26CD4BB54B8 /* ScheduleContracts */,
 				F0A1B2C3D4E5F60718293A4C /* ScheduleSharedStore */,
 				F0A1B2C3D4E5F60718293A50 /* ScheduleInfrastructure */,
+				F0A1B2C3D4E5F60718293A72 /* ScheduleSync */,
 			);
 			buildConfigurationList = 11111111111111111111111B /* Build configuration list for PBXNativeTarget "BIT101-iOSTests" */;
 			buildPhases = (
@@ -506,6 +515,7 @@
 				61CC6C874899C16178921804 /* DesignSystemKit */,
 				2A84F90961F4700AA1AA78E7 /* ScheduleContracts */,
 				F0A1B2C3D4E5F60718293A51 /* ScheduleSharedStore */,
+				F0A1B2C3D4E5F60718293A74 /* ScheduleActivityContracts */,
 				DCA07B2FBA1D92CD252A8559 /* StorageCore */,
 			);
 			buildConfigurationList = F1F65253CDF96455497F6E74 /* Build configuration list for PBXNativeTarget "BIT101ScheduleWidgets" */;
@@ -573,7 +583,9 @@
 				D0A5E3BB52E43C8F82CAA183 /* ClientCore */,
 				A04A346E5E5B410DE3DFB912 /* ScheduleContracts */,
 				F0A1B2C3D4E5F60718293A4E /* ScheduleSharedStore */,
+				F0A1B2C3D4E5F60718293A73 /* ScheduleActivityContracts */,
 				F0A1B2C3D4E5F60718293A4F /* ScheduleInfrastructure */,
+				F0A1B2C3D4E5F60718293A71 /* ScheduleSync */,
 			);
 			buildConfigurationList = D2FF4CA12F729DB5000FA1C1 /* Build configuration list for PBXNativeTarget "BIT101-iOS" */;
 			buildPhases = (
@@ -666,9 +678,13 @@
 		F0A1B2C3D4E5F60718293A4D /* ScheduleSharedStore */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleSharedStore; };
 		A333A6801922ACA17A6EB881 /* StorageCore */ = {isa = XCSwiftPackageProductDependency; productName = StorageCore; };
 		F0A1B2C3D4E5F60718293A4E /* ScheduleSharedStore */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleSharedStore; };
+		F0A1B2C3D4E5F60718293A73 /* ScheduleActivityContracts */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleActivityContracts; };
 		F0A1B2C3D4E5F60718293A4F /* ScheduleInfrastructure */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleInfrastructure; };
+		F0A1B2C3D4E5F60718293A71 /* ScheduleSync */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleSync; };
 		F0A1B2C3D4E5F60718293A50 /* ScheduleInfrastructure */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleInfrastructure; };
+		F0A1B2C3D4E5F60718293A72 /* ScheduleSync */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleSync; };
 		F0A1B2C3D4E5F60718293A51 /* ScheduleSharedStore */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleSharedStore; };
+		F0A1B2C3D4E5F60718293A74 /* ScheduleActivityContracts */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleActivityContracts; };
 		DCA07B2FBA1D92CD252A8559 /* StorageCore */ = {isa = XCSwiftPackageProductDependency; productName = StorageCore; };
 		F0A1B2C3D4E5F60718293A52 /* ScheduleSharedStore */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleSharedStore; };
 		8E966C97842A92F8D495E7C8 /* StorageCore */ = {isa = XCSwiftPackageProductDependency; productName = StorageCore; };

@@ -18,6 +18,3 @@ public nonisolated let scheduleNameCharacterLimit = 8
 /// 本地缓存发生变化时发出的通知。
 ///
 /// 课表页、小组件导出和灵动岛刷新都会监听这条通知，用来做跨模块同步。
-extension Notification.Name {
-    public static let scheduleCacheDidChange = Notification.Name("BIT101.ScheduleCacheDidChange")
-}

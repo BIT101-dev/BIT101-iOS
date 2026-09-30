@@ -108,15 +108,17 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
     let platformActions: any SchedulePlatformActions
     let newCustomScheduleDraft: () -> CustomScheduleDraft
     private var subscriptions = Set<AnyCancellable>()
+    var cloudSyncEnableTask: Task<Void, Never>?
     private var hasLoaded = false
 
     public init(
         service: any ScheduleCourseServicing,
         repository: ScheduleRepository,
-        ddl: ScheduleDDLViewModel,
-        classroom: ScheduleClassroomViewModel,
+        ddlService: any ScheduleDDLServicing,
+        classroomService: any ScheduleClassroomServicing,
         platformActions: any SchedulePlatformActions,
         virtualNetworkLikely: @escaping @MainActor () -> Bool = { false },
+        beforeSchoolRequest: @escaping @MainActor () async -> Void = {},
         newCustomScheduleDraft: @escaping () -> CustomScheduleDraft
     ) {
         self.repository = repository
@@ -124,8 +126,8 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
         self.service = service
         self.platformActions = platformActions
         self.newCustomScheduleDraft = newCustomScheduleDraft
-        self.ddl = ddl
-        self.classroom = classroom
+        ddl = ScheduleDDLViewModel(service: ddlService, repository: repository, virtualNetworkLikely: virtualNetworkLikely, beforeSchoolRequest: beforeSchoolRequest)
+        classroom = ScheduleClassroomViewModel(service: classroomService, repository: repository, virtualNetworkLikely: virtualNetworkLikely)
         repository.courseChanges.sink { [weak self] in self?.objectWillChange.send() }.store(in: &subscriptions)
         repository.$notice.compactMap { $0 }.sink { [weak self] in self?.notice = $0 }.store(in: &subscriptions)
         ddl.$notice.compactMap { $0 }.sink { [weak self] in self?.notice = $0 }.store(in: &subscriptions)
@@ -138,9 +140,13 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
         }
     }
 
+    deinit { cloudSyncEnableTask?.cancel() }
+
     public func dismissNotice() { notice = nil }
 
     public func resetForCurrentAccount() {
+        cloudSyncEnableTask?.cancel()
+        cloudSyncEnableTask = nil
         repository.resetForCurrentAccount()
         classroom.reset()
         ddl.reset()

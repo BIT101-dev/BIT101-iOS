@@ -1,3 +1,4 @@
+import Combine
 import ScoreDomain
 import ScheduleDomain
 import SchedulePorts
@@ -157,7 +158,6 @@ struct ExperimentalPreferenceCloudSyncTests {
         let sync = ExperimentalPreferenceCloudSync(
             settings: settings, stores: stores, defaults: defaults, cloudStore: cloud, notificationCenter: center
         )
-        AppPreferenceCacheEffects.configure(sync: sync)
         return (sync, defaults, cloud, account)
     }
 
@@ -181,11 +181,11 @@ struct ExperimentalPreferenceCloudSyncTests {
         }
     }
 
-    private func lifecycle(sync: ExperimentalPreferenceCloudSync, account: Account, center: NotificationCenter, displays: ExternalDisplays) -> AppAccountLifecycle {
-        let repository = ScheduleRepository(session: { account.session }, load: { _ in .missing }, save: { _, _, _ in }, cacheDidChange: .scheduleCacheDidChange, notificationCenter: center)
+    private func lifecycle(sync: ExperimentalPreferenceCloudSync, account: Account, center: NotificationCenter, displays: ExternalDisplays, changes: AnyPublisher<AppStorageSession, Never> = Empty().eraseToAnyPublisher()) -> AppAccountLifecycle {
+        let repository = ScheduleRepository(session: { account.session }, load: { _ in .missing }, save: { _, _, _ in })
         let service = SemesterStartDateService()
-        let schedule = ScheduleViewModel(service: service, repository: repository, ddl: ScheduleDDLViewModel(service: service, repository: repository), classroom: ScheduleClassroomViewModel(service: service, repository: repository), platformActions: RecordingSchedulePlatformActions(), newCustomScheduleDraft: { CustomScheduleDraft() })
-        return AppAccountLifecycle(scheduleViewModel: schedule, preferenceCloudSync: sync, notifications: center, externalDisplays: displays)
+        let schedule = ScheduleViewModel(service: service, repository: repository, ddlService: service, classroomService: service, platformActions: RecordingSchedulePlatformActions(), newCustomScheduleDraft: { CustomScheduleDraft() })
+        return AppAccountLifecycle(scheduleViewModel: schedule, preferenceCloudSync: sync, notifications: center, scheduleChanges: changes, externalDisplays: displays)
     }
 
     @Test func lifecycleInstancesOwnTheirNotificationsSettingsAndPlatformEffects() async throws {
@@ -199,9 +199,10 @@ struct ExperimentalPreferenceCloudSyncTests {
         }
         let firstCenter = NotificationCenter()
         let secondCenter = NotificationCenter()
+        let changes = PassthroughSubject<AppStorageSession, Never>()
         let firstDisplays = ExternalDisplays()
         let secondDisplays = ExternalDisplays()
-        let first = lifecycle(sync: firstSync, account: firstAccount, center: firstCenter, displays: firstDisplays)
+        let first = lifecycle(sync: firstSync, account: firstAccount, center: firstCenter, displays: firstDisplays, changes: changes.eraseToAnyPublisher())
         let second = lifecycle(sync: secondSync, account: secondAccount, center: secondCenter, displays: secondDisplays)
         first.start()
         second.start()
@@ -221,7 +222,7 @@ struct ExperimentalPreferenceCloudSyncTests {
         #expect(secondDisplays.resetCount == 0)
         #expect(firstDisplays.refreshes.last?.1 == firstAccount.session)
         #expect(secondDisplays.refreshes.count == 1)
-        firstCenter.post(name: .scheduleCacheDidChange, object: nil)
+        changes.send(firstAccount.session)
         await firstDisplays.waitForRefreshes(3)
         #expect(firstDisplays.refreshes.last?.0 == "schedule_cache_changed")
         #expect(secondDisplays.refreshes.count == 1)
@@ -229,6 +230,19 @@ struct ExperimentalPreferenceCloudSyncTests {
 
     private func key(_ domain: ExperimentalPreferenceSyncDomain, account: Account) -> String {
         "preference-sync.v1.\(account.session.accountDirectoryName).\(domain.rawValue)"
+    }
+
+    @Test func sharedStoreSaveEventsReachEveryActiveCoordinator() async throws {
+        let (first, defaults, firstCloud, account) = try context()
+        defer { defaults.removePersistentDomain(forName: preferenceDomain) }
+        let secondCloud = MemoryCloud()
+        let second = ExperimentalPreferenceCloudSync(settings: first.settings, stores: first.stores,
+            defaults: defaults, cloudStore: secondCloud, notificationCenter: NotificationCenter())
+        first.settings.updateGallerySettings(hiddenUserIDs: [42])
+        let recordKey = key(.appSettings, account: account)
+        #expect(firstCloud.data(forKey: recordKey) != nil)
+        #expect(secondCloud.data(forKey: recordKey) != nil)
+        withExtendedLifetime(second) {}
     }
 
     @Test func localCallbacksUploadInjectedSettingsAndStores() async throws {
@@ -248,7 +262,7 @@ struct ExperimentalPreferenceCloudSyncTests {
             from: try #require(cloud.data(forKey: key(.scoreFilters, account: account)))
         )
         #expect(filters.payload.selectedTerms == ["2026-2027-1"])
-        sync.stores.communityMessages.didSave?()
+        sync.stores.communityMessages.markSeen(ids: [42], for: .comment)
         #expect(cloud.data(forKey: key(.galleryMessageRead, account: account)) != nil)
         let rows = [ScoreRow(index: 0, headers: ["课程名称", "成绩"], values: ["注入课程", "95"])]
         _ = try #require(await sync.stores.scoreCache.save(rows: rows))
@@ -279,10 +293,10 @@ struct ExperimentalPreferenceCloudSyncTests {
         #expect(restored.galleryHiddenUserIDs == [73])
     }
 
-    @Test func accountReloadAndStaleScoreCallbacksUseInjectedIdentity() throws {
+    @Test func accountReloadAndStaleScoreCallbacksUseInjectedIdentity() async throws {
         let (sync, defaults, cloud, account) = try context()
         defer { defaults.removePersistentDomain(forName: preferenceDomain) }
-        sync.stores.scoreCache.didSave?(AppStorageSession(accountIdentifier: "stale-account"))
+        _ = await sync.stores.scoreCache.save(rows: [], for: AppStorageSession(accountIdentifier: "stale-account"))
         #expect(cloud.dictionaryRepresentation.isEmpty)
         sync.settings.updateGallerySettings(hiddenUserIDs: [42])
         let firstKey = key(.appSettings, account: account)
@@ -399,7 +413,7 @@ struct ExperimentalPreferenceCloudSyncTests {
     }
 }
 
-private nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
+nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
     private let state = OSAllocatedUnfairLock(initialState: State())
     private struct State {
         var data: [URL: Data] = [:]

@@ -1,3 +1,4 @@
+import BIT101TestSupport
 import SchedulePorts
 import ClientCore
 import Foundation
@@ -54,7 +55,7 @@ struct SchedulePersistenceTests {
 
     @Test func repositoryReportsSaveFailureAndPreservesEdits() async {
         let account = AppStorageSession(accountIdentifier: "repository")
-        let repository = ScheduleRepository(session: { account }, load: { _ in .missing }, save: { _, _, _ in throw CocoaError(.fileWriteNoPermission) }, cacheDidChange: Notification.Name("persistence-test"), notificationCenter: NotificationCenter())
+        let repository = ScheduleRepository(session: { account }, load: { _ in .missing }, save: { _, _, _ in throw CocoaError(.fileWriteNoPermission) })
         await repository.loadIfNeeded()
         repository.courseState.primaryScheduleTitle = "edited"
         #expect(await repository.persistAndWait() == false)
@@ -64,7 +65,7 @@ struct SchedulePersistenceTests {
 
     @Test func ddlSuccessWaitsForPersistence() async {
         let account = AppStorageSession(accountIdentifier: "ddl")
-        let repository = ScheduleRepository(session: { account }, load: { _ in .missing }, save: { _, _, _ in throw CocoaError(.fileWriteNoPermission) }, cacheDidChange: Notification.Name("ddl-persistence-test"), notificationCenter: NotificationCenter())
+        let repository = ScheduleRepository(session: { account }, load: { _ in .missing }, save: { _, _, _ in throw CocoaError(.fileWriteNoPermission) })
         await repository.loadIfNeeded()
         let viewModel = ScheduleDDLViewModel(service: DDLService(), repository: repository)
         #expect(await viewModel.syncDDL() == false)
@@ -98,7 +99,7 @@ struct SchedulePersistenceTests {
     }
 
     private func repository(writer: DelayedWriter, session: @escaping () -> AppStorageSession) -> ScheduleRepository {
-        ScheduleRepository(session: session, load: { _ in writer.stored.map(ScheduleCacheLoadResult.loaded) ?? .missing }, save: { cache, _, session in try await writer.save(cache, session: session) }, cacheDidChange: Notification.Name("queued-persistence"), notificationCenter: NotificationCenter())
+        ScheduleRepository(session: session, load: { _ in writer.stored.map(ScheduleCacheLoadResult.loaded) ?? .missing }, save: { cache, _, session in try await writer.save(cache, session: session) })
     }
 
     @Test func queuedWritesPreserveOrderAndReloadTheCommittedVersion() async {

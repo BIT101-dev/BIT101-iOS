@@ -1,3 +1,4 @@
+import MediaKit
 import CommunityCore
 import CourseFeature
 import PaperFeature
@@ -12,20 +13,48 @@ import ScheduleDomain
 import SwiftUI
 import Observation
 
-extension CommunityDestinations {
-    static func appDestinations(dependencies: AppCommunityDependencies) -> CommunityDestinations {
-        CommunityDestinations(
+/// App-owned cross-feature composition; each module receives its consumed capabilities.
+@MainActor
+@Observable
+final class AppCommunityDestinations {
+    let media: MediaEnvironment
+    let profiles: CommunityProfileDestination
+    let posters: CommunityPosterDestination
+    let papers: CommunityPaperDestination
+    let settings: CommunitySettingsDestinations
+
+    init(dependencies: AppCommunityDependencies, media: MediaEnvironment = AppMedia.environment) {
+        self.media = media
+        profiles = Self.profiles(dependencies: dependencies, media: media)
+        posters = Self.posters(dependencies: dependencies, media: media)
+        papers = CommunityPaperDestination { requestedID, onShowFeed in
+            AnyView(PaperRootView(dependencies: dependencies.paper, media: media,
+                                 requestedPaperID: requestedID, onShowFeed: onShowFeed))
+        }
+        settings = CommunitySettingsDestinations(
             settingsEntries: SettingsRoute.allCases.map {
                 CommunitySettingsEntry(id: $0.rawValue, title: $0.title, systemImage: $0.systemImage)
             },
             settings: { request in
-                AnyView(SettingsRootView(initialRoute: SettingsRoute(rawValue: request.entry.id), studentID: request.studentID, onLogout: request.onLogout))
+                AnyView(SettingsRootView(initialRoute: SettingsRoute(rawValue: request.entry.id),
+                    studentID: request.studentID, onLogout: request.onLogout, suggestion: dependencies.suggestion))
             },
-            suggestion: { AnyView(DeveloperSuggestionPage()) },
-            profile: { AnyView(UserProfileRootView(dependencies: dependencies.mine, userID: $0)) },
-            poster: { AnyView(GalleryPosterDetailView(dependencies: dependencies.gallery, poster: $0, onDeleted: $1)) },
-            papers: { requestedID, onShowFeed in AnyView(PaperRootView(dependencies: dependencies.paper, requestedPaperID: requestedID, onShowFeed: onShowFeed)) }
+            suggestion: { AnyView(DeveloperSuggestionPage(dependencies: dependencies.suggestion)) }
         )
+    }
+
+    private static func profiles(dependencies: AppCommunityDependencies, media: MediaEnvironment) -> CommunityProfileDestination {
+        CommunityProfileDestination { userID in
+            AnyView(UserProfileRootView(dependencies: dependencies.mine, media: media,
+                posters: Self.posters(dependencies: dependencies, media: media), userID: userID))
+        }
+    }
+
+    private static func posters(dependencies: AppCommunityDependencies, media: MediaEnvironment) -> CommunityPosterDestination {
+        CommunityPosterDestination { poster, onDeleted in
+            AnyView(GalleryPosterDetailView(dependencies: dependencies.gallery, media: media,
+                profiles: Self.profiles(dependencies: dependencies, media: media), poster: poster, onDeleted: onDeleted))
+        }
     }
 }
 
@@ -63,6 +92,7 @@ final class AppCommunityDependencies {
     let course: CourseDependencies
     let paper: PaperDependencies
     let mine: MineDependencies
+    let suggestion: DeveloperSuggestionDependencies
     private var subscriptions = Set<AnyCancellable>()
 
     init(
@@ -70,6 +100,7 @@ final class AppCommunityDependencies {
         session: CommunitySession = .appSession(),
         messages: GalleryMessageReadStore = AppAccountStores.shared.communityMessages,
         drafts: ComposerDraftStore = AppAccountStores.shared.composerDrafts,
+        submitSuggestion: @escaping (DeveloperSuggestionPayload) async throws -> Void = { try await FeedbackSubmissionClient.submit($0) },
         loadCourseCredits: @escaping @MainActor () async -> [CommunityCourseCredit] = AppCommunityDependencies.loadSchoolCourseCredits
     ) {
         let preferences = CommunityPreferences(
@@ -77,6 +108,7 @@ final class AppCommunityDependencies {
             saveMakeupFilter: { settings.setHidesCourseHistoryMakeupOutliers($0) }
         )
         self.preferences = preferences
+        suggestion = DeveloperSuggestionDependencies(drafts: drafts, submit: submitSuggestion)
         let galleryService = GalleryService(session: session, preferences: { preferences.snapshot })
         gallery = GalleryDependencies(
             session: session, feed: galleryService, messageService: galleryService, posterDetail: galleryService,

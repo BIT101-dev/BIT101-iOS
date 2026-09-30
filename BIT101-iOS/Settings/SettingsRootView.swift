@@ -57,6 +57,7 @@ struct SettingsRootView: View {
     let initialRoute: SettingsRoute?
     let studentID: String
     let onLogout: () -> Void
+    let suggestion: DeveloperSuggestionDependencies
     var showsCloseButton = false
 
     @Environment(\.dismiss) private var dismiss
@@ -64,9 +65,9 @@ struct SettingsRootView: View {
     var body: some View {
         Group {
             if let initialRoute {
-                SettingsRoutePage(route: initialRoute, studentID: studentID, onLogout: onLogout)
+                SettingsRoutePage(route: initialRoute, studentID: studentID, onLogout: onLogout, suggestion: suggestion)
             } else {
-                SettingsIndexPage(studentID: studentID, onLogout: onLogout)
+                SettingsIndexPage(studentID: studentID, onLogout: onLogout, suggestion: suggestion)
             }
         }
         .navigationTitle(initialRoute?.title ?? "设置")
@@ -89,6 +90,7 @@ struct SettingsRootView: View {
 private struct SettingsIndexPage: View {
     let studentID: String
     let onLogout: () -> Void
+    let suggestion: DeveloperSuggestionDependencies
     @State private var isShowingSuggestion = false
 
     var body: some View {
@@ -104,7 +106,7 @@ private struct SettingsIndexPage: View {
                         .buttonStyle(.plain)
                     } else {
                         NavigationLink {
-                            SettingsRoutePage(route: route, studentID: studentID, onLogout: onLogout)
+                            SettingsRoutePage(route: route, studentID: studentID, onLogout: onLogout, suggestion: suggestion)
                         } label: {
                             SettingsIndexCard(route: route)
                         }
@@ -117,7 +119,7 @@ private struct SettingsIndexPage: View {
         .background(AppDesignSystem.Palette.Background.grouped)
         .sheet(isPresented: $isShowingSuggestion) {
             NavigationStack {
-                DeveloperSuggestionPage()
+                DeveloperSuggestionPage(dependencies: suggestion)
             }
         }
     }
@@ -142,6 +144,7 @@ private struct SettingsRoutePage: View {
     let route: SettingsRoute
     let studentID: String
     let onLogout: () -> Void
+    let suggestion: DeveloperSuggestionDependencies
 
     var body: some View {
         switch route {
@@ -154,20 +157,20 @@ private struct SettingsRoutePage: View {
         case .gallery:
             GallerySettingsPage()
         case .suggestion:
-            DeveloperSuggestionPage()
+            DeveloperSuggestionPage(dependencies: suggestion)
         case .about:
             AboutSettingsPage(onLogout: onLogout)
         }
     }
 }
 
-private struct DeveloperSuggestionAttachment: Encodable {
+struct DeveloperSuggestionAttachment: Encodable {
     let filename: String
     let contentType: String
     let data: String
 }
 
-private struct DeveloperSuggestionPayload: Encodable {
+struct DeveloperSuggestionPayload: Encodable {
     let mode = "suggestion"
     let isDevelopmentBuild = AppBuildEnvironment.isDevelopment
     let comment: String
@@ -195,7 +198,24 @@ private enum DeveloperSuggestionConfirmation: String, Identifiable {
 }
 
 /// 此页面向开发者提交功能建议，并复用错误反馈 Worker 与邮件通知链路。
+struct DeveloperSuggestionDependencies {
+    let drafts: ComposerDraftStore
+    private let send: (DeveloperSuggestionPayload) async throws -> Void
+
+    init(drafts: ComposerDraftStore, submit: @escaping (DeveloperSuggestionPayload) async throws -> Void) {
+        self.drafts = drafts
+        self.send = submit
+    }
+
+    func submitAndClear(_ payload: DeveloperSuggestionPayload) async throws {
+        let cleanup = await drafts.captureSuggestionCleanup()
+        try await send(payload)
+        await cleanup()
+    }
+}
+
 struct DeveloperSuggestionPage: View {
+    let dependencies: DeveloperSuggestionDependencies
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var contact = ""
@@ -297,7 +317,7 @@ struct DeveloperSuggestionPage: View {
                     }),
                     secondaryButton: .cancel(Text("不保存"), action: {
                         Task {
-                            await AppAccountStores.shared.composerDrafts.removeSuggestion()
+                            await dependencies.drafts.removeSuggestion()
                             dismiss()
                         }
                     })
@@ -310,7 +330,7 @@ struct DeveloperSuggestionPage: View {
                         Task { await loadSavedDraft() }
                     }),
                     secondaryButton: .cancel(Text("不加载"), action: {
-                        Task { await AppAccountStores.shared.composerDrafts.removeSuggestion() }
+                        Task { await dependencies.drafts.removeSuggestion() }
                     })
                 )
             case .missingContact:
@@ -359,7 +379,7 @@ struct DeveloperSuggestionPage: View {
         defer { isSubmitting = false }
         do {
             let context = FeedbackDeviceContext.current
-            try await FeedbackSubmissionClient.submit(
+            try await dependencies.submitAndClear(
                 DeveloperSuggestionPayload(
                     comment: suggestion,
                     contact: contact.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -383,7 +403,6 @@ struct DeveloperSuggestionPage: View {
             )
             text = ""
             contact = ""
-            await AppAccountStores.shared.composerDrafts.removeSuggestion()
             alert = nil
             dismiss()
         } catch {
@@ -401,7 +420,7 @@ struct DeveloperSuggestionPage: View {
     }
 
     private func saveDraft() async -> Bool {
-        await AppAccountStores.shared.composerDrafts.saveSuggestion(
+        await dependencies.drafts.saveSuggestion(
             DeveloperSuggestionDraftSnapshot(
                 text: text,
                 images: imageDrafts.map {
@@ -418,14 +437,14 @@ struct DeveloperSuggestionPage: View {
 
     private func checkDraftOnAppear() async {
         guard !didCheckDraft else { return }
-        let hasDraft = await AppAccountStores.shared.composerDrafts.loadSuggestion() != nil
+        let hasDraft = await dependencies.drafts.loadSuggestion() != nil
         guard !Task.isCancelled else { return }
         didCheckDraft = true
         if hasDraft { confirmation = .restoreDraft }
     }
 
     private func loadSavedDraft() async {
-        guard let draft = await AppAccountStores.shared.composerDrafts.loadSuggestion() else { return }
+        guard let draft = await dependencies.drafts.loadSuggestion() else { return }
 
         text = draft.text
         contact = draft.contact

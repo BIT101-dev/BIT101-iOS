@@ -11,6 +11,7 @@ RESULT_BUNDLE="$DERIVED_ROOT/test-results.xcresult"
 typeset -aU TEST_SELECTIONS
 TEST_SELECTIONS=()
 BUILD_ONLY=false
+CLEAN_BUILD=false
 
 MODE="all"
 if [[ $# -gt 0 ]]; then
@@ -118,6 +119,7 @@ fi
 while (( $# > 0 )); do
   case "$1" in
     --build-only) BUILD_ONLY=true; shift ;;
+    --clean-build) CLEAN_BUILD=true; shift ;;
     --only-testing)
       if [[ $# -lt 2 || -z "$2" || "$2" == --* ]]; then
         echo "--only-testing 后填写测试类或测试类/方法" >&2
@@ -126,7 +128,7 @@ while (( $# > 0 )); do
       TEST_SELECTIONS+=("$2")
       shift 2
       ;;
-    --*) echo "测试选项：--build-only、--only-testing 测试类/方法" >&2; exit 64 ;;
+    --*) echo "测试选项：--build-only、--clean-build、--only-testing 测试类/方法" >&2; exit 64 ;;
     *) break ;;
   esac
 done
@@ -134,7 +136,7 @@ done
 UI_RESTORE_DEVICE_ID=""
 if [[ "$MODE" == "modules" ]]; then
   if [[ $# -gt 0 || ${#TEST_SELECTIONS[@]} -gt 0 ]]; then
-    echo "用法：Scripts/run-extended-tests.sh modules [--build-only]" >&2
+    echo "用法：Scripts/run-extended-tests.sh modules [--build-only] [--clean-build]" >&2
     exit 64
   fi
 elif [[ "$MODE" == "catalyst" ]]; then
@@ -179,6 +181,9 @@ if [[ "$MODE" == "ui" && "$BUILD_ONLY" == false && "${BIT101_DEFER_APP_RESTORE:-
   trap restore_release_app EXIT
 fi
 
+if $CLEAN_BUILD; then
+  rm -rf "$DERIVED_ROOT"
+fi
 mkdir -p "$DERIVED_ROOT"
 rm -rf "$RESULT_BUNDLE"
 
@@ -231,6 +236,12 @@ for line in process.stdout:
         continue
     if line.startswith(("Test case ", "Test suite ", "Test Case ", "Test Suite ")) and " failed " not in line.lower():
         continue
+    if line.rstrip().endswith(" seconds)") and " failed " not in line:
+        continue
+    if line.startswith("[") and (line[1:2].isdigit() or line.startswith(("[Pre-planning", "[Computing dependencies]", "[Using on-disk description]", "[Planning deferred tasks]", "[Starting]"))):
+        continue
+    if "Executed 0 tests, with 0 failures" in line:
+        continue
     if "IDETestOperationsObserverDebug:" in line:
         continue
     if line.startswith(("◇ ", "✔ ")) and "Test run with" not in line:
@@ -261,21 +272,21 @@ PY
 if [[ "$MODE" == "modules" ]]; then
   rm -f "$DERIVED_ROOT/test-metrics.txt"
   if $BUILD_ONLY; then
-    echo "[编译] BIT101ModulesTests · macOS 原生 Release"
+    echo "[编译] 模块消费者 · macOS 原生 Release"
     run_with_output_threshold "$DERIVED_ROOT/module-tests.log" "模块编译" \
       xcrun swift build --build-tests -Xswiftc -enable-testing \
         --package-path "$ROOT_DIR" \
         --scratch-path "$DERIVED_ROOT" \
         --configuration release
-    echo "[编译通过] BIT101ModulesTests"
+    echo "[编译通过] 模块消费者"
   else
-    echo "[测试] BIT101ModulesTests · macOS 原生 Release"
+    echo "[测试] 模块消费者 · macOS 原生 Release"
     run_with_output_threshold "$DERIVED_ROOT/module-tests.log" "模块离线测试" \
       xcrun swift test \
         --package-path "$ROOT_DIR" \
         --scratch-path "$DERIVED_ROOT" \
         --configuration release
-    echo "[通过] BIT101ModulesTests"
+    echo "[通过] 模块消费者"
   fi
   exit 0
 fi
@@ -343,7 +354,13 @@ if result.returncode == 0:
     summary = json.loads(result.stdout)
     failures = summary.get("testFailures", [])
     if failures:
-        print(json.dumps(failures, ensure_ascii=False, indent=2))
+        grouped = {}
+        for failure in failures:
+            grouped.setdefault(failure.get("failureText", "测试失败"), []).append(failure.get("testIdentifierString", "?"))
+        for message, tests in grouped.items():
+            print(f"{message} · {len(tests)} 个用例")
+            for test in tests[:5]:
+                print(f"  {test}")
 PY
     )"
     if [[ -n "$failure_summary" ]]; then
@@ -367,6 +384,9 @@ summary = json.loads(subprocess.check_output([
     "xcrun", "xcresulttool", "get", "test-results", "summary",
     "--path", result_bundle,
 ], text=True))
+if summary.get("totalTestCount", 0) == 0:
+    raise SystemExit("测试选择匹配 0 个用例，请使用 suite 名称或带 () 的 Swift Testing 方法名。")
+
 coverage = None
 coverage_error = None
 if mode != "catalyst":

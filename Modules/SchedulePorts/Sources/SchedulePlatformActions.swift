@@ -5,7 +5,7 @@ import Foundation
 /// 用户操作触发的平台能力，由应用组装层提供。
 @MainActor
 public protocol SchedulePlatformActions {
-    func enableCloudSync(cache: ScheduleCache, session: AppStorageSession) async
+    func enableCloudSync(session: AppStorageSession) async
     func enableCourseReminder(session: AppStorageSession) async
     func importSystemCalendar(courses: ScheduleCourseSnapshot, term: String) async throws -> Int
     func importSystemCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws -> Int
@@ -65,4 +65,3 @@ public nonisolated enum ScheduleSystemCalendarError: LocalizedError {
         }
     }
 }
-

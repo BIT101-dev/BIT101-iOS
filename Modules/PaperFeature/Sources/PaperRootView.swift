@@ -1,4 +1,5 @@
 #if os(iOS)
+import MediaKit
 import CommunityUI
 import CommunityCore
 import DesignSystemKit
@@ -12,6 +13,7 @@ import SwiftUI
 /// 这里承接底部栏里的“文章”入口，负责文章列表、搜索和详情跳转。
 public struct PaperRootView: View {
     private let dependencies: PaperDependencies
+    private let media: MediaEnvironment
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var viewModel: PaperListViewModel
     @StateObject private var networkObserver = PaperNetworkObserver()
@@ -24,17 +26,19 @@ public struct PaperRootView: View {
 
     public init(
         dependencies: PaperDependencies,
+        media: MediaEnvironment,
         requestedPaperID: Binding<Int?> = .constant(nil),
         onShowFeed: @escaping () -> Void = {}
     ) {
         self.dependencies = dependencies
+        self.media = media
         _requestedPaperID = requestedPaperID
         _viewModel = StateObject(wrappedValue: PaperListViewModel(service: dependencies.list))
         self.onShowFeed = onShowFeed
     }
 
     public var body: some View {
-        content.environment(dependencies)
+        content.environment(dependencies).environment(media)
     }
 
     private var content: some View {
@@ -125,10 +129,10 @@ public struct PaperRootView: View {
             }
         }
         .navigationDestination(item: $selectedPaper) { paper in
-            PaperDetailView(dependencies: dependencies, initialPaper: paper)
+            PaperDetailView(dependencies: dependencies, media: media, initialPaper: paper)
         }
         .navigationDestination(item: $deepLinkedPaper) { paper in
-            PaperDetailView(dependencies: dependencies, initialPaper: paper)
+            PaperDetailView(dependencies: dependencies, media: media, initialPaper: paper)
         }
         .sheet(isPresented: $isShowingComposer) {
             NavigationStack {
@@ -141,7 +145,7 @@ public struct PaperRootView: View {
         }
         .sheet(isPresented: $isShowingSearch) {
             NavigationStack {
-                PaperSearchView(dependencies: dependencies)
+                PaperSearchView(dependencies: dependencies, media: media)
             }
         }
         .task {

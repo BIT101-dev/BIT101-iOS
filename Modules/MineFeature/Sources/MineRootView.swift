@@ -30,7 +30,9 @@ private enum MineRoute: Hashable, Identifiable {
 /// 页面包含资料卡、入口列表和子页面，交互使用 iOS 导航和列表样式。
 public struct MineRootView: View {
     private let dependencies: MineDependencies
-    @Environment(CommunityDestinations.self) private var destinations
+    private let destinations: CommunitySettingsDestinations
+    private let posters: CommunityPosterDestination
+    private let media: MediaEnvironment
     /// 兜底学号，用于传给设置页的账号区域。
     let fallbackStudentID: String
     let onLogout: () -> Void
@@ -38,8 +40,11 @@ public struct MineRootView: View {
     /// “我的”主页状态机。
     @StateObject private var viewModel: MineViewModel
 
-    public init(dependencies: MineDependencies, fallbackStudentID: String, onLogout: @escaping () -> Void) {
+    public init(dependencies: MineDependencies, media: MediaEnvironment, posters: CommunityPosterDestination, settings: CommunitySettingsDestinations, fallbackStudentID: String, onLogout: @escaping () -> Void) {
         self.dependencies = dependencies
+        self.media = media
+        self.posters = posters
+        self.destinations = settings
         _viewModel = StateObject(wrappedValue: MineViewModel(service: dependencies.overview))
         self.fallbackStudentID = fallbackStudentID
         self.onLogout = onLogout
@@ -55,7 +60,7 @@ public struct MineRootView: View {
     ///
     /// 主页面展示资料卡和设置入口，列表内容进入子页面，保持主页层级清晰。
     public var body: some View {
-        content.environment(dependencies)
+        content.environment(dependencies).environment(media).environment(posters)
     }
 
     private var content: some View {
@@ -101,7 +106,7 @@ public struct MineRootView: View {
                     onLoadMore: { poster in await viewModel.loadMorePostersIfNeeded(currentPoster: poster) }
                 )
             case let .user(userID):
-                UserProfileRootView(dependencies: dependencies, userID: userID, onLogout: onLogout)
+                UserProfileRootView(dependencies: dependencies, media: media, posters: posters, userID: userID, onLogout: onLogout)
             }
         }
         .navigationDestination(item: $settingsRoute) { destination in
@@ -182,7 +187,8 @@ public struct MineRootView: View {
 /// 复用“我的”页的资料卡和话题卡片样式，统一用户主页的视觉表现。
 public struct UserProfileRootView: View {
     private let dependencies: MineDependencies
-    @Environment(CommunityDestinations.self) private var destinations
+    private let destinations: CommunityPosterDestination
+    private let media: MediaEnvironment
     let userID: Int
     let onLogout: () -> Void
 
@@ -191,15 +197,17 @@ public struct UserProfileRootView: View {
     @State private var selectedPoster: CommunityPoster?
     @State private var imageViewer: ImagePreviewRequest?
 
-    public init(dependencies: MineDependencies, userID: Int, onLogout: @escaping () -> Void = {}) {
+    public init(dependencies: MineDependencies, media: MediaEnvironment, posters: CommunityPosterDestination, userID: Int, onLogout: @escaping () -> Void = {}) {
         self.dependencies = dependencies
+        self.media = media
+        self.destinations = posters
         self.userID = userID
         self.onLogout = onLogout
         _viewModel = StateObject(wrappedValue: UserProfileViewModel(userID: userID, service: dependencies.profile))
     }
 
     public var body: some View {
-        content.environment(dependencies)
+        content.environment(dependencies).environment(media).environment(destinations)
     }
 
     private var content: some View {
@@ -527,7 +535,7 @@ private struct MineUserListView: View {
 /// 复用话题卡片与详情实现，统一“我的帖子”和“话题详情”的视觉和交互逻辑。
 private struct MinePosterListView: View {
     @Environment(MineDependencies.self) private var dependencies
-    @Environment(CommunityDestinations.self) private var destinations
+    @Environment(CommunityPosterDestination.self) private var destinations
     let posters: [CommunityPoster]
     let status: MineLoadStatus
     let isLoadingMore: Bool

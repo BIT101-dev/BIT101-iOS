@@ -19,7 +19,7 @@ public final class ScheduleRepository: ObservableObject {
     private var hasLoaded = false
     private var ownerSession: AppStorageSession
     var accountSession: AppStorageSession { ownerSession }
-    private var observer: Task<Void, Never>?
+    private var observer: AnyCancellable?
     private var persistenceTask: Task<Bool, Never>?
     private var persistenceGeneration = 0
     private var reloadAfterPersistence = false
@@ -31,21 +31,21 @@ public final class ScheduleRepository: ObservableObject {
         session: @escaping () -> AppStorageSession,
         load: @escaping (AppStorageSession) async -> ScheduleCacheLoadResult,
         save: @escaping (ScheduleCache, ScheduleCacheSaveSource, AppStorageSession) async throws -> Void,
-        cacheDidChange: Notification.Name,
-        notificationCenter: NotificationCenter = .default
+        changes: AnyPublisher<AppStorageSession, Never> = Empty().eraseToAnyPublisher()
     ) {
         self.session = session
         self.ownerSession = session()
         self.load = load
         self.save = save
-        observer = Task { @MainActor [weak self] in
-            for await _ in notificationCenter.notifications(named: cacheDidChange) {
-                await self?.reload()
+        observer = changes.sink { [weak self] account in
+            guard let self, account == self.ownerSession else { return }
+            let generation = self.accountGeneration
+            Task { @MainActor [weak self] in
+                guard let self, self.accountGeneration == generation, self.ownerSession == account else { return }
+                await self.reload()
             }
         }
     }
-
-    deinit { observer?.cancel() }
 
     func resetForCurrentAccount() {
         persistenceTask?.cancel()

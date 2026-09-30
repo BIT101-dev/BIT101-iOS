@@ -1,4 +1,5 @@
 #if os(iOS)
+import MediaKit
 import CommunityUI
 import TransportCore
 import CommunityTransport
@@ -42,7 +43,9 @@ private enum GallerySurface: String, CaseIterable, Identifiable, Hashable {
 /// 顶部负责 feed 切换，下方负责承载当前选中的帖子流，并支持左右轻扫切换分区。
 public struct GalleryRootView: View {
     let dependencies: GalleryDependencies
-    @Environment(CommunityDestinations.self) private var destinations
+    private let destinations: CommunityPaperDestination
+    private let profiles: CommunityProfileDestination
+    private let media: MediaEnvironment
     @Environment(\.scenePhase) private var scenePhase
     /// 主 feed 视图模型，负责帖子流、搜索和详情入口状态。
     @StateObject private var viewModel: GalleryViewModel
@@ -63,12 +66,18 @@ public struct GalleryRootView: View {
 
     public init(
         dependencies: GalleryDependencies,
+        media: MediaEnvironment,
+        profiles: CommunityProfileDestination,
+        papers: CommunityPaperDestination,
         requestedPaperID: Binding<Int?> = .constant(nil),
         requestedPosterID: Binding<Int?> = .constant(nil)
     ) {
         _requestedPaperID = requestedPaperID
         _requestedPosterID = requestedPosterID
         self.dependencies = dependencies
+        self.media = media
+        self.profiles = profiles
+        self.destinations = papers
         self.posterService = dependencies.posterDetail
         _viewModel = StateObject(wrappedValue: GalleryViewModel(service: dependencies.feed))
         _messageViewModel = StateObject(wrappedValue: GalleryMessageViewModel(service: dependencies.messageService, readStore: dependencies.messages))
@@ -76,7 +85,7 @@ public struct GalleryRootView: View {
     }
 
     public var body: some View {
-        content.environment(dependencies)
+        content.environment(dependencies).environment(media).environment(profiles)
     }
 
     private var content: some View {
@@ -118,7 +127,7 @@ public struct GalleryRootView: View {
             await openRequestedPosterIfNeeded()
         }
         .navigationDestination(item: $deepLinkedPoster) { poster in
-            GalleryPosterDetailView(dependencies: dependencies, poster: poster)
+            GalleryPosterDetailView(dependencies: dependencies, media: media, profiles: profiles, poster: poster)
         }
         .diagnosticAlert(item: $deepLinkAlert)
         .toolbar(.hidden, for: .navigationBar)

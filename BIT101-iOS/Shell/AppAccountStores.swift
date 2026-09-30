@@ -37,24 +37,6 @@ struct AppAccountStores {
     )
 }
 
-/// 应用入口连接业务存储的本地修改与偏好云同步。
-enum AppPreferenceCacheEffects {
-    static func configure(sync: ExperimentalPreferenceCloudSync) {
-        sync.stores.scoreCache.didSave = { [weak sync] session in
-            sync?.localValueDidChange(in: .scoreCache, for: session)
-        }
-        sync.stores.scoreFilterPreferences.didSave = { [weak sync] in
-            sync?.localValueDidChange(in: .scoreFilters)
-        }
-        sync.settings.didSave = { [weak sync] in
-            sync?.localValueDidChange(in: .appSettings)
-        }
-        sync.stores.communityMessages.didSave = { [weak sync] in
-            sync?.localValueDidChange(in: .galleryMessageRead)
-        }
-    }
-}
-
 /// 成绩消费当前账号的课程快照，应用层负责读取日程存储。
 extension ScoreViewModel {
     convenience init(
@@ -68,7 +50,7 @@ extension ScoreViewModel {
             cacheStore: stores.scoreCache,
             preferenceStore: stores.scoreFilterPreferences,
             currentScoreCacheSession: currentScoreCacheSession ?? stores.scoreSession,
-            scheduleCoursesDidChange: .scheduleCacheDidChange,
+            scheduleCoursesChanges: ScheduleCacheStore.changes,
             loadScheduleCourses: { session in
                 let result = await ScheduleCacheStore.loadResultAsync(for: session)
                 return (result.cacheIfReadable?.cachedCoursesByTerm ?? [:]).mapValues { $0.map(ScoreCourseSummary.init) }

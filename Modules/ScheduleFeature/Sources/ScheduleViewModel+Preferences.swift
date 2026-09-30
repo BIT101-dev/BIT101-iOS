@@ -146,16 +146,21 @@ extension ScheduleViewModel {
 
     public func setICloudSyncEnabled(_ value: Bool) {
         guard syncState.iCloudSyncEnabled != value else { return }
+        cloudSyncEnableTask?.cancel()
         syncState.iCloudSyncEnabled = value
 
-        persist(source: .localWithoutCloudPush)
-
         if value {
-            let localCache = persistenceSnapshot
             let session = repository.accountSession
-            Task { [platformActions] in
-                await platformActions.enableCloudSync(cache: localCache, session: session)
+            let generation = repository.accountGeneration
+            cloudSyncEnableTask = Task { [repository, platformActions] in
+                guard await repository.persistAndWait(source: .localWithoutCloudPush),
+                      repository.accountGeneration == generation,
+                      repository.accountSession == session,
+                      repository.syncState.iCloudSyncEnabled, !Task.isCancelled else { return }
+                await platformActions.enableCloudSync(session: session)
             }
+        } else {
+            persist(source: .localWithoutCloudPush)
         }
     }
 

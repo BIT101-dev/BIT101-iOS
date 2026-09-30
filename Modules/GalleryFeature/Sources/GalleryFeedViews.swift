@@ -14,6 +14,8 @@ import SwiftUI
 
 struct GalleryFeedView: View {
     @Environment(GalleryDependencies.self) private var dependencies
+    @Environment(MediaEnvironment.self) private var media
+    @Environment(CommunityProfileDestination.self) private var profiles
     let feedState: GalleryFeedState
     let feedIdentity: String
     let prefetchTriggerThreshold: Int
@@ -98,7 +100,7 @@ struct GalleryFeedView: View {
             }
             .navigationDestination(item: $selectedPoster) { poster in
                 GalleryPosterDetailView(
-                    dependencies: dependencies,
+                    dependencies: dependencies, media: media, profiles: profiles,
                     poster: poster,
                     onDeleted: {
                         deletedPosterIDs.insert(poster.id)

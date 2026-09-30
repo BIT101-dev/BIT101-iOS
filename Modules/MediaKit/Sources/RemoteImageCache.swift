@@ -44,12 +44,12 @@ enum RemoteImageCacheVariant: String, Sendable {
 }
 
 nonisolated enum ImageCacheDirectories {
-    static func gallery(using files: any AppFileService = AppFileSystem.files) -> URL {
+    static func gallery(using files: any AppFileService) -> URL {
         files.directoryURL(.cachesDirectory)?.appending(path: "BIT101GalleryImages", directoryHint: .isDirectory)
             ?? files.temporaryDirectoryURL.appending(path: "BIT101GalleryImages", directoryHint: .isDirectory)
     }
 
-    static func avatars(using files: any AppFileService = AppFileSystem.files) -> URL {
+    static func avatars(using files: any AppFileService) -> URL {
         files.directoryURL(.cachesDirectory)?.appending(path: "BIT101ImageCache", directoryHint: .isDirectory)
             ?? files.temporaryDirectoryURL.appending(path: "BIT101ImageCache", directoryHint: .isDirectory)
     }
@@ -65,7 +65,7 @@ actor ImageCacheDiskQuota {
     private var lastPruneDate = Date.distantPast
 
     init(
-        files: any AppFileService = AppFileSystem.files,
+        files: any AppFileService,
         directories: [URL]? = nil,
         cacheLimitMB: @escaping @MainActor @Sendable () -> Int,
         pruneInterval: TimeInterval = 60
@@ -240,6 +240,20 @@ actor RemoteImageCache {
         return target
     }
 
+    func previewFile(at cachedURL: URL, using previewFiles: any AppFileService) throws -> URL {
+        let data = try files.readData(at: cachedURL)
+        if (try? previewFiles.readData(at: cachedURL)) == data { return cachedURL }
+        let directory = ImageCacheDirectories.gallery(using: previewFiles)
+        try previewFiles.createDirectory(at: directory)
+        let name = "local-\(SHA256.hash(data: data).hexString).\(cachedURL.pathExtension)"
+        let target = directory.appendingPathComponent(name)
+        if (try? previewFiles.readData(at: target)) != data {
+            try previewFiles.writeData(data, to: target, options: [.atomic])
+        }
+        try previewFiles.setModificationDate(Date(), at: target)
+        return target
+    }
+
     /// Quick Look 数据源暂时缺图时使用的透明占位文件。
     func placeholderFile() throws -> URL {
         let target = directory.appendingPathComponent("preview-placeholder.png")
@@ -291,8 +305,8 @@ actor RemoteImageCache {
     }
 
     private func isDecodableImage(at url: URL) -> Bool {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return false }
-        return containsDecodableImage(source)
+        guard let data = try? files.readData(at: url) else { return false }
+        return isDecodableImage(data: data)
     }
 
     private func isDecodableImage(data: Data) -> Bool {
@@ -320,8 +334,10 @@ actor RemoteImageCache {
 /// 磁盘缓存保存的是压缩 WebP/JPEG；仅仅构造 `UIImage` 仍可能把真正的像素解压推迟到
 /// SwiftUI 绘制阶段。这里额外调用 `preparingForDisplay()`，让解压工作在 actor 执行器
 /// 上提前完成，并用较小的内存缓存复用最近浏览过的结果。
-private actor GalleryThumbnailDecoder {
-    static let shared = GalleryThumbnailDecoder()
+actor GalleryThumbnailDecoder {
+    private let files: any AppFileService
+
+    init(files: any AppFileService) { self.files = files }
 
     private let images: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
@@ -332,12 +348,13 @@ private actor GalleryThumbnailDecoder {
 
     func image(at file: URL) -> UIImage? {
         guard !Task.isCancelled else { return nil }
-        let key = file.path as NSString
+        guard let data = try? files.readData(at: file) else { return nil }
+        let key = SHA256.hash(data: data).hexString as NSString
         if let cached = images.object(forKey: key) {
             return cached
         }
 
-        guard let source = UIImage(contentsOfFile: file.path), !Task.isCancelled else { return nil }
+        guard let source = UIImage(data: data), !Task.isCancelled else { return nil }
         let decoded = source.preparingForDisplay() ?? source
         let pixelWidth = Int(decoded.size.width * decoded.scale)
         let pixelHeight = Int(decoded.size.height * decoded.scale)
@@ -375,7 +392,7 @@ public struct RemoteCachedStillImage: View {
             do {
                 let file = try await media.images.file(for: url, variant: .thumbnail)
                 guard !Task.isCancelled else { return }
-                let decoded = await GalleryThumbnailDecoder.shared.image(at: file)
+                let decoded = await media.stillDecoder.image(at: file)
                 guard !Task.isCancelled else { return }
                 image = decoded
                 if let decoded, decoded.size.height > 0 {
@@ -432,7 +449,7 @@ public struct RemoteProgressiveStillImage: View {
         do {
             let file = try await media.images.file(for: thumbnailURL, variant: .thumbnail)
             guard !Task.isCancelled else { return }
-            let decoded = await GalleryThumbnailDecoder.shared.image(at: file)
+            let decoded = await media.stillDecoder.image(at: file)
             guard !Task.isCancelled else { return }
             image = decoded
             reportRatio(decoded)
@@ -448,7 +465,7 @@ public struct RemoteProgressiveStillImage: View {
         do {
             let file = try await media.images.file(for: originalURL, variant: .original)
             guard !Task.isCancelled else { return }
-            let decoded = await GalleryThumbnailDecoder.shared.image(at: file)
+            let decoded = await media.stillDecoder.image(at: file)
             guard !Task.isCancelled, let decoded else { return }
             image = decoded
             reportRatio(decoded)

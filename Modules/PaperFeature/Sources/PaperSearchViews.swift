@@ -1,4 +1,5 @@
 #if os(iOS)
+import MediaKit
 import CommunityUI
 import CommunityCore
 import DesignSystemKit
@@ -8,16 +9,21 @@ import DesignSystemKit
 import SwiftUI
 
 struct PaperSearchView: View {
-    @Environment(PaperDependencies.self) private var dependencies
+    private let dependencies: PaperDependencies
+    private let media: MediaEnvironment
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: PaperSearchViewModel
 
-    init(dependencies: PaperDependencies) {
+    init(dependencies: PaperDependencies, media: MediaEnvironment) {
+        self.dependencies = dependencies
+        self.media = media
         _viewModel = StateObject(wrappedValue: PaperSearchViewModel(service: dependencies.list))
     }
     @State private var selectedPaper: PaperSummary?
 
-    var body: some View {
+    var body: some View { content.environment(dependencies).environment(media) }
+
+    private var content: some View {
         ScrollView {
             LazyVStack(spacing: AppDesignSystem.Spacing.none) {
                 if viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -123,7 +129,7 @@ struct PaperSearchView: View {
         .navigationTitle("搜索")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $selectedPaper) { paper in
-            PaperDetailView(dependencies: dependencies, initialPaper: paper)
+            PaperDetailView(dependencies: dependencies, media: media, initialPaper: paper)
         }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {

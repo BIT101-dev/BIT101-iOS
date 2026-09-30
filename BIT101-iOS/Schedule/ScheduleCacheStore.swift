@@ -1,3 +1,4 @@
+import ScheduleSync
 import SchedulePersistence
 import StorageCore
 import ScheduleDomain
@@ -5,12 +6,15 @@ import ScheduleDomain
 //  ScheduleCacheStore.swift
 //  BIT101-iOS
 //
+import Combine
 import Foundation
 
 /// 日程模块本地缓存仓库。
 ///
 /// 统一负责 `ScheduleCache` 的磁盘读写和变更通知发送。
 enum ScheduleCacheStore {
+    private static let changeSubject = PassthroughSubject<AppStorageSession, Never>()
+    static var changes: AnyPublisher<AppStorageSession, Never> { changeSubject.eraseToAnyPublisher() }
     private nonisolated static let writeQueue = SchedulePersistenceStore(
         files: AppFileDirectories.files,
         storageRoot: AppFileDirectories.applicationSupportDirectoryURL(named: "BIT101-iOS"),
@@ -58,7 +62,8 @@ enum ScheduleCacheStore {
         _ cache: ScheduleCache,
         source: ScheduleCacheSaveSource = .local,
         expectedAccountIdentifier: String? = nil,
-        expectedUpdatedAt: Date? = nil
+        expectedUpdatedAt: Date? = nil,
+        isCurrent: @escaping @MainActor () -> Bool = { true }
     ) async -> Bool {
         var cacheToSave = cache
         if source == .cloud {
@@ -82,6 +87,13 @@ enum ScheduleCacheStore {
         let previousTask = diskOperationTask
         let writeTask = Task<ScheduleCache?, Never> {
             _ = await previousTask?.value
+            defer {
+                if diskOperationID == operationID {
+                    diskOperationTask = nil
+                    diskOperationID = nil
+                }
+            }
+            guard isCurrent() else { return nil }
             let didWrite = await writeQueue.write(
                 cacheToSave,
                 accountIdentifier: accountIdentifier,
@@ -89,10 +101,6 @@ enum ScheduleCacheStore {
                 source: source,
                 expectedUpdatedAt: expectedUpdatedAt
             )
-            if diskOperationID == operationID {
-                diskOperationTask = nil
-                diskOperationID = nil
-            }
             return didWrite
         }
         diskOperationTask = Task { await writeTask.value != nil }
@@ -150,6 +158,6 @@ enum ScheduleCacheStore {
     ///
     /// 保存与清空缓存后都要发送这条通知，两个入口共用这一实现。
     fileprivate static func postCacheDidChange() {
-        NotificationCenter.default.post(name: .scheduleCacheDidChange, object: AppFileDirectories.currentSession.accountStorageIdentifier)
+        changeSubject.send(AppFileDirectories.currentSession)
     }
 }

@@ -443,6 +443,7 @@ struct GalleryComposerView: View {
 
         isSubmitting = true
         defer { isSubmitting = false }
+        let cleanup = await dependencies.drafts.captureGalleryCleanup()
 
         do {
             let imageMids = existingImages.map(\.mid) + uploadedImages.map(\.mid)
@@ -468,7 +469,7 @@ struct GalleryComposerView: View {
                     isPublic: isPublic
                 )
             }
-            await dependencies.drafts.removeGallery()
+            await cleanup()
             onCreated()
             dismiss()
         } catch {

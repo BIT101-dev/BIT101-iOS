@@ -10,6 +10,7 @@ from pathlib import Path
 
 EXPECTED = {
     "MediaKit": {"DesignSystemKit", "StorageCore", "TransportCore"},
+    "ScheduleSync": {"ScheduleDomain", "SchedulePersistence", "StorageCore"},
     "SchedulePersistence": {"ScheduleDomain", "StorageCore"},
     "ScheduleDomain": {"ScheduleContracts"},
     "SchedulePorts": {"ClientCore", "ScheduleDomain", "StorageCore"},
@@ -27,6 +28,7 @@ EXPECTED = {
     "ClientCore": set(),
     "DesignSystemKit": set(),
     "ScheduleContracts": set(),
+    "ScheduleActivityContracts": set(),
     "ScoreInfrastructure": {"ClientCore", "ScoreDomain", "TransportCore"},
     "ScoreFeature": {"ScoreDomain", "ClientCore", "DesignSystemKit", "StorageCore", "TransportCore"},
     "StorageCore": set(),
@@ -78,6 +80,8 @@ def manifest_dependencies(manifest: str) -> dict[str, set[str]]:
         path_match = re.search(r'path:\s*"([^"]+)"', body)
         if not path_match:
             raise ValueError(f"{name} has no explicit source path")
+        if name == "BIT101TestSupport" and path_match.group(1) == "ModuleTests/Support":
+            continue
         expected_path = f"Modules/{name}/Sources"
         if path_match.group(1) != expected_path:
             raise ValueError(f"{name} uses {path_match.group(1)}, expected {expected_path}")
@@ -93,9 +97,89 @@ def imported_modules(source_root: Path) -> dict[str, set[str]]:
     return imports
 
 
+def swift_code(source: str) -> str:
+    """Mask nested comments and Swift strings while retaining line positions."""
+    result = list(source)
+    i = 0
+    while i < len(source):
+        start = i
+        if source.startswith("//", i):
+            end = source.find("\n", i)
+            i = len(source) if end < 0 else end
+        elif source.startswith("/*", i):
+            depth = 1
+            i += 2
+            while i < len(source) and depth:
+                if source.startswith("/*", i):
+                    depth += 1
+                    i += 2
+                elif source.startswith("*/", i):
+                    depth -= 1
+                    i += 2
+                else:
+                    i += 1
+        else:
+            match = re.match(r'(#{0,})(' + '\"\"\"|\"' + r')', source[i:])
+            if match:
+                hashes, quotes = match.groups()
+                i += len(match[0])
+                closing = quotes + hashes
+                escape = "\\" + hashes
+                while i < len(source):
+                    if source.startswith(escape, i):
+                        i += len(escape) + 1
+                    elif source.startswith(closing, i):
+                        i += len(closing)
+                        break
+                    else:
+                        i += 1
+            else:
+                i += 1
+                continue
+        for index in range(start, min(i, len(source))):
+            if source[index] != "\n":
+                result[index] = " "
+    return "".join(result)
+
+
+def raw_imports(source: str) -> set[str]:
+    pattern = r"^\s*(?:(?:@_exported|@testable|@preconcurrency)\s+)*(?:(?:public|internal|private|package)\s+)?import\s+(?:(?:struct|class|enum|protocol|func|var|let|typealias)\s+)?([A-Za-z0-9_]+)"
+    return set(re.findall(pattern, swift_code(source), re.MULTILINE))
+
+
 def imports_in_text(source: str) -> set[str]:
-    pattern = r"^\s*(?:(?:@_exported|@testable|@preconcurrency)\s+)*(?:(?:public|internal|private|package)\s+)?import\s+([A-Za-z0-9_]+)"
-    return set(re.findall(pattern, source, re.MULTILINE)) - IGNORED_IMPORTS
+    return raw_imports(source) - IGNORED_IMPORTS
+
+
+LAYERS = {
+    "Core": {"Core"},
+    "Transport": {"Core", "Transport"},
+    "Kit": {"Core", "Kit"},
+    "UI": {"Core", "Kit", "UI"},
+    "Contracts": {"Core", "Contracts"},
+    "Domain": {"Core", "Contracts", "Domain"},
+    "Ports": {"Core", "Contracts", "Domain", "Ports"},
+    "Persistence": {"Core", "Contracts", "Domain", "Persistence"},
+    "SharedStore": {"Core", "Contracts"},
+    "Infrastructure": {"Core", "Transport", "Contracts", "Domain", "Ports", "Infrastructure"},
+    "Sync": {"Core", "Contracts", "Domain", "Persistence", "Ports"},
+    "Feature": {"Core", "Transport", "Kit", "UI", "Contracts", "Domain", "Ports"},
+}
+
+
+def layer(module: str) -> str | None:
+    return next((name for name in LAYERS if module.endswith(name)), None)
+
+
+FOUNDATIONAL_IMPORTS = {"Foundation", "Combine", "Observation", "CryptoKit", "OSLog", "os", "CoreFoundation"}
+PLATFORM_EXCEPTIONS = {"ScheduleActivityContracts": {"ActivityKit"}}
+
+
+def platform_errors(module: str, imports: set[str]) -> list[str]:
+    if layer(module) in {"Core", "Transport", "Contracts", "Domain", "Ports", "Persistence", "SharedStore", "Infrastructure", "Sync"}:
+        forbidden = (imports & IGNORED_IMPORTS) - FOUNDATIONAL_IMPORTS - PLATFORM_EXCEPTIONS.get(module, set())
+        return [f"platform boundary: {module} imports {name}" for name in sorted(forbidden)]
+    return []
 
 
 def graph_errors(manifest: dict[str, set[str]]) -> list[str]:
@@ -115,10 +199,11 @@ def graph_errors(manifest: dict[str, set[str]]) -> list[str]:
     for module, dependencies in manifest.items():
         visit(module, ())
         for dependency in dependencies:
-            if module.endswith("Feature") and dependency.endswith(("Feature", "Infrastructure", "Persistence")):
-                errors.append(f"feature boundary: {module} -> {dependency}")
-            if module.endswith(("Infrastructure", "Persistence", "Domain", "Ports")) and dependency.endswith(("Feature", "UI", "Kit")):
-                errors.append(f"implementation boundary: {module} -> {dependency}")
+            source_layer, dependency_layer = layer(module), layer(dependency)
+            if dependency not in manifest:
+                errors.append(f"unknown dependency: {module} -> {dependency}")
+            if source_layer and dependency_layer and dependency_layer not in LAYERS[source_layer]:
+                errors.append(f"{source_layer.lower()} boundary: {module} -> {dependency}")
     return errors
 
 
@@ -127,7 +212,14 @@ def self_test() -> None:
     assert graph_errors({"Leaf": set(), "First": {"Leaf"}, "Second": {"Leaf"}}) == []
     assert any("cycle" in error for error in graph_errors({"First": {"Second"}, "Second": {"First"}}))
     assert any("feature boundary" in error for error in graph_errors({"FirstFeature": {"SecondFeature"}, "SecondFeature": set()}))
-    assert any("implementation boundary" in error for error in graph_errors({"ScoreInfrastructure": {"ScoreFeature"}, "ScoreFeature": set()}))
+    assert any("infrastructure boundary" in error for error in graph_errors({"ScoreInfrastructure": {"ScoreFeature"}, "ScoreFeature": set()}))
+
+
+    assert graph_errors({"TransportCore": {"ScoreFeature"}, "ScoreFeature": set()})
+    assert platform_errors("ScheduleDomain", {"UIKit"})
+    assert platform_errors("ScheduleActivityContracts", {"Foundation", "ActivityKit"}) == []
+    assert imports_in_text('/* import GalleryFeature\n/* import ScoreFeature */ */\nimport TransportCore') == {"TransportCore"}
+    assert imports_in_text('let text = #"""\nimport GalleryFeature\n"""#\nimport struct StorageCore.AppStorageSession') == {"StorageCore"}
 
 
 def native_target_errors(root: Path) -> list[str]:
@@ -173,6 +265,8 @@ def main() -> int:
         if not source_root.is_dir():
             errors.append(f"{module} source root missing: {source_root}")
             continue
+        for source in source_root.rglob("*.swift"):
+            errors.extend(platform_errors(module, raw_imports(source.read_text(encoding="utf-8"))))
         actual_imports = imported_modules(source_root)
         for dependency in expected_dependencies - actual_imports.keys():
             errors.append(f"{module} declares unused {dependency}")
@@ -184,11 +278,14 @@ def main() -> int:
                     f"{module} imports undeclared {imported}: {', '.join(sorted(files))}"
                 )
 
-    test_target = re.search(r'\.testTarget\(name:\s*"BIT101ModulesTests",\s*dependencies:\s*\[([^\]]*)\]', (root / "Package.swift").read_text(encoding="utf-8"))
-    test_dependencies = set(re.findall(r'"([A-Za-z0-9]+)"', test_target[1])) if test_target else set()
-    for imported in imported_modules(root / "ModuleTests"):
-        if imported in EXPECTED and imported not in test_dependencies:
-            errors.append(f"module tests import undeclared {imported}")
+    test_targets = re.findall(r'\.testTarget\(name:\s*"([^\"]+)",\s*dependencies:\s*\[([^\]]*)\],\s*path:\s*"([^\"]+)"', (root / "Package.swift").read_text(encoding="utf-8"))
+    for name, dependencies, path in test_targets:
+        declared = set(re.findall(r'"([A-Za-z0-9]+)"', dependencies))
+        actual = imported_modules(root / path).keys() & (EXPECTED.keys() | {"BIT101TestSupport"})
+        if actual != declared:
+            errors.append(f"test consumer {name}: declared {sorted(declared)}, imports {sorted(actual)}")
+    if len(test_targets) < 2:
+        errors.append("test consumers require independent source roots")
 
     errors.extend(native_target_errors(root))
 

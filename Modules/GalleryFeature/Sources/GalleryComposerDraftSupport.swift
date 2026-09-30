@@ -484,6 +484,30 @@ public nonisolated final class ComposerDraftStore: Sendable {
         await storage.removeGallery(store: self, session: currentSession())
     }
 
+    /// Capture cleanup for the saved revision owned by a submission.
+    @MainActor
+    public func captureSuggestionCleanup() async -> (@Sendable () async -> Void) {
+        await captureCleanup(filename: "suggestion.json")
+    }
+
+    @MainActor
+    public func captureGalleryCleanup() async -> (@Sendable () async -> Void) {
+        await captureCleanup(filename: "gallery.json")
+    }
+
+    @MainActor
+    private func captureCleanup(filename: String) async -> (@Sendable () async -> Void) {
+        let session = currentSession()
+        let metadata = await storage.metadata(store: self, filename: filename, session: session)
+        return {
+            await self.storage.removeMatching(store: self, filename: filename, session: session, metadata: metadata)
+        }
+    }
+
+    fileprivate func metadata(filename: String, session: AppStorageSession) -> Data? {
+        readData(at: currentFileURL(for: filename, session: session))
+    }
+
     @MainActor
     public func removeSuggestion() async {
         await storage.removeSuggestion(store: self, session: currentSession())
@@ -642,6 +666,15 @@ private actor ComposerDraftStorage {
 
     func loadSuggestion(store: ComposerDraftStore, session: AppStorageSession) -> DeveloperSuggestionDraftSnapshot? {
         store.loadSuggestion(session: session)
+    }
+
+    func metadata(store: ComposerDraftStore, filename: String, session: AppStorageSession) -> Data? {
+        store.metadata(filename: filename, session: session)
+    }
+
+    func removeMatching(store: ComposerDraftStore, filename: String, session: AppStorageSession, metadata: Data?) {
+        guard let metadata, store.metadata(filename: filename, session: session) == metadata else { return }
+        store.remove(filename: filename, session: session)
     }
 
     func removeGallery(store: ComposerDraftStore, session: AppStorageSession) {

@@ -51,11 +51,11 @@ Scripts/run-extended-tests.sh extensions
 Scripts/run-extended-tests.sh catalyst
 ```
 
-包级测试由 `Package.swift` 的 `BIT101ModulesTests` 管理，代码位于 `ModuleTests/`，使用内存传输、文件服务、偏好和通知中心。覆盖社区身份与恢复隔离、日程保存排队、文件损坏、账号切换、生产成绩服务注入和地图身份规则。学校课表解析沿用 `BIT101-iOSTests/Fixtures/schedule-service-response.json`。MapKit 页面、UIKit、Quick Look 和可信成绩单展示通过 App 宿主验证。
+包级测试由 `Package.swift` 的 Transport、Community、Schedule、Contracts、Score、Map、Sync 七个消费者 target 管理，代码位于 `ModuleTests/`，使用内存传输、文件服务、偏好和通知中心。覆盖社区身份与恢复隔离、日程保存排队、文件损坏、账号切换、生产成绩服务注入、同步冲突和地图身份规则。测试用内存文件服务集中于 `ModuleTests/Support`，直接依赖 StorageCore。学校课表解析沿用 `BIT101-iOSTests/Fixtures/schedule-service-response.json`。MapKit 页面、UIKit、Quick Look 和可信成绩单展示通过 App 宿主验证。
 
-`FeatureCompositionTests` 在 App 宿主组合不同的环境依赖，验证课程入口的构造依赖。`ExperimentalPreferenceCloudSyncTests` 使用独立通知中心和平台替身验证生命周期实例隔离。
+`FeatureCompositionTests` 在 App 宿主组合不同的环境依赖，验证课程、Gallery → Paper、Paper、Mine、Profile、Schedule 的构造归属。`MediaDependencyTests` 验证内存存储、静态 / GIF 解码和预览字节；`SuggestionDependencyTests` 验证草稿及提交归属。`ExperimentalPreferenceCloudSyncTests` 使用独立通知中心和平台替身验证生命周期实例隔离。
 
-按现有测试类或方法选择范围，多个筛选项在同一次调用执行：
+按现有测试类或方法选择范围，多个筛选项在同一次调用执行。Swift Testing 方法名保留 `()`，suite 名称用于整组运行；脚本按实际用例数量验收选择范围：
 
 ```sh
 Scripts/run-extended-tests.sh default \
@@ -64,7 +64,7 @@ Scripts/run-extended-tests.sh default \
   --only-testing NetworkClientTests
 ```
 
-`modules`、`ui`、`catalyst` 支持 `--build-only` 编译测试产物。全量逻辑测试使用 `Scripts/run-extended-tests.sh`。
+`modules`、`ui`、`catalyst` 支持 `--build-only` 编译测试产物。`--clean-build` 清理固定测试产物目录后执行所选流程。全量逻辑测试使用 `Scripts/run-extended-tests.sh`。
 
 ## UI 自动化
 

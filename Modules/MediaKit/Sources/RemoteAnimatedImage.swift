@@ -1,6 +1,7 @@
 #if os(iOS)
 import StorageCore
 import DesignSystemKit
+import CryptoKit
 import ImageIO
 import SwiftUI
 import UIKit
@@ -9,8 +10,10 @@ import UIKit
 ///
 /// 首页继续自动播放动图，下载后的逐帧 ImageIO 解码在独立 actor 中执行。
 /// 串行 actor 将快速滑过多个 GIF 的帧创建排队，有上限的内存缓存复用最近解码结果。
-private actor RemoteAnimatedImageDecoder {
-    static let shared = RemoteAnimatedImageDecoder()
+actor RemoteAnimatedImageDecoder {
+    private let files: any AppFileService
+
+    init(files: any AppFileService) { self.files = files }
 
     private let images: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
@@ -21,12 +24,12 @@ private actor RemoteAnimatedImageDecoder {
 
     func image(at file: URL, reduceMotion: Bool) -> UIImage? {
         guard !Task.isCancelled else { return nil }
-        let key = "\(file.path)|reduce-motion:\(reduceMotion)" as NSString
+        guard let data = try? files.readData(at: file) else { return nil }
+        let key = "\(SHA256.hash(data: data).description)|reduce-motion:\(reduceMotion)" as NSString
         if let cached = images.object(forKey: key) {
             return cached
         }
 
-        guard let data = try? AppFileSystem.files.readData(at: file) else { return nil }
         guard let decoded = Self.animatedImage(from: data, reduceMotion: reduceMotion) else { return nil }
         let pixelCost = (decoded.images ?? [decoded]).reduce(0) { total, frame in
             let width = Int(frame.size.width * frame.scale)
@@ -151,7 +154,7 @@ struct RemoteAnimatedImage: UIViewRepresentable {
                 do {
                     let file = try await media.images.file(for: url, variant: .original)
                     guard !Task.isCancelled else { return }
-                    let decoded = await RemoteAnimatedImageDecoder.shared.image(
+                    let decoded = await media.animatedDecoder.image(
                         at: file,
                         reduceMotion: UIAccessibility.isReduceMotionEnabled
                     )

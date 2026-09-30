@@ -4,32 +4,39 @@ import CommunityCore
 import Observation
 import SwiftUI
 
-/// 跨社区页面的目标工厂，由应用壳层组装并沿视图环境传递。
+/// Each navigation capability follows its consumer's page boundary.
 @MainActor
 @Observable
-public final class CommunityDestinations {
+public final class CommunityProfileDestination {
     public let profile: (Int) -> AnyView
-    public let poster: (CommunityPoster, (() -> Void)?) -> AnyView
-    public let papers: (Binding<Int?>, @escaping () -> Void) -> AnyView
+    public init(profile: @escaping (Int) -> AnyView) { self.profile = profile }
+}
 
+@MainActor
+@Observable
+public final class CommunityPosterDestination {
+    public let poster: (CommunityPoster, (() -> Void)?) -> AnyView
+    public init(poster: @escaping (CommunityPoster, (() -> Void)?) -> AnyView) { self.poster = poster }
+}
+
+@MainActor
+public struct CommunityPaperDestination {
+    public let papers: (Binding<Int?>, @escaping () -> Void) -> AnyView
+    public init(papers: @escaping (Binding<Int?>, @escaping () -> Void) -> AnyView) { self.papers = papers }
+}
+
+@MainActor
+public struct CommunitySettingsDestinations {
     public let settingsEntries: [CommunitySettingsEntry]
     public let settings: (CommunitySettingsRequest) -> AnyView
     public let suggestion: () -> AnyView
 
-    public init(
-        settingsEntries: [CommunitySettingsEntry],
-        settings: @escaping (CommunitySettingsRequest) -> AnyView,
-        suggestion: @escaping () -> AnyView,
-        profile: @escaping (Int) -> AnyView,
-        poster: @escaping (CommunityPoster, (() -> Void)?) -> AnyView,
-        papers: @escaping (Binding<Int?>, @escaping () -> Void) -> AnyView
-    ) {
+    public init(settingsEntries: [CommunitySettingsEntry],
+                settings: @escaping (CommunitySettingsRequest) -> AnyView,
+                suggestion: @escaping () -> AnyView) {
         self.settingsEntries = settingsEntries
         self.settings = settings
         self.suggestion = suggestion
-        self.profile = profile
-        self.poster = poster
-        self.papers = papers
     }
 }
 

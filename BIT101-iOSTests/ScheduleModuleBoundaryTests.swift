@@ -19,7 +19,6 @@ import Testing
 
 @MainActor
 final class RecordingSchedulePlatformActions: SchedulePlatformActions {
-    var cloudCache: ScheduleCache?
     var cloudSession: AppStorageSession?
     var reminderSession: AppStorageSession?
     var importedCourses: ScheduleCourseSnapshot?
@@ -31,8 +30,7 @@ final class RecordingSchedulePlatformActions: SchedulePlatformActions {
     var importError: Error?
     private var enableContinuation: CheckedContinuation<Void, Never>?
 
-    func enableCloudSync(cache: ScheduleCache, session: AppStorageSession) async {
-        cloudCache = cache
+    func enableCloudSync(session: AppStorageSession) async {
         cloudSession = session
         finishEnablingIfReady()
     }
@@ -131,7 +129,7 @@ struct ScheduleModuleBoundaryTests {
         load: @escaping (AppStorageSession) async -> ScheduleCacheLoadResult,
         save: @escaping (ScheduleCache, ScheduleCacheSaveSource, AppStorageSession) async throws -> Void
     ) -> ScheduleRepository {
-        ScheduleRepository(session: session, load: load, save: save, cacheDidChange: Notification.Name("schedule-boundary-tests-cache-change"))
+        ScheduleRepository(session: session, load: load, save: save)
     }
 
     private func makeViewModel(
@@ -143,8 +141,8 @@ struct ScheduleModuleBoundaryTests {
         ScheduleViewModel(
             service: service,
             repository: repository,
-            ddl: ScheduleDDLViewModel(service: service, repository: repository),
-            classroom: ScheduleClassroomViewModel(service: service, repository: repository),
+            ddlService: service,
+            classroomService: service,
             platformActions: platformActions,
             newCustomScheduleDraft: newCustomScheduleDraft
         )

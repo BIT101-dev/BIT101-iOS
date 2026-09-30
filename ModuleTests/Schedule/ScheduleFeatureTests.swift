@@ -14,19 +14,73 @@ struct ScheduleFeatureTests {
         return ScheduleViewModel(
             service: service,
             repository: repository,
-            ddl: ScheduleDDLViewModel(service: service, repository: repository),
-            classroom: ScheduleClassroomViewModel(service: service, repository: repository),
+            ddlService: service,
+            classroomService: service,
             platformActions: actions,
             virtualNetworkLikely: { true },
             newCustomScheduleDraft: { CustomScheduleDraft() }
         )
     }
 
+    @Test func publicAssemblyOwnsOneRepositoryAcrossAllSubscenes() async {
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "assembly") },
+                                            load: { _ in .missing }, save: { _, _, _ in })
+        let viewModel = makeViewModel(repository: repository, actions: ModuleSchedulePlatformActions())
+        #expect(viewModel.ddl.repository === repository)
+        #expect(viewModel.classroom.repository === repository)
+        await repository.loadIfNeeded()
+        let generation = repository.accountGeneration
+        viewModel.resetForCurrentAccount()
+        #expect(repository.accountGeneration == generation + 1)
+        #expect(viewModel.ddl.accountGeneration == repository.accountGeneration)
+        #expect(viewModel.classroom.accountGeneration == repository.accountGeneration)
+    }
+
+    @Test func scopedChangeStreamReloadsItsAccountOwner() async {
+        let first = AppStorageSession(accountIdentifier: "first")
+        let second = AppStorageSession(accountIdentifier: "second")
+        let changes = PassthroughSubject<AppStorageSession, Never>()
+        var firstLoads = 0
+        var secondLoads = 0
+        var continuation: CheckedContinuation<Void, Never>?
+        let firstRepository = ScheduleRepository(session: { first }, load: { _ in
+            firstLoads += 1
+            if firstLoads == 2 { continuation?.resume(); continuation = nil }
+            return .missing
+        }, save: { _, _, _ in }, changes: changes.eraseToAnyPublisher())
+        let secondRepository = ScheduleRepository(session: { second }, load: { _ in secondLoads += 1; return .missing },
+                                                 save: { _, _, _ in }, changes: changes.eraseToAnyPublisher())
+        await firstRepository.loadIfNeeded()
+        await secondRepository.loadIfNeeded()
+        await withCheckedContinuation { continuation = $0; changes.send(first) }
+        #expect(firstLoads == 2)
+        #expect(secondLoads == 1)
+    }
+
+    @Test func cloudEnableWaitsForTheOwnedSaveAndHonorsSaveFailure() async {
+        for saveSucceeds in [true, false] {
+            var didSave = false
+            var initial = ScheduleCache()
+            initial.iCloudSyncEnabled = false
+            let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "enable") },
+                load: { _ in .loaded(initial) }, save: { _, _, _ in
+                    if !saveSucceeds { throw CocoaError(.fileWriteNoPermission) }
+                    didSave = true
+                })
+            await repository.loadIfNeeded()
+            let actions = ModuleRecordingSchedulePlatformActions()
+            let viewModel = makeViewModel(repository: repository, actions: actions)
+            viewModel.setICloudSyncEnabled(true)
+            await viewModel.cloudSyncEnableTask?.value
+            #expect(didSave == saveSucceeds)
+            #expect((actions.cloudSession != nil) == saveSucceeds)
+        }
+    }
+
     @Test func calendarCommandsPreserveSelectionAndPropagateErrors() async throws {
         let session = AppStorageSession(accountIdentifier: "feature-test")
         let repository = ScheduleRepository(
-            session: { session }, load: { _ in .missing }, save: { _, _, _ in },
-            cacheDidChange: Notification.Name("schedule-feature-tests")
+            session: { session }, load: { _ in .missing }, save: { _, _, _ in }
         )
         await repository.loadIfNeeded()
         let actions = ModuleSchedulePlatformActions()
@@ -60,8 +114,7 @@ struct ScheduleFeatureTests {
         initial.cloudSyncBaselineRecordTag = "baseline"
         var saved: ScheduleCache?
         let repository = ScheduleRepository(
-            session: { session }, load: { _ in .loaded(initial) }, save: { cache, _, _ in saved = cache },
-            cacheDidChange: Notification.Name("schedule-feature-scene-tests")
+            session: { session }, load: { _ in .loaded(initial) }, save: { cache, _, _ in saved = cache }
         )
         await repository.loadIfNeeded()
         repository.presentationPreferences.showSaturday = false
@@ -77,8 +130,7 @@ struct ScheduleFeatureTests {
     @Test func networkNoticeUsesInjectedPresentationContext() {
         let session = AppStorageSession(accountIdentifier: "feature-notice-test")
         let repository = ScheduleRepository(
-            session: { session }, load: { _ in .missing }, save: { _, _, _ in },
-            cacheDidChange: Notification.Name("schedule-feature-notice-tests")
+            session: { session }, load: { _ in .missing }, save: { _, _, _ in }
         )
         let viewModel = makeViewModel(repository: repository, actions: ModuleSchedulePlatformActions())
         let networkNotice = viewModel.schoolFailureNotice(title: "学校请求", message: "请求失败", networkFailure: true)
@@ -97,7 +149,7 @@ private final class ModuleSchedulePlatformActions: SchedulePlatformActions {
     var markerIDs: Set<String>?
     var error: Error?
 
-    func enableCloudSync(cache: ScheduleCache, session: AppStorageSession) async {}
+    func enableCloudSync(session: AppStorageSession) async {}
     func enableCourseReminder(session: AppStorageSession) async {}
     func importSystemCalendar(courses: ScheduleCourseSnapshot, term: String) async throws -> Int { 0 }
     func deleteImportedSystemCalendarEvents() async throws -> ScheduleSystemCalendarMutationResult { .noOp }
@@ -145,7 +197,7 @@ struct ScheduleRepositoryBoundaryTests {
         load: @escaping (AppStorageSession) async -> ScheduleCacheLoadResult,
         save: @escaping (ScheduleCache, ScheduleCacheSaveSource, AppStorageSession) async throws -> Void
     ) -> ScheduleRepository {
-        ScheduleRepository(session: session, load: load, save: save, cacheDidChange: Notification.Name("schedule-boundary-tests-cache-change"))
+        ScheduleRepository(session: session, load: load, save: save)
     }
 
     private func makeViewModel(
@@ -157,8 +209,8 @@ struct ScheduleRepositoryBoundaryTests {
         ScheduleViewModel(
             service: service,
             repository: repository,
-            ddl: ScheduleDDLViewModel(service: service, repository: repository),
-            classroom: ScheduleClassroomViewModel(service: service, repository: repository),
+            ddlService: service,
+            classroomService: service,
             platformActions: platformActions,
             newCustomScheduleDraft: newCustomScheduleDraft
         )
@@ -433,7 +485,7 @@ struct ScheduleRepositoryBoundaryTests {
         #expect(viewModel.settingsSnapshot.hasCourses)
     }
 
-    @Test func platformActionsReceiveRepositoryAccountAndCache() async throws {
+    @Test func platformActionsReceiveTheRepositorySessionAfterPersistence() async throws {
         let session = AppStorageSession(accountIdentifier: "platform-account")
         let repository = makeRepository(session: { session }, load: { _ in .missing }, save: { _, _, _ in })
         await repository.loadIfNeeded()
@@ -445,7 +497,7 @@ struct ScheduleRepositoryBoundaryTests {
         await actions.waitForEnabledActions()
         #expect(actions.cloudSession == session)
         #expect(actions.reminderSession == session)
-        #expect(actions.cloudCache?.iCloudSyncEnabled == true)
+        #expect(viewModel.settingsSnapshot.iCloudSyncEnabled)
         #expect(try await viewModel.importCurrentTermToSystemCalendar() == 7)
         #expect(actions.importedCourses == viewModel.courseSnapshot)
         #expect(actions.importedTerm == viewModel.persistenceSnapshot.currentTerm)
@@ -551,7 +603,6 @@ struct ScheduleRepositoryBoundaryTests {
 
 @MainActor
 private final class ModuleRecordingSchedulePlatformActions: SchedulePlatformActions {
-    var cloudCache: ScheduleCache?
     var cloudSession: AppStorageSession?
     var reminderSession: AppStorageSession?
     var importedCourses: ScheduleCourseSnapshot?
@@ -563,8 +614,7 @@ private final class ModuleRecordingSchedulePlatformActions: SchedulePlatformActi
     var importError: Error?
     private var enableContinuation: CheckedContinuation<Void, Never>?
 
-    func enableCloudSync(cache: ScheduleCache, session: AppStorageSession) async {
-        cloudCache = cache
+    func enableCloudSync(session: AppStorageSession) async {
         cloudSession = session
         finishEnablingIfReady()
     }

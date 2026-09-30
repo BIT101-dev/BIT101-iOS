@@ -1,3 +1,6 @@
+import UserNotifications
+import CommunityTransport
+import ScheduleSync
 import SchedulePorts
 import ClientCore
 import ScheduleFeature
@@ -20,10 +23,10 @@ struct AppScheduleCacheEffects: SchedulePlatformActions {
 #endif
     }
 
-    func enableCloudSync(cache: ScheduleCache, session: AppStorageSession) async {
+    func enableCloudSync(session: AppStorageSession) async {
 #if canImport(CloudKit)
         guard AppFileDirectories.currentSession == session else { return }
-        await ScheduleCloudSyncManager.shared.reconcileAfterEnabling(localCache: cache)
+        await ScheduleCloudSyncManager.shared.reconcileAfterEnabling()
 #endif
     }
 
@@ -95,17 +98,18 @@ enum ScheduleServiceFactory {
                 }
                 await AppScheduleCacheEffects().didSave(session: session, source: source, cloudSyncEnabled: cache.iCloudSyncEnabled)
             },
-            cacheDidChange: .scheduleCacheDidChange
+            changes: ScheduleCacheStore.changes
         )
         return ScheduleViewModel(
             service: service,
             repository: repository,
-            ddl: ScheduleDDLViewModel(service: service, repository: repository, virtualNetworkLikely: virtualNetworkLikely, beforeSchoolRequest: {
-                _ = await NetworkMagicWarningCenter.shared.consider(url: URL(string: "https://sso.bit.edu.cn"))
-            }),
-            classroom: ScheduleClassroomViewModel(service: service, repository: repository, virtualNetworkLikely: virtualNetworkLikely),
+            ddlService: service,
+            classroomService: service,
             platformActions: AppScheduleCacheEffects(),
             virtualNetworkLikely: virtualNetworkLikely,
+            beforeSchoolRequest: {
+                _ = await NetworkMagicWarningCenter.shared.consider(url: URL(string: "https://sso.bit.edu.cn"))
+            },
             newCustomScheduleDraft: makeCustomScheduleDraft
         )
     }
@@ -135,4 +139,24 @@ enum ScheduleServiceFactory {
             transport: transport
         )
     }
+}
+
+/// Production reminder context is selected alongside the platform actions.
+extension ScheduleLiveActivityManager {
+    static let shared: ScheduleLiveActivityManager = {
+        let context = ScheduleReminderContext(
+            currentSession: {
+                let storage = LoginStorage.shared
+                return ScheduleReminderSession(studentID: storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines),
+                    storage: AppFileDirectories.currentSession, generation: storage.communityCredentials.identity.generation,
+                    signedIn: !storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            },
+            loadCache: { await ScheduleCacheStore.loadResultAsync(for: $0).cacheIfReadable ?? ScheduleCache() }
+        )
+        #if canImport(ActivityKit) && !targetEnvironment(macCatalyst)
+        return ScheduleLiveActivityManager(context: context, notificationCenter: .current())
+        #else
+        return ScheduleLiveActivityManager(context: context)
+        #endif
+    }()
 }

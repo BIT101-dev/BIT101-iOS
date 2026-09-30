@@ -39,6 +39,8 @@ flowchart TD
     SchedulePorts --> ScheduleDomain
     SchedulePersistence --> ScheduleDomain
     ScheduleDomain --> ScheduleContracts
+    ScheduleSync --> ScheduleDomain
+    ScheduleSync --> SchedulePersistence
     ScoreFeature --> ScoreDomain
     ScoreInfrastructure --> ScoreDomain
 ```
@@ -55,14 +57,17 @@ App 入口 → 登录恢复 → AppAccountLifecycle → 各场景状态与页面
 ```
 
 - `AppAccountLifecycle` 接收 `ExperimentalPreferenceCloudSync`，从同一同步实例取得设置、账号仓库和账号来源；注入 `AppExternalDisplayCoordinating` 协调切号与外部展示。
-- `AppPreferenceCacheEffects.configure(sync:)` 把保存回调绑定到该实例持有的设置、成绩、筛选和消息仓库；根视图传递同一组环境对象。
+- 设置、成绩、筛选和消息仓库通过 typed 保存 publisher 发布账号会话；偏好同步协调器在构造时持有独立订阅。
 - `AppSettingsStore` 注入偏好存储与账号会话提供器。`AppAccountStores` 持有业务仓库及会话提供器，生产默认实例在 App 组装入口选择。
 - ViewModel 通过场景化服务协议接收业务能力；View 绑定状态和操作，平台适配器负责系统副作用。
-- `CommunityDestinations` 提供页面工厂，跨场景切换使用类型化绑定和回调。个人主页的删帖操作通过 `MineDependencies` 注入，业务动作归所属场景。
-- 社区页面入口持有构造参数中的依赖，并向内部视图安装同一实例。课程评价入口直接接收 `CourseDependencies`，课程学分来源通过闭包注入。
+- Profile、Poster、Paper、Settings 导航能力按消费者拆分，`AppCommunityDestinations` 负责跨 Feature 工厂。个人主页删帖通过 `MineDependencies` 注入，业务动作归所属场景。
+- 页面入口显式接收状态、服务、MediaEnvironment 和所消费的导航能力，并向内部视图安装同一实例。导航目的地携带构造依赖，课程学分来源通过闭包注入。
 - `ScheduleRepository` 持有完整日程缓存与写权限，课表、DDL、空教室通过场景快照提交所属字段。保存任务按实例排队，捕获账号、代际与修订；同步操作等待持久化完成，再发布成功状态。保存失败保留编辑并呈现错误。
-- 保存期间的缓存通知在队列完成后重载，重载按本机修订核对归属；继续编辑的字段保留在仓库中。
+- 日程变更流按来源、账号和代际筛选；保存期间的重载在队列完成后按本机修订核对归属。继续编辑的字段保留在仓库中。
 - `AppScheduleCacheEffects` 连接保存后的云同步；Widget、Watch 与 Live Activity 由应用生命周期的平台适配器协调。系统日历导入消费课程快照和学期，事件展开及写入归平台适配器。
+
+- `ScheduleSync` 通过账号代际、按会话加载、比较保存、传输和冲突呈现协调用户状态；CloudKit 容器及 system fields 适配归 App。提醒上下文同样注入账号与缓存。
+- 媒体校验和静态 / GIF 解码消费注入字节；Quick Look 通过显式系统文件服务准备 URL。ActivityKit 属性归 ScheduleActivityContracts，领域复用的 ScheduleContracts 提供纯共享快照及时间线。
 
 视觉令牌、公共组件和页面约束见 [设计系统](DESIGN_SYSTEM.md)。
 

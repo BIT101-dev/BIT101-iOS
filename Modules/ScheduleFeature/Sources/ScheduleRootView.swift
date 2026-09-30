@@ -20,10 +20,11 @@ public struct ScheduleRootView: View {
     /// 壳层深链请求的目标分栏，例如从小组件点进来直接落到课表。
     @Binding var requestedSection: ScheduleSection?
     let destinations: ScheduleDestinations
-    @EnvironmentObject private var viewModel: ScheduleViewModel
+    @ObservedObject private var viewModel: ScheduleViewModel
     @State private var courseTabResetSignal = 0
 
-    public init(requestedSection: Binding<ScheduleSection?>, destinations: ScheduleDestinations) {
+    public init(viewModel: ScheduleViewModel, requestedSection: Binding<ScheduleSection?>, destinations: ScheduleDestinations) {
+        self.viewModel = viewModel
         _requestedSection = requestedSection
         self.destinations = destinations
     }
@@ -96,6 +97,8 @@ public struct ScheduleRootView: View {
             )
         }
         .scheduleSchoolVerification(viewModel: viewModel.ddl)
+        .environmentObject(viewModel)
+        .environmentObject(viewModel.ddl)
     }
 
     /// 根据当前分区切换渲染不同内容页。
