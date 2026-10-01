@@ -147,14 +147,18 @@ private struct PaperRootViewScene: View {
             }
         }
         .navigationDestination(item: $selectedPaper) { paper in
-            PaperDetailView(dependencies: dependencies, media: media, initialPaper: paper)
+            PaperDetailView(dependencies: dependencies, media: media, initialPaper: paper) {
+                Task { await viewModel.refresh() }
+            }
         }
         .navigationDestination(item: $deepLinkedPaper) { paper in
-            PaperDetailView(dependencies: dependencies, media: media, initialPaper: paper)
+            PaperDetailView(dependencies: dependencies, media: media, initialPaper: paper) {
+                Task { await viewModel.refresh() }
+            }
         }
         .sheet(isPresented: $isShowingComposer) {
             NavigationStack {
-                PaperComposerView {
+                PaperComposerView(initialContent: "") {
                     Task {
                         await handleComposerCreated()
                     }

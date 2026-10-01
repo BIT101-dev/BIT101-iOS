@@ -39,16 +39,20 @@ struct ScheduleBlankContextMenuView: UIViewRepresentable {
     }
 }
 
-struct ScheduleCourseContextMenuView: UIViewRepresentable {
+struct ScheduleEntryInteractionView: UIViewRepresentable {
+    let entry: ScheduleCalendarEntry
     let onTap: () -> Void
-    let onMenuWillPresent: () -> Void
-    let onShare: () -> Void
+    var onMenuWillPresent: (() -> Void)? = nil
+    var onShare: (() -> Void)? = nil
 
     func makeUIView(context: Context) -> ScheduleBlankContextMenuControl {
         let view = ScheduleBlankContextMenuControl()
         view.isAccessibilityElement = true
-        view.accessibilityLabel = "课程分享菜单"
-        view.accessibilityIdentifier = "schedule.course-context-menu"
+        view.isContextMenuInteractionEnabled = onShare != nil
+        view.accessibilityLabel = accessibilityLabel
+        view.accessibilityValue = entry.subtitle.isEmpty ? "" : "地点：\(entry.subtitle)"
+        view.accessibilityIdentifier = "schedule.entry.\(entry.id)"
+        view.accessibilityHint = "双击打开详情"
         view.accessibilityTraits = .button
         view.shareTitle = "分享课程"
         view.showsImport = false
@@ -62,25 +66,43 @@ struct ScheduleCourseContextMenuView: UIViewRepresentable {
         uiView.onTap = onTap
         uiView.onMenuWillPresent = onMenuWillPresent
         uiView.onShare = onShare
+        uiView.isContextMenuInteractionEnabled = onShare != nil
+        uiView.accessibilityLabel = accessibilityLabel
+        uiView.accessibilityValue = entry.subtitle.isEmpty ? "" : "地点：\(entry.subtitle)"
+        uiView.accessibilityIdentifier = "schedule.entry.\(entry.id)"
+    }
+
+    private var accessibilityLabel: String {
+        let title = entry.title.isEmpty ? "未命名日程" : entry.title
+        switch entry.kind {
+        case .course: return title
+        case .exam: return "考试，\(title)"
+        case .custom: return "自定义日程，\(title)"
+        }
     }
 }
 
 final class ScheduleBlankContextMenuControl: UIControl {
     var shareTitle = "分享课表"
     var showsImport = true
-    var onTap: (() -> Void)?
+    var onTap: (() -> Void)? {
+        didSet { tapGesture.isEnabled = onTap != nil }
+    }
     var onMenuWillPresent: (() -> Void)?
     var onShare: (() -> Void)?
     var onImport: (() -> Void)?
     private var lastInteractionLocation: CGPoint = .zero
+    private let tapGesture = UITapGestureRecognizer()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         isOpaque = false
+        isMultipleTouchEnabled = true
         tintColor = UIColor(AppDesignSystem.Palette.Accent.primary)
         isContextMenuInteractionEnabled = true
-        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+        tapGesture.addTarget(self, action: #selector(handleTap))
         tapGesture.cancelsTouchesInView = false
+        tapGesture.isEnabled = false
         addGestureRecognizer(tapGesture)
     }
 
@@ -90,6 +112,12 @@ final class ScheduleBlankContextMenuControl: UIControl {
 
     @objc private func handleTap() {
         onTap?()
+    }
+
+    override func accessibilityActivate() -> Bool {
+        guard let onTap else { return super.accessibilityActivate() }
+        onTap()
+        return true
     }
 
     private static func coloredMenuImage(_ name: String) -> UIImage? {
@@ -400,24 +428,23 @@ struct CourseScheduleCalendarView: View {
                                 )
                             )
 
-                        if entry.kind == .course {
-                            ScheduleCourseContextMenuView(
-                                onTap: { onSelect(entry) },
-                                onMenuWillPresent: {
-                                    contextMenuFeedbackToken &+= 1
-                                    onPrepareCourseShare(entry)
-                                },
-                                onShare: { onLongPressCourse(entry) }
+                        ScheduleEntryInteractionView(
+                            entry: entry,
+                            onTap: { onSelect(entry) },
+                            onMenuWillPresent: entry.kind == .course ? {
+                                contextMenuFeedbackToken &+= 1
+                                onPrepareCourseShare(entry)
+                            } : nil,
+                            onShare: entry.kind == .course ? { onLongPressCourse(entry) } : nil
+                        )
+                        .frame(
+                            width: cardWidth,
+                            height: max(
+                                rowHeight * (entry.endSection - entry.startSection)
+                                    - AppDesignSystem.Schedule.Grid.courseCardTotalInset,
+                                1
                             )
-                            .frame(
-                                width: cardWidth,
-                                height: max(
-                                    rowHeight * (entry.endSection - entry.startSection)
-                                        - AppDesignSystem.Schedule.Grid.courseCardTotalInset,
-                                    1
-                                )
-                            )
-                        }
+                        )
                     }
                     .frame(
                         width: cardWidth,
@@ -428,10 +455,6 @@ struct CourseScheduleCalendarView: View {
                         )
                     )
                     .contentShape(Rectangle())
-                    .onTapGesture {
-                        if entry.kind != .course { onSelect(entry) }
-                    }
-                    .accessibilityAddTraits(.isButton)
                     .offset(
                         x: leftWidth + dayWidth * CGFloat(visibleWeekdays.firstIndex(of: entry.dayOfWeek) ?? 0)
                             + gridLineWidth,

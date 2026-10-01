@@ -228,7 +228,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         let account = AppFileDirectories.currentSession.accountDirectoryName
         guard selectPhoneAccount || (account != "guest" && account != "__default__") else {
             throw NSError(domain: "ICloudCrossDeviceSmokeTests", code: 2,
-                          userInfo: [NSLocalizedDescriptionKey: "请在两端登录同一 BIT101 账号"])
+                          userInfo: [NSLocalizedDescriptionKey: "请先在真机登录 BIT101 账号"])
         }
         let token = try runID()
         var result: Coordination?

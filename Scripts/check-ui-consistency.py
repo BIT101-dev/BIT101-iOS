@@ -2016,6 +2016,7 @@ struct RowColors: View {
             Button("删除正确", role: .destructive) {}.appInteractiveListRow(isDestructive: true)
             NavigationLink(destination: Text("目标")) { NeutralTitle() }.appInteractiveListRow()
             Button("伪造") { print(".appInteractiveListRow()") }
+            Button("覆盖颜色") {}.appInteractiveListRow().foregroundStyle(.primary)
             Button {} label: { LabeledContent("左侧") { Text("右侧").foregroundStyle(.secondary) } }.appInteractiveListRow()
             Button {} label: {
                 LabeledContent { Text("右侧").foregroundStyle(.secondary) } label: { Text("左侧").foregroundStyle(.tint) }
@@ -2032,8 +2033,8 @@ struct RowColors: View {
     row_path = ROOT / ".build/static-audit/row-color-self-test.swift"
     row_syntax = module.swift_syntax_index_sources({str(row_path): row_source})
     row_findings = interactive_list_row_findings(row_path, row_syntax[str(row_path)], row_syntax)
-    if len(row_findings) != 6:
-        findings.append(f"UI 检查器自测：列表标题、删除警示色、子组件、计算属性及字符串边界应报告 6 项，实际 {len(row_findings)} 项")
+    if len(row_findings) != 7:
+        findings.append(f"UI 检查器自测：列表标题、颜色覆盖、删除警示色、子组件、计算属性及字符串边界应报告 7 项，实际 {len(row_findings)} 项")
     return findings
 
 
@@ -2269,9 +2270,9 @@ def interactive_list_row_findings(path: Path, facts: dict, syntax: dict[str, dic
         location = f"{path.relative_to(ROOT) if path.is_relative_to(ROOT) else path}:{line}"
         if not re.search(r"\.appInteractiveListRow\s*\(", suffix):
             findings.append(f"{location}: {row['name']} 交互列表行必须接入 appInteractiveListRow")
-        if "role: .destructive" in mask_comments(row["invocation"]).split("label:", 1)[0] and not re.search(r"appInteractiveListRow\s*\(\s*isDestructive:\s*true", suffix):
+        if re.search(r"\brole\s*:\s*\.destructive\b", mask_comments(row["invocation"]).split("label:", 1)[0]) and not re.search(r"appInteractiveListRow\s*\(\s*isDestructive:\s*true", suffix):
             findings.append(f"{location}: 删除列表行必须使用警示色")
-        if row["labelStart"] >= 0 and title_override(facts, row["labelStart"], row["labelEnd"], row["scope"], set()):
+        if neutral.search(suffix) or (row["labelStart"] >= 0 and title_override(facts, row["labelStart"], row["labelEnd"], row["scope"], set())):
             findings.append(f"{location}: 交互列表行左侧标题必须使用页面主题色或警示色")
     return findings
 

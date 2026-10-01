@@ -100,7 +100,11 @@ enum PaperEditorContentBuilder {
     }
 
     static func plainText(from rawContent: String) -> String {
-        PaperContentRenderer.blocks(from: rawContent).compactMap { block in
+        plainText(from: PaperContentRenderer.blocks(from: rawContent))
+    }
+
+    static func plainText(from blocks: [PaperContentBlock]) -> String {
+        blocks.compactMap { block in
             switch block {
             case let .header(_, text, _), let .paragraph(_, text), let .quote(_, text, _):
                 return String(text.characters)

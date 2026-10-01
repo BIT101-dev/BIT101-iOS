@@ -253,7 +253,7 @@ struct CourseScheduleTabView: View {
                 }
                 .appGroupedListStyle()
                 .scrollContentBackground(.hidden)
-                .scrollDisabled(true)
+                .scrollDisabled(calendarAxisMode == .quantized)
                 .frame(height: listHeight, alignment: .top)
                 .zIndex(0)
                 .onPreferenceChange(ScheduleRefreshStatusContentHeightKey.self) { height in

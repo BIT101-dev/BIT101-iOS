@@ -9,7 +9,7 @@ PROJECT="$ROOT_DIR/BIT101-iOS.xcodeproj"
 source "$ROOT_DIR/Scripts/script-support.sh"
 DERIVED_ROOT="$ROOT_DIR/.build/extended-automation"
 if [[ "${1:-}" == "--report" ]]; then
-  python3 - "$DERIVED_ROOT/test-results.xcresult" "${2:-}" <<'PY'
+  python3 - "$DERIVED_ROOT/test-results.xcresult" "${2:-}" "${3:-}" <<'PY'
 import json
 import subprocess
 import sys
@@ -24,16 +24,34 @@ if sys.argv[2]:
         "xcrun", "xcresulttool", "get", "test-results", "activities", "--path", sys.argv[1],
         "--test-id", sys.argv[2],
     ], text=True))
+    if sys.argv[3] == "--activities":
+        actions = []
+        def titles(value):
+            if isinstance(value, dict):
+                title = str(value.get("title", ""))
+                if title.startswith(("Tap ", "Type ", "Pinch ", "Swipe ", "failed ", "Failed ")):
+                    actions.append(title)
+                for child in value.values():
+                    titles(child)
+            elif isinstance(value, list):
+                for child in value:
+                    titles(child)
+        titles(activities)
+        print("\n".join(actions[-30:]))
+        raise SystemExit(0)
     def attachments(value):
         if isinstance(value, dict):
-            if str(value.get("name", "")).startswith("失败时的界面元素树"):
+            screenshot = sys.argv[3] == "--screenshot"
+            name = "失败时的界面截图" if screenshot else "失败时的界面元素树"
+            if str(value.get("name", "")).startswith(name):
                 identifier = value.get("payloadId")
                 if identifier:
-                    output = Path(sys.argv[1]).parent / "failure-hierarchy.txt"
+                    output = (Path(sys.argv[1]).parent.parent / "screenshot.png" if screenshot
+                              else Path(sys.argv[1]).parent / "failure-hierarchy.txt")
                     subprocess.run(["xcrun", "xcresulttool", "export", "object", "--legacy", "--type", "file",
                                     "--path", sys.argv[1], "--id", identifier, "--output-path", str(output)], check=True,
                                    stdout=subprocess.DEVNULL)
-                    print(output.read_text())
+                    print(output if screenshot else output.read_text())
                 else:
                     print(json.dumps(value, ensure_ascii=False))
             for child in value.values():
@@ -69,7 +87,7 @@ fi
 if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
   echo "用法：Scripts/run-extended-tests.sh [all|default|modules|schedule|schedule-share|infrastructure|login|extensions|ui|catalyst|release|network-smoke|icloud-smoke] [--build-only] [--generic] [--clean-build] [--only-testing 测试类/方法]... [真机设备ID]"
   echo "聚合：Scripts/run-extended-tests.sh verify [modules|all|catalyst|ui|network|ddl|icloud|audit]... [--ui-test 测试类/方法]..."
-  echo "报告：Scripts/run-extended-tests.sh --report [测试类/方法()]"
+  echo "报告：Scripts/run-extended-tests.sh --report [测试类/方法()] [--screenshot|--activities]"
   exit 0
 fi
 SCRIPT_PATH="$0"
@@ -162,14 +180,16 @@ if [[ "$MODE" == "verify" ]]; then
   verification_failures=()
   finish_verification() {
     local verification_status=$?
-    trap - EXIT INT TERM
+    trap - EXIT ZERR INT TERM
     if $verification_needs_device; then
       echo "[恢复] 安装并启动常规 Release App"
-      "$ROOT_DIR/Scripts/build-install-device.sh" "$verification_device_id" || verification_status=1
+      if ! "$ROOT_DIR/Scripts/build-install-device.sh" "$verification_device_id"; then
+        if (( verification_status == 0 )); then verification_status=1; fi
+      fi
     fi
     exit "$verification_status"
   }
-  trap finish_verification EXIT
+  trap finish_verification EXIT ZERR
   trap 'exit 130' INT
   trap 'exit 143' TERM
   verify_step() {
@@ -282,15 +302,17 @@ fi
 if [[ "$MODE" == "ui" && "$BUILD_ONLY" == false && "${BIT101_DEFER_APP_RESTORE:-0}" != "1" ]]; then
   restore_release_app() {
     local test_exit_code=$?
-    trap - EXIT
+    trap - EXIT ZERR INT TERM
     echo "[恢复] 安装并启动常规 Release App"
     if ! "$ROOT_DIR/Scripts/build-install-device.sh" "$UI_RESTORE_DEVICE_ID"; then
       echo "常规 Release App 恢复失败，请运行 Scripts/build-install-device.sh $UI_RESTORE_DEVICE_ID" >&2
-      (( test_exit_code == 0 )) && test_exit_code=1
+      if (( test_exit_code == 0 )); then test_exit_code=1; fi
     fi
     exit "$test_exit_code"
   }
-  trap restore_release_app EXIT
+  trap restore_release_app EXIT ZERR
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
 fi
 
 if $CLEAN_BUILD; then

@@ -72,6 +72,7 @@ public struct AppSMSVerificationSheet: View {
 
                 Section {
                     Button {
+                        isCodeFieldFocused = false
                         Task { await onSubmit(code) }
                     } label: {
                         HStack(spacing: AppDesignSystem.Spacing.regular) {

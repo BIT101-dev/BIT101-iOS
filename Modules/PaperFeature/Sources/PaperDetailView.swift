@@ -9,15 +9,14 @@ import DesignSystemKit
 //  PaperDetailView.swift
 //  BIT101-iOS
 import SwiftUI
-import UIKit
 
 struct PaperDetailView: View {
     private let scene: PaperDetailViewScene
     private let identity: [ObjectIdentifier]
     private let resourceID: Int
 
-    init(dependencies: PaperDependencies, media: MediaEnvironment, initialPaper: PaperSummary) {
-        scene = PaperDetailViewScene(dependencies: dependencies, media: media, initialPaper: initialPaper)
+    init(dependencies: PaperDependencies, media: MediaEnvironment, initialPaper: PaperSummary, onChanged: @escaping () -> Void) {
+        scene = PaperDetailViewScene(dependencies: dependencies, media: media, initialPaper: initialPaper, onChanged: onChanged)
         identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
         resourceID = initialPaper.id
     }
@@ -31,21 +30,23 @@ struct PaperDetailView: View {
 private struct PaperDetailViewScene: View {
     private let dependencies: PaperDependencies
     private let media: MediaEnvironment
+    private let onChanged: () -> Void
     @Environment(\.scenePhase) private var scenePhase
     let initialPaper: PaperSummary
 
     @StateObject private var viewModel: PaperDetailViewModel
     private var networkObserver: NetworkPathState { dependencies.networkPath }
     @State private var composerTarget: PaperCommentComposerTarget?
+    @State private var editingPaper: PaperDetail?
     @State private var imageViewer: ImagePreviewRequest?
-    @State private var isShowingEditor = false
     @State private var isShowingDeleteConfirmation = false
     @Environment(\.dismiss) private var dismiss
 
-    init(dependencies: PaperDependencies, media: MediaEnvironment, initialPaper: PaperSummary) {
+    init(dependencies: PaperDependencies, media: MediaEnvironment, initialPaper: PaperSummary, onChanged: @escaping () -> Void) {
         self.dependencies = dependencies
         self.media = media
         self.initialPaper = initialPaper
+        self.onChanged = onChanged
         _viewModel = StateObject(wrappedValue: PaperDetailViewModel(initialPaper: initialPaper, service: dependencies.detail))
     }
 
@@ -190,12 +191,17 @@ private struct PaperDetailViewScene: View {
                         accessibilityLabel: "分享文章"
                     )
                     if viewModel.paper?.own == true {
-                        Button("编辑文章", systemImage: "pencil") {
-                            isShowingEditor = true
+                        Button {
+                            editingPaper = viewModel.paper
+                        } label: {
+                            Label("编辑文章", systemImage: "pencil")
                         }
+                        .accessibilityLabel("编辑文章")
+                        .accessibilityIdentifier("paper.detail.edit")
                         Button("删除文章", systemImage: "trash", role: .destructive) {
                             isShowingDeleteConfirmation = true
                         }
+                        .accessibilityIdentifier("paper.detail.delete")
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -217,23 +223,25 @@ private struct PaperDetailViewScene: View {
                     }
                 }
             }
+            .environment(dependencies)
             .presentationDragIndicator(.visible)
         }
-        .systemImagePreview(item: $imageViewer)
-        .sheet(isPresented: $isShowingEditor) {
-            NavigationStack {
-                if let paper = viewModel.paper {
-                    PaperComposerView(editingPaper: paper) {
-                        isShowingEditor = false
-                        Task { await viewModel.refreshAll() }
-                    }
-                }
+        .navigationDestination(item: $editingPaper) { paper in
+            PaperComposerView(
+                editingPaper: paper,
+                initialContent: PaperEditorContentBuilder.plainText(from: viewModel.contentBlocks)
+            ) {
+                onChanged()
+                Task { await viewModel.refreshAll() }
             }
+            .environment(dependencies)
         }
+        .systemImagePreview(item: $imageViewer)
         .alert("删除文章", isPresented: $isShowingDeleteConfirmation) {
             Button("删除", role: .destructive) {
                 Task {
                     if await viewModel.deletePaper() {
+                        onChanged()
                         dismiss()
                     }
                 }

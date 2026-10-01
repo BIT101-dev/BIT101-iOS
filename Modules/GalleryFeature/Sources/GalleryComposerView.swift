@@ -101,8 +101,12 @@ struct GalleryComposerView: View {
             Form {
                 Section {
                     TextField("", text: $title, prompt: AppInputPrompt.text("标题"))
+                        .accessibilityLabel("标题")
+                        .accessibilityIdentifier("gallery.editor.title")
                     TextField("", text: $text, prompt: AppInputPrompt.text("正文"), axis: .vertical)
                         .lineLimit(6, reservesSpace: true)
+                        .accessibilityLabel("正文")
+                        .accessibilityIdentifier("gallery.editor.content")
                 }
 
                 Section("标签") {
@@ -144,6 +148,8 @@ struct GalleryComposerView: View {
                                 TextField("", text: $draft.text, prompt: AppInputPrompt.text("自定义标签"))
                                     .textInputAutocapitalization(.never)
                                     .autocorrectionDisabled()
+                                    .accessibilityLabel("自定义标签")
+                                    .accessibilityIdentifier("gallery.editor.tag.\(draft.id)")
 
                                 Button {
                                     removeCustomTagDraft(id: draft.id)

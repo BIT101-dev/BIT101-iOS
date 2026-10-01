@@ -139,7 +139,9 @@ private struct PaperSearchScene: View {
         .navigationTitle("搜索")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $selectedPaper) { paper in
-            PaperDetailView(dependencies: dependencies, media: media, initialPaper: paper)
+            PaperDetailView(dependencies: dependencies, media: media, initialPaper: paper) {
+                Task { await viewModel.performSearch() }
+            }
         }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {

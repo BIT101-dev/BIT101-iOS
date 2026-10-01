@@ -333,6 +333,7 @@ public struct ScheduleRenameSheet: View {
                         .accessibilityIdentifier("schedule.rename.name")
                 }
             }
+            .scrollDismissesKeyboard(.immediately)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

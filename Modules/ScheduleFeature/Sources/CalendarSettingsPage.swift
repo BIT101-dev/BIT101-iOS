@@ -59,6 +59,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
     @State private var shouldOpenImportSheetAfterGuide = false
     @State private var exportedScheduleCode: ExportedScheduleCode?
     @State private var importSheetPresentation: ImportSheetPresentation?
+    @State private var didImportSchedule = false
     @State private var renamingScheduleTarget: RenamingScheduleTarget?
 
     private var normalizedLeadMinutes: Int {
@@ -176,7 +177,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
 
     private var displaySettingsSection: some View {
         Section {
-            Picker("时间轴", selection: Binding(
+            Picker(selection: Binding(
                 get: { ScheduleCalendarAxisMode(rawValue: storedCalendarAxisMode) ?? .quantized },
                 set: {
                     storedCalendarAxisMode = $0.rawValue
@@ -185,6 +186,9 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 ForEach(ScheduleCalendarAxisMode.allCases) { mode in
                     Text(mode.title).tag(mode)
                 }
+            } label: {
+                Text("时间轴")
+                    .foregroundStyle(.tint)
             }
             .appSelectionFeedback(trigger: storedCalendarAxisMode)
             .appInteractiveListRow()
@@ -310,7 +314,12 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
         .sheet(item: $exportedScheduleCode) { payload in
             ScheduleExportCodeSheet(code: payload.code)
         }
-        .sheet(item: $importSheetPresentation) { _ in
+        .sheet(item: $importSheetPresentation, onDismiss: {
+            if didImportSchedule {
+                didImportSchedule = false
+                viewModel.notice = ScheduleNotice.informational(title: "导入成功", message: "分享课表已导入。考试、DDL 与自定义日程保持当前内容。")
+            }
+        }) { _ in
             ScheduleImportCodeSheet(
                 initialText: "",
                 appStoreURL: appStoreURL,
@@ -503,7 +512,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
     /// 导入端根据版本前缀选择解析器，UI 使用同一导入窗口。
     private func importScheduleCode(_ text: String) throws {
         try viewModel.importScheduleCode(text)
-        viewModel.notice = ScheduleNotice.informational(title: "导入成功", message: "分享课表已导入。考试、DDL 与自定义日程保持当前内容。")
+        didImportSchedule = true
     }
 }
 

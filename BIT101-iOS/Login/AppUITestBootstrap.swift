@@ -21,7 +21,7 @@ enum AppUITestBootstrap {
         guard AppFileDirectories.isRunningUITest else {
             preconditionFailure("The UI automation App requires its isolated launch configuration")
         }
-        UIView.setAnimationsEnabled(false)
+        UIView.setAnimationsEnabled(environment["BIT101_UI_TEST_ANIMATIONS"] == "1")
         guard environment["BIT101_UI_TEST_RESET_STORAGE"] == "1" else { return }
 
         AppFileDirectories.defaults.removePersistentDomain(

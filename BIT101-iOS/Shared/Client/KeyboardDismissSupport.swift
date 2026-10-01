@@ -53,9 +53,11 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         private weak var window: UIWindow?
+        private var isKeyboardVisible = false
         private lazy var recognizer: UITapGestureRecognizer = {
             let recognizer = UITapGestureRecognizer(target: self, action: #selector(didTapBackground))
             recognizer.cancelsTouchesInView = false
+            recognizer.delaysTouchesEnded = false
             recognizer.delegate = self
             return recognizer
         }()
@@ -74,6 +76,8 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
                 name: UITextView.textDidBeginEditingNotification,
                 object: nil
             )
+            NotificationCenter.default.addObserver(self, selector: #selector(keyboardDidShow), name: UIResponder.keyboardDidShowNotification, object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(keyboardDidHide), name: UIResponder.keyboardWillHideNotification, object: nil)
         }
 
         deinit {
@@ -93,8 +97,14 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
         }
 
         @objc private func didTapBackground() {
-            AppKeyboard.dismiss()
+            DispatchQueue.main.async { [weak self] in
+                guard self?.isKeyboardVisible == true else { return }
+                AppKeyboard.dismiss()
+            }
         }
+
+        @objc private func keyboardDidShow() { isKeyboardVisible = true }
+        @objc private func keyboardDidHide() { isKeyboardVisible = false }
 
         @objc private func textInputDidBeginEditing(_ notification: Notification) {
             if let textField = notification.object as? UITextField {
@@ -145,14 +155,22 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard isKeyboardVisible else { return false }
             var view = touch.view
             while let current = view {
-                if current is UITextField || current is UITextView {
+                if current is UIControl || current is UITextField || current is UITextView || current is UIInputView {
                     return false
                 }
                 view = current.superview
             }
             return true
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
         }
     }
 }

@@ -61,6 +61,8 @@ struct GalleryReportSheet: View {
                 Section("补充说明") {
                     TextField("", text: $text, prompt: AppInputPrompt.text("请描述举报原因"), axis: .vertical)
                         .lineLimit(4, reservesSpace: true)
+                        .accessibilityLabel("请描述举报原因")
+                        .accessibilityIdentifier("gallery.report.reason")
                 }
 
                 if let errorMessage, !errorMessage.isEmpty {

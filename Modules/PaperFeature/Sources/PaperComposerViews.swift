@@ -27,14 +27,14 @@ struct PaperComposerView: View {
 
     private var service: any PaperComposerServicing { dependencies.composer }
 
-    init(editingPaper: PaperDetail? = nil, onCreated: @escaping () -> Void) {
+    init(editingPaper: PaperDetail? = nil, initialContent: String, onCreated: @escaping () -> Void) {
         self.editingPaper = editingPaper
         self.onCreated = onCreated
         originalContent = editingPaper?.content
-        originalPlainContent = editingPaper.map { PaperEditorContentBuilder.plainText(from: $0.content) }
+        originalPlainContent = editingPaper == nil ? nil : initialContent
         _title = State(initialValue: editingPaper?.title ?? "")
         _intro = State(initialValue: editingPaper?.intro ?? "")
-        _content = State(initialValue: editingPaper.map { PaperEditorContentBuilder.plainText(from: $0.content) } ?? "")
+        _content = State(initialValue: initialContent)
         _anonymous = State(initialValue: editingPaper?.anonymous ?? false)
     }
 
@@ -43,12 +43,18 @@ struct PaperComposerView: View {
             Section("内容") {
                 TextField("", text: $title, prompt: AppInputPrompt.text("标题"))
                     .font(AppDesignSystem.Typography.body)
+                    .accessibilityLabel("标题")
+                    .accessibilityIdentifier("paper.editor.title")
                 TextField("", text: $intro, prompt: AppInputPrompt.text("简介"), axis: .vertical)
                     .font(AppDesignSystem.Typography.body)
                     .lineLimit(3, reservesSpace: true)
+                    .accessibilityLabel("简介")
+                    .accessibilityIdentifier("paper.editor.intro")
                 TextField("", text: $content, prompt: AppInputPrompt.text("正文"), axis: .vertical)
                     .font(AppDesignSystem.Typography.body)
                     .lineLimit(10, reservesSpace: true)
+                    .accessibilityLabel("正文")
+                    .accessibilityIdentifier("paper.editor.content")
             }
 
             Section("发布设置") {
@@ -57,6 +63,7 @@ struct PaperComposerView: View {
                 .appInteractiveListRow()
             }
         }
+        .scrollDismissesKeyboard(.immediately)
         .navigationTitle(editingPaper == nil ? "发布文章" : "编辑文章")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

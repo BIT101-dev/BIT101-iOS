@@ -1006,7 +1006,7 @@ def smoke_script_boundary_findings() -> list[str]:
     findings: list[str] = []
 
     def shell_function(name: str, script_source: str = source) -> str:
-        match = re.search(rf"(?ms)^{name}\(\) \{{\n.*?^\}}$", script_source)
+        match = re.search(rf"(?ms)^([ \t]*){name}\(\) \{{\n.*?^\1\}}$", script_source)
         if match is None:
             raise RuntimeError(f"Smoke 自测需要 {name} 函数")
         return match[0]
@@ -1077,6 +1077,34 @@ fail_command
         result = subprocess.run(["zsh", "-c", harness], capture_output=True, text=True)
         if result.returncode != expected or result.stdout.count("restore\n") != 1:
             findings.append(f"网络 Smoke 恢复自测失败：状态 {initial}/{restore_status}")
+
+    extended_source = (SCRIPT_ROOT / "run-extended-tests.sh").read_text()
+    for name in ("finish_verification", "restore_release_app"):
+        recovery = shell_function(name, extended_source).replace(
+            '"$ROOT_DIR/Scripts/build-install-device.sh"', "restore_release",
+        )
+        registration = re.search(rf"(?m)^[ \t]*trap {name} [^\n]+(?:\n[ \t]*trap [^\n]+)*", extended_source)
+        if registration is None:
+            findings.append(f"测试恢复自测需要 {name} 错误钩子")
+            continue
+        for initial, restore_status, expected in ((7, 0, 7), (7, 1, 7), (0, 1, 1), (0, 0, 0), (130, 0, 130), (143, 0, 143)):
+            triggers = [f"exit {initial}", f"fail_command() {{ return {initial}; }}; fail_command"]
+            if initial in (130, 143):
+                triggers.append(f"kill -s {'INT' if initial == 130 else 'TERM'} $$")
+            for trigger in triggers:
+                harness = f'''
+set -euo pipefail
+verification_needs_device=true
+verification_device_id=device
+UI_RESTORE_DEVICE_ID=device
+restore_release() {{ print restore; return {restore_status}; }}
+{recovery}
+{registration[0]}
+{trigger}
+'''
+                result = subprocess.run(["zsh", "-c", harness], capture_output=True, text=True)
+                if result.returncode != expected or result.stdout.count("restore\n") != 1:
+                    findings.append(f"测试恢复自测失败：{name}；状态 {initial}/{restore_status}；{trigger}")
 
     match = re.search(r"(?ms)^record_result\(\).*?<<'PY'\n(.*?)^PY$", source)
     if match is None:

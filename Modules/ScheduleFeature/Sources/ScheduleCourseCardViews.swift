@@ -20,11 +20,8 @@ struct CourseScheduleBlockView: View {
         .padding(AppDesignSystem.Spacing.micro)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityValue(accessibilityValue)
-        .accessibilityIdentifier("schedule.entry.\(entry.id)")
-        .accessibilityHint("双击打开详情")
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     private var uiTextColor: UIColor {
@@ -36,22 +33,6 @@ struct CourseScheduleBlockView: View {
         case .custom:
             return UIColor(AppDesignSystem.Palette.Status.info)
         }
-    }
-
-    private var accessibilityLabel: String {
-        let title = entry.title.isEmpty ? "未命名日程" : entry.title
-        switch entry.kind {
-        case .course:
-            return title
-        case .exam:
-            return "考试，\(title)"
-        case .custom:
-            return "自定义日程，\(title)"
-        }
-    }
-
-    private var accessibilityValue: String {
-        entry.subtitle.isEmpty ? "" : "地点：\(entry.subtitle)"
     }
 
 }
@@ -98,7 +79,7 @@ struct ScheduleCardTextView: UIViewRepresentable {
         override init(frame: CGRect) {
             super.init(frame: frame)
             clipsToBounds = true
-            isAccessibilityElement = true
+            isAccessibilityElement = false
             [titleLabel, locationLabel].forEach { label in
                 label.textAlignment = .center
                 label.adjustsFontForContentSizeCategory = true

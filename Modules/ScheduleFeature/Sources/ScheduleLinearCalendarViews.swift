@@ -207,7 +207,7 @@ private struct LinearTimelineScrollContainer: UIViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator {
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var configuration: LinearScheduleCalendarConfiguration
         var zoomScale: Binding<CGFloat>
         var hostingController: UIHostingController<LinearScheduleCanvasView>?
@@ -215,6 +215,7 @@ private struct LinearTimelineScrollContainer: UIViewRepresentable {
         init(configuration: LinearScheduleCalendarConfiguration, zoomScale: Binding<CGFloat>) {
             self.configuration = configuration
             self.zoomScale = zoomScale
+            super.init()
         }
 
         func install(in scrollView: LinearTimelineScrollView) {
@@ -225,13 +226,19 @@ private struct LinearTimelineScrollContainer: UIViewRepresentable {
             controller.view.isOpaque = false
             hostingController = controller
             scrollView.installCanvas(controller.view)
+            scrollView.timelinePinchGesture.delegate = self
             scrollView.onScaleChange = { [weak self] scale in
-                self?.zoomScale.wrappedValue = scale
+                guard let self, abs(self.zoomScale.wrappedValue - scale) > 0.001 else { return }
+                self.zoomScale.wrappedValue = scale
             }
         }
 
         func updateContent() {
             hostingController?.rootView = LinearScheduleCanvasView(configuration: configuration)
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            true
         }
     }
 }
@@ -245,6 +252,9 @@ private final class LinearTimelineScrollView: UIScrollView, UIScrollViewDelegate
     private var viewportSize = CGSize.zero
     private var hasInitialPosition = false
     private var pendingScale = AppDesignSystem.Schedule.timelineDefaultScale
+    lazy var timelinePinchGesture = UIPinchGestureRecognizer(target: self, action: #selector(zoomTimeline(_:)))
+    private var pinchViewport: ScheduleTimelineViewport?
+    private var pinchAnchorY: CGFloat = 0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -257,14 +267,38 @@ private final class LinearTimelineScrollView: UIScrollView, UIScrollViewDelegate
         isDirectionalLockEnabled = true
         showsHorizontalScrollIndicator = false
         contentInsetAdjustmentBehavior = .never
+        accessibilityIdentifier = "schedule.linear.timeline"
+        accessibilityLabel = "课表线性时间轴"
+        accessibilityHint = "上下滑动浏览，双指缩放时间轴"
         backgroundColor = .clear
         zoomContainer.backgroundColor = .clear
         zoomContainer.clipsToBounds = false
         addSubview(zoomContainer)
+        pinchGestureRecognizer?.isEnabled = false
+        panGestureRecognizer.maximumNumberOfTouches = 1
+        addGestureRecognizer(timelinePinchGesture)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc private func zoomTimeline(_ gesture: UIPinchGestureRecognizer) {
+        let anchorY = gesture.location(in: self).y - contentOffset.y
+        if gesture.state == .began {
+            pinchViewport = ScheduleTimelineViewport(viewportHeight: bounds.height, scale: zoomScale, offsetY: contentOffset.y)
+            pinchAnchorY = anchorY
+        }
+        guard let initial = pinchViewport else { return }
+        let next = initial.zoomed(to: initial.scale * gesture.scale, initialAnchorY: pinchAnchorY, currentAnchorY: anchorY)
+        pendingScale = next.scale
+        setZoomScale(next.scale, animated: false)
+        updateCanvasGeometry()
+        setVerticalOffset(next.offsetY)
+        onScaleChange?(next.scale)
+        if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed {
+            pinchViewport = nil
+        }
     }
 
     func installCanvas(_ view: UIView) {
@@ -339,6 +373,7 @@ private final class LinearTimelineScrollView: UIScrollView, UIScrollViewDelegate
     func scrollViewDidZoom(_ scrollView: UIScrollView) {
         updateCanvasGeometry()
         clampHorizontalOffset()
+        onScaleChange?(zoomScale)
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -357,6 +392,7 @@ private final class LinearTimelineScrollView: UIScrollView, UIScrollViewDelegate
     private func updateCanvasGeometry() {
         guard viewportSize.width > 0, viewportSize.height > 0 else { return }
         let scale = max(zoomScale, 0.001)
+        accessibilityValue = "缩放 \(Int((scale * 100).rounded()))%"
         let canvasSize = CGSize(
             width: viewportSize.width,
             height: viewportSize.height * scale
@@ -543,24 +579,19 @@ private struct LinearScheduleCanvasView: View {
             CourseScheduleBlockView(entry: entry, contentMode: configuration.cardContentMode)
                 .frame(width: cardWidth, height: cardHeight)
 
-            if entry.kind == .course {
-                ScheduleCourseContextMenuView(
-                    onTap: { configuration.onSelect(entry) },
-                    onMenuWillPresent: {
-                        contextMenuFeedbackToken &+= 1
-                        configuration.onPrepareCourseShare(entry)
-                    },
-                    onShare: { configuration.onLongPressCourse(entry) }
-                )
-                .frame(width: cardWidth, height: cardHeight)
-            }
+            ScheduleEntryInteractionView(
+                entry: entry,
+                onTap: { configuration.onSelect(entry) },
+                onMenuWillPresent: entry.kind == .course ? {
+                    contextMenuFeedbackToken &+= 1
+                    configuration.onPrepareCourseShare(entry)
+                } : nil,
+                onShare: entry.kind == .course ? { configuration.onLongPressCourse(entry) } : nil
+            )
+            .frame(width: cardWidth, height: cardHeight)
         }
         .frame(width: cardWidth, height: cardHeight)
         .contentShape(Rectangle())
-        .onTapGesture {
-            if entry.kind != .course { configuration.onSelect(entry) }
-        }
-        .accessibilityAddTraits(.isButton)
         .offset(
             x: leftWidth + dayWidth * CGFloat(visibleWeekdayValues.firstIndex(of: entry.dayOfWeek) ?? 0)
                 + AppDesignSystem.Schedule.Grid.lineWidth,

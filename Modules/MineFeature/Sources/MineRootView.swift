@@ -91,38 +91,38 @@ private struct MineRootViewScene: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(item: $route) { destination in
             Group {
-            switch destination {
-            case .followers:
-                MineUserListView(
-                    title: "我的粉丝",
-                    users: viewModel.followerState.items,
-                    status: viewModel.followerState.status,
-                    isLoadingMore: viewModel.followerState.isLoadingMore,
-                    onRefresh: { await viewModel.refreshFollowers() },
-                    onLoadMore: { user in await viewModel.loadMoreFollowersIfNeeded(currentUser: user) },
-                    onOpenUser: { route = .user($0.id) }
-                )
-            case .followings:
-                MineUserListView(
-                    title: "我的关注",
-                    users: viewModel.followingState.items,
-                    status: viewModel.followingState.status,
-                    isLoadingMore: viewModel.followingState.isLoadingMore,
-                    onRefresh: { await viewModel.refreshFollowings() },
-                    onLoadMore: { user in await viewModel.loadMoreFollowingsIfNeeded(currentUser: user) },
-                    onOpenUser: { route = .user($0.id) }
-                )
-            case .posters:
-                MinePosterListView(
-                    posters: viewModel.posterState.items,
-                    status: viewModel.posterState.status,
-                    isLoadingMore: viewModel.posterState.isLoadingMore,
-                    onRefresh: { await viewModel.refreshPosters() },
-                    onLoadMore: { poster in await viewModel.loadMorePostersIfNeeded(currentPoster: poster) }
-                )
-            case let .user(userID):
-                UserProfileRootView(dependencies: dependencies, media: media, posters: posters, userID: userID, onLogout: onLogout)
-            }
+                switch destination {
+                case .followers:
+                    MineUserListView(
+                        title: "我的粉丝",
+                        users: viewModel.followerState.items,
+                        status: viewModel.followerState.status,
+                        isLoadingMore: viewModel.followerState.isLoadingMore,
+                        onRefresh: { await viewModel.refreshFollowers() },
+                        onLoadMore: { user in await viewModel.loadMoreFollowersIfNeeded(currentUser: user) },
+                        onOpenUser: { route = .user($0.id) }
+                    )
+                case .followings:
+                    MineUserListView(
+                        title: "我的关注",
+                        users: viewModel.followingState.items,
+                        status: viewModel.followingState.status,
+                        isLoadingMore: viewModel.followingState.isLoadingMore,
+                        onRefresh: { await viewModel.refreshFollowings() },
+                        onLoadMore: { user in await viewModel.loadMoreFollowingsIfNeeded(currentUser: user) },
+                        onOpenUser: { route = .user($0.id) }
+                    )
+                case .posters:
+                    MinePosterListView(
+                        posters: viewModel.posterState.items,
+                        status: viewModel.posterState.status,
+                        isLoadingMore: viewModel.posterState.isLoadingMore,
+                        onRefresh: { await viewModel.refreshPosters() },
+                        onLoadMore: { poster in await viewModel.loadMorePostersIfNeeded(currentPoster: poster) }
+                    )
+                case let .user(userID):
+                    UserProfileRootView(dependencies: dependencies, media: media, posters: posters, userID: userID, onLogout: onLogout)
+                }
             }
             .environment(dependencies)
             .environment(media)
