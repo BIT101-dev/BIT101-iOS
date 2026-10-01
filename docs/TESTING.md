@@ -11,7 +11,7 @@
 
 ## 脚本入口
 
-脚本按完整工作流组织，公共设备选择与日志处理集中在 `Scripts/script-support.sh`。入口数量保持精简，同一工作流通过参数选择操作；优化以执行耗时、重复调用和终端信息价值为依据。 主工作流及 Cloudflare 发布脚本合计 14 个文件；本机静态审计基线为 64.15 秒，复用索引器并缓存路径判断后的实测为 28.73 秒。
+脚本按完整工作流组织，公共设备选择与日志处理集中在 `Scripts/script-support.sh`。入口数量保持精简，同一工作流通过参数选择操作；优化以执行耗时、重复调用和终端信息价值为依据。主工作流及 Cloudflare 发布脚本合计 14 个文件；本机静态审计基线为 64.15 秒，复用索引器并缓存路径判断后的后续运行约 20 秒。
 
 | 工作流 | 入口 |
 | --- | --- |
@@ -21,6 +21,8 @@
 | 网络探针与范围选择 | `Scripts/release-network-smoke.sh --scope 范围` |
 | iCloud 双向验证、报告与恢复 | `Scripts/run_icloud_cross_device_smoke.sh` |
 | Issues、CI 失败与反馈报告管理 | `Scripts/fetch-issues-and-reports.sh` |
+
+本轮脚本验收记录：模块测试 157 项通过，真机与 Catalyst 行为测试各 245 项通过；输出处理器覆盖 1000 / 1001 行、完整留档、信号退出状态及执行期间改写源码的故障注入。报告列表实际读取 29 条，终端直接展示可读内容。整批 UI 回归执行 29 项，其中 17 项通过、12 项失败，涉及测试账号字段、编辑恢复、筛选状态、导航与评论展示；流程已恢复常规 Release App。UI 结果通过 `Scripts/run-extended-tests.sh --report` 汇总，结果包沿用固定路径。
 
 构建、测试、Smoke 和报告管理入口均提供 `--help`。质量、UI、模块边界、文档新鲜度与版本检查器保留独立入口，便于针对单项问题执行；统一审计通过共享 SwiftSyntax 索引执行质量与 UI 检查，并输出解释文案审查候选。地图 fixture 生成使用 `Scripts/generate_campus_map_fixture.py <教务导出.xlsx>`，沿用既有人工审核和固定数据路径约定。
 
@@ -219,7 +221,7 @@ Scripts/run_icloud_cross_device_smoke.sh --cleanup
 
 同类产物覆盖既有路径，文件名使用稳定类别名。终端直接展示测试汇总、审查候选与失败诊断，过滤重复进度、空章节和例行通过信息。整理后的输出在 1000 行以内时完整展示，超过阈值时提示固定文件位置。完整日志和报告覆盖既有路径。
 完整测试输出写入对应固定日志，终端显示汇总和失败摘要；模块日志保留 Swift Testing 的 suite、用例及参数执行记录。模块测试汇总七个消费者二进制，采集逐模块生产源码行覆盖率，真机测试采集逐 target 行覆盖率，指标固定覆盖 `test-metrics.txt`。模块覆盖率统计 macOS 宿主编译的可执行源码，iOS 界面由真机行为与 UI 用例补充。覆盖率采集异常进入失败状态；Catalyst 使用 runtime 提供的测试汇总。
-测试入口通过 `.build/extended-automation.lock` 串行使用固定产物目录，聚合验证内的分组继承同一次执行锁和设备快照，结束时统一恢复常规 App。SwiftSyntax 索引器在 `.build/static-audit/` 编译并复用，源码或工具链变化时覆盖重编译，编译与调用共用文件锁。
+测试入口通过 `.build/extended-automation.lock` 串行使用固定产物目录，聚合验证内的分组继承同一次执行锁和设备快照，结束时统一恢复常规 App。长流程从入口读取完整脚本到内存后执行，加锁等待结束时读取当前版本，保证执行期间的文件编辑与当前流程各自稳定。SwiftSyntax 索引器在 `.build/static-audit/` 编译并复用，源码或工具链变化时覆盖重编译，编译与调用共用文件锁。
 
 GitHub Actions 的 `.github/workflows/ci.yml` 使用 `xcode-27` runner，执行静态审计与包级测试，编译正式 Release、UI 和两种 Smoke 的 iOS 测试宿主，并运行 Catalyst 行为用例。App 依赖图同时编译 Watch 和两种 Widget，Swift / Clang 警告按错误处理。版本、plist 和 PR 基线在静态 job 校验，手动 `release_check` 校验公开版本。
 

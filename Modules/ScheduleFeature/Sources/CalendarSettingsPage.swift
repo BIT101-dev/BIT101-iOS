@@ -146,6 +146,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             } label: {
                 LabeledContent("我的课表", value: viewModel.settingsSnapshot.primaryScheduleTitle)
             }
+            .accessibilityIdentifier("schedule.settings.primary-name")
             .appInteractiveListRow()
 
             ForEach(viewModel.settingsSnapshot.sharedSchedules) { schedule in
@@ -158,6 +159,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 } label: {
                     LabeledContent("分享课表", value: schedule.title)
                 }
+                .accessibilityIdentifier("schedule.settings.shared.\(schedule.id)")
                 .appInteractiveListRow()
             }
             .onDelete { offsets in

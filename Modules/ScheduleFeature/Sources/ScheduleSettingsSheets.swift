@@ -330,6 +330,7 @@ public struct ScheduleRenameSheet: View {
             Form {
                 Section {
                     TextField("", text: $text, prompt: AppInputPrompt.text("课表名称"))
+                        .accessibilityIdentifier("schedule.rename.name")
                 }
             }
             .navigationTitle(title)

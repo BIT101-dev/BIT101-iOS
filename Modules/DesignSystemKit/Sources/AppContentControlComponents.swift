@@ -269,6 +269,7 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(itemTitle(item))
                     .accessibilityValue(isSelected ? "已选择" : "未选择")
+                    .accessibilityAddTraits(.isButton)
                     .appInteractiveListRow()
                 }
             }

@@ -74,6 +74,7 @@ struct ScheduleInlineWeekSlider: View {
                             .contentShape(Rectangle())
                             .accessibilityLabel("第\(week)周")
                             .accessibilityValue(week == highlightedWeek ? "当前周" : "")
+                            .accessibilityAddTraits(week == currentWeek ? .isSelected : [])
                             .id(week)
                         }
                     }

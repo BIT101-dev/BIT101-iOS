@@ -90,8 +90,8 @@ struct ScheduleEntryDetailSheet: View {
                 if entry.kind == .custom, allowsCustomScheduleMutation {
                     Section {
                         Button("编辑") {
-                            dismiss()
                             onEditCustomSchedule()
+                            dismiss()
                         }
                         .appInteractiveListRow()
                         Button("删除", role: .destructive) {

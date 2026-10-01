@@ -15,7 +15,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-if not (Path(sys.argv[1]) / "Info.plist").is_file():
+bundle = Path(sys.argv[1])
+if not (bundle / "database.sqlite3").is_file() or (bundle / "Staging").exists():
     raise SystemExit("测试结果可在运行结束后通过 --report 读取。")
 
 if sys.argv[2]:
@@ -25,11 +26,14 @@ if sys.argv[2]:
     ], text=True))
     def attachments(value):
         if isinstance(value, dict):
-            if value.get("name") == "失败时的界面元素树":
-                identifier = value.get("payloadRef", {}).get("id") or value.get("payloadRefId")
+            if str(value.get("name", "")).startswith("失败时的界面元素树"):
+                identifier = value.get("payloadId")
                 if identifier:
-                    subprocess.run(["xcrun", "xcresulttool", "export", "object", "--type", "file",
-                                    "--path", sys.argv[1], "--id", identifier, "--output-path", "/dev/stdout"], check=True)
+                    output = Path(sys.argv[1]).parent / "failure-hierarchy.txt"
+                    subprocess.run(["xcrun", "xcresulttool", "export", "object", "--legacy", "--type", "file",
+                                    "--path", sys.argv[1], "--id", identifier, "--output-path", str(output)], check=True,
+                                   stdout=subprocess.DEVNULL)
+                    print(output.read_text())
                 else:
                     print(json.dumps(value, ensure_ascii=False))
             for child in value.values():

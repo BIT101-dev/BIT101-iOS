@@ -26,44 +26,50 @@ mkdir -p "$OUTPUT_DIR"
 export WRANGLER_LOG_PATH="$WRANGLER_LOG"
 rm -f "$WRANGLER_LOG"
 keys() {
-  (cd "$WRANGLER_DIR" && "$WRANGLER" kv key list --remote --namespace-id "$NAMESPACE_ID" --prefix report:) > "$OUTPUT_DIR/error-report-keys.json"
+  (cd "$WRANGLER_DIR" && "$WRANGLER" kv key list --remote --namespace-id "$NAMESPACE_ID" --prefix report:) > "$OUTPUT_DIR/error-report-keys.json" || return $?
   cat "$OUTPUT_DIR/error-report-keys.json"
 }
 
 latest_key() {
-  keys | python3 -c 'import json,sys; rows=[x["name"] for x in json.load(sys.stdin) if x["name"].startswith("report:")]; print(max(rows, default=""))'
+  keys >/dev/null || return $?
+  python3 -c 'import json,sys; rows=[x["name"] for x in json.load(open(sys.argv[1])) if x["name"].startswith("report:")]; print(max(rows, default=""))' "$OUTPUT_DIR/error-report-keys.json"
 }
 
 show_key() {
   local key="$1"
   [[ -n "$key" ]] || { echo "没有错误报告。" >&2; exit 1; }
-  (cd "$WRANGLER_DIR" && "$WRANGLER" kv key get "$key" --remote --namespace-id "$NAMESPACE_ID" --text) | python3 -c '
+  [[ "$key" == report:* ]] || { echo "请提供 report: 开头的报告键。" >&2; return 64; }
+  local report_path="$OUTPUT_DIR/error-report.json"
+  (cd "$WRANGLER_DIR" && "$WRANGLER" kv key get "$key" --remote --namespace-id "$NAMESPACE_ID" --text) > "$report_path" || return $?
+  python3 -c '
 import json
 from pathlib import Path
 import sys
 
-item = json.load(sys.stdin)
+report = Path(sys.argv[1])
+item = json.loads(report.read_text())
 for attachment in item.get("report", {}).get("attachments", []):
     if isinstance(attachment, dict):
         data = attachment.pop("data", None)
         if isinstance(data, str):
             attachment["bytes"] = len(data) * 3 // 4 - (len(data) - len(data.rstrip("=")))
 text = json.dumps(item, ensure_ascii=False, indent=2)
-report = Path(sys.argv[1]) / "error-report.json"
 report.write_text(text + "\n", encoding="utf-8")
 if len(text.splitlines()) <= 1000:
     print(text)
 else:
     print(f"报告共 {len(text.splitlines())} 行 · {report}")
-' "$OUTPUT_DIR"
+' "$report_path"
 }
 
 case "$ACTION" in
   list)
-    keys | python3 -c 'import json,sys; rows=[x for x in json.load(sys.stdin) if x["name"].startswith("report:")]; rows.sort(key=lambda x:x["name"], reverse=True); print("\n".join(x["name"] + " " + json.dumps(x.get("metadata",{}), ensure_ascii=False) for x in rows) if len(rows) <= 1000 else f"报告键共 {len(rows)} 条 · {sys.argv[1]}")' "$OUTPUT_DIR/error-report-keys.json"
+    keys >/dev/null
+    python3 -c 'import json,sys; rows=[x for x in json.load(open(sys.argv[1])) if x["name"].startswith("report:")]; rows.sort(key=lambda x:x["name"], reverse=True); print("\n".join(x["name"] + " " + json.dumps(x.get("metadata",{}), ensure_ascii=False) for x in rows) if len(rows) <= 1000 else f"报告键共 {len(rows)} 条 · {sys.argv[1]}")' "$OUTPUT_DIR/error-report-keys.json"
     ;;
   latest)
-    show_key "$(latest_key)"
+    key="$(latest_key)" || exit $?
+    show_key "$key"
     ;;
   show)
     show_key "${2:-}"

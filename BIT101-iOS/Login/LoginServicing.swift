@@ -42,9 +42,11 @@ struct UITestLoginService: LoginServicing {
 
     func login(studentID: String, password: String) async throws -> String {
         let account = studentID.trimmingCharacters(in: .whitespacesAndNewlines)
-        try LoginStorage.shared.saveLoginState(studentID: account, password: password, fakeCookie: "ui-test-cookie")
         defaults.set(account, forKey: Key.studentID)
         defaults.set(true, forKey: Key.hasSession)
+        if ProcessInfo.processInfo.environment["BIT101_UI_TEST_CONTENT"] == "1" {
+            try LoginStorage.shared.saveLoginState(studentID: account, password: password, fakeCookie: "ui-test-cookie")
+        }
         var seededAccounts = defaults.stringArray(forKey: Key.seededScheduleAccounts) ?? []
         if !seededAccounts.contains(account) {
             var cache = ScheduleCache()

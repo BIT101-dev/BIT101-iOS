@@ -90,6 +90,7 @@ private struct MineRootViewScene: View {
         .appGroupedListStyle()
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(item: $route) { destination in
+            Group {
             switch destination {
             case .followers:
                 MineUserListView(
@@ -122,6 +123,10 @@ private struct MineRootViewScene: View {
             case let .user(userID):
                 UserProfileRootView(dependencies: dependencies, media: media, posters: posters, userID: userID, onLogout: onLogout)
             }
+            }
+            .environment(dependencies)
+            .environment(media)
+            .environment(posters)
         }
         .navigationDestination(item: $settingsRoute) { destination in
             destinations.settings(CommunitySettingsRequest(entry: destination, studentID: fallbackStudentID, onLogout: onLogout))

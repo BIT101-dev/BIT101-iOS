@@ -25,6 +25,7 @@ summaries = []
 with report_path.open("w", encoding="utf-8") as report:
     for line in process.stdout:
         report.write(line)
+        report.flush()
         if not line.strip():
             continue
         if "error:" in line or "warning:" in line:
@@ -41,6 +42,8 @@ with report_path.open("w", encoding="utf-8") as report:
         if line.startswith("[") and line[1:2].isdigit():
             continue
         if "Executed 0 tests, with 0 failures" in line or "IDETestOperationsObserverDebug:" in line:
+            continue
+        if "IDELaunchParametersSnapshot:" in line and ("debugger version lookup failed" in line or "no debugger version" in line):
             continue
         if "swift-frontend -frontend" in line or line.lstrip().startswith("builtin-SwiftDriver -- "):
             continue

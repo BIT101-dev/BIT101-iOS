@@ -274,7 +274,11 @@ struct CourseScheduleTabView: View {
 #endif
         }
         .simultaneousGesture(scheduleSwitchGesture)
-        .sheet(item: $selectedEntry) { entry in
+        .sheet(item: $selectedEntry, onDismiss: {
+            if editingCustomScheduleID != nil {
+                isShowingEditSchedule = true
+            }
+        }) { entry in
             ScheduleEntryDetailSheet(
                 entry: entry,
                 academicCourses: {
@@ -364,7 +368,6 @@ struct CourseScheduleTabView: View {
                     if let schedule = viewModel.courseState.customSchedules.first(where: { $0.id == entry.sourceID }) {
                         editingCustomScheduleID = schedule.id
                         customScheduleDraft = viewModel.customScheduleDraft(for: schedule)
-                        isShowingEditSchedule = true
                     }
                 },
                 onDeleteCustomSchedule: {

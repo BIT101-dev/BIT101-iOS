@@ -53,6 +53,7 @@ final class UITestHTTPTransport: HTTPTransport {
     private var createdPosters: [[String: Any]] = []
     private var createdPapers: [[String: Any]] = []
     private var deletedIDs: Set<Int> = []
+    private var deletedCommentIDs: Set<Int> = []
     private let timestamp = "2026-10-01T10:00:00Z"
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
@@ -86,7 +87,8 @@ final class UITestHTTPTransport: HTTPTransport {
                 comments.append(comment)
                 payload = comment
             } else {
-                payload = page == "0" ? [makeComment(id: 1, text: "自动化测试评论")] + comments : []
+                payload = page == "0" ? ([makeComment(id: 1, text: "自动化测试评论")] + comments)
+                    .filter { !deletedCommentIDs.contains($0["id"] as? Int ?? 0) } : []
             }
         case "posters":
             if method == "POST" {
@@ -95,6 +97,9 @@ final class UITestHTTPTransport: HTTPTransport {
                 poster["id"] = id
                 poster["title"] = body["title"]
                 poster["text"] = body["text"]
+                poster["tags"] = body["tags"]
+                poster["anonymous"] = body["anonymous"]
+                poster["public"] = body["public"]
                 createdPosters.append(poster)
                 payload = ["id": id]
             } else {
@@ -124,12 +129,18 @@ final class UITestHTTPTransport: HTTPTransport {
                 let id = Int(url.lastPathComponent) ?? 1
                 if method == "DELETE" { deletedIDs.insert(id) }
                 if path.hasPrefix("posters/") {
+                    if method == "PUT", let index = createdPosters.firstIndex(where: { $0["id"] as? Int == id }) {
+                        for (key, value) in body { createdPosters[index][key] = value }
+                    }
                     payload = createdPosters.first(where: { $0["id"] as? Int == id }) ?? poster
                 } else {
+                    if method == "PUT", let index = createdPapers.firstIndex(where: { $0["id"] as? Int == id }) {
+                        for (key, value) in body { createdPapers[index][key] = value }
+                    }
                     payload = createdPapers.first(where: { $0["id"] as? Int == id }) ?? paper
                 }
             } else if path.hasPrefix("reaction/comments/") {
-                comments.removeAll { $0["id"] as? Int == Int(url.lastPathComponent) }
+                if let id = Int(url.lastPathComponent) { deletedCommentIDs.insert(id) }
                 payload = [:] as [String: String]
             } else if path.hasPrefix("user/info/") || path.hasPrefix("user/follow/") {
                 payload = ["user": user, "following_num": 1, "follower_num": 1,
@@ -172,9 +183,12 @@ final class UITestHTTPTransport: HTTPTransport {
     }
 
     private func makeComment(id: Int, text: String) -> [String: Any] {
-        ["id": id, "obj": "comment\(id)", "images": [], "user": user, "anonymous": false,
+        var replyUser = user
+        replyUser["id"] = 0
+        replyUser["nickname"] = ""
+        return ["id": id, "obj": "comment\(id)", "images": [], "user": user, "anonymous": false,
          "create_time": timestamp, "update_time": timestamp, "like": false, "like_num": 0,
-         "comment_num": 0, "own": true, "rate": 4, "reply_user": user, "reply_obj": "", "text": text, "sub": []]
+         "comment_num": 0, "own": true, "rate": 4, "reply_user": replyUser, "reply_obj": "", "text": text, "sub": []]
     }
 }
 #endif

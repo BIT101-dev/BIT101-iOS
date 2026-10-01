@@ -48,6 +48,7 @@ struct AccountSettingsPage: View {
                 Section("个人信息") {
                     HStack(spacing: AppDesignSystem.Spacing.regular) {
                         Text("头像")
+                            .foregroundStyle(.tint)
                         Spacer()
                         Button {
                             isShowingPhotoPicker = true
@@ -310,6 +311,7 @@ private struct SettingsSensitiveValueRow: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
         .accessibilityValue(isRevealed ? value : "已隐藏")
+        .accessibilityAddTraits(.isButton)
         .accessibilityHint(isRevealed ? "轻点隐藏\(title)" : "轻点显示\(title)")
         .appInteractiveListRow()
     }

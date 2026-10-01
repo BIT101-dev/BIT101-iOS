@@ -44,4 +44,4 @@
   npx wrangler deploy --config ../ErrorReportWorker/wrangler.jsonc)
 ```
 
-报告读取脚本复用同一 Wrangler 安装，入口为 `Scripts/fetch-issues-and-reports.sh`。
+报告读取脚本复用同一 Wrangler 安装，入口为 `Scripts/fetch-issues-and-reports.sh`。本机默认认证目录 `~/.wrangler/config` 通过符号链接复用 `~/Library/Preferences/.wrangler/config`，凭据保存在同一份文件中；命令使用正常的用户目录与 Wrangler 配置规则。
