@@ -1,5 +1,6 @@
+import CommunityUI
 import ScheduleFeature
-import GalleryFeature
+import MediaKit
 import DesignSystemKit
 //
 //  SettingsRootView.swift
@@ -50,6 +51,16 @@ enum SettingsRoute: String, CaseIterable, Identifiable {
     }
 }
 
+/// 设置页面消费同一组装入口选择的媒体、账号与清理能力。
+struct SettingsDependencies {
+    let settings: AppSettingsStore
+    let schedule: ScheduleViewModel
+    let suggestion: DeveloperSuggestionDependencies
+    let media: MediaEnvironment
+    let localData: AppLocalDataService
+    let account: SettingsAccountDependencies
+}
+
 /// 此视图展示设置中心的一级入口。
 ///
 /// “我的”页设置入口进入此视图。
@@ -57,7 +68,7 @@ struct SettingsRootView: View {
     let initialRoute: SettingsRoute?
     let studentID: String
     let onLogout: () -> Void
-    let suggestion: DeveloperSuggestionDependencies
+    let dependencies: SettingsDependencies
     var showsCloseButton = false
 
     @Environment(\.dismiss) private var dismiss
@@ -65,11 +76,14 @@ struct SettingsRootView: View {
     var body: some View {
         Group {
             if let initialRoute {
-                SettingsRoutePage(route: initialRoute, studentID: studentID, onLogout: onLogout, suggestion: suggestion)
+                SettingsRoutePage(route: initialRoute, studentID: studentID, onLogout: onLogout, dependencies: dependencies)
             } else {
-                SettingsIndexPage(studentID: studentID, onLogout: onLogout, suggestion: suggestion)
+                SettingsIndexPage(studentID: studentID, onLogout: onLogout, dependencies: dependencies)
             }
         }
+        .environmentObject(dependencies.settings)
+        .environmentObject(dependencies.schedule)
+        .environment(dependencies.media)
         .navigationTitle(initialRoute?.title ?? "设置")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -90,7 +104,7 @@ struct SettingsRootView: View {
 private struct SettingsIndexPage: View {
     let studentID: String
     let onLogout: () -> Void
-    let suggestion: DeveloperSuggestionDependencies
+    let dependencies: SettingsDependencies
     @State private var isShowingSuggestion = false
 
     var body: some View {
@@ -106,7 +120,7 @@ private struct SettingsIndexPage: View {
                         .buttonStyle(.plain)
                     } else {
                         NavigationLink {
-                            SettingsRoutePage(route: route, studentID: studentID, onLogout: onLogout, suggestion: suggestion)
+                            SettingsRoutePage(route: route, studentID: studentID, onLogout: onLogout, dependencies: dependencies)
                         } label: {
                             SettingsIndexCard(route: route)
                         }
@@ -119,7 +133,7 @@ private struct SettingsIndexPage: View {
         .background(AppDesignSystem.Palette.Background.grouped)
         .sheet(isPresented: $isShowingSuggestion) {
             NavigationStack {
-                DeveloperSuggestionPage(dependencies: suggestion)
+                DeveloperSuggestionPage(dependencies: dependencies.suggestion)
             }
         }
     }
@@ -144,22 +158,22 @@ private struct SettingsRoutePage: View {
     let route: SettingsRoute
     let studentID: String
     let onLogout: () -> Void
-    let suggestion: DeveloperSuggestionDependencies
+    let dependencies: SettingsDependencies
 
     var body: some View {
         switch route {
         case .account:
-            AccountSettingsPage(studentID: studentID, onLogout: onLogout)
+            AccountSettingsPage(dependencies: dependencies.account, studentID: studentID, onLogout: onLogout)
         case .calendar:
             AppCalendarSettingsPage(viewModel: scheduleViewModel)
         case .ddl:
             DDLSettingsPage(viewModel: scheduleViewModel.ddl)
         case .gallery:
-            GallerySettingsPage()
+            GallerySettingsPage(media: dependencies.media)
         case .suggestion:
-            DeveloperSuggestionPage(dependencies: suggestion)
+            DeveloperSuggestionPage(dependencies: dependencies.suggestion)
         case .about:
-            AboutSettingsPage(onLogout: onLogout)
+            AboutSettingsPage(onLogout: onLogout, localData: dependencies.localData)
         }
     }
 }
@@ -220,7 +234,7 @@ struct DeveloperSuggestionPage: View {
     @State private var text = ""
     @State private var contact = ""
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
-    @State private var imageDrafts: [GalleryComposerImageDraft] = []
+    @State private var imageDrafts: [ComposerImageDraft] = []
     @State private var isSubmitting = false
     @State private var alert: AppAlert?
     @State private var confirmation: DeveloperSuggestionConfirmation?
@@ -262,7 +276,7 @@ struct DeveloperSuggestionPage: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: AppDesignSystem.Spacing.regular) {
                             ForEach(imageDrafts) { draft in
-                                GalleryComposerImageTile(
+                                ComposerImageTile(
                                     draft: draft,
                                     onRetry: { retryImageDraft(id: draft.id) },
                                     onRemove: { removeImageDraft(id: draft.id) },
@@ -449,7 +463,7 @@ struct DeveloperSuggestionPage: View {
         text = draft.text
         contact = draft.contact
         imageDrafts = draft.images.map {
-            GalleryComposerImageDraft(
+            ComposerImageDraft(
                 previewData: $0.previewData,
                 filename: $0.filename,
                 uploadData: $0.uploadData,
@@ -471,11 +485,11 @@ struct DeveloperSuggestionPage: View {
     }
 
     private func compressImageDrafts(
-        _ drafts: [GalleryComposerImageDraft]
-    ) async -> [(GalleryComposerImageDraft.ID, Data?)] {
-        var results: [(GalleryComposerImageDraft.ID, Data?)] = []
+        _ drafts: [ComposerImageDraft]
+    ) async -> [(ComposerImageDraft.ID, Data?)] {
+        var results: [(ComposerImageDraft.ID, Data?)] = []
         var completedCount = 0
-        await withTaskGroup(of: (GalleryComposerImageDraft.ID, Data?).self) { group in
+        await withTaskGroup(of: (ComposerImageDraft.ID, Data?).self) { group in
             for draft in drafts {
                 group.addTask {
                     (draft.id, try? ComposerDraftImageCompressor.compress(draft.previewData))
@@ -497,7 +511,7 @@ struct DeveloperSuggestionPage: View {
     }
 
     private func applyCompressionResults(
-        _ results: [(GalleryComposerImageDraft.ID, Data?)],
+        _ results: [(ComposerImageDraft.ID, Data?)],
         showsFailureAlert: Bool
     ) {
         var failed = false
@@ -552,7 +566,7 @@ struct DeveloperSuggestionPage: View {
         loaded.sort { $0.0 < $1.0 }
 
         let drafts = loaded.map { _, data in
-            GalleryComposerImageDraft(
+            ComposerImageDraft(
                 previewData: data,
                 filename: "suggestion-\(UUID().uuidString).jpg",
                 status: .compressing
@@ -564,11 +578,11 @@ struct DeveloperSuggestionPage: View {
         applyCompressionResults(compressed, showsFailureAlert: true)
     }
 
-    private func removeImageDraft(id: GalleryComposerImageDraft.ID) {
+    private func removeImageDraft(id: ComposerImageDraft.ID) {
         imageDrafts.removeAll { $0.id == id }
     }
 
-    private func retryImageDraft(id: GalleryComposerImageDraft.ID) {
+    private func retryImageDraft(id: ComposerImageDraft.ID) {
         guard !isSubmitting,
               let draft = imageDrafts.first(where: { $0.id == id }),
               case .failed = draft.status else { return }
@@ -586,7 +600,7 @@ struct DeveloperSuggestionPage: View {
     }
 }
 
-private extension GalleryComposerImageDraft.Status {
+private extension ComposerImageDraft.Status {
     var isCompressing: Bool {
         if case .compressing = self { return true }
         return false

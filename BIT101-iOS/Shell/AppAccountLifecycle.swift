@@ -1,4 +1,5 @@
 import ScoreDomain
+import MediaKit
 import ScoreInfrastructure
 import ScheduleDomain
 import CommunityUI
@@ -26,11 +27,15 @@ final class AppAccountLifecycle: ObservableObject {
     init(
         scheduleViewModel: ScheduleViewModel = ScheduleServiceFactory.makeViewModel(),
         scoreViewModel: ScoreViewModel? = nil,
-        community: AppCommunityDependencies? = nil,
-        transcriptService: any TrustedTranscriptServicing = ScoreService(),
+        community: AppCommunityDependencies,
+        scoreService: any ScoreListServicing,
+        transcriptService: any TrustedTranscriptServicing,
         preferenceCloudSync: ExperimentalPreferenceCloudSync,
         notifications: NotificationCenter = .default,
-        scheduleChanges: AnyPublisher<AppStorageSession, Never> = ScheduleCacheStore.changes,
+        scheduleChanges: AnyPublisher<AppStorageSession, Never>,
+        loadScheduleCourses: @escaping @MainActor (AppStorageSession) async -> [String: [ScoreCourseSummary]],
+        media: MediaEnvironment,
+        localData: AppLocalDataService,
         externalDisplays: any AppExternalDisplayCoordinating = AppExternalDisplayCoordinator()
     ) {
         let settings = preferenceCloudSync.settings
@@ -39,20 +44,12 @@ final class AppAccountLifecycle: ObservableObject {
         if let scoreViewModel {
             self.scoreViewModel = scoreViewModel
         } else {
-#if BIT101_UI_TESTING
-            self.scoreViewModel = AppFileDirectories.isRunningUITest
-                ? ScoreViewModel(service: UITestScoreService(), stores: stores, notificationCenter: notifications)
-                : ScoreViewModel(service: ScoreService(), stores: stores, notificationCenter: notifications)
-#else
-            self.scoreViewModel = ScoreViewModel(service: ScoreService(), stores: stores, notificationCenter: notifications)
-#endif
+            self.scoreViewModel = ScoreViewModel(service: scoreService, stores: stores, notificationCenter: notifications,
+                scheduleCoursesChanges: scheduleChanges, loadScheduleCourses: loadScheduleCourses)
         }
-        let community = community ?? AppCommunityDependencies(
-            settings: settings, messages: stores.communityMessages, drafts: stores.composerDrafts
-        )
         self.community = community
         self.transcriptService = transcriptService
-        self.communityDestinations = AppCommunityDestinations(dependencies: community)
+        self.communityDestinations = AppCommunityDestinations(dependencies: community, schedule: scheduleViewModel, media: media, localData: localData)
         self.settings = settings
         self.preferenceCloudSync = preferenceCloudSync
         self.externalDisplays = externalDisplays

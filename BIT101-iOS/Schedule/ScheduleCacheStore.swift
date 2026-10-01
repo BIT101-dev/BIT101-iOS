@@ -1,3 +1,4 @@
+import CommunityTransport
 import ScheduleSync
 import SchedulePersistence
 import StorageCore
@@ -20,8 +21,7 @@ enum ScheduleCacheStore {
         storageRoot: AppFileDirectories.applicationSupportDirectoryURL(named: "BIT101-iOS"),
         userStateMatches: ScheduleCloudSyncState.matches
     )
-    private static var diskOperationTask: Task<Bool, Never>?
-    private static var diskOperationID: UUID?
+    private static let operations = SchedulePersistenceCoordinator()
 
     /// 当前账号对应的缓存文件路径。
     ///
@@ -54,7 +54,11 @@ enum ScheduleCacheStore {
 
     /// 写回账号缓存并广播变更，外部展示由应用生命周期协调。
     static func save(_ cache: ScheduleCache, source: ScheduleCacheSaveSource = .local, session: AppStorageSession = AppFileDirectories.currentSession) {
-        Task { await saveAndWait(cache, source: source, expectedAccountIdentifier: session.accountDirectoryName) }
+        let identity = LoginStorage.shared.communityCredentials.identity
+        Task {
+            await saveAndWait(cache, source: source, expectedAccountIdentifier: session.accountDirectoryName,
+                isCurrent: { LoginStorage.shared.communityCredentials.identity == identity })
+        }
     }
 
     @discardableResult
@@ -83,53 +87,41 @@ enum ScheduleCacheStore {
             return false
         }
         let legacyIdentifier = legacyAccountIdentifier()
-        let operationID = UUID()
-        let previousTask = diskOperationTask
-        let writeTask = Task<ScheduleCache?, Never> {
-            _ = await previousTask?.value
-            defer {
-                if diskOperationID == operationID {
-                    diskOperationTask = nil
-                    diskOperationID = nil
-                }
-            }
-            guard isCurrent() else { return nil }
-            let didWrite = await writeQueue.write(
+        let identity = LoginStorage.shared.communityCredentials.identity
+        let didWrite = await operations.perform(isCurrent: {
+            AppFileDirectories.currentSession == session
+                && LoginStorage.shared.communityCredentials.identity == identity
+                && isCurrent()
+        }, operation: {
+            await writeQueue.write(
                 cacheToSave,
                 accountIdentifier: accountIdentifier,
                 legacyAccountIdentifier: legacyIdentifier,
                 source: source,
                 expectedUpdatedAt: expectedUpdatedAt
-            )
-            return didWrite
-        }
-        diskOperationTask = Task { await writeTask.value != nil }
-        diskOperationID = operationID
-        guard await writeTask.value != nil else { return false }
-        if AppFileDirectories.currentSession == session { postCacheDidChange() }
+            ) != nil
+        })
+        guard didWrite else { return false }
+        postCacheDidChange()
         return true
     }
 
     /// 清空当前账号的日程缓存。
     ///
     /// 清空操作定位当前账号目录，并保留其它账号目录。
-    static func clear() async {
+    @discardableResult
+    static func clear() async -> Bool {
         let session = AppFileDirectories.currentSession
         let urls = cacheURLs()
-        let operationID = UUID()
-        let previousTask = diskOperationTask
-        let clearTask = Task<Bool, Never> {
-            _ = await previousTask?.value
-            let didClear = await writeQueue.clear(urls: urls)
-            if diskOperationID == operationID {
-                diskOperationTask = nil
-                diskOperationID = nil
-            }
-            return didClear
+        let identity = LoginStorage.shared.communityCredentials.identity
+        let didClear = await operations.perform(isCurrent: { true }, operation: {
+            await writeQueue.clear(urls: urls)
+        })
+        if didClear, AppFileDirectories.currentSession == session,
+           LoginStorage.shared.communityCredentials.identity == identity {
+            postCacheDidChange()
         }
-        diskOperationTask = clearTask
-        diskOperationID = operationID
-        if await clearTask.value, AppFileDirectories.currentSession == session { postCacheDidChange() }
+        return didClear
     }
 
     fileprivate nonisolated static func loadResult(accountIdentifier: String, legacyAccountIdentifier: String) -> ScheduleCacheLoadResult {

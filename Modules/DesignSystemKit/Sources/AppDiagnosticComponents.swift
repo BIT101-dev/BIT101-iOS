@@ -1,7 +1,6 @@
 import Foundation
 #if os(iOS)
 import SwiftUI
-import UIKit
 #endif
 
 public nonisolated protocol DiagnosticAlertPresentable: Identifiable {
@@ -20,20 +19,7 @@ public nonisolated enum AppRecoveryAction: Equatable, Sendable {
         case .openAppSettings: "打开系统设置"
         }
     }
-
-#if os(iOS)
-    @MainActor
-    public func perform() {
-        switch self {
-        case .openAppSettings:
-            if let url = URL(string: UIApplication.openSettingsURLString) {
-                UIApplication.shared.open(url)
-            }
-        }
-    }
-#endif
 }
-
 
 /// AppAlert 为业务模块提供页面提示数据。
 public nonisolated struct AppAlert: DiagnosticAlertPresentable {

@@ -42,7 +42,7 @@ struct GalleryComposerView: View {
     /// 系统 `PhotosPicker` 支持一次选择多张图，页面保留整批结果并逐张加入上传队列。
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     /// 已经加入发帖草稿的图片列表。
-    @State private var imageDrafts: [GalleryComposerImageDraft] = []
+    @State private var imageDrafts: [ComposerImageDraft] = []
     /// 编辑帖子时保留的原有图片列表。
     @State private var existingImages: [CommunityImage] = []
     /// 当前批量读取图片并加入上传队列。
@@ -221,7 +221,7 @@ struct GalleryComposerView: View {
                             spacing: AppDesignSystem.Spacing.regular
                         ) {
                             ForEach(imageDrafts) { draft in
-                                GalleryComposerImageTile(
+                                ComposerImageTile(
                                     draft: draft,
                                     onRetry: {
                                         Task { await retryImageUpload(id: draft.id) }
@@ -354,7 +354,7 @@ struct GalleryComposerView: View {
         selectedClaimID = draft.selectedClaimID
         imageDrafts = draft.images.map {
             let uploadData = $0.uploadData ?? jpegUploadData(from: $0.previewData)
-            return GalleryComposerImageDraft(
+            return ComposerImageDraft(
                 previewData: $0.previewData,
                 filename: $0.filename,
                 uploadData: uploadData,
@@ -539,7 +539,7 @@ struct GalleryComposerView: View {
             guard let uploadData = jpegUploadData(from: data) else {
                 throw GalleryServiceError.uploadFailed
             }
-            var draft = GalleryComposerImageDraft(
+            var draft = ComposerImageDraft(
                 previewData: data,
                 filename: filename,
                 uploadData: uploadData
@@ -563,7 +563,7 @@ struct GalleryComposerView: View {
     }
 
     /// 按 `id` 回写图片草稿。
-    private func replaceImageDraft(_ draft: GalleryComposerImageDraft) {
+    private func replaceImageDraft(_ draft: ComposerImageDraft) {
         guard let index = imageDrafts.firstIndex(where: { $0.id == draft.id }) else { return }
         imageDrafts[index] = draft
     }
@@ -575,7 +575,7 @@ struct GalleryComposerView: View {
     }
 
     /// 重试失败图片的上传。
-    private func retryImageUpload(id: GalleryComposerImageDraft.ID) async {
+    private func retryImageUpload(id: ComposerImageDraft.ID) async {
         guard var draft = imageDrafts.first(where: { $0.id == id }) else { return }
         draft.status = .uploading
         replaceImageDraft(draft)
@@ -593,7 +593,7 @@ struct GalleryComposerView: View {
     }
 
     /// 移除新加入的图片草稿。
-    private func removeImageDraft(id: GalleryComposerImageDraft.ID) {
+    private func removeImageDraft(id: ComposerImageDraft.ID) {
         imageDrafts.removeAll { $0.id == id }
     }
 

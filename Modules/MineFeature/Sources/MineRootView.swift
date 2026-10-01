@@ -29,6 +29,20 @@ private enum MineRoute: Hashable, Identifiable {
 ///
 /// 页面包含资料卡、入口列表和子页面，交互使用 iOS 导航和列表样式。
 public struct MineRootView: View {
+    private let scene: MineRootViewScene
+    private let identity: [ObjectIdentifier]
+
+    public init(dependencies: MineDependencies, media: MediaEnvironment, posters: CommunityPosterDestination, settings: CommunitySettingsDestinations, fallbackStudentID: String, onLogout: @escaping () -> Void) {
+        scene = MineRootViewScene(dependencies: dependencies, media: media, posters: posters, settings: settings, fallbackStudentID: fallbackStudentID, onLogout: onLogout)
+        identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
+    }
+
+    public var body: some View {
+        scene.id(identity)
+    }
+}
+
+private struct MineRootViewScene: View {
     private let dependencies: MineDependencies
     private let destinations: CommunitySettingsDestinations
     private let posters: CommunityPosterDestination
@@ -40,7 +54,7 @@ public struct MineRootView: View {
     /// “我的”主页状态机。
     @StateObject private var viewModel: MineViewModel
 
-    public init(dependencies: MineDependencies, media: MediaEnvironment, posters: CommunityPosterDestination, settings: CommunitySettingsDestinations, fallbackStudentID: String, onLogout: @escaping () -> Void) {
+    init(dependencies: MineDependencies, media: MediaEnvironment, posters: CommunityPosterDestination, settings: CommunitySettingsDestinations, fallbackStudentID: String, onLogout: @escaping () -> Void) {
         self.dependencies = dependencies
         self.media = media
         self.posters = posters
@@ -59,7 +73,7 @@ public struct MineRootView: View {
     /// “我的”主页主体。
     ///
     /// 主页面展示资料卡和设置入口，列表内容进入子页面，保持主页层级清晰。
-    public var body: some View {
+    var body: some View {
         content.environment(dependencies).environment(media).environment(posters)
     }
 
@@ -186,6 +200,23 @@ public struct MineRootView: View {
 ///
 /// 复用“我的”页的资料卡和话题卡片样式，统一用户主页的视觉表现。
 public struct UserProfileRootView: View {
+    private let scene: UserProfileRootViewScene
+    private let identity: [ObjectIdentifier]
+    private let resourceID: Int
+
+    public init(dependencies: MineDependencies, media: MediaEnvironment, posters: CommunityPosterDestination, userID: Int, onLogout: @escaping () -> Void = {}) {
+        scene = UserProfileRootViewScene(dependencies: dependencies, media: media, posters: posters, userID: userID, onLogout: onLogout)
+        identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
+        resourceID = userID
+    }
+
+    public var body: some View {
+        scene.id(identity)
+            .id(resourceID)
+    }
+}
+
+private struct UserProfileRootViewScene: View {
     private let dependencies: MineDependencies
     private let destinations: CommunityPosterDestination
     private let media: MediaEnvironment
@@ -197,7 +228,7 @@ public struct UserProfileRootView: View {
     @State private var selectedPoster: CommunityPoster?
     @State private var imageViewer: ImagePreviewRequest?
 
-    public init(dependencies: MineDependencies, media: MediaEnvironment, posters: CommunityPosterDestination, userID: Int, onLogout: @escaping () -> Void = {}) {
+    init(dependencies: MineDependencies, media: MediaEnvironment, posters: CommunityPosterDestination, userID: Int, onLogout: @escaping () -> Void = {}) {
         self.dependencies = dependencies
         self.media = media
         self.destinations = posters
@@ -206,7 +237,7 @@ public struct UserProfileRootView: View {
         _viewModel = StateObject(wrappedValue: UserProfileViewModel(userID: userID, service: dependencies.profile))
     }
 
-    public var body: some View {
+    var body: some View {
         content.environment(dependencies).environment(media).environment(destinations)
     }
 

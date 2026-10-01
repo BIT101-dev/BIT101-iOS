@@ -1,3 +1,5 @@
+import BIT101TestSupport
+import CommunityUI
 import StorageCore
 import CommunityCore
 import Foundation
@@ -53,5 +55,63 @@ struct CommunityCoreTests {
         store.save(["account-b"])
         session = AppStorageSession(accountIdentifier: "module-a")
         #expect(store.load() == ["old-value"])
+    }
+}
+
+@MainActor
+struct ComposerPublicContractTests {
+    private final class Account {
+        var session = AppStorageSession(accountIdentifier: "composer-A")
+    }
+    @Test func imagePreparationAndStoredBytesFollowTheSelectedBackend() async throws {
+        let files = ModuleScoreFiles()
+        let session = AppStorageSession(accountIdentifier: "composer-A")
+        let store = ComposerDraftStore(files: files, applicationSupport: URL(fileURLWithPath: "/module-composer"),
+            session: { session }, prepareImageData: { Data([42]) + $0 })
+        let snapshot = DeveloperSuggestionDraftSnapshot(text: "draft", images: [
+            ComposerImageDraftSnapshot(filename: "image.jpg", previewData: Data([7]), uploadData: nil)
+        ], contact: "contact")
+        #expect(await store.saveSuggestion(snapshot))
+        let restored = try #require(await store.loadSuggestion())
+        #expect(restored.text == snapshot.text)
+        #expect(restored.contact == snapshot.contact)
+        #expect(restored.images.first?.uploadData == Data([42, 7]))
+        #expect(restored.images.first?.previewData == Data([42, 7]))
+        let url = URL(fileURLWithPath: "/module-composer/BIT101-iOS")
+            .appending(path: session.accountStorageIdentifier).appending(path: "composer-suggestion.json")
+        #expect(files.writingOptions(at: url)?.contains(.atomic) == true)
+        files.setFailures(writing: true)
+        #expect(await store.saveSuggestion(.init(text: "next", images: [])) == false)
+        #expect(await store.loadSuggestion()?.text == "draft")
+    }
+
+    @Test func capturedCleanupMatchesTheAccountAndSavedRevision() async {
+        let account = Account()
+        let store = ComposerDraftStore(files: ModuleScoreFiles(), applicationSupport: URL(fileURLWithPath: "/module-composer"),
+            session: { account.session }, prepareImageData: { $0 })
+        #expect(await store.saveSuggestion(.init(text: "A", images: [])))
+        let cleanup = await store.captureSuggestionCleanup()
+        account.session = AppStorageSession(accountIdentifier: "composer-B")
+        #expect(await store.saveSuggestion(.init(text: "B", images: [])))
+        await cleanup()
+        #expect(await store.loadSuggestion()?.text == "B")
+        account.session = AppStorageSession(accountIdentifier: "composer-A")
+        #expect(await store.loadSuggestion() == nil)
+        #expect(await store.saveSuggestion(.init(text: "submitted", images: [])))
+        let oldCleanup = await store.captureSuggestionCleanup()
+        #expect(await store.saveSuggestion(.init(text: "continued", images: [])))
+        await oldCleanup()
+        #expect(await store.loadSuggestion()?.text == "continued")
+    }
+
+    @Test func preparedImageSizeIsEnforcedAtTheStorageBoundary() async {
+        let store = ComposerDraftStore(files: ModuleScoreFiles(), applicationSupport: URL(fileURLWithPath: "/module-composer"),
+            session: { AppStorageSession(accountIdentifier: "composer-A") },
+            prepareImageData: { _ in Data(count: ComposerDraftImagePolicy.maximumBytes + 1) })
+        #expect(await store.saveSuggestion(.init(text: "saved", images: [])))
+        #expect(await store.saveSuggestion(.init(text: "oversized", images: [
+            .init(filename: "image.jpg", previewData: Data([1]), uploadData: nil)
+        ])) == false)
+        #expect(await store.loadSuggestion()?.text == "saved")
     }
 }

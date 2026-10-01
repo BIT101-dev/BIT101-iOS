@@ -101,3 +101,319 @@ public nonisolated struct ScoreRow: Codable, Identifiable, Sendable {
     }
 }
 
+
+public nonisolated enum ScoreDetailRefreshDecision: Equatable, Sendable {
+    case fetch
+    case reuseCompletedCache
+    case reuseRateLimitedCache
+}
+
+/// 成绩简略列表更新后，此策略根据缓存和录入状态决定逐课程详情查询。
+public nonisolated enum ScoreDetailRefreshPolicy {
+    public static let incompleteRetryInterval: TimeInterval = 24 * 60 * 60
+    private static let ignoredBriefKeys: Set<String> = ["序号", "操作栏"]
+
+    public static func decision(
+        briefRows: [ScoreRow],
+        cachedRows: [ScoreRow]?,
+        detailedUpdatedAt: Date?,
+        now: Date
+    ) -> ScoreDetailRefreshDecision {
+        guard let cachedRows, !cachedRows.isEmpty,
+              briefRowsMatchCache(briefRows, cachedRows: cachedRows)
+        else { return .fetch }
+
+        guard let latestTerm = briefRows
+            .map({ normalizedTerm($0.term) })
+            .filter({ !$0.isEmpty })
+            .max()
+        else {
+            return .fetch
+        }
+        let relevantRows = cachedRows.filter { normalizedTerm($0.term) == latestTerm }
+        guard !relevantRows.isEmpty else { return .fetch }
+
+        let knownStatuses = relevantRows.map(\.teachingClassesCompletionStatus).filter { !$0.isEmpty }
+        if !knownStatuses.isEmpty,
+           knownStatuses.allSatisfy({ $0 == "是" })
+        {
+            return .reuseCompletedCache
+        }
+
+        guard knownStatuses.contains("否"),
+              let detailedUpdatedAt,
+              now.timeIntervalSince(detailedUpdatedAt) < incompleteRetryInterval
+        else { return .fetch }
+        return .reuseRateLimitedCache
+    }
+
+    public static func briefRowsMatchCache(_ briefRows: [ScoreRow], cachedRows: [ScoreRow]) -> Bool {
+        guard !briefRows.isEmpty, !cachedRows.isEmpty else { return false }
+        let briefKeys = comparableKeys(from: briefRows)
+        guard !briefKeys.isEmpty else { return false }
+        return signatures(for: briefRows, keys: briefKeys) == signatures(for: cachedRows, keys: briefKeys)
+    }
+
+    public static func rowsMatch(_ lhs: [ScoreRow], _ rhs: [ScoreRow]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        guard !lhs.isEmpty else { return true }
+        let keys = comparableKeys(from: lhs + rhs)
+        guard !keys.isEmpty else { return false }
+        return signatures(for: lhs, keys: keys) == signatures(for: rhs, keys: keys)
+    }
+
+    private static func comparableKeys(from rows: [ScoreRow]) -> Set<String> {
+        Set(rows.flatMap { $0.values.map(\.key) }).subtracting(ignoredBriefKeys)
+    }
+
+    private static func signatures(for rows: [ScoreRow], keys: Set<String>) -> [String] {
+        rows.map { row in
+            keys.sorted().map { key in
+                let value = row[key].trimmingCharacters(in: .whitespacesAndNewlines)
+                return "\(key.count):\(key)\(value.count):\(value)"
+            }.joined(separator: "|")
+        }.sorted()
+    }
+
+    private static func normalizedTerm(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+/// 此结构表示成绩统计摘要。
+///
+/// 统计逻辑参考网页端：同一课程编号对应多条记录时，选择最高成绩参与加权计算。
+public nonisolated struct ScoreSummary: Sendable {
+    public let selectedCourseCount: Int
+    public let totalCredit: Double
+    public let weightedAverageScore: Double?
+    public let weightedAverageGPA: Double?
+
+    /// 从筛选后的成绩列表生成统计摘要。
+    ///
+    /// 同一课程编号出现多次时，统计逻辑选择最高分参与总学分和加权成绩计算。
+    public static func make(from rows: [ScoreRow]) -> ScoreSummary {
+        var bestRowsByCourse: [String: ScoreRow] = [:]
+        var fallbackRows: [ScoreRow] = []
+
+        for row in rows {
+            let courseNumber = normalizedCourseNumber(row.courseNumber)
+            if courseNumber.isEmpty {
+                fallbackRows.append(row)
+                continue
+            }
+
+            if let existing = bestRowsByCourse[courseNumber] {
+                if scoreValue(from: row.score) > scoreValue(from: existing.score) {
+                    bestRowsByCourse[courseNumber] = row
+                }
+            } else {
+                bestRowsByCourse[courseNumber] = row
+            }
+        }
+
+        let selectedRows = Array(bestRowsByCourse.values) + fallbackRows
+        var totalCredit = 0.0
+        var totalScore = 0.0
+        var totalGPA = 0.0
+
+        for row in selectedRows {
+            guard let credit = row.numericCredit, credit > 0 else { continue }
+            totalCredit += credit
+            totalScore += scoreValue(from: row.score) * credit
+            totalGPA += gpaValue(from: row.score) * credit
+        }
+
+        return ScoreSummary(
+            selectedCourseCount: selectedRows.count,
+            totalCredit: totalCredit,
+            weightedAverageScore: totalCredit > 0 ? totalScore / totalCredit : nil,
+            weightedAverageGPA: totalCredit > 0 ? totalGPA / totalCredit : nil
+        )
+    }
+
+    private static func normalizedCourseNumber(_ value: String) -> String {
+        value.components(separatedBy: .whitespacesAndNewlines)
+            .joined()
+            .lowercased()
+    }
+
+    /// 将网页端等级描述映射为百分制成绩和 GPA。
+    private static func gradeMapping(from raw: String) -> (score: Double, gpa: Double)? {
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "优秀":
+            return (95, 4)
+        case "良好":
+            return (85, 3.6)
+        case "中等":
+            return (75, 2.8)
+        case "及格":
+            return (65, 1.7)
+        case "不及格":
+            return (0, 0)
+        default:
+            return nil
+        }
+    }
+
+    /// 将成绩转换为统计用百分制数值。
+    private static func scoreValue(from raw: String) -> Double {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return gradeMapping(from: trimmed)?.score ?? Double(trimmed) ?? 0
+    }
+
+    /// 此方法将成绩转换为 GPA。
+    private static func gpaValue(from raw: String) -> Double {
+        if let mapping = gradeMapping(from: raw) {
+            return mapping.gpa
+        }
+
+        let score = Double(raw.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+        if score < 60 { return 0 }
+        // 百分制使用学校公布的连续公式；等级制由上方的等级映射处理。
+        return 4 - 3 * (100 - score) * (100 - score) / 1600
+    }
+}
+
+
+/// 成绩页本地筛选偏好快照。
+public nonisolated struct ScoreFilterPreferenceSnapshot: Codable, Sendable {
+    public var selectedTerms: [String] = []
+    public var selectedCourseTypes: [String] = []
+    public var sortIndex: String?
+    public var sortOrder: String?
+    public init(selectedTerms: [String] = [], selectedCourseTypes: [String] = [], sortIndex: String? = nil, sortOrder: String? = nil) {
+        self.selectedTerms = selectedTerms
+        self.selectedCourseTypes = selectedCourseTypes
+        self.sortIndex = sortIndex
+        self.sortOrder = sortOrder
+    }
+}
+
+public nonisolated enum ScoreSortIndex: String, CaseIterable, Identifiable, Sendable {
+    case courseName
+    case score
+    case averageScore
+    case credit
+    case term
+    case courseType
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .courseName: "名称"
+        case .score: "成绩"
+        case .averageScore: "均分"
+        case .credit: "学分"
+        case .term: "学期"
+        case .courseType: "种类"
+        }
+    }
+
+    public func isMissingValue(in row: ScoreRow) -> Bool {
+        switch self {
+        case .courseName: normalizedText(row.courseName).isEmpty
+        case .score: scoreComparableValue(from: row.score) == nil
+        case .averageScore: numericComparableValue(from: row.averageScore) == nil
+        case .credit: numericComparableValue(from: row.creditText) == nil
+        case .term: normalizedText(row.term).isEmpty
+        case .courseType: normalizedText(row.courseType).isEmpty
+        }
+    }
+
+    public func compare(_ lhs: ScoreRow, _ rhs: ScoreRow) -> ComparisonResult {
+        switch self {
+        case .courseName:
+            normalizedText(lhs.courseName).localizedStandardCompare(normalizedText(rhs.courseName))
+        case .score:
+            compareNumbers(scoreComparableValue(from: lhs.score), scoreComparableValue(from: rhs.score))
+        case .averageScore:
+            compareNumbers(numericComparableValue(from: lhs.averageScore), numericComparableValue(from: rhs.averageScore))
+        case .credit:
+            compareNumbers(numericComparableValue(from: lhs.creditText), numericComparableValue(from: rhs.creditText))
+        case .term:
+            normalizedText(lhs.term).localizedStandardCompare(normalizedText(rhs.term))
+        case .courseType:
+            normalizedText(lhs.courseType).localizedStandardCompare(normalizedText(rhs.courseType))
+        }
+    }
+
+    private func normalizedText(_ raw: String) -> String {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func numericComparableValue(from raw: String) -> Double? {
+        Double(normalizedText(raw))
+    }
+
+    private func scoreComparableValue(from raw: String) -> Double? {
+        let trimmed = normalizedText(raw)
+        switch trimmed {
+        case "优秀": return 95
+        case "良好": return 85
+        case "中等": return 75
+        case "及格": return 65
+        case "不及格": return 0
+        default: return Double(trimmed)
+        }
+    }
+
+    private func compareNumbers(_ lhs: Double?, _ rhs: Double?) -> ComparisonResult {
+        guard let lhs, let rhs else { return .orderedSame }
+        if lhs < rhs { return .orderedAscending }
+        if lhs > rhs { return .orderedDescending }
+        return .orderedSame
+    }
+}
+
+public nonisolated enum ScoreSortOrder: String, CaseIterable, Identifiable, Sendable {
+    case ascending
+    case descending
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .ascending: "升序"
+        case .descending: "降序"
+        }
+    }
+
+    public var toggled: ScoreSortOrder {
+        switch self {
+        case .ascending: .descending
+        case .descending: .ascending
+        }
+    }
+}
+
+/// 成绩 iCloud 同步快照，保留详细字段和本地新鲜度，使新设备直接复用已有数据。
+public nonisolated struct ScoreCacheSyncPayload: Codable, Sendable {
+    public var rows: [ScoreRow]
+    public var updatedAt: Date?
+    public var detailedUpdatedAt: Date?
+    public init(rows: [ScoreRow], updatedAt: Date?, detailedUpdatedAt: Date?) {
+        self.rows = rows
+        self.updatedAt = updatedAt
+        self.detailedUpdatedAt = detailedUpdatedAt
+    }
+}
+
+/// 成绩本地快照，把行数据和新鲜度时间放在同一个原子文件中。
+public nonisolated struct ScoreCacheSnapshot: Codable, Sendable {
+    public var rows: [ScoreRow]?
+    public var updatedAt: Date?
+    public var detailedUpdatedAt: Date?
+
+    public init(rows: [ScoreRow]? = nil, updatedAt: Date? = nil, detailedUpdatedAt: Date? = nil) {
+        self.rows = rows
+        self.updatedAt = updatedAt
+        self.detailedUpdatedAt = detailedUpdatedAt
+    }
+
+    public var containsData: Bool {
+        rows != nil || updatedAt != nil || detailedUpdatedAt != nil
+    }
+}
+

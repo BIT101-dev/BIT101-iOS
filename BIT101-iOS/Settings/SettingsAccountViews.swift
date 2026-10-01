@@ -2,6 +2,7 @@ import MineFeature
 import TransportCore
 import MediaKit
 import CommunityCore
+import CommunityTransport
 import DesignSystemKit
 //
 //  SettingsAccountViews.swift
@@ -14,12 +15,13 @@ import PhotosUI
 import SwiftUI
 
 struct AccountSettingsPage: View {
+    let dependencies: SettingsAccountDependencies
     let studentID: String
     let onLogout: () -> Void
 
     @State private var profile: MineUserInfo?
     @State private var isCheckingLogin = false
-    @State private var isLoggedIn = !LoginStorage.shared.fakeCookie.isEmpty
+    @State private var isLoggedIn: Bool
     @State private var isUpdating = false
     @State private var showNicknameEditor = false
     @State private var showMottoEditor = false
@@ -31,7 +33,14 @@ struct AccountSettingsPage: View {
     @State private var isShowingPhotoPicker = false
     @State private var alert: AppAlert?
 
-    private let service = SettingsNetworkService()
+    private var service: any AccountSettingsServicing { dependencies.service }
+
+    init(dependencies: SettingsAccountDependencies, studentID: String, onLogout: @escaping () -> Void) {
+        self.dependencies = dependencies
+        self.studentID = studentID
+        self.onLogout = onLogout
+        _isLoggedIn = State(initialValue: !dependencies.credentials().cookie.isEmpty)
+    }
 
     var body: some View {
         List {
@@ -114,7 +123,7 @@ struct AccountSettingsPage: View {
         }
         .appGroupedListStyle()
         .task {
-            guard !LoginStorage.shared.fakeCookie.isEmpty else {
+            guard !dependencies.credentials().cookie.isEmpty else {
                 isLoggedIn = false
                 return
             }
@@ -147,20 +156,20 @@ struct AccountSettingsPage: View {
     }
 
     /// 页面加载当前登录用户资料卡。
-    private func loadProfile(for expectedSessionCookie: String? = nil) async {
-        let sessionCookie = expectedSessionCookie ?? LoginStorage.shared.fakeCookie
-        guard !sessionCookie.isEmpty else {
+    private func loadProfile(for expectedCredentials: CommunityCredentials? = nil) async {
+        let credentials = expectedCredentials ?? dependencies.credentials()
+        guard !credentials.cookie.isEmpty else {
             isLoggedIn = false
             profile = nil
             return
         }
         do {
             let loadedProfile = try await service.fetchMyInfo()
-            guard isCurrentSession(sessionCookie) else { return }
+            guard isCurrentSession(credentials) else { return }
             profile = loadedProfile
             isLoggedIn = true
         } catch {
-            guard shouldPresentError(error, for: sessionCookie) else { return }
+            guard shouldPresentError(error, for: credentials) else { return }
             if let settingsError = error as? SettingsServiceError,
                case .notLoggedIn = settingsError {
                 isLoggedIn = false
@@ -172,20 +181,20 @@ struct AccountSettingsPage: View {
 
     /// 用户操作触发一次显式登录状态检查。
     private func checkLogin() async {
-        let sessionCookie = LoginStorage.shared.fakeCookie
+        let credentials = dependencies.credentials()
         isCheckingLogin = true
         defer { isCheckingLogin = false }
         do {
             let loginState = try await service.checkLogin()
-            guard isCurrentSession(sessionCookie)
-                || (!loginState && LoginStorage.shared.fakeCookie.isEmpty)
+            guard isCurrentSession(credentials)
+                || (!loginState && dependencies.credentials().identity == credentials.identity && dependencies.credentials().cookie.isEmpty)
             else { return }
             isLoggedIn = loginState
             if !loginState {
                 profile = nil
             }
         } catch {
-            guard shouldPresentError(error, for: sessionCookie) else { return }
+            guard shouldPresentError(error, for: credentials) else { return }
             alert = AppAlert(title: "检查失败", message: error.localizedDescription)
         }
     }
@@ -195,8 +204,8 @@ struct AccountSettingsPage: View {
     /// 接口要求整份资料一起提交，页面沿用当前资料中的未修改字段。
     private func updateProfile(nickname: String?, motto: String?) async {
         guard let profile else { return }
-        let sessionCookie = LoginStorage.shared.fakeCookie
-        guard !sessionCookie.isEmpty else {
+        let credentials = dependencies.credentials()
+        guard !credentials.cookie.isEmpty else {
             isLoggedIn = false
             self.profile = nil
             return
@@ -209,13 +218,13 @@ struct AccountSettingsPage: View {
                 motto: motto ?? profile.user.motto,
                 avatarMid: profile.user.avatar.mid
             )
-            guard isCurrentSession(sessionCookie) else { return }
-            await loadProfile(for: sessionCookie)
-            guard isCurrentSession(sessionCookie) else { return }
+            guard isCurrentSession(credentials) else { return }
+            await loadProfile(for: credentials)
+            guard isCurrentSession(credentials) else { return }
             showNicknameEditor = false
             showMottoEditor = false
         } catch {
-            guard shouldPresentError(error, for: sessionCookie) else { return }
+            guard shouldPresentError(error, for: credentials) else { return }
             alert = AppAlert(title: "更新失败", message: error.localizedDescription)
         }
     }
@@ -224,8 +233,8 @@ struct AccountSettingsPage: View {
     private func updateAvatar(with item: PhotosPickerItem) async {
         guard let profile else { return }
         defer { selectedPhoto = nil }
-        let sessionCookie = LoginStorage.shared.fakeCookie
-        guard !sessionCookie.isEmpty else {
+        let credentials = dependencies.credentials()
+        guard !credentials.cookie.isEmpty else {
             isLoggedIn = false
             self.profile = nil
             return
@@ -237,29 +246,30 @@ struct AccountSettingsPage: View {
             guard let data = try await item.loadTransferable(type: Data.self) else {
                 throw SettingsServiceError.uploadFailed
             }
-            guard isCurrentSession(sessionCookie) else { return }
-            let image = try await service.uploadAvatar(data: data)
-            guard isCurrentSession(sessionCookie) else { return }
+            guard isCurrentSession(credentials) else { return }
+            let image = try await service.uploadAvatar(data: data, filename: "avatar.jpg")
+            guard isCurrentSession(credentials) else { return }
             try await service.updateUser(
                 nickname: profile.user.nickname,
                 motto: profile.user.motto,
                 avatarMid: image.mid
             )
-            guard isCurrentSession(sessionCookie) else { return }
-            await loadProfile(for: sessionCookie)
+            guard isCurrentSession(credentials) else { return }
+            await loadProfile(for: credentials)
         } catch {
-            guard shouldPresentError(error, for: sessionCookie) else { return }
+            guard shouldPresentError(error, for: credentials) else { return }
             alert = AppAlert(title: "头像更新失败", message: error.localizedDescription)
         }
     }
 
     /// 页面在当前账号且请求未取消时展示请求错误。
-    private func shouldPresentError(_ error: Error, for sessionCookie: String) -> Bool {
-        !TaskCancellation.matches(error) && isCurrentSession(sessionCookie)
+    private func shouldPresentError(_ error: Error, for credentials: CommunityCredentials) -> Bool {
+        !TaskCancellation.matches(error) && isCurrentSession(credentials)
     }
 
-    private func isCurrentSession(_ sessionCookie: String) -> Bool {
-        !sessionCookie.isEmpty && LoginStorage.shared.fakeCookie == sessionCookie
+    private func isCurrentSession(_ credentials: CommunityCredentials) -> Bool {
+        let current = dependencies.credentials()
+        return current.identity == credentials.identity && !current.cookie.isEmpty
     }
 }
 

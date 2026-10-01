@@ -3,21 +3,6 @@ import OSLog
 import ScheduleDomain
 import StorageCore
 
-public nonisolated enum ScheduleCacheTimestamp {
-    public static func next(after previous: Date, now: Date) -> Date {
-        max(now, previous.addingTimeInterval(0.001))
-    }
-
-    public static func restored(recordDate: Date, payloadDate: Date, serverDate: Date? = nil) -> Date? {
-        guard abs(recordDate.timeIntervalSince(payloadDate)) <= 1.1 else { return nil }
-        return max(recordDate, serverDate ?? recordDate)
-    }
-
-    public static func afterCloudSave(_ serverDate: Date, currentDate: Date) -> Date {
-        max(serverDate, currentDate)
-    }
-}
-
 /// 注入式日程磁盘仓库，账号路径与串行写入归单个实例维护。
 public actor SchedulePersistenceStore {
     private nonisolated let files: any AppFileService
@@ -46,13 +31,18 @@ public actor SchedulePersistenceStore {
     private nonisolated static func makeEncoder() -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
         return encoder
     }
 
     private nonisolated static func makeDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let value = try decoder.singleValueContainer()
+            if let legacy = try? value.decode(String.self) {
+                return try Date(legacy, strategy: .iso8601)
+            }
+            return Date(timeIntervalSinceReferenceDate: try value.decode(Double.self))
+        }
         return decoder
     }
 
@@ -233,5 +223,38 @@ public actor SchedulePersistenceStore {
         } catch {
             Self.logger.error("迁移旧课表缓存清理失败：\(String(describing: error), privacy: .public)")
         }
+    }
+}
+
+/// 保存与清理共享实例队列，在操作开始和返回时核对所属会话。
+@MainActor
+public final class SchedulePersistenceCoordinator {
+    private var pending: Task<Bool, Never>?
+    private var revision = 0
+
+    public init() {}
+
+    @discardableResult
+    public func perform(
+        isCurrent: @escaping @MainActor () -> Bool,
+        operation: @escaping @MainActor () async -> Bool
+    ) async -> Bool {
+        guard !Task.isCancelled, isCurrent() else { return false }
+        let previous = pending
+        revision &+= 1
+        let request = revision
+        let task = Task { @MainActor in
+            _ = await previous?.value
+            guard !Task.isCancelled, isCurrent() else { return false }
+            return await operation()
+        }
+        pending = task
+        let saved = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        if revision == request { pending = nil }
+        return saved && !Task.isCancelled && isCurrent()
     }
 }

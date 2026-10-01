@@ -11,6 +11,23 @@ import SwiftUI
 import UIKit
 
 struct PaperDetailView: View {
+    private let scene: PaperDetailViewScene
+    private let identity: [ObjectIdentifier]
+    private let resourceID: Int
+
+    init(dependencies: PaperDependencies, media: MediaEnvironment, initialPaper: PaperSummary) {
+        scene = PaperDetailViewScene(dependencies: dependencies, media: media, initialPaper: initialPaper)
+        identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
+        resourceID = initialPaper.id
+    }
+
+    var body: some View {
+        scene.id(identity)
+            .id(resourceID)
+    }
+}
+
+private struct PaperDetailViewScene: View {
     private let dependencies: PaperDependencies
     private let media: MediaEnvironment
     @Environment(\.scenePhase) private var scenePhase

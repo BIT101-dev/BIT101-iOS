@@ -35,17 +35,32 @@ extension SettingsServiceError: CommunityAPIServiceError {
     static var communityInvalidResponse: Self { .invalidResponse }
 }
 
+@MainActor
+protocol AccountSettingsServicing {
+    func fetchMyInfo() async throws -> MineUserInfo
+    func updateUser(nickname: String?, motto: String?, avatarMid: String?) async throws
+    func uploadAvatar(data: Data, filename: String) async throws -> CommunityImage
+    func checkLogin() async throws -> Bool
+}
+
+struct SettingsAccountDependencies {
+    let service: any AccountSettingsServicing
+    let credentials: () -> CommunityCredentials
+}
+
 /// 设置中心复用的网络服务。
 ///
 /// 此服务处理账号资料、头像上传和登录状态检查，设置页面通过此服务发起请求。
-struct SettingsNetworkService {
+struct SettingsNetworkService: AccountSettingsServicing {
     private let api: CommunityAPIClient<SettingsServiceError>
+    private let validateLogin: () async throws -> Bool
 
     /// 初始化设置中心网络层。
     ///
-    /// 头像上传和资料修改依赖 fake-cookie；此服务与主 App 共用登录态存储。
-    init(storage: LoginStorage = .shared, httpClient: HTTPClient = .community) {
-        api = CommunityAPIClient(storage: storage, httpClient: httpClient, errorDomain: "BIT101.Settings")
+    /// 头像上传、资料修改和登录检查消费构造时选择的社区会话与验证能力。
+    init(session: CommunitySession, checkLogin: @escaping () async throws -> Bool) {
+        api = session.client(errorDomain: "BIT101.Settings")
+        validateLogin = checkLogin
     }
 
     /// 拉取当前登录用户资料。
@@ -88,6 +103,6 @@ struct SettingsNetworkService {
     ///
     /// 此方法复用登录模块的后台校验逻辑，`LoginService` 统一维护登录判断链路。
     func checkLogin() async throws -> Bool {
-        try await LoginService().checkLogin() != nil
+        try await validateLogin()
     }
 }

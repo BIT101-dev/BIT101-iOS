@@ -42,6 +42,25 @@ private enum GallerySurface: String, CaseIterable, Identifiable, Hashable {
 ///
 /// 顶部负责 feed 切换，下方负责承载当前选中的帖子流，并支持左右轻扫切换分区。
 public struct GalleryRootView: View {
+    private let scene: GalleryRootViewScene
+    private let identity: [ObjectIdentifier]
+
+    public init(dependencies: GalleryDependencies,
+        media: MediaEnvironment,
+        profiles: CommunityProfileDestination,
+        papers: CommunityPaperDestination,
+        requestedPaperID: Binding<Int?> = .constant(nil),
+        requestedPosterID: Binding<Int?> = .constant(nil)) {
+        scene = GalleryRootViewScene(dependencies: dependencies, media: media, profiles: profiles, papers: papers, requestedPaperID: requestedPaperID, requestedPosterID: requestedPosterID)
+        identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
+    }
+
+    public var body: some View {
+        scene.id(identity)
+    }
+}
+
+private struct GalleryRootViewScene: View {
     let dependencies: GalleryDependencies
     private let destinations: CommunityPaperDestination
     private let profiles: CommunityProfileDestination
@@ -64,7 +83,7 @@ public struct GalleryRootView: View {
     @State private var deepLinkAlert: AppAlert?
     private let posterService: any GalleryPosterDetailServicing
 
-    public init(
+    init(
         dependencies: GalleryDependencies,
         media: MediaEnvironment,
         profiles: CommunityProfileDestination,
@@ -84,7 +103,7 @@ public struct GalleryRootView: View {
         _appSettings = ObservedObject(wrappedValue: dependencies.preferences)
     }
 
-    public var body: some View {
+    var body: some View {
         content.environment(dependencies).environment(media).environment(profiles)
     }
 

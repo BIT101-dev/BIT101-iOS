@@ -146,7 +146,12 @@ final class AppErrorPresenter {
 
         if let recoveryAction = item.recoveryAction {
             let action = UIAlertAction(title: recoveryAction.title, style: .default) { [weak self] _ in
-                recoveryAction.perform()
+                switch recoveryAction {
+                case .openAppSettings:
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
                 self?.finishAlert()
             }
             recoveryActionButton = action

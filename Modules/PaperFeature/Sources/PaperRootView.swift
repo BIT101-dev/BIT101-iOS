@@ -12,6 +12,23 @@ import SwiftUI
 ///
 /// 这里承接底部栏里的“文章”入口，负责文章列表、搜索和详情跳转。
 public struct PaperRootView: View {
+    private let scene: PaperRootViewScene
+    private let identity: [ObjectIdentifier]
+
+    public init(dependencies: PaperDependencies,
+        media: MediaEnvironment,
+        requestedPaperID: Binding<Int?> = .constant(nil),
+        onShowFeed: @escaping () -> Void = {}) {
+        scene = PaperRootViewScene(dependencies: dependencies, media: media, requestedPaperID: requestedPaperID, onShowFeed: onShowFeed)
+        identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
+    }
+
+    public var body: some View {
+        scene.id(identity)
+    }
+}
+
+private struct PaperRootViewScene: View {
     private let dependencies: PaperDependencies
     private let media: MediaEnvironment
     @Environment(\.scenePhase) private var scenePhase
@@ -24,7 +41,7 @@ public struct PaperRootView: View {
     private let onShowFeed: () -> Void
     @State private var deepLinkedPaper: PaperSummary?
 
-    public init(
+    init(
         dependencies: PaperDependencies,
         media: MediaEnvironment,
         requestedPaperID: Binding<Int?> = .constant(nil),
@@ -37,7 +54,7 @@ public struct PaperRootView: View {
         self.onShowFeed = onShowFeed
     }
 
-    public var body: some View {
+    var body: some View {
         content.environment(dependencies).environment(media)
     }
 

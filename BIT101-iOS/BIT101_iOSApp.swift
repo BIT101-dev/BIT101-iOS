@@ -1,3 +1,5 @@
+import ScoreInfrastructure
+import ScoreDomain
 import ScheduleFeature
 //
 //  BIT101_iOSApp.swift
@@ -102,7 +104,19 @@ struct BIT101_iOSApp: App {
         AppUITestBootstrap.prepareForLaunch()
 #endif
         let preferenceCloudSync = ExperimentalPreferenceCloudSync.shared
-        _lifecycle = StateObject(wrappedValue: AppAccountLifecycle(preferenceCloudSync: preferenceCloudSync))
+        let productionScores = ScoreService()
+        let scores: any ScoreListServicing
+#if BIT101_UI_TESTING
+        scores = AppFileDirectories.isRunningUITest ? UITestScoreService() : productionScores
+#else
+        scores = productionScores
+#endif
+        _lifecycle = StateObject(wrappedValue: AppAccountLifecycle(
+            community: .app(settings: preferenceCloudSync.settings, stores: preferenceCloudSync.stores),
+            scoreService: scores, transcriptService: productionScores, preferenceCloudSync: preferenceCloudSync,
+            scheduleChanges: ScheduleCacheStore.changes, loadScheduleCourses: AppAccountStores.loadScheduleCourses,
+            media: AppMedia.environment, localData: .appService(settings: preferenceCloudSync.settings, media: AppMedia.environment)
+        ))
     }
 
     /// 根场景定义。主题模式由设置快照驱动；登录态、课表缓存和场景状态变化时，
@@ -138,7 +152,7 @@ struct BIT101_iOSApp: App {
             ContentView(transcriptService: lifecycle.transcriptService)
                 .environment(lifecycle.communityDestinations)
                 .environment(lifecycle.community)
-                .environment(AppMedia.environment)
+                .environment(lifecycle.communityDestinations.media)
                 .environmentObject(lifecycle.scheduleViewModel)
                 .environmentObject(lifecycle.scheduleViewModel.ddl)
                 .environmentObject(lifecycle.scoreViewModel)

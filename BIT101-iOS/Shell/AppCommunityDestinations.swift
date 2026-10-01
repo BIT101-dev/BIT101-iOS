@@ -10,8 +10,10 @@ import CommunityTransport
 import TransportCore
 import Combine
 import ScheduleDomain
+import ScheduleFeature
 import SwiftUI
 import Observation
+import WebKit
 
 /// App-owned cross-feature composition; each module receives its consumed capabilities.
 @MainActor
@@ -22,8 +24,9 @@ final class AppCommunityDestinations {
     let posters: CommunityPosterDestination
     let papers: CommunityPaperDestination
     let settings: CommunitySettingsDestinations
+    let settingsDependencies: SettingsDependencies
 
-    init(dependencies: AppCommunityDependencies, media: MediaEnvironment = AppMedia.environment) {
+    init(dependencies: AppCommunityDependencies, schedule: ScheduleViewModel, media: MediaEnvironment, localData: AppLocalDataService) {
         self.media = media
         profiles = Self.profiles(dependencies: dependencies, media: media)
         posters = Self.posters(dependencies: dependencies, media: media)
@@ -31,13 +34,23 @@ final class AppCommunityDestinations {
             AnyView(PaperRootView(dependencies: dependencies.paper, media: media,
                                  requestedPaperID: requestedID, onShowFeed: onShowFeed))
         }
+        let selectedSettings = SettingsDependencies(
+            settings: dependencies.settingsStore, schedule: schedule,
+            suggestion: dependencies.suggestion, media: media,
+            localData: localData,
+            account: SettingsAccountDependencies(
+                service: SettingsNetworkService(session: dependencies.session, checkLogin: dependencies.checkLogin),
+                credentials: { dependencies.session.currentCredentials }
+            )
+        )
+        settingsDependencies = selectedSettings
         settings = CommunitySettingsDestinations(
             settingsEntries: SettingsRoute.allCases.map {
                 CommunitySettingsEntry(id: $0.rawValue, title: $0.title, systemImage: $0.systemImage)
             },
             settings: { request in
                 AnyView(SettingsRootView(initialRoute: SettingsRoute(rawValue: request.entry.id),
-                    studentID: request.studentID, onLogout: request.onLogout, suggestion: dependencies.suggestion))
+                    studentID: request.studentID, onLogout: request.onLogout, dependencies: selectedSettings))
             },
             suggestion: { AnyView(DeveloperSuggestionPage(dependencies: dependencies.suggestion)) }
         )
@@ -88,6 +101,9 @@ extension MineService {
 @Observable
 final class AppCommunityDependencies {
     let preferences: CommunityPreferences
+    let settingsStore: AppSettingsStore
+    let session: CommunitySession
+    let checkLogin: () async throws -> Bool
     let gallery: GalleryDependencies
     let course: CourseDependencies
     let paper: PaperDependencies
@@ -96,13 +112,17 @@ final class AppCommunityDependencies {
     private var subscriptions = Set<AnyCancellable>()
 
     init(
-        settings: AppSettingsStore = .shared,
-        session: CommunitySession = .appSession(),
-        messages: GalleryMessageReadStore = AppAccountStores.shared.communityMessages,
-        drafts: ComposerDraftStore = AppAccountStores.shared.composerDrafts,
-        submitSuggestion: @escaping (DeveloperSuggestionPayload) async throws -> Void = { try await FeedbackSubmissionClient.submit($0) },
-        loadCourseCredits: @escaping @MainActor () async -> [CommunityCourseCredit] = AppCommunityDependencies.loadSchoolCourseCredits
+        settings: AppSettingsStore,
+        session: CommunitySession,
+        checkLogin: @escaping () async throws -> Bool,
+        messages: GalleryMessageReadStore,
+        drafts: ComposerDraftStore,
+        submitSuggestion: @escaping (DeveloperSuggestionPayload) async throws -> Void,
+        loadCourseCredits: @escaping @MainActor () async -> [CommunityCourseCredit]
     ) {
+        self.settingsStore = settings
+        self.session = session
+        self.checkLogin = checkLogin
         let preferences = CommunityPreferences(
             snapshot: Self.snapshot(for: settings),
             saveMakeupFilter: { settings.setHidesCourseHistoryMakeupOutliers($0) }
@@ -138,6 +158,15 @@ final class AppCommunityDependencies {
             .store(in: &subscriptions)
     }
 
+    static func app(settings: AppSettingsStore, stores: AppAccountStores) -> AppCommunityDependencies {
+        let login = LoginService()
+        return AppCommunityDependencies(
+            settings: settings, session: .appSession(), checkLogin: { try await login.checkLogin() != nil },
+            messages: stores.communityMessages, drafts: stores.composerDrafts,
+            submitSuggestion: { try await FeedbackSubmissionClient.submit($0) }, loadCourseCredits: loadSchoolCourseCredits
+        )
+    }
+
     private static func loadSchoolCourseCredits() async -> [CommunityCourseCredit] {
         let session = AppFileDirectories.currentSession
         let result = await ScheduleCacheStore.loadResultAsync(for: session)
@@ -157,5 +186,31 @@ final class AppCommunityDependencies {
             useWebView: settings.galleryUseWebView,
             hideMakeupOutliers: settings.hidesCourseHistoryMakeupOutliers
         )
+    }
+}
+
+/// 生产系统资源在 App 组装位置绑定，操作服务持有显式能力。
+extension AppLocalDataService {
+    static func appService(settings: AppSettingsStore, media: MediaEnvironment) -> AppLocalDataService {
+        let defaults = AppFileDirectories.defaults
+        let domain = AppFileDirectories.defaultsDomain
+        let webData = WKWebsiteDataStore.default()
+        return AppLocalDataService(files: AppFileDirectories.files, actions: AppLocalDataActions(
+            clearLogin: { LoginStorage.shared.clearAllLocalData() },
+            clearSchedule: { await ScheduleCacheStore.clear() },
+            clearSharedSnapshot: { await ScheduleWidgetExporter.clearSharedSnapshot() },
+            clearReports: { ReleaseNetworkSmokeReportStore.clearLocalArtifacts() },
+            clearPreferences: { defaults.removePersistentDomain(forName: domain) },
+            clearURLCache: { URLCache.shared.removeAllCachedResponses() },
+            clearWebData: {
+                await withCheckedContinuation { continuation in
+                    webData.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast) {
+                        continuation.resume()
+                    }
+                }
+            },
+            clearMedia: { await media.clearAvatars() },
+            resetSettings: { settings.resetToDefaults() }
+        ))
     }
 }

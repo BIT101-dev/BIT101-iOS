@@ -207,7 +207,7 @@ public struct CommunityPosterImagesView: View {
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
         }
         .frame(maxWidth: .infinity)
-        .frame(height: AppDesignSystem.Community.thumbnailHeight)
+        .aspectRatio(AppDesignSystem.Community.thumbnailLandscapeAspectRatio, contentMode: .fit)
         .onChange(of: images) { _, _ in
             imageAspectRatios = [:]
         }

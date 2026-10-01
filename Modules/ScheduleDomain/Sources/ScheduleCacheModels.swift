@@ -470,3 +470,18 @@ public extension ScheduleCache {
         ScheduleCourseSnapshot(firstDayString: firstDayString, timeTable: timeTable, courses: courses)
     }
 }
+
+public nonisolated enum ScheduleCacheTimestamp {
+    public static func next(after previous: Date, now: Date) -> Date {
+        max(now, previous.addingTimeInterval(0.001))
+    }
+
+    public static func restored(recordDate: Date, payloadDate: Date, serverDate: Date? = nil) -> Date? {
+        guard abs(recordDate.timeIntervalSince(payloadDate)) <= 1.1 else { return nil }
+        return max(recordDate, serverDate ?? recordDate)
+    }
+
+    public static func afterCloudSave(_ serverDate: Date, currentDate: Date) -> Date {
+        max(serverDate, currentDate)
+    }
+}

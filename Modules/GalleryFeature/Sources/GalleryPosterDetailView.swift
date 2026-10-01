@@ -14,6 +14,27 @@ import DesignSystemKit
 import SwiftUI
 
 public struct GalleryPosterDetailView: View {
+    private let scene: GalleryPosterDetailViewScene
+    private let identity: [ObjectIdentifier]
+    private let resourceID: Int
+
+    public init(dependencies: GalleryDependencies,
+        media: MediaEnvironment,
+        profiles: CommunityProfileDestination,
+        poster: CommunityPoster,
+        onDeleted: (() -> Void)? = nil) {
+        scene = GalleryPosterDetailViewScene(dependencies: dependencies, media: media, profiles: profiles, poster: poster, onDeleted: onDeleted)
+        identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
+        resourceID = poster.id
+    }
+
+    public var body: some View {
+        scene.id(identity)
+            .id(resourceID)
+    }
+}
+
+private struct GalleryPosterDetailViewScene: View {
     private let dependencies: GalleryDependencies
     private let destinations: CommunityProfileDestination
     private let media: MediaEnvironment
@@ -32,7 +53,7 @@ public struct GalleryPosterDetailView: View {
     @State private var isShowingEditor = false
     let onDeleted: (() -> Void)?
 
-    public init(
+    init(
         dependencies: GalleryDependencies,
         media: MediaEnvironment,
         profiles: CommunityProfileDestination,
@@ -48,7 +69,7 @@ public struct GalleryPosterDetailView: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    public var body: some View {
+    var body: some View {
         content.environment(dependencies).environment(media).environment(destinations)
     }
 

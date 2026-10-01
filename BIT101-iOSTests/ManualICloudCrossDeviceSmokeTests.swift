@@ -1,3 +1,4 @@
+import ScoreDomain
 @testable import ScoreFeature
 #if ICLOUD_CROSS_DEVICE_SMOKE
 import StorageCore

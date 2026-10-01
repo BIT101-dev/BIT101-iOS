@@ -3,6 +3,7 @@ import ScoreDomain
 import ScheduleDomain
 import SchedulePorts
 @testable import ScoreInfrastructure
+import CommunityTransport
 import CommunityCore
 @testable import GalleryFeature
 @testable import CommunityUI
@@ -148,7 +149,7 @@ struct ExperimentalPreferenceCloudSyncTests {
         let settings = AppSettingsStore(defaults: defaults, session: { account.session })
         let stores = AppAccountStores(
             communityMessages: GalleryMessageReadStore(defaults: defaults, session: { account.session }, notificationCenter: center),
-            composerDrafts: ComposerDraftStore(files: files, applicationSupport: root, session: { account.session }),
+            composerDrafts: ComposerDraftStore(files: files, applicationSupport: root, session: { account.session }, prepareImageData: ComposerDraftImageCompressor.compress),
             scoreCache: ScoreCacheStore(files: files, storageRoot: root, defaults: defaults, session: { account.session }, notificationCenter: center),
             scoreFilterPreferences: ScoreFilterPreferenceStore(defaults: defaults, session: { account.session }, notificationCenter: center),
             currentSession: { account.session }, scoreSession: { account.session }
@@ -181,11 +182,53 @@ struct ExperimentalPreferenceCloudSyncTests {
         }
     }
 
-    private func lifecycle(sync: ExperimentalPreferenceCloudSync, account: Account, center: NotificationCenter, displays: ExternalDisplays, changes: AnyPublisher<AppStorageSession, Never> = Empty().eraseToAnyPublisher()) -> AppAccountLifecycle {
+    private func lifecycle(sync: ExperimentalPreferenceCloudSync, account: Account, center: NotificationCenter, displays: ExternalDisplays, changes: AnyPublisher<AppStorageSession, Never> = Empty().eraseToAnyPublisher(), loadCourses: @escaping @MainActor (AppStorageSession) async -> [String: [ScoreCourseSummary]] = { _ in [:] }) -> AppAccountLifecycle {
         let repository = ScheduleRepository(session: { account.session }, load: { _ in .missing }, save: { _, _, _ in })
         let service = SemesterStartDateService()
         let schedule = ScheduleViewModel(service: service, repository: repository, ddlService: service, classroomService: service, platformActions: RecordingSchedulePlatformActions(), newCustomScheduleDraft: { CustomScheduleDraft() })
-        return AppAccountLifecycle(scheduleViewModel: schedule, preferenceCloudSync: sync, notifications: center, scheduleChanges: changes, externalDisplays: displays)
+        let client = HTTPClient(transport: OfflineTransport(), observer: nil)
+        let media = MediaEnvironment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), defaults: UserDefaults.standard,
+            imageHTTPClient: client, avatarHTTPClient: client)
+        let session = CommunitySession(httpClient: client, baseURL: AppURL.required("https://example.invalid"),
+            credentials: { CommunityCredentials(identity: .init(accountIdentifier: account.session.accountIdentifier), cookie: "fixture") }, refresh: { _ in })
+        let community = AppCommunityDependencies(settings: sync.settings, session: session, checkLogin: { true },
+            messages: sync.stores.communityMessages, drafts: sync.stores.composerDrafts, submitSuggestion: { _ in }, loadCourseCredits: { [] })
+        return AppAccountLifecycle(scheduleViewModel: schedule, community: community, scoreService: OfflineScoreService(),
+            transcriptService: OfflineScoreService(), preferenceCloudSync: sync, notifications: center,
+            scheduleChanges: changes, loadScheduleCourses: loadCourses, media: media,
+            localData: AppLocalDataService(files: PreferenceMemoryFiles(), actions: LocalDataActionsSpy().actions), externalDisplays: displays)
+    }
+
+    private struct OfflineTransport: HTTPTransport {
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) { throw URLError(.notConnectedToInternet) }
+    }
+    private struct OfflineScoreService: ScoreListServicing, TrustedTranscriptServicing {
+        func startScoreChallenge() async throws -> BITLoginAuthenticationChallenge { throw URLError(.notConnectedToInternet) }
+        func fetchScores(detail: Bool, authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> [ScoreRow] { [] }
+        func submitScoreSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
+        func fetchTrustedTranscriptPages() async throws -> [Data] { [] }
+        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> [Data] { [] }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func lifecycleForwardsItsSelectedCourseSourceToScores() async throws {
+        let (sync, defaults, _, account) = try context()
+        defer { defaults.removePersistentDomain(forName: preferenceDomain) }
+        let changes = PassthroughSubject<AppStorageSession, Never>()
+        let displays = ExternalDisplays()
+        var loadedSessions: [AppStorageSession] = []
+        var waiter: CheckedContinuation<Void, Never>?
+        let owner = lifecycle(sync: sync, account: account, center: NotificationCenter(), displays: displays,
+            changes: changes.eraseToAnyPublisher(), loadCourses: { session in
+                loadedSessions.append(session)
+                waiter?.resume(); waiter = nil
+                return [:]
+            })
+        changes.send(AppStorageSession(accountIdentifier: "other"))
+        changes.send(account.session)
+        if loadedSessions.isEmpty { await withCheckedContinuation { waiter = $0 } }
+        #expect(loadedSessions == [account.session])
+        #expect(owner.communityDestinations.settingsDependencies.media === owner.communityDestinations.media)
+        withExtendedLifetime(owner) {}
     }
 
     @Test func lifecycleInstancesOwnTheirNotificationsSettingsAndPlatformEffects() async throws {

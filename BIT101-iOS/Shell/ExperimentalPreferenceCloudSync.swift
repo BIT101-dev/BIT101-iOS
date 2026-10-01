@@ -1,6 +1,7 @@
+import ScoreDomain
 import GalleryFeature
 import StorageCore
-import ScoreFeature
+import ScoreInfrastructure
 import Combine
 import Compression
 import Foundation

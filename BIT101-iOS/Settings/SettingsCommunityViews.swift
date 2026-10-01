@@ -6,13 +6,19 @@ import SwiftUI
 
 struct GallerySettingsPage: View {
     @EnvironmentObject private var settings: AppSettingsStore
-    @State private var imageCacheLimitMB = AppMedia.environment.cacheLimitMB
+    let media: MediaEnvironment
+    @State private var imageCacheLimitMB: Int
     @State private var imageCacheUsageText = "计算中"
     @State private var imageCacheUsageGeneration = 0
     @State private var hiddenUserIDsText = ""
     @State private var hiddenUserIDsAlert: AppAlert?
     @StateObject private var networkDiagnosis = NetworkDiagnosisRunner()
     @State private var diagnosisAlert: AppAlert?
+
+    init(media: MediaEnvironment) {
+        self.media = media
+        _imageCacheLimitMB = State(initialValue: media.cacheLimitMB)
+    }
 
     var body: some View {
         List {
@@ -89,9 +95,9 @@ struct GallerySettingsPage: View {
                                 imageCacheLimitMB = normalized
                                 return
                             }
-                            AppMedia.environment.cacheLimitMB = normalized
+                            media.cacheLimitMB = normalized
                             Task {
-                                await AppMedia.environment.enforceCurrentLimit()
+                                await media.enforceCurrentLimit()
                                 await refreshImageCacheUsage()
                             }
                         }
@@ -110,7 +116,7 @@ struct GallerySettingsPage: View {
         .diagnosticAlert(item: $hiddenUserIDsAlert)
         .diagnosticAlert(item: $diagnosisAlert)
         .task {
-            imageCacheLimitMB = AppMedia.environment.cacheLimitMB
+            imageCacheLimitMB = media.cacheLimitMB
             hiddenUserIDsText = settings.galleryHiddenUserIDs.map(String.init).joined(separator: ",")
             await refreshImageCacheUsage()
         }
@@ -139,7 +145,7 @@ struct GallerySettingsPage: View {
     private func refreshImageCacheUsage() async {
         imageCacheUsageGeneration &+= 1
         let generation = imageCacheUsageGeneration
-        let bytes = await AppMedia.environment.usedBytes()
+        let bytes = await media.usedBytes()
         guard generation == imageCacheUsageGeneration else { return }
         let formatter = ByteCountFormatter()
         imageCacheUsageText = formatter.string(fromByteCount: bytes)
@@ -150,7 +156,7 @@ struct GallerySettingsPage: View {
 /// 关于页显示致谢、联系方式、ICP备案、开源声明和本地数据清理入口。
 struct AboutSettingsPage: View {
     let onLogout: () -> Void
-    var localData = AppLocalDataService()
+    let localData: AppLocalDataService
 
     @Environment(\.openURL) private var openURL
     @EnvironmentObject private var settings: AppSettingsStore

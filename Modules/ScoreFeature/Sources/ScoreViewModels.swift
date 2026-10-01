@@ -55,8 +55,8 @@ public final class ScoreViewModel: ObservableObject {
     /// 经短信验证的刷新保留用户主动要求的详细成绩刷新策略。
     private var pendingRefreshForcesDetailed = false
     /// 初始化时读取一次已持久化的筛选快照。
-    private let cacheStore: ScoreCacheStore
-    private let preferenceStore: ScoreFilterPreferenceStore
+    private let cacheStore: any ScoreCaching
+    private let preferenceStore: any ScoreFilterPreferencesStoring
     private var preferenceSnapshot: ScoreFilterPreferenceSnapshot?
     private var preferenceObserver: AnyCancellable?
     private var scoreCacheObserver: AnyCancellable?
@@ -65,8 +65,8 @@ public final class ScoreViewModel: ObservableObject {
 
     public init(
         service: any ScoreListServicing,
-        cacheStore: ScoreCacheStore,
-        preferenceStore: ScoreFilterPreferenceStore,
+        cacheStore: any ScoreCaching,
+        preferenceStore: any ScoreFilterPreferencesStoring,
         currentScoreCacheSession: @escaping @MainActor () -> AppStorageSession,
         scheduleCoursesChanges: AnyPublisher<AppStorageSession, Never>,
         loadScheduleCourses: @escaping @MainActor (AppStorageSession) async -> [String: [ScoreCourseSummary]],

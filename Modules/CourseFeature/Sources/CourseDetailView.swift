@@ -12,6 +12,23 @@ import DesignSystemKit
 import SwiftUI
 
 public struct CourseDetailView: View {
+    private let scene: CourseDetailViewScene
+    private let identity: [ObjectIdentifier]
+    private let resourceID: Int
+
+    public init(dependencies: CourseDependencies, media: MediaEnvironment, profiles: CommunityProfileDestination, initialCourse: CourseSummary) {
+        scene = CourseDetailViewScene(dependencies: dependencies, media: media, profiles: profiles, initialCourse: initialCourse)
+        identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
+        resourceID = initialCourse.id
+    }
+
+    public var body: some View {
+        scene.id(identity)
+            .id(resourceID)
+    }
+}
+
+private struct CourseDetailViewScene: View {
     private let dependencies: CourseDependencies
     private let destinations: CommunityProfileDestination
     private let media: MediaEnvironment
@@ -29,7 +46,7 @@ public struct CourseDetailView: View {
     @State private var imageViewer: ImagePreviewRequest?
     @State private var userRoute: UserRoute?
 
-    public init(dependencies: CourseDependencies, media: MediaEnvironment, profiles: CommunityProfileDestination, initialCourse: CourseSummary) {
+    init(dependencies: CourseDependencies, media: MediaEnvironment, profiles: CommunityProfileDestination, initialCourse: CourseSummary) {
         self.dependencies = dependencies
         self.media = media
         self.destinations = profiles
@@ -38,7 +55,7 @@ public struct CourseDetailView: View {
         _viewModel = StateObject(wrappedValue: CourseDetailViewModel(initialCourse: initialCourse, service: dependencies.detail, loadCourseCredits: dependencies.loadCourseCredits))
     }
 
-    public var body: some View {
+    var body: some View {
         content.environment(dependencies).environment(media).environment(destinations)
     }
 

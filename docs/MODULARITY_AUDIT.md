@@ -14,7 +14,7 @@
 4. 保存订阅按消费者拥有生命周期，变更事件按来源和账号筛选。
 5. 模块层级、平台框架准入、独立消费者编译和运行回归共同作为验收门槛。
 
-**A01–A10 实现与回归验收完成：包级 109 项、Catalyst 228 项、通用 iOS Release 编译和统一静态门槛通过。**
+**A01–A10 为上一阶段验收。本轮 B01–B09 深化模块边界，包级 119 项、Catalyst 235 项、通用 iOS Release 编译及统一静态门槛通过。**
 
 ## 方法与证据范围
 
@@ -29,16 +29,16 @@
 | 指标 | 审计基线 | 当前源码 |
 | --- | ---: | ---: |
 | 生产 target | 23 | 25 |
-| 直接依赖边 | 62 | 65 |
+| 直接依赖边 | 62 | 67 |
 | 依赖环 | 0 | 0 |
 | Feature → Feature | 0 | 0 |
 | Feature → Infrastructure / Persistence / Sync | 0 | 0 |
 | 包级测试消费者 target | 1 | 7 |
-| 包级 `@Test` 声明 | 94 | 109 |
-| Modules Swift 文件 / 行数 | 166 / 37,667 | 169 / 38,746 |
-| App Swift 文件 / 行数 | 51 / 12,122 | 50 / 11,332 |
+| 包级 `@Test` 声明 | 94 | 119 |
+| Modules Swift 文件 / 行数 | 166 / 37,667 | 166 / 38,929 |
+| App Swift 文件 / 行数 | 51 / 12,122 | 50 / 11,440 |
 
-App 占 App 与 Modules 合计源码行数的 22.6%。`ScheduleSync` 承接同步状态投影、协调器和传输契约；`ScheduleActivityContracts` 承接 ActivityKit 属性。`ScheduleContracts` 提供 Foundation / CryptoKit 快照及时间线能力，供领域、Widget 和 Watch 复用。
+App 占 App 与 Modules 合计源码行数的 22.7%。`ScheduleSync` 承接同步状态投影、协调器和传输契约；`ScheduleActivityContracts` 承接 ActivityKit 属性。`ScheduleContracts` 提供 Foundation / CryptoKit 快照及时间线能力，供领域、Widget 和 Watch 复用。
 
 “出度”为直接依赖数量，“入度”为其他生产模块的直接引用数量，原生 target 和测试另行统计。
 
@@ -46,28 +46,28 @@ App 占 App 与 Modules 合计源码行数的 22.6%。`ScheduleSync` 承接同�
 | --- | ---: | ---: | ---: | ---: | ---: |
 | ClientCore | 4 | 617 | 0 | 6 | 0 |
 | CommunityCore | 5 | 519 | 0 | 5 | 0 |
-| CommunityTransport | 2 | 349 | 1 | 4 | 1 |
-| CommunityUI | 5 | 606 | 3 | 4 | 5 |
-| CourseFeature | 11 | 2,796 | 6 | 0 | 7 |
-| DesignSystemKit | 16 | 1,839 | 0 | 9 | 0 |
-| GalleryFeature | 18 | 5,664 | 7 | 0 | 7 |
+| CommunityTransport | 2 | 350 | 1 | 4 | 1 |
+| CommunityUI | 5 | 1,347 | 4 | 4 | 5 |
+| CourseFeature | 11 | 2,826 | 6 | 0 | 7 |
+| DesignSystemKit | 16 | 1,825 | 0 | 9 | 0 |
+| GalleryFeature | 17 | 4,962 | 7 | 0 | 7 |
 | MapFeature | 5 | 949 | 2 | 0 | 2 |
 | MediaKit | 5 | 1,404 | 3 | 5 | 3 |
-| MineFeature | 6 | 1,466 | 6 | 0 | 7 |
-| PaperFeature | 12 | 2,660 | 6 | 0 | 7 |
+| MineFeature | 6 | 1,497 | 6 | 0 | 7 |
+| PaperFeature | 12 | 2,704 | 6 | 0 | 7 |
 | ScheduleActivityContracts | 1 | 37 | 0 | 0 | 0 |
 | ScheduleContracts | 2 | 793 | 0 | 4 | 0 |
-| ScheduleDomain | 11 | 2,933 | 1 | 5 | 1 |
+| ScheduleDomain | 11 | 2,948 | 1 | 5 | 1 |
 | ScheduleFeature | 32 | 8,742 | 7 | 0 | 7 |
 | ScheduleInfrastructure | 8 | 2,196 | 4 | 0 | 6 |
-| SchedulePersistence | 1 | 237 | 2 | 1 | 3 |
+| SchedulePersistence | 1 | 260 | 2 | 0 | 3 |
 | SchedulePorts | 3 | 194 | 3 | 2 | 4 |
 | ScheduleSharedStore | 2 | 117 | 2 | 0 | 2 |
-| ScheduleSync | 3 | 950 | 3 | 0 | 4 |
-| ScoreDomain | 2 | 152 | 1 | 2 | 1 |
-| ScoreFeature | 7 | 2,336 | 5 | 0 | 5 |
-| ScoreInfrastructure | 1 | 523 | 3 | 0 | 3 |
-| StorageCore | 3 | 395 | 0 | 8 | 0 |
+| ScheduleSync | 3 | 949 | 2 | 0 | 3 |
+| ScoreDomain | 2 | 489 | 2 | 2 | 2 |
+| ScoreFeature | 5 | 1,610 | 5 | 0 | 5 |
+| ScoreInfrastructure | 1 | 927 | 4 | 0 | 4 |
+| StorageCore | 3 | 395 | 0 | 11 | 0 |
 | TransportCore | 4 | 272 | 0 | 10 | 0 |
 
 Widget 直接消费 5 个产品：DesignSystemKit、ScheduleContracts、ScheduleActivityContracts、ScheduleSharedStore、StorageCore。Watch App 和 Watch Widget 分别消费 DesignSystemKit、ScheduleContracts、ScheduleSharedStore、StorageCore。
@@ -181,12 +181,68 @@ Quick Look 使用显式 `previewFiles`。预览准备把源存储的字节物化
 
 验收：`scopedChangeStreamReloadsItsAccountOwner` 使用同一变更流驱动不同账号；`sharedNotificationCenterKeepsPreferenceSourcesScoped` 使用相同通知中心和相同账号的两套仓库验证来源隔离及迟到账号事件。生命周期隔离测试验证同一实例的设置、账号切换和外部刷新。
 
+## B01–B09 深化修复
+
+### B01：完整清理能力与偏好域归属
+
+[AppLocalDataService](../BIT101-iOS/Shell/AppLocalDataService.swift) 接收文件后端及 `AppLocalDataActions`：登录、日程、共享快照、报告、偏好、URLCache、WebKit、媒体和设置重置逐项注入。清理成功汇总包含日程删除结果；目录按 URL 去重，回收字节按唯一目录统计。生产资源由 App 工厂绑定，测试通过内存后端和动作替身验收操作顺序、失败汇总及 A / B 隔离。
+
+偏好容器和 `defaultsDomain` 配对选择，UI 自动化使用所属 suite。回归使用独立测试后端和测试偏好域。
+
+### B02：设置与成绩课程源的选择闭环
+
+`SettingsDependencies` 同时携带设置、日程、媒体、账号及清理能力；设置根入口安装所选环境。账号网络服务接收社区会话及验证闭包，页面捕获完整账号代际，认证续期沿同一身份接续结果。
+
+`AppAccountLifecycle` 的社区、成绩服务、媒体、清理、日程变更及课程加载为显式输入；成绩适配器转发所选课程源。`SettingsDependencyOwnershipTests` 验证媒体 A / B、账号凭据、登录验证和清理归属；`lifecycleForwardsItsSelectedCourseSourceToScores` 验证相同流中的账号过滤及课程加载来源。
+
+### B03：公共草稿能力与独立运行
+
+草稿模型、`ComposerDraftStore`、`ComposerImageDraft`、`ComposerImageTile` 及图片准备策略归 [CommunityUI](../Modules/CommunityUI/Sources/CommunityDesignSystem.swift)。话题和建议页面消费同一公共契约。存储通过注入的图片准备闭包工作，UIKit / ImageIO 适配采用平台条件编译；图片上限在原子写入边界校验。
+
+`ComposerPublicContractTests` 采用常规 `import CommunityUI`，在 macOS 内存文件后端验证准备字节、保护写入、写入失败、账号清理、继续编辑版本与图片上限。账号目录、元数据 schema 和资产提交关系保持同一持久化契约。
+
+### B04：成绩领域与存储端口
+
+[ScoreDomain](../Modules/ScoreDomain/Sources/ScoreServicing.swift) 定义 `ScoreCaching`、`ScoreFilterPreferencesStoring` 及缓存 / 筛选快照；[领域模型](../Modules/ScoreDomain/Sources/ScoreModels.swift) 提供公开的刷新决策、排序及统计规则。
+
+[ScoreInfrastructure](../Modules/ScoreInfrastructure/Sources/ScoreService.swift) 实现成绩缓存 actor 仓库及账号筛选存储。`ScoreViewModel` 消费领域端口，App 选择生产实现。`ScorePublicContractTests` 通过常规 `import ScoreFeature` 构造独立缓存和筛选替身，验证相同通知中心中的仓库身份、账号及公共领域规则。
+
+### B05：时间规则归领域
+
+`ScheduleCacheTimestamp` 归 `ScheduleDomain`，同步模块直接消费单调版本和云端恢复规则。同步的直接依赖收敛为 `ScheduleDomain`、`StorageCore`；`ScheduleTimestampPublicContractTests` 覆盖回拨时间、版本递增、服务端日期及载荷日期匹配。
+
+### B06：SwiftUI 场景生命周期
+
+Gallery 根页 / 详情、Paper 根页 / 搜索 / 详情、Mine / Profile、课程详情和课程深链目的地使用依赖、媒体及资源身份绑定内部场景。依赖替换重建 `StateObject` 与加载任务，导航闭包随构造输入更新。课程解析在返回时检查任务取消。
+
+`FeatureCompositionTests` 在同一 `UIHostingController` 中替换 Paper、Gallery 和课程深链依赖，验证新来源接续请求及旧来源的读取次数。公共构造参数维持稳定。
+
+### B07：布局与系统动作边界
+
+社区图片尺寸从容器和现有比例令牌推导，布局选择归当前宿主。`AppRecoveryAction` 提供动作描述，打开系统设置由 App 提示适配器执行。模块扫描同时验证系统资源访问归属。
+
+### B08：保存排队的代际与取消
+
+公共 `SchedulePersistenceCoordinator` 持有串行队列；任务进入操作前复核取消与捕获身份，队列完成后复核返回资格。App 保存包装器在安排任务时捕获登录代际。已进入提交的写入按原事务完成，排队的失效工作按当前身份筛选。
+
+`SchedulePersistenceCoordinatorTests` 覆盖账号 A → B → A 代际、排队取消、提交期间取消及后续保存。生产 App 适配使用相同协调器。
+
+`preciseDiskVersionsRoundTripAndRejectAnEarlierCompareToken` 复现了 ISO 8601 秒级落盘造成的比较保存失败。日期写入采用 Foundation 默认的完整精度编码，读取按 JSON 值类型支持既有 ISO 8601 文本和标准日期数值；回归验证精度往返、后续版本递增、过期比较令牌及既有日期读取。
+
+### B09：架构门槛与数据事务
+
+边界检查器增加模块全局资源访问、成绩 Feature 的具体存储引用，以及设置 / 清理服务的资源归属规则；自测覆盖带空白成员访问、注释和 raw 字符串。
+
+日程继续以统一文件和版本提交数据，场景投影拥有各自字段。新增 `malformedAggregateSectionsPreserveTheCompleteDiskTransaction` 验证课程、学期缓存、DDL、自定义日程、教室筛选和时间表字段损坏时的完整文件保留与写入门槛。
+
+源码组织沿用现有文件，共享草稿和成绩持久化按所属模块迁移。大型文件的细分粒度继续作为人工审查项，由独立生命周期和文件创建约定共同约束。
+
 ## 验证记录
 
 | 门槛 | 入口 | 当前证据 |
 | --- | --- | --- |
-| 包级运行 | `Scripts/run-extended-tests.sh modules` | 7 个消费者，109 项通过 |
-| iOS 宿主运行 | `Scripts/run-extended-tests.sh catalyst` | 最终 228 项通过；干净构建阶段 225 项通过，后续增加 3 项回归 |
+| 包级运行 | `Scripts/run-extended-tests.sh modules` | 7 个消费者，119 项通过 |
+| iOS 宿主运行 | `Scripts/run-extended-tests.sh catalyst` | 235 项通过，包含版本精度修复后的全量运行 |
 | App 与扩展编译 | `Scripts/build-install-device.sh --compile-only --generic` | App、Widget、Watch App / Widget Release 编译通过 |
 | 统一静态门槛 | `Scripts/run-static-audit.sh` | 全部门槛通过 |
 

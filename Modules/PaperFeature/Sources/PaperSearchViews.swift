@@ -9,6 +9,16 @@ import DesignSystemKit
 import SwiftUI
 
 struct PaperSearchView: View {
+    private let scene: PaperSearchScene
+    private let identity: [ObjectIdentifier]
+    init(dependencies: PaperDependencies, media: MediaEnvironment) {
+        scene = PaperSearchScene(dependencies: dependencies, media: media)
+        identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
+    }
+    var body: some View { scene.id(identity) }
+}
+
+private struct PaperSearchScene: View {
     private let dependencies: PaperDependencies
     private let media: MediaEnvironment
     @Environment(\.dismiss) private var dismiss

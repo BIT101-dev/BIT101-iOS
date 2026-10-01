@@ -14,6 +14,16 @@ enum AppFileDirectories {
         return true
     }()
 
+    nonisolated static var defaultsDomain: String {
+#if BIT101_UI_TESTING
+        if isRunningUITest { return uiTestDefaultsSuiteName }
+#endif
+        guard let identifier = Bundle.main.bundleIdentifier else {
+            preconditionFailure("App preferences domain is unavailable")
+        }
+        return identifier
+    }
+
     nonisolated static var defaults: UserDefaults {
         _ = backupExclusionConfiguration
 #if BIT101_UI_TESTING

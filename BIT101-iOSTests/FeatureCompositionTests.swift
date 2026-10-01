@@ -100,7 +100,7 @@ struct FeatureCompositionTests {
             reporting: service, composer: service, images: service, preferences: preferences,
             messages: GalleryMessageReadStore(defaults: UserDefaults.standard, session: { AppStorageSession(accountIdentifier: "composition") }),
             drafts: ComposerDraftStore(files: PreferenceMemoryFiles(), applicationSupport: URL(fileURLWithPath: "/preference-sync"),
-                session: { AppStorageSession(accountIdentifier: "composition") }))
+                session: { AppStorageSession(accountIdentifier: "composition") }, prepareImageData: ComposerDraftImageCompressor.compress))
     }
 
     private func paper(_ transport: TraceTransport) -> PaperDependencies {
@@ -195,6 +195,63 @@ struct FeatureCompositionTests {
             }
         #expect(selectedLoads > 0)
         #expect(surroundingLoads == 0)
+    }
+
+    private func replace<V: View>(_ first: V, with second: V, firstTransport: TraceTransport, secondTransport: TraceTransport) async throws {
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let controller = UIHostingController(rootView: NavigationStack { first })
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        await firstTransport.waitForRequest()
+        let firstCount = firstTransport.requests.count
+        controller.rootView = NavigationStack { second }
+        await secondTransport.waitForRequest()
+        #expect(firstTransport.requests.count == firstCount)
+        #expect(secondTransport.requests.count > 0)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func paperDependencyReplacementRebuildsTheOwnedStateObject() async throws {
+        let first = TraceTransport(), second = TraceTransport()
+        let selectedMedia = media()
+        try await replace(PaperRootView(dependencies: paper(first), media: selectedMedia),
+            with: PaperRootView(dependencies: paper(second), media: selectedMedia), firstTransport: first, secondTransport: second)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func galleryDependencyReplacementRebuildsTheOwnedScene() async throws {
+        let first = TraceTransport(), second = TraceTransport()
+        let selectedMedia = media()
+        let profiles = CommunityProfileDestination { AnyView(Text("profile \($0)")) }
+        let papers = CommunityPaperDestination { _, _ in AnyView(Text("paper")) }
+        try await replace(GalleryRootView(dependencies: gallery(first), media: selectedMedia, profiles: profiles, papers: papers),
+            with: GalleryRootView(dependencies: gallery(second), media: selectedMedia, profiles: profiles, papers: papers),
+            firstTransport: first, secondTransport: second)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func courseLookupDependencyReplacementRestartsTheOwnedTask() async throws {
+        let first = CourseList(), second = CourseList()
+        let selectedMedia = media()
+        let profiles = CommunityProfileDestination { AnyView(Text("profile \($0)")) }
+        let request = CourseNavigationRequest.lookup(courseName: "课程", courseNumber: "COURSE-1")
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let controller = UIHostingController(rootView: NavigationStack {
+            CourseEvaluationDestination(dependencies: dependencies(list: first), media: selectedMedia, profiles: profiles, request: request)
+        })
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        await first.waitForLookup()
+        controller.rootView = NavigationStack {
+            CourseEvaluationDestination(dependencies: dependencies(list: second), media: selectedMedia, profiles: profiles, request: request)
+        }
+        await second.waitForLookup()
+        #expect(first.requests.count == 2)
+        #expect(Set(second.requests) == ["课程", "COURSE-1"])
     }
 
 }

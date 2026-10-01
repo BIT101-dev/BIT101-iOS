@@ -21,15 +21,15 @@
 | `Modules/DesignSystemKit/Sources/AppAvatarComponents.swift` | 纯头像容器、占位、裁切与无障碍 |
 | `Modules/DesignSystemKit/Sources/AppCommentComposerComponents.swift` | 评论和建议编辑结构 |
 | `Modules/DesignSystemKit/Sources/AppFeedComponents.swift` | 信息流行容器、分割线与课程评价行；课程令牌由 `AppDesignSystem.Course` 提供 |
-| `Modules/DesignSystemKit/Sources/AppDiagnosticComponents.swift` | 提示模型、恢复动作、诊断协议和注入式提示修饰器 |
+| `Modules/DesignSystemKit/Sources/AppDiagnosticComponents.swift` | 提示模型、恢复动作描述、诊断协议和注入式提示修饰器 |
 | `Modules/DesignSystemKit/Sources/AppFixedColumnComponents.swift` | 比例列数据行 |
 | `Modules/DesignSystemKit/Sources/AppHapticFeedback.swift` | 系统选择与操作触感修饰器 |
 | `Modules/DesignSystemKit/Sources/AppRefreshStatusComponents.swift` | 更新时间与刷新入口 |
 | `Modules/DesignSystemKit/Sources/AppTagComponents.swift` | 标签展示与选择变体 |
 | `Modules/DesignSystemKit/Sources/AppVerificationComponents.swift` | 数据无关的短信验证码输入面板 |
 | `Modules/ScheduleFeature/Sources/ScheduleDesignSystem.swift` | 课表网格、周次栏、时间轴、课程块颜色与模块强调色 |
-| `Modules/GalleryFeature/Sources/GalleryDesignSystem.swift` | 话廊消息标记、覆盖层与模块强调色 |
-| `Modules/CommunityUI/Sources/CommunityDesignSystem.swift` | 社区卡片、缩略图与身份标签派生参数 |
+| `Modules/GalleryFeature/Sources/GalleryDesignSystem.swift` | 话廊消息标记与模块强调色 |
+| `Modules/CommunityUI/Sources/CommunityDesignSystem.swift` | 社区卡片令牌、公共图片编辑条目与共享草稿能力 |
 | `Modules/MapFeature/Sources/CampusMapScreen.swift` | 地图模块强调色令牌 |
 | `Modules/DesignSystemKit/Sources/ExternalDesignSystem.swift` | 主 App、Widget、Watch、Live Activity 共用 SwiftUI 字体、尺寸与缩放 |
 
@@ -69,7 +69,7 @@
 
 ## 自适应
 
-布局依据容器可用空间、safe area、系统动态字体和 SwiftUI 布局协商。固定值用于基础刻度、触控区域及具有明确用途的局部尺寸。iPhone、iPad、Mac 共用布局规则；Widget 与 Watch 使用外部展示令牌。
+布局依据容器可用空间、safe area、系统动态字体和 SwiftUI 布局协商。社区缩略图使用容器与既有横向比例协商尺寸，图片编辑条目共用 `ComposerImageTile`。打开系统设置由 App 适配恢复动作描述。固定值用于基础刻度、触控区域及具有明确用途的局部尺寸。iPhone、iPad、Mac 共用布局规则；Widget 与 Watch 使用外部展示令牌。
 
 ## 检查职责
 

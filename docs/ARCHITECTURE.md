@@ -18,10 +18,10 @@
 | `ScheduleInfrastructure` | 学校课表、DDL、空教室与认证服务实现 |
 | `ScheduleFeature` | 日程仓库、场景状态、编辑、分享与页面 |
 | `CommunityCore` | 社区模型与通用列表状态 |
-| `CommunityUI` | 公共社区展示和跨场景目标工厂 |
+| `CommunityUI` | 公共社区展示、跨场景目标工厂和注入式共享草稿能力 |
 | `DesignSystemKit`、`MediaKit` | 公共视觉组件、图片展示与缓存 |
-| `ScoreDomain` | 成绩行、课程摘要、成绩服务协议与错误契约 |
-| `ScoreInfrastructure` | 注入凭据、端点与传输的成绩和可信成绩单服务 |
+| `ScoreDomain` | 成绩行、课程摘要、刷新 / 排序 / 汇总规则及服务与存储端口 |
+| `ScoreInfrastructure` | 注入式成绩 / 可信成绩单服务、成绩缓存与账号筛选存储 |
 | `ScoreFeature`、`MapFeature` | 成绩与校园地图场景 |
 | `GalleryFeature`、`CourseFeature`、`PaperFeature`、`MineFeature` | 话廊、课程、文章与个人主页场景 |
 
@@ -40,7 +40,6 @@ flowchart TD
     SchedulePersistence --> ScheduleDomain
     ScheduleDomain --> ScheduleContracts
     ScheduleSync --> ScheduleDomain
-    ScheduleSync --> SchedulePersistence
     ScoreFeature --> ScoreDomain
     ScoreInfrastructure --> ScoreDomain
 ```
@@ -56,7 +55,7 @@ App 入口 → 登录恢复 → AppAccountLifecycle → 各场景状态与页面
                     ↘ 网络、存储、云同步、系统能力适配
 ```
 
-- `AppAccountLifecycle` 接收 `ExperimentalPreferenceCloudSync`，从同一同步实例取得设置、账号仓库和账号来源；注入 `AppExternalDisplayCoordinating` 协调切号与外部展示。
+- `AppAccountLifecycle` 接收偏好同步、社区依赖、成绩服务、日程变更与课程加载能力、媒体及清理操作；从所选偏好同步实例取得账号仓库和账号来源，注入外部展示协调器处理切号与展示。生产默认资源集中于 App 入口和 `app` 工厂。
 - 设置、成绩、筛选和消息仓库通过 typed 保存 publisher 发布账号会话；偏好同步协调器在构造时持有独立订阅。
 - `AppSettingsStore` 注入偏好存储与账号会话提供器。`AppAccountStores` 持有业务仓库及会话提供器，生产默认实例在 App 组装入口选择。
 - ViewModel 通过场景化服务协议接收业务能力；View 绑定状态和操作，平台适配器负责系统副作用。
@@ -68,6 +67,12 @@ App 入口 → 登录恢复 → AppAccountLifecycle → 各场景状态与页面
 
 - `ScheduleSync` 通过账号代际、按会话加载、比较保存、传输和冲突呈现协调用户状态；CloudKit 容器及 system fields 适配归 App。提醒上下文同样注入账号与缓存。
 - 媒体校验和静态 / GIF 解码消费注入字节；Quick Look 通过显式系统文件服务准备 URL。ActivityKit 属性归 ScheduleActivityContracts，领域复用的 ScheduleContracts 提供纯共享快照及时间线。
+
+- 社区根页及详情页通过依赖、媒体和资源身份绑定内部场景生命周期，依赖替换会重建状态与任务。
+- `ScoreFeature` 消费 `ScoreCaching` 与 `ScoreFilterPreferencesStoring`；缓存和筛选实现归 `ScoreInfrastructure`，刷新判断、排序与汇总归 `ScoreDomain`。
+- 共享草稿模型、原子存储和图片编辑归 `CommunityUI`；存储注入图片准备闭包，Foundation 路径在包级宿主运行。图片尺寸限制由存储边界校验，账号路径、元数据和资产版本保持统一契约。
+- 设置入口安装所选设置、日程及媒体实例；账号服务和凭据通过同一社区会话传递。清理服务接收文件后端和完整操作能力，生产 Keychain、偏好域、URLCache 与 WebKit 绑定归 App 工厂。
+- `ScheduleCacheTimestamp` 的单调版本和云端恢复规则归领域层；App 保存队列通过公共协调器验证排队后的账号代际及取消状态。日程磁盘日期采用 Foundation 默认的完整精度编码，解码支持既有 ISO 8601 日期文本，比较保存沿精确版本执行。
 
 视觉令牌、公共组件和页面约束见 [设计系统](DESIGN_SYSTEM.md)。
 

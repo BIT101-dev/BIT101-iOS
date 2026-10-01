@@ -1,6 +1,7 @@
 import Combine
 import BIT101TestSupport
 import ScoreDomain
+import ScoreInfrastructure
 import TransportCore
 import CommunityCore
 import DesignSystemKit

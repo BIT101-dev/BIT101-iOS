@@ -202,7 +202,7 @@ FIXED_GEOMETRY_CONTRACTS = (
         "StrokeStyle(lineWidth: 2, dash: [5, 4])",
     ),
     (
-        "Modules/GalleryFeature/Sources/GalleryComposerDraftSupport.swift",
+        "Modules/CommunityUI/Sources/CommunityDesignSystem.swift",
         "width: max(1, width * scale)",
     ),
     (
@@ -392,7 +392,7 @@ COMPONENT_INHERITANCE = {
 
 LOCAL_APP_ALERT_BINDINGS = {
     ("CourseEvaluationLink", "alert"),
-    ("CourseEvaluationDestination", "expectedAlert"),
+    ("CourseEvaluationScene", "expectedAlert"),
 }
 
 COMPONENT_CONTRACTS = (
@@ -1583,7 +1583,7 @@ struct CourseEvaluationLink: View {
     }
 }
 
-struct CourseEvaluationDestination: View {
+struct CourseEvaluationScene: View {
     @State private var expectedAlert: AppAlert?
     var body: some View {
         Text("Sample").alert(item: $expectedAlert) { item in
@@ -1762,7 +1762,7 @@ struct AppFixedColumnItem {}
 
     allowed_alerts = [
         finding
-        for view_name in ("CourseEvaluationLink", "CourseEvaluationDestination")
+        for view_name in ("CourseEvaluationLink", "CourseEvaluationScene")
         for finding in alert_coverage_findings(
             {
                 "typedVariables": [

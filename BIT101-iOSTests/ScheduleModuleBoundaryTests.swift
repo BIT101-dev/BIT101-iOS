@@ -1,3 +1,4 @@
+import CommunityUI
 import SchedulePorts
 import ScoreDomain
 import GalleryFeature
@@ -283,7 +284,7 @@ struct ScheduleModuleBoundaryTests {
         let defaults = try #require(UserDefaults(suiteName: "BIT101ModulesTests.community"))
         let dependencies = AppCommunityDependencies(
             settings: AppSettingsStore(defaults: defaults, session: { AppStorageSession(accountIdentifier: "module-community") }),
-            session: session,
+            session: session, checkLogin: { true },
             messages: GalleryMessageReadStore(
                 defaults: defaults,
                 session: { AppStorageSession(accountIdentifier: "module-community") }, notificationCenter: NotificationCenter()
@@ -291,7 +292,8 @@ struct ScheduleModuleBoundaryTests {
             drafts: ComposerDraftStore(
                 files: AppFileSystem.files, applicationSupport: URL(fileURLWithPath: "/module-community"),
                 session: { AppStorageSession(accountIdentifier: "module-community") }
-            )
+            , prepareImageData: ComposerDraftImageCompressor.compress),
+            submitSuggestion: { _ in }, loadCourseCredits: { [] }
         )
         try await dependencies.mine.deletePoster(42)
         let requests = transport.requests

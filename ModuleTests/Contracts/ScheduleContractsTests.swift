@@ -230,3 +230,14 @@ struct ScheduleSharedStoreTests {
         #expect(throws: ScheduleExternalSnapshotStoreError.sharedContainerUnavailable) { try store.write(snapshot()) }
     }
 }
+
+struct ScheduleTimestampPublicContractTests {
+    @Test func monotonicVersionsAndCloudRestorationUseDomainRules() {
+        let previous = Date(timeIntervalSince1970: 100)
+        #expect(ScheduleCacheTimestamp.next(after: previous, now: previous) > previous)
+        #expect(ScheduleCacheTimestamp.next(after: previous, now: previous.addingTimeInterval(-10)) > previous)
+        #expect(ScheduleCacheTimestamp.afterCloudSave(previous.addingTimeInterval(-10), currentDate: previous) == previous)
+        #expect(ScheduleCacheTimestamp.restored(recordDate: previous, payloadDate: previous.addingTimeInterval(1), serverDate: previous.addingTimeInterval(20)) == previous.addingTimeInterval(20))
+        #expect(ScheduleCacheTimestamp.restored(recordDate: previous, payloadDate: previous.addingTimeInterval(2)) == nil)
+    }
+}

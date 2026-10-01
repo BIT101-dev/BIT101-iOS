@@ -10,11 +10,11 @@ from pathlib import Path
 
 EXPECTED = {
     "MediaKit": {"DesignSystemKit", "StorageCore", "TransportCore"},
-    "ScheduleSync": {"ScheduleDomain", "SchedulePersistence", "StorageCore"},
+    "ScheduleSync": {"ScheduleDomain", "StorageCore"},
     "SchedulePersistence": {"ScheduleDomain", "StorageCore"},
     "ScheduleDomain": {"ScheduleContracts"},
     "SchedulePorts": {"ClientCore", "ScheduleDomain", "StorageCore"},
-    "ScoreDomain": {"ClientCore"},
+    "ScoreDomain": {"ClientCore", "StorageCore"},
     "ScheduleInfrastructure": {"SchedulePorts", "ClientCore", "ScheduleDomain", "TransportCore"},
     "ScheduleFeature": {"SchedulePorts", "ClientCore", "DesignSystemKit", "ScheduleDomain", "ScheduleContracts", "StorageCore", "TransportCore"},
     "ScheduleSharedStore": {"ScheduleContracts", "StorageCore"},
@@ -24,12 +24,12 @@ EXPECTED = {
     "CourseFeature": {"CommunityCore", "CommunityTransport", "CommunityUI", "DesignSystemKit", "MediaKit", "TransportCore"},
     "PaperFeature": {"CommunityCore", "CommunityTransport", "CommunityUI", "DesignSystemKit", "MediaKit", "TransportCore"},
     "MineFeature": {"CommunityCore", "CommunityTransport", "CommunityUI", "DesignSystemKit", "MediaKit", "TransportCore"},
-    "CommunityUI": {"CommunityCore", "DesignSystemKit", "MediaKit"},
+    "CommunityUI": {"CommunityCore", "DesignSystemKit", "MediaKit", "StorageCore"},
     "ClientCore": set(),
     "DesignSystemKit": set(),
     "ScheduleContracts": set(),
     "ScheduleActivityContracts": set(),
-    "ScoreInfrastructure": {"ClientCore", "ScoreDomain", "TransportCore"},
+    "ScoreInfrastructure": {"ClientCore", "ScoreDomain", "StorageCore", "TransportCore"},
     "ScoreFeature": {"ScoreDomain", "ClientCore", "DesignSystemKit", "StorageCore", "TransportCore"},
     "StorageCore": set(),
     "TransportCore": set(),
@@ -207,6 +207,23 @@ def graph_errors(manifest: dict[str, set[str]]) -> list[str]:
     return errors
 
 
+GLOBAL_RESOURCE_PATTERN = r"\b(?:UserDefaults\s*\.\s*standard|URLSession\s*\.\s*shared|URLCache\s*\.\s*shared|HTTPCookieStorage\s*\.\s*shared|FileManager\s*\.\s*default|UIApplication\s*\.\s*shared|UIScreen\s*\.\s*main)\b"
+
+
+def ownership_errors(scope: str, source: str) -> list[str]:
+    code = swift_code(source)
+    patterns = []
+    if scope in EXPECTED:
+        patterns.append(GLOBAL_RESOURCE_PATTERN)
+    if scope == "ScoreFeature":
+        patterns.append(r"\b(?:ScoreCacheStore|ScoreFilterPreferenceStore)\b")
+    if scope == "AppLocalDataService.swift":
+        patterns.extend((GLOBAL_RESOURCE_PATTERN, r"\b(?:LoginStorage|ScheduleCacheStore|ScheduleWidgetExporter|AppMedia|AppSettingsStore|WKWebsiteDataStore)\b"))
+    if scope in {"SettingsRootView.swift", "SettingsCommunityViews.swift", "SettingsAccountViews.swift", "SettingsServices.swift"}:
+        patterns.append(r"\b(?:AppMedia|LoginStorage)\s*\.")
+    return [f"resource ownership: {scope} uses {match[0].strip()}" for pattern in patterns for match in re.finditer(pattern, code)]
+
+
 def self_test() -> None:
     assert imports_in_text("@testable import ScoreFeature\n@preconcurrency public import TransportCore\nimport SwiftUI") == {"ScoreFeature", "TransportCore"}
     assert graph_errors({"Leaf": set(), "First": {"Leaf"}, "Second": {"Leaf"}}) == []
@@ -216,6 +233,10 @@ def self_test() -> None:
 
 
     assert graph_errors({"TransportCore": {"ScoreFeature"}, "ScoreFeature": set()})
+    assert ownership_errors("CommunityUI", "let screen = UIApplication . shared")
+    assert ownership_errors("ScoreFeature", "let store: ScoreCacheStore")
+    assert ownership_errors("ScoreFeature", "// ScoreCacheStore\nlet text = #\"URLSession.shared\"#") == []
+    assert ownership_errors("AppLocalDataService.swift", "LoginStorage.shared.clearAllLocalData()")
     assert platform_errors("ScheduleDomain", {"UIKit"})
     assert platform_errors("ScheduleActivityContracts", {"Foundation", "ActivityKit"}) == []
     assert imports_in_text('/* import GalleryFeature\n/* import ScoreFeature */ */\nimport TransportCore') == {"TransportCore"}
@@ -266,7 +287,9 @@ def main() -> int:
             errors.append(f"{module} source root missing: {source_root}")
             continue
         for source in source_root.rglob("*.swift"):
-            errors.extend(platform_errors(module, raw_imports(source.read_text(encoding="utf-8"))))
+            source_text = source.read_text(encoding="utf-8")
+            errors.extend(platform_errors(module, raw_imports(source_text)))
+            errors.extend(ownership_errors(module, source_text))
         actual_imports = imported_modules(source_root)
         for dependency in expected_dependencies - actual_imports.keys():
             errors.append(f"{module} declares unused {dependency}")
@@ -286,6 +309,10 @@ def main() -> int:
             errors.append(f"test consumer {name}: declared {sorted(declared)}, imports {sorted(actual)}")
     if len(test_targets) < 2:
         errors.append("test consumers require independent source roots")
+
+    for name in ("AppLocalDataService.swift", "SettingsRootView.swift", "SettingsCommunityViews.swift", "SettingsAccountViews.swift", "SettingsServices.swift"):
+        for source in (root / "BIT101-iOS").rglob(name):
+            errors.extend(ownership_errors(name, source.read_text(encoding="utf-8")))
 
     errors.extend(native_target_errors(root))
 

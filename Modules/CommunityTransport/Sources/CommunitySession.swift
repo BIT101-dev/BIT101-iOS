@@ -11,7 +11,7 @@ public nonisolated struct CommunitySessionIdentity: Equatable, Sendable {
     }
 }
 
-public nonisolated struct CommunityCredentials: Sendable {
+public nonisolated struct CommunityCredentials: Equatable, Sendable {
     public let identity: CommunitySessionIdentity
     public let cookie: String
 
@@ -39,7 +39,8 @@ public struct CommunitySession {
         self.refresh = refresh
     }
 
-    public var fakeCookie: String { credentials().cookie }
+    public var currentCredentials: CommunityCredentials { credentials() }
+    public var fakeCookie: String { currentCredentials.cookie }
 
     public func client<Failure: CommunityAPIServiceError>(errorDomain: String) -> CommunityAPIClient<Failure> {
         CommunityAPIClient(httpClient: httpClient, baseURL: baseURL, errorDomain: errorDomain, credentials: credentials, refreshHandler: refresh)

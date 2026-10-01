@@ -1,3 +1,4 @@
+import CommunityUI
 import ScoreDomain
 import ScoreInfrastructure
 import GalleryFeature
@@ -5,6 +6,7 @@ import StorageCore
 import ScoreFeature
 import ScheduleDomain
 import Foundation
+import Combine
 
 struct AppAccountStores {
     let communityMessages: GalleryMessageReadStore
@@ -20,7 +22,7 @@ struct AppAccountStores {
         ),
         composerDrafts: ComposerDraftStore(
             files: AppFileDirectories.files, applicationSupport: AppFileDirectories.applicationSupport,
-            session: { AppFileDirectories.currentSession }
+            session: { AppFileDirectories.currentSession }, prepareImageData: ComposerDraftImageCompressor.compress
         ),
         scoreCache: ScoreCacheStore(
             files: AppFileDirectories.files,
@@ -37,29 +39,35 @@ struct AppAccountStores {
     )
 }
 
+extension AppAccountStores {
+    static func loadScheduleCourses(for session: AppStorageSession) async -> [String: [ScoreCourseSummary]] {
+        let result = await ScheduleCacheStore.loadResultAsync(for: session)
+        return (result.cacheIfReadable?.cachedCoursesByTerm ?? [:]).mapValues { $0.map(ScoreCourseSummary.init) }
+    }
+}
+
 /// 成绩消费当前账号的课程快照，应用层负责读取日程存储。
 extension ScoreViewModel {
     convenience init(
         service: any ScoreListServicing,
         stores: AppAccountStores = .shared,
         notificationCenter: NotificationCenter = .default,
-        currentScoreCacheSession: (@MainActor () -> AppStorageSession)? = nil
+        currentScoreCacheSession: (@MainActor () -> AppStorageSession)? = nil,
+        scheduleCoursesChanges: AnyPublisher<AppStorageSession, Never>,
+        loadScheduleCourses: @escaping @MainActor (AppStorageSession) async -> [String: [ScoreCourseSummary]]
     ) {
         self.init(
             service: service,
             cacheStore: stores.scoreCache,
             preferenceStore: stores.scoreFilterPreferences,
             currentScoreCacheSession: currentScoreCacheSession ?? stores.scoreSession,
-            scheduleCoursesChanges: ScheduleCacheStore.changes,
-            loadScheduleCourses: { session in
-                let result = await ScheduleCacheStore.loadResultAsync(for: session)
-                return (result.cacheIfReadable?.cachedCoursesByTerm ?? [:]).mapValues { $0.map(ScoreCourseSummary.init) }
-            },
+            scheduleCoursesChanges: scheduleCoursesChanges,
+            loadScheduleCourses: loadScheduleCourses,
             notificationCenter: notificationCenter
         )
     }
 
-    convenience init() { self.init(service: ScoreService()) }
+    convenience init() { self.init(service: ScoreService(), scheduleCoursesChanges: ScheduleCacheStore.changes, loadScheduleCourses: AppAccountStores.loadScheduleCourses) }
 }
 
 /// 应用生命周期为基础存储提供当前账号、路径和偏好容器。

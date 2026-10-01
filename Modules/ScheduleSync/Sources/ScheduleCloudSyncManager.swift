@@ -1,6 +1,5 @@
 import Foundation
 import ScheduleDomain
-import SchedulePersistence
 import StorageCore
 #if canImport(os)
 import os

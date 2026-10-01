@@ -1,3 +1,5 @@
+import Combine
+import StorageCore
 import ScoreDomain
 import ClientCore
 import Foundation
@@ -37,5 +39,74 @@ struct ScoreInfrastructureBoundaryTests {
 
     @Test func scoreResponseParsingRunsInThePackageHost() throws {
         #expect(try ScoreService.decodeScoreRows(Data(#"{"msg":"查询成功","data":[]}"#.utf8)).isEmpty)
+    }
+}
+
+@MainActor
+struct ScorePublicContractTests {
+    private final class Cache: ScoreCaching {
+        var loads = 0
+        private var waiter: CheckedContinuation<Void, Never>?
+        func loadSnapshot(for session: AppStorageSession?) async -> ScoreCacheSnapshot? {
+            loads += 1
+            waiter?.resume(); waiter = nil
+            return ScoreCacheSnapshot()
+        }
+        func save(rows: [ScoreRow], for session: AppStorageSession?) async -> Date? { nil }
+        func saveDetailed(rows: [ScoreRow], for session: AppStorageSession?) async -> Date? { nil }
+        func markChecked(for session: AppStorageSession?) async -> Date? { nil }
+        func waitForLoad() async {
+            if loads > 0 { return }
+            await withCheckedContinuation { waiter = $0 }
+        }
+    }
+    private final class Preferences: ScoreFilterPreferencesStoring {
+        var loads = 0
+        func load() -> ScoreFilterPreferenceSnapshot? { loads += 1; return .init() }
+        func save(selectedTerms: Set<String>, selectedCourseTypes: Set<String>, sortIndex: ScoreSortIndex, sortOrder: ScoreSortOrder) {}
+    }
+    private struct Service: ScoreListServicing {
+        func startScoreChallenge() async throws -> BITLoginAuthenticationChallenge { throw URLError(.notConnectedToInternet) }
+        func fetchScores(detail: Bool, authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> [ScoreRow] { [] }
+        func submitScoreSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func publicAssemblyAcceptsIndependentStoragePortsAndFiltersEventSources() async {
+        let cache = Cache(), surroundingCache = Cache()
+        let preferences = Preferences(), surroundingPreferences = Preferences()
+        let center = NotificationCenter()
+        let session = AppStorageSession(accountIdentifier: "public-score")
+        let model = ScoreViewModel(service: Service(), cacheStore: cache, preferenceStore: preferences,
+            currentScoreCacheSession: { session }, scheduleCoursesChanges: Empty().eraseToAnyPublisher(),
+            loadScheduleCourses: { _ in [:] }, notificationCenter: center)
+        center.post(name: .scoreFilterPreferencesDidChange, object: surroundingPreferences, userInfo: ["session": session])
+        #expect(preferences.loads == 1)
+        center.post(name: .scoreFilterPreferencesDidChange, object: preferences, userInfo: ["session": session])
+        #expect(preferences.loads == 2)
+        center.post(name: .scoreCacheDidChange, object: surroundingCache, userInfo: ["session": session])
+        center.post(name: .scoreCacheDidChange, object: cache, userInfo: ["session": AppStorageSession(accountIdentifier: "other")])
+        center.post(name: .scoreCacheDidChange, object: cache, userInfo: ["session": session])
+        await cache.waitForLoad()
+        #expect(cache.loads == 1)
+        #expect(surroundingCache.loads == 0)
+        withExtendedLifetime(model) {}
+    }
+
+    @Test func domainPoliciesRunThroughTheirPublicContracts() {
+        func row(_ index: Int, _ score: String, status: String = "是") -> ScoreRow {
+            ScoreRow(index: index, headers: ["课程编号", "课程名称", "成绩", "学分", "开课学期", "该课程所有教学班成绩录入完毕"],
+                values: ["math", "数学", score, "4", "2026-2027-1", status])
+        }
+        let low = row(0, "及格"), high = row(1, "优秀")
+        let summary = ScoreSummary.make(from: [low, high])
+        #expect(summary.selectedCourseCount == 1)
+        #expect(summary.totalCredit == 4)
+        #expect(summary.weightedAverageScore == 95)
+        #expect(ScoreSortIndex.score.compare(high, low) == .orderedDescending)
+        let now = Date(timeIntervalSince1970: 100)
+        #expect(ScoreDetailRefreshPolicy.decision(briefRows: [high], cachedRows: [high], detailedUpdatedAt: nil, now: now) == .reuseCompletedCache)
+        let incomplete = row(0, "90", status: "否")
+        #expect(ScoreDetailRefreshPolicy.decision(briefRows: [incomplete], cachedRows: [incomplete], detailedUpdatedAt: now, now: now) == .reuseRateLimitedCache)
+        #expect(ScoreDetailRefreshPolicy.decision(briefRows: [incomplete], cachedRows: [incomplete], detailedUpdatedAt: now.addingTimeInterval(-ScoreDetailRefreshPolicy.incompleteRetryInterval), now: now) == .fetch)
     }
 }

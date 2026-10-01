@@ -1228,7 +1228,7 @@ def architectural_contract_findings(syntax_index: dict[str, dict]) -> list[str]:
 
     storage_contracts = (
         ("ScheduleCacheStore", "BIT101-iOS/Schedule/ScheduleCacheStore.swift"),
-        ("ComposerDraftStore", "Modules/GalleryFeature/Sources/GalleryComposerDraftSupport.swift"),
+        ("ComposerDraftStore", "Modules/CommunityUI/Sources/CommunityDesignSystem.swift"),
     )
     for type_name, file_name in storage_contracts:
         stores_in_scope = any(

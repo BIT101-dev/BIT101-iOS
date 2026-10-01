@@ -28,6 +28,44 @@ struct SchedulePersistenceTests {
         #expect(await first.load(for: AppStorageSession(accountIdentifier: "other")).cacheIfReadable?.primaryScheduleTitle == "课表")
     }
 
+    @Test func preciseDiskVersionsRoundTripAndRejectAnEarlierCompareToken() async throws {
+        let files = ModuleScoreFiles()
+        let persistence = store(files: files)
+        let account = AppStorageSession(accountIdentifier: "precise-versions")
+        var initial = ScheduleCache()
+        initial.updatedAt = Date(timeIntervalSince1970: 1_700_000_000.125)
+        let first = try #require(await persistence.write(initial, accountIdentifier: account.accountStorageIdentifier,
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil))
+        #expect(await persistence.load(for: account).cacheIfReadable?.updatedAt == first.updatedAt)
+        var edit = first
+        edit.primaryScheduleTitle = "second"
+        let second = try #require(await persistence.write(edit, accountIdentifier: account.accountStorageIdentifier,
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: first.updatedAt))
+        #expect(second.updatedAt > first.updatedAt)
+        #expect(await persistence.load(for: account).cacheIfReadable?.updatedAt == second.updatedAt)
+        #expect(await persistence.write(initial, accountIdentifier: account.accountStorageIdentifier,
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .cloud, expectedUpdatedAt: first.updatedAt) == nil)
+        #expect(await persistence.load(for: account).cacheIfReadable?.primaryScheduleTitle == "second")
+        let legacyEncoder = JSONEncoder()
+        legacyEncoder.dateEncodingStrategy = .iso8601
+        #expect(SchedulePersistenceStore.decodeCache(try legacyEncoder.encode(initial)).cacheIfReadable?.updatedAt == Date(timeIntervalSince1970: 1_700_000_000))
+    }
+
+    @Test func malformedAggregateSectionsPreserveTheCompleteDiskTransaction() async throws {
+        let files = ModuleScoreFiles()
+        let persistence = store(files: files)
+        let account = AppStorageSession(accountIdentifier: "malformed-sections")
+        let url = persistence.cacheFileURL(for: account.accountStorageIdentifier)
+        for key in ["courses", "cachedCoursesByTerm", "ddlEvents", "customSchedules", "selectedClassroomSectionIDs", "timeTable"] {
+            let bytes = try JSONSerialization.data(withJSONObject: ["primaryScheduleTitle": "retained", key: "malformed"])
+            try files.writeData(bytes, to: url, options: [])
+            #expect(await persistence.load(for: account).isUnreadable)
+            #expect(await persistence.write(ScheduleCache(), accountIdentifier: account.accountStorageIdentifier,
+                legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
+            #expect(try files.readData(at: url) == bytes)
+        }
+    }
+
     @Test func corruptedSourceKeepsItsBytesAndWriteGate() async throws {
         let files = ModuleScoreFiles()
         let persistence = store(files: files)
@@ -179,5 +217,66 @@ struct SchedulePersistenceTests {
             DDLSyncPayload(url: "https://example.invalid/calendar", events: [])
         }
         func refreshLexueCalendarURL(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> String { "https://example.invalid/calendar" }
+    }
+}
+
+@MainActor
+struct SchedulePersistenceCoordinatorTests {
+    @Test func queuedSavesValidateTheGenerationAcrossAccountRoundTrips() async {
+        let coordinator = SchedulePersistenceCoordinator()
+        var generation = 1
+        var started = false
+        var release: CheckedContinuation<Void, Never>?
+        var writes: [Int] = []
+        let first = Task { await coordinator.perform(isCurrent: { true }) {
+            started = true
+            await withCheckedContinuation { release = $0 }
+            writes.append(1)
+            return true
+        } }
+        while !started { await Task.yield() }
+        let oldGeneration = generation
+        let queued = Task { await coordinator.perform(isCurrent: { generation == oldGeneration }) {
+            writes.append(2)
+            return true
+        } }
+        await Task.yield()
+        generation = 3
+        release?.resume()
+        #expect(await first.value)
+        #expect(await queued.value == false)
+        #expect(writes == [1])
+        #expect(await coordinator.perform(isCurrent: { generation == 3 }) {
+            writes.append(3)
+            return true
+        })
+        #expect(writes == [1, 3])
+    }
+
+    @Test func cancellationRetainsTheCommittedWriteAndSkipsQueuedWork() async {
+        let coordinator = SchedulePersistenceCoordinator()
+        var started = false
+        var release: CheckedContinuation<Void, Never>?
+        var writes: [Int] = []
+        let saving = Task { await coordinator.perform(isCurrent: { true }) {
+            started = true
+            await withCheckedContinuation { release = $0 }
+            writes.append(1)
+            return true
+        } }
+        while !started { await Task.yield() }
+        let queued = Task { await coordinator.perform(isCurrent: { true }) {
+            writes.append(2)
+            return true
+        } }
+        await Task.yield()
+        queued.cancel()
+        saving.cancel()
+        release?.resume()
+        #expect(await saving.value == false)
+        #expect(await queued.value == false)
+        #expect(writes == [1])
+        #expect(await coordinator.perform(isCurrent: { true }) { writes.append(3); return true })
+        #expect(writes == [1, 3])
     }
 }

@@ -232,6 +232,18 @@ public struct CourseEvaluationLink: View {
 /// 外部深链在导航后加载课程并显示失败状态；日程和成绩入口使用
 /// `CourseEvaluationLink`，在导航前处理失败。
 public struct CourseEvaluationDestination: View {
+    private let scene: CourseEvaluationScene
+    private let identity: [ObjectIdentifier]
+    private let requestID: UUID
+    public init(dependencies: CourseDependencies, media: MediaEnvironment, profiles: CommunityProfileDestination, request: CourseNavigationRequest) {
+        scene = CourseEvaluationScene(dependencies: dependencies, media: media, profiles: profiles, request: request)
+        identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
+        requestID = request.id
+    }
+    public var body: some View { scene.id(identity).id(requestID) }
+}
+
+private struct CourseEvaluationScene: View {
     private let dependencies: CourseDependencies
     private let media: MediaEnvironment
     private let profiles: CommunityProfileDestination
@@ -241,7 +253,7 @@ public struct CourseEvaluationDestination: View {
     @State private var expectedErrorMessage: String?
     @State private var expectedAlert: AppAlert?
 
-    public var body: some View {
+    var body: some View {
         Group {
             if let course {
                 CourseDetailView(dependencies: dependencies, media: media, profiles: profiles, initialCourse: course)
@@ -291,6 +303,7 @@ public struct CourseEvaluationDestination: View {
 
         do {
             let resolvedRequest = try await CourseEvaluationRouteResolver(listService: dependencies.list, detailService: dependencies.detail).resolve(request)
+            try Task.checkCancellation()
             guard let preparedCourse = resolvedRequest.preparedCourse else {
                 throw CourseEvaluationError.notFound
             }
@@ -303,7 +316,7 @@ public struct CourseEvaluationDestination: View {
             errorMessage = error.localizedDescription
         }
     }
-    public init(dependencies: CourseDependencies, media: MediaEnvironment, profiles: CommunityProfileDestination, request: CourseNavigationRequest) {
+    init(dependencies: CourseDependencies, media: MediaEnvironment, profiles: CommunityProfileDestination, request: CourseNavigationRequest) {
         self.dependencies = dependencies
         self.media = media
         self.profiles = profiles
