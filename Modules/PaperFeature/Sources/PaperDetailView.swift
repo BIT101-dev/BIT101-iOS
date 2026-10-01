@@ -99,6 +99,7 @@ private struct PaperDetailViewScene: View {
                                 .foregroundStyle((viewModel.paper?.like ?? false) ? AppDesignSystem.Palette.Accent.primary : AppDesignSystem.Foreground.primaryColor)
                             }
                             .disabled(viewModel.isLikingPaper)
+                            .accessibilityIdentifier("paper.detail.header-like")
                         }
                     }
                 }
@@ -132,6 +133,7 @@ private struct PaperDetailViewScene: View {
                     .buttonStyle(.plain)
                     .disabled(viewModel.isLikingPaper)
                     .accessibilityLabel(isPaperLiked ? "取消点赞" : "点赞文章")
+                    .accessibilityIdentifier("paper.detail.footer-like")
                     Spacer()
                 }
                 .padding(.top, AppDesignSystem.Spacing.tiny)

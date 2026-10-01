@@ -4,7 +4,13 @@ import Foundation
 
 /// App 持久化路径、当前账号会话和本地文件服务的统一入口。
 enum AppFileDirectories {
-    nonisolated static let files = AppFileSystem.files
+    nonisolated static let files: any AppFileService = {
+#if BIT101_UI_TESTING
+        return UITestAppFileService()
+#else
+        return AppFileSystem.files
+#endif
+    }()
     private nonisolated static let backupExclusionConfiguration: Bool = {
         for directory in [FileManager.SearchPathDirectory.libraryDirectory, .documentDirectory] {
             if let url = files.directoryURL(directory) {

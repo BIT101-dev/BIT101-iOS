@@ -277,6 +277,7 @@ private struct DDLEditSheet: View {
                     TextField("", text: $draft.title, prompt: AppInputPrompt.text("标题"))
                         .accessibilityIdentifier("ddl.editor.title")
                     DatePicker("时间", selection: $draft.dueAt, displayedComponents: [.date, .hourAndMinute])
+                        .accessibilityIdentifier("ddl.editor.date")
                     .appInteractiveListRow()
                     TextField("", text: $draft.text, prompt: AppInputPrompt.text("详情"), axis: .vertical)
                         .lineLimit(4, reservesSpace: true)

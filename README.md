@@ -37,6 +37,7 @@ Scripts/build-install-device.sh
 - [架构与数据边界](docs/ARCHITECTURE.md)：模块职责、依赖注入、网络、存储与扩展协作。
 - [设计系统](docs/DESIGN_SYSTEM.md)：公共令牌、组件和界面规范。
 - [构建与测试](docs/TESTING.md)：真机流程、测试分组、固定产物和 CI。
+- [UI 交互覆盖](docs/UI_INTERACTION_COVERAGE.md)：逐项交互、对应 UI 用例、测试数据和验证状态。
 - [Cloudflare 资源](Cloudflare/README.md)：域名、链接契约与部署入口。
 
 ## 维护范围

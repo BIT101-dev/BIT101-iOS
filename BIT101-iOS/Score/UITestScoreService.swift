@@ -3,8 +3,9 @@ import ClientCore
 import ScoreFeature
 #if BIT101_UI_TESTING
 import Foundation
+import UIKit
 
-struct UITestScoreService: ScoreListServicing {
+struct UITestScoreService: ScoreListServicing, TrustedTranscriptServicing {
     private static let challenge = BITLoginAuthenticationChallenge(
         challengeID: "ui-test-score-challenge",
         accessToken: "ui-test-score-token",
@@ -38,6 +39,20 @@ struct UITestScoreService: ScoreListServicing {
             throw ScoreServiceError.queryFailed("测试验证码错误。")
         }
         return Self.challenge
+    }
+
+    func fetchTrustedTranscriptPages() async throws -> [Data] {
+        throw ScoreServiceError.secondFactorRequired(Self.challenge)
+    }
+
+    func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> [Data] {
+        _ = try await submitScoreSMSCode(code, for: challenge)
+        return [UIColor.systemBlue, UIColor.systemOrange].map { color in
+            UIGraphicsImageRenderer(size: CGSize(width: 300, height: 400)).pngData { context in
+                color.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 300, height: 400))
+            }
+        }
     }
 }
 #endif

@@ -2,7 +2,7 @@ import XCTest
 import CoreGraphics
 
 nonisolated final class LoginAndScheduleUITests: XCTestCase {
-    @MainActor private var app: XCUIApplication!
+    @MainActor var app: XCUIApplication!
     private let runIdentifier = "ui"
 
     @MainActor
@@ -293,6 +293,8 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
     func testClassroomSectionMultiSelectionAndClear() {
         app = launchApp(resetStorage: true)
         app.segmentedControls.buttons["空教室"].tap()
+        closeAlertIfPresent()
+        tap("刷新空教室")
         closeAlertIfPresent()
         tap("节次筛选")
         assertUI(app.navigationBars["节次筛选"].appears(timeout: 5), "空教室应支持节次筛选。")
@@ -607,7 +609,7 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
     }
 
     @MainActor
-    private func tap(_ title: String) {
+    func tap(_ title: String) {
         let exact = app.buttons.matching(NSPredicate(format: "label == %@", title))
         let matches = exact.firstMatch.exists ? exact : app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title))
         if let visible = matches.allElementsBoundByIndex.first(where: { isReadyForTap($0) }) {
@@ -686,6 +688,8 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
         choose("星期", option: "周2")
         tap("开始节次")
         tap("第1节")
+        tap("结束节次")
+        tap("第2节")
         tap("确定")
         let course = textElement("测试补录课程")
         assertUI(course.appears(timeout: 5), "补录课程应显示在课表。")
@@ -772,7 +776,7 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
     }
 
     @MainActor
-    private func reveal(_ element: XCUIElement, description: String = "交互控件") {
+    func reveal(_ element: XCUIElement, description: String = "交互控件") {
         if isReadyForTap(element) { return }
         for _ in 0..<8 {
             let scroll: XCUIElement = app.collectionViews.allElementsBoundByIndex.last(where: { $0.isHittable })
@@ -805,7 +809,7 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
     }
 
     @MainActor
-    private func openSettings(_ route: String) {
+    func openSettings(_ route: String) {
         app.tabBars.buttons["app.tab.mine"].tap()
         let entry = app.buttons["settings.route.\(route)"]
         reveal(entry)
@@ -813,22 +817,22 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
     }
 
     @MainActor
-    private func back() { app.navigationBars.buttons.element(boundBy: 0).tap() }
+    func back() { app.navigationBars.buttons.element(boundBy: 0).tap() }
 
     @MainActor
-    private func textElement(_ text: String) -> XCUIElement {
+    func textElement(_ text: String) -> XCUIElement {
         app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
     }
 
     @MainActor
-    private func waitForValue(_ value: String, of element: XCUIElement) {
+    func waitForValue(_ value: String, of element: XCUIElement) {
         if element.value as? String == value { return }
         let updated = expectation(for: NSPredicate(format: "value == %@", value), evaluatedWith: element)
         assertUI(XCTWaiter.wait(for: [updated], timeout: 5) == .completed, "交互应更新为\(value)，实际值：\(String(describing: element.value))。")
     }
 
     @MainActor @discardableResult
-    private func toggle(_ title: String) -> String {
+    func toggle(_ title: String) -> String {
         let control = app.switches.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
         reveal(control, description: title)
         let initial = control.value as? String
@@ -841,7 +845,7 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
     }
 
     @MainActor
-    private func choose(_ title: String, option: String) {
+    func choose(_ title: String, option: String) {
         tap(title)
         tap(option)
         let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
@@ -851,7 +855,7 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
     }
 
     @MainActor
-    private func replaceText(_ text: String, in field: XCUIElement) {
+    func replaceText(_ text: String, in field: XCUIElement) {
         assertUI(field.appears(timeout: 5), "输入操作应等待字段出现。")
         reveal(field, description: field.placeholderValue ?? "文本输入")
         field.tap()
@@ -872,7 +876,7 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
     }
 
     @MainActor
-    private func dismissKeyboard() {
+    func dismissKeyboard() {
         let button = app.buttons["keyboard.dismiss"]
         if button.exists {
             button.tap()
@@ -895,7 +899,7 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
     }
 
     @MainActor
-    private func closeAlertIfPresent() {
+    func closeAlertIfPresent() {
         guard app.alerts.firstMatch.appears(timeout: 2) else { return }
         let alert = app.alerts.firstMatch
         let close = alert.buttons["知道了"]
@@ -1027,7 +1031,7 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
     }
 
     @MainActor
-    private func addCustomSchedule(_ titleText: String, in application: XCUIApplication) {
+    func addCustomSchedule(_ titleText: String, in application: XCUIApplication) {
         let addContent = application.buttons["schedule.add-content"]
         assertUI(addContent.appears(timeout: 10), "课表页应展示添加内容入口。")
         assertUI(
@@ -1180,7 +1184,7 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
     }
 
     @MainActor
-    private func signIn(_ application: XCUIApplication, studentID inputStudentID: String = "ui-test-student") {
+    func signIn(_ application: XCUIApplication, studentID inputStudentID: String = "ui-test-student") {
         let studentID = application.textFields["login.student-id"]
         let password = application.secureTextFields["login.password"]
         let submit = application.buttons["login.submit"]
@@ -1229,7 +1233,7 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
     }
 
     @MainActor
-    private func assertUI(
+    func assertUI(
         _ condition: @autoclosure () -> Bool,
         _ message: @autoclosure () -> String,
         file: StaticString = #filePath,
@@ -1295,14 +1299,19 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchApp(
+    func launchApp(
         resetStorage: Bool,
         account: String? = "ui-test-student",
         accessibilityTextSize: Bool = false,
         userInterfaceStyle: String? = nil,
         ddlFixture: String? = nil,
         content: Bool = false,
-        animations: Bool = false
+        animations: Bool = false,
+        school: Bool = false,
+        media: Bool = false,
+        failureOnce: Bool = false,
+        update: String? = nil,
+        schoolSMS: Bool = false
     ) -> XCUIApplication {
         continueAfterFailure = false
         let application = XCUIApplication()
@@ -1319,6 +1328,11 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
         application.launchEnvironment["BIT101_UI_TESTING"] = "1"
         application.launchEnvironment["BIT101_UI_TEST_CONTENT"] = content ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_ANIMATIONS"] = animations ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_SCHOOL"] = school ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_MEDIA"] = media ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_FAILURE_ONCE"] = failureOnce ? "1" : "0"
+        if let update { application.launchEnvironment["BIT101_UI_TEST_UPDATE"] = update }
+        application.launchEnvironment["BIT101_UI_TEST_SCHOOL_SMS"] = schoolSMS ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_RUN_ID"] = runIdentifier
         application.launchEnvironment["BIT101_UI_TEST_RESET_STORAGE"] = resetStorage ? "1" : "0"
         if let ddlFixture { application.launchEnvironment["BIT101_UI_TEST_DDL_FIXTURE"] = ddlFixture }
@@ -1338,7 +1352,7 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
 
 
 @MainActor
-private extension XCUIElement {
+extension XCUIElement {
     func appears(timeout: TimeInterval) -> Bool {
         exists || waitForExistence(timeout: timeout)
     }

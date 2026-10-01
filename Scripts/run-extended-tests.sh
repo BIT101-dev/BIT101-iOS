@@ -400,6 +400,7 @@ run_tests() {
   local test_action=test
   local execution_args=()
   if $BUILD_ONLY; then
+    log="$DERIVED_ROOT/$group-build.log"
     test_action=build-for-testing
   else
     execution_args+=(-resultBundlePath "$RESULT_BUNDLE")

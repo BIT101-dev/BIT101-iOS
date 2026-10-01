@@ -125,6 +125,7 @@ struct DayAdjustmentSheet: View {
 
                     if draft.mode == .transfer {
                         DatePicker("调至", selection: $draft.targetDate, displayedComponents: .date)
+                        .accessibilityIdentifier("schedule.adjustment.date")
                         .appInteractiveListRow()
                     }
                 }

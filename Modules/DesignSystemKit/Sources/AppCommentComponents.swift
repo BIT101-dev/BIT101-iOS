@@ -115,6 +115,8 @@ public struct AppCommentActionBar: View {
             }
             .buttonStyle(.plain)
             .disabled(isLiking)
+            .accessibilityLabel(isLiked ? "取消评论点赞" : "点赞评论")
+            .accessibilityValue("\(likeCount)")
 
             Spacer(minLength: AppDesignSystem.Spacing.none)
         }

@@ -314,10 +314,13 @@ struct AddEditCustomScheduleSheet: View {
 
                 Section("时间") {
                     DatePicker("日期", selection: $draft.date, displayedComponents: .date)
+                        .accessibilityIdentifier("schedule.custom.date")
                     .appInteractiveListRow()
                     DatePicker("开始时间", selection: $draft.beginTime, displayedComponents: .hourAndMinute)
+                        .accessibilityIdentifier("schedule.custom.begin")
                     .appInteractiveListRow()
                     DatePicker("结束时间", selection: $draft.endTime, displayedComponents: .hourAndMinute)
+                        .accessibilityIdentifier("schedule.custom.end")
                     .appInteractiveListRow()
                 }
 

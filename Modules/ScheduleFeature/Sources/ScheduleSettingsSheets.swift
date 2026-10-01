@@ -197,6 +197,7 @@ public struct ScheduleExportCodeSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     ShareLink(item: code)
+                        .accessibilityIdentifier("schedule.export.share")
                 }
             }
             .alert("已复制", isPresented: $didCopy) {

@@ -13,6 +13,9 @@ import Foundation
 /// 应用层连接持久化、组件导出与云同步。
 struct AppScheduleCacheEffects: SchedulePlatformActions {
     func didSave(session: AppStorageSession, source: ScheduleCacheSaveSource, cloudSyncEnabled: Bool) async {
+#if BIT101_UI_TESTING
+        return
+#else
 #if canImport(CloudKit)
         if source == .local, cloudSyncEnabled {
             Task {
@@ -20,6 +23,7 @@ struct AppScheduleCacheEffects: SchedulePlatformActions {
                 await ScheduleCloudSyncManager.shared.pushLatestLocalCacheIfNeeded()
             }
         }
+#endif
 #endif
     }
 
@@ -87,7 +91,15 @@ struct AppScheduleSchoolSessionRestorer: SchoolSessionRestoring, Sendable {
 
 enum ScheduleServiceFactory {
     static func makeViewModel() -> ScheduleViewModel {
-        let service = make()
+        let service: any ScheduleServicing
+        let platformActions: any SchedulePlatformActions
+#if BIT101_UI_TESTING
+        service = ProcessInfo.processInfo.environment["BIT101_UI_TEST_SCHOOL"] == "1" ? UITestSchoolService() : make()
+        platformActions = UITestSchedulePlatformActions()
+#else
+        service = make()
+        platformActions = AppScheduleCacheEffects()
+#endif
         let virtualNetworkLikely: @MainActor @Sendable () -> Bool = { NetworkConnectionDescription.shared.snapshot.virtualNetworkLikely }
         let repository = ScheduleRepository(
             session: { AppFileDirectories.currentSession },
@@ -105,7 +117,7 @@ enum ScheduleServiceFactory {
             repository: repository,
             ddlService: service,
             classroomService: service,
-            platformActions: AppScheduleCacheEffects(),
+            platformActions: platformActions,
             virtualNetworkLikely: virtualNetworkLikely,
             beforeSchoolRequest: {
                 _ = await NetworkMagicWarningCenter.shared.consider(url: URL(string: "https://sso.bit.edu.cn"))

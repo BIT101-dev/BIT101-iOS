@@ -161,7 +161,7 @@ final class AppCommunityDependencies {
     }
 
     static func app(settings: AppSettingsStore, stores: AppAccountStores) -> AppCommunityDependencies {
-        let login = LoginService()
+        let login = LoginService.appRuntimeService()
         return AppCommunityDependencies(
             settings: settings, session: .appSession(), checkLogin: { try await login.checkLogin() != nil },
             messages: stores.communityMessages, drafts: stores.composerDrafts,
@@ -194,6 +194,17 @@ final class AppCommunityDependencies {
 /// 生产系统资源在 App 组装位置绑定，操作服务持有显式能力。
 extension AppLocalDataService {
     static func appService(settings: AppSettingsStore, media: MediaEnvironment) -> AppLocalDataService {
+#if BIT101_UI_TESTING
+        return AppLocalDataService(files: AppFileDirectories.files, actions: AppLocalDataActions(
+            clearLogin: { LoginStorage.resetUITestCredentials(); return true },
+            clearSchedule: { await ScheduleCacheStore.clear() },
+            clearSharedSnapshot: { true },
+            clearReports: { true },
+            clearPreferences: { AppFileDirectories.defaults.removePersistentDomain(forName: AppFileDirectories.defaultsDomain) },
+            clearURLCache: {}, clearWebData: {},
+            clearMedia: { await media.clearAvatars() }, resetSettings: { settings.resetToDefaults() }
+        ))
+#else
         let defaults = AppFileDirectories.defaults
         let domain = AppFileDirectories.defaultsDomain
         let webData = WKWebsiteDataStore.default()
@@ -214,5 +225,6 @@ extension AppLocalDataService {
             clearMedia: { await media.clearAvatars() },
             resetSettings: { settings.resetToDefaults() }
         ))
+#endif
     }
 }

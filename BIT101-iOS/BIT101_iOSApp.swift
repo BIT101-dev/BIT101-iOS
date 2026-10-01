@@ -103,18 +103,26 @@ struct BIT101_iOSApp: App {
 #if BIT101_UI_TESTING
         AppUITestBootstrap.prepareForLaunch()
 #endif
-        let preferenceCloudSync = ExperimentalPreferenceCloudSync.shared
+        let preferenceCloudSync: ExperimentalPreferenceCloudSync
+#if BIT101_UI_TESTING
+        preferenceCloudSync = ExperimentalPreferenceCloudSync(settings: .shared, stores: .shared, cloudStore: UITestPreferenceCloudStore())
+#else
+        preferenceCloudSync = ExperimentalPreferenceCloudSync.shared
+#endif
         let productionScores = ScoreService()
         let scores: any ScoreListServicing
+        let transcripts: any TrustedTranscriptServicing
 #if BIT101_UI_TESTING
         scores = AppFileDirectories.isRunningUITest ? UITestScoreService() : productionScores
+        transcripts = AppFileDirectories.isRunningUITest ? UITestScoreService() : productionScores
 #else
         scores = productionScores
+        transcripts = productionScores
 #endif
         _lifecycle = StateObject(wrappedValue: AppAccountLifecycle(
             scheduleViewModel: ScheduleServiceFactory.makeViewModel(),
             community: .app(settings: preferenceCloudSync.settings, stores: preferenceCloudSync.stores),
-            scoreService: scores, transcriptService: productionScores, preferenceCloudSync: preferenceCloudSync,
+            scoreService: scores, transcriptService: transcripts, preferenceCloudSync: preferenceCloudSync,
             notifications: .default,
             scheduleChanges: ScheduleCacheStore.changes, loadScheduleCourses: AppAccountStores.loadScheduleCourses,
             media: AppMedia.environment, localData: .appService(settings: preferenceCloudSync.settings, media: AppMedia.environment),
@@ -153,6 +161,9 @@ struct BIT101_iOSApp: App {
                 }
             #else
             ContentView(transcriptService: lifecycle.transcriptService)
+#if BIT101_UI_TESTING
+                .uiTestExternalURLs()
+#endif
                 .environment(lifecycle.communityDestinations)
                 .environment(lifecycle.community)
                 .environment(lifecycle.communityDestinations.media)
