@@ -1,4 +1,5 @@
 import TransportCore
+import ClientCore
 import DesignSystemKit
 import Foundation
 import Combine
@@ -227,13 +228,25 @@ actor NetworkDiagnosticStore {
         records.append(NetworkDiagnosticRecord(
             id: UUID(), occurredAt: Date(), method: request.httpMethod ?? "GET",
             url: request.url?.absoluteString ?? "", statusCode: http?.statusCode,
-            elapsedMilliseconds: Int(elapsed * 1_000), error: error?.localizedDescription,
+            elapsedMilliseconds: Int(elapsed * 1_000),
+            error: error?.localizedDescription ?? Self.authenticationFailure(in: data, url: request.url),
             responseHeaders: headers, responseBody: body
         ))
         records = Array(records.suffix(20))
     }
 
     func recent() -> [NetworkDiagnosticRecord] { Array(records.suffix(10)) }
+
+    /// 统一认证轮询以 HTTP 200 返回业务失败，诊断保留服务端原因。
+    private static func authenticationFailure(in data: Data?, url: URL?) -> String? {
+        guard url?.host?.lowercased() == "login.bit101.flwfdd.xyz",
+              url?.path.hasPrefix("/api/auth/") == true,
+              let data,
+              let payload = try? BITLoginChallengeSupport.decodePayload(from: data),
+              payload.status == "failed"
+        else { return nil }
+        return payload.error?.isEmpty == false ? payload.error : "学校统一认证失败。"
+    }
 
     /// 返回最近一次学校网页请求的安全外链；URL 移除用户信息、query 和 fragment，
     /// ticket、token 等一次性认证参数留在诊断记录中。网页入口限定为学校网页请求。

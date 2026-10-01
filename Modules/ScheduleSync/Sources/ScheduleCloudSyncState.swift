@@ -78,9 +78,9 @@ public nonisolated struct ScheduleCloudSyncState: Codable, Sendable {
     public init(cache: ScheduleCache) {
         primaryScheduleTitle = cache.primaryScheduleTitle
         manualCourseRulesByTerm = cache.manualCourseRulesByTerm
-        manualDDLEvents = cache.ddlEvents.filter { $0.group != "lexue" }
+        manualDDLEvents = cache.ddlEvents.filter { !$0.isSchoolSynced }
         var completionByID = cache.lexueDDLCompletionByID
-        for event in cache.ddlEvents where event.group == "lexue" {
+        for event in cache.ddlEvents where event.isSchoolSynced {
             completionByID[event.id] = event.done
         }
         lexueDDLCompletionByID = completionByID
@@ -107,7 +107,7 @@ public nonisolated struct ScheduleCloudSyncState: Codable, Sendable {
         cache.primaryScheduleTitle = primaryScheduleTitle
         cache.manualCourseRulesByTerm = manualCourseRulesByTerm
         let localLexueEvents = cache.ddlEvents
-            .filter { $0.group == "lexue" }
+            .filter { $0.isSchoolSynced }
             .map { event in
                 var event = event
                 event.done = lexueDDLCompletionByID[event.id] ?? event.done

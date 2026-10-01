@@ -34,6 +34,10 @@ struct SchoolAuthenticationTests {
             statusCode: 401,
             url: AppURL.required("https://sso.bit.edu.cn/gate/cas-success")
         ))
+        #expect(crypto.isAcceptedSchoolLoginCompletion(
+            statusCode: 401,
+            url: AppURL.required("https://sso.bit.edu.cn/gate/cas-success/?ticket=test-ticket")
+        ))
         #expect(!crypto.isAcceptedSchoolLoginCompletion(
             statusCode: 401,
             url: AppURL.required("https://evil.example/gate/cas-success")

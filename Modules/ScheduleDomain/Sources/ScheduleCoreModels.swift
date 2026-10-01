@@ -362,6 +362,14 @@ public nonisolated struct DDLEventRecord: Codable, Identifiable, Hashable, Senda
     public var text: String
     public var dueAt: Date
     public var done: Bool
+    public var isSchoolSynced: Bool { group == "lexue" || group == "eclass" }
+    public var sourceTitle: String {
+        switch group {
+        case "lexue": "乐学"
+        case "eclass": "课程中心"
+        default: "自定义"
+        }
+    }
     public init(id: String, group: String, title: String, text: String, dueAt: Date, done: Bool) {
         self.id = id
         self.group = group

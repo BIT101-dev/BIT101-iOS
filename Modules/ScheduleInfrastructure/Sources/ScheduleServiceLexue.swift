@@ -17,20 +17,46 @@ enum SchoolSMSDeliveryMode: Equatable {
 }
 
 extension ScheduleService {
-    /// 同步乐学 DDL，复用已缓存的订阅地址。
-    ///
-    /// 订阅 URL 通常稳定，优先复用缓存；缓存为空时从网页抓取。
+    /// 同步课程中心与已订阅的乐学日程，分别记录成功更新的来源。
     public func syncDDLEvents(
         existingEvents: [DDLEventRecord],
         storedURL: String,
         schoolSMSCodeHandler: SchoolSMSCodeHandler? = nil
     ) async throws -> DDLSyncPayload {
-        try await syncDDLEvents(
-            existingEvents: existingEvents,
-            storedURL: storedURL,
-            schoolSMSCodeHandler: schoolSMSCodeHandler,
-            smsDeliveryMode: .send
-        )
+        var events: [DDLEventRecord] = []
+        var groups: Set<String> = []
+        var warnings: [String] = []
+        var calendarURL = storedURL
+        var firstError: Error?
+        do {
+            events = try await fetchEclassDDLEvents(schoolSMSCodeHandler: schoolSMSCodeHandler).events
+            groups.insert("eclass")
+        } catch {
+            if TaskCancellation.matches(error) { throw error }
+            firstError = error
+            warnings.append("课程中心：\(error.localizedDescription)")
+        }
+        if !storedURL.isEmpty {
+            do {
+                let lexue = try await syncDDLEvents(existingEvents: existingEvents, storedURL: storedURL,
+                    schoolSMSCodeHandler: schoolSMSCodeHandler, smsDeliveryMode: .send)
+                events.append(contentsOf: lexue.events)
+                calendarURL = lexue.url
+                groups.insert("lexue")
+            } catch {
+                if TaskCancellation.matches(error) { throw error }
+                firstError = firstError ?? error
+                warnings.append("乐学：\(error.localizedDescription)")
+            }
+        }
+        guard !groups.isEmpty else { throw firstError ?? ScheduleServiceError.invalidResponse }
+        let doneByID = Dictionary(existingEvents.map { ($0.id, $0.done) }, uniquingKeysWith: { first, _ in first })
+        events = events.map { event in
+            var event = event
+            event.done = doneByID[event.id] ?? event.done
+            return event
+        }
+        return DDLSyncPayload(url: calendarURL, events: events, syncedGroups: groups, warnings: warnings)
     }
 
     /// 诊断网络链路时探测乐学 DDL，避免触发短信发送。
@@ -72,7 +98,7 @@ extension ScheduleService {
                     smsDeliveryMode: smsDeliveryMode
                 )
 
-                let existingDoneMap = Dictionary(uniqueKeysWithValues: existingEvents.map { ($0.id, $0.done) })
+                let existingDoneMap = Dictionary(existingEvents.map { ($0.id, $0.done) }, uniquingKeysWith: { first, _ in first })
                 let merged = remoteEvents.map { event in
                     DDLEventRecord(
                         id: event.id,

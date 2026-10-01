@@ -5,6 +5,7 @@ import ScoreDomain
 @testable import ScoreFeature
 @testable import MapFeature
 import ClientCore
+import TransportCore
 import DesignSystemKit
 import ScheduleDomain
 import XCTest
@@ -13,6 +14,69 @@ import CoreLocation
 @testable import BIT101_iOS
 
 nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
+    @MainActor
+    func testProductionSchoolServiceRecordsNetworkFailures() async throws {
+        let url = try XCTUnwrap(URL(string: "https://example.invalid/production-school-diagnostic"))
+        let service = ScheduleServiceFactory.make(transport: DiagnosticFailureTransport())
+        do {
+            _ = try await service.sendRequest(URLRequest(url: url))
+            XCTFail("Expected the injected DNS failure")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .cannotFindHost)
+        }
+        let records = await NetworkDiagnosticStore.shared.recent()
+        let record = try XCTUnwrap(records.last(where: { $0.url == url.absoluteString }))
+        XCTAssertNil(record.statusCode)
+        XCTAssertEqual(record.error, URLError(.cannotFindHost).localizedDescription)
+    }
+
+    private nonisolated struct DiagnosticFailureTransport: HTTPTransport {
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            throw URLError(.cannotFindHost)
+        }
+    }
+
+    @MainActor
+    func testAuthenticationBusinessFailurePreservesCauseInDiagnostics() async throws {
+        let store = NetworkDiagnosticStore()
+        let url = try XCTUnwrap(URL(string: "https://login.bit101.flwfdd.xyz/api/auth/diagnostic-challenge"))
+        let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+        let cause = "HTTPSConnectionPool: SSLCertVerificationError: certificate has expired; token=secret"
+        let data = try JSONSerialization.data(withJSONObject: [
+            "challenge_id": "diagnostic-challenge", "status": "failed", "error": cause
+        ])
+        await store.record(request: URLRequest(url: url), data: data, response: response, error: nil, elapsed: 0)
+        let records = await store.recent()
+        let record = try XCTUnwrap(records.last)
+        XCTAssertEqual(record.statusCode, 200)
+        XCTAssertEqual(record.error, cause)
+        let summary = FeedbackDiagnosticSummary(diagnostics: records)
+        XCTAssertEqual(summary.failed, 1)
+        XCTAssertEqual(summary.statusCodes, ["200": 1])
+        XCTAssertEqual(summary.latestFailure, cause)
+        XCTAssertFalse(ErrorReportRedactor.sanitized(cause).contains("secret"))
+    }
+
+    @MainActor
+    func testSuccessfulAuthenticationAndOtherHostsRetainHTTPDiagnostics() async throws {
+        let store = NetworkDiagnosticStore()
+        let authenticated = Data(#"{"challenge_id":"diagnostic-challenge","status":"authenticated"}"#.utf8)
+        let failed = Data(#"{"challenge_id":"diagnostic-challenge","status":"failed","error":"school failure"}"#.utf8)
+        for (address, data) in [
+            ("https://login.bit101.flwfdd.xyz/api/auth/diagnostic-challenge", authenticated),
+            ("https://example.invalid/api/auth/diagnostic-challenge", failed),
+            ("https://login.bit101.flwfdd.xyz/api/other", failed)
+        ] {
+            let url = try XCTUnwrap(URL(string: address))
+            let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+            await store.record(request: URLRequest(url: url), data: data, response: response, error: nil, elapsed: 0)
+        }
+        let records = await store.recent()
+        XCTAssertEqual(records.count, 3)
+        XCTAssertTrue(records.allSatisfy { $0.error == nil })
+        XCTAssertEqual(FeedbackDiagnosticSummary(diagnostics: records).failed, 0)
+    }
+
     @MainActor
     func testFeedbackBuildEnvironmentMatchesCompilationMode() {
 #if DEBUG

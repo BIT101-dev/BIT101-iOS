@@ -4,6 +4,26 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT="$ROOT_DIR/BIT101-iOS.xcodeproj"
 DERIVED_ROOT="$ROOT_DIR/.build/extended-automation"
+if [[ "${BIT101_EXTENDED_TESTS_LOCK_HELD:-0}" != "1" ]]; then
+  exec python3 - "$ROOT_DIR/.build/extended-automation.lock" "$0" "$@" <<'PY'
+import fcntl
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+lock_path = Path(sys.argv[1])
+lock_path.parent.mkdir(parents=True, exist_ok=True)
+with lock_path.open("a") as lock:
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print("[等待] 既有测试正在使用固定产物目录。", flush=True)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+    environment = dict(os.environ, BIT101_EXTENDED_TESTS_LOCK_HELD="1")
+    raise SystemExit(subprocess.run(sys.argv[2:], env=environment).returncode)
+PY
+fi
 TEST_BUNDLE="BIT101-iOSTests"
 TEST_SCHEME="BIT101-iOS"
 CONDITIONS="DEBUG EXTENDED_AUTOMATION BIT101_AUTOMATED_TESTING"
@@ -59,7 +79,7 @@ if [[ "$MODE" == "verify" ]]; then
   done
   if $verification_needs_device; then
     source "$ROOT_DIR/Scripts/device-support.sh"
-    bit101_require_device "$PROJECT" || exit 1
+    bit101_require_device || exit 1
     verification_device_id="$BIT101_XCODE_DEVICE_ID"
   fi
   export BIT101_DEFER_APP_RESTORE=1
@@ -150,21 +170,16 @@ elif [[ "$MODE" == "catalyst" ]]; then
   else
     SIGNING_ARGS=(-allowProvisioningUpdates)
   fi
-elif [[ $# -eq 0 ]]; then
-  source "$ROOT_DIR/Scripts/device-support.sh"
-  bit101_require_device "$PROJECT" || exit 1
-  TEST_DESTINATION="platform=iOS,id=$BIT101_XCODE_DEVICE_ID"
-  SIGNING_ARGS=(-allowProvisioningUpdates)
-  UI_RESTORE_DEVICE_ID="$BIT101_XCODE_DEVICE_ID"
 else
   if [[ $# -gt 1 ]]; then
     echo "用法：Scripts/run-extended-tests.sh [模式] [--only-testing 测试类/用例]... [真机设备ID]" >&2
     exit 64
   fi
-  DEVICE_ID="$1"
-  TEST_DESTINATION="platform=iOS,id=$DEVICE_ID"
+  source "$ROOT_DIR/Scripts/device-support.sh"
+  bit101_require_device "${1:-}" || exit 1
+  TEST_DESTINATION="platform=iOS,id=$BIT101_XCODE_DEVICE_ID"
   SIGNING_ARGS=(-allowProvisioningUpdates)
-  UI_RESTORE_DEVICE_ID="$DEVICE_ID"
+  UI_RESTORE_DEVICE_ID="$BIT101_XCODE_DEVICE_ID"
 fi
 
 if [[ "$MODE" == "ui" && "$BUILD_ONLY" == false && "${BIT101_DEFER_APP_RESTORE:-0}" != "1" ]]; then
@@ -230,8 +245,11 @@ process = subprocess.Popen(
     bufsize=1,
 )
 buffered = []
-report = None
+report_path.parent.mkdir(parents=True, exist_ok=True)
+report = report_path.open("w", encoding="utf-8")
 for line in process.stdout:
+    report.write(line)
+    report.flush()
     if not line.strip() or line.startswith(("note: Removed stale file ", "Failed frontend command:")):
         continue
     if line.startswith(("Test case ", "Test suite ", "Test Case ", "Test Suite ")) and " failed " not in line.lower():
@@ -248,24 +266,17 @@ for line in process.stdout:
         continue
     if (line.startswith("/") and "swift-frontend -frontend" in line) or line.lstrip().startswith("builtin-SwiftDriver -- "):
         continue
-    if report is None:
-        buffered.append(line)
-        if len(buffered) <= 1000:
-            sys.stdout.write(line)
-            sys.stdout.flush()
-            continue
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-        report = report_path.open("w", encoding="utf-8")
-        report.writelines(buffered)
-        buffered.clear()
-    else:
-        report.write(line)
+    buffered.append(line)
+    buffered = buffered[-40:]
 
-if report is not None:
-    report.close()
-    print(f"[输出] {label} 超过 1000 行，详情写入 {report_path}")
-
-raise SystemExit(process.wait())
+report.close()
+result = process.wait()
+if result:
+    sys.stdout.writelines(buffered)
+else:
+    sys.stdout.writelines(line for line in buffered if "Test run with" in line)
+print(f"[日志] {label}：{report_path}")
+raise SystemExit(result)
 PY
 }
 

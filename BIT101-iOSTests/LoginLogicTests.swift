@@ -14,6 +14,9 @@ struct LoginLogicTests {
 
         #expect(BIT101APIClient.isAcceptedSchoolLoginCompletion(statusCode: 401, url: gateURL))
         #expect(BIT101APIClient.isSchoolLoginSuccessLanding(gateURL))
+        let reportedGateURL = try #require(URL(string: "https://sso.bit.edu.cn/gate/cas-success/?ticket=test-ticket"))
+        #expect(BIT101APIClient.isAcceptedSchoolLoginCompletion(statusCode: 401, url: reportedGateURL))
+        #expect(BIT101APIClient.isSchoolLoginSuccessLanding(reportedGateURL))
         #expect(!BIT101APIClient.isAcceptedSchoolLoginCompletion(statusCode: 401, url: otherURL))
         #expect(!BIT101APIClient.isSchoolLoginSuccessLanding(otherURL))
         #expect(BIT101APIClient.isAcceptedSchoolLoginCompletion(statusCode: 204, url: otherURL))

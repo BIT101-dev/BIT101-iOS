@@ -146,6 +146,8 @@ public final class TeachingCenterSessionState {
             "jxzxehallapp.bit.edu.cn",
             "jwms.bit.edu.cn",
             "lexue.bit.edu.cn",
+            "zy-eclass.bit.edu.cn",
+            "zy-identity.bit.edu.cn",
         ])
     }
 

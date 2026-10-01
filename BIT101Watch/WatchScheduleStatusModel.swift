@@ -32,7 +32,7 @@ struct WatchScheduleStatusDependencies {
     var clearSnapshot: () -> Void
     var activateSync: @MainActor () -> Void
     var requestLatestSnapshot: @MainActor (
-        @escaping (Result<Void, WatchScheduleSyncError>) -> Void
+        @escaping @MainActor (Result<Void, WatchScheduleSyncError>) -> Void
     ) -> Void
 
     static let live = WatchScheduleStatusDependencies(

@@ -11,6 +11,7 @@ import ScheduleDomain
 
 import Foundation
 
+@MainActor
 public struct ScheduleService {
     let schoolBaseURL = AppURL.required("https://jxzxehallapp.bit.edu.cn")
     let webVPNSchoolBaseURL = AppURL.required("https://webvpn.bit.edu.cn/https/77726476706e69737468656265737421faef5b842238695c720999bcd6572a216b231105adc27d")
@@ -25,6 +26,7 @@ public struct ScheduleService {
     let rawCourseResponseHandler: ((Data) -> Void)?
     let session: URLSession
     let transportOverride: (any HTTPTransport)?
+    let observer: (any HTTPClientObserving & Sendable)?
     private let redirectDelegate = HTTPSUpgradingRedirectDelegate()
     static let authenticationWaitSeconds: TimeInterval = 90
     struct AuthenticationCredentials: Encodable {
@@ -49,7 +51,8 @@ public struct ScheduleService {
         schoolSessionRestorer: any SchoolSessionRestoring,
         teachingCenterState: TeachingCenterSessionState,
         rawCourseResponseHandler: ((Data) -> Void)? = nil,
-        transport: (any HTTPTransport)? = nil
+        transport: (any HTTPTransport)? = nil,
+        observer: (any HTTPClientObserving & Sendable)? = nil
     ) {
         self.credentials = credentials
         self.crypto = crypto
@@ -57,6 +60,7 @@ public struct ScheduleService {
         self.teachingCenterState = teachingCenterState
         self.rawCourseResponseHandler = rawCourseResponseHandler
         transportOverride = transport
+        self.observer = observer
         let configuration = URLSessionConfiguration.default
         configuration.httpCookieAcceptPolicy = .always
         configuration.httpCookieStorage = teachingCenterState.cookieStorage

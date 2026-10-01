@@ -30,6 +30,40 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
     }
 
     @MainActor
+    func testSchoolDDLSourcesAndCompletionPersistAcrossAppRelaunch() throws {
+        app = launchApp(resetStorage: true, ddlFixture: "sources")
+        let ddl = app.segmentedControls.buttons["DDL"]
+        assertUI(ddl.waitForExistence(timeout: 10), "日程页应展示 DDL 分页。")
+        ddl.tap()
+        let eclass = app.staticTexts["课程中心测试作业"]
+        assertUI(eclass.waitForExistence(timeout: 5), "DDL 页应展示课程中心作业。")
+        assertUI(app.staticTexts["乐学测试日程"].exists, "DDL 页应展示乐学日程。")
+        let completion = app.buttons["ddl.done.eclass:ui"]
+        assertUI(completion.exists, "课程中心作业应提供完成状态操作。")
+        completion.tap()
+        assertUI(completion.value as? String == "已完成", "点击后应保存完成状态。")
+        eclass.tap()
+        assertUI(app.navigationBars["DDL 详情"].waitForExistence(timeout: 5), "课程中心作业应打开详情。")
+        assertUI(app.staticTexts["课程中心"].exists, "详情应显示中文来源。")
+        assertUI(!app.buttons["编辑"].exists && !app.buttons["删除"].exists, "学校作业应按同步来源展示。")
+        app.buttons["取消"].tap()
+        app.terminate()
+        app = launchApp(resetStorage: false)
+        app.segmentedControls.buttons["DDL"].tap()
+        let restored = app.buttons["ddl.done.eclass:ui"]
+        assertUI(restored.waitForExistence(timeout: 5), "重新启动后应恢复课程中心作业。")
+        assertUI(restored.value as? String == "已完成", "重新启动后应恢复完成状态。")
+    }
+
+    @MainActor
+    func testDDLEmptyStateExplainsTheRetentionWindow() throws {
+        app = launchApp(resetStorage: true, ddlFixture: "overdue")
+        app.segmentedControls.buttons["DDL"].tap()
+        let explanation = app.staticTexts["1 条日程已超出显示范围。当前滞留天数为 0 天，可在 DDL 设置调整。"]
+        assertUI(explanation.waitForExistence(timeout: 5), "过期日程的空列表应说明当前显示范围。")
+    }
+
+    @MainActor
     func testLongPressOpensScheduleContextMenuAndImportSheet() throws {
         app = launchApp(resetStorage: true)
 
@@ -335,7 +369,8 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
         resetStorage: Bool,
         account: String? = "ui-test-student",
         accessibilityTextSize: Bool = false,
-        userInterfaceStyle: String? = nil
+        userInterfaceStyle: String? = nil,
+        ddlFixture: String? = nil
     ) -> XCUIApplication {
         continueAfterFailure = false
         let application = XCUIApplication()
@@ -352,6 +387,7 @@ nonisolated final class LoginAndScheduleUITests: XCTestCase {
         application.launchEnvironment["BIT101_UI_TESTING"] = "1"
         application.launchEnvironment["BIT101_UI_TEST_RUN_ID"] = runIdentifier
         application.launchEnvironment["BIT101_UI_TEST_RESET_STORAGE"] = resetStorage ? "1" : "0"
+        if let ddlFixture { application.launchEnvironment["BIT101_UI_TEST_DDL_FIXTURE"] = ddlFixture }
         if resetStorage, let account {
             application.launchEnvironment["BIT101_UI_TEST_ACCOUNT"] = account
         }

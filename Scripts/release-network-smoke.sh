@@ -4,19 +4,14 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT="$ROOT_DIR/BIT101-iOS.xcodeproj"
 
-if [[ $# -eq 0 ]]; then
-  source "$ROOT_DIR/Scripts/device-support.sh"
-  bit101_require_device "$PROJECT" || exit 1
-  DEVICE_ID="$BIT101_XCODE_DEVICE_ID"
-  DEVICETCL_DEVICE_ID="$BIT101_DEVICETCL_DEVICE_ID"
-else
-  if [[ $# -gt 2 ]]; then
-    echo "用法: $0 [真机设备ID]" >&2
-    exit 64
-  fi
-  DEVICE_ID="$1"
-  DEVICETCL_DEVICE_ID="$DEVICE_ID"
+if [[ $# -gt 1 ]]; then
+  echo "用法: $0 [真机设备ID]" >&2
+  exit 64
 fi
+source "$ROOT_DIR/Scripts/device-support.sh"
+bit101_require_device "${1:-}" || exit 1
+DEVICE_ID="$BIT101_XCODE_DEVICE_ID"
+DEVICETCL_DEVICE_ID="$BIT101_DEVICETCL_DEVICE_ID"
 
 DERIVED_DATA="$ROOT_DIR/.build/release-network-smoke"
 BUILD_LOG="$DERIVED_DATA/build.log"

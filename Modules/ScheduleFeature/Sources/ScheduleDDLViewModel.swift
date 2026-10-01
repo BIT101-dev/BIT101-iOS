@@ -90,11 +90,6 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
     /// DDL 列表默认向后保留的天数。
     public var afterDay: Int { min(max(cache.ddlAfterDay, 0), 30) }
 
-    /// 是否已经拿到乐学订阅地址。
-    var hasLexueCalendarURL: Bool {
-        !cache.lexueCalendarURL.isEmpty
-    }
-
     /// 经过时间窗口裁剪后的 DDL 列表。
     var visibleDDLEvents: [DDLEventRecord] {
         let threshold = Date().addingTimeInterval(TimeInterval(-afterDay * 24 * 3600))
@@ -108,8 +103,14 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
             }
     }
 
+    var ddlEmptyStateMessage: String {
+        cache.ddlEvents.isEmpty
+            ? "刷新课程中心作业，也可手动添加日程。"
+            : "\(cache.ddlEvents.count) 条日程已超出显示范围。当前滞留天数为 \(afterDay) 天，可在 DDL 设置调整。"
+    }
 
-    /// 同步乐学 DDL，并保留本地手动项目和完成状态。
+
+    /// 同步学校 DDL，并保留手动项目和完成状态。
     @discardableResult
     public func syncDDL(showSuccessNotice: Bool = true, showErrorNotice: Bool = true) async -> Bool {
         guard !isSyncingDDL else { return false }
@@ -130,7 +131,7 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
             )
             guard accountGeneration == generation else { return false }
             cache.lexueCalendarURL = payload.url
-            for event in cache.ddlEvents where event.group == "lexue" {
+            for event in cache.ddlEvents where event.isSchoolSynced {
                 cache.lexueDDLCompletionByID[event.id] = event.done
             }
             let syncedEvents = payload.events.map { event in
@@ -141,17 +142,18 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
             }
             cache.ddlEvents = ScheduleDDLEditor.mergingSyncedEvents(
                 syncedEvents,
-                into: cache.ddlEvents
+                into: cache.ddlEvents,
+                syncedGroups: payload.syncedGroups
             )
             cache.ddlUpdatedAt = Date()
             guard await persistAndWait(), accountGeneration == generation else { return false }
             if showSuccessNotice {
                 notice = ScheduleNotice.informational(
-                    title: "DDL 同步成功",
-                    message: payload.events.isEmpty ? "已更新成功，当前没有乐学日程。" : "已更新成功，共同步 \(payload.events.count) 条乐学日程。"
+                    title: payload.warnings.isEmpty ? "DDL 同步成功" : "DDL 部分更新",
+                    message: (["已同步 \(payload.events.count) 条学校日程。"] + payload.warnings).joined(separator: "\n")
                 )
             }
-            return true
+            return payload.warnings.isEmpty
         } catch ScheduleServiceError.schoolSecondFactorRequired {
             guard accountGeneration == generation else { return false }
             presentDDLSecondFactorNotice()
@@ -251,7 +253,7 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
     func toggleDDLDone(_ event: DDLEventRecord) {
         guard cache.ddlEvents.contains(where: { $0.id == event.id }) else { return }
         cache.ddlEvents = ScheduleDDLEditor.togglingDone(id: event.id, in: cache.ddlEvents)
-        if let updated = cache.ddlEvents.first(where: { $0.id == event.id }), updated.group == "lexue" {
+        if let updated = cache.ddlEvents.first(where: { $0.id == event.id }), updated.isSchoolSynced {
             cache.lexueDDLCompletionByID[updated.id] = updated.done
         }
         persist()

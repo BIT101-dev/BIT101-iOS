@@ -7,13 +7,9 @@ if [[ $# -gt 1 ]]; then
   exit 64
 fi
 
-if [[ $# -eq 1 ]]; then
-  DEVICE_ID="$1"
-else
-  source "$ROOT_DIR/Scripts/device-support.sh"
-  bit101_require_core_device || exit 1
-  DEVICE_ID="$BIT101_DEVICETCL_DEVICE_ID"
-fi
+source "$ROOT_DIR/Scripts/device-support.sh"
+bit101_require_device "${1:-}" || exit 1
+DEVICE_ID="$BIT101_DEVICETCL_DEVICE_ID"
 
 DESTINATION="$ROOT_DIR/.build/screenshot.png"
 

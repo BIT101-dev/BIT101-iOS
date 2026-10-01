@@ -44,7 +44,7 @@ flowchart TD
     ScoreInfrastructure --> ScoreDomain
 ```
 
-图中展示主要业务依赖；网络、存储、学校认证和设计系统的直接依赖以 `Package.swift` 为准。重构证据、指标及后续边界见 [模块化审计](MODULARITY_AUDIT.md)。
+图中展示主要业务依赖；网络、存储、学校认证和设计系统的直接依赖以 `Package.swift` 为准。验证流程见 [构建与测试](TESTING.md)。
 
 ## App 组装与状态流
 
@@ -82,6 +82,8 @@ App 入口 → 登录恢复 → AppAccountLifecycle → 各场景状态与页面
 
 `Shell/AppNetworkClients.swift` 组装连接池、网络提示、教学中心会话与诊断。`Login/CommunitySessionSupport.swift` 提供身份快照和按会话实例合并的登录恢复动作；用户主动诊断归 `Shell/NetworkDiagnosisRunner.swift`。`ScoreInfrastructure` 的生产端点和连接池在 App 扩展构造器中选择。
 
+`ScheduleServiceFactory` 为教学中心传输注入同一请求观察器，诊断在网络错误映射前记录原始原因。统一认证轮询的 `status: failed` 响应按业务失败记录；HTTP 状态码与服务端原因同时保留，提交反馈时按所选模式脱敏。
+
 | 会话 | 边界 |
 | --- | --- |
 | `community` | 社区场景共用 Cookie、URLCache 与连接池 |
@@ -95,6 +97,10 @@ App 入口 → 登录恢复 → AppAccountLifecycle → 各场景状态与页面
 - 取消、超时、证书错误和业务失败保持各自语义。HTTP 状态和错误正文由共享传输层校验。
 - JSON 解码使用可取消的并发任务，跨隔离域模型满足 `Sendable`；文件保存由串行队列或 actor 承接。
 - 日志记录必要状态与错误分类，凭据、课表正文和学生信息保持在业务数据边界内。
+
+课程中心 DDL 通过分页 `POST /api/my-courses` 获取全部课程，逐课读取 `GET /api/courses/{id}/activities`，并发上限为 4。会话过期后复用学校认证恢复、CAS 跳转和公共短信验证能力。作业以提交次数、迟交次数或批阅字段识别，截止时间优先采用 `end_time`，随后采用 `visible_end_at`；无时区时间按北京时间解析，带时区时间保留实际时刻。
+
+课程中心与乐学事件分别使用 `eclass` 和 `lexue` 来源。来源完整读取后替换对应缓存；部分失败保留该来源数据并呈现部分更新提示。学校事件按稳定 ID 保留完成状态，手动事件独立保存；详情显示中文来源。列表按滞留天数筛选过期事件，空态说明筛选数量与当前窗口。
 
 ## 存储与账号隔离
 
@@ -123,7 +129,7 @@ App 入口 → 登录恢复 → AppAccountLifecycle → 各场景状态与页面
 
 两条同步链路分别维护开关、数据范围和冲突处理：
 
-- **课表 CloudKit**：`ScheduleCloudSyncManager` 使用私有数据库，按账号同步手动调课、放假规则、个人日程、分享课表、手动 DDL、乐学 DDL 完成状态和日程偏好。学校课程、考试、DDL 正文和查询缓存保存在本机。
+- **课表 CloudKit**：`ScheduleCloudSyncManager` 使用私有数据库，按账号同步手动调课、放假规则、个人日程、分享课表、手动 DDL、学校 DDL 完成状态和日程偏好。学校课程、考试、DDL 正文和查询缓存保存在本机。
 - **实验性偏好 KVS**：`ExperimentalPreferenceCloudSync` 同步设置、成绩筛选、成绩缓存与消息已读状态。开关保存在当前设备并按账号隔离，默认关闭；各域分别记录修改时间。成绩快照使用 LZFSE 压缩并检查配额。
 
 CloudKit 使用带版本的精简载荷，本地记录保留服务器基线和待上传状态；本机编辑与远端分歧时提供版本选择。历史载荷通过已有迁移入口合并，版本兼容性决定同步准入。损坏的成绩缓存暂停该域的 KVS 同步。
@@ -142,5 +148,6 @@ CloudKit 使用带版本的精简载荷，本地记录保留服务器基线和�
 - `ScheduleContracts` 提供共享编码、状态解析和时间线规划；`ScheduleSharedStore` 注入文件服务、容器地址和通知中心。App、Widget、Watch App 与 Watch Widget 在各自入口选择 App Group 容器，并显式传入快照解析器。
 - `ScheduleExternalContentState` 区分同步、登录、快照有效性与课程状态；`ScheduleTimelineRefreshPlanner` 规划课程切换和跨日刷新。
 - Watch 负责请求、落地和展示镜像；Live Activity 单独管理提醒生命周期。模型调整同步关注 App、iOS Widget、Watch App 和 Watch Widget。
+- WatchConnectivity 的回复和错误回调显式使用 `@Sendable`，快照落地和业务完成回调转到 `MainActor`；Watch 状态模型的注入端口声明相同隔离契约。
 
 分享链接与自定义 Scheme 的契约见 [Cloudflare 资源](../Cloudflare/README.md)。构建、测试和固定 fixture 的维护入口见 [构建与测试](TESTING.md)。

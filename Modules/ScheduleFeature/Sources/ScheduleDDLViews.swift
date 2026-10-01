@@ -36,11 +36,6 @@ struct DDLScheduleTabView: View {
                             Task { await refreshDDL() }
                         }
                     )
-
-                    // DDL 维护状态标记：学校正逐步弃用乐学。
-                    Text("学校正逐步弃用乐学，DDL功能不再维护。")
-                        .font(AppDesignSystem.Typography.subheadline)
-                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                 }
 
                 if viewModel.visibleDDLEvents.isEmpty {
@@ -48,13 +43,9 @@ struct DDLScheduleTabView: View {
                         AppEmptyState(
                             title: "暂无 DDL",
                             systemImage: "list.bullet.clipboard",
-                            message: viewModel.hasLexueCalendarURL
-                                ? "当前没有可展示的 DDL。"
-                                : "先获取乐学日程，或手动添加一条。",
-                            actionTitle: viewModel.hasLexueCalendarURL ? nil : "获取乐学日程",
-                            onAction: viewModel.hasLexueCalendarURL
-                                ? nil
-                                : { Task { await refreshDDL() } }
+                            message: viewModel.ddlEmptyStateMessage,
+                            actionTitle: "刷新学校日程",
+                            onAction: { Task { await refreshDDL() } }
                         )
                         .frame(maxWidth: .infinity)
                     }
@@ -175,6 +166,9 @@ private struct DDLEventCard: View {
                     Text(dueText)
                         .font(AppDesignSystem.Typography.caption)
                         .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                    Text(event.sourceTitle)
+                        .font(AppDesignSystem.Typography.caption)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                 }
 
                 Spacer(minLength: AppDesignSystem.Spacing.none)
@@ -190,12 +184,14 @@ private struct DDLEventCard: View {
                 .appSelectionFeedback(trigger: event.done)
                 .accessibilityLabel(event.done ? "标记为未完成" : "标记为已完成")
                 .accessibilityValue(event.done ? "已完成" : "未完成")
+                .accessibilityIdentifier("ddl.done.\(event.id)")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: onOpenDetail)
         .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("ddl.event.\(event.id)")
         .accessibilityAction(named: "打开详情") {
             onOpenDetail()
         }
@@ -208,7 +204,7 @@ private struct DDLEventCard: View {
 
 /// DDL 详情页。
 ///
-/// 乐学同步项处于只读状态；手动项显示编辑和删除按钮。
+/// 学校同步项展示详情；手动项提供编辑和删除按钮。
 private struct DDLEventDetailSheet: View {
     let event: DDLEventRecord
     let remainText: String
@@ -225,7 +221,7 @@ private struct DDLEventDetailSheet: View {
                         .strikethrough(event.done)
                     Text(ScheduleDateCodec.formatDateTime(event.dueAt))
                         .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                    Text(event.group == "lexue" ? "乐学" : "自定义")
+                    Text(event.sourceTitle)
                         .font(AppDesignSystem.Typography.subheadline)
                         .foregroundStyle(AppDesignSystem.Foreground.secondary)
                 }
@@ -235,7 +231,7 @@ private struct DDLEventDetailSheet: View {
                     Text(detailText.isEmpty ? "无详情" : detailText)
                 }
 
-                if event.group != "lexue" {
+                if !event.isSchoolSynced {
                     Section {
                         Button("编辑") {
                             dismiss()
@@ -277,6 +273,7 @@ private struct DDLEditSheet: View {
             Form {
                 Section("内容") {
                     TextField("", text: $draft.title, prompt: AppInputPrompt.text("标题"))
+                        .accessibilityIdentifier("ddl.editor.title")
                     DatePicker("时间", selection: $draft.dueAt, displayedComponents: [.date, .hourAndMinute])
                     TextField("", text: $draft.text, prompt: AppInputPrompt.text("详情"), axis: .vertical)
                         .lineLimit(4, reservesSpace: true)
@@ -290,6 +287,7 @@ private struct DDLEditSheet: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("确定", action: onSubmit)
+                        .accessibilityIdentifier("ddl.editor.save")
                 }
             }
         }

@@ -35,11 +35,11 @@ struct ScheduleInfrastructureTests {
         func restoreSchoolSessionIfNeeded() async throws -> String? { nil }
     }
 
-    private func service(transport: any HTTPTransport) -> ScheduleService {
+    private func service(transport: any HTTPTransport, observer: (any HTTPClientObserving & Sendable)? = nil) -> ScheduleService {
         ScheduleService(
             credentials: Credentials(), crypto: Crypto(), schoolSessionRestorer: Restorer(),
             teachingCenterState: TeachingCenterSessionState(cookieStorage: .sharedCookieStorage(forGroupContainerIdentifier: "BIT101ModulesTests.infrastructure")),
-            transport: transport
+            transport: transport, observer: observer
         )
     }
 
@@ -84,6 +84,32 @@ struct ScheduleInfrastructureTests {
             Issue.record("Expected transport cancellation")
         } catch let error as URLError {
             #expect(error.code == .cancelled)
+        }
+    }
+
+    @Test func schoolTransportRecordsResponsesAndOriginalNetworkFailures() async throws {
+        let request = URLRequest(url: AppURL.required("http://example.invalid/diagnostic-probe"))
+        let observer = RecordingObserver()
+        let transport = SequenceTransport([(200, Data("school response".utf8))])
+        _ = try await service(transport: transport, observer: observer).sendRequest(request)
+        #expect(observer.events == ["willSend", "didFinish"])
+        #expect(observer.sentData == Data("school response".utf8))
+        #expect(observer.recordedRequest?.url?.scheme == "https")
+        #expect(observer.recordedError == nil)
+
+        for code in [URLError.Code.cannotFindHost, .serverCertificateUntrusted, .cancelled] {
+            let failedObserver = RecordingObserver()
+            let failedService = service(
+                transport: StubTransport(result: .failure(URLError(code))), observer: failedObserver
+            )
+            do {
+                _ = try await failedService.sendRequest(request)
+                Issue.record("Expected a school transport failure")
+            } catch {
+                #expect(failedObserver.events == ["willSend", "didFinish"])
+                #expect((failedObserver.recordedError as? URLError)?.code == code)
+                #expect(failedObserver.recordedRequest?.url?.scheme == "https")
+            }
         }
     }
 }
@@ -180,6 +206,7 @@ private final class RecordingObserver: HTTPClientObserving {
     var failure: Error?
     var sentData: Data?
     var recordedError: Error?
+    var recordedRequest: URLRequest?
 
     func willSend(_ request: URLRequest) async throws {
         events.append("willSend")
@@ -196,12 +223,22 @@ private final class RecordingObserver: HTTPClientObserving {
         events.append("didFinish")
         sentData = data
         recordedError = error
+        recordedRequest = request
     }
 }
 
 @MainActor
 struct ClientCoreTests {
     private let url = AppURL.required("https://example.invalid/module-test")
+
+    private struct CancellingResponseTransport: HTTPTransport {
+        let response: HTTPURLResponse
+
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return (Data(#"{"message":"maintenance"}"#.utf8), response)
+        }
+    }
 
     @Test func schoolAuthenticationContractsDecodeAndProjectChallenge() async throws {
         let data = Data(#"{"challenge_id":"school-challenge","access_token":"token","status":"waiting_sms","masked_phone":"138****0000","expires_in":120}"#.utf8)
@@ -262,6 +299,33 @@ struct ClientCoreTests {
         }
         #expect(observer.events == ["willSend", "didFinish"])
         #expect((observer.recordedError as? URLError)?.code == .timedOut)
+    }
+
+    @Test func alreadyCancelledRequestsSkipAdmissionAndTransport() async {
+        let transport = StubTransport(result: .failure(CancellationError()))
+        let observer = RecordingObserver()
+        let client = HTTPClient(transport: transport, observer: observer)
+        let operation = Task { @MainActor in
+            try await client.send(URLRequest(url: url))
+        }
+        operation.cancel()
+
+        await #expect(throws: CancellationError.self) { try await operation.value }
+        #expect(transport.requests.isEmpty)
+        #expect(observer.events.isEmpty)
+    }
+
+    @Test(arguments: [200, 503]) func cancellationAfterResponsePreservesCancellation(status: Int) async throws {
+        let response = try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil))
+        let observer = RecordingObserver()
+        let client = HTTPClient(transport: CancellingResponseTransport(response: response), observer: observer)
+        let operation = Task { @MainActor in
+            try await client.send(URLRequest(url: url))
+        }
+
+        await #expect(throws: CancellationError.self) { try await operation.value }
+        #expect(observer.events == ["willSend", "didFinish"])
+        #expect(observer.recordedError is CancellationError)
     }
 
     @Test func httpStatusValidationRetainsServerMessage() async throws {

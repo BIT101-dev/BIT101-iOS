@@ -50,6 +50,16 @@ struct UITestLoginService: LoginServicing {
             cache.firstDayString = ScheduleDateCodec.formatDate(ScheduleDateCodec.monday(containing: Date()))
             cache.currentTerm = "ui-test-term"
             cache.iCloudSyncEnabled = false
+            if let fixture = ProcessInfo.processInfo.environment["BIT101_UI_TEST_DDL_FIXTURE"] {
+                let now = Date()
+                if fixture == "overdue" { cache.ddlAfterDay = 0 }
+                cache.ddlEvents = [DDLEventRecord(id: "eclass:ui", group: "eclass", title: "课程中心测试作业",
+                    text: "测试课程", dueAt: now.addingTimeInterval(fixture == "overdue" ? -24 * 3600 : 24 * 3600), done: false)]
+                if fixture == "sources" {
+                    cache.ddlEvents.append(DDLEventRecord(id: "lexue-ui", group: "lexue", title: "乐学测试日程",
+                        text: "测试课程", dueAt: now.addingTimeInterval(48 * 3600), done: false))
+                }
+            }
             guard await ScheduleCacheStore.saveAndWait(cache) else {
                 throw URLError(.cannotWriteToFile)
             }

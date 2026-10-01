@@ -145,9 +145,9 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     ///
     /// session 可达时使用 `sendMessage` 完成前台即时往返；session 不可达时，
     /// `applicationContext` 以 best-effort 方式传递请求。
-    /// completion 返回即时快照落地结果或请求入队结果。
+    /// SDK 后台回调使用 Sendable 闭包，completion 在 MainActor 返回快照落地或请求入队结果。
     func requestLatestSnapshotFromPhone(
-        completion: @escaping (Result<Void, WatchScheduleSyncError>) -> Void = { _ in }
+        completion: @escaping @MainActor (Result<Void, WatchScheduleSyncError>) -> Void = { _ in }
     ) {
         guard WCSession.isSupported() else {
             completion(.failure(.notSupported))
@@ -160,16 +160,16 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
         if session.isReachable {
             session.sendMessageData(
                 WatchScheduleTransferProtocol.requestData,
-                replyHandler: { data in
+                replyHandler: { @Sendable data in
                     Task { @MainActor in
                         completion(self.persistSnapshotData(data))
                     }
                 },
-                errorHandler: { error in
+                errorHandler: { @Sendable error in
                     Task { @MainActor in
                         Self.logger.notice("Immediate watch sync failed; queueing a context request: \(String(describing: error), privacy: .public)")
                         do {
-                            try session.updateApplicationContext(WatchScheduleTransferProtocol.requestContext)
+                            try WCSession.default.updateApplicationContext(WatchScheduleTransferProtocol.requestContext)
                             completion(.success(()))
                         } catch {
                             Self.logger.error("Failed to queue the watch schedule request: \(String(describing: error), privacy: .public)")

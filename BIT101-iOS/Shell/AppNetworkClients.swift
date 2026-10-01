@@ -5,7 +5,7 @@ import MediaKit
 import Foundation
 
 /// 应用侧组装传输提示和诊断记录。
-private struct AppHTTPClientObserver: HTTPClientObserving {
+private struct AppHTTPClientObserver: HTTPClientObserving, Sendable {
     let warningCenter: NetworkMagicWarningCenter?
 
     func willSend(_ request: URLRequest) async throws {
@@ -38,6 +38,10 @@ extension HTTPClient {
 #else
     private static let defaultNetworkWarningCenter: NetworkMagicWarningCenter? = .shared
 #endif
+
+    static var appObserver: any HTTPClientObserving & Sendable {
+        AppHTTPClientObserver(warningCenter: defaultNetworkWarningCenter)
+    }
 
     init(
         transport: any HTTPTransport,

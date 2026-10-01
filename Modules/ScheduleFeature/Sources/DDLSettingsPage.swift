@@ -11,22 +11,20 @@ public struct DDLSettingsPage: View {
 
     public var body: some View {
         List {
-            Section("数据设置") {
+            Section("课程中心") {
+                Button("刷新学校日程") {
+                    Task { await viewModel.syncDDL() }
+                }
+                .disabled(viewModel.isSyncingDDL)
+                .accessibilityIdentifier("ddl.refresh")
+            }
+
+            Section("乐学订阅") {
                 Button {
                     Task { await viewModel.refreshLexueCalendarURL() }
                 } label: {
                     DDLSettingsActionRow(
                         title: "重新获取订阅链接"
-                    )
-                }
-                .buttonStyle(.plain)
-                .disabled(viewModel.isSyncingDDL)
-
-                Button {
-                    Task { await viewModel.syncDDL() }
-                } label: {
-                    DDLSettingsActionRow(
-                        title: "重新拉取乐学日程"
                     )
                 }
                 .buttonStyle(.plain)

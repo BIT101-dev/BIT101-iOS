@@ -19,6 +19,19 @@ Scripts/build-install-device.sh --compile-only --generic
 Scripts/capture-screenshot-device.sh
 ```
 
+所有真机入口共用 `Scripts/device-support.sh`：依据一次 CoreDevice 设备快照优先选择可用的 USB 有线设备，有线设备缺席时立即选择已配对、当前可发现的无线设备。快照同时提供 CoreDevice UUID 和设备 UDID，构建、装机、启动、截图、测试、网络 Smoke 与 iCloud Smoke 使用同一台设备。显式传入设备 ID 时按该设备选择，支持 UDID 和 CoreDevice UUID。
+
+设备选择在构建与测试启动前完成，连接类型回退由当前可发现状态触发。设备全部离线时立即退出并提示连接方式。设备发现沿用 CoreDevice 默认参数，执行一次列表读取。
+
+[无线调试](https://help.apple.com/xcode/mac/current/en.lproj/dev3e2f4ee6d.html)要求 iPhone 与 Mac 完成 Xcode 配对、开启开发者模式并连接同一局域网。通过既有脚本读取设备详情，验证当前连接：
+
+```sh
+Scripts/device-support.sh
+Scripts/device-support.sh <真机设备ID>
+```
+
+检查输出中的 `wired` 表示有线连接，`localNetwork` 表示无线连接。
+
 Mac Catalyst 构建与安装沿用同一入口：
 
 ```sh
@@ -78,6 +91,9 @@ Scripts/run-extended-tests.sh ui <真机设备ID>
 Scripts/run-extended-tests.sh ui \
   --only-testing LoginAndScheduleUITests/testLongPressOpensScheduleContextMenuAndImportSheet \
   --only-testing LoginAndScheduleUITests/testManualSchedulePersistsAcrossAppRelaunch
+Scripts/run-extended-tests.sh ui \
+  --only-testing LoginAndScheduleUITests/testSchoolDDLSourcesAndCompletionPersistAcrossAppRelaunch \
+  --only-testing LoginAndScheduleUITests/testDDLEmptyStateExplainsTheRetentionWindow
 ```
 
 稳定的 `accessibilityIdentifier` 用于字段、主 Tab 和编辑入口定位；失败的元素树和截图保存在既有 `.xcresult`。
@@ -103,6 +119,27 @@ BIT101_NETWORK_SMOKE_SCOPE=ddl Scripts/release-network-smoke.sh
 
 可选范围为 `all`、`bit101`、`school`、`transcript`、`schedule` 和 `ddl`。报告分别记录服务健康、执行探针和覆盖完整度，部分覆盖返回状态码 2。学校短信 challenge 记录为认证受阻，短信输入由真机流程验证；反馈探针在同一请求内创建、读取并清理临时报告。
 
+DDL 范围覆盖社区登录、课程中心原生认证、课程中心作业读取、乐学订阅发现和 ICS 下载。原生认证探针使用独立 Cookie 容器，携带学校 SSO 会话完成课程中心认证。报告的 `eclassDDL` 记录认证结果、课程数、活动类型、有效截止时间数量、近期与未来作业数量及作业截止字段缺失数量，同时记录账号滞留天数、窗口内作业数量、课程中心缓存数量和截止时间范围。
+
+课程中心接口参考 [Android PR #24](https://github.com/BIT101-dev/BIT101-Android/pull/24) 与[全课程分页提案](https://github.com/Star2121-1/BIT101-Android/pull/1)。`ModuleTests/Transport/EclassDDLTests.swift` 覆盖分页、作业字段、时间格式、并发、原生会话恢复、取消及生产服务到持久化的完整链路；`ModuleTests/Schedule/EclassDDLSyncTests.swift` 覆盖完成状态、部分失败、账号状态和过期窗口；`ModuleTests/Sync/ScheduleSyncTests.swift` 验证学校正文与完成状态的云同步边界。
+
+### 课程中心 DDL 验证记录
+
+2026-10-01 的集成验证结果：
+
+| 验证 | 结果与证据 |
+| --- | --- |
+| 包级测试 | 149 项通过；七个消费者 target 的完整执行记录见 `module-tests.log` |
+| iPhone 常规行为 | 230 项通过，失败与跳过均为 0 |
+| Catalyst 行为 | 238 项通过，失败与跳过均为 0；固定结果包成功保存 |
+| iPhone DDL UI | 两项通过；验证双来源、详情、完成状态重启恢复和过期空列表提示 |
+| 真机 DDL 网络 | 五项必需探针通过；原生认证在独立 Cookie 容器中完成 |
+| 静态审计 | 语法、模块依赖、UI 规范、工程配置、文档及固定产物检查通过 |
+
+真实课程中心探针读取 48 门课程、1 项作业和 1 个有效截止时间，账号缓存包含对应课程中心事件。该作业已超过账号当前 3 天滞留窗口，窗口内数量为 0；7 天窗口可显示此作业。空列表提示显示缓存数量与当前滞留天数，便于用户调整设置。真机网络报告保存具体截止时间与窗口计数。
+
+模块测试使用受控响应验证未来作业经过生产服务、ViewModel、账号仓库、编码解码和重新加载后的显示与完成状态；真机 UI 使用隔离缓存验证实际交互。学校短信分支通过共享 challenge 和原生会话测试验证，真实网络探针采用 preflight 模式。
+
 iCloud 双向验证要求 iPhone 与 Catalyst 使用同一 Apple ID 和 BIT101 账号，手机处于解锁状态并保存成绩缓存：
 
 ```sh
@@ -127,6 +164,8 @@ Scripts/run_icloud_cross_device_smoke.sh --cleanup
 | iCloud Smoke | `.build/icloud-cross-device-smoke/` |
 
 同类产物覆盖既有路径，文件名使用稳定类别名。脚本按输出规模显示终端结果或固定日志路径。
+完整测试输出写入对应固定日志，终端显示汇总和失败摘要；模块日志保留 Swift Testing 的 suite、用例及参数执行记录。
+测试入口通过 `.build/extended-automation.lock` 串行使用固定产物目录，聚合验证内的分组继承同一次执行锁。
 
 GitHub Actions 的 `.github/workflows/ci.yml` 使用 `xcode-27` runner，执行静态审计与包级测试、Release 测试构建及 Catalyst 行为用例。App 依赖图同时编译 Watch 和两种 Widget，Swift / Clang 警告按错误处理。版本、plist 和 PR 基线在静态 job 校验，手动 `release_check` 校验公开版本。
 

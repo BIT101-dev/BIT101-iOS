@@ -33,17 +33,13 @@ if [[ "${1:-}" == "--cleanup" ]]; then
   shift
 fi
 
-if [[ $# -eq 0 ]]; then
-  source "$ROOT_DIR/Scripts/device-support.sh"
-  bit101_require_device "$PROJECT" || exit 1
-  DEVICE_ID="$BIT101_XCODE_DEVICE_ID"
-else
-  if [[ $# -gt 1 ]]; then
-    echo "用法: $0 [--cleanup] [真机设备ID]；$0 --report [结果包路径]" >&2
-    exit 64
-  fi
-  DEVICE_ID="$1"
+if [[ $# -gt 1 ]]; then
+  echo "用法: $0 [--cleanup] [真机设备ID]；$0 --report [结果包路径]" >&2
+  exit 64
 fi
+source "$ROOT_DIR/Scripts/device-support.sh"
+bit101_require_device "${1:-}" || exit 1
+DEVICE_ID="$BIT101_XCODE_DEVICE_ID"
 
 mkdir -p "$DERIVED_ROOT"
 

@@ -70,6 +70,22 @@ struct ScheduleCacheAuditSnapshot: Codable, Sendable {
 }
 
 /// ReleaseNetworkSmokeReport 保存一次网络冒烟执行的结果。
+struct EclassDDLAudit: Codable {
+    let nativeAuthenticationVerified: Bool
+    let courseCount: Int
+    let activityCount: Int
+    let activityTypes: [String: Int]
+    let deadlineCount: Int
+    let upcomingDeadlineCount: Int
+    let recentDeadlineCount: Int
+    let homeworkWithoutDeadlineCount: Int
+    let retentionDays: Int
+    let visibleDeadlineCount: Int
+    let cachedEclassCount: Int
+    let earliestDeadline: Date?
+    let latestDeadline: Date?
+}
+
 struct ReleaseNetworkSmokeReport: Codable {
     let runID: String
     let scope: NetworkSmokeScope
@@ -83,6 +99,7 @@ struct ReleaseNetworkSmokeReport: Codable {
     let skippedProbes: [String]
     let coverageGaps: [String]
     let schoolSMSCoverage: String
+    var eclassDDL: EclassDDLAudit? = nil
 
     var elapsed: TimeInterval {
         finishedAt.timeIntervalSince(startedAt)

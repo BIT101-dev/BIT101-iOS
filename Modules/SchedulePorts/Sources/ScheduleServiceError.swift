@@ -18,6 +18,7 @@ public nonisolated enum ScheduleServiceError: LocalizedError {
     case invalidLexuePage
     case invalidCalendarURL
     case invalidCalendarData
+    case eclassAuthenticationFailed
     case schoolResponse(String)
 
     public var isUnpublishedCourseSchedule: Bool {
@@ -82,9 +83,10 @@ public nonisolated enum ScheduleServiceError: LocalizedError {
             return "乐学日历订阅链接无效。"
         case .invalidCalendarData:
             return "乐学日历数据解析失败。"
+        case .eclassAuthenticationFailed:
+            return "课程中心认证失败，请重新刷新日程。"
         case let .schoolResponse(message):
             return message
         }
     }
 }
-

@@ -6,6 +6,24 @@ import Testing
 
 @MainActor
 struct ScheduleSyncTests {
+    @Test func schoolDDLCloudStateSharesCompletionAndPreservesLocalBodies() throws {
+        var source = ScheduleCache()
+        source.ddlEvents = [
+            DDLEventRecord(id: "eclass:1", group: "eclass", title: "source-body", text: "", dueAt: Date(), done: true),
+            DDLEventRecord(id: "manual", group: "main", title: "manual", text: "", dueAt: Date(), done: false),
+        ]
+        let state = ScheduleCloudSyncState(cache: source)
+        let data = try JSONEncoder().encode(state)
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let manual = try #require(json["manualDDLEvents"] as? [[String: Any]])
+        #expect(manual.compactMap { $0["id"] as? String } == ["manual"])
+        var destination = ScheduleCache()
+        destination.ddlEvents = [DDLEventRecord(id: "eclass:1", group: "eclass", title: "local-body", text: "", dueAt: Date(), done: false)]
+        state.apply(to: &destination)
+        #expect(destination.ddlEvents.first(where: { $0.id == "eclass:1" })?.title == "local-body")
+        #expect(destination.ddlEvents.first(where: { $0.id == "eclass:1" })?.done == true)
+    }
+
     private final class Local {
         var account = ScheduleCloudAccount(studentID: "A", session: AppStorageSession(accountIdentifier: "A"), generation: 1)
         var cache = ScheduleCache()

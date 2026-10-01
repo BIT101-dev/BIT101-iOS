@@ -67,9 +67,9 @@ public nonisolated struct ScheduleCache: Codable, Sendable {
     public var exams: [ExamRecord] = []
     public var customSchedules: [CustomScheduleRecord] = []
     public var ddlEvents: [DDLEventRecord] = []
-    /// 乐学 DDL 的完成状态按事件 ID 保存，便于与可刷新事件正文分离同步。
+    /// 学校 DDL 的完成状态按事件 ID 保存，供账号同步与刷新复用。
     public var lexueDDLCompletionByID: [String: Bool] = [:]
-    /// 最近一次成功同步乐学 DDL 的时间；为空表示尚未成功同步。
+    /// 最近一次成功同步学校 DDL 的时间。
     public var ddlUpdatedAt: Date?
     public var ddlBeforeDay = 7
     public var ddlAfterDay = 3

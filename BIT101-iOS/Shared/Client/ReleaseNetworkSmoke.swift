@@ -1,4 +1,5 @@
 import SchedulePorts
+import ClientCore
 import ScoreDomain
 import ScoreInfrastructure
 import MineFeature
@@ -52,6 +53,7 @@ final class ReleaseNetworkSmokeRunner {
     private var failures: [String] = []
     private var authenticationBlockers: [String] = []
     private var scheduleCache: ScheduleCacheAuditSnapshot?
+    private var eclassDDL: EclassDDLAudit?
     private var executedProbes: [String] = []
     private var skippedProbes: [String] = []
     private var coverageGaps: [String] = []
@@ -65,6 +67,7 @@ final class ReleaseNetworkSmokeRunner {
         failures = []
         authenticationBlockers = []
         scheduleCache = nil
+        eclassDDL = nil
         ReleaseNetworkSmokeReportStore.rawCourseCaptureEnabled = capture == .rawCourseResponse
         ReleaseNetworkSmokeReportStore.clearRawCourseResponse()
         executedProbes = []
@@ -271,6 +274,27 @@ final class ReleaseNetworkSmokeRunner {
             recordSkip("空教室教学楼列表", reason, area: .schedule, scope: scope)
             recordSkip("空教室占用数据", reason, area: .schedule, scope: scope)
         }
+        let nativeEclass = await probe("课程中心原生认证", area: .ddl, scope: scope) {
+            let service = try Self.freshEclassService()
+            return try await service.fetchEclassDDLEventsForPreflight()
+        }
+        if let eclass = await probe("课程中心 DDL 下载", area: .ddl, scope: scope, operation: {
+            try await schedule.fetchEclassDDLEventsForPreflight()
+        }) {
+            let now = Date()
+            let cache = await ScheduleCacheStore.loadAsync()
+            let retentionDays = min(max(cache.ddlAfterDay, 0), 30)
+            let threshold = now.addingTimeInterval(TimeInterval(-retentionDays * 24 * 3600))
+            eclassDDL = EclassDDLAudit(nativeAuthenticationVerified: nativeEclass != nil,
+                courseCount: eclass.courseCount, activityCount: eclass.activityCount,
+                activityTypes: eclass.activityTypes, deadlineCount: eclass.events.count,
+                upcomingDeadlineCount: eclass.events.filter { $0.dueAt >= now }.count,
+                recentDeadlineCount: eclass.events.filter { $0.dueAt >= now.addingTimeInterval(-7 * 24 * 3600) }.count,
+                homeworkWithoutDeadlineCount: eclass.homeworkWithoutDeadlineCount,
+                retentionDays: retentionDays, visibleDeadlineCount: eclass.events.filter { $0.dueAt >= threshold }.count,
+                cachedEclassCount: cache.ddlEvents.filter { $0.group == "eclass" }.count,
+                earliestDeadline: eclass.events.first?.dueAt, latestDeadline: eclass.events.last?.dueAt)
+        }
         let calendarURL = await probe("乐学日历订阅地址", area: .ddl, scope: scope) {
             try await schedule.refreshLexueCalendarURLForPreflight()
         }
@@ -322,7 +346,7 @@ final class ReleaseNetworkSmokeRunner {
 
     private func finishReport(runID: String, scope: NetworkSmokeScope, startedAt: Date) async -> ReleaseNetworkSmokeReport {
         if scope == .ddl {
-            let required = ["BIT101 登录状态", "乐学日历订阅地址", "乐学 DDL 下载"]
+            let required = ["BIT101 登录状态", "课程中心原生认证", "课程中心 DDL 下载", "乐学日历订阅地址", "乐学 DDL 下载"]
             let missing = required.filter { !executedProbes.contains($0) }
             if !missing.isEmpty, authenticationBlockers.isEmpty {
                 let line = "[DDL Smoke 覆盖] 必需探针缺失：" + missing.joined(separator: "、")
@@ -338,7 +362,7 @@ final class ReleaseNetworkSmokeRunner {
         default:
             schoolSMSCoverage = "not_run"
         }
-        let report = ReleaseNetworkSmokeReport(
+        var report = ReleaseNetworkSmokeReport(
             runID: runID,
             scope: scope,
             startedAt: startedAt,
@@ -352,6 +376,7 @@ final class ReleaseNetworkSmokeRunner {
             coverageGaps: coverageGaps,
             schoolSMSCoverage: schoolSMSCoverage
         )
+        report.eclassDDL = eclassDDL
         print(report.summaryLine)
         if !report.passed {
             print(report.failureMessage)
@@ -464,6 +489,27 @@ final class ReleaseNetworkSmokeRunner {
         ))
     }
 
+    private static func freshEclassService() throws -> ScheduleService {
+        guard let cookies = URLSessionConfiguration.ephemeral.httpCookieStorage else {
+            throw ScheduleServiceError.invalidResponse
+        }
+        let copySchoolSession: @MainActor @Sendable () -> Void = {
+            for cookie in AppSchoolSession.teachingCenter.cookieStorage.cookies ?? []
+                where cookie.domain.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased() == "sso.bit.edu.cn" {
+                cookies.setCookie(cookie)
+            }
+        }
+        copySchoolSession()
+        let restorer = AppScheduleSchoolSessionRestorer {
+            let studentID = try await LoginService().restoreSchoolSessionIfNeeded()
+            copySchoolSession()
+            return studentID
+        }
+        return ScheduleService(credentials: LoginStorage.shared, crypto: AppScheduleServiceCrypto(),
+            schoolSessionRestorer: restorer, teachingCenterState: TeachingCenterSessionState(cookieStorage: cookies),
+            observer: HTTPClient.appObserver)
+    }
+
     private func probe<Value>(
         _ name: String,
         area: NetworkSmokeArea,
@@ -545,6 +591,7 @@ final class ReleaseNetworkSmokeRunner {
     private nonisolated static func isAuthenticationBlocked(_ error: Error) -> Bool {
         switch error {
         case ScheduleServiceError.secondFactorRequired,
+             ScheduleServiceError.eclassAuthenticationFailed,
              ScheduleServiceError.schoolSecondFactorRequired,
              ScoreServiceError.secondFactorRequired:
             return true

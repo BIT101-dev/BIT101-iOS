@@ -103,16 +103,8 @@ fi
 
 if $GENERIC_BUILD; then
   BUILD_DESTINATION="generic/platform=iOS"
-elif [[ -z "$DEVICE_ID" ]]; then
-  bit101_require_device "$PROJECT" || {
-    echo "用法：Scripts/build-install-device.sh [--compile-only [--generic]] [真机设备ID]" >&2
-    exit 1
-  }
 else
-  BIT101_XCODE_DEVICE_ID="$DEVICE_ID"
-  BIT101_DEVICETCL_DEVICE_ID="$DEVICE_ID"
-fi
-if ! $GENERIC_BUILD; then
+  bit101_require_device "$DEVICE_ID" || exit 1
   BUILD_DESTINATION="platform=iOS,id=$BIT101_XCODE_DEVICE_ID"
 fi
 

@@ -8,8 +8,7 @@ import Foundation
 
 /// DDL 集合的纯编辑规则。
 ///
-/// 这里不接触持久化或页面状态，使手动 DDL 的增删改、完成状态与乐学同步合并
-/// 可以独立测试；`ScheduleViewModel` 只负责把结果写回缓存。
+/// 手动编辑与学校来源合并共用完成状态和排序规则。
 enum ScheduleDDLEditor {
     static func draft(for event: DDLEventRecord?) -> DDLDraft {
         guard let event else { return DDLDraft() }
@@ -18,16 +17,18 @@ enum ScheduleDDLEditor {
 
     static func mergingSyncedEvents(
         _ syncedEvents: [DDLEventRecord],
-        into existingEvents: [DDLEventRecord]
+        into existingEvents: [DDLEventRecord],
+        syncedGroups: Set<String> = ["lexue"]
     ) -> [DDLEventRecord] {
-        let manualEvents = existingEvents.filter { $0.group != "lexue" }
+        let manualEvents = existingEvents.filter { !syncedGroups.contains($0.group) }
         let existingLexueEvents = Dictionary(
             existingEvents
-                .filter { $0.group == "lexue" }
+                .filter { syncedGroups.contains($0.group) }
                 .map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        let mergedSyncedEvents = syncedEvents.map { event in
+        let uniqueEvents = Dictionary(syncedEvents.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let mergedSyncedEvents = uniqueEvents.values.map { event in
             guard let existing = existingLexueEvents[event.id] else { return event }
             var merged = event
             merged.done = existing.done

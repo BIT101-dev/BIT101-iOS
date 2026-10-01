@@ -33,14 +33,17 @@ public nonisolated struct CourseSyncPayload: Sendable {
 
 /// 同步 DDL 后的组合结果。
 ///
-/// 乐学同步除了事件列表外，还可能拿到新的订阅 URL，因此一起返回给上层缓存。
+/// 携带事件、乐学订阅地址、已更新来源和部分失败信息。
 public struct DDLSyncPayload: Sendable {
     public let url: String
     public let events: [DDLEventRecord]
+    public let syncedGroups: Set<String>
+    public let warnings: [String]
 
-    public init(url: String, events: [DDLEventRecord]) {
+    public init(url: String, events: [DDLEventRecord], syncedGroups: Set<String> = ["lexue"], warnings: [String] = []) {
         self.url = url
         self.events = events
+        self.syncedGroups = syncedGroups
+        self.warnings = warnings
     }
 }
-

@@ -113,6 +113,7 @@ import sys
 
 root = Path(sys.argv[1])
 allowed_root_files = {
+  ".build/extended-automation.lock",
   ".build/code-quality-report.txt",
   ".build/explanatory-text-report.txt",
   ".build/stale-docs-report.txt",

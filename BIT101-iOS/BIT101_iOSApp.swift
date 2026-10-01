@@ -39,9 +39,9 @@ enum ScheduleReminderBackgroundRefresh {
 
     /// 在应用启动阶段注册后台刷新任务。
     ///
-    /// Apple 要求所有 BGTask 在启动序列结束前注册；AppDelegate 在 `didFinishLaunching` 中调用。
+    /// AppDelegate 在 `didFinishLaunching` 中注册，启动回调通过主队列进入 MainActor。
     static func register() {
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { task in
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: .main) { task in
             guard let refreshTask = task as? BGAppRefreshTask else {
                 task.setTaskCompleted(success: false)
                 return
@@ -84,7 +84,7 @@ enum ScheduleReminderBackgroundRefresh {
             await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(trigger: "bg_app_refresh")
         }
 
-        task.expirationHandler = {
+        task.expirationHandler = { @Sendable in
             operation.cancel()
         }
     }

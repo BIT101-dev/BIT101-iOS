@@ -114,7 +114,7 @@ final class NetworkDiagnosisRunner: ObservableObject {
                 _ = try await service.syncCourses(term: term)
                 detail = "通过"
             case .ddl:
-                _ = try await ScheduleServiceFactory.make().refreshLexueCalendarURLForPreflight()
+                _ = try await ScheduleServiceFactory.make().fetchEclassDDLEventsForPreflight()
                 detail = "通过"
             case .transcript:
                 _ = try await ScoreService().fetchTrustedTranscriptPages()
