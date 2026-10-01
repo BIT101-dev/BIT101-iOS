@@ -26,7 +26,7 @@ public struct ScheduleTermPickerPage: View {
                         } label: {
                             HStack(spacing: AppDesignSystem.Spacing.regular) {
                                 Text(term)
-                                    .foregroundStyle(AppDesignSystem.Foreground.primary)
+                                    .foregroundStyle(.tint)
                                 Spacer()
                                 if viewModel.isSyncingCourses, viewModel.syncingTerm == term {
                                     ProgressView()
@@ -38,6 +38,7 @@ public struct ScheduleTermPickerPage: View {
                             .contentShape(Rectangle())
                         }
                         .disabled(viewModel.isSyncingCourses || viewModel.isLoadingTerms || viewModel.settingsSnapshot.currentTerm == term)
+                        .appInteractiveListRow()
                     }
                 }
             }

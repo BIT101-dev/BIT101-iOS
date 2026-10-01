@@ -9,6 +9,7 @@ import DesignSystemKit
 
 import Combine
 import CoreLocation
+import TransportCore
 import Foundation
 
 /// 地图页提示弹窗模型。
@@ -114,16 +115,10 @@ nonisolated enum CampusLocationFailurePolicy {
     }
 
     static func contains(_ error: Error, code: CLError.Code) -> Bool {
-        var current: NSError? = error as NSError
-        for _ in 0 ..< 8 {
-            guard let candidate = current else { return false }
-            if candidate.domain == kCLErrorDomain,
-               CLError.Code(rawValue: candidate.code) == code {
-                return true
-            }
-            current = candidate.userInfo[NSUnderlyingErrorKey] as? NSError
+        ErrorChain.contains(error) { error in
+            let candidate = error as NSError
+            return candidate.domain == kCLErrorDomain && CLError.Code(rawValue: candidate.code) == code
         }
-        return false
     }
 }
 

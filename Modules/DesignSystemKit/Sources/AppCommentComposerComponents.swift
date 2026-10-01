@@ -25,6 +25,7 @@ public struct AppCommentComposerContentSection<Content: View>: View {
             content
             Toggle(anonymousLabel, isOn: $anonymous)
                 .appSelectionFeedback(trigger: anonymous)
+            .appInteractiveListRow()
         }
     }
 }

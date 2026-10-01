@@ -11,7 +11,7 @@ private struct ScoreSelectionRow: View {
         HStack(spacing: AppDesignSystem.Spacing.regular) {
             Text(title)
                 .font(AppDesignSystem.Typography.body)
-                .foregroundStyle(AppDesignSystem.Foreground.primary)
+                .foregroundStyle(.tint)
             Spacer()
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                 .foregroundStyle(isSelected ? AppDesignSystem.Course.accent : AppDesignSystem.Foreground.secondaryColor)
@@ -39,6 +39,7 @@ struct ScoreFilterPage: View {
                 }
                 .disabled(options.isEmpty)
                 .accessibilityValue("已选 \(selectedValues.intersection(Set(options)).count) 项，共 \(options.count) 项")
+                .appInteractiveListRow()
             }
 
             Section {
@@ -56,6 +57,7 @@ struct ScoreFilterPage: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        .appInteractiveListRow()
                     }
                 }
             }
@@ -104,6 +106,7 @@ struct ScoreSortPage: View {
                         )
                     }
                     .buttonStyle(.plain)
+                    .appInteractiveListRow()
                 }
             }
 
@@ -114,7 +117,7 @@ struct ScoreSortPage: View {
                     HStack(spacing: AppDesignSystem.Spacing.regular) {
                         Text(sortOrder.title)
                             .font(AppDesignSystem.Typography.subheadline)
-                            .foregroundStyle(AppDesignSystem.Foreground.primary)
+                            .foregroundStyle(.tint)
                         Spacer()
                         Text("切换")
                             .font(AppDesignSystem.Typography.subheadline)
@@ -125,6 +128,7 @@ struct ScoreSortPage: View {
                 .accessibilityLabel("排序方向")
                 .accessibilityValue(sortOrder.title)
                 .accessibilityHint("双击切换排序方向")
+                .appInteractiveListRow()
             } header: {
                 AppListSectionHeader("排序方向")
             }

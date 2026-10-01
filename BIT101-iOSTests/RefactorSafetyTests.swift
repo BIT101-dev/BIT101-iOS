@@ -407,9 +407,11 @@ struct GalleryRecommendationPrefetchTests {
     private final class FeedServiceStub: GalleryFeedServicing {
         private let batches: [Int: GalleryRecommendFeedBatch]
         private let requestLog = RequestLog()
+        private let beforeResponse: (@MainActor (Int) async -> Void)?
 
-        init(batches: [Int: GalleryRecommendFeedBatch] = [:]) {
+        init(batches: [Int: GalleryRecommendFeedBatch] = [:], beforeResponse: (@MainActor (Int) async -> Void)? = nil) {
             self.batches = batches
+            self.beforeResponse = beforeResponse
         }
 
         func requestedPages() async -> [Int] {
@@ -420,6 +422,7 @@ struct GalleryRecommendationPrefetchTests {
 
         func fetchRecommendPage(sourcePage: Int) async throws -> GalleryRecommendFeedBatch {
             await requestLog.append(sourcePage)
+            await beforeResponse?(sourcePage)
             await Task.yield()
             guard let batch = batches[sourcePage] else {
                 throw URLError(.resourceUnavailable)
@@ -444,6 +447,42 @@ struct GalleryRecommendationPrefetchTests {
                 pages
             }
         }
+    }
+
+    @Test("A cancelled generation preserves the next generation's cached page", .timeLimit(.minutes(1)))
+    func cancelledPagePreservesTheReplacementRequest() async throws {
+        var requestCount = 0
+        var firstResponse: CheckedContinuation<Void, Never>?
+        var firstRequestStarted: CheckedContinuation<Void, Never>?
+        let service = FeedServiceStub(
+            batches: [0: GalleryRecommendFeedBatch(posters: [], nextSourcePage: 1, canLoadMore: false)],
+            beforeResponse: { _ in
+                requestCount += 1
+                if requestCount == 1 {
+                    await withCheckedContinuation { continuation in
+                        firstResponse = continuation
+                        firstRequestStarted?.resume()
+                        firstRequestStarted = nil
+                    }
+                }
+            }
+        )
+        let coordinator = GalleryRecommendPrefetchCoordinator(service: service)
+        let firstRequest = Task { @MainActor in try await coordinator.takePage(for: 0) }
+        defer { firstRequest.cancel(); firstResponse?.resume() }
+        if firstResponse == nil {
+            await withCheckedContinuation { firstRequestStarted = $0 }
+        }
+
+        coordinator.reset()
+        let replacement = try await coordinator.takePage(for: 0)
+        firstResponse?.resume()
+        firstResponse = nil
+        await #expect(throws: CancellationError.self) { try await firstRequest.value }
+
+        let cached = try await coordinator.takePage(for: 0)
+        #expect(cached.page == replacement.page)
+        #expect(await service.requestedPages() == [0, 0])
     }
 
     @Test("Prefetched pages merge stably and never duplicate a source request")

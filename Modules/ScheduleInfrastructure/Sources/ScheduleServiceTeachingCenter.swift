@@ -205,7 +205,7 @@ extension ScheduleService {
     private func fetchBuildingsDirect(campusCode: String?) async throws -> [BuildingRecord] {
         let query: String
         if let campusCode, !campusCode.isEmpty {
-            query = "?XXXQDM=\(urlEncode(campusCode))"
+            query = "?XXXQDM=\(HTTPFormEncoding.percentEncoded(campusCode))"
         } else {
             query = ""
         }

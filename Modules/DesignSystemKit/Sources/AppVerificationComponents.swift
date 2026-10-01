@@ -87,6 +87,7 @@ public struct AppSMSVerificationSheet: View {
                         }
                     }
                     .disabled(isSubmitting || !AppVerificationMetrics.validCodeLength.contains(code.count))
+                    .appInteractiveListRow()
                 }
             }
             .navigationTitle("短信验证")
@@ -159,6 +160,7 @@ public struct AppSchoolSMSVerificationSheet: View {
                     }
                     .frame(maxWidth: .infinity)
                     .disabled(!AppVerificationMetrics.validCodeLength.contains(code.count))
+                    .appInteractiveListRow()
                 }
             }
             .navigationTitle("短信验证")

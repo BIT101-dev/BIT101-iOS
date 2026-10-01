@@ -1,4 +1,5 @@
 import CommunityTransport
+import Combine
 import TransportCore
 @testable import MineFeature
 @testable import PaperFeature
@@ -46,6 +47,26 @@ struct CommunityDependencyBoundaryTests {
         #expect(viewModel.state(for: .newest).status == .loaded)
     }
 
+    @Test func galleryMessagesUseIndependentReadPortsAndScopedChanges() async throws {
+        let store = RecordingMessageReadStore()
+        let otherStore = RecordingMessageReadStore()
+        let model = GalleryMessageViewModel(service: RecordingMessageService(), readStore: store)
+        var refreshes = 0
+        let subscription = model.objectWillChange.sink { refreshes += 1 }
+        otherStore.changeSubject.send(store.currentSession)
+        store.changeSubject.send(AppStorageSession(accountIdentifier: "other-account"))
+        #expect(refreshes == 0)
+        store.changeSubject.send(store.currentSession)
+        #expect(refreshes == 1)
+        #expect(model.unreadCount(for: .comment) == 7)
+        await model.refresh(type: .comment)
+        #expect(store.latestIDs == [42])
+        model.markCurrentTypeAsRead()
+        #expect(store.seenIDs == [42])
+        #expect(otherStore.seenIDs.isEmpty)
+        withExtendedLifetime(subscription) {}
+    }
+
     @Test func courseListAndCreditQueryUseIndependentInjections() async {
         let detail = CourseService(session: session)
         let list = RecordingCourseList()
@@ -67,7 +88,8 @@ struct CommunityDependencyBoundaryTests {
         let detail = PaperService(session: session)
         let list = RecordingPaperList()
         let composer = RecordingPaperComposer()
-        let dependencies = PaperDependencies(list: list, detail: detail, composer: composer)
+        let dependencies = PaperDependencies(list: list, detail: detail, composer: composer,
+            networkPath: NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected)))
         let viewModel = PaperListViewModel(service: dependencies.list)
         await viewModel.refresh()
         let id = try await dependencies.composer.createPaper(
@@ -123,6 +145,33 @@ struct CommunityDependencyBoundaryTests {
         #expect(projected[1].originalURL == projected[1].thumbnailURL)
         #expect(projected[2].originalURL == projected[2].thumbnailURL)
 
+    }
+}
+
+private final class RecordingMessageReadStore: GalleryMessageReadStoring {
+    let currentSession = AppStorageSession(accountIdentifier: "message-port")
+    let changeSubject = PassthroughSubject<AppStorageSession, Never>()
+    var changes: AnyPublisher<AppStorageSession, Never> { changeSubject.eraseToAnyPublisher() }
+    var latestIDs: [Int] = []
+    var seenIDs: [Int] = []
+    func replaceLatestIDs(_ ids: [Int], unreadCount: Int, for type: GalleryMessageType) {
+        latestIDs = ids
+        changeSubject.send(currentSession)
+    }
+    func markSeen(ids: [Int], for type: GalleryMessageType) {
+        seenIDs = ids
+        changeSubject.send(currentSession)
+    }
+    func unreadCount(for type: GalleryMessageType) -> Int { type == .comment ? 7 : 0 }
+    func isUnread(id: Int, for type: GalleryMessageType) -> Bool { id == 42 }
+}
+
+private struct RecordingMessageService: GalleryMessageServicing {
+    func fetchMessageUnreadCounts() async throws -> GalleryMessageUnreadCounts { .init() }
+    func fetchMessages(type: GalleryMessageType, lastID: Int?) async throws -> [GalleryMessage] {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode([GalleryMessage].self, from: Data(#"[{"from_user":{},"id":42,"link_obj":"poster42","obj":"poster42","text":"message","update_time":""}]"#.utf8))
     }
 }
 

@@ -19,11 +19,11 @@ Worker 提供 `POST https://feedback.aihelpme.dev/api/error-reports` 接口。
 
 Worker 收到新报告后会向已验证的维护者邮箱发送结构化提醒，邮件主题区分“错误报告”和“用户建议”，正文包含标题、用户补充、联系方式、版本、设备、系统、网络、诊断数量、状态码统计和最近失败请求；邮件保留报告编号与 KV 查看键，图片附件继续留在 KV 中。邮件正文使用 Worker 脱敏后的报告字段，避免发送完整原始响应和图片。收件地址由 `wrangler.jsonc` 的 `REPORT_EMAIL` binding 固定；修改地址后需先在 Cloudflare Email Routing 中验证，再重新部署 Worker。
 
-在仓库根目录查看和管理报告：
+在仓库根目录查看和管理报告；默认调用拉取 Issues、CI 失败与近期反馈，报告正文与附件覆盖固定收件箱。单份报告的终端输出展示正文、附件类型与字节数，图片由收件箱流程保存为独立文件：
 
 ```bash
-Scripts/error-reports.sh list
-Scripts/error-reports.sh latest
-Scripts/error-reports.sh show <报告键>
-Scripts/error-reports.sh delete <报告键>
+Scripts/fetch-issues-and-reports.sh list
+Scripts/fetch-issues-and-reports.sh latest
+Scripts/fetch-issues-and-reports.sh show <报告键>
+Scripts/fetch-issues-and-reports.sh delete <报告键>
 ```

@@ -1,5 +1,6 @@
 import CommunityCore
 import CommunityTransport
+import TransportCore
 import Observation
 
 /// 文章页面按列表、详情和编辑场景注入服务。
@@ -9,11 +10,12 @@ public final class PaperDependencies {
     let list: any PaperListServicing
     let detail: any PaperDetailServicing
     let composer: any PaperComposerServicing
+    let networkPath: NetworkPathState
 
-    public init(list: any PaperListServicing, detail: any PaperDetailServicing, composer: any PaperComposerServicing) {
+    public init(list: any PaperListServicing, detail: any PaperDetailServicing, composer: any PaperComposerServicing, networkPath: NetworkPathState) {
         self.list = list
         self.detail = detail
         self.composer = composer
+        self.networkPath = networkPath
     }
 }
-

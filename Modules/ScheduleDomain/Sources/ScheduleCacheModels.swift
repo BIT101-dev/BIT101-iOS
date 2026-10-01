@@ -1,4 +1,5 @@
 import Foundation
+import ScheduleContracts
 
 public nonisolated enum ScheduleCacheLoadResult: Sendable {
     case loaded(ScheduleCache)
@@ -345,8 +346,7 @@ public nonisolated struct ScheduleCache: Codable, Sendable {
             (1 ... 31).contains(day)
         else { return nil }
 
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 8 * 3600) ?? .current
+        let calendar = ScheduleSharedDateCodec.calendar
 
         var components = DateComponents()
         components.calendar = calendar

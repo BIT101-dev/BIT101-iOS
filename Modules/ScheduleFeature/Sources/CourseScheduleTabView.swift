@@ -82,6 +82,7 @@ struct CourseScheduleTabView: View {
                 .accessibilityLabel("添加课表内容")
                 .accessibilityIdentifier("schedule.add-content")
                 .accessibilityAddTraits(.isButton)
+                .appInteractiveListRow()
                 .confirmationDialog(
                     "添加课表内容",
                     isPresented: $isShowingAddContentMenu,
@@ -241,6 +242,7 @@ struct CourseScheduleTabView: View {
                                         }
                                         .buttonStyle(.borderedProminent)
                                         .disabled(viewModel.isSyncingCourses)
+                                        .appInteractiveListRow()
                                     }
                                 }
                                 .frame(maxWidth: .infinity)

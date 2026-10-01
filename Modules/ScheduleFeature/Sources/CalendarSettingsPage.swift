@@ -72,6 +72,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 set: { viewModel.setICloudSyncEnabled($0) }
             ))
             .appSelectionFeedback(trigger: viewModel.settingsSnapshot.iCloudSyncEnabled)
+            .appInteractiveListRow()
             Text("同步手动调课、放假、个人日程、分享课表、DDL 状态和日程偏好。课程、考试与乐学 DDL 正文由本机刷新。")
                 .font(AppDesignSystem.Typography.footnote)
                 .foregroundStyle(AppDesignSystem.Foreground.secondary)
@@ -94,6 +95,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                         .foregroundStyle(.tint)
                 }
             }
+            .appInteractiveListRow()
             if viewModel.settingsSnapshot.firstDay != nil {
                 Button {
                     isShowingSemesterStartDatePicker = true
@@ -101,29 +103,35 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                     LabeledContent("学期起始日期", value: viewModel.settingsSnapshot.firstDayString)
                 }
                 .disabled(viewModel.settingsSnapshot.currentTerm.isEmpty || !viewModel.isCacheWritable)
+                .appInteractiveListRow()
             }
             Button("时间表") {
                 timeTableText = viewModel.settingsSnapshot.timeTableText
                 isShowingTimeTableEditor = true
             }
+            .appInteractiveListRow()
 
             Button("分享课表") {
                 exportScheduleCode()
             }
+            .appInteractiveListRow()
 
             Button("导入课表") {
                 presentImportGuideIfNeeded(openImportAfterGuide: true)
             }
+            .appInteractiveListRow()
 
             Button("导入到系统日历") {
                 isShowingSystemCalendarImportConfirmation = true
             }
             .disabled(isUpdatingSystemCalendar)
+            .appInteractiveListRow()
 
             Button("删除已导入的日历", role: .destructive) {
                 isShowingSystemCalendarDeleteConfirmation = true
             }
             .disabled(isUpdatingSystemCalendar)
+            .appInteractiveListRow(isDestructive: true)
         }
     }
 
@@ -138,6 +146,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             } label: {
                 LabeledContent("我的课表", value: viewModel.settingsSnapshot.primaryScheduleTitle)
             }
+            .appInteractiveListRow()
 
             ForEach(viewModel.settingsSnapshot.sharedSchedules) { schedule in
                 Button {
@@ -149,6 +158,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 } label: {
                     LabeledContent("分享课表", value: schedule.title)
                 }
+                .appInteractiveListRow()
             }
             .onDelete { offsets in
                 let schedules = viewModel.settingsSnapshot.sharedSchedules
@@ -175,6 +185,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 }
             }
             .appSelectionFeedback(trigger: storedCalendarAxisMode)
+            .appInteractiveListRow()
 
             Picker(selection: Binding(
                 get: { viewModel.settingsSnapshot.scheduleDisplayMode },
@@ -188,6 +199,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                     .foregroundStyle(.tint)
             }
             .appSelectionFeedback(trigger: viewModel.settingsSnapshot.scheduleDisplayMode)
+            .appInteractiveListRow()
             Picker(selection: Binding(
                 get: { viewModel.settingsSnapshot.scheduleCardContentMode },
                 set: { viewModel.setScheduleCardContentMode($0) }
@@ -200,12 +212,16 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                     .foregroundStyle(.tint)
             }
             .appSelectionFeedback(trigger: viewModel.settingsSnapshot.scheduleCardContentMode)
+            .appInteractiveListRow()
             Toggle("显示周六", isOn: Binding(get: { viewModel.settingsSnapshot.showSaturday }, set: viewModel.setShowSaturday))
                 .appSelectionFeedback(trigger: viewModel.settingsSnapshot.showSaturday)
+            .appInteractiveListRow()
             Toggle("显示周日", isOn: Binding(get: { viewModel.settingsSnapshot.showSunday }, set: viewModel.setShowSunday))
                 .appSelectionFeedback(trigger: viewModel.settingsSnapshot.showSunday)
+            .appInteractiveListRow()
             Toggle("显示考试安排", isOn: Binding(get: { viewModel.settingsSnapshot.showExamInfo }, set: viewModel.setShowExamInfo))
                 .appSelectionFeedback(trigger: viewModel.settingsSnapshot.showExamInfo)
+            .appInteractiveListRow()
             Toggle("显示灵动岛提醒（实验性）", isOn: Binding(
                 get: { viewModel.settingsSnapshot.showCourseLiveActivityReminder },
                 set: { enabled in
@@ -217,13 +233,14 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 }
             ))
             .appSelectionFeedback(trigger: viewModel.settingsSnapshot.showCourseLiveActivityReminder)
+            .appInteractiveListRow()
             Button {
                 guard viewModel.settingsSnapshot.showCourseLiveActivityReminder else { return }
                 isShowingLiveActivityLeadMinutesPicker = true
             } label: {
                 HStack(spacing: AppDesignSystem.Spacing.regular) {
                     Text("提前显示阈值")
-                        .foregroundStyle(AppDesignSystem.Foreground.primary)
+                        .foregroundStyle(.tint)
                     Spacer()
                     Text("\(normalizedLeadMinutes) 分钟")
                         .foregroundStyle(AppDesignSystem.Foreground.secondary)
@@ -234,6 +251,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             .opacity(viewModel.settingsSnapshot.showCourseLiveActivityReminder
                 ? AppDesignSystem.Opacity.full
                 : AppDesignSystem.Schedule.reminderDisabledOpacity)
+            .appInteractiveListRow()
         } header: {
             AppListSectionHeader("显示设置")
         }

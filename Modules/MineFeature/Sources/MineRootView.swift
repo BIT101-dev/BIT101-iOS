@@ -192,6 +192,7 @@ private struct MineRootViewScene: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("settings.route.\(route.id)")
+            .appInteractiveListRow()
         }
     }
 }
@@ -533,6 +534,7 @@ private struct MineUserListView: View {
                         .task {
                             await onLoadMore(user)
                         }
+                        .appInteractiveListRow()
                     }
 
                     if isLoadingMore {

@@ -7,6 +7,15 @@ import ScheduleDomain
 import Testing
 
 struct ScheduleContractsTests {
+    @Test @MainActor func scheduleDateDisplaysUseTheSharedSchoolTimeZone() throws {
+        let day = try #require(ScheduleSharedDateCodec.parseDate("2026-10-01"))
+        #expect(ScheduleDateCodec.formatTime(day) == "00:00")
+        #expect(ScheduleSharedDateCodec.formatTime(day) == "00:00")
+        #expect(ScheduleDateCodec.calendar == ScheduleSharedDateCodec.calendar)
+        #expect(ScheduleDateCodec.formatCompactDate(day) == "10.1")
+        #expect(ScheduleDateCodec.formatDate(day.addingTimeInterval(-1)) == "2026-09-30")
+    }
+
     @Test func courseSnapshotTracksCourseFieldsAcrossSceneChanges() {
         var cache = ScheduleCache()
         let courses = cache.courseSnapshot

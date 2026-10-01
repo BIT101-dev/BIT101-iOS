@@ -1,3 +1,5 @@
+import CommunityPersistence
+import Combine
 import BIT101TestSupport
 import CommunityUI
 import StorageCore
@@ -7,6 +9,35 @@ import Testing
 
 @MainActor
 struct CommunityCoreTests {
+    @Test func messageStorageSeparatesAccountChangesFromLocalUploads() throws {
+        let domain = "BIT101ModulesTests.message-storage"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let session = AppStorageSession(accountIdentifier: "messages")
+        let store = GalleryMessageReadStore(defaults: defaults, session: { session })
+        let other = GalleryMessageReadStore(defaults: defaults, session: { session })
+        var changes: [AppStorageSession] = []
+        var uploads: [AppStorageSession] = []
+        var otherChanges: [AppStorageSession] = []
+        let subscriptions = [
+            store.changes.sink { changes.append($0) },
+            store.localSaves.sink { uploads.append($0) },
+            other.changes.sink { otherChanges.append($0) }
+        ]
+        store.replaceLatestIDs([42], unreadCount: 1, for: .comment)
+        #expect(uploads == [session])
+        #expect(changes == [session])
+        var remote = GalleryMessageReadSnapshot()
+        remote.latestIDsByType = ["comment": [42]]
+        remote.seenIDsByType = ["comment": [42]]
+        store.applySyncedSnapshot(remote)
+        #expect(store.unreadCount(for: .comment) == 0)
+        #expect(changes == [session, session])
+        #expect(uploads == [session])
+        #expect(otherChanges.isEmpty)
+        withExtendedLifetime(subscriptions) {}
+    }
+
     @Test func communityImageDecodesExistingWireKeys() throws {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
@@ -55,6 +86,16 @@ struct CommunityCoreTests {
         store.save(["account-b"])
         session = AppStorageSession(accountIdentifier: "module-a")
         #expect(store.load() == ["old-value"])
+        let guestStore = AccountScopedCodableStore<[String]>(
+            keyPrefix: "module-test", defaults: defaults, sessionProvider: { session }, guestIdentifier: "__default__"
+        )
+        session = AppStorageSession(accountIdentifier: "")
+        guestStore.save(["guest-value"])
+        #expect(guestStore.storageKey == "module-test.__default__")
+        #expect(guestStore.load() == ["guest-value"])
+        #expect(store.load() == nil)
+        session = AppStorageSession(accountIdentifier: "module-a")
+        #expect(guestStore.load() == ["old-value"])
     }
 }
 

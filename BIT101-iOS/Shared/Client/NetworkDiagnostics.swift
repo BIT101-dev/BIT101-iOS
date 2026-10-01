@@ -3,7 +3,6 @@ import ClientCore
 import DesignSystemKit
 import Foundation
 import Combine
-import Network
 
 struct NetworkConnectionSnapshot: Equatable, Sendable {
     let summary: String
@@ -127,30 +126,10 @@ final class NetworkMagicWarningCenter {
 @MainActor
 final class NetworkConnectionDescription: NetworkPathProviding {
     static let shared = NetworkConnectionDescription()
-    private let monitor = NWPathMonitor()
-    private var value = "检测中"
-    private var virtualNetworkLikely = false
+    private let networkPath: NetworkPathState
 
-    private init() {
-        monitor.pathUpdateHandler = { [weak self] path in
-            var seenInterfaces = Set<String>()
-            let interfaces = path.availableInterfaces
-                .map(Self.label(for:))
-                .filter { seenInterfaces.insert($0).inserted }
-            let description: String
-            if path.status != .satisfied {
-                description = "未连接"
-            } else if interfaces.isEmpty {
-                description = "已连接"
-            } else {
-                description = "已连接 · " + interfaces.joined(separator: " + ")
-            }
-            Task { @MainActor [weak self] in
-                self?.value = description
-                self?.virtualNetworkLikely = path.usesInterfaceType(.other)
-            }
-        }
-        monitor.start(queue: DispatchQueue(label: "dev.aihelpme.bit101.network-report"))
+    init(networkPath: NetworkPathState = AppNetworkPath.state) {
+        self.networkPath = networkPath
     }
 
     var current: String {
@@ -158,43 +137,29 @@ final class NetworkConnectionDescription: NetworkPathProviding {
     }
 
     var snapshot: NetworkConnectionSnapshot {
-        let cached = makeSnapshot()
-        let livePath = monitor.currentPath
-        guard livePath.status != .requiresConnection else { return cached }
-        return Self.snapshot(for: livePath)
-    }
-
-    private func makeSnapshot() -> NetworkConnectionSnapshot {
-        NetworkConnectionSnapshot(summary: value, virtualNetworkLikely: virtualNetworkLikely)
-    }
-
-    private nonisolated static func snapshot(for path: NWPath) -> NetworkConnectionSnapshot {
-        var seenInterfaces = Set<String>()
-        let interfaces = path.availableInterfaces
-            .map(label(for:))
-            .filter { seenInterfaces.insert($0).inserted }
+        let path = networkPath.snapshot
+        let interfaces = path.interfaces.map(Self.label(for:))
         let summary: String
-        if path.status != .satisfied {
-            summary = "未连接"
-        } else if interfaces.isEmpty {
-            summary = "已连接"
-        } else {
-            summary = "已连接 · " + interfaces.joined(separator: " + ")
+        switch path.status {
+        case .checking: summary = "检测中"
+        case .disconnected: summary = "未连接"
+        case .connected:
+            summary = interfaces.isEmpty ? "已连接" : "已连接 · " + interfaces.joined(separator: " + ")
         }
         return NetworkConnectionSnapshot(
             summary: summary,
-            virtualNetworkLikely: path.usesInterfaceType(.other)
+            virtualNetworkLikely: path.virtualNetworkLikely
         )
     }
 
-    private nonisolated static func label(for interface: NWInterface) -> String {
-        switch interface.type {
+    private nonisolated static func label(for interface: NetworkPathSnapshot.Interface) -> String {
+        switch interface {
         case .wifi: return "Wi‑Fi"
         case .cellular: return "蜂窝网络"
         case .wiredEthernet: return "有线网络"
         case .other: return "虚拟/未知接口"
         case .loopback: return "回环接口"
-        @unknown default: return "其他接口"
+        case .unknown: return "其他接口"
         }
     }
 }

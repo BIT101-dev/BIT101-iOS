@@ -12,10 +12,15 @@ struct GalleryPrefetchedPage {
 /// Shares source-page tasks between foreground pagination and background prefetch.
 @MainActor
 final class GalleryRecommendPrefetchCoordinator {
+    private struct PageOperation {
+        let id = UUID()
+        let task: Task<GalleryPrefetchedPage, Error>
+    }
+
     private let service: any GalleryFeedServicing
     private let depth: Int
     private var generation = 0
-    private var pageTasks: [Int: Task<GalleryPrefetchedPage, Error>] = [:]
+    private var pageTasks: [Int: PageOperation] = [:]
     private var chainTask: Task<Void, Never>?
 
     init(service: any GalleryFeedServicing, depth: Int = 2) {
@@ -40,7 +45,7 @@ final class GalleryRecommendPrefetchCoordinator {
             for _ in 0..<depth {
                 guard !Task.isCancelled, generation == expectedGeneration else { return }
                 do {
-                    let page = try await task(for: currentPage, generation: expectedGeneration).value
+                    let page = try await operation(for: currentPage, generation: expectedGeneration).task.value
                     guard page.canLoadMore else { return }
                     currentPage = page.nextPage
                 } catch {
@@ -52,12 +57,14 @@ final class GalleryRecommendPrefetchCoordinator {
 
     func takePage(for page: Int) async throws -> GalleryPrefetchedPage {
         let expectedGeneration = generation
-        let task = task(for: page, generation: expectedGeneration)
+        let operation = operation(for: page, generation: expectedGeneration)
         let result: GalleryPrefetchedPage
         do {
-            result = try await task.value
+            result = try await operation.task.value
         } catch {
-            pageTasks[page] = nil
+            if pageTasks[page]?.id == operation.id {
+                pageTasks[page] = nil
+            }
             throw error
         }
         guard generation == expectedGeneration else { throw CancellationError() }
@@ -73,14 +80,14 @@ final class GalleryRecommendPrefetchCoordinator {
         generation += 1
         chainTask?.cancel()
         chainTask = nil
-        pageTasks.values.forEach { $0.cancel() }
+        pageTasks.values.forEach { $0.task.cancel() }
         pageTasks = [:]
     }
 
-    private func task(
+    private func operation(
         for page: Int,
         generation expectedGeneration: Int
-    ) -> Task<GalleryPrefetchedPage, Error> {
+    ) -> PageOperation {
         if let existing = pageTasks[page] {
             return existing
         }
@@ -99,8 +106,8 @@ final class GalleryRecommendPrefetchCoordinator {
                 canLoadMore: batch.canLoadMore
             )
         }
-        pageTasks[page] = task
-        return task
+        let operation = PageOperation(task: task)
+        pageTasks[page] = operation
+        return operation
     }
 }
-

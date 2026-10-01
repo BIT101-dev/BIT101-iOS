@@ -54,6 +54,7 @@ struct PaperComposerView: View {
             Section("发布设置") {
                 Toggle("匿名发布", isOn: $anonymous)
                     .appSelectionFeedback(trigger: anonymous)
+                .appInteractiveListRow()
             }
         }
         .navigationTitle(editingPaper == nil ? "发布文章" : "编辑文章")

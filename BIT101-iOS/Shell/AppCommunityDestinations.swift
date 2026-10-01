@@ -115,10 +115,11 @@ final class AppCommunityDependencies {
         settings: AppSettingsStore,
         session: CommunitySession,
         checkLogin: @escaping () async throws -> Bool,
-        messages: GalleryMessageReadStore,
-        drafts: ComposerDraftStore,
+        messages: any GalleryMessageReadStoring,
+        drafts: any GalleryComposerDraftStoring & DeveloperSuggestionDraftStoring,
         submitSuggestion: @escaping (DeveloperSuggestionPayload) async throws -> Void,
-        loadCourseCredits: @escaping @MainActor () async -> [CommunityCourseCredit]
+        loadCourseCredits: @escaping @MainActor () async -> [CommunityCourseCredit],
+        networkPath: NetworkPathState = AppNetworkPath.state
     ) {
         self.settingsStore = settings
         self.session = session
@@ -133,17 +134,18 @@ final class AppCommunityDependencies {
         gallery = GalleryDependencies(
             session: session, feed: galleryService, messageService: galleryService, posterDetail: galleryService,
             reporting: galleryService, composer: galleryService, images: galleryService, preferences: preferences,
-            messages: messages, drafts: drafts
+            messages: messages, drafts: drafts, networkPath: networkPath
         )
         let courseService = CourseService(session: session)
         course = CourseDependencies(list: courseService, detail: courseService, preferences: preferences, loadCourseCredits: loadCourseCredits)
         let paperService = PaperService(session: session)
-        paper = PaperDependencies(list: paperService, detail: paperService, composer: paperService)
+        paper = PaperDependencies(list: paperService, detail: paperService, composer: paperService, networkPath: networkPath)
         let mineService = MineService(session: session, preferences: { preferences.snapshot })
         mine = MineDependencies(
             overview: mineService, profile: mineService,
             deletePoster: { try await galleryService.deletePoster(id: $0) },
             isRunningUITest: AppFileDirectories.isRunningUITest
+                && ProcessInfo.processInfo.environment["BIT101_UI_TEST_CONTENT"] != "1"
         )
         settings.$snapshot.combineLatest(settings.$hidesCourseHistoryMakeupOutliers)
             .sink { snapshot, hideMakeup in
@@ -201,7 +203,7 @@ extension AppLocalDataService {
             clearSharedSnapshot: { await ScheduleWidgetExporter.clearSharedSnapshot() },
             clearReports: { ReleaseNetworkSmokeReportStore.clearLocalArtifacts() },
             clearPreferences: { defaults.removePersistentDomain(forName: domain) },
-            clearURLCache: { URLCache.shared.removeAllCachedResponses() },
+            clearURLCache: { URLSessionTransport.clearSharedCache() },
             clearWebData: {
                 await withCheckedContinuation { continuation in
                     webData.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast) {

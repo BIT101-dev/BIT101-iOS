@@ -69,8 +69,7 @@ public final class ScoreViewModel: ObservableObject {
         preferenceStore: any ScoreFilterPreferencesStoring,
         currentScoreCacheSession: @escaping @MainActor () -> AppStorageSession,
         scheduleCoursesChanges: AnyPublisher<AppStorageSession, Never>,
-        loadScheduleCourses: @escaping @MainActor (AppStorageSession) async -> [String: [ScoreCourseSummary]],
-        notificationCenter: NotificationCenter = .default
+        loadScheduleCourses: @escaping @MainActor (AppStorageSession) async -> [String: [ScoreCourseSummary]]
     ) {
         self.service = service
         self.cacheStore = cacheStore
@@ -90,17 +89,15 @@ public final class ScoreViewModel: ObservableObject {
         {
             sortOrder = persistedSortOrder
         }
-        preferenceObserver = notificationCenter.publisher(for: .scoreFilterPreferencesDidChange).sink { [weak self] notification in
-            guard let self, (notification.object as AnyObject?) === self.preferenceStore,
-                  notification.userInfo?["session"] as? AppStorageSession == self.currentScoreCacheSession() else { return }
+        preferenceObserver = preferenceStore.changes.sink { [weak self] session in
+            guard let self, session == self.currentScoreCacheSession() else { return }
             self.applyPersistedFilterPreferences()
         }
-        scoreCacheObserver = notificationCenter.publisher(for: .scoreCacheDidChange).sink { [weak self] notification in
-            guard let self, (notification.object as AnyObject?) === self.cacheStore,
-                  notification.userInfo?["session"] as? AppStorageSession == self.currentScoreCacheSession() else { return }
+        scoreCacheObserver = cacheStore.changes.sink { [weak self] session in
+            guard let self, session == self.currentScoreCacheSession() else { return }
             let generation = self.accountGeneration
             Task { @MainActor [weak self] in
-                guard let self, self.accountGeneration == generation else { return }
+                guard let self, self.accountGeneration == generation, session == self.currentScoreCacheSession() else { return }
                 await self.applySyncedScoreCacheIfAvailable()
             }
         }

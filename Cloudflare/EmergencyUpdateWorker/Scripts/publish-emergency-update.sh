@@ -1,6 +1,20 @@
 #!/bin/zsh
 set -euo pipefail
 
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+WRANGLER="$ROOT_DIR/node_modules/.bin/wrangler"
+if [[ $# -eq 1 && "$1" == --disable ]]; then
+  cd "$ROOT_DIR"
+  "$WRANGLER" kv key put emergency-update --binding EMERGENCY_CONFIG \
+    --remote --path config/emergency-update.json
+  echo '紧急更新提醒已关闭。'
+  exit 0
+fi
+if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
+  echo '用法：./Scripts/publish-emergency-update.sh <最大受影响Build> <标题> <正文>；--disable'
+  exit 0
+fi
+
 if [[ $# -ne 3 ]]; then
   echo '用法: ./Scripts/publish-emergency-update.sh <最大受影响Build> <标题> <正文>' >&2
   exit 64
@@ -11,7 +25,6 @@ TITLE="$2"
 MESSAGE="$3"
 [[ "$MAXIMUM_BUILD" == <-> ]] || { echo 'Build 必须是非负整数。' >&2; exit 64; }
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 OUTPUT="$ROOT_DIR/.generated-emergency-update.json"
 NOTICE_ID="$(date -u +'%Y%m%dT%H%M%SZ')-build-$MAXIMUM_BUILD"
 
@@ -35,7 +48,7 @@ with open(path, "w", encoding="utf-8") as stream:
 PY
 
 cd "$ROOT_DIR"
-npx wrangler kv key put emergency-update \
+"$WRANGLER" kv key put emergency-update \
   --binding EMERGENCY_CONFIG \
   --remote \
   --path "$OUTPUT"

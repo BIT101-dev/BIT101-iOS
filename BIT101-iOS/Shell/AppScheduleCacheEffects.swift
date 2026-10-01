@@ -136,7 +136,7 @@ enum ScheduleServiceFactory {
             schoolSessionRestorer: AppScheduleSchoolSessionRestorer(),
             teachingCenterState: AppSchoolSession.teachingCenter,
             rawCourseResponseHandler: ReleaseNetworkSmokeReportStore.writeRawCourseResponse,
-            transport: transport,
+            transport: transport ?? NetworkSessionPool.teachingCenter(cookieStorage: AppSchoolSession.teachingCenter.cookieStorage),
             observer: HTTPClient.appObserver
         )
     }

@@ -2,7 +2,7 @@ import SchedulePorts
 import ScheduleDomain
 @testable import ScheduleFeature
 @testable import ScheduleInfrastructure
-import TransportCore
+@testable import TransportCore
 import CommunityTransport
 import ClientCore
 import Foundation
@@ -45,6 +45,19 @@ private func makeTestURL(_ value: String) throws -> URL {
 
 @Suite("Network stack")
 struct NetworkClientTests {
+    @Test("Network diagnostics follow the injected connection state")
+    @MainActor
+    func networkDescriptionUsesSelectedPath() {
+        let path = NetworkPathState(snapshot: NetworkPathSnapshot(status: .checking))
+        let description = NetworkConnectionDescription(networkPath: path)
+        #expect(description.current == "检测中")
+        path.update(snapshot: NetworkPathSnapshot(status: .disconnected))
+        #expect(description.current == "未连接")
+        path.update(snapshot: NetworkPathSnapshot(status: .connected, interfaces: [.wifi, .other], virtualNetworkLikely: true))
+        #expect(description.current == "已连接 · Wi‑Fi + 虚拟/未知接口")
+        #expect(description.snapshot.virtualNetworkLikely)
+    }
+
     nonisolated private struct UserPayload: Decodable, Equatable, Sendable {
         let displayName: String
     }
@@ -673,7 +686,7 @@ struct NetworkClientTests {
                 failures: [],
                 authenticationBlockers: [],
                 scheduleCache: nil,
-                executedProbes: [],
+                executedProbes: NetworkSmokeScope.all.requiredProbes,
                 skippedProbes: coverageGaps,
                 coverageGaps: coverageGaps,
                 schoolSMSCoverage: "not_run"
@@ -686,6 +699,28 @@ struct NetworkClientTests {
         #expect(complete.coverageComplete)
         #expect(partial.passed)
         #expect(!partial.coverageComplete)
+    }
+
+    @Test("Every smoke scope requires its complete probe inventory", arguments: NetworkSmokeScope.allCases)
+    func networkSmokeRequiredProbeInventory(_ scope: NetworkSmokeScope) {
+        let required = scope.requiredProbes
+        #expect(required.first == "BIT101 登录状态")
+        #expect(Set(required).count == required.count)
+        let now = Date()
+        func report(executed: [String]) -> ReleaseNetworkSmokeReport {
+            ReleaseNetworkSmokeReport(
+                runID: "inventory-test", scope: scope, startedAt: now, finishedAt: now,
+                passed: true, failures: [], authenticationBlockers: [], scheduleCache: nil,
+                executedProbes: executed, skippedProbes: [], coverageGaps: [], schoolSMSCoverage: "not_run"
+            )
+        }
+        #expect(report(executed: required).coverageComplete)
+        #expect(!report(executed: []).coverageComplete)
+        for name in required {
+            let incomplete = report(executed: required.filter { $0 != name } + ["unrelated probe"])
+            #expect(!incomplete.coverageComplete)
+            #expect(incomplete.missingRequiredProbes == [name])
+        }
     }
 
 #if DEBUG

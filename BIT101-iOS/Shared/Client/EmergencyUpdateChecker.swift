@@ -62,7 +62,7 @@ final class EmergencyUpdateChecker {
     private let loadData: DataLoader
 
     init(
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = AppFileDirectories.defaults,
         now: @escaping () -> Date = Date.init,
         calendar: Calendar = .current,
         installedBuild: @escaping () -> Int = {

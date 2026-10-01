@@ -229,6 +229,13 @@ public struct AppFloatingActionStack<Content: View>: View {
 
 /// 统一所有分组列表的系统样式、section 间距和横向内容边距。
 extension View {
+    /// 交互列表行的标题跟随页面主题，删除动作使用警示色。
+    public func appInteractiveListRow(isDestructive: Bool = false) -> some View {
+        foregroundStyle(isDestructive
+            ? AnyShapeStyle(AppDesignSystem.Palette.Status.danger)
+            : AnyShapeStyle(.tint))
+    }
+
     public func appGroupedListStyle() -> some View {
         listStyle(.insetGrouped)
             .listSectionSpacing(AppDesignSystem.Spacing.content)

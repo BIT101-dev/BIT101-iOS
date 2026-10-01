@@ -263,6 +263,7 @@ struct CourseCommentComposerSheet: View {
                                             }
                                             .buttonStyle(.plain)
                                             .accessibilityLabel(ratingAccessibilityLabel(for: value, isHalf: true))
+                                            .appInteractiveListRow()
 
                                             Button {
                                                 setRating(for: value, isHalf: false)
@@ -276,6 +277,7 @@ struct CourseCommentComposerSheet: View {
                                             }
                                             .buttonStyle(.plain)
                                             .accessibilityLabel(ratingAccessibilityLabel(for: value, isHalf: false))
+                                            .appInteractiveListRow()
                                         }
                                         .frame(
                                             width: AppDesignSystem.Size.Control.touchTarget,

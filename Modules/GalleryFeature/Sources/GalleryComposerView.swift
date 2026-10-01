@@ -123,6 +123,7 @@ struct GalleryComposerView: View {
                                     .frame(maxWidth: .infinity)
                             }
                             .buttonStyle(.plain)
+                            .appInteractiveListRow()
                         }
 
                         Button {
@@ -132,6 +133,7 @@ struct GalleryComposerView: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.plain)
+                        .appInteractiveListRow()
                     }
                     .appSelectionFeedback(trigger: selectedTags)
 
@@ -152,6 +154,7 @@ struct GalleryComposerView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityLabel("删除标签")
+                                .appInteractiveListRow()
                             }
                         }
                     }
@@ -165,11 +168,14 @@ struct GalleryComposerView: View {
                         }
                     }
                     .appSelectionFeedback(trigger: selectedClaimID)
+                    .appInteractiveListRow()
 
                     Toggle("匿名发布", isOn: $anonymous)
                         .appSelectionFeedback(trigger: anonymous)
+                    .appInteractiveListRow()
                     Toggle("公开显示", isOn: $isPublic)
                         .appSelectionFeedback(trigger: isPublic)
+                    .appInteractiveListRow()
                 }
 
                 Section("图片") {
@@ -181,6 +187,7 @@ struct GalleryComposerView: View {
                             || isAddingImages
                             || existingImages.count + imageDrafts.count >= Self.maximumImageCount
                     )
+                    .appInteractiveListRow()
 
                     if !existingImages.isEmpty {
                         LazyVGrid(
@@ -206,6 +213,7 @@ struct GalleryComposerView: View {
                                     .padding(AppDesignSystem.Spacing.tiny)
                                     .buttonStyle(.plain)
                                     .accessibilityLabel("移除原有图片")
+                                    .appInteractiveListRow()
                                 }
                                 .frame(
                                     width: AppDesignSystem.Size.Media.draft,

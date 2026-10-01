@@ -184,6 +184,10 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
 
         XCTAssertFalse(notice.allowsDiagnostics)
         XCTAssertEqual(notice.recoveryAction, .openAppSettings)
+        let deep = (0 ..< 20).reduce(denied) { underlying, _ in
+            NSError(domain: "MapKit", code: 1, userInfo: [NSUnderlyingErrorKey: underlying])
+        }
+        XCTAssertEqual(CampusLocationFailurePolicy.notice(for: deep).recoveryAction, .openAppSettings)
     }
 
     @MainActor

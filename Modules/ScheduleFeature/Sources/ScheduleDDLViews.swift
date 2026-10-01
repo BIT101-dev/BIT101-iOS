@@ -237,9 +237,11 @@ private struct DDLEventDetailSheet: View {
                             dismiss()
                             onEdit()
                         }
+                        .appInteractiveListRow()
                         Button("删除", role: .destructive) {
                             onDelete()
                         }
+                        .appInteractiveListRow(isDestructive: true)
                     }
                 }
             }
@@ -275,6 +277,7 @@ private struct DDLEditSheet: View {
                     TextField("", text: $draft.title, prompt: AppInputPrompt.text("标题"))
                         .accessibilityIdentifier("ddl.editor.title")
                     DatePicker("时间", selection: $draft.dueAt, displayedComponents: [.date, .hourAndMinute])
+                    .appInteractiveListRow()
                     TextField("", text: $draft.text, prompt: AppInputPrompt.text("详情"), axis: .vertical)
                         .lineLimit(4, reservesSpace: true)
                 }

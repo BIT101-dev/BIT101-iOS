@@ -29,7 +29,7 @@
 | `Modules/DesignSystemKit/Sources/AppVerificationComponents.swift` | 数据无关的短信验证码输入面板 |
 | `Modules/ScheduleFeature/Sources/ScheduleDesignSystem.swift` | 课表网格、周次栏、时间轴、课程块颜色与模块强调色 |
 | `Modules/GalleryFeature/Sources/GalleryDesignSystem.swift` | 话廊消息标记与模块强调色 |
-| `Modules/CommunityUI/Sources/CommunityDesignSystem.swift` | 社区卡片令牌、公共图片编辑条目与共享草稿能力 |
+| `Modules/CommunityUI/Sources/CommunityDesignSystem.swift` | 社区卡片令牌、公共图片编辑条目与图片压缩 |
 | `Modules/MapFeature/Sources/CampusMapScreen.swift` | 地图模块强调色令牌 |
 | `Modules/DesignSystemKit/Sources/ExternalDesignSystem.swift` | 主 App、Widget、Watch、Live Activity 共用 SwiftUI 字体、尺寸与缩放 |
 
@@ -54,6 +54,7 @@
 ## 公共组件
 
 - **容器**：`AppCard` 表达标准、紧凑、分组背景变体；`appGroupedListStyle()` 统一列表边距与 section 间距。
+- **交互列表文字**：List、Form 和 Section 内的按钮、导航、Picker、Toggle、DatePicker、Link 与照片选择入口接入 `appInteractiveListRow()`，左侧标题使用页面主题色。删除入口传入 `isDestructive: true` 使用警示色；行内值和说明文字按各自语义着色。自定义标题组件同样遵循此约定。`check-ui-consistency.py` 基于 SwiftSyntax 检查控件自身样式和标题组件的前景色，并自测时间轴 Picker、删除入口、嵌套组件及字符串边界。
 - **操作**：`AppDetailShareLink`、`AppDetailCircleButton`、`AppFloatingActionButton` 与 `AppFloatingActionStack` 统一触控区域、材质和布局。
 - **输入与标题**：`AppInputPrompt` 使用正文与系统 placeholder 颜色；`AppListSectionHeader` 使用强调脚注与次级颜色；原生 `Section("标题")` 使用系统样式。
 - **内容控制**：顶部 segmented、排序搜索栏和设置导航行共享公共组件。
@@ -75,8 +76,8 @@
 
 | 入口 | 范围 |
 | --- | --- |
-| `Scripts/check-ui-consistency.sh` | AST 作用域内的视觉令牌、主 App 布局、所有 Swift target 的字体使用、页面角色、公共组件、系统触感、错误报告入口和图片型操作控件的无障碍名称 |
-| `Scripts/check-code-quality.sh` | 客户端工程规范：网络、日志、日期解析、取消处理、存储、源码与工程维护 |
+| `Scripts/check-ui-consistency.py` | AST 作用域内的视觉令牌、主 App 布局、所有 Swift target 的字体使用、页面角色、公共组件、系统触感、错误报告入口和图片型操作控件的无障碍名称 |
+| `Scripts/check-code-quality.py` | 客户端工程规范：网络、日志、日期解析、取消处理、存储、源码与工程维护 |
 
 `Scripts/run-static-audit.sh` 汇总既有检查入口。每条规则由所属检查维护，派生放在规则拥有者内部；执行范围依据用户明确指示。
 

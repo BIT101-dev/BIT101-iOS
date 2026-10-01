@@ -348,6 +348,7 @@ private struct AppErrorReportSheet: View {
                     .pickerStyle(.inline)
                     .labelsHidden()
                     .appSelectionFeedback(trigger: viewModel.mode)
+                    .appInteractiveListRow()
                     modeExplanation
                 } header: {
                     AppListSectionHeader("选择提交内容")

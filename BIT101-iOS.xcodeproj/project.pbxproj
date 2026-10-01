@@ -48,11 +48,13 @@
 		179920AB55AE7DF8EF879573 /* PaperFeature in Frameworks */ = {isa = PBXBuildFile; productRef = F21F8608CD6CA6A78D0965B7 /* PaperFeature */; };
 		8291AC960BB7DE20B2A6F958 /* MineFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 6FE3E14DCF0D3D4FBA1CA713 /* MineFeature */; };
 		0D089A6C2EEE14EC8315EE51 /* CommunityUI in Frameworks */ = {isa = PBXBuildFile; productRef = FE4BC822948E0C8939F52BA7 /* CommunityUI */; };
+		F1A1B2C3D4E5F60718293A80 /* CommunityPersistence in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A80 /* CommunityPersistence */; };
 		BCD779F0D0C49D507B756FA4 /* GalleryFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 9DA82775A76E8D8C5BCEA6BA /* GalleryFeature */; };
 		2DE809F2792D43F485E93997 /* CourseFeature in Frameworks */ = {isa = PBXBuildFile; productRef = B5AE44AA28FADAF558C1B60E /* CourseFeature */; };
 		38722BB43B50F2548294CCA9 /* PaperFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 1570943B2CD56F864992D0B2 /* PaperFeature */; };
 		E6B86C1FBDF9D84A2CC574D9 /* MineFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 65A4F6D9CBAD7ABB099FDE48 /* MineFeature */; };
 		EAC4DEFB18B11ADC9C091518 /* CommunityUI in Frameworks */ = {isa = PBXBuildFile; productRef = 6DEEE94B44858A735EDBFC13 /* CommunityUI */; };
+		F1A1B2C3D4E5F60718293A81 /* CommunityPersistence in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A81 /* CommunityPersistence */; };
 		F1A1B2C3D4E5F60718293A4C /* ScheduleSharedStore in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A4C /* ScheduleSharedStore */; };
 		F1A1B2C3D4E5F60718293A4D /* ScheduleSharedStore in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A4D /* ScheduleSharedStore */; };
 		E291A3F5762E5EFC6828D630 /* StorageCore in Frameworks */ = {isa = PBXBuildFile; productRef = A333A6801922ACA17A6EB881 /* StorageCore */; };
@@ -224,6 +226,7 @@
 				38722BB43B50F2548294CCA9 /* PaperFeature in Frameworks */,
 				E6B86C1FBDF9D84A2CC574D9 /* MineFeature in Frameworks */,
 				EAC4DEFB18B11ADC9C091518 /* CommunityUI in Frameworks */,
+				F1A1B2C3D4E5F60718293A81 /* CommunityPersistence in Frameworks */,
 				B9352F74ACEC0F548F392804 /* MediaKit in Frameworks */,
 				D8C6001CB5BA59F6C872D46D /* ScoreFeature in Frameworks */,
 				F3D54C9D0226C94569DEE989 /* ScoreInfrastructure in Frameworks */,
@@ -291,6 +294,7 @@
 				179920AB55AE7DF8EF879573 /* PaperFeature in Frameworks */,
 				8291AC960BB7DE20B2A6F958 /* MineFeature in Frameworks */,
 				0D089A6C2EEE14EC8315EE51 /* CommunityUI in Frameworks */,
+				F1A1B2C3D4E5F60718293A80 /* CommunityPersistence in Frameworks */,
 				2BF6BDA61F30052E17BF3107 /* MediaKit in Frameworks */,
 				C72A13E39DF1E1CB29139600 /* ScoreFeature in Frameworks */,
 				40EABF5ED7206B1E680F8388 /* ScoreInfrastructure in Frameworks */,
@@ -453,6 +457,7 @@
 				1570943B2CD56F864992D0B2 /* PaperFeature */,
 				65A4F6D9CBAD7ABB099FDE48 /* MineFeature */,
 				6DEEE94B44858A735EDBFC13 /* CommunityUI */,
+				F0A1B2C3D4E5F60718293A81 /* CommunityPersistence */,
 				3B75038DEE8ADEDB8D845413 /* MediaKit */,
 				087CF839BD691F065FEB70F2 /* ScoreFeature */,
 				A2B94E395290A1E5A3F23E04 /* ScoreInfrastructure */,
@@ -570,6 +575,7 @@
 				F21F8608CD6CA6A78D0965B7 /* PaperFeature */,
 				6FE3E14DCF0D3D4FBA1CA713 /* MineFeature */,
 				FE4BC822948E0C8939F52BA7 /* CommunityUI */,
+				F0A1B2C3D4E5F60718293A80 /* CommunityPersistence */,
 				1DB066E2ABA48D63E088A8DE /* MediaKit */,
 				73D62B0964E0FD0487217875 /* ScoreFeature */,
 				42DFEE69C216B563286C4011 /* ScoreInfrastructure */,
@@ -669,11 +675,13 @@
 		F21F8608CD6CA6A78D0965B7 /* PaperFeature */ = {isa = XCSwiftPackageProductDependency; productName = PaperFeature; };
 		6FE3E14DCF0D3D4FBA1CA713 /* MineFeature */ = {isa = XCSwiftPackageProductDependency; productName = MineFeature; };
 		FE4BC822948E0C8939F52BA7 /* CommunityUI */ = {isa = XCSwiftPackageProductDependency; productName = CommunityUI; };
+		F0A1B2C3D4E5F60718293A80 /* CommunityPersistence */ = {isa = XCSwiftPackageProductDependency; productName = CommunityPersistence; };
 		9DA82775A76E8D8C5BCEA6BA /* GalleryFeature */ = {isa = XCSwiftPackageProductDependency; productName = GalleryFeature; };
 		B5AE44AA28FADAF558C1B60E /* CourseFeature */ = {isa = XCSwiftPackageProductDependency; productName = CourseFeature; };
 		1570943B2CD56F864992D0B2 /* PaperFeature */ = {isa = XCSwiftPackageProductDependency; productName = PaperFeature; };
 		65A4F6D9CBAD7ABB099FDE48 /* MineFeature */ = {isa = XCSwiftPackageProductDependency; productName = MineFeature; };
 		6DEEE94B44858A735EDBFC13 /* CommunityUI */ = {isa = XCSwiftPackageProductDependency; productName = CommunityUI; };
+		F0A1B2C3D4E5F60718293A81 /* CommunityPersistence */ = {isa = XCSwiftPackageProductDependency; productName = CommunityPersistence; };
 		F0A1B2C3D4E5F60718293A4C /* ScheduleSharedStore */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleSharedStore; };
 		F0A1B2C3D4E5F60718293A4D /* ScheduleSharedStore */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleSharedStore; };
 		A333A6801922ACA17A6EB881 /* StorageCore */ = {isa = XCSwiftPackageProductDependency; productName = StorageCore; };

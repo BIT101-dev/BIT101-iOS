@@ -1,5 +1,6 @@
 import DesignSystemKit
 import Foundation
+import TransportCore
 
 /// 日程页统一使用的提示模型。
 ///
@@ -62,7 +63,8 @@ extension ScheduleStateConsumer {
     }
 
     nonisolated static func isLikelySchoolTransportError(_ error: Error) -> Bool {
-        if let urlError = error as? URLError {
+        ErrorChain.contains(error) { candidate in
+            guard let urlError = candidate as? URLError else { return false }
             return [
                 .cannotConnectToHost,
                 .cannotFindHost,
@@ -73,12 +75,6 @@ extension ScheduleStateConsumer {
                 .timedOut
             ].contains(urlError.code)
         }
-
-        let nsError = error as NSError
-        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error {
-            return isLikelySchoolTransportError(underlying)
-        }
-        return false
     }
 }
 

@@ -6,9 +6,8 @@ import XCTest
 ///
 /// 测试根据编译条件或 `BIT101_NETWORK_SMOKE_SCOPE` 选择 smoke 范围，调用共享 runner。
 /// 正式 App 的当前登录态冒烟通过 `bit101://network-smoke/...` 在主进程内触发同一 runner。
-@MainActor
-final class ReleaseNetworkSmokeTests: XCTestCase {
-    private var scope: NetworkSmokeScope? {
+nonisolated final class ReleaseNetworkSmokeTests: XCTestCase {
+    @MainActor private var scope: NetworkSmokeScope? {
 #if SMOKE_BIT101
         return .bit101
 #elseif SMOKE_SCHOOL
@@ -19,6 +18,7 @@ final class ReleaseNetworkSmokeTests: XCTestCase {
 #endif
     }
 
+    @MainActor
     func testReleaseNetworkFlows() async {
         guard let scope else {
             XCTFail("BIT101_NETWORK_SMOKE_SCOPE 无效")

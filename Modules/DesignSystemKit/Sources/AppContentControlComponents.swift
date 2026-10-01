@@ -43,12 +43,12 @@ public struct AppNavigationRowLabel: View {
                     width: AppDesignSystem.Size.Control.navigationIcon,
                     height: AppDesignSystem.Size.Control.navigationIcon
                 )
-                .foregroundStyle(AppDesignSystem.Foreground.primary)
+                .foregroundStyle(.tint)
                 .accessibilityHidden(true)
 
             Text(title)
                 .font(AppDesignSystem.Typography.title)
-                .foregroundStyle(AppDesignSystem.Foreground.primary)
+                .foregroundStyle(.tint)
 
             Spacer()
 
@@ -246,6 +246,7 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
             if selectAllTitle != nil {
                 Section {
                     Button(toggleAllTitle) { toggleAll() }
+                    .appInteractiveListRow()
                 }
             }
 
@@ -257,7 +258,7 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
                     } label: {
                         HStack(spacing: AppDesignSystem.Spacing.regular) {
                             Text(itemTitle(item))
-                                .foregroundStyle(AppDesignSystem.Foreground.primary)
+                                .foregroundStyle(.tint)
                             Spacer()
                             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                                 .foregroundStyle(isSelected ? AppDesignSystem.Palette.Accent.primary : AppDesignSystem.Foreground.secondaryColor)
@@ -268,6 +269,7 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(itemTitle(item))
                     .accessibilityValue(isSelected ? "已选择" : "未选择")
+                    .appInteractiveListRow()
                 }
             }
         }

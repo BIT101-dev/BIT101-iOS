@@ -9,11 +9,6 @@ private struct AppHTTPClientObserver: HTTPClientObserving, Sendable {
     let warningCenter: NetworkMagicWarningCenter?
 
     func willSend(_ request: URLRequest) async throws {
-#if BIT101_UI_TESTING
-        if AppFileDirectories.isRunningUITest {
-            throw URLError(.notConnectedToInternet)
-        }
-#endif
         if let url = request.url, let warningCenter {
             _ = await warningCenter.consider(url: url)
         }
@@ -47,7 +42,14 @@ extension HTTPClient {
         transport: any HTTPTransport,
         networkWarningCenter: NetworkMagicWarningCenter? = HTTPClient.defaultNetworkWarningCenter
     ) {
-        self.init(transport: transport, observer: AppHTTPClientObserver(warningCenter: networkWarningCenter))
+        self.init(transport: Self.appTransport(transport), observer: AppHTTPClientObserver(warningCenter: networkWarningCenter))
+    }
+
+    private static func appTransport(_ production: any HTTPTransport) -> any HTTPTransport {
+#if BIT101_UI_TESTING
+        if AppFileDirectories.isRunningUITest { return UITestHTTPTransport() }
+#endif
+        return production
     }
 
     static let community = HTTPClient(transport: NetworkSessionPool.community)
@@ -55,50 +57,62 @@ extension HTTPClient {
 }
 
 enum NetworkSessionPool {
-    static let shared: URLSession = {
+    static let shared: any HTTPTransport = {
         let configuration = URLSessionConfiguration.default
-        return URLSession(
-            configuration: configuration,
-            delegate: HTTPSUpgradingRedirectDelegate(),
-            delegateQueue: nil
-        )
+        return URLSessionTransport.make(configuration: configuration)
     }()
 
     /// BIT101 社区接口共享连接池、Cookie 容器和 URLCache，供各 Service 复用 TLS 连接。
-    static let community: URLSession = {
+    static let community: any HTTPTransport = {
         let configuration = URLSessionConfiguration.default
         configuration.httpCookieAcceptPolicy = .always
         configuration.waitsForConnectivity = true
-        return URLSession(
-            configuration: configuration,
-            delegate: HTTPSUpgradingRedirectDelegate(),
-            delegateQueue: nil
-        )
+        return URLSessionTransport.make(configuration: configuration)
     }()
 
-    static let scoreAuthentication: URLSession = {
+    static let scoreAuthentication: any HTTPTransport = {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 25
         configuration.timeoutIntervalForResource = 90
         configuration.waitsForConnectivity = true
-        return URLSession(
-            configuration: configuration,
-            delegate: HTTPSUpgradingRedirectDelegate(),
-            delegateQueue: nil
-        )
+        return URLSessionTransport.make(configuration: configuration)
     }()
 
     /// 可信成绩单图片使用内存态 ephemeral 会话，并与共享磁盘缓存隔离。
-    static let sensitiveDownloads: URLSession = {
+    static let sensitiveDownloads: any HTTPTransport = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 25
         configuration.timeoutIntervalForResource = 90
         configuration.waitsForConnectivity = true
-        return URLSession(
-            configuration: configuration,
-            delegate: HTTPSUpgradingRedirectDelegate(),
-            delegateQueue: nil
-        )
+        return URLSessionTransport.make(configuration: configuration)
+    }()
+
+    static let schoolCAS = schoolCASTransport(followsRedirects: true)
+    static let schoolCASManualRedirects = schoolCASTransport(followsRedirects: false)
+
+    private static func schoolCASTransport(followsRedirects: Bool) -> any HTTPTransport {
+        let configuration = URLSessionConfiguration.default
+        configuration.httpCookieAcceptPolicy = .always
+        return URLSessionTransport.make(configuration: configuration, followsRedirects: followsRedirects)
+    }
+
+    static func teachingCenter(cookieStorage: HTTPCookieStorage) -> any HTTPTransport {
+        let configuration = URLSessionConfiguration.default
+        configuration.httpCookieAcceptPolicy = .always
+        configuration.httpCookieStorage = cookieStorage
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 60
+        return URLSessionTransport.make(configuration: configuration)
+    }
+}
+
+enum AppNetworkPath {
+    static let state: NetworkPathState = {
+#if BIT101_AUTOMATED_TESTING || BIT101_UI_TESTING
+        return NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected))
+#else
+        return NetworkPathState()
+#endif
     }()
 }
 

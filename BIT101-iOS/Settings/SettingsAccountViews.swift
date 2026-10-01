@@ -66,6 +66,7 @@ struct AccountSettingsPage: View {
                             selection: $selectedPhoto,
                             matching: .images
                         )
+                        .appInteractiveListRow()
                     }
 
                     Button {
@@ -75,6 +76,7 @@ struct AccountSettingsPage: View {
                         LabeledContent("昵称", value: profile.user.nickname)
                     }
                     .disabled(isUpdating)
+                    .appInteractiveListRow()
 
                     Button {
                         mottoText = profile.user.motto
@@ -83,6 +85,7 @@ struct AccountSettingsPage: View {
                         LabeledContent("个性签名", value: profile.user.motto.isEmpty ? "空" : profile.user.motto)
                     }
                     .disabled(isUpdating)
+                    .appInteractiveListRow()
 
                     SettingsSensitiveValueRow(
                         title: "学号",
@@ -115,10 +118,12 @@ struct AccountSettingsPage: View {
                     }
                 }
                 .disabled(isCheckingLogin)
+                .appInteractiveListRow()
 
                 Button("退出登录", role: .destructive, action: onLogout)
                     .accessibilityIdentifier("settings.account.logout")
                     .disabled(isUpdating)
+                .appInteractiveListRow(isDestructive: true)
             }
         }
         .appGroupedListStyle()
@@ -306,5 +311,6 @@ private struct SettingsSensitiveValueRow: View {
         .accessibilityLabel(title)
         .accessibilityValue(isRevealed ? value : "已隐藏")
         .accessibilityHint(isRevealed ? "轻点隐藏\(title)" : "轻点显示\(title)")
+        .appInteractiveListRow()
     }
 }

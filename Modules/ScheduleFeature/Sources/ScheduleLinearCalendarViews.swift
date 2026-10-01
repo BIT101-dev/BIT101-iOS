@@ -72,14 +72,6 @@ struct LinearScheduleCalendarView: View {
 }
 
 private struct LinearScheduleHeader: View {
-    private static let monthDayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 8 * 3600)
-        formatter.dateFormat = "M.d"
-        return formatter
-    }()
-
     let week: Int
     let availableWeeks: [Int]
     let displayMode: ScheduleDisplayMode
@@ -125,14 +117,14 @@ private struct LinearScheduleHeader: View {
                             Button {
                                 onSelectDay(date, visibleWeekdays[index])
                             } label: {
-                                Text(Self.monthDayFormatter.string(from: date))
+                                Text(ScheduleDateCodec.formatCompactDate(date))
                                     .font(AppDesignSystem.Typography.caption)
                                     .foregroundStyle(AppDesignSystem.Foreground.primary)
                                     .frame(width: dayWidth, height: AppDesignSystem.Schedule.WeekSlider.dateHeaderHeight)
                                     .background(AppDesignSystem.Palette.Background.secondaryGrouped)
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("第\(week)周，\(weekdayTitle(visibleWeekdays[index]))，\(Self.monthDayFormatter.string(from: date))")
+                            .accessibilityLabel("第\(week)周，\(weekdayTitle(visibleWeekdays[index]))，\(ScheduleDateCodec.formatCompactDate(date))")
                         }
                     }
                 }

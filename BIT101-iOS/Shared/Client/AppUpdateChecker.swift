@@ -94,7 +94,7 @@ final class AppUpdateChecker {
     private let loadData: DataLoader
 
     init(
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = AppFileDirectories.defaults,
         now: @escaping () -> Date = Date.init,
         installedVersion: @escaping () -> String = {
             Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"

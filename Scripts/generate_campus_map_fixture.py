@@ -20,6 +20,7 @@ except ImportError as error:
     raise SystemExit("缺少 openpyxl，请运行：python3 -m pip install openpyxl") from error
 
 SUPPORTED_CAMPUSES = {"中关村校区", "良乡校区"}
+FIXTURE_PATH = Path(__file__).resolve().parents[1] / "BIT101-iOSTests/Fixtures/campus-map-locations.json"
 TIME_PATTERN = re.compile(
     r"星期[一二三四五六日天]\s*"
     r"(?:\[[^\]]+\]|第\s*\d+\s*节(?:\s*-\s*第\s*\d+\s*节)?)"
@@ -57,18 +58,13 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("xlsx", type=Path)
     parser.add_argument(
-        "--fixture",
-        type=Path,
-        default=Path("BIT101-iOSTests/Fixtures/campus-map-locations.json"),
-    )
-    parser.add_argument(
         "--allow-new",
         action="store_true",
         help="将尚未审核的新地点以 expected=null 写入（通常不应在 CI 使用）",
     )
     args = parser.parse_args()
 
-    old_rows = json.loads(args.fixture.read_text(encoding="utf-8")) if args.fixture.exists() else []
+    old_rows = json.loads(FIXTURE_PATH.read_text(encoding="utf-8")) if FIXTURE_PATH.exists() else []
     decisions = {(row["campus"], row["classroom"]): row.get("expected") for row in old_rows}
     locations = extract_unique_locations(args.xlsx)
     new_locations = [item for item in locations if item not in decisions]
@@ -83,9 +79,9 @@ def main() -> None:
         {"campus": campus, "classroom": classroom, "expected": decisions.get((campus, classroom))}
         for campus, classroom in locations
     ]
-    args.fixture.parent.mkdir(parents=True, exist_ok=True)
-    args.fixture.write_text(json.dumps(rows, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"写入 {len(rows)} 条去重地点；新增待审核 {len(new_locations)} 条：{args.fixture}")
+    FIXTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    FIXTURE_PATH.write_text(json.dumps(rows, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"写入 {len(rows)} 条去重地点；新增待审核 {len(new_locations)} 条：{FIXTURE_PATH}")
 
 
 if __name__ == "__main__":

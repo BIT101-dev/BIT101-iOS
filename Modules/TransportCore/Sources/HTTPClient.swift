@@ -58,46 +58,50 @@ public struct HTTPClient {
         _ request: URLRequest,
         accepting statusCodes: Range<Int> = 200 ..< 300
     ) async throws -> HTTPResponse {
+        try Task.checkCancellation()
         try await observer?.willSend(request)
+        try Task.checkCancellation()
         let startedAt = Date()
-        let data: Data
-        let response: URLResponse
+        var receivedData: Data?
+        var receivedResponse: URLResponse?
+        let result: HTTPResponse
         do {
-            (data, response) = try await transport.data(for: request)
+            let (data, response) = try await transport.data(for: request)
+            receivedData = data
+            receivedResponse = response
+            try Task.checkCancellation()
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw HTTPClientError.invalidResponse
+            }
+            guard statusCodes.contains(httpResponse.statusCode) else {
+                let message = try await Self.errorMessageInBackground(from: data)
+                throw HTTPClientError.unacceptableStatus(
+                    code: httpResponse.statusCode,
+                    message: message
+                )
+            }
+            result = HTTPResponse(data: data, response: httpResponse)
         } catch {
             await observer?.didFinish(
-                request: request, data: nil, response: nil, error: error,
-                elapsed: Date().timeIntervalSince(startedAt)
-            )
-            throw error
-        }
-        guard let httpResponse = response as? HTTPURLResponse else {
-            let error = HTTPClientError.invalidResponse
-            await observer?.didFinish(
-                request: request, data: data, response: response, error: error,
-                elapsed: Date().timeIntervalSince(startedAt)
-            )
-            throw error
-        }
-        guard statusCodes.contains(httpResponse.statusCode) else {
-            let message = await Task.detached(priority: .utility) {
-                Self.errorMessage(from: data)
-            }.value
-            let error = HTTPClientError.unacceptableStatus(
-                code: httpResponse.statusCode,
-                message: message
-            )
-            await observer?.didFinish(
-                request: request, data: data, response: httpResponse, error: error,
+                request: request, data: receivedData, response: receivedResponse, error: error,
                 elapsed: Date().timeIntervalSince(startedAt)
             )
             throw error
         }
         await observer?.didFinish(
-            request: request, data: data, response: httpResponse, error: nil,
+            request: request, data: result.data, response: result.response, error: nil,
             elapsed: Date().timeIntervalSince(startedAt)
         )
-        return HTTPResponse(data: data, response: httpResponse)
+        try Task.checkCancellation()
+        return result
+    }
+
+    @concurrent
+    private static func errorMessageInBackground(from data: Data) async throws -> String? {
+        try Task.checkCancellation()
+        let message = errorMessage(from: data)
+        try Task.checkCancellation()
+        return message
     }
 
     public nonisolated static func errorMessage(from data: Data) -> String? {

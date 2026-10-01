@@ -1,3 +1,4 @@
+import CommunityPersistence
 import CommunityUI
 import SchedulePorts
 import ScoreDomain
@@ -287,7 +288,7 @@ struct ScheduleModuleBoundaryTests {
             session: session, checkLogin: { true },
             messages: GalleryMessageReadStore(
                 defaults: defaults,
-                session: { AppStorageSession(accountIdentifier: "module-community") }, notificationCenter: NotificationCenter()
+                session: { AppStorageSession(accountIdentifier: "module-community") }
             ),
             drafts: ComposerDraftStore(
                 files: AppFileSystem.files, applicationSupport: URL(fileURLWithPath: "/module-community"),

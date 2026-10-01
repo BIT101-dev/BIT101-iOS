@@ -5,6 +5,15 @@ public enum ScheduleDateCodec {
     /// 采用固定公历计算周数，独立于系统日历设置。
     public static let calendar = ScheduleSharedDateCodec.calendar
 
+    private static let compactDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "M.d"
+        return formatter
+    }()
+
     private static let dateTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.calendar = calendar
@@ -66,6 +75,10 @@ public enum ScheduleDateCodec {
     /// 格式化 `M月d日` 短日期。
     public static func formatShortDate(_ date: Date) -> String {
         ScheduleSharedDateCodec.formatShortDate(date)
+    }
+
+    public static func formatCompactDate(_ date: Date) -> String {
+        compactDateFormatter.string(from: date)
     }
 
     /// 格式化精确到分钟的完整日期时间。

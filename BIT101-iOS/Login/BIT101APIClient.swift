@@ -74,32 +74,22 @@ struct BIT101APIClient {
     private let schoolBaseURL = AppURL.required("https://sso.bit.edu.cn")
     private let bit101BaseURL = AppURL.required("https://bit101.flwfdd.xyz")
 
-    private let session: URLSession
-    private let noRedirectSession: URLSession
+    private let httpClient: HTTPClient
+    private let noRedirectHTTPClient: HTTPClient
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
-    private let noRedirectDelegate = NoRedirectURLSessionDelegate()
-    private let redirectDelegate = HTTPSUpgradingRedirectDelegate()
 
     /// 初始化两套会话：
     /// 1. 正常跟随重定向
     /// 2. 手动接管 302
     ///
     /// 学校 SSO 链路需要这两种模式。
-    init() {
-        let configuration = URLSessionConfiguration.default
-        configuration.httpCookieAcceptPolicy = .always
-
-        session = URLSession(
-            configuration: configuration,
-            delegate: redirectDelegate,
-            delegateQueue: nil
-        )
-        noRedirectSession = URLSession(
-            configuration: configuration,
-            delegate: noRedirectDelegate,
-            delegateQueue: nil
-        )
+    init(
+        httpClient: HTTPClient = HTTPClient(transport: NetworkSessionPool.schoolCAS),
+        noRedirectHTTPClient: HTTPClient = HTTPClient(transport: NetworkSessionPool.schoolCASManualRedirects)
+    ) {
+        self.httpClient = httpClient
+        self.noRedirectHTTPClient = noRedirectHTTPClient
 
         decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
@@ -143,7 +133,7 @@ struct BIT101APIClient {
         request.httpMethod = "POST"
         guard let requestURL = request.url else { throw LoginServiceError.invalidServerResponse }
         request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        request.httpBody = formBody(
+        request.httpBody = HTTPFormEncoding.body(
             [
                 ("username", studentID),
                 ("password", encryptedPassword),
@@ -369,9 +359,9 @@ struct BIT101APIClient {
         return String(message.prefix(200))
     }
 
-    /// 根据是否允许跟随重定向，选择合适的 `URLSession` 并统一做 HTTPS 升级。
+    /// 按重定向策略选择注入客户端，并统一做 HTTPS 升级。
     private func sendRequest(_ request: URLRequest, followRedirects: Bool) async throws -> (Data, HTTPURLResponse) {
-        let activeSession = followRedirects ? session : noRedirectSession
+        let activeClient = followRedirects ? httpClient : noRedirectHTTPClient
         let finalRequest: URLRequest
 
         if let url = request.url {
@@ -384,7 +374,7 @@ struct BIT101APIClient {
 
         let result: HTTPResponse
         do {
-            result = try await HTTPClient(transport: activeSession).send(
+            result = try await activeClient.send(
                 finalRequest,
                 accepting: 100 ..< 600
             )
@@ -395,26 +385,6 @@ struct BIT101APIClient {
             throw LoginServiceError.invalidServerResponse
         }
         return (result.data, result.response)
-    }
-
-    /// 把表单字段编码成 `application/x-www-form-urlencoded` 数据。
-    ///
-    /// 将学校 CAS 登录表单字段编码为 `application/x-www-form-urlencoded`。
-    private func formBody(_ fields: [(String, String)]) -> Data {
-        let encoded = fields
-            .map { key, value in
-                "\(urlEncode(key))=\(urlEncode(value))"
-            }
-            .joined(separator: "&")
-
-        return Data(encoded.utf8)
-    }
-
-    /// 表单字段专用的 URL 编码。
-    private func urlEncode(_ value: String) -> String {
-        var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove(charactersIn: "&+=?")
-        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 
     /// 把 HTTP 状态码转成统一错误对象。

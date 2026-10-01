@@ -1,4 +1,7 @@
 #!/bin/zsh
+if [[ -z "${ZSH_EXECUTION_STRING:-}" ]]; then
+  exec zsh -c "$(<"$0")" "$0" "$@"
+fi
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -7,24 +10,43 @@ DERIVED_ROOT="$ROOT_DIR/.build/icloud-cross-device-smoke"
 CONDITIONS="DEBUG ICLOUD_CROSS_DEVICE_SMOKE"
 TEST_CLASS="BIT101-iOSTests/ICloudCrossDeviceSmokeTests"
 RESULT_BUNDLE="$DERIVED_ROOT/test-results.xcresult"
+SUMMARY_PATH="$DERIVED_ROOT/report.json"
+RUN_ID="$(uuidgen)"
+export TEST_RUNNER_BIT101_ICLOUD_SMOKE_RUN_ID="$RUN_ID"
+
+if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
+  echo "用法：Scripts/run_icloud_cross_device_smoke.sh [--cleanup] [真机设备ID]；--report [报告路径]"
+  exit 0
+fi
 
 report_result() {
-  python3 - "$1" <<'PY'
+  python3 - "$1" <<'PYREPORT'
 import json
+from pathlib import Path
 import subprocess
 import sys
 
-summary = json.loads(subprocess.check_output([
-    "xcrun", "xcresulttool", "get", "test-results", "summary", "--path", sys.argv[1],
-], text=True))
-print(f"通过 {summary.get('passedTests', 0)}，失败 {summary.get('failedTests', 0)}，跳过 {summary.get('skippedTests', 0)}")
-for failure in summary.get("testFailures", []):
-    print(failure.get("failureText", failure))
-PY
+path = Path(sys.argv[1])
+if path.suffix == ".xcresult":
+    summary = json.loads(subprocess.check_output([
+        "xcrun", "xcresulttool", "get", "test-results", "summary", "--path", str(path),
+    ], text=True))
+    rows = [dict(summary, stage="测试结果")]
+else:
+    report = json.loads(path.read_text())
+    print(f"iCloud Smoke 状态码：{report.get('exitCode', '执行中')}")
+    if "cleanupExitCode" in report:
+        print(f"恢复流程状态码：{report['cleanupExitCode']}")
+    rows = report.get("stages", [])
+for row in rows:
+    print(f"{row['stage']}：通过 {row.get('passedTests', 0)}，失败 {row.get('failedTests', 0)}，跳过 {row.get('skippedTests', 0)}，状态 {row.get('exitCode', '?')}")
+    for failure in row.get("testFailures", []):
+        print(failure.get("failureText", failure))
+PYREPORT
 }
 
 if [[ "${1:-}" == "--report" ]]; then
-  report_result "${2:-$RESULT_BUNDLE}"
+  report_result "${2:-$SUMMARY_PATH}"
   exit $?
 fi
 CLEANUP_ONLY=false
@@ -32,141 +54,142 @@ if [[ "${1:-}" == "--cleanup" ]]; then
   CLEANUP_ONLY=true
   shift
 fi
-
 if [[ $# -gt 1 ]]; then
-  echo "用法: $0 [--cleanup] [真机设备ID]；$0 --report [结果包路径]" >&2
+  echo "用法: $0 [--cleanup] [真机设备ID]；$0 --report [报告或结果包路径]" >&2
   exit 64
 fi
-source "$ROOT_DIR/Scripts/device-support.sh"
+source "$ROOT_DIR/Scripts/script-support.sh"
 bit101_require_device "${1:-}" || exit 1
 DEVICE_ID="$BIT101_XCODE_DEVICE_ID"
-
 mkdir -p "$DERIVED_ROOT"
+if ! $CLEANUP_ONLY; then rm -f "$SUMMARY_PATH"; fi
 
-run_with_output_threshold() {
-  local output_path="$1"
-  local label="$2"
-  shift 2
-
-  python3 - "$output_path" "$label" "$@" <<'PY'
+record_result() {
+  python3 - "$SUMMARY_PATH" "$RESULT_BUNDLE" "$1" "$2" "$3" <<'PY'
+import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 
-report_path = Path(sys.argv[1])
-label = sys.argv[2]
-command = sys.argv[3:]
-report_path.unlink(missing_ok=True)
-process = subprocess.Popen(
-    command,
-    stdout=subprocess.PIPE,
-    stderr=subprocess.STDOUT,
-    text=True,
-    bufsize=1,
-)
-buffered = []
-report = None
-for line in process.stdout:
-    if report is None:
-        buffered.append(line)
-        if len(buffered) <= 1000:
-            sys.stdout.write(line)
-            sys.stdout.flush()
-            continue
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-        report = report_path.open("w", encoding="utf-8")
-        report.writelines(buffered)
-        buffered.clear()
-    else:
-        report.write(line)
-
-if report is not None:
-    report.close()
-    print(f"[输出] {label} 超过 1000 行，详情写入 {report_path}")
-
-raise SystemExit(process.wait())
+report_path, bundle, stage, process_status, log_path = sys.argv[1:]
+exit_code = int(process_status)
+row = {"stage": stage, "exitCode": exit_code}
+if stage == "testCleanup":
+    statuses = re.findall(
+        r"Test case 'ICloudCrossDeviceSmokeTests\.testCleanup\(\)' (passed|failed|skipped) on ",
+        Path(log_path).read_text(),
+    )
+    row.update(totalTestCount=len(statuses), failedTests=statuses.count("failed"),
+               passedTests=statuses.count("passed"), skippedTests=statuses.count("skipped"))
+elif Path(bundle).is_dir():
+    result = subprocess.run([
+        "xcrun", "xcresulttool", "get", "test-results", "summary", "--path", bundle,
+    ], capture_output=True, text=True)
+    if result.returncode == 0:
+        summary = json.loads(result.stdout)
+        for key in ("totalTestCount", "passedTests", "failedTests", "skippedTests", "testFailures"):
+            row[key] = summary.get(key, [] if key == "testFailures" else 0)
+if row.get("totalTestCount", 0) != 1 or row.get("passedTests", 0) != 1 or row.get("failedTests", 0) or row.get("skippedTests", 0):
+    row["exitCode"] = exit_code or 1
+    print(f"[失败] {stage} 要求一项用例执行并通过。")
+path = Path(report_path)
+report = json.loads(path.read_text()) if path.is_file() else {"stages": []}
+report["stages"].append(row)
+path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+raise SystemExit(row["exitCode"])
 PY
 }
 
 common_args=(
-  -quiet
-  -project "$PROJECT"
-  -scheme BIT101-iOS
-  -configuration Release
-  "SWIFT_ACTIVE_COMPILATION_CONDITIONS=$CONDITIONS"
-  ENABLE_TESTABILITY=YES
+  -quiet -project "$PROJECT" -scheme BIT101-iOS -configuration Release
+  "SWIFT_ACTIVE_COMPILATION_CONDITIONS=$CONDITIONS" ENABLE_TESTABILITY=YES
   -collect-test-diagnostics never
 )
 
 run_phone_test() {
   local method="$1"
   local log="$DERIVED_ROOT/$method.log"
-  rm -rf "$RESULT_BUNDLE"
-  if run_with_output_threshold "$log" "$method 真机测试输出" xcodebuild test-without-building "${common_args[@]}" \
-      -destination "platform=iOS,id=$DEVICE_ID" \
-      -derivedDataPath "$DERIVED_ROOT/Phone" \
-      -resultBundlePath "$RESULT_BUNDLE" \
-      "-only-testing:$TEST_CLASS/$method"; then
-    return 0
-  else
-    local test_status=$?
-    if [[ -d "$RESULT_BUNDLE" ]]; then
-      report_result "$RESULT_BUNDLE" || true
-    fi
-    return "$test_status"
+  local result_args=()
+  local test_status=0
+  if [[ "$method" != "testCleanup" ]]; then
+    rm -rf "$RESULT_BUNDLE"
+    result_args=(-resultBundlePath "$RESULT_BUNDLE")
   fi
+  bit101_run_logged "$log" "$method" xcodebuild test-without-building "${common_args[@]}" \
+    -destination "platform=iOS,id=$DEVICE_ID" -derivedDataPath "$DERIVED_ROOT/Phone" \
+    "${result_args[@]}" "-only-testing:$TEST_CLASS/$method" || test_status=$?
+  record_result "$method" "$test_status" "$log"
 }
 
-if $CLEANUP_ONLY; then
-  cleanup_status=0
-  run_phone_test testCleanup || cleanup_status=$?
-  "$ROOT_DIR/Scripts/build-install-device.sh" "$DEVICE_ID" || cleanup_status=1
-  exit "$cleanup_status"
-fi
-
-cleanup() {
+PHONE_TESTS_STARTED=false
+PHONE_CLEANED_UP=false
+finish_smoke() {
   local smoke_status=$?
-  trap - EXIT INT TERM
-  echo "尝试恢复真机设置并清理 Smoke 协调数据……" >&2
-  run_phone_test testCleanup || true
+  trap - EXIT ZERR INT TERM
+  if $PHONE_TESTS_STARTED && ! $PHONE_CLEANED_UP; then
+    echo "[恢复] 实验开关与 Smoke 协调数据"
+    if ! run_phone_test testCleanup; then
+      if (( smoke_status == 0 )); then smoke_status=1; fi
+    fi
+  fi
+  if [[ "${BIT101_DEFER_APP_RESTORE:-0}" != "1" ]]; then
+    echo "[恢复] 安装并启动常规 Release App"
+    if ! "$ROOT_DIR/Scripts/build-install-device.sh" "$DEVICE_ID"; then
+      if (( smoke_status == 0 )); then smoke_status=1; fi
+    fi
+  fi
+  python3 - "$SUMMARY_PATH" "$smoke_status" "$CLEANUP_ONLY" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+report = json.loads(path.read_text()) if path.is_file() else {"stages": []}
+if sys.argv[3] == "true":
+    report["cleanupExitCode"] = int(sys.argv[2])
+    report.setdefault("exitCode", int(sys.argv[2]))
+else:
+    report["exitCode"] = int(sys.argv[2])
+path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+PY
+  report_result "$SUMMARY_PATH"
+  if (( smoke_status == 0 )); then
+    echo "iCloud Smoke 验证与恢复完成。"
+  fi
   exit "$smoke_status"
 }
-
-echo "[构建] 准备真机测试宿主"
-run_with_output_threshold "$DERIVED_ROOT/build.log" "iCloud 真机测试构建输出" \
-  xcodebuild build-for-testing "${common_args[@]}" \
-    -destination "platform=iOS,id=$DEVICE_ID" \
-    -derivedDataPath "$DERIVED_ROOT/Phone" \
-    "-only-testing:$TEST_CLASS"
-trap cleanup EXIT
+trap finish_smoke EXIT ZERR
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-echo "[1/3] 真机上传设置与成绩缓存"
-run_phone_test testPhoneUpload || exit $?
+if $CLEANUP_ONLY; then
+  PHONE_TESTS_STARTED=true
+  run_phone_test testCleanup
+  PHONE_CLEANED_UP=true
+  exit 0
+fi
 
-echo "[2/3] Mac Catalyst 接收手机数据并写回原设置"
+echo "[构建] 准备真机测试宿主"
+bit101_run_logged "$DERIVED_ROOT/build.log" "iCloud 真机测试构建" \
+  xcodebuild build-for-testing "${common_args[@]}" \
+  -destination "platform=iOS,id=$DEVICE_ID" -derivedDataPath "$DERIVED_ROOT/Phone" \
+  "-only-testing:$TEST_CLASS"
+
+echo "[1/3] 真机发布完整成绩载荷与本次业务版本"
+PHONE_TESTS_STARTED=true
+run_phone_test testPhoneUpload
+
+echo "[2/3] Mac Catalyst 接收并发布新的业务版本"
 MAC_LOG="$DERIVED_ROOT/mac-receive.log"
 rm -rf "$RESULT_BUNDLE"
-if run_with_output_threshold "$MAC_LOG" "Mac Catalyst 接收测试输出" xcodebuild test "${common_args[@]}" \
-    -destination 'platform=macOS,variant=Mac Catalyst' \
-    -derivedDataPath "$DERIVED_ROOT/Mac" \
-    -resultBundlePath "$RESULT_BUNDLE" \
-    ONLY_ACTIVE_ARCH=YES ARCHS=arm64 \
-    "-only-testing:$TEST_CLASS/testMacReceiveAndRestore"; then
-  MAC_STATUS=0
-else
-  MAC_STATUS=$?
-fi
-if (( MAC_STATUS != 0 )); then
-  if [[ -d "$RESULT_BUNDLE" ]]; then
-    report_result "$RESULT_BUNDLE" || true
-  fi
-  exit 1
-fi
+MAC_STATUS=0
+bit101_run_logged "$MAC_LOG" "Mac Catalyst 接收测试" xcodebuild test "${common_args[@]}" \
+  -destination 'platform=macOS,variant=Mac Catalyst' -derivedDataPath "$DERIVED_ROOT/Mac" \
+  -resultBundlePath "$RESULT_BUNDLE" ONLY_ACTIVE_ARCH=YES ARCHS=arm64 \
+  "-only-testing:$TEST_CLASS/testMacReceiveAndRestore" || MAC_STATUS=$?
+record_result testMacReceiveAndRestore "$MAC_STATUS" "$MAC_LOG"
 
-echo "[3/3] 真机接收 Mac 写回并清理"
-run_phone_test testPhoneVerifyAndCleanup || exit $?
-
-trap - EXIT INT TERM
-echo "iCloud 双向 Smoke 测试通过。"
+echo "[3/3] 真机接收 Mac 业务版本并恢复实验开关"
+run_phone_test testPhoneVerifyAndCleanup
+PHONE_CLEANED_UP=true

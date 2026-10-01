@@ -345,13 +345,9 @@ final class ReleaseNetworkSmokeRunner {
     }
 
     private func finishReport(runID: String, scope: NetworkSmokeScope, startedAt: Date) async -> ReleaseNetworkSmokeReport {
-        if scope == .ddl {
-            let required = ["BIT101 登录状态", "课程中心原生认证", "课程中心 DDL 下载", "乐学日历订阅地址", "乐学 DDL 下载"]
-            let missing = required.filter { !executedProbes.contains($0) }
-            if !missing.isEmpty, authenticationBlockers.isEmpty {
-                let line = "[DDL Smoke 覆盖] 必需探针缺失：" + missing.joined(separator: "、")
-                failures.append(line)
-                print("NETWORK_SMOKE_FAIL \(line)")
+        for name in scope.requiredProbes where !executedProbes.contains(name) {
+            if !coverageGaps.contains(where: { $0.hasPrefix(name + "（") }) {
+                coverageGaps.append("必需探针缺失：" + name)
             }
         }
 
@@ -507,6 +503,7 @@ final class ReleaseNetworkSmokeRunner {
         }
         return ScheduleService(credentials: LoginStorage.shared, crypto: AppScheduleServiceCrypto(),
             schoolSessionRestorer: restorer, teachingCenterState: TeachingCenterSessionState(cookieStorage: cookies),
+            transport: NetworkSessionPool.teachingCenter(cookieStorage: cookies),
             observer: HTTPClient.appObserver)
     }
 

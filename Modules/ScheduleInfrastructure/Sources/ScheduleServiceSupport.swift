@@ -1,24 +1,15 @@
 import SchedulePorts
 import ScheduleDomain
+import TransportCore
 import Foundation
 
 private func containsUnderlyingError(
     _ error: Error,
     matching predicate: (NSError) -> Bool
 ) -> Bool {
-    var current: NSError? = error as NSError
-    var visited = Set<ObjectIdentifier>()
-
-    while let candidate = current {
-        let identifier = ObjectIdentifier(candidate)
-        guard visited.insert(identifier).inserted else { break }
-
-        if predicate(candidate) {
-            return true
-        }
-        current = candidate.userInfo[NSUnderlyingErrorKey] as? NSError
+    ErrorChain.contains(error) { candidate in
+        predicate(candidate as NSError)
     }
-    return false
 }
 
 /// 判断请求是否因为 DNS 无法解析主机而失败。
@@ -60,12 +51,7 @@ func isScheduleTransientNetworkError(_ error: Error) -> Bool {
 }
 
 func isSchoolTransportFailure(_ error: Error) -> Bool {
-    if let scheduleError = error as? ScheduleServiceError {
-        return scheduleError.isSchoolTransportFailure
+    ErrorChain.contains(error) { candidate in
+        (candidate as? ScheduleServiceError)?.isSchoolTransportFailure == true
     }
-
-    guard let underlying = (error as NSError).userInfo[NSUnderlyingErrorKey] as? Error else {
-        return false
-    }
-    return isSchoolTransportFailure(underlying)
 }

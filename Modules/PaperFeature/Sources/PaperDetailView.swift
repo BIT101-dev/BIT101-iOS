@@ -3,6 +3,7 @@ import CommunityUI
 import TransportCore
 import MediaKit
 import CommunityCore
+import TransportCore
 import DesignSystemKit
 //
 //  PaperDetailView.swift
@@ -34,7 +35,7 @@ private struct PaperDetailViewScene: View {
     let initialPaper: PaperSummary
 
     @StateObject private var viewModel: PaperDetailViewModel
-    @StateObject private var networkObserver = PaperNetworkObserver()
+    private var networkObserver: NetworkPathState { dependencies.networkPath }
     @State private var composerTarget: PaperCommentComposerTarget?
     @State private var imageViewer: ImagePreviewRequest?
     @State private var isShowingEditor = false

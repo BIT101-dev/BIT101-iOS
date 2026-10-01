@@ -1,3 +1,5 @@
+import CommunityPersistence
+import CommunityCore
 import CommunityUI
 import ScheduleDomain
 import ScheduleFeature
@@ -12,6 +14,17 @@ import Testing
 
 @MainActor
 struct SuggestionDependencyTests {
+    @MainActor
+    private final class SuggestionDraftPort: DeveloperSuggestionDraftStoring {
+        var cleanups = 0
+        func saveSuggestion(_ snapshot: DeveloperSuggestionDraftSnapshot) async -> Bool { true }
+        func loadSuggestion() async -> DeveloperSuggestionDraftSnapshot? { nil }
+        func removeSuggestion() async { cleanups += 1 }
+        func captureSuggestionCleanup() async -> ComposerDraftCleanup {
+            { await self.removeSuggestion() }
+        }
+    }
+
     private final class Account {
         var session = AppStorageSession(accountIdentifier: "A")
     }
@@ -25,6 +38,15 @@ struct SuggestionDependencyTests {
         return DeveloperSuggestionPayload(comment: "injected suggestion", contact: "fixture", appVersion: "test", build: "test",
             systemVersion: "test", deviceModel: "test", networkStatus: context.networkStatus,
             submittedAt: Date(timeIntervalSince1970: 0), context: context, attachments: [])
+    }
+
+    @Test func suggestionPageAcceptsAnIndependentDraftPort() async throws {
+        let drafts = SuggestionDraftPort()
+        var delivered: [String] = []
+        let page = DeveloperSuggestionPage(dependencies: .init(drafts: drafts, submit: { delivered.append($0.comment) }))
+        try await page.dependencies.submitAndClear(payload())
+        #expect(delivered == ["injected suggestion"])
+        #expect(drafts.cleanups == 1)
     }
 
     @Test func successfulSubmissionUsesTheChosenDraftAndDeliveryOwner() async throws {

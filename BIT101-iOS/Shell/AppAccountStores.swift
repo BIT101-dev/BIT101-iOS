@@ -1,3 +1,4 @@
+import CommunityPersistence
 import CommunityUI
 import ScoreDomain
 import ScoreInfrastructure
@@ -51,7 +52,6 @@ extension ScoreViewModel {
     convenience init(
         service: any ScoreListServicing,
         stores: AppAccountStores = .shared,
-        notificationCenter: NotificationCenter = .default,
         currentScoreCacheSession: (@MainActor () -> AppStorageSession)? = nil,
         scheduleCoursesChanges: AnyPublisher<AppStorageSession, Never>,
         loadScheduleCourses: @escaping @MainActor (AppStorageSession) async -> [String: [ScoreCourseSummary]]
@@ -62,8 +62,7 @@ extension ScoreViewModel {
             preferenceStore: stores.scoreFilterPreferences,
             currentScoreCacheSession: currentScoreCacheSession ?? stores.scoreSession,
             scheduleCoursesChanges: scheduleCoursesChanges,
-            loadScheduleCourses: loadScheduleCourses,
-            notificationCenter: notificationCenter
+            loadScheduleCourses: loadScheduleCourses
         )
     }
 

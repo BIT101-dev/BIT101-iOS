@@ -24,10 +24,7 @@ public struct ScheduleService {
     let schoolSessionRestorer: any SchoolSessionRestoring
     let teachingCenterState: TeachingCenterSessionState
     let rawCourseResponseHandler: ((Data) -> Void)?
-    let session: URLSession
-    let transportOverride: (any HTTPTransport)?
-    let observer: (any HTTPClientObserving & Sendable)?
-    private let redirectDelegate = HTTPSUpgradingRedirectDelegate()
+    let httpClient: HTTPClient
     static let authenticationWaitSeconds: TimeInterval = 90
     struct AuthenticationCredentials: Encodable {
         let username: String?
@@ -44,14 +41,14 @@ public struct ScheduleService {
         let data: [String: String]
     }
 
-    /// 构造带共享 cookie 与 HTTPS 升级能力的会话；传入传输层用于离线契约测试。
+    /// 传输与 Cookie 容器由宿主组装，服务负责学校业务请求。
     public init(
         credentials: any SchoolCredentialsProviding,
         crypto: any SchoolServiceCryptoProviding,
         schoolSessionRestorer: any SchoolSessionRestoring,
         teachingCenterState: TeachingCenterSessionState,
         rawCourseResponseHandler: ((Data) -> Void)? = nil,
-        transport: (any HTTPTransport)? = nil,
+        transport: any HTTPTransport,
         observer: (any HTTPClientObserving & Sendable)? = nil
     ) {
         self.credentials = credentials
@@ -59,21 +56,7 @@ public struct ScheduleService {
         self.schoolSessionRestorer = schoolSessionRestorer
         self.teachingCenterState = teachingCenterState
         self.rawCourseResponseHandler = rawCourseResponseHandler
-        transportOverride = transport
-        self.observer = observer
-        let configuration = URLSessionConfiguration.default
-        configuration.httpCookieAcceptPolicy = .always
-        configuration.httpCookieStorage = teachingCenterState.cookieStorage
-        // 教学中心提供校外 WebVPN 与校园网直连两条链路。配置关闭连接等待，让当前网络
-        // 未解析主机及时返回 DNS 错误，直连回退继续执行。
-        configuration.waitsForConnectivity = false
-        configuration.timeoutIntervalForRequest = 30
-        configuration.timeoutIntervalForResource = 60
-        session = URLSession(
-            configuration: configuration,
-            delegate: redirectDelegate,
-            delegateQueue: nil
-        )
+        httpClient = HTTPClient(transport: transport, observer: observer)
     }
 
 }

@@ -662,7 +662,7 @@ final class ScheduleLiveActivityManager {
     }
 
     private static func timeRangeText(start: Date, end: Date) -> String {
-        "\(displayTimeFormatter.string(from: start))-\(displayTimeFormatter.string(from: end))"
+        "\(ScheduleSharedDateCodec.formatTime(start))-\(ScheduleSharedDateCodec.formatTime(end))"
     }
 
     /// 计算下一条刷新边界。
@@ -804,18 +804,11 @@ final class ScheduleLiveActivityManager {
         }
     }
 
-    private static let displayTimeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 8 * 3600)
-        formatter.dateFormat = "HH:mm"
-        return formatter
-    }()
-
     private static let debugDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
+        formatter.calendar = ScheduleSharedDateCodec.calendar
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 8 * 3600)
+        formatter.timeZone = ScheduleSharedDateCodec.calendar.timeZone
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
         return formatter
     }()

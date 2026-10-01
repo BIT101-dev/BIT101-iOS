@@ -1,3 +1,4 @@
+import CommunityPersistence
 import ScheduleDomain
 import ScheduleFeature
 import GalleryFeature
@@ -100,12 +101,14 @@ struct FeatureCompositionTests {
             reporting: service, composer: service, images: service, preferences: preferences,
             messages: GalleryMessageReadStore(defaults: UserDefaults.standard, session: { AppStorageSession(accountIdentifier: "composition") }),
             drafts: ComposerDraftStore(files: PreferenceMemoryFiles(), applicationSupport: URL(fileURLWithPath: "/preference-sync"),
-                session: { AppStorageSession(accountIdentifier: "composition") }, prepareImageData: ComposerDraftImageCompressor.compress))
+                session: { AppStorageSession(accountIdentifier: "composition") }, prepareImageData: ComposerDraftImageCompressor.compress),
+            networkPath: NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected)))
     }
 
     private func paper(_ transport: TraceTransport) -> PaperDependencies {
         let service = PaperService(session: session(transport))
-        return PaperDependencies(list: service, detail: service, composer: service)
+        return PaperDependencies(list: service, detail: service, composer: service,
+            networkPath: NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected)))
     }
 
     private func mine(_ transport: TraceTransport) -> MineDependencies {

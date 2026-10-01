@@ -54,6 +54,7 @@ struct GalleryReportSheet: View {
                             }
                         }
                         .appSelectionFeedback(trigger: selectedTypeID ?? 0)
+                        .appInteractiveListRow()
                     }
                 }
 
@@ -75,6 +76,7 @@ struct GalleryReportSheet: View {
                     }
                     .frame(maxWidth: .infinity)
                     .disabled(isLoading || isSubmitting || selectedTypeID == nil)
+                    .appInteractiveListRow()
                 }
             }
             .navigationTitle(target.title)

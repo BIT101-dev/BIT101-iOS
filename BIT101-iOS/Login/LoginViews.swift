@@ -97,6 +97,7 @@ private struct LoginFormView: View {
                 .accessibilityHint(viewModel.isSubmitting ? "请稍候" : "提交学校统一身份认证账号密码")
                 .accessibilityIdentifier("login.submit")
                 .disabled(!viewModel.canSubmit)
+                .appInteractiveListRow()
             }
         }
         .navigationTitle("登录")

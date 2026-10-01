@@ -20,7 +20,7 @@ struct GalleryMessagesView: View {
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject var viewModel: GalleryMessageViewModel
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var networkObserver = GalleryNetworkObserver()
+    private var networkObserver: NetworkPathState { dependencies.networkPath }
     @State private var selectedPoster: CommunityPoster?
     @State private var localAlert: AppAlert?
     private var service: any GalleryPosterDetailServicing { dependencies.posterDetail }

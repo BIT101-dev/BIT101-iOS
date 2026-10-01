@@ -1,4 +1,6 @@
 import StorageCore
+import CommunityCore
+import PaperFeature
 import ScheduleContracts
 import ScheduleSharedStore
 import Foundation
@@ -31,6 +33,11 @@ enum NetworkSmokeScope: String, Codable, CaseIterable, Sendable {
             return area == .authentication || area == .ddl
         }
     }
+
+    var requiredProbes: [String] {
+        NetworkSmokeArea.allCases.filter(includes).flatMap(\.requiredProbes)
+    }
+
 }
 
 enum NetworkSmokeArea: CaseIterable, Hashable, Sendable {
@@ -40,6 +47,72 @@ enum NetworkSmokeArea: CaseIterable, Hashable, Sendable {
     case ddl
     case school
     case transcript
+
+    var requiredProbes: [String] {
+        switch self {
+        case .authentication:
+            ["BIT101 登录状态"]
+        case .bit101:
+            [
+                "open.aihelpme.dev 首页跳转",
+                "话廊最新列表",
+                "话廊帖子详情",
+                "话廊帖子评论",
+                "话廊图片下载",
+                "话廊网页详情",
+                "话廊推荐流",
+                "话廊机器人流",
+                "帖子声明列表",
+                "话廊搜索",
+                "消息未读数",
+                "学业课程列表",
+                "学业课程详情",
+                "学业课程评论",
+                "学业课程历史成绩",
+                "学业课程网页详情",
+                "文章列表",
+                "文章详情",
+                "文章评论",
+                "我的资料",
+                "我的关注",
+                "我的粉丝",
+                "我的帖子",
+                "用户资料详情",
+                "用户帖子",
+                "App Store 更新接口",
+                "紧急更新配置接口",
+                "feedback.aihelpme.dev 写入恢复",
+            ] + GalleryMessageType.allCases.map { "消息列表-\($0.rawValue)" }
+                + PaperSortOrder.allCases.map { "文章列表-\($0.title)" }
+        case .schedule:
+            [
+                "当前学期",
+                "切换学期列表",
+                "课表、考试与首周同步",
+                "空教室校区列表",
+                "空教室教学楼列表",
+                "空教室占用数据",
+            ]
+        case .ddl:
+            [
+                "课程中心原生认证",
+                "课程中心 DDL 下载",
+                "乐学日历订阅地址",
+                "乐学 DDL 下载",
+            ]
+        case .school:
+            [
+                "成绩认证接口",
+                "成绩简略列表",
+                "成绩详细列表",
+            ]
+        case .transcript:
+            [
+                "可信成绩单接口",
+            ]
+        }
+    }
+
 }
 
 enum NetworkSmokeCapture: String, Codable, Sendable {
@@ -105,8 +178,12 @@ struct ReleaseNetworkSmokeReport: Codable {
         finishedAt.timeIntervalSince(startedAt)
     }
 
+    var missingRequiredProbes: [String] {
+        scope.requiredProbes.filter { !executedProbes.contains($0) }
+    }
+
     var coverageComplete: Bool {
-        coverageGaps.isEmpty
+        coverageGaps.isEmpty && missingRequiredProbes.isEmpty
     }
 
     var summaryLine: String {

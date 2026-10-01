@@ -1,3 +1,4 @@
+import CommunityCore
 import CommunityUI
 import ScheduleFeature
 import MediaKit
@@ -213,10 +214,10 @@ private enum DeveloperSuggestionConfirmation: String, Identifiable {
 
 /// 此页面向开发者提交功能建议，并复用错误反馈 Worker 与邮件通知链路。
 struct DeveloperSuggestionDependencies {
-    let drafts: ComposerDraftStore
+    let drafts: any DeveloperSuggestionDraftStoring
     private let send: (DeveloperSuggestionPayload) async throws -> Void
 
-    init(drafts: ComposerDraftStore, submit: @escaping (DeveloperSuggestionPayload) async throws -> Void) {
+    init(drafts: any DeveloperSuggestionDraftStoring, submit: @escaping (DeveloperSuggestionPayload) async throws -> Void) {
         self.drafts = drafts
         self.send = submit
     }
@@ -271,6 +272,7 @@ struct DeveloperSuggestionPage: View {
                     Text("插入图片")
                 }
                 .disabled(isSubmitting || imageDrafts.count >= 6)
+                .appInteractiveListRow()
 
                 if !imageDrafts.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {

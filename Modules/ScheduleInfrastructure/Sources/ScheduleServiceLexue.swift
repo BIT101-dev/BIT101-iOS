@@ -326,7 +326,7 @@ extension ScheduleService {
         request.setValue(crypto.browserUserAgent, forHTTPHeaderField: "User-Agent")
         request.setValue(schoolSSOBaseURL.absoluteString, forHTTPHeaderField: "Origin")
         request.setValue(schoolSSOBaseURL.appending(path: "cas/").absoluteString, forHTTPHeaderField: "Referer")
-        request.httpBody = formBody([
+        request.httpBody = HTTPFormEncoding.body([
             ("username", credentials.currentStudentID),
             ("password", code),
             ("type", "smsLogin"),

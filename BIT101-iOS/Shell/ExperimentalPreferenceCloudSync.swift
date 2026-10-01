@@ -1,5 +1,5 @@
 import ScoreDomain
-import GalleryFeature
+import CommunityPersistence
 import StorageCore
 import ScoreInfrastructure
 import Combine
@@ -170,7 +170,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     init(
         settings: AppSettingsStore,
         stores: AppAccountStores,
-        defaults: UserDefaults = .standard,
+        defaults: UserDefaults = AppFileDirectories.defaults,
         cloudStore: any PreferenceCloudStoring = NSUbiquitousKeyValueStore.default,
         notificationCenter: NotificationCenter = .default
     ) {
@@ -265,6 +265,12 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         scheduleReconciliation(for: ExperimentalPreferenceSyncDomain.allCases)
     }
 
+#if DEBUG || ICLOUD_CROSS_DEVICE_SMOKE
+    func synchronizedVersion(for domain: ExperimentalPreferenceSyncDomain) -> Date? {
+        localUpdatedAt(for: domain)
+    }
+#endif
+
     func reloadForCurrentAccount() {
         reconciliationTask?.cancel()
         reconciliationTask = nil
@@ -306,7 +312,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
                 return
             }
 
-            while !self.pendingReconciliationDomains.isEmpty {
+            while !Task.isCancelled, self.isEnabled, !self.pendingReconciliationDomains.isEmpty {
                 let domains = self.pendingReconciliationDomains
                 self.pendingReconciliationDomains.removeAll()
 
@@ -317,7 +323,9 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
                 }
             }
 
-            self.reconciliationTask = nil
+            if !Task.isCancelled {
+                self.reconciliationTask = nil
+            }
         }
     }
 

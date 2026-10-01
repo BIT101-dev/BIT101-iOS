@@ -98,6 +98,7 @@ public struct CoursePageContent: View {
                 .task {
                     await viewModel.loadMoreIfNeeded(currentCourse: course)
                 }
+                .appInteractiveListRow()
             }
 
             if viewModel.state.isLoadingMore {

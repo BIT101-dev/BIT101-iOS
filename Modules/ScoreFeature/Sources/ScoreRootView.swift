@@ -59,6 +59,7 @@ public struct ScoreListPage: View {
                             Text("申请可信成绩单")
                         }
                         .disabled(viewModel.isSyncing)
+                        .appInteractiveListRow()
                     }
 
                     Section {
@@ -75,6 +76,7 @@ public struct ScoreListPage: View {
                         } label: {
                             LabeledContent("学期", value: selectionDescription(selected: viewModel.selectedTerms, all: viewModel.availableTerms))
                         }
+                        .appInteractiveListRow()
 
                         NavigationLink {
                             ScoreFilterPage(
@@ -89,6 +91,7 @@ public struct ScoreListPage: View {
                         } label: {
                             LabeledContent("种类", value: selectionDescription(selected: viewModel.selectedCourseTypes, all: viewModel.availableCourseTypes))
                         }
+                        .appInteractiveListRow()
 
                         NavigationLink {
                             ScoreSortPage(
@@ -105,6 +108,7 @@ public struct ScoreListPage: View {
                         } label: {
                             LabeledContent("排序", value: viewModel.sortDescription)
                         }
+                        .appInteractiveListRow()
                     }
 
                     Section("统计") {
@@ -136,6 +140,7 @@ public struct ScoreListPage: View {
                                     ScoreListRowCard(row: row)
                                 }
                                 .buttonStyle(.plain)
+                                .appInteractiveListRow()
                             }
                         }
                     }
@@ -149,6 +154,7 @@ public struct ScoreListPage: View {
                                     ScoreListRowCard(course: course)
                                 }
                                 .buttonStyle(.plain)
+                                .appInteractiveListRow()
                             }
                         }
                     }
@@ -539,6 +545,7 @@ private struct ScoreDetailView: View {
             AppCourseEvaluationRow()
         }
         .buttonStyle(.plain)
+        .appInteractiveListRow()
     }
 
     private var remainingFields: [ScoreField] {

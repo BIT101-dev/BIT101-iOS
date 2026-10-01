@@ -112,10 +112,13 @@ struct BIT101_iOSApp: App {
         scores = productionScores
 #endif
         _lifecycle = StateObject(wrappedValue: AppAccountLifecycle(
+            scheduleViewModel: ScheduleServiceFactory.makeViewModel(),
             community: .app(settings: preferenceCloudSync.settings, stores: preferenceCloudSync.stores),
             scoreService: scores, transcriptService: productionScores, preferenceCloudSync: preferenceCloudSync,
+            notifications: .default,
             scheduleChanges: ScheduleCacheStore.changes, loadScheduleCourses: AppAccountStores.loadScheduleCourses,
-            media: AppMedia.environment, localData: .appService(settings: preferenceCloudSync.settings, media: AppMedia.environment)
+            media: AppMedia.environment, localData: .appService(settings: preferenceCloudSync.settings, media: AppMedia.environment),
+            externalDisplays: AppExternalDisplayCoordinator()
         ))
     }
 

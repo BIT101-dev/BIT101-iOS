@@ -572,18 +572,18 @@ nonisolated enum ScoreCacheDiskWriteResult: Sendable {
 ///
 /// 按学号隔离；文件读写、JSON 编解码和变更串行化均在专用 actor 执行。
 public final class ScoreCacheStore: ScoreCaching {
+    private let changeSubject = PassthroughSubject<AppStorageSession, Never>()
+    public var changes: AnyPublisher<AppStorageSession, Never> { changeSubject.eraseToAnyPublisher() }
     private let saveSubject = PassthroughSubject<AppStorageSession, Never>()
     public var localSaves: AnyPublisher<AppStorageSession, Never> { saveSubject.eraseToAnyPublisher() }
     private nonisolated static let logger = Logger(subsystem: "BIT101", category: "ScoreCache")
     private let repository: ScoreCacheDiskRepository
     private let defaults: UserDefaults
     private let currentSession: () -> AppStorageSession
-    private let notificationCenter: NotificationCenter
 
-    public init(files: any AppFileService, storageRoot: URL, defaults: UserDefaults, session: @escaping () -> AppStorageSession, notificationCenter: NotificationCenter = .default) {
+    public init(files: any AppFileService, storageRoot: URL, defaults: UserDefaults, session: @escaping () -> AppStorageSession) {
         self.repository = ScoreCacheDiskRepository(files: files, storageRoot: storageRoot)
         self.defaults = defaults
-        self.notificationCenter = notificationCenter
         self.currentSession = session
     }
 
@@ -701,7 +701,7 @@ public final class ScoreCacheStore: ScoreCaching {
         if syncPreference {
             saveSubject.send(session)
         }
-        notificationCenter.post(name: .scoreCacheDidChange, object: self, userInfo: ["session": session])
+        changeSubject.send(session)
         return snapshot.updatedAt
     }
 
@@ -885,14 +885,14 @@ actor ScoreCacheDiskRepository {
 
 
 public final class ScoreFilterPreferenceStore: ScoreFilterPreferencesStoring {
+    private let changeSubject = PassthroughSubject<AppStorageSession, Never>()
+    public var changes: AnyPublisher<AppStorageSession, Never> { changeSubject.eraseToAnyPublisher() }
     private let saveSubject = PassthroughSubject<AppStorageSession, Never>()
     public var localSaves: AnyPublisher<AppStorageSession, Never> { saveSubject.eraseToAnyPublisher() }
     private let session: () -> AppStorageSession
     private let store: AccountScopedCodableStore<ScoreFilterPreferenceSnapshot>
-    private let notificationCenter: NotificationCenter
 
-    public init(defaults: UserDefaults, session: @escaping () -> AppStorageSession, notificationCenter: NotificationCenter = .default) {
-        self.notificationCenter = notificationCenter
+    public init(defaults: UserDefaults, session: @escaping () -> AppStorageSession) {
         self.session = session
         store = AccountScopedCodableStore(
             keyPrefix: "score.filter.preferences", defaults: defaults, sessionProvider: session
@@ -917,11 +917,12 @@ public final class ScoreFilterPreferenceStore: ScoreFilterPreferencesStoring {
         )
         store.save(snapshot)
         saveSubject.send(session())
+        changeSubject.send(session())
     }
 
-    /// 将 iCloud 筛选偏好写入本地存储，并发布本地筛选变更通知。
+    /// 将 iCloud 筛选偏好写入本地存储，并发布所属账号的变更。
     public func applySynced(_ snapshot: ScoreFilterPreferenceSnapshot) {
         store.save(snapshot)
-        notificationCenter.post(name: .scoreFilterPreferencesDidChange, object: self, userInfo: ["session": session()])
+        changeSubject.send(session())
     }
 }

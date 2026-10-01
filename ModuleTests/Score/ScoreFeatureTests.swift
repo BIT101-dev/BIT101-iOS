@@ -25,16 +25,14 @@ struct ScoreFeatureTests {
     ) throws -> (ScoreViewModel, ScoreCacheStore) {
         clearPreferences()
         let defaults = try #require(UserDefaults(suiteName: "BIT101ModulesTests.score"))
-        let notifications = NotificationCenter()
         let cache = ScoreCacheStore(
             files: ModuleScoreFiles(), storageRoot: URL(fileURLWithPath: "/module-score"), defaults: defaults,
-            session: session, notificationCenter: notifications
+            session: session
         )
-        let preferences = ScoreFilterPreferenceStore(defaults: defaults, session: session, notificationCenter: notifications)
+        let preferences = ScoreFilterPreferenceStore(defaults: defaults, session: session)
         let viewModel = ScoreViewModel(
             service: service, cacheStore: cache, preferenceStore: preferences, currentScoreCacheSession: session,
-            scheduleCoursesChanges: Empty().eraseToAnyPublisher(), loadScheduleCourses: { _ in [:] },
-            notificationCenter: notifications
+            scheduleCoursesChanges: Empty().eraseToAnyPublisher(), loadScheduleCourses: { _ in [:] }
         )
         return (viewModel, cache)
     }
@@ -55,27 +53,29 @@ struct ScoreFeatureTests {
         withExtendedLifetime(secondSubscription) {}
     }
 
-    @Test func sharedNotificationCenterKeepsPreferenceSourcesScoped() async throws {
+    @Test func preferenceStreamsKeepInstancesScoped() async throws {
         let defaults = try #require(UserDefaults(suiteName: "BIT101ModulesTests.score.scopes"))
         defer { defaults.removePersistentDomain(forName: "BIT101ModulesTests.score.scopes") }
         let session = AppStorageSession(accountIdentifier: "same-account")
-        let center = NotificationCenter()
-        let firstStore = ScoreFilterPreferenceStore(defaults: defaults, session: { session }, notificationCenter: center)
-        let secondStore = ScoreFilterPreferenceStore(defaults: defaults, session: { session }, notificationCenter: center)
+        let firstStore = ScoreFilterPreferenceStore(defaults: defaults, session: { session })
+        let secondStore = ScoreFilterPreferenceStore(defaults: defaults, session: { session })
         func model(_ preferences: ScoreFilterPreferenceStore) -> ScoreViewModel {
             ScoreViewModel(service: ScoreServiceSpy(requiresSMS: false),
-                cacheStore: ScoreCacheStore(files: ModuleScoreFiles(), storageRoot: URL(fileURLWithPath: "/module-score"), defaults: defaults, session: { session }, notificationCenter: center),
+                cacheStore: ScoreCacheStore(files: ModuleScoreFiles(), storageRoot: URL(fileURLWithPath: "/module-score"), defaults: defaults, session: { session }),
                 preferenceStore: preferences, currentScoreCacheSession: { session },
-                scheduleCoursesChanges: Empty().eraseToAnyPublisher(), loadScheduleCourses: { _ in [:] }, notificationCenter: center)
+                scheduleCoursesChanges: Empty().eraseToAnyPublisher(), loadScheduleCourses: { _ in [:] })
         }
         let first = model(firstStore)
         let second = model(secondStore)
         firstStore.applySynced(.init(sortIndex: "score", sortOrder: "descending"))
         #expect(first.sortIndex == .score)
         #expect(second.sortIndex == .courseName)
-        center.post(name: .scoreFilterPreferencesDidChange, object: secondStore,
-                    userInfo: ["session": AppStorageSession(accountIdentifier: "stale-account")])
-        #expect(second.sortIndex == .courseName)
+        secondStore.applySynced(.init(sortIndex: "term", sortOrder: "ascending"))
+        #expect(second.sortIndex == .term)
+        #expect(first.sortIndex == .score)
+        firstStore.save(selectedTerms: [], selectedCourseTypes: [], sortIndex: .courseName, sortOrder: .ascending)
+        #expect(first.sortIndex == .courseName)
+        #expect(second.sortIndex == .term)
     }
 
     private final class ScoreServiceSpy: ScoreListServicing {

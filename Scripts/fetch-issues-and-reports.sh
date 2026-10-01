@@ -5,47 +5,83 @@ umask 077
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 REPO="BIT101-dev/BIT101-iOS"
 WRANGLER_DIR="$ROOT_DIR/Cloudflare/EmergencyUpdateWorker"
-WRANGLER_HOME="$HOME/Library/Preferences"
 NAMESPACE_ID="4c6402dfad4e406a93cc2518843803c6"
 OUTPUT_DIR="$ROOT_DIR/.build/issue-report-inbox"
-STAGING_DIR="$OUTPUT_DIR/.incoming"
 WRANGLER_LOG="$OUTPUT_DIR/wrangler.log"
 CI_RUNS_PATH="$OUTPUT_DIR/github-ci-runs.json"
 CI_REPORT_PATH="$OUTPUT_DIR/github-ci.json"
 
-if ! command -v gh >/dev/null 2>&1; then
-  echo "未找到 GitHub CLI：请先安装 gh 并完成 gh auth login。" >&2
-  exit 1
-fi
-
+ACTION="${1:-fetch}"
+case "$ACTION" in
+  -h|--help)
+    echo "用法：Scripts/fetch-issues-and-reports.sh [fetch|list|latest|show <报告键>|delete <报告键>]"
+    exit 0
+    ;;
+  fetch|list|latest) [[ $# -le 1 ]] || exit 64 ;;
+  show|delete) [[ $# -eq 2 ]] || { echo "请提供报告键。" >&2; exit 64; } ;;
+  *) echo "报告操作：fetch、list、latest、show、delete。" >&2; exit 64 ;;
+esac
+WRANGLER="$WRANGLER_DIR/node_modules/.bin/wrangler"
 mkdir -p "$OUTPUT_DIR"
-find "$OUTPUT_DIR" -mindepth 1 -maxdepth 1 -type d ! -name ".incoming" -exec rm -rf {} +
-rm -rf "$STAGING_DIR"
-mkdir -p "$STAGING_DIR"
-rm -f "$OUTPUT_DIR/github-issues.json" "$OUTPUT_DIR/error-report-keys.json" "$OUTPUT_DIR/summary.txt" "$OUTPUT_DIR/wrangler.log" "$CI_RUNS_PATH"
-
-emit_output() {
-  local output_path="$1"
-  local label="$2"
-  local output="$3"
-  local line_count
-
-  if [[ -z "$output" ]]; then
-    rm -f "$output_path"
-    return 0
-  fi
-
-  line_count="$(printf '%s\n' "$output" | wc -l | tr -d '[:space:]')"
-  if (( line_count <= 1000 )); then
-    rm -f "$output_path"
-    print -r -- "$output"
-  else
-    printf '%s\n' "$output" > "$output_path"
-    echo "[输出] $label 共 $line_count 行，详情写入 $output_path"
-  fi
+export WRANGLER_LOG_PATH="$WRANGLER_LOG"
+rm -f "$WRANGLER_LOG"
+keys() {
+  (cd "$WRANGLER_DIR" && "$WRANGLER" kv key list --remote --namespace-id "$NAMESPACE_ID" --prefix report:) > "$OUTPUT_DIR/error-report-keys.json"
+  cat "$OUTPUT_DIR/error-report-keys.json"
 }
 
-echo "拉取 GitHub Issues..."
+latest_key() {
+  keys | python3 -c 'import json,sys; rows=[x["name"] for x in json.load(sys.stdin) if x["name"].startswith("report:")]; print(max(rows, default=""))'
+}
+
+show_key() {
+  local key="$1"
+  [[ -n "$key" ]] || { echo "没有错误报告。" >&2; exit 1; }
+  (cd "$WRANGLER_DIR" && "$WRANGLER" kv key get "$key" --remote --namespace-id "$NAMESPACE_ID" --text) | python3 -c '
+import json
+from pathlib import Path
+import sys
+
+item = json.load(sys.stdin)
+for attachment in item.get("report", {}).get("attachments", []):
+    if isinstance(attachment, dict):
+        data = attachment.pop("data", None)
+        if isinstance(data, str):
+            attachment["bytes"] = len(data) * 3 // 4 - (len(data) - len(data.rstrip("=")))
+text = json.dumps(item, ensure_ascii=False, indent=2)
+report = Path(sys.argv[1]) / "error-report.json"
+report.write_text(text + "\n", encoding="utf-8")
+if len(text.splitlines()) <= 1000:
+    print(text)
+else:
+    print(f"报告共 {len(text.splitlines())} 行 · {report}")
+' "$OUTPUT_DIR"
+}
+
+case "$ACTION" in
+  list)
+    keys | python3 -c 'import json,sys; rows=[x for x in json.load(sys.stdin) if x["name"].startswith("report:")]; rows.sort(key=lambda x:x["name"], reverse=True); print("\n".join(x["name"] + " " + json.dumps(x.get("metadata",{}), ensure_ascii=False) for x in rows) if len(rows) <= 1000 else f"报告键共 {len(rows)} 条 · {sys.argv[1]}")' "$OUTPUT_DIR/error-report-keys.json"
+    ;;
+  latest)
+    show_key "$(latest_key)"
+    ;;
+  show)
+    show_key "${2:-}"
+    ;;
+  delete)
+    key="${2:-}"
+    [[ "$key" == report:* ]] || { echo "请提供 report: 开头的报告键。" >&2; exit 64; }
+    (cd "$WRANGLER_DIR" && "$WRANGLER" kv key delete "$key" --remote --namespace-id "$NAMESPACE_ID")
+    ;;
+  fetch) ;;
+esac
+if [[ "$ACTION" != fetch ]]; then exit 0; fi
+
+STAGING_DIR="$OUTPUT_DIR/.incoming"
+rm -rf "$STAGING_DIR"
+mkdir -p "$STAGING_DIR"
+rm -f "$OUTPUT_DIR/github-issues.json" "$OUTPUT_DIR/error-report-keys.json" "$OUTPUT_DIR/summary.txt" "$WRANGLER_LOG" "$CI_RUNS_PATH"
+
 if ! gh api \
   "repos/$REPO/issues?state=open&per_page=100" \
   --jq '[.[] | select(.pull_request == null)]' \
@@ -54,7 +90,6 @@ if ! gh api \
   printf '[]\n' > "$OUTPUT_DIR/github-issues.json"
 fi
 
-echo "拉取 GitHub CI 失败记录..."
 if ! gh run list \
   --repo "$REPO" \
   --status failure \
@@ -120,21 +155,21 @@ output_path.write_text(
 )
 PY
 
-echo "拉取 Cloudflare 错误报告..."
 if WRANGLER_OUTPUT="$(
-  (cd "$WRANGLER_DIR" && HOME="$WRANGLER_HOME" npx wrangler kv key list \
+  (cd "$WRANGLER_DIR" && "$WRANGLER" kv key list \
     --remote \
     --prefix report: \
     --namespace-id "$NAMESPACE_ID" \
     > "$OUTPUT_DIR/error-report-keys.json") 2>&1
 )"; then
-  emit_output "$WRANGLER_LOG" "Wrangler 命令输出" "$WRANGLER_OUTPUT"
+  :
 else
-  emit_output "$WRANGLER_LOG" "Wrangler 命令错误输出" "$WRANGLER_OUTPUT" >&2
+  print -r -- "$WRANGLER_OUTPUT" >> "$WRANGLER_LOG"
+  tail -20 "$WRANGLER_LOG" >&2
   exit 1
 fi
 
-HOME="$WRANGLER_HOME" python3 - "$OUTPUT_DIR/error-report-keys.json" "$STAGING_DIR" "$WRANGLER_DIR" "$NAMESPACE_ID" "$OUTPUT_DIR/report-keys.txt" <<'PY'
+python3 - "$OUTPUT_DIR/error-report-keys.json" "$STAGING_DIR" "$WRANGLER_DIR" "$NAMESPACE_ID" "$OUTPUT_DIR/report-keys.txt" <<'PY'
 import json
 import base64
 import datetime as dt
@@ -182,7 +217,7 @@ for key in keys:
 def fetch(key):
     result = subprocess.run(
         [
-            "npx", "--no-install", "wrangler", "kv", "key", "get", key,
+            str(worker_dir / "node_modules/.bin/wrangler"), "kv", "key", "get", key,
             "--remote", "--namespace-id", namespace_id, "--text",
         ],
         cwd=worker_dir,
@@ -249,6 +284,7 @@ processed_path.write_text(
 )
 PY
 
+find "$OUTPUT_DIR" -mindepth 1 -maxdepth 1 -type d ! -name ".incoming" -exec rm -rf {} +
 REPORT_COUNT="$(find "$STAGING_DIR" -type f -name '*.json' | wc -l | tr -d ' ')"
 if [[ "$REPORT_COUNT" -gt 0 ]]; then
   for category in "开发版" "正式版" "来源未知"; do
@@ -259,7 +295,7 @@ else
   rm -rf "$STAGING_DIR"
 fi
 
-HOME="$WRANGLER_HOME" python3 - "$OUTPUT_DIR/error-report-keys.json" "$WRANGLER_DIR" "$NAMESPACE_ID" <<'PY'
+python3 - "$OUTPUT_DIR/error-report-keys.json" "$WRANGLER_DIR" "$NAMESPACE_ID" <<'PY'
 import datetime as dt
 import json
 import pathlib
@@ -290,12 +326,12 @@ for item in json.loads(keys_path.read_text(encoding="utf-8")):
         keys.append(key)
 
 if keys:
-    print("清理接收时间早于 7 天的 Cloudflare 报告...")
+    print(f"[清理] {len(keys)} 条七天前的 Cloudflare 报告")
 
 def delete(key):
     return key, subprocess.run(
         [
-            "npx", "--no-install", "wrangler", "kv", "key", "delete", key,
+            str(worker_dir / "node_modules/.bin/wrangler"), "kv", "key", "delete", key,
             "--remote", "--namespace-id", namespace_id,
         ],
         cwd=worker_dir,
@@ -369,13 +405,11 @@ lines.append(
 )
 
 summary = "\n".join(lines) + "\n"
+summary_path.write_text(summary, encoding="utf-8")
 if len(lines) <= 1000:
-    summary_path.unlink(missing_ok=True)
     print(summary, end="")
 else:
-    summary_path.write_text(summary, encoding="utf-8")
-    print(f"汇总共 {len(lines)} 行，详情写入 {summary_path}")
+    print(f"汇总共 {len(lines)} 行 · {summary_path}")
 PY
 
 rm -f "$CI_RUNS_PATH"
-echo "本地报告目录：$OUTPUT_DIR"

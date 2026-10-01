@@ -52,14 +52,6 @@ struct CourseArrangementDraft: Identifiable, Equatable {
 
 /// 点击课表顶部日期后进入的日期调整上下文。
 struct ScheduleDayAdjustmentContext: Identifiable {
-    private static let shortDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 8 * 3600)
-        formatter.dateFormat = "M.d"
-        return formatter
-    }()
-
     let date: Date
     let week: Int
     let weekday: Int
@@ -69,7 +61,7 @@ struct ScheduleDayAdjustmentContext: Identifiable {
     }
 
     var shortTitle: String {
-        "\(weekdayText) \(Self.shortDateFormatter.string(from: date))"
+        "\(weekdayText) \(ScheduleDateCodec.formatCompactDate(date))"
     }
 
     var fullDateText: String {
@@ -133,6 +125,7 @@ struct DayAdjustmentSheet: View {
 
                     if draft.mode == .transfer {
                         DatePicker("调至", selection: $draft.targetDate, displayedComponents: .date)
+                        .appInteractiveListRow()
                     }
                 }
 

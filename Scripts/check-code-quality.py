@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import re
 import json
 import os
@@ -14,6 +15,8 @@ import subprocess
 import stat
 import sys
 from pathlib import Path
+
+sys.dont_write_bytecode = True
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOTS = (
@@ -31,7 +34,6 @@ MAX_SOURCE_LINES = 1000
 
 DIRECT_STDOUT_LOG = re.compile(r"\b(?:print|debugPrint|NSLog)\s*\(")
 
-DIRECT_SHARED_URLSESSION = re.compile(r"\bURLSession\.shared\b")
 DIRECT_VIEW_REQUEST = re.compile(r"\bURLRequest\s*\(")
 FORCE_UNWRAP = re.compile(r"\b[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*!(?!=)|\)\s*!(?!=)")
 
@@ -39,12 +41,7 @@ DIRECT_DATE_FORMATTER = re.compile(
     r"\b(?:DateFormatter|ISO8601DateFormatter|RelativeDateTimeFormatter)\s*\("
 )
 
-URLSESSION_EXCEPTIONS = {
-    "BIT101-iOS/Shared/Client/HTTPClient.swift",
-    "BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift",
-}
-
-STDOUT_EXCEPTIONS = {"Shared/Client/ReleaseNetworkSmoke.swift"}
+STDOUT_EXCEPTIONS = {"BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift"}
 
 SWIFT_SYNTAX_INDEXER = r'''
 import Foundation
@@ -115,6 +112,8 @@ struct AccessibilityControlFact: Encodable {
     let start: Int
     let labelStart: Int
     let labelEnd: Int
+    let containers: [String]
+    let expression: String
 }
 
 struct AlertModifierFact: Encodable {
@@ -308,7 +307,7 @@ final class FactVisitor: SyntaxVisitor {
                 containers: listContainers
             ))
         }
-        if ["Button", "NavigationLink", "Menu"].contains(calledName) {
+        if ["Button", "NavigationLink", "Menu", "Picker", "Toggle", "DatePicker", "Link", "PhotosPicker", "LabeledContent"].contains(calledName) {
             let labelArgument = node.arguments.first(where: { $0.label?.text == "label" })
             let labelClosure = node.additionalTrailingClosures.first(where: { $0.label.text == "label" })?.closure
             let singleTrailingLabel: ClosureExprSyntax? = {
@@ -338,6 +337,14 @@ final class FactVisitor: SyntaxVisitor {
                 labelSyntax = nil
             }
             let titleArgument = node.arguments.first(where: { $0.label == nil })?.expression
+            var styledExpression = Syntax(node)
+            while let parent = styledExpression.parent {
+                if parent.is(MemberAccessExprSyntax.self) || parent.is(FunctionCallExprSyntax.self) {
+                    styledExpression = parent
+                } else {
+                    break
+                }
+            }
             accessibilityControls.append(AccessibilityControlFact(
                 name: calledName,
                 invocation: node.trimmedDescription,
@@ -346,7 +353,9 @@ final class FactVisitor: SyntaxVisitor {
                 scope: scope,
                 start: node.positionAfterSkippingLeadingTrivia.utf8Offset,
                 labelStart: labelSyntax?.positionAfterSkippingLeadingTrivia.utf8Offset ?? -1,
-                labelEnd: labelSyntax?.endPositionBeforeTrailingTrivia.utf8Offset ?? -1
+                labelEnd: labelSyntax?.endPositionBeforeTrailingTrivia.utf8Offset ?? -1,
+                containers: listContainers,
+                expression: styledExpression.trimmedDescription
             ))
 
             switch calledName {
@@ -556,15 +565,39 @@ def _run_swift_syntax_index(request: dict) -> dict[str, dict]:
     host_modules = swift_path.parent.parent / "lib/swift/host"
     if not (host_modules / "SwiftSyntax.swiftmodule").is_dir():
         raise RuntimeError(f"Xcode SwiftSyntax modules not found: {host_modules}")
-    result = subprocess.run(
-        [
-            str(swift_path), "-I", str(host_modules), "-L", str(host_modules),
-            "-lSwiftSyntax", "-lSwiftParser", "-e", SWIFT_SYNTAX_INDEXER,
-        ],
-        input=json.dumps(request),
-        text=True,
-        capture_output=True,
-    )
+    cache = ROOT / ".build/static-audit"
+    cache.mkdir(parents=True, exist_ok=True)
+    with (cache / "swift-syntax-indexer.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        source = cache / "swift-syntax-indexer.swift"
+        executable = cache / "swift-syntax-indexer"
+        compiler = swift_path.with_name("swiftc")
+        source_text = SWIFT_SYNTAX_INDEXER + f"\n// Toolchain: {compiler}\n"
+        source_changed = not source.exists() or source.read_text() != source_text
+        toolchain_modified = max(
+            compiler.stat().st_mtime_ns,
+            (host_modules / "libSwiftSyntax.dylib").stat().st_mtime_ns,
+            (host_modules / "libSwiftParser.dylib").stat().st_mtime_ns,
+        )
+        if source_changed or not executable.exists() or executable.stat().st_mtime_ns < toolchain_modified:
+            source.write_text(source_text)
+            executable.unlink(missing_ok=True)
+            sdk = subprocess.check_output(["xcrun", "--sdk", "macosx", "--show-sdk-path"], text=True).strip()
+            compilation = subprocess.run([
+                str(compiler), "-target", f"{os.uname().machine}-apple-macosx14.0", "-sdk", sdk,
+                "-I", str(host_modules), "-L", str(host_modules),
+                "-lSwiftSyntax", "-lSwiftParser", "-Xlinker", "-rpath", "-Xlinker", str(host_modules),
+                str(source), "-o", str(executable),
+            ], capture_output=True, text=True)
+            if compilation.returncode:
+                executable.unlink(missing_ok=True)
+                raise RuntimeError(compilation.stderr.strip() or "SwiftSyntax indexer compilation failed")
+        result = subprocess.run(
+            [str(executable)],
+            input=json.dumps(request),
+            text=True,
+            capture_output=True,
+        )
     if result.returncode:
         raise RuntimeError(result.stderr.strip() or "SwiftSyntax indexing failed")
     try:
@@ -607,14 +640,6 @@ def ast_has_member(facts: dict, expression: str, scope: str | None = None) -> bo
     return any(
         member["value"] == expression
         and (scope is None or scope in member["scope"])
-        for member in facts["members"]
-    )
-
-
-def ast_has_shared_urlsession(facts: dict) -> bool:
-    return any(
-        member["value"] == "URLSession.shared"
-        or member["value"].startswith("URLSession.shared.")
         for member in facts["members"]
     )
 
@@ -691,71 +716,16 @@ def mask_comments(source: str) -> str:
 
 
 def mask_literals_and_comments(source: str) -> str:
-    """保留换行，忽略字符串与注释，避免文案和注释伪造源码契约。"""
-    output = list(source)
-    index = 0
-    comment_depth = 0
-    while index < len(source):
-        if comment_depth:
-            if source.startswith("/*", index):
-                comment_depth += 1
-                _blank_segment(output, source, index, index + 2)
-                index += 2
-            elif source.startswith("*/", index):
-                comment_depth -= 1
-                _blank_segment(output, source, index, index + 2)
-                index += 2
-            else:
-                _blank_segment(output, source, index, index + 1)
-                index += 1
-            continue
-
-        if source.startswith("//", index):
-            end = source.find("\n", index)
-            end = len(source) if end < 0 else end
-            _blank_segment(output, source, index, end)
-            index = end
-            continue
-        if source.startswith("/*", index):
-            comment_depth = 1
-            _blank_segment(output, source, index, index + 2)
-            index += 2
-            continue
-
-        raw_match = re.match(r"(#+)(\"{1,3})", source[index:])
-        if raw_match:
-            hashes, quote = raw_match.groups()
-            terminator = quote + hashes
-            content_start = index + len(hashes) + len(quote)
-            end = source.find(terminator, content_start)
-            end = len(source) if end < 0 else end + len(terminator)
-            _blank_segment(output, source, index, end)
-            index = end
-            continue
-
-        if source.startswith('"""', index):
-            end = source.find('"""', index + 3)
-            end = len(source) if end < 0 else end + 3
-            _blank_segment(output, source, index, end)
-            index = end
-            continue
-
-        if source[index] == '"':
-            index += 1
-            while index < len(source):
-                if source[index] == "\\":
-                    _blank_segment(output, source, index, index + 2)
-                    index += 2
-                elif source[index] == '"':
-                    index += 1
-                    break
-                else:
-                    _blank_segment(output, source, index, index + 1)
-                    index += 1
-            continue
-
-        index += 1
-    return "".join(output)
+    """复用模块检查器的 Swift 词法扫描，保留插值表达式与源码位置。"""
+    name = "check_module_boundaries_lexer"
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, SCRIPT_ROOT / "check-module-boundaries.py")
+        if spec is None or spec.loader is None:
+            raise RuntimeError("Swift 词法扫描器加载失败")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return sys.modules[name].swift_code(source)
 
 
 def declaration_block(code: str, type_name: str) -> str:
@@ -888,15 +858,7 @@ def uses_application_support_storage(member: dict) -> bool:
 
 def checker_boundary_findings() -> list[str]:
     findings: list[str] = []
-    shared_session_source = '''
-// URLSession.shared.data(for: request)
-let example = "URLSession.shared.data(for: request)"
-URLSession.shared.data(for: request)
-'''
-    masked_session_source = mask_literals_and_comments(shared_session_source)
-    if len(DIRECT_SHARED_URLSESSION.findall(masked_session_source)) != 1:
-        findings.append("代码质量规则边界自检失败：网络调用与注释/字符串区分")
-
+    findings.extend(script_output_boundary_findings())
     unwrap_source = '''
 // value!
 let example = "value!"
@@ -906,11 +868,6 @@ let comparison = left != right
     masked_unwrap_source = mask_literals_and_comments(unwrap_source)
     if len(FORCE_UNWRAP.findall(masked_unwrap_source)) != 1:
         findings.append("代码质量规则边界自检失败：强制解包与比较运算区分")
-
-    shared_session_facts = {"members": [{"value": "URLSession.shared.data", "scope": []}]}
-    literal_only_facts = {"members": [{"value": "URLSession.default.data", "scope": []}]}
-    if not ast_has_shared_urlsession(shared_session_facts) or ast_has_shared_urlsession(literal_only_facts):
-        findings.append("代码质量规则边界自检失败：SwiftSyntax 网络边界匹配")
 
     view_source = "struct SampleView: View { let request = URLRequest(url: url) }"
     model_source = "struct SampleModel { let request = URLRequest(url: url) }"
@@ -945,6 +902,22 @@ let comparison = left != right
         findings.append("代码质量规则边界自检失败：类型迁移后仍按声明作用域匹配契约")
     if owner_has_call(relocated_index, "MissingView", "restoreCache"):
         findings.append("代码质量规则边界自检失败：缺少契约类型应保持失败")
+    module_path = ROOT / "Modules/GalleryFeature/Sources/ExampleView.swift"
+    for source, marker in (
+        ('struct ExampleView: View { func load() { print("value") } }', "Logger"),
+        ('struct ExampleView: View { let formatter = DateFormatter() }', "AppDateText"),
+        (r'let text = "\(print("value"))"', "Logger"),
+    ):
+        if not any(marker in finding for finding in client_source_findings(module_path, source)):
+            findings.append("代码质量规则边界自检失败：模块与插值中的客户端规则")
+    if client_source_findings(module_path, '// print("value")\nlet example = "DateFormatter()"'):
+        findings.append("代码质量规则边界自检失败：模块文案进入执行代码规则")
+    model_path = ROOT / "Modules/GalleryFeature/Sources/ExampleViewModel.swift"
+    if not model_cancellation_findings(model_path, {"identifiers": [], "calls": []}):
+        findings.append("代码质量规则边界自检失败：模块状态模型取消契约")
+    if model_cancellation_findings(model_path, {"identifiers": ["TaskCancellation"], "calls": []}):
+        findings.append("代码质量规则边界自检失败：公共取消识别入口")
+    findings.extend(smoke_script_boundary_findings())
     workflow_source = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     detached_release = workflow_source.replace("needs: static-audit", "needs: []", 1)
     if not any("必须依赖静态审计" in item for item in ci_wiring_findings(detached_release)):
@@ -974,6 +947,197 @@ let comparison = left != right
     return findings
 
 
+def script_output_boundary_findings() -> list[str]:
+    """通过内存命令输出验证阈值、完整留档及进程状态。"""
+    from contextlib import nullcontext, redirect_stdout
+    from io import StringIO
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    source = (SCRIPT_ROOT / "script-support.sh").read_text()
+    block = re.search(r"<<'PY'\n(.*?)^PY$", source, re.MULTILINE | re.DOTALL)
+    if block is None:
+        return ["日志自测需要公共输出处理器"]
+    findings: list[str] = []
+    for status, count in ((0, 10), (7, 1000), (7, 1001), (-15, 1)):
+        lines = [f"error: diagnostic {index}\n" for index in range(count)]
+        process = SimpleNamespace(stdout=iter(lines), wait=lambda: status)
+        visible, log = StringIO(), StringIO()
+        with patch.object(sys, "argv", ["logger", "/audit/build.log", "logger", "fake"]), \
+             patch.object(subprocess, "Popen", return_value=process), \
+             patch.object(Path, "mkdir"), patch.object(Path, "open", return_value=nullcontext(log)), \
+             redirect_stdout(visible):
+            try:
+                exec(compile(block[1], "logger-self-test", "exec"), {})
+            except SystemExit as error:
+                expected = status if status >= 0 else 128 - status
+                if error.code != expected:
+                    findings.append("日志自测：进程退出状态传递")
+            else:
+                findings.append("日志自测：进程退出状态缺失")
+        output = visible.getvalue()
+        if log.getvalue() != "".join(lines):
+            findings.append("日志自测：完整输出留档")
+        if ("[输出]" in output) != (count > 1000):
+            findings.append("日志自测：1000 行展示阈值")
+        if count <= 1000 and sum(line.startswith("error:") for line in output.splitlines()) != count:
+            findings.append("日志自测：阈值内完整诊断展示")
+    script = (SCRIPT_ROOT / "run-extended-tests.sh").read_text()
+    header = script.split("set -euo pipefail", 1)[0]
+    fixture = ROOT / ".build/static-audit/script-snapshot.sh"
+    fixture.parent.mkdir(parents=True, exist_ok=True)
+    fixture.write_text(header + 'print -r -- "print replacement" > "$0"\n' + "# padding\n" * 2000 + "print snapshot-survived\n")
+    try:
+        result = subprocess.run(["zsh", str(fixture)], capture_output=True, text=True)
+        if result.returncode or result.stdout.strip() != "snapshot-survived":
+            findings.append("脚本快照自测：执行期间改写源码影响既有流程")
+    finally:
+        fixture.unlink(missing_ok=True)
+    return findings
+
+
+def smoke_script_boundary_findings() -> list[str]:
+    "通过故障注入验证恢复顺序、状态传播和失败证据保留。"
+    from contextlib import redirect_stdout
+    from io import StringIO
+    from unittest.mock import patch
+
+    source = (SCRIPT_ROOT / "run_icloud_cross_device_smoke.sh").read_text()
+    findings: list[str] = []
+
+    def shell_function(name: str, script_source: str = source) -> str:
+        match = re.search(rf"(?ms)^{name}\(\) \{{\n.*?^\}}$", script_source)
+        if match is None:
+            raise RuntimeError(f"Smoke 自测需要 {name} 函数")
+        return match[0]
+
+    phone_function = shell_function("run_phone_test")
+    stub = r'''
+set -euo pipefail
+DERIVED_ROOT=/smoke
+RESULT_BUNDLE=/smoke/test-results.xcresult
+DEVICE_ID=device
+TEST_CLASS=smoke
+common_args=()
+rm() { print -r -- "DELETE $*"; }
+bit101_run_logged() { print -r -- "RUN $*"; }
+record_result() { print -r -- "RECORD $*"; }
+'''
+    cleanup = subprocess.run(["zsh", "-c", stub + phone_function + "\nrun_phone_test testCleanup"], capture_output=True, text=True)
+    if cleanup.returncode or "DELETE" in cleanup.stdout or "-resultBundlePath" in cleanup.stdout:
+        findings.append("Smoke 恢复自测失败：清理覆盖业务阶段结果包")
+    business = subprocess.run(["zsh", "-c", stub + phone_function + "\nrun_phone_test testPhoneUpload"], capture_output=True, text=True)
+    if business.returncode or "-resultBundlePath" not in business.stdout:
+        findings.append("Smoke 恢复自测失败：业务阶段结果包保存")
+
+    finish = shell_function("finish_smoke").replace('"$ROOT_DIR/Scripts/build-install-device.sh"', "restore_normal_app")
+    trap_registration = "\n".join(re.findall(r"(?m)^trap .+$", source))
+    cases = ((7, 0, 0, 7), (7, 1, 0, 7), (7, 0, 1, 7), (0, 1, 0, 1), (0, 0, 1, 1), (0, 0, 0, 0), (130, 0, 0, 130), (143, 0, 0, 143))
+    for initial, cleanup_status, restore_status, expected in cases:
+        triggers = [f"exit {initial}", f"fail_command() {{ return {initial}; }}; fail_command"]
+        if initial in (130, 143):
+            triggers.append(f"kill -s {'INT' if initial == 130 else 'TERM'} $$")
+        for trigger in triggers:
+            harness = f'''
+set -euo pipefail
+PHONE_TESTS_STARTED=true
+PHONE_CLEANED_UP=false
+CLEANUP_ONLY=false
+SUMMARY_PATH=/smoke/report.json
+DEVICE_ID=device
+BIT101_DEFER_APP_RESTORE=0
+run_phone_test() {{ print cleanup; return {cleanup_status}; }}
+restore_normal_app() {{ print restore; return {restore_status}; }}
+report_result() {{ print report; }}
+python3() {{ cat >/dev/null; }}
+{finish}
+{trap_registration}
+{trigger}
+'''
+            result = subprocess.run(["zsh", "-c", harness], capture_output=True, text=True)
+            if result.returncode != expected or not re.search(r"(?ms)^cleanup$.*^restore$.*^report$", result.stdout):
+                findings.append(f"Smoke 恢复自测失败：状态 {initial}/{cleanup_status}/{restore_status}；{trigger}")
+
+    network_source = (SCRIPT_ROOT / "release-network-smoke.sh").read_text()
+    restore = shell_function("restore_normal_app", network_source).replace(
+        'BIT101_INSTALL_TARGET=iPhone "$ROOT_DIR/Scripts/build-install-device.sh" "$DEVICE_ID" >/dev/null 2>&1',
+        "restore_release",
+    )
+    network_traps = "\n".join(line.strip() for line in network_source.splitlines() if line.strip().startswith("trap "))
+    for initial, restore_status, expected in ((7, 0, 7), (7, 1, 7), (0, 1, 1), (0, 0, 0)):
+        harness = f'''
+set -euo pipefail
+DEVICE_ID=device
+restore_release() {{ print restore; return {restore_status}; }}
+{restore}
+{network_traps}
+fail_command() {{ return {initial}; }}
+fail_command
+'''
+        result = subprocess.run(["zsh", "-c", harness], capture_output=True, text=True)
+        if result.returncode != expected or result.stdout.count("restore\n") != 1:
+            findings.append(f"网络 Smoke 恢复自测失败：状态 {initial}/{restore_status}")
+
+    match = re.search(r"(?ms)^record_result\(\).*?<<'PY'\n(.*?)^PY$", source)
+    if match is None:
+        return [*findings, "Smoke 自测需要阶段结果记录器"]
+    state = {}
+    def read(path: Path, *args, **kwargs) -> str:
+        return state.get(str(path), "Test case 'ICloudCrossDeviceSmokeTests.testCleanup()' passed on 'device' (0.01 seconds)\n")
+    def write(path: Path, value: str, *args, **kwargs) -> int:
+        state[str(path)] = value
+        return len(value)
+    summary = {"totalTestCount": 1, "passedTests": 0, "failedTests": 1, "skippedTests": 0,
+               "testFailures": [{"failureText": "business failure"}]}
+    with patch.object(Path, "is_file", lambda path: str(path) in state), patch.object(Path, "is_dir", return_value=True), \
+         patch.object(Path, "read_text", read), patch.object(Path, "write_text", write), \
+         patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(summary))) as result_tool:
+        for stage, process_status, expected in (("testPhoneUpload", "65", 65), ("testCleanup", "0", 0)):
+            with patch.object(sys, "argv", ["record", "/smoke/report.json", "/smoke/results.xcresult", stage, process_status, "/smoke/log"]), redirect_stdout(StringIO()):
+                try:
+                    exec(compile(match[1], "smoke-stage-record", "exec"), {})
+                except SystemExit as error:
+                    if error.code != expected:
+                        findings.append("Smoke 结果自测失败：阶段状态码传播")
+        report = json.loads(state["/smoke/report.json"])
+        if report["stages"][0].get("testFailures") != summary["testFailures"] or len(report["stages"]) != 2 or result_tool.call_count != 1:
+            findings.append("Smoke 结果自测失败：失败阶段与清理阶段的证据归属")
+        for log, expected in (("", 1), ("skipped", 1), ("failed", 1), ("passed", 0)):
+            state["/smoke/log"] = f"Test case 'ICloudCrossDeviceSmokeTests.testCleanup()' {log} on 'device' (0.01 seconds)\n" if log else ""
+            with patch.object(sys, "argv", ["record", "/smoke/report.json", "/smoke/results.xcresult", "testCleanup", "0", "/smoke/log"]), redirect_stdout(StringIO()):
+                try:
+                    exec(compile(match[1], "smoke-cleanup-record", "exec"), {})
+                except SystemExit as error:
+                    if error.code != expected:
+                        findings.append(f"Smoke 清理验收自测失败：{log or '零用例'}")
+    return findings
+
+
+def model_cancellation_findings(path: Path, facts: dict) -> list[str]:
+    if not path.is_relative_to(ROOT / "Modules") and not path.is_relative_to(ROOT / "BIT101-iOS"):
+        return []
+    if not path.name.endswith(("ViewModel.swift", "ViewModels.swift")):
+        return []
+    if ast_has_identifier(facts, "TaskCancellation") or ast_has_call(facts, "isCancellation"):
+        return []
+    return [f"{relative(path)}: 状态模型通过公共取消识别入口处理任务取消"]
+
+
+def client_source_findings(path: Path, source: str, facts: dict | None = None) -> list[str]:
+    production_roots = (ROOT / "Modules", ROOT / "BIT101-iOS", ROOT / "BIT101ScheduleWidgets", ROOT / "BIT101Watch", ROOT / "BIT101WatchWidgets")
+    if not any(path.is_relative_to(root) for root in production_roots):
+        return []
+    errors: list[str] = []
+    name = relative(path)
+    code = mask_literals_and_comments(source)
+    if name not in STDOUT_EXCEPTIONS:
+        add_matches(errors, path, code, DIRECT_STDOUT_LOG, "诊断输出使用所属模块的 Logger")
+    community_roots = tuple(ROOT / "Modules" / module for module in ("CourseFeature", "GalleryFeature", "PaperFeature", "MineFeature", "CommunityUI"))
+    if any(path.is_relative_to(root) for root in community_roots) and is_view_source(path, code):
+        add_matches(errors, path, code, DIRECT_DATE_FORMATTER, "社区日期解析统一使用 AppDateText")
+    return errors
+
+
 def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     review: list[str] = []
@@ -989,28 +1153,7 @@ def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[s
         masked_source = mask_literals_and_comments(source)
         name = relative(path)
 
-        if path.is_relative_to(ROOT / "BIT101-iOS"):
-            if name.removeprefix("BIT101-iOS/") not in STDOUT_EXCEPTIONS:
-                for match in DIRECT_STDOUT_LOG.finditer(masked_source):
-                    finding_line = source.count("\n", 0, match.start()) + 1
-                    errors.append(f"{name}:{finding_line}: 调试输出统一由网络 smoke 维护")
-
-            if name not in URLSESSION_EXCEPTIONS:
-                facts = syntax_index.get(str(path)) if syntax_index else None
-                if facts:
-                    if ast_has_shared_urlsession(facts):
-                        errors.append(f"{name}: 网络请求统一通过 HTTPClient 或场景化 Service")
-                else:
-                    for match in DIRECT_SHARED_URLSESSION.finditer(masked_source):
-                        finding_line = source.count("\n", 0, match.start()) + 1
-                        errors.append(f"{name}:{finding_line}: 网络请求统一通过 HTTPClient 或场景化 Service")
-
-            if name.removeprefix("BIT101-iOS/").split("/", 1)[0] in {"Course", "Gallery", "Paper"} and is_view_source(path, masked_source):
-                for match in DIRECT_DATE_FORMATTER.finditer(masked_source):
-                    finding_line = source.count("\n", 0, match.start()) + 1
-                    errors.append(
-                        f"{name}:{finding_line}: 社区日期解析统一使用 AppDateText"
-                    )
+        errors.extend(client_source_findings(path, source, syntax_index.get(str(path)) if syntax_index else None))
 
         if source and not source.endswith("\n"):
             errors.append(f"{name}: 文件末尾缺少换行")
@@ -1086,14 +1229,12 @@ def script_findings() -> list[str]:
 def documentation_findings() -> list[str]:
     errors: list[str] = []
     markdown_link = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+    documents = subprocess.check_output([
+        "git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "*.md",
+    ], cwd=ROOT, text=True)
     markdown_files = [
-        path
-        for path in ROOT.rglob("*.md")
-        if ".git" not in path.parts
-        and ".build" not in path.parts
-        and "build" not in path.parts
-        and "node_modules" not in path.parts
-        and "Fixtures" not in path.parts
+        ROOT / name for name in set(documents.split("\0"))
+        if name and "Fixtures" not in Path(name).parts and (ROOT / name).is_file()
     ]
     for path in sorted(markdown_files):
         for target in markdown_link.findall(path.read_text(encoding="utf-8")):
@@ -1228,7 +1369,7 @@ def architectural_contract_findings(syntax_index: dict[str, dict]) -> list[str]:
 
     storage_contracts = (
         ("ScheduleCacheStore", "BIT101-iOS/Schedule/ScheduleCacheStore.swift"),
-        ("ComposerDraftStore", "Modules/CommunityUI/Sources/CommunityDesignSystem.swift"),
+        ("ComposerDraftStore", "Modules/CommunityPersistence/Sources/ComposerDraftStore.swift"),
     )
     for type_name, file_name in storage_contracts:
         stores_in_scope = any(
@@ -1250,12 +1391,8 @@ def architectural_contract_findings(syntax_index: dict[str, dict]) -> list[str]:
                 f"{file_name}: 持久化仓库必须复用 AppFileDirectories.applicationSupport"
             )
 
-    for path in sorted((ROOT / "BIT101-iOS").rglob("*.swift")):
-        if not path.name.endswith(("ViewModel.swift", "ViewModels.swift")):
-            continue
-        facts = syntax_index[str(path)]
-        if not ast_has_identifier(facts, "TaskCancellation") and not ast_has_call(facts, "isCancellation"):
-            errors.append(f"{relative(path)}: 状态模型必须统一处理任务取消，不能把取消当成业务失败")
+    for path in swift_files():
+        errors.extend(model_cancellation_findings(path, syntax_index[str(path)]))
 
     return errors
 
@@ -1296,6 +1433,10 @@ def audit_wiring_findings() -> list[str]:
             ("ENABLE_CODE_COVERAGE=YES", "Release 测试构建未覆盖项目级关闭项"),
             ("xccov", "真机测试未提取代码覆盖率"),
             ("test-metrics.txt", "真机测试指标未写入固定报告"),
+            ("SWIFT_TREAT_WARNINGS_AS_ERRORS=YES", "发布测试编译需要 Swift 警告门禁"),
+            ("GCC_TREAT_WARNINGS_AS_ERRORS=YES", "发布测试编译需要 Clang 警告门禁"),
+            ("--enable-code-coverage", "模块测试需要生产源码覆盖率"),
+            ("--generic", "测试编译需要通用 iOS 目的地"),
             ("extensions)", "缺少扩展共享逻辑测试分组"),
             ("ExternalScheduleInfrastructureTests", "扩展共享逻辑分组未执行对应测试套件"),
         )
@@ -1375,11 +1516,10 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         errors.append(".github/workflows/ci.yml: Release 编译 Job 必须依赖静态审计")
     required_release_rules = (
         ("Scripts/run-extended-tests.sh catalyst", "CI 默认 Job 缺少 Mac Catalyst 行为测试"),
-        ("xcodebuild build-for-testing", "默认编译 Job 未编译 iOS 测试 target"),
-        ("-scheme BIT101-iOS", "CI 未编译 iOS scheme"),
-        ("generic/platform=iOS", "iOS 编译不得选择模拟器"),
-        ("SWIFT_TREAT_WARNINGS_AS_ERRORS=YES", "发布编译未将 Swift 警告视为错误"),
-        ("GCC_TREAT_WARNINGS_AS_ERRORS=YES", "发布编译未将 Clang 警告视为错误"),
+        ("Scripts/run-extended-tests.sh release --build-only --generic", "CI 需要通用 iOS Release 测试构建"),
+        ("Scripts/run-extended-tests.sh ui --build-only --generic", "CI 需要 UI 宿主与测试构建"),
+        ("Scripts/run-extended-tests.sh network-smoke --build-only --generic", "CI 需要网络 Smoke 编译条件构建"),
+        ("Scripts/run-extended-tests.sh icloud-smoke --build-only --generic", "CI 需要 iCloud Smoke 编译条件构建"),
     )
     release_commands = "\n".join(run_commands(release_job))
     for marker, message in required_release_rules:
@@ -1438,17 +1578,133 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
         "",
     ]
     report = "\n".join(report_lines)
-    if len(report_lines) <= 1000:
-        REPORT_PATH.unlink(missing_ok=True)
-        print(report)
+    REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    REPORT_PATH.write_text(report, encoding="utf-8")
+    findings = [*errors, *review]
+    if len(findings) <= 1000:
+        if findings:
+            print("\n".join(findings))
     else:
-        REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        REPORT_PATH.write_text(report, encoding="utf-8")
-        print(f"检查结果共 {len(report_lines)} 行，详情写入 {relative(REPORT_PATH)}")
+        print(f"代码质量检查共 {len(findings)} 项 · {relative(REPORT_PATH)}")
 
     if errors:
         return 1
     return 0
+
+
+def explanatory_text_report() -> None:
+    root = ROOT
+    source_root = root / "BIT101-iOS"
+    report = root / ".build/explanatory-text-report.txt"
+    # 用户确认的文案进入白名单，其余候选写入固定报告。
+    APPROVED_TEXTS = {
+        "使用学校统一身份认证账号密码登录。若未注册过 BIT101 账号，将自动完成注册；密码仅会经不可逆加密后传输。",
+        "本 App 尚处在开发中，不保证所有功能始终可用；如遇到问题，请联系 systemd@linux.do。开发者不对使用过程中造成的损失负责。",
+        "本 App 为了完成 Apple 的合规性审查，加入了一些风味元素，功能与安卓版有所差异。",
+        "换个关键词试试。",
+        "请稍候",
+        "先选定校区和教学楼，再刷新一次。",
+        "先获取乐学日程，或手动添加一条。",
+        "点击右上角的加号可以先新增一个。",
+        "请调整学期或种类筛选条件。",
+    }
+    APPROVED_DYNAMIC = {
+        ("Modules/DesignSystemKit/Sources/AppVerificationComponents.swift", "verificationHint"),
+    }
+
+
+    def masked(source: str) -> str:
+        """保留结构字符，维持插值所在块的边界。"""
+        def replace(match: re.Match[str]) -> str:
+            return "".join("\n" if character == "\n" else " " for character in match.group(0))
+
+        return re.sub(r'"""[\s\S]*?"""|"(?:\\.|[^"\\])*"', replace, source)
+
+
+    def block(source: str, start: int) -> str:
+        structure = masked(source)
+        opening = structure.find("{", start)
+        if opening < 0:
+            return ""
+        depth = 0
+        for index in range(opening, len(structure)):
+            if structure[index] == "{":
+                depth += 1
+            elif structure[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    return source[opening + 1 : index]
+        return source[opening + 1 :]
+
+
+    def text_expressions(source: str, path: str) -> list[str]:
+        expressions: list[str] = []
+        for line in source.splitlines():
+            match = re.match(r"Text\((.*)\)\s*$", line.strip())
+            if not match:
+                continue
+            expression = match.group(1)
+            if expression.startswith('"'):
+                if expression[1:-1] not in APPROVED_TEXTS:
+                    expressions.append(expression)
+            elif expression == "verificationHint" and (path, expression) not in APPROVED_DYNAMIC:
+                expressions.append(expression)
+        return expressions
+
+
+    footer_items: list[tuple[str, int, list[str]]] = []
+    description_items: list[tuple[str, int, list[str]]] = []
+
+    for path in sorted(source_root.rglob("*.swift")):
+        source = path.read_text(encoding="utf-8")
+        relative_path = path.relative_to(root).as_posix()
+        if path.name != "ErrorReportSupport.swift":
+            for match in re.finditer(r"\bfooter\s*:\s*\{", source):
+                expressions = text_expressions(block(source, match.start()), relative_path)
+                if expressions:
+                    footer_items.append((path.relative_to(root).as_posix(), source.count("\n", 0, match.start()) + 1, expressions))
+
+        for match in re.finditer(r"\bdescription\s*:\s*\{", source):
+            expressions = text_expressions(block(source, match.start()), relative_path)
+            if expressions:
+                description_items.append((relative_path, source.count("\n", 0, match.start()) + 1, expressions))
+
+        for match in re.finditer(r"\bdescription\s*:\s*Text\((.*)\)\s*$", source, re.MULTILINE):
+            expression = match.group(1)
+            if expression.startswith('"') and expression[1:-1] in APPROVED_TEXTS:
+                continue
+            description_items.append((relative_path, source.count("\n", 0, match.start()) + 1, [expression]))
+
+
+    lines = [
+        "# List/Form 与 ContentUnavailableView 解释文案审查候选",
+        "# 扫描 Section footer 和 ContentUnavailableView description。",
+        "",
+        "## Section footer",
+    ]
+    for path, line, expressions in footer_items:
+        lines.append(f"- {path}:{line}")
+        lines.extend(f"  - Text({expression})" for expression in expressions)
+
+    lines.append("")
+    lines.append("## ContentUnavailableView description")
+    for path, line, expressions in description_items:
+        lines.append(f"- {path}:{line}")
+        lines.extend(f"  - Text({expression})" for expression in expressions)
+
+    count = sum(len(expressions) for _, _, expressions in footer_items + description_items)
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    findings = [
+        f"{path}:{line}: Text({expression})"
+        for path, line, expressions in footer_items + description_items
+        for expression in expressions
+    ]
+    if len(findings) <= 1000:
+        if findings:
+            print("解释文案审查候选：\n" + "\n".join(findings))
+    else:
+        print(f"解释文案审查候选共 {count} 条 · {report.relative_to(root)}")
 
 
 def combined_main() -> int:
@@ -1471,12 +1727,9 @@ def combined_main() -> int:
         *module.source_boundary_findings(),
         *module.map_theme_color_contract_findings(),
     ]
-    if not quality_boundaries:
-        print("[通过] 代码质量检查器自测")
-    if not ui_boundaries:
-        print("[通过] UI 一致性检查器自测")
     ui_status = module.main(syntax_index, ui_boundaries)
     quality_status = main(syntax_index, quality_boundaries)
+    explanatory_text_report()
     return int(ui_status != 0 or quality_status != 0)
 
 

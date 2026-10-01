@@ -39,6 +39,7 @@ struct AddCourseSheet: View {
                         }
                     }
                     .appSelectionFeedback(trigger: draft.weekday)
+                    .appInteractiveListRow()
 
                     Picker("开始节次", selection: $draft.startSection) {
                         ForEach(timeTable) { slot in
@@ -46,6 +47,7 @@ struct AddCourseSheet: View {
                         }
                     }
                     .appSelectionFeedback(trigger: draft.startSection)
+                    .appInteractiveListRow()
 
                     Picker("结束节次", selection: $draft.endSection) {
                         ForEach(timeTable.filter { $0.id >= draft.startSection }) { slot in
@@ -53,6 +55,7 @@ struct AddCourseSheet: View {
                         }
                     }
                     .appSelectionFeedback(trigger: draft.endSection)
+                    .appInteractiveListRow()
                 }
 
             }
@@ -101,6 +104,7 @@ struct CourseArrangementEditorSheet: View {
                             }
                         }
                         .appSelectionFeedback(trigger: arrangement.draft.buildingName)
+                        .appInteractiveListRow()
                         HStack(spacing: AppDesignSystem.Spacing.regular) {
                             Text("房间号")
                             Spacer()
@@ -119,6 +123,7 @@ struct CourseArrangementEditorSheet: View {
                         } label: {
                             LabeledContent("周次", value: weeksText(for: arrangement.draft))
                         }
+                        .appInteractiveListRow()
 
                         NavigationLink {
                             ScheduleWeekdaySelectionSheet(
@@ -130,6 +135,7 @@ struct CourseArrangementEditorSheet: View {
                         } label: {
                             LabeledContent("星期", value: weekdayText(arrangement.draft.weekday))
                         }
+                        .appInteractiveListRow()
 
                         NavigationLink {
                             ScheduleSectionSelectionSheet(
@@ -139,6 +145,7 @@ struct CourseArrangementEditorSheet: View {
                         } label: {
                             LabeledContent("节次", value: sectionsText(for: arrangement.draft))
                         }
+                        .appInteractiveListRow()
                     }
                 }
             }
@@ -253,6 +260,7 @@ struct ScheduleWeekdaySelectionSheet: View {
                     }
                 }
                 .buttonStyle(.plain)
+                .appInteractiveListRow()
             }
             .appGroupedListStyle()
             .navigationTitle("星期")
@@ -306,8 +314,11 @@ struct AddEditCustomScheduleSheet: View {
 
                 Section("时间") {
                     DatePicker("日期", selection: $draft.date, displayedComponents: .date)
+                    .appInteractiveListRow()
                     DatePicker("开始时间", selection: $draft.beginTime, displayedComponents: .hourAndMinute)
+                    .appInteractiveListRow()
                     DatePicker("结束时间", selection: $draft.endTime, displayedComponents: .hourAndMinute)
+                    .appInteractiveListRow()
                 }
 
             }

@@ -1,5 +1,21 @@
 import Foundation
 
+/// Shared field encoding for school forms and their query values.
+public nonisolated enum HTTPFormEncoding {
+    public static func body(_ fields: [(String, String)]) -> Data {
+        Data(fields.map { "\(percentEncoded($0.0))=\(percentEncoded($0.1))" }.joined(separator: "&").utf8)
+    }
+
+    public static func percentEncoded(_ value: String) -> String {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?")
+        guard let encoded = value.addingPercentEncoding(withAllowedCharacters: allowed) else {
+            preconditionFailure("Form field encoding failed")
+        }
+        return encoded
+    }
+}
+
 /// 提供应用内置 URL 的统一构造入口。
 ///
 /// 内置 URL 来自发布配置字符串。字符串有效时返回 URL；字符串无效时，入口立即触发

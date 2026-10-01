@@ -1,5 +1,6 @@
 import StorageCore
 import ClientCore
+import Combine
 import Foundation
 
 public protocol ScoreListServicing {
@@ -52,6 +53,8 @@ public enum ScoreServiceError: LocalizedError {
 /// 成绩场景消费的缓存能力，具体持久化由应用组装层选择。
 @MainActor
 public protocol ScoreCaching: AnyObject {
+    /// 成功写入本地或云端快照后发布所属账号。
+    var changes: AnyPublisher<AppStorageSession, Never> { get }
     func loadSnapshot(for session: AppStorageSession?) async -> ScoreCacheSnapshot?
     func save(rows: [ScoreRow], for session: AppStorageSession?) async -> Date?
     func saveDetailed(rows: [ScoreRow], for session: AppStorageSession?) async -> Date?
@@ -60,11 +63,8 @@ public protocol ScoreCaching: AnyObject {
 
 @MainActor
 public protocol ScoreFilterPreferencesStoring: AnyObject {
+    /// 本地保存和外部导入发布同一实例的账号变更。
+    var changes: AnyPublisher<AppStorageSession, Never> { get }
     func load() -> ScoreFilterPreferenceSnapshot?
     func save(selectedTerms: Set<String>, selectedCourseTypes: Set<String>, sortIndex: ScoreSortIndex, sortOrder: ScoreSortOrder)
-}
-
-extension Notification.Name {
-    public static let scoreCacheDidChange = Notification.Name("scoreCacheDidChange")
-    public static let scoreFilterPreferencesDidChange = Notification.Name("scoreFilterPreferencesDidChange")
 }

@@ -95,13 +95,13 @@ actor ImageCacheDiskQuota {
         let limitMB = await cacheLimitMB()
         guard limitMB > 0 else { return }
         let limit = Int64(limitMB) * 1_024 * 1_024
-        let protectedPaths = Set(protectedURLs.map { Self.canonicalPath(for: $0) })
+        let protectedPaths = Set(protectedURLs.map { files.canonicalFileURL($0).path })
         let cacheFiles = directories.flatMap { directory -> [(URL, Int64, Date)] in
             guard let children = try? files.contentsOfDirectory(at: directory, options: [.skipsHiddenFiles]) else {
                 return []
             }
             return children.compactMap { url in
-                guard !protectedPaths.contains(Self.canonicalPath(for: url)),
+                guard !protectedPaths.contains(files.canonicalFileURL(url).path),
                       url.lastPathComponent != "preview-placeholder.png",
                       let size = files.regularFileSize(at: url)
                 else { return nil }
@@ -132,9 +132,6 @@ actor ImageCacheDiskQuota {
         ]
     }
 
-    private nonisolated static func canonicalPath(for url: URL) -> String {
-        url.resolvingSymlinksInPath().standardizedFileURL.path
-    }
 }
 
 /// 低清图、高清图和 GIF 共用的持久磁盘缓存。

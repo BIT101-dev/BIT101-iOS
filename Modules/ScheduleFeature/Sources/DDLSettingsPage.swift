@@ -17,6 +17,7 @@ public struct DDLSettingsPage: View {
                 }
                 .disabled(viewModel.isSyncingDDL)
                 .accessibilityIdentifier("ddl.refresh")
+                .appInteractiveListRow()
             }
 
             Section("乐学订阅") {
@@ -29,6 +30,7 @@ public struct DDLSettingsPage: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(viewModel.isSyncingDDL)
+                .appInteractiveListRow()
             }
 
             Section("显示设置") {
@@ -41,6 +43,7 @@ public struct DDLSettingsPage: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .appInteractiveListRow()
 
                 Button {
                     pickerRoute = .afterDay
@@ -51,6 +54,7 @@ public struct DDLSettingsPage: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .appInteractiveListRow()
             }
         }
         .appGroupedListStyle()

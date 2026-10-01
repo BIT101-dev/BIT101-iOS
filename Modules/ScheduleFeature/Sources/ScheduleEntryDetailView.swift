@@ -78,9 +78,11 @@ struct ScheduleEntryDetailSheet: View {
                             Button("导入考试到日历") {
                                 onImportExam(entry.sourceID)
                             }
+                            .appInteractiveListRow()
                             Button("移除考试日历事件", role: .destructive) {
                                 onDeleteCalendarEntry("exam-\(entry.sourceID)", currentTerm)
                             }
+                            .appInteractiveListRow(isDestructive: true)
                         }
                     }
                 }
@@ -91,19 +93,23 @@ struct ScheduleEntryDetailSheet: View {
                             dismiss()
                             onEditCustomSchedule()
                         }
+                        .appInteractiveListRow()
                         Button("删除", role: .destructive) {
                             dismiss()
                             onDeleteCustomSchedule()
                         }
+                        .appInteractiveListRow(isDestructive: true)
                     }
 
                     Section {
                         Button("导入到系统日历") {
                             onImportCustomSchedule(entry.sourceID)
                         }
+                        .appInteractiveListRow()
                         Button("移除日历事件", role: .destructive) {
                             onDeleteCalendarEntry("custom-\(entry.sourceID)", currentTerm)
                         }
+                        .appInteractiveListRow(isDestructive: true)
                     }
                 }
             }
@@ -216,6 +222,7 @@ struct ScheduleEntryDetailSheet: View {
                 } label: {
                     Text("查看上课地点")
                 }
+                .appInteractiveListRow()
             }
 
             if allowsCourseMutation {
@@ -226,11 +233,13 @@ struct ScheduleEntryDetailSheet: View {
                         courseArrangementEditorMode = .occurrence(week: target.week)
                         isShowingCourseArrangementEditor = true
                     }
+                    .appInteractiveListRow()
                     Button("调这门课") {
                         courseArrangementDrafts = courseArrangementDraftsForCourse(first.id)
                         courseArrangementEditorMode = .course
                         isShowingCourseArrangementEditor = true
                     }
+                    .appInteractiveListRow()
                     Button("删除这节课", role: .destructive) {
                         pendingCourseDeletion = .occurrence(
                             courseID: target.course.id,
@@ -238,27 +247,33 @@ struct ScheduleEntryDetailSheet: View {
                             week: target.week
                         )
                     }
+                    .appInteractiveListRow(isDestructive: true)
                     Button("删除这门课", role: .destructive) {
                         pendingCourseDeletion = .wholeCourse(
                             courseID: first.id,
                             courseName: ScheduleDisplayNormalizer.normalizeCourseTitle(first.name)
                         )
                     }
+                    .appInteractiveListRow(isDestructive: true)
                 }
 
                 Section {
                     Button("导入这节课到日历") {
                         onImportCourseOccurrence(target.course.id, target.week)
                     }
+                    .appInteractiveListRow()
                     Button("导入这门课到日历") {
                         onImportCourse(first.id)
                     }
+                    .appInteractiveListRow()
                     Button("移除这节课日历事件", role: .destructive) {
                         onDeleteCalendarMarkers(["\(target.course.id)-w\(target.week)"], currentTerm)
                     }
+                    .appInteractiveListRow(isDestructive: true)
                     Button("移除这门课日历事件", role: .destructive) {
                         onDeleteCalendarCourse(first.id, currentTerm)
                     }
+                    .appInteractiveListRow(isDestructive: true)
                 }
             }
 

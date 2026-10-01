@@ -115,8 +115,6 @@ final class AppSettingsStore: ObservableObject {
     nonisolated static let galleryBotFilterDefaultMigrationKeyPrefix = "app.settings.gallery-hide-bot-default"
     /// “鸣谢 LINUX DO”提示按账号映射到首周内的延迟天数，分散弹出时间。
     nonisolated static let linuxDoThanksNoticeSpreadDays = 7
-    private static let encoder = JSONEncoder()
-    private static let decoder = JSONDecoder()
 
     @Published private(set) var snapshot = AppSettingsSnapshot()
     @Published private(set) var hidesCourseHistoryMakeupOutliers = true
@@ -124,6 +122,7 @@ final class AppSettingsStore: ObservableObject {
 
     private let defaults: UserDefaults
     private let session: () -> AppStorageSession
+    private let snapshotStore: AccountScopedCodableStore<AppSettingsSnapshot>
     /// 初始化当前账号的设置快照。
     init(
         defaults: UserDefaults = AppFileDirectories.defaults,
@@ -131,6 +130,10 @@ final class AppSettingsStore: ObservableObject {
     ) {
         self.defaults = defaults
         self.session = session
+        snapshotStore = AccountScopedCodableStore(
+            keyPrefix: Self.storageKeyPrefix, defaults: defaults, sessionProvider: session,
+            guestIdentifier: Self.defaultAccountIdentifier
+        )
         load()
     }
 
@@ -289,18 +292,9 @@ final class AppSettingsStore: ObservableObject {
         }
     }
 
-    /// 把当前快照写回 `UserDefaults`。
-    ///
-    /// 设置快照编码后通过这里写回 `UserDefaults`；当前账号使用 `currentStorageKey`。
+    /// 通过公共账号仓库保存快照，并发布本地保存事件。
     private func save(syncPreferences: Bool = false) {
-        if let data = try? Self.encoder.encode(snapshot) {
-            defaults.set(data, forKey: currentStorageKey)
-            let legacyKey = session().legacyKey(
-                Self.storageKeyPrefix,
-                guestIdentifier: Self.defaultAccountIdentifier
-            )
-            if legacyKey != currentStorageKey { defaults.removeObject(forKey: legacyKey) }
-        }
+        snapshotStore.save(snapshot)
         if syncPreferences {
             saveSubject.send(session())
         }
@@ -313,15 +307,11 @@ final class AppSettingsStore: ObservableObject {
 
     /// 读取指定账号对应的设置快照。
     static func loadSnapshotFromDefaults(for accountID: String, defaults: UserDefaults = AppFileDirectories.defaults) -> AppSettingsSnapshot? {
-        let currentKey = storageKey(for: accountID)
-        let legacyKey = legacyStorageKey(for: accountID)
-        guard let data = defaults.data(forKey: currentKey) ?? defaults.data(forKey: legacyKey),
-              let snapshot = try? decoder.decode(AppSettingsSnapshot.self, from: data) else { return nil }
-        if defaults.data(forKey: currentKey) == nil {
-            defaults.set(data, forKey: currentKey)
-            if legacyKey != currentKey { defaults.removeObject(forKey: legacyKey) }
-        }
-        return snapshot
+        let session = AppStorageSession(accountIdentifier: accountID == defaultAccountIdentifier ? "" : accountID)
+        return AccountScopedCodableStore<AppSettingsSnapshot>(
+            keyPrefix: storageKeyPrefix, defaults: defaults, sessionProvider: { session },
+            guestIdentifier: defaultAccountIdentifier
+        ).load()
     }
 
     /// 把账号隔离前的快照迁移到当前账号分区。
@@ -329,7 +319,7 @@ final class AppSettingsStore: ObservableObject {
         guard accountID != defaultAccountIdentifier else { return nil }
         guard
             let data = defaults.data(forKey: legacyStorageKey),
-            let snapshot = try? decoder.decode(AppSettingsSnapshot.self, from: data)
+            let snapshot = try? JSONDecoder().decode(AppSettingsSnapshot.self, from: data)
         else {
             return nil
         }
@@ -337,13 +327,6 @@ final class AppSettingsStore: ObservableObject {
         defaults.set(data, forKey: storageKey(for: accountID))
         defaults.removeObject(forKey: legacyStorageKey)
         return snapshot
-    }
-
-    private var currentStorageKey: String {
-        session().key(
-            Self.storageKeyPrefix,
-            guestIdentifier: Self.defaultAccountIdentifier
-        )
     }
 
     private var galleryBotFilterDefaultMigrationKey: String {
@@ -363,13 +346,6 @@ final class AppSettingsStore: ObservableObject {
     /// 按账号生成设置快照的存储 key。
     private static func storageKey(for accountID: String) -> String {
         AppStorageSession(accountIdentifier: accountID).key(
-            storageKeyPrefix,
-            guestIdentifier: defaultAccountIdentifier
-        )
-    }
-
-    private static func legacyStorageKey(for accountID: String) -> String {
-        AppStorageSession(accountIdentifier: accountID).legacyKey(
             storageKeyPrefix,
             guestIdentifier: defaultAccountIdentifier
         )

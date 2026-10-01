@@ -53,6 +53,7 @@ struct FreeClassroomTabView: View {
                     }
                 }
                 .appSelectionFeedback(trigger: viewModel.cache.selectedCampusCode)
+                .appInteractiveListRow()
 
                 Picker("教学楼", selection: Binding(
                     get: { viewModel.selectedBuildingID },
@@ -67,6 +68,7 @@ struct FreeClassroomTabView: View {
                     }
                 }
                 .appSelectionFeedback(trigger: viewModel.selectedBuildingID)
+                .appInteractiveListRow()
 
                 NavigationLink {
                     ClassroomSectionFilterPage(
@@ -79,6 +81,7 @@ struct FreeClassroomTabView: View {
                 } label: {
                     LabeledContent("节次筛选", value: viewModel.classroomSectionFilterSummary)
                 }
+                .appInteractiveListRow()
             }
 
             if viewModel.classroomAvailabilities.isEmpty, !isClassroomRefreshing {

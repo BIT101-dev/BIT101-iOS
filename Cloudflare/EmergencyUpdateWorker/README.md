@@ -30,7 +30,7 @@ npx wrangler deploy
 关闭提醒：
 
 ```sh
-./Scripts/disable-emergency-update.sh
+./Scripts/publish-emergency-update.sh --disable
 ```
 
 配置不设过期时间。只要 `enabled` 为真且装机 Build 小于等于

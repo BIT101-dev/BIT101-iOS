@@ -13,7 +13,6 @@ import DesignSystemKit
 //
 
 import SwiftUI
-import Network
 import Combine
 import WebKit
 
@@ -71,7 +70,7 @@ private struct GalleryRootViewScene: View {
     /// 消息中心视图模型，与主 feed 独立，避免互相污染加载状态。
     @StateObject private var messageViewModel: GalleryMessageViewModel
     /// 监听网络从断开恢复为可用，帮助失败态自动重试。
-    @StateObject private var networkObserver = GalleryNetworkObserver()
+    private var networkObserver: NetworkPathState { dependencies.networkPath }
     @ObservedObject private var appSettings: CommunityPreferences
     @State private var isShowingComposer = false
     @State private var isShowingMessages = false
@@ -365,32 +364,6 @@ private struct GalleryRootViewScene: View {
         }
     }
 
-}
-
-/// 轻量网络可达性观察器。
-///
-/// 观察器维护话廊页的可达性状态，并发出“网络从不可用恢复为可用”的边界事件。
-/// 话廊失败态收到事件后，自动重拉当前 feed。
-@MainActor
-final class GalleryNetworkObserver: ObservableObject {
-    @Published private(set) var isReachable = true
-
-    private let monitor = NWPathMonitor()
-    private let queue = DispatchQueue(label: "BIT101.GalleryNetworkObserver")
-
-    init() {
-        monitor.pathUpdateHandler = { [weak self] path in
-            let isReachable = path.status == .satisfied
-            Task { @MainActor [weak self] in
-                self?.isReachable = isReachable
-            }
-        }
-        monitor.start(queue: queue)
-    }
-
-    deinit {
-        monitor.cancel()
-    }
 }
 
 #endif

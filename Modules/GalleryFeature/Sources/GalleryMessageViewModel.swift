@@ -1,4 +1,3 @@
-import StorageCore
 import TransportCore
 import DesignSystemKit
 import CommunityCore
@@ -7,109 +6,6 @@ import Foundation
 
 private func isGalleryMessageCancellation(_ error: Error) -> Bool {
     TaskCancellation.matches(error)
-}
-
-/// 本地保存的消息已读快照。
-///
-/// 服务端提供分类未读数，客户端按账号保存逐条消息的“伪新消息”状态。
-public struct GalleryMessageReadSnapshot: Codable, Equatable {
-    var latestIDsByType: [String: [Int]] = [:]
-    var seenIDsByType: [String: [Int]] = [:]
-}
-
-/// 本地消息已读仓库。
-///
-    /// 记录“当前分类最新一批消息”和“已被用户手动标记已读的消息”；系统通知申请保持独立。
-public final class GalleryMessageReadStore {
-    private let saveSubject = PassthroughSubject<AppStorageSession, Never>()
-    public var localSaves: AnyPublisher<AppStorageSession, Never> { saveSubject.eraseToAnyPublisher() }
-    let session: () -> AppStorageSession
-
-    let notificationCenter: NotificationCenter
-    private let snapshotStore: AccountScopedCodableStore<GalleryMessageReadSnapshot>
-
-    public init(defaults: UserDefaults, session: @escaping () -> AppStorageSession, notificationCenter: NotificationCenter = .default) {
-        self.notificationCenter = notificationCenter
-        self.session = session
-        snapshotStore = AccountScopedCodableStore(keyPrefix: "gallery.message.read.snapshot", defaults: defaults, sessionProvider: session)
-    }
-
-    /// 读取当前账号对应的本地快照。
-    ///
-    /// 这里故意完全按账号隔离，避免切换学号后把上一个账号的消息已读状态串过来。
-    private func loadSnapshot() -> GalleryMessageReadSnapshot {
-        snapshotStore.load() ?? GalleryMessageReadSnapshot()
-    }
-
-    /// 回写当前账号的本地快照。
-    private func saveSnapshot(_ snapshot: GalleryMessageReadSnapshot, shouldSync: Bool = true) {
-        snapshotStore.save(snapshot)
-        if shouldSync {
-            saveSubject.send(session())
-        }
-    }
-
-    public func syncSnapshot() -> GalleryMessageReadSnapshot {
-        loadSnapshot()
-    }
-
-    public func applySyncedSnapshot(_ snapshot: GalleryMessageReadSnapshot) {
-        saveSnapshot(snapshot, shouldSync: false)
-        notificationCenter.post(name: .galleryMessageReadStateDidChange, object: self, userInfo: ["session": session()])
-    }
-
-    /// 用服务端给出的未读数量，重建当前分类的“候选新消息”集合。
-    ///
-    /// 当服务端未读数为 0 时保留本地结果，让用户打开列表后继续看到当前的新消息样式。
-    func replaceLatestIDs(_ ids: [Int], unreadCount: Int, for type: GalleryMessageType) {
-        guard unreadCount > 0 else { return }
-
-        var snapshot = loadSnapshot()
-        let latestUnread = Array(ids.prefix(unreadCount))
-        let normalizedLatest = normalize(latestUnread)
-        let existingSeen = Set(snapshot.seenIDsByType[type.rawValue] ?? [])
-
-        snapshot.latestIDsByType[type.rawValue] = normalizedLatest
-        snapshot.seenIDsByType[type.rawValue] = normalizedLatest.filter { existingSeen.contains($0) }
-        saveSnapshot(snapshot)
-    }
-
-    /// 把指定消息标记为已读。
-    func markSeen(ids: [Int], for type: GalleryMessageType) {
-        var snapshot = loadSnapshot()
-        let existing = Set(snapshot.seenIDsByType[type.rawValue] ?? [])
-        snapshot.seenIDsByType[type.rawValue] = normalize(Array(existing.union(ids)))
-        saveSnapshot(snapshot)
-    }
-
-    /// 当前分类本地仍被视作“新消息”的数量。
-    ///
-    /// 已读状态的判定规则是：出现在 latest 集合里，但还没出现在 seen 集合里。
-    func unreadCount(for type: GalleryMessageType) -> Int {
-        let snapshot = loadSnapshot()
-        let latest = Set(snapshot.latestIDsByType[type.rawValue] ?? [])
-        guard !latest.isEmpty else { return 0 }
-        let seen = Set(snapshot.seenIDsByType[type.rawValue] ?? [])
-        return latest.subtracting(seen).count
-    }
-
-    /// 判断某条消息是否需要按“新消息”样式展示。
-    func isUnread(id: Int, for type: GalleryMessageType) -> Bool {
-        let snapshot = loadSnapshot()
-        let latest = Set(snapshot.latestIDsByType[type.rawValue] ?? [])
-        guard latest.contains(id) else { return false }
-        let seen = Set(snapshot.seenIDsByType[type.rawValue] ?? [])
-        return !seen.contains(id)
-    }
-
-    /// 去重同时保留原始顺序。
-    private func normalize(_ ids: [Int]) -> [Int] {
-        Array(NSOrderedSet(array: ids)) as? [Int] ?? ids
-    }
-}
-
-extension Notification.Name {
-    static let galleryMessageReadStateDidChange = Notification.Name("galleryMessageReadStateDidChange")
 }
 
 @MainActor
@@ -132,12 +28,12 @@ final class GalleryMessageViewModel: ObservableObject {
     }()
 
     private let service: any GalleryMessageServicing
-    private let readStore: GalleryMessageReadStore
+    private let readStore: any GalleryMessageReadStoring
     private var readStateObserver: AnyCancellable?
     private var listGenerations: [GalleryMessageType: Int] = [:]
 
     /// 集中初始化服务和已读仓库，供构造器复用。
-    init(service: any GalleryMessageServicing, readStore: GalleryMessageReadStore) {
+    init(service: any GalleryMessageServicing, readStore: any GalleryMessageReadStoring) {
         self.service = service
         self.readStore = readStore
         observeSyncedReadState()
@@ -146,10 +42,9 @@ final class GalleryMessageViewModel: ObservableObject {
 
 
     private func observeSyncedReadState() {
-        readStateObserver = readStore.notificationCenter.publisher(for: .galleryMessageReadStateDidChange)
-            .sink { [weak self] notification in
-                guard let self, (notification.object as AnyObject?) === self.readStore,
-                      notification.userInfo?["session"] as? AppStorageSession == self.readStore.session() else { return }
+        readStateObserver = readStore.changes
+            .sink { [weak self] session in
+                guard let self, session == self.readStore.currentSession else { return }
                 self.localReadVersion += 1
             }
     }
@@ -218,7 +113,6 @@ final class GalleryMessageViewModel: ObservableObject {
                 $0.applyFirstCursorPage(messages)
                 $0.status = .loaded
             }
-            localReadVersion += 1
             await refreshUnreadCounts()
         } catch {
             guard listGenerations[type] == generation else { return }
@@ -264,13 +158,11 @@ final class GalleryMessageViewModel: ObservableObject {
         let ids = state(for: selectedType).items.map(\.id)
         guard !ids.isEmpty else { return }
         readStore.markSeen(ids: ids, for: selectedType)
-        localReadVersion += 1
     }
 
     /// 将单条消息标记为已读。
     func markMessageAsRead(_ message: GalleryMessage, in type: GalleryMessageType) {
         readStore.markSeen(ids: [message.id], for: type)
-        localReadVersion += 1
     }
 
     /// 当滚动到尾部附近时触发分页加载。

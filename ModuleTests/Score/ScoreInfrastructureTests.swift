@@ -45,6 +45,8 @@ struct ScoreInfrastructureBoundaryTests {
 @MainActor
 struct ScorePublicContractTests {
     private final class Cache: ScoreCaching {
+        let changeSubject = PassthroughSubject<AppStorageSession, Never>()
+        var changes: AnyPublisher<AppStorageSession, Never> { changeSubject.eraseToAnyPublisher() }
         var loads = 0
         private var waiter: CheckedContinuation<Void, Never>?
         func loadSnapshot(for session: AppStorageSession?) async -> ScoreCacheSnapshot? {
@@ -61,6 +63,8 @@ struct ScorePublicContractTests {
         }
     }
     private final class Preferences: ScoreFilterPreferencesStoring {
+        let changeSubject = PassthroughSubject<AppStorageSession, Never>()
+        var changes: AnyPublisher<AppStorageSession, Never> { changeSubject.eraseToAnyPublisher() }
         var loads = 0
         func load() -> ScoreFilterPreferenceSnapshot? { loads += 1; return .init() }
         func save(selectedTerms: Set<String>, selectedCourseTypes: Set<String>, sortIndex: ScoreSortIndex, sortOrder: ScoreSortOrder) {}
@@ -74,18 +78,20 @@ struct ScorePublicContractTests {
     @Test(.timeLimit(.minutes(1))) func publicAssemblyAcceptsIndependentStoragePortsAndFiltersEventSources() async {
         let cache = Cache(), surroundingCache = Cache()
         let preferences = Preferences(), surroundingPreferences = Preferences()
-        let center = NotificationCenter()
         let session = AppStorageSession(accountIdentifier: "public-score")
         let model = ScoreViewModel(service: Service(), cacheStore: cache, preferenceStore: preferences,
             currentScoreCacheSession: { session }, scheduleCoursesChanges: Empty().eraseToAnyPublisher(),
-            loadScheduleCourses: { _ in [:] }, notificationCenter: center)
-        center.post(name: .scoreFilterPreferencesDidChange, object: surroundingPreferences, userInfo: ["session": session])
+            loadScheduleCourses: { _ in [:] })
+        surroundingPreferences.changeSubject.send(session)
         #expect(preferences.loads == 1)
-        center.post(name: .scoreFilterPreferencesDidChange, object: preferences, userInfo: ["session": session])
+        preferences.changeSubject.send(AppStorageSession(accountIdentifier: "other"))
+        #expect(preferences.loads == 1)
+        preferences.changeSubject.send(session)
         #expect(preferences.loads == 2)
-        center.post(name: .scoreCacheDidChange, object: surroundingCache, userInfo: ["session": session])
-        center.post(name: .scoreCacheDidChange, object: cache, userInfo: ["session": AppStorageSession(accountIdentifier: "other")])
-        center.post(name: .scoreCacheDidChange, object: cache, userInfo: ["session": session])
+        surroundingCache.changeSubject.send(session)
+        cache.changeSubject.send(AppStorageSession(accountIdentifier: "other"))
+        #expect(cache.loads == 0)
+        cache.changeSubject.send(session)
         await cache.waitForLoad()
         #expect(cache.loads == 1)
         #expect(surroundingCache.loads == 0)

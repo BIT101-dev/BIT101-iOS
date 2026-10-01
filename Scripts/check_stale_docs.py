@@ -13,12 +13,14 @@ from pathlib import Path
 DOCUMENT_SUFFIX = ".md"
 EXCLUDED_PARTS = {"Fixtures"}
 EXCLUDED_SUFFIXES = {".xcodeproj", ".xcworkspace"}
-REPORT_PATH = Path(__file__).resolve().parents[1] / ".build/stale-docs-report.txt"
+ROOT = Path(__file__).resolve().parents[1]
+REPORT_PATH = ROOT / ".build/stale-docs-report.txt"
 
 
 def git(*arguments: str) -> str:
     return subprocess.check_output(
         ["git", *arguments],
+        cwd=ROOT,
         text=True,
         stderr=subprocess.DEVNULL,
     ).strip()

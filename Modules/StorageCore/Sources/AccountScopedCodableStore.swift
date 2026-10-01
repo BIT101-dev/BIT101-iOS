@@ -11,15 +11,18 @@ public struct AccountScopedCodableStore<Value: Codable> {
     private let keyPrefix: String
     private let defaults: UserDefaults
     private let session: () -> AppStorageSession
+    private let guestIdentifier: String
 
     public init(
         keyPrefix: String,
         defaults: UserDefaults,
-        sessionProvider: @escaping () -> AppStorageSession
+        sessionProvider: @escaping () -> AppStorageSession,
+        guestIdentifier: String = "guest"
     ) {
         self.keyPrefix = keyPrefix
         self.defaults = defaults
         self.session = sessionProvider
+        self.guestIdentifier = guestIdentifier
     }
 
     public func load() -> Value? {
@@ -28,7 +31,7 @@ public struct AccountScopedCodableStore<Value: Codable> {
             return decode(data)
         }
 
-        let legacyKey = session().legacyKey(keyPrefix)
+        let legacyKey = session().legacyKey(keyPrefix, guestIdentifier: guestIdentifier)
         guard legacyKey != key, let data = defaults.data(forKey: legacyKey),
               let value = decode(data)
         else { return nil }
@@ -54,7 +57,7 @@ public struct AccountScopedCodableStore<Value: Codable> {
             let data = try JSONEncoder().encode(value)
             let key = storageKey
             defaults.set(data, forKey: key)
-            let legacyKey = session().legacyKey(keyPrefix)
+            let legacyKey = session().legacyKey(keyPrefix, guestIdentifier: guestIdentifier)
             if legacyKey != key { defaults.removeObject(forKey: legacyKey) }
         } catch {
             accountScopedStoreLogger.error(
@@ -66,12 +69,12 @@ public struct AccountScopedCodableStore<Value: Codable> {
     public func remove() {
         let key = storageKey
         defaults.removeObject(forKey: key)
-        let legacyKey = session().legacyKey(keyPrefix)
+        let legacyKey = session().legacyKey(keyPrefix, guestIdentifier: guestIdentifier)
         if legacyKey != key { defaults.removeObject(forKey: legacyKey) }
     }
 
     public var storageKey: String {
-        session().key(keyPrefix)
+        session().key(keyPrefix, guestIdentifier: guestIdentifier)
     }
 }
 

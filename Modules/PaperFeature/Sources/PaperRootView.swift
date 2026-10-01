@@ -2,6 +2,7 @@
 import MediaKit
 import CommunityUI
 import CommunityCore
+import TransportCore
 import DesignSystemKit
 //
 //  PaperRootView.swift
@@ -33,7 +34,7 @@ private struct PaperRootViewScene: View {
     private let media: MediaEnvironment
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var viewModel: PaperListViewModel
-    @StateObject private var networkObserver = PaperNetworkObserver()
+    private var networkObserver: NetworkPathState { dependencies.networkPath }
     @State private var isShowingComposer = false
     @State private var isShowingSearch = false
     @State private var selectedPaper: PaperSummary?

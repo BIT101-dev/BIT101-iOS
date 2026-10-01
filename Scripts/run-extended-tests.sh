@@ -1,11 +1,78 @@
 #!/bin/zsh
+if [[ -z "${ZSH_EXECUTION_STRING:-}" ]]; then
+  exec zsh -c "$(<"$0")" "$0" "$@"
+fi
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT="$ROOT_DIR/BIT101-iOS.xcodeproj"
+source "$ROOT_DIR/Scripts/script-support.sh"
 DERIVED_ROOT="$ROOT_DIR/.build/extended-automation"
-if [[ "${BIT101_EXTENDED_TESTS_LOCK_HELD:-0}" != "1" ]]; then
-  exec python3 - "$ROOT_DIR/.build/extended-automation.lock" "$0" "$@" <<'PY'
+if [[ "${1:-}" == "--report" ]]; then
+  python3 - "$DERIVED_ROOT/test-results.xcresult" "${2:-}" <<'PY'
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+if not (Path(sys.argv[1]) / "Info.plist").is_file():
+    raise SystemExit("测试结果可在运行结束后通过 --report 读取。")
+
+if sys.argv[2]:
+    activities = json.loads(subprocess.check_output([
+        "xcrun", "xcresulttool", "get", "test-results", "activities", "--path", sys.argv[1],
+        "--test-id", sys.argv[2],
+    ], text=True))
+    def attachments(value):
+        if isinstance(value, dict):
+            if value.get("name") == "失败时的界面元素树":
+                identifier = value.get("payloadRef", {}).get("id") or value.get("payloadRefId")
+                if identifier:
+                    subprocess.run(["xcrun", "xcresulttool", "export", "object", "--type", "file",
+                                    "--path", sys.argv[1], "--id", identifier, "--output-path", "/dev/stdout"], check=True)
+                else:
+                    print(json.dumps(value, ensure_ascii=False))
+            for child in value.values():
+                attachments(child)
+        elif isinstance(value, list):
+            for child in value:
+                attachments(child)
+    attachments(activities)
+    raise SystemExit(0)
+
+summary = json.loads(subprocess.check_output([
+    "xcrun", "xcresulttool", "get", "test-results", "summary", "--path", sys.argv[1],
+], text=True))
+print(f"{summary.get('result', '?')} · {summary.get('passedTests', 0)}/{summary.get('totalTestCount', 0)} 通过")
+for failure in summary.get("testFailures", []):
+    print(f"{failure.get('testIdentifierString', '?')}: {failure.get('failureText', '?')}")
+tests = json.loads(subprocess.check_output([
+    "xcrun", "xcresulttool", "get", "test-results", "tests", "--path", sys.argv[1],
+], text=True))
+def visit(value):
+    if isinstance(value, dict):
+        if value.get("nodeType") == "Test Case":
+            print(f"{value.get('name', '?')} · {value.get('duration', '?')} · {value.get('result', '?')}")
+        for child in value.values():
+            visit(child)
+    elif isinstance(value, list):
+        for child in value:
+            visit(child)
+visit(tests)
+PY
+  exit 0
+fi
+if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
+  echo "用法：Scripts/run-extended-tests.sh [all|default|modules|schedule|schedule-share|infrastructure|login|extensions|ui|catalyst|release|network-smoke|icloud-smoke] [--build-only] [--generic] [--clean-build] [--only-testing 测试类/方法]... [真机设备ID]"
+  echo "聚合：Scripts/run-extended-tests.sh verify [modules|all|catalyst|ui|network|ddl|icloud|audit]... [--ui-test 测试类/方法]..."
+  echo "报告：Scripts/run-extended-tests.sh --report [测试类/方法()]"
+  exit 0
+fi
+SCRIPT_PATH="$0"
+SCRIPT_ARGS=("$@")
+acquire_test_lock() {
+  if [[ "${BIT101_EXTENDED_TESTS_LOCK_HELD:-0}" != "1" ]]; then
+    exec python3 - "$ROOT_DIR/.build/extended-automation.lock" "$SCRIPT_PATH" "${SCRIPT_ARGS[@]}" <<'PY'
 import fcntl
 import os
 from pathlib import Path
@@ -21,9 +88,13 @@ with lock_path.open("a") as lock:
         print("[等待] 既有测试正在使用固定产物目录。", flush=True)
         fcntl.flock(lock, fcntl.LOCK_EX)
     environment = dict(os.environ, BIT101_EXTENDED_TESTS_LOCK_HELD="1")
-    raise SystemExit(subprocess.run(sys.argv[2:], env=environment).returncode)
+    script = Path(sys.argv[2])
+    command = ["zsh", "-c", script.read_text(), str(script), *sys.argv[3:]]
+    result = subprocess.run(command, env=environment)
+    raise SystemExit(result.returncode if result.returncode >= 0 else 128 - result.returncode)
 PY
-fi
+  fi
+}
 TEST_BUNDLE="BIT101-iOSTests"
 TEST_SCHEME="BIT101-iOS"
 CONDITIONS="DEBUG EXTENDED_AUTOMATION BIT101_AUTOMATED_TESTING"
@@ -32,11 +103,12 @@ typeset -aU TEST_SELECTIONS
 TEST_SELECTIONS=()
 BUILD_ONLY=false
 CLEAN_BUILD=false
+GENERIC_BUILD=false
 
 MODE="all"
 if [[ $# -gt 0 ]]; then
   case "$1" in
-    all|default|schedule|schedule-share|infrastructure|login|extensions|ui|catalyst|modules|verify)
+    all|default|schedule|schedule-share|infrastructure|login|extensions|ui|catalyst|modules|release|network-smoke|icloud-smoke|verify)
       MODE="$1"
       shift
       ;;
@@ -77,8 +149,8 @@ if [[ "$MODE" == "verify" ]]; then
       *) echo "验证组：modules all catalyst ui network ddl icloud audit" >&2; exit 64 ;;
     esac
   done
+  acquire_test_lock
   if $verification_needs_device; then
-    source "$ROOT_DIR/Scripts/device-support.sh"
     bit101_require_device || exit 1
     verification_device_id="$BIT101_XCODE_DEVICE_ID"
   fi
@@ -112,8 +184,8 @@ if [[ "$MODE" == "verify" ]]; then
       modules|catalyst) verify_step "$group" "$0" "$group" ;;
       all) verify_step all "$0" all "$verification_device_id" ;;
       ui) verify_step ui "$0" ui "${verification_ui_args[@]}" "$verification_device_id" ;;
-      network) verify_step network env BIT101_NETWORK_SMOKE_SCOPE=all "$ROOT_DIR/Scripts/release-network-smoke.sh" "$verification_device_id" ;;
-      ddl) verify_step ddl env BIT101_NETWORK_SMOKE_SCOPE=ddl "$ROOT_DIR/Scripts/release-network-smoke.sh" "$verification_device_id" ;;
+      network) verify_step network "$ROOT_DIR/Scripts/release-network-smoke.sh" --scope all "$verification_device_id" ;;
+      ddl) verify_step ddl "$ROOT_DIR/Scripts/release-network-smoke.sh" --scope ddl "$verification_device_id" ;;
       icloud) verify_step icloud "$ROOT_DIR/Scripts/run_icloud_cross_device_smoke.sh" "$verification_device_id" ;;
       audit) verify_step audit "$ROOT_DIR/Scripts/run-static-audit.sh" ;;
     esac
@@ -122,7 +194,6 @@ if [[ "$MODE" == "verify" ]]; then
     echo "[失败汇总] ${(j:, :)verification_failures}" >&2
     exit 1
   fi
-  echo "所选验证组全部通过。"
   exit 0
 fi
 
@@ -139,6 +210,7 @@ fi
 while (( $# > 0 )); do
   case "$1" in
     --build-only) BUILD_ONLY=true; shift ;;
+    --generic) GENERIC_BUILD=true; shift ;;
     --clean-build) CLEAN_BUILD=true; shift ;;
     --only-testing)
       if [[ $# -lt 2 || -z "$2" || "$2" == --* ]]; then
@@ -153,17 +225,38 @@ while (( $# > 0 )); do
   esac
 done
 
+if $GENERIC_BUILD; then
+  if ! $BUILD_ONLY || [[ $# -gt 0 || "$MODE" == modules || "$MODE" == catalyst ]]; then
+    echo "通用 iOS 编译使用 --build-only --generic。" >&2
+    exit 64
+  fi
+fi
+case "$MODE" in
+  release|network-smoke|icloud-smoke)
+    if ! $BUILD_ONLY; then
+      echo "专用宿主编译使用 --build-only；真机 Smoke 使用对应脚本。" >&2
+      exit 64
+    fi
+    ;;
+esac
+
 UI_RESTORE_DEVICE_ID=""
 if [[ "$MODE" == "modules" ]]; then
   if [[ $# -gt 0 || ${#TEST_SELECTIONS[@]} -gt 0 ]]; then
     echo "用法：Scripts/run-extended-tests.sh modules [--build-only] [--clean-build]" >&2
     exit 64
   fi
+  acquire_test_lock
+elif $GENERIC_BUILD; then
+  acquire_test_lock
+  TEST_DESTINATION="generic/platform=iOS"
+  SIGNING_ARGS=(CODE_SIGNING_ALLOWED=NO)
 elif [[ "$MODE" == "catalyst" ]]; then
   if [[ $# -gt 0 ]]; then
     echo "用法：Scripts/run-extended-tests.sh catalyst" >&2
     exit 64
   fi
+  acquire_test_lock
   TEST_DESTINATION="platform=macOS,variant=Mac Catalyst"
   if [[ "${GITHUB_ACTIONS:-false}" == "true" ]]; then
     SIGNING_ARGS=(CODE_SIGNING_ALLOWED=NO)
@@ -175,7 +268,7 @@ else
     echo "用法：Scripts/run-extended-tests.sh [模式] [--only-testing 测试类/用例]... [真机设备ID]" >&2
     exit 64
   fi
-  source "$ROOT_DIR/Scripts/device-support.sh"
+  acquire_test_lock
   bit101_require_device "${1:-}" || exit 1
   TEST_DESTINATION="platform=iOS,id=$BIT101_XCODE_DEVICE_ID"
   SIGNING_ARGS=(-allowProvisioningUpdates)
@@ -200,104 +293,72 @@ if $CLEAN_BUILD; then
   rm -rf "$DERIVED_ROOT"
 fi
 mkdir -p "$DERIVED_ROOT"
-rm -rf "$RESULT_BUNDLE"
-
-emit_output() {
-  local output_path="$1"
-  local label="$2"
-  local output="$3"
-  local line_count
-
-  if [[ -z "$output" ]]; then
-    rm -f "$output_path"
-    return 0
-  fi
-
-  line_count="$(printf '%s\n' "$output" | wc -l | tr -d '[:space:]')"
-  if (( line_count <= 1000 )); then
-    rm -f "$output_path"
-    print -r -- "$output"
-  else
-    printf '%s\n' "$output" > "$output_path"
-    echo "[输出] $label 共 $line_count 行，详情写入 $output_path"
-  fi
-}
-
-run_with_output_threshold() {
-  local output_path="$1"
-  local label="$2"
-  shift 2
-
-  python3 - "$output_path" "$label" "$@" <<'PY'
-from pathlib import Path
-import subprocess
-import sys
-
-report_path = Path(sys.argv[1])
-label = sys.argv[2]
-command = sys.argv[3:]
-report_path.unlink(missing_ok=True)
-process = subprocess.Popen(
-    command,
-    stdout=subprocess.PIPE,
-    stderr=subprocess.STDOUT,
-    text=True,
-    bufsize=1,
-)
-buffered = []
-report_path.parent.mkdir(parents=True, exist_ok=True)
-report = report_path.open("w", encoding="utf-8")
-for line in process.stdout:
-    report.write(line)
-    report.flush()
-    if not line.strip() or line.startswith(("note: Removed stale file ", "Failed frontend command:")):
-        continue
-    if line.startswith(("Test case ", "Test suite ", "Test Case ", "Test Suite ")) and " failed " not in line.lower():
-        continue
-    if line.rstrip().endswith(" seconds)") and " failed " not in line:
-        continue
-    if line.startswith("[") and (line[1:2].isdigit() or line.startswith(("[Pre-planning", "[Computing dependencies]", "[Using on-disk description]", "[Planning deferred tasks]", "[Starting]"))):
-        continue
-    if "Executed 0 tests, with 0 failures" in line:
-        continue
-    if "IDETestOperationsObserverDebug:" in line:
-        continue
-    if line.startswith(("◇ ", "✔ ")) and "Test run with" not in line:
-        continue
-    if (line.startswith("/") and "swift-frontend -frontend" in line) or line.lstrip().startswith("builtin-SwiftDriver -- "):
-        continue
-    buffered.append(line)
-    buffered = buffered[-40:]
-
-report.close()
-result = process.wait()
-if result:
-    sys.stdout.writelines(buffered)
-else:
-    sys.stdout.writelines(line for line in buffered if "Test run with" in line)
-print(f"[日志] {label}：{report_path}")
-raise SystemExit(result)
-PY
-}
+if ! $BUILD_ONLY; then
+  if [[ "$MODE" != "modules" ]]; then rm -rf "$RESULT_BUNDLE"; fi
+  rm -f "$DERIVED_ROOT/test-metrics.txt" "$DERIVED_ROOT/test-failures.txt"
+fi
 
 if [[ "$MODE" == "modules" ]]; then
-  rm -f "$DERIVED_ROOT/test-metrics.txt"
   if $BUILD_ONLY; then
     echo "[编译] 模块消费者 · macOS 原生 Release"
-    run_with_output_threshold "$DERIVED_ROOT/module-tests.log" "模块编译" \
+    bit101_run_logged "$DERIVED_ROOT/module-tests.log" "模块编译" \
       xcrun swift build --build-tests -Xswiftc -enable-testing \
         --package-path "$ROOT_DIR" \
         --scratch-path "$DERIVED_ROOT" \
         --configuration release
-    echo "[编译通过] 模块消费者"
   else
     echo "[测试] 模块消费者 · macOS 原生 Release"
-    run_with_output_threshold "$DERIVED_ROOT/module-tests.log" "模块离线测试" \
-      xcrun swift test \
+    bit101_run_logged "$DERIVED_ROOT/module-tests.log" "模块离线测试" \
+      xcrun swift test --enable-code-coverage \
         --package-path "$ROOT_DIR" \
         --scratch-path "$DERIVED_ROOT" \
         --configuration release
-    echo "[通过] 模块消费者"
+    CODECOV_PATH="$(xcrun swift test --show-codecov-path --package-path "$ROOT_DIR" --scratch-path "$DERIVED_ROOT" --configuration release)"
+    python3 - "$CODECOV_PATH" "$DERIVED_ROOT/test-metrics.txt" "$ROOT_DIR" <<'PY'
+import json
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+coverage_path, report_path, root_path = map(Path, sys.argv[1:])
+test_counts = re.findall(r"Test run with (\d+) tests?", (report_path.parent / "module-tests.log").read_text())
+test_count = sum(map(int, test_counts))
+if test_count == 0:
+    raise SystemExit("模块测试需要实际执行用例。")
+products = coverage_path.parent.parent
+executables = sorted(products.glob("*.xctest/Contents/MacOS/*"))
+if not executables:
+    raise SystemExit("模块覆盖率需要测试消费者的可执行文件。")
+command = ["xcrun", "llvm-cov", "export", str(executables[0]),
+           "-instr-profile", str(coverage_path.parent / "default.profdata")]
+for executable in executables[1:]:
+    command += ["-object", str(executable)]
+coverage_text = subprocess.check_output(command, text=True)
+coverage = json.loads(coverage_text)
+coverage_path.write_text(coverage_text)
+modules = {}
+for section in coverage["data"]:
+    for file in section["files"]:
+        path = Path(file["filename"])
+        if not path.is_relative_to(root_path / "Modules"):
+            continue
+        module = path.relative_to(root_path / "Modules").parts[0]
+        lines = file["summary"]["lines"]
+        covered, count = modules.get(module, (0, 0))
+        modules[module] = covered + lines["covered"], count + lines["count"]
+if not modules:
+    raise SystemExit("模块覆盖率需要包含生产源码。")
+rows = ["# 模块生产源码行覆盖率", f"测试通过：{test_count} 项", *[
+    f"- {name}: {covered / count * 100 if count else 0:.2f}% ({covered}/{count} lines)"
+    for name, (covered, count) in sorted(modules.items())
+]]
+report_path.write_text("\n".join(rows) + "\n")
+covered = sum(row[0] for row in modules.values())
+count = sum(row[1] for row in modules.values())
+print(f"[覆盖率] {len(modules)} 个模块 · {covered}/{count} 行")
+print("\n".join(rows[2:]))
+PY
   fi
   exit 0
 fi
@@ -314,6 +375,8 @@ run_tests() {
   local execution_args=()
   if $BUILD_ONLY; then
     test_action=build-for-testing
+  else
+    execution_args+=(-resultBundlePath "$RESULT_BUNDLE")
   fi
   if [[ "$MODE" == "ui" ]]; then
     execution_args+=(-parallel-testing-enabled NO)
@@ -329,18 +392,18 @@ run_tests() {
   fi
 
   echo "[$test_action] $group"
-  if run_with_output_threshold "$log" "$group 输出" xcodebuild "$test_action" -quiet \
+  if bit101_run_logged "$log" "$group 输出" xcodebuild "$test_action" -quiet \
     -project "$PROJECT" \
     -scheme "$TEST_SCHEME" \
     -configuration Release \
     -destination "$TEST_DESTINATION" \
     -derivedDataPath "$DERIVED_ROOT" \
-    -resultBundlePath "$RESULT_BUNDLE" \
     -collect-test-diagnostics "$diagnostics" \
     -enableCodeCoverage YES \
     "SWIFT_ACTIVE_COMPILATION_CONDITIONS=$conditions" \
     ENABLE_CODE_COVERAGE=YES \
     ENABLE_TESTABILITY=YES \
+    SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES \
     "${execution_args[@]}" \
     "${only_testing[@]}" \
     "${SIGNING_ARGS[@]}"; then
@@ -370,22 +433,30 @@ if result.returncode == 0:
             grouped.setdefault(failure.get("failureText", "测试失败"), []).append(failure.get("testIdentifierString", "?"))
         for message, tests in grouped.items():
             print(f"{message} · {len(tests)} 个用例")
-            for test in tests[:5]:
+            for test in tests:
                 print(f"  {test}")
 PY
     )"
     if [[ -n "$failure_summary" ]]; then
-      emit_output "$DERIVED_ROOT/test-failures.txt" "XCTest 失败摘要" "$failure_summary"
+      printf '%s\n' "$failure_summary" > "$DERIVED_ROOT/test-failures.txt"
+      if (( ${#${(f)failure_summary}} <= 1000 )); then
+        print -r -- "$failure_summary"
+      else
+        echo "失败摘要共 ${#${(f)failure_summary}} 行 · $DERIVED_ROOT/test-failures.txt"
+      fi
     fi
   fi
 
-  (( exit_code == 0 )) || exit 1
-  echo "[通过] $test_action · $group"
+  if (( exit_code != 0 )); then
+    if ! $BUILD_ONLY; then record_metrics; fi
+    exit 1
+  fi
 }
 
 record_metrics() {
   python3 - "$RESULT_BUNDLE" "$DERIVED_ROOT/test-metrics.txt" "$MODE" <<'PY'
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -438,21 +509,62 @@ else:
             percentage = fraction * 100 if fraction <= 1 else fraction
             covered = target.get("coveredLines", "?")
             executable = target.get("executableLines", "?")
-            lines.append(f"- {target.get('name', '?')}: {percentage:.2f}% ({covered}/{executable} lines)")
+            if executable == 0:
+                lines.append(f"- {target.get('name', '?')}: 符号合并到宿主范围")
+            else:
+                lines.append(f"- {target.get('name', '?')}: {percentage:.2f}% ({covered}/{executable} lines)")
     if not target_rows:
         lines.append(json.dumps(coverage, ensure_ascii=False, indent=2, sort_keys=True))
 
+test_tree = json.loads(subprocess.check_output([
+    "xcrun", "xcresulttool", "get", "test-results", "tests", "--path", result_bundle,
+], text=True))
+durations = []
+def visit_tests(value):
+    if isinstance(value, dict):
+        if value.get("nodeType") == "Test Case":
+            duration = str(value.get("duration", ""))
+            units = {"毫秒": 0.001, "ms": 0.001, "分钟": 60, "min": 60, "m": 60, "秒": 1, "s": 1}
+            seconds = sum(float(number) * units[unit] for number, unit in
+                          re.findall(r"(\d+(?:\.\d+)?)\s*(毫秒|ms|分钟|min|m|秒|s)", duration))
+            durations.append((seconds, value.get("name", "?"), duration))
+        for child in value.values():
+            visit_tests(child)
+    elif isinstance(value, list):
+        for child in value:
+            visit_tests(child)
+visit_tests(test_tree)
+if durations:
+    lines += ["", "## 用例耗时", f"用例耗时合计：{sum(item[0] for item in durations):.1f} 秒", *[
+        f"- {name}: {duration}" for _, name, duration in sorted(durations, reverse=True)[:10]
+    ]]
+
 report = "\n".join(lines) + "\n"
-if len(report.splitlines()) <= 1000:
-    Path(report_path).unlink(missing_ok=True)
-    print(report, end="")
+Path(report_path).write_text(report, encoding="utf-8")
+print(lines[4])
+coverage_lines = [line for line in lines[7:] if line.startswith("- ") and "符号合并" not in line]
+if len(coverage_lines) <= 1000:
+    if coverage_lines:
+        print("\n".join(coverage_lines))
 else:
-    Path(report_path).write_text(report, encoding="utf-8")
-    print(f"测试指标共 {len(report.splitlines())} 行，详情写入 {report_path}")
+    print(f"覆盖率指标共 {len(coverage_lines)} 行 · {report_path}")
+if mode != "catalyst" and coverage is None:
+    if coverage_error:
+        print(coverage_error)
+    raise SystemExit("覆盖率采集失败。")
 PY
 }
 
 case "$MODE" in
+  release)
+    run_tests all-tests ""
+    ;;
+  network-smoke)
+    run_tests ReleaseNetworkSmokeTests "RELEASE_NETWORK_SMOKE"
+    ;;
+  icloud-smoke)
+    run_tests ICloudCrossDeviceSmokeTests "DEBUG ICLOUD_CROSS_DEVICE_SMOKE"
+    ;;
   all)
     run_tests all-tests "$CONDITIONS"
     ;;

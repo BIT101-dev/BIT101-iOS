@@ -99,7 +99,7 @@ function reportEmailBody(id, receivedAt, report) {
   lines.push(
     "",
     `KV 查看键：report:${receivedAt}:${id}`,
-    "完整报告：运行 Scripts/error-reports.sh show <报告键>"
+    "完整报告：运行 Scripts/fetch-issues-and-reports.sh show <报告键>"
   );
   return lines.join("\n");
 }

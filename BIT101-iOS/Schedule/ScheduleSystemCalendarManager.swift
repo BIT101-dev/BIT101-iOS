@@ -245,9 +245,7 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
     }
 
     private static func shanghaiCalendar() -> Calendar {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 8 * 60 * 60) ?? .current
-        return calendar
+        ScheduleSharedDateCodec.calendar
     }
 }
 
@@ -275,7 +273,7 @@ final class ScheduleSystemCalendarManager {
     private let eventStore: EKEventStore
     private let defaults: UserDefaults
 
-    init(eventStore: EKEventStore = EKEventStore(), defaults: UserDefaults = .standard) {
+    init(eventStore: EKEventStore = EKEventStore(), defaults: UserDefaults = AppFileDirectories.defaults) {
         self.eventStore = eventStore
         self.defaults = defaults
     }

@@ -18,13 +18,14 @@ EXPECTED = {
     "ScheduleInfrastructure": {"SchedulePorts", "ClientCore", "ScheduleDomain", "TransportCore"},
     "ScheduleFeature": {"SchedulePorts", "ClientCore", "DesignSystemKit", "ScheduleDomain", "ScheduleContracts", "StorageCore", "TransportCore"},
     "ScheduleSharedStore": {"ScheduleContracts", "StorageCore"},
-    "CommunityCore": set(),
+    "CommunityCore": {"StorageCore"},
+    "CommunityPersistence": {"CommunityCore", "StorageCore"},
     "CommunityTransport": {"TransportCore"},
-    "GalleryFeature": {"CommunityCore", "CommunityTransport", "CommunityUI", "DesignSystemKit", "MediaKit", "StorageCore", "TransportCore"},
+    "GalleryFeature": {"CommunityCore", "CommunityTransport", "CommunityUI", "DesignSystemKit", "MediaKit", "TransportCore"},
     "CourseFeature": {"CommunityCore", "CommunityTransport", "CommunityUI", "DesignSystemKit", "MediaKit", "TransportCore"},
     "PaperFeature": {"CommunityCore", "CommunityTransport", "CommunityUI", "DesignSystemKit", "MediaKit", "TransportCore"},
     "MineFeature": {"CommunityCore", "CommunityTransport", "CommunityUI", "DesignSystemKit", "MediaKit", "TransportCore"},
-    "CommunityUI": {"CommunityCore", "DesignSystemKit", "MediaKit", "StorageCore"},
+    "CommunityUI": {"CommunityCore", "DesignSystemKit", "MediaKit"},
     "ClientCore": set(),
     "DesignSystemKit": set(),
     "ScheduleContracts": set(),
@@ -33,7 +34,7 @@ EXPECTED = {
     "ScoreFeature": {"ScoreDomain", "ClientCore", "DesignSystemKit", "StorageCore", "TransportCore"},
     "StorageCore": set(),
     "TransportCore": set(),
-    "MapFeature": {"DesignSystemKit", "ScheduleContracts"},
+    "MapFeature": {"DesignSystemKit", "ScheduleContracts", "TransportCore"},
 }
 
 IGNORED_IMPORTS = {
@@ -98,47 +99,59 @@ def imported_modules(source_root: Path) -> dict[str, set[str]]:
 
 
 def swift_code(source: str) -> str:
-    """Mask nested comments and Swift strings while retaining line positions."""
-    result = list(source)
-    i = 0
-    while i < len(source):
-        start = i
-        if source.startswith("//", i):
-            end = source.find("\n", i)
-            i = len(source) if end < 0 else end
-        elif source.startswith("/*", i):
-            depth = 1
-            i += 2
-            while i < len(source) and depth:
-                if source.startswith("/*", i):
-                    depth += 1
-                    i += 2
-                elif source.startswith("*/", i):
-                    depth -= 1
-                    i += 2
-                else:
-                    i += 1
-        else:
-            match = re.match(r'(#{0,})(' + '\"\"\"|\"' + r')', source[i:])
+    """Retain executable Swift, including interpolation, with stable positions."""
+    result = ["\n" if char == "\n" else " " for char in source]
+    string_start = re.compile(r'(#{0,})("""|")')
+
+    def code(index: int, interpolation: bool = False) -> int:
+        depth = 1
+        while index < len(source):
+            if source.startswith("//", index):
+                end = source.find("\n", index)
+                index = len(source) if end < 0 else end
+                continue
+            if source.startswith("/*", index):
+                nesting = 1
+                index += 2
+                while index < len(source) and nesting:
+                    if source.startswith("/*", index):
+                        nesting += 1
+                        index += 2
+                    elif source.startswith("*/", index):
+                        nesting -= 1
+                        index += 2
+                    else:
+                        index += 1
+                continue
+            match = string_start.match(source, index)
             if match:
                 hashes, quotes = match.groups()
-                i += len(match[0])
+                index += len(match[0])
                 closing = quotes + hashes
                 escape = "\\" + hashes
-                while i < len(source):
-                    if source.startswith(escape, i):
-                        i += len(escape) + 1
-                    elif source.startswith(closing, i):
-                        i += len(closing)
+                while index < len(source):
+                    if source.startswith(escape + "(", index):
+                        index = code(index + len(escape) + 1, interpolation=True)
+                    elif source.startswith(escape, index):
+                        index += len(escape) + 1
+                    elif source.startswith(closing, index):
+                        index += len(closing)
                         break
                     else:
-                        i += 1
-            else:
-                i += 1
+                        index += 1
                 continue
-        for index in range(start, min(i, len(source))):
-            if source[index] != "\n":
-                result[index] = " "
+            if interpolation:
+                if source[index] == "(":
+                    depth += 1
+                elif source[index] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        return index + 1
+            result[index] = source[index]
+            index += 1
+        return index
+
+    code(0)
     return "".join(result)
 
 
@@ -172,7 +185,7 @@ def layer(module: str) -> str | None:
 
 
 FOUNDATIONAL_IMPORTS = {"Foundation", "Combine", "Observation", "CryptoKit", "OSLog", "os", "CoreFoundation"}
-PLATFORM_EXCEPTIONS = {"ScheduleActivityContracts": {"ActivityKit"}}
+PLATFORM_EXCEPTIONS = {"ScheduleActivityContracts": {"ActivityKit"}, "TransportCore": {"Network"}}
 
 
 def platform_errors(module: str, imports: set[str]) -> list[str]:
@@ -210,18 +223,67 @@ def graph_errors(manifest: dict[str, set[str]]) -> list[str]:
 GLOBAL_RESOURCE_PATTERN = r"\b(?:UserDefaults\s*\.\s*standard|URLSession\s*\.\s*shared|URLCache\s*\.\s*shared|HTTPCookieStorage\s*\.\s*shared|FileManager\s*\.\s*default|UIApplication\s*\.\s*shared|UIScreen\s*\.\s*main)\b"
 
 
-def ownership_errors(scope: str, source: str) -> list[str]:
+def service_boundary_errors(path: str, source: str) -> list[str]:
+    """Enforce service ownership across production modules, app, and extensions."""
+    code = swift_code(source)
+    patterns: list[tuple[str, str]] = []
+    transport_sources = {
+        "Modules/TransportCore/Sources/HTTPClient.swift",
+        "Modules/TransportCore/Sources/SecureURLTransport.swift",
+    }
+    if path not in transport_sources:
+        patterns.append((r"\b(?:URLSession|URLCache)\b", "use TransportCore transport and cache services"))
+    if path != "Modules/TransportCore/Sources/HTTPClient.swift":
+        patterns.append((r"\.\s*(?:data|download|upload|bytes)\s*\(\s*for\s*:", "send requests through HTTPClient"))
+        patterns.append((r"\.\s*(?:dataTask|downloadTask|uploadTask|webSocketTask)\s*\(", "send requests through HTTPClient"))
+    if path != "Modules/TransportCore/Sources/NetworkPathState.swift":
+        patterns.append((r"\b(?:NWPathMonitor|NWConnection|NWListener)\b", "use TransportCore network services"))
+    if path != "Modules/TransportCore/Sources/TaskCancellation.swift":
+        patterns.append((r"\.\s*userInfo\s*\[\s*NSUnderlyingErrorKey\s*\]", "traverse underlying errors through ErrorChain"))
+    if path != "Modules/TransportCore/Sources/AppURL.swift":
+        patterns.append((r"\bCharacterSet\s*\.\s*urlQueryAllowed\b", "encode form fields through HTTPFormEncoding"))
+    if path.startswith("Modules/ScheduleFeature/"):
+        patterns.append((r"\bDateFormatter\s*\(", "format schedule dates through ScheduleDateCodec"))
+    if path != "Modules/StorageCore/Sources/AppFileService.swift":
+        patterns.extend((
+            (r"\bFileManager\b(?!\s*\.\s*(?:SearchPathDirectory|DirectoryEnumerationOptions)\b)", "use AppFileService"),
+            (r"\b(?:Data|NSData|String|NSString)\s*(?:\.\s*init\s*)?\(\s*(?:contentsOf|contentsOfFile|contentsOfURL)\s*:", "read files through AppFileService"),
+            (r"\.\s*write\s*\(\s*(?:to|toFile)\s*:", "write files through AppFileService"),
+            (r"\.\s*(?:resourceValues|setResourceValues|resolvingSymlinksInPath|checkResourceIsReachable)\s*\(", "access file metadata through AppFileService"),
+            (r"\b(?:FileHandle|NSFileHandle|NSFileCoordinator|CGImageSourceCreateWithURL|CGImageDestinationCreateWithURL)\b", "access files through AppFileService"),
+            (r"\b(?:UIImage|NSImage|InputStream|OutputStream)\s*\(\s*(?:contentsOfFile|contentsOf|url|fileAtPath|toFileAtPath)\s*:", "access files through AppFileService"),
+            (r"(?<![.\w])(?:fopen|freopen|fread|fwrite|fclose|creat|unlink|mkdir|rmdir)\s*\(", "access files through AppFileService"),
+        ))
+    if path != "BIT101-iOS/Shared/Client/AppFileDirectories.swift":
+        patterns.append((r"\bUserDefaults\s*\.\s*standard\b|\bUserDefaults\s*=\s*\.\s*standard\b", "select preferences through the host storage entry"))
+    errors = []
+    for pattern, rule in patterns:
+        for match in re.finditer(pattern, code):
+            line = code.count("\n", 0, match.start()) + 1
+            errors.append(f"service boundary: {path}:{line}: {rule}: {match[0].strip()}")
+    return errors
+
+
+def ownership_errors(scope: str, source: str, path: str = "") -> list[str]:
     code = swift_code(source)
     patterns = []
     if scope in EXPECTED:
         patterns.append(GLOBAL_RESOURCE_PATTERN)
+    if scope in {"GalleryFeature", "CommunityUI"}:
+        patterns.append(r"\b(?:ComposerDraftStore|GalleryMessageReadStore)\b")
     if scope == "ScoreFeature":
         patterns.append(r"\b(?:ScoreCacheStore|ScoreFilterPreferenceStore)\b")
     if scope == "AppLocalDataService.swift":
         patterns.extend((GLOBAL_RESOURCE_PATTERN, r"\b(?:LoginStorage|ScheduleCacheStore|ScheduleWidgetExporter|AppMedia|AppSettingsStore|WKWebsiteDataStore)\b"))
     if scope in {"SettingsRootView.swift", "SettingsCommunityViews.swift", "SettingsAccountViews.swift", "SettingsServices.swift"}:
         patterns.append(r"\b(?:AppMedia|LoginStorage)\s*\.")
-    return [f"resource ownership: {scope} uses {match[0].strip()}" for pattern in patterns for match in re.finditer(pattern, code)]
+    return [
+        f"resource ownership: {scope} uses {match[0].strip()}"
+        for pattern in patterns
+        for match in re.finditer(pattern, code)
+        if not (path == "Modules/TransportCore/Sources/SecureURLTransport.swift"
+                and re.fullmatch(r"URLCache\s*\.\s*shared", match[0]))
+    ]
 
 
 def self_test() -> None:
@@ -235,12 +297,63 @@ def self_test() -> None:
     assert graph_errors({"TransportCore": {"ScoreFeature"}, "ScoreFeature": set()})
     assert ownership_errors("CommunityUI", "let screen = UIApplication . shared")
     assert ownership_errors("ScoreFeature", "let store: ScoreCacheStore")
+    assert ownership_errors("GalleryFeature", "let store: ComposerDraftStore")
+    assert ownership_errors("CommunityUI", "let store: GalleryMessageReadStore")
     assert ownership_errors("ScoreFeature", "// ScoreCacheStore\nlet text = #\"URLSession.shared\"#") == []
     assert ownership_errors("AppLocalDataService.swift", "LoginStorage.shared.clearAllLocalData()")
     assert platform_errors("ScheduleDomain", {"UIKit"})
     assert platform_errors("ScheduleActivityContracts", {"Foundation", "ActivityKit"}) == []
+    interpolation_sources = (
+        r'let text = "\(UserDefaults.standard.string(forKey: "key"))"',
+        r'let text = #"\#(UserDefaults.standard)"#',
+        r'let text = """\(UserDefaults.standard)"""',
+        r'let text = "\("nested \(UserDefaults.standard)")"',
+    )
+    for source in interpolation_sources:
+        assert ownership_errors("GalleryFeature", source)
+        assert len(swift_code(source)) == len(source)
+    assert ownership_errors("GalleryFeature", r'let text = "\\(UserDefaults.standard)"') == []
+    assert ownership_errors("GalleryFeature", r'let text = #"\(UserDefaults.standard)"#') == []
+    assert ownership_errors("GalleryFeature", r'let text = "\(value /* UserDefaults.standard */)"') == []
     assert imports_in_text('/* import GalleryFeature\n/* import ScoreFeature */ */\nimport TransportCore') == {"TransportCore"}
     assert imports_in_text('let text = #"""\nimport GalleryFeature\n"""#\nimport struct StorageCore.AppStorageSession') == {"StorageCore"}
+    service_path = "BIT101-iOS/Example.swift"
+    for source in (
+        "let session = URLSession(configuration: configuration)",
+        "try await transport.data(for: request)",
+        "session.dataTask(with: request)",
+        "let manager: FileManager = .default",
+        "try Data(contentsOf: url)",
+        "try String.init(contentsOf: url, encoding: .utf8)",
+        "try data.write(to: url)",
+        "try url.resourceValues(forKeys: [.fileSizeKey])",
+        "url.resolvingSymlinksInPath()",
+        "let image = UIImage(contentsOfFile: path)",
+        "let monitor = NWPathMonitor()",
+        "let defaults: UserDefaults = .standard",
+        "let underlying = error.userInfo[NSUnderlyingErrorKey]",
+        "let allowed = CharacterSet.urlQueryAllowed",
+        r'let text = "\(try Data(contentsOf: url))"',
+    ):
+        assert service_boundary_errors(service_path, source), source
+    for source in (
+        "// URLSession.shared\nlet text = #\"Data(contentsOf: url)\"#",
+        "try files.writeData(data, to: url, options: [.atomic])",
+        "try await client.send(request)",
+        "defaults.data(forKey: key)",
+        "let directory: FileManager.SearchPathDirectory = .cachesDirectory",
+        "let options: FileManager.DirectoryEnumerationOptions = []",
+    ):
+        assert service_boundary_errors(service_path, source) == [], source
+    assert service_boundary_errors("Modules/StorageCore/Sources/AppFileService.swift", "try data.write(to: url)") == []
+    assert service_boundary_errors("Modules/TransportCore/Sources/HTTPClient.swift", "try await transport.data(for: request)") == []
+    assert service_boundary_errors("Modules/TransportCore/Sources/SecureURLTransport.swift", "URLSession(configuration: configuration)") == []
+    assert service_boundary_errors("Modules/TransportCore/Sources/NetworkPathState.swift", "NWPathMonitor()") == []
+    assert service_boundary_errors("Modules/ScheduleFeature/Sources/Example.swift", "DateFormatter()")
+    assert service_boundary_errors("Modules/TransportCore/Sources/TaskCancellation.swift", "error.userInfo[NSUnderlyingErrorKey]") == []
+    assert service_boundary_errors("Modules/TransportCore/Sources/AppURL.swift", "CharacterSet.urlQueryAllowed") == []
+    assert ownership_errors("TransportCore", "URLCache.shared", "Modules/TransportCore/Sources/SecureURLTransport.swift") == []
+    assert ownership_errors("TransportCore", "URLCache.shared", "Modules/TransportCore/Sources/HTTPClient.swift")
 
 
 def native_target_errors(root: Path) -> list[str]:
@@ -289,7 +402,8 @@ def main() -> int:
         for source in source_root.rglob("*.swift"):
             source_text = source.read_text(encoding="utf-8")
             errors.extend(platform_errors(module, raw_imports(source_text)))
-            errors.extend(ownership_errors(module, source_text))
+            errors.extend(ownership_errors(module, source_text, source.relative_to(root).as_posix()))
+            errors.extend(service_boundary_errors(source.relative_to(root).as_posix(), source_text))
         actual_imports = imported_modules(source_root)
         for dependency in expected_dependencies - actual_imports.keys():
             errors.append(f"{module} declares unused {dependency}")
@@ -315,6 +429,10 @@ def main() -> int:
             errors.extend(ownership_errors(name, source.read_text(encoding="utf-8")))
 
     errors.extend(native_target_errors(root))
+
+    for name in ("BIT101-iOS", "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets"):
+        for source in (root / name).rglob("*.swift"):
+            errors.extend(service_boundary_errors(source.relative_to(root).as_posix(), source.read_text(encoding="utf-8")))
 
     if errors:
         for error in errors:

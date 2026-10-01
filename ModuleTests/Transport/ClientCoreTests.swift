@@ -1,5 +1,5 @@
 import SchedulePorts
-import TransportCore
+@testable import TransportCore
 import ClientCore
 import CommunityTransport
 import Foundation
@@ -345,5 +345,40 @@ struct ClientCoreTests {
         #expect(TaskCancellation.matches(CancellationError()))
         #expect(HTTPSURLUpgrade.upgradedURL(from: AppURL.required("http://example.invalid/path")).scheme == "https")
         #expect(HTTPSURLUpgrade.resolvedURL(from: "/next", relativeTo: url)?.path == "/next")
+    }
+
+    @Test func formEncodingPreservesFieldBoundariesUnicodeAndRepeatedNames() {
+        let body = HTTPFormEncoding.body([("name", "a+b &c?="), ("name", "中文"), ("empty", "")])
+        #expect(String(decoding: body, as: UTF8.self) == "name=a%2Bb%20%26c%3F%3D&name=%E4%B8%AD%E6%96%87&empty=")
+        #expect(HTTPFormEncoding.body([]).isEmpty)
+    }
+
+    @Test func wrappedNetworkErrorsKeepTheirClassificationAcrossDeepChains() {
+        func wrapped(_ error: Error) -> Error {
+            (0 ..< 20).reduce(error) { underlying, _ in
+                NSError(domain: "transport-wrapper", code: 1, userInfo: [NSUnderlyingErrorKey: underlying])
+            }
+        }
+        #expect(TaskCancellation.matches(wrapped(CancellationError())))
+        #expect(isHostResolutionError(wrapped(URLError(.cannotFindHost))))
+        #expect(isCertificateValidationError(wrapped(URLError(.serverCertificateUntrusted))))
+        #expect(isScheduleTransientNetworkError(wrapped(URLError(.timedOut))))
+        #expect(isSchoolTransportFailure(wrapped(ScheduleServiceError.schoolTransportFailure)))
+        #expect(!TaskCancellation.matches(wrapped(URLError(.timedOut))))
+        #expect(!isHostResolutionError(wrapped(URLError(.notConnectedToInternet))))
+    }
+
+    @Test func networkRecoveryTracksTheSelectedPathInstance() {
+        let selected = NetworkPathState(snapshot: NetworkPathSnapshot(status: .checking))
+        let independent = NetworkPathState(snapshot: NetworkPathSnapshot(status: .disconnected))
+        #expect(selected.isReachable)
+        selected.update(snapshot: NetworkPathSnapshot(status: .disconnected))
+        #expect(!selected.isReachable)
+        selected.update(snapshot: NetworkPathSnapshot(status: .connected, interfaces: [.wifi, .other], virtualNetworkLikely: true))
+        #expect(selected.isReachable)
+        #expect(selected.snapshot.interfaces == [.wifi, .other])
+        #expect(selected.snapshot.virtualNetworkLikely)
+        #expect(!independent.isReachable)
+        #expect(independent.snapshot.interfaces.isEmpty)
     }
 }

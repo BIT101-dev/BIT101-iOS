@@ -1,4 +1,5 @@
 import Foundation
+import ScheduleContracts
 
 public nonisolated enum AcademicActivityPhase: Equatable {
     case teaching
@@ -9,11 +10,7 @@ public nonisolated enum AcademicActivityPhase: Equatable {
 /// Calendar fallback used to keep adjacent term identifiers available offline.
 /// Cached school first-week dates refine the selected term whenever they exist.
 public nonisolated enum AcademicTermPolicy {
-    private static let calendar: Calendar = {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 8 * 3600) ?? .current
-        return calendar
-    }()
+    private static let calendar = ScheduleSharedDateCodec.calendar
 
     /// Returns the semester containing `date` and the semester following it.
     /// March 1 and September 1 are the local fallback boundaries used by BIT.
@@ -155,9 +152,7 @@ public nonisolated enum SmallTermWeekNormalizer {
     }
 
     private static var calendar: Calendar {
-        var value = Calendar(identifier: .gregorian)
-        value.timeZone = TimeZone(secondsFromGMT: 8 * 3600) ?? .current
-        return value
+        ScheduleSharedDateCodec.calendar
     }
 
     private static func parseDate(_ string: String) -> Date? {

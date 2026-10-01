@@ -274,32 +274,7 @@ public enum GalleryReportTarget: Identifiable, Hashable {
     }
 }
 
-/// 消息中心的消息类型。
-///
-/// 类型集中提供标题、动作文案和状态字典键。
-public enum GalleryMessageType: String, CaseIterable, Identifiable, Hashable {
-    case comment
-    case like
-    case follow
-    case system
-
-    /// 供 `Picker` 和状态字典使用的稳定标识。
-    public var id: String { rawValue }
-
-    /// 分段控件展示的中文标题。
-    public var title: String {
-        switch self {
-        case .comment:
-            return "评论"
-        case .like:
-            return "点赞"
-        case .follow:
-            return "关注"
-        case .system:
-            return "系统"
-        }
-    }
-
+extension GalleryMessageType {
     /// 当前类型对应的动作文案。
     public func actionText(for message: GalleryMessage) -> String {
         switch self {

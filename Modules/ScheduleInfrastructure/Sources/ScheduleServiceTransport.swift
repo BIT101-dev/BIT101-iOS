@@ -34,7 +34,7 @@ extension ScheduleService {
 
         if method == "POST" {
             request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
-            request.httpBody = formBody(body)
+            request.httpBody = HTTPFormEncoding.body(body)
         }
 
         let (data, response) = try await sendRequest(request)
@@ -214,7 +214,7 @@ extension ScheduleService {
 
         if method == "POST" {
             request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
-            request.httpBody = formBody(body)
+            request.httpBody = HTTPFormEncoding.body(body)
         }
 
         return try await sendStringResponse(
@@ -255,7 +255,7 @@ extension ScheduleService {
             secureRequest = request
         }
         do {
-            let result = try await HTTPClient(transport: transportOverride ?? session, observer: observer).send(
+            let result = try await httpClient.send(
                 secureRequest,
                 accepting: 100 ..< 600
             )
@@ -321,23 +321,6 @@ extension ScheduleService {
             || prefix.contains("用户名密码")
             || prefix.contains("cas/login")
             || prefix.contains("login-page-flowkey")
-    }
-
-    /// 把字段组装成 `application/x-www-form-urlencoded` 表单体。
-    func formBody(_ fields: [(String, String)]) -> Data {
-        let encoded = fields.map { key, value in
-            "\(urlEncode(key))=\(urlEncode(value))"
-        }
-        .joined(separator: "&")
-
-        return Data(encoded.utf8)
-    }
-
-    /// 表单值专用 URL 编码。
-    func urlEncode(_ value: String) -> String {
-        var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove(charactersIn: "&+=?")
-        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 
     /// 把 HTTP 状态码包装成统一错误。

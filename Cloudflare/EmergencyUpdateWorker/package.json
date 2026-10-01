@@ -5,7 +5,7 @@
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
     "publish": "./Scripts/publish-emergency-update.sh",
-    "disable": "./Scripts/disable-emergency-update.sh"
+    "disable": "./Scripts/publish-emergency-update.sh --disable"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

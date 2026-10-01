@@ -1,5 +1,22 @@
 import Foundation
 
+/// Foundation transport resources are constructed and maintained in this module.
+public enum URLSessionTransport {
+    public static func make(
+        configuration: URLSessionConfiguration,
+        followsRedirects: Bool = true
+    ) -> any HTTPTransport {
+        let delegate: any URLSessionTaskDelegate = followsRedirects
+            ? HTTPSUpgradingRedirectDelegate()
+            : NoRedirectURLSessionDelegate()
+        return URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
+    }
+
+    public static func clearSharedCache() {
+        URLCache.shared.removeAllCachedResponses()
+    }
+}
+
 /// 学校系统偶发将 HTTPS 重定向到 HTTP；所有学校网络链路统一在这里升级为 HTTPS。
 public enum HTTPSURLUpgrade {
     public nonisolated static func upgradedURL(from url: URL) -> URL {

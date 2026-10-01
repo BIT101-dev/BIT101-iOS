@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
+sys.dont_write_bytecode = True
+
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = ROOT / "BIT101-iOS"
 SOURCE_ROOTS = (SOURCE_ROOT, ROOT / "Modules")
@@ -33,6 +35,7 @@ def source_path(relative_path: str) -> Path:
     return ROOT / relative_path if relative_path.startswith("Modules/") else SOURCE_ROOT / relative_path
 
 
+@cache
 def source_relative(path: Path) -> str:
     return path.relative_to(SOURCE_ROOT).as_posix() if path.is_relative_to(SOURCE_ROOT) else path.relative_to(ROOT).as_posix()
 REPORT_PATH = ROOT / ".build/ui-consistency-report.txt"
@@ -612,15 +615,21 @@ def view_scopes(facts: dict) -> list[list[str]]:
     ]
 
 
+@cache
+def path_is_in_source_root(path: str, source_root: Path) -> bool:
+    return Path(path).is_relative_to(source_root)
+
+
 def view_entries(
     syntax: dict[str, dict], view_name: str, source_root: Path = ROOT
 ) -> list[tuple[Path, dict, list[str]]]:
     return [
-        (Path(path), facts, scope)
+        (Path(path), facts, declaration["scope"] + [declaration["name"]])
         for path, facts in syntax.items()
-        if Path(path).is_relative_to(source_root)
-        for scope in view_scopes(facts)
-        if scope[-1] == view_name
+        if path_is_in_source_root(path, source_root)
+        for declaration in facts["declarations"]
+        if declaration["name"] == view_name
+        and any(inherited.rsplit(".", 1)[-1] == "View" for inherited in declaration["inheritedTypes"])
     ]
 
 
@@ -656,7 +665,7 @@ def type_entries(
     return [
         (Path(path), facts, declaration["scope"] + [declaration["name"]])
         for path, facts in syntax.items()
-        if Path(path).is_relative_to(source_root)
+        if path_is_in_source_root(path, source_root)
         for declaration in facts["declarations"]
         if declaration["name"] == type_name
         and declaration["kind"] in {"struct", "class", "actor", "extension"}
@@ -875,7 +884,7 @@ def rendered_scope_facts(facts: dict, scope: list[str], syntax: dict[str, dict] 
         parts.extend(
             (other_facts, False)
             for path, other_facts in syntax.items()
-            if Path(path).is_relative_to(ROOT)
+            if path_is_in_source_root(path, ROOT)
             if other_facts is not facts
             and any(item["scope"] == scope for item in other_facts.get("functionRanges", []))
         )
@@ -1287,7 +1296,7 @@ def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> Non
     component_declarations = [
         declaration
         for path, facts in syntax.items()
-        if Path(path).is_relative_to(ROOT)
+        if path_is_in_source_root(path, ROOT)
         for declaration in facts["declarations"]
     ]
     for group, symbols in COMPONENT_GROUPS:
@@ -1992,6 +2001,39 @@ struct VisualRuleSample: View {
         findings.append("UI 检查器自测：View 公共组件声明识别失败")
     if not has_component_declaration("AppFixedColumnItem", declarations):
         findings.append("UI 检查器自测：无协议继承的模型结构声明识别失败")
+    row_source = r'''
+import SwiftUI
+struct NeutralTitle: View {
+    var body: some View { Text("标题").foregroundStyle(AppDesignSystem.Foreground.primary) }
+}
+struct RowColors: View {
+    var body: some View {
+        List {
+            Picker("时间轴", selection: $axis) { Text("线性").tag(0) }
+            Toggle("开关", isOn: $enabled).appInteractiveListRow()
+            Button {} label: { Text("标题").foregroundStyle(.primary) }.appInteractiveListRow()
+            Button("删除", role: .destructive) {}.appInteractiveListRow()
+            Button("删除正确", role: .destructive) {}.appInteractiveListRow(isDestructive: true)
+            NavigationLink(destination: Text("目标")) { NeutralTitle() }.appInteractiveListRow()
+            Button("伪造") { print(".appInteractiveListRow()") }
+            Button {} label: { LabeledContent("左侧") { Text("右侧").foregroundStyle(.secondary) } }.appInteractiveListRow()
+            Button {} label: {
+                LabeledContent { Text("右侧").foregroundStyle(.secondary) } label: { Text("左侧").foregroundStyle(.tint) }
+            }.appInteractiveListRow()
+            helperRows
+        }
+        .toolbar { Button("关闭") {} }
+        .overlay { floatingButton }
+    }
+    private var helperRows: some View { Button("计算属性行") {} }
+    private var floatingButton: some View { Button("浮动按钮") {} }
+}
+'''
+    row_path = ROOT / ".build/static-audit/row-color-self-test.swift"
+    row_syntax = module.swift_syntax_index_sources({str(row_path): row_source})
+    row_findings = interactive_list_row_findings(row_path, row_syntax[str(row_path)], row_syntax)
+    if len(row_findings) != 6:
+        findings.append(f"UI 检查器自测：列表标题、删除警示色、子组件、计算属性及字符串边界应报告 6 项，实际 {len(row_findings)} 项")
     return findings
 
 
@@ -2149,6 +2191,94 @@ def check_contextual_component_colors(errors: list[str], syntax: dict[str, dict]
                     f"{path.relative_to(ROOT)}:{line_number}: "
                     f"复用组件的页面主题色应使用 {expected_token}，当前发现 {token}"
                 )
+
+
+def is_interactive_list_row(row: dict, facts: dict) -> bool:
+    if row["name"] == "LabeledContent":
+        return False
+    if any(item["scope"] == row["scope"] and item["start"] <= row["start"] < item["end"]
+           for item in facts.get("nonRenderedRanges", [])):
+        return False
+    if set(row.get("containers", [])) & {"List", "Form", "Section"}:
+        return True
+    # 按列表引用追踪返回 View 的属性和函数，核对实际渲染的交互行。
+    helpers = []
+    for binding in facts.get("bindings", []):
+        match = re.match(r"(\w+)\s*:\s*some\s+View\s*\{", mask_literals_and_comments(binding["value"]))
+        if match and binding["scope"] == row["scope"]:
+            helpers.append({"name": match[1], "start": binding["start"],
+                            "end": binding["start"] + len(binding["value"].encode())})
+    helpers += [item for item in facts.get("functionRanges", [])
+                if item["scope"] == row["scope"] and item.get("returnsView")]
+    ranges = [(item["start"], item["start"] + len(item["invocation"].encode()))
+              for item in facts.get("listControls", []) if item["scope"] == row["scope"]]
+    reachable = set()
+    while ranges:
+        start, end = ranges.pop()
+        symbols = {item["value"] for item in facts.get("scopedIdentifiers", [])
+                   if item["scope"] == row["scope"] and start <= item["start"] < end}
+        for helper in helpers:
+            if helper["name"] in symbols and helper["name"] not in reachable:
+                reachable.add(helper["name"])
+                ranges.append((helper["start"], helper["end"]))
+    return any(helper["name"] in reachable and helper["start"] <= row["start"] < helper["end"]
+               for helper in helpers)
+
+
+def interactive_list_row_findings(path: Path, facts: dict, syntax: dict[str, dict]) -> list[str]:
+    """逐行核对样式；标题组件的显式前景色同样接受检查。"""
+    findings = []
+    neutral = re.compile(r"\.foreground(?:Style|Color)\s*\(\s*(?:AppDesignSystem\.Foreground\.[\w]+|\.(?:primary|secondary|tertiary|black|white|gray))\s*\)")
+
+    def title_override(owner: dict, start: int, end: int, scope: list[str], visited: set[str]) -> bool:
+        texts = [item for item in owner.get("invocations", [])
+                 if start <= item["start"] < end and item["scope"] == scope
+                 and re.match(r"Text\s*\(", item["value"])]
+        labeled = [item for item in owner.get("accessibilityControls", [])
+                   if item["name"] == "LabeledContent" and start <= item["start"] < end and item["scope"] == scope]
+        first_text = min((item["start"] for item in texts), default=sys.maxsize)
+        if labeled and min(item["start"] for item in labeled) < first_text:
+            content = min(labeled, key=lambda item: item["start"])
+            suffix = content["expression"][len(content["invocation"]):]
+            if neutral.search(mask_literals_and_comments(suffix)):
+                return True
+            return content["labelStart"] >= 0 and title_override(
+                owner, content["labelStart"], content["labelEnd"], scope, visited
+            )
+        if texts:
+            first_start = min(item["start"] for item in texts)
+            expression = max((item["value"] for item in texts if item["start"] == first_start), key=len)
+            return bool(neutral.search(mask_literals_and_comments(expression)))
+        for call in owner.get("calls", []):
+            if not start <= call["start"] < end or call["scope"] != scope:
+                continue
+            for child_path, child, child_scope in child_view_entries(syntax, call["value"], scope):
+                key = f"{child_path}:{'.'.join(child_scope)}"
+                if key in visited:
+                    continue
+                rendered = rendered_scope_facts(child, child_scope, syntax)
+                if title_override(rendered, 0, sys.maxsize, child_scope, visited | {key}):
+                    return True
+        return False
+
+    for row in facts.get("accessibilityControls", []):
+        if not is_interactive_list_row(row, facts):
+            continue
+        suffix = mask_literals_and_comments(row["expression"][len(row["invocation"]):])
+        line = source_text(path).encode()[:row["start"]].count(b"\n") + 1 if path.is_file() else 1
+        location = f"{path.relative_to(ROOT) if path.is_relative_to(ROOT) else path}:{line}"
+        if not re.search(r"\.appInteractiveListRow\s*\(", suffix):
+            findings.append(f"{location}: {row['name']} 交互列表行必须接入 appInteractiveListRow")
+        if "role: .destructive" in mask_comments(row["invocation"]).split("label:", 1)[0] and not re.search(r"appInteractiveListRow\s*\(\s*isDestructive:\s*true", suffix):
+            findings.append(f"{location}: 删除列表行必须使用警示色")
+        if row["labelStart"] >= 0 and title_override(facts, row["labelStart"], row["labelEnd"], row["scope"], set()):
+            findings.append(f"{location}: 交互列表行左侧标题必须使用页面主题色或警示色")
+    return findings
+
+
+def check_interactive_list_colors(errors: list[str], syntax: dict[str, dict]) -> None:
+    for path in swift_files():
+        errors.extend(interactive_list_row_findings(path, syntax[str(path)], syntax))
 
 
 def check_registered_visual_contracts(errors: list[str]) -> None:
@@ -2451,6 +2581,7 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
     check_design_token_boundaries(errors, syntax)
     check_page_theme_consistency(errors, syntax)
     check_contextual_component_colors(errors, syntax)
+    check_interactive_list_colors(errors, syntax)
     check_registered_visual_contracts(errors)
     app_card_uses = 0
     floating_stack_uses = 0
@@ -2571,17 +2702,17 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
     if errors:
         lines = ["[失败] UI 一致性检查：", *errors]
         report = "\n".join(lines)
+        REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        REPORT_PATH.write_text(report + "\n", encoding="utf-8")
         if len(lines) <= 1000:
-            REPORT_PATH.unlink(missing_ok=True)
             print(report)
         else:
-            REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
-            REPORT_PATH.write_text(report + "\n", encoding="utf-8")
-            print(f"UI 检查结果共 {len(lines)} 行，详情写入 {REPORT_PATH.relative_to(ROOT)}")
+            print(f"UI 检查结果共 {len(lines)} 行 · {REPORT_PATH.relative_to(ROOT)}")
         return 1
 
     REPORT_PATH.unlink(missing_ok=True)
-    print(f"[通过] UI 一致性检查（扫描 {len(swift_files())} 个 Swift 文件）")
+    if shared_syntax is None:
+        print(f"[通过] UI 一致性检查（扫描 {len(swift_files())} 个 Swift 文件）")
     return 0
 
 

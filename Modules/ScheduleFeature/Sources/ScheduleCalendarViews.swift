@@ -142,13 +142,6 @@ final class ScheduleBlankContextMenuControl: UIControl {
 }
 
 struct CourseScheduleCalendarView: View {
-    private static let monthDayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 8 * 3600)
-        formatter.dateFormat = "M.d"
-        return formatter
-    }()
     private static let weekdayTitles = ["一", "二", "三", "四", "五", "六", "七"]
     @State private var contextMenuFeedbackToken = 0
 
@@ -459,7 +452,7 @@ struct CourseScheduleCalendarView: View {
     }
 
     private func mmddText(for date: Date) -> String {
-        Self.monthDayFormatter.string(from: date)
+        ScheduleDateCodec.formatCompactDate(date)
     }
 
     private func weekdayText(for weekday: Int) -> String {

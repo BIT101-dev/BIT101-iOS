@@ -25,18 +25,18 @@ final class AppAccountLifecycle: ObservableObject {
     private let currentSession: @MainActor () -> AppStorageSession
 
     init(
-        scheduleViewModel: ScheduleViewModel = ScheduleServiceFactory.makeViewModel(),
+        scheduleViewModel: ScheduleViewModel,
         scoreViewModel: ScoreViewModel? = nil,
         community: AppCommunityDependencies,
         scoreService: any ScoreListServicing,
         transcriptService: any TrustedTranscriptServicing,
         preferenceCloudSync: ExperimentalPreferenceCloudSync,
-        notifications: NotificationCenter = .default,
+        notifications: NotificationCenter,
         scheduleChanges: AnyPublisher<AppStorageSession, Never>,
         loadScheduleCourses: @escaping @MainActor (AppStorageSession) async -> [String: [ScoreCourseSummary]],
         media: MediaEnvironment,
         localData: AppLocalDataService,
-        externalDisplays: any AppExternalDisplayCoordinating = AppExternalDisplayCoordinator()
+        externalDisplays: any AppExternalDisplayCoordinating
     ) {
         let settings = preferenceCloudSync.settings
         let stores = preferenceCloudSync.stores
@@ -44,7 +44,7 @@ final class AppAccountLifecycle: ObservableObject {
         if let scoreViewModel {
             self.scoreViewModel = scoreViewModel
         } else {
-            self.scoreViewModel = ScoreViewModel(service: scoreService, stores: stores, notificationCenter: notifications,
+            self.scoreViewModel = ScoreViewModel(service: scoreService, stores: stores,
                 scheduleCoursesChanges: scheduleChanges, loadScheduleCourses: loadScheduleCourses)
         }
         self.community = community

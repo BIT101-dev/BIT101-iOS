@@ -7,8 +7,6 @@ import DesignSystemKit
 //  PaperCommentViews.swift
 //  BIT101-iOS
 import SwiftUI
-import Network
-import Combine
 
 struct PaperCommentsSection: View {
     let comments: [CommunityComment]
@@ -81,31 +79,6 @@ struct PaperCommentsSection: View {
                 }
             }
         }
-    }
-}
-
-/// 文章模块使用的网络可达性观察器。
-///
-/// 用于文章模块失败后的自动重试，网络可达性状态限定在文章模块。
-@MainActor
-final class PaperNetworkObserver: ObservableObject {
-    @Published private(set) var isReachable = true
-
-    private let monitor = NWPathMonitor()
-    private let queue = DispatchQueue(label: "BIT101.PaperNetworkObserver")
-
-    init() {
-        monitor.pathUpdateHandler = { [weak self] path in
-            let isReachable = path.status == .satisfied
-            Task { @MainActor [weak self] in
-                self?.isReachable = isReachable
-            }
-        }
-        monitor.start(queue: queue)
-    }
-
-    deinit {
-        monitor.cancel()
     }
 }
 

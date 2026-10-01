@@ -271,6 +271,7 @@ struct GalleryCommentComposerSheet: View {
                     .disabled(isSubmitting || isUploadingImages || uploadedImages.count >= 9)
                     .accessibilityLabel("添加评论图片")
                     .accessibilityValue("\(uploadedImages.count) 张")
+                    .appInteractiveListRow()
 
                     if isUploadingImages {
                         AppInlineLoadingState("上传中")

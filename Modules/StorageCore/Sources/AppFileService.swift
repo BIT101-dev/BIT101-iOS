@@ -1,6 +1,6 @@
 import Foundation
 
-/// 文件服务接口。业务仓库使用逻辑路径和原子读写能力，不直接依赖 FileManager。
+/// 文件服务接口。业务仓库使用逻辑路径和原子读写能力。
 public nonisolated protocol AppFileService: Sendable {
     func directoryURL(_ directory: FileManager.SearchPathDirectory) -> URL?
     func appGroupContainerURL(identifier: String) -> URL?
@@ -19,6 +19,11 @@ public nonisolated protocol AppFileService: Sendable {
     func setModificationDate(_ date: Date, at url: URL) throws
     func removeContents(of directory: URL) -> Bool
     func totalRegularFileSize(at directory: URL) -> Int64
+    func canonicalFileURL(_ url: URL) -> URL
+}
+
+extension AppFileService {
+    public nonisolated func canonicalFileURL(_ url: URL) -> URL { url.standardizedFileURL }
 }
 
 /// 本机文件系统的默认实现。
@@ -36,6 +41,7 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
     }
 
     public var temporaryDirectoryURL: URL { manager.temporaryDirectory }
+    public func canonicalFileURL(_ url: URL) -> URL { url.resolvingSymlinksInPath().standardizedFileURL }
     public func fileExists(at url: URL) -> Bool { manager.fileExists(atPath: url.path) }
     public func readData(at url: URL) throws -> Data {
         try setExcludedFromBackup(at: url)
