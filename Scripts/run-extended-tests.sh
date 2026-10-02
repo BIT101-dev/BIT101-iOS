@@ -334,6 +334,13 @@ if not available:
 print(available[0]["udid"])
 PY
   )"
+  if ! $BUILD_ONLY; then
+    mkdir -p "$DERIVED_ROOT"
+    if ! xcrun simctl bootstatus "$simulator_id" -b > "$DERIVED_ROOT/simulator-boot.log" 2>&1; then
+      cat "$DERIVED_ROOT/simulator-boot.log" >&2
+      exit 1
+    fi
+  fi
   TEST_DESTINATION="platform=iOS Simulator,id=$simulator_id"
   SIGNING_ARGS=(CODE_SIGNING_ALLOWED=NO)
   if [[ "$MODE" == ui ]]; then SIGNING_ARGS=(CODE_SIGN_IDENTITY=-); fi
@@ -357,6 +364,18 @@ else
   fi
   acquire_test_lock
   bit101_require_device "${1:-}" || exit 1
+  if [[ "$MODE" == ui && "$BUILD_ONLY" == false ]]; then
+    python3 - <<'PY'
+import json
+import subprocess
+
+devices = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "--json"], text=True))
+for entries in devices["devices"].values():
+    for device in entries:
+        if device["name"] == "BIT101 UI iPhone" and device["state"] == "Booted":
+            subprocess.run(["xcrun", "simctl", "shutdown", device["udid"]], check=True)
+PY
+  fi
   TEST_DESTINATION="platform=iOS,id=$BIT101_XCODE_DEVICE_ID"
   SIGNING_ARGS=(-allowProvisioningUpdates)
   UI_RESTORE_DEVICE_ID="$BIT101_XCODE_DEVICE_ID"
@@ -473,11 +492,7 @@ run_tests() {
     execution_args+=(-resultBundlePath "$RESULT_BUNDLE")
   fi
   if [[ "$MODE" == "ui" ]]; then
-    if $USE_SIMULATOR && (( $(sysctl -n hw.memsize) >= 16 * 1024 * 1024 * 1024 )); then
-      execution_args+=(-parallel-testing-enabled YES -parallel-testing-worker-count 2)
-    else
-      execution_args+=(-parallel-testing-enabled NO)
-    fi
+    execution_args+=(-parallel-testing-enabled NO)
     coverage_args=(-enableCodeCoverage NO ENABLE_CODE_COVERAGE=NO)
   fi
   if (( ${#TEST_SELECTIONS[@]} > 0 )); then
@@ -535,6 +550,8 @@ if result.returncode == 0:
             print(f"{message.splitlines()[0][:240]} · {len(tests)} 个用例")
             for test in tests:
                 print(f"  {test}")
+            if "enabling automation mode" in message:
+                print("iOS 自动化初始化等待设备系统验证；请在 iPhone 完成 Enable UI Automation 的密码验证后重试。")
 PY
     )"
     if [[ -n "$failure_summary" ]]; then
@@ -557,6 +574,7 @@ record_metrics() {
   python3 - "$RESULT_BUNDLE" "$DERIVED_ROOT/test-metrics.txt" "$MODE" "$TEST_DURATION_SECONDS" <<'PY'
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -567,7 +585,7 @@ summary = json.loads(subprocess.check_output([
     "--path", result_bundle,
 ], text=True))
 if summary.get("totalTestCount", 0) == 0:
-    raise SystemExit("测试选择匹配 0 个用例，请使用 suite 名称或带 () 的 Swift Testing 方法名。")
+    raise SystemExit("测试未实际执行；请检查上方编译、Runner 初始化或测试选择结果。Swift Testing 方法名保留 ()。")
 
 coverage = None
 coverage_error = None
@@ -597,7 +615,19 @@ lines = [
 ]
 if coverage is None:
     if mode == "ui":
-        lines.append("交互覆盖依据 docs/UI_INTERACTION_COVERAGE.md；每项独立重置数据并验证业务结果。")
+        lines.append("交互覆盖依据 docs/UI_INTERACTION_COVERAGE.md；复用同一 App 进程，独立重置场景数据并验证业务结果。")
+        diagnostics = Path(report_path).parent / "diagnostics"
+        shutil.rmtree(diagnostics, ignore_errors=True)
+        subprocess.run(["xcrun", "xcresulttool", "export", "diagnostics", "--path", result_bundle,
+                        "--output-path", str(diagnostics)], check=True, stdout=subprocess.DEVNULL)
+        output = "\n".join(path.read_text(errors="replace") for path in
+                           diagnostics.rglob("StandardOutputAndStandardError.txt"))
+        launches = len(re.findall(r"\bt =\s*[\d.]+s\s+Launch BIT101-dev\.BIT101-iOS\b", output))
+        processes = sorted(set(re.findall(r"UI automation App process: (\d+)", output)))
+        lines.append(f"App 启动次数：{launches}；App 进程：{', '.join(processes) or '未采集'}")
+        actions = re.findall(r"\bt =\s*[\d.]+s\s+(Tap|Type|Swipe|Press|Pinch)\b", output)
+        lines.append(f"系统交互动作：{len(actions)}；" + "；".join(
+            f"{action} {actions.count(action)}" for action in ["Tap", "Type", "Swipe", "Press", "Pinch"]))
     elif mode == "catalyst":
         lines.append("Mac Catalyst runtime does not provide an xccov archive.")
     else:

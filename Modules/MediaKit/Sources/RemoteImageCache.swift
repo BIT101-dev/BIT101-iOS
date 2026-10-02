@@ -212,6 +212,7 @@ actor RemoteImageCache {
             let ext = preferredExtension(for: remoteURL, mimeType: result.mimeType)
             let target = directory.appendingPathComponent("\(filePrefix(for: remoteURL, variant: variant)).\(ext)")
             if !files.fileExists(at: target) {
+                try files.createDirectory(at: directory)
                 try files.writeData(result.data, to: target, options: [.atomic])
             }
             touch(target)
@@ -230,6 +231,7 @@ actor RemoteImageCache {
         let digest = SHA256.hash(data: data).hexString
         let target = directory.appendingPathComponent("local-\(digest).\(pathExtension)")
         if !hasData(at: target) {
+            try files.createDirectory(at: directory)
             try files.writeData(data, to: target, options: [.atomic])
         }
         touch(target)
@@ -258,6 +260,7 @@ actor RemoteImageCache {
         let encoded = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII="
         guard let data = Data(base64Encoded: encoded) else { throw CocoaError(.fileWriteUnknown) }
         if (try? files.readData(at: target)) != data {
+            try files.createDirectory(at: directory)
             try files.writeData(data, to: target, options: [.atomic])
         }
         return target

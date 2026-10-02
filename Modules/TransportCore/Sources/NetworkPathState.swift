@@ -24,6 +24,46 @@ public nonisolated struct NetworkPathSnapshot: Equatable, Sendable {
     public var isReachable: Bool { status != .disconnected }
 }
 
+#if BIT101_UI_TESTING
+/// UI 自动化在本机连接中更新场景夹具，App 进程持续运行。
+public nonisolated final class UITestControlServer: Sendable {
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "BIT101.UITestControl")
+
+    public init(handle: @escaping @Sendable (Data, @escaping @Sendable (Data) -> Void) -> Void) throws {
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: 19101)
+        listener = try NWListener(using: parameters)
+        listener.newConnectionHandler = { [queue] connection in
+            connection.start(queue: queue)
+            Self.receive(connection, buffer: Data(), handle: handle)
+        }
+        listener.start(queue: queue)
+    }
+
+    deinit { listener.cancel() }
+
+    private static func receive(
+        _ connection: NWConnection, buffer: Data,
+        handle: @escaping @Sendable (Data, @escaping @Sendable (Data) -> Void) -> Void
+    ) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 16_384) { data, _, complete, error in
+            var content = buffer
+            if let data { content.append(data) }
+            if let end = content.firstIndex(of: 10) {
+                handle(Data(content[..<end])) { response in
+                    connection.send(content: response + Data([10]), completion: .contentProcessed { _ in connection.cancel() })
+                }
+            } else if error != nil || complete || content.count > 16_384 {
+                connection.cancel()
+            } else {
+                receive(connection, buffer: content, handle: handle)
+            }
+        }
+    }
+}
+#endif
+
 /// Hosts share one path state across request diagnostics and feature recovery.
 @MainActor
 @Observable

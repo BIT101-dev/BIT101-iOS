@@ -60,6 +60,8 @@ if [[ -n "$DEVICE_ACTION" ]]; then
   else
     xcrun devicectl device info details --device "$BIT101_DEVICETCL_DEVICE_ID" --quiet >/dev/null
     echo "真机连接：$BIT101_DEVICE_TRANSPORT · $BIT101_XCODE_DEVICE_ID"
+    xcrun devicectl device info lockState --device "$BIT101_DEVICETCL_DEVICE_ID" --quiet --json-output /dev/stdout |
+      python3 -c 'import json,sys; print("锁定状态：", json.load(sys.stdin)["result"])'
   fi
   exit 0
 fi

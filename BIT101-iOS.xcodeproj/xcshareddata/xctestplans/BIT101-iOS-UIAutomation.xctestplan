@@ -12,7 +12,7 @@
   },
   "testTargets" : [
     {
-      "parallelizable" : true,
+      "parallelizable" : false,
       "target" : {
         "containerPath" : "container:BIT101-iOS.xcodeproj",
         "identifier" : "B10100000000000000000005",

@@ -1,6 +1,7 @@
 import ScoreInfrastructure
 import ScoreDomain
 import ScheduleFeature
+import DesignSystemKit
 //
 //  BIT101_iOSApp.swift
 //  BIT101-iOS
@@ -95,14 +96,25 @@ enum ScheduleReminderBackgroundRefresh {
 /// 挂载根视图，并协调课表缓存与外部展示同步。
 @main
 struct BIT101_iOSApp: App {
+#if BIT101_UI_TESTING
+    @StateObject private var uiTestScene: UITestSceneState
+    private var lifecycle: AppAccountLifecycle { uiTestScene.lifecycle }
+#else
     @StateObject private var lifecycle: AppAccountLifecycle
+#endif
     @Environment(\.scenePhase) private var scenePhase
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
 #if BIT101_UI_TESTING
         AppUITestBootstrap.prepareForLaunch()
+        _uiTestScene = StateObject(wrappedValue: UITestSceneState(makeLifecycle: Self.makeLifecycle))
+#else
+        _lifecycle = StateObject(wrappedValue: Self.makeLifecycle())
 #endif
+    }
+
+    private static func makeLifecycle() -> AppAccountLifecycle {
         let preferenceCloudSync: ExperimentalPreferenceCloudSync
 #if BIT101_UI_TESTING
         preferenceCloudSync = ExperimentalPreferenceCloudSync(settings: .shared, stores: .shared, cloudStore: UITestPreferenceCloudStore())
@@ -119,7 +131,7 @@ struct BIT101_iOSApp: App {
         scores = productionScores
         transcripts = productionScores
 #endif
-        _lifecycle = StateObject(wrappedValue: AppAccountLifecycle(
+        return AppAccountLifecycle(
             scheduleViewModel: ScheduleServiceFactory.makeViewModel(),
             community: .app(settings: preferenceCloudSync.settings, stores: preferenceCloudSync.stores),
             scoreService: scores, transcriptService: transcripts, preferenceCloudSync: preferenceCloudSync,
@@ -127,7 +139,7 @@ struct BIT101_iOSApp: App {
             scheduleChanges: ScheduleCacheStore.changes, loadScheduleCourses: AppAccountStores.loadScheduleCourses,
             media: AppMedia.environment, localData: .appService(settings: preferenceCloudSync.settings, media: AppMedia.environment),
             externalDisplays: AppExternalDisplayCoordinator()
-        ))
+        )
     }
 
     /// 根场景定义。主题模式由设置快照驱动；登录态、课表缓存和场景状态变化时，
@@ -174,6 +186,19 @@ struct BIT101_iOSApp: App {
                 .environmentObject(lifecycle.preferenceCloudSync)
                 .appKeyboardDismissSupport()
                 .appPromptHost()
+#if BIT101_UI_TESTING
+                .id(uiTestScene.revision)
+                .onAppear { uiTestScene.accelerateTransitions() }
+                .environment(\.sizeCategory, uiTestScene.largeText ? .accessibilityLarge : .large)
+                .preferredColorScheme(uiTestScene.colorScheme)
+                .overlay(alignment: .topLeading) {
+                    Color.clear.frame(width: AppDesignSystem.Size.Control.compact, height: AppDesignSystem.Size.Control.compact)
+                        .accessibilityElement()
+                        .accessibilityIdentifier("ui-test.scene")
+                        .accessibilityValue(Text(verbatim: "\(ProcessInfo.processInfo.processIdentifier):\(uiTestScene.revision)"))
+                        .allowsHitTesting(false)
+                }
+#endif
                 .onOpenURL { url in
                     AppDeepLinkCoordinator.shared.receive(url)
                 }

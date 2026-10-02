@@ -44,7 +44,7 @@ struct UITestLoginService: LoginServicing {
         let account = studentID.trimmingCharacters(in: .whitespacesAndNewlines)
         defaults.set(account, forKey: Key.studentID)
         defaults.set(true, forKey: Key.hasSession)
-        if ProcessInfo.processInfo.environment["BIT101_UI_TEST_CONTENT"] == "1" {
+        if AppUITestBootstrap.environment["BIT101_UI_TEST_CONTENT"] == "1" {
             try LoginStorage.shared.saveLoginState(studentID: account, password: password, fakeCookie: "ui-test-cookie")
         }
         var seededAccounts = defaults.stringArray(forKey: Key.seededScheduleAccounts) ?? []
@@ -53,14 +53,14 @@ struct UITestLoginService: LoginServicing {
             cache.firstDayString = ScheduleDateCodec.formatDate(ScheduleDateCodec.monday(containing: Date()))
             cache.currentTerm = "ui-test-term"
             cache.iCloudSyncEnabled = false
-            if ProcessInfo.processInfo.environment["BIT101_UI_TEST_SCHOOL"] == "1" {
+            if AppUITestBootstrap.environment["BIT101_UI_TEST_SCHOOL"] == "1" {
                 let payload = UITestSchoolService.payload
                 cache.courses = payload.courses
                 cache.cachedCoursesByTerm[cache.currentTerm] = payload.courses
                 cache.exams = payload.exams
                 cache.cachedClassroomBuildingsByCampusCode["1"] = try await UITestSchoolService().fetchBuildings(campusCode: "1")
             }
-            if let fixture = ProcessInfo.processInfo.environment["BIT101_UI_TEST_DDL_FIXTURE"] {
+            if let fixture = AppUITestBootstrap.environment["BIT101_UI_TEST_DDL_FIXTURE"] {
                 let now = Date()
                 if fixture == "overdue" { cache.ddlAfterDay = 0 }
                 cache.ddlEvents = [DDLEventRecord(id: "eclass:ui", group: "eclass", title: "课程中心测试作业",

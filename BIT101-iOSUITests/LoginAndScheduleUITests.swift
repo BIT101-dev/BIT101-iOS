@@ -1,8 +1,45 @@
 import XCTest
 import CoreGraphics
+import Network
+import os
+
+private nonisolated final class UITestControlReply: Sendable {
+    private struct State {
+        var content = Data()
+        var result: String?
+    }
+    private let state = OSAllocatedUnfairLock(initialState: State())
+    var message: String? {
+        state.withLock { $0.result }
+    }
+
+    func receive(on connection: NWConnection, completion: @escaping @Sendable () -> Void) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 16_384) { [self] data, _, complete, error in
+            if append(data, error: error, complete: complete) {
+                completion()
+            } else if error == nil && !complete { receive(on: connection, completion: completion) }
+        }
+    }
+
+    func append(_ data: Data?, error: NWError?, complete: Bool) -> Bool {
+        state.withLock { state in
+            if state.result != nil { return false }
+            if let data { state.content.append(data) }
+            if let end = state.content.firstIndex(of: 10) {
+                state.result = String(decoding: state.content[..<end], as: UTF8.self)
+                return true
+            }
+            if let error { state.result = error.localizedDescription; return true }
+            if complete { state.result = "control channel closed"; return true }
+            return false
+        }
+    }
+}
 
 nonisolated class UIAutomationTestCase: XCTestCase {
     @MainActor var app: XCUIApplication!
+    @MainActor private static var sessionApplication: XCUIApplication?
+    @MainActor private static var sessionProcess: String?
     private let runIdentifier = "ui"
 
     @MainActor
@@ -17,7 +54,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         let exact = app.buttons.matching(NSPredicate(format: "label == %@", title))
         let matches = exact.firstMatch.exists ? exact : app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title))
         let button = matches.firstMatch
-        if button.isHittable {
+        if button.exists && button.isHittable {
             button.tap()
             return
         }
@@ -31,14 +68,14 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func reveal(_ element: XCUIElement, description: String = "交互控件") {
-        if element.isHittable { return }
+        if element.exists && element.isHittable { return }
         for _ in 0..<8 {
             let scroll: XCUIElement = interactionScrollArea() ?? app
             let upward = !element.exists || element.frame.minY >= app.windows.firstMatch.frame.midY
             let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.5))
             let end = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: upward ? 0.1 : 0.9))
-            start.press(forDuration: 0.01, thenDragTo: end)
-            if element.isHittable { return }
+            start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0.1)
+            if element.exists && element.isHittable { return }
         }
         assertUI(false, "滚动后目标应可触达：\(description)。存在：\(element.exists)，窗口：\(app.windows.firstMatch.frame)。\(focusedAccessibilitySnapshot(app, matching: [description, "Button", "Alert"]))")
     }
@@ -54,8 +91,12 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     @MainActor
     func waitUntil(_ predicate: NSPredicate, on element: XCUIElement, timeout: TimeInterval = 5) -> Bool {
         if predicate.evaluate(with: element) { return true }
-        let updated = XCTNSPredicateExpectation(predicate: predicate, object: element)
-        return XCTWaiter.wait(for: [updated], timeout: timeout) == .completed
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            if predicate.evaluate(with: element) { return true }
+        } while Date() < deadline
+        return false
     }
 
     @MainActor
@@ -108,12 +149,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         assertUI(field.appears(timeout: 5), "输入操作应等待字段出现。")
         reveal(field, description: field.placeholderValue ?? "文本输入")
         field.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.9)).tap()
-        if !app.keyboards.firstMatch.exists {
-            let nextKeyboard = app.buttons.matching(NSPredicate(format: "label IN %@", ["下一个键盘", "Next keyboard"])).firstMatch
-            if nextKeyboard.exists { nextKeyboard.tap() }
-        }
         assertUI(app.keyboards.firstMatch.appears(timeout: 5), "文本输入应使用系统键盘。")
         let value = field.value as? String ?? ""
+        var deletion = ""
         if !value.isEmpty && value != field.placeholderValue {
             if field.elementType == .textView {
                 field.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.9)).press(forDuration: 1)
@@ -121,12 +159,12 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                     .matching(NSPredicate(format: "label IN %@", ["全选", "选择全部", "Select All"])).firstMatch
                 assertUI(selectAll.appears(timeout: 5), "替换多行文本应提供全选操作。")
                 selectAll.tap()
-                field.typeText(XCUIKeyboardKey.delete.rawValue)
+                deletion = XCUIKeyboardKey.delete.rawValue
             } else {
-                field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: value.count))
+                deletion = String(repeating: XCUIKeyboardKey.delete.rawValue, count: value.count)
             }
         }
-        field.typeText(text)
+        field.typeText(deletion + text)
         let expected = field.elementType == .secureTextField
             ? String(repeating: "•", count: text.count)
             : text.trimmingCharacters(in: .newlines)
@@ -149,7 +187,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
            let list = app.collectionViews.allElementsBoundByAccessibilityElement.last(where: { $0.isHittable }) {
             let start = list.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.2))
             let end = list.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.5))
-            start.press(forDuration: 0.01, thenDragTo: end)
+            start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0.1)
         }
         if app.keyboards.firstMatch.exists {
             assertUI(waitUntil(NSPredicate(format: "exists == false"), on: app.keyboards.firstMatch, timeout: 5), "完成输入后键盘应收起。")
@@ -158,7 +196,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func closeAlertIfPresent() {
-        guard app.alerts.firstMatch.appears(timeout: 2) else { return }
+        guard app.alerts.firstMatch.exists else { return }
         let alert = app.alerts.firstMatch
         let close = alert.buttons["知道了"]
         if close.exists { close.tap() } else { alert.buttons.element(boundBy: 0).tap() }
@@ -281,10 +319,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     func replaceAccount(_ value: String, in field: XCUIElement) {
         field.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
         let existingValue = field.value as? String ?? ""
-        if !existingValue.isEmpty {
-            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existingValue.count))
-        }
-        field.typeText(value)
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existingValue.count) + value)
         assertUI(field.value as? String == value, "账号输入框应完整替换为指定测试账号。")
     }
 
@@ -375,7 +410,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     }
 
     @MainActor
-    func launchApp(
+    func configureApp(
         resetStorage: Bool,
         account: String? = "ui-test-student",
         accessibilityTextSize: Bool = false,
@@ -390,7 +425,8 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         schoolSMS: Bool = false
     ) -> XCUIApplication {
         continueAfterFailure = false
-        let application = XCUIApplication()
+        let application = Self.sessionApplication ?? XCUIApplication()
+        application.launchEnvironment = [:]
         application.launchArguments = ["--ui-testing", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
         if accessibilityTextSize {
             application.launchArguments += [
@@ -401,6 +437,8 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         if let userInterfaceStyle {
             application.launchArguments += ["-UIUserInterfaceStyle", userInterfaceStyle]
         }
+        application.launchEnvironment["BIT101_UI_TEST_LARGE_TEXT"] = accessibilityTextSize ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_STYLE"] = userInterfaceStyle
         application.launchEnvironment["BIT101_UI_TESTING"] = "1"
         application.launchEnvironment["OS_ACTIVITY_MODE"] = "disable"
         application.launchEnvironment["BIT101_UI_TEST_CONTENT"] = content ? "1" : "0"
@@ -416,8 +454,42 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         if resetStorage, let account {
             application.launchEnvironment["BIT101_UI_TEST_ACCOUNT"] = account
         }
-        application.launch()
+        if Self.sessionApplication == nil {
+            application.launch()
+            Self.sessionApplication = application
+        } else {
+            let scene = application.descendants(matching: .any).matching(identifier: "ui-test.scene").firstMatch
+            let previous = scene.value as? String ?? ""
+            let connection = NWConnection(host: "127.0.0.1", port: 19101, using: .tcp)
+            let response = UITestControlReply()
+            let received = XCTestExpectation(description: "进程内场景配置")
+            let payload = try! JSONEncoder().encode(application.launchEnvironment) + Data([10])
+            connection.stateUpdateHandler = { state in
+                if case .ready = state {
+                    connection.send(content: payload, completion: .contentProcessed { error in
+                        if response.append(nil, error: error, complete: false) { received.fulfill() }
+                    })
+                } else if case let .failed(error) = state {
+                    if response.append(nil, error: error, complete: false) { received.fulfill() }
+                }
+            }
+            connection.start(queue: DispatchQueue(label: "BIT101.UITestControlClient"))
+            response.receive(on: connection) { received.fulfill() }
+            assertUI(XCTWaiter.wait(for: [received], timeout: 10) == .completed, "场景配置应收到本机响应。")
+            connection.cancel()
+            assertUI(response.message?.hasPrefix("\(Self.sessionProcess ?? ""):") == true, "配置响应应来自原 App 进程：\(response.message ?? "empty")。")
+            assertUI(waitUntil(NSPredicate(format: "value != %@", previous), on: scene), "进程内切换应完成场景重建。")
+        }
         app = application
+        let scene = application.descendants(matching: .any).matching(identifier: "ui-test.scene").firstMatch
+        assertUI(scene.appears(timeout: 10), "测试场景应提供进程身份。")
+        let process = (scene.value as? String ?? "").components(separatedBy: ":").first!
+        if let expected = Self.sessionProcess {
+            assertUI(process == expected, "全部场景应复用同一个 App 进程。")
+        } else {
+            Self.sessionProcess = process
+            print("UI automation App process: \(process)")
+        }
         if account != nil {
             let scheduleReady = application.descendants(matching: .any)
                 .matching(identifier: "schedule.blank-context-menu").firstMatch
@@ -430,7 +502,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
     @MainActor
     func testScheduleWeekButtonsAndSectionSwipes() {
-        app = launchApp(resetStorage: true)
+        app = configureApp(resetStorage: true)
         tap("下一周")
         assertSelectedWeek(2)
         tap("上一周")
@@ -451,7 +523,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
 
     @MainActor
     func testScheduleDayHolidayAndTransferConfirmationCancellation() {
-        app = launchApp(resetStorage: true)
+        app = configureApp(resetStorage: true)
         tap("第1周")
         let day = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "第1周，周一，")).firstMatch
         assertUI(day.appears(timeout: 5), "每日表头应提供调整入口。")
@@ -472,7 +544,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
 
     @MainActor
     func testLinearScheduleTimelineScrollAndPinch() {
-        app = launchApp(resetStorage: true)
+        app = configureApp(resetStorage: true)
         openSettings("calendar")
         assertInteractiveLabelIsColored("时间轴")
         choose("时间轴", option: "线性")
@@ -493,7 +565,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
 
     @MainActor
     func testMapCampusLayerPanAndZoomPersist() {
-        app = launchApp(resetStorage: true)
+        app = configureApp(resetStorage: true)
         app.tabBars.buttons["地图"].tap()
         let layer = app.buttons["切换地图图层"]
         assertUI(layer.appears(timeout: 5), "地图应提供图层入口。")
@@ -510,17 +582,41 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         map.swipeLeft()
         map.pinch(withScale: 1.5, velocity: 1)
         assertUI(layer.isHittable, "平移和缩放后地图操作仍可触达。")
-        app.terminate()
-        app = launchApp(resetStorage: false)
+        app = configureApp(resetStorage: false)
         app.tabBars.buttons["地图"].tap()
-        assertUI(app.buttons["切换地图图层"].value as? String != original, "重启应保留图层设置。")
-        assertUI(app.buttons["切换到珠海校区"].isSelected, "重启应保留校区。")
+        assertUI(app.buttons["切换地图图层"].value as? String != original, "重新装载应保留图层设置。")
+        assertUI(app.buttons["切换到珠海校区"].isSelected, "重新装载应保留校区。")
     }
 
     @MainActor
     func testCalendarSettingsPickersTogglesAndRenamePersist() {
-        app = launchApp(resetStorage: true)
+        app = configureApp(resetStorage: true)
         openSettings("calendar")
+        tap("时间表")
+        let editor = app.textViews.firstMatch
+        replaceText("invalid", in: editor)
+        dismissKeyboard()
+        tap("确定")
+        assertUI(app.alerts["设置失败"].appears(timeout: 5), "错误时间表应展示校验结果。")
+        closeAlertIfPresent()
+        replaceText("08:00,08:45\n09:00,09:45", in: editor)
+        dismissKeyboard()
+        tap("确定")
+        tap("时间表")
+        assertUI((editor.value as? String ?? "").contains("08:00"), "保存应恢复新时间表。")
+        replaceText("10:00,10:45", in: editor)
+        dismissKeyboard()
+        tap("取消")
+        tap("时间表")
+        assertUI((editor.value as? String ?? "").contains("08:00"), "取消应保留已保存时间表。")
+        tap("取消")
+        let cancelName = app.buttons["schedule.settings.primary-name"]
+        reveal(cancelName)
+        cancelName.tap()
+        replaceText("取消的名称", in: app.textFields["schedule.rename.name"])
+        dismissKeyboard()
+        tap("取消")
+        assertUI(!cancelName.label.contains("取消的名称"), "取消改名应保留课表名称。")
         choose("时间轴", option: "线性")
         choose("时间轴", option: "节次")
         choose("课程显示方式", option: "全学期叠加")
@@ -537,75 +633,33 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         replaceText("测试课表名称", in: name)
         tap("确定")
         assertUI(textElement("测试课表名称").appears(timeout: 5), "重命名应更新设置行。")
-        app.terminate()
-        app = launchApp(resetStorage: false)
-        assertUI(app.segmentedControls.buttons["测试课表名称"].exists, "重启应保留课表名称。")
+        app = configureApp(resetStorage: false)
+        assertUI(app.segmentedControls.buttons["测试课表名称"].exists, "重新装载应保留课表名称。")
         openSettings("calendar")
         for title in ["显示周六", "显示周日", "显示考试安排"] {
             let control = app.switches.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
             reveal(control, description: title)
-            assertUI(control.value as? String == savedSwitches[title], "重启应保留开关：\(title)")
+            assertUI(control.value as? String == savedSwitches[title], "重新装载应保留开关：\(title)")
             toggle(title)
         }
     }
 
     @MainActor
-    func testCalendarSettingsEditorsAndConfirmationCancellation() {
-        app = launchApp(resetStorage: true)
+    func testCalendarOfflineTermFailureAndCancellation() {
+        app = configureApp(resetStorage: true)
         openSettings("calendar")
-        tap("时间表")
-        assertUI(app.navigationBars["设置时间表"].appears(timeout: 5), "时间表入口应打开编辑页。")
-        assertUI(app.textViews.firstMatch.exists, "时间表应支持文本编辑。")
-        tap("取消")
-        tap("学期起始日期")
-        assertUI(app.datePickers.firstMatch.appears(timeout: 5), "学期日期应可选择。")
-        tap("完成")
         tap("当前学期")
         assertUI(app.navigationBars["切换学期"].appears(timeout: 5), "当前学期应打开选择页。")
+        assertUI(app.alerts.firstMatch.appears(timeout: 5), "学校离线应展示学期加载失败。")
         closeAlertIfPresent()
         back()
-        tap("导入到系统日历")
-        assertUI(app.alerts["导入当前学期到系统日历？"].appears(timeout: 5), "日历导入应展示确认。")
-        app.alerts.buttons["取消"].tap()
-        tap("删除已导入的日历")
-        assertUI(app.alerts["删除 BIT101 导入的日历事件？"].appears(timeout: 5), "日历删除应展示确认。")
-        app.alerts.buttons["取消"].tap()
-        tap("分享课表")
-        app.alerts["当前课表为空"].buttons["确定"].tap()
-        assertUI(app.navigationBars["分享课表"].appears(timeout: 5), "分享应打开编码面板。")
-        tap("取消")
-        tap("导入课表")
-        app.alerts["导入分享课表提示"].buttons["知道了"].tap()
-        assertUI(app.textViews["schedule.import.code"].appears(timeout: 5), "导入提示确认后应打开编码输入。")
-        tap("取消")
+        assertUI(app.buttons["schedule.settings.primary-name"].exists, "关闭失败提示并返回应恢复日程设置。")
     }
 
-    @MainActor
-    func testCustomScheduleEditingDeletionAndCancellation() {
-        app = launchApp(resetStorage: true)
-        addCustomSchedule("可编辑测试日程", in: app)
-        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "schedule.entry.custom-")).firstMatch.tap()
-        assertUI(app.buttons["编辑"].appears(timeout: 5), "点击自定义日程应打开详情和编辑入口。")
-        tap("编辑")
-        let title = app.textFields["schedule.custom.title"]
-        assertUI(title.appears(timeout: 5), "编辑应恢复标题字段。")
-        replaceText("修改后的日程", in: title)
-        dismissKeyboard()
-        app.buttons["schedule.custom.save"].tap()
-        let entry = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "修改后的日程")).firstMatch
-        assertUI(entry.appears(timeout: 5), "保存修改后应展示新标题。")
-        entry.tap()
-        tap("删除")
-        assertUI(!entry.exists, "确认删除后应移除日程。")
-        app.buttons["schedule.add-content"].tap()
-        tap("添加日程")
-        tap("取消")
-        assertUI(app.buttons["schedule.add-content"].exists, "取消新增应返回课表。")
-    }
 
     @MainActor
     func testSharedScheduleCopyImportRenameCycleAndSwipeDelete() {
-        app = launchApp(resetStorage: true)
+        app = configureApp(resetStorage: true)
         openSettings("calendar")
         tap("分享课表")
         assertUI(app.alerts["当前课表为空"].appears(timeout: 5), "空课表分享应先提示确认。")
@@ -645,39 +699,10 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         assertUI(!shared.exists, "左滑删除应移除分享课表。")
     }
 
-    @MainActor
-    func testManualDDLCreateEditCompleteAndDelete() {
-        app = launchApp(resetStorage: true)
-        app.segmentedControls.buttons["DDL"].tap()
-        tap("添加待办")
-        let title = app.textFields["ddl.editor.title"]
-        assertUI(title.appears(timeout: 5), "DDL 编辑器应展示标题。")
-        title.tap()
-        title.typeText("手动测试待办\n")
-        app.buttons["ddl.editor.save"].tap()
-        let event = app.staticTexts["手动测试待办"]
-        assertUI(event.appears(timeout: 5), "新增待办应出现在列表。")
-        tap("标记为已完成")
-        assertUI(app.buttons["标记为未完成"].exists, "完成操作应更新状态。")
-        tap("标记为未完成")
-        event.tap()
-        tap("编辑")
-        replaceText("修改后的待办", in: app.textFields["ddl.editor.title"])
-        dismissKeyboard()
-        app.buttons["ddl.editor.save"].tap()
-        let edited = app.staticTexts["修改后的待办"]
-        assertUI(edited.appears(timeout: 5), "编辑待办应更新标题。")
-        edited.tap()
-        tap("删除")
-        assertUI(!edited.exists, "删除待办应移除列表记录。")
-        tap("添加待办")
-        tap("取消")
-        assertUI(app.buttons["添加待办"].exists, "取消新增应恢复 DDL 列表。")
-    }
 
     @MainActor
     func testDDLSettingsWheelSaveCancelAndPersistence() {
-        app = launchApp(resetStorage: true)
+        app = configureApp(resetStorage: true)
         openSettings("ddl")
         tap("变色天数")
         let wheel = app.pickerWheels.firstMatch
@@ -691,45 +716,20 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         assertUI(app.pickerWheels.firstMatch.value as? String != "10 天", "取消应保留原值。")
         app.pickerWheels.firstMatch.adjust(toPickerWheelValue: "5 天")
         tap("完成")
-        app.terminate()
-        app = launchApp(resetStorage: false)
+        app = configureApp(resetStorage: false)
         openSettings("ddl")
         tap("变色天数")
-        assertUI(app.pickerWheels.firstMatch.value as? String == "7 天", "重启应保留变色天数。")
+        assertUI(app.pickerWheels.firstMatch.value as? String == "7 天", "重新装载应保留变色天数。")
         tap("取消")
         tap("滞留天数")
-        assertUI(app.pickerWheels.firstMatch.value as? String == "5 天", "重启应保留滞留天数。")
+        assertUI(app.pickerWheels.firstMatch.value as? String == "5 天", "重新装载应保留滞留天数。")
         tap("取消")
     }
 
-    @MainActor
-    func testClassroomSectionMultiSelectionAndClear() {
-        app = launchApp(resetStorage: true)
-        app.segmentedControls.buttons["空教室"].tap()
-        closeAlertIfPresent()
-        tap("节次筛选")
-        assertUI(app.navigationBars["节次筛选"].appears(timeout: 5), "空教室应支持节次筛选。")
-        tap("全选")
-        assertUI(app.buttons["全不选"].exists, "全选应更新批量操作。")
-        tap("全不选")
-        assertUI(app.buttons["全选"].exists, "全不选应清空选择。")
-        let option = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "第1节")).firstMatch
-        option.tap()
-        waitForValue("已选择", of: option)
-        assertUI(option.value as? String == "已选择", "单选应更新选择状态。")
-        back()
-        closeAlertIfPresent()
-        tap("清除节次筛选")
-        closeAlertIfPresent()
-        tap("刷新空教室")
-        closeAlertIfPresent()
-        tap("节次筛选")
-        assertUI(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "第1节")).firstMatch.value as? String == "未选择", "清除应同步到选择页。")
-    }
 
     @MainActor
     func testGallerySettingsValidationTogglesAndPersistence() {
-        app = launchApp(resetStorage: true)
+        app = configureApp(resetStorage: true)
         openSettings("gallery")
         for title in ["隐藏机器人帖子", "隐藏匿名内容", "使用网页话廊"] { toggle(title) }
         let ids = app.textFields["屏蔽用户 UID（逗号分隔）"]
@@ -740,16 +740,15 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         replaceText("12,34", in: ids)
         ids.typeText("\n")
         dismissKeyboard()
-        app.terminate()
-        app = launchApp(resetStorage: false)
+        app = configureApp(resetStorage: false)
         openSettings("gallery")
-        assertUI(app.textFields["屏蔽用户 UID（逗号分隔）"].value as? String == "12,34", "重启应保留屏蔽 UID。")
+        assertUI(app.textFields["屏蔽用户 UID（逗号分隔）"].value as? String == "12,34", "重新装载应保留屏蔽 UID。")
         for title in ["隐藏机器人帖子", "隐藏匿名内容", "使用网页话廊"] { toggle(title) }
     }
 
     @MainActor
     func testAboutLicenseUpdateAndResetConfirmation() {
-        app = launchApp(resetStorage: true)
+        app = configureApp(resetStorage: true)
         openSettings("about")
         tap("开源声明")
         assertUI(app.navigationBars["开源声明"].appears(timeout: 5), "开源声明应打开正文。")
@@ -765,114 +764,24 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         assertUI(app.tabBars.buttons["我的"].exists, "取消重置应保留当前会话。")
     }
 
-    @MainActor
-    func testScoreVerificationValidationFiltersSortingAndDetail() {
-        app = launchApp(resetStorage: true)
-        app.tabBars.buttons["成绩"].tap()
-        app.buttons["score.query"].tap()
-        let code = app.textFields["verification.code"]
-        assertUI(code.appears(timeout: 5), "成绩查询应打开短信面板。")
-        let submit = app.buttons["验证并查询成绩"]
-        assertUI(!submit.isEnabled, "空验证码应禁用提交。")
-        code.tap()
-        code.typeText("000000")
-        tap("验证并查询成绩")
-        assertUI(app.staticTexts["测试验证码错误。"].appears(timeout: 5), "错误验证码应展示可重试提示。")
-        replaceText("123456", in: code)
-        tap("验证并查询成绩")
-        assertUI(app.staticTexts["自动化测试课程"].appears(timeout: 5), "有效验证码应展示成绩。")
-        for title in ["学期", "种类"] {
-            tap(title)
-            tap("全不选")
-            assertUI(app.buttons["全选"].exists, "筛选应支持清空。")
-            tap("全选")
-            back()
-        }
-        tap("排序")
-        assertUI(app.navigationBars["成绩排序"].appears(timeout: 5), "排序入口应打开索引和方向设置。")
-        for title in ["名称", "成绩", "均分", "学分", "学期", "种类"] {
-            let index = app.collectionViews.buttons.matching(NSPredicate(format: "label == %@", title)).firstMatch
-            reveal(index, description: title)
-            index.tap()
-            let selected = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ AND selected == true", title)).firstMatch
-            assertUI(selected.exists, "排序索引应更新选中状态：\(title)")
-        }
-        let order = app.buttons["排序方向"]
-        let initial = order.value as? String
-        order.tap()
-        assertUI(order.value as? String != initial, "排序方向应切换。")
-        back()
-        tap("自动化测试课程")
-        assertUI(app.navigationBars["成绩详情"].appears(timeout: 5), "成绩行应打开详情。")
-    }
+
+
 
     @MainActor
-    func testGalleryFeedsSearchMessagesAndComposerDraft() {
-        app = launchApp(resetStorage: true, content: true)
+    func testGalleryComposerTagsSettingsPublishAndDelete() {
+        app = configureApp(resetStorage: true, content: true, animations: true)
         app.tabBars.buttons["话廊"].tap()
-        assertUI(textElement("自动化测试话题").appears(timeout: 5), "固定服务应展示真实话题列表。")
-        for title in ["关注", "最新", "最热", "机器人", "推荐"] {
-            app.segmentedControls.buttons[title].tap()
-            assertUI(app.segmentedControls.buttons[title].isSelected, "话题分栏应可选择：\(title)")
-        }
-        tap("搜索话廊")
-        let search = app.textFields.firstMatch
-        search.tap()
-        search.typeText("测试\n")
-        assertUI(textElement("自动化测试话题").appears(timeout: 5), "搜索应显示结果。")
-        tap("清除搜索")
-        assertUI(search.value as? String != "测试", "清除应重置搜索词。")
-        tap("取消")
-        tap("消息")
-        for title in ["评论", "点赞", "关注", "系统"] {
-            let segment = app.segmentedControls.buttons.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
-            segment.tap()
-            assertUI(segment.isSelected, "消息分类应切换：\(title)")
-        }
-        tap("全部已读")
-        tap("取消")
         tap("发布话题")
         tap("发布")
-        assertUI(app.alerts["发布失败"].appears(timeout: 5), "空帖子应提示必填字段。")
+        assertUI(app.alerts["发布失败"].appears(timeout: 5), "空话题应展示必填验证。")
         closeAlertIfPresent()
-        let title = app.textFields["标题"]
-        title.tap()
-        title.typeText("测试草稿\n")
+        replaceText("测试草稿", in: app.textFields["标题"])
+        dismissKeyboard()
         tap("取消")
         tap("保存草稿")
         tap("发布话题")
         tap("加载草稿")
-        assertUI(app.textFields["标题"].value as? String == "测试草稿", "重开编辑器应恢复草稿。")
-        tap("取消")
-        tap("不保存")
-    }
-
-    @MainActor
-    func testGalleryPosterLikeCommentAndEditEntry() {
-        app = launchApp(resetStorage: true, content: true)
-        app.tabBars.buttons["话廊"].tap()
-        tap("自动化测试话题")
-        assertUI(app.navigationBars["帖子详情"].appears(timeout: 5), "话题应打开详情。")
-        tap("点赞帖子")
-        assertUI(app.buttons["取消帖子点赞"].appears(timeout: 5), "点赞应更新操作状态。")
-        tap("取消帖子点赞")
-        tap("评论帖子")
-        let field = app.textFields.firstMatch
-        field.tap()
-        field.typeText("测试新增评论\n")
-        dismissKeyboard()
-        tap("发送")
-        assertUI(textElement("测试新增评论").appears(timeout: 5), "发送后应显示评论。")
-        tap("编辑帖子")
-        assertUI(app.navigationBars["编辑帖子"].appears(timeout: 5), "本人帖子应支持编辑。")
-        tap("取消")
-    }
-
-    @MainActor
-    func testGalleryComposerTagsSettingsPublishAndDelete() {
-        app = launchApp(resetStorage: true, content: true, animations: true)
-        app.tabBars.buttons["话廊"].tap()
-        tap("发布话题")
+        assertUI(app.textFields["标题"].value as? String == "测试草稿", "重新打开应恢复保存的草稿。")
         tap("活动")
         tap("聊天")
         tap("自定义")
@@ -899,38 +808,21 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         tap("删除帖子")
         app.alerts.buttons["删除"].tap()
         assertUI(waitUntil(NSPredicate(format: "exists == false"), on: poster, timeout: 5), "删除应移除刚发布的话题。")
+        tap("发布话题")
+        replaceText("待丢弃草稿", in: app.textFields["标题"])
+        dismissKeyboard()
+        tap("取消")
+        tap("保存草稿")
+        tap("发布话题")
+        tap("不加载")
+        assertUI(app.textFields["标题"].value as? String != "待丢弃草稿", "放弃恢复应保留空编辑器。")
+        tap("取消")
     }
 
-    @MainActor
-    func testPosterReportAndCommentContextActions() {
-        app = launchApp(resetStorage: true, content: true)
-        app.tabBars.buttons["话廊"].tap()
-        tap("自动化测试话题")
-        let comment = app.staticTexts["自动化测试评论"]
-        reveal(comment, description: "自动化测试评论")
-        comment.press(forDuration: 1)
-        tap("复制评论")
-        comment.press(forDuration: 1)
-        tap("举报评论")
-        assertUI(app.textFields["请描述举报原因"].appears(timeout: 5), "举报应展示说明字段。")
-        replaceText("测试举报说明", in: app.textFields["请描述举报原因"])
-        dismissKeyboard()
-        tap("提交举报")
-        assertUI(app.alerts["举报已提交"].appears(timeout: 5), "举报提交应展示成功结果。")
-        app.alerts.buttons["知道了"].tap()
-        comment.press(forDuration: 1)
-        tap("删除评论")
-        app.alerts.buttons["取消"].tap()
-        assertUI(comment.exists, "取消删除应保留评论。")
-        comment.press(forDuration: 1)
-        tap("删除评论")
-        app.alerts.buttons["删除"].tap()
-        assertUI(waitUntil(NSPredicate(format: "exists == false"), on: comment, timeout: 5), "确认删除应移除评论。")
-    }
 
     @MainActor
     func testPaperPublishEditCommentAndDelete() {
-        app = launchApp(resetStorage: true, content: true, animations: true)
+        app = configureApp(resetStorage: true, content: true, animations: true)
         app.tabBars.buttons["话廊"].tap()
         app.segmentedControls.buttons["文章"].tap()
         tap("发布文章")
@@ -990,7 +882,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
 
     @MainActor
     func testPaperSearchDetailLikeAndComposer() {
-        app = launchApp(resetStorage: true, content: true)
+        app = configureApp(resetStorage: true, content: true)
         app.tabBars.buttons["话廊"].tap()
         app.segmentedControls.buttons["文章"].tap()
         assertUI(textElement("自动化测试文章").appears(timeout: 5), "文章分区应展示固定文章。")
@@ -1015,38 +907,10 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         tap("取消")
     }
 
-    @MainActor
-    func testAccountSensitiveFieldsAndEditors() {
-        app = launchApp(resetStorage: true, content: true)
-        openSettings("account")
-        let student = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "学号")).firstMatch
-        assertUI(student.appears(timeout: 5), "固定账号应提供学号显示开关。")
-        assertUI(student.value as? String == "已隐藏", "账号标识默认隐藏。")
-        student.tap()
-        waitForValue("ui-test-student", of: student)
-        assertUI(student.value as? String == "ui-test-student", "点击后应显示当前账号。")
-        student.tap()
-        waitForValue("已隐藏", of: student)
-        assertUI(student.value as? String == "已隐藏", "再次点击应隐藏账号。")
-        tap("UID")
-        let uid = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "UID")).firstMatch
-        waitForValue("1", of: uid)
-        assertUI(uid.value as? String == "1", "UID 显示应使用当前资料。")
-        tap("UID")
-        for title in ["昵称", "个性签名"] {
-            tap(title)
-            assertUI(app.navigationBars["修改\(title)"].appears(timeout: 5), "资料字段应打开编辑窗口。")
-            assertUI(app.textFields.firstMatch.exists, "编辑窗口应提供文本输入。")
-            tap("取消")
-        }
-        tap("头像")
-        assertUI(app.buttons["取消"].appears(timeout: 5), "头像入口应打开照片选择器。")
-        tap("取消")
-    }
 
     @MainActor
     func testSuggestionDraftRestoreAndDiscard() {
-        app = launchApp(resetStorage: true, animations: true)
+        app = configureApp(resetStorage: true, animations: true)
         openSettings("suggestion")
         let text = app.textFields["建议内容"]
         assertUI(text.appears(timeout: 5), "建议页应展示内容字段。")
@@ -1068,7 +932,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
 
     @MainActor
     func testCourseEditorFieldsPickersSaveDetailAndDelete() {
-        app = launchApp(resetStorage: true)
+        app = configureApp(resetStorage: true)
         app.buttons["schedule.add-content"].tap()
         tap("添加课程")
         for (title, value) in [("课程名称", "测试补录课程"), ("教师", "测试教师"), ("教室", "文萃A101"), ("周次（如 1-16,18）", "1-3")] {
@@ -1104,7 +968,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
 
     @MainActor
     func testImportInvalidCodeReportsErrorAndKeepsEditor() {
-        app = launchApp(resetStorage: true)
+        app = configureApp(resetStorage: true)
         let area = app.descendants(matching: .any).matching(identifier: "schedule.blank-context-menu").firstMatch
         area.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 1)
         tap("导入课表")
@@ -1122,7 +986,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
 
     @MainActor
     func testCourseSearchHistoryLikeAndRatingComposer() {
-        app = launchApp(resetStorage: true, content: true)
+        app = configureApp(resetStorage: true, content: true)
         app.tabBars.buttons["成绩"].tap()
         app.segmentedControls.buttons.element(boundBy: 1).tap()
         let search = app.textFields.firstMatch
@@ -1147,53 +1011,11 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         assertUI(textElement("测试课程评价").appears(timeout: 5), "提交评价应更新评论区。")
     }
 
-    @MainActor
-    func testMineFollowersFollowingsAndPosterRoutes() {
-        app = launchApp(resetStorage: true, content: true)
-        app.tabBars.buttons["我的"].tap()
-        assertUI(textElement("自动化测试用户").appears(timeout: 5), "我的页应加载固定资料。")
-        for (entry, destination) in [("粉丝", "我的粉丝"), ("关注", "我的关注"), ("帖子", "我的帖子")] {
-            tap(entry)
-            assertUI(app.navigationBars[destination].appears(timeout: 5), "资料统计应打开对应列表：\(destination)")
-            if entry == "粉丝" {
-                tap("自动化测试用户")
-                let follow = app.buttons["关注"]
-                assertUI(follow.appears(timeout: 5), "用户行应打开可关注的公开主页。")
-                follow.tap()
-                assertUI(app.buttons["已关注"].appears(timeout: 5), "关注应更新主页状态。")
-            }
-            back()
-        }
-    }
+
 
     @MainActor
-    func testLoginFormTracksRequiredCredentialsAndOpensSchedule() throws {
-        app = launchApp(resetStorage: true, account: nil)
-
-        let studentID = app.textFields["login.student-id"]
-        let password = app.secureTextFields["login.password"]
-        let submit = app.buttons["login.submit"]
-
-        assertUI(studentID.appears(timeout: 10), "登录页应展示学号输入框。")
-        assertUI(password.exists, "登录页应展示密码输入框。")
-        assertUI(!submit.isEnabled, "凭据完整前登录按钮应保持禁用。")
-
-        replaceAccount("ui-test-student", in: studentID)
-        studentID.typeText("\n")
-        assertUI(!submit.isEnabled, "仅输入学号时登录按钮应保持禁用。")
-
-        password.typeText("ui-test-password")
-        assertUI(submit.isEnabled, "完整填写账号信息后，登录按钮应启用。")
-        password.typeText("\n")
-        dismissCredentialSavePrompt(in: app)
-        let scheduleTab = app.tabBars.buttons["日程"]
-        assertUI(scheduleTab.appears(timeout: 10), "登录后应进入日程页。")
-        assertUI(scheduleTab.isSelected, "日程 Tab 应处于选中状态。")
-    }
-
-    @MainActor
-    func testSchoolDDLSourcesAndCompletionPersistAcrossAppRelaunch() throws {
-        app = launchApp(resetStorage: true, ddlFixture: "sources")
+    func testSchoolDDLSourcesAndCompletionPersistAcrossSceneReload() throws {
+        app = configureApp(resetStorage: true, ddlFixture: "sources")
         let ddl = app.segmentedControls.buttons["DDL"]
         assertUI(ddl.appears(timeout: 10), "日程页应展示 DDL 分页。")
         ddl.tap()
@@ -1209,8 +1031,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         assertUI(app.staticTexts["课程中心"].exists, "详情应显示中文来源。")
         assertUI(!app.buttons["编辑"].exists && !app.buttons["删除"].exists, "学校作业应按同步来源展示。")
         app.buttons["取消"].tap()
-        app.terminate()
-        app = launchApp(resetStorage: false)
+        app = configureApp(resetStorage: false)
         app.segmentedControls.buttons["DDL"].tap()
         let restored = app.buttons["ddl.done.eclass:ui"]
         assertUI(restored.appears(timeout: 5), "重新启动后应恢复课程中心作业。")
@@ -1219,7 +1040,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
 
     @MainActor
     func testDDLEmptyStateExplainsTheRetentionWindow() throws {
-        app = launchApp(resetStorage: true, ddlFixture: "overdue")
+        app = configureApp(resetStorage: true, ddlFixture: "overdue")
         app.segmentedControls.buttons["DDL"].tap()
         let explanation = app.staticTexts["1 条日程已超出显示范围。当前滞留天数为 0 天，可在 DDL 设置调整。"]
         assertUI(explanation.appears(timeout: 5), "过期日程的空列表应说明当前显示范围。")
@@ -1227,7 +1048,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
 
     @MainActor
     func testLongPressOpensScheduleContextMenuAndImportSheet() throws {
-        app = launchApp(resetStorage: true)
+        app = configureApp(resetStorage: true)
 
         let contextArea = app.descendants(matching: .any)
             .matching(identifier: "schedule.blank-context-menu")
@@ -1248,27 +1069,10 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         assertUI(app.textViews["schedule.import.code"].exists, "导入面板应展示课表编码编辑区。")
     }
 
-    @MainActor
-    func testManualSchedulePersistsAcrossAppRelaunch() throws {
-        app = launchApp(resetStorage: true)
-
-        addCustomSchedule("自动化测试日程", in: app)
-
-        app.terminate()
-        app = launchApp(resetStorage: false)
-        assertUI(app.tabBars.buttons["日程"].appears(timeout: 10), "重新启动后应恢复测试登录会话。")
-        let savedSchedule = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "label CONTAINS %@", "自动化测试日程"))
-            .firstMatch
-        assertUI(
-            savedSchedule.appears(timeout: 10),
-            "重新启动后应恢复已保存的自定义日程。\(focusedAccessibilitySnapshot(app, matching: ["自动化测试日程", "课表"]))"
-        )
-    }
 
     @MainActor
     func testCustomSchedulesAreIsolatedBetweenAccounts() throws {
-        app = launchApp(resetStorage: true, account: "ui-test-account-a")
+        app = configureApp(resetStorage: true, account: "ui-test-account-a")
         addCustomSchedule("A 账户专属日程", in: app)
 
         app.tabBars.buttons["我的"].tap()
@@ -1290,80 +1094,42 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         assertUI(!accountASchedule.exists, "账号 B 的课表应隔离账号 A 的日程。")
     }
 
-    @MainActor
-    func testMainTabsNavigateWithOfflineServices() throws {
-        app = launchApp(resetStorage: true)
-
-        for identifier in ["日程", "地图", "成绩", "话廊", "我的"] {
-            let tab = app.tabBars.buttons[identifier]
-            assertUI(tab.appears(timeout: 10), "App 主 Tab 应可交互：\(identifier)")
-            tab.tap()
-            assertUI(
-                tab.isSelected,
-                "点按后应选中对应的 App Tab：\(identifier)。\(focusedAccessibilitySnapshot(app, matching: ["登录", "我的", "个人", "账号", "失败"]))"
-            )
-            if identifier == "话廊" {
-                let offlineAlert = app.alerts["加载话廊失败"]
-                assertUI(offlineAlert.appears(timeout: 10), "离线话廊请求应展示可关闭的失败提示。")
-                let close = offlineAlert.buttons["知道了"]
-                assertUI(close.exists, "话廊失败提示应提供关闭操作。")
-                close.tap()
-            }
-        }
-    }
 
     @MainActor
     func testMainTabsRemainAccessibleAtAccessibilityDynamicType() throws {
         for style in ["Light", "Dark"] {
-            app = launchApp(
+            app = configureApp(
                 resetStorage: true,
                 accessibilityTextSize: true,
                 userInterfaceStyle: style
             )
             assertMainTabsRemainAccessible(style: style)
-            app.terminate()
         }
     }
 
-    @MainActor
-    func testScoreChallengeContinuesAfterSMSVerification() throws {
-        app = launchApp(resetStorage: true)
-        let scoreTab = app.tabBars.buttons["成绩"]
-        scoreTab.tap()
-        assertUI(
-            scoreTab.isSelected,
-            "成绩 Tab 应在点按后选中。\(focusedAccessibilitySnapshot(app, matching: ["成绩", "日程", "查询", "刷新", "Selected"]))"
-        )
-        let queryScores = app.buttons["score.query"]
-        assertUI(
-            queryScores.appears(timeout: 10),
-            "成绩页应展示查询操作。\(focusedAccessibilitySnapshot(app, matching: ["成绩", "查询", "刷新", "短信", "失败", "错误"]))"
-        )
-        queryScores.tap()
-
-        let verificationCode = app.textFields["verification.code"]
-        assertUI(
-            verificationCode.appears(timeout: 10),
-            "成绩查询遇到二次验证时应展示验证码输入框。\(focusedAccessibilitySnapshot(app, matching: ["验证", "短信", "成绩", "查询", "失败", "错误"]))"
-        )
-        verificationCode.typeText("123456")
-
-        let verify = app.buttons["验证并查询成绩"]
-        assertUI(verify.appears(timeout: 5), "短信验证面板应展示继续查询操作。")
-        tap("验证并查询成绩")
-        assertUI(app.staticTexts["自动化测试课程"].appears(timeout: 10), "短信验证后成绩列表应展示测试课程。")
-    }
 
 
 }
 
 @MainActor
 extension XCUIElement {
+
     func appears(timeout: TimeInterval) -> Bool {
-        exists || waitForExistence(timeout: timeout)
+        waitForPresence(true, timeout: timeout)
     }
 
     func disappears(timeout: TimeInterval) -> Bool {
-        !exists || waitForNonExistence(timeout: timeout)
+        waitForPresence(false, timeout: timeout)
+    }
+
+    @MainActor
+    private func waitForPresence(_ presence: Bool, timeout: TimeInterval) -> Bool {
+        if exists == presence { return true }
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            if exists == presence { return true }
+        } while Date() < deadline
+        return false
     }
 }

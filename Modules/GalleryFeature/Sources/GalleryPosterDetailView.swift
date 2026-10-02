@@ -22,8 +22,9 @@ public struct GalleryPosterDetailView: View {
         media: MediaEnvironment,
         profiles: CommunityProfileDestination,
         poster: CommunityPoster,
+        onUpdated: (() -> Void)? = nil,
         onDeleted: (() -> Void)? = nil) {
-        scene = GalleryPosterDetailViewScene(dependencies: dependencies, media: media, profiles: profiles, poster: poster, onDeleted: onDeleted)
+        scene = GalleryPosterDetailViewScene(dependencies: dependencies, media: media, profiles: profiles, poster: poster, onUpdated: onUpdated, onDeleted: onDeleted)
         identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
         resourceID = poster.id
     }
@@ -51,6 +52,7 @@ private struct GalleryPosterDetailViewScene: View {
     @State private var reportTarget: GalleryReportTarget?
     @State private var imageAspectRatios: [Int: CGFloat] = [:]
     @State private var isShowingEditor = false
+    let onUpdated: (() -> Void)?
     let onDeleted: (() -> Void)?
 
     init(
@@ -58,12 +60,14 @@ private struct GalleryPosterDetailViewScene: View {
         media: MediaEnvironment,
         profiles: CommunityProfileDestination,
         poster: CommunityPoster,
+        onUpdated: (() -> Void)? = nil,
         onDeleted: (() -> Void)? = nil
     ) {
         self.dependencies = dependencies
         self.media = media
         self.destinations = profiles
         _viewModel = StateObject(wrappedValue: GalleryPosterDetailViewModel(initialPoster: poster, service: dependencies.posterDetail))
+        self.onUpdated = onUpdated
         self.onDeleted = onDeleted
     }
 
@@ -295,6 +299,7 @@ private struct GalleryPosterDetailViewScene: View {
             NavigationStack {
                 GalleryComposerView(editingPoster: viewModel.poster) {
                     isShowingEditor = false
+                    onUpdated?()
                     Task { await viewModel.refreshAll() }
                 }
             }

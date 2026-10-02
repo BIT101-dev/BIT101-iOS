@@ -94,7 +94,7 @@ enum ScheduleServiceFactory {
         let service: any ScheduleServicing
         let platformActions: any SchedulePlatformActions
 #if BIT101_UI_TESTING
-        service = ProcessInfo.processInfo.environment["BIT101_UI_TEST_SCHOOL"] == "1" ? UITestSchoolService() : make()
+        service = AppUITestBootstrap.environment["BIT101_UI_TEST_SCHOOL"] == "1" ? UITestSchoolService() : make()
         platformActions = UITestSchedulePlatformActions()
 #else
         service = make()

@@ -102,6 +102,7 @@ struct GalleryFeedView: View {
                 GalleryPosterDetailView(
                     dependencies: dependencies, media: media, profiles: profiles,
                     poster: poster,
+                    onUpdated: onRefresh,
                     onDeleted: {
                         deletedPosterIDs.insert(poster.id)
                         onRefresh()

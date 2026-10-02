@@ -157,8 +157,13 @@ struct ScoreCacheDiskRepositoryTests {
 
 nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
     private let state = OSAllocatedUnfairLock(initialState: State())
+    private let requireExistingParentDirectories: Bool
     private struct State {
         var data: [URL: Data] = [:]
+        var directories: Set<URL> = []
+    }
+    init(requireExistingParentDirectories: Bool = false) {
+        self.requireExistingParentDirectories = requireExistingParentDirectories
     }
     var temporaryDirectoryURL: URL { URL(fileURLWithPath: "/preference-sync") }
     func directoryURL(_ directory: FileManager.SearchPathDirectory) -> URL? { temporaryDirectoryURL }
@@ -171,12 +176,15 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
         }
     }
     func writeData(_ value: Data, to url: URL, options: Data.WritingOptions) throws {
-        state.withLock { state in
+        try state.withLock { state in
+            if requireExistingParentDirectories && !state.directories.contains(url.deletingLastPathComponent()) {
+                throw CocoaError(.fileNoSuchFile)
+            }
             state.data[url] = value
         }
     }
     func removeItem(at url: URL) throws { state.withLock { $0.data[url] = nil } }
-    func createDirectory(at url: URL) throws {}
+    func createDirectory(at url: URL) throws { _ = state.withLock { $0.directories.insert(url) } }
     func setPrivateFileProtection(at url: URL) throws {}
     func setExcludedFromBackup(at url: URL) throws {}
     func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL] {
@@ -188,7 +196,9 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
     func setModificationDate(_ date: Date, at url: URL) throws {}
     func removeContents(of directory: URL) -> Bool {
         return state.withLock { state in
-            state.data = state.data.filter { !$0.key.path.hasPrefix(directory.path + "/") }; return true
+            state.data = state.data.filter { !$0.key.path.hasPrefix(directory.path + "/") }
+            state.directories = state.directories.filter { !$0.path.hasPrefix(directory.path + "/") }
+            return true
         }
     }
     func totalRegularFileSize(at directory: URL) -> Int64 {

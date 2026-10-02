@@ -10,10 +10,79 @@ import CommunityCore
 import CommunityPersistence
 import DesignSystemKit
 import SwiftUI
+import Combine
+
+/// 场景参数在同一个进程中更新，传输夹具与页面共同读取这份配置。
+@MainActor
+final class UITestSceneConfiguration {
+    static let shared = UITestSceneConfiguration()
+    private var values = ProcessInfo.processInfo.environment
+    private var revision = 0
+
+    var snapshot: (environment: [String: String], revision: Int) {
+        return (values, revision)
+    }
+
+    func replace(with environment: [String: String]) {
+        values = environment
+        revision += 1
+    }
+}
+
+@MainActor
+final class UITestSceneState: ObservableObject {
+    @Published private(set) var lifecycle: AppAccountLifecycle
+    @Published private(set) var revision = 0
+    var largeText = false
+    var colorScheme: ColorScheme?
+    private let makeLifecycle: () -> AppAccountLifecycle
+    private var control: UITestControlServer?
+
+    init(makeLifecycle: @escaping () -> AppAccountLifecycle) {
+        self.makeLifecycle = makeLifecycle
+        lifecycle = makeLifecycle()
+        largeText = AppUITestBootstrap.environment["BIT101_UI_TEST_LARGE_TEXT"] == "1"
+        colorScheme = AppUITestBootstrap.environment["BIT101_UI_TEST_STYLE"].flatMap { $0 == "Dark" ? .dark : .light }
+        do {
+            control = try UITestControlServer { [weak self] data, reply in
+                Task { @MainActor in
+                    guard let self else { return }
+                    do {
+                        let environment = try JSONDecoder().decode([String: String].self, from: data)
+                        self.configure(environment)
+                        reply(Data("\(ProcessInfo.processInfo.processIdentifier):\(self.revision)".utf8))
+                    } catch {
+                        reply(Data("invalid scene configuration: \(error)".utf8))
+                    }
+                }
+            }
+        } catch {
+            preconditionFailure("UI test control channel failed: \(error)")
+        }
+    }
+
+    private func configure(_ environment: [String: String]) {
+        UITestSceneConfiguration.shared.replace(with: environment)
+        largeText = environment["BIT101_UI_TEST_LARGE_TEXT"] == "1"
+        colorScheme = environment["BIT101_UI_TEST_STYLE"].flatMap { $0 == "Dark" ? .dark : .light }
+        AppUITestBootstrap.prepareForLaunch()
+        AppSettingsStore.shared.reloadForCurrentAccount()
+        lifecycle = makeLifecycle()
+        revision += 1
+    }
+
+    func accelerateTransitions() {
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+            for window in scene.windows { window.layer.speed = 10 }
+        }
+    }
+}
 
 enum AppUITestBootstrap {
+    static var environment: [String: String] { UITestSceneConfiguration.shared.snapshot.environment }
+
     static func prepareSessionIfNeeded() async {
-        let environment = ProcessInfo.processInfo.environment
+        let environment = Self.environment
         guard environment["BIT101_UI_TEST_RESET_STORAGE"] == "1",
               let account = environment["BIT101_UI_TEST_ACCOUNT"], !account.isEmpty else { return }
         do {
@@ -33,7 +102,7 @@ enum AppUITestBootstrap {
     }
 
     static func prepareForLaunch() {
-        let environment = ProcessInfo.processInfo.environment
+        let environment = Self.environment
         guard AppFileDirectories.isRunningUITest else {
             preconditionFailure("The UI automation App requires its isolated launch configuration")
         }
@@ -82,8 +151,9 @@ extension View {
     }
 }
 
-/// 固定响应通过生产 Service 解码，交互修改保留到当前 App 会话结束。
+/// 固定响应通过生产 Service 解码，交互修改保留到当前测试场景结束。
 final class UITestHTTPTransport: HTTPTransport {
+    private var fixtureRevision = -1
     private var likedObjects: Set<String> = []
     private var comments: [[String: Any]] = []
     private var createdPosters: [[String: Any]] = []
@@ -98,20 +168,35 @@ final class UITestHTTPTransport: HTTPTransport {
     private let timestamp = "2026-10-01T10:00:00Z"
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        let snapshot = UITestSceneConfiguration.shared.snapshot
+        if fixtureRevision != snapshot.revision {
+            fixtureRevision = snapshot.revision
+            likedObjects = []
+            comments = []
+            createdPosters = []
+            createdPapers = []
+            deletedIDs = []
+            deletedCommentIDs = []
+            profileChanges = [:]
+            posterChanges = [:]
+            following = false
+            imageUploads = 0
+            failedPaths = []
+        }
         guard let url = request.url else { throw URLError(.badURL) }
-        if url.host == "feedback.aihelpme.dev", ProcessInfo.processInfo.environment["BIT101_UI_TEST_CONTENT"] == "1" {
+        if url.host == "feedback.aihelpme.dev", AppUITestBootstrap.environment["BIT101_UI_TEST_CONTENT"] == "1" {
             return try jsonResponse([:] as [String: String], url: url)
         }
-        if url.host == "itunes.apple.com", let fixture = ProcessInfo.processInfo.environment["BIT101_UI_TEST_UPDATE"] {
+        if url.host == "itunes.apple.com", let fixture = AppUITestBootstrap.environment["BIT101_UI_TEST_UPDATE"] {
             return try jsonResponse(["results": [["version": fixture == "current" ? "0.0" : "999.0",
                 "releaseNotes": "自动化测试更新", "trackViewUrl": BIT101AppStore.url.absoluteString]]], url: url)
         }
-        guard ProcessInfo.processInfo.environment["BIT101_UI_TEST_CONTENT"] == "1",
+        guard AppUITestBootstrap.environment["BIT101_UI_TEST_CONTENT"] == "1",
               url.host == "bit101.flwfdd.xyz" else {
             throw URLError(.notConnectedToInternet)
         }
         let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        if ProcessInfo.processInfo.environment["BIT101_UI_TEST_FAILURE_ONCE"] == "1",
+        if AppUITestBootstrap.environment["BIT101_UI_TEST_FAILURE_ONCE"] == "1",
            ["posters", "papers", "courses"].contains(path), failedPaths.insert(path).inserted {
             throw URLError(.networkConnectionLost)
         }
@@ -188,7 +273,7 @@ final class UITestHTTPTransport: HTTPTransport {
             schoolCourse["id"] = 2
             schoolCourse["name"] = "学校测试课程"
             schoolCourse["number"] = "UI-002"
-            payload = page == "0" ? (ProcessInfo.processInfo.environment["BIT101_UI_TEST_SCHOOL"] == "1" ? [course, schoolCourse] : [course]) : []
+            payload = page == "0" ? (AppUITestBootstrap.environment["BIT101_UI_TEST_SCHOOL"] == "1" ? [course, schoolCourse] : [course]) : []
         case "courses/1": payload = course
         case "courses/2":
             var schoolCourse = course
@@ -294,7 +379,7 @@ final class UITestHTTPTransport: HTTPTransport {
 }
 
 extension UITestHTTPTransport {
-    private var mediaEnabled: Bool { ProcessInfo.processInfo.environment["BIT101_UI_TEST_MEDIA"] == "1" }
+    private var mediaEnabled: Bool { AppUITestBootstrap.environment["BIT101_UI_TEST_MEDIA"] == "1" }
     private var mediaImage: [String: Any] {
         ["mid": "ui-image", "url": "https://bit101.flwfdd.xyz/ui-images/image.png", "low_url": "https://bit101.flwfdd.xyz/ui-images/image.png"]
     }
@@ -341,7 +426,7 @@ nonisolated struct UITestAppFileService: AppFileService {
 
 /// 学校交互场景使用课程、考试和空教室端口的固定响应。
 final class UITestSchoolService: ScheduleServicing {
-    private var authenticated = ProcessInfo.processInfo.environment["BIT101_UI_TEST_SCHOOL_SMS"] != "1"
+    private var authenticated = AppUITestBootstrap.environment["BIT101_UI_TEST_SCHOOL_SMS"] != "1"
     private let challenge = BITLoginAuthenticationChallenge(challengeID: "ui-school-sms", accessToken: "ui-school-token",
         status: "sms_required", maskedPhone: "138****0000", expiresIn: 600)
     static var payload: CourseSyncPayload { payload(term: "ui-test-term") }

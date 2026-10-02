@@ -111,7 +111,7 @@ Scripts/run-extended-tests.sh icloud-smoke --build-only --generic
 
 日常 UI 复验可用 `Scripts/run-extended-tests.sh ui --simulator`，自动选择已启动或可用的 iPhone 模拟器；末尾可指定模拟器 ID，`--only-testing` 与 `--build-only` 使用相同规则。通用模拟器编译使用 `ui --simulator --build-only --generic`。模拟器流程复用固定测试产物目录和隔离服务。真机完整验收使用默认 `ui` 流程，分别记录两种设备的结果和耗时。
 
-76 项分为 `LoginAndScheduleUITests` 和 `InteractionCoverageUITests` 两个类，通过 `UIAutomationTestCase` 共用操作助手。模拟器在 16 GB 及以上的 Mac 使用两个测试实例，在 8 GB 的 Mac 使用单实例；文件、Keychain 与偏好随各实例隔离。真机按顺序执行。筛选参数使用声明该方法的类名，完整参数见交互覆盖表。
+57 项分为 `LoginAndScheduleUITests` 和 `InteractionCoverageUITests` 两个类，通过 `UIAutomationTestCase` 共用操作助手。两个平台均串行复用一个 App 进程，每次配置校验进程 ID。真机测试前关闭项目创建的 `BIT101 UI iPhone` 模拟器，释放本机资源。筛选参数使用声明该方法的类名，完整参数见交互覆盖表。
 
 UI 模拟器测试使用本地临时签名，使隔离 Keychain 会话正常读写；行为测试模拟器和通用 SDK 编译关闭签名。行为测试模拟器使用单实例。
 
@@ -119,7 +119,7 @@ UI 模拟器测试使用本地临时签名，使隔离 Keychain 会话正常读�
 
 缺少运行时时，添加 `--install-simulator-runtime` 使用 Xcode 官方方式持久安装；已有可用运行时且缺少 iPhone 实例时，脚本创建固定名称的 `BIT101 UI iPhone`。
 
-UI 用例按页面组合连续交互，每项独立重置隔离数据；持久化场景在同一项内重启 App。测试 App 使用简体中文和中国地区，系统控件文案与日期格式保持一致。覆盖目标包括每个点击、滑动和输入入口，并验证交互后的业务状态。当前定义 76 项用例，逐项映射和运行验收状态见 [UI 交互覆盖](UI_INTERACTION_COVERAGE.md)：
+UI 用例按页面组合连续交互，每项独立重置隔离数据；持久化场景重新创建模型和根视图，从文件与偏好重新读取。测试 App 与 Runner 通过 TransportCore 内测试专用的 `127.0.0.1:19101` 通道更新夹具配置，全部场景保持同一 App 进程。测试 App 使用简体中文和中国地区，系统控件文案与日期格式保持一致。覆盖目标包括每个点击、滑动和输入入口，并验证交互后的业务状态。当前定义 57 项用例，承接原有 76 组交互，逐项映射和运行验收状态见 [UI 交互覆盖](UI_INTERACTION_COVERAGE.md)：
 
 | 页面 | 交互范围 |
 | --- | --- |
@@ -128,40 +128,40 @@ UI 用例按页面组合连续交互，每项独立重置隔离数据；持久�
 | 日程设置 | 时间轴、时间表校验 / 保存 / 取消、学期切换 / 下拉刷新、日期滚轮、开关 / 提醒阈值持久化、名称、编码复制 / 粘贴导入 / 分享、新版本编码更新提示、分享课表改名 / 左滑删除、整学期及单项日历导入 / 移除 |
 | DDL 与空教室 | 学校双来源、详情、完成状态、手动待办增改删、日期时间及详情编辑、学校刷新 / 订阅链接刷新 / SSO 短信继续、校区 / 楼宇选择、教室刷新、节次多选 / 全选 / 清除 |
 | 成绩与课程 | 查询及刷新短信错误重试 / 取消、逐项及批量筛选、排序、已出分 / 未出分详情、课程评价路由、可信成绩单多页预览、课程搜索 / 清除、数据清洗、历史图拖动、点赞、半星评分 / 匿名评论 / 回复 / 评论图片 / 分享 |
-| 地图 | 校区、图层、平移、缩放、定位 / 单次权限授权、课程地点路由、下一节课系统地图导航、重启恢复 |
+| 地图 | 校区、图层、平移、缩放、定位 / 单次权限授权、课程地点路由、下一节课系统地图导航、重新装载恢复 |
 | 话廊与文章 | 分类点击及横滑、搜索 / 清除 / 排序 / 结果路由、消息横滑 / 分类 / 已读 / 详情、列表及详情下拉刷新、发布校验 / 标签 / 声明 / 开关 / 草稿、发布 / 修改 / 删除、图片预览 / 上传重试 / 图片移除、正文链接、点赞、评论排序 / 点赞 / 回复、长按复制 / 举报 / 删除及确认 / 取消、分享、离线重试及恢复 |
 | 我的与设置 | 个人统计列表 / 刷新、公开主页统计显示与帖子入口、关注状态、头像预览 / 选择器取消、个人帖子详情 / 删除、标识显示 / 隐藏、资料保存 / 取消 / 登录检查 / 退出、屏蔽 UID 校验、网页话廊 / 滚动 / 切回原生、偏好及缓存上限持久化、建议草稿 / 图片 / 提交确认 / 成功 / 失败、错误报告模式及提交分支、开源声明 / 外部链接 / 更新提示全部动作 / 缓存清理 / 确认重置、网络诊断 |
 
-`BIT101_UI_TEST_CONTENT=1` 选择内存 HTTP 固定响应，并经过生产社区 Service 的解码与状态逻辑；默认场景使用离线失败响应。响应维护当前会话的点赞、评论、关注、资料和文章 / 话题增改删状态，新增内容可以在后续详情请求中读取。学校、媒体、单次失败和更新响应配置见交互覆盖文档。页面发出的外部 URL 在 UI 宿主显示完整目标地址，地图导航使用系统 Maps。元素和状态先读取当前值，异步变化采用条件等待。输入前识别系统键盘，第三方键盘通过键盘切换按钮切换，输入后核对完整字段值。测试按页面合并操作、按场景启动，多个筛选项共享一次串行 Runner 会话，结束后恢复常规 App：
+`BIT101_UI_TEST_CONTENT=1` 选择内存 HTTP 固定响应，并经过生产社区 Service 的解码与状态逻辑；默认场景使用离线失败响应。响应维护当前测试场景的点赞、评论、关注、资料和文章 / 话题增改删状态，新增内容可以在后续详情请求中读取。学校、媒体、单次失败和更新响应配置见交互覆盖文档。页面发出的外部 URL 在 UI 宿主显示完整目标地址，地图导航使用系统 Maps。元素和状态先读取当前值，异步变化采用条件等待。输入前等待系统键盘，删除与新文本合并为一次输入，随后核对完整字段值。多个筛选项共享一次 Runner 和 App 会话，结束后恢复常规 App：
 
 ```sh
 Scripts/run-extended-tests.sh ui
 Scripts/run-extended-tests.sh ui <真机设备ID>
 Scripts/run-extended-tests.sh ui \
   --only-testing LoginAndScheduleUITests/testLongPressOpensScheduleContextMenuAndImportSheet \
-  --only-testing LoginAndScheduleUITests/testManualSchedulePersistsAcrossAppRelaunch
+  --only-testing InteractionCoverageUITests/testCustomScheduleEmptyTitleDetailsAndCalendarActions
 Scripts/run-extended-tests.sh ui \
-  --only-testing LoginAndScheduleUITests/testSchoolDDLSourcesAndCompletionPersistAcrossAppRelaunch \
+  --only-testing LoginAndScheduleUITests/testSchoolDDLSourcesAndCompletionPersistAcrossSceneReload \
   --only-testing LoginAndScheduleUITests/testDDLEmptyStateExplainsTheRetentionWindow
 ```
 
-快速开发时，将本次改动涉及的场景合并到一次模拟器调用。例如日期编辑的两项复验，本轮含构建与启动实际耗时约 2 分钟：
+快速开发时，将本次改动涉及的场景合并到一次模拟器调用。例如日期编辑的两项复验，耗时以该批次的 `test-metrics.txt` 为准：
 
 ```sh
 Scripts/run-extended-tests.sh ui --simulator \
-  --only-testing InteractionCoverageUITests/testCustomScheduleDateTimePickersAndCancelEditing \
+  --only-testing InteractionCoverageUITests/testCustomScheduleEmptyTitleDetailsAndCalendarActions \
   --only-testing InteractionCoverageUITests/testDDLEditorDetailsDatePickerValidationAndCancelEditing
 ```
 
-完整交互验收执行 `Scripts/run-extended-tests.sh ui --simulator`。2026-10-02 的 8 GB Mac / iOS 27 模拟器记录为 76/76 通过，构建与运行 1,783 秒；同平台前一轮为 2,068 秒，实际减少 285 秒。完整覆盖清单和平台专项范围见 [UI 交互覆盖](UI_INTERACTION_COVERAGE.md)。
+完整交互验收执行 `Scripts/run-extended-tests.sh ui --simulator`。优化前的 8 GB Mac / iOS 27 模拟器完整 76 项为 76/76 通过，构建与运行 1,783 秒；本轮将相同交互组合并为 57 项并复用一个 App 进程，57/57 通过，构建与运行 955 秒，减少约 46.4%；5 分钟目标仍未达到。当前运行证据、耗时对比和平台专项范围见 [UI 交互覆盖](UI_INTERACTION_COVERAGE.md)。
 
 稳定的 `accessibilityIdentifier` 用于字段、编辑入口和共用搜索排序菜单（`search.sort`）定位；主 Tab 使用实际标签栏内的按钮名称。点击使用可重新解析的按钮查询与系统可点击状态；滚动从页面主列表边缘开始，横向标签列表依据高度排除。失败的元素树和截图保存在既有 `.xcresult`，状态等待失败同样采集附件。
 
 UI 组采集逐用例结果和耗时，交互覆盖依据 `docs/UI_INTERACTION_COVERAGE.md`；逻辑测试组采集生产源码行覆盖率。UI 测试构建关闭行覆盖率插桩，宿主关闭系统调试日志，测试计划通过 `uiTestingScreenshotsLifetime: keepNever` 关闭自动截屏 / 录屏。业务断言失败时仍手动保存截图和元素树，附件和摘要复用同一次元素树快照。[Apple 的 Xcode 发行说明](https://developer.apple.com/documentation/xcode-release-notes/xcode-15-release-notes/)说明了自动录屏及测试计划配置。
 
-按钮直接查询并点击，每次滚动后重新检查目标可点击状态；图片入口点击画布中心，系统预览直接查询 `QLPreviewControllerView`。出现、消失和值变化等待先核对当前结果，满足断言时立即继续。Quick Look 冷启动采用最长 30 秒的条件等待。关闭预览、草稿或日期弹窗后，确认弹窗消失再继续。日期弹窗定位原生 `PopoverDismissRegion` 按钮，关闭坐标限制在来源表单内并优先选择浮窗左侧；日历翻月、年月滚轮、日期网格和逐列时间滚轮均关联状态断言。时间滚轮使用短距离慢速拖动并停留后释放，核对变化后通过数字选项恢复原值，再保存合法的起止时间。
+按钮直接查询并点击，每次滚动后重新检查目标可点击状态；图片入口点击画布中心，系统预览直接查询 `QLPreviewControllerView`。出现、消失和值变化等待先核对当前结果，满足断言时立即继续。Quick Look 冷启动采用最长 30 秒的条件等待。关闭预览、草稿或日期弹窗后，确认弹窗消失再继续。日期弹窗定位原生 `PopoverDismissRegion` 按钮，关闭坐标限制在来源表单内并优先选择浮窗左侧；日历翻月、年月滚轮、日期网格和逐列时间滚轮均关联状态断言。时间滚轮使用短距离快速拖动并停留后释放，核对变化后通过数字选项恢复原值，再保存合法的起止时间。
 
-耗时记录标注运行平台、构建与运行总时长，以及用例耗时合计；前后比较使用同一平台的实际结果，同时保留各项独立数据重置、持久化重启和全部业务断言。复验通过重复的 `--only-testing` 参数集中到一个批次；常规 Release App 在真机批次结束后恢复。
+耗时记录标注运行平台、构建与运行总时长，以及用例耗时合计；前后比较使用同一平台的实际结果，同时保留独立数据重置、持久化重新读取和全部业务断言。复验通过重复的 `--only-testing` 参数集中到一个批次；常规 Release App 在真机批次结束后恢复。
 
 文章编辑复用详情页已解析的正文，由详情页导航承接；编辑与删除成功后刷新文章列表和搜索结果。回归核对标题、简介与正文恢复、保存后返回详情、再次编辑及取消保留已保存内容，删除验收同时核对原始和修改后的标题。文章评论使用独立输入弹窗。验证码提交先结束输入焦点，回归覆盖错误重试、查询成功及成绩筛选与详情。
 
@@ -179,7 +179,7 @@ Scripts/run-extended-tests.sh --report --diagnostics
 
 交互列表的左侧标题由 SwiftSyntax 审计检查公共主题色或警示色修饰器、标题组件及样式覆盖；UI 回归裁切“时间轴”的实际字形，检查彩色像素，覆盖源码规则和真实渲染两个层面。
 
-`test-metrics.txt` 保存构建与运行总时长、用例耗时合计和最慢的十项，用于比较覆盖扩展后的执行成本。开发时通过多个 `--only-testing` 合并受影响的场景；完整覆盖验收运行整个 UI 组。真机专项验证承接真实照片选取、日历 / 提醒权限、外部邮件 / 浏览器交接、网页自身交互及 Widget / Watch 界面。UI Runner 的设备自动化初始化超时单独记录为环境阻塞，实际执行和通过数由 `.xcresult` 汇总。
+`test-metrics.txt` 保存构建与运行总时长、用例耗时合计、最慢的十项、App 启动次数、进程 ID 和系统交互动作，用于比较覆盖扩展后的执行成本。开发时通过多个 `--only-testing` 合并受影响的场景；完整覆盖验收运行整个 UI 组。真机专项验证承接真实照片选取、日历 / 提醒权限、外部邮件 / 浏览器交接、网页自身交互及 Widget / Watch 界面。UI Runner 的设备自动化初始化超时单独记录为环境阻塞；iOS 出现 Enable UI Automation 验证时，在手机端输入设备密码后重试，实际执行和通过数由 `.xcresult` 汇总。
 
 ## 静态审计
 

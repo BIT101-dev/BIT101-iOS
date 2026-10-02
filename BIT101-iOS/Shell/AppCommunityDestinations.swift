@@ -141,11 +141,16 @@ final class AppCommunityDependencies {
         let paperService = PaperService(session: session)
         paper = PaperDependencies(list: paperService, detail: paperService, composer: paperService, networkPath: networkPath)
         let mineService = MineService(session: session, preferences: { preferences.snapshot })
+#if BIT101_UI_TESTING
+        let offlineUITest = AppFileDirectories.isRunningUITest
+            && AppUITestBootstrap.environment["BIT101_UI_TEST_CONTENT"] != "1"
+#else
+        let offlineUITest = false
+#endif
         mine = MineDependencies(
             overview: mineService, profile: mineService,
             deletePoster: { try await galleryService.deletePoster(id: $0) },
-            isRunningUITest: AppFileDirectories.isRunningUITest
-                && ProcessInfo.processInfo.environment["BIT101_UI_TEST_CONTENT"] != "1"
+            isRunningUITest: offlineUITest
         )
         settings.$snapshot.combineLatest(settings.$hidesCourseHistoryMakeupOutliers)
             .sink { snapshot, hideMakeup in

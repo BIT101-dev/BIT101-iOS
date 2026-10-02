@@ -2449,6 +2449,19 @@ def image_only_label_facts(facts: dict) -> list[dict]:
     return results
 
 
+def check_ui_test_inventory(errors: list[str]) -> None:
+    """Keep the interaction map aligned with every executable UI journey."""
+    actual: set[str] = set()
+    for path in (ROOT / "BIT101-iOSUITests").glob("*.swift"):
+        source = path.read_text()
+        suite = re.search(r"^nonisolated final class (\w+UITests):", source, re.MULTILINE)
+        if suite:
+            actual.update(f"{suite[1]}/{name}" for name in re.findall(r"^    (?:@objc )?func (test\w+)\(", source, re.MULTILINE))
+    documented = set(re.findall(r"\b(\w+UITests/test\w+)\b", (ROOT / "docs/UI_INTERACTION_COVERAGE.md").read_text()))
+    errors.extend(f"UI interaction map missing: {name}" for name in sorted(actual - documented))
+    errors.extend(f"UI interaction map references an absent journey: {name}" for name in sorted(documented - actual))
+
+
 def check_accessibility_coverage(errors: list[str], syntax: dict[str, dict]) -> None:
     for path, facts in syntax.items():
         if not path.startswith(str(ROOT) + "/") or "/BIT101-iOSTests/" in path:
@@ -2577,6 +2590,7 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
     check_refresh_status_contract(errors, syntax)
     check_haptic_consistency(errors, syntax)
     check_error_report_coverage(errors, syntax)
+    check_ui_test_inventory(errors)
     check_accessibility_coverage(errors, syntax)
     check_fonts(errors, syntax)
     check_design_token_boundaries(errors, syntax)

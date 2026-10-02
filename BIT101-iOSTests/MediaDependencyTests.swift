@@ -80,6 +80,31 @@ struct MediaDependencyTests {
         #expect(try previewFiles.readData(at: preview) == validBytes)
     }
 
+    @Test func clearingCacheKeepsDownloadsLocalImagesAndQuickLookUsableInSameSession() async throws {
+        let files = PreferenceMemoryFiles(requireExistingParentDirectories: true)
+        let bytes = try png(width: 2)
+        let transport = Images(bytes: bytes)
+        let media = environment(files: files, previewFiles: files, transport: transport)
+        let url = AppURL.required("https://example.invalid/image.png")
+        let original = try await media.images.file(for: url, variant: .original)
+        #expect(files.removeContents(of: files.temporaryDirectoryURL))
+        #expect(!files.fileExists(at: original))
+        let downloaded = try await media.images.file(for: url, variant: .original)
+        #expect(try await media.previewFile(at: downloaded) == downloaded)
+        #expect(try files.readData(at: downloaded) == bytes)
+        #expect(transport.requests == 2)
+
+        #expect(files.removeContents(of: files.temporaryDirectoryURL))
+        let local = try await media.images.localFile(data: bytes)
+        #expect(try await media.previewFile(at: local) == local)
+        #expect(try files.readData(at: local) == bytes)
+
+        #expect(files.removeContents(of: files.temporaryDirectoryURL))
+        let placeholder = try await media.images.placeholderFile()
+        #expect(try await media.previewFile(at: placeholder) == placeholder)
+        #expect(UIImage(data: try files.readData(at: placeholder)) != nil)
+    }
+
     @Test func gifFramesAndReducedMotionReadInjectedBytes() async throws {
         let data = NSMutableData()
         let destination = try #require(CGImageDestinationCreateWithData(data, UTType.gif.identifier as CFString, 2, nil))
