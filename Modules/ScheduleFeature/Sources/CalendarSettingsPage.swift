@@ -251,6 +251,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                     Text("\(normalizedLeadMinutes) 分钟")
                         .foregroundStyle(AppDesignSystem.Foreground.secondary)
                 }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(!viewModel.settingsSnapshot.showCourseLiveActivityReminder)

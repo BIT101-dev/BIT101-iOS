@@ -31,7 +31,7 @@ EXPECTED = {
     "ScheduleContracts": set(),
     "ScheduleActivityContracts": set(),
     "ScoreInfrastructure": {"ClientCore", "ScoreDomain", "StorageCore", "TransportCore"},
-    "ScoreFeature": {"ScoreDomain", "ClientCore", "DesignSystemKit", "StorageCore", "TransportCore"},
+    "ScoreFeature": {"ScoreDomain", "ClientCore", "DesignSystemKit", "MediaKit", "StorageCore", "TransportCore"},
     "StorageCore": set(),
     "TransportCore": set(),
     "MapFeature": {"DesignSystemKit", "ScheduleContracts", "TransportCore"},

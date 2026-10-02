@@ -292,7 +292,7 @@ struct AboutSettingsPage: View {
             switch try await AppUpdatePromptCoordinator.shared.checkManually() {
             case let .update(release):
                 AppPromptCoordinator.shared.enqueue(AppPrompt(
-                    id: "manual-app-update-\(release.version)",
+                    id: "manual-app-update-\(UUID().uuidString)",
                     title: "发现新版本 \(release.version)",
                     message: release.updateMessage,
                     actions: [

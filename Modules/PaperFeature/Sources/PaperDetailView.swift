@@ -491,12 +491,13 @@ private struct PaperContentBlockView: View {
 /// `UITextView` 保留 HTML 导入后的粗体、斜体、链接等格式。组件将颜色和默认字体族
 /// 映射为系统动态颜色与系统字体，适配深色模式。
 private struct PaperRichTextView: UIViewRepresentable {
+    @Environment(\.openURL) private var openURL
     let text: AttributedString
     let textStyle: UIFont.TextStyle
     let textColor: UIColor
 
     func makeCoordinator() -> Coordinator {
-        Coordinator()
+        Coordinator(openURL: openURL)
     }
 
     func makeUIView(context: Context) -> UITextView {
@@ -516,6 +517,7 @@ private struct PaperRichTextView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UITextView, context: Context) {
+        context.coordinator.openURL = openURL
         uiView.attributedText = normalizedAttributedText()
     }
 
@@ -558,13 +560,22 @@ private struct PaperRichTextView: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, UITextViewDelegate {
+        var openURL: OpenURLAction
+
+        init(openURL: OpenURLAction) {
+            self.openURL = openURL
+        }
+
         func textView(
             _ textView: UITextView,
-            shouldInteractWith URL: URL,
-            in characterRange: NSRange
-        ) -> Bool {
-            guard let scheme = URL.scheme?.lowercased() else { return false }
-            return scheme == "http" || scheme == "https"
+            primaryActionFor textItem: UITextItem,
+            defaultAction: UIAction
+        ) -> UIAction? {
+            guard case let .link(url) = textItem.content else { return defaultAction }
+            guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return nil }
+            return UIAction(title: defaultAction.title, image: defaultAction.image) { [weak self] _ in
+                self?.openURL(url)
+            }
         }
     }
 }

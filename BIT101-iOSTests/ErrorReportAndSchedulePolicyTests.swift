@@ -191,21 +191,49 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     }
 
     @MainActor
-    func testUserCancelledTranscriptVerificationDoesNotOfferErrorReporting() {
+    func testUserCancelledTranscriptVerificationDoesNotOfferErrorReporting() async {
         let viewModel = TrustedTranscriptViewModel(service: StubTrustedTranscriptService())
+        await viewModel.apply()
 
         viewModel.dismissSMSChallenge()
 
         XCTAssertFalse(viewModel.allowsDiagnostics)
     }
 
+    @MainActor
+    func testTranscriptSheetDismissalPreservesSuccessfulPages() async {
+        let viewModel = TrustedTranscriptViewModel(service: StubTrustedTranscriptService())
+        await viewModel.apply()
+        XCTAssertNotNil(viewModel.smsChallenge)
+        await viewModel.submitSMSCode("123456")
+        XCTAssertEqual(viewModel.state, .loaded)
+        XCTAssertEqual(viewModel.images.count, 1)
+        XCTAssertNil(viewModel.smsChallenge)
+
+        viewModel.dismissSMSChallenge()
+        viewModel.dismissSMSChallenge()
+        await viewModel.applyIfNeeded()
+
+        XCTAssertEqual(viewModel.state, .loaded)
+        XCTAssertEqual(viewModel.images.count, 1)
+        XCTAssertNil(viewModel.smsChallenge)
+        XCTAssertTrue(viewModel.allowsDiagnostics)
+    }
+
     private struct StubTrustedTranscriptService: TrustedTranscriptServicing {
-        func fetchTrustedTranscriptPages() async throws -> [Data] { [] }
+        func fetchTrustedTranscriptPages() async throws -> [Data] {
+            throw ScoreServiceError.secondFactorRequired(BITLoginAuthenticationChallenge(
+                challengeID: "test-transcript", accessToken: "test-token", status: "sms_required",
+                maskedPhone: "138****0000", expiresIn: 600
+            ))
+        }
 
         func submitTranscriptSMSCode(
             _ code: String,
             for challenge: BITLoginAuthenticationChallenge
-        ) async throws -> [Data] { [] }
+        ) async throws -> [Data] {
+            [UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).pngData { _ in }]
+        }
     }
 
     func testCalendarPermissionNoticeOffersSystemSettings() {

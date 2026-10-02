@@ -31,7 +31,6 @@ struct ScoreRootView: View {
     @EnvironmentObject private var scoreViewModel: ScoreViewModel
     @StateObject private var courseViewModel: CourseListViewModel
     private let transcriptService: any TrustedTranscriptServicing
-    @State private var imageViewer: ImagePreviewRequest?
     @State private var selectedSurface: ScoreSurface = .score
     @Binding private var requestedCourse: CourseNavigationRequest?
 
@@ -53,10 +52,7 @@ struct ScoreRootView: View {
                 ScoreListPage(
                     viewModel: scoreViewModel,
                     transcriptService: transcriptService,
-                    onSearchCourse: openCourseSearch,
-                    onPreviewImages: { images, index in
-                        imageViewer = ImagePreviewRequest(localImages: images, initialIndex: index)
-                    }
+                    onSearchCourse: openCourseSearch
                 )
                     .simultaneousGesture(surfaceSwitchGesture)
                     .transition(.opacity)
@@ -66,7 +62,6 @@ struct ScoreRootView: View {
                     .transition(.opacity)
             }
         }
-        .systemImagePreview(item: $imageViewer)
         .animation(.easeInOut, value: selectedSurface)
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             AppTopSegmentedPicker(title: "成绩内容", selection: surfaceSelection) {
@@ -144,4 +139,3 @@ struct ScoreRootView: View {
         }
     }
 }
-

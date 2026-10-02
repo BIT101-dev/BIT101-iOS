@@ -33,6 +33,12 @@ final class TrustedTranscriptViewModel: ObservableObject {
     }
 
 
+    /// 页面首次出现时申请；返回已加载的页面时保留成绩单。
+    func applyIfNeeded() async {
+        guard state == .idle else { return }
+        await apply()
+    }
+
     /// 发起一次新的学校可信成绩单申请。
     func apply() async {
         guard state != .loading, !isSubmittingSMSCode, smsChallenge == nil else { return }
@@ -102,7 +108,7 @@ final class TrustedTranscriptViewModel: ObservableObject {
 
     /// 关闭短信验证面板并将申请状态更新为失败。
     func dismissSMSChallenge() {
-        guard !isSubmittingSMSCode else { return }
+        guard smsChallenge != nil, !isSubmittingSMSCode else { return }
         smsChallenge = nil
         smsVerificationError = nil
         allowsDiagnostics = false

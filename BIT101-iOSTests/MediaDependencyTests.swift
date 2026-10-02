@@ -60,6 +60,26 @@ struct MediaDependencyTests {
         #expect(await second.stillDecoder.image(at: secondURL)?.size.width == 2)
     }
 
+    @Test func previewPlaceholderDecodesAndRepairsCorruptedCache() async throws {
+        let files = PreferenceMemoryFiles()
+        let previewFiles = PreferenceMemoryFiles()
+        let media = environment(files: files, previewFiles: previewFiles, transport: Images(bytes: Data()))
+        let placeholder = try await media.images.placeholderFile()
+        let validBytes = try files.readData(at: placeholder)
+        let image = try #require(UIImage(data: validBytes)?.cgImage)
+        #expect(image.width == 1 && image.height == 1)
+        let pixels = try #require(CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8,
+                                          bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        pixels.draw(image, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        #expect(try #require(pixels.data).load(fromByteOffset: 3, as: UInt8.self) == 0)
+        try files.writeData(Data("corrupted".utf8), to: placeholder, options: [.atomic])
+        #expect(try await media.images.placeholderFile() == placeholder)
+        #expect(try files.readData(at: placeholder) == validBytes)
+        let preview = try await media.previewFile(at: placeholder)
+        #expect(try previewFiles.readData(at: preview) == validBytes)
+    }
+
     @Test func gifFramesAndReducedMotionReadInjectedBytes() async throws {
         let data = NSMutableData()
         let destination = try #require(CGImageDestinationCreateWithData(data, UTType.gif.identifier as CFString, 2, nil))

@@ -172,6 +172,7 @@ public struct AppOrderedSearchBar<Order: Hashable, OrderContent: View>: View {
                 Label(selectedOrderTitle, systemImage: "arrow.up.arrow.down.circle")
             }
             .pickerStyle(.menu)
+            .accessibilityIdentifier("search.sort")
             .appSelectionFeedback(trigger: order)
 
             TextField("", text: $text, prompt: AppInputPrompt.text(placeholder))

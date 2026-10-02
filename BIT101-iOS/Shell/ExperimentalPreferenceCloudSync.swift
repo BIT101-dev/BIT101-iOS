@@ -206,7 +206,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     func setEnabled(_ enabled: Bool) {
         guard isEnabled != enabled else { return }
         defaults.set(enabled, forKey: enabledKey)
-        defaults.removeObject(forKey: legacyEnabledKey)
+        if legacyEnabledKey != enabledKey { defaults.removeObject(forKey: legacyEnabledKey) }
         isEnabled = enabled
         guard enabled else {
             reconciliationTask?.cancel()
@@ -579,7 +579,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         if let value = defaults.object(forKey: enabledKey) as? Bool { return value }
         guard let legacyValue = defaults.object(forKey: legacyEnabledKey) as? Bool else { return false }
         defaults.set(legacyValue, forKey: enabledKey)
-        defaults.removeObject(forKey: legacyEnabledKey)
+        if legacyEnabledKey != enabledKey { defaults.removeObject(forKey: legacyEnabledKey) }
         return legacyValue
     }
 
@@ -594,6 +594,8 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
 
     private func setLocalUpdatedAt(_ value: Date, for domain: ExperimentalPreferenceSyncDomain) {
         defaults.set(value, forKey: localUpdatedAtKey(for: domain))
-        defaults.removeObject(forKey: legacyLocalUpdatedAtKey(for: domain))
+        if legacyLocalUpdatedAtKey(for: domain) != localUpdatedAtKey(for: domain) {
+            defaults.removeObject(forKey: legacyLocalUpdatedAtKey(for: domain))
+        }
     }
 }

@@ -254,10 +254,10 @@ actor RemoteImageCache {
     /// Quick Look 数据源暂时缺图时使用的透明占位文件。
     func placeholderFile() throws -> URL {
         let target = directory.appendingPathComponent("preview-placeholder.png")
-        if !hasData(at: target) {
-            // 1 × 1 透明 PNG。
-            let encoded = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL1WQAAAABJRU5ErkJggg=="
-            guard let data = Data(base64Encoded: encoded) else { throw CocoaError(.fileWriteUnknown) }
+        // 1 × 1 透明 PNG；固定字节同时修复已缓存的损坏占位文件。
+        let encoded = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII="
+        guard let data = Data(base64Encoded: encoded) else { throw CocoaError(.fileWriteUnknown) }
+        if (try? files.readData(at: target)) != data {
             try files.writeData(data, to: target, options: [.atomic])
         }
         return target

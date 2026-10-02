@@ -11,6 +11,7 @@ DERIVED_ROOT="$ROOT_DIR/.build/extended-automation"
 if [[ "${1:-}" == "--report" ]]; then
   python3 - "$DERIVED_ROOT/test-results.xcresult" "${2:-}" "${3:-}" <<'PY'
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -18,6 +19,14 @@ from pathlib import Path
 bundle = Path(sys.argv[1])
 if not (bundle / "database.sqlite3").is_file() or (bundle / "Staging").exists():
     raise SystemExit("测试结果可在运行结束后通过 --report 读取。")
+
+if sys.argv[2] == "--diagnostics":
+    output = bundle.parent / "diagnostics"
+    shutil.rmtree(output, ignore_errors=True)
+    subprocess.run(["xcrun", "xcresulttool", "export", "diagnostics", "--path", str(bundle),
+                    "--output-path", str(output)], check=True, stdout=subprocess.DEVNULL)
+    print(output)
+    raise SystemExit(0)
 
 if sys.argv[2]:
     activities = json.loads(subprocess.check_output([
@@ -67,7 +76,8 @@ summary = json.loads(subprocess.check_output([
 ], text=True))
 print(f"{summary.get('result', '?')} · {summary.get('passedTests', 0)}/{summary.get('totalTestCount', 0)} 通过")
 for failure in summary.get("testFailures", []):
-    print(f"{failure.get('testIdentifierString', '?')}: {failure.get('failureText', '?')}")
+    message = str(failure.get("failureText", "?")).splitlines()[0][:240]
+    print(f"{failure.get('testIdentifierString', '?')}: {message}")
 tests = json.loads(subprocess.check_output([
     "xcrun", "xcresulttool", "get", "test-results", "tests", "--path", sys.argv[1],
 ], text=True))
@@ -86,8 +96,11 @@ PY
 fi
 if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
   echo "用法：Scripts/run-extended-tests.sh [all|default|modules|schedule|schedule-share|infrastructure|login|extensions|ui|catalyst|release|network-smoke|icloud-smoke] [--build-only] [--generic] [--clean-build] [--only-testing 测试类/方法]... [真机设备ID]"
+  echo "模拟器：Scripts/run-extended-tests.sh [ui|default] --simulator [--build-only] [--only-testing 测试类/方法]... [模拟器ID]"
+  echo "运行时安装：UI 模拟器流程添加 --install-simulator-runtime，使用 Xcode 官方安装。"
   echo "聚合：Scripts/run-extended-tests.sh verify [modules|all|catalyst|ui|network|ddl|icloud|audit]... [--ui-test 测试类/方法]..."
   echo "报告：Scripts/run-extended-tests.sh --report [测试类/方法()] [--screenshot|--activities]"
+  echo "诊断：Scripts/run-extended-tests.sh --report --diagnostics"
   exit 0
 fi
 SCRIPT_PATH="$0"
@@ -126,6 +139,9 @@ TEST_SELECTIONS=()
 BUILD_ONLY=false
 CLEAN_BUILD=false
 GENERIC_BUILD=false
+USE_SIMULATOR=false
+INSTALL_SIMULATOR_RUNTIME=false
+TEST_DURATION_SECONDS=0
 
 MODE="all"
 if [[ $# -gt 0 ]]; then
@@ -235,6 +251,8 @@ while (( $# > 0 )); do
   case "$1" in
     --build-only) BUILD_ONLY=true; shift ;;
     --generic) GENERIC_BUILD=true; shift ;;
+    --simulator) USE_SIMULATOR=true; shift ;;
+    --install-simulator-runtime) USE_SIMULATOR=true; INSTALL_SIMULATOR_RUNTIME=true; shift ;;
     --clean-build) CLEAN_BUILD=true; shift ;;
     --only-testing)
       if [[ $# -lt 2 || -z "$2" || "$2" == --* ]]; then
@@ -244,10 +262,15 @@ while (( $# > 0 )); do
       TEST_SELECTIONS+=("$2")
       shift 2
       ;;
-    --*) echo "测试选项：--build-only、--clean-build、--only-testing 测试类/方法" >&2; exit 64 ;;
+    --*) echo "测试选项：--build-only、--generic、--simulator、--clean-build、--only-testing 测试类/方法" >&2; exit 64 ;;
     *) break ;;
   esac
 done
+
+if $USE_SIMULATOR && [[ ( "$MODE" != ui && "$MODE" != default ) || $# -gt 1 || ( "$INSTALL_SIMULATOR_RUNTIME" == true && "$GENERIC_BUILD" == true ) ]]; then
+  echo "模拟器使用 ui|default --simulator [--build-only] [--only-testing 测试类/方法]... [模拟器ID]。" >&2
+  exit 64
+fi
 
 if $GENERIC_BUILD; then
   if ! $BUILD_ONLY || [[ $# -gt 0 || "$MODE" == modules || "$MODE" == catalyst ]]; then
@@ -274,7 +297,47 @@ if [[ "$MODE" == "modules" ]]; then
 elif $GENERIC_BUILD; then
   acquire_test_lock
   TEST_DESTINATION="generic/platform=iOS"
+  if $USE_SIMULATOR; then TEST_DESTINATION="generic/platform=iOS Simulator"; fi
   SIGNING_ARGS=(CODE_SIGNING_ALLOWED=NO)
+elif $USE_SIMULATOR; then
+  acquire_test_lock
+  defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
+  if $INSTALL_SIMULATOR_RUNTIME; then
+    bit101_run_logged "$DERIVED_ROOT/simulator-runtime.log" "iOS 模拟器运行时安装" \
+      xcodebuild -downloadPlatform iOS
+  fi
+  simulator_id="$(python3 - "${1:-}" <<'PY'
+import json
+import subprocess
+import sys
+
+devices = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "--json"], text=True))
+available = [device for runtime, entries in devices["devices"].items() if ".iOS-" in runtime
+             for device in entries if device.get("isAvailable") and
+             (device["name"].startswith("iPhone") or device["name"] == "BIT101 UI iPhone" or device["udid"] == sys.argv[1])]
+requested = sys.argv[1]
+if not available and not requested:
+    runtimes = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "runtimes", "--json"], text=True))
+    runtimes = [runtime for runtime in runtimes["runtimes"] if runtime.get("isAvailable") and ".iOS-" in runtime["identifier"]]
+    if runtimes:
+        runtime = max(runtimes, key=lambda item: tuple(int(part) for part in item["version"].split(".")))
+        identifier = subprocess.check_output(["xcrun", "simctl", "create", "BIT101 UI iPhone",
+                                             "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro-Max",
+                                             runtime["identifier"]], text=True).strip()
+        available = [{"udid": identifier, "state": "Shutdown"}]
+if requested:
+    available = [device for device in available if device["udid"] == requested]
+else:
+    available.sort(key=lambda device: device["state"] != "Booted")
+if not available:
+    raise SystemExit("请确认模拟器 ID，或使用 ui --simulator --install-simulator-runtime 安装 iOS 运行时。")
+print(available[0]["udid"])
+PY
+  )"
+  TEST_DESTINATION="platform=iOS Simulator,id=$simulator_id"
+  SIGNING_ARGS=(CODE_SIGNING_ALLOWED=NO)
+  if [[ "$MODE" == ui ]]; then SIGNING_ARGS=(CODE_SIGN_IDENTITY=-); fi
+  echo "测试目标：iOS 模拟器 · $simulator_id"
 elif [[ "$MODE" == "catalyst" ]]; then
   if [[ $# -gt 0 ]]; then
     echo "用法：Scripts/run-extended-tests.sh catalyst" >&2
@@ -299,7 +362,7 @@ else
   UI_RESTORE_DEVICE_ID="$BIT101_XCODE_DEVICE_ID"
 fi
 
-if [[ "$MODE" == "ui" && "$BUILD_ONLY" == false && "${BIT101_DEFER_APP_RESTORE:-0}" != "1" ]]; then
+if [[ "$MODE" == "ui" && "$BUILD_ONLY" == false && "$USE_SIMULATOR" == false && "${BIT101_DEFER_APP_RESTORE:-0}" != "1" ]]; then
   restore_release_app() {
     local test_exit_code=$?
     trap - EXIT ZERR INT TERM
@@ -399,6 +462,10 @@ run_tests() {
   local diagnostics="never"
   local test_action=test
   local execution_args=()
+  local coverage_args=(-enableCodeCoverage YES ENABLE_CODE_COVERAGE=YES)
+  if $USE_SIMULATOR && [[ "$MODE" != ui ]]; then
+    execution_args+=(-parallel-testing-enabled NO)
+  fi
   if $BUILD_ONLY; then
     log="$DERIVED_ROOT/$group-build.log"
     test_action=build-for-testing
@@ -406,7 +473,12 @@ run_tests() {
     execution_args+=(-resultBundlePath "$RESULT_BUNDLE")
   fi
   if [[ "$MODE" == "ui" ]]; then
-    execution_args+=(-parallel-testing-enabled NO)
+    if $USE_SIMULATOR && (( $(sysctl -n hw.memsize) >= 16 * 1024 * 1024 * 1024 )); then
+      execution_args+=(-parallel-testing-enabled YES -parallel-testing-worker-count 2)
+    else
+      execution_args+=(-parallel-testing-enabled NO)
+    fi
+    coverage_args=(-enableCodeCoverage NO ENABLE_CODE_COVERAGE=NO)
   fi
   if (( ${#TEST_SELECTIONS[@]} > 0 )); then
     only_testing=()
@@ -419,6 +491,7 @@ run_tests() {
   fi
 
   echo "[$test_action] $group"
+  local started_at=$SECONDS
   if bit101_run_logged "$log" "$group 输出" xcodebuild "$test_action" -quiet \
     -project "$PROJECT" \
     -scheme "$TEST_SCHEME" \
@@ -426,9 +499,8 @@ run_tests() {
     -destination "$TEST_DESTINATION" \
     -derivedDataPath "$DERIVED_ROOT" \
     -collect-test-diagnostics "$diagnostics" \
-    -enableCodeCoverage YES \
     "SWIFT_ACTIVE_COMPILATION_CONDITIONS=$conditions" \
-    ENABLE_CODE_COVERAGE=YES \
+    "${coverage_args[@]}" \
     ENABLE_TESTABILITY=YES \
     SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES \
     "${execution_args[@]}" \
@@ -438,6 +510,7 @@ run_tests() {
   else
     exit_code=$?
   fi
+  TEST_DURATION_SECONDS=$(( SECONDS - started_at ))
 
   if (( exit_code != 0 )) && ! $BUILD_ONLY; then
     echo "测试失败：$group" >&2
@@ -459,14 +532,14 @@ if result.returncode == 0:
         for failure in failures:
             grouped.setdefault(failure.get("failureText", "测试失败"), []).append(failure.get("testIdentifierString", "?"))
         for message, tests in grouped.items():
-            print(f"{message} · {len(tests)} 个用例")
+            print(f"{message.splitlines()[0][:240]} · {len(tests)} 个用例")
             for test in tests:
                 print(f"  {test}")
 PY
     )"
     if [[ -n "$failure_summary" ]]; then
       printf '%s\n' "$failure_summary" > "$DERIVED_ROOT/test-failures.txt"
-      if (( ${#${(f)failure_summary}} <= 1000 )); then
+      if (( ${#${(f)failure_summary}} <= 40 )); then
         print -r -- "$failure_summary"
       else
         echo "失败摘要共 ${#${(f)failure_summary}} 行 · $DERIVED_ROOT/test-failures.txt"
@@ -481,14 +554,14 @@ PY
 }
 
 record_metrics() {
-  python3 - "$RESULT_BUNDLE" "$DERIVED_ROOT/test-metrics.txt" "$MODE" <<'PY'
+  python3 - "$RESULT_BUNDLE" "$DERIVED_ROOT/test-metrics.txt" "$MODE" "$TEST_DURATION_SECONDS" <<'PY'
 import json
 import re
 import subprocess
 import sys
 from pathlib import Path
 
-result_bundle, report_path, mode = sys.argv[1:]
+result_bundle, report_path, mode, elapsed_seconds = sys.argv[1:]
 summary = json.loads(subprocess.check_output([
     "xcrun", "xcresulttool", "get", "test-results", "summary",
     "--path", result_bundle,
@@ -498,7 +571,7 @@ if summary.get("totalTestCount", 0) == 0:
 
 coverage = None
 coverage_error = None
-if mode != "catalyst":
+if mode not in {"catalyst", "ui"}:
     coverage_result = subprocess.run([
         "xcrun", "xccov", "view", "--report", "--json", result_bundle,
     ], capture_output=True, text=True)
@@ -518,11 +591,14 @@ lines = [
     "",
     "## 测试汇总",
     f"结果：{summary.get('result', '?')}；总计 {summary.get('totalTestCount', '?')}；通过 {summary.get('passedTests', 0)}；失败 {summary.get('failedTests', 0)}；跳过 {summary.get('skippedTests', 0)}",
+    f"构建与运行耗时：{elapsed_seconds} 秒",
     "",
-    "## 逐 target 行覆盖率",
+    "## UI 交互覆盖" if mode == "ui" else "## 逐 target 行覆盖率",
 ]
 if coverage is None:
-    if mode == "catalyst":
+    if mode == "ui":
+        lines.append("交互覆盖依据 docs/UI_INTERACTION_COVERAGE.md；每项独立重置数据并验证业务结果。")
+    elif mode == "catalyst":
         lines.append("Mac Catalyst runtime does not provide an xccov archive.")
     else:
         lines.append("设备测试汇总已采集；Xcode 覆盖率归档诊断如下。")
@@ -575,7 +651,7 @@ if len(coverage_lines) <= 1000:
         print("\n".join(coverage_lines))
 else:
     print(f"覆盖率指标共 {len(coverage_lines)} 行 · {report_path}")
-if mode != "catalyst" and coverage is None:
+if mode not in {"catalyst", "ui"} and coverage is None:
     if coverage_error:
         print(coverage_error)
     raise SystemExit("覆盖率采集失败。")

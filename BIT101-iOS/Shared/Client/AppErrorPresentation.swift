@@ -380,6 +380,7 @@ private struct AppErrorReportSheet: View {
                 Section("留言（可选）") {
                     TextField("", text: $viewModel.comment, prompt: AppInputPrompt.text("可补充问题现象或复现步骤"), axis: .vertical)
                         .lineLimit(3...6)
+                        .accessibilityIdentifier("error-report.comment")
                 }
                 Section("联系方式（可选）") {
                     TextField("", text: $viewModel.contact, prompt: AppInputPrompt.text("微信、QQ 或邮箱"), axis: .vertical)

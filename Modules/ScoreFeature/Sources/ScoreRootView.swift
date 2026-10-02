@@ -2,6 +2,7 @@ import ScoreDomain
 #if os(iOS)
 import ClientCore
 import DesignSystemKit
+import MediaKit
 import SwiftUI
 import UIKit
 
@@ -9,13 +10,11 @@ public struct ScoreListPage: View {
     @ObservedObject var viewModel: ScoreViewModel
     let onSearchCourse: (String) -> Void
     let transcriptService: any TrustedTranscriptServicing
-    let onPreviewImages: ([UIImage], Int) -> Void
 
-    public init(viewModel: ScoreViewModel, transcriptService: any TrustedTranscriptServicing, onSearchCourse: @escaping (String) -> Void, onPreviewImages: @escaping ([UIImage], Int) -> Void) {
+    public init(viewModel: ScoreViewModel, transcriptService: any TrustedTranscriptServicing, onSearchCourse: @escaping (String) -> Void) {
         self.viewModel = viewModel
         self.transcriptService = transcriptService
         self.onSearchCourse = onSearchCourse
-        self.onPreviewImages = onPreviewImages
     }
 
     public var body: some View {
@@ -54,7 +53,7 @@ public struct ScoreListPage: View {
 
                     Section {
                         NavigationLink {
-                            TrustedTranscriptPage(service: transcriptService, onPreviewImages: onPreviewImages)
+                            TrustedTranscriptPage(service: transcriptService)
                         } label: {
                             Text("申请可信成绩单")
                         }
@@ -210,11 +209,10 @@ public struct ScoreListPage: View {
 /// 学校可信成绩单申请与预览页。
 private struct TrustedTranscriptPage: View {
     @StateObject private var viewModel: TrustedTranscriptViewModel
-    let onPreviewImages: ([UIImage], Int) -> Void
+    @State private var imageViewer: ImagePreviewRequest?
 
-    init(service: any TrustedTranscriptServicing, onPreviewImages: @escaping ([UIImage], Int) -> Void) {
+    init(service: any TrustedTranscriptServicing) {
         _viewModel = StateObject(wrappedValue: TrustedTranscriptViewModel(service: service))
-        self.onPreviewImages = onPreviewImages
     }
 
     var body: some View {
@@ -245,7 +243,7 @@ private struct TrustedTranscriptPage: View {
                             LazyVStack(spacing: AppDesignSystem.Spacing.content) {
                                 ForEach(Array(viewModel.images.enumerated()), id: \.offset) { index, image in
                                     Button {
-                                        onPreviewImages(viewModel.images, index)
+                                        imageViewer = ImagePreviewRequest(localImages: viewModel.images, initialIndex: index)
                                     } label: {
                                         Image(uiImage: image)
                                             .resizable()
@@ -267,9 +265,10 @@ private struct TrustedTranscriptPage: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .background(AppDesignSystem.Palette.Background.grouped)
+        .systemImagePreview(item: $imageViewer)
         .task {
             // 页面从成绩页进入后立即申请可信成绩单，入口直接执行申请操作。
-            await viewModel.apply()
+            await viewModel.applyIfNeeded()
         }
         .sheet(
             item: Binding(

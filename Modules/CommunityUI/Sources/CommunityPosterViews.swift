@@ -198,6 +198,7 @@ public struct CommunityPosterImagesView: View {
                         .frame(width: allocation.width, height: proxy.size.height)
                         .clipped()
                         .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .contentShape(Rectangle())

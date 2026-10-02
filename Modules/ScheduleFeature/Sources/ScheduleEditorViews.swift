@@ -308,7 +308,9 @@ struct AddEditCustomScheduleSheet: View {
                     TextField("", text: $draft.title, prompt: AppInputPrompt.text("标题"))
                         .accessibilityIdentifier("schedule.custom.title")
                     TextField("", text: $draft.subtitle, prompt: AppInputPrompt.text("副标题（通常为地点）"))
+                        .accessibilityIdentifier("schedule.custom.subtitle")
                     TextField("", text: $draft.description, prompt: AppInputPrompt.text("描述（详情页显示）"), axis: .vertical)
+                        .accessibilityIdentifier("schedule.custom.details")
                         .lineLimit(3, reservesSpace: true)
                 }
 

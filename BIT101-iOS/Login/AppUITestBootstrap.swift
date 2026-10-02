@@ -38,6 +38,7 @@ enum AppUITestBootstrap {
             preconditionFailure("The UI automation App requires its isolated launch configuration")
         }
         UIView.setAnimationsEnabled(environment["BIT101_UI_TEST_ANIMATIONS"] == "1")
+        UIApplication.shared.isIdleTimerDisabled = true
         guard environment["BIT101_UI_TEST_RESET_STORAGE"] == "1" else { return }
 
         AppFileDirectories.defaults.removePersistentDomain(
@@ -254,7 +255,7 @@ final class UITestHTTPTransport: HTTPTransport {
         let base: [String: Any] = ["id": 1, "anonymous": false, "claim": ["id": 1, "text": "日常"], "comment_num": 1,
          "create_time": timestamp, "edit_time": timestamp, "update_time": timestamp,
          "images": mediaEnabled ? [mediaImage] : [], "like": likedObjects.contains("poster1"), "like_num": 1, "own": true,
-         "plugins": "[]", "public": true, "tags": ["测试"], "text": "自动化测试话题正文", "title": "自动化测试话题", "user": user]
+         "plugins": "[]", "public": true, "tags": ["测试", "自动化"], "text": "自动化测试话题正文", "title": "自动化测试话题", "user": user]
         return base.merging(posterChanges) { _, new in new }
     }
 

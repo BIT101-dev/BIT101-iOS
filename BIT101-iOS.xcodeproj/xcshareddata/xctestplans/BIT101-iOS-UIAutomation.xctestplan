@@ -7,11 +7,12 @@
     }
   ],
   "defaultOptions" : {
-    "codeCoverage" : true
+    "codeCoverage" : false,
+    "uiTestingScreenshotsLifetime" : "keepNever"
   },
   "testTargets" : [
     {
-      "parallelizable" : false,
+      "parallelizable" : true,
       "target" : {
         "containerPath" : "container:BIT101-iOS.xcodeproj",
         "identifier" : "B10100000000000000000005",

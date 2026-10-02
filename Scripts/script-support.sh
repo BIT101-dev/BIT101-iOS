@@ -52,7 +52,7 @@ with report_path.open("w", encoding="utf-8") as report:
             seen.add(line)
 exit_code = process.wait()
 output = details if exit_code else diagnostics
-if len(output) <= 1000:
+if len(output) <= 40:
     sys.stdout.writelines(output)
 else:
     print(f"[输出] {label} 共 {len(output)} 行诊断 · {report_path}")

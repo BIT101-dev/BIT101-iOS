@@ -262,6 +262,24 @@ struct ExperimentalPreferenceCloudSyncTests {
         "preference-sync.v1.\(account.session.accountDirectoryName).\(domain.rawValue)"
     }
 
+    @Test func guestPreferenceSwitchAndRevisionSurviveReload() throws {
+        let (sync, defaults, _, account) = try context()
+        defer { defaults.removePersistentDomain(forName: preferenceDomain) }
+        account.session = AppStorageSession(accountIdentifier: "")
+        sync.reloadForCurrentAccount()
+        sync.setEnabled(true)
+        sync.localValueDidChange(in: .appSettings)
+        let revision = try #require(sync.synchronizedVersion(for: .appSettings))
+
+        sync.reloadForCurrentAccount()
+
+        #expect(sync.isEnabled)
+        #expect(sync.synchronizedVersion(for: .appSettings) == revision)
+        sync.setEnabled(false)
+        sync.reloadForCurrentAccount()
+        #expect(sync.isEnabled == false)
+    }
+
     @Test func sharedStoreSaveEventsReachEveryActiveCoordinator() async throws {
         let (first, defaults, firstCloud, account) = try context()
         defer { defaults.removePersistentDomain(forName: preferenceDomain) }

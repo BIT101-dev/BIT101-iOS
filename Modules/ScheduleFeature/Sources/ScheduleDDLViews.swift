@@ -280,6 +280,7 @@ private struct DDLEditSheet: View {
                         .accessibilityIdentifier("ddl.editor.date")
                     .appInteractiveListRow()
                     TextField("", text: $draft.text, prompt: AppInputPrompt.text("详情"), axis: .vertical)
+                        .accessibilityIdentifier("ddl.editor.details")
                         .lineLimit(4, reservesSpace: true)
                 }
             }

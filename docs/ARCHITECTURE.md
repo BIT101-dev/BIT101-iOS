@@ -42,6 +42,7 @@ flowchart TD
     ScheduleDomain --> ScheduleContracts
     ScheduleSync --> ScheduleDomain
     ScoreFeature --> ScoreDomain
+    ScoreFeature --> MediaKit
     ScoreInfrastructure --> ScoreDomain
 ```
 
@@ -72,6 +73,7 @@ App 入口 → 登录恢复 → AppAccountLifecycle → 各场景状态与页面
 - 社区根页及详情页通过依赖、媒体和资源身份绑定内部场景生命周期，依赖替换会重建状态与任务。
 - 推荐分页的共享请求携带独立身份；失败清理核对请求归属，刷新后的页面复用当前代际的缓存。
 - `ScoreFeature` 消费 `ScoreCaching` 与 `ScoreFilterPreferencesStoring` 及各实例的 typed 账号变更流；缓存和筛选实现归 `ScoreInfrastructure`，刷新判断、排序与汇总归 `ScoreDomain`。本地保存流供偏好同步订阅，页面变更流按账号筛选。
+- 可信成绩单页面通过 `MediaKit` 呈现本页图片预览，预览状态和挂载点随成绩单页面生命周期管理。
 - 共享草稿模型、图片限制和按消费者划分的存储端口归 `CommunityCore`；原子存储与迁移归 `CommunityPersistence`，图片编辑与压缩组件归 `CommunityUI`。存储注入图片准备闭包，Foundation 路径在包级宿主运行。图片尺寸限制由存储边界校验，账号路径、元数据和资产版本保持统一契约。
 - 话廊消费 `GalleryComposerDraftStoring` 与 `GalleryMessageReadStoring`，建议提交页消费 `DeveloperSuggestionDraftStoring`。消息页面订阅所选存储实例的 typed 变更流，本地保存流供偏好同步订阅。
 - 设置入口安装所选设置、日程及媒体实例；账号服务和凭据通过同一社区会话传递。清理服务接收文件后端和完整操作能力，生产 Keychain、偏好域、URLCache 与 WebKit 绑定归 App 工厂。

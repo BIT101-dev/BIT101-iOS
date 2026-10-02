@@ -43,7 +43,7 @@ let package = Package(
         .target(name: "CommunityUI", dependencies: ["CommunityCore", "DesignSystemKit", "MediaKit"], path: "Modules/CommunityUI/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "MediaKit", dependencies: ["DesignSystemKit", "StorageCore", "TransportCore"], path: "Modules/MediaKit/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "ScoreInfrastructure", dependencies: ["ClientCore", "ScoreDomain", "StorageCore", "TransportCore"], path: "Modules/ScoreInfrastructure/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
-        .target(name: "ScoreFeature", dependencies: ["ScoreDomain", "ClientCore", "DesignSystemKit", "StorageCore", "TransportCore"], path: "Modules/ScoreFeature/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
+        .target(name: "ScoreFeature", dependencies: ["ScoreDomain", "ClientCore", "DesignSystemKit", "MediaKit", "StorageCore", "TransportCore"], path: "Modules/ScoreFeature/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "MapFeature", dependencies: ["DesignSystemKit", "ScheduleContracts", "TransportCore"], path: "Modules/MapFeature/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "ScheduleSync", dependencies: ["ScheduleDomain", "StorageCore"], path: "Modules/ScheduleSync/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "SchedulePersistence", dependencies: ["ScheduleDomain", "StorageCore"], path: "Modules/SchedulePersistence/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),

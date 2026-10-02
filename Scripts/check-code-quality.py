@@ -959,7 +959,7 @@ def script_output_boundary_findings() -> list[str]:
     if block is None:
         return ["日志自测需要公共输出处理器"]
     findings: list[str] = []
-    for status, count in ((0, 10), (7, 1000), (7, 1001), (-15, 1)):
+    for status, count in ((0, 10), (7, 40), (7, 41), (-15, 1)):
         lines = [f"error: diagnostic {index}\n" for index in range(count)]
         process = SimpleNamespace(stdout=iter(lines), wait=lambda: status)
         visible, log = StringIO(), StringIO()
@@ -978,9 +978,9 @@ def script_output_boundary_findings() -> list[str]:
         output = visible.getvalue()
         if log.getvalue() != "".join(lines):
             findings.append("日志自测：完整输出留档")
-        if ("[输出]" in output) != (count > 1000):
-            findings.append("日志自测：1000 行展示阈值")
-        if count <= 1000 and sum(line.startswith("error:") for line in output.splitlines()) != count:
+        if ("[输出]" in output) != (count > 40):
+            findings.append("日志自测：40 行展示阈值")
+        if count <= 40 and sum(line.startswith("error:") for line in output.splitlines()) != count:
             findings.append("日志自测：阈值内完整诊断展示")
     script = (SCRIPT_ROOT / "run-extended-tests.sh").read_text()
     header = script.split("set -euo pipefail", 1)[0]
