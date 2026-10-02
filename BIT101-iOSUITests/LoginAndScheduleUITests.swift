@@ -110,7 +110,11 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     }
 
     @MainActor
-    func back() { app.navigationBars.buttons.element(boundBy: 0).tap() }
+    func back() {
+        let bar = app.navigationBars.allElementsBoundByAccessibilityElement.last(where: { $0.isHittable })
+        assertUI(bar != nil, "返回操作应使用当前可交互的导航栏。")
+        bar!.buttons.element(boundBy: 0).tap()
+    }
 
     @MainActor
     func textElement(_ text: String) -> XCUIElement {
@@ -148,9 +152,15 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     func replaceText(_ text: String, in field: XCUIElement) {
         assertUI(field.appears(timeout: 5), "输入操作应等待字段出现。")
         reveal(field, description: field.placeholderValue ?? "文本输入")
-        field.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.9)).tap()
-        assertUI(app.keyboards.firstMatch.appears(timeout: 5), "文本输入应使用系统键盘。")
         let value = field.value as? String ?? ""
+        let empty = value.isEmpty || value == field.placeholderValue
+        let insertionPoint = empty ? CGVector(dx: 0.05, dy: 0.1) : CGVector(dx: 0.98, dy: 0.9)
+        field.coordinate(withNormalizedOffset: insertionPoint).tap()
+        let nextKeyboard = app.buttons["下一个键盘"]
+        if !app.keyboards.firstMatch.exists && nextKeyboard.exists {
+            nextKeyboard.tap()
+        }
+        assertUI(app.keyboards.firstMatch.appears(timeout: 5), "文本输入应使用系统键盘。")
         var deletion = ""
         if !value.isEmpty && value != field.placeholderValue {
             if field.elementType == .textView {
@@ -458,6 +468,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             application.launch()
             Self.sessionApplication = application
         } else {
+            if application.state != .runningForeground { application.activate() }
             let scene = application.descendants(matching: .any).matching(identifier: "ui-test.scene").firstMatch
             let previous = scene.value as? String ?? ""
             let connection = NWConnection(host: "127.0.0.1", port: 19101, using: .tcp)

@@ -284,6 +284,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         back()
         app.buttons["score.query"].tap()
         replaceText("123456", in: app.textFields["verification.code"])
+        dismissKeyboard()
         tap("验证并查询成绩")
         assertUI(textElement("自动化测试课程").appears(timeout: 5), "已有成绩刷新应恢复成绩列表。")
         assertUI(app.alerts["成绩已是最新"].appears(timeout: 5), "重复查询应展示当前成绩已是最新。")
@@ -314,9 +315,11 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         tap("重试")
         let code = app.textFields["verification.code"]
         replaceText("000000", in: code)
+        dismissKeyboard()
         tap("验证并申请成绩单")
         assertUI(textElement("测试验证码错误。").appears(timeout: 5), "成绩单短信应支持错误重试。")
         replaceText("123456", in: code)
+        dismissKeyboard()
         tap("验证并申请成绩单")
         assertUI(code.disappears(timeout: 5), "验证成功应关闭短信输入窗口。")
         tap("可信成绩单第1页")
@@ -524,8 +527,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
             tap("取消")
         }
         tap("头像")
-        assertUI(app.buttons["取消"].appears(timeout: 5), "头像入口应打开照片选择器。")
-        tap("取消")
+        cancelPhotoPicker()
         for (route, value) in [("昵称", "保存后的昵称"), ("个性签名", "保存后的签名")] {
             tap(route)
             replaceText(value, in: app.textFields.firstMatch)
@@ -546,7 +548,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         app = configureApp(resetStorage: true)
         openSettings("suggestion")
         tap("插入图片")
-        tap("取消")
+        cancelPhotoPicker()
         replaceText("测试提交建议", in: app.textFields["建议内容"])
         dismissKeyboard()
         tap("提交")
@@ -613,7 +615,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         tap("移除图片")
         assertUI(!textElement("已上传").exists, "移除应清空图片条目。")
         tap("插入图片")
-        tap("取消")
+        cancelPhotoPicker()
         tap("取消")
         tap("不保存")
         assertUI(app.navigationBars["发布帖子"].disappears(timeout: 5), "放弃话题草稿应关闭编辑器。")
@@ -624,6 +626,17 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         tap("取消")
         tap("不保存")
         assertUI(app.buttons["settings.route.suggestion"].appears(timeout: 5), "放弃建议草稿应返回个人设置入口。")
+    }
+
+    @MainActor
+    private func cancelPhotoPicker() {
+        let photos = app.buttons.matching(NSPredicate(format: "label IN %@", ["照片", "Photos"])).firstMatch
+        assertUI(photos.appears(timeout: 5), "图片入口应呈现系统照片选择器。")
+        let cancel = app.buttons.matching(NSPredicate(format: "label IN %@", ["取消", "Cancel"]))
+            .allElementsBoundByAccessibilityElement.last(where: { $0.isHittable })
+        assertUI(cancel != nil, "系统照片选择器应提供取消操作。")
+        cancel!.tap()
+        assertUI(photos.disappears(timeout: 5), "取消图片选择应关闭系统选择器。")
     }
 
     @MainActor
@@ -918,9 +931,11 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         tap("刷新")
         let field = app.textFields["verification.code"]
         replaceText("000000", in: field)
+        dismissKeyboard()
         tap("验证并同步课表")
         assertUI(textElement("测试学校验证码错误。").appears(timeout: 5), "学校错误验证码应支持修改。")
         replaceText("123456", in: field)
+        dismissKeyboard()
         tap("验证并同步课表")
         assertUI(app.buttons["schedule.add-content"].appears(timeout: 5), "验证成功应继续课表刷新。")
         assertUI(textElement("学校测试课程").exists, "继续同步应保存学校课程。")

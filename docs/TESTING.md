@@ -4,14 +4,14 @@
 
 - 构建使用 Xcode 27.x、有效签名和已连接并受信任的真机，默认完成 Release 构建、装机与启动。
 - 本机构建、装机和启动统一使用 `Scripts/build-install-device.sh`；脚本封装所需 Xcode 流程。
-- iOS / watchOS 完整验收使用真机，日常 UI 复验可用 iOS 模拟器；包级逻辑测试使用 macOS 原生宿主，Catalyst 行为测试使用 macOS runtime。
+- iOS / watchOS 验收与日常 UI 复验使用真机；包级逻辑测试使用 macOS 原生宿主，Catalyst 行为测试使用 macOS runtime。
 - 测试、静态审计、网络 Smoke 和 iCloud Smoke 按用户明确授权的范围执行。失败修复后重跑受影响的分组。
 - 界面验证使用既有 UI 测试、截图脚本与命令行流程。设备自动化授权由 iOS 管理，系统要求时由用户在设备上输入密码，设备继续保留密码保护。
 - `BIT101-iOSTests/Fixtures/` 和测试 target 内的样例、fixture、校准及人工准备数据属于长期资产，沿用固定路径。清理或改写前确认来源、用途和恢复方式，并取得用户明确同意。
 
 ## 脚本入口
 
-脚本按完整工作流组织，公共设备选择与日志处理集中在 `Scripts/script-support.sh`。入口数量保持精简，同一工作流通过参数选择操作；优化以执行耗时、重复调用和终端信息价值为依据。主工作流及 Cloudflare 发布脚本合计 14 个文件；本机静态审计基线为 64.15 秒，复用索引器并缓存路径判断后的后续运行约 20 秒。
+脚本按完整工作流组织，公共设备选择与日志处理集中在 `Scripts/script-support.sh`。入口数量保持精简，同一工作流通过参数选择操作；优化以执行耗时、重复调用和终端信息价值为依据。静态审计复用索引器并缓存路径判断。
 
 | 工作流 | 入口 |
 | --- | --- |
@@ -22,7 +22,7 @@
 | iCloud 双向验证、报告与恢复 | `Scripts/run_icloud_cross_device_smoke.sh` |
 | Issues、CI 失败与反馈报告管理 | `Scripts/fetch-issues-and-reports.sh` |
 
-输出处理器验收覆盖 1000 / 1001 行、完整留档、信号退出状态及执行期间改写源码的故障注入。报告列表实际读取 29 条，终端直接展示可读内容。测试计数与 Smoke 实测结果见下方集成验证记录；UI 结果通过 `Scripts/run-extended-tests.sh --report` 汇总，结果包沿用固定路径。
+输出处理器验收覆盖 1000 / 1001 行、完整留档、信号退出状态及执行期间改写源码的故障注入。测试结果保存在既有固定日志与结果包中；UI 结果通过 `Scripts/run-extended-tests.sh --report` 汇总。
 
 构建、测试、Smoke 和报告管理入口均提供 `--help`。质量、UI、模块边界、文档新鲜度与版本检查器保留独立入口，便于针对单项问题执行；统一审计通过共享 SwiftSyntax 索引执行质量与 UI 检查，并输出解释文案审查候选。地图 fixture 生成使用 `Scripts/generate_campus_map_fixture.py <教务导出.xlsx>`，沿用既有人工审核和固定数据路径约定。
 
@@ -109,15 +109,9 @@ Scripts/run-extended-tests.sh icloud-smoke --build-only --generic
 
 `BIT101-iOSUITests` 使用 `BIT101-iOS-UIAutomation` Release scheme 和真机宿主。`BIT101_UI_TESTING` 构建隔离 Keychain、偏好、账号文件和媒体缓存，使用合成会话及离线服务。测试文件归 App 内固定的 `Application Support/BIT101-UITests/` 根目录，系统日历与提醒动作使用内存端口，偏好云同步使用内存云存储。正式 App 由生产组装入口启动。UI 宿主在前台保持屏幕常亮。测试默认关闭 UIKit 动画；连续编辑、短信重试、媒体预览和多层弹窗场景启用系统动画，验证导航与输入生命周期。
 
-日常 UI 复验可用 `Scripts/run-extended-tests.sh ui --simulator`，自动选择已启动或可用的 iPhone 模拟器；末尾可指定模拟器 ID，`--only-testing` 与 `--build-only` 使用相同规则。通用模拟器编译使用 `ui --simulator --build-only --generic`。模拟器流程复用固定测试产物目录和隔离服务。真机完整验收使用默认 `ui` 流程，分别记录两种设备的结果和耗时。
+日常 UI 复验使用 `Scripts/run-extended-tests.sh ui`，通过重复的 `--only-testing` 参数合并受影响流程；通用 iOS 编译使用 `ui --build-only --generic`。57 项通过 `UIAutomationTestCase` 串行复用一个 App 进程，每次场景配置校验进程 ID。筛选参数使用声明方法的类名，完整参数见交互覆盖表。
 
-57 项分为 `LoginAndScheduleUITests` 和 `InteractionCoverageUITests` 两个类，通过 `UIAutomationTestCase` 共用操作助手。两个平台均串行复用一个 App 进程，每次配置校验进程 ID。真机测试前关闭项目创建的 `BIT101 UI iPhone` 模拟器，释放本机资源。筛选参数使用声明该方法的类名，完整参数见交互覆盖表。
-
-UI 模拟器测试使用本地临时签名，使隔离 Keychain 会话正常读写；行为测试模拟器和通用 SDK 编译关闭签名。行为测试模拟器使用单实例。
-
-行为测试可使用 `Scripts/run-extended-tests.sh default --simulator --only-testing 测试类`；UI 与行为验证共用固定产物目录和执行锁。
-
-缺少运行时时，添加 `--install-simulator-runtime` 使用 Xcode 官方方式持久安装；已有可用运行时且缺少 iPhone 实例时，脚本创建固定名称的 `BIT101 UI iPhone`。
+真机运行期间保持 BIT101 前台并暂停手动操作。场景切换时，后台 App 通过 `activate()` 返回前台，并继续校验原进程 ID。第三方输入法可能提供键盘画面而缺少 XCTest 键盘元素；输入助手通过系统“下一个键盘”按钮切换到原生键盘，再执行输入与完整字段值断言。
 
 UI 用例按页面组合连续交互，每项独立重置隔离数据；持久化场景重新创建模型和根视图，从文件与偏好重新读取。测试 App 与 Runner 通过 TransportCore 内测试专用的 `127.0.0.1:19101` 通道更新夹具配置，全部场景保持同一 App 进程。测试 App 使用简体中文和中国地区，系统控件文案与日期格式保持一致。覆盖目标包括每个点击、滑动和输入入口，并验证交互后的业务状态。当前定义 57 项用例，承接原有 76 组交互，逐项映射和运行验收状态见 [UI 交互覆盖](UI_INTERACTION_COVERAGE.md)：
 
@@ -145,15 +139,15 @@ Scripts/run-extended-tests.sh ui \
   --only-testing LoginAndScheduleUITests/testDDLEmptyStateExplainsTheRetentionWindow
 ```
 
-快速开发时，将本次改动涉及的场景合并到一次模拟器调用。例如日期编辑的两项复验，耗时以该批次的 `test-metrics.txt` 为准：
+快速开发时，将本次改动涉及的场景合并到一次真机调用。例如日期编辑的两项复验，耗时以该批次的 `test-metrics.txt` 为准：
 
 ```sh
-Scripts/run-extended-tests.sh ui --simulator \
+Scripts/run-extended-tests.sh ui \
   --only-testing InteractionCoverageUITests/testCustomScheduleEmptyTitleDetailsAndCalendarActions \
   --only-testing InteractionCoverageUITests/testDDLEditorDetailsDatePickerValidationAndCancelEditing
 ```
 
-完整交互验收执行 `Scripts/run-extended-tests.sh ui --simulator`。优化前的 8 GB Mac / iOS 27 模拟器完整 76 项为 76/76 通过，构建与运行 1,783 秒；本轮将相同交互组合并为 57 项并复用一个 App 进程，57/57 通过，构建与运行 955 秒，减少约 46.4%；5 分钟目标仍未达到。当前运行证据、耗时对比和平台专项范围见 [UI 交互覆盖](UI_INTERACTION_COVERAGE.md)。
+完整交互验收执行 `Scripts/run-extended-tests.sh ui`。用例与控件映射、平台专项范围见 [UI 交互覆盖](UI_INTERACTION_COVERAGE.md)；运行结果与耗时保存在固定日志和 `test-metrics.txt` 中。
 
 稳定的 `accessibilityIdentifier` 用于字段、编辑入口和共用搜索排序菜单（`search.sort`）定位；主 Tab 使用实际标签栏内的按钮名称。点击使用可重新解析的按钮查询与系统可点击状态；滚动从页面主列表边缘开始，横向标签列表依据高度排除。失败的元素树和截图保存在既有 `.xcresult`，状态等待失败同样采集附件。
 
@@ -175,7 +169,7 @@ Scripts/run-extended-tests.sh --report 'LoginAndScheduleUITests/testPaperPublish
 Scripts/run-extended-tests.sh --report --diagnostics
 ```
 
-单项元素树覆盖写入 `.build/extended-automation/failure-hierarchy.txt`，便于编辑器检索；失败截图覆盖写入 `.build/screenshot.png`。`--activities` 展示最近 30 条操作和失败记录；`--diagnostics` 将 Runner、App 和设备诊断日志覆盖导出到 `.build/extended-automation/diagnostics/`。
+单项元素树覆盖写入 `.build/extended-automation/failure-hierarchy.txt`，便于编辑器检索；失败截图覆盖写入 `.build/screenshot.png`。`--activities` 展示最近 30 条操作和失败记录；`--diagnostics` 将完整诊断临时导出到固定 `.build/extended-automation/diagnostics/`，排查结束后清理。UI 指标统计提取 Runner 标准输出并追加到固定 `ui-tests.log`，处理结束即删除诊断副本；下一次测试清理诊断导出目录。
 
 交互列表的左侧标题由 SwiftSyntax 审计检查公共主题色或警示色修饰器、标题组件及样式覆盖；UI 回归裁切“时间轴”的实际字形，检查彩色像素，覆盖源码规则和真实渲染两个层面。
 
@@ -212,26 +206,6 @@ DDL 范围覆盖社区登录、课程中心原生认证、课程中心作业读�
 
 课程中心接口参考 [Android PR #24](https://github.com/BIT101-dev/BIT101-Android/pull/24) 与[全课程分页提案](https://github.com/Star2121-1/BIT101-Android/pull/1)。`ModuleTests/Transport/EclassDDLTests.swift` 覆盖分页、作业字段、时间格式、并发、原生会话恢复、取消及生产服务到持久化的完整链路；`ModuleTests/Schedule/EclassDDLSyncTests.swift` 覆盖完成状态、部分失败、账号状态和过期窗口；`ModuleTests/Sync/ScheduleSyncTests.swift` 验证学校正文与完成状态的云同步边界。
 
-### 检查器与 Smoke 集成验证记录
-
-2026-10-01 至 2026-10-02 的集成验证结果：
-
-| 验证 | 结果与证据 |
-| --- | --- |
-| 包级测试 | 157 项通过；七个消费者 target 的完整执行记录见 `module-tests.log` |
-| 模块生产源码覆盖率 | 25 个模块，6522 / 17085 行，38.17%；汇总七个消费者的覆盖率对象 |
-| iPhone 完整行为 | 245 项通过，失败与跳过均为 0；App 宿主行覆盖率 31.82% |
-| Catalyst 完整行为 | 245 项通过，失败与跳过均为 0；固定结果包成功保存 |
-| UI 交互 | 35 项全部通过，失败与跳过均为 0；UI 分组 788 秒，用例耗时合计 741 秒；App 宿主行覆盖率 39.78% |
-| 真机完整网络 Smoke | 50 项必需探针通过；失败、认证受阻、覆盖缺口和跳过均为 0 |
-| iCloud 双向 Smoke | 真机发布、Catalyst 接收及发布、真机回收三个阶段均通过；独立清理验证通过 |
-| CI 编译条件 | 正式 Release、UI、网络 Smoke、iCloud Smoke 四种通用 iOS 测试宿主编译通过 |
-| 静态审计 | 10 组通过，耗时 17 秒；覆盖语法、模块依赖、UI 规范、工程配置、文档及固定产物 |
-| 恢复故障注入 | Smoke、聚合验证及 UI 流程覆盖函数内部失败、恢复失败与中断；验证恢复次数、顺序和原始状态码 |
-| 日程交互回归 | 线性时间轴缩放与滚动、空白区长按菜单、自定义日程编辑及删除三项通过；课程编辑及详情用例通过 |
-
-真实课程中心探针读取 48 门课程、1 项作业和 1 个有效截止时间，账号缓存包含对应课程中心事件。账号当前滞留窗口为 30 天，窗口内数量为 1。空列表提示显示缓存数量与当前滞留天数，便于用户调整设置。真机网络报告保存具体截止时间与窗口计数。
-
 模块测试使用受控响应验证未来作业经过生产服务、ViewModel、账号仓库、编码解码和重新加载后的显示与完成状态；真机 UI 使用隔离缓存验证实际交互。模块行覆盖率以 macOS 原生可执行源码为分母，App 与 UI 宿主分别采集覆盖率。学校短信分支通过共享 challenge 和原生会话测试验证，真实网络探针采用 preflight 模式。真实短信输入、系统权限、Widget / Watch 界面及真实照片选择由专项真机流程承接。
 
 iCloud 双向验证要求 iPhone 与 Catalyst 使用同一 Apple ID，手机处于解锁状态、已登录 BIT101 账号并保存成绩缓存：
@@ -252,6 +226,7 @@ Scripts/run_icloud_cross_device_smoke.sh --cleanup
 
 | 类别 | 固定路径 |
 | --- | --- |
+| 共享 SDK、模块与 SDK 状态缓存 | `.build/compiler-cache/` |
 | 测试构建、结果与日志 | `.build/extended-automation/`，结果包 `test-results.xcresult` |
 | 测试指标 | `.build/extended-automation/test-metrics.txt` |
 | 包级测试日志 | `.build/extended-automation/module-tests.log` |
@@ -259,7 +234,10 @@ Scripts/run_icloud_cross_device_smoke.sh --cleanup
 | 网络 Smoke | `.build/release-network-smoke/report/release-network-smoke.json` |
 | iCloud Smoke | `.build/icloud-cross-device-smoke/`，阶段报告 `report.json` |
 
-同类产物覆盖既有路径，文件名使用稳定类别名。终端直接展示测试汇总、审查候选与失败诊断，过滤重复进度、空章节和例行通过信息。整理后的输出在 1000 行以内时完整展示，超过阈值时提示固定文件位置。完整日志和报告覆盖既有路径。
+同类产物覆盖既有路径，文件名使用稳定类别名。公共构建入口串行迁移及复用 SDK 缓存，各宿主的缓存目录链接到 `.build/compiler-cache/`，保留必要的增量中间文件。`Scripts/run-extended-tests.sh --cache-maintenance` 清理诊断残留及模拟器编译产物，并在依赖清单完整时清理未引用的 SDK 预编译模块；隐式模块缓存继续保留。文件内容和修改时间保持一致，日常构建直接复用热缓存。静态审计递归核对共享缓存链接及诊断残留，缓存自测覆盖合并、较新模块保留、重复整理、依赖引用、模块内容完整性和真机产物保留。终端直接展示测试汇总、审查候选与失败诊断，过滤重复进度、空章节和例行通过信息。整理后的输出在 1000 行以内时完整展示，超过阈值时提示固定文件位置。完整日志和报告覆盖既有路径。
+
+缓存与诊断保持原始文件形式。
+
 完整测试输出写入对应固定日志，终端显示汇总和失败摘要；模块日志保留 Swift Testing 的 suite、用例及参数执行记录。模块测试汇总七个消费者二进制，采集逐模块生产源码行覆盖率，真机测试采集逐 target 行覆盖率，指标固定覆盖 `test-metrics.txt`。模块覆盖率统计 macOS 宿主编译的可执行源码，iOS 界面由真机行为与 UI 用例补充。覆盖率采集异常进入失败状态；Catalyst 使用 runtime 提供的测试汇总。
 测试入口通过 `.build/extended-automation.lock` 串行使用固定产物目录，聚合验证内的分组继承同一次执行锁和设备快照，结束时统一恢复常规 App。聚合验证与独立 UI 流程的恢复钩子覆盖函数内部错误和执行中断，并保留原始失败状态码。编译宿主时保留既有测试结果包、指标和运行日志，编译日志使用固定 `<分组>-build.log`。长流程从入口读取完整脚本到内存后执行，加锁等待结束时读取当前版本，保证执行期间的文件编辑与当前流程各自稳定。SwiftSyntax 索引器在 `.build/static-audit/` 编译并复用，源码或工具链变化时覆盖重编译，编译与调用共用文件锁。
 

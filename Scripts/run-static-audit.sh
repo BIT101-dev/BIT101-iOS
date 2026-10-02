@@ -124,6 +124,7 @@ module_boundary_audit() { python3 "$ROOT_DIR/Scripts/check-module-boundaries.py"
 artifact_hygiene() {
   python3 - "$ROOT_DIR" <<'PY'
 from pathlib import Path
+import fcntl
 import sys
 
 root = Path(sys.argv[1])
@@ -137,16 +138,12 @@ allowed_root_files = {
 }
 allowed_dirs = {
     "build/DeviceInstall",
-    "build/Tests",
-    "build/CI",
-    "build/DeviceReview",
-    "build/UpdatePromptTest",
+    ".build/compiler-cache",
     ".build/static-audit",
     ".build/extended-automation",
     ".build/icloud-cross-device-smoke",
     ".build/release-" + "network-smoke",
     ".build/issue-report-inbox",
-    ".build/ui-authorization.logarchive",
 }
 violations = []
 for parent in (root / "build", root / ".build"):
@@ -161,6 +158,23 @@ for parent in (root / "build", root / ".build"):
                 violations.append(f"{relative}: 根目录产物必须使用固定类别文件名")
         elif relative not in allowed_dirs:
             violations.append(f"{relative}: 同类产物不得创建第二个平行目录")
+shared = root / ".build/compiler-cache"
+for name in ("SDKExplicitPrecompiledModules", "ModuleCache.noindex", "SDKStatCaches.noindex"):
+    for parent in (root / ".build", root / "build"):
+        if parent.is_dir():
+            for cache in parent.rglob(name):
+                if cache == shared / name:
+                    continue
+                if not cache.is_symlink() or cache.resolve() != (shared / name).resolve():
+                    violations.append(f"{cache.relative_to(root)}: 公共编译缓存应链接到唯一共享目录")
+with (root / ".build/extended-automation.lock").open("a") as lock:
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        pass
+    else:
+        if (root / ".build/extended-automation/diagnostics").exists():
+            violations.append(".build/extended-automation/diagnostics: 诊断处理完成后应清除导出副本")
 if violations:
     print("[失败] 产物目录不符合固定路径规则：")
     print("\n".join(violations))

@@ -4,7 +4,7 @@
 
 用户要求 UI 自动化覆盖每一个可点击、可滑动和可交互部位。维护范围按控件与操作语义清点：点击、文本输入与键盘提交、选择与开关、列表滚动与下拉刷新、分区横滑、课表周次拖动、长按菜单、双指缩放、Sheet 下滑关闭，以及确认、取消、成功、失败和重试分支。日期、周次、评分等值域由控件类型与业务状态断言承接。
 
-用例分布在 [日程与社区流程](../BIT101-iOSUITests/LoginAndScheduleUITests.swift) 和 [综合交互流程](../BIT101-iOSUITests/InteractionCoverageUITests.swift)，共 57 项：`LoginAndScheduleUITests` 22 项、`InteractionCoverageUITests` 35 项，共用 `UIAutomationTestCase`。完整批次顺序执行并复用一个 App 进程；每次场景切换与存储重新读取都校验同一进程 ID。原有 76 组交互通过合并同页操作复用创建、导航和编辑过程，下表保留逐控件与业务分支的映射；同一流程可以对应多行。用户要求完整交互回归尽量在 5 分钟内完成，耗时依据真机及模拟器实测记录。
+用例分布在 [日程与社区流程](../BIT101-iOSUITests/LoginAndScheduleUITests.swift) 和 [综合交互流程](../BIT101-iOSUITests/InteractionCoverageUITests.swift)，共 57 项：`LoginAndScheduleUITests` 22 项、`InteractionCoverageUITests` 35 项，共用 `UIAutomationTestCase`。完整批次顺序执行并复用一个 App 进程；每次场景切换与存储重新读取都校验同一进程 ID。同页操作复用创建、导航和编辑过程，下表保留逐控件与业务分支的映射；同一流程可以对应多行。完整交互回归以 5 分钟内完成为优化目标，耗时从真机运行的固定指标文件读取。
 
 ## 日程、登录和地图
 
@@ -120,24 +120,23 @@
 
 真机专项范围包括照片库真实选择与读取、系统日历 / 通知授权与实际日历写入、浏览器 / 邮件 / App Store 的系统交接、网页自身交互、Widget 与 Watch 界面。上述范围需要对应设备、系统权限和专项运行证据。
 
-## 当前验证状态
+## 执行流程
 
-优化前，2026-10-02 的 8 GB Mac / iOS 27 模拟器完整 76 项为 76/76 通过，构建与运行 1,783 秒，用例耗时合计 1,713 秒。原有交互组已按页面合并为 57 项，保持控件和业务分支映射；`Scripts/check-ui-consistency.py` 校验全部可执行方法与覆盖表一致。
-
-本轮完整 57 项模拟器回归为 57/57 通过，失败 0、跳过 0；构建与运行 955 秒（15 分 55 秒），用例合计 891.8 秒。相比同平台优化前的 1,783 秒减少 828 秒，约 46.4%；5 分钟目标仍未达到。整批 App 启动 1 次，进程 ID 为 8243，记录 1,160 次系统操作：989 次点击、89 次输入、27 次滑动、52 次按住 / 拖动、3 次缩放。复验确认清缓存后的卡片、正文、评论、头像和可信成绩单预览，帖子编辑后的列表同步，以及全部合并流程。完整结果由固定 `test-results.xcresult`、`test-metrics.txt` 与 `diagnostics/` 保存。诊断日志采集到 988 次可计时点击，中位数为 0.37 秒，点击自身累计 385.7 秒；该测量包含点击的解析及触摸合成，反映当前 XCTest 执行方式的成本。
-
-独立验证：157 项模块测试通过；UI Release 测试宿主通用 iOS 编译通过；10 组静态审计通过，57 个方法与覆盖表一致；真机 40 项 App 行为测试通过，包括媒体字节 / 解码、清缓存后持续读写与预览准备、依赖组装、建议草稿、云偏好、登录恢复和本地清理归属。真机 UI Runner 已实际尝试两次，设备通过无线连接且已解锁；iOS 显示“为 XCTest 输入 iPhone 密码 / Enable UI Automation”，初始化等待手机端系统验证，实际 UI 用例执行数为 0。测试后常规 Release App 重新编译通过（59 秒），已安装并在真机启动。
+`Scripts/check-ui-consistency.py` 校验全部可执行方法与覆盖表一致。测试结果、耗时和设备状态保存在固定日志与结果包中。
 
 完整批次串行复用一个 App 进程，每次配置和持久化重新读取都验证同一进程 ID。场景通过测试专用的本机通道更新，重新创建页面及模型，夹具修改按场景清空；各项维持独立的隔离数据重置。UIKit 过渡动画在 UI 宿主加速，手势保留标准 XCTest 实现。取消、保存、重试及全部业务断言继续执行；失败保留截图和元素树。异步错误与成功提示等待预期标题出现，出现、消失和数值变化先检查当前状态。按钮查询先判断存在，避免复合标签的自动查找重试；时间滚轮采用快速短距离拖动、停留释放及原值恢复，图表拖动保留必要的按住时间。
 
 快速开发可将受影响用例通过重复的 `--only-testing` 参数合并到同一次调用；完整验收运行整个 UI 组。真机批次结束后恢复常规 Release App。
 
+照片选择器等待“照片”控件出现后点击顶层取消并确认关闭；返回操作选择当前可交互导航栏。空白多行字段点击首行后输入，短信验证码提交先收起键盘。
+
+真机输入助手在第三方输入法缺少 XCTest 键盘元素时点击系统“下一个键盘”，等待原生键盘后输入并核对完整字段值。场景切换遇到 App 位于后台时激活原进程；运行期间保持 BIT101 前台并暂停手动操作。
+
 ```sh
-Scripts/run-extended-tests.sh ui --simulator
+Scripts/run-extended-tests.sh ui
 Scripts/run-extended-tests.sh --report
 Scripts/run-extended-tests.sh ui --build-only --generic
 Scripts/run-static-audit.sh
-Scripts/run-extended-tests.sh ui
 ```
 
-完整验收要求全部 57 项实际执行并通过。报告记录构建与运行耗时、用例耗时合计、最慢十项、App 启动次数、进程 ID 和系统交互动作。编译使用 `ui-tests-build.log`，运行使用 `ui-tests.log`，结果使用固定 `test-results.xcresult`、`test-metrics.txt` 和 `diagnostics/`；真机初始化阻塞与实际用例失败分别记录。
+完整验收要求全部 57 项实际执行并通过。报告记录构建与运行耗时、用例耗时合计、最慢十项、App 启动次数、进程 ID 和系统交互动作。编译使用 `ui-tests-build.log`，运行使用 `ui-tests.log`，结果使用固定 `test-results.xcresult`、`test-metrics.txt` 和按需导出的 `diagnostics/`；真机初始化阻塞与实际用例失败分别记录。

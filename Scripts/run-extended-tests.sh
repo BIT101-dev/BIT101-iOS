@@ -8,6 +8,10 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT="$ROOT_DIR/BIT101-iOS.xcodeproj"
 source "$ROOT_DIR/Scripts/script-support.sh"
 DERIVED_ROOT="$ROOT_DIR/.build/extended-automation"
+if [[ "${1:-}" == --cache-maintenance ]]; then
+  bit101_build_cache --maintenance
+  exit 0
+fi
 if [[ "${1:-}" == "--report" ]]; then
   python3 - "$DERIVED_ROOT/test-results.xcresult" "${2:-}" "${3:-}" <<'PY'
 import json
@@ -96,11 +100,10 @@ PY
 fi
 if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
   echo "用法：Scripts/run-extended-tests.sh [all|default|modules|schedule|schedule-share|infrastructure|login|extensions|ui|catalyst|release|network-smoke|icloud-smoke] [--build-only] [--generic] [--clean-build] [--only-testing 测试类/方法]... [真机设备ID]"
-  echo "模拟器：Scripts/run-extended-tests.sh [ui|default] --simulator [--build-only] [--only-testing 测试类/方法]... [模拟器ID]"
-  echo "运行时安装：UI 模拟器流程添加 --install-simulator-runtime，使用 Xcode 官方安装。"
   echo "聚合：Scripts/run-extended-tests.sh verify [modules|all|catalyst|ui|network|ddl|icloud|audit]... [--ui-test 测试类/方法]..."
   echo "报告：Scripts/run-extended-tests.sh --report [测试类/方法()] [--screenshot|--activities]"
   echo "诊断：Scripts/run-extended-tests.sh --report --diagnostics"
+  echo "缓存整理：Scripts/run-extended-tests.sh --cache-maintenance"
   exit 0
 fi
 SCRIPT_PATH="$0"
@@ -139,8 +142,6 @@ TEST_SELECTIONS=()
 BUILD_ONLY=false
 CLEAN_BUILD=false
 GENERIC_BUILD=false
-USE_SIMULATOR=false
-INSTALL_SIMULATOR_RUNTIME=false
 TEST_DURATION_SECONDS=0
 
 MODE="all"
@@ -251,8 +252,6 @@ while (( $# > 0 )); do
   case "$1" in
     --build-only) BUILD_ONLY=true; shift ;;
     --generic) GENERIC_BUILD=true; shift ;;
-    --simulator) USE_SIMULATOR=true; shift ;;
-    --install-simulator-runtime) USE_SIMULATOR=true; INSTALL_SIMULATOR_RUNTIME=true; shift ;;
     --clean-build) CLEAN_BUILD=true; shift ;;
     --only-testing)
       if [[ $# -lt 2 || -z "$2" || "$2" == --* ]]; then
@@ -262,15 +261,10 @@ while (( $# > 0 )); do
       TEST_SELECTIONS+=("$2")
       shift 2
       ;;
-    --*) echo "测试选项：--build-only、--generic、--simulator、--clean-build、--only-testing 测试类/方法" >&2; exit 64 ;;
+    --*) echo "测试选项：--build-only、--generic、--clean-build、--only-testing 测试类/方法" >&2; exit 64 ;;
     *) break ;;
   esac
 done
-
-if $USE_SIMULATOR && [[ ( "$MODE" != ui && "$MODE" != default ) || $# -gt 1 || ( "$INSTALL_SIMULATOR_RUNTIME" == true && "$GENERIC_BUILD" == true ) ]]; then
-  echo "模拟器使用 ui|default --simulator [--build-only] [--only-testing 测试类/方法]... [模拟器ID]。" >&2
-  exit 64
-fi
 
 if $GENERIC_BUILD; then
   if ! $BUILD_ONLY || [[ $# -gt 0 || "$MODE" == modules || "$MODE" == catalyst ]]; then
@@ -297,54 +291,7 @@ if [[ "$MODE" == "modules" ]]; then
 elif $GENERIC_BUILD; then
   acquire_test_lock
   TEST_DESTINATION="generic/platform=iOS"
-  if $USE_SIMULATOR; then TEST_DESTINATION="generic/platform=iOS Simulator"; fi
   SIGNING_ARGS=(CODE_SIGNING_ALLOWED=NO)
-elif $USE_SIMULATOR; then
-  acquire_test_lock
-  defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
-  if $INSTALL_SIMULATOR_RUNTIME; then
-    bit101_run_logged "$DERIVED_ROOT/simulator-runtime.log" "iOS 模拟器运行时安装" \
-      xcodebuild -downloadPlatform iOS
-  fi
-  simulator_id="$(python3 - "${1:-}" <<'PY'
-import json
-import subprocess
-import sys
-
-devices = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "--json"], text=True))
-available = [device for runtime, entries in devices["devices"].items() if ".iOS-" in runtime
-             for device in entries if device.get("isAvailable") and
-             (device["name"].startswith("iPhone") or device["name"] == "BIT101 UI iPhone" or device["udid"] == sys.argv[1])]
-requested = sys.argv[1]
-if not available and not requested:
-    runtimes = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "runtimes", "--json"], text=True))
-    runtimes = [runtime for runtime in runtimes["runtimes"] if runtime.get("isAvailable") and ".iOS-" in runtime["identifier"]]
-    if runtimes:
-        runtime = max(runtimes, key=lambda item: tuple(int(part) for part in item["version"].split(".")))
-        identifier = subprocess.check_output(["xcrun", "simctl", "create", "BIT101 UI iPhone",
-                                             "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro-Max",
-                                             runtime["identifier"]], text=True).strip()
-        available = [{"udid": identifier, "state": "Shutdown"}]
-if requested:
-    available = [device for device in available if device["udid"] == requested]
-else:
-    available.sort(key=lambda device: device["state"] != "Booted")
-if not available:
-    raise SystemExit("请确认模拟器 ID，或使用 ui --simulator --install-simulator-runtime 安装 iOS 运行时。")
-print(available[0]["udid"])
-PY
-  )"
-  if ! $BUILD_ONLY; then
-    mkdir -p "$DERIVED_ROOT"
-    if ! xcrun simctl bootstatus "$simulator_id" -b > "$DERIVED_ROOT/simulator-boot.log" 2>&1; then
-      cat "$DERIVED_ROOT/simulator-boot.log" >&2
-      exit 1
-    fi
-  fi
-  TEST_DESTINATION="platform=iOS Simulator,id=$simulator_id"
-  SIGNING_ARGS=(CODE_SIGNING_ALLOWED=NO)
-  if [[ "$MODE" == ui ]]; then SIGNING_ARGS=(CODE_SIGN_IDENTITY=-); fi
-  echo "测试目标：iOS 模拟器 · $simulator_id"
 elif [[ "$MODE" == "catalyst" ]]; then
   if [[ $# -gt 0 ]]; then
     echo "用法：Scripts/run-extended-tests.sh catalyst" >&2
@@ -364,24 +311,12 @@ else
   fi
   acquire_test_lock
   bit101_require_device "${1:-}" || exit 1
-  if [[ "$MODE" == ui && "$BUILD_ONLY" == false ]]; then
-    python3 - <<'PY'
-import json
-import subprocess
-
-devices = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "--json"], text=True))
-for entries in devices["devices"].values():
-    for device in entries:
-        if device["name"] == "BIT101 UI iPhone" and device["state"] == "Booted":
-            subprocess.run(["xcrun", "simctl", "shutdown", device["udid"]], check=True)
-PY
-  fi
   TEST_DESTINATION="platform=iOS,id=$BIT101_XCODE_DEVICE_ID"
   SIGNING_ARGS=(-allowProvisioningUpdates)
   UI_RESTORE_DEVICE_ID="$BIT101_XCODE_DEVICE_ID"
 fi
 
-if [[ "$MODE" == "ui" && "$BUILD_ONLY" == false && "$USE_SIMULATOR" == false && "${BIT101_DEFER_APP_RESTORE:-0}" != "1" ]]; then
+if [[ "$MODE" == "ui" && "$BUILD_ONLY" == false && "${BIT101_DEFER_APP_RESTORE:-0}" != "1" ]]; then
   restore_release_app() {
     local test_exit_code=$?
     trap - EXIT ZERR INT TERM
@@ -403,6 +338,7 @@ fi
 mkdir -p "$DERIVED_ROOT"
 if ! $BUILD_ONLY; then
   if [[ "$MODE" != "modules" ]]; then rm -rf "$RESULT_BUNDLE"; fi
+  rm -rf "$DERIVED_ROOT/diagnostics"
   rm -f "$DERIVED_ROOT/test-metrics.txt" "$DERIVED_ROOT/test-failures.txt"
 fi
 
@@ -482,9 +418,6 @@ run_tests() {
   local test_action=test
   local execution_args=()
   local coverage_args=(-enableCodeCoverage YES ENABLE_CODE_COVERAGE=YES)
-  if $USE_SIMULATOR && [[ "$MODE" != ui ]]; then
-    execution_args+=(-parallel-testing-enabled NO)
-  fi
   if $BUILD_ONLY; then
     log="$DERIVED_ROOT/$group-build.log"
     test_action=build-for-testing
@@ -618,10 +551,15 @@ if coverage is None:
         lines.append("交互覆盖依据 docs/UI_INTERACTION_COVERAGE.md；复用同一 App 进程，独立重置场景数据并验证业务结果。")
         diagnostics = Path(report_path).parent / "diagnostics"
         shutil.rmtree(diagnostics, ignore_errors=True)
-        subprocess.run(["xcrun", "xcresulttool", "export", "diagnostics", "--path", result_bundle,
-                        "--output-path", str(diagnostics)], check=True, stdout=subprocess.DEVNULL)
-        output = "\n".join(path.read_text(errors="replace") for path in
-                           diagnostics.rglob("StandardOutputAndStandardError.txt"))
+        try:
+            subprocess.run(["xcrun", "xcresulttool", "export", "diagnostics", "--path", result_bundle,
+                            "--output-path", str(diagnostics)], check=True, stdout=subprocess.DEVNULL)
+            output = "\n".join(path.read_text(errors="replace") for path in
+                               diagnostics.rglob("StandardOutputAndStandardError.txt"))
+            with (Path(report_path).parent / "ui-tests.log").open("a") as log:
+                log.write("\n" + output)
+        finally:
+            shutil.rmtree(diagnostics, ignore_errors=True)
         launches = len(re.findall(r"\bt =\s*[\d.]+s\s+Launch BIT101-dev\.BIT101-iOS\b", output))
         processes = sorted(set(re.findall(r"UI automation App process: (\d+)", output)))
         lines.append(f"App 启动次数：{launches}；App 进程：{', '.join(processes) or '未采集'}")

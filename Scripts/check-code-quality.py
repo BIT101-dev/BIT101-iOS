@@ -993,6 +993,77 @@ def script_output_boundary_findings() -> list[str]:
             findings.append("脚本快照自测：执行期间改写源码影响既有流程")
     finally:
         fixture.unlink(missing_ok=True)
+    findings.extend(build_cache_boundary_findings())
+    return findings
+
+
+def build_cache_boundary_findings() -> list[str]:
+    "验证缓存合并、热文件保留、链接复用和清理边界。"
+    from contextlib import redirect_stdout
+    from io import StringIO
+    import os
+    import shutil
+    from unittest.mock import patch
+
+    source = (SCRIPT_ROOT / "script-support.sh").read_text()
+    function = source.split("bit101_build_cache() {", 1)[1].split("\n}\n", 1)[0]
+    block = re.search(r"<<'PY'\n(.*?)^PY$", function, re.MULTILINE | re.DOTALL)
+    fixture = ROOT / ".build/static-audit/cache-self-test"
+    findings: list[str] = []
+    try:
+        shared = fixture / ".build/compiler-cache/ModuleCache.noindex"
+        old = fixture / ".build/extended-automation/ModuleCache.noindex"
+        shared.mkdir(parents=True, exist_ok=True)
+        old.mkdir(parents=True, exist_ok=True)
+        (shared / "warm").write_text("retain warm module")
+        (old / "warm").write_text("old module")
+        os.utime(old / "warm", ns=(1, 1))
+        (old / "unique").write_text("preserve unique module")
+        module = old / "module.pcm"
+        content = b"compiled module fixture\n" * 4096
+        module.write_bytes(content)
+        modified = module.stat().st_mtime_ns
+        obsolete = fixture / ".build/ui-authorization.logarchive"
+        obsolete.mkdir()
+        diagnostics = fixture / ".build/extended-automation/diagnostics"
+        diagnostics.mkdir()
+        products = fixture / ".build/extended-automation/Build/Products"
+        for platform in ("Release-iphoneos", "Release-iphonesimulator"):
+            (products / platform).mkdir(parents=True)
+            (products / platform / "product").write_text(platform)
+        result = fixture / ".build/extended-automation/test-results.xcresult"
+        result.mkdir()
+        (result / "evidence").write_text("retain result")
+        sdk = fixture / ".build/extended-automation/SDKExplicitPrecompiledModules"
+        sdk.mkdir()
+        (sdk / "referenced.pcm").write_bytes(content)
+        (sdk / "unused.pcm").write_bytes(content)
+        dependencies = products.parent / "Intermediates.noindex/fixture-dependencies.json"
+        dependencies.parent.mkdir()
+        dependencies.write_text(json.dumps([{"clangModulePath": str(sdk / "referenced.pcm")}]))
+        for _ in range(2):
+            with patch.object(sys, "argv", ["cache", str(fixture), "--maintenance"]), redirect_stdout(StringIO()):
+                exec(compile(block[1], "cache-self-test", "exec"), {})
+        if not old.is_symlink() or old.resolve() != shared.resolve():
+            findings.append("缓存自测：同类缓存目录共享")
+        if (old / "warm").read_text() != "retain warm module" or (old / "unique").read_text() != "preserve unique module":
+            findings.append("缓存自测：保留热模块及唯一模块")
+        if module.read_bytes() != content or module.stat().st_mtime_ns != modified:
+            findings.append("缓存自测：合并保留内容和修改时间")
+        if obsolete.exists() or diagnostics.exists() or (products / "Release-iphonesimulator").exists():
+            findings.append("缓存自测：清理诊断与失效平台产物")
+        if not (products / "Release-iphoneos/product").is_file() or not (result / "evidence").is_file():
+            findings.append("缓存自测：保留增量构建及测试证据")
+        if not (sdk / "referenced.pcm").is_file() or (sdk / "unused.pcm").exists():
+            findings.append("缓存自测：依赖清单引用模块保留")
+        (sdk / "incomplete-map.pcm").write_bytes(content)
+        dependencies.write_text("{")
+        with patch.object(sys, "argv", ["cache", str(fixture), "--maintenance"]), redirect_stdout(StringIO()):
+            exec(compile(block[1], "cache-self-test", "exec"), {})
+        if not (sdk / "incomplete-map.pcm").is_file():
+            findings.append("缓存自测：依赖清单受损时保留缓存")
+    finally:
+        shutil.rmtree(fixture, ignore_errors=True)
     return findings
 
 

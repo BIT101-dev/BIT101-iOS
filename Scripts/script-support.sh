@@ -2,7 +2,7 @@
 
 # 真机脚本共用设备快照，按有线、无线顺序选择，并提供同一设备的两种标识。
 
-bit101_run_logged() {
+bit101_log_command() {
   local output_path="$1"
   local label="$2"
   shift 2
@@ -66,6 +66,133 @@ state = "失败" if exit_code else "完成"
 print(f"[{state}] {label} · {time.monotonic() - started:.1f} 秒")
 raise SystemExit(exit_code if exit_code >= 0 else 128 - exit_code)
 PY
+}
+
+bit101_build_cache() {
+  python3 - "$ROOT_DIR" "$@" <<'PY'
+import fcntl
+from contextlib import nullcontext
+import os
+import json
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+root = Path(sys.argv[1])
+arguments = sys.argv[2:]
+maintenance = arguments == ["--maintenance"]
+shared = root / ".build/compiler-cache"
+shared.mkdir(parents=True, exist_ok=True)
+cache_names = ("SDKExplicitPrecompiledModules", "ModuleCache.noindex", "SDKStatCaches.noindex")
+derived_roots = [root / name for name in (
+    ".build/extended-automation", "build/DeviceInstall", ".build/release-network-smoke",
+    ".build/icloud-cross-device-smoke/Phone", ".build/icloud-cross-device-smoke/Mac",
+    ".build/extended-automation/out", ".build/static-audit/package-build/out",
+)]
+
+def occupied_kib():
+    paths = [str(root / name) for name in (".build", "build") if (root / name).exists()]
+    return sum(int(line.split()[0]) for line in subprocess.check_output(["du", "-sk", *paths], text=True).splitlines())
+
+def share_cache(source, destination):
+    if source.is_symlink():
+        if source.resolve() != destination.resolve():
+            raise SystemExit(f"缓存链接目标需要核对：{source}")
+        return
+    if source.exists():
+        if not source.is_dir():
+            raise SystemExit(f"编译缓存应为目录：{source}")
+        for directory, children, files in os.walk(source, topdown=False):
+            directory = Path(directory)
+            target = destination / directory.relative_to(source)
+            target.mkdir(parents=True, exist_ok=True)
+            for name in files:
+                original, retained = directory / name, target / name
+                if retained.exists() and retained.stat().st_mtime_ns >= original.stat().st_mtime_ns:
+                    original.unlink()
+                else:
+                    original.replace(retained)
+            for name in children:
+                child = directory / name
+                if child.is_symlink():
+                    raise SystemExit(f"缓存内部链接需要核对：{child}")
+            directory.rmdir()
+    source.symlink_to(destination, target_is_directory=True)
+
+with ((root / ".build/extended-automation.lock").open("a") if maintenance else nullcontext()) as results_lock, \
+        (shared / "cache.lock").open("a") as lock:
+    if results_lock is not None:
+        fcntl.flock(results_lock, fcntl.LOCK_EX)
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    before = occupied_kib() if maintenance else 0
+    if not maintenance:
+        command = arguments[2:]
+        for option in ("-derivedDataPath", "--scratch-path"):
+            if option in command:
+                requested = Path(command[command.index(option) + 1])
+                if requested not in derived_roots:
+                    raise SystemExit(f"构建缓存入口需要登记：{requested}")
+                requested.mkdir(parents=True, exist_ok=True)
+    for name in cache_names:
+        (shared / name).mkdir(exist_ok=True)
+    for derived in derived_roots:
+        if derived.is_dir():
+            for name in cache_names:
+                share_cache(derived / name, shared / name)
+    if maintenance:
+        shutil.rmtree(root / ".build/ui-authorization.logarchive", ignore_errors=True)
+        shutil.rmtree(root / ".build/extended-automation/diagnostics", ignore_errors=True)
+        for derived in derived_roots:
+            for build in (derived / "Build", derived):
+                for parent in (build / "Products", build / "Intermediates.noindex"):
+                    if parent.is_dir():
+                        for path in sorted(parent.rglob("*simulator*"), key=lambda path: len(path.parts), reverse=True):
+                            if path.is_dir() and path.name.endswith(("-iphonesimulator", "-watchsimulator")):
+                                shutil.rmtree(path)
+                            elif path.is_file() and path.suffix == ".xctestrun":
+                                path.unlink()
+            shutil.rmtree(derived / "Logs/Test", ignore_errors=True)
+        referenced = set()
+        maps_complete = True
+        for derived in derived_roots:
+            for source in derived.rglob("*dependencies*.json"):
+                try:
+                    dependency_map = json.loads(source.read_text())
+                except (ValueError, UnicodeError):
+                    maps_complete = False
+                    continue
+                pending = [dependency_map]
+                while pending:
+                    value = pending.pop()
+                    if isinstance(value, dict):
+                        pending.extend(value.values())
+                    elif isinstance(value, list):
+                        pending.extend(value)
+                    elif isinstance(value, str) and value.endswith(".pcm"):
+                        path = Path(value).resolve()
+                        if path.is_relative_to(shared / "SDKExplicitPrecompiledModules"):
+                            referenced.add(path)
+        if maps_complete and referenced:
+            for module in (shared / "SDKExplicitPrecompiledModules").glob("*.pcm"):
+                if module not in referenced:
+                    module.unlink()
+        after = occupied_kib()
+        print(f"缓存整理：{before / 1048576:.2f} → {after / 1048576:.2f} GiB；释放 {(before - after) / 1048576:.2f} GiB")
+    else:
+        result = subprocess.run(["zsh", "-c",
+            'source "$1/Scripts/script-support.sh"; shift; bit101_log_command "$@"',
+            "cache-build", str(root), *arguments])
+        raise SystemExit(result.returncode if result.returncode >= 0 else 128 - result.returncode)
+PY
+}
+
+bit101_run_logged() {
+  if [[ "${3:-}" == xcodebuild || ( "${3:-}" == xcrun && "${4:-}" == swift ) ]]; then
+    bit101_build_cache "$@"
+  else
+    bit101_log_command "$@"
+  fi
 }
 
 bit101_device_snapshot() {
