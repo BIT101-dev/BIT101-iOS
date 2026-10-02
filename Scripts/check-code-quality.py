@@ -995,6 +995,33 @@ def script_output_boundary_findings() -> list[str]:
         fixture.unlink(missing_ok=True)
     findings.extend(build_cache_boundary_findings())
     findings.extend(script_command_boundary_findings())
+    support = (SCRIPT_ROOT / "script-support.sh").read_text()
+    routing = subprocess.run(["zsh", "-c", support + r'''
+bit101_build_cache() { print cached; }
+bit101_log_command() { print direct; }
+bit101_run_logged /log test xcodebuild test-without-building
+bit101_run_logged /log build xcodebuild build-for-testing
+'''], capture_output=True, text=True)
+    if routing.returncode or routing.stdout.splitlines() != ["direct", "cached"]:
+        findings.append("脚本自测：测试执行与编译缓存锁的生命周期")
+    audit = (SCRIPT_ROOT / "run-static-audit.sh").read_text()
+    tail = audit[audit.index("failed_groups=()"):]
+    tail = re.sub(r'  line_count="[^\n]+"', "  line_count=0", tail)
+    harness = r'''
+set -euo pipefail
+LOG_DIR=/audit
+AUDIT_STARTED=$SECONDS
+cat() { :; }
+run_group() {
+    print -r -- "RAN $1"
+    case "$1" in shell-parse|docs) return 7;; esac
+    return 0
+}
+'''
+    aggregation = subprocess.run(["zsh", "-c", harness + tail], capture_output=True, text=True)
+    groups = re.findall(r"^RAN (.+)$", aggregation.stdout, re.MULTILINE)
+    if aggregation.returncode != 1 or len(set(groups)) != 10 or "shell-parse, docs" not in aggregation.stderr:
+        findings.append("静态审计自测：并行分组执行完整性与多个失败汇总")
     return findings
 
 
@@ -1205,6 +1232,7 @@ def build_cache_boundary_findings() -> list[str]:
             ("build", [], ["DEBUG_INFORMATION_FORMAT=dwarf"]),
             ("test", ["DEBUG_INFORMATION_FORMAT=dwarf-with-dsym"], ["DEBUG_INFORMATION_FORMAT=dwarf-with-dsym"]),
             ("archive", [], []),
+            ("build-for-testing", ["SWIFT_COMPILATION_MODE=wholemodule"], ["DEBUG_INFORMATION_FORMAT=dwarf"]),
         ):
             arguments = ["cache", str(fixture), "build.log", "build", "xcodebuild", action, *settings]
             with patch.object(sys, "argv", arguments), patch.object(subprocess, "run", inspect_module):
@@ -1215,6 +1243,9 @@ def build_cache_boundary_findings() -> list[str]:
                         raise
             if [value for value in builds[-1] if value.startswith("DEBUG_INFORMATION_FORMAT=")] != expected:
                 findings.append("缓存自测：开发 DWARF、显式符号设置和发行归档边界")
+            expected_mode = [] if action == "archive" else ["SWIFT_COMPILATION_MODE=wholemodule" if settings == ["SWIFT_COMPILATION_MODE=wholemodule"] else "SWIFT_COMPILATION_MODE=singlefile"]
+            if [value for value in builds[-1] if value.startswith("SWIFT_COMPILATION_MODE=")] != expected_mode:
+                findings.append("缓存自测：开发增量编译、显式编译模式和发行归档边界")
     finally:
         shutil.rmtree(fixture, ignore_errors=True)
     return findings
@@ -1225,6 +1256,9 @@ def smoke_script_boundary_findings() -> list[str]:
     from contextlib import redirect_stdout
     from io import StringIO
     from unittest.mock import patch
+
+    import os
+    import signal
 
     source = (SCRIPT_ROOT / "run_icloud_cross_device_smoke.sh").read_text()
     findings: list[str] = []
@@ -1250,9 +1284,24 @@ record_result() { print -r -- "RECORD $*"; }
     cleanup = subprocess.run(["zsh", "-c", stub + phone_function + "\nrun_phone_test testCleanup"], capture_output=True, text=True)
     if cleanup.returncode or "DELETE" in cleanup.stdout or "-resultBundlePath" in cleanup.stdout:
         findings.append("Smoke 恢复自测失败：清理覆盖业务阶段结果包")
-    business = subprocess.run(["zsh", "-c", stub + phone_function + "\nrun_phone_test testPhoneUpload"], capture_output=True, text=True)
+    business = subprocess.run(["zsh", "-c", stub + phone_function + "\nrun_phone_test testPhoneRoundTrip"], capture_output=True, text=True)
     if business.returncode or "-resultBundlePath" not in business.stdout:
         findings.append("Smoke 恢复自测失败：业务阶段结果包保存")
+
+    worker = re.search(r"<<'PYWORKER'\n(.*?)^PYWORKER$", source, re.MULTILINE | re.DOTALL)
+    handlers = {}
+    child = type("Worker", (), {"pid": 42, "wait": lambda self: (handlers[signal.SIGTERM](signal.SIGTERM, None), -signal.SIGTERM)[1]})()
+    with patch.object(sys, "argv", ["worker", source, "/root", "/derived", "/bundle", "/report", "device", "suite"]), \
+         patch.object(subprocess, "Popen", return_value=child) as launch, \
+         patch.object(signal, "signal", side_effect=lambda signum, handler: handlers.update({signum: handler})), \
+         patch.object(os, "killpg") as cancel:
+        try:
+            exec(compile(worker[1], "phone-worker-self-test", "exec"), {})
+        except SystemExit as result:
+            if result.code != 143:
+                findings.append("Smoke 并行自测：手机宿主信号退出状态")
+        if launch.call_args.kwargs.get("start_new_session") is not True or cancel.call_args.args != (42, signal.SIGTERM):
+            findings.append("Smoke 并行自测：中断时终止手机测试进程组")
 
     finish = shell_function("finish_smoke").replace('"$ROOT_DIR/Scripts/build-install-device.sh"', "restore_normal_app")
     trap_registration = "\n".join(re.findall(r"(?m)^trap .+$", source))
@@ -1266,6 +1315,7 @@ record_result() { print -r -- "RECORD $*"; }
 set -euo pipefail
 PHONE_TESTS_STARTED=true
 PHONE_CLEANED_UP=false
+PHONE_TEST_PID=""
 CLEANUP_ONLY=false
 SUMMARY_PATH=/smoke/report.json
 DEVICE_ID=device
@@ -1342,7 +1392,7 @@ restore_release() {{ print restore; return {restore_status}; }}
     with patch.object(Path, "is_file", lambda path: str(path) in state), patch.object(Path, "is_dir", return_value=True), \
          patch.object(Path, "read_text", read), patch.object(Path, "write_text", write), \
          patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(summary))) as result_tool:
-        for stage, process_status, expected in (("testPhoneUpload", "65", 65), ("testCleanup", "0", 0)):
+        for stage, process_status, expected in (("testPhoneRoundTrip", "65", 65), ("testCleanup", "0", 0)):
             with patch.object(sys, "argv", ["record", "/smoke/report.json", "/smoke/results.xcresult", stage, process_status, "/smoke/log"]), redirect_stdout(StringIO()):
                 try:
                     exec(compile(match[1], "smoke-stage-record", "exec"), {})
@@ -1652,11 +1702,14 @@ def audit_wiring_findings() -> list[str]:
     errors: list[str] = []
     audit_path = ROOT / "Scripts/run-static-audit.sh"
     audit_source = audit_path.read_text(encoding="utf-8")
-    if "run_group checkers checker_audit" not in audit_source:
+    groups = re.search(r"^group_names=\(([^\n]+)\)$", audit_source, re.MULTILINE)
+    commands = re.search(r"^group_commands=\(([^\n]+)\)$", audit_source, re.MULTILINE)
+    wiring = dict(zip(groups[1].split(), commands[1].split())) if groups and commands and len(groups[1].split()) == len(commands[1].split()) else {}
+    if wiring.get("checkers") != "checker_audit":
         errors.append("Scripts/run-static-audit.sh: 未接入共享索引检查器审计")
     if "check_stale_docs.py --all" not in audit_source:
         errors.append("Scripts/run-static-audit.sh: 未接入阻塞式文档新鲜度检查")
-    if "run_group dependency-audit dependency_audit" not in audit_source:
+    if wiring.get("dependency-audit") != "dependency_audit":
         errors.append("Scripts/run-static-audit.sh: 未接入锁定依赖漏洞审计")
     if "npm audit --audit-level=high" not in audit_source:
         errors.append("Scripts/run-static-audit.sh: 依赖漏洞审计门槛缺失")
@@ -1672,6 +1725,13 @@ def audit_wiring_findings() -> list[str]:
         "plutil", "-convert", "json", "-o", "-", str(ROOT / "BIT101-iOS.xcodeproj/project.pbxproj"),
     ], text=True))
     errors.extend(extension_dependency_findings(project))
+    for configuration in project["objects"].values():
+        if configuration.get("isa") == "XCBuildConfiguration" and "SWIFT_COMPILATION_MODE" in configuration.get("buildSettings", {}):
+            if "$(BIT101_WORKFLOW_CONDITIONS)" not in configuration["buildSettings"].get("SWIFT_ACTIVE_COMPILATION_CONDITIONS", ""):
+                errors.append("App 工程编译条件需要接入工作流变量")
+    for name in ("run-extended-tests.sh", "run_icloud_cross_device_smoke.sh", "release-network-smoke.sh"):
+        if "SWIFT_ACTIVE_COMPILATION_CONDITIONS=" in (SCRIPT_ROOT / name).read_text():
+            errors.append(f"{name}: 工作流条件需要限定在 App 工程")
 
     test_script = ROOT / "Scripts/run-extended-tests.sh"
     if not test_script.is_file():

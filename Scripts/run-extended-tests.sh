@@ -371,7 +371,6 @@ report_path.write_text("\n".join(rows) + "\n")
 covered = sum(row[0] for row in modules.values())
 count = sum(row[1] for row in modules.values())
 print(f"[覆盖率] {len(modules)} 个模块 · {covered}/{count} 行")
-print("\n".join(rows[2:]))
 PY
   fi
   exit 0
@@ -417,7 +416,7 @@ run_tests() {
     -destination "$TEST_DESTINATION" \
     -derivedDataPath "$DERIVED_ROOT" \
     -collect-test-diagnostics "$diagnostics" \
-    "SWIFT_ACTIVE_COMPILATION_CONDITIONS=$conditions" \
+    "BIT101_WORKFLOW_CONDITIONS=$conditions" \
     "${coverage_args[@]}" \
     ENABLE_TESTABILITY=YES \
     SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES \

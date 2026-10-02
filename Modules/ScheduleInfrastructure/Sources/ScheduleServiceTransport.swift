@@ -47,7 +47,7 @@ extension ScheduleService {
         guard (200 ..< 300).contains(response.statusCode) else {
             throw httpError(response.statusCode)
         }
-        let result = await Self.decodeJSONResponse(Response.self, from: data)
+        let result = try await Self.decodeJSONResponse(Response.self, from: data)
         try Task.checkCancellation()
         switch result {
         case let .decoded(response):
@@ -62,36 +62,23 @@ extension ScheduleService {
     }
 
     /// 业务分类和解码共用后台解析任务，集中处理完整课表与空教室响应。
-    private nonisolated static func decodeJSONResponse<Response: Decodable & Sendable>(
+    @concurrent
+    private static func decodeJSONResponse<Response: Decodable & Sendable>(
         _ type: Response.Type,
         from data: Data
-    ) async -> ScheduleJSONResponseResult<Response> {
-        let parsingTask = Task.detached(priority: .utility) {
-            do {
-                try Task.checkCancellation()
-            } catch {
-                return ScheduleJSONResponseResult<Response>.invalidResponse
-            }
-            let businessMessage = Self.schoolBusinessErrorMessage(from: data)
-            do {
-                try Task.checkCancellation()
-            } catch {
-                return ScheduleJSONResponseResult<Response>.invalidResponse
-            }
-            if let businessMessage {
-                return ScheduleJSONResponseResult<Response>.businessError(businessMessage)
-            }
-            do {
-                return .decoded(try JSONDecoder().decode(type, from: data))
-            } catch {
-                return .invalidResponse
-            }
+    ) async throws -> ScheduleJSONResponseResult<Response> {
+        try Task.checkCancellation()
+        let businessMessage = Self.schoolBusinessErrorMessage(from: data)
+        try Task.checkCancellation()
+        if let businessMessage { return .businessError(businessMessage) }
+        let result: ScheduleJSONResponseResult<Response>
+        do {
+            result = .decoded(try JSONDecoder().decode(type, from: data))
+        } catch {
+            result = .invalidResponse
         }
-        return await withTaskCancellationHandler {
-            await parsingTask.value
-        } onCancel: {
-            parsingTask.cancel()
-        }
+        try Task.checkCancellation()
+        return result
     }
 
     /// 学校接口会在外层成功响应中嵌入业务状态，例如课表 `extParams`。

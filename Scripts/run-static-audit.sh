@@ -44,23 +44,9 @@ run_group() {
   local log="$LOG_DIR/$name.log"
   local started=$SECONDS
   if "$@" > "$log" 2>&1; then
-    if [[ "$name" == checkers ]]; then
-      local line_count="$(wc -l < "$log")"
-      if (( line_count <= 1000 )); then
-        cat "$log"
-      else
-        echo "[输出] $name 共 $line_count 行 · $log"
-      fi
-    fi
     return 0
   else
-    local line_count="$(wc -l < "$log")"
-    if (( line_count <= 1000 )); then
-      cat "$log" >&2
-    else
-      echo "[输出] $name 共 $line_count 行 · $log" >&2
-    fi
-    echo "[失败] $name · $(( SECONDS - started )) 秒" >&2
+    echo "[失败] $name · $(( SECONDS - started )) 秒" >> "$log"
     return 1
   fi
 }
@@ -125,6 +111,7 @@ artifact_hygiene() {
   python3 - "$ROOT_DIR" <<'PY'
 from pathlib import Path
 import fcntl
+import os
 import sys
 
 root = Path(sys.argv[1])
@@ -159,14 +146,17 @@ for parent in (root / "build", root / ".build"):
         elif relative not in allowed_dirs:
             violations.append(f"{relative}: 同类产物不得创建第二个平行目录")
 shared = root / ".build/compiler-cache"
-for name in ("SDKExplicitPrecompiledModules", "ModuleCache.noindex", "SDKStatCaches.noindex"):
-    for parent in (root / ".build", root / "build"):
-        if parent.is_dir():
-            for cache in parent.rglob(name):
-                if cache == shared / name:
-                    continue
-                if not cache.is_symlink() or cache.resolve() != (shared / name).resolve():
-                    violations.append(f"{cache.relative_to(root)}: 公共编译缓存应链接到唯一共享目录")
+cache_names = {"SDKExplicitPrecompiledModules", "ModuleCache.noindex", "SDKStatCaches.noindex"}
+for parent in (root / ".build", root / "build"):
+    for directory, children, files in os.walk(parent):
+        for name in (set(children) | set(files)) & cache_names:
+            cache = Path(directory) / name
+            if name in children:
+                children.remove(name)
+            if cache == shared / name:
+                continue
+            if not cache.is_symlink() or cache.resolve() != (shared / name).resolve():
+                violations.append(f"{cache.relative_to(root)}: 公共编译缓存应链接到唯一共享目录")
 with (root / ".build/extended-automation.lock").open("a") as lock:
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -183,16 +173,30 @@ PY
 }
 
 failed_groups=()
-run_group swift-parse swift_parse || failed_groups+=(swift-parse)
-run_group shell-parse shell_parse || failed_groups+=(shell-parse)
-run_group python-parse python_parse || failed_groups+=(python-parse)
-run_group worker-parse worker_parse || failed_groups+=(worker-parse)
-run_group dependency-audit dependency_audit || failed_groups+=(dependency-audit)
-run_group module-boundary module_boundary_audit || failed_groups+=(module-boundary)
-run_group git-diff git_check || failed_groups+=(git-diff)
-run_group docs docs_check || failed_groups+=(docs)
-run_group checkers checker_audit || failed_groups+=(checkers)
 run_group artifact-hygiene artifact_hygiene || failed_groups+=(artifact-hygiene)
+if (( ${#failed_groups} )); then cat "$LOG_DIR/artifact-hygiene.log" >&2; fi
+group_names=(swift-parse shell-parse python-parse worker-parse dependency-audit module-boundary git-diff docs checkers)
+group_commands=(swift_parse shell_parse python_parse worker_parse dependency_audit module_boundary_audit git_check docs_check checker_audit)
+group_processes=()
+for (( index = 1; index <= ${#group_names}; index++ )); do
+  run_group "$group_names[$index]" "$group_commands[$index]" &
+  group_processes+=($!)
+done
+for (( index = 1; index <= ${#group_names}; index++ )); do
+  name="$group_names[$index]"
+  if wait "$group_processes[$index]"; then
+    [[ "$name" == checkers ]] || continue
+  else
+    failed_groups+=($name)
+  fi
+  log="$LOG_DIR/$name.log"
+  line_count="$(wc -l < "$log")"
+  if (( line_count <= 1000 )); then
+    cat "$log"
+  else
+    echo "[输出] $name 共 $line_count 行 · $log"
+  fi
+done
 if (( ${#failed_groups[@]} > 0 )); then
   printf '[失败汇总] %s\n' "${(j:, :)failed_groups}" >&2
   exit 1

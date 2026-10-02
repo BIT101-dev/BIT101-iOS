@@ -481,15 +481,9 @@ public struct ScoreService {
         }
     }
 
-    nonisolated private static func decodeScoreRowsOffMain(_ data: Data) async throws -> [ScoreRow] {
-        let decodingTask = Task.detached(priority: .utility) {
-            try decodeScoreRows(data)
-        }
-        return try await withTaskCancellationHandler {
-            try await decodingTask.value
-        } onCancel: {
-            decodingTask.cancel()
-        }
+    @concurrent
+    private static func decodeScoreRowsOffMain(_ data: Data) async throws -> [ScoreRow] {
+        try decodeScoreRows(data)
     }
 
     nonisolated static func decodeScoreRows(_ data: Data) throws -> [ScoreRow] {

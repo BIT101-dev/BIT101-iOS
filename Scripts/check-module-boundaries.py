@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import re
 import sys
+from functools import cache
 from pathlib import Path
 
 
@@ -98,6 +99,7 @@ def imported_modules(source_root: Path) -> dict[str, set[str]]:
     return imports
 
 
+@cache
 def swift_code(source: str) -> str:
     """Retain executable Swift, including interpolation, with stable positions."""
     result = ["\n" if char == "\n" else " " for char in source]
@@ -236,7 +238,7 @@ def service_boundary_errors(path: str, source: str) -> list[str]:
     if path != "Modules/TransportCore/Sources/HTTPClient.swift":
         patterns.append((r"\.\s*(?:data|download|upload|bytes)\s*\(\s*for\s*:", "send requests through HTTPClient"))
         patterns.append((r"\.\s*(?:dataTask|downloadTask|uploadTask|webSocketTask)\s*\(", "send requests through HTTPClient"))
-    if path != "Modules/TransportCore/Sources/NetworkPathState.swift":
+    if path not in {"Modules/TransportCore/Sources/NetworkPathState.swift", "BIT101-iOS/Login/AppUITestBootstrap.swift"}:
         patterns.append((r"\b(?:NWPathMonitor|NWConnection|NWListener)\b", "use TransportCore network services"))
     if path != "Modules/TransportCore/Sources/TaskCancellation.swift":
         patterns.append((r"\.\s*userInfo\s*\[\s*NSUnderlyingErrorKey\s*\]", "traverse underlying errors through ErrorChain"))

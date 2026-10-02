@@ -110,7 +110,13 @@ struct AppShellView: View {
     @EnvironmentObject private var settings: AppSettingsStore
     @EnvironmentObject private var scheduleViewModel: ScheduleViewModel
     @ObservedObject private var promptCoordinator = AppPromptCoordinator.shared
+#if BIT101_UI_TESTING
+    @State private var selectedTab: AppTab = AppUITestBootstrap.environment["BIT101_UI_TEST_SETTINGS"] == nil
+        ? AppTab(rawValue: AppUITestBootstrap.environment["BIT101_UI_TEST_TAB"] ?? "schedule") ?? .schedule : .mine
+    @State private var uiTestSettingsRoute = AppUITestBootstrap.environment["BIT101_UI_TEST_SETTINGS"].flatMap(SettingsRoute.init(rawValue:))
+#else
     @State private var selectedTab: AppTab = .schedule
+#endif
     @State private var requestedScheduleSection: ScheduleSection?
     @State private var requestedPaperID: Int?
     @State private var requestedPosterID: Int?
@@ -159,6 +165,12 @@ struct AppShellView: View {
                         )
                     case .mine:
                         MineRootView(dependencies: community.mine, media: destinations.media, posters: destinations.posters, settings: destinations.settings, fallbackStudentID: studentID, onLogout: onLogout)
+#if BIT101_UI_TESTING
+                            .navigationDestination(item: $uiTestSettingsRoute) { route in
+                                SettingsRootView(initialRoute: route, studentID: studentID, onLogout: onLogout,
+                                                 dependencies: destinations.settingsDependencies)
+                            }
+#endif
                     }
                 }
                 .tag(tab)

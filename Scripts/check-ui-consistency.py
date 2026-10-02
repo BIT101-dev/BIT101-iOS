@@ -39,12 +39,12 @@ def source_path(relative_path: str) -> Path:
 def source_relative(path: Path) -> str:
     return path.relative_to(SOURCE_ROOT).as_posix() if path.is_relative_to(SOURCE_ROOT) else path.relative_to(ROOT).as_posix()
 REPORT_PATH = ROOT / ".build/ui-consistency-report.txt"
+LITERAL_OR_COMMENT_START = re.compile(r'//|/\*|#+"|"')
 
 
 def _blank_segment(output: list[str], source: str, start: int, end: int) -> None:
-    for index in range(start, min(end, len(source))):
-        if source[index] != "\n":
-            output[index] = " "
+    end = min(end, len(source))
+    output[start:end] = ("\n" if character == "\n" else " " for character in source[start:end])
 
 
 @cache
@@ -68,7 +68,7 @@ def mask_comments(source: str) -> str:
                 index += 1
             continue
 
-        raw_match = re.match(r'(#+)("{1,3})', source[index:])
+        raw_match = re.match(r'(#+)("{1,3})', source[index:]) if source[index] == "#" else None
         if raw_match:
             hashes, quote = raw_match.groups()
             terminator = quote + hashes
@@ -102,7 +102,8 @@ def mask_comments(source: str) -> str:
             _blank_segment(output, source, index, index + 2)
             index += 2
         else:
-            index += 1
+            next_token = LITERAL_OR_COMMENT_START.search(source, index + 1)
+            index = next_token.start() if next_token else len(source)
     return "".join(output)
 
 
@@ -127,7 +128,7 @@ def mask_literals_and_comments(source: str) -> str:
                 index += 1
             continue
 
-        raw_match = re.match(r"(#+)(\"{1,3})", source[index:])
+        raw_match = re.match(r"(#+)(\"{1,3})", source[index:]) if source[index] == "#" else None
         if raw_match:
             hashes, quote = raw_match.groups()
             terminator = quote + hashes
@@ -171,7 +172,8 @@ def mask_literals_and_comments(source: str) -> str:
             index += 2
             continue
 
-        index += 1
+        next_token = LITERAL_OR_COMMENT_START.search(source, index + 1)
+        index = next_token.start() if next_token else len(source)
     return "".join(output)
 
 
@@ -879,6 +881,10 @@ def static_symbol_values(
 
 def rendered_scope_facts(facts: dict, scope: list[str], syntax: dict[str, dict] | None = None) -> dict:
     """Limit a View's contract search to rendered expressions and reachable View helpers."""
+    memo = facts.get("renderedScopeFacts")
+    key = (tuple(scope), id(syntax))
+    if memo is not None and key in memo:
+        return memo[key]
     parts = [(facts, True)]
     if syntax:
         parts.extend(
@@ -944,6 +950,7 @@ def rendered_scope_facts(facts: dict, scope: list[str], syntax: dict[str, dict] 
         return (id(part), owner["name"], owner["start"], owner["end"]) in reachable
 
     filtered = dict(facts)
+    filtered.pop("renderedScopeFacts", None)
     for collection in (
         "calls", "invocations", "members", "expressions", "bindings",
         "controlFlow", "typeNames", "stringSegments",
@@ -954,6 +961,8 @@ def rendered_scope_facts(facts: dict, scope: list[str], syntax: dict[str, dict] 
             for item in part.get(collection, [])
             if is_visible(part, is_root, item)
         ]
+    if memo is not None:
+        memo[key] = filtered
     return filtered
 
 
@@ -2098,6 +2107,8 @@ def check_fonts(errors: list[str], syntax: dict[str, dict]) -> None:
         if path not in DESIGN_SYSTEM_SOURCES:
             for call, invocation in zip(facts.get("calls", []), facts.get("invocations", [])):
                 name = call_name(call["value"])
+                if name not in {"system", "systemFont", "custom"}:
+                    continue
                 source = mask_literals_and_comments(invocation["value"])
                 if name == "system":
                     for match in swift_explicit_font_size.finditer(source):
@@ -2586,6 +2597,8 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
     else:
         syntax = shared_syntax
     errors.extend(ast_marker_boundary_findings() if boundary_findings is None else boundary_findings)
+    for facts in syntax.values():
+        facts["renderedScopeFacts"] = {}
     check_component_contracts(errors, syntax)
     check_refresh_status_contract(errors, syntax)
     check_haptic_consistency(errors, syntax)
@@ -2610,10 +2623,12 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
         call_pairs = zip(facts.get("calls", []), facts.get("invocations", []))
         for call, invocation in call_pairs:
             name = call_name(call["value"])
-            invocation_source = mask_literals_and_comments(invocation["value"])
             if name == "AppFloatingActionStack":
                 floating_stack_uses += 1
-            if name == "ZStack" and re.match(
+            if name != "ZStack":
+                continue
+            invocation_source = mask_literals_and_comments(invocation["value"])
+            if re.match(
                 r"ZStack\s*\(\s*alignment\s*:\s*\.bottomTrailing\s*\)", invocation_source
             ) and re.search(r"\b(?:Floating|FAB)", invocation_source):
                 if "AppFloatingActionStack" not in invocation_source:

@@ -89,29 +89,28 @@ extension ScheduleService {
         async let examsTask = fetchExams(term: term)
         async let firstDayTask = fetchFirstDayString(term: term)
         let (parsedCourses, exams, firstDayString) = try await (coursesTask, examsTask, firstDayTask)
-        let courses = parsedCourses.map(\.course)
-        let normalizationTask = Task.detached(priority: .utility) { () throws -> SmallTermWeekNormalizer.Result in
-            try Task.checkCancellation()
-            let result = SmallTermWeekNormalizer.normalize(
-                term: term,
-                firstDayString: firstDayString,
-                courses: courses,
-                rawWeeksByCourse: parsedCourses.map(\.rawWeeks)
-            )
-            try Task.checkCancellation()
-            return result
-        }
-        let normalized = try await withTaskCancellationHandler {
-            try await normalizationTask.value
-        } onCancel: {
-            normalizationTask.cancel()
-        }
+        return try await Self.makeCourseSyncPayload(
+            term: term, parsedCourses: parsedCourses, exams: exams, firstDayString: firstDayString
+        )
+    }
+
+    @concurrent
+    private static func makeCourseSyncPayload(
+        term: String, parsedCourses: [CourseResponse.ParsedCourse], exams: [ExamRecord], firstDayString: String
+    ) async throws -> CourseSyncPayload {
+        try Task.checkCancellation()
+        let rawWeeks = parsedCourses.map(\.rawWeeks)
+        let normalized = SmallTermWeekNormalizer.normalize(
+            term: term, firstDayString: firstDayString,
+            courses: parsedCourses.map(\.course), rawWeeksByCourse: rawWeeks
+        )
+        try Task.checkCancellation()
         return CourseSyncPayload(
             term: term,
             firstDayString: normalized.firstDayString,
             sourceFirstDayString: firstDayString,
             normalizationOffset: normalized.offset,
-            rawWeeksByCourse: parsedCourses.map(\.rawWeeks),
+            rawWeeksByCourse: rawWeeks,
             courses: normalized.courses,
             exams: exams
         )

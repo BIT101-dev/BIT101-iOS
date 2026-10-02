@@ -166,4 +166,37 @@ struct CommunitySessionIsolationTests {
         try await first.value
         try await second.value
     }
+
+    @Test func backgroundDecodingKeepsTaskContextAndLeavesMainThread() async throws {
+        let transport = Transport { request in
+            let (_, response) = try response(request, status: 200)
+            return (Data("{}".utf8), response)
+        }
+        let client = CommunityAPIClient<Failure>(
+            httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"), errorDomain: "test",
+            credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "decode"), cookie: "") }
+        )
+        let result: DecodingContextPayload = try await DecodingContext.$token.withValue("request-context") {
+            try await client.request(path: "context", authentication: .none)
+        }
+        #expect(result.token == "request-context")
+        #expect(result.leftMainThread)
+    }
+
+}
+
+
+private nonisolated enum DecodingContext {
+    @TaskLocal static var token = "missing"
+}
+
+private nonisolated struct DecodingContextPayload: Decodable, Sendable {
+    let token: String
+    let leftMainThread: Bool
+
+    init(from decoder: any Decoder) throws {
+        token = DecodingContext.token
+        leftMainThread = !Thread.isMainThread
+    }
 }

@@ -130,8 +130,10 @@ with ((root / ".build/extended-automation.lock").open("a") if maintenance else n
     if not maintenance:
         command = arguments[2:]
         if command[0] == "xcodebuild" and any(action in command for action in ("build", "build-for-testing", "test")) \
-                and "archive" not in command and not any(value.startswith("DEBUG_INFORMATION_FORMAT=") for value in command):
-            arguments.append("DEBUG_INFORMATION_FORMAT=dwarf")
+                and "archive" not in command:
+            for setting in ("DEBUG_INFORMATION_FORMAT=dwarf", "SWIFT_COMPILATION_MODE=singlefile"):
+                if not any(value.startswith(setting.split("=", 1)[0] + "=") for value in command):
+                    arguments.append(setting)
         for option in ("-derivedDataPath", "--scratch-path"):
             if option in command:
                 requested = Path(command[command.index(option) + 1])
@@ -216,7 +218,9 @@ PY
 }
 
 bit101_run_logged() {
-  if [[ "${3:-}" == xcodebuild || ( "${3:-}" == xcrun && "${4:-}" == swift ) ]]; then
+  if [[ "${3:-}" == xcodebuild && "${4:-}" == test-without-building ]]; then
+    bit101_log_command "$@"
+  elif [[ "${3:-}" == xcodebuild || ( "${3:-}" == xcrun && "${4:-}" == swift ) ]]; then
     bit101_build_cache "$@"
   else
     bit101_log_command "$@"

@@ -337,3 +337,80 @@ nonisolated struct ClassroomListResponse: Decodable, Sendable {
 
     let datas: Datas
 }
+
+extension ClassroomListResponse {
+    @concurrent
+    func classroomRecords() async throws -> [ClassroomRecord] {
+        let rows = datas.cxkxjasqk.rows
+        try Task.checkCancellation()
+        var classrooms: [ClassroomRecord] = []
+        classrooms.reserveCapacity(rows.count)
+        for (index, row) in rows.enumerated() {
+            if index.isMultiple(of: 64) {
+                try Task.checkCancellation()
+            }
+            classrooms.append(
+                ClassroomRecord(
+                    id: row.classroomName,
+                    name: row.classroomName,
+                    busyTimeCodes: row.busyTimeString?
+                        .split(separator: ",")
+                        .compactMap { Int($0) }
+                        .sorted() ?? []
+                )
+            )
+        }
+        try Task.checkCancellation()
+        return classrooms
+    }
+}
+
+extension CourseResponse {
+    @concurrent
+    func parsedCoursesInBackground() async throws -> [CourseResponse.ParsedCourse] {
+        try Task.checkCancellation()
+        let courses = try parsedCoursesCancellable()
+        try Task.checkCancellation()
+        return courses
+    }
+}
+
+extension ExamResponse {
+    @concurrent
+    func examRecords() async throws -> [ExamRecord] {
+        var exams: [ExamRecord] = []
+        exams.reserveCapacity(datas.cxxsksap.rows.count)
+        for (index, row) in datas.cxxsksap.rows.enumerated() {
+            if index.isMultiple(of: 64) {
+                try Task.checkCancellation()
+            }
+            let rawCourseName = row.courseName ?? ""
+            let name = rawCourseName
+                .split(separator: "]")
+                .first?
+                .split(separator: "[")
+                .last
+                .map(String.init) ?? rawCourseName
+
+            let times = row.timeDescription.captureGroups(pattern: #"(\d{2}:\d{2})-(\d{2}:\d{2})"#)
+            let beginTime = times.first ?? ""
+            let endTime = times.dropFirst().first ?? ""
+
+            exams.append(ExamRecord(
+                id: "\(row.termCode ?? "")-\(row.courseID ?? "")-\(row.dateString ?? "")-\(row.timeDescription)",
+                term: row.termCode ?? "",
+                name: name,
+                courseID: row.courseID ?? "",
+                teacher: row.teacherName ?? "",
+                classroom: row.location ?? "",
+                dateString: (row.dateString ?? "").split(separator: " ").first.map(String.init) ?? (row.dateString ?? ""),
+                beginTime: beginTime,
+                endTime: endTime,
+                examMode: row.examMode ?? "",
+                seatID: row.seatID ?? ""
+            ))
+        }
+        try Task.checkCancellation()
+        return exams
+    }
+}

@@ -106,7 +106,7 @@ App 入口 → 登录恢复 → AppAccountLifecycle → 各场景状态与页面
 - 学校会话的 Cookie 容器与传输实现配套注入。普通成绩使用 `jwb` challenge，可信成绩单使用 `jwb_cjd` challenge。
 - 社区认证失败按 `CommunityRetryPolicy` 进入一次会话恢复重试；明确的凭据拒绝进入退出状态。请求发送、恢复、重放和解码完成时核对账号及登录代际，切号产生取消结果。学校认证与有副作用的请求按业务条件处理重试。
 - 取消、超时、证书错误和业务失败保持各自语义。请求在准入、传输和响应处理边界检查取消；错误正文通过 `@concurrent` 解析，响应观察器按请求记录一次结果。
-- JSON 解码使用可取消的并发任务，跨隔离域模型满足 `Sendable`；文件保存由串行队列或 actor 承接。
+- JSON 解码、成绩解析、日程响应映射和话廊去重使用 `@concurrent`，沿用调用任务的取消状态、优先级和任务局部值；跨隔离域模型满足 `Sendable`。考试与教室记录映射由对应响应类型承接，网络服务组织请求与认证流程；文件保存由串行队列或 actor 承接。
 - 日志记录必要状态与错误分类，凭据、课表正文和学生信息保持在业务数据边界内。
 
 课程中心 DDL 通过分页 `POST /api/my-courses` 获取全部课程，逐课读取 `GET /api/courses/{id}/activities`，并发上限为 4。会话过期后复用学校认证恢复、CAS 跳转和公共短信验证能力。作业以提交次数、迟交次数或批阅字段识别，截止时间优先采用 `end_time`，随后采用 `visible_end_at`；无时区时间按北京时间解析，带时区时间保留实际时刻。
@@ -171,10 +171,8 @@ CloudKit 使用带版本的精简载荷，本地记录保留服务器基线和�
 
 ## 服务边界门禁
 
-`Scripts/check-module-boundaries.py` 扫描全部生产模块、App、Widget 和 Watch 源码，并按实现文件校验系统资源归属：文件操作归 `StorageCore/AppFileService.swift`，HTTP 发送归 `TransportCore/HTTPClient.swift`，会话及网络缓存维护归 `TransportCore/SecureURLTransport.swift`，系统网络监听归 `TransportCore/NetworkPathState.swift`。偏好默认实例归 App 存储组装入口。
+`Scripts/check-module-boundaries.py` 扫描全部生产模块、App、Widget 和 Watch 源码，并按实现文件校验系统资源归属：文件操作归 `StorageCore/AppFileService.swift`，HTTP 发送归 `TransportCore/HTTPClient.swift`，会话及网络缓存维护归 `TransportCore/SecureURLTransport.swift`，系统网络监听归 `TransportCore/NetworkPathState.swift`。偏好默认实例归 App 存储组装入口。UI 场景控制连接限定在 App 的测试启动代码，通过条件编译启用。
 
 门禁覆盖传输实例引用、直接请求发送、文件字节读写、文件句柄、图像与流的文件入口、元数据及符号链接访问。检查器保留字符串插值中的可执行代码，自测覆盖合法模块调用及各类绕过调用。测试源码通过内存后端或系统资源准备 fixture，生产调用链遵循所属服务入口。公共能力新增时同步维护所属模块、注入路径和门禁规则。
 
 表单编码、底层错误遍历与日程页面日期格式同样接受门禁校验，消费者通过所属公共入口扩展规则。
-
-2026-10-01 服务边界验证：157 项包级测试、237 项真机 App 行为测试与统一静态审计通过。两个并发启动的静态审计均完成，验证固定索引及日志的串行保护。回归覆盖表单特殊字符与重复字段、20 层错误包装、北京时间跨日显示、设置游客分区和两类旧偏好键迁移。测试日志分别保存在 `.build/extended-automation/module-tests.log` 和 `.build/extended-automation/default-tests.log`，同类产物按测试入口覆盖写入。

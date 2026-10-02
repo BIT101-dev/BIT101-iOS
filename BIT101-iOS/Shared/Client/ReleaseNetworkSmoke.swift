@@ -103,16 +103,22 @@ final class ReleaseNetworkSmokeRunner {
             try await gallery.fetchFeed(kind: .newest, page: nil)
         }
         if let poster = posters?.first {
-            _ = await probe("话廊帖子详情", area: .bit101, scope: scope) {
-                try await gallery.fetchPoster(id: poster.id)
-            }
-            _ = await probe("话廊帖子评论", area: .bit101, scope: scope) {
-                try await gallery.fetchComments(
-                    objectID: "poster\(poster.id)",
-                    order: .newest,
-                    page: nil
-                )
-            }
+            await runInParallel([
+                {
+                    _ = await self.probe("话廊帖子详情", area: .bit101, scope: scope) {
+                        try await gallery.fetchPoster(id: poster.id)
+                    }
+                },
+                {
+                    _ = await self.probe("话廊帖子评论", area: .bit101, scope: scope) {
+                        try await gallery.fetchComments(
+                            objectID: "poster\(poster.id)",
+                            order: .newest,
+                            page: nil
+                        )
+                    }
+                }
+            ])
             let image = poster.images.first ?? poster.user.avatar
             let imageURL = image.lowUrl.isEmpty ? image.url : image.lowUrl
             if imageURL.isEmpty {
@@ -159,21 +165,31 @@ final class ReleaseNetworkSmokeRunner {
             try await courses.fetchCourses(search: "", page: 0)
         }
         if let course = courseRows?.first {
-            _ = await probe("学业课程详情", area: .bit101, scope: scope) {
-                try await courses.fetchCourse(id: course.id)
-            }
-            _ = await probe("学业课程评论", area: .bit101, scope: scope) {
-                try await courses.fetchComments(courseID: course.id, page: nil)
-            }
-            _ = await probe("学业课程历史成绩", area: .bit101, scope: scope) {
-                try await courses.fetchCourseHistories(number: course.number)
-            }
-            _ = await probe("学业课程网页详情", area: .bit101, scope: scope) {
-                try await Self.fetchHTMLCount(
-                    urlString: "https://open.aihelpme.dev/course/\(course.id)",
-                    expectedHost: "open.aihelpme.dev"
-                )
-            }
+            await runInParallel([
+                {
+                    _ = await self.probe("学业课程详情", area: .bit101, scope: scope) {
+                        try await courses.fetchCourse(id: course.id)
+                    }
+                },
+                {
+                    _ = await self.probe("学业课程评论", area: .bit101, scope: scope) {
+                        try await courses.fetchComments(courseID: course.id, page: nil)
+                    }
+                },
+                {
+                    _ = await self.probe("学业课程历史成绩", area: .bit101, scope: scope) {
+                        try await courses.fetchCourseHistories(number: course.number)
+                    }
+                },
+                {
+                    _ = await self.probe("学业课程网页详情", area: .bit101, scope: scope) {
+                        try await Self.fetchHTMLCount(
+                            urlString: "https://open.aihelpme.dev/course/\(course.id)",
+                            expectedHost: "open.aihelpme.dev"
+                        )
+                    }
+                }
+            ])
         } else {
             let reason = courseRows == nil ? "列表探针没有可用数据" : "列表为空"
             recordSkip("学业课程详情", reason, area: .bit101, scope: scope)
@@ -187,12 +203,18 @@ final class ReleaseNetworkSmokeRunner {
             try await papers.fetchPapers(search: nil, order: .newest, page: 0)
         }
         if let paper = paperRows?.first {
-            _ = await probe("文章详情", area: .bit101, scope: scope) {
-                try await papers.fetchPaper(id: paper.id)
-            }
-            _ = await probe("文章评论", area: .bit101, scope: scope) {
-                try await papers.fetchComments(paperID: paper.id, order: .newest, page: nil)
-            }
+            await runInParallel([
+                {
+                    _ = await self.probe("文章详情", area: .bit101, scope: scope) {
+                        try await papers.fetchPaper(id: paper.id)
+                    }
+                },
+                {
+                    _ = await self.probe("文章评论", area: .bit101, scope: scope) {
+                        try await papers.fetchComments(paperID: paper.id, order: .newest, page: nil)
+                    }
+                }
+            ])
         } else {
             let reason = paperRows == nil ? "列表探针没有可用数据" : "列表为空"
             recordSkip("文章详情", reason, area: .bit101, scope: scope)
@@ -214,8 +236,14 @@ final class ReleaseNetworkSmokeRunner {
             { _ = await self.probe("我的帖子", area: .bit101, scope: scope) { try await mine.fetchMyPosters(page: 0) } }
         ])
         if let myInfo {
-            _ = await probe("用户资料详情", area: .bit101, scope: scope) { try await mine.fetchUserInfo(id: myInfo.user.id) }
-            _ = await probe("用户帖子", area: .bit101, scope: scope) { try await mine.fetchUserPosters(userID: myInfo.user.id, page: 0) }
+            await runInParallel([
+                {
+                    _ = await self.probe("用户资料详情", area: .bit101, scope: scope) { try await mine.fetchUserInfo(id: myInfo.user.id) }
+                },
+                {
+                    _ = await self.probe("用户帖子", area: .bit101, scope: scope) { try await mine.fetchUserPosters(userID: myInfo.user.id, page: 0) }
+                }
+            ])
         } else {
             recordSkip("用户资料详情", "资料探针没有可用数据", area: .bit101, scope: scope)
             recordSkip("用户帖子", "资料探针没有可用数据", area: .bit101, scope: scope)

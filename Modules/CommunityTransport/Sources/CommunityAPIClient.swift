@@ -113,25 +113,16 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         try JSONEncoder().encode(body)
     }
 
-    /// 社区列表可能包含大量帖子、评论和图片元数据；解码放在独立并发任务，
-    /// 返回值用 Sendable 约束跨回 MainActor 的数据边界。
+    /// 后台解码沿用调用任务的优先级、取消状态和任务局部值。
+    @concurrent
     private static func decodeResponse<Response: Decodable & Sendable>(
         _ type: Response.Type,
         from data: Data
     ) async throws -> Response {
-        let decodingTask = Task.detached(priority: .userInitiated) {
-            try Task.checkCancellation()
-            let decoder = JSONDecoder()
-            decoder.keyDecodingStrategy = .convertFromSnakeCase
-            let response = try decoder.decode(type, from: data)
-            try Task.checkCancellation()
-            return response
-        }
-        let response = try await withTaskCancellationHandler {
-            try await decodingTask.value
-        } onCancel: {
-            decodingTask.cancel()
-        }
+        try Task.checkCancellation()
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let response = try decoder.decode(type, from: data)
         try Task.checkCancellation()
         return response
     }

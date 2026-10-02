@@ -577,18 +577,20 @@ extension ScheduleService {
         guard ics.range(of: "BEGIN:VCALENDAR", options: .caseInsensitive) != nil else {
             throw ScheduleServiceError.invalidLexuePage
         }
-        let parsingTask = Task.detached(priority: .utility) {
-            try? ScheduleICSParser.parse(ics)
-        }
-        let events = await withTaskCancellationHandler {
-            await parsingTask.value
-        } onCancel: {
-            parsingTask.cancel()
-        }
+        return try await Self.parseCalendar(ics)
+    }
+
+    @concurrent
+    private static func parseCalendar(_ ics: String) async throws -> [DDLEventRecord] {
         try Task.checkCancellation()
-        guard let events else {
+        let events: [DDLEventRecord]
+        do {
+            events = try ScheduleICSParser.parse(ics)
+        } catch {
+            try Task.checkCancellation()
             throw ScheduleServiceError.invalidCalendarData
         }
+        try Task.checkCancellation()
         return events
     }
 

@@ -244,34 +244,7 @@ extension ScheduleService {
             ]
         )
 
-        let rows = response.datas.cxkxjasqk.rows
-        let mappingTask = Task.detached(priority: .utility) { () throws -> [ClassroomRecord] in
-            try Task.checkCancellation()
-            var classrooms: [ClassroomRecord] = []
-            classrooms.reserveCapacity(rows.count)
-            for (index, row) in rows.enumerated() {
-                if index.isMultiple(of: 64) {
-                    try Task.checkCancellation()
-                }
-                classrooms.append(
-                    ClassroomRecord(
-                        id: row.classroomName,
-                        name: row.classroomName,
-                        busyTimeCodes: row.busyTimeString?
-                            .split(separator: ",")
-                            .compactMap { Int($0) }
-                            .sorted() ?? []
-                    )
-                )
-            }
-            try Task.checkCancellation()
-            return classrooms
-        }
-        return try await withTaskCancellationHandler {
-            try await mappingTask.value
-        } onCancel: {
-            mappingTask.cancel()
-        }
+        return try await response.classroomRecords()
     }
 
     /// 教务系统接口请求前的预热步骤。
@@ -331,17 +304,7 @@ extension ScheduleService {
             throw ScheduleServiceError.invalidResponse
         }
 
-        let parsingTask = Task.detached(priority: .utility) { () throws -> [CourseResponse.ParsedCourse] in
-            try Task.checkCancellation()
-            let courses = try response.parsedCoursesCancellable()
-            try Task.checkCancellation()
-            return courses
-        }
-        return try await withTaskCancellationHandler {
-            try await parsingTask.value
-        } onCancel: {
-            parsingTask.cancel()
-        }
+        return try await response.parsedCoursesInBackground()
     }
 
     /// 拉取指定目标学期的考试安排。
@@ -352,47 +315,7 @@ extension ScheduleService {
             body: [("XNXQDM", term), ("*order", "-KSRQ")]
         )
 
-        let mappingTask = Task.detached(priority: .utility) { () throws -> [ExamRecord] in
-            var exams: [ExamRecord] = []
-            exams.reserveCapacity(response.datas.cxxsksap.rows.count)
-            for (index, row) in response.datas.cxxsksap.rows.enumerated() {
-                if index.isMultiple(of: 64) {
-                    try Task.checkCancellation()
-                }
-                let rawCourseName = row.courseName ?? ""
-                let name = rawCourseName
-                    .split(separator: "]")
-                    .first?
-                    .split(separator: "[")
-                    .last
-                    .map(String.init) ?? rawCourseName
-
-                let times = row.timeDescription.captureGroups(pattern: #"(\d{2}:\d{2})-(\d{2}:\d{2})"#)
-                let beginTime = times.first ?? ""
-                let endTime = times.dropFirst().first ?? ""
-
-                exams.append(ExamRecord(
-                    id: "\(row.termCode ?? "")-\(row.courseID ?? "")-\(row.dateString ?? "")-\(row.timeDescription)",
-                    term: row.termCode ?? "",
-                    name: name,
-                    courseID: row.courseID ?? "",
-                    teacher: row.teacherName ?? "",
-                    classroom: row.location ?? "",
-                    dateString: (row.dateString ?? "").split(separator: " ").first.map(String.init) ?? (row.dateString ?? ""),
-                    beginTime: beginTime,
-                    endTime: endTime,
-                    examMode: row.examMode ?? "",
-                    seatID: row.seatID ?? ""
-                ))
-            }
-            try Task.checkCancellation()
-            return exams
-        }
-        return try await withTaskCancellationHandler {
-            try await mappingTask.value
-        } onCancel: {
-            mappingTask.cancel()
-        }
+        return try await response.examRecords()
     }
 
     /// 获取指定目标学期的第一周起始日期。

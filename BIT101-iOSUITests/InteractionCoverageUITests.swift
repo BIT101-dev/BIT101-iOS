@@ -4,8 +4,7 @@ import CoreGraphics
 nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
     @MainActor
     @objc func testCalendarReminderCloudSwitchesAndLeadTimePersistence() {
-        app = configureApp(resetStorage: true, animations: true)
-        openSettings("calendar")
+        app = configureApp(resetStorage: true, animations: true, initialSettings: "calendar")
         let sync = toggle("iCloud 多端同步")
         let preferences = toggle("同步设置与使用偏好（实验性）")
         let reminderControl = app.switches.matching(NSPredicate(format: "label CONTAINS %@", "显示灵动岛提醒（实验性）")).firstMatch
@@ -30,8 +29,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         assertUI(app.pickerWheels.firstMatch.appears(timeout: 5), "再次打开应恢复提醒阈值滚轮。")
         app.pickerWheels.firstMatch.adjust(toPickerWheelValue: "20 分钟")
         tap("完成")
-        app = configureApp(resetStorage: false, animations: true)
-        openSettings("calendar")
+        app = configureApp(resetStorage: false, animations: true, initialSettings: "calendar")
         for (title, value) in [("iCloud 多端同步", sync), ("同步设置与使用偏好（实验性）", preferences)] {
             let control = app.switches.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
             reveal(control)
@@ -50,8 +48,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testSchoolTermsClassroomPickersRefreshAndDDLRefresh() {
-        app = configureApp(resetStorage: true, school: true)
-        openSettings("calendar")
+        app = configureApp(resetStorage: true, school: true, initialSettings: "calendar")
         tap("当前学期")
         assertUI(app.buttons["ui-test-term-2"].appears(timeout: 5), "学校响应应展示可切换的学期。")
         pullToRefresh()
@@ -187,8 +184,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testCustomScheduleEmptyTitleDetailsAndCalendarActions() {
-        app = configureApp(resetStorage: true)
-        openSettings("calendar")
+        app = configureApp(resetStorage: true, initialSettings: "calendar")
         choose("时间轴", option: "线性")
         back()
         app.tabBars.buttons["日程"].tap()
@@ -234,8 +230,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testScoreIndividualFiltersRefreshCancelAndPendingDetail() {
-        app = configureApp(resetStorage: true, content: true, animations: true, school: true)
-        app.tabBars.buttons["成绩"].tap()
+        app = configureApp(resetStorage: true, content: true, animations: true, school: true, initialTab: "home")
         app.buttons["score.query"].tap()
         let code = app.textFields["verification.code"]
         assertUI(code.appears(timeout: 5), "成绩查询应打开短信验证。")
@@ -308,8 +303,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testTrustedTranscriptSMSRetryPreviewAndCancellation() {
-        app = configureApp(resetStorage: true, animations: true)
-        app.tabBars.buttons["成绩"].tap()
+        app = configureApp(resetStorage: true, animations: true, initialTab: "home")
         tap("申请可信成绩单")
         tap("取消")
         tap("重试")
@@ -336,8 +330,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testCommunityCommentLikesRepliesSortsAndPhotoPicker() {
-        app = configureApp(resetStorage: true, content: true)
-        app.tabBars.buttons["话廊"].tap()
+        app = configureApp(resetStorage: true, content: true, initialTab: "gallery")
         tap("自动化测试话题")
         assertUI(app.navigationBars["帖子详情"].appears(timeout: 5), "话题应打开详情。")
         tap("点赞帖子")
@@ -412,8 +405,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes() {
-        app = configureApp(resetStorage: true, content: true)
-        app.tabBars.buttons["话廊"].tap()
+        app = configureApp(resetStorage: true, content: true, initialTab: "gallery")
         for title in ["关注", "最新", "最热", "机器人", "推荐"] {
             app.segmentedControls.buttons[title].tap()
             assertUI(app.segmentedControls.buttons[title].isSelected, "话题分类应选中：\(title)。")
@@ -572,8 +564,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         openSettings("gallery")
         replaceText("64", in: app.textFields["缓存上限"])
         dismissKeyboard()
-        app = configureApp(resetStorage: false)
-        openSettings("gallery")
+        app = configureApp(resetStorage: false, initialSettings: "gallery")
         let limit = app.textFields["缓存上限"]
         reveal(limit)
         waitForValue("64", of: limit)
@@ -591,8 +582,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testCommunityMediaPreviewsDraftRetryAndRemoval() {
-        app = configureApp(resetStorage: true, content: true, animations: true, media: true)
-        app.tabBars.buttons["话廊"].tap()
+        app = configureApp(resetStorage: true, content: true, animations: true, media: true, initialTab: "gallery")
         tapImage("查看第1张图片")
         closeImagePreview()
         tap("自动化测试话题")
@@ -672,8 +662,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testPaperImagePreviewCommentsSortAndShare() {
-        app = configureApp(resetStorage: true, content: true, animations: true, media: true)
-        app.tabBars.buttons["话廊"].tap()
+        app = configureApp(resetStorage: true, content: true, animations: true, media: true, initialTab: "gallery")
         app.segmentedControls.buttons["文章"].tap()
         tap("自动化测试文章")
         let link = app.links.matching(identifier: "正文链接").firstMatch
@@ -707,8 +696,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testCourseCommentRepliesRatingsCleaningSearchAndShare() {
-        app = configureApp(resetStorage: true, content: true, animations: true, media: true)
-        app.tabBars.buttons["成绩"].tap()
+        app = configureApp(resetStorage: true, content: true, animations: true, media: true, initialTab: "home")
         app.segmentedControls.buttons["课程"].tap()
         replaceText("测试\n", in: app.textFields.firstMatch)
         tap("清除搜索")
@@ -743,8 +731,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testPosterReportSelectionCancellationAndSubmission() {
-        app = configureApp(resetStorage: true, content: true)
-        app.tabBars.buttons["话廊"].tap()
+        app = configureApp(resetStorage: true, content: true, initialTab: "gallery")
         tap("更多操作")
         tap("举报帖子")
         choose("类型", option: "其他")
@@ -838,16 +825,14 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testManualUpdatePromptAllActionsAndCurrentVersion() {
-        app = configureApp(resetStorage: true, animations: true, update: "new")
-        openSettings("about")
+        app = configureApp(resetStorage: true, animations: true, update: "new", initialSettings: "about")
         for action in ["本次忽略", "忽略此版本", "前往 App Store"] {
             tap("检查更新")
             assertUI(app.alerts["发现新版本 999.0"].appears(timeout: 5), "更新响应应展示新版本。")
             tap(action)
             if action == "前往 App Store" { assertOpenedURL("apps.apple.com/cn/app/bit101/id6761147125") }
         }
-        app = configureApp(resetStorage: true, animations: true, update: "current")
-        openSettings("about")
+        app = configureApp(resetStorage: true, animations: true, update: "current", initialSettings: "about")
         tap("检查更新")
         assertUI(app.alerts["已是最新版本"].appears(timeout: 5), "当前版本响应应展示检查结果。")
         closeAlertIfPresent()
@@ -855,8 +840,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testOfflineRecoveryRetryAndErrorReportEditor() {
-        app = configureApp(resetStorage: true, animations: true)
-        app.tabBars.buttons["话廊"].tap()
+        app = configureApp(resetStorage: true, animations: true, initialTab: "gallery")
         closeAlertIfPresent()
         tap("重试")
         assertUI(textElement("加载失败").appears(timeout: 5), "离线重试应恢复失败状态。")
@@ -881,8 +865,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testCommunityFailedRequestsRetryToLoadedState() {
-        app = configureApp(resetStorage: true, content: true, failureOnce: true)
-        app.tabBars.buttons["成绩"].tap()
+        app = configureApp(resetStorage: true, content: true, failureOnce: true, initialTab: "home")
         app.segmentedControls.buttons["课程"].tap()
         assertUI(app.alerts["加载课程失败"].appears(timeout: 5), "首次课程失败应展示错误提示。")
         closeAlertIfPresent()
@@ -1008,8 +991,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testCourseHistoryChartSelectionAndHomeSurfaceSwipes() {
-        app = configureApp(resetStorage: true, content: true)
-        app.tabBars.buttons["成绩"].tap()
+        app = configureApp(resetStorage: true, content: true, initialTab: "home")
         app.collectionViews.firstMatch.swipeLeft()
         assertUI(app.segmentedControls.buttons["课程"].isSelected, "成绩页横滑应切换课程分区。")
         app.collectionViews.firstMatch.swipeRight()
@@ -1039,8 +1021,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testMinePublicProfileFollowAndPostDeletion() {
-        app = configureApp(resetStorage: true, content: true, animations: true, media: true)
-        app.tabBars.buttons["我的"].tap()
+        app = configureApp(resetStorage: true, content: true, animations: true, media: true, initialTab: "mine")
         assertUI(textElement("自动化测试用户").appears(timeout: 5), "个人页应加载账号资料。")
         tap("粉丝")
         assertUI(app.navigationBars["我的粉丝"].appears(timeout: 5), "粉丝统计应打开粉丝列表。")
@@ -1130,8 +1111,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testNetworkDiagnosisProgressAndReport() {
-        app = configureApp(resetStorage: true)
-        openSettings("gallery")
+        app = configureApp(resetStorage: true, initialSettings: "gallery")
         tap("测试网络并生成诊断报告")
         assertUI(app.alerts["网络诊断完成"].appears(timeout: 60), "诊断操作应汇总每个网络步骤。")
         for title in ["网络路径", "BIT101 首页", "话廊接口", "文章接口", "学校当前学期", "课表与考试", "DDL 接口", "可信成绩单"] {
@@ -1166,8 +1146,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testEmptyShareAndImportGuideCancellationAndSheetSwipeDismissal() {
-        app = configureApp(resetStorage: true)
-        openSettings("calendar")
+        app = configureApp(resetStorage: true, initialSettings: "calendar")
         tap("分享课表")
         app.alerts["当前课表为空"].buttons["取消"].tap()
         assertUI(app.buttons["schedule.settings.primary-name"].exists, "取消空课表分享应留在设置页。")
@@ -1229,8 +1208,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testFutureScheduleImportUpdateCancellationAndLink() {
-        app = configureApp(resetStorage: true)
-        openSettings("calendar")
+        app = configureApp(resetStorage: true, initialSettings: "calendar")
         tap("导入课表")
         tap("知道了")
         let code = app.textViews["schedule.import.code"]
@@ -1248,8 +1226,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testWebGallerySettingPersistenceScrollingAndNativeReturn() {
-        app = configureApp(resetStorage: true, content: true)
-        openSettings("gallery")
+        app = configureApp(resetStorage: true, content: true, initialSettings: "gallery")
         let value = toggle("使用网页话廊")
         back()
         app.tabBars.buttons["话廊"].tap()
@@ -1257,8 +1234,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         assertUI(web.appears(timeout: 10), "网页设置应打开 WebKit 页面。")
         web.swipeUp()
         web.swipeDown()
-        app = configureApp(resetStorage: false, content: true)
-        openSettings("gallery")
+        app = configureApp(resetStorage: false, content: true, initialSettings: "gallery")
         let control = app.switches.matching(NSPredicate(format: "label CONTAINS %@", "使用网页话廊")).firstMatch
         reveal(control)
         waitForValue(value, of: control)
@@ -1271,8 +1247,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testErrorReportSanitizedSubmissionAndFailureRecovery() {
-        app = configureApp(resetStorage: true, content: true, failureOnce: true)
-        app.tabBars.buttons["话廊"].tap()
+        app = configureApp(resetStorage: true, content: true, failureOnce: true, initialTab: "gallery")
         tap("向开发者分享错误信息")
         assertUI(app.navigationBars["分享错误信息"].appears(timeout: 5), "诊断入口应呈现报告编辑器。")
         tap("原始网络响应")

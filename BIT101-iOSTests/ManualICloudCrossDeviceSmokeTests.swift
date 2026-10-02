@@ -74,7 +74,13 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     @MainActor private var manager: ExperimentalPreferenceCloudSync { .shared }
 
     @MainActor
-    func testPhoneUpload() async throws {
+    func testPhoneRoundTrip() async throws {
+        try await uploadPhoneScores()
+        try await verifyPhoneScoresAndCleanup()
+    }
+
+    @MainActor
+    private func uploadPhoneScores() async throws {
         let account = AppFileDirectories.currentSession.accountDirectoryName
         guard account != "guest", account != "__default__" else {
             XCTFail("请先在真机登录账号")
@@ -128,7 +134,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     }
 
     @MainActor
-    func testPhoneVerifyAndCleanup() async throws {
+    private func verifyPhoneScoresAndCleanup() async throws {
         let coordination = try await requireCoordination(stage: .macRestored)
         let macVersion = try XCTUnwrap(coordination.macVersion)
         let phoneVersion = try XCTUnwrap(coordination.phoneVersion)

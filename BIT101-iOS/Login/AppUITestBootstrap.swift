@@ -2,6 +2,7 @@
 import StorageCore
 import TransportCore
 import Foundation
+import Network
 import UIKit
 import ClientCore
 import ScheduleDomain
@@ -11,6 +12,44 @@ import CommunityPersistence
 import DesignSystemKit
 import SwiftUI
 import Combine
+
+/// UI 自动化在本机连接中更新场景夹具，App 进程持续运行。
+nonisolated final class UITestControlServer: Sendable {
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "BIT101.UITestControl")
+
+    init(handle: @escaping @Sendable (Data, @escaping @Sendable (Data) -> Void) -> Void) throws {
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: 19101)
+        listener = try NWListener(using: parameters)
+        listener.newConnectionHandler = { [queue] connection in
+            connection.start(queue: queue)
+            Self.receive(connection, buffer: Data(), handle: handle)
+        }
+        listener.start(queue: queue)
+    }
+
+    deinit { listener.cancel() }
+
+    private static func receive(
+        _ connection: NWConnection, buffer: Data,
+        handle: @escaping @Sendable (Data, @escaping @Sendable (Data) -> Void) -> Void
+    ) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 16_384) { data, _, complete, error in
+            var content = buffer
+            if let data { content.append(data) }
+            if let end = content.firstIndex(of: 10) {
+                handle(Data(content[..<end])) { response in
+                    connection.send(content: response + Data([10]), completion: .contentProcessed { _ in connection.cancel() })
+                }
+            } else if error != nil || complete || content.count > 16_384 {
+                connection.cancel()
+            } else {
+                receive(connection, buffer: content, handle: handle)
+            }
+        }
+    }
+}
 
 /// 场景参数在同一个进程中更新，传输夹具与页面共同读取这份配置。
 @MainActor
@@ -118,14 +157,7 @@ enum AppUITestBootstrap {
         let supportDirectory = AppFileDirectories.applicationSupportDirectoryURL(named: "BIT101-iOS")
         guard AppFileDirectories.files.fileExists(at: supportDirectory) else { return }
         do {
-            let testSession = AppStorageSession(
-                accountIdentifier: "__ui_tests__.\(AppFileDirectories.uiTestRunIdentifier)."
-            )
-            let testAccountPrefixes = [testSession.accountStorageIdentifier, testSession.accountDirectoryName]
-            let directories = try AppFileDirectories.files.contentsOfDirectory(at: supportDirectory, options: [])
-            for directory in directories where testAccountPrefixes.contains(where: directory.lastPathComponent.hasPrefix) {
-                try AppFileDirectories.files.removeItem(at: directory)
-            }
+            try AppFileDirectories.files.removeItem(at: supportDirectory)
         } catch {
             preconditionFailure("UI test account storage cleanup failed: \(error)")
         }

@@ -54,9 +54,6 @@ public nonisolated struct AppStorageSession: Sendable, Equatable {
     /// 本地存储使用稳定摘要作为账号命名空间。
     public var accountStorageIdentifier: String {
         guard !isGuest else { return "__default__" }
-#if BIT101_UI_TESTING
-        if accountIdentifier.hasPrefix("__ui_tests__.") { return accountDirectoryName }
-#endif
         return AccountStorageIdentity.stableToken(for: accountIdentifier)
     }
 
@@ -72,4 +69,3 @@ public nonisolated struct AppStorageSession: Sendable, Equatable {
         accountDirectoryName
     }
 }
-

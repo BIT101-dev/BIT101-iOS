@@ -78,9 +78,9 @@ import sys
 report_path, bundle, stage, process_status, log_path = sys.argv[1:]
 exit_code = int(process_status)
 row = {"stage": stage, "exitCode": exit_code}
-if stage == "testCleanup":
+if stage in {"testCleanup", "testMacReceiveAndRestore"}:
     statuses = re.findall(
-        r"Test case 'ICloudCrossDeviceSmokeTests\.testCleanup\(\)' (passed|failed|skipped) on ",
+        rf"Test case 'ICloudCrossDeviceSmokeTests\.{re.escape(stage)}\(\)' (passed|failed|skipped) on ",
         Path(log_path).read_text(),
     )
     row.update(totalTestCount=len(statuses), failedTests=statuses.count("failed"),
@@ -106,7 +106,7 @@ PY
 
 common_args=(
   -quiet -project "$PROJECT" -scheme BIT101-iOS -configuration Release
-  "SWIFT_ACTIVE_COMPILATION_CONDITIONS=$CONDITIONS" ENABLE_TESTABILITY=YES
+  "BIT101_WORKFLOW_CONDITIONS=$CONDITIONS" ENABLE_TESTABILITY=YES
   -collect-test-diagnostics never
 )
 
@@ -127,9 +127,14 @@ run_phone_test() {
 
 PHONE_TESTS_STARTED=false
 PHONE_CLEANED_UP=false
+PHONE_TEST_PID=""
 finish_smoke() {
   local smoke_status=$?
   trap - EXIT ZERR INT TERM
+  if [[ -n "$PHONE_TEST_PID" ]]; then
+    kill -TERM "$PHONE_TEST_PID" 2>/dev/null || true
+    wait "$PHONE_TEST_PID" 2>/dev/null || true
+  fi
   if $PHONE_TESTS_STARTED && ! $PHONE_CLEANED_UP; then
     echo "[恢复] 实验开关与 Smoke 协调数据"
     if ! run_phone_test testCleanup; then
@@ -179,20 +184,64 @@ bit101_run_logged "$DERIVED_ROOT/build.log" "iCloud 真机测试构建" \
   -destination "platform=iOS,id=$DEVICE_ID" -derivedDataPath "$DERIVED_ROOT/Phone" \
   "-only-testing:$TEST_CLASS"
 
-echo "[1/3] 真机发布完整成绩载荷与本次业务版本"
-PHONE_TESTS_STARTED=true
-run_phone_test testPhoneUpload
-
-echo "[2/3] Mac Catalyst 接收并发布新的业务版本"
-MAC_LOG="$DERIVED_ROOT/mac-receive.log"
-rm -rf "$RESULT_BUNDLE"
-MAC_STATUS=0
-bit101_run_logged "$MAC_LOG" "Mac Catalyst 接收测试" xcodebuild test "${common_args[@]}" \
+echo "[构建] 准备 Mac Catalyst 测试宿主"
+bit101_run_logged "$DERIVED_ROOT/mac-build.log" "iCloud Mac 测试构建" \
+  xcodebuild build-for-testing "${common_args[@]}" \
   -destination 'platform=macOS,variant=Mac Catalyst' -derivedDataPath "$DERIVED_ROOT/Mac" \
-  -resultBundlePath "$RESULT_BUNDLE" ONLY_ACTIVE_ARCH=YES ARCHS=arm64 \
-  "-only-testing:$TEST_CLASS/testMacReceiveAndRestore" || MAC_STATUS=$?
-record_result testMacReceiveAndRestore "$MAC_STATUS" "$MAC_LOG"
+  ONLY_ACTIVE_ARCH=YES ARCHS=arm64 "-only-testing:$TEST_CLASS/testMacReceiveAndRestore"
 
-echo "[3/3] 真机接收 Mac 业务版本并恢复实验开关"
-run_phone_test testPhoneVerifyAndCleanup
-PHONE_CLEANED_UP=true
+echo "[同步] 真机与 Mac 宿主并行验证双向成绩载荷及业务版本"
+PHONE_TESTS_STARTED=true
+(
+  trap - EXIT ZERR INT TERM
+  exec python3 - "$ZSH_EXECUTION_STRING" "$ROOT_DIR" "$DERIVED_ROOT" "$RESULT_BUNDLE" "$SUMMARY_PATH" \
+    "$DEVICE_ID" "$TEST_CLASS" "${common_args[@]}" <<'PYWORKER'
+import os
+import re
+import signal
+import subprocess
+import sys
+
+snapshot = sys.argv[1]
+worker = r'''
+set -euo pipefail
+ROOT_DIR="$1"
+DERIVED_ROOT="$2"
+RESULT_BUNDLE="$3"
+SUMMARY_PATH="$4"
+DEVICE_ID="$5"
+TEST_CLASS="$6"
+shift 6
+common_args=("$@")
+source "$ROOT_DIR/Scripts/script-support.sh"
+'''
+for name in ("record_result", "run_phone_test"):
+    worker += re.search(rf"(?ms)^{name}\(\) \{{\n.*?^\}}$", snapshot)[0] + "\n"
+worker += "run_phone_test testPhoneRoundTrip\n"
+process = subprocess.Popen(["zsh", "-c", worker, "phone-smoke", *sys.argv[2:]], start_new_session=True)
+
+def interrupt(signum, _frame):
+    try:
+        os.killpg(process.pid, signum)
+    except ProcessLookupError:
+        pass
+
+for signum in (signal.SIGINT, signal.SIGTERM):
+    signal.signal(signum, interrupt)
+result = process.wait()
+raise SystemExit(result if result >= 0 else 128 - result)
+PYWORKER
+) &
+PHONE_TEST_PID=$!
+MAC_LOG="$DERIVED_ROOT/mac-receive.log"
+MAC_STATUS=0
+bit101_run_logged "$MAC_LOG" "Mac Catalyst 接收测试" xcodebuild test-without-building "${common_args[@]}" \
+  -destination 'platform=macOS,variant=Mac Catalyst' -derivedDataPath "$DERIVED_ROOT/Mac" \
+  ONLY_ACTIVE_ARCH=YES ARCHS=arm64 \
+  "-only-testing:$TEST_CLASS/testMacReceiveAndRestore" || MAC_STATUS=$?
+PHONE_STATUS=0
+wait "$PHONE_TEST_PID" || PHONE_STATUS=$?
+PHONE_TEST_PID=""
+if (( PHONE_STATUS == 0 )); then PHONE_CLEANED_UP=true; fi
+record_result testMacReceiveAndRestore "$MAC_STATUS" "$MAC_LOG"
+exit "$PHONE_STATUS"
