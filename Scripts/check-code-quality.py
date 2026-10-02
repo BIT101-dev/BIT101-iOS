@@ -1023,6 +1023,29 @@ def build_cache_boundary_findings() -> list[str]:
         content = b"compiled module fixture\n" * 4096
         module.write_bytes(content)
         modified = module.stat().st_mtime_ns
+        contexts = {
+            "simulator": "arm64-apple-ios27.0-simulator",
+            "watch-simulator": "arm64-apple-watchos27.0-simulator",
+            "phone": "arm64-apple-ios27.0",
+            "mac": "arm64-apple-ios27.0-macabi",
+            "unreadable": None,
+        }
+        for name in contexts:
+            (shared / name).mkdir()
+            (shared / name / f"{name}.pcm").write_bytes(content)
+        command_run = subprocess.run
+        builds = []
+
+        def inspect_module(command, **options):
+            if command[:2] == ["zsh", "-c"]:
+                builds.append(command)
+                return subprocess.CompletedProcess(command, 0)
+            if command[:3] == ["xcrun", "clang", "-module-file-info"]:
+                triple = contexts.get(Path(command[3]).stem)
+                return subprocess.CompletedProcess(command, 0 if triple else 1,
+                                                   f"Target options:\n  Triple: {triple}\n" if triple else "", "")
+            return command_run(command, **options)
+
         obsolete = fixture / ".build/ui-authorization.logarchive"
         obsolete.mkdir()
         diagnostics = fixture / ".build/extended-automation/diagnostics"
@@ -1031,6 +1054,12 @@ def build_cache_boundary_findings() -> list[str]:
         for platform in ("Release-iphoneos", "Release-iphonesimulator"):
             (products / platform).mkdir(parents=True)
             (products / platform / "product").write_text(platform)
+        symbols = products / "Release-iphoneos/product.dSYM"
+        symbols.mkdir()
+        (symbols / "debug-info").write_bytes(content)
+        bundled_symbols = products / "Release-iphoneos/Runner.app/PlugIns/tests.xctest.dSYM/debug-info"
+        bundled_symbols.parent.mkdir(parents=True)
+        bundled_symbols.write_bytes(content)
         result = fixture / ".build/extended-automation/test-results.xcresult"
         result.mkdir()
         (result / "evidence").write_text("retain result")
@@ -1040,9 +1069,12 @@ def build_cache_boundary_findings() -> list[str]:
         (sdk / "unused.pcm").write_bytes(content)
         dependencies = products.parent / "Intermediates.noindex/fixture-dependencies.json"
         dependencies.parent.mkdir()
+        debug_object = dependencies.parent / "debug.o"
+        debug_object.write_bytes(content)
         dependencies.write_text(json.dumps([{"clangModulePath": str(sdk / "referenced.pcm")}]))
         for _ in range(2):
-            with patch.object(sys, "argv", ["cache", str(fixture), "--maintenance"]), redirect_stdout(StringIO()):
+            with patch.object(sys, "argv", ["cache", str(fixture), "--maintenance"]), \
+                    patch.object(subprocess, "run", inspect_module), redirect_stdout(StringIO()):
                 exec(compile(block[1], "cache-self-test", "exec"), {})
         if not old.is_symlink() or old.resolve() != shared.resolve():
             findings.append("缓存自测：同类缓存目录共享")
@@ -1050,18 +1082,41 @@ def build_cache_boundary_findings() -> list[str]:
             findings.append("缓存自测：保留热模块及唯一模块")
         if module.read_bytes() != content or module.stat().st_mtime_ns != modified:
             findings.append("缓存自测：合并保留内容和修改时间")
-        if obsolete.exists() or diagnostics.exists() or (products / "Release-iphonesimulator").exists():
+        if any((shared / name).exists() for name in ("simulator", "watch-simulator")):
+            findings.append("缓存自测：停用平台的隐式模块清理")
+        if any((shared / name / f"{name}.pcm").read_bytes() != content for name in ("phone", "mac", "unreadable")):
+            findings.append("缓存自测：保留真机、Mac 及平台归属待核对的模块")
+        if obsolete.exists() or diagnostics.exists() or symbols.exists() or (products / "Release-iphonesimulator").exists():
             findings.append("缓存自测：清理诊断与失效平台产物")
+        if debug_object.read_bytes() != content:
+            findings.append("缓存自测：保留目标文件中的调试信息")
+        if bundled_symbols.read_bytes() != content:
+            findings.append("缓存自测：保留运行包内部的调试资源")
         if not (products / "Release-iphoneos/product").is_file() or not (result / "evidence").is_file():
             findings.append("缓存自测：保留增量构建及测试证据")
         if not (sdk / "referenced.pcm").is_file() or (sdk / "unused.pcm").exists():
             findings.append("缓存自测：依赖清单引用模块保留")
         (sdk / "incomplete-map.pcm").write_bytes(content)
         dependencies.write_text("{")
-        with patch.object(sys, "argv", ["cache", str(fixture), "--maintenance"]), redirect_stdout(StringIO()):
+        with patch.object(sys, "argv", ["cache", str(fixture), "--maintenance"]), \
+                patch.object(subprocess, "run", inspect_module), redirect_stdout(StringIO()):
             exec(compile(block[1], "cache-self-test", "exec"), {})
         if not (sdk / "incomplete-map.pcm").is_file():
             findings.append("缓存自测：依赖清单受损时保留缓存")
+        for action, settings, expected in (
+            ("build", [], ["DEBUG_INFORMATION_FORMAT=dwarf"]),
+            ("test", ["DEBUG_INFORMATION_FORMAT=dwarf-with-dsym"], ["DEBUG_INFORMATION_FORMAT=dwarf-with-dsym"]),
+            ("archive", [], []),
+        ):
+            arguments = ["cache", str(fixture), "build.log", "build", "xcodebuild", action, *settings]
+            with patch.object(sys, "argv", arguments), patch.object(subprocess, "run", inspect_module):
+                try:
+                    exec(compile(block[1], "cache-self-test", "exec"), {})
+                except SystemExit as result:
+                    if result.code != 0:
+                        raise
+            if [value for value in builds[-1] if value.startswith("DEBUG_INFORMATION_FORMAT=")] != expected:
+                findings.append("缓存自测：开发 DWARF、显式符号设置和发行归档边界")
     finally:
         shutil.rmtree(fixture, ignore_errors=True)
     return findings

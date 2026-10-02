@@ -74,6 +74,7 @@ import fcntl
 from contextlib import nullcontext
 import os
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -128,6 +129,9 @@ with ((root / ".build/extended-automation.lock").open("a") if maintenance else n
     before = occupied_kib() if maintenance else 0
     if not maintenance:
         command = arguments[2:]
+        if command[0] == "xcodebuild" and any(action in command for action in ("build", "build-for-testing", "test")) \
+                and "archive" not in command and not any(value.startswith("DEBUG_INFORMATION_FORMAT=") for value in command):
+            arguments.append("DEBUG_INFORMATION_FORMAT=dwarf")
         for option in ("-derivedDataPath", "--scratch-path"):
             if option in command:
                 requested = Path(command[command.index(option) + 1])
@@ -143,10 +147,34 @@ with ((root / ".build/extended-automation.lock").open("a") if maintenance else n
     if maintenance:
         shutil.rmtree(root / ".build/ui-authorization.logarchive", ignore_errors=True)
         shutil.rmtree(root / ".build/extended-automation/diagnostics", ignore_errors=True)
+        (shared / "compression-stage").unlink(missing_ok=True)
+        implicit_removed = 0
+        implicit_bytes = 0
+        for context in (shared / "ModuleCache.noindex").iterdir():
+            if not context.is_dir():
+                continue
+            module = next(context.glob("*.pcm"), None)
+            if module is None:
+                continue
+            info = subprocess.run(["xcrun", "clang", "-module-file-info", str(module)],
+                                  capture_output=True, text=True)
+            triple = re.search(r"(?mi)^\s*(?:target )?triple:\s*(\S+)", info.stdout)
+            if info.returncode == 0 and triple and triple[1].endswith("-simulator"):
+                implicit_bytes += sum(path.stat().st_blocks * 512 for path in context.rglob("*") if path.is_file())
+                shutil.rmtree(context)
+                implicit_removed += 1
+        if implicit_removed:
+            print(f"失效平台模块：清理 {implicit_removed} 组 · {implicit_bytes / 1048576:.1f} MiB")
         for derived in derived_roots:
             for build in (derived / "Build", derived):
                 for parent in (build / "Products", build / "Intermediates.noindex"):
                     if parent.is_dir():
+                        if parent.name == "Products":
+                            for symbols in parent.rglob("*.dSYM"):
+                                bundled = any(path.suffix in (".app", ".appex", ".framework", ".xctest")
+                                              for path in symbols.relative_to(parent).parents)
+                                if symbols.is_dir() and not bundled:
+                                    shutil.rmtree(symbols)
                         for path in sorted(parent.rglob("*simulator*"), key=lambda path: len(path.parts), reverse=True):
                             if path.is_dir() and path.name.endswith(("-iphonesimulator", "-watchsimulator")):
                                 shutil.rmtree(path)
