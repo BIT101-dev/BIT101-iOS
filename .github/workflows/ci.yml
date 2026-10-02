@@ -58,12 +58,12 @@ jobs:
           printf '%s\n' "$version"
           grep -Eq '^Xcode (2[7-9]|[3-9][0-9]|[1-9][0-9]{2,})\.' <<<"$version"
       - name: Build iOS app, Watch, widgets and tests
-        run: Scripts/run-extended-tests.sh release --build-only --generic
+        run: Scripts/run-extended-tests.sh build release
       - name: Build UI automation host and tests
-        run: Scripts/run-extended-tests.sh ui --build-only --generic
+        run: Scripts/run-extended-tests.sh build ui
       - name: Build network smoke host and tests
-        run: Scripts/run-extended-tests.sh network-smoke --build-only --generic
+        run: Scripts/run-extended-tests.sh build network-smoke
       - name: Build iCloud smoke host and tests
-        run: Scripts/run-extended-tests.sh icloud-smoke --build-only --generic
+        run: Scripts/run-extended-tests.sh build icloud-smoke
       - name: Run behavior tests on Mac Catalyst
         run: Scripts/run-extended-tests.sh catalyst

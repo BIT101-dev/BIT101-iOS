@@ -8,12 +8,23 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT="$ROOT_DIR/BIT101-iOS.xcodeproj"
 source "$ROOT_DIR/Scripts/script-support.sh"
 DERIVED_ROOT="$ROOT_DIR/.build/extended-automation"
-if [[ "${1:-}" == --cache-maintenance ]]; then
+if [[ "${1:-}" == cache ]]; then
+  [[ $# -eq 1 ]] || exit 64
   bit101_build_cache --maintenance
   exit 0
 fi
-if [[ "${1:-}" == "--report" ]]; then
-  python3 - "$DERIVED_ROOT/test-results.xcresult" "${2:-}" "${3:-}" <<'PY'
+if [[ "${1:-}" == report || "${1:-}" == screenshot || "${1:-}" == activities || "${1:-}" == diagnostics ]]; then
+  case "$1" in
+    report) [[ $# -le 2 ]] || exit 64 ;;
+    diagnostics) [[ $# -eq 1 ]] || exit 64 ;;
+    *) [[ $# -eq 2 ]] || { echo "请提供测试类/方法。" >&2; exit 64; } ;;
+  esac
+  if [[ "$1" == report && $# -eq 1 && -f "$DERIVED_ROOT/test-metrics.txt" ]]; then
+    cat "$DERIVED_ROOT/test-metrics.txt"
+    if [[ -f "$DERIVED_ROOT/test-failures.txt" ]]; then cat "$DERIVED_ROOT/test-failures.txt"; fi
+    exit 0
+  fi
+  python3 - "$DERIVED_ROOT/test-results.xcresult" "${2:-}" "$1" <<'PY'
 import json
 import shutil
 import subprocess
@@ -22,9 +33,9 @@ from pathlib import Path
 
 bundle = Path(sys.argv[1])
 if not (bundle / "database.sqlite3").is_file() or (bundle / "Staging").exists():
-    raise SystemExit("测试结果可在运行结束后通过 --report 读取。")
+    raise SystemExit("测试结果可在运行结束后通过 report 读取。")
 
-if sys.argv[2] == "--diagnostics":
+if sys.argv[3] == "diagnostics":
     output = bundle.parent / "diagnostics"
     shutil.rmtree(output, ignore_errors=True)
     subprocess.run(["xcrun", "xcresulttool", "export", "diagnostics", "--path", str(bundle),
@@ -37,7 +48,7 @@ if sys.argv[2]:
         "xcrun", "xcresulttool", "get", "test-results", "activities", "--path", sys.argv[1],
         "--test-id", sys.argv[2],
     ], text=True))
-    if sys.argv[3] == "--activities":
+    if sys.argv[3] == "activities":
         actions = []
         def titles(value):
             if isinstance(value, dict):
@@ -54,7 +65,7 @@ if sys.argv[2]:
         raise SystemExit(0)
     def attachments(value):
         if isinstance(value, dict):
-            screenshot = sys.argv[3] == "--screenshot"
+            screenshot = sys.argv[3] == "screenshot"
             name = "失败时的界面截图" if screenshot else "失败时的界面元素树"
             if str(value.get("name", "")).startswith(name):
                 identifier = value.get("payloadId")
@@ -99,11 +110,15 @@ PY
   exit 0
 fi
 if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
-  echo "用法：Scripts/run-extended-tests.sh [all|default|modules|schedule|schedule-share|infrastructure|login|extensions|ui|catalyst|release|network-smoke|icloud-smoke] [--build-only] [--generic] [--clean-build] [--only-testing 测试类/方法]... [真机设备ID]"
-  echo "聚合：Scripts/run-extended-tests.sh verify [modules|all|catalyst|ui|network|ddl|icloud|audit]... [--ui-test 测试类/方法]..."
-  echo "报告：Scripts/run-extended-tests.sh --report [测试类/方法()] [--screenshot|--activities]"
-  echo "诊断：Scripts/run-extended-tests.sh --report --diagnostics"
-  echo "缓存整理：Scripts/run-extended-tests.sh --cache-maintenance"
+  echo "Scripts/run-extended-tests.sh                    自动选机、运行完整行为测试"
+  echo "Scripts/run-extended-tests.sh modules            本机模块测试"
+  echo "Scripts/run-extended-tests.sh ui [用例关键词]...  真机 UI 测试，多个筛选合并执行"
+  echo "Scripts/run-extended-tests.sh build [宿主]        编译测试宿主，默认 release"
+  echo "Scripts/run-extended-tests.sh report              读取测试结果"
+  echo "Scripts/run-extended-tests.sh cache               整理共享构建缓存"
+  echo "分组：schedule、infrastructure、login、extensions、catalyst；组后可直接填写测试类/方法。"
+  echo "宿主：release、ui、network-smoke、icloud-smoke、modules、catalyst。"
+  echo "专项：verify [分组]...；diagnostics；report|screenshot|activities 测试类/方法。"
   exit 0
 fi
 SCRIPT_PATH="$0"
@@ -140,14 +155,24 @@ RESULT_BUNDLE="$DERIVED_ROOT/test-results.xcresult"
 typeset -aU TEST_SELECTIONS
 TEST_SELECTIONS=()
 BUILD_ONLY=false
-CLEAN_BUILD=false
 GENERIC_BUILD=false
 TEST_DURATION_SECONDS=0
 
 MODE="all"
-if [[ $# -gt 0 ]]; then
+if [[ "${1:-}" == build ]]; then
+  BUILD_ONLY=true
+  shift
+  MODE="${1:-release}"
+  if (( $# > 0 )); then shift; fi
+  case "$MODE" in
+    release|ui|network-smoke|icloud-smoke) GENERIC_BUILD=true ;;
+    modules|catalyst) ;;
+    *) echo "编译宿主：release、ui、network-smoke、icloud-smoke、modules、catalyst。" >&2; exit 64 ;;
+  esac
+fi
+if ! $BUILD_ONLY && [[ $# -gt 0 ]]; then
   case "$1" in
-    all|default|schedule|schedule-share|infrastructure|login|extensions|ui|catalyst|modules|release|network-smoke|icloud-smoke|verify)
+    all|schedule|infrastructure|login|extensions|ui|catalyst|modules|verify)
       MODE="$1"
       shift
       ;;
@@ -155,32 +180,12 @@ if [[ $# -gt 0 ]]; then
 fi
 
 if [[ "$MODE" == "verify" ]]; then
-  typeset -aU verification_groups verification_ui_selections
-  verification_groups=()
-  verification_ui_selections=()
-  while (( $# > 0 )); do
-    case "$1" in
-      --ui-test)
-        if [[ $# -lt 2 || -z "$2" || "$2" == --* ]]; then
-          echo "--ui-test 后填写 UI 测试类或测试类/方法" >&2
-          exit 64
-        fi
-        verification_groups+=(ui)
-        verification_ui_selections+=("$2")
-        shift 2
-        ;;
-      *) verification_groups+=("$1"); shift ;;
-    esac
-  done
-  verification_ui_args=()
-  for selection in "${verification_ui_selections[@]}"; do
-    verification_ui_args+=(--only-testing "$selection")
-  done
+  typeset -aU verification_groups
+  verification_groups=("$@")
   if (( ${#verification_groups[@]} == 0 )); then
     verification_groups=(modules all catalyst ui network icloud audit)
   fi
   verification_needs_device=false
-  verification_device_id=""
   for group in "${verification_groups[@]}"; do
     case "$group" in
       all|ui|network|ddl|icloud) verification_needs_device=true ;;
@@ -191,7 +196,6 @@ if [[ "$MODE" == "verify" ]]; then
   acquire_test_lock
   if $verification_needs_device; then
     bit101_require_device || exit 1
-    verification_device_id="$BIT101_XCODE_DEVICE_ID"
   fi
   export BIT101_DEFER_APP_RESTORE=1
   verification_failures=()
@@ -200,7 +204,7 @@ if [[ "$MODE" == "verify" ]]; then
     trap - EXIT ZERR INT TERM
     if $verification_needs_device; then
       echo "[恢复] 安装并启动常规 Release App"
-      if ! "$ROOT_DIR/Scripts/build-install-device.sh" "$verification_device_id"; then
+      if ! "$ROOT_DIR/Scripts/build-install-device.sh"; then
         if (( verification_status == 0 )); then verification_status=1; fi
       fi
     fi
@@ -223,11 +227,10 @@ if [[ "$MODE" == "verify" ]]; then
   for group in "${verification_groups[@]}"; do
     case "$group" in
       modules|catalyst) verify_step "$group" "$0" "$group" ;;
-      all) verify_step all "$0" all "$verification_device_id" ;;
-      ui) verify_step ui "$0" ui "${verification_ui_args[@]}" "$verification_device_id" ;;
-      network) verify_step network "$ROOT_DIR/Scripts/release-network-smoke.sh" --scope all "$verification_device_id" ;;
-      ddl) verify_step ddl "$ROOT_DIR/Scripts/release-network-smoke.sh" --scope ddl "$verification_device_id" ;;
-      icloud) verify_step icloud "$ROOT_DIR/Scripts/run_icloud_cross_device_smoke.sh" "$verification_device_id" ;;
+      all|ui) verify_step "$group" "$0" "$group" ;;
+      network) verify_step network "$ROOT_DIR/Scripts/release-network-smoke.sh" ;;
+      ddl) verify_step ddl "$ROOT_DIR/Scripts/release-network-smoke.sh" ddl ;;
+      icloud) verify_step icloud "$ROOT_DIR/Scripts/run_icloud_cross_device_smoke.sh" ;;
       audit) verify_step audit "$ROOT_DIR/Scripts/run-static-audit.sh" ;;
     esac
   done
@@ -242,61 +245,32 @@ if [[ "$MODE" == "ui" ]]; then
   TEST_BUNDLE="BIT101-iOSUITests"
   TEST_SCHEME="BIT101-iOS-UIAutomation"
   CONDITIONS="EXTENDED_AUTOMATION BIT101_AUTOMATED_TESTING BIT101_UI_TESTING"
-  while [[ $# -gt 0 && "$1" == */* ]]; do
-    TEST_SELECTIONS+=("$1")
-    shift
-  done
 fi
 
-while (( $# > 0 )); do
-  case "$1" in
-    --build-only) BUILD_ONLY=true; shift ;;
-    --generic) GENERIC_BUILD=true; shift ;;
-    --clean-build) CLEAN_BUILD=true; shift ;;
-    --only-testing)
-      if [[ $# -lt 2 || -z "$2" || "$2" == --* ]]; then
-        echo "--only-testing 后填写测试类或测试类/方法" >&2
-        exit 64
-      fi
-      TEST_SELECTIONS+=("$2")
-      shift 2
-      ;;
-    --*) echo "测试选项：--build-only、--generic、--clean-build、--only-testing 测试类/方法" >&2; exit 64 ;;
-    *) break ;;
-  esac
+for selection in "$@"; do
+  [[ "$selection" != -* ]] || { echo "请直接填写测试类/方法；编译使用 build 宿主。" >&2; exit 64; }
+  if [[ "$MODE" != ui && "$selection" != [A-Z]* ]]; then
+    echo "请填写测试类/方法，或通过 --help 查看操作。" >&2
+    exit 64
+  fi
 done
-
-if $GENERIC_BUILD; then
-  if ! $BUILD_ONLY || [[ $# -gt 0 || "$MODE" == modules || "$MODE" == catalyst ]]; then
-    echo "通用 iOS 编译使用 --build-only --generic。" >&2
-    exit 64
-  fi
+TEST_SELECTIONS=("$@")
+if [[ "$MODE" == ui && ${#TEST_SELECTIONS[@]} -gt 0 ]]; then
+  selections="$(bit101_ui_test_selections "${TEST_SELECTIONS[@]}")" || exit 64
+  TEST_SELECTIONS=("${(@f)selections}")
 fi
-case "$MODE" in
-  release|network-smoke|icloud-smoke)
-    if ! $BUILD_ONLY; then
-      echo "专用宿主编译使用 --build-only；真机 Smoke 使用对应脚本。" >&2
-      exit 64
-    fi
-    ;;
-esac
+if [[ ( "$MODE" == modules || "$BUILD_ONLY" == true ) && ${#TEST_SELECTIONS[@]} -gt 0 ]]; then
+  echo "模块测试与宿主编译直接使用对应操作名。" >&2
+  exit 64
+fi
 
-UI_RESTORE_DEVICE_ID=""
 if [[ "$MODE" == "modules" ]]; then
-  if [[ $# -gt 0 || ${#TEST_SELECTIONS[@]} -gt 0 ]]; then
-    echo "用法：Scripts/run-extended-tests.sh modules [--build-only] [--clean-build]" >&2
-    exit 64
-  fi
   acquire_test_lock
 elif $GENERIC_BUILD; then
   acquire_test_lock
   TEST_DESTINATION="generic/platform=iOS"
   SIGNING_ARGS=(CODE_SIGNING_ALLOWED=NO)
 elif [[ "$MODE" == "catalyst" ]]; then
-  if [[ $# -gt 0 ]]; then
-    echo "用法：Scripts/run-extended-tests.sh catalyst" >&2
-    exit 64
-  fi
   acquire_test_lock
   TEST_DESTINATION="platform=macOS,variant=Mac Catalyst"
   if [[ "${GITHUB_ACTIONS:-false}" == "true" ]]; then
@@ -305,15 +279,14 @@ elif [[ "$MODE" == "catalyst" ]]; then
     SIGNING_ARGS=(-allowProvisioningUpdates)
   fi
 else
-  if [[ $# -gt 1 ]]; then
-    echo "用法：Scripts/run-extended-tests.sh [模式] [--only-testing 测试类/用例]... [真机设备ID]" >&2
-    exit 64
-  fi
   acquire_test_lock
-  bit101_require_device "${1:-}" || exit 1
+  bit101_require_device || exit 1
   TEST_DESTINATION="platform=iOS,id=$BIT101_XCODE_DEVICE_ID"
   SIGNING_ARGS=(-allowProvisioningUpdates)
-  UI_RESTORE_DEVICE_ID="$BIT101_XCODE_DEVICE_ID"
+fi
+
+if [[ "$MODE" == ui && ${#TEST_SELECTIONS[@]} -gt 0 ]]; then
+  echo "[筛选] ${#TEST_SELECTIONS[@]} 项 UI 用例 · 同一批次执行"
 fi
 
 if [[ "$MODE" == "ui" && "$BUILD_ONLY" == false && "${BIT101_DEFER_APP_RESTORE:-0}" != "1" ]]; then
@@ -321,8 +294,8 @@ if [[ "$MODE" == "ui" && "$BUILD_ONLY" == false && "${BIT101_DEFER_APP_RESTORE:-
     local test_exit_code=$?
     trap - EXIT ZERR INT TERM
     echo "[恢复] 安装并启动常规 Release App"
-    if ! "$ROOT_DIR/Scripts/build-install-device.sh" "$UI_RESTORE_DEVICE_ID"; then
-      echo "常规 Release App 恢复失败，请运行 Scripts/build-install-device.sh $UI_RESTORE_DEVICE_ID" >&2
+    if ! "$ROOT_DIR/Scripts/build-install-device.sh"; then
+      echo "常规 Release App 恢复失败，请运行 Scripts/build-install-device.sh" >&2
       if (( test_exit_code == 0 )); then test_exit_code=1; fi
     fi
     exit "$test_exit_code"
@@ -332,9 +305,6 @@ if [[ "$MODE" == "ui" && "$BUILD_ONLY" == false && "${BIT101_DEFER_APP_RESTORE:-
   trap 'exit 143' TERM
 fi
 
-if $CLEAN_BUILD; then
-  rm -rf "$DERIVED_ROOT"
-fi
 mkdir -p "$DERIVED_ROOT"
 if ! $BUILD_ONLY; then
   if [[ "$MODE" != "modules" ]]; then rm -rf "$RESULT_BUNDLE"; fi
@@ -434,7 +404,7 @@ run_tests() {
     for selection in "${TEST_SELECTIONS[@]}"; do
       only_testing+=("-only-testing:$TEST_BUNDLE/$selection")
     done
-  elif [[ "$group" != "all-tests" && "$group" != "default-tests" && "$group" != "ui-tests" ]]; then
+  elif [[ "$group" != "all-tests" && "$group" != "ui-tests" ]]; then
     only_testing=("-only-testing:$TEST_BUNDLE/$group")
   fi
 
@@ -639,14 +609,8 @@ case "$MODE" in
   all)
     run_tests all-tests "$CONDITIONS"
     ;;
-  default)
-    run_tests default-tests "DEBUG BIT101_AUTOMATED_TESTING"
-    ;;
   schedule)
     run_tests ExtendedSchedulePolicyTests "$CONDITIONS"
-    ;;
-  schedule-share)
-    run_tests ScheduleShareCodeCodecTests "$CONDITIONS"
     ;;
   infrastructure)
     run_tests ExtendedInfrastructureTests "$CONDITIONS"

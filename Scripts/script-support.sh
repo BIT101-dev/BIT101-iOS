@@ -223,16 +223,42 @@ bit101_run_logged() {
   fi
 }
 
+bit101_ui_test_selections() {
+  python3 - "$ROOT_DIR/BIT101-iOSUITests" "$@" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+tests = []
+pattern = re.compile(r"(?m)^\s*(?:(?:private|nonisolated|final)\s+)*class\s+(\w+)|^\s*(?:@\w+\s+)*func\s+(test\w+)\s*\(")
+for source in sorted(Path(sys.argv[1]).glob("*UITests.swift")):
+    owner = ""
+    for match in pattern.finditer(source.read_text()):
+        if match[1]:
+            owner = match[1]
+        else:
+            tests.append(f"{owner}/{match[2]}")
+selected = []
+for keyword in sys.argv[2:]:
+    name = keyword.removesuffix("()").casefold()
+    matches = [test for test in tests if name and (
+        name == test.casefold() or name == test.split("/", 1)[0].casefold()
+        or name in test.split("/", 1)[1].casefold()
+    )]
+    if not matches:
+        raise SystemExit(f"请核对 UI 用例关键词：{keyword}")
+    selected.extend(matches)
+print("\n".join(dict.fromkeys(selected)))
+PY
+}
+
 bit101_device_snapshot() {
   xcrun devicectl list devices --quiet --json-output /dev/stdout
 }
 
 bit101_find_device() {
-  local requested_device="${1:-}"
-  if [[ -n "${BIT101_XCODE_DEVICE_ID:-}" && -n "${BIT101_DEVICETCL_DEVICE_ID:-}" && -n "${BIT101_DEVICE_TRANSPORT:-}" ]]; then
-    if [[ -z "$requested_device" || "${(U)requested_device}" == "${(U)BIT101_XCODE_DEVICE_ID}" || "${(U)requested_device}" == "${(U)BIT101_DEVICETCL_DEVICE_ID}" ]]; then
-      return 0
-    fi
+  if [[ -n "${BIT101_XCODE_DEVICE_ID:-}" && -n "${BIT101_DEVICETCL_DEVICE_ID:-}" && -n "${BIT101_DEVICE_TRANSPORT:-}" && -n "${BIT101_DEVICE_NAME:-}" ]]; then
+    return 0
   fi
   local snapshot selection
   local -a identifiers
@@ -244,7 +270,6 @@ bit101_find_device() {
 import json
 import sys
 
-requested = sys.argv[1].upper()
 candidates = []
 for device in json.load(sys.stdin)["result"]["devices"]:
     hardware = device.get("hardwareProperties", {})
@@ -258,26 +283,26 @@ for device in json.load(sys.stdin)["result"]["devices"]:
         continue
     if transport not in {"wired", "localNetwork"} or not identifier or not udid:
         continue
-    if requested and requested not in {identifier.upper(), udid.upper()}:
-        continue
-    candidates.append((transport != "wired", identifier, udid, transport))
+    name = device.get("deviceProperties", {}).get("name") or hardware.get("deviceType", "iPhone")
+    candidates.append((transport != "wired", connection.get("tunnelState") != "connected", identifier, udid, transport, name))
 
 if candidates:
-    selected = min(candidates, key=lambda candidate: candidate[0])
-    print("\n".join(selected[1:]))
-' "$requested_device")" || return 1
+    selected = min(candidates, key=lambda candidate: candidate[:2])
+    print("\n".join(selected[2:]))
+')" || return 1
   [[ -n "$selection" ]] || return 1
   identifiers=("${(@f)selection}")
   BIT101_DEVICETCL_DEVICE_ID="${identifiers[1]}"
   BIT101_XCODE_DEVICE_ID="${identifiers[2]}"
   BIT101_DEVICE_TRANSPORT="${identifiers[3]}"
-  export BIT101_XCODE_DEVICE_ID BIT101_DEVICETCL_DEVICE_ID BIT101_DEVICE_TRANSPORT
+  BIT101_DEVICE_NAME="${identifiers[4]}"
+  export BIT101_XCODE_DEVICE_ID BIT101_DEVICETCL_DEVICE_ID BIT101_DEVICE_TRANSPORT BIT101_DEVICE_NAME
 }
 
 bit101_require_device() {
-  if bit101_find_device "${1:-}"; then
+  if bit101_find_device; then
     return 0
   fi
-  echo "请将${1:+设备 $1 对应的}已配对 iPhone 通过 USB 或同一局域网连接到 Mac 后重新运行。" >&2
+  echo "请将已配对 iPhone 通过 USB 或同一局域网连接到 Mac 后重新运行。" >&2
   return 1
 }

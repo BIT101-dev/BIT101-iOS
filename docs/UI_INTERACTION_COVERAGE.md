@@ -126,7 +126,7 @@
 
 完整批次串行复用一个 App 进程，每次配置和持久化重新读取都验证同一进程 ID。场景通过测试专用的本机通道更新，重新创建页面及模型，夹具修改按场景清空；各项维持独立的隔离数据重置。UIKit 过渡动画在 UI 宿主加速，手势保留标准 XCTest 实现。取消、保存、重试及全部业务断言继续执行；失败保留截图和元素树。异步错误与成功提示等待预期标题出现，出现、消失和数值变化先检查当前状态。按钮查询先判断存在，避免复合标签的自动查找重试；时间滚轮采用快速短距离拖动、停留释放及原值恢复，图表拖动保留必要的按住时间。
 
-快速开发可将受影响用例通过重复的 `--only-testing` 参数合并到同一次调用；完整验收运行整个 UI 组。真机批次结束后恢复常规 Release App。
+快速开发可将受影响用例通过直接填写多个用例关键词合并到同一次调用；完整验收运行整个 UI 组。真机批次结束后恢复常规 Release App。
 
 照片选择器等待“照片”控件出现后点击顶层取消并确认关闭；返回操作选择当前可交互导航栏。空白多行字段点击首行后输入，短信验证码提交先收起键盘。
 
@@ -134,8 +134,8 @@
 
 ```sh
 Scripts/run-extended-tests.sh ui
-Scripts/run-extended-tests.sh --report
-Scripts/run-extended-tests.sh ui --build-only --generic
+Scripts/run-extended-tests.sh report
+Scripts/run-extended-tests.sh build ui
 Scripts/run-static-audit.sh
 ```
 

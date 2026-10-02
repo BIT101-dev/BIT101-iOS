@@ -15,39 +15,25 @@ REPORT_DIR="$DERIVED_DATA/report"
 SUMMARY_OUTPUT="$REPORT_DIR/network-smoke-summary.txt"
 APP_GROUP_ID="group.BIT101-dev.BIT101-iOS.shared"
 APP_BUNDLE_ID="BIT101-dev.BIT101-iOS"
-SMOKE_SCOPE="${BIT101_NETWORK_SMOKE_SCOPE:-all}"
+SMOKE_SCOPE="${1:-all}"
 SMOKE_CAPTURE="${BIT101_NETWORK_SMOKE_CAPTURE:-none}"
 SMOKE_TERM="${BIT101_NETWORK_SMOKE_TERM:-}"
-DEVICE_ID=""
-while (( $# > 0 )); do
-  case "$1" in
-    --scope)
-      [[ $# -ge 2 ]] || { echo "--scope 后填写探针范围。" >&2; exit 64; }
-      SMOKE_SCOPE="$2"
-      shift 2
-      ;;
-    -h|--help)
-      echo "用法：Scripts/release-network-smoke.sh [--scope all|bit101|school|transcript|schedule|ddl] [真机设备ID]"
-      exit 0
-      ;;
-    --*) echo "网络 Smoke 选项：--scope 范围。" >&2; exit 64 ;;
-    *)
-      [[ -z "$DEVICE_ID" ]] || { echo "请提供一个真机设备 ID。" >&2; exit 64; }
-      DEVICE_ID="$1"
-      shift
-      ;;
-  esac
-done
+[[ $# -le 1 ]] || { echo "用法：Scripts/release-network-smoke.sh [范围]" >&2; exit 64; }
 
 case "$SMOKE_SCOPE" in
   all|bit101|school|transcript|schedule|ddl) ;;
-  *) echo "BIT101_NETWORK_SMOKE_SCOPE 必须是 all、bit101、school、transcript、schedule 或 ddl。" >&2; exit 64 ;;
+  -h|--help)
+    echo "Scripts/release-network-smoke.sh   自动选机、验证全部网络探针"
+    echo "指定范围：bit101、school、transcript、schedule、ddl。"
+    exit 0
+    ;;
+  *) echo "网络范围：all、bit101、school、transcript、schedule、ddl。" >&2; exit 64 ;;
 esac
 case "$SMOKE_CAPTURE" in
   ""|none|scheduleCache|rawCourseResponse) ;;
   *) echo "BIT101_NETWORK_SMOKE_CAPTURE 参数无效。" >&2; exit 64 ;;
 esac
-bit101_require_device "$DEVICE_ID" || exit 1
+bit101_require_device || exit 1
 DEVICE_ID="$BIT101_XCODE_DEVICE_ID"
 DEVICETCL_DEVICE_ID="$BIT101_DEVICETCL_DEVICE_ID"
 
@@ -76,7 +62,7 @@ emit_output() {
 restore_normal_app() {
   local smoke_status=$?
   trap - EXIT ZERR INT TERM
-  if ! BIT101_INSTALL_TARGET=iPhone "$ROOT_DIR/Scripts/build-install-device.sh" "$DEVICE_ID" >/dev/null 2>&1; then
+  if ! "$ROOT_DIR/Scripts/build-install-device.sh" >/dev/null 2>&1; then
     echo "恢复正常 App 失败，当前设备可能仍运行网络采样宿主。" >&2
     [[ $smoke_status -eq 0 ]] && smoke_status=1
   fi
@@ -88,7 +74,7 @@ if [[ "${BIT101_DEFER_APP_RESTORE:-0}" != "1" ]]; then
   trap 'exit 143' TERM
 fi
 
-echo "[网络 Smoke] $SMOKE_SCOPE · $BIT101_DEVICE_TRANSPORT · $DEVICE_ID"
+echo "[网络 Smoke] $SMOKE_SCOPE · $BIT101_DEVICE_NAME"
 if bit101_run_logged "$BUILD_LOG" "Release 网络采样构建输出" xcodebuild build \
   -quiet \
   -project "$PROJECT" \

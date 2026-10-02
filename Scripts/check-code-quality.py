@@ -994,6 +994,104 @@ def script_output_boundary_findings() -> list[str]:
     finally:
         fixture.unlink(missing_ok=True)
     findings.extend(build_cache_boundary_findings())
+    findings.extend(script_command_boundary_findings())
+    return findings
+
+
+def script_command_boundary_findings() -> list[str]:
+    "通过内存替身验证自动选机、操作分派、筛选合并及参数拒绝。"
+    import os
+    import shlex
+
+    findings = []
+    support = SCRIPT_ROOT / "script-support.sh"
+    frame = r'''
+bit101_require_device() {
+  print DEVICE
+  export BIT101_XCODE_DEVICE_ID=udid BIT101_DEVICETCL_DEVICE_ID=core
+  export BIT101_DEVICE_TRANSPORT=wired BIT101_DEVICE_NAME=phone
+}
+bit101_build_cache() { print CACHE; }
+mkdir() { :; }
+rm() { :; }
+ditto() { :; }
+open() { :; }
+pgrep() { return 1; }
+trap() { :; }
+xcrun() {
+  if [[ "$*" == *lockState* ]]; then print '{"result":{"isLocked":false}}';
+  else print -ru2 -- "TOOL $*"; fi
+}
+'''
+    cases = (
+        ("build-install-device.sh", [], 0, "platform=iOS,id=udid", "DEVICE"),
+        ("build-install-device.sh", ["build"], 0, "generic/platform=iOS", ""),
+        ("build-install-device.sh", ["mac"], 0, "variant=Mac Catalyst", ""),
+        ("build-install-device.sh", ["info"], 0, "phone", "DEVICE"),
+        ("build-install-device.sh", ["screenshot"], 0, "截图已保存", "DEVICE"),
+        ("run-extended-tests.sh", ["build"], 0, "build-for-testing", ""),
+        ("run-extended-tests.sh", ["build", "ui"], 0, "BIT101-iOS-UIAutomation", ""),
+        ("run-extended-tests.sh", ["build", "network-smoke"], 0, "RELEASE_NETWORK_SMOKE", ""),
+        ("run-extended-tests.sh", ["build", "icloud-smoke"], 0, "ICLOUD_CROSS_DEVICE_SMOKE", ""),
+        ("run-extended-tests.sh", ["build", "modules"], 0, "swift build", ""),
+        ("run-extended-tests.sh", ["build", "catalyst"], 0, "variant=Mac Catalyst", ""),
+        ("run-extended-tests.sh", ["ui", "About", "About"], 86, "LoginAndScheduleUITests/testAboutLicenseUpdateAndResetConfirmation", "DEVICE"),
+        ("run-extended-tests.sh", ["ui", "Schedule"], 86, "testScheduleWeekButtonsAndSectionSwipes", "DEVICE"),
+        ("run-extended-tests.sh", ["ui", "DDLEditor"], 86, "InteractionCoverageUITests/testDDLEditorDetailsDatePickerValidationAndCancelEditing", "DEVICE"),
+        ("run-extended-tests.sh", ["ui", "test"], 86, "57 项 UI 用例", "DEVICE"),
+        ("run-extended-tests.sh", ["modules"], 86, "swift test", ""),
+        ("run-extended-tests.sh", [], 86, "-only-testing:BIT101-iOSTests", "DEVICE"),
+        ("run-extended-tests.sh", ["NetworkClientTests"], 86, "BIT101-iOSTests/NetworkClientTests", "DEVICE"),
+        ("run-extended-tests.sh", ["cache"], 0, "CACHE", ""),
+        ("release-network-smoke.sh", ["ddl"], 86, "RELEASE_NETWORK_SMOKE", "DEVICE"),
+        ("run_icloud_cross_device_smoke.sh", [], 86, "ICLOUD_CROSS_DEVICE_SMOKE", "DEVICE"),
+    )
+    environment = dict(os.environ, BIT101_EXTENDED_TESTS_LOCK_HELD="1", BIT101_DEFER_APP_RESTORE="1")
+    for filename, arguments, expected, marker, device in cases:
+        path = SCRIPT_ROOT / filename
+        source = path.read_text().replace('source "$ROOT_DIR/Scripts/script-support.sh"',
+                                         f"source {shlex.quote(str(support))}\n" + frame)
+        stop = "exit 86" if expected == 86 else "return 0"
+        source = source.replace(frame, frame + f'\nbit101_run_logged() {{ print -r -- "BUILD $*"; {stop}; }}\n')
+        result = subprocess.run(["zsh", "-c", source, str(path), *arguments], env=environment,
+                                capture_output=True, text=True)
+        if result.returncode != expected or marker not in result.stdout or ("DEVICE\n" in result.stdout) != bool(device):
+            findings.append(f"命令自测：{filename} {' '.join(arguments)} 分派及自动选机；{result.stderr[:160]}")
+        if filename == "run-extended-tests.sh" and arguments[:2] == ["ui", "About"] and result.stdout.count(marker) != 1:
+            findings.append("命令自测：重复 UI 关键词合并为一个用例")
+        if arguments == ["ui", "Schedule"] and "testAboutLicense" in result.stdout:
+            findings.append("命令自测：方法关键词按实际流程筛选")
+        if arguments == ["ui", "test"] and result.stdout.count("-only-testing:BIT101-iOSUITests/") != 57:
+            findings.append("命令自测：两个测试类的全部交互用例可通过关键词选择")
+    for filename, arguments in (
+        ("build-install-device.sh", ["build", "extra"]),
+        ("run-extended-tests.sh", ["ui", "unmatched-keyword"]),
+        ("run-extended-tests.sh", ["build", "unknown"]),
+        ("run-extended-tests.sh", ["verify", "unknown"]),
+        ("release-network-smoke.sh", ["unknown"]),
+        ("run_icloud_cross_device_smoke.sh", ["unknown"]),
+    ):
+        result = subprocess.run(["zsh", str(SCRIPT_ROOT / filename), *arguments], capture_output=True, text=True)
+        if result.returncode != 64:
+            findings.append(f"命令自测：{filename} 错误参数在执行前拒绝")
+
+    def candidate(name, transport, tunnel="connected", pairing="paired", reality="physical"):
+        return {"identifier": name, "hardwareProperties": {"udid": name, "deviceType": "iPhone", "reality": reality},
+                "connectionProperties": {"transportType": transport, "tunnelState": tunnel, "pairingState": pairing},
+                "deviceProperties": {"name": name}}
+
+    for devices, expected in (
+        ([candidate("wireless", "localNetwork"), candidate("wired", "wired")], "wired"),
+        ([candidate("wireless", "localNetwork"), candidate("offline", None)], "wireless"),
+        ([candidate("pending", "wired", "disconnected"), candidate("connected", "wired")], "connected"),
+        ([candidate("unpaired", "wired", pairing="unpaired"), candidate("virtual", "wired", reality="virtual")], ""),
+    ):
+        snapshot = shlex.quote(json.dumps({"result": {"devices": devices}}))
+        code = f'source {shlex.quote(str(support))}\nunset BIT101_XCODE_DEVICE_ID BIT101_DEVICETCL_DEVICE_ID BIT101_DEVICE_TRANSPORT BIT101_DEVICE_NAME\n'
+        code += f'bit101_device_snapshot() {{ print -r -- {snapshot}; }}\nbit101_find_device || exit 1\nprint -r -- "$BIT101_DEVICE_NAME"\n'
+        result = subprocess.run(["zsh", "-c", code], capture_output=True, text=True)
+        if (expected and (result.returncode or result.stdout.strip() != expected)) or (not expected and result.returncode != 1):
+            findings.append("设备自测：有线优先、无线发现、连接状态及真实配对设备范围")
     return findings
 
 
@@ -1186,7 +1284,7 @@ python3() {{ cat >/dev/null; }}
 
     network_source = (SCRIPT_ROOT / "release-network-smoke.sh").read_text()
     restore = shell_function("restore_normal_app", network_source).replace(
-        'BIT101_INSTALL_TARGET=iPhone "$ROOT_DIR/Scripts/build-install-device.sh" "$DEVICE_ID" >/dev/null 2>&1',
+        '"$ROOT_DIR/Scripts/build-install-device.sh" >/dev/null 2>&1',
         "restore_release",
     )
     network_traps = "\n".join(line.strip() for line in network_source.splitlines() if line.strip().startswith("trap "))
@@ -1221,8 +1319,6 @@ fail_command
                 harness = f'''
 set -euo pipefail
 verification_needs_device=true
-verification_device_id=device
-UI_RESTORE_DEVICE_ID=device
 restore_release() {{ print restore; return {restore_status}; }}
 {recovery}
 {registration[0]}
@@ -1590,7 +1686,7 @@ def audit_wiring_findings() -> list[str]:
             ("SWIFT_TREAT_WARNINGS_AS_ERRORS=YES", "发布测试编译需要 Swift 警告门禁"),
             ("GCC_TREAT_WARNINGS_AS_ERRORS=YES", "发布测试编译需要 Clang 警告门禁"),
             ("--enable-code-coverage", "模块测试需要生产源码覆盖率"),
-            ("--generic", "测试编译需要通用 iOS 目的地"),
+            ("generic/platform=iOS", "测试编译需要通用 iOS 目的地"),
             ("extensions)", "缺少扩展共享逻辑测试分组"),
             ("ExternalScheduleInfrastructureTests", "扩展共享逻辑分组未执行对应测试套件"),
         )
@@ -1670,10 +1766,10 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         errors.append(".github/workflows/ci.yml: Release 编译 Job 必须依赖静态审计")
     required_release_rules = (
         ("Scripts/run-extended-tests.sh catalyst", "CI 默认 Job 缺少 Mac Catalyst 行为测试"),
-        ("Scripts/run-extended-tests.sh release --build-only --generic", "CI 需要通用 iOS Release 测试构建"),
-        ("Scripts/run-extended-tests.sh ui --build-only --generic", "CI 需要 UI 宿主与测试构建"),
-        ("Scripts/run-extended-tests.sh network-smoke --build-only --generic", "CI 需要网络 Smoke 编译条件构建"),
-        ("Scripts/run-extended-tests.sh icloud-smoke --build-only --generic", "CI 需要 iCloud Smoke 编译条件构建"),
+        ("Scripts/run-extended-tests.sh build release", "CI 需要通用 iOS Release 测试构建"),
+        ("Scripts/run-extended-tests.sh build ui", "CI 需要 UI 宿主与测试构建"),
+        ("Scripts/run-extended-tests.sh build network-smoke", "CI 需要网络 Smoke 编译条件构建"),
+        ("Scripts/run-extended-tests.sh build icloud-smoke", "CI 需要 iCloud Smoke 编译条件构建"),
     )
     release_commands = "\n".join(run_commands(release_job))
     for marker, message in required_release_rules:

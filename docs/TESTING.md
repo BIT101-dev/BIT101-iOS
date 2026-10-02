@@ -18,11 +18,11 @@
 | 构建、装机、截图、设备信息 | `Scripts/build-install-device.sh` |
 | 模块、App、UI、Catalyst 与聚合验证 | `Scripts/run-extended-tests.sh` |
 | 语法、工程、依赖、文档与设计规则审计 | `Scripts/run-static-audit.sh` |
-| 网络探针与范围选择 | `Scripts/release-network-smoke.sh --scope 范围` |
+| 网络探针与范围选择 | `Scripts/release-network-smoke.sh 范围` |
 | iCloud 双向验证、报告与恢复 | `Scripts/run_icloud_cross_device_smoke.sh` |
 | Issues、CI 失败与反馈报告管理 | `Scripts/fetch-issues-and-reports.sh` |
 
-输出处理器验收覆盖 1000 / 1001 行、完整留档、信号退出状态及执行期间改写源码的故障注入。测试结果保存在既有固定日志与结果包中；UI 结果通过 `Scripts/run-extended-tests.sh --report` 汇总。
+输出处理器自测覆盖诊断展示阈值、完整留档、信号退出状态及执行期间改写源码的故障注入。测试结果保存在既有固定日志与结果包中；`Scripts/run-extended-tests.sh report` 读取最近一次模块、App 或 UI 测试结果。
 
 构建、测试、Smoke 和报告管理入口均提供 `--help`。质量、UI、模块边界、文档新鲜度与版本检查器保留独立入口，便于针对单项问题执行；统一审计通过共享 SwiftSyntax 索引执行质量与 UI 检查，并输出解释文案审查候选。地图 fixture 生成使用 `Scripts/generate_campus_map_fixture.py <教务导出.xlsx>`，沿用既有人工审核和固定数据路径约定。
 
@@ -30,41 +30,38 @@
 
 ```sh
 Scripts/build-install-device.sh
-Scripts/build-install-device.sh --compile-only
-Scripts/build-install-device.sh --compile-only <真机设备ID>
-Scripts/build-install-device.sh --compile-only --generic
-Scripts/build-install-device.sh --screenshot
+Scripts/build-install-device.sh build
+Scripts/build-install-device.sh screenshot
 ```
 
-所有真机入口共用 `Scripts/script-support.sh`：依据一次 CoreDevice 设备快照优先选择可用的 USB 有线设备，有线设备缺席时立即选择已配对、当前可发现的无线设备。快照同时提供 CoreDevice UUID 和设备 UDID，构建、装机、启动、截图、测试、网络 Smoke 与 iCloud Smoke 使用同一台设备。显式传入设备 ID 时按该设备选择，支持 UDID 和 CoreDevice UUID。
+所有真机入口共用 `Scripts/script-support.sh`，自动识别已配对的真实设备：依据一次 CoreDevice 设备快照优先选择 USB 有线设备，再选择当前可发现的无线设备，同类连接优先使用已建立隧道的设备。构建、装机、启动、截图、测试、网络 Smoke 与 iCloud Smoke 共用所选设备。终端显示设备名称，设备标识由脚本内部传递；连续工作流复用同一次快照。
 
 设备选择在构建与测试启动前完成，连接类型回退由当前可发现状态触发。设备全部离线时立即退出并提示连接方式。设备发现沿用 CoreDevice 默认参数，执行一次列表读取。
 
 [无线调试](https://help.apple.com/xcode/mac/current/en.lproj/dev3e2f4ee6d.html)要求 iPhone 与 Mac 完成 Xcode 配对、开启开发者模式并连接同一局域网。通过既有脚本读取设备详情，验证当前连接：
 
 ```sh
-Scripts/build-install-device.sh --device-info
-Scripts/build-install-device.sh --device-info <真机设备ID>
+Scripts/build-install-device.sh info
 ```
 
-检查输出中的 `wired` 表示有线连接，`localNetwork` 表示无线连接。
+输出显示设备名称、USB / 无线连接和解锁状态。
 
 Mac Catalyst 构建与安装沿用同一入口：
 
 ```sh
-BIT101_INSTALL_TARGET=macCatalyst Scripts/build-install-device.sh
+Scripts/build-install-device.sh mac
 ```
 
 Catalyst 安装路径为 `~/Applications/BIT101-iOS.app`。截图固定覆盖 `.build/screenshot.png`。课表模型和共享展示改动同时关注主 App、Widget、Watch App 与 Watch Widget。
 
-`--compile-only --generic` 使用通用 iOS 目的地编译 Release App 及扩展，产物覆盖 `build/DeviceInstall/`。真机行为、系统权限和实际跨端传输由设备测试验证。
+`build` 使用通用 iOS 目的地编译 Release App 及扩展，产物覆盖 `build/DeviceInstall/`。真机行为、系统权限和实际跨端传输由设备测试验证。
 
 ## 包级与 App 行为测试
 
 | 分组 | 宿主与范围 |
 | --- | --- |
 | `modules` | macOS 原生 Release；本地模块的领域、服务、存储和场景状态 |
-| `default` | 真机 App 常规行为与平台适配 |
+| 直接运行 | 真机 App 完整行为与平台适配 |
 | `schedule` | 日程、编辑、缓存、分享和同步策略 |
 | `infrastructure` | 网络、存储、取消和账号隔离 |
 | `login` | 登录恢复、CAS、学校认证与短信 challenge |
@@ -73,7 +70,7 @@ Catalyst 安装路径为 `~/Applications/BIT101-iOS.app`。截图固定覆盖 `.
 
 ```sh
 Scripts/run-extended-tests.sh modules
-Scripts/run-extended-tests.sh default
+Scripts/run-extended-tests.sh
 Scripts/run-extended-tests.sh schedule
 Scripts/run-extended-tests.sh infrastructure
 Scripts/run-extended-tests.sh login
@@ -88,28 +85,28 @@ Scripts/run-extended-tests.sh catalyst
 按现有测试类或方法选择范围，多个筛选项在同一次调用执行。Swift Testing 方法名保留 `()`，suite 名称用于整组运行；脚本按实际用例数量验收选择范围：
 
 ```sh
-Scripts/run-extended-tests.sh default \
-  --only-testing ExperimentalPreferenceCloudSyncTests \
-  --only-testing ScheduleModuleBoundaryTests \
-  --only-testing NetworkClientTests
+Scripts/run-extended-tests.sh \
+  ExperimentalPreferenceCloudSyncTests \
+  ScheduleModuleBoundaryTests \
+  NetworkClientTests
 ```
 
-`--build-only` 编译所选宿主的测试产物。通用 iOS 编译使用 `--build-only --generic`，CI 覆盖正式 Release、UI、网络 Smoke 与 iCloud Smoke 四种编译条件：
+`build` 编译所选宿主的测试产物，默认使用 Release；iOS 宿主自动使用通用目的地，CI 覆盖正式 Release、UI、网络 Smoke 与 iCloud Smoke 四种编译条件：
 
 ```sh
-Scripts/run-extended-tests.sh release --build-only --generic
-Scripts/run-extended-tests.sh ui --build-only --generic
-Scripts/run-extended-tests.sh network-smoke --build-only --generic
-Scripts/run-extended-tests.sh icloud-smoke --build-only --generic
+Scripts/run-extended-tests.sh build release
+Scripts/run-extended-tests.sh build ui
+Scripts/run-extended-tests.sh build network-smoke
+Scripts/run-extended-tests.sh build icloud-smoke
 ```
 
-`--clean-build` 清理固定测试产物目录后执行所选流程。全量逻辑测试使用 `Scripts/run-extended-tests.sh`。
+缓存整理使用 `Scripts/run-extended-tests.sh cache`。全量逻辑测试使用 `Scripts/run-extended-tests.sh`。
 
 ## UI 自动化
 
 `BIT101-iOSUITests` 使用 `BIT101-iOS-UIAutomation` Release scheme 和真机宿主。`BIT101_UI_TESTING` 构建隔离 Keychain、偏好、账号文件和媒体缓存，使用合成会话及离线服务。测试文件归 App 内固定的 `Application Support/BIT101-UITests/` 根目录，系统日历与提醒动作使用内存端口，偏好云同步使用内存云存储。正式 App 由生产组装入口启动。UI 宿主在前台保持屏幕常亮。测试默认关闭 UIKit 动画；连续编辑、短信重试、媒体预览和多层弹窗场景启用系统动画，验证导航与输入生命周期。
 
-日常 UI 复验使用 `Scripts/run-extended-tests.sh ui`，通过重复的 `--only-testing` 参数合并受影响流程；通用 iOS 编译使用 `ui --build-only --generic`。57 项通过 `UIAutomationTestCase` 串行复用一个 App 进程，每次场景配置校验进程 ID。筛选参数使用声明方法的类名，完整参数见交互覆盖表。
+日常 UI 复验使用 `Scripts/run-extended-tests.sh ui`，用例关键词直接接在 `ui` 后面，按测试类与方法名匹配并合并为一个批次，完整测试类/方法同样适用。例如 `ui About` 执行关于页面，`ui DDL Calendar` 合并 DDL 和日历相关流程。测试宿主编译使用 `build ui`。57 项通过 `UIAutomationTestCase` 串行复用一个 App 进程，每次场景配置校验进程 ID；完整映射见交互覆盖表。
 
 真机运行期间保持 BIT101 前台并暂停手动操作。场景切换时，后台 App 通过 `activate()` 返回前台，并继续校验原进程 ID。第三方输入法可能提供键盘画面而缺少 XCTest 键盘元素；输入助手通过系统“下一个键盘”按钮切换到原生键盘，再执行输入与完整字段值断言。
 
@@ -130,21 +127,14 @@ UI 用例按页面组合连续交互，每项独立重置隔离数据；持久�
 
 ```sh
 Scripts/run-extended-tests.sh ui
-Scripts/run-extended-tests.sh ui <真机设备ID>
-Scripts/run-extended-tests.sh ui \
-  --only-testing LoginAndScheduleUITests/testLongPressOpensScheduleContextMenuAndImportSheet \
-  --only-testing InteractionCoverageUITests/testCustomScheduleEmptyTitleDetailsAndCalendarActions
-Scripts/run-extended-tests.sh ui \
-  --only-testing LoginAndScheduleUITests/testSchoolDDLSourcesAndCompletionPersistAcrossSceneReload \
-  --only-testing LoginAndScheduleUITests/testDDLEmptyStateExplainsTheRetentionWindow
+Scripts/run-extended-tests.sh ui LongPress CustomSchedule
+Scripts/run-extended-tests.sh ui SchoolDDL DDLEmpty
 ```
 
 快速开发时，将本次改动涉及的场景合并到一次真机调用。例如日期编辑的两项复验，耗时以该批次的 `test-metrics.txt` 为准：
 
 ```sh
-Scripts/run-extended-tests.sh ui \
-  --only-testing InteractionCoverageUITests/testCustomScheduleEmptyTitleDetailsAndCalendarActions \
-  --only-testing InteractionCoverageUITests/testDDLEditorDetailsDatePickerValidationAndCancelEditing
+Scripts/run-extended-tests.sh ui CustomSchedule DDLEditor
 ```
 
 完整交互验收执行 `Scripts/run-extended-tests.sh ui`。用例与控件映射、平台专项范围见 [UI 交互覆盖](UI_INTERACTION_COVERAGE.md)；运行结果与耗时保存在固定日志和 `test-metrics.txt` 中。
@@ -155,25 +145,25 @@ UI 组采集逐用例结果和耗时，交互覆盖依据 `docs/UI_INTERACTION_C
 
 按钮直接查询并点击，每次滚动后重新检查目标可点击状态；图片入口点击画布中心，系统预览直接查询 `QLPreviewControllerView`。出现、消失和值变化等待先核对当前结果，满足断言时立即继续。Quick Look 冷启动采用最长 30 秒的条件等待。关闭预览、草稿或日期弹窗后，确认弹窗消失再继续。日期弹窗定位原生 `PopoverDismissRegion` 按钮，关闭坐标限制在来源表单内并优先选择浮窗左侧；日历翻月、年月滚轮、日期网格和逐列时间滚轮均关联状态断言。时间滚轮使用短距离快速拖动并停留后释放，核对变化后通过数字选项恢复原值，再保存合法的起止时间。
 
-耗时记录标注运行平台、构建与运行总时长，以及用例耗时合计；前后比较使用同一平台的实际结果，同时保留独立数据重置、持久化重新读取和全部业务断言。复验通过重复的 `--only-testing` 参数集中到一个批次；常规 Release App 在真机批次结束后恢复。
+耗时记录标注运行平台、构建与运行总时长，以及用例耗时合计；前后比较使用同一平台的实际结果，同时保留独立数据重置、持久化重新读取和全部业务断言。复验通过直接填写多个用例关键词集中到一个批次；常规 Release App 在真机批次结束后恢复。
 
 文章编辑复用详情页已解析的正文，由详情页导航承接；编辑与删除成功后刷新文章列表和搜索结果。回归核对标题、简介与正文恢复、保存后返回详情、再次编辑及取消保留已保存内容，删除验收同时核对原始和修改后的标题。文章评论使用独立输入弹窗。验证码提交先结束输入焦点，回归覆盖错误重试、查询成功及成绩筛选与详情。
 
 读取本次结果与逐项耗时、检查某项失败的界面元素树：
 
 ```sh
-Scripts/run-extended-tests.sh --report
-Scripts/run-extended-tests.sh --report 'LoginAndScheduleUITests/testCalendarSettingsPickersTogglesAndRenamePersist()'
-Scripts/run-extended-tests.sh --report 'LoginAndScheduleUITests/testLinearScheduleTimelineScrollAndPinch()' --screenshot
-Scripts/run-extended-tests.sh --report 'LoginAndScheduleUITests/testPaperPublishEditCommentAndDelete()' --activities
-Scripts/run-extended-tests.sh --report --diagnostics
+Scripts/run-extended-tests.sh report
+Scripts/run-extended-tests.sh report 'LoginAndScheduleUITests/testCalendarSettingsPickersTogglesAndRenamePersist()'
+Scripts/run-extended-tests.sh screenshot 'LoginAndScheduleUITests/testLinearScheduleTimelineScrollAndPinch()'
+Scripts/run-extended-tests.sh activities 'LoginAndScheduleUITests/testPaperPublishEditCommentAndDelete()'
+Scripts/run-extended-tests.sh diagnostics
 ```
 
-单项元素树覆盖写入 `.build/extended-automation/failure-hierarchy.txt`，便于编辑器检索；失败截图覆盖写入 `.build/screenshot.png`。`--activities` 展示最近 30 条操作和失败记录；`--diagnostics` 将完整诊断临时导出到固定 `.build/extended-automation/diagnostics/`，排查结束后清理。UI 指标统计提取 Runner 标准输出并追加到固定 `ui-tests.log`，处理结束即删除诊断副本；下一次测试清理诊断导出目录。
+单项元素树覆盖写入 `.build/extended-automation/failure-hierarchy.txt`，便于编辑器检索；失败截图覆盖写入 `.build/screenshot.png`。`activities` 展示最近 30 条操作和失败记录；`diagnostics` 将完整诊断临时导出到固定 `.build/extended-automation/diagnostics/`，排查结束后清理。UI 指标统计提取 Runner 标准输出并追加到固定 `ui-tests.log`，处理结束即删除诊断副本；下一次测试清理诊断导出目录。
 
 交互列表的左侧标题由 SwiftSyntax 审计检查公共主题色或警示色修饰器、标题组件及样式覆盖；UI 回归裁切“时间轴”的实际字形，检查彩色像素，覆盖源码规则和真实渲染两个层面。
 
-`test-metrics.txt` 保存构建与运行总时长、用例耗时合计、最慢的十项、App 启动次数、进程 ID 和系统交互动作，用于比较覆盖扩展后的执行成本。开发时通过多个 `--only-testing` 合并受影响的场景；完整覆盖验收运行整个 UI 组。真机专项验证承接真实照片选取、日历 / 提醒权限、外部邮件 / 浏览器交接、网页自身交互及 Widget / Watch 界面。UI Runner 的设备自动化初始化超时单独记录为环境阻塞；iOS 出现 Enable UI Automation 验证时，在手机端输入设备密码后重试，实际执行和通过数由 `.xcresult` 汇总。
+`test-metrics.txt` 保存构建与运行总时长、用例耗时合计、最慢的十项、App 启动次数、进程 ID 和系统交互动作，用于比较覆盖扩展后的执行成本。开发时通过多个用例关键词合并受影响的场景；完整覆盖验收运行整个 UI 组。真机专项验证承接真实照片选取、日历 / 提醒权限、外部邮件 / 浏览器交接、网页自身交互及 Widget / Watch 界面。UI Runner 的设备自动化初始化超时单独记录为环境阻塞；iOS 出现 Enable UI Automation 验证时，在手机端输入设备密码后重试，实际执行和通过数由 `.xcresult` 汇总。
 
 ## 静态审计
 
@@ -195,9 +185,9 @@ SwiftSyntax 共享索引入口通过 `.build/static-audit/swift-syntax-indexer.l
 网络 Smoke 使用正式 App 保存的会话、Cookie 与缓存，专用 Release 宿主完成探针后恢复常规 App：
 
 ```sh
-Scripts/release-network-smoke.sh --scope bit101
-Scripts/release-network-smoke.sh --scope school
-Scripts/release-network-smoke.sh --scope ddl
+Scripts/release-network-smoke.sh bit101
+Scripts/release-network-smoke.sh school
+Scripts/release-network-smoke.sh ddl
 ```
 
 可选范围为 `all`、`bit101`、`school`、`transcript`、`schedule` 和 `ddl`。每个范围均维护必需探针清单，报告分别记录服务健康、执行探针和覆盖完整度。覆盖判定核对该范围的完整清单与实际执行记录，部分覆盖返回状态码 2。学校短信 challenge 记录为认证受阻，短信输入由真机流程验证；反馈探针在同一请求内创建、读取并清理临时报告。
@@ -212,15 +202,15 @@ iCloud 双向验证要求 iPhone 与 Catalyst 使用同一 Apple ID，手机处�
 
 ```sh
 Scripts/run_icloud_cross_device_smoke.sh
-Scripts/run_icloud_cross_device_smoke.sh --report
-Scripts/run_icloud_cross_device_smoke.sh --cleanup
+Scripts/run_icloud_cross_device_smoke.sh report
+Scripts/run_icloud_cross_device_smoke.sh cleanup
 ```
 
 该专用流程通过 `ICLOUD_CROSS_DEVICE_SMOKE` 条件编译执行“真机 → Catalyst → 真机”。手机发布完整成绩缓存及本次业务域版本，Mac 核对完整载荷摘要和接收版本，再发布更新的业务域版本；手机核对 Mac 的新版本及完整载荷摘要。成绩正文与查询时间由现有缓存提供，同步版本由生产协调器生成。手机账号和有效成绩缓存作为准入条件。Mac 宿主通过公共存储端口注入手机账号会话，使用生产文件服务、偏好和同步协调器完成接收与发布。
 
-各宿主通过测试运行环境注入的同一运行标记选择本次协调记录。每个阶段要求一项用例执行并通过；阶段结果汇总到 `.build/icloud-cross-device-smoke/report.json`，完整结果包保存最近的业务验证阶段。异常清理保留该结果包并记录独立清理状态。错误钩子覆盖函数内部失败，信号钩子处理执行中断；故障注入自测验证恢复顺序和状态码。流程结束时恢复实验开关、协调数据和常规 Release App；聚合验证由外层统一恢复 App。中断后的恢复使用既有 `--cleanup` 入口。`ICloudSmokeEvidenceTests` 通过离线用例验证旧版本、空缓存和同数量内容变化的验收边界。
+各宿主通过测试运行环境注入的同一运行标记选择本次协调记录。每个阶段要求一项用例执行并通过；阶段结果汇总到 `.build/icloud-cross-device-smoke/report.json`，完整结果包保存最近的业务验证阶段。异常清理保留该结果包并记录独立清理状态。错误钩子覆盖函数内部失败，信号钩子处理执行中断；故障注入自测验证恢复顺序和状态码。流程结束时恢复实验开关、协调数据和常规 Release App；聚合验证由外层统一恢复 App。中断后的恢复使用既有 `cleanup` 入口。`ICloudSmokeEvidenceTests` 通过离线用例验证旧版本、空缓存和同数量内容变化的验收边界。
 
-获得全量测试及网络、iCloud 授权后，通过 `Scripts/run-extended-tests.sh verify` 聚合验证；可选择分组，UI 筛选通过重复的 `--ui-test 测试类/方法` 参数合并到同一批次。
+获得全量测试及网络、iCloud 授权后，通过 `Scripts/run-extended-tests.sh verify` 聚合验证；可选择分组，定向 UI 复验使用 `ui 用例关键词...`。
 
 ## 固定产物与 CI
 
@@ -234,7 +224,7 @@ Scripts/run_icloud_cross_device_smoke.sh --cleanup
 | 网络 Smoke | `.build/release-network-smoke/report/release-network-smoke.json` |
 | iCloud Smoke | `.build/icloud-cross-device-smoke/`，阶段报告 `report.json` |
 
-同类产物覆盖既有路径，文件名使用稳定类别名。公共构建入口串行迁移及复用 SDK 缓存，各宿主的缓存目录链接到 `.build/compiler-cache/`，保留必要的增量中间文件。`Scripts/run-extended-tests.sh --cache-maintenance` 清理诊断残留及模拟器编译产物，并在依赖清单完整时清理未引用的 SDK 预编译模块；活跃平台的隐式模块缓存继续保留。文件内容和修改时间保持一致，日常构建直接复用热缓存。静态审计递归核对共享缓存链接及诊断残留，缓存自测覆盖合并、较新模块保留、重复整理、依赖引用、模块内容完整性和真机产物保留。终端直接展示测试汇总、审查候选与失败诊断，过滤重复进度、空章节和例行通过信息。整理后的输出在 1000 行以内时完整展示，超过阈值时提示固定文件位置。完整日志和报告覆盖既有路径。
+同类产物覆盖既有路径，文件名使用稳定类别名。公共构建入口串行迁移及复用 SDK 缓存，各宿主的缓存目录链接到 `.build/compiler-cache/`，保留必要的增量中间文件。`Scripts/run-extended-tests.sh cache` 清理诊断残留及模拟器编译产物，并在依赖清单完整时清理未引用的 SDK 预编译模块；活跃平台的隐式模块缓存继续保留。文件内容和修改时间保持一致，日常构建直接复用热缓存。静态审计递归核对共享缓存链接及诊断残留，缓存自测覆盖合并、较新模块保留、重复整理、依赖引用、模块内容完整性和真机产物保留。终端直接展示测试汇总、审查候选与失败诊断，过滤重复进度、空章节和例行通过信息。终端展示必要摘要，完整输出保存在固定日志中。完整日志和报告覆盖既有路径。
 
 缓存与诊断保持原始文件形式。脚本开发构建使用 `DEBUG_INFORMATION_FORMAT=dwarf`，调试信息保留在目标文件与链接产物中；发行归档沿用工程的 dSYM 设置，显式符号格式参数优先。缓存整理清理独立 dSYM 副本，运行包内部的调试资源继续保留；通过 Clang 模块元数据识别及清理停用平台的隐式模块。真机、Mac 和平台归属待核对的模块继续保留。
 

@@ -15,7 +15,9 @@ RUN_ID="$(uuidgen)"
 export TEST_RUNNER_BIT101_ICLOUD_SMOKE_RUN_ID="$RUN_ID"
 
 if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
-  echo "用法：Scripts/run_icloud_cross_device_smoke.sh [--cleanup] [真机设备ID]；--report [报告路径]"
+  echo "Scripts/run_icloud_cross_device_smoke.sh          自动选机、验证 iPhone 与 Mac 双向同步"
+  echo "Scripts/run_icloud_cross_device_smoke.sh report   读取报告"
+  echo "Scripts/run_icloud_cross_device_smoke.sh cleanup  清理测试状态并恢复 App"
   exit 0
 fi
 
@@ -45,21 +47,22 @@ for row in rows:
 PYREPORT
 }
 
-if [[ "${1:-}" == "--report" ]]; then
-  report_result "${2:-$SUMMARY_PATH}"
+[[ $# -le 1 ]] || { echo "操作：report、cleanup；直接运行双向同步验证。" >&2; exit 64; }
+if [[ "${1:-}" == report ]]; then
+  report_result "$SUMMARY_PATH"
   exit $?
 fi
 CLEANUP_ONLY=false
-if [[ "${1:-}" == "--cleanup" ]]; then
+if [[ "${1:-}" == cleanup ]]; then
   CLEANUP_ONLY=true
   shift
 fi
-if [[ $# -gt 1 ]]; then
-  echo "用法: $0 [--cleanup] [真机设备ID]；$0 --report [报告或结果包路径]" >&2
+if [[ $# -gt 0 ]]; then
+  echo "操作：report、cleanup；直接运行双向同步验证。" >&2
   exit 64
 fi
 source "$ROOT_DIR/Scripts/script-support.sh"
-bit101_require_device "${1:-}" || exit 1
+bit101_require_device || exit 1
 DEVICE_ID="$BIT101_XCODE_DEVICE_ID"
 mkdir -p "$DERIVED_ROOT"
 if ! $CLEANUP_ONLY; then rm -f "$SUMMARY_PATH"; fi
@@ -135,7 +138,7 @@ finish_smoke() {
   fi
   if [[ "${BIT101_DEFER_APP_RESTORE:-0}" != "1" ]]; then
     echo "[恢复] 安装并启动常规 Release App"
-    if ! "$ROOT_DIR/Scripts/build-install-device.sh" "$DEVICE_ID"; then
+    if ! "$ROOT_DIR/Scripts/build-install-device.sh"; then
       if (( smoke_status == 0 )); then smoke_status=1; fi
     fi
   fi

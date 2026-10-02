@@ -9,74 +9,43 @@ PROJECT="$ROOT_DIR/BIT101-iOS.xcodeproj"
 DERIVED_DATA="$ROOT_DIR/build/DeviceInstall"
 source "$ROOT_DIR/Scripts/script-support.sh"
 
-COMPILE_ONLY=false
-GENERIC_BUILD=false
-DEVICE_ID=""
-DEVICE_ACTION=""
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --compile-only)
-      COMPILE_ONLY=true
-      ;;
-    --generic)
-      GENERIC_BUILD=true
-      ;;
-    --screenshot|--device-info)
-      DEVICE_ACTION="$1"
-      ;;
-    -h|--help)
-      echo "用法：Scripts/build-install-device.sh [--compile-only [--generic]|--screenshot|--device-info] [真机设备ID]"
-      exit 0
-      ;;
-    --*)
-      echo "构建选项：--compile-only、--generic、--screenshot、--device-info。" >&2
-      exit 64
-      ;;
-    *)
-      if [[ -n "$DEVICE_ID" ]]; then
-        echo "用法：Scripts/build-install-device.sh [--compile-only [--generic]|--screenshot|--device-info] [真机设备ID]" >&2
-        exit 64
-      fi
-      DEVICE_ID="$1"
-      ;;
-  esac
-  shift
-done
-
-if $GENERIC_BUILD; then
-  $COMPILE_ONLY && [[ -z "$DEVICE_ID" ]] || {
-    echo "通用 iOS 编译使用 --compile-only --generic。" >&2
-    exit 64
-  }
+ACTION="${1:-install}"
+if [[ $# -gt 1 ]]; then
+  echo "用法：Scripts/build-install-device.sh [build|mac|screenshot|info]" >&2
+  exit 64
 fi
+case "$ACTION" in
+  -h|--help)
+    echo "Scripts/build-install-device.sh              自动选机、构建、安装并启动"
+    echo "Scripts/build-install-device.sh build        编译 iOS App 与扩展"
+    echo "Scripts/build-install-device.sh mac          构建并安装到本机 Mac"
+    echo "Scripts/build-install-device.sh screenshot   真机截图"
+    echo "Scripts/build-install-device.sh info         真机连接与锁定状态"
+    exit 0
+    ;;
+  install|build|mac|screenshot|info) ;;
+  *) echo "操作：build、mac、screenshot、info；直接运行自动装机。" >&2; exit 64 ;;
+esac
 
-if [[ -n "$DEVICE_ACTION" ]]; then
-  bit101_require_device "$DEVICE_ID" || exit 1
-  if [[ "$DEVICE_ACTION" == --screenshot ]]; then
+if [[ "$ACTION" == screenshot || "$ACTION" == info ]]; then
+  bit101_require_device || exit 1
+  if [[ "$ACTION" == screenshot ]]; then
     mkdir -p "$ROOT_DIR/.build"
     xcrun devicectl device capture screenshot --device "$BIT101_DEVICETCL_DEVICE_ID" \
       --destination "$ROOT_DIR/.build/screenshot.png" --quiet
     echo "截图已保存：$ROOT_DIR/.build/screenshot.png"
   else
     xcrun devicectl device info details --device "$BIT101_DEVICETCL_DEVICE_ID" --quiet >/dev/null
-    echo "真机连接：$BIT101_DEVICE_TRANSPORT · $BIT101_XCODE_DEVICE_ID"
+    connection="无线"
+    if [[ "$BIT101_DEVICE_TRANSPORT" == wired ]]; then connection="USB"; fi
+    echo "真机连接：$BIT101_DEVICE_NAME · $connection"
     xcrun devicectl device info lockState --device "$BIT101_DEVICETCL_DEVICE_ID" --quiet --json-output /dev/stdout |
-      python3 -c 'import json,sys; print("锁定状态：", json.load(sys.stdin)["result"])'
+      python3 -c 'import json,sys; state=json.load(sys.stdin)["result"]; print("设备状态：" + ("请解锁" if state.get("passcodeRequired") else "已解锁"))'
   fi
   exit 0
 fi
 
-BUILD_OVERRIDES=()
-for setting in SWIFT_VERSION MARKETING_VERSION; do
-  variable="BIT101_$setting"
-  value="${(P)variable:-}"
-  [[ -z "$value" ]] || BUILD_OVERRIDES+=("$setting=$value")
-done
-if [[ -n "${BIT101_BUILD_NUMBER:-}" ]]; then
-  BUILD_OVERRIDES+=("CURRENT_PROJECT_VERSION=$BIT101_BUILD_NUMBER")
-fi
-
-if [[ "${BIT101_INSTALL_TARGET:-iPhone}" == "macCatalyst" ]]; then
+if [[ "$ACTION" == mac ]]; then
   mkdir -p "$DERIVED_DATA"
   bit101_run_logged "$DERIVED_DATA/build.log" "Catalyst Release 编译" xcodebuild build \
     -quiet \
@@ -85,12 +54,7 @@ if [[ "${BIT101_INSTALL_TARGET:-iPhone}" == "macCatalyst" ]]; then
     -configuration Release \
     -destination "platform=macOS,variant=Mac Catalyst" \
     -derivedDataPath "$DERIVED_DATA" \
-    "${BUILD_OVERRIDES[@]}" \
     -allowProvisioningUpdates
-
-  if $COMPILE_ONLY; then
-    exit 0
-  fi
 
   APP_PATH="$DERIVED_DATA/Build/Products/Release-maccatalyst/BIT101-iOS.app"
   INSTALL_PATH="$HOME/Applications/BIT101-iOS.app"
@@ -114,23 +78,17 @@ if [[ "${BIT101_INSTALL_TARGET:-iPhone}" == "macCatalyst" ]]; then
   exit 0
 fi
 
-if $GENERIC_BUILD; then
+BUILD_OVERRIDES=()
+if [[ "$ACTION" == build ]]; then
   BUILD_DESTINATION="generic/platform=iOS"
+  BUILD_OVERRIDES=(CODE_SIGNING_ALLOWED=NO)
 else
-  bit101_require_device "$DEVICE_ID" || exit 1
+  bit101_require_device || exit 1
   BUILD_DESTINATION="platform=iOS,id=$BIT101_XCODE_DEVICE_ID"
 fi
 
 mkdir -p "$DERIVED_DATA"
-if $GENERIC_BUILD; then
-  BUILD_OVERRIDES+=("CODE_SIGNING_ALLOWED=NO")
-fi
-BUILD_ACTION=build
-if [[ "${BIT101_BUILD_FOR_TESTING:-0}" == "1" ]]; then
-  BUILD_ACTION=build-for-testing
-  BUILD_OVERRIDES+=("ENABLE_TESTABILITY=YES")
-fi
-bit101_run_logged "$DERIVED_DATA/build.log" "iOS Release 编译" xcodebuild "$BUILD_ACTION" \
+bit101_run_logged "$DERIVED_DATA/build.log" "iOS Release 编译" xcodebuild build \
   -quiet \
   -project "$PROJECT" \
   -scheme BIT101-iOS \
@@ -140,7 +98,7 @@ bit101_run_logged "$DERIVED_DATA/build.log" "iOS Release 编译" xcodebuild "$BU
   "${BUILD_OVERRIDES[@]}" \
     -allowProvisioningUpdates
 
-if $COMPILE_ONLY; then
+if [[ "$ACTION" == build ]]; then
   exit 0
 fi
 
@@ -152,4 +110,4 @@ xcrun devicectl device process launch \
   --device "$BIT101_DEVICETCL_DEVICE_ID" \
   BIT101-dev.BIT101-iOS >/dev/null
 
-echo "iOS Release 已安装并启动。"
+echo "iOS Release 已安装并启动：$BIT101_DEVICE_NAME"

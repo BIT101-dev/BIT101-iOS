@@ -34,10 +34,20 @@ BIT101 的原生 iOS 客户端，已上架 App Store。项目以 Android 端能�
 Scripts/build-install-device.sh
 ```
 
+脚本自动选择已配对设备，优先使用 USB，其次使用无线连接。日常操作使用短命令：
+
+```sh
+Scripts/build-install-device.sh build
+Scripts/run-extended-tests.sh modules
+Scripts/run-extended-tests.sh ui About
+```
+
+`build` 编译 App 与扩展；`modules` 运行本机模块测试；`ui` 后可直接填写多个用例关键词，合并为一个真机批次。
+
 - [架构与数据边界](docs/ARCHITECTURE.md)：模块职责、依赖注入、网络、存储与扩展协作。
 - [设计系统](docs/DESIGN_SYSTEM.md)：公共令牌、组件和界面规范。
 - [构建与测试](docs/TESTING.md)：真机流程、测试分组、固定产物和 CI。
-- [UI 交互覆盖](docs/UI_INTERACTION_COVERAGE.md)：逐项交互、对应 UI 用例、测试数据和验证状态。
+- [UI 交互覆盖](docs/UI_INTERACTION_COVERAGE.md)：逐项交互、对应 UI 用例、测试数据和执行流程。
 - [Cloudflare 资源](Cloudflare/README.md)：域名、链接契约与部署入口。
 
 ## 维护范围
@@ -45,6 +55,6 @@ Scripts/build-install-device.sh
 - 本仓库维护者负责 iOS 客户端及真机验证。
 - Android、Web 和服务端由对应主体维护；接口阅读、功能对照和问题记录在本仓库开展，源码改动与上线动作转交对应维护主体。
 - 本仓库维护者管理 `aihelpme.dev`；`bit101.cn` 等 BIT101 域名归属对应主体。
-- 跨模块调整遵循账号隔离、公共领域端口、共享草稿与设计系统边界；依赖和平台副作用由 App 显式组装，验证证据集中维护在模块化审计文档。
+- 跨模块调整遵循账号隔离、公共领域端口、共享草稿与设计系统边界；依赖和平台副作用由 App 显式组装，验证结果保存在既有固定日志与结果包中。
 
 发现问题请提交 Issue。项目的代码质量和生产可用性以实际验证结果为准。
