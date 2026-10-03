@@ -560,6 +560,25 @@ if coverage is None:
         lines.append(f"系统动画等待超时：{len(system_waits)} 次；累计 {sum(system_waits):.1f} 秒")
         query_retries = len(re.findall(r"\(retry \d+\)", output))
         lines.append(f"控件查询重试：{query_retries} 次")
+        snapshot_count = 0
+        snapshot_seconds = 0.0
+        previous_step = None
+        for line in output.splitlines():
+            step = re.search(r"t =\s*([\d.]+)s\s+(.*)", line)
+            if not step:
+                continue
+            current_step = (float(step[1]), step[2].strip())
+            if current_step[1].startswith("Requesting snapshot"):
+                snapshot_count += 1
+            if previous_step and previous_step[1].startswith("Requesting snapshot"):
+                duration = current_step[0] - previous_step[0]
+                if duration >= 0:
+                    snapshot_seconds += duration
+            previous_step = current_step
+        lines.append(f"界面快照请求：{snapshot_count} 次；阶段耗时约 {snapshot_seconds:.1f} 秒")
+        preparations = [float(value) for value in re.findall(r"UI scene preparation: ([\d.]+)", output)]
+        if preparations:
+            lines.append(f"场景准备：{len(preparations)} 次；累计 {sum(preparations):.1f} 秒")
     elif mode == "catalyst":
         lines.append("Mac Catalyst runtime does not provide an xccov archive.")
     else:

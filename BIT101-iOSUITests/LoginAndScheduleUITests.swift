@@ -46,6 +46,17 @@ extension XCUICoordinate {
     func tapBriefly() { press(forDuration: 0.01) }
 }
 
+@MainActor
+extension XCUIElementSnapshot {
+    func firstSnapshot(where matches: (any XCUIElementSnapshot) -> Bool) -> (any XCUIElementSnapshot)? {
+        if matches(self) { return self }
+        for child in children {
+            if let match = child.firstSnapshot(where: matches) { return match }
+        }
+        return nil
+    }
+}
+
 nonisolated class UIAutomationTestCase: XCTestCase {
     @MainActor var app: XCUIApplication!
     @MainActor private static var sessionApplication: XCUIApplication?
@@ -63,15 +74,18 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     @MainActor
     func tap(_ title: String) {
         let exact = app.buttons.matching(NSPredicate(format: "label == %@", title))
-        let matches = exact.firstMatch.exists ? exact : app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title))
+        let exactExists = exact.firstMatch.exists
+        let matches = exactExists ? exact : app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title))
         let button = matches.firstMatch
-        if button.isHittable {
-            button.tapBriefly()
-            return
-        }
-        if let visible = matches.allElementsBoundByAccessibilityElement.first(where: { $0.isHittable }) {
-            visible.tapBriefly()
-            return
+        if exactExists || button.exists {
+            if button.isHittable {
+                button.tapBriefly()
+                return
+            }
+            if let visible = matches.allElementsBoundByAccessibilityElement.first(where: { $0.isHittable }) {
+                visible.tapBriefly()
+                return
+            }
         }
         reveal(button, description: title)
         button.tapBriefly()
@@ -81,8 +95,8 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     func reveal(_ element: XCUIElement, description: String = "交互控件") {
         if element.exists && element.isHittable { return }
         let window = app.windows.firstMatch.frame
+        let scroll: XCUIElement = interactionScrollArea() ?? app
         for _ in 0..<8 {
-            let scroll: XCUIElement = interactionScrollArea() ?? app
             let upward = !element.exists || element.frame.minY >= window.midY
             let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.5))
             let end = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: upward ? 0.1 : 0.9))
@@ -146,7 +160,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         let control = app.switches.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch.switches.firstMatch
         reveal(control, description: title)
         let initial = control.value as? String
-        control.tapBriefly()
+        control.tap()
         assertUI(control.appears(timeout: 5), "开关操作后应保留当前设置页：\(title)。")
         if control.value as? String == initial {
             assertUI(waitUntil(NSPredicate(format: "value != %@", initial ?? ""), on: control, timeout: 5), "开关应改变状态：\(title)")
@@ -445,6 +459,8 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         initialTab: String = "schedule",
         initialSettings: String? = nil
     ) -> XCUIApplication {
+        let started = ProcessInfo.processInfo.systemUptime
+        defer { print(String(format: "UI scene preparation: %.3f", ProcessInfo.processInfo.systemUptime - started)) }
         continueAfterFailure = false
         let application = Self.sessionApplication ?? XCUIApplication()
         application.launchEnvironment = [:]
@@ -477,12 +493,13 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         if resetStorage, let account {
             application.launchEnvironment["BIT101_UI_TEST_ACCOUNT"] = account
         }
+        app = application
+        var expectedScene: String?
         if Self.sessionApplication == nil {
             application.launch()
             Self.sessionApplication = application
         } else {
             if application.state != .runningForeground { application.activate() }
-            let scene = application.descendants(matching: .any).matching(identifier: "ui-test.scene").firstMatch
             let connection = NWConnection(host: "127.0.0.1", port: 19101, using: .tcp)
             let response = UITestControlReply()
             let received = XCTestExpectation(description: "进程内场景配置")
@@ -502,32 +519,42 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             connection.cancel()
             assertUI(response.message?.hasPrefix("\(Self.sessionProcess ?? ""):") == true, "配置响应应来自原 App 进程：\(response.message ?? "empty")。")
             assertUI(response.message != Self.sessionScene, "场景配置应推进页面版本。")
-            assertUI(waitUntil(NSPredicate(format: "value == %@", response.message ?? ""), on: scene), "进程内切换应完成场景重建。")
-            Self.sessionScene = response.message
+            expectedScene = response.message
         }
-        app = application
-        let scene = application.descendants(matching: .any).matching(identifier: "ui-test.scene").firstMatch
+        let settingsTitles = ["calendar": "课程表设置", "ddl": "DDL设置", "gallery": "话廊设置", "account": "账号设置", "about": "关于"]
+        let tabTitles = ["gallery": "话廊", "map": "地图", "home": "成绩", "mine": "我的"]
+        let deadline = Date().addingTimeInterval(10)
+        var identity: String?
+        repeat {
+            if let snapshot = try? application.snapshot(),
+               let scene = snapshot.firstSnapshot(where: { $0.identifier == "ui-test.scene" }),
+               let currentIdentity = scene.value as? String,
+               expectedScene == nil || expectedScene == currentIdentity {
+                let ready: Bool
+                if let initialSettings {
+                    ready = snapshot.firstSnapshot {
+                        $0.elementType == .navigationBar && $0.identifier == settingsTitles[initialSettings]!
+                    } != nil
+                } else if account == nil {
+                    ready = snapshot.firstSnapshot { $0.identifier == "login.student-id" } != nil
+                } else if initialTab == "schedule" {
+                    ready = snapshot.firstSnapshot { $0.identifier == "schedule.blank-context-menu" } != nil
+                } else {
+                    ready = snapshot.firstSnapshot { $0.elementType == .tabBar }?.firstSnapshot {
+                        $0.elementType == .button && $0.label == tabTitles[initialTab]! && $0.isSelected
+                    } != nil
+                }
+                if ready { identity = currentIdentity; break }
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        } while Date() < deadline
+        assertUI(identity != nil, "同一界面快照中的场景身份与初始页面应完成加载：\(initialSettings ?? initialTab)。")
         if Self.sessionProcess == nil {
-            assertUI(scene.appears(timeout: 10), "测试场景应提供进程身份。")
-            let identity = scene.value as? String ?? ""
-            let process = identity.components(separatedBy: ":").first!
+            let process = identity!.components(separatedBy: ":").first!
             Self.sessionProcess = process
-            Self.sessionScene = identity
             print("UI automation App process: \(process)")
         }
-        if let initialSettings {
-            let titles = ["calendar": "课程表设置", "ddl": "DDL设置", "gallery": "话廊设置", "account": "账号设置", "about": "关于"]
-            assertUI(application.navigationBars[titles[initialSettings]!].appears(timeout: 10), "测试设置页面应完成加载。")
-        } else if account != nil && initialTab == "schedule" {
-            let scheduleReady = application.descendants(matching: .any)
-                .matching(identifier: "schedule.blank-context-menu").firstMatch
-            assertUI(scheduleReady.appears(timeout: 10), "测试会话与课表应完成加载。")
-        } else if account != nil {
-            let titles = ["gallery": "话廊", "map": "地图", "home": "成绩", "mine": "我的"]
-            let tab = application.tabBars.buttons[titles[initialTab]!]
-            assertUI(tab.appears(timeout: 10), "测试会话与初始页面应完成加载。")
-            assertUI(tab.isSelected, "测试初始 Tab 应被选中。")
-        }
+        Self.sessionScene = identity
         return application
     }
 }
