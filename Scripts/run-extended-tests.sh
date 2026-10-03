@@ -53,7 +53,7 @@ if sys.argv[2]:
         def titles(value):
             if isinstance(value, dict):
                 title = str(value.get("title", ""))
-                if title.startswith(("Tap ", "Type ", "Pinch ", "Swipe ", "failed ", "Failed ")):
+                if title.startswith(("Tap ", "Press ", "Type ", "Pinch ", "Swipe ", "failed ", "Failed ")):
                     actions.append(title)
                 for child in value.values():
                     titles(child)
@@ -445,6 +445,10 @@ if result.returncode == 0:
     summary = json.loads(result.stdout)
     failures = summary.get("testFailures", [])
     if failures:
+        if all("Not authorized for performing UI testing actions" in failure.get("failureText", "") for failure in failures):
+            print("真机 UI 自动化授权状态失效；检查手机解锁状态及屏幕提示。")
+            print("本批交互用例待验证；详细错误保存在固定 XCTest 结果包。")
+            raise SystemExit(0)
         grouped = {}
         for failure in failures:
             grouped.setdefault(failure.get("failureText", "测试失败"), []).append(failure.get("testIdentifierString", "?"))
@@ -453,7 +457,7 @@ if result.returncode == 0:
             for test in tests:
                 print(f"  {test}")
             if "enabling automation mode" in message:
-                print("iOS 自动化初始化等待设备系统验证；请在 iPhone 完成 Enable UI Automation 的密码验证后重试。")
+                print("iOS 自动化初始化超时；检查真机连接与屏幕提示，出现 Enable UI Automation 时完成设备验证后重试。")
 PY
     )"
     if [[ -n "$failure_summary" ]]; then
@@ -535,6 +539,27 @@ if coverage is None:
         actions = re.findall(r"\bt =\s*[\d.]+s\s+(Tap|Type|Swipe|Press|Pinch)\b", output)
         lines.append(f"系统交互动作：{len(actions)}；" + "；".join(
             f"{action} {actions.count(action)}" for action in ["Tap", "Type", "Swipe", "Press", "Pinch"]))
+        failures = summary.get("testFailures", [])
+        if not actions and failures and all(any(message in failure.get("failureText", "") for message in [
+            "enabling automation mode", "Not authorized for performing UI testing actions"
+        ]) for failure in failures):
+            lines.append("真机自动化初始化或授权阻塞；本批实际交互待验证。")
+        wait_started = None
+        system_waits = []
+        for line in output.splitlines():
+            timestamp = re.search(r"t =\s*([\d.]+)s", line)
+            if not timestamp:
+                continue
+            if "Start Test" in line:
+                wait_started = None
+            if "Wait for " in line and " to idle" in line:
+                wait_started = float(timestamp[1]) if "com.apple.springboard" in line else None
+            if "App animations complete notification not received" in line and wait_started is not None:
+                system_waits.append(float(timestamp[1]) - wait_started)
+                wait_started = None
+        lines.append(f"系统动画等待超时：{len(system_waits)} 次；累计 {sum(system_waits):.1f} 秒")
+        query_retries = len(re.findall(r"\(retry \d+\)", output))
+        lines.append(f"控件查询重试：{query_retries} 次")
     elif mode == "catalyst":
         lines.append("Mac Catalyst runtime does not provide an xccov archive.")
     else:

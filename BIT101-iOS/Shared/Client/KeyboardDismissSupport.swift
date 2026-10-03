@@ -53,7 +53,6 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         private weak var window: UIWindow?
-        private var isKeyboardVisible = false
         private lazy var recognizer: UITapGestureRecognizer = {
             let recognizer = UITapGestureRecognizer(target: self, action: #selector(didTapBackground))
             recognizer.cancelsTouchesInView = false
@@ -76,8 +75,6 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
                 name: UITextView.textDidBeginEditingNotification,
                 object: nil
             )
-            NotificationCenter.default.addObserver(self, selector: #selector(keyboardDidShow), name: UIResponder.keyboardDidShowNotification, object: nil)
-            NotificationCenter.default.addObserver(self, selector: #selector(keyboardDidHide), name: UIResponder.keyboardWillHideNotification, object: nil)
         }
 
         deinit {
@@ -89,6 +86,9 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
             detach()
             window = newWindow
             newWindow?.addGestureRecognizer(recognizer)
+            if let newWindow, let input = Self.focusedInput(in: newWindow) {
+                scheduleAccessory(on: input)
+            }
         }
 
         func detach() {
@@ -98,22 +98,35 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
 
         @objc private func didTapBackground() {
             DispatchQueue.main.async { [weak self] in
-                guard self?.isKeyboardVisible == true else { return }
+                guard let window = self?.window, Self.focusedInput(in: window) != nil else { return }
                 AppKeyboard.dismiss()
             }
         }
 
-        @objc private func keyboardDidShow() { isKeyboardVisible = true }
-        @objc private func keyboardDidHide() { isKeyboardVisible = false }
-
         @objc private func textInputDidBeginEditing(_ notification: Notification) {
             if let textField = notification.object as? UITextField {
                 guard textField.window === window else { return }
-                installAccessory(on: textField)
+                scheduleAccessory(on: textField)
             } else if let textView = notification.object as? UITextView {
                 guard textView.window === window else { return }
-                installAccessory(on: textView)
+                scheduleAccessory(on: textView)
             }
+        }
+
+        private func scheduleAccessory(on input: UIResponder & UITextInput) {
+            DispatchQueue.main.async { [weak self, weak input] in
+                guard let self, let input, input.isFirstResponder,
+                      (input as? UIView)?.window === self.window else { return }
+                self.installAccessory(on: input)
+            }
+        }
+
+        private static func focusedInput(in view: UIView) -> (UIResponder & UITextInput)? {
+            if view.isFirstResponder, let input = view as? (UIResponder & UITextInput) { return input }
+            for child in view.subviews {
+                if let input = focusedInput(in: child) { return input }
+            }
+            return nil
         }
 
         private func installAccessory(on input: UIResponder & UITextInput) {
@@ -125,7 +138,8 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
             } else {
                 return
             }
-            guard existingAccessory == nil else { return }
+            if let toolbar = existingAccessory as? UIToolbar,
+               toolbar.items?.contains(where: { $0.accessibilityIdentifier == "keyboard.dismiss" }) == true { return }
 
             let toolbar = UIToolbar()
             let doneButton = UIBarButtonItem(
@@ -155,7 +169,7 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            guard isKeyboardVisible else { return false }
+            guard let window, Self.focusedInput(in: window) != nil else { return false }
             var view = touch.view
             while let current = view {
                 if current is UIControl || current is UITextField || current is UITextView || current is UIInputView {

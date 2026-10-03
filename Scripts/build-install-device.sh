@@ -39,7 +39,8 @@ if [[ "$ACTION" == screenshot || "$ACTION" == info ]]; then
     connection="无线"
     if [[ "$BIT101_DEVICE_TRANSPORT" == wired ]]; then connection="USB"; fi
     echo "真机连接：$BIT101_DEVICE_NAME · $connection"
-    xcrun devicectl device info lockState --device "$BIT101_DEVICETCL_DEVICE_ID" --quiet --json-output /dev/stdout |
+    lock_state="$(xcrun devicectl device info lockState --device "$BIT101_DEVICETCL_DEVICE_ID" --quiet --json-output /dev/stdout)"
+    printf '%s' "$lock_state" |
       python3 -c 'import json,sys; state=json.load(sys.stdin)["result"]; print("设备状态：" + ("请解锁" if state.get("passcodeRequired") else "已解锁"))'
   fi
   exit 0
