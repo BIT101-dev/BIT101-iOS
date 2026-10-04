@@ -37,8 +37,56 @@ private nonisolated final class UITestControlReply: Sendable {
 }
 
 @MainActor
+private enum UITestControlClient {
+    static func activate(_ parameters: [String: String], element: XCUIElement) {
+        let started = ProcessInfo.processInfo.systemUptime
+        let result = request(parameters.merging(["command": "activate"]) { _, command in command }, timeout: 5)
+        if result?.hasPrefix("native") == true {
+            if let result, result != "native" { print("UI native control: \(result)") }
+            element.press(forDuration: 0.01)
+            return
+        }
+        XCTAssertEqual(result, "activated", "UI 动作应由实际控件执行：\(parameters["label"] ?? "")。")
+        print(String(format: "UI accessibility activate: %.3f", ProcessInfo.processInfo.systemUptime - started))
+    }
+
+    static func request(_ parameters: [String: String], timeout: TimeInterval = 10) -> String? {
+        let connection = NWConnection(host: "127.0.0.1", port: 19101, using: .tcp)
+        let response = UITestControlReply()
+        let received = XCTestExpectation(description: "本机 UI 操作")
+        let payload = try! JSONEncoder().encode(parameters) + Data([10])
+        connection.stateUpdateHandler = { state in
+            if case .ready = state {
+                connection.send(content: payload, completion: .contentProcessed { error in
+                    if response.append(nil, error: error, complete: false) { received.fulfill() }
+                })
+            } else if case let .failed(error) = state {
+                if response.append(nil, error: error, complete: false) { received.fulfill() }
+            }
+        }
+        connection.start(queue: DispatchQueue(label: "BIT101.UITestControlClient"))
+        response.receive(on: connection) { received.fulfill() }
+        XCTAssertEqual(XCTWaiter.wait(for: [received], timeout: timeout), .completed, "本机 UI 通道应完成请求。")
+        connection.cancel()
+        return response.message
+    }
+}
+
+@MainActor
 extension XCUIElement {
-    func tapBriefly() { press(forDuration: 0.01) }
+    func tapBriefly() {
+        guard let state = try? snapshot() else {
+            XCTFail("点击目标应提供可读的界面状态。")
+            return
+        }
+        if state.elementType == .button && state.identifier != "keyboard.dismiss" {
+            if !isHittable {
+                press(forDuration: 0.01)
+                return
+            }
+            UITestControlClient.activate(["identifier": state.identifier, "label": state.label], element: self)
+        } else { press(forDuration: 0.01) }
+    }
 }
 
 @MainActor
@@ -82,22 +130,34 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         if ["取消", "完成", "确定", "保存", "发送", "发布", "关闭", "提交", "编辑", "编辑帖子", "编辑文章", "筛选", "清除搜索"].contains(title) {
             dismissNotificationBanner()
         }
+        let response = title == "取消" ? nil
+            : UITestControlClient.request(["command": "resolve", "label": title], timeout: 5)
+        if let response, let target = try? JSONDecoder().decode([String: String].self, from: Data(response.utf8)) {
+            let identifier = target["identifier"] ?? ""
+            let label = target["label"] ?? ""
+            let predicate = identifier.isEmpty ? NSPredicate(format: "label == %@", label)
+                : NSPredicate(format: "identifier == %@ AND label == %@", identifier, label)
+            let button = app.buttons.matching(predicate).firstMatch
+            if !button.isHittable { reveal(button, description: title) }
+            UITestControlClient.activate(target, element: button)
+            return
+        }
         let exact = app.buttons.matching(NSPredicate(format: "label == %@", title))
         let exactExists = exact.firstMatch.exists
         let matches = exactExists ? exact : app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title))
         let button = matches.firstMatch
         if exactExists || button.exists {
             if button.isHittable {
-                button.tapBriefly()
+                button.press(forDuration: 0.01)
                 return
             }
             if let visible = matches.allElementsBoundByAccessibilityElement.first(where: { $0.isHittable }) {
-                visible.tapBriefly()
+                visible.press(forDuration: 0.01)
                 return
             }
         }
         reveal(button, description: title)
-        button.tapBriefly()
+        button.press(forDuration: 0.01)
     }
 
     @MainActor
@@ -214,12 +274,47 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func replaceText(_ text: String, in field: XCUIElement) {
+        guard let state = prepareInput(field) else { return }
+        if state.elementType == .textView || state.elementType == .secureTextField ||
+            state.identifier.hasPrefix("login.") || text.hasSuffix("\n") {
+            enterWithKeyboard(text, in: field, state: state)
+        } else {
+            field.press(forDuration: 0.01)
+            assertUI(app.keyboards.firstMatch.appears(timeout: 5), "输入控件应完成系统键盘焦点切换。")
+            guard let current = try? field.snapshot() else {
+                assertUI(false, "输入字段应提供当前布局。")
+                return
+            }
+            let started = ProcessInfo.processInfo.systemUptime
+            let result = UITestControlClient.request([
+                "command": "input", "text": text,
+                "x": String(Double(current.frame.midX)), "y": String(Double(current.frame.midY)),
+            ], timeout: 5)
+            assertUI(result == "entered", "文本应通过实际输入控件更新：\(result ?? "empty")。")
+            print(String(format: "UI input replace: %.3f", ProcessInfo.processInfo.systemUptime - started))
+        }
+        assertEnteredText(text, in: field, state: state)
+    }
+
+    @MainActor
+    func replaceTextWithKeyboard(_ text: String, in field: XCUIElement) {
+        guard let state = prepareInput(field) else { return }
+        enterWithKeyboard(text, in: field, state: state)
+        assertEnteredText(text, in: field, state: state)
+    }
+
+    @MainActor
+    private func prepareInput(_ field: XCUIElement) -> (any XCUIElementSnapshot)? {
         assertUI(field.appears(timeout: 5), "输入操作应等待字段出现。")
         guard let state = try? field.snapshot() else {
             assertUI(false, "输入字段应提供可读的界面状态。")
-            return
+            return nil
         }
-        reveal(field, description: state.placeholderValue ?? "文本输入")
+        return state
+    }
+
+    @MainActor
+    private func enterWithKeyboard(_ text: String, in field: XCUIElement, state: any XCUIElementSnapshot) {
         let value = state.value as? String ?? ""
         let empty = value.isEmpty || value == state.placeholderValue
         if empty || state.elementType == .textView {
@@ -243,6 +338,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             }
         }
         field.typeText(deletion + text)
+    }
+
+    @MainActor
+    private func assertEnteredText(_ text: String, in field: XCUIElement, state: any XCUIElementSnapshot) {
         let expected = state.elementType == .secureTextField
             ? String(repeating: "•", count: text.count)
             : text.trimmingCharacters(in: .newlines)
@@ -253,9 +352,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     @MainActor
     func dismissKeyboard() {
         guard app.keyboards.firstMatch.exists else { return }
-        let button = app.buttons["keyboard.dismiss"]
-        assertUI(button.appears(timeout: 5), "键盘应展示完成操作。")
-        button.tapBriefly()
+        let result = UITestControlClient.request(["command": "finish-input"], timeout: 5)
+        assertUI(result == "finished", "键盘完成按钮应执行实际目标动作：\(result ?? "empty")。")
+        print("UI keyboard finish")
         if app.keyboards.firstMatch.exists {
             assertUI(waitUntil(NSPredicate(format: "exists == false"), on: app.keyboards.firstMatch, timeout: 5), "完成输入后键盘应收起。")
         }
@@ -546,26 +645,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             assertUI(state == .runningForeground || state == .runningBackground || state == .runningBackgroundSuspended,
                      "场景切换应复用持续运行的原 App 进程。")
             if state != .runningForeground { application.activate() }
-            let connection = NWConnection(host: "127.0.0.1", port: 19101, using: .tcp)
-            let response = UITestControlReply()
-            let received = XCTestExpectation(description: "进程内场景配置")
-            let payload = try! JSONEncoder().encode(application.launchEnvironment) + Data([10])
-            connection.stateUpdateHandler = { state in
-                if case .ready = state {
-                    connection.send(content: payload, completion: .contentProcessed { error in
-                        if response.append(nil, error: error, complete: false) { received.fulfill() }
-                    })
-                } else if case let .failed(error) = state {
-                    if response.append(nil, error: error, complete: false) { received.fulfill() }
-                }
-            }
-            connection.start(queue: DispatchQueue(label: "BIT101.UITestControlClient"))
-            response.receive(on: connection) { received.fulfill() }
-            assertUI(XCTWaiter.wait(for: [received], timeout: 10) == .completed, "场景配置应收到本机响应。")
-            connection.cancel()
-            assertUI(response.message?.hasPrefix("\(Self.sessionProcess ?? ""):") == true, "配置响应应来自原 App 进程：\(response.message ?? "empty")。")
-            assertUI(response.message != Self.sessionScene, "场景配置应推进页面版本。")
-            expectedScene = response.message
+            let response = UITestControlClient.request(application.launchEnvironment)
+            assertUI(response?.hasPrefix("\(Self.sessionProcess ?? ""):") == true, "配置响应应来自原 App 进程：\(response ?? "empty")。")
+            assertUI(response != Self.sessionScene, "场景配置应推进页面版本。")
+            expectedScene = response
         }
         let settingsTitles = ["calendar": "课程表设置", "ddl": "DDL设置", "gallery": "话廊设置", "account": "账号设置", "about": "关于"]
         let tabTitles = ["gallery": "话廊", "map": "地图", "home": "成绩", "mine": "我的"]
@@ -587,7 +670,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                     ready = snapshot.firstSnapshot { $0.identifier == "login.student-id" } != nil
                 } else if initialTab == "schedule" {
                     ready = snapshot.firstSnapshot { $0.identifier == "schedule.blank-context-menu" } != nil
-                } else if initialTab == "gallery" && failureOnce {
+                } else if initialTab == "gallery" && (failureOnce || !content) {
                     ready = snapshot.firstSnapshot { $0.elementType == .alert && $0.label == "加载话廊失败" } != nil
                 } else {
                     ready = snapshot.firstSnapshot { $0.elementType == .tabBar }?.firstSnapshot {
@@ -779,6 +862,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         let code = app.textViews["schedule.import.code"]
         assertUI(!(code.value as? String ?? "").isEmpty, "粘贴应恢复刚导出的编码。")
         tap("导入")
+        assertUI(app.alerts["导入成功"].appears(timeout: 5), "导入分享课表应展示成功结果。")
         closeAlertIfPresent()
         let shared = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "schedule.settings.shared.")).firstMatch
         reveal(shared, description: "分享课表名称")
@@ -1031,12 +1115,13 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         assertUI(app.navigationBars["调这门课"].appears(timeout: 5), "调课应打开安排编辑器。")
         assertUI(app.textFields["房间号"].exists, "调课应支持地点编辑。")
         tap("取消")
-        tap("删除这门课")
+        assertUI(app.navigationBars["调这门课"].disappears(timeout: 5), "取消应关闭调课编辑器。")
+        app.buttons["删除这门课"].press(forDuration: 0.01)
         app.alerts.buttons["取消"].tapBriefly()
         assertUI(app.buttons["删除这门课"].exists, "取消删除应保留课程详情。")
-        tap("删除这门课")
+        app.buttons["删除这门课"].press(forDuration: 0.01)
         app.alerts.buttons["删除"].tapBriefly()
-        assertUI(!course.exists, "确认删除应移除课程。")
+        assertUI(course.disappears(timeout: 5), "确认删除应移除课程。")
         app.buttons["schedule.add-content"].tapBriefly()
         tap("添加课程")
         tap("取消")

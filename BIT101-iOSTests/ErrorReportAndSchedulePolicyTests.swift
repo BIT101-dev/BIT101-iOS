@@ -97,7 +97,9 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         )
         let textField = UITextField(frame: CGRect(x: 0, y: 0, width: 200, height: 44))
         window.addSubview(textField)
+        coordinator.attach(to: window)
         defer {
+            coordinator.detach()
             textField.resignFirstResponder()
             textField.removeFromSuperview()
         }
@@ -106,7 +108,43 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         await Task.yield()
         XCTAssertTrue(textField.inputAccessoryView is UIToolbar)
 
+        textField.inputAccessoryView = nil
+        NotificationCenter.default.post(name: UIResponder.keyboardDidShowNotification, object: nil)
+        await Task.yield()
+        let toolbar = try XCTUnwrap(textField.inputAccessoryView as? UIToolbar)
+        XCTAssertEqual(toolbar.items?.filter { $0.accessibilityIdentifier == "keyboard.dismiss" }.count, 1)
+
         _ = coordinator
+    }
+
+    @MainActor
+    func testKeyboardBackgroundTouchPreservesSystemAutoFillFocus() throws {
+        let window = try XCTUnwrap(UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }.flatMap(\.windows).first(where: \.isKeyWindow))
+        var controller = try XCTUnwrap(window.rootViewController)
+        while let presented = controller.presentedViewController { controller = presented }
+        let background = UIView(frame: CGRect(x: 0, y: 0, width: 200, height: 100))
+        let input = UITextField(frame: CGRect(x: 0, y: 0, width: 200, height: 44))
+        input.textContentType = .oneTimeCode
+        let systemSuggestion = UIView(frame: CGRect(x: 0, y: 100, width: 200, height: 44))
+        controller.view.addSubview(background)
+        background.addSubview(input)
+        window.addSubview(systemSuggestion)
+        let coordinator = KeyboardBackgroundTapInstaller.Coordinator()
+        coordinator.attach(to: window)
+        defer {
+            coordinator.detach()
+            input.resignFirstResponder()
+            background.removeFromSuperview()
+            systemSuggestion.removeFromSuperview()
+        }
+        XCTAssertTrue(input.becomeFirstResponder())
+        XCTAssertTrue(coordinator.acceptsBackgroundTouch(in: background))
+        XCTAssertFalse(coordinator.acceptsBackgroundTouch(in: systemSuggestion))
+        XCTAssertFalse(coordinator.acceptsBackgroundTouch(in: input))
+        input.insertText("123456")
+        XCTAssertEqual(input.text, "123456")
+        XCTAssertTrue(input.isFirstResponder)
     }
 
     @MainActor

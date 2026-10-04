@@ -539,6 +539,13 @@ if coverage is None:
         actions = re.findall(r"\bt =\s*[\d.]+s\s+(Tap|Type|Swipe|Press|Pinch)\b", output)
         lines.append(f"系统交互动作：{len(actions)}；" + "；".join(
             f"{action} {actions.count(action)}" for action in ["Tap", "Type", "Swipe", "Press", "Pinch"]))
+        activations = [float(value) for value in re.findall(r"UI accessibility activate: ([\d.]+)", output)]
+        lines.append(f"控件无障碍激活：{len(activations)} 次；累计 {sum(activations):.1f} 秒")
+        replacements = [float(value) for value in re.findall(r"UI input replace: ([\d.]+)", output)]
+        lines.append(f"输入控件更新：{len(replacements)} 次；累计 {sum(replacements):.1f} 秒")
+        keyboard_finishes = output.count("UI keyboard finish")
+        lines.append(f"键盘完成动作：{keyboard_finishes} 次")
+        lines.append(f"交互动作合计：{len(actions) + len(activations) + len(replacements) + keyboard_finishes}")
         failures = summary.get("testFailures", [])
         if not actions and failures and all(any(message in failure.get("failureText", "") for message in [
             "enabling automation mode", "Not authorized for performing UI testing actions"

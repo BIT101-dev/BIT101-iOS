@@ -74,8 +74,10 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         assertUI(textElement("B101").appears(timeout: 5), "手动刷新应恢复当前教学楼结果。")
         openSettings("ddl")
         tap("重新获取订阅链接")
+        assertUI(app.alerts["订阅链接更新成功"].appears(timeout: 5), "更新订阅链接应展示成功提示。")
         closeAlertIfPresent()
         tap("刷新学校日程")
+        assertUI(app.alerts["DDL 同步成功"].appears(timeout: 5), "刷新学校日程应展示同步结果。")
         closeAlertIfPresent()
         back()
         app.tabBars.buttons["日程"].tapBriefly()
@@ -88,7 +90,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
 
         app = configureApp(resetStorage: false)
         tapHeader(app.segmentedControls.buttons["空教室"])
-        assertUI(app.alerts.firstMatch.appears(timeout: 5), "离线学校服务应提示刷新失败。")
+        assertUI(app.alerts["空教室同步失败"].appears(timeout: 5), "离线学校服务应提示刷新失败。")
         closeAlertIfPresent()
         tap("节次筛选")
         assertUI(app.navigationBars["节次筛选"].appears(timeout: 5), "空教室应支持节次筛选。")
@@ -105,6 +107,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         tap("清除节次筛选")
         closeAlertIfPresent()
         tap("刷新空教室")
+        assertUI(app.alerts["空教室同步失败"].appears(timeout: 5), "离线刷新应展示对应失败提示。")
         closeAlertIfPresent()
         tap("节次筛选")
         assertUI(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "第1节")).firstMatch.value as? String == "未选择", "清除应同步到选择页。")
@@ -361,7 +364,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         tap("取消评论点赞")
         tap("回复")
         tap("添加评论图片")
-        tap("取消")
+        cancelPhotoPicker()
         replaceText("自动化回复内容", in: app.textFields.firstMatch)
         dismissKeyboard()
         tap("发送")
@@ -614,7 +617,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         let cancel = app.buttons.matching(NSPredicate(format: "label IN %@", ["取消", "Cancel"]))
             .allElementsBoundByAccessibilityElement.last(where: { $0.isHittable })
         assertUI(cancel != nil, "系统照片选择器应提供取消操作。")
-        cancel!.tapBriefly()
+        cancel!.press(forDuration: 0.01)
         assertUI(photos.disappears(timeout: 5), "取消图片选择应关闭系统选择器。")
     }
 
@@ -639,7 +642,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
     private func closeImagePreview() {
         dismissNotificationBanner()
         let close = imagePreviewCloseButton()
-        close.tapBriefly()
+        close.press(forDuration: 0.01)
         assertUI(app.otherElements["QLPreviewControllerView"].disappears(timeout: 5), "关闭图片预览应恢复来源页面。")
     }
 
@@ -720,8 +723,11 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         assertUI(app.staticTexts["不评分"].appears(timeout: 5), "再次点击相同星级应清空评分。")
         tap("评分 3.5 星")
         toggle("匿名评论")
-        replaceText("测试课程评价", in: app.textFields.firstMatch)
-        dismissKeyboard()
+        replaceTextWithKeyboard("测试课程评价", in: app.textFields.firstMatch)
+        let keyboardDone = app.buttons["keyboard.dismiss"]
+        assertUI(keyboardDone.appears(timeout: 5), "键盘应展示完成操作。")
+        keyboardDone.press(forDuration: 0.01)
+        assertUI(app.keyboards.firstMatch.disappears(timeout: 5), "点击完成应收起系统键盘。")
         tap("发送")
         reveal(textElement("测试课程评价"), description: "测试课程评价")
         assertUI(textElement("测试课程评价").exists, "提交评价应更新课程评论区。")
@@ -820,6 +826,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
     @MainActor
     private func dismissSystemPopover(_ popover: XCUIElement, within bounds: CGRect? = nil) {
         let dismiss = app.buttons["PopoverDismissRegion"]
+        let isSourceForm = bounds != nil
         let bounds = bounds ?? app.frame
         let panel = popover.frame
         let gaps = [
@@ -829,7 +836,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
             CGRect(x: bounds.minX, y: panel.maxY, width: bounds.width, height: bounds.maxY - panel.maxY),
         ].filter { $0.size.width > 0 && $0.size.height > 0 }
             .map { $0.intersection(bounds) }.filter { !$0.isNull && !$0.isEmpty }
-        let gap = gaps.first
+        let gap = isSourceForm ? gaps.first : gaps.max { $0.width * $0.height < $1.width * $1.height }
         assertUI(gap != nil, "系统浮窗外应提供可点击的页面区域。")
         let origin = dismiss.exists ? dismiss.coordinate(withNormalizedOffset: .zero)
             : app.coordinate(withNormalizedOffset: .zero)
@@ -1211,7 +1218,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         assertUI(edited.appears(timeout: 5), "保存编辑应更新待办标题。")
         edited.tapBriefly()
         tap("删除")
-        assertUI(!edited.exists, "删除应移除待办记录。")
+        assertUI(edited.disappears(timeout: 5), "删除应移除待办记录。")
         tap("添加待办")
         tap("取消")
         assertUI(app.buttons["添加待办"].exists, "取消新增应恢复待办列表。")

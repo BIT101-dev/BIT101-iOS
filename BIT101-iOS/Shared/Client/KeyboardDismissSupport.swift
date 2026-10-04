@@ -75,6 +75,12 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
                 name: UITextView.textDidBeginEditingNotification,
                 object: nil
             )
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(keyboardDidShow),
+                name: UIResponder.keyboardDidShowNotification,
+                object: nil
+            )
         }
 
         deinit {
@@ -111,6 +117,11 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
                 guard textView.window === window else { return }
                 scheduleAccessory(on: textView)
             }
+        }
+
+        @objc private func keyboardDidShow() {
+            guard let window, let input = Self.focusedInput(in: window) else { return }
+            scheduleAccessory(on: input)
         }
 
         private func scheduleAccessory(on input: UIResponder & UITextInput) {
@@ -169,8 +180,16 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            guard let window, Self.focusedInput(in: window) != nil else { return false }
-            var view = touch.view
+            guard let view = touch.view else { return false }
+            return acceptsBackgroundTouch(in: view)
+        }
+
+        func acceptsBackgroundTouch(in target: UIView) -> Bool {
+            guard let window, Self.focusedInput(in: window) != nil,
+                  var controller = window.rootViewController else { return false }
+            while let presented = controller.presentedViewController { controller = presented }
+            guard target.isDescendant(of: controller.view) else { return false }
+            var view: UIView? = target
             while let current = view {
                 if current is UIControl || current is UITextField || current is UITextView || current is UIInputView {
                     return false

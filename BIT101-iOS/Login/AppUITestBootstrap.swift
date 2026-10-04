@@ -51,6 +51,111 @@ nonisolated final class UITestControlServer: Sendable {
     }
 }
 
+@MainActor
+private enum UITestAccessibilityActions {
+    static func finishInput() -> String {
+        func item(in view: UIView) -> UIBarButtonItem? {
+            if let toolbar = view as? UIToolbar,
+               let item = toolbar.items?.first(where: { $0.accessibilityIdentifier == "keyboard.dismiss" }) { return item }
+            return view.subviews.lazy.compactMap { item(in: $0) }.first
+        }
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+            for window in scene.windows where !window.isHidden {
+                if let item = item(in: window), let action = item.action {
+                    return UIApplication.shared.sendAction(action, to: item.target, from: item, for: nil) ? "finished" : "input action missing"
+                }
+            }
+        }
+        return "input toolbar missing"
+    }
+
+    static func input(_ parameters: [String: String]) -> String {
+        guard let x = parameters["x"].flatMap(Double.init), let y = parameters["y"].flatMap(Double.init),
+              let text = parameters["text"] else { return "invalid input" }
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+            for window in scene.windows.reversed() where !window.isHidden && window.windowLevel == .normal {
+                let point = window.convert(CGPoint(x: x, y: y), from: scene.screen.coordinateSpace)
+                var view = window.hitTest(point, with: nil)
+                while let candidate = view {
+                    if let input = candidate as? (UIView & UITextInput) {
+                        guard input.becomeFirstResponder(),
+                              let range = input.textRange(from: input.beginningOfDocument, to: input.endOfDocument) else {
+                            return "input focus missing"
+                        }
+                        input.selectedTextRange = range
+                        input.insertText(text)
+                        return "entered"
+                    }
+                    view = candidate.superview
+                }
+            }
+        }
+        return "input target missing"
+    }
+
+    static func activate(_ parameters: [String: String]) -> String {
+        guard let element = button(parameters) else { return "native" }
+        return element.accessibilityActivate() ? "activated" : "native:\(NSStringFromClass(type(of: element)))"
+    }
+
+    static func resolve(_ parameters: [String: String]) throws -> Data {
+        guard let element = button(parameters) ?? button(parameters, partialLabel: true) else { return Data("native".utf8) }
+        return try JSONEncoder().encode([
+            "identifier": identifier(of: element) ?? "",
+            "label": element.accessibilityLabel ?? "",
+        ])
+    }
+
+    private static func identifier(of object: NSObject) -> String? {
+        object.responds(to: NSSelectorFromString("accessibilityIdentifier"))
+            ? object.value(forKey: "accessibilityIdentifier") as? String : nil
+    }
+
+    private static func button(_ parameters: [String: String], partialLabel: Bool = false) -> NSObject? {
+        let identifier = parameters["identifier"] ?? ""
+        let label = parameters["label"] ?? ""
+        var visited = Set<ObjectIdentifier>()
+        func find(_ object: NSObject) -> NSObject? {
+            guard visited.insert(ObjectIdentifier(object)).inserted else { return nil }
+            if let view = object as? UIView, view.isHidden || view.alpha == 0 { return nil }
+            if object.accessibilityTraits.contains(.adjustable) { return nil }
+            let count = object.accessibilityElementCount()
+            if count != NSNotFound && count > 0 {
+                for index in (0..<count).reversed() {
+                    if let child = object.accessibilityElement(at: index) as? NSObject,
+                       let result = find(child) { return result }
+                }
+            }
+            if let view = object as? UIView {
+                for child in view.subviews.reversed() {
+                    if let result = find(child) { return result }
+                }
+            }
+            let actualIdentifier = Self.identifier(of: object)
+            let actualLabel = object.accessibilityLabel ?? ""
+            if object.isAccessibilityElement && object.accessibilityTraits.contains(.button),
+               (!identifier.isEmpty && actualIdentifier == identifier) ||
+                (identifier.isEmpty && (partialLabel ? actualLabel.contains(label) : actualLabel == label)) {
+                return object
+            }
+            return nil
+        }
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows).filter { !$0.isHidden && $0.windowLevel == .normal }.reversed()
+        for window in windows {
+            guard var controller = window.rootViewController else { continue }
+            while let presented = controller.presentedViewController { controller = presented }
+            guard NSStringFromClass(type(of: controller)).contains("SwiftUI") else { continue }
+            func hasSystemPicker(_ view: UIView) -> Bool {
+                view is UIDatePicker || view is UIPickerView || view.subviews.contains(where: hasSystemPicker)
+            }
+            if hasSystemPicker(controller.view) { continue }
+            if let element = find(controller.view) { return element }
+        }
+        return nil
+    }
+}
+
 /// 场景参数在同一个进程中更新，传输夹具与页面共同读取这份配置。
 @MainActor
 final class UITestSceneConfiguration {
@@ -88,6 +193,22 @@ final class UITestSceneState: ObservableObject {
                     guard let self else { return }
                     do {
                         let environment = try JSONDecoder().decode([String: String].self, from: data)
+                        if environment["command"] == "activate" {
+                            reply(Data(UITestAccessibilityActions.activate(environment).utf8))
+                            return
+                        }
+                        if environment["command"] == "resolve" {
+                            reply(try UITestAccessibilityActions.resolve(environment))
+                            return
+                        }
+                        if environment["command"] == "input" {
+                            reply(Data(UITestAccessibilityActions.input(environment).utf8))
+                            return
+                        }
+                        if environment["command"] == "finish-input" {
+                            reply(Data(UITestAccessibilityActions.finishInput().utf8))
+                            return
+                        }
                         self.configure(environment)
                         reply(Data("\(ProcessInfo.processInfo.processIdentifier):\(self.revision)".utf8))
                     } catch {
@@ -113,7 +234,7 @@ final class UITestSceneState: ObservableObject {
 
     func accelerateTransitions() {
         for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
-            for window in scene.windows { window.layer.speed = 10 }
+            for window in scene.windows { window.layer.speed = window.windowLevel == .normal ? 10 : 1 }
         }
     }
 }
