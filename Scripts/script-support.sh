@@ -9,8 +9,10 @@ bit101_log_command() {
   python3 - "$output_path" "$label" "$@" <<'PY'
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 report_path = Path(sys.argv[1])
@@ -22,10 +24,18 @@ details = []
 seen = set()
 diagnostics = []
 summaries = []
+temporary_results = set()
 with report_path.open("w", encoding="utf-8") as report:
     for line in process.stdout:
         report.write(line)
         report.flush()
+        if sys.argv[3] == "xcodebuild":
+            match = re.search(r"Writing error result bundle to (.+\.xcresult)\s*$", line)
+            if match:
+                path = Path(match[1])
+                if path.parent.resolve() == Path(tempfile.gettempdir()).resolve() and path.name.startswith("ResultBundle_"):
+                    temporary_results.add(path)
+                    continue
         if not line.strip():
             continue
         if "error:" in line or "warning:" in line:
@@ -51,6 +61,8 @@ with report_path.open("w", encoding="utf-8") as report:
             details.append(line)
             seen.add(line)
 exit_code = process.wait()
+for path in temporary_results:
+    shutil.rmtree(path, ignore_errors=True)
 output = details if exit_code else diagnostics
 if len(output) <= 40:
     sys.stdout.writelines(output)

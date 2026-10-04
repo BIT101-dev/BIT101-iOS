@@ -22,7 +22,7 @@
 | iCloud 双向验证、报告与恢复 | `Scripts/run_icloud_cross_device_smoke.sh` |
 | Issues、CI 失败与反馈报告管理 | `Scripts/fetch-issues-and-reports.sh` |
 
-输出处理器自测覆盖诊断展示阈值、完整留档、信号退出状态及执行期间改写源码的故障注入。测试结果保存在既有固定日志与结果包中；`Scripts/run-extended-tests.sh report` 读取最近一次模块、App 或 UI 测试结果。
+输出处理器自测覆盖诊断展示阈值、完整留档、信号退出状态及执行期间改写源码的故障注入。Xcode 默认临时错误结果包在命令结束后自动清理。测试结果保存在既有固定日志与结果包中；`Scripts/run-extended-tests.sh report` 读取最近一次模块、App 或 UI 测试结果。
 
 构建、测试、Smoke 和报告管理入口均提供 `--help`。质量、UI、模块边界、文档新鲜度与版本检查器保留独立入口，便于针对单项问题执行；统一审计通过共享 SwiftSyntax 索引执行质量与 UI 检查，并输出解释文案审查候选。地图 fixture 生成使用 `Scripts/generate_campus_map_fixture.py <教务导出.xlsx>`，沿用既有人工审核和固定数据路径约定。
 

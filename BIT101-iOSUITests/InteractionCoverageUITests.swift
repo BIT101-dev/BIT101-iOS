@@ -634,10 +634,15 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
     @MainActor
     private func tapImage(_ title: String) {
         let image = app.buttons[title]
-        if image.exists && image.frame.isEmpty {
-            assertUI(waitUntil(NSPredicate { _, _ in !image.frame.isEmpty }, on: image), "图片入口应完成布局。")
+        var frame = CGRect.zero
+        if image.exists {
+            frame = image.frame
+            if frame.isEmpty {
+                assertUI(waitUntil(NSPredicate { _, _ in !image.frame.isEmpty }, on: image), "图片入口应完成布局。")
+                frame = image.frame
+            }
         }
-        if !image.exists || !app.windows.firstMatch.frame.contains(image.frame) {
+        if frame.isEmpty || !app.windows.firstMatch.frame.contains(frame) {
             reveal(image, description: title)
         }
         image.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tapBriefly()
@@ -655,9 +660,8 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         let preview = app.otherElements["QLPreviewControllerView"]
         assertUI(preview.appears(timeout: 30), "图片交互应进入系统 Quick Look。")
         let done = app.buttons.matching(NSPredicate(format: "label IN %@", ["完成", "Done", "关闭", "Close"])).firstMatch
-        if !done.appears(timeout: 2) {
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tapBriefly()
-        }
+        if done.appears(timeout: 2) { return done }
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tapBriefly()
         assertUI(done.appears(timeout: 10), "点击预览画布应显示关闭控件。")
         return done
     }

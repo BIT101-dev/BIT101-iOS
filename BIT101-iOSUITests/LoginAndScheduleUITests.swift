@@ -161,11 +161,16 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         reveal(control, description: title)
         let initial = control.value as? String
         control.tap()
-        assertUI(control.appears(timeout: 5), "开关操作后应保留当前设置页：\(title)。")
-        if control.value as? String == initial {
-            assertUI(waitUntil(NSPredicate(format: "value != %@", initial ?? ""), on: control, timeout: 5), "开关应改变状态：\(title)")
+        guard let state = try? control.snapshot(), let value = state.value as? String else {
+            assertUI(false, "开关操作后应保留当前设置页和可读数值：\(title)。")
+            return ""
         }
-        return control.value as? String ?? ""
+        var updated = value
+        if updated == initial {
+            assertUI(waitUntil(NSPredicate(format: "value != %@", initial ?? ""), on: control, timeout: 5), "开关应改变状态：\(title)")
+            updated = control.value as? String ?? ""
+        }
+        return updated
     }
 
     @MainActor
@@ -192,11 +197,12 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         } else {
             field.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.9)).tapBriefly()
         }
-        let nextKeyboard = app.buttons["下一个键盘"]
-        if !app.keyboards.firstMatch.exists && nextKeyboard.exists {
-            nextKeyboard.tapBriefly()
+        let keyboard = app.keyboards.firstMatch
+        if !keyboard.exists {
+            let nextKeyboard = app.buttons["下一个键盘"]
+            if nextKeyboard.exists { nextKeyboard.tapBriefly() }
+            assertUI(keyboard.appears(timeout: 5), "文本输入应使用系统键盘。")
         }
-        assertUI(app.keyboards.firstMatch.appears(timeout: 5), "文本输入应使用系统键盘。")
         var deletion = ""
         if !empty {
             if state.elementType == .textView {
@@ -381,16 +387,18 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         guard !condition() else { return }
         var diagnostics = ""
         if let application = app {
-            let description = application.debugDescription
-            let hierarchy = XCTAttachment(string: description)
-            hierarchy.name = "失败时的界面元素树"
-            add(hierarchy)
-            if application.state == .runningForeground {
+            let state = application.state
+            diagnostics = "App 运行状态：\(state.rawValue)。"
+            if state == .runningForeground {
+                let description = application.debugDescription
+                let hierarchy = XCTAttachment(string: description)
+                hierarchy.name = "失败时的界面元素树"
+                add(hierarchy)
                 let screenshot = XCTAttachment(screenshot: application.screenshot())
                 screenshot.name = "失败时的界面截图"
                 add(screenshot)
+                diagnostics += focusedAccessibilitySnapshot(description, matching: ["Alert", "NavigationBar", "TextField"])
             }
-            diagnostics = focusedAccessibilitySnapshot(description, matching: ["Alert", "NavigationBar", "TextField"])
         }
         XCTFail("\(message()) \(diagnostics)", file: file, line: line)
     }
@@ -499,7 +507,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             application.launch()
             Self.sessionApplication = application
         } else {
-            if application.state != .runningForeground { application.activate() }
+            let state = application.state
+            assertUI(state == .runningForeground || state == .runningBackground || state == .runningBackgroundSuspended,
+                     "场景切换应复用持续运行的原 App 进程。")
+            if state != .runningForeground { application.activate() }
             let connection = NWConnection(host: "127.0.0.1", port: 19101, using: .tcp)
             let response = UITestControlReply()
             let received = XCTestExpectation(description: "进程内场景配置")
