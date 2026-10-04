@@ -75,7 +75,7 @@
 | `InteractionCoverageUITests/testPosterReportSelectionCancellationAndSubmission` | 卡片及详情举报、类型选择、取消、说明提交、成功返回 |
 | `InteractionCoverageUITests/testCommunityCommentLikesRepliesSortsAndPhotoPicker` | 评论排序、点赞 / 取消、回复、评论照片选择器取消、文章回复 |
 | `InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes` | 话题及消息双向横滑、消息关联详情、两类搜索结果进入详情、文章排序 |
-| `InteractionCoverageUITests/testCommunityMediaPreviewsDraftRetryAndRemoval` | 卡片 / 帖子 / 评论图片预览、原有图片移除及取消、新图上传失败 / 重试 / 成功 / 移除、照片选择器取消、建议图片移除 / 放弃草稿 |
+| `InteractionCoverageUITests/testCommunityMediaPreviewsDraftRetryAndRemoval` | 卡片 / 帖子 / 评论图片预览、预览打开时切换场景并恢复原进程页面、原有图片移除及取消、新图上传失败 / 重试 / 成功 / 移除、照片选择器取消、建议图片移除 / 放弃草稿 |
 | `LoginAndScheduleUITests/testPaperPublishEditCommentAndDelete` | 文章标题 / 简介 / 正文发布、评论发布、编辑保存 / 取消、再编辑、删除确认 / 取消 |
 | `LoginAndScheduleUITests/testPaperSearchDetailLikeAndComposer` | 文章搜索 / 清除、详情点赞 / 取消、编辑器字段、匿名开关、取消 |
 | `InteractionCoverageUITests/testPaperImagePreviewCommentsSortAndShare` | 正文链接、正文图片预览、页尾点赞及顶部同步、评论排序、文章分享、匿名评论取消 |
@@ -83,7 +83,7 @@
 | `InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes` | 话题 / 文章列表及详情、消息、文章搜索下拉刷新 |
 | `InteractionCoverageUITests/testOfflineRecoveryRetryAndErrorReportEditor` | 离线重试、诊断编辑、原始模式、复现 / 联系方式、确认取消 / 确认、提交失败保留、关闭 |
 | `InteractionCoverageUITests/testCommunityFailedRequestsRetryToLoadedState` | 课程 / 话题 / 文章首次失败、重试到加载成功 |
-| `InteractionCoverageUITests/testErrorReportSanitizedSubmissionAndFailureRecovery` | 报告原始 / 脱敏切换、缺少联系方式继续提交、提交成功关闭、列表重试恢复 |
+| `InteractionCoverageUITests/testErrorReportSanitizedSubmissionAndFailureRecovery` | 报告打开时切换场景并清理全局呈现器、报告原始 / 脱敏切换、缺少联系方式继续提交、提交成功关闭、列表重试恢复 |
 | `InteractionCoverageUITests/testWebGallerySettingPersistenceScrollingAndNativeReturn` | 网页开关、WebKit 上下滑动、重新装载保留、切回原生列表 |
 
 ## 我的、设置与反馈
@@ -126,13 +126,15 @@
 
 `Scripts/check-ui-consistency.py` 校验全部可执行方法与覆盖表一致。测试结果、耗时和设备状态保存在固定日志与结果包中。
 
-完整批次串行复用一个 App 进程，每次配置和持久化重新读取都验证同一进程 ID。场景通过测试专用的本机通道更新，重新创建页面及模型，夹具修改按场景清空；各项维持独立的隔离数据重置。UIKit 过渡动画在 UI 宿主加速，手势保留标准 XCTest 实现。取消、保存、重试及全部业务断言继续执行；失败保留截图和元素树。异步错误与成功提示等待预期标题出现，出现、消失和数值变化先检查当前状态。按钮先确认匹配控件存在，再查询系统可点击状态；同一页面复用已选中的 Tab。场景回复与同一份界面快照共同校验原 App 进程、页面版本和初始页面状态；同一次滚动复用已定位的滚动容器；时间滚轮采用快速短距离拖动、停留释放及原值恢复，图表拖动保留必要的按住时间。
+顶栏及分栏操作通过 SpringBoard 的通知横幅标识检查遮挡，横幅出现时上滑收起并验证关闭；触发动作的业务提示继续由对应流程点击与断言。取消、提交、返回、分栏切换和系统预览关闭共用这条处理路径。
+
+完整批次串行复用一个 App 进程，每次配置和持久化重新读取都验证同一进程 ID。场景通过测试专用的本机通道更新，重新创建页面及模型，夹具修改按场景清空；各项维持独立的隔离数据重置；场景重载先通过全局错误呈现器的重置入口清理报告页、提示队列及迟到呈现任务。UIKit 过渡动画在 UI 宿主加速，手势保留标准 XCTest 实现。取消、保存、重试及全部业务断言继续执行；失败保留截图和元素树。异步错误与成功提示等待预期标题出现，出现、消失和数值变化先检查当前状态。按钮先确认匹配控件存在，再查询系统可点击状态；同一页面复用已选中的 Tab。场景回复与同一份界面快照共同校验原 App 进程、页面版本和初始页面状态；原生错误提示携带所属场景身份，失败夹具以预期错误提示验证首屏就绪；同一次滚动复用已定位的滚动容器；日期时间入口、滚轮数值与布局从控件快照读取，手势复用 App 原点；时间滚轮采用慢速短距离拖动、停留释放及原值恢复；自定义日程先操作结束时间，再操作开始时间，保留时间区间联动，图表拖动保留必要的按住时间。
 
 快速开发可将受影响用例通过直接填写多个用例关键词合并到同一次调用；完整验收运行整个 UI 组。真机批次结束后恢复常规 Release App。
 
 照片选择器等待“照片”控件出现后点击顶层取消并确认关闭；返回操作选择当前可交互导航栏。开关定位行内的原生控件，滚动至可触达位置后执行 XCTest 标准点击并核对数值。普通按钮点击统一使用 XCTest 的短按并释放，长按、拖动、滑动和缩放保留各自手势。输入复用控件快照中的类型、占位文案和原始值；空白字段采用控件原生命中位置，已有 TextView 文本通过系统全选快捷键替换。键盘完成按钮随当前输入焦点安装，短信验证码提交先通过完成按钮收起键盘。
 
-开关操作后的存在性和数值从同一份控件快照读取；同一次图片点击复用布局尺寸。输入助手复用已确认的系统键盘状态，在第三方输入法缺少 XCTest 键盘元素时点击系统“下一个键盘”，等待原生键盘后输入并核对完整字段值。场景切换校验原进程持续运行，后台状态激活原进程；原进程停止时中止当前流程。前台失败保留截图和元素树，其他 App 状态记录运行状态。运行期间保持 BIT101 前台并暂停手动操作。
+开关操作后的存在性和数值从同一份控件快照读取；同一次图片点击复用布局尺寸；大字号导航复用窗口范围，Tab 的选中状态、布局与文案从同一份快照读取。输入助手复用已确认的系统键盘状态，在第三方输入法缺少 XCTest 键盘元素时点击系统“下一个键盘”，等待原生键盘后输入并核对完整字段值。场景切换校验原进程持续运行，后台状态激活原进程；原进程停止时中止当前流程。前台失败保留截图和元素树，其他 App 状态记录运行状态。运行期间保持 BIT101 前台并暂停手动操作。
 
 ```sh
 Scripts/run-extended-tests.sh ui

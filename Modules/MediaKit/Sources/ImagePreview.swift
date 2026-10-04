@@ -157,6 +157,7 @@ private struct ImageQuickLookPresenter: UIViewControllerRepresentable {
         }
 
         func previewControllerDidDismiss(_ controller: QLPreviewController) {
+            guard controller === previewController else { return }
             onDismiss?()
             cancel()
         }
@@ -164,12 +165,14 @@ private struct ImageQuickLookPresenter: UIViewControllerRepresentable {
         func cancel() {
             preparationTask?.cancel()
             upgradeTask?.cancel()
+            let controller = previewController
+            previewController = nil
+            controller?.dismiss(animated: false)
             preparationTask = nil
             upgradeTask = nil
             pendingRequest = nil
             requestID = nil
             items = []
-            previewController = nil
             isPreviewPresentationComplete = false
             pendingCurrentRefresh = false
         }

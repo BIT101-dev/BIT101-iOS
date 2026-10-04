@@ -560,6 +560,7 @@ if coverage is None:
         lines.append(f"系统动画等待超时：{len(system_waits)} 次；累计 {sum(system_waits):.1f} 秒")
         query_retries = len(re.findall(r"\(retry \d+\)", output))
         lines.append(f"控件查询重试：{query_retries} 次")
+        lines.append(f"系统通知横幅处理：{output.count('UI notification banner dismissed')} 次")
         snapshot_count = 0
         snapshot_seconds = 0.0
         previous_step = None

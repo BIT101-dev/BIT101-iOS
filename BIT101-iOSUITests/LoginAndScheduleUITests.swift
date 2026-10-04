@@ -48,6 +48,11 @@ extension XCUICoordinate {
 
 @MainActor
 extension XCUIElementSnapshot {
+    func snapshots(matching type: XCUIElement.ElementType) -> [any XCUIElementSnapshot] {
+        let matches: [any XCUIElementSnapshot] = elementType == type ? [self] : []
+        return matches + children.flatMap { $0.snapshots(matching: type) }
+    }
+
     func firstSnapshot(where matches: (any XCUIElementSnapshot) -> Bool) -> (any XCUIElementSnapshot)? {
         if matches(self) { return self }
         for child in children {
@@ -62,6 +67,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     @MainActor private static var sessionApplication: XCUIApplication?
     @MainActor private static var sessionProcess: String?
     @MainActor private static var sessionScene: String?
+    @MainActor private static let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
     private let runIdentifier = "ui"
 
     @MainActor
@@ -73,6 +79,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func tap(_ title: String) {
+        if ["取消", "完成", "确定", "保存", "发送", "发布", "关闭", "提交", "编辑", "编辑帖子", "编辑文章", "筛选", "清除搜索"].contains(title) {
+            dismissNotificationBanner()
+        }
         let exact = app.buttons.matching(NSPredicate(format: "label == %@", title))
         let exactExists = exact.firstMatch.exists
         let matches = exactExists ? exact : app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title))
@@ -89,6 +98,26 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         }
         reveal(button, description: title)
         button.tapBriefly()
+    }
+
+    @MainActor
+    func dismissNotificationBanner() {
+        let banner = Self.springboard.descendants(matching: .any).matching(identifier: "NotificationShortLookView").firstMatch
+        if banner.exists {
+            let frame = banner.frame
+            let origin = app.coordinate(withNormalizedOffset: .zero)
+            origin.withOffset(CGVector(dx: frame.midX, dy: frame.midY))
+                .press(forDuration: 0.01, thenDragTo: origin.withOffset(CGVector(dx: frame.midX, dy: 0)),
+                       withVelocity: .fast, thenHoldForDuration: 0.01)
+            assertUI(banner.disappears(timeout: 2), "系统通知横幅应收起并恢复顶栏交互。")
+            print("UI notification banner dismissed")
+        }
+    }
+
+    @MainActor
+    func tapHeader(_ element: XCUIElement) {
+        dismissNotificationBanner()
+        element.tapBriefly()
     }
 
     @MainActor
@@ -139,6 +168,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func back() {
+        dismissNotificationBanner()
         let bar = app.navigationBars.allElementsBoundByAccessibilityElement.last(where: { $0.isHittable })
         assertUI(bar != nil, "返回操作应使用当前可交互的导航栏。")
         bar!.buttons.element(boundBy: 0).tapBriefly()
@@ -266,7 +296,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
         let save = application.buttons["schedule.custom.save"]
         assertUI(save.appears(timeout: 5), "自定义日程面板应展示保存操作。")
-        save.tapBriefly()
+        tapHeader(save)
         let savedSchedule = application.descendants(matching: .any)
             .matching(NSPredicate(format: "label CONTAINS %@", titleText))
             .firstMatch
@@ -279,22 +309,27 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     @MainActor
     func assertMainTabsRemainAccessible(style: String) {
         let window = app.windows.firstMatch
+        assertUI(window.exists, "辅助功能大字号应展示主窗口。")
+        let windowFrame = window.frame
         for identifier in ["日程", "地图", "成绩", "话廊", "我的"] {
             let tab = app.tabBars.buttons[identifier]
             assertUI(tab.appears(timeout: 10), "辅助功能大字号下主 Tab 应可见：\(identifier)")
             tab.tapBriefly()
-            assertUI(tab.isSelected, "辅助功能大字号下点按后应选中对应 Tab：\(identifier)")
+            guard let state = try? tab.snapshot() else {
+                assertUI(false, "辅助功能大字号下 Tab 应提供可读的界面状态：\(identifier)。")
+                return
+            }
+            assertUI(state.isSelected, "辅助功能大字号下点按后应选中对应 Tab：\(identifier)")
             if identifier == "话廊" {
                 let offlineAlert = app.alerts["加载话廊失败"]
                 assertUI(offlineAlert.appears(timeout: 10), "离线话廊请求应展示失败提示。")
                 offlineAlert.buttons["知道了"].tapBriefly()
             }
-            let tabFrame = tab.frame
-            let windowFrame = window.frame
+            let tabFrame = state.frame
             let tabIsHittable = tab.isHittable
-            let tabLabel = tab.label
+            let tabLabel = state.label
             assertUI(
-                window.exists && tabIsHittable && windowFrame.contains(tabFrame) && tabLabel.count > 0,
+                tabIsHittable && windowFrame.contains(tabFrame) && tabLabel.count > 0,
                 "辅助功能大字号下 Tab 应保持可见、可触达并具有名称：\(identifier)；window=\(windowFrame)，tab=\(tabFrame)，hittable=\(tabIsHittable)，label=\(tabLabel)"
             )
             let contentTarget: XCUIElement?
@@ -536,8 +571,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         let tabTitles = ["gallery": "话廊", "map": "地图", "home": "成绩", "mine": "我的"]
         let deadline = Date().addingTimeInterval(10)
         var identity: String?
+        var lastSnapshot: (any XCUIElementSnapshot)?
         repeat {
-            if let snapshot = try? application.snapshot(),
+            lastSnapshot = try? application.snapshot()
+            if let snapshot = lastSnapshot,
                let scene = snapshot.firstSnapshot(where: { $0.identifier == "ui-test.scene" }),
                let currentIdentity = scene.value as? String,
                expectedScene == nil || expectedScene == currentIdentity {
@@ -550,6 +587,8 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                     ready = snapshot.firstSnapshot { $0.identifier == "login.student-id" } != nil
                 } else if initialTab == "schedule" {
                     ready = snapshot.firstSnapshot { $0.identifier == "schedule.blank-context-menu" } != nil
+                } else if initialTab == "gallery" && failureOnce {
+                    ready = snapshot.firstSnapshot { $0.elementType == .alert && $0.label == "加载话廊失败" } != nil
                 } else {
                     ready = snapshot.firstSnapshot { $0.elementType == .tabBar }?.firstSnapshot {
                         $0.elementType == .button && $0.label == tabTitles[initialTab]! && $0.isSelected
@@ -559,7 +598,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         } while Date() < deadline
-        assertUI(identity != nil, "同一界面快照中的场景身份与初始页面应完成加载：\(initialSettings ?? initialTab)。")
+        assertUI(identity != nil, "同一界面快照中的场景身份与初始页面应完成加载：\(initialSettings ?? initialTab)。场景：\(String(describing: lastSnapshot?.firstSnapshot(where: { $0.identifier == "ui-test.scene" })?.value))，导航：\(lastSnapshot?.snapshots(matching: .tabBar).flatMap { $0.snapshots(matching: .button).map { "\($0.label)=\($0.isSelected)" } } ?? [])。")
         if Self.sessionProcess == nil {
             let process = identity!.components(separatedBy: ":").first!
             Self.sessionProcess = process
@@ -588,7 +627,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         closeAlertIfPresent()
         app.swipeRight()
         assertUI(app.segmentedControls.buttons["DDL"].isSelected, "反向横滑应恢复 DDL。")
-        app.segmentedControls.buttons.element(boundBy: 0).tapBriefly()
+        tapHeader(app.segmentedControls.buttons.element(boundBy: 0))
         assertUI(app.buttons["schedule.add-content"].exists, "分栏切换应恢复课表交互。")
     }
 
@@ -600,11 +639,11 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         assertUI(day.appears(timeout: 5), "每日表头应提供调整入口。")
         day.tapBriefly()
         assertUI(app.navigationBars["调休 / 放假"].appears(timeout: 5), "每日表头应打开日期调整。")
-        app.segmentedControls.buttons["放假"].tapBriefly()
+        tapHeader(app.segmentedControls.buttons["放假"])
         tap("确定")
         assertUI(app.alerts["确认放假"].appears(timeout: 5), "放假应展示确认。")
         app.alerts.buttons["取消"].tapBriefly()
-        app.segmentedControls.buttons["调至某天"].tapBriefly()
+        tapHeader(app.segmentedControls.buttons["调至某天"])
         assertUI(app.datePickers.firstMatch.exists, "调休应提供目标日期选择。")
         tap("确定")
         assertUI(app.alerts["确认调课"].appears(timeout: 5), "调休应展示确认。")
@@ -887,7 +926,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
     @MainActor
     func testPaperPublishEditCommentAndDelete() {
         app = configureApp(resetStorage: true, content: true, animations: true, initialTab: "gallery")
-        app.segmentedControls.buttons["文章"].tapBriefly()
+        tapHeader(app.segmentedControls.buttons["文章"])
         tap("发布文章")
         let paperComposer = app.navigationBars["发布文章"]
         for (title, text) in [("标题", "测试发布文章"), ("简介", "文章发布测试简介"), ("正文", "文章发布测试正文")] {
@@ -946,7 +985,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
     @MainActor
     func testPaperSearchDetailLikeAndComposer() {
         app = configureApp(resetStorage: true, content: true, initialTab: "gallery")
-        app.segmentedControls.buttons["文章"].tapBriefly()
+        tapHeader(app.segmentedControls.buttons["文章"])
         assertUI(textElement("自动化测试文章").appears(timeout: 5), "文章分区应展示固定文章。")
         tap("搜索文章")
         let search = app.textFields.firstMatch
@@ -1049,7 +1088,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
     @MainActor
     func testCourseSearchHistoryLikeAndRatingComposer() {
         app = configureApp(resetStorage: true, content: true, initialTab: "home")
-        app.segmentedControls.buttons.element(boundBy: 1).tapBriefly()
+        tapHeader(app.segmentedControls.buttons.element(boundBy: 1))
         let search = app.textFields.firstMatch
         assertUI(search.appears(timeout: 5), "课程评价应提供搜索字段。")
         search.tapBriefly()
@@ -1091,9 +1130,9 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         assertUI(app.navigationBars["DDL 详情"].appears(timeout: 5), "课程中心作业应打开详情。")
         assertUI(app.staticTexts["课程中心"].exists, "详情应显示中文来源。")
         assertUI(!app.buttons["编辑"].exists && !app.buttons["删除"].exists, "学校作业应按同步来源展示。")
-        app.buttons["取消"].tapBriefly()
+        tapHeader(app.buttons["取消"])
         app = configureApp(resetStorage: false)
-        app.segmentedControls.buttons["DDL"].tapBriefly()
+        tapHeader(app.segmentedControls.buttons["DDL"])
         let restored = app.buttons["ddl.done.eclass:ui"]
         assertUI(restored.appears(timeout: 5), "重新启动后应恢复课程中心作业。")
         assertUI(restored.value as? String == "已完成", "重新启动后应恢复完成状态。")
@@ -1102,7 +1141,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
     @MainActor
     func testDDLEmptyStateExplainsTheRetentionWindow() throws {
         app = configureApp(resetStorage: true, ddlFixture: "overdue")
-        app.segmentedControls.buttons["DDL"].tapBriefly()
+        tapHeader(app.segmentedControls.buttons["DDL"])
         let explanation = app.staticTexts["1 条日程已超出显示范围。当前滞留天数为 0 天，可在 DDL 设置调整。"]
         assertUI(explanation.appears(timeout: 5), "过期日程的空列表应说明当前显示范围。")
     }

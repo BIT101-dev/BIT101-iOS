@@ -101,6 +101,7 @@ final class UITestSceneState: ObservableObject {
     }
 
     private func configure(_ environment: [String: String]) {
+        AppErrorPresenter.shared.reset()
         UITestSceneConfiguration.shared.replace(with: environment)
         largeText = environment["BIT101_UI_TEST_LARGE_TEXT"] == "1"
         colorScheme = environment["BIT101_UI_TEST_STYLE"].flatMap { $0 == "Dark" ? .dark : .light }

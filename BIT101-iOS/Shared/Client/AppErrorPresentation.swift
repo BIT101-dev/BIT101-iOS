@@ -142,6 +142,10 @@ final class AppErrorPresenter {
             ? "\(item.message)\n\n版本 \(AppErrorPresentation.versionText)"
             : item.message
         let controller = UIAlertController(title: item.title, message: message, preferredStyle: .alert)
+#if BIT101_UI_TESTING
+        controller.view.accessibilityIdentifier = "ui-test.scene"
+        controller.view.accessibilityValue = "\(ProcessInfo.processInfo.processIdentifier):\(UITestSceneConfiguration.shared.snapshot.revision)"
+#endif
         var recoveryActionButton: UIAlertAction?
 
         if let recoveryAction = item.recoveryAction {
