@@ -1,11 +1,18 @@
+nonisolated enum AppVerificationCode {
+    static let minimumLength = 4
+    static let maximumLength = 8
+
+    static func normalize(_ value: String) -> String {
+        String(value.filter(\.isNumber).prefix(maximumLength))
+    }
+
+    static func isValid(_ value: String) -> Bool {
+        (minimumLength ... maximumLength).contains(value.count) && value.allSatisfy(\.isNumber)
+    }
+}
+
 #if os(iOS)
 import SwiftUI
-
-private enum AppVerificationMetrics {
-    public static let minimumCodeLength = 4
-    public static let maximumCodeLength = 8
-    public static let validCodeLength = minimumCodeLength ... maximumCodeLength
-}
 
 /// 课表、成绩和可信成绩单共用的短信验证码面板。
 ///
@@ -52,7 +59,7 @@ public struct AppSMSVerificationSheet: View {
                         .accessibilityIdentifier("verification.code")
                         .disabled(isSubmitting)
                         .onChange(of: code) { _, newValue in
-                            let digits = normalizedVerificationCode(newValue)
+                            let digits = AppVerificationCode.normalize(newValue)
                             if digits != newValue {
                                 code = digits
                             }
@@ -87,7 +94,7 @@ public struct AppSMSVerificationSheet: View {
                             Spacer()
                         }
                     }
-                    .disabled(isSubmitting || !AppVerificationMetrics.validCodeLength.contains(code.count))
+                    .disabled(isSubmitting || !AppVerificationCode.isValid(code))
                     .appInteractiveListRow()
                 }
             }
@@ -129,55 +136,16 @@ public struct AppSchoolSMSVerificationSheet: View {
         self.onSubmit = onSubmit
     }
 
-    @State private var code = ""
-    @FocusState private var isCodeFieldFocused: Bool
-
     public var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("", text: $code, prompt: AppInputPrompt.text("短信验证码"))
-                        .keyboardType(.numberPad)
-                        .textContentType(.oneTimeCode)
-                        .multilineTextAlignment(.center)
-                        .font(AppDesignSystem.Typography.title.monospacedDigit())
-                        .focused($isCodeFieldFocused)
-                        .accessibilityLabel("短信验证码")
-                        .onChange(of: code) { _, newValue in
-                            let digits = normalizedVerificationCode(newValue)
-                            if digits != newValue {
-                                code = digits
-                            }
-                        }
-                } header: {
-                    AppListSectionHeader("输入验证码")
-                } footer: {
-                    Text("验证码已发送至 \(maskedPhone)，可点击键盘上方建议自动填充。")
-                }
-
-                Section {
-                    Button("验证并继续") {
-                        onSubmit(code)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .disabled(!AppVerificationMetrics.validCodeLength.contains(code.count))
-                    .appInteractiveListRow()
-                }
-            }
-            .navigationTitle("短信验证")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消", action: onCancel)
-                }
-            }
-            .onAppear { isCodeFieldFocused = true }
-        }
-        .presentationDetents([.medium])
+        AppSMSVerificationSheet(
+            maskedPhone: maskedPhone,
+            isSubmitting: false,
+            errorMessage: nil,
+            submitTitle: "验证并继续",
+            onCancel: onCancel,
+            onSubmit: { code in onSubmit(code) }
+        )
     }
 }
 
-private func normalizedVerificationCode(_ value: String) -> String {
-    String(value.filter(\.isNumber).prefix(AppVerificationMetrics.maximumCodeLength))
-}
 #endif

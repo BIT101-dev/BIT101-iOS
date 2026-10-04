@@ -4,7 +4,7 @@ import ScoreDomain
 import ScoreInfrastructure
 import TransportCore
 import CommunityCore
-import DesignSystemKit
+@testable import DesignSystemKit
 import ClientCore
 import StorageCore
 import Foundation
@@ -15,6 +15,20 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct ScoreFeatureTests {
+    @Test(arguments: [("", false), ("1", false), ("123", false), ("1234", true),
+                      ("12345678", true), ("123456789", false), ("12a34", false), (" 1234\n", false)])
+    func sharedVerificationCodeValidation(_ sample: (String, Bool)) {
+        #expect(AppVerificationCode.isValid(sample.0) == sample.1)
+    }
+
+    @Test(arguments: [("", ""), ("1234", "1234"), ("12a 34\n", "1234"),
+                      ("1234567890", "12345678"), ("a1b2c3d4e5f6g7h8i9", "12345678")])
+    func sharedVerificationCodeNormalization(_ sample: (String, String)) {
+        let normalized = AppVerificationCode.normalize(sample.0)
+        #expect(normalized == sample.1)
+        #expect(AppVerificationCode.normalize(normalized) == normalized)
+    }
+
     private func clearPreferences() {
         UserDefaults(suiteName: "BIT101ModulesTests.score")?.removePersistentDomain(forName: "BIT101ModulesTests.score")
     }

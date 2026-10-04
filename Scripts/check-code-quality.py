@@ -1050,6 +1050,10 @@ xcrun() {
   else print -ru2 -- "TOOL $*"; fi
 }
 '''
+    ui_test_count = sum(
+        len(re.findall(r"^\s*(?:@objc )?func test\w+\(", path.read_text(), re.MULTILINE))
+        for path in (ROOT / "BIT101-iOSUITests").glob("*.swift")
+    )
     cases = (
         ("build-install-device.sh", [], 0, "platform=iOS,id=udid", "DEVICE"),
         ("build-install-device.sh", ["build"], 0, "generic/platform=iOS", ""),
@@ -1065,7 +1069,7 @@ xcrun() {
         ("run-extended-tests.sh", ["ui", "About", "About"], 86, "LoginAndScheduleUITests/testAboutLicenseUpdateAndResetConfirmation", "DEVICE"),
         ("run-extended-tests.sh", ["ui", "Schedule"], 86, "testScheduleWeekButtonsAndSectionSwipes", "DEVICE"),
         ("run-extended-tests.sh", ["ui", "DDLEditor"], 86, "InteractionCoverageUITests/testDDLEditorDetailsDatePickerValidationAndCancelEditing", "DEVICE"),
-        ("run-extended-tests.sh", ["ui", "test"], 86, "57 项 UI 用例", "DEVICE"),
+        ("run-extended-tests.sh", ["ui", "test"], 86, f"{ui_test_count} 项 UI 用例", "DEVICE"),
         ("run-extended-tests.sh", ["modules"], 86, "swift test", ""),
         ("run-extended-tests.sh", [], 86, "-only-testing:BIT101-iOSTests", "DEVICE"),
         ("run-extended-tests.sh", ["NetworkClientTests"], 86, "BIT101-iOSTests/NetworkClientTests", "DEVICE"),
@@ -1088,7 +1092,7 @@ xcrun() {
             findings.append("命令自测：重复 UI 关键词合并为一个用例")
         if arguments == ["ui", "Schedule"] and "testAboutLicense" in result.stdout:
             findings.append("命令自测：方法关键词按实际流程筛选")
-        if arguments == ["ui", "test"] and result.stdout.count("-only-testing:BIT101-iOSUITests/") != 57:
+        if arguments == ["ui", "test"] and result.stdout.count("-only-testing:BIT101-iOSUITests/") != ui_test_count:
             findings.append("命令自测：两个测试类的全部交互用例可通过关键词选择")
     for filename, arguments in (
         ("build-install-device.sh", ["build", "extra"]),

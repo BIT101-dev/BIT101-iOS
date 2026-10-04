@@ -220,6 +220,25 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertTrue(viewModel.allowsDiagnostics)
     }
 
+    @MainActor
+    func testTranscriptVerificationFailurePreservesChallengeAndRetryLoadsPages() async {
+        let viewModel = TrustedTranscriptViewModel(service: StubTrustedTranscriptService())
+        await viewModel.apply()
+        let challengeID = viewModel.smsChallenge?.challengeID
+        XCTAssertNotNil(challengeID)
+        await viewModel.submitSMSCode("000000")
+        XCTAssertEqual(viewModel.smsChallenge?.challengeID, challengeID)
+        XCTAssertEqual(viewModel.smsVerificationError, "验证码错误")
+        XCTAssertEqual(viewModel.state, .idle)
+        XCTAssertTrue(viewModel.images.isEmpty)
+        XCTAssertFalse(viewModel.isSubmittingSMSCode)
+        await viewModel.submitSMSCode("123456")
+        XCTAssertNil(viewModel.smsChallenge)
+        XCTAssertNil(viewModel.smsVerificationError)
+        XCTAssertEqual(viewModel.state, .loaded)
+        XCTAssertEqual(viewModel.images.count, 1)
+    }
+
     private struct StubTrustedTranscriptService: TrustedTranscriptServicing {
         func fetchTrustedTranscriptPages() async throws -> [Data] {
             throw ScoreServiceError.secondFactorRequired(BITLoginAuthenticationChallenge(
@@ -232,7 +251,8 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
             _ code: String,
             for challenge: BITLoginAuthenticationChallenge
         ) async throws -> [Data] {
-            [UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).pngData { _ in }]
+            guard code == "123456" else { throw ScoreServiceError.queryFailed("验证码错误") }
+            return [UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).pngData { _ in }]
         }
     }
 

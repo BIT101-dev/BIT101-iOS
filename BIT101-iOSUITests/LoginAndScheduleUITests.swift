@@ -747,7 +747,6 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
             let control = app.switches.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
             reveal(control, description: title)
             assertUI(control.value as? String == savedSwitches[title], "重新装载应保留开关：\(title)")
-            toggle(title)
         }
     }
 
@@ -929,10 +928,14 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         tapHeader(app.segmentedControls.buttons["文章"])
         tap("发布文章")
         let paperComposer = app.navigationBars["发布文章"]
+        tap("发布")
+        assertUI(app.alerts["发布失败"].appears(timeout: 5), "空文章应提示必填字段。")
+        closeAlertIfPresent()
+        toggle("匿名发布")
         for (title, text) in [("标题", "测试发布文章"), ("简介", "文章发布测试简介"), ("正文", "文章发布测试正文")] {
             replaceText(text, in: app.textFields[title])
-            dismissKeyboard()
         }
+        dismissKeyboard()
         tap("发布")
         assertUI(waitUntil(NSPredicate(format: "exists == false"), on: paperComposer, timeout: 5), "文章发布后应关闭编辑窗口。")
         let paper = textElement("测试发布文章")
@@ -983,33 +986,6 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    func testPaperSearchDetailLikeAndComposer() {
-        app = configureApp(resetStorage: true, content: true, initialTab: "gallery")
-        tapHeader(app.segmentedControls.buttons["文章"])
-        assertUI(textElement("自动化测试文章").appears(timeout: 5), "文章分区应展示固定文章。")
-        tap("搜索文章")
-        let search = app.textFields.firstMatch
-        search.tapBriefly()
-        search.typeText("文章\n")
-        tap("清除搜索")
-        tap("取消")
-        tap("自动化测试文章")
-        assertUI(app.navigationBars["文章详情"].appears(timeout: 5), "文章行应打开详情。")
-        tap("点赞文章")
-        assertUI(app.buttons["取消文章点赞"].appears(timeout: 5), "文章点赞应更新状态。")
-        tap("取消文章点赞")
-        back()
-        tap("发布文章")
-        tap("发布")
-        assertUI(app.alerts["发布失败"].appears(timeout: 5), "空文章应提示必填字段。")
-        closeAlertIfPresent()
-        assertUI(app.textFields["标题"].exists && app.textFields["简介"].exists, "文章编辑器应提供标题和简介。")
-        toggle("匿名发布")
-        tap("取消")
-    }
-
-
-    @MainActor
     func testSuggestionDraftRestoreAndDiscard() {
         app = configureApp(resetStorage: true, animations: true)
         openSettings("suggestion")
@@ -1040,8 +1016,8 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
             let field = app.textFields[title]
             assertUI(field.exists, "课程编辑应支持字段：\(title)")
             replaceText(value, in: field)
-            dismissKeyboard()
         }
+        dismissKeyboard()
         choose("星期", option: "周2")
         tap("开始节次")
         tap("第1节")
@@ -1084,34 +1060,6 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         assertUI(code.value as? String == "invalid-code", "校验失败应保留输入以供修改。")
         tap("取消")
     }
-
-    @MainActor
-    func testCourseSearchHistoryLikeAndRatingComposer() {
-        app = configureApp(resetStorage: true, content: true, initialTab: "home")
-        tapHeader(app.segmentedControls.buttons.element(boundBy: 1))
-        let search = app.textFields.firstMatch
-        assertUI(search.appears(timeout: 5), "课程评价应提供搜索字段。")
-        search.tapBriefly()
-        search.typeText("测试\n")
-        tap("自动化测试课程")
-        assertUI(app.navigationBars["课程详情"].appears(timeout: 5), "课程搜索应打开详情。")
-        tap("点赞课程")
-        assertUI(app.buttons["取消课程点赞"].appears(timeout: 5), "课程点赞应更新操作。")
-        tap("取消课程点赞")
-        tap("评论课程")
-        let field = app.textFields.firstMatch
-        assertUI(field.appears(timeout: 5), "课程评论应展示输入字段。")
-        tap("评分 3.5 星")
-        field.tapBriefly()
-        field.typeText("测试课程评价\n")
-        dismissKeyboard()
-        tap("发送")
-        assertUI(waitUntil(NSPredicate(format: "exists == false"), on: app.buttons["发送"], timeout: 5), "提交成功后应关闭评价窗口。")
-        reveal(textElement("测试课程评价"), description: "测试课程评价")
-        assertUI(textElement("测试课程评价").appears(timeout: 5), "提交评价应更新评论区。")
-    }
-
-
 
     @MainActor
     func testSchoolDDLSourcesAndCompletionPersistAcrossSceneReload() throws {

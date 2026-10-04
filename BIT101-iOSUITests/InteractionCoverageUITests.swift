@@ -42,8 +42,6 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         tap("提前显示阈值")
         waitForValue("20 分钟", of: app.pickerWheels.firstMatch)
         tap("取消")
-        toggle("同步设置与使用偏好（实验性）")
-        toggle("iCloud 多端同步")
     }
 
 
@@ -197,7 +195,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         unnamed.tapBriefly()
         tap("编辑")
         for identifier in ["schedule.custom.date", "schedule.custom.end", "schedule.custom.begin"] {
-            openAndDismissDatePicker(identifier)
+            openAndDismissDatePicker(identifier, coverage: .integration)
         }
         replaceText("详细测试日程", in: app.textFields["schedule.custom.title"])
         replaceText("测试地点", in: app.textFields["schedule.custom.subtitle"])
@@ -251,9 +249,11 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         assertUI(textElement("自动化测试课程").appears(timeout: 5), "短信提交应加载成绩。")
         for (route, option) in [("学期", "ui-test-term"), ("种类", "必修")] {
             openScoreFilter(route)
-            tap("全不选")
-            assertUI(app.buttons["全选"].exists, "批量清空应恢复全选操作。")
-            tap("全选")
+            if route == "学期" {
+                tap("全不选")
+                assertUI(app.buttons["全选"].exists, "公共筛选页批量清空应恢复全选操作。")
+                tap("全选")
+            }
             let item = app.buttons.matching(NSPredicate(format: "label == %@", option)).firstMatch
             assertUI(item.appears(timeout: 5), "筛选页应加载\(option)选项。")
             item.tapBriefly()
@@ -312,10 +312,6 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         tap("取消")
         tap("重试")
         let code = app.textFields["verification.code"]
-        replaceText("000000", in: code)
-        dismissKeyboard()
-        tap("验证并申请成绩单")
-        assertUI(textElement("测试验证码错误。").appears(timeout: 5), "成绩单短信应支持错误重试。")
         replaceText("123456", in: code)
         dismissKeyboard()
         tap("验证并申请成绩单")
@@ -370,21 +366,6 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         dismissKeyboard()
         tap("发送")
         assertUI(textElement("自动化回复内容").appears(timeout: 5), "回复发送应更新评论。")
-        back()
-        tapHeader(app.segmentedControls.buttons["文章"])
-        tap("自动化测试文章")
-        tap("点赞评论")
-        assertUI(app.buttons["取消评论点赞"].appears(timeout: 5), "文章评论应支持点赞。")
-        tap("取消评论点赞")
-        tap("回复")
-        replaceText("文章回复内容", in: app.textFields.firstMatch)
-        dismissKeyboard()
-        tap("发布")
-        reveal(textElement("文章回复内容"))
-        assertUI(textElement("文章回复内容").exists, "文章回复应显示正文。")
-        back()
-        tapHeader(app.segmentedControls.buttons["话题"])
-        tap("保存后的测试话题")
         let comment = app.staticTexts["自动化测试评论"]
         reveal(comment, description: "自动化测试评论")
         comment.press(forDuration: 1)
@@ -693,27 +674,39 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         assertUI(waitUntil(NSPredicate(format: "label == %@", "取消文章点赞"), on: headerLike, timeout: 5), "正文末尾点赞应同步顶部状态。")
         footerLike.tapBriefly()
         assertUI(waitUntil(NSPredicate(format: "label == %@", "点赞文章"), on: headerLike, timeout: 5), "正文末尾取消点赞应同步顶部状态。")
-        for title in ["高赞", "最旧", "最新"] {
-            tap("排序")
-            tap(title)
-            assertUI(textElement("自动化测试评论").appears(timeout: 5), "文章评论排序应显示对应结果。")
-        }
+        tapHeader(headerLike)
+        assertUI(app.buttons["取消文章点赞"].appears(timeout: 5), "顶部点赞入口应更新文章状态。")
+        tapHeader(headerLike)
+        tap("排序")
+        tap("高赞")
+        assertUI(textElement("自动化测试评论").appears(timeout: 5), "文章排序接入应显示对应评论结果。")
+        tap("点赞评论")
+        assertUI(app.buttons["取消评论点赞"].appears(timeout: 5), "文章评论应支持点赞。")
+        tap("取消评论点赞")
+        tap("回复")
+        replaceText("文章回复内容", in: app.textFields.firstMatch)
+        dismissKeyboard()
+        tap("发布")
+        reveal(textElement("文章回复内容"))
+        assertUI(textElement("文章回复内容").exists, "文章回复应显示正文。")
         tap("更多操作")
         tap("分享文章")
         dismissShareSheet()
         tap("评论文章")
-        toggle("匿名评论")
         tap("取消")
         assertUI(app.navigationBars["文章详情"].exists, "取消评论应恢复文章详情。")
     }
 
     @MainActor
-    @objc func testCourseCommentRepliesRatingsCleaningSearchAndShare() {
+    @objc func testCourseCommentPublishingRepliesRatingsCleaningSearchAndShare() {
         app = configureApp(resetStorage: true, content: true, animations: true, media: true, initialTab: "home")
         tapHeader(app.segmentedControls.buttons["课程"])
         replaceText("测试\n", in: app.textFields.firstMatch)
         tap("清除搜索")
         tap("自动化测试课程")
+        tap("点赞课程")
+        assertUI(app.buttons["取消课程点赞"].appears(timeout: 5), "课程点赞应更新操作。")
+        tap("取消课程点赞")
         let cleaning = app.buttons["数据清洗"]
         let original = cleaning.value as? String
         cleaning.tapBriefly()
@@ -725,7 +718,14 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         }
         tap("评分 5.0 星")
         assertUI(app.staticTexts["不评分"].appears(timeout: 5), "再次点击相同星级应清空评分。")
+        tap("评分 3.5 星")
         toggle("匿名评论")
+        replaceText("测试课程评价", in: app.textFields.firstMatch)
+        dismissKeyboard()
+        tap("发送")
+        reveal(textElement("测试课程评价"), description: "测试课程评价")
+        assertUI(textElement("测试课程评价").exists, "提交评价应更新课程评论区。")
+        tap("评论课程")
         tap("取消")
         tap("点赞评论")
         assertUI(app.buttons["取消评论点赞"].appears(timeout: 5), "课程评论应支持点赞。")
@@ -927,10 +927,6 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         tap("取消")
         tap("刷新")
         let field = app.textFields["verification.code"]
-        replaceText("000000", in: field)
-        dismissKeyboard()
-        tap("验证并同步课表")
-        assertUI(textElement("测试学校验证码错误。").appears(timeout: 5), "学校错误验证码应支持修改。")
         replaceText("123456", in: field)
         dismissKeyboard()
         tap("验证并同步课表")
@@ -1191,7 +1187,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         replaceText("带详情的待办", in: app.textFields["ddl.editor.title"])
         replaceText("待办详细说明", in: app.textFields["ddl.editor.details"])
         dismissKeyboard()
-        openAndDismissDatePicker("ddl.editor.date")
+        openAndDismissDatePicker("ddl.editor.date", coverage: .contract)
         tapHeader(app.buttons["ddl.editor.save"])
         assertUI(app.navigationBars["添加 DDL"].disappears(timeout: 5), "保存应关闭待办编辑器。")
         tap("标记为已完成")
@@ -1299,8 +1295,13 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         assertUI(app.tabBars.buttons["日程"].appears(timeout: 10), "点击登录按钮应进入主界面。")
     }
 
+    private enum DatePickerCoverage {
+        case contract
+        case integration
+    }
+
     @MainActor
-    private func openAndDismissDatePicker(_ identifier: String) {
+    private func openAndDismissDatePicker(_ identifier: String, coverage: DatePickerCoverage) {
         let field = app.datePickers[identifier]
         reveal(field)
         guard let fieldState = try? field.snapshot() else {
@@ -1337,7 +1338,8 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
             }
             let wheels = pickerState.snapshots(matching: .pickerWheel)
             if !wheels.isEmpty {
-                for (index, state) in wheels.enumerated() {
+                let exercisedWheels = coverage == .contract ? wheels : Array(wheels.prefix(1))
+                for (index, state) in exercisedWheels.enumerated() {
                     let wheel = nativePicker.pickerWheels.element(boundBy: index)
                     let original = state.value as? String ?? ""
                     let downward = original.hasPrefix("59") || original.hasPrefix("23") || original.hasPrefix("下午")

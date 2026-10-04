@@ -9,8 +9,10 @@ import Testing
 
 @MainActor
 struct ScheduleFeatureTests {
-    private func makeViewModel(repository: ScheduleRepository, actions: any SchedulePlatformActions) -> ScheduleViewModel {
-        let service = ModuleScheduleService()
+    private func makeViewModel(
+        repository: ScheduleRepository, actions: any SchedulePlatformActions,
+        service: ModuleScheduleService = ModuleScheduleService()
+    ) -> ScheduleViewModel {
         return ScheduleViewModel(
             service: service,
             repository: repository,
@@ -20,6 +22,34 @@ struct ScheduleFeatureTests {
             virtualNetworkLikely: { true },
             newCustomScheduleDraft: { CustomScheduleDraft() }
         )
+    }
+
+    @Test func courseVerificationFailurePreservesChallengeAndRetryResumesChosenTerm() async throws {
+        var saved: ScheduleCache?
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "verification") },
+            load: { _ in .missing }, save: { cache, _, _ in saved = cache })
+        await repository.loadIfNeeded()
+        let service = ModuleScheduleService()
+        service.challenge = BITLoginAuthenticationChallenge(challengeID: "course-verification", accessToken: "token",
+            status: "waiting_sms", maskedPhone: "138****0000", expiresIn: 300)
+        service.submissionError = .schoolSMSCodeInvalid("验证码错误")
+        service.payload = CourseSyncPayload(term: "verified-term", firstDayString: "2026-09-07",
+            sourceFirstDayString: "2026-09-07", normalizationOffset: 0, rawWeeksByCourse: [], courses: [], exams: [])
+        let model = makeViewModel(repository: repository, actions: ModuleSchedulePlatformActions(), service: service)
+        await model.syncCourses(term: "verified-term")
+        let challenge = try #require(model.smsChallenge)
+        await model.submitSMSCode("000000")
+        #expect(model.smsChallenge?.challengeID == challenge.challengeID)
+        #expect(model.smsVerificationError == "验证码错误")
+        #expect(model.courseSyncCoordinator.courseSyncTerm == "verified-term")
+        #expect(!model.isSubmittingSMSCode)
+        service.submissionError = nil
+        await model.submitSMSCode("123456")
+        #expect(service.submittedCodes == ["000000", "123456"])
+        #expect(model.smsChallenge == nil)
+        #expect(model.smsVerificationError == nil)
+        #expect(model.courseSyncCoordinator.continuation == nil)
+        #expect(saved?.currentTerm == "verified-term")
     }
 
     @Test func publicAssemblyOwnsOneRepositoryAcrossAllSubscenes() async {
@@ -176,10 +206,24 @@ private final class ModuleSchedulePlatformActions: SchedulePlatformActions {
     }
 }
 
-private struct ModuleScheduleService: ScheduleServicing {
-    func syncCourses(term: String?) async throws -> CourseSyncPayload { throw CancellationError() }
+@MainActor
+private final class ModuleScheduleService: ScheduleServicing {
+    var challenge: BITLoginAuthenticationChallenge?
+    var submissionError: ScheduleServiceError?
+    var payload: CourseSyncPayload?
+    var submittedCodes: [String] = []
+
+    func syncCourses(term: String?) async throws -> CourseSyncPayload {
+        if let challenge { throw ScheduleServiceError.secondFactorRequired(challenge) }
+        throw CancellationError()
+    }
     func fetchAvailableTerms() async throws -> [String] { [] }
-    func submitSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge, term: String?) async throws -> CourseSyncPayload { throw CancellationError() }
+    func submitSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge, term: String?) async throws -> CourseSyncPayload {
+        submittedCodes.append(code)
+        if let submissionError { throw submissionError }
+        if let payload { return payload }
+        throw CancellationError()
+    }
     func submitSMSCodeForTeachingCenterAuthentication(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws {}
     func fetchCurrentTermOnly() async throws -> String { "test-term" }
     func syncDDLEvents(existingEvents: [DDLEventRecord], storedURL: String, schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> DDLSyncPayload { throw CancellationError() }
@@ -749,4 +793,3 @@ private final class ModuleSemesterStartDateService: ScheduleServicing {
         throw ScheduleServiceError.invalidResponse
     }
 }
-

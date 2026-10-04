@@ -4,7 +4,22 @@
 
 用户要求 UI 自动化覆盖每一个可点击、可滑动和可交互部位。维护范围按控件与操作语义清点：点击、文本输入与键盘提交、选择与开关、列表滚动与下拉刷新、分区横滑、课表周次拖动、长按菜单、双指缩放、Sheet 下滑关闭，以及确认、取消、成功、失败和重试分支。日期、周次、评分等值域由控件类型与业务状态断言承接。
 
-用例分布在 [日程与社区流程](../BIT101-iOSUITests/LoginAndScheduleUITests.swift) 和 [综合交互流程](../BIT101-iOSUITests/InteractionCoverageUITests.swift)，共 57 项：`LoginAndScheduleUITests` 22 项、`InteractionCoverageUITests` 35 项，共用 `UIAutomationTestCase`。完整批次顺序执行并复用一个 App 进程；每次场景切换与存储重新读取都校验同一进程 ID。同页操作复用创建、导航和编辑过程，下表保留逐控件与业务分支的映射；同一流程可以对应多行。完整交互回归以 5 分钟内完成为优化目标，耗时从真机运行的固定指标文件读取。
+用例分布在 [日程与社区流程](../BIT101-iOSUITests/LoginAndScheduleUITests.swift) 和 [综合交互流程](../BIT101-iOSUITests/InteractionCoverageUITests.swift)，共 55 项：`LoginAndScheduleUITests` 20 项、`InteractionCoverageUITests` 35 项，共用 `UIAutomationTestCase`。完整批次顺序执行并复用一个 App 进程；每次场景切换与存储重新读取都校验同一进程 ID。同页操作复用创建、导航和编辑过程，下表保留逐控件与业务分支的映射；同一流程可以对应多行。完整交互回归以 5 分钟内完成为优化目标，耗时从真机运行的固定指标文件读取。
+
+## 公共组件验收归属
+
+公共组件的每类交互合同明确验收流程，相同交互集中验证一次；每个使用页面验证入口、绑定参数和业务结果。同一控件的布局或事件实现独立时，各自保留完整验收。测试归属静态明确，关键词运行直接执行所选流程。
+
+| 公共实现 | 完整交互合同 | 页面接入验证 |
+| --- | --- | --- |
+| `AppSMSVerificationSheet` | 成绩流程验证空提交禁用、错误提示、修改、取消和成功；验证码清洗及长度边界由模块测试覆盖 | 课表、学校 DDL 和可信成绩单验证各自取消后的恢复、提交文案及验证后业务继续；课表与成绩单的错误保留 challenge、修改后继续和持久化由行为测试验收；SSO 面板复用同一输入实现 |
+| `ScoreFilterPage` | 学期筛选验证全选 / 清空和逐项切换 | 学期及类型分别验证绑定状态和成绩过滤结果 |
+| `CommunityCommentSortPicker` | 话题评论验证最新 / 高赞 / 最旧全部选项 | 文章评论验证排序入口、选择绑定及加载结果 |
+| 原生日期时间选择器 | DDL 流程验证翻月、年月选择、日期选择及逐列时间滚轮 | 自定义日程逐个打开日期 / 开始 / 结束入口，验证时间绑定、保存和重新读取 |
+| `AppCommentComposerContentSection` | 课程评论验证匿名开关，并与评分和发布结果一起验收 | 话题及文章保留各自评论 / 回复提交和取消；匿名发布属于各自编辑器合同 |
+| `systemImagePreview` | 可信成绩单验证多页切换和关闭，话题流程验证打开预览时的场景销毁 | 卡片、正文、评论、头像和成绩单第二页分别验证来源入口及返回页面 |
+
+文章搜索、点赞、发布和编辑分别归入已有连续页面流程；课程搜索、点赞、评分、发布与回复在同一详情中连续验收。文本表单连续填写后统一收起键盘，重新读取后的设置状态完成断言后交由下一场景的隔离重置清理。
 
 ## 日程、登录和地图
 
@@ -29,11 +44,11 @@
 | `InteractionCoverageUITests/testSchoolTermsClassroomPickersRefreshAndDDLRefresh` | 学期下拉刷新 / 切换、日期滚轮 / 学校日期、校区 / 教学楼 / 教室刷新、订阅及学校 DDL 刷新 |
 | `InteractionCoverageUITests/testCustomScheduleEmptyTitleDetailsAndCalendarActions` | 日程详情、编辑保存、删除、新增取消 |
 | `InteractionCoverageUITests/testCustomScheduleEmptyTitleDetailsAndCalendarActions` | 空标题默认名称、地点 / 描述编辑、详情、单项日历导入 / 移除 |
-| `InteractionCoverageUITests/testCustomScheduleEmptyTitleDetailsAndCalendarActions` | 日期 / 开始时间 / 结束时间选择器、逐列时间滚轮、线性轴显示任意时间、编辑取消保留 |
+| `InteractionCoverageUITests/testCustomScheduleEmptyTitleDetailsAndCalendarActions` | 日期 / 开始时间 / 结束时间选择器、开始 / 结束时间绑定、线性轴显示任意时间、编辑取消保留 |
 | `LoginAndScheduleUITests/testCourseEditorFieldsPickersSaveDetailAndDelete` | 课程名称 / 教师 / 教室 / 周次、星期 / 起止节次、保存、调课入口、删除确认 / 取消 |
 | `InteractionCoverageUITests/testCourseAndExamSystemCalendarActions` | 楼宇 / 房间号、周次 / 星期 / 节次多选、单节及整门保存、单节删除确认 / 取消 |
 | `InteractionCoverageUITests/testCourseAndExamSystemCalendarActions` | 单节 / 整门 / 考试日历导入与移除、重复移除结果、整学期导入及删除确认 |
-| `InteractionCoverageUITests/testSchoolSMSCourseSyncValidationCancelAndContinuation` | 学校课表刷新、短信取消、错误重试、验证继续和课程保存 |
+| `InteractionCoverageUITests/testSchoolSMSCourseSyncValidationCancelAndContinuation` | 学校课表刷新、短信取消、验证继续和课程保存 |
 | `LoginAndScheduleUITests/testSharedScheduleCopyImportRenameCycleAndSwipeDelete` | 分享编码复制、剪贴板粘贴、导入、改名、课表上下滑循环、分享课表左滑删除 |
 | `LoginAndScheduleUITests/testLongPressOpensScheduleContextMenuAndImportSheet` | 空白区长按、导入菜单、输入 Sheet |
 | `LoginAndScheduleUITests/testImportInvalidCodeReportsErrorAndKeepsEditor` | 无效编码、错误提示、保留输入、取消 |
@@ -55,11 +70,11 @@
 | 用例 | 操作与结果 |
 | --- | --- |
 | `InteractionCoverageUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` | 查询、短信输入、验证继续、成绩展示 |
-| `InteractionCoverageUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` | 空 / 错误 / 正确验证码、学期 / 类型全选和清空、六种排序、方向、成绩详情 |
+| `InteractionCoverageUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` | 空 / 错误 / 正确验证码、公共筛选页全选和清空、学期 / 类型独立绑定、六种排序、方向、成绩详情 |
 | `InteractionCoverageUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` | 查询取消、逐项筛选、已有成绩刷新、未出分详情、成绩到课程评价路由 |
-| `InteractionCoverageUITests/testTrustedTranscriptSMSRetryPreviewAndCancellation` | 申请、短信取消、申请重试、错误验证重试、两页点击与 Quick Look 左右滑动 / 关闭 |
-| `LoginAndScheduleUITests/testCourseSearchHistoryLikeAndRatingComposer` | 课程搜索、详情、历史成绩、课程点赞 / 取消、评分评论发布 |
-| `InteractionCoverageUITests/testCourseCommentRepliesRatingsCleaningSearchAndShare` | 清除搜索、数据清洗开关、十种半星评分 / 再选清空、匿名 / 取消、评论点赞 / 图片 / 回复、课程分享 |
+| `InteractionCoverageUITests/testTrustedTranscriptSMSRetryPreviewAndCancellation` | 申请、短信取消、申请重试、验证成功、两页点击与 Quick Look 左右滑动 / 关闭 |
+| `InteractionCoverageUITests/testCourseCommentPublishingRepliesRatingsCleaningSearchAndShare` | 课程搜索、详情、历史成绩、课程点赞 / 取消、评分评论发布 |
+| `InteractionCoverageUITests/testCourseCommentPublishingRepliesRatingsCleaningSearchAndShare` | 清除搜索、数据清洗开关、十种半星评分 / 再选清空、匿名 / 取消、评论点赞 / 图片 / 回复、课程分享 |
 | `InteractionCoverageUITests/testCourseHistoryChartSelectionAndHomeSurfaceSwipes` | 成绩 / 课程横滑、历史图双向拖动和学期选中值 |
 | `InteractionCoverageUITests/testCourseScheduleAcademicRouteAndPosterAuthorProfile` | 学校课程进入匹配评价、帖子作者及评论昵称进入公开主页 |
 
@@ -73,12 +88,14 @@
 | `InteractionCoverageUITests/testCommunityCommentLikesRepliesSortsAndPhotoPicker` | 帖子标题 / 正文保存、声明选择、保存后详情和列表同步 |
 | `InteractionCoverageUITests/testCommunityCommentLikesRepliesSortsAndPhotoPicker` | 评论长按复制 / 举报 / 删除、原因输入、提交、删除取消 / 确认 |
 | `InteractionCoverageUITests/testPosterReportSelectionCancellationAndSubmission` | 卡片及详情举报、类型选择、取消、说明提交、成功返回 |
-| `InteractionCoverageUITests/testCommunityCommentLikesRepliesSortsAndPhotoPicker` | 评论排序、点赞 / 取消、回复、评论照片选择器取消、文章回复 |
+| `InteractionCoverageUITests/testCommunityCommentLikesRepliesSortsAndPhotoPicker` | 评论排序、点赞 / 取消、回复、评论照片选择器取消 |
 | `InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes` | 话题及消息双向横滑、消息关联详情、两类搜索结果进入详情、文章排序 |
 | `InteractionCoverageUITests/testCommunityMediaPreviewsDraftRetryAndRemoval` | 卡片 / 帖子 / 评论图片预览、预览打开时切换场景并恢复原进程页面、原有图片移除及取消、新图上传失败 / 重试 / 成功 / 移除、照片选择器取消、建议图片移除 / 放弃草稿 |
 | `LoginAndScheduleUITests/testPaperPublishEditCommentAndDelete` | 文章标题 / 简介 / 正文发布、评论发布、编辑保存 / 取消、再编辑、删除确认 / 取消 |
-| `LoginAndScheduleUITests/testPaperSearchDetailLikeAndComposer` | 文章搜索 / 清除、详情点赞 / 取消、编辑器字段、匿名开关、取消 |
-| `InteractionCoverageUITests/testPaperImagePreviewCommentsSortAndShare` | 正文链接、正文图片预览、页尾点赞及顶部同步、评论排序、文章分享、匿名评论取消 |
+| `InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes` | 文章搜索 / 清除、搜索结果及详情路由 |
+| `InteractionCoverageUITests/testPaperImagePreviewCommentsSortAndShare` | 顶部及页尾点赞 / 取消、文章评论回复、评论取消 |
+| `LoginAndScheduleUITests/testPaperPublishEditCommentAndDelete` | 编辑器字段、空发布校验、匿名发布、编辑取消 |
+| `InteractionCoverageUITests/testPaperImagePreviewCommentsSortAndShare` | 正文链接、正文图片预览、页尾点赞及顶部同步、评论排序绑定、文章分享、评论取消 |
 | `InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes` | 话题及文章搜索排序、搜索刷新、文章列表双向排序横滑 |
 | `InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes` | 话题 / 文章列表及详情、消息、文章搜索下拉刷新 |
 | `InteractionCoverageUITests/testOfflineRecoveryRetryAndErrorReportEditor` | 离线重试、诊断编辑、原始模式、复现 / 联系方式、确认取消 / 确认、提交失败保留、关闭 |
@@ -143,4 +160,4 @@ Scripts/run-extended-tests.sh build ui
 Scripts/run-static-audit.sh
 ```
 
-完整验收要求全部 57 项实际执行并通过。报告记录构建与运行耗时、用例耗时合计、最慢十项、App 启动次数、进程 ID、系统交互动作、场景准备耗时、界面快照请求与阶段耗时估计。快照阶段耗时由相邻日志事件估算，可与交互阶段重叠。编译使用 `ui-tests-build.log`，运行使用 `ui-tests.log`，结果使用固定 `test-results.xcresult`、`test-metrics.txt` 和按需导出的 `diagnostics/`；真机初始化阻塞与实际用例失败分别记录。
+完整验收要求全部 55 项实际执行并通过。报告记录构建与运行耗时、用例耗时合计、最慢十项、App 启动次数、进程 ID、系统交互动作、场景准备耗时、界面快照请求与阶段耗时估计。快照阶段耗时由相邻日志事件估算，可与交互阶段重叠。编译使用 `ui-tests-build.log`，运行使用 `ui-tests.log`，结果使用固定 `test-results.xcresult`、`test-metrics.txt` 和按需导出的 `diagnostics/`；真机初始化阻塞与实际用例失败分别记录。

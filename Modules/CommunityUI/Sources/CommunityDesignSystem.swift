@@ -5,6 +5,25 @@ import Foundation
 import DesignSystemKit
 import SwiftUI
 
+/// 话题和文章共用评论排序入口及全部排序选项。
+public struct CommunityCommentSortPicker: View {
+    @Binding private var order: CommunityCommentOrder
+
+    public init(order: Binding<CommunityCommentOrder>) {
+        _order = order
+    }
+
+    public var body: some View {
+        Picker("排序", selection: $order) {
+            ForEach(CommunityCommentOrder.allCases) { order in
+                Text(order.title).tag(order)
+            }
+        }
+        .appSelectionFeedback(trigger: order)
+        .pickerStyle(.menu)
+    }
+}
+
 extension AppDesignSystem {
     public enum Community {
         public static let thumbnailPortraitAspectRatio = 1 / CGFloat(2).squareRoot()

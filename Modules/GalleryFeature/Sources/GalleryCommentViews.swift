@@ -34,13 +34,7 @@ struct GalleryPosterCommentsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
             AppCommentSectionHeader(count: totalCommentCount) {
-                Picker("排序", selection: Binding(get: { selectedOrder }, set: onSelectOrder)) {
-                    ForEach(CommunityCommentOrder.allCases) { order in
-                        Text(order.title).tag(order)
-                    }
-                }
-                .appSelectionFeedback(trigger: selectedOrder)
-                .pickerStyle(.menu)
+                CommunityCommentSortPicker(order: Binding(get: { selectedOrder }, set: onSelectOrder))
             }
 
             switch status {
