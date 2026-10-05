@@ -615,12 +615,18 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func replaceText(_ text: String, in field: UIElement) {
-        assertUI(field.appears(timeout: 5), "输入操作应等待字段出现。")
-        let secure = field.elementType == .secureTextField
         if text.hasSuffix("\n") {
             replaceTextWithKeyboard(text, in: field)
             return
         }
+        enterText(text, in: field)
+        let secure = field.elementType == .secureTextField
+        waitForValue(secure ? String(repeating: "•", count: text.count) : text, of: field)
+    }
+
+    @MainActor
+    private func enterText(_ text: String, in field: UIElement) {
+        assertUI(field.appears(timeout: 5), "输入操作应等待字段出现。")
         let started = ProcessInfo.processInfo.systemUptime
         let response = field.insertText(text)
         if response == "native" {
@@ -639,7 +645,11 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             assertUI(response == "entered", "文本应通过实际输入控件更新：\(response ?? "empty")。")
         }
         print(String(format: "UI input replace: %.3f", ProcessInfo.processInfo.systemUptime - started))
-        waitForValue(secure ? String(repeating: "•", count: text.count) : text, of: field)
+    }
+
+    @MainActor
+    func fillVerificationCode(_ text: String, in field: UIElement) {
+        enterText(text, in: field)
     }
 
     @MainActor

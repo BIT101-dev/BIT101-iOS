@@ -274,7 +274,8 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         let code = app.textFields["verification.code"]
         assertUI(code.appears(timeout: 5), "成绩查询应打开短信验证。")
         assertUI(!app.buttons["验证并查询成绩"].isEnabled, "空验证码应禁用提交。")
-        replaceText("000000", in: code)
+        replaceTextWithKeyboard("000000", in: code)
+        assertUI(code.value as? String == "000000", "逐位输入应保留完整验证码供手动验证。")
         dismissKeyboard()
         tap("验证并查询成绩")
         assertUI(app.staticTexts["测试验证码错误。"].appears(timeout: 5), "错误验证码应展示重试说明。")
@@ -282,10 +283,11 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         let retry = app.buttons["重新查询"]
         assertUI(retry.appears(timeout: 5) && retry.isEnabled, "取消短信应恢复重新查询入口。")
         retry.tapBriefly()
-        replaceText("123456", in: app.textFields["verification.code"])
-        dismissKeyboard()
-        tap("验证并查询成绩")
-        assertUI(textElement("自动化测试课程").appears(timeout: 5), "短信提交应加载成绩。")
+        fillVerificationCode("000000", in: app.textFields["verification.code"])
+        assertUI(app.staticTexts["测试验证码错误。"].appears(timeout: 5), "完整错误验证码自动验证后应允许修改。")
+        assertUI(app.buttons["验证并查询成绩"].isEnabled, "自动验证错误后应恢复手动重试。")
+        fillVerificationCode("123456", in: app.textFields["verification.code"])
+        assertUI(textElement("自动化测试课程").appears(timeout: 5), "替换完整验证码应自动验证并加载成绩。")
         for (route, option) in [("学期", "ui-test-term"), ("种类", "必修")] {
             openScoreFilter(route)
             if route == "学期" {
@@ -322,9 +324,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         assertUI(direction.value as? String != initialDirection, "排序方向应切换。")
         back()
         app.buttons["score.query"].tapBriefly()
-        replaceText("123456", in: app.textFields["verification.code"])
-        dismissKeyboard()
-        tap("验证并查询成绩")
+        fillVerificationCode("123456", in: app.textFields["verification.code"])
         assertUI(textElement("自动化测试课程").appears(timeout: 5), "已有成绩刷新应恢复成绩列表。")
         assertUI(app.alerts["成绩已是最新"].appears(timeout: 5), "重复查询应展示当前成绩已是最新。")
         closeAlertIfPresent()
@@ -353,9 +353,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         tap("取消")
         tap("重试")
         let code = app.textFields["verification.code"]
-        replaceText("123456", in: code)
-        dismissKeyboard()
-        tap("验证并申请成绩单")
+        fillVerificationCode("123456", in: code)
         assertUI(code.disappears(timeout: 5), "验证成功应关闭短信输入窗口。")
         tap("可信成绩单第1页")
         _ = imagePreviewCloseButton()
@@ -988,9 +986,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         tap("取消")
         tap("刷新")
         let field = app.textFields["verification.code"]
-        replaceText("123456", in: field)
-        dismissKeyboard()
-        tap("验证并同步课表")
+        fillVerificationCode("123456", in: field)
         assertUI(app.buttons["schedule.add-content"].appears(timeout: 5), "验证成功应继续课表刷新。")
         assertUI(textElement("学校测试课程").exists, "继续同步应保存学校课程。")
     }
@@ -1003,9 +999,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         assertUI(app.buttons["验证并继续"].appears(timeout: 5), "学校日程应展示 SSO 短信面板。")
         tap("取消")
         tap("刷新学校日程")
-        replaceText("123456", in: app.textFields.firstMatch)
-        dismissKeyboard()
-        tap("验证并继续")
+        fillVerificationCode("123456", in: app.textFields["verification.code"])
         assertUI(textElement("课程中心测试作业").appears(timeout: 5), "SSO 验证成功应恢复学校日程请求。")
     }
 

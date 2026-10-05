@@ -29,6 +29,14 @@ struct ScoreFeatureTests {
         #expect(AppVerificationCode.normalize(normalized) == normalized)
     }
 
+    @Test(arguments: [("", "", false), ("1", "1234", false), ("6", "123456", false),
+                      ("123", "123", false), ("1234", "1234", true), ("123456", "123456", true),
+                      ("12345678", "12345678", true), ("12 34-56", "123456", true),
+                      ("123456789", "12345678", false), ("1234", "12341234", false)])
+    func sharedVerificationAutomaticSubmission(_ sample: (String, String, Bool)) {
+        #expect(AppVerificationCode.shouldSubmitAutomatically(insertedText: sample.0, code: sample.1) == sample.2)
+    }
+
     private func clearPreferences() {
         UserDefaults(suiteName: "BIT101ModulesTests.score")?.removePersistentDomain(forName: "BIT101ModulesTests.score")
     }
