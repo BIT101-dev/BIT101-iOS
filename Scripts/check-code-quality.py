@@ -1029,6 +1029,10 @@ def script_command_boundary_findings() -> list[str]:
     "通过内存替身验证自动选机、操作分派、筛选合并及参数拒绝。"
     import os
     import shlex
+    import plistlib
+    from contextlib import nullcontext, redirect_stdout
+    from io import BytesIO, StringIO
+    from unittest.mock import Mock, patch
 
     findings = []
     support = SCRIPT_ROOT / "script-support.sh"
@@ -1084,6 +1088,8 @@ xcrun() {
                                          f"source {shlex.quote(str(support))}\n" + frame)
         stop = "exit 86" if expected == 86 else "return 0"
         source = source.replace(frame, frame + f'\nbit101_run_logged() {{ print -r -- "BUILD $*"; {stop}; }}\n')
+        source = re.sub(r"(?ms)^ui_test_plan\(\) \{\n.*?^\}$",
+                        'ui_test_plan() { print -r -- /audit/ui.xctestrun; }', source, count=1)
         result = subprocess.run(["zsh", "-c", source, str(path), *arguments], env=environment,
                                 capture_output=True, text=True)
         if result.returncode != expected or marker not in result.stdout or ("DEVICE\n" in result.stdout) != bool(device):
@@ -1105,6 +1111,35 @@ xcrun() {
         result = subprocess.run(["zsh", str(SCRIPT_ROOT / filename), *arguments], capture_output=True, text=True)
         if result.returncode != 64:
             findings.append(f"命令自测：{filename} 错误参数在执行前拒绝")
+
+    plan_function = re.search(r"(?ms)^ui_test_plan\(\) \{\n.*?^\}$", (SCRIPT_ROOT / "run-extended-tests.sh").read_text())
+    plan_source = re.search(r"<<'PY'\n(.*?)^PY$", plan_function[0], re.MULTILINE | re.DOTALL)[1]
+    configuration = {"TestConfigurations": [{"TestTargets": [
+        {"IsUITestBundle": True, "UITargetAppMainThreadCheckerEnabled": True,
+         "UITargetAppPerformanceAntipatternCheckerEnabled": True, "TestBundlePath": "UI.xctest"},
+        {"IsUITestBundle": False, "UITargetAppMainThreadCheckerEnabled": True, "TestBundlePath": "App.xctest"},
+    ]}]}
+    older, newer = Mock(), Mock()
+    older.stat.return_value.st_mtime = 1
+    newer.stat.return_value.st_mtime = 2
+    written = BytesIO()
+    newer.open.side_effect = [nullcontext(BytesIO(plistlib.dumps(configuration))), nullcontext(written)]
+    with patch.object(sys, "argv", ["ui-plan", "/audit/Products"]), \
+         patch.object(Path, "glob", return_value=[older, newer]), redirect_stdout(StringIO()):
+        exec(compile(plan_source, "ui-plan-self-test", "exec"), {})
+    targets = plistlib.loads(written.getvalue())["TestConfigurations"][0]["TestTargets"]
+    if older.open.called or targets[0]["UITargetAppMainThreadCheckerEnabled"] \
+            or targets[0]["UITargetAppPerformanceAntipatternCheckerEnabled"] \
+            or targets[0]["TestBundlePath"] != "UI.xctest" or targets[1] != configuration["TestConfigurations"][0]["TestTargets"][1]:
+        findings.append("UI 计划自测：最新构建选择、诊断设置及业务 target 配置保留")
+    with patch.object(sys, "argv", ["ui-plan", "/audit/Products"]), patch.object(Path, "glob", return_value=[]):
+        try:
+            exec(compile(plan_source, "ui-plan-empty-self-test", "exec"), {})
+        except SystemExit as error:
+            if ".xctestrun" not in str(error):
+                findings.append("UI 计划自测：冷缓存缺少运行配置时的诊断")
+        else:
+            findings.append("UI 计划自测：运行配置完整性检查")
 
     def candidate(name, transport, tunnel="connected", pairing="paired", reality="physical"):
         return {"identifier": name, "hardwareProperties": {"udid": name, "deviceType": "iPhone", "reality": reality},

@@ -393,6 +393,8 @@ from pathlib import Path
 
 products = Path(sys.argv[1])
 plans = list(products.glob("BIT101-iOS-UIAutomation_*_iphoneos*.xctestrun"))
+if not plans:
+    raise SystemExit("UI 宿主编译产物需要包含 .xctestrun 运行配置。")
 plan = max(plans, key=lambda path: path.stat().st_mtime)
 with plan.open("rb") as stream:
     configuration = plistlib.load(stream)
