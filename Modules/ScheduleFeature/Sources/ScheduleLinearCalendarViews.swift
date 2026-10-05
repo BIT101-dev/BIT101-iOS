@@ -392,6 +392,7 @@ private final class LinearTimelineScrollView: UIScrollView, UIScrollViewDelegate
     private func updateCanvasGeometry() {
         guard viewportSize.width > 0, viewportSize.height > 0 else { return }
         let scale = max(zoomScale, 0.001)
+        zoomContainer.center = CGPoint(x: viewportSize.width * scale / 2, y: viewportSize.height * scale / 2)
         accessibilityValue = "缩放 \(Int((scale * 100).rounded()))%"
         let canvasSize = CGSize(
             width: viewportSize.width,

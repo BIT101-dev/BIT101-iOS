@@ -1373,6 +1373,9 @@ fail_command
                 harness = f'''
 set -euo pipefail
 verification_needs_device=true
+UI_TEST_EXECUTION_STARTED=true
+WORKFLOW_STARTED_SECONDS=$SECONDS
+DERIVED_ROOT=/dev/null
 restore_release() {{ print restore; return {restore_status}; }}
 {recovery}
 {registration[0]}
@@ -1381,6 +1384,21 @@ restore_release() {{ print restore; return {restore_status}; }}
                 result = subprocess.run(["zsh", "-c", harness], capture_output=True, text=True)
                 if result.returncode != expected or result.stdout.count("restore\n") != 1:
                     findings.append(f"测试恢复自测失败：{name}；状态 {initial}/{restore_status}；{trigger}")
+        if name == "restore_release_app":
+            for initial in (1, 130, 143):
+                harness = f'''
+set -euo pipefail
+UI_TEST_EXECUTION_STARTED=false
+WORKFLOW_STARTED_SECONDS=$SECONDS
+DERIVED_ROOT=/dev/null
+restore_release() {{ print restore; return 0; }}
+{recovery}
+{registration[0]}
+exit {initial}
+'''
+                result = subprocess.run(["zsh", "-c", harness], capture_output=True, text=True)
+                if result.returncode != initial or "restore\n" in result.stdout:
+                    findings.append(f"UI 编译失败恢复自测失败：状态 {initial}")
 
     match = re.search(r"(?ms)^record_result\(\).*?<<'PY'\n(.*?)^PY$", source)
     if match is None:

@@ -12,6 +12,9 @@ import DesignSystemKit
 import SwiftUI
 import BackgroundTasks
 import UIKit
+#if BIT101_UI_TESTING
+import Combine
+#endif
 
 final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(
@@ -188,7 +191,6 @@ struct BIT101_iOSApp: App {
                 .appPromptHost()
 #if BIT101_UI_TESTING
                 .id(uiTestScene.revision)
-                .onAppear { uiTestScene.accelerateTransitions() }
                 .environment(\.sizeCategory, uiTestScene.largeText ? .accessibilityLarge : .large)
                 .preferredColorScheme(uiTestScene.colorScheme)
                 .overlay(alignment: .topLeading) {
@@ -218,3 +220,100 @@ struct BIT101_iOSApp: App {
         #endif
     }
 }
+
+#if BIT101_UI_TESTING
+@MainActor
+final class UITestSceneState: ObservableObject {
+    @Published private(set) var lifecycle: AppAccountLifecycle
+    @Published private(set) var revision = 0
+    var largeText = false
+    var colorScheme: ColorScheme?
+    private let makeLifecycle: () -> AppAccountLifecycle
+    private var control: UITestControlServer?
+
+    init(makeLifecycle: @escaping () -> AppAccountLifecycle) {
+        self.makeLifecycle = makeLifecycle
+        lifecycle = makeLifecycle()
+        largeText = AppUITestBootstrap.environment["BIT101_UI_TEST_LARGE_TEXT"] == "1"
+        colorScheme = AppUITestBootstrap.environment["BIT101_UI_TEST_STYLE"].flatMap { $0 == "Dark" ? .dark : .light }
+        _ = UITestAccessibilityActions.keyboardState()
+        do {
+            control = try UITestControlServer { [weak self] data, reply in
+                Task { @MainActor in
+                    guard let self else { return }
+                    do {
+                        let environment = try JSONDecoder().decode([String: String].self, from: data)
+                        if environment["command"] == "coverage" {
+                            reply(try UITestAccessibilityActions.coverage())
+                            return
+                        }
+                        if environment["command"] == "record" {
+                            UITestAccessibilityActions.invalidate()
+                            UITestAccessibilityActions.record(environment["identifier"] ?? "")
+                            reply(Data("recorded".utf8))
+                            return
+                        }
+                        if ["query", "query-activate", "query-input", "query-reveal"].contains(environment["command"] ?? "") {
+                            let response = try UITestAccessibilityActions.read(environment)
+                            if ["activated", "control", "entered", "revealed"].contains(String(decoding: response, as: UTF8.self)) {
+                                let frameRate = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+                                    .first?.screen.maximumFramesPerSecond ?? 60
+                                try await Task.sleep(for: .seconds(2 / Double(frameRate)))
+                            }
+                            reply(response)
+                            return
+                        }
+                        if environment["command"] == "activate" {
+                            UITestAccessibilityActions.invalidate()
+                            reply(Data(UITestAccessibilityActions.activate(environment).utf8))
+                            return
+                        }
+                        if environment["command"] == "resolve" {
+                            reply(try UITestAccessibilityActions.resolve(environment))
+                            return
+                        }
+                        if environment["command"] == "input" {
+                            UITestAccessibilityActions.invalidate()
+                            reply(Data(UITestAccessibilityActions.input(environment).utf8))
+                            return
+                        }
+                        if environment["command"] == "finish-input" {
+                            UITestAccessibilityActions.invalidate()
+                            reply(Data(UITestAccessibilityActions.finishInput().utf8))
+                            return
+                        }
+                        if environment["command"] == "select-input" {
+                            reply(Data(UITestAccessibilityActions.selectInput().utf8))
+                            return
+                        }
+                        if environment["command"] == "keyboard-state" {
+                            reply(Data(UITestAccessibilityActions.keyboardState().utf8))
+                            return
+                        }
+                        self.configure(environment)
+                        reply(Data("\(ProcessInfo.processInfo.processIdentifier):\(self.revision)".utf8))
+                    } catch {
+                        reply(Data("invalid scene configuration: \(error)".utf8))
+                    }
+                }
+            }
+        } catch {
+            preconditionFailure("UI test control channel failed: \(error)")
+        }
+    }
+
+    private func configure(_ environment: [String: String]) {
+        UITestAccessibilityActions.invalidate()
+        AppErrorPresenter.shared.reset()
+        UITestSceneConfiguration.shared.replace(with: environment)
+        largeText = environment["BIT101_UI_TEST_LARGE_TEXT"] == "1"
+        colorScheme = environment["BIT101_UI_TEST_STYLE"].flatMap { $0 == "Dark" ? .dark : .light }
+        AppUITestBootstrap.prepareForLaunch()
+        AppSettingsStore.shared.reloadForCurrentAccount()
+        lifecycle = makeLifecycle()
+        revision += 1
+    }
+
+}
+
+#endif

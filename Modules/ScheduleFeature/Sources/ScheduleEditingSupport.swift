@@ -18,9 +18,11 @@ enum CourseEditorMode: Equatable {
     }
 }
 
-enum CourseArrangementEditorMode: Equatable {
+enum CourseArrangementEditorMode: Hashable, Identifiable {
     case course
     case occurrence(week: Int)
+
+    var id: Self { self }
 
     var title: String {
         switch self {

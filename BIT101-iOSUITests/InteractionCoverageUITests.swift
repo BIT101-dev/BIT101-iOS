@@ -58,9 +58,33 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         let wheel = app.pickerWheels.element(boundBy: app.pickerWheels.count - 1)
         let initial = wheel.value as? String
         wheel.swipeUp()
-        assertUI(wheel.value as? String != initial, "日期滚轮应响应滑动。")
+        let manualValue = wheel.value as? String ?? ""
+        assertUI(manualValue != initial, "日期滚轮应响应滑动。")
+        let chosenValues = (try? app.datePickers.firstMatch.snapshot())?.snapshots(matching: .pickerWheel)
+            .compactMap { ($0.value as? String).flatMap { Int($0.filter(\.isNumber)) } } ?? []
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 8 * 3600)!
+        calendar.firstWeekday = 2
+        guard chosenValues.count == 3,
+              let chosenDate = calendar.date(from: DateComponents(year: chosenValues[0], month: chosenValues[1], day: chosenValues[2])),
+              let monday = calendar.dateInterval(of: .weekOfYear, for: chosenDate)?.start else {
+            assertUI(false, "日期滚轮应提供可计算首周周一的完整日期。")
+            return
+        }
+        let savedValues = ["\(calendar.component(.year, from: monday))年", "\(calendar.component(.month, from: monday))月",
+                           "\(calendar.component(.day, from: monday))日"]
+        tap("完成")
+        app = configureApp(resetStorage: false, school: true, initialSettings: "calendar")
+        tap("学期起始日期")
+        let savedWheel = app.pickerWheels.element(boundBy: app.pickerWheels.count - 1)
+        let actualValues = (try? app.datePickers.firstMatch.snapshot())?.snapshots(matching: .pickerWheel).compactMap { $0.value as? String }
+        assertUI(actualValues == savedValues, "重新装载应保留手动设置的首周周一。")
+        savedWheel.adjust(toPickerWheelValue: initial ?? "")
+        assertUI(savedWheel.value as? String != savedValues.last, "取消前应更改日期草稿。")
         tap("取消")
         tap("学期起始日期")
+        let restoredWheel = app.pickerWheels.element(boundBy: app.pickerWheels.count - 1)
+        assertUI(restoredWheel.value as? String == savedValues.last, "取消应保留已保存的学期日期。")
         tap("使用学校日期")
         tap("完成")
         back()
@@ -92,7 +116,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         tapHeader(app.segmentedControls.buttons["空教室"])
         assertUI(app.alerts["空教室同步失败"].appears(timeout: 5), "离线学校服务应提示刷新失败。")
         closeAlertIfPresent()
-        tap("节次筛选")
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "节次筛选")).firstMatch.press(forDuration: 0.01)
         assertUI(app.navigationBars["节次筛选"].appears(timeout: 5), "空教室应支持节次筛选。")
         tap("全选")
         assertUI(app.buttons["全不选"].exists, "全选应更新批量操作。")
@@ -126,23 +150,31 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
             assertUI(app.alerts[result].appears(timeout: 5), "日历动作应展示对应结果：\(action)。")
             closeAlertIfPresent()
         }
-        tap("调这节课")
+        app.buttons["调这节课"].press(forDuration: 0.01)
+        assertUI(app.navigationBars["调这节课"].appears(timeout: 5), "单节调整入口应打开对应课节编辑页。")
         choose("楼宇", option: "文萃楼B")
         replaceText("202", in: app.textFields["房间号"])
         dismissKeyboard()
-        tap("周次")
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "周次")).firstMatch.tapBriefly()
+        assertUI(app.navigationBars["周次"].appears(timeout: 5), "周次入口应完成页面导航。")
         tap("第2周")
-        tap("完成")
-        tap("星期")
+        app.navigationBars["周次"].buttons["完成"].tapBriefly()
+        assertUI(app.navigationBars["调这节课"].appears(timeout: 5), "周次完成应返回课程调整。")
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "星期")).firstMatch.tapBriefly()
+        assertUI(app.navigationBars["星期"].appears(timeout: 5), "星期入口应完成页面导航。")
         tap("周二")
-        tap("节次")
+        assertUI(app.navigationBars["调这节课"].appears(timeout: 5), "选择星期应返回课程调整。")
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "节次")).firstMatch.tapBriefly()
+        assertUI(app.navigationBars["节次"].appears(timeout: 5), "节次入口应完成页面导航。")
         tap("第3节")
-        tap("完成")
+        app.navigationBars["节次"].buttons["完成"].tapBriefly()
+        assertUI(app.navigationBars["调这节课"].appears(timeout: 5), "节次完成应返回课程调整。")
         tap("确定")
         tap("取消")
         assertUI(app.buttons["schedule.add-content"].appears(timeout: 5), "保存单节调整后关闭详情应返回课表。")
         tap("学校测试课程")
         tap("调这门课")
+        assertUI(app.navigationBars["调这门课"].appears(timeout: 5), "整门调整入口应打开对应课程编辑页。")
         replaceText("303", in: app.textFields["房间号"])
         dismissKeyboard()
         tap("确定")
@@ -154,7 +186,11 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         assertUI(app.buttons["删除这节课"].exists, "取消应保留课节。")
         tap("删除这节课")
         app.alerts.buttons["删除"].tapBriefly()
-        tap("第3周")
+        assertUI(app.navigationBars["课程详情"].disappears(timeout: 5), "删除单节后应关闭课程详情。")
+        assertUI(app.buttons["schedule.add-content"].appears(timeout: 5), "删除单节后应恢复课表入口。")
+        tap("下一周")
+        tap("下一周")
+        assertSelectedWeek(3)
         assertUI(textElement("学校测试课程").appears(timeout: 5), "删除单节应保留其余周次。")
         tap("第1周")
         let exam = app.buttons["schedule.entry.exam-ui-exam"]
@@ -224,7 +260,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         assertUI(textElement("详细测试日程").exists, "取消应恢复原日程标题。")
         tap("自定义日程，详细测试日程")
         tap("删除")
-        assertUI(!textElement("详细测试日程").exists, "删除应移除已保存日程。")
+        assertUI(textElement("详细测试日程").disappears(timeout: 5), "删除应移除已保存日程。")
         app.buttons["schedule.add-content"].tapBriefly()
         tap("添加日程")
         tap("取消")
@@ -271,7 +307,8 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
             back()
             assertUI(app.navigationBars["\(route)筛选"].disappears(timeout: 5), "选择后返回应恢复成绩页。")
         }
-        tap("排序")
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "排序")).firstMatch.tapBriefly()
+        assertUI(app.navigationBars["成绩排序"].appears(timeout: 5), "排序入口应完成页面导航。")
         for title in ["名称", "成绩", "均分", "学分", "学期", "种类"] {
             let index = app.collectionViews.buttons.matching(NSPredicate(format: "label == %@", title)).firstMatch
             reveal(index, description: title)
@@ -297,14 +334,15 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         tap("自动化测试课程")
         assertUI(app.navigationBars["成绩详情"].appears(timeout: 5), "成绩行应打开详情。")
         tap("查看课程评价")
-        assertUI(app.segmentedControls.buttons["课程"].isSelected, "成绩详情应进入课程搜索。")
+        assertUI(waitUntil(NSPredicate(format: "selected == true"), on: app.segmentedControls.buttons["课程"]),
+                 "成绩详情应进入课程搜索。")
     }
 
     @MainActor
     private func openScoreFilter(_ title: String) {
         let route = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "\(title)、")).firstMatch
         reveal(route, description: "\(title)筛选")
-        route.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).tapBriefly()
+        route.tapBriefly()
         assertUI(app.navigationBars["\(title)筛选"].appears(timeout: 5), "筛选入口应打开\(title)选择页。")
     }
 
@@ -400,6 +438,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         }
         pullToRefresh()
         assertUI(textElement("自动化测试话题").exists, "话题列表刷新应保留服务结果。")
+        assertUI(app.segmentedControls.buttons["推荐"].isSelected, "竖向刷新应保留话题分类。")
         let list = app.scrollViews.firstMatch
         list.swipeLeft()
         assertUI(app.segmentedControls.buttons["最新"].isSelected, "话题横滑应切换分类。")
@@ -460,6 +499,19 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         assertUI(app.segmentedControls.buttons["热评"].isSelected, "连续横滑应切换评论排序。")
         list.swipeRight()
         assertUI(app.segmentedControls.buttons["高赞"].isSelected, "反向横滑应恢复文章排序。")
+        list.swipeRight()
+        assertUI(app.segmentedControls.buttons["最新"].isSelected, "反向横滑应返回首个文章排序。")
+        list.swipeRight()
+        assertUI(app.segmentedControls.buttons["话题"].isSelected, "文章首个排序向外横滑应切换话题。")
+        tapHeader(app.segmentedControls.buttons["关注"])
+        list.swipeRight()
+        assertUI(app.segmentedControls.buttons["文章"].isSelected, "话题首个分类向外横滑应切换文章。")
+        tapHeader(app.segmentedControls.buttons["热评"])
+        list.swipeLeft()
+        assertUI(app.segmentedControls.buttons["话题"].isSelected, "文章末尾排序向外横滑应切换话题。")
+        tapHeader(app.segmentedControls.buttons["机器人"])
+        list.swipeLeft()
+        assertUI(app.segmentedControls.buttons["文章"].isSelected, "话题末尾分类向外横滑应切换文章。")
         tap("搜索文章")
         let paperSearch = app.textFields.firstMatch
         replaceText("文章\n", in: paperSearch)
@@ -612,10 +664,11 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
     @MainActor
     private func cancelPhotoPicker() {
         dismissNotificationBanner()
-        let photos = app.buttons.matching(NSPredicate(format: "label IN %@", ["照片", "Photos"])).firstMatch
+        let platform = UIElement(app.native)
+        let photos = platform.buttons.matching(NSPredicate(format: "label IN %@", ["照片", "Photos"])).firstMatch
         assertUI(photos.appears(timeout: 5), "图片入口应呈现系统照片选择器。")
-        let cancel = app.buttons.matching(NSPredicate(format: "label IN %@", ["取消", "Cancel"]))
-            .allElementsBoundByAccessibilityElement.last(where: { $0.isHittable })
+        let cancel = platform.buttons.matching(NSPredicate(format: "label IN %@", ["取消", "Cancel"]))
+            .allElementsBoundByIndex.last(where: { $0.isHittable })
         assertUI(cancel != nil, "系统照片选择器应提供取消操作。")
         cancel!.press(forDuration: 0.01)
         assertUI(photos.disappears(timeout: 5), "取消图片选择应关闭系统选择器。")
@@ -647,10 +700,11 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    private func imagePreviewCloseButton() -> XCUIElement {
-        let preview = app.otherElements["QLPreviewControllerView"]
+    private func imagePreviewCloseButton() -> UIElement {
+        let platform = UIElement(app.native)
+        let preview = platform.otherElements["QLPreviewControllerView"]
         assertUI(preview.appears(timeout: 30), "图片交互应进入系统 Quick Look。")
-        let done = app.buttons.matching(NSPredicate(format: "label IN %@", ["完成", "Done", "关闭", "Close"])).firstMatch
+        let done = platform.buttons.matching(NSPredicate(format: "label IN %@", ["完成", "Done", "关闭", "Close"])).firstMatch
         if done.appears(timeout: 2) { return done }
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tapBriefly()
         assertUI(done.appears(timeout: 10), "点击预览画布应显示关闭控件。")
@@ -824,7 +878,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    private func dismissSystemPopover(_ popover: XCUIElement, within bounds: CGRect? = nil) {
+    private func dismissSystemPopover(_ popover: UIElement, within bounds: CGRect? = nil) {
         let dismiss = app.buttons["PopoverDismissRegion"]
         let isSourceForm = bounds != nil
         let bounds = bounds ?? app.frame
@@ -1029,11 +1083,12 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
 
     @MainActor
     private func pullToRefresh() {
-        let scroll = interactionScrollArea()
-        assertUI(scroll != nil, "刷新场景应提供可滚动区域。")
-        let area = scroll!
-        let start = area.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.2))
-        let end = area.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.9))
+        let frame = interactionScrollFrame()
+        assertUI(frame != nil, "刷新场景应提供可滚动区域。")
+        let bounds = frame!
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        let start = origin.withOffset(CGVector(dx: bounds.minX + bounds.width * 0.03, dy: bounds.minY + bounds.height * 0.2))
+        let end = origin.withOffset(CGVector(dx: bounds.minX + bounds.width * 0.03, dy: bounds.minY + bounds.height * 0.9))
         start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0.1)
     }
 
@@ -1099,7 +1154,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         app = configureApp(resetStorage: true, content: true, school: true)
         tap("学校测试课程")
         tap("查看上课地点")
-        assertUI(app.tabBars.buttons["地图"].isSelected, "课程地点应切换至地图。")
+        assertUI(waitUntil(NSPredicate(format: "selected == true"), on: app.tabBars.buttons["地图"]), "课程地点应切换至地图。")
         let location = app.buttons["定位到我的位置"]
         location.tapBriefly()
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
@@ -1291,9 +1346,9 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         app = configureApp(resetStorage: true, account: nil)
         assertUI(app.secureTextFields["login.password"].exists, "登录页应展示密码字段。")
         assertUI(!app.buttons["login.submit"].isEnabled, "空凭据应禁用登录。")
-        replaceText("ui-test-student", in: app.textFields["login.student-id"])
+        replaceTextWithKeyboard("ui-test-student", in: app.textFields["login.student-id"])
         assertUI(!app.buttons["login.submit"].isEnabled, "仅填写账号应保持登录禁用。")
-        replaceText("ui-test-password", in: app.secureTextFields["login.password"])
+        replaceTextWithKeyboard("ui-test-password", in: app.secureTextFields["login.password"])
         app.collectionViews.firstMatch.swipeUp()
         dismissKeyboard()
         let submit = app.buttons["login.submit"]
@@ -1371,7 +1426,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    private func exerciseSystemCalendar(_ picker: XCUIElement) {
+    private func exerciseSystemCalendar(_ picker: UIElement) {
         let month = picker.buttons.matching(NSPredicate(format: "identifier IN %@", ["DatePicker.Show", "DatePicker.Hide"])).firstMatch
         let original = month.value as? String ?? ""
         assertUI(!original.isEmpty, "日历标题应显示当前年月。")
@@ -1391,7 +1446,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         }
         month.tapBriefly()
         assertUI(app.pickerWheels.firstMatch.disappears(timeout: 5), "月份标题应返回日期网格。")
-        let selected = picker.collectionViews.buttons.allElementsBoundByAccessibilityElement.first(where: { $0.isSelected })
+        let selected = picker.collectionViews.buttons.allElementsBoundByIndex.first(where: { $0.isSelected })
         assertUI(selected != nil, "日期网格应标记当前选择。")
         selected!.tapBriefly()
     }

@@ -43,11 +43,12 @@ private enum UITestControlClient {
         let result = request(parameters.merging(["command": "activate"]) { _, command in command }, timeout: 5)
         if result?.hasPrefix("native") == true {
             if let result, result != "native" { print("UI native control: \(result)") }
+            UIElement.beforeNativeTap?()
             element.press(forDuration: 0.01)
             return
         }
-        XCTAssertEqual(result, "activated", "UI 动作应由实际控件执行：\(parameters["label"] ?? "")。")
-        print(String(format: "UI accessibility activate: %.3f", ProcessInfo.processInfo.systemUptime - started))
+        XCTAssertTrue(result == "activated" || result == "control", "UI 动作应由实际控件执行：\(parameters["label"] ?? "")。")
+        print(String(format: result == "control" ? "UI control action: %.3f" : "UI accessibility activate: %.3f", ProcessInfo.processInfo.systemUptime - started))
     }
 
     static func request(_ parameters: [String: String], timeout: TimeInterval = 10) -> String? {
@@ -66,15 +67,335 @@ private enum UITestControlClient {
         }
         connection.start(queue: DispatchQueue(label: "BIT101.UITestControlClient"))
         response.receive(on: connection) { received.fulfill() }
-        XCTAssertEqual(XCTWaiter.wait(for: [received], timeout: timeout), .completed, "本机 UI 通道应完成请求。")
+        XCTAssertEqual(XCTWaiter.wait(for: [received], timeout: timeout), .completed,
+                       "本机 UI 通道应完成请求：\(parameters["command"] ?? "scene")。")
         connection.cancel()
+        if parameters["command"] == nil || ["activated", "control", "entered", "revealed", "finished", "selected"].contains(response.message ?? "") {
+            UITestSnapshotReader.invalidate()
+        }
         return response.message
     }
+}
+
+/// 相邻原生查询共用 XCTest 快照，界面操作和等待轮询刷新读取。
+@MainActor
+private enum UITestSnapshotReader {
+    static var application: XCUIApplication?
+    static var applicationOrigin = CGPoint.zero
+    private(set) static var generation = 0
+    private static var cached: (any XCUIElementSnapshot)?
+    static var liveQueries: [Data: [String: Any]] = [:]
+
+    static func invalidate() { cached = nil; liveQueries.removeAll(keepingCapacity: true); generation += 1 }
+
+    static func retain(_ snapshot: any XCUIElementSnapshot) { cached = snapshot }
+
+    static func snapshot(of application: XCUIApplication) throws -> any XCUIElementSnapshot {
+        if let cached { return cached }
+        let started = ProcessInfo.processInfo.systemUptime
+        let snapshot = try application.snapshot()
+        cached = snapshot
+        print(String(format: "UI shared snapshot: %.3f", ProcessInfo.processInfo.systemUptime - started))
+        return snapshot
+    }
+
+    static func attributes(_ path: [[String: String]], loading: Bool = true) -> [String: Any]? {
+        if cached == nil, loading, let application { _ = try? snapshot(of: application) }
+        guard let cached else { return nil }
+        func attributes(_ element: any XCUIElementSnapshot) -> [String: Any] {
+            var result: [String: Any] = [
+                "exists": true, "identifier": element.identifier, "label": element.label,
+                "elementType": Int(element.elementType.rawValue), "enabled": element.isEnabled,
+                "selected": element.isSelected, "placeholderValue": element.placeholderValue ?? "",
+                "frame": [Double(element.frame.minX), Double(element.frame.minY), Double(element.frame.width), Double(element.frame.height)],
+            ]
+            if let value = element.value { result["value"] = value }
+            return result
+        }
+        func descendants(_ element: any XCUIElementSnapshot) -> [any XCUIElementSnapshot] {
+            element.children.flatMap { [$0] + descendants($0) }
+        }
+        var elements = [cached]
+        for step in path {
+            if let type = step["type"].flatMap(UInt.init) {
+                elements = elements.flatMap(descendants).filter { type == 0 || $0.elementType.rawValue == type }
+            } else if let format = step["predicate"] {
+                let predicate = NSPredicate(format: format)
+                elements = elements.filter { predicate.evaluate(with: attributes($0)) }
+            } else if step["first"] != nil { elements = Array(elements.prefix(1)) }
+        }
+        return elements.first.map(attributes)
+    }
+}
+
+/// 普通页面读取当前渲染的无障碍树，平台控件沿用 XCTest 查询和手势。
+@MainActor
+final class UIElement: NSObject {
+    static var beforeNativeTap: (() -> Void)?
+    let native: XCUIElement
+    fileprivate let path: [[String: String]]?
+    private var capturedSnapshot: (any XCUIElementSnapshot)?
+    private var capturedGeneration = -1
+
+    init(_ native: XCUIElement, path: [[String: String]]? = nil) {
+        self.native = native
+        self.path = path
+    }
+
+    fileprivate func attributes() -> [String: Any]? {
+        let started = ProcessInfo.processInfo.systemUptime
+        guard let path else {
+            guard let state = currentNativeSnapshot() else {
+                return ["exists": false, "enabled": false, "selected": false,
+                        "label": "", "identifier": "", "frame": [0.0, 0.0, 0.0, 0.0]]
+            }
+            var attributes: [String: Any] = [
+                "exists": true, "identifier": state.identifier, "label": state.label,
+                "elementType": Int(state.elementType.rawValue), "enabled": state.isEnabled, "selected": state.isSelected,
+                "frame": [Double(state.frame.minX), Double(state.frame.minY), Double(state.frame.width), Double(state.frame.height)],
+            ]
+            if let value = state.value { attributes["value"] = value }
+            return attributes
+        }
+        if path.contains(where: { [18, 19, 38, 39, 42, 51, 57, 58].contains(Int($0["type"] ?? "") ?? -1)
+            || ($0["predicate"] ?? "").contains("keyboard.dismiss") || ($0["predicate"] ?? "").contains("下一个键盘") }) {
+            return UITestSnapshotReader.attributes(path)
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: path, options: .sortedKeys) else { return nil }
+        if let attributes = UITestSnapshotReader.liveQueries[data] { return attributes }
+        guard
+              let response = UITestControlClient.request(["command": "query", "query": String(decoding: data, as: UTF8.self)], timeout: 5),
+              let elements = try? JSONSerialization.jsonObject(with: Data(response.utf8)) as? [[String: Any]] else {
+            return UITestSnapshotReader.attributes(path)
+        }
+        print(String(format: "UI live query: %.3f", ProcessInfo.processInfo.systemUptime - started))
+        if elements.isEmpty, path.contains(where: { [0, 1, 5, 7, 48].contains(Int($0["type"] ?? "") ?? -1) }) {
+            return UITestSnapshotReader.attributes(path)
+        }
+        let attributes = elements.first ?? ["exists": false, "enabled": false, "selected": false, "hittable": false, "label": "", "identifier": ""]
+        UITestSnapshotReader.liveQueries[data] = attributes
+        return attributes
+    }
+
+    private func currentNativeSnapshot() -> (any XCUIElementSnapshot)? {
+        if capturedGeneration == UITestSnapshotReader.generation { return capturedSnapshot }
+        capturedSnapshot = native.exists ? try? native.snapshot() : nil
+        capturedGeneration = UITestSnapshotReader.generation
+        return capturedSnapshot
+    }
+
+    @objc var exists: Bool {
+        guard let path else { return currentNativeSnapshot() != nil }
+        if path.contains(where: { [18, 19, 21, 38, 39, 42, 51, 57, 58].contains(Int($0["type"] ?? "") ?? -1) }) {
+            return UITestSnapshotReader.attributes(path, loading: false) != nil || native.exists
+        }
+        return attributes()?["exists"] as? Bool ?? native.exists
+    }
+    @objc var label: String { attributes()?["label"] as? String ?? native.label }
+    @objc var identifier: String { attributes()?["identifier"] as? String ?? native.identifier }
+    @objc var value: Any? {
+        if let attributes = attributes() { return attributes["value"] }
+        return native.value
+    }
+    @objc var isEnabled: Bool { attributes()?["enabled"] as? Bool ?? native.isEnabled }
+    @objc var isSelected: Bool { attributes()?["selected"] as? Bool ?? native.isSelected }
+    @objc var isHittable: Bool {
+        let state = attributes()
+        if state?["hittable"] as? Bool == true { return true }
+        if let state, state["hittable"] == nil {
+            guard state["exists"] as? Bool == true,
+                  let frame = state["frame"] as? [Double], frame.count == 4, frame[2] > 0, frame[3] > 0 else { return false }
+            return native.isHittable
+        }
+        return native.isHittable
+    }
+    var frame: CGRect {
+        if let values = attributes()?["frame"] as? [Double], values.count == 4 {
+            return CGRect(x: values[0], y: values[1], width: values[2], height: values[3])
+        }
+        return native.frame
+    }
+    var elementType: XCUIElement.ElementType {
+        if let type = attributes()?["elementType"] as? Int, let value = XCUIElement.ElementType(rawValue: UInt(type)) { return value }
+        return native.elementType
+    }
+    var state: XCUIApplication.State { (native as! XCUIApplication).state }
+    func screenshot() -> XCUIScreenshot { native.screenshot() }
+    func snapshot() throws -> any XCUIElementSnapshot {
+        if let application = native as? XCUIApplication { return try UITestSnapshotReader.snapshot(of: application) }
+        if path == nil, let state = currentNativeSnapshot() { return state }
+        return try native.snapshot()
+    }
+    func activate() { UITestSnapshotReader.invalidate(); (native as! XCUIApplication).activate() }
+    func coordinate(withNormalizedOffset offset: CGVector) -> UIAutomationCoordinate {
+        guard !(native is XCUIApplication), let application = UITestSnapshotReader.application else {
+            return UIAutomationCoordinate(native: native.coordinate(withNormalizedOffset: offset))
+        }
+        let bounds = frame
+        guard !bounds.isEmpty else { return UIAutomationCoordinate(native: native.coordinate(withNormalizedOffset: offset)) }
+        let origin = UITestSnapshotReader.applicationOrigin
+        return UIAutomationCoordinate(native: application.coordinate(withNormalizedOffset: .zero).withOffset(
+            CGVector(dx: bounds.minX + bounds.width * offset.dx - origin.x,
+                     dy: bounds.minY + bounds.height * offset.dy - origin.y)))
+    }
+    func press(forDuration duration: TimeInterval) {
+        defer { UITestSnapshotReader.invalidate() }
+        let id = path == nil ? nil : attributes()?["identifier"] as? String
+        if duration < 0.1 { Self.beforeNativeTap?() }
+        native.press(forDuration: duration)
+        if let id, !id.isEmpty { _ = UITestControlClient.request(["command": "record", "identifier": id]) }
+    }
+    func swipeLeft() { native.swipeLeft(); UITestSnapshotReader.invalidate() }
+    func swipeRight() { native.swipeRight(); UITestSnapshotReader.invalidate() }
+    func swipeUp() { native.swipeUp(); UITestSnapshotReader.invalidate() }
+    func swipeDown() { native.swipeDown(); UITestSnapshotReader.invalidate() }
+    func pinch(withScale scale: CGFloat, velocity: CGFloat) { native.pinch(withScale: scale, velocity: velocity); UITestSnapshotReader.invalidate() }
+    func adjust(toPickerWheelValue value: String) { native.adjust(toPickerWheelValue: value); UITestSnapshotReader.invalidate() }
+    func typeText(_ text: String) {
+        defer { UITestSnapshotReader.invalidate() }
+        let id = path == nil ? nil : attributes()?["identifier"] as? String
+        native.typeText(text)
+        if let id, !id.isEmpty { _ = UITestControlClient.request(["command": "record", "identifier": id]) }
+    }
+
+    func tapBriefly() {
+        defer { UITestSnapshotReader.invalidate() }
+        var actionPath = path
+        if var query = path, let index = query.lastIndex(where: { $0["type"] == "0" }),
+           attributes()?["elementType"] as? Int == 9 {
+            query[index] = ["type": "9"]
+            actionPath = query
+        }
+        if actionPath == nil || actionPath?.contains(where: { [0, 1, 49, 50, 52].contains(Int($0["type"] ?? "") ?? -1) }) == true {
+            native.tapBriefly()
+            return
+        }
+        if let actionPath, let data = try? JSONSerialization.data(withJSONObject: actionPath) {
+            let started = ProcessInfo.processInfo.systemUptime
+            let response = UITestControlClient.request(["command": "query-activate", "query": String(decoding: data, as: UTF8.self),
+                                                       "hittable": isHittable ? "1" : "0", "label": label, "identifier": identifier], timeout: 5)
+            if response == "activated" {
+                print(String(format: "UI accessibility activate: %.3f", ProcessInfo.processInfo.systemUptime - started))
+                return
+            }
+            if response == "control" {
+                print(String(format: "UI control action: %.3f", ProcessInfo.processInfo.systemUptime - started))
+                return
+            }
+            guard response == "native" else {
+                XCTFail("控件动作应完成：\(response ?? "empty")。")
+                return
+            }
+        }
+        press(forDuration: 0.01)
+    }
+    func tap() {
+        defer { UITestSnapshotReader.invalidate() }
+        if path == nil {
+            Self.beforeNativeTap?()
+            native.tap()
+        } else { tapBriefly() }
+    }
+
+    func insertText(_ text: String) -> String? {
+        guard let path, let data = try? JSONSerialization.data(withJSONObject: path) else { return "native" }
+        return UITestControlClient.request([
+            "command": "query-input", "query": String(decoding: data, as: UTF8.self), "text": text,
+        ], timeout: 5)
+    }
+
+    func revealInScrollView() -> String? {
+        guard let path, let data = try? JSONSerialization.data(withJSONObject: path) else { return "native" }
+        return UITestControlClient.request(["command": "query-reveal", "query": String(decoding: data, as: UTF8.self)], timeout: 5)
+    }
+
+    func descendants(matching type: XCUIElement.ElementType) -> UIElementQuery {
+        let nestedSwitch = type == .switch && path?.contains(where: { $0["type"] == String(type.rawValue) }) == true
+        return UIElementQuery(native: native.descendants(matching: type),
+                              path: nestedSwitch ? nil : path.map { $0 + [["type": String(type.rawValue)]] })
+    }
+    var buttons: UIElementQuery { descendants(matching: .button) }
+    var staticTexts: UIElementQuery { descendants(matching: .staticText) }
+    var textFields: UIElementQuery { descendants(matching: .textField) }
+    var secureTextFields: UIElementQuery { descendants(matching: .secureTextField) }
+    var textViews: UIElementQuery { descendants(matching: .textView) }
+    var switches: UIElementQuery { descendants(matching: .switch) }
+    var navigationBars: UIElementQuery { descendants(matching: .navigationBar) }
+    var tabBars: UIElementQuery { descendants(matching: .tabBar) }
+    var segmentedControls: UIElementQuery { descendants(matching: .segmentedControl) }
+    var collectionViews: UIElementQuery { descendants(matching: .collectionView) }
+    var scrollViews: UIElementQuery { descendants(matching: .scrollView) }
+    var otherElements: UIElementQuery { descendants(matching: .other) }
+    var alerts: UIElementQuery { descendants(matching: .alert) }
+    var sheets: UIElementQuery { descendants(matching: .sheet) }
+    var popovers: UIElementQuery { descendants(matching: .popover) }
+    var windows: UIElementQuery { descendants(matching: .window) }
+    var keyboards: UIElementQuery { descendants(matching: .keyboard) }
+    var pickerWheels: UIElementQuery { descendants(matching: .pickerWheel) }
+    var datePickers: UIElementQuery { descendants(matching: .datePicker) }
+    var links: UIElementQuery { descendants(matching: .link) }
+    var maps: UIElementQuery { descendants(matching: .map) }
+    var webViews: UIElementQuery { descendants(matching: .webView) }
+
+    func appears(timeout: TimeInterval) -> Bool { waitForPresence(true, timeout: timeout) }
+    func disappears(timeout: TimeInterval) -> Bool { waitForPresence(false, timeout: timeout) }
+    private func waitForPresence(_ presence: Bool, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if exists == presence { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            UITestSnapshotReader.invalidate()
+        } while Date() < deadline
+        return false
+    }
+}
+
+@MainActor
+struct UIAutomationCoordinate {
+    let native: XCUICoordinate
+    func withOffset(_ offset: CGVector) -> Self { Self(native: native.withOffset(offset)) }
+    func tapBriefly() { native.press(forDuration: 0.01); UITestSnapshotReader.invalidate() }
+    func press(forDuration duration: TimeInterval) { native.press(forDuration: duration); UITestSnapshotReader.invalidate() }
+    func press(forDuration duration: TimeInterval, thenDragTo coordinate: Self,
+               withVelocity velocity: XCUIGestureVelocity, thenHoldForDuration hold: TimeInterval) {
+        native.press(forDuration: duration, thenDragTo: coordinate.native, withVelocity: velocity, thenHoldForDuration: hold)
+        UITestSnapshotReader.invalidate()
+    }
+}
+
+@MainActor
+struct UIElementQuery {
+    let native: XCUIElementQuery
+    fileprivate let path: [[String: String]]?
+    var firstMatch: UIElement { UIElement(native.firstMatch, path: path.map { $0 + [["first": "1"]] }) }
+    subscript(identifier: String) -> UIElement { matching(identifier: identifier).firstMatch }
+    var count: Int { native.count }
+    func element(boundBy index: Int) -> UIElement { UIElement(native.element(boundBy: index)) }
+    var allElementsBoundByIndex: [UIElement] { native.allElementsBoundByIndex.map { UIElement($0) } }
+    func matching(_ predicate: NSPredicate) -> UIElementQuery {
+        UIElementQuery(native: native.matching(predicate), path: path.map { $0 + [["predicate": predicate.predicateFormat]] })
+    }
+    func matching(identifier: String) -> UIElementQuery {
+        UIElementQuery(native: native.matching(identifier: identifier), path: path.map {
+            $0 + [["predicate": NSPredicate(format: "identifier == %@ OR label == %@ OR placeholderValue == %@",
+                                            identifier, identifier, identifier).predicateFormat]]
+        })
+    }
+    func containing(_ type: XCUIElement.ElementType, identifier: String) -> UIElementQuery {
+        UIElementQuery(native: native.containing(type, identifier: identifier), path: nil)
+    }
+    private func descendants(_ type: XCUIElement.ElementType, native query: XCUIElementQuery) -> UIElementQuery {
+        UIElementQuery(native: query, path: path.map { $0 + [["type": String(type.rawValue)]] })
+    }
+    var buttons: UIElementQuery { descendants(.button, native: native.buttons) }
+    var switches: UIElementQuery { descendants(.switch, native: native.switches) }
+    var staticTexts: UIElementQuery { descendants(.staticText, native: native.staticTexts) }
 }
 
 @MainActor
 extension XCUIElement {
     func tapBriefly() {
+        defer { UITestSnapshotReader.invalidate() }
         guard let state = try? snapshot() else {
             XCTFail("点击目标应提供可读的界面状态。")
             return
@@ -91,7 +412,7 @@ extension XCUIElement {
 
 @MainActor
 extension XCUICoordinate {
-    func tapBriefly() { press(forDuration: 0.01) }
+    func tapBriefly() { UITestSnapshotReader.invalidate(); press(forDuration: 0.01) }
 }
 
 @MainActor
@@ -111,12 +432,22 @@ extension XCUIElementSnapshot {
 }
 
 nonisolated class UIAutomationTestCase: XCTestCase {
-    @MainActor var app: XCUIApplication!
+    @MainActor var app: UIElement!
     @MainActor private static var sessionApplication: XCUIApplication?
     @MainActor private static var sessionProcess: String?
     @MainActor private static var sessionScene: String?
     @MainActor private static let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
     private let runIdentifier = "ui"
+
+    override func tearDown() async throws {
+        await MainActor.run {
+            if Self.sessionApplication?.state == .runningForeground,
+               let coverage = UITestControlClient.request(["command": "coverage"]) {
+                print("UI control inventory: \(coverage)")
+            }
+        }
+        try await super.tearDown()
+    }
 
     @MainActor
     func assertSelectedWeek(_ week: Int) {
@@ -127,19 +458,17 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func tap(_ title: String) {
-        if ["取消", "完成", "确定", "保存", "发送", "发布", "关闭", "提交", "编辑", "编辑帖子", "编辑文章", "筛选", "清除搜索"].contains(title) {
-            dismissNotificationBanner()
-        }
         let response = title == "取消" ? nil
             : UITestControlClient.request(["command": "resolve", "label": title], timeout: 5)
         if let response, let target = try? JSONDecoder().decode([String: String].self, from: Data(response.utf8)) {
             let identifier = target["identifier"] ?? ""
             let label = target["label"] ?? ""
-            let predicate = identifier.isEmpty ? NSPredicate(format: "label == %@", label)
-                : NSPredicate(format: "identifier == %@ AND label == %@", identifier, label)
+            let predicate = identifier.isEmpty
+                ? (label == title ? NSPredicate(format: "label == %@", title) : NSPredicate(format: "label CONTAINS %@", title))
+                : NSPredicate(format: "identifier == %@ AND label CONTAINS %@", identifier, title)
             let button = app.buttons.matching(predicate).firstMatch
             if !button.isHittable { reveal(button, description: title) }
-            UITestControlClient.activate(target, element: button)
+            button.tapBriefly()
             return
         }
         let exact = app.buttons.matching(NSPredicate(format: "label == %@", title))
@@ -148,10 +477,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         let button = matches.firstMatch
         if exactExists || button.exists {
             if button.isHittable {
-                button.press(forDuration: 0.01)
+                button.tapBriefly()
                 return
             }
-            if let visible = matches.allElementsBoundByAccessibilityElement.first(where: { $0.isHittable }) {
+            if let visible = matches.allElementsBoundByIndex.first(where: { $0.isHittable }) {
                 visible.press(forDuration: 0.01)
                 return
             }
@@ -162,8 +491,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func dismissNotificationBanner() {
+        if app.state != .runningForeground { app.activate() }
         let banner = Self.springboard.descendants(matching: .any).matching(identifier: "NotificationShortLookView").firstMatch
-        if banner.exists {
+        if banner.exists && banner.isHittable {
             let frame = banner.frame
             let origin = app.coordinate(withNormalizedOffset: .zero)
             origin.withOffset(CGVector(dx: frame.midX, dy: frame.midY))
@@ -171,24 +501,32 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                        withVelocity: .fast, thenHoldForDuration: 0.01)
             assertUI(banner.disappears(timeout: 2), "系统通知横幅应收起并恢复顶栏交互。")
             print("UI notification banner dismissed")
+            if app.state != .runningForeground { app.activate() }
         }
     }
 
     @MainActor
-    func tapHeader(_ element: XCUIElement) {
-        dismissNotificationBanner()
+    func tapHeader(_ element: UIElement) {
         element.tapBriefly()
     }
 
     @MainActor
-    func reveal(_ element: XCUIElement, description: String = "交互控件") {
+    func reveal(_ element: UIElement, description: String = "交互控件") {
         if element.exists && element.isHittable { return }
+        if element.revealInScrollView() == "revealed", element.exists && element.isHittable {
+            print("UI scroll reveal")
+            return
+        }
         let window = app.windows.firstMatch.frame
-        let scroll: XCUIElement = interactionScrollArea() ?? app
+        let frame = interactionScrollFrame() ?? app.frame
+        let origin = app.coordinate(withNormalizedOffset: .zero)
         for _ in 0..<8 {
-            let upward = !element.exists || element.frame.minY >= window.midY
-            let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.5))
-            let end = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: upward ? 0.1 : 0.9))
+            let target = element.exists ? element.frame : CGRect.null
+            let horizontal = !target.isNull && (target.maxX <= window.minX || target.minX >= window.maxX)
+            let upward = target.isNull || target.minY >= window.midY
+            let start = origin.withOffset(CGVector(dx: horizontal ? frame.midX : frame.minX + frame.width * 0.03, dy: frame.midY))
+            let end = origin.withOffset(CGVector(dx: horizontal ? frame.minX + frame.width * (target.minX >= window.maxX ? 0.1 : 0.9) : frame.minX + frame.width * 0.03,
+                                                dy: horizontal ? frame.midY : frame.minY + frame.height * (upward ? 0.1 : 0.9)))
             start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0.1)
             if element.exists && element.isHittable { return }
         }
@@ -196,19 +534,20 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     }
 
     @MainActor
-    func interactionScrollArea() -> XCUIElement? {
-        let types = [Int(XCUIElement.ElementType.collectionView.rawValue), Int(XCUIElement.ElementType.scrollView.rawValue)]
-        let minimumHeight = app.frame.height / 2
-        return app.descendants(matching: .any).matching(NSPredicate(format: "elementType IN %@", types))
-            .allElementsBoundByAccessibilityElement.last(where: { $0.frame.height >= minimumHeight && $0.isHittable })
+    func interactionScrollFrame() -> CGRect? {
+        guard let snapshot = try? app.snapshot() else { return nil }
+        return (snapshot.snapshots(matching: .collectionView) + snapshot.snapshots(matching: .scrollView))
+            .last(where: { $0.frame.height >= snapshot.frame.height / 2
+                && snapshot.frame.contains(CGPoint(x: $0.frame.midX, y: $0.frame.midY)) })?.frame
     }
 
     @MainActor
-    func waitUntil(_ predicate: NSPredicate, on element: XCUIElement, timeout: TimeInterval = 5) -> Bool {
+    func waitUntil(_ predicate: NSPredicate, on element: UIElement, timeout: TimeInterval = 5) -> Bool {
         if predicate.evaluate(with: element) { return true }
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            UITestSnapshotReader.invalidate()
             if predicate.evaluate(with: element) { return true }
         } while Date() < deadline
         return false
@@ -228,30 +567,32 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func back() {
-        dismissNotificationBanner()
-        let bar = app.navigationBars.allElementsBoundByAccessibilityElement.last(where: { $0.isHittable })
-        assertUI(bar != nil, "返回操作应使用当前可交互的导航栏。")
-        bar!.buttons.element(boundBy: 0).tapBriefly()
+        let state = try? app.snapshot()
+        let bar = state?.snapshots(matching: .navigationBar).last(where: { !$0.frame.isEmpty && state!.frame.intersects($0.frame) })
+        assertUI(bar != nil, "返回操作应使用当前可见的导航栏。")
+        let button = app.navigationBars[bar!.identifier].buttons.firstMatch
+        assertUI(button.isHittable, "当前导航栏的返回按钮应可交互。")
+        button.tapBriefly()
     }
 
     @MainActor
-    func textElement(_ text: String) -> XCUIElement {
+    func textElement(_ text: String) -> UIElement {
         app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
     }
 
     @MainActor
-    func waitForValue(_ value: String, of element: XCUIElement) {
+    func waitForValue(_ value: String, of element: UIElement) {
         if element.value as? String == value { return }
         assertUI(waitUntil(NSPredicate(format: "value == %@", value), on: element, timeout: 5), "交互应更新为\(value)，实际值：\(String(describing: element.value))。")
     }
 
     @MainActor @discardableResult
     func toggle(_ title: String) -> String {
-        let control = app.switches.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch.switches.firstMatch
+        let control = app.switches.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
         reveal(control, description: title)
         let initial = control.value as? String
         control.tap()
-        guard let state = try? control.snapshot(), let value = state.value as? String else {
+        guard let value = control.value as? String else {
             assertUI(false, "开关操作后应保留当前设置页和可读数值：\(title)。")
             return ""
         }
@@ -273,38 +614,43 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     }
 
     @MainActor
-    func replaceText(_ text: String, in field: XCUIElement) {
-        guard let state = prepareInput(field) else { return }
-        if state.elementType == .textView || state.elementType == .secureTextField ||
-            state.identifier.hasPrefix("login.") || text.hasSuffix("\n") {
-            enterWithKeyboard(text, in: field, state: state)
-        } else {
+    func replaceText(_ text: String, in field: UIElement) {
+        assertUI(field.appears(timeout: 5), "输入操作应等待字段出现。")
+        let secure = field.elementType == .secureTextField
+        if text.hasSuffix("\n") {
+            replaceTextWithKeyboard(text, in: field)
+            return
+        }
+        let started = ProcessInfo.processInfo.systemUptime
+        let response = field.insertText(text)
+        if response == "native" {
             field.press(forDuration: 0.01)
             assertUI(app.keyboards.firstMatch.appears(timeout: 5), "输入控件应完成系统键盘焦点切换。")
             guard let current = try? field.snapshot() else {
                 assertUI(false, "输入字段应提供当前布局。")
                 return
             }
-            let started = ProcessInfo.processInfo.systemUptime
             let result = UITestControlClient.request([
                 "command": "input", "text": text,
                 "x": String(Double(current.frame.midX)), "y": String(Double(current.frame.midY)),
             ], timeout: 5)
             assertUI(result == "entered", "文本应通过实际输入控件更新：\(result ?? "empty")。")
-            print(String(format: "UI input replace: %.3f", ProcessInfo.processInfo.systemUptime - started))
+        } else {
+            assertUI(response == "entered", "文本应通过实际输入控件更新：\(response ?? "empty")。")
         }
-        assertEnteredText(text, in: field, state: state)
+        print(String(format: "UI input replace: %.3f", ProcessInfo.processInfo.systemUptime - started))
+        waitForValue(secure ? String(repeating: "•", count: text.count) : text, of: field)
     }
 
     @MainActor
-    func replaceTextWithKeyboard(_ text: String, in field: XCUIElement) {
+    func replaceTextWithKeyboard(_ text: String, in field: UIElement) {
         guard let state = prepareInput(field) else { return }
         enterWithKeyboard(text, in: field, state: state)
         assertEnteredText(text, in: field, state: state)
     }
 
     @MainActor
-    private func prepareInput(_ field: XCUIElement) -> (any XCUIElementSnapshot)? {
+    private func prepareInput(_ field: UIElement) -> (any XCUIElementSnapshot)? {
         assertUI(field.appears(timeout: 5), "输入操作应等待字段出现。")
         guard let state = try? field.snapshot() else {
             assertUI(false, "输入字段应提供可读的界面状态。")
@@ -314,34 +660,30 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     }
 
     @MainActor
-    private func enterWithKeyboard(_ text: String, in field: XCUIElement, state: any XCUIElementSnapshot) {
+    private func enterWithKeyboard(_ text: String, in field: UIElement, state: any XCUIElementSnapshot) {
         let value = state.value as? String ?? ""
         let empty = value.isEmpty || value == state.placeholderValue
-        if empty || state.elementType == .textView {
-            field.tapBriefly()
-        } else {
-            field.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.9)).tapBriefly()
-        }
+        UIElement.beforeNativeTap?()
+        field.native.tap()
+        UITestSnapshotReader.invalidate()
         let keyboard = app.keyboards.firstMatch
         if !keyboard.exists {
-            let nextKeyboard = app.buttons["下一个键盘"]
+            let nextKeyboard = UIElement(app.native.buttons["下一个键盘"])
             if nextKeyboard.exists { nextKeyboard.tapBriefly() }
             assertUI(keyboard.appears(timeout: 5), "文本输入应使用系统键盘。")
         }
-        var deletion = ""
+        assertUI(app.buttons["keyboard.dismiss"].appears(timeout: 5), "系统输入应等待键盘附件完成安装。")
         if !empty {
-            if state.elementType == .textView {
-                field.typeKey("a", modifierFlags: .command)
-                deletion = XCUIKeyboardKey.delete.rawValue
-            } else {
-                deletion = String(repeating: XCUIKeyboardKey.delete.rawValue, count: value.count)
-            }
+            let selected = UITestControlClient.request(["command": "select-input"])
+            assertUI(selected == "selected", "系统键盘替换应先选中输入框的完整文本。")
+            field.typeText(XCUIKeyboardKey.delete.rawValue)
+            waitForValue("", of: field)
         }
-        field.typeText(deletion + text)
+        field.typeText(text)
     }
 
     @MainActor
-    private func assertEnteredText(_ text: String, in field: XCUIElement, state: any XCUIElementSnapshot) {
+    private func assertEnteredText(_ text: String, in field: UIElement, state: any XCUIElementSnapshot) {
         let expected = state.elementType == .secureTextField
             ? String(repeating: "•", count: text.count)
             : text.trimmingCharacters(in: .newlines)
@@ -351,13 +693,18 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func dismissKeyboard() {
-        guard app.keyboards.firstMatch.exists else { return }
-        let result = UITestControlClient.request(["command": "finish-input"], timeout: 5)
-        assertUI(result == "finished", "键盘完成按钮应执行实际目标动作：\(result ?? "empty")。")
-        print("UI keyboard finish")
-        if app.keyboards.firstMatch.exists {
-            assertUI(waitUntil(NSPredicate(format: "exists == false"), on: app.keyboards.firstMatch, timeout: 5), "完成输入后键盘应收起。")
+        guard UITestControlClient.request(["command": "keyboard-state"]) != "hidden" else { return }
+        let started = ProcessInfo.processInfo.systemUptime
+        let deadline = Date().addingTimeInterval(2)
+        var result = UITestControlClient.request(["command": "finish-input"], timeout: 5)
+        while result == "input toolbar missing" && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            result = UITestControlClient.request(["command": "finish-input"], timeout: 5)
         }
+        assertUI(result == "finished", "键盘完成按钮应执行实际目标动作：\(result ?? "empty")。")
+        assertUI(waitUntil(NSPredicate { _, _ in UITestControlClient.request(["command": "keyboard-state"]) == "hidden" }, on: app),
+                 "完成输入后键盘应收起。")
+        print(String(format: "UI keyboard finish: %.3f", ProcessInfo.processInfo.systemUptime - started))
     }
 
     @MainActor
@@ -365,19 +712,20 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         guard app.alerts.firstMatch.exists else { return }
         let alert = app.alerts.firstMatch
         let close = alert.buttons["知道了"]
-        if close.exists { close.tapBriefly() } else { alert.buttons.element(boundBy: 0).tapBriefly() }
+        assertUI(close.appears(timeout: 5), "提示应展示明确的“知道了”关闭动作。")
+        close.tapBriefly()
         assertUI(alert.disappears(timeout: 5), "关闭提示应恢复页面交互。")
     }
 
     @MainActor
-    func addCustomSchedule(_ titleText: String, in application: XCUIApplication) {
+    func addCustomSchedule(_ titleText: String, in application: UIElement) {
         let addContent = application.buttons["schedule.add-content"]
         assertUI(addContent.appears(timeout: 10), "课表页应展示添加内容入口。")
         assertUI(
             addContent.isHittable,
             "添加入口应处于可点击位置。frame=\(addContent.frame); \(focusedAccessibilitySnapshot(application, matching: ["Window", "Alert", "Sheet", "Menu", "添加", "课表", "保存", "密码", "之后", "稍后", "现在"]))"
         )
-        addContent.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tapBriefly()
+        addContent.tapBriefly()
 
         let addSchedule = application.descendants(matching: .any)
             .matching(NSPredicate(format: "label == %@", "添加日程"))
@@ -390,8 +738,8 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
         let title = application.textFields["schedule.custom.title"]
         assertUI(title.appears(timeout: 5), "自定义日程面板应展示标题输入框。")
-        title.tapBriefly()
-        title.typeText("\(titleText)\n")
+        replaceText(titleText, in: title)
+        dismissKeyboard()
 
         let save = application.buttons["schedule.custom.save"]
         assertUI(save.appears(timeout: 5), "自定义日程面板应展示保存操作。")
@@ -425,13 +773,13 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                 offlineAlert.buttons["知道了"].tapBriefly()
             }
             let tabFrame = state.frame
-            let tabIsHittable = tab.isHittable
+            let tabIsHittable = tab.native.isHittable
             let tabLabel = state.label
             assertUI(
                 tabIsHittable && windowFrame.contains(tabFrame) && tabLabel.count > 0,
                 "辅助功能大字号下 Tab 应保持可见、可触达并具有名称：\(identifier)；window=\(windowFrame)，tab=\(tabFrame)，hittable=\(tabIsHittable)，label=\(tabLabel)"
             )
-            let contentTarget: XCUIElement?
+            let contentTarget: UIElement?
             let contentDescription: String
             switch identifier {
             case "日程":
@@ -456,7 +804,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                 )
                 let contentFrame = contentTarget.frame
                 assertUI(
-                    contentTarget.isHittable && windowFrame.contains(contentFrame),
+                    contentTarget.native.isHittable && windowFrame.contains(contentFrame),
                     "\(contentDescription)应位于可见窗口且保持可触达：\(contentFrame)"
                 )
             }
@@ -464,17 +812,17 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     }
 
     @MainActor
-    func signIn(_ application: XCUIApplication, studentID inputStudentID: String = "ui-test-student") {
+    func signIn(_ application: UIElement, studentID inputStudentID: String = "ui-test-student") {
         let studentID = application.textFields["login.student-id"]
         let password = application.secureTextFields["login.password"]
         let submit = application.buttons["login.submit"]
         assertUI(studentID.appears(timeout: 10), "测试启动后应展示登录页。")
 
-        replaceAccount(inputStudentID, in: studentID)
-        studentID.typeText("\n")
-        password.typeText("ui-test-password")
+        replaceText(inputStudentID, in: studentID)
+        replaceText("ui-test-password", in: password)
         assertUI(submit.isEnabled, "完整填写账号信息后，登录按钮应启用。")
-        password.typeText("\n")
+        dismissKeyboard()
+        submit.tapBriefly()
         dismissCredentialSavePrompt(in: application)
         assertUI(
             application.tabBars.buttons["日程"].appears(timeout: 10),
@@ -489,19 +837,11 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     }
 
     @MainActor
-    func replaceAccount(_ value: String, in field: XCUIElement) {
-        field.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tapBriefly()
-        let existingValue = field.value as? String ?? ""
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existingValue.count) + value)
-        assertUI(field.value as? String == value, "账号输入框应完整替换为指定测试账号。")
-    }
-
-    @MainActor
-    func dismissCredentialSavePrompt(in application: XCUIApplication) {
+    func dismissCredentialSavePrompt(in application: UIElement) {
         let prompt = application.sheets["保存密码？"]
         guard prompt.exists else { return }
         let nonSavingActions = ["取消", "不保存", "稍后", "暂不", "以后", "以后再说", "稍后再说", "关闭"]
-        let buttons = prompt.buttons.allElementsBoundByAccessibilityElement
+        let buttons = prompt.buttons.allElementsBoundByIndex
         guard let dismissAction = buttons.first(where: { nonSavingActions.contains($0.label) }) else {
             let labels = buttons.map(\.label).joined(separator: "、")
             assertUI(false, "系统密码提示应提供安全关闭操作。按钮：\(labels)")
@@ -524,7 +864,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             let state = application.state
             diagnostics = "App 运行状态：\(state.rawValue)。"
             if state == .runningForeground {
-                let description = application.debugDescription
+                let description = application.native.debugDescription
                 let hierarchy = XCTAttachment(string: description)
                 hierarchy.name = "失败时的界面元素树"
                 add(hierarchy)
@@ -569,10 +909,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     @nonobjc func focusedAccessibilitySnapshot(
-        _ application: XCUIApplication,
+        _ application: UIElement,
         matching terms: [String]
     ) -> String {
-        focusedAccessibilitySnapshot(application.debugDescription, matching: terms)
+        focusedAccessibilitySnapshot(application.native.debugDescription, matching: terms)
     }
 
     @nonobjc func focusedAccessibilitySnapshot(_ description: String, matching terms: [String]) -> String {
@@ -600,7 +940,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         schoolSMS: Bool = false,
         initialTab: String = "schedule",
         initialSettings: String? = nil
-    ) -> XCUIApplication {
+    ) -> UIElement {
         let started = ProcessInfo.processInfo.systemUptime
         defer { print(String(format: "UI scene preparation: %.3f", ProcessInfo.processInfo.systemUptime - started)) }
         continueAfterFailure = false
@@ -635,7 +975,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         if resetStorage, let account {
             application.launchEnvironment["BIT101_UI_TEST_ACCOUNT"] = account
         }
-        app = application
+        app = UIElement(application, path: [])
+        UITestSnapshotReader.application = application
+        UITestSnapshotReader.invalidate()
+        UIElement.beforeNativeTap = { [weak self] in self?.dismissNotificationBanner() }
         var expectedScene: String?
         if Self.sessionApplication == nil {
             application.launch()
@@ -652,10 +995,46 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         }
         let settingsTitles = ["calendar": "课程表设置", "ddl": "DDL设置", "gallery": "话廊设置", "account": "账号设置", "about": "关于"]
         let tabTitles = ["gallery": "话廊", "map": "地图", "home": "成绩", "mine": "我的"]
+        let initialElement: UIElement
+        let checksSelectedTab: Bool
+        if let initialSettings {
+            initialElement = app.navigationBars[settingsTitles[initialSettings]!]
+            checksSelectedTab = false
+        } else if account == nil {
+            initialElement = app.textFields["login.student-id"]
+            checksSelectedTab = false
+        } else if initialTab == "schedule" {
+            initialElement = app.buttons["schedule.blank-context-menu"]
+            checksSelectedTab = false
+        } else if initialTab == "gallery" && (failureOnce || !content) {
+            initialElement = app.alerts["加载话廊失败"]
+            checksSelectedTab = false
+        } else {
+            initialElement = app.tabBars.buttons[tabTitles[initialTab]!]
+            checksSelectedTab = true
+        }
+        let marker = app.descendants(matching: .any).matching(identifier: "ui-test.scene").firstMatch
+        func renderedAttributes(_ element: UIElement) -> [String: Any]? {
+            guard let path = element.path, let query = try? JSONSerialization.data(withJSONObject: path),
+                  let response = UITestControlClient.request(["command": "query", "query": String(decoding: query, as: UTF8.self)], timeout: 5),
+                  let elements = try? JSONSerialization.jsonObject(with: Data(response.utf8)) as? [[String: Any]] else { return nil }
+            return elements.first
+        }
         let deadline = Date().addingTimeInterval(10)
         var identity: String?
         var lastSnapshot: (any XCUIElementSnapshot)?
         repeat {
+            if let currentIdentity = renderedAttributes(marker)?["value"] as? String,
+               expectedScene == nil || expectedScene == currentIdentity,
+               let route = renderedAttributes(initialElement),
+               !checksSelectedTab || route["selected"] as? Bool == true,
+               let frame = renderedAttributes(app)?["frame"] as? [Double], frame.count == 4 {
+                identity = currentIdentity
+                UITestSnapshotReader.applicationOrigin = CGPoint(x: frame[0], y: frame[1])
+                lastSnapshot = nil
+                print("UI scene readiness: rendered")
+                break
+            }
             lastSnapshot = try? application.snapshot()
             if let snapshot = lastSnapshot,
                let scene = snapshot.firstSnapshot(where: { $0.identifier == "ui-test.scene" }),
@@ -682,17 +1061,107 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         } while Date() < deadline
         assertUI(identity != nil, "同一界面快照中的场景身份与初始页面应完成加载：\(initialSettings ?? initialTab)。场景：\(String(describing: lastSnapshot?.firstSnapshot(where: { $0.identifier == "ui-test.scene" })?.value))，导航：\(lastSnapshot?.snapshots(matching: .tabBar).flatMap { $0.snapshots(matching: .button).map { "\($0.label)=\($0.isSelected)" } } ?? [])。")
+        if let lastSnapshot {
+            UITestSnapshotReader.applicationOrigin = lastSnapshot.frame.origin
+            UITestSnapshotReader.retain(lastSnapshot)
+        }
         if Self.sessionProcess == nil {
             let process = identity!.components(separatedBy: ":").first!
             Self.sessionProcess = process
             print("UI automation App process: \(process)")
         }
         Self.sessionScene = identity
-        return application
+        return app
     }
 }
 
 nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
+    @MainActor
+    func testAccessibilityQueryParityAndNativeButtonContract() throws {
+        app = configureApp(resetStorage: true, account: nil)
+        XCTAssertEqual(app.frame, app.native.frame)
+        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "ui-test.scene").firstMatch.value as? String,
+                       app.native.descendants(matching: .any).matching(identifier: "ui-test.scene").firstMatch.value as? String)
+        func compareWithNative(_ element: UIElement) throws {
+            let actual = try XCTUnwrap(element.attributes(), "渲染查询应提供当前控件状态。")
+            let expected = try element.native.snapshot()
+            XCTAssertEqual(actual["identifier"] as? String, expected.identifier)
+            XCTAssertEqual(actual["label"] as? String, expected.label)
+            XCTAssertEqual(actual["elementType"] as? Int, Int(expected.elementType.rawValue))
+            XCTAssertEqual(actual["enabled"] as? Bool, expected.isEnabled)
+            XCTAssertEqual(actual["hittable"] as? Bool, element.native.isHittable)
+            let frame = try XCTUnwrap(actual["frame"] as? [Double])
+            for (value, reference) in zip(frame, [expected.frame.minX, expected.frame.minY, expected.frame.width, expected.frame.height]) {
+                XCTAssertEqual(value, Double(reference), accuracy: 0.5)
+            }
+        }
+        for element in [app.textFields["login.student-id"], app.secureTextFields["login.password"], app.buttons["login.submit"]] {
+            try compareWithNative(element)
+        }
+        let missing = app.buttons["ui-test.missing-control"]
+        XCTAssertFalse(missing.exists)
+        XCTAssertFalse(missing.native.exists)
+        XCTAssertFalse(missing.isHittable)
+        for element in [app.staticTexts.firstMatch, app.descendants(matching: .any).matching(identifier: "login.student-id").firstMatch] {
+            let actual = try XCTUnwrap(element.attributes())
+            let expected = try element.native.snapshot()
+            XCTAssertEqual(actual["identifier"] as? String, expected.identifier)
+            XCTAssertEqual(actual["label"] as? String, expected.label)
+            XCTAssertEqual(actual["elementType"] as? Int, Int(expected.elementType.rawValue))
+        }
+        app = configureApp(resetStorage: true)
+        app.buttons["下一周"].native.press(forDuration: 0.01)
+        UITestSnapshotReader.invalidate()
+        assertSelectedWeek(2)
+        XCTAssertTrue(app.buttons["第2周"].native.isSelected)
+        app.buttons["上一周"].tapBriefly()
+        assertSelectedWeek(1)
+        XCTAssertTrue(app.buttons["第1周"].native.isSelected)
+        app.buttons["schedule.add-content"].native.press(forDuration: 0.01)
+        UITestSnapshotReader.invalidate()
+        app.native.buttons["添加日程"].firstMatch.press(forDuration: 0.01)
+        UITestSnapshotReader.invalidate()
+        let title = app.textFields["schedule.custom.title"]
+        title.native.tap()
+        UITestSnapshotReader.invalidate()
+        replaceText("渲染查询输入", in: title)
+        XCTAssertEqual(title.native.value as? String, "渲染查询输入")
+        XCTAssertTrue(app.keyboards.firstMatch.native.exists)
+        dismissKeyboard()
+        XCTAssertTrue(app.keyboards.firstMatch.native.disappears(timeout: 5))
+        replaceText("字段绑定输入", in: title)
+        XCTAssertEqual(title.native.value as? String, "字段绑定输入")
+        XCTAssertTrue(app.keyboards.firstMatch.native.disappears(timeout: 5))
+        app.buttons["取消"].native.press(forDuration: 0.01)
+        UITestSnapshotReader.invalidate()
+        XCTAssertTrue(app.buttons["schedule.add-content"].native.exists)
+        app = configureApp(resetStorage: true, initialSettings: "gallery")
+        let row = app.switches.matching(NSPredicate(format: "label CONTAINS %@", "隐藏匿名内容")).firstMatch
+        let control = row.native.switches.firstMatch
+        let initial = control.value as? String
+        control.tap()
+        UITestSnapshotReader.invalidate()
+        XCTAssertNotEqual(control.value as? String, initial)
+        _ = toggle("隐藏匿名内容")
+        XCTAssertEqual(control.value as? String, initial)
+        app = configureApp(resetStorage: false, initialSettings: "gallery")
+        XCTAssertEqual(app.switches.matching(NSPredicate(format: "label CONTAINS %@", "隐藏匿名内容")).firstMatch.native.switches.firstMatch.value as? String, initial)
+        app.navigationBars["话廊设置"].buttons.firstMatch.native.press(forDuration: 0.01)
+        UITestSnapshotReader.invalidate()
+        XCTAssertTrue(app.buttons["settings.route.gallery"].appears(timeout: 5))
+        openSettings("gallery")
+        back()
+        XCTAssertTrue(app.buttons["settings.route.gallery"].appears(timeout: 5))
+        app = configureApp(resetStorage: true, initialTab: "gallery")
+        let alert = app.alerts["加载话廊失败"]
+        XCTAssertTrue(alert.appears(timeout: 5))
+        try compareWithNative(alert.buttons["知道了"])
+        alert.buttons["知道了"].native.press(forDuration: 0.01)
+        UITestSnapshotReader.invalidate()
+        XCTAssertTrue(alert.disappears(timeout: 5))
+        XCTAssertFalse(alert.native.exists)
+    }
+
     @MainActor
     func testScheduleWeekButtonsAndSectionSwipes() {
         app = configureApp(resetStorage: true)
@@ -745,14 +1214,18 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         app.tabBars.buttons["日程"].tapBriefly()
         let timeline = app.scrollViews["schedule.linear.timeline"]
         assertUI(timeline.appears(timeout: 5), "线性模式应提供可缩放的时间轴。")
+        let canvas = app.buttons["schedule.blank-context-menu"]
+        XCTAssertEqual(canvas.native.frame.minX, timeline.native.frame.minX, accuracy: 0.5, "初始时间轴应与视口左边界对齐。")
         let initial = timeline.value as? String
         timeline.pinch(withScale: 1.5, velocity: 1)
         assertUI(waitUntil(NSPredicate(format: "value != %@", initial ?? ""), on: timeline, timeout: 5), "双指展开应放大时间轴，当前值：\(String(describing: timeline.value))，\(timeline.label)。")
         let enlarged = timeline.value as? String
+        XCTAssertEqual(canvas.native.frame.minX, timeline.native.frame.minX, accuracy: 0.5, "放大后的日期列应与视口左边界对齐。")
         timeline.swipeUp()
         timeline.swipeDown()
         timeline.pinch(withScale: 0.8, velocity: -1)
         assertUI(timeline.value as? String != enlarged, "双指收拢应缩小时间轴。")
+        XCTAssertEqual(canvas.native.frame.minX, timeline.native.frame.minX, accuracy: 0.5, "缩小后的日期列应与视口左边界对齐。")
         assertUI(timeline.isHittable, "缩放和滚动后时间轴应可交互。")
     }
 
@@ -784,7 +1257,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         app = configureApp(resetStorage: true, initialSettings: "calendar")
         tap("时间表")
         let editor = app.textViews.firstMatch
-        replaceText("invalid", in: editor)
+        replaceTextWithKeyboard("invalid", in: editor)
         dismissKeyboard()
         tap("确定")
         assertUI(app.alerts["设置失败"].appears(timeout: 5), "错误时间表应展示校验结果。")
@@ -897,17 +1370,21 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         assertUI(wheel.appears(timeout: 5), "变色天数应使用滚轮选择。")
         wheel.adjust(toPickerWheelValue: "7 天")
         tap("完成")
+        assertUI(wheel.disappears(timeout: 5), "保存变色天数应收起滚轮。")
         tap("滞留天数")
         app.pickerWheels.firstMatch.adjust(toPickerWheelValue: "10 天")
         tap("取消")
+        assertUI(wheel.disappears(timeout: 5), "取消滞留天数应收起滚轮。")
         tap("滞留天数")
         assertUI(app.pickerWheels.firstMatch.value as? String != "10 天", "取消应保留原值。")
         app.pickerWheels.firstMatch.adjust(toPickerWheelValue: "5 天")
         tap("完成")
+        assertUI(wheel.disappears(timeout: 5), "保存滞留天数应收起滚轮。")
         app = configureApp(resetStorage: false, initialSettings: "ddl")
         tap("变色天数")
         assertUI(app.pickerWheels.firstMatch.value as? String == "7 天", "重新装载应保留变色天数。")
         tap("取消")
+        assertUI(wheel.disappears(timeout: 5), "取消变色天数应收起滚轮。")
         tap("滞留天数")
         assertUI(app.pickerWheels.firstMatch.value as? String == "5 天", "重新装载应保留滞留天数。")
         tap("取消")
@@ -918,18 +1395,20 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
     func testGallerySettingsValidationTogglesAndPersistence() {
         app = configureApp(resetStorage: true)
         openSettings("gallery")
-        for title in ["隐藏机器人帖子", "隐藏匿名内容", "使用网页话廊"] { toggle(title) }
+        let values = ["隐藏机器人帖子", "隐藏匿名内容", "使用网页话廊"].map { ($0, toggle($0)) }
         let ids = app.textFields["屏蔽用户 UID（逗号分隔）"]
         ids.tapBriefly()
         ids.typeText("abc\n")
         assertUI(app.alerts["UID 格式错误"].appears(timeout: 5), "无效 UID 应给出校验提示。")
         closeAlertIfPresent()
-        replaceText("12,34", in: ids)
-        ids.typeText("\n")
+        replaceTextWithKeyboard("12,34\n", in: ids)
         dismissKeyboard()
         app = configureApp(resetStorage: false, initialSettings: "gallery")
         assertUI(app.textFields["屏蔽用户 UID（逗号分隔）"].value as? String == "12,34", "重新装载应保留屏蔽 UID。")
-        for title in ["隐藏机器人帖子", "隐藏匿名内容", "使用网页话廊"] { toggle(title) }
+        for (title, value) in values {
+            assertUI(app.switches.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch.value as? String == value,
+                     "重新装载应保留开关状态：\(title)。")
+        }
     }
 
     @MainActor
@@ -971,14 +1450,14 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         tap("活动")
         tap("聊天")
         tap("自定义")
-        replaceText("临时标签\n", in: app.textFields["自定义标签"])
+        replaceText("临时标签", in: app.textFields["自定义标签"])
         dismissKeyboard()
         tap("删除标签")
         assertUI(!app.textFields["自定义标签"].exists, "删除应移除自定义标签输入行。")
         toggle("匿名发布")
         toggle("公开显示")
         toggle("公开显示")
-        replaceText("测试发布的话题\n", in: app.textFields["标题"])
+        replaceText("测试发布的话题", in: app.textFields["标题"])
         replaceText("测试发布正文", in: app.textFields["正文"])
         dismissKeyboard()
         tap("发布")
@@ -1047,7 +1526,8 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         tap("保存")
         assertUI(waitUntil(NSPredicate(format: "exists == false"), on: editor, timeout: 5), "保存文章应返回详情。")
         assertUI(textElement("测试修改文章").appears(timeout: 5), "保存应更新文章详情。")
-        assertUI(textElement("文章发布测试正文").exists, "修改标题应保留完整正文。")
+        assertUI(app.textViews.matching(NSPredicate(format: "value CONTAINS %@", "文章发布测试正文")).firstMatch.native.exists,
+                 "修改标题应保留完整正文。")
         tap("更多操作")
         app.buttons["paper.detail.edit"].tapBriefly()
         assertUI(editor.appears(timeout: 5), "已保存文章应支持再次编辑。")

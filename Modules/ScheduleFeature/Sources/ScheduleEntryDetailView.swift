@@ -40,8 +40,7 @@ struct ScheduleEntryDetailSheet: View {
     @State private var pendingCourseDeletion: PendingCourseDeletion?
     @State private var academicCourseAlert: AppAlert?
     @State private var courseArrangementDrafts: [CourseArrangementDraft] = []
-    @State private var courseArrangementEditorMode: CourseArrangementEditorMode = .course
-    @State private var isShowingCourseArrangementEditor = false
+    @State private var courseArrangementEditorMode: CourseArrangementEditorMode?
 
     private struct CourseAttributeRow: Identifiable {
         let label: String
@@ -121,21 +120,21 @@ struct ScheduleEntryDetailSheet: View {
                     Button("取消") { dismiss() }
                 }
             }
-            .sheet(isPresented: $isShowingCourseArrangementEditor) {
+            .sheet(item: $courseArrangementEditorMode) { mode in
                 CourseArrangementEditorSheet(
                     arrangements: $courseArrangementDrafts,
                     timeTable: timeTable,
                     buildings: buildings,
-                    mode: courseArrangementEditorMode,
+                    mode: mode,
                     onSubmit: {
-                        if onSaveCourseArrangements(courseArrangementDrafts, courseArrangementEditorMode) {
+                        if onSaveCourseArrangements(courseArrangementDrafts, mode) {
                             courseArrangementDrafts = []
-                            isShowingCourseArrangementEditor = false
+                            courseArrangementEditorMode = nil
                         }
                     },
                     onDismiss: {
                         courseArrangementDrafts = []
-                        isShowingCourseArrangementEditor = false
+                        courseArrangementEditorMode = nil
                     }
                 )
             }
@@ -231,13 +230,11 @@ struct ScheduleEntryDetailSheet: View {
                         guard let draft = courseArrangementDraftForOccurrence(target.course.id, target.week) else { return }
                         courseArrangementDrafts = [draft]
                         courseArrangementEditorMode = .occurrence(week: target.week)
-                        isShowingCourseArrangementEditor = true
                     }
                     .appInteractiveListRow()
                     Button("调这门课") {
                         courseArrangementDrafts = courseArrangementDraftsForCourse(first.id)
                         courseArrangementEditorMode = .course
-                        isShowingCourseArrangementEditor = true
                     }
                     .appInteractiveListRow()
                     Button("删除这节课", role: .destructive) {

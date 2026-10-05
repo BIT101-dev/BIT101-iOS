@@ -3,6 +3,7 @@ if [[ -z "${ZSH_EXECUTION_STRING:-}" ]]; then
   exec zsh -c "$(<"$0")" "$0" "$@"
 fi
 set -euo pipefail
+WORKFLOW_STARTED_SECONDS=$SECONDS
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT="$ROOT_DIR/BIT101-iOS.xcodeproj"
@@ -290,14 +291,22 @@ if [[ "$MODE" == ui && ${#TEST_SELECTIONS[@]} -gt 0 ]]; then
 fi
 
 if [[ "$MODE" == "ui" && "$BUILD_ONLY" == false && "${BIT101_DEFER_APP_RESTORE:-0}" != "1" ]]; then
+  UI_TEST_EXECUTION_STARTED=false
   restore_release_app() {
     local test_exit_code=$?
     trap - EXIT ZERR INT TERM
-    echo "[恢复] 安装并启动常规 Release App"
-    if ! "$ROOT_DIR/Scripts/build-install-device.sh"; then
-      echo "常规 Release App 恢复失败，请运行 Scripts/build-install-device.sh" >&2
-      if (( test_exit_code == 0 )); then test_exit_code=1; fi
+    if $UI_TEST_EXECUTION_STARTED; then
+      echo "[恢复] 安装并启动常规 Release App"
+      if ! "$ROOT_DIR/Scripts/build-install-device.sh"; then
+        echo "常规 Release App 恢复失败，请运行 Scripts/build-install-device.sh" >&2
+        if (( test_exit_code == 0 )); then test_exit_code=1; fi
+      fi
     fi
+    local workflow_seconds=$(( SECONDS - WORKFLOW_STARTED_SECONDS ))
+    if [[ -f "$DERIVED_ROOT/test-metrics.txt" ]]; then
+      print -r -- "UI 工作流总耗时（含恢复）：${workflow_seconds} 秒" >> "$DERIVED_ROOT/test-metrics.txt"
+    fi
+    echo "[UI 工作流] ${workflow_seconds} 秒（含恢复）"
     exit "$test_exit_code"
   }
   trap restore_release_app EXIT ZERR
@@ -376,6 +385,28 @@ PY
   exit 0
 fi
 
+ui_test_plan() {
+  python3 - "$DERIVED_ROOT/Build/Products" <<'PY'
+import plistlib
+import sys
+from pathlib import Path
+
+products = Path(sys.argv[1])
+plans = list(products.glob("BIT101-iOS-UIAutomation_*_iphoneos*.xctestrun"))
+plan = max(plans, key=lambda path: path.stat().st_mtime)
+with plan.open("rb") as stream:
+    configuration = plistlib.load(stream)
+for variant in configuration["TestConfigurations"]:
+    for target in variant["TestTargets"]:
+        if target.get("IsUITestBundle"):
+            target["UITargetAppMainThreadCheckerEnabled"] = False
+            target["UITargetAppPerformanceAntipatternCheckerEnabled"] = False
+with plan.open("wb") as stream:
+    plistlib.dump(configuration, stream)
+print(plan)
+PY
+}
+
 run_tests() {
   local group="$1"
   local log="$DERIVED_ROOT/$group.log"
@@ -387,6 +418,7 @@ run_tests() {
   local test_action=test
   local execution_args=()
   local coverage_args=(-enableCodeCoverage YES ENABLE_CODE_COVERAGE=YES)
+  local started_at=$SECONDS
   if $BUILD_ONLY; then
     log="$DERIVED_ROOT/$group-build.log"
     test_action=build-for-testing
@@ -407,14 +439,25 @@ run_tests() {
     only_testing=("-only-testing:$TEST_BUNDLE/$group")
   fi
 
+  local project_args=(-project "$PROJECT" -scheme "$TEST_SCHEME" -configuration Release -derivedDataPath "$DERIVED_ROOT")
+  if [[ "$MODE" == ui && "$BUILD_ONLY" == false ]]; then
+    if ! bit101_run_logged "$DERIVED_ROOT/ui-tests-build.log" "UI 宿主编译" xcodebuild build-for-testing -quiet \
+      "${project_args[@]}" -destination "$TEST_DESTINATION" \
+      "BIT101_WORKFLOW_CONDITIONS=$conditions" "${coverage_args[@]}" \
+      ENABLE_TESTABILITY=YES SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES \
+      "${only_testing[@]}" "${SIGNING_ARGS[@]}"; then
+      return 1
+    fi
+    local ui_plan_path
+    ui_plan_path="$(ui_test_plan)" || return 1
+    project_args=(-xctestrun "$ui_plan_path")
+    test_action=test-without-building
+    UI_TEST_EXECUTION_STARTED=true
+  fi
   echo "[$test_action] $group"
-  local started_at=$SECONDS
   if bit101_run_logged "$log" "$group 输出" xcodebuild "$test_action" -quiet \
-    -project "$PROJECT" \
-    -scheme "$TEST_SCHEME" \
-    -configuration Release \
+    "${project_args[@]}" \
     -destination "$TEST_DESTINATION" \
-    -derivedDataPath "$DERIVED_ROOT" \
     -collect-test-diagnostics "$diagnostics" \
     "BIT101_WORKFLOW_CONDITIONS=$conditions" \
     "${coverage_args[@]}" \
@@ -541,11 +584,24 @@ if coverage is None:
             f"{action} {actions.count(action)}" for action in ["Tap", "Type", "Swipe", "Press", "Pinch"]))
         activations = [float(value) for value in re.findall(r"UI accessibility activate: ([\d.]+)", output)]
         lines.append(f"控件无障碍激活：{len(activations)} 次；累计 {sum(activations):.1f} 秒")
+        live_queries = [float(value) for value in re.findall(r"UI live query: ([\d.]+)", output)]
+        lines.append(f"App 内界面查询：{len(live_queries)} 次；累计 {sum(live_queries):.1f} 秒")
+        shared_snapshots = [float(value) for value in re.findall(r"UI shared snapshot: ([\d.]+)", output)]
+        lines.append(f"共享原生快照读取：{len(shared_snapshots)} 次；累计 {sum(shared_snapshots):.1f} 秒")
+        control_actions = [float(value) for value in re.findall(r"UI control action: ([\d.]+)", output)]
+        lines.append(f"UIKit 控件事件：{len(control_actions)} 次；累计 {sum(control_actions):.1f} 秒")
+        inventories = re.findall(r"UI control inventory: (\{[^\n]+\})", output)
+        if inventories:
+            inventory = json.loads(inventories[-1])
+            lines.append(f"运行中发现的交互标识：{inventory['observed']}；已访问 {inventory['visited']}")
+            pending = inventory.get('pending', [])
+            lines.append(f"待补充访问的标识：{len(pending)}" + ("；" + "、".join(pending[:10]) if pending else ""))
         replacements = [float(value) for value in re.findall(r"UI input replace: ([\d.]+)", output)]
         lines.append(f"输入控件更新：{len(replacements)} 次；累计 {sum(replacements):.1f} 秒")
         keyboard_finishes = output.count("UI keyboard finish")
         lines.append(f"键盘完成动作：{keyboard_finishes} 次")
-        lines.append(f"交互动作合计：{len(actions) + len(activations) + len(replacements) + keyboard_finishes}")
+        lines.append(f"滚动定位准备：{output.count('UI scroll reveal')} 次")
+        lines.append(f"交互动作合计：{len(actions) + len(activations) + len(control_actions) + len(replacements) + keyboard_finishes}")
         failures = summary.get("testFailures", [])
         if not actions and failures and all(any(message in failure.get("failureText", "") for message in [
             "enabling automation mode", "Not authorized for performing UI testing actions"
@@ -681,6 +737,7 @@ case "$MODE" in
 esac
 
 if $BUILD_ONLY; then
+  if [[ "$MODE" == ui ]]; then ui_test_plan >/dev/null; fi
   echo "测试宿主编译完成，可通过同一入口批量执行用例。"
 else
   record_metrics

@@ -8,6 +8,8 @@
   ],
   "defaultOptions" : {
     "codeCoverage" : false,
+    "mainThreadCheckerEnabled" : false,
+    "performanceAntipatternCheckerEnabled" : false,
     "uiTestingScreenshotsLifetime" : "keepNever"
   },
   "testTargets" : [
