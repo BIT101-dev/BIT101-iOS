@@ -23,7 +23,6 @@ import UIKit
 private struct VerificationCodeField: UIViewRepresentable {
     @Binding var code: String
     @Binding var isFocused: Bool
-    let isEnabled: Bool
     let onAutomaticSubmit: (String) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -44,6 +43,7 @@ private struct VerificationCodeField: UIViewRepresentable {
 
     func updateUIView(_ field: CodeTextField, context: Context) {
         context.coordinator.parent = self
+        let isEnabled = context.environment.isEnabled
         if field.text != code { field.text = code }
         field.font = .monospacedDigitSystemFont(
             ofSize: UIFont.preferredFont(forTextStyle: .headline, compatibleWith: field.traitCollection).pointSize,
@@ -165,9 +165,9 @@ public struct AppSMSVerificationSheet: View {
                     VerificationCodeField(
                         code: $code,
                         isFocused: $isCodeFieldFocused,
-                        isEnabled: !submissionInProgress,
                         onAutomaticSubmit: submitCode
                     )
+                    .disabled(submissionInProgress)
                 } header: {
                     AppListSectionHeader("输入验证码")
                 } footer: {

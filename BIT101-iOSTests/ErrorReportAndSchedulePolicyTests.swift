@@ -177,6 +177,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         }
         func waitUntil(_ description: String, _ condition: () -> Bool) async throws {
             while !condition(), ContinuousClock.now < deadline {
+                controller.view.setNeedsLayout()
                 controller.view.layoutIfNeeded()
                 try await Task.sleep(for: .milliseconds(10))
             }
@@ -186,6 +187,10 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         let input = try XCTUnwrap(findInput(controller.view))
         XCTAssertEqual(input.textContentType, .oneTimeCode)
         XCTAssertEqual(input.keyboardType, .numberPad)
+        XCTAssertTrue(input.becomeFirstResponder())
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+        try await waitUntil("输入焦点") { findInput(controller.view)?.isFirstResponder == true }
         func fill(_ code: String) throws {
             let input = try XCTUnwrap(findInput(controller.view))
             input.selectedTextRange = input.textRange(from: input.beginningOfDocument, to: input.endOfDocument)

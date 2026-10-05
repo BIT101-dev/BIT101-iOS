@@ -926,6 +926,12 @@ let comparison = left != right
     misplaced_audit += "\n# Scripts/run-static-audit.sh\n"
     if not any("静态审计 Job 缺少执行入口" in item for item in ci_wiring_findings(misplaced_audit)):
         findings.append("代码质量规则边界自检失败：CI 注释中的审计标记隔离")
+    detached_catalyst = re.sub(r"(?s)(  catalyst-tests:.*?)    needs: static-audit", r"\1    needs: []", workflow_source, count=1)
+    if not any("Catalyst 行为 Job 需要依赖静态审计" in item for item in ci_wiring_findings(detached_catalyst)):
+        findings.append("代码质量规则边界自检失败：Catalyst Job 与静态审计依赖识别")
+    skipped_catalyst = workflow_source.replace("run: Scripts/run-extended-tests.sh catalyst", "run: echo skipped", 1)
+    if not any("Catalyst 行为 Job 需要执行" in item for item in ci_wiring_findings(skipped_catalyst)):
+        findings.append("代码质量规则边界自检失败：并行 Catalyst 行为用例执行门禁")
     extension_graph = {"objects": {
         "app": {"isa": "PBXNativeTarget", "name": "BIT101-iOS", "dependencies": ["widget-edge", "watch-edge"]},
         "widget": {"isa": "PBXNativeTarget", "name": "BIT101ScheduleWidgets"},
@@ -1873,6 +1879,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
 
     static_job = job_body("static-audit")
     release_job = job_body("release-build")
+    catalyst_job = job_body("catalyst-tests")
     if static_job is None:
         errors.append(".github/workflows/ci.yml: CI 未声明静态审计 Job")
     elif "Scripts/run-static-audit.sh" not in run_commands(static_job):
@@ -1884,8 +1891,16 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         errors.append(".github/workflows/ci.yml: Release 编译 Job 必须默认执行")
     if not re.search(r"^    needs:\s*static-audit\s*$", release_job, re.MULTILINE):
         errors.append(".github/workflows/ci.yml: Release 编译 Job 必须依赖静态审计")
+    if catalyst_job is None:
+        errors.append(".github/workflows/ci.yml: CI 需要独立 Mac Catalyst 行为 Job")
+    else:
+        if re.search(r"^    if:", catalyst_job, re.MULTILINE):
+            errors.append(".github/workflows/ci.yml: Mac Catalyst 行为 Job 需要默认执行")
+        if not re.search(r"^    needs:\s*static-audit\s*$", catalyst_job, re.MULTILINE):
+            errors.append(".github/workflows/ci.yml: Mac Catalyst 行为 Job 需要依赖静态审计")
+        if "Scripts/run-extended-tests.sh catalyst" not in run_commands(catalyst_job):
+            errors.append(".github/workflows/ci.yml: Mac Catalyst 行为 Job 需要执行行为用例")
     required_release_rules = (
-        ("Scripts/run-extended-tests.sh catalyst", "CI 默认 Job 缺少 Mac Catalyst 行为测试"),
         ("Scripts/run-extended-tests.sh build release", "CI 需要通用 iOS Release 测试构建"),
         ("Scripts/run-extended-tests.sh build ui", "CI 需要 UI 宿主与测试构建"),
         ("Scripts/run-extended-tests.sh build network-smoke", "CI 需要网络 Smoke 编译条件构建"),

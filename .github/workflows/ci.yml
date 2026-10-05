@@ -65,5 +65,21 @@ jobs:
         run: Scripts/run-extended-tests.sh build network-smoke
       - name: Build iCloud smoke host and tests
         run: Scripts/run-extended-tests.sh build icloud-smoke
+
+  catalyst-tests:
+    name: Mac Catalyst behavior tests
+    needs: static-audit
+    runs-on: xcode-27
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Show toolchain
+        shell: bash
+        run: |
+          version="$(xcodebuild -version)"
+          printf '%s\n' "$version"
+          grep -Eq '^Xcode (2[7-9]|[3-9][0-9]|[1-9][0-9]{2,})\.' <<<"$version"
       - name: Run behavior tests on Mac Catalyst
         run: Scripts/run-extended-tests.sh catalyst
