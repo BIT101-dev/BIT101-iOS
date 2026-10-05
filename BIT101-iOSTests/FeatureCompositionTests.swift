@@ -20,59 +20,6 @@ import UIKit
 @MainActor
 @Suite(.serialized)
 struct FeatureCompositionTests {
-    @Test(.timeLimit(.minutes(1)))
-    func verificationAutoFillCapturesTheCodeAndSerializesSubmissions() async throws {
-        var submissions: [String] = []
-        var pending: CheckedContinuation<Void, Never>?
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let window = UIWindow(windowScene: scene)
-        let controller = UIHostingController(rootView: AppSMSVerificationSheet(
-            maskedPhone: "138****0000", isSubmitting: false, errorMessage: nil,
-            submitTitle: "验证", onCancel: {}, onSubmit: { code in
-                submissions.append(code)
-                await withCheckedContinuation { pending = $0 }
-            }
-        ))
-        window.rootViewController = controller
-        window.makeKeyAndVisible()
-        defer {
-            pending?.resume()
-            window.isHidden = true
-            window.rootViewController = nil
-        }
-        controller.view.layoutIfNeeded()
-        func findInput(_ view: UIView) -> UITextField? {
-            if let field = view as? UITextField, field.accessibilityIdentifier == "verification.code" { return field }
-            return view.subviews.lazy.compactMap(findInput).first
-        }
-        func waitUntil(_ description: String, _ condition: () -> Bool) async throws {
-            let deadline = ContinuousClock.now.advanced(by: .seconds(2))
-            while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
-            try #require(condition(), "\(description) 提交次数：\(submissions.count)。")
-        }
-        try await waitUntil("验证码控件应完成布局。") { findInput(controller.view) != nil }
-        let input = try #require(findInput(controller.view))
-        #expect(input.textContentType == .oneTimeCode)
-        #expect(input.keyboardType == .numberPad)
-        func fill(_ code: String) {
-            input.selectedTextRange = input.textRange(from: input.beginningOfDocument, to: input.endOfDocument)
-            input.insertText(code)
-        }
-        fill("123456")
-        fill("654321")
-        #expect(input.text == "654321")
-        try await waitUntil("连续填入应发起一次验证并禁用输入。") { submissions.count == 1 && !input.isEnabled }
-        #expect(submissions == ["123456"])
-        let first = pending
-        pending = nil
-        first?.resume()
-        try await waitUntil("提交结束应恢复输入。") { input.isEnabled }
-        #expect(submissions.count == 1)
-        fill("123456")
-        try await waitUntil("再次填入完整验证码应恢复自动提交。") { submissions.count == 2 && !input.isEnabled }
-        #expect(submissions == ["123456", "123456"])
-    }
-
     private final class CourseList: CourseListServicing {
         var requests: [String] = []
         private var waiter: CheckedContinuation<Void, Never>?

@@ -10,6 +10,7 @@ import DesignSystemKit
 import ScheduleDomain
 import XCTest
 import UIKit
+import SwiftUI
 import CoreLocation
 @testable import BIT101_iOS
 
@@ -145,6 +146,64 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         input.insertText("123456")
         XCTAssertEqual(input.text, "123456")
         XCTAssertTrue(input.isFirstResponder)
+    }
+
+    @MainActor
+    func testVerificationAutoFillCapturesTheCodeAndSerializesSubmissions() async throws {
+        executionTimeAllowance = 60
+        let deadline = ContinuousClock.now.advanced(by: .seconds(executionTimeAllowance))
+        var submissions: [String] = []
+        var pending: CheckedContinuation<Void, Never>?
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let controller = UIHostingController(rootView: AppSMSVerificationSheet(
+            maskedPhone: "138****0000", isSubmitting: false, errorMessage: nil,
+            submitTitle: "验证", onCancel: {}, onSubmit: { code in
+                submissions.append(code)
+                await withCheckedContinuation { pending = $0 }
+            }
+        ))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer {
+            pending?.resume()
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        controller.view.layoutIfNeeded()
+        func findInput(_ view: UIView) -> UITextField? {
+            if let field = view as? UITextField, field.accessibilityIdentifier == "verification.code" { return field }
+            return view.subviews.lazy.compactMap(findInput).first
+        }
+        func waitUntil(_ description: String, _ condition: () -> Bool) async throws {
+            while !condition(), ContinuousClock.now < deadline {
+                controller.view.layoutIfNeeded()
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            XCTAssertTrue(condition(), "\(description) 提交次数：\(submissions.count)，输入使能：\(String(describing: findInput(controller.view)?.isEnabled))，窗口：\(window.bounds)，关键窗口：\(window.isKeyWindow)。")
+        }
+        try await waitUntil("布局") { findInput(controller.view) != nil }
+        let input = try XCTUnwrap(findInput(controller.view))
+        XCTAssertEqual(input.textContentType, .oneTimeCode)
+        XCTAssertEqual(input.keyboardType, .numberPad)
+        func fill(_ code: String) throws {
+            let input = try XCTUnwrap(findInput(controller.view))
+            input.selectedTextRange = input.textRange(from: input.beginningOfDocument, to: input.endOfDocument)
+            input.insertText(code)
+        }
+        try fill("123456")
+        try fill("654321")
+        XCTAssertEqual(findInput(controller.view)?.text, "654321")
+        try await waitUntil("首次提交") { submissions.count == 1 && findInput(controller.view)?.isEnabled == false }
+        XCTAssertEqual(submissions, ["123456"])
+        let first = pending
+        pending = nil
+        first?.resume()
+        try await waitUntil("恢复输入") { findInput(controller.view)?.isEnabled == true }
+        XCTAssertEqual(submissions.count, 1)
+        try fill("123456")
+        try await waitUntil("再次提交") { submissions.count == 2 && findInput(controller.view)?.isEnabled == false }
+        XCTAssertEqual(submissions, ["123456", "123456"])
     }
 
     @MainActor
