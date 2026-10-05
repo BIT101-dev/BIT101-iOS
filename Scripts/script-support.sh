@@ -8,6 +8,7 @@ bit101_log_command() {
   shift 2
   python3 - "$output_path" "$label" "$@" <<'PY'
 from pathlib import Path
+import os
 import re
 import shutil
 import subprocess
@@ -64,7 +65,7 @@ exit_code = process.wait()
 for path in temporary_results:
     shutil.rmtree(path, ignore_errors=True)
 output = details if exit_code else diagnostics
-if len(output) <= 40:
+if len(output) <= 40 or (exit_code and os.environ.get("GITHUB_ACTIONS") == "true"):
     sys.stdout.writelines(output)
 else:
     print(f"[输出] {label} 共 {len(output)} 行诊断 · {report_path}")

@@ -262,19 +262,24 @@ struct ExperimentalPreferenceCloudSyncTests {
         "preference-sync.v1.\(account.session.accountDirectoryName).\(domain.rawValue)"
     }
 
-    @Test func guestPreferenceSwitchAndRevisionSurviveReload() throws {
-        let (sync, defaults, _, account) = try context()
+    @Test(.timeLimit(.minutes(1))) func guestPreferenceSwitchAndRevisionSurviveReload() async throws {
+        let (sync, defaults, cloud, account) = try context()
         defer { defaults.removePersistentDomain(forName: preferenceDomain) }
         account.session = AppStorageSession(accountIdentifier: "")
         sync.reloadForCurrentAccount()
         sync.setEnabled(true)
         sync.localValueDidChange(in: .appSettings)
-        let revision = try #require(sync.synchronizedVersion(for: .appSettings))
+        let recordKey = key(.appSettings, account: account)
+        let envelopeType = ExperimentalPreferenceSyncEnvelope<AppSettingsSyncPayload>.self
+        let revision = try JSONDecoder().decode(envelopeType, from: #require(cloud.data(forKey: recordKey))).updatedAt
+        cloud.set(nil, forKey: recordKey)
 
         sync.reloadForCurrentAccount()
+        await cloud.waitForWrite(to: recordKey)
 
         #expect(sync.isEnabled)
-        #expect(sync.synchronizedVersion(for: .appSettings) == revision)
+        let restored = try JSONDecoder().decode(envelopeType, from: #require(cloud.data(forKey: recordKey)))
+        #expect(restored.updatedAt == revision)
         sync.setEnabled(false)
         sync.reloadForCurrentAccount()
         #expect(sync.isEnabled == false)

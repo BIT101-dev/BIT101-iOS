@@ -22,7 +22,7 @@
 | iCloud 双向验证、报告与恢复 | `Scripts/run_icloud_cross_device_smoke.sh` |
 | Issues、CI 失败与反馈报告管理 | `Scripts/fetch-issues-and-reports.sh` |
 
-输出处理器自测覆盖诊断展示阈值、完整留档、信号退出状态及执行期间改写源码的故障注入。Xcode 默认临时错误结果包在命令结束后自动清理。测试结果保存在既有固定日志与结果包中；`Scripts/run-extended-tests.sh report` 读取最近一次模块、App 或 UI 测试结果。
+输出处理器自测覆盖诊断展示阈值、CI 失败诊断、完整留档、信号退出状态及执行期间改写源码的故障注入。CI 失败时展示过滤后的完整诊断，供远端直接定位错误。Xcode 默认临时错误结果包在命令结束后自动清理。测试结果保存在既有固定日志与结果包中；`Scripts/run-extended-tests.sh report` 读取最近一次模块、App 或 UI 测试结果。
 
 构建分派自测使用内存替身，UI 运行配置处理通过内存 plist 验证最新产物选择、诊断设置和业务 target 配置保留，并覆盖冷缓存中的运行配置完整性检查。
 

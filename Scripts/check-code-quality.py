@@ -959,13 +959,15 @@ def script_output_boundary_findings() -> list[str]:
     if block is None:
         return ["日志自测需要公共输出处理器"]
     findings: list[str] = []
-    for status, count in ((0, 10), (7, 40), (7, 41), (-15, 1)):
+    for status, count, ci in ((0, 10, False), (7, 40, False), (7, 41, False),
+                              (-15, 1, False), (0, 41, True), (7, 41, True)):
         lines = [f"error: diagnostic {index}\n" for index in range(count)]
         process = SimpleNamespace(stdout=iter(lines), wait=lambda: status)
         visible, log = StringIO(), StringIO()
         with patch.object(sys, "argv", ["logger", "/audit/build.log", "logger", "fake"]), \
              patch.object(subprocess, "Popen", return_value=process), \
              patch.object(Path, "mkdir"), patch.object(Path, "open", return_value=nullcontext(log)), \
+             patch.dict(os.environ, {"GITHUB_ACTIONS": "true" if ci else "false"}), \
              redirect_stdout(visible):
             try:
                 exec(compile(block[1], "logger-self-test", "exec"), {})
@@ -978,10 +980,11 @@ def script_output_boundary_findings() -> list[str]:
         output = visible.getvalue()
         if log.getvalue() != "".join(lines):
             findings.append("日志自测：完整输出留档")
-        if ("[输出]" in output) != (count > 40):
-            findings.append("日志自测：40 行展示阈值")
-        if count <= 40 and sum(line.startswith("error:") for line in output.splitlines()) != count:
-            findings.append("日志自测：阈值内完整诊断展示")
+        show_details = count <= 40 or (ci and status != 0)
+        if ("[输出]" in output) == show_details:
+            findings.append("日志自测：本地展示阈值与 CI 失败诊断")
+        if show_details and sum(line.startswith("error:") for line in output.splitlines()) != count:
+            findings.append("日志自测：完整诊断展示")
     script = (SCRIPT_ROOT / "run-extended-tests.sh").read_text()
     header = script.split("set -euo pipefail", 1)[0]
     fixture = ROOT / ".build/static-audit/script-snapshot.sh"
