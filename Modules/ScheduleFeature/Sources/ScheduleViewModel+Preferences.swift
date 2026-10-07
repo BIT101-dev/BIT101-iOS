@@ -48,16 +48,13 @@ extension ScheduleViewModel {
     public func setSemesterStartDate(_ date: Date?) {
         let term = courseState.currentTerm
         guard isCacheWritable, !term.isEmpty else { return }
-        let firstDayString: String
         if let date {
-            firstDayString = ScheduleDateCodec.formatDate(ScheduleDateCodec.monday(containing: date))
+            let firstDayString = ScheduleDateCodec.formatDate(ScheduleDateCodec.monday(containing: date))
             courseState.manualFirstDayStringsByTerm[term] = firstDayString
         } else {
-            guard let snapshot = courseState.termSchedulesByTerm[term] else { return }
-            firstDayString = snapshot.firstDayString
+            guard courseState.termSchedulesByTerm[term] != nil else { return }
             courseState.manualFirstDayStringsByTerm.removeValue(forKey: term)
         }
-        courseState.firstDayString = firstDayString
         selectedWeek = resolvedAutomaticWeek()
         persist(source: .localWithoutCloudPush)
     }

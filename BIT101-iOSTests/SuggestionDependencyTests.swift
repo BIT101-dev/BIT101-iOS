@@ -18,7 +18,7 @@ struct SuggestionDependencyTests {
     private final class SuggestionDraftPort: DeveloperSuggestionDraftStoring {
         var cleanups = 0
         func saveSuggestion(_ snapshot: DeveloperSuggestionDraftSnapshot) async -> Bool { true }
-        func loadSuggestion() async -> DeveloperSuggestionDraftSnapshot? { nil }
+        func loadSuggestion() async -> ComposerDraftLoadResult<DeveloperSuggestionDraftSnapshot> { .missing }
         func removeSuggestion() async { cleanups += 1 }
         func captureSuggestionCleanup() async -> ComposerDraftCleanup {
             { await self.removeSuggestion() }
@@ -57,11 +57,11 @@ struct SuggestionDependencyTests {
         var delivered: [String] = []
         let dependencies = DeveloperSuggestionDependencies(drafts: first, submit: { delivered.append($0.comment) })
         let page = DeveloperSuggestionPage(dependencies: dependencies)
-        #expect(await page.dependencies.drafts.loadSuggestion()?.text == "first draft")
+        #expect(await page.dependencies.drafts.loadSuggestion().snapshot?.text == "first draft")
         try await page.dependencies.submitAndClear(payload())
         #expect(delivered == ["injected suggestion"])
-        #expect(await first.loadSuggestion() == nil)
-        #expect(await second.loadSuggestion()?.text == "second draft")
+        #expect(await first.loadSuggestion().snapshot == nil)
+        #expect(await second.loadSuggestion().snapshot?.text == "second draft")
     }
 
     @Test func deliveryFailurePreservesTheOwnedDraft() async {
@@ -69,7 +69,7 @@ struct SuggestionDependencyTests {
         #expect(await drafts.saveSuggestion(.init(text: "retained draft", images: [])))
         let dependencies = DeveloperSuggestionDependencies(drafts: drafts, submit: { _ in throw URLError(.notConnectedToInternet) })
         await #expect(throws: URLError.self) { try await dependencies.submitAndClear(payload()) }
-        #expect(await drafts.loadSuggestion()?.text == "retained draft")
+        #expect(await drafts.loadSuggestion().snapshot?.text == "retained draft")
     }
     @Test func delayedSubmissionCleanupStaysWithTheCapturedAccount() async throws {
         let account = Account()
@@ -82,9 +82,9 @@ struct SuggestionDependencyTests {
             account.session = AppStorageSession(accountIdentifier: "B")
         })
         try await dependencies.submitAndClear(payload())
-        #expect(await drafts.loadSuggestion()?.text == "B draft")
+        #expect(await drafts.loadSuggestion().snapshot?.text == "B draft")
         account.session = AppStorageSession(accountIdentifier: "A")
-        #expect(await drafts.loadSuggestion() == nil)
+        #expect(await drafts.loadSuggestion().snapshot == nil)
     }
 
     @Test func aFreshDraftRevisionSurvivesAnEarlierSubmissionCleanup() async throws {
@@ -94,7 +94,7 @@ struct SuggestionDependencyTests {
             #expect(await drafts.saveSuggestion(.init(text: "continued edit", images: [])))
         })
         try await dependencies.submitAndClear(payload())
-        #expect(await drafts.loadSuggestion()?.text == "continued edit")
+        #expect(await drafts.loadSuggestion().snapshot?.text == "continued edit")
     }
 
 }

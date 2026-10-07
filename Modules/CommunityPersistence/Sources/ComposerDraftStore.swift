@@ -7,7 +7,30 @@ private nonisolated struct StoredComposerDraftImage: Codable {
     let filename: String
 }
 
-private nonisolated struct StoredGalleryComposerDraft: Codable {
+private nonisolated protocol StoredComposerDraft: Decodable {
+    associatedtype Snapshot: Decodable & Sendable
+    var schemaVersion: Int { get }
+    var assetRevision: String { get }
+    var images: [StoredComposerDraftImage] { get }
+    func snapshot(images: [ComposerImageDraftSnapshot]) -> Snapshot
+}
+
+private nonisolated struct DraftSchemaHeader: Decodable {
+    let schemaVersion: Int?
+    private enum CodingKeys: String, CodingKey { case schemaVersion }
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = container.contains(.schemaVersion) ? try container.decode(Int.self, forKey: .schemaVersion) : nil
+    }
+}
+
+private nonisolated struct DraftRead<Snapshot: Sendable> {
+    let result: ComposerDraftLoadResult<Snapshot>
+    var sourceURL: URL?
+    var needsMigration = false
+}
+
+private nonisolated struct StoredGalleryComposerDraft: Codable, StoredComposerDraft {
     let schemaVersion: Int
     let assetRevision: String
     let title: String
@@ -18,14 +41,23 @@ private nonisolated struct StoredGalleryComposerDraft: Codable {
     let isPublic: Bool
     let selectedClaimID: Int
     let images: [StoredComposerDraftImage]
+
+    func snapshot(images: [ComposerImageDraftSnapshot]) -> GalleryComposerDraftSnapshot {
+        GalleryComposerDraftSnapshot(title: title, text: text, selectedTags: selectedTags, customTags: customTags,
+            anonymous: anonymous, isPublic: isPublic, selectedClaimID: selectedClaimID, images: images)
+    }
 }
 
-private nonisolated struct StoredDeveloperSuggestionDraft: Codable {
+private nonisolated struct StoredDeveloperSuggestionDraft: Codable, StoredComposerDraft {
     let schemaVersion: Int
     let assetRevision: String
     let text: String
     let contact: String
     let images: [StoredComposerDraftImage]
+
+    func snapshot(images: [ComposerImageDraftSnapshot]) -> DeveloperSuggestionDraftSnapshot {
+        DeveloperSuggestionDraftSnapshot(text: text, images: images, contact: contact)
+    }
 }
 
 public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, DeveloperSuggestionDraftStoring {
@@ -52,13 +84,14 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
     }
 
     @MainActor
-    public func loadGallery() async -> GalleryComposerDraftSnapshot? {
+    public func loadGallery() async -> ComposerDraftLoadResult<GalleryComposerDraftSnapshot> {
         await storage.loadGallery(store: self, session: currentSession())
     }
 
     @discardableResult
     fileprivate func persistGallery(_ snapshot: GalleryComposerDraftSnapshot, session: AppStorageSession) -> Bool {
         let fileURL = currentFileURL(for: "gallery.json", session: session)
+        guard readDraft(StoredGalleryComposerDraft.self, filename: "gallery.json", session: session).result.allowsWrite else { return false }
         let previousRevision = storedGalleryRevision(at: fileURL)
         var newRevision: String?
         do {
@@ -92,74 +125,13 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
         }
     }
 
-    fileprivate func loadGallery(session: AppStorageSession) -> GalleryComposerDraftSnapshot? {
-        let currentURL = currentFileURL(for: "gallery.json", session: session)
-        if let data = readData(at: currentURL) {
-            if let stored = try? JSONDecoder().decode(StoredGalleryComposerDraft.self, from: data),
-               stored.schemaVersion == Self.currentSchemaVersion,
-               let images = readImages(stored.images, filename: "gallery.json", revision: stored.assetRevision, session: session) {
-                return GalleryComposerDraftSnapshot(
-                    title: stored.title,
-                    text: stored.text,
-                    selectedTags: stored.selectedTags,
-                    customTags: stored.customTags,
-                    anonymous: stored.anonymous,
-                    isPublic: stored.isPublic,
-                    selectedClaimID: stored.selectedClaimID,
-                    images: images
-                )
-            }
-            if let legacy = try? JSONDecoder().decode(GalleryComposerDraftSnapshot.self, from: data) {
-                _ = persistGallery(legacy, session: session)
-                return legacy
-            }
+    fileprivate func loadGallery(session: AppStorageSession) -> ComposerDraftLoadResult<GalleryComposerDraftSnapshot> {
+        let read = readDraft(StoredGalleryComposerDraft.self, filename: "gallery.json", session: session)
+        if read.needsMigration, let snapshot = read.result.snapshot,
+           persistGallery(snapshot, session: session) {
+            removeMigratedSource(read.sourceURL, filename: "gallery.json", session: session)
         }
-
-        let previousAccountURL = legacyAccountFileURL(for: "gallery.json", session: session)
-        if previousAccountURL != currentURL, let data = readData(at: previousAccountURL) {
-            if let stored = try? JSONDecoder().decode(StoredGalleryComposerDraft.self, from: data),
-               stored.schemaVersion == Self.currentSchemaVersion,
-               let images = readImages(
-                   stored.images,
-                   filename: "gallery.json",
-                   revision: stored.assetRevision,
-                   session: session,
-                   assetDirectory: legacyAssetDirectoryURL(
-                       for: "gallery.json",
-                       revision: stored.assetRevision,
-                       session: session
-                   )
-               ) {
-                let migrated = GalleryComposerDraftSnapshot(
-                    title: stored.title,
-                    text: stored.text,
-                    selectedTags: stored.selectedTags,
-                    customTags: stored.customTags,
-                    anonymous: stored.anonymous,
-                    isPublic: stored.isPublic,
-                    selectedClaimID: stored.selectedClaimID,
-                    images: images
-                )
-                if persistGallery(migrated, session: session) {
-                    try? files.removeItem(at: previousAccountURL)
-                    try? files.removeItem(at: previousAccountURL.appendingPathExtension("assets"))
-                }
-                return migrated
-            }
-            if let legacy = try? JSONDecoder().decode(GalleryComposerDraftSnapshot.self, from: data) {
-                if persistGallery(legacy, session: session) { try? files.removeItem(at: previousAccountURL) }
-                return legacy
-            }
-        }
-
-        let legacyURL = directoryURL.appendingPathComponent("gallery.json")
-        guard let data = readData(at: legacyURL),
-              let legacy = try? JSONDecoder().decode(GalleryComposerDraftSnapshot.self, from: data)
-        else { return nil }
-        if persistGallery(legacy, session: session) {
-            try? files.removeItem(at: legacyURL)
-        }
-        return legacy
+        return read.result
     }
 
     @discardableResult
@@ -169,13 +141,14 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
     }
 
     @MainActor
-    public func loadSuggestion() async -> DeveloperSuggestionDraftSnapshot? {
+    public func loadSuggestion() async -> ComposerDraftLoadResult<DeveloperSuggestionDraftSnapshot> {
         await storage.loadSuggestion(store: self, session: currentSession())
     }
 
     @discardableResult
     fileprivate func persistSuggestion(_ snapshot: DeveloperSuggestionDraftSnapshot, session: AppStorageSession) -> Bool {
         let fileURL = currentFileURL(for: "suggestion.json", session: session)
+        guard readDraft(StoredDeveloperSuggestionDraft.self, filename: "suggestion.json", session: session).result.allowsWrite else { return false }
         let previousRevision = storedSuggestionRevision(at: fileURL)
         var newRevision: String?
         do {
@@ -204,64 +177,52 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
         }
     }
 
-    fileprivate func loadSuggestion(session: AppStorageSession) -> DeveloperSuggestionDraftSnapshot? {
-        let currentURL = currentFileURL(for: "suggestion.json", session: session)
-        if let data = readData(at: currentURL) {
-            if let stored = try? JSONDecoder().decode(StoredDeveloperSuggestionDraft.self, from: data),
-               stored.schemaVersion == Self.currentSchemaVersion,
-               let images = readImages(stored.images, filename: "suggestion.json", revision: stored.assetRevision, session: session) {
-                return DeveloperSuggestionDraftSnapshot(
-                    text: stored.text,
-                    images: images,
-                    contact: stored.contact
-                )
-            }
-            if let legacy = try? JSONDecoder().decode(DeveloperSuggestionDraftSnapshot.self, from: data) {
-                _ = persistSuggestion(legacy, session: session)
-                return legacy
-            }
+    fileprivate func loadSuggestion(session: AppStorageSession) -> ComposerDraftLoadResult<DeveloperSuggestionDraftSnapshot> {
+        let read = readDraft(StoredDeveloperSuggestionDraft.self, filename: "suggestion.json", session: session)
+        if read.needsMigration, let snapshot = read.result.snapshot,
+           persistSuggestion(snapshot, session: session) {
+            removeMigratedSource(read.sourceURL, filename: "suggestion.json", session: session)
         }
+        return read.result
+    }
 
-        let previousAccountURL = legacyAccountFileURL(for: "suggestion.json", session: session)
-        if previousAccountURL != currentURL, let data = readData(at: previousAccountURL) {
-            if let stored = try? JSONDecoder().decode(StoredDeveloperSuggestionDraft.self, from: data),
-               stored.schemaVersion == Self.currentSchemaVersion,
-               let images = readImages(
-                   stored.images,
-                   filename: "suggestion.json",
-                   revision: stored.assetRevision,
-                   session: session,
-                   assetDirectory: legacyAssetDirectoryURL(
-                       for: "suggestion.json",
-                       revision: stored.assetRevision,
-                       session: session
-                   )
-               ) {
-                let migrated = DeveloperSuggestionDraftSnapshot(
-                    text: stored.text,
-                    images: images,
-                    contact: stored.contact
-                )
-                if persistSuggestion(migrated, session: session) {
-                    try? files.removeItem(at: previousAccountURL)
-                    try? files.removeItem(at: previousAccountURL.appendingPathExtension("assets"))
+    private func readDraft<Stored: StoredComposerDraft>(
+        _ type: Stored.Type, filename: String, session: AppStorageSession
+    ) -> DraftRead<Stored.Snapshot> {
+        let currentURL = currentFileURL(for: filename, session: session)
+        let sources = [currentURL, legacyAccountFileURL(for: filename, session: session), directoryURL.appendingPathComponent(filename)]
+        for url in sources where files.fileExists(at: url) {
+            do {
+                try? files.setPrivateFileProtection(at: url)
+                let data = try files.readData(at: url)
+                let decoder = JSONDecoder()
+                let header = try decoder.decode(DraftSchemaHeader.self, from: data)
+                let snapshot: Stored.Snapshot
+                if let version = header.schemaVersion {
+                    guard version == Self.currentSchemaVersion else {
+                        return DraftRead(result: .unsupportedVersion(version), sourceURL: url)
+                    }
+                    let stored = try decoder.decode(type, from: data)
+                    guard UUID(uuidString: stored.assetRevision) != nil else { throw CocoaError(.fileReadCorruptFile) }
+                    let images = try readImages(stored.images, revision: stored.assetRevision, sourceURL: url)
+                    snapshot = stored.snapshot(images: images)
+                } else {
+                    snapshot = try decoder.decode(Stored.Snapshot.self, from: data)
                 }
-                return migrated
-            }
-            if let legacy = try? JSONDecoder().decode(DeveloperSuggestionDraftSnapshot.self, from: data) {
-                if persistSuggestion(legacy, session: session) { try? files.removeItem(at: previousAccountURL) }
-                return legacy
+                return DraftRead(result: .loaded(snapshot), sourceURL: url,
+                    needsMigration: url != currentURL || header.schemaVersion == nil)
+            } catch {
+                Self.logger.error("草稿读取遇到问题，原文件与图片已保留：\(String(describing: error), privacy: .public)")
+                return DraftRead(result: .unreadable, sourceURL: url)
             }
         }
+        return DraftRead(result: .missing)
+    }
 
-        let legacyURL = directoryURL.appendingPathComponent("suggestion.json")
-        guard let data = readData(at: legacyURL),
-              let legacy = try? JSONDecoder().decode(DeveloperSuggestionDraftSnapshot.self, from: data)
-        else { return nil }
-        if persistSuggestion(legacy, session: session) {
-            try? files.removeItem(at: legacyURL)
-        }
-        return legacy
+    private func removeMigratedSource(_ sourceURL: URL?, filename: String, session: AppStorageSession) {
+        guard let sourceURL, sourceURL != currentFileURL(for: filename, session: session) else { return }
+        try? files.removeItem(at: sourceURL)
+        try? files.removeItem(at: sourceURL.appendingPathExtension("assets"))
     }
 
     @MainActor
@@ -283,7 +244,7 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
     @MainActor
     private func captureCleanup(filename: String) async -> ComposerDraftCleanup {
         let session = currentSession()
-        let metadata = await storage.metadata(store: self, filename: filename, session: session)
+        let metadata = await storage.cleanupMetadata(store: self, filename: filename, session: session)
         return {
             await self.storage.removeMatching(store: self, filename: filename, session: session, metadata: metadata)
         }
@@ -351,30 +312,30 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
     }
 
     private func readImages(
-        _ references: [StoredComposerDraftImage],
-        filename: String,
-        revision: String,
-        session: AppStorageSession,
-        assetDirectory: URL? = nil
-    ) -> [ComposerImageDraftSnapshot]? {
-        let directory = assetDirectory ?? assetDirectoryURL(for: filename, revision: revision, session: session)
-        var images: [ComposerImageDraftSnapshot] = []
-        for (index, reference) in references.enumerated() {
+        _ references: [StoredComposerDraftImage], revision: String, sourceURL: URL
+    ) throws -> [ComposerImageDraftSnapshot] {
+        let directory = sourceURL.appendingPathExtension("assets").appending(path: revision, directoryHint: .isDirectory)
+        return try references.enumerated().map { index, reference in
             let fileURL = directory.appending(path: "image-\(index).jpg")
-            guard let data = readData(at: fileURL) else { return nil }
-            images.append(ComposerImageDraftSnapshot(
-                filename: reference.filename,
-                previewData: data,
-                uploadData: data
-            ))
+            try? files.setPrivateFileProtection(at: fileURL)
+            let data = try files.readData(at: fileURL)
+            return ComposerImageDraftSnapshot(filename: reference.filename, previewData: data, uploadData: data)
         }
-        return images
+    }
+
+    fileprivate func cleanupMetadata(filename: String, session: AppStorageSession) -> Data? {
+        let allowsWrite = filename == "gallery.json"
+            ? readDraft(StoredGalleryComposerDraft.self, filename: filename, session: session).result.allowsWrite
+            : readDraft(StoredDeveloperSuggestionDraft.self, filename: filename, session: session).result.allowsWrite
+        return allowsWrite ? metadata(filename: filename, session: session) : nil
     }
 
     fileprivate func remove(filename: String, session: AppStorageSession) {
-        try? files.removeItem(at: currentFileURL(for: filename, session: session))
-        try? files.removeItem(at: directoryURL.appendingPathComponent(filename))
-        try? files.removeItem(at: assetRootURL(for: filename, session: session))
+        for url in Set([currentFileURL(for: filename, session: session),
+                        legacyAccountFileURL(for: filename, session: session), directoryURL.appendingPathComponent(filename)]) {
+            try? files.removeItem(at: url)
+            try? files.removeItem(at: url.appendingPathExtension("assets"))
+        }
     }
 
     private func currentFileURL(for filename: String, session: AppStorageSession) -> URL {
@@ -389,16 +350,6 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
             .appending(path: "BIT101-iOS", directoryHint: .isDirectory)
             .appending(path: session.legacyAccountDirectoryNameForMigration, directoryHint: .isDirectory)
             .appending(path: "composer-\(filename)")
-    }
-
-    private func legacyAssetDirectoryURL(
-        for filename: String,
-        revision: String,
-        session: AppStorageSession
-    ) -> URL {
-        legacyAccountFileURL(for: filename, session: session)
-            .appendingPathExtension("assets")
-            .appending(path: revision, directoryHint: .isDirectory)
     }
 
     private func assetRootURL(for filename: String, session: AppStorageSession) -> URL {
@@ -442,7 +393,7 @@ private actor ComposerDraftStorage {
         store.persistGallery(snapshot, session: session)
     }
 
-    func loadGallery(store: ComposerDraftStore, session: AppStorageSession) -> GalleryComposerDraftSnapshot? {
+    func loadGallery(store: ComposerDraftStore, session: AppStorageSession) -> ComposerDraftLoadResult<GalleryComposerDraftSnapshot> {
         store.loadGallery(session: session)
     }
 
@@ -450,16 +401,16 @@ private actor ComposerDraftStorage {
         store.persistSuggestion(snapshot, session: session)
     }
 
-    func loadSuggestion(store: ComposerDraftStore, session: AppStorageSession) -> DeveloperSuggestionDraftSnapshot? {
+    func loadSuggestion(store: ComposerDraftStore, session: AppStorageSession) -> ComposerDraftLoadResult<DeveloperSuggestionDraftSnapshot> {
         store.loadSuggestion(session: session)
     }
 
-    func metadata(store: ComposerDraftStore, filename: String, session: AppStorageSession) -> Data? {
-        store.metadata(filename: filename, session: session)
+    func cleanupMetadata(store: ComposerDraftStore, filename: String, session: AppStorageSession) -> Data? {
+        store.cleanupMetadata(filename: filename, session: session)
     }
 
     func removeMatching(store: ComposerDraftStore, filename: String, session: AppStorageSession, metadata: Data?) {
-        guard let metadata, store.metadata(filename: filename, session: session) == metadata else { return }
+        guard let metadata, store.cleanupMetadata(filename: filename, session: session) == metadata else { return }
         store.remove(filename: filename, session: session)
     }
 

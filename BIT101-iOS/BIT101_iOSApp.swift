@@ -118,9 +118,11 @@ struct BIT101_iOSApp: App {
     }
 
     private static func makeLifecycle() -> AppAccountLifecycle {
+        let settings = AppSettingsStore.shared
+        let stores = AppAccountStores.shared
         let preferenceCloudSync: ExperimentalPreferenceCloudSync
 #if BIT101_UI_TESTING
-        preferenceCloudSync = ExperimentalPreferenceCloudSync(settings: .shared, stores: .shared, cloudStore: UITestPreferenceCloudStore())
+        preferenceCloudSync = ExperimentalPreferenceCloudSync(settings: settings, stores: stores, cloudStore: UITestPreferenceCloudStore())
 #else
         preferenceCloudSync = ExperimentalPreferenceCloudSync.shared
 #endif
@@ -136,11 +138,11 @@ struct BIT101_iOSApp: App {
 #endif
         return AppAccountLifecycle(
             scheduleViewModel: ScheduleServiceFactory.makeViewModel(),
-            community: .app(settings: preferenceCloudSync.settings, stores: preferenceCloudSync.stores),
-            scoreService: scores, transcriptService: transcripts, preferenceCloudSync: preferenceCloudSync,
+            community: .app(settings: settings, stores: stores),
+            scoreService: scores, transcriptService: transcripts, settings: settings, stores: stores, preferenceCloudSync: preferenceCloudSync,
             notifications: .default,
             scheduleChanges: ScheduleCacheStore.changes, loadScheduleCourses: AppAccountStores.loadScheduleCourses,
-            media: AppMedia.environment, localData: .appService(settings: preferenceCloudSync.settings, media: AppMedia.environment),
+            media: AppMedia.environment, localData: .appService(settings: settings, media: AppMedia.environment),
             externalDisplays: AppExternalDisplayCoordinator()
         )
     }

@@ -10,15 +10,18 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
         var dates: [URL: Date] = [:]
         var directories: Set<URL> = []
         var failsWriting = false
+        var failsReading = false
         var failsRemoval = false
         var options: [URL: Data.WritingOptions] = [:]
     }
-    package func setFailures(writing: Bool = false, removal: Bool = false) {
+    package func setFailures(writing: Bool = false, removal: Bool = false, reading: Bool = false) {
         return state.withLock { state in
             state.failsWriting = writing
             state.failsRemoval = removal
+            state.failsReading = reading
         }
     }
+    package var storedData: [URL: Data] { state.withLock { $0.data } }
     package func writingOptions(at url: URL) -> Data.WritingOptions? {
         return state.withLock { state in
             return state.options[url]
@@ -34,6 +37,7 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
     }
     package func readData(at url: URL) throws -> Data {
         return try state.withLock { state in
+            if state.failsReading { throw CocoaError(.fileReadNoPermission) }
             guard let value = state.data[url] else { throw CocoaError(.fileReadNoSuchFile) }
             return value
         }
@@ -54,9 +58,11 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
     package func removeItem(at url: URL) throws {
         return try state.withLock { state in
             if state.failsRemoval { throw CocoaError(.fileWriteNoPermission) }
-            state.data.removeValue(forKey: url)
-            state.dates.removeValue(forKey: url)
-            state.directories.remove(url)
+            let prefix = url.path + "/"
+            state.data = state.data.filter { $0.key != url && !$0.key.path.hasPrefix(prefix) }
+            state.dates = state.dates.filter { $0.key != url && !$0.key.path.hasPrefix(prefix) }
+            state.options = state.options.filter { $0.key != url && !$0.key.path.hasPrefix(prefix) }
+            state.directories = Set(state.directories.filter { $0 != url && !$0.path.hasPrefix(prefix) })
         }
     }
     package func setPrivateFileProtection(at url: URL) throws {}

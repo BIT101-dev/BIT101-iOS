@@ -33,14 +33,17 @@ private func resetMinePagedState<Item>(_ state: inout MinePagedState<Item>) {
 }
 
 /// 将第一页结果写入分页状态并标记加载完成。
-private func applyMinePagedRefreshResult<Item>(_ items: [Item], to state: inout MinePagedState<Item>) {
-    state.applyFirstPage(items)
+private func applyMinePagedRefreshResult<Item: Identifiable>(_ items: [Item], to state: inout MinePagedState<Item>) {
+    var identities = Set<Item.ID>()
+    state.applyFirstPage(items.filter { identities.insert($0.id).inserted })
     state.status = .loaded
 }
 
 /// 将新加载的一页结果追加到现有分页状态。
-private func appendMinePagedPage<Item>(_ items: [Item], to state: inout MinePagedState<Item>) {
-    state.appendPage(items)
+private func appendMinePagedPage<Item: Identifiable>(_ items: [Item], to state: inout MinePagedState<Item>) {
+    var identities = Set(state.items.map(\.id))
+    state.appendPage(items.filter { identities.insert($0.id).inserted })
+    state.canLoadMore = !items.isEmpty
 }
 
 /// 生成资料卡展示的帖子数摘要。
@@ -118,6 +121,7 @@ final class MineViewModel: ObservableObject {
 
         do {
             let info = try await service.fetchMyInfo()
+            try Task.checkCancellation()
             guard profileGeneration == generation else { return }
             userInfo = info
             profileStatus = .loaded
@@ -155,6 +159,7 @@ final class MineViewModel: ObservableObject {
 
         do {
             let users = try await service.fetchFollowers(page: 0)
+            try Task.checkCancellation()
             guard followerGeneration == generation else { return }
             applyMinePagedRefreshResult(users, to: &followerState)
         } catch {
@@ -186,6 +191,7 @@ final class MineViewModel: ObservableObject {
         followerState.isLoadingMore = true
         do {
             let users = try await service.fetchFollowers(page: followerState.nextPage)
+            try Task.checkCancellation()
             guard followerGeneration == generation else { return }
             appendMinePagedPage(users, to: &followerState)
         } catch {
@@ -213,6 +219,7 @@ final class MineViewModel: ObservableObject {
 
         do {
             let users = try await service.fetchFollowings(page: 0)
+            try Task.checkCancellation()
             guard followingGeneration == generation else { return }
             applyMinePagedRefreshResult(users, to: &followingState)
         } catch {
@@ -244,6 +251,7 @@ final class MineViewModel: ObservableObject {
         followingState.isLoadingMore = true
         do {
             let users = try await service.fetchFollowings(page: followingState.nextPage)
+            try Task.checkCancellation()
             guard followingGeneration == generation else { return }
             appendMinePagedPage(users, to: &followingState)
         } catch {
@@ -275,6 +283,7 @@ final class MineViewModel: ObservableObject {
 
         do {
             let posters = try await service.fetchMyPosters(page: 0)
+            try Task.checkCancellation()
             guard posterGeneration == generation else { return }
             applyMinePagedRefreshResult(posters, to: &posterState)
         } catch {
@@ -311,6 +320,7 @@ final class MineViewModel: ObservableObject {
         posterState.isLoadingMore = true
         do {
             let posters = try await service.fetchMyPosters(page: posterState.nextPage)
+            try Task.checkCancellation()
             guard posterGeneration == generation else { return }
             appendMinePagedPage(posters, to: &posterState)
         } catch {
@@ -392,6 +402,7 @@ final class UserProfileViewModel: ObservableObject {
 
         do {
             let info = try await service.fetchUserInfo(id: userID)
+            try Task.checkCancellation()
             guard profileGeneration == generation else { return }
             userInfo = info
             profileStatus = .loaded
@@ -426,6 +437,7 @@ final class UserProfileViewModel: ObservableObject {
 
         do {
             let result = try await service.followUser(id: userID)
+            try Task.checkCancellation()
             guard profileGeneration == generation else { return }
             self.userInfo = userInfo.updatingFollow(result)
         } catch {
@@ -450,6 +462,7 @@ final class UserProfileViewModel: ObservableObject {
 
         do {
             let posters = try await service.fetchUserPosters(userID: userID, page: 0)
+            try Task.checkCancellation()
             guard posterGeneration == generation else { return }
             applyMinePagedRefreshResult(posters, to: &posterState)
         } catch {
@@ -486,6 +499,7 @@ final class UserProfileViewModel: ObservableObject {
         posterState.isLoadingMore = true
         do {
             let posters = try await service.fetchUserPosters(userID: userID, page: posterState.nextPage)
+            try Task.checkCancellation()
             guard posterGeneration == generation else { return }
             appendMinePagedPage(posters, to: &posterState)
         } catch {

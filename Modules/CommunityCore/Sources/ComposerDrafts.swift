@@ -105,10 +105,38 @@ public nonisolated struct DeveloperSuggestionDraftSnapshot: Codable, Sendable {
 /// 清理操作捕获提交所属账号和草稿版本，异步执行语义由公共契约统一。
 public typealias ComposerDraftCleanup = @Sendable () async -> Void
 
+/// 草稿读取结果保留源文件的恢复状态，保存沿同一结果判断写权限。
+public nonisolated enum ComposerDraftLoadResult<Snapshot: Sendable>: Sendable {
+    case missing
+    case loaded(Snapshot)
+    case unreadable
+    case unsupportedVersion(Int)
+
+    public var snapshot: Snapshot? {
+        guard case .loaded(let snapshot) = self else { return nil }
+        return snapshot
+    }
+
+    public var allowsWrite: Bool {
+        switch self {
+        case .missing, .loaded: true
+        case .unreadable, .unsupportedVersion: false
+        }
+    }
+
+    public var recoveryMessage: String? {
+        switch self {
+        case .missing, .loaded: nil
+        case .unreadable: "草稿原文件与图片已保留，保存已暂停。请联系维护者恢复草稿后重试。"
+        case .unsupportedVersion: "草稿由其他格式版本保存，原文件与图片已保留。请使用支持该格式的版本恢复草稿。"
+        }
+    }
+}
+
 @MainActor
 public protocol GalleryComposerDraftStoring: Sendable {
     func saveGallery(_ snapshot: GalleryComposerDraftSnapshot) async -> Bool
-    func loadGallery() async -> GalleryComposerDraftSnapshot?
+    func loadGallery() async -> ComposerDraftLoadResult<GalleryComposerDraftSnapshot>
     func removeGallery() async
     func captureGalleryCleanup() async -> ComposerDraftCleanup
 }
@@ -116,7 +144,7 @@ public protocol GalleryComposerDraftStoring: Sendable {
 @MainActor
 public protocol DeveloperSuggestionDraftStoring: Sendable {
     func saveSuggestion(_ snapshot: DeveloperSuggestionDraftSnapshot) async -> Bool
-    func loadSuggestion() async -> DeveloperSuggestionDraftSnapshot?
+    func loadSuggestion() async -> ComposerDraftLoadResult<DeveloperSuggestionDraftSnapshot>
     func removeSuggestion() async
     func captureSuggestionCleanup() async -> ComposerDraftCleanup
 }

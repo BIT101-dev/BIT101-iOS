@@ -23,7 +23,7 @@ struct ScheduleContractsTests {
         cache.selectedBuildingID = "module-building"
         cache.iCloudSyncEnabled = true
         #expect(cache.courseSnapshot == courses)
-        cache.firstDayString = "2026-09-07"
+        cache.manualFirstDayStringsByTerm[cache.currentTerm] = "2026-09-07"
         #expect(cache.courseSnapshot != courses)
         #expect(cache.courseSnapshot.firstDay == ScheduleSharedDateCodec.parseDate("2026-09-07"))
     }
@@ -42,14 +42,15 @@ struct ScheduleContractsTests {
     @Test @MainActor func domainCourseEditingSurvivesCacheAndShareRoundTrips() throws {
         var cache = ScheduleCache()
         cache.currentTerm = "2026-2027-1"
-        cache.firstDayString = "2026-09-28"
-        cache.courses = try ScheduleCourseEditor.adding(
+        cache.manualFirstDayStringsByTerm[cache.currentTerm] = "2026-09-28"
+        let courses = try ScheduleCourseEditor.adding(
             CourseDraft(
                 title: "模块验证课程", classroom: "文萃楼I203",
                 weekday: 1, startSection: 1, endSection: 2, weeksText: "1-4,6"
             ),
             to: [], term: cache.currentTerm, id: "domain-course"
         )
+        ScheduleCourseEditor.updateCacheForManualCourseChange(in: &cache, previousCourses: [], currentCourses: courses)
         let restored = try JSONDecoder().decode(ScheduleCache.self, from: JSONEncoder().encode(cache))
         #expect(restored.courses == cache.courses)
         #expect(restored.currentTerm == cache.currentTerm)

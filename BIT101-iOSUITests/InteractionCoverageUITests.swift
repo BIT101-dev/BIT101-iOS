@@ -807,7 +807,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         tap("举报帖子")
         choose("类型", option: "其他")
         tap("取消")
-        assertUI(app.buttons["发布话题"].exists, "取消卡片举报应返回列表。")
+        assertUI(app.buttons["发布话题"].appears(timeout: 5), "取消卡片举报应返回列表。")
         tap("自动化测试话题")
         tap("更多操作")
         tap("举报帖子")
@@ -816,7 +816,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         tap("提交举报")
         assertUI(app.alerts["举报已提交"].appears(timeout: 5), "详情举报应展示提交结果。")
         tap("知道了")
-        assertUI(app.navigationBars["帖子详情"].exists, "举报完成应返回详情。")
+        assertUI(app.navigationBars["帖子详情"].appears(timeout: 5), "举报完成应返回详情。")
     }
 
     @MainActor

@@ -153,6 +153,13 @@ with ((root / ".build/extended-automation.lock").open("a") if maintenance else n
                 if requested not in derived_roots:
                     raise SystemExit(f"构建缓存入口需要登记：{requested}")
                 requested.mkdir(parents=True, exist_ok=True)
+                if command[0] == "xcodebuild":
+                    # SwiftPM 的静态与框架布局共用中间产物，旧平面模块会遮蔽框架内的新模块。
+                    for framework in (requested / "Build/Products").glob("*/PackageFrameworks/*.framework"):
+                        flat_module = framework.parent.parent / f"{framework.stem}.swiftmodule"
+                        if flat_module.is_dir():
+                            shutil.rmtree(flat_module)
+                            flat_module.with_suffix(".o").unlink(missing_ok=True)
     for name in cache_names:
         (shared / name).mkdir(exist_ok=True)
     for derived in derived_roots:

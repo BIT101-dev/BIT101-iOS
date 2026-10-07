@@ -50,14 +50,15 @@ struct UITestLoginService: LoginServicing {
         var seededAccounts = defaults.stringArray(forKey: Key.seededScheduleAccounts) ?? []
         if !seededAccounts.contains(account) {
             var cache = ScheduleCache()
-            cache.firstDayString = ScheduleDateCodec.formatDate(ScheduleDateCodec.monday(containing: Date()))
             cache.currentTerm = "ui-test-term"
             cache.iCloudSyncEnabled = false
+            let firstDayString = ScheduleDateCodec.formatDate(ScheduleDateCodec.monday(containing: Date()))
+            cache.courseData.store(TermScheduleSnapshot(term: cache.currentTerm, firstDayString: firstDayString,
+                courses: [], exams: [], updatedAt: .distantPast))
             if AppUITestBootstrap.environment["BIT101_UI_TEST_SCHOOL"] == "1" {
                 let payload = UITestSchoolService.payload
-                cache.courses = payload.courses
-                cache.cachedCoursesByTerm[cache.currentTerm] = payload.courses
-                cache.exams = payload.exams
+                cache.courseData.store(TermScheduleSnapshot(term: cache.currentTerm, firstDayString: firstDayString,
+                    courses: payload.courses, exams: payload.exams, updatedAt: .distantPast))
                 cache.cachedClassroomBuildingsByCampusCode["1"] = try await UITestSchoolService().fetchBuildings(campusCode: "1")
             }
             if let fixture = AppUITestBootstrap.environment["BIT101_UI_TEST_DDL_FIXTURE"] {

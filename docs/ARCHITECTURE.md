@@ -57,13 +57,13 @@ App 入口 → 登录恢复 → AppAccountLifecycle → 各场景状态与页面
                     ↘ 网络、存储、云同步、系统能力适配
 ```
 
-- `AppAccountLifecycle` 显式接收日程实例、偏好同步、社区依赖、成绩服务、日程变更与课程加载能力、媒体、清理操作及外部展示协调器；从所选偏好同步实例取得账号仓库和账号来源。生产日程、通知中心和外部展示实例由 App 入口选择。
+- `AppAccountLifecycle` 显式接收日程实例、偏好同步、社区依赖、成绩服务、日程变更与课程加载能力、媒体、清理操作及外部展示协调器；设置与账号仓库由 App 入口显式提供，生命周期和偏好同步消费同一实例。生产日程、通知中心和外部展示实例由 App 入口选择。
 - 设置、成绩、筛选和消息仓库通过 typed 保存 publisher 发布账号会话；偏好同步协调器在构造时持有独立订阅。
 - `AppSettingsStore` 注入偏好存储与账号会话提供器。`AppAccountStores` 持有业务仓库及会话提供器，生产默认实例在 App 组装入口选择。
 - ViewModel 通过场景化服务协议接收业务能力；View 绑定状态和操作，平台适配器负责系统副作用。
 - Profile、Poster、Paper、Settings 导航能力按消费者拆分，`AppCommunityDestinations` 负责跨 Feature 工厂。个人主页删帖通过 `MineDependencies` 注入，业务动作归所属场景。
 - 页面入口显式接收状态、服务、MediaEnvironment 和所消费的导航能力，并向内部视图安装同一实例。导航目的地携带构造依赖，课程学分来源通过闭包注入。
-- `ScheduleRepository` 持有完整日程缓存与写权限，课表、DDL、空教室通过场景快照提交所属字段。保存任务按实例排队，捕获账号、代际与修订；同步操作等待持久化完成，再发布成功状态。保存失败保留编辑并呈现错误。
+- `ScheduleRepository` 持有完整日程缓存与写权限，课程、DDL、教室、展示偏好和同步元数据各自拥有独立状态；场景整体提交所属状态，跨场景查询消费只读上下文。保存任务按实例排队，捕获账号、代际与修订；同步操作等待持久化完成，再发布成功状态。保存失败保留编辑并呈现错误。
 - 日程变更流按来源、账号和代际筛选；保存期间的重载在队列完成后按本机修订核对归属。继续编辑的字段保留在仓库中。
 - `AppScheduleCacheEffects` 连接保存后的云同步；Widget、Watch 与 Live Activity 由应用生命周期的平台适配器协调。系统日历导入消费课程快照和学期，事件展开及写入归平台适配器。
 
@@ -75,6 +75,7 @@ App 入口 → 登录恢复 → AppAccountLifecycle → 各场景状态与页面
 - 推荐分页的共享请求携带独立身份；失败清理核对请求归属，刷新后的页面复用当前代际的缓存。
 - `ScoreFeature` 消费 `ScoreCaching` 与 `ScoreFilterPreferencesStoring` 及各实例的 typed 账号变更流；缓存和筛选实现归 `ScoreInfrastructure`，刷新判断、排序与汇总归 `ScoreDomain`。本地保存流供偏好同步订阅，页面变更流按账号筛选。
 - 可信成绩单页面通过 `MediaKit` 呈现本页图片预览，预览状态和挂载点随成绩单页面生命周期管理。
+- 发帖编辑、校验、草稿恢复、上传重试和提交归 `GalleryComposerViewModel`；View 承接输入、确认和导航。页面拆除时取消在途操作，迟到结果核对账号代际与场景代际；编辑已有帖子沿所属帖子提交，新帖草稿保持独立归属。
 - 共享草稿模型、图片限制和按消费者划分的存储端口归 `CommunityCore`；原子存储与迁移归 `CommunityPersistence`，图片编辑与压缩组件归 `CommunityUI`。存储注入图片准备闭包，Foundation 路径在包级宿主运行。图片尺寸限制由存储边界校验，账号路径、元数据和资产版本保持统一契约。
 - 话廊消费 `GalleryComposerDraftStoring` 与 `GalleryMessageReadStoring`，建议提交页消费 `DeveloperSuggestionDraftStoring`。消息页面订阅所选存储实例的 typed 变更流，本地保存流供偏好同步订阅。
 - 设置入口安装所选设置、日程及媒体实例；账号服务和凭据通过同一社区会话传递。清理服务接收文件后端和完整操作能力，生产 Keychain、偏好域、URLCache 与 WebKit 绑定归 App 工厂。
@@ -131,12 +132,12 @@ App 入口 → 登录恢复 → AppAccountLifecycle → 各场景状态与页面
 | 可重建图片与头像 | Caches，按容量和 LRU 策略回收 |
 | 外部课表展示 | App Group 中的精简快照 |
 
-- 文件保存采用原子替换及首次解锁后的数据保护。草稿图片以独立 JPEG 文件保存，单张上限 1 MiB。
+- 文件保存采用原子替换及首次解锁后的数据保护。草稿图片以独立 JPEG 文件保存，单张上限 1 MiB。草稿读取结果区分缺失、完整快照、读取损坏和格式版本差异；保存与提交清理沿完整源数据核对写权限，恢复状态保留元数据及图片。当前账号路径优先于历史路径，支持的历史载荷在成功原子写入后迁移源文件；明确放弃草稿时清理所属源路径。
 - 文件字节、目录、元数据和符号链接解析统一由 `AppFileService` 承接；媒体缓存的 LRU 路径归一化消费所选文件后端。App 更新检查、偏好云同步和系统日历从 `AppFileDirectories.defaults` 选择生产偏好，测试沿显式注入入口选择独立实例。
 - `SchedulePersistenceStore` 注入文件服务、根目录和用户状态比较器；App 的缓存适配器维护生产账号选择与通知，云同步基线在串行写入中合并。
-- 日程缓存保存学校原始课程、手动调整规则和展示结果。分享导入追加 `sharedSchedules` 中的只读记录，导入字段为学期、首周、时间表与课程，当前账号日程保持原值。
+- 日程磁盘快照使用整体 `schemaVersion`，当前格式按业务区域编码；历史平面格式由集中迁移入口解码，版本校验与完整解码决定写入准入。各学期学校课程、考试和首周日期统一存入 `ScheduleCourseData.schedulesByTerm`，当前展示由所选学期、手动首周日期和调课规则派生。完整日程滚动保留两个学期，归档学期保留原始课程供成绩匹配。分享导入追加 `sharedSchedules` 中的只读记录，导入字段为学期、首周、时间表与课程，当前账号日程保持原值。
 - 日程和成绩缓存读取失败时保留源文件，暂停对应写入和同步，呈现恢复状态；扩展使用当前账号的空快照。
-- 正常覆盖升级保留本地缓存、分享课表和偏好。新增 Codable 字段提供默认值，字段语义或类型变化维护迁移路径。
+- 正常覆盖升级保留本地缓存、分享课表和偏好。日程磁盘格式变化递增整体版本，并在集中入口维护迁移；迁移为新增字段提供默认值，格式校验失败保留完整源文件。其他 Codable 模型沿所属领域维护默认值及字段迁移。
 - 退出登录清理会话凭据，账号缓存和草稿保留供下次登录恢复。设置中的“删除所有文稿与数据”清理本地持久数据及 App Group 内容，远端 iCloud 数据继续保留。
 - 重装后的首次启动依据安装标记清理旧 Keychain 凭据。登录恢复暂时受阻时保留待确认会话，远端明确返回凭据失效时清理登录凭据。
 
@@ -172,7 +173,7 @@ CloudKit 使用带版本的精简载荷，本地记录保留服务器基线和�
 
 ## 服务边界门禁
 
-`Scripts/check-module-boundaries.py` 扫描全部生产模块、App、Widget 和 Watch 源码，并按实现文件校验系统资源归属：文件操作归 `StorageCore/AppFileService.swift`，HTTP 发送归 `TransportCore/HTTPClient.swift`，会话及网络缓存维护归 `TransportCore/SecureURLTransport.swift`，系统网络监听归 `TransportCore/NetworkPathState.swift`。偏好默认实例归 App 存储组装入口。UI 场景控制连接限定在 App 的测试启动代码，通过条件编译启用。
+`Scripts/check-module-boundaries.py` 从 SwiftPM 评估后的清单读取 target、源码路径、直接依赖和导出产品；模块集合与 `Modules/` 源码目录核对，层级方向和系统资源例外由检查器维护。清单中的多行、计算与条件表达式沿 SwiftPM 执行语义解析。检查器扫描全部生产模块、App、Widget 和 Watch 源码，并按实现文件校验系统资源归属：文件操作归 `StorageCore/AppFileService.swift`，HTTP 发送归 `TransportCore/HTTPClient.swift`，会话及网络缓存维护归 `TransportCore/SecureURLTransport.swift`，系统网络监听归 `TransportCore/NetworkPathState.swift`。偏好默认实例归 App 存储组装入口。UI 场景控制连接限定在 App 的测试启动代码，通过条件编译启用。
 
 门禁覆盖传输实例引用、直接请求发送、文件字节读写、文件句柄、图像与流的文件入口、元数据及符号链接访问。检查器保留字符串插值中的可执行代码，自测覆盖合法模块调用及各类绕过调用。测试源码通过内存后端或系统资源准备 fixture，生产调用链遵循所属服务入口。公共能力新增时同步维护所属模块、注入路径和门禁规则。
 

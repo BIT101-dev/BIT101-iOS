@@ -126,29 +126,14 @@ public nonisolated enum ScheduleCourseEditor {
         previousCourses: [CourseRecord],
         currentCourses: [CourseRecord]
     ) {
-        cache.courses = currentCourses
-        guard !cache.currentTerm.isEmpty else { return }
-
         let term = cache.currentTerm
-        let baselineCourses = cache.schoolCoursesByTerm[term]
-            ?? cache.termSchedulesByTerm[term]?.courses
-            ?? previousCourses
-        cache.schoolCoursesByTerm[term] = baselineCourses
-        cache.cachedCoursesByTerm[term] = baselineCourses
-        cache.manualCourseRulesByTerm[term] = updatingRules(
+        let baselineCourses = cache.courseData.schoolCourses(for: term)
+        cache.courseData.setRules(updatingRules(
             existing: cache.manualCourseRulesByTerm[term] ?? [],
             baselineCourses: baselineCourses,
             previousCourses: previousCourses,
             currentCourses: currentCourses
-        )
-        guard let snapshot = cache.termSchedulesByTerm[term] else { return }
-        cache.termSchedulesByTerm[term] = TermScheduleSnapshot(
-            term: snapshot.term,
-            firstDayString: snapshot.firstDayString,
-            courses: baselineCourses,
-            exams: snapshot.exams,
-            updatedAt: snapshot.updatedAt
-        )
+        ), for: term)
     }
 
     public struct ResolvedDraft: Equatable {

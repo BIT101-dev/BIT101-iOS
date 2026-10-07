@@ -3,40 +3,14 @@
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import subprocess
 import sys
 from functools import cache
 from pathlib import Path
 
-
-EXPECTED = {
-    "MediaKit": {"DesignSystemKit", "StorageCore", "TransportCore"},
-    "ScheduleSync": {"ScheduleDomain", "StorageCore"},
-    "SchedulePersistence": {"ScheduleDomain", "StorageCore"},
-    "ScheduleDomain": {"ScheduleContracts"},
-    "SchedulePorts": {"ClientCore", "ScheduleDomain", "StorageCore"},
-    "ScoreDomain": {"ClientCore", "StorageCore"},
-    "ScheduleInfrastructure": {"SchedulePorts", "ClientCore", "ScheduleDomain", "TransportCore"},
-    "ScheduleFeature": {"SchedulePorts", "ClientCore", "DesignSystemKit", "ScheduleDomain", "ScheduleContracts", "StorageCore", "TransportCore"},
-    "ScheduleSharedStore": {"ScheduleContracts", "StorageCore"},
-    "CommunityCore": {"StorageCore"},
-    "CommunityPersistence": {"CommunityCore", "StorageCore"},
-    "CommunityTransport": {"TransportCore"},
-    "GalleryFeature": {"CommunityCore", "CommunityTransport", "CommunityUI", "DesignSystemKit", "MediaKit", "TransportCore"},
-    "CourseFeature": {"CommunityCore", "CommunityTransport", "CommunityUI", "DesignSystemKit", "MediaKit", "TransportCore"},
-    "PaperFeature": {"CommunityCore", "CommunityTransport", "CommunityUI", "DesignSystemKit", "MediaKit", "TransportCore"},
-    "MineFeature": {"CommunityCore", "CommunityTransport", "CommunityUI", "DesignSystemKit", "MediaKit", "TransportCore"},
-    "CommunityUI": {"CommunityCore", "DesignSystemKit", "MediaKit"},
-    "ClientCore": set(),
-    "DesignSystemKit": set(),
-    "ScheduleContracts": set(),
-    "ScheduleActivityContracts": set(),
-    "ScoreInfrastructure": {"ClientCore", "ScoreDomain", "StorageCore", "TransportCore"},
-    "ScoreFeature": {"ScoreDomain", "ClientCore", "DesignSystemKit", "MediaKit", "StorageCore", "TransportCore"},
-    "StorageCore": set(),
-    "TransportCore": set(),
-    "MapFeature": {"DesignSystemKit", "ScheduleContracts", "TransportCore"},
-}
 
 IGNORED_IMPORTS = {
     "Foundation",
@@ -66,29 +40,36 @@ IGNORED_IMPORTS = {
 }
 
 
-def manifest_dependencies(manifest: str) -> dict[str, set[str]]:
-    pattern = re.compile(r'\.target\(name:\s*"(?P<name>[^"]+)"(?P<body>.*)\),')
-    result: dict[str, set[str]] = {}
-    for line in manifest.splitlines():
-        match = pattern.search(line)
-        if not match:
-            continue
-        name = match.group("name")
-        body = match.group("body")
-        dependencies_match = re.search(r'dependencies:\s*\[([^\]]*)\]', body)
-        dependencies = set(
-            re.findall(r'"([A-Za-z0-9]+)"', dependencies_match.group(1))
-        ) if dependencies_match else set()
-        path_match = re.search(r'path:\s*"([^"]+)"', body)
-        if not path_match:
-            raise ValueError(f"{name} has no explicit source path")
-        if name == "BIT101TestSupport" and path_match.group(1) == "ModuleTests/Support":
-            continue
-        expected_path = f"Modules/{name}/Sources"
-        if path_match.group(1) != expected_path:
-            raise ValueError(f"{name} uses {path_match.group(1)}, expected {expected_path}")
-        result[name] = dependencies
-    return result
+def manifest_targets(package: dict) -> dict[str, dict]:
+    """Consume SwiftPM's evaluated manifest, including computed and conditional declarations."""
+    targets = {}
+    for target in package["targets"]:
+        name = target["name"]
+        path = target.get("path")
+        if not isinstance(path, str):
+            raise ValueError(f"{name} requires an explicit source path")
+        dependencies = set()
+        for dependency in target["dependencies"]:
+            value = dependency.get("byName") or dependency.get("target")
+            if not value or not isinstance(value[0], str):
+                raise ValueError(f"{name} requires local target dependencies: {dependency}")
+            dependencies.add(value[0])
+        if name in targets:
+            raise ValueError(f"duplicate target: {name}")
+        targets[name] = {"path": path, "type": target["type"], "dependencies": dependencies}
+    return targets
+
+
+def read_manifest(root: Path) -> dict:
+    environment = dict(os.environ)
+    environment["CLANG_MODULE_CACHE_PATH"] = str(root / ".build/compiler-cache/ModuleCache.noindex")
+    result = subprocess.run([
+        "xcrun", "swift", "package", "--package-path", str(root),
+        "--scratch-path", str(root / ".build/extended-automation"), "dump-package",
+    ], capture_output=True, text=True, env=environment)
+    if result.returncode:
+        raise ValueError(result.stderr.strip() or "SwiftPM manifest evaluation failed")
+    return json.loads(result.stdout)
 
 
 def imported_modules(source_root: Path) -> dict[str, set[str]]:
@@ -269,7 +250,7 @@ def service_boundary_errors(path: str, source: str) -> list[str]:
 def ownership_errors(scope: str, source: str, path: str = "") -> list[str]:
     code = swift_code(source)
     patterns = []
-    if scope in EXPECTED:
+    if layer(scope) is not None:
         patterns.append(GLOBAL_RESOURCE_PATTERN)
     if scope in {"GalleryFeature", "CommunityUI"}:
         patterns.append(r"\b(?:ComposerDraftStore|GalleryMessageReadStore)\b")
@@ -289,6 +270,27 @@ def ownership_errors(scope: str, source: str, path: str = "") -> list[str]:
 
 
 def self_test() -> None:
+    targets = manifest_targets({"targets": [
+        {"name": "NewCore", "path": "Modules/NewCore/Sources", "type": "regular", "dependencies": []},
+        {"name": "NewFeature", "path": "Modules/NewFeature/Sources", "type": "regular",
+         "dependencies": [{"byName": ["NewCore", None]}]},
+        {"name": "ConsumerTests", "path": "ModuleTests/Consumer", "type": "test",
+         "dependencies": [{"target": ["NewFeature", {"platformNames": ["macos"]}]}]},
+    ]})
+    assert targets["NewFeature"]["dependencies"] == {"NewCore"}
+    assert targets["ConsumerTests"]["dependencies"] == {"NewFeature"}
+    assert graph_errors({name: info["dependencies"] for name, info in targets.items() if info["type"] == "regular"}) == []
+    for invalid in (
+        {"name": "MissingCore", "type": "regular", "dependencies": []},
+        {"name": "ExternalCore", "path": "Modules/ExternalCore/Sources", "type": "regular",
+         "dependencies": [{"product": ["Remote", "Package", None]}]},
+    ):
+        try:
+            manifest_targets({"targets": [invalid]})
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"invalid manifest target accepted: {invalid}")
     assert imports_in_text("@testable import ScoreFeature\n@preconcurrency public import TransportCore\nimport SwiftUI") == {"ScoreFeature", "TransportCore"}
     assert graph_errors({"Leaf": set(), "First": {"Leaf"}, "Second": {"Leaf"}}) == []
     assert any("cycle" in error for error in graph_errors({"First": {"Second"}, "Second": {"First"}}))
@@ -358,7 +360,7 @@ def self_test() -> None:
     assert ownership_errors("TransportCore", "URLCache.shared", "Modules/TransportCore/Sources/HTTPClient.swift")
 
 
-def native_target_errors(root: Path) -> list[str]:
+def native_target_errors(root: Path, package: dict, modules: set[str]) -> list[str]:
     project = (root / "BIT101-iOS.xcodeproj/project.pbxproj").read_text(encoding="utf-8")
     errors: list[str] = []
     pattern = r"\t\t[A-F0-9]+ /\* ([^*]+) \*/ = \{\n\t\t\tisa = PBXNativeTarget;(.*?)\n\t\t\};"
@@ -371,8 +373,9 @@ def native_target_errors(root: Path) -> list[str]:
         if name == "BIT101Watch":
             for module in imports_in_text((root / "BIT101-iOS/WatchSync/WatchScheduleSyncManager.swift").read_text(encoding="utf-8")):
                 actual.setdefault(module, set())
-        for module in actual.keys() & EXPECTED.keys() - declared:
-            errors.append(f"native target {name} imports undeclared product {module}")
+        exported = {module for product in package["products"] if product["name"] in declared for module in product["targets"]}
+        for module in actual.keys() & modules - exported:
+            errors.append(f"native target {name} imports undeclared product for {module}")
     return errors
 
 
@@ -380,57 +383,64 @@ def main() -> int:
     self_test()
     root = Path(__file__).resolve().parents[1]
     try:
-        manifest = manifest_dependencies((root / "Package.swift").read_text(encoding="utf-8"))
-    except (OSError, ValueError) as error:
+        package = read_manifest(root)
+        targets = manifest_targets(package)
+    except (OSError, ValueError, KeyError, TypeError) as error:
         print(f"module-boundary: {error}", file=sys.stderr)
         return 1
 
+    modules = {name: info for name, info in targets.items() if info["path"].startswith("Modules/")}
+    support = {name: info for name, info in targets.items()
+               if info["type"] == "regular" and info["path"].startswith("ModuleTests/")}
+    tests = {name: info for name, info in targets.items() if info["type"] == "test"}
     errors: list[str] = []
-    if set(manifest) != set(EXPECTED):
-        errors.append(f"target set mismatch: {sorted(manifest)}")
+    unknown = targets.keys() - modules.keys() - support.keys() - tests.keys()
+    if unknown:
+        errors.append(f"unclassified source targets: {sorted(unknown)}")
+    roots = {path.name for path in (root / "Modules").iterdir() if path.is_dir()}
+    if modules.keys() != roots:
+        errors.append(f"module source roots differ from manifest: {sorted(modules.keys() ^ roots)}")
+    graph = {name: info["dependencies"] for name, info in modules.items()}
+    errors.extend(graph_errors(graph))
 
-    errors.extend(graph_errors(manifest))
-
-    for module, expected_dependencies in EXPECTED.items():
-        if manifest.get(module) != expected_dependencies:
-            errors.append(
-                f"{module} dependencies: expected {sorted(expected_dependencies)}, "
-                f"found {sorted(manifest.get(module, set()))}"
-            )
-        source_root = root / "Modules" / module / "Sources"
+    for module, info in modules.items():
+        source_root = root / info["path"]
+        if info["type"] != "regular" or info["path"] != f"Modules/{module}/Sources":
+            errors.append(f"{module} requires a regular target at Modules/{module}/Sources")
+        if layer(module) is None:
+            errors.append(f"{module} requires a declared architectural layer suffix")
         if not source_root.is_dir():
             errors.append(f"{module} source root missing: {source_root}")
             continue
-        for source in source_root.rglob("*.swift"):
-            source_text = source.read_text(encoding="utf-8")
-            errors.extend(platform_errors(module, raw_imports(source_text)))
-            errors.extend(ownership_errors(module, source_text, source.relative_to(root).as_posix()))
-            errors.extend(service_boundary_errors(source.relative_to(root).as_posix(), source_text))
-        actual_imports = imported_modules(source_root)
-        for dependency in expected_dependencies - actual_imports.keys():
+        for path in source_root.rglob("*.swift"):
+            text = path.read_text(encoding="utf-8")
+            errors.extend(platform_errors(module, raw_imports(text)))
+            errors.extend(ownership_errors(module, text, path.relative_to(root).as_posix()))
+            errors.extend(service_boundary_errors(path.relative_to(root).as_posix(), text))
+        actual = imported_modules(source_root)
+        for dependency in info["dependencies"] - actual.keys():
             errors.append(f"{module} declares unused {dependency}")
-        for imported, files in actual_imports.items():
-            if imported not in EXPECTED:
+        for imported, files in actual.items():
+            if imported not in modules:
                 errors.append(f"{module} imports unknown module {imported}: {', '.join(sorted(files))}")
-            if imported in EXPECTED and imported not in expected_dependencies:
-                errors.append(
-                    f"{module} imports undeclared {imported}: {', '.join(sorted(files))}"
-                )
+            elif imported not in info["dependencies"]:
+                errors.append(f"{module} imports undeclared {imported}: {', '.join(sorted(files))}")
 
-    test_targets = re.findall(r'\.testTarget\(name:\s*"([^\"]+)",\s*dependencies:\s*\[([^\]]*)\],\s*path:\s*"([^\"]+)"', (root / "Package.swift").read_text(encoding="utf-8"))
-    for name, dependencies, path in test_targets:
-        declared = set(re.findall(r'"([A-Za-z0-9]+)"', dependencies))
-        actual = imported_modules(root / path).keys() & (EXPECTED.keys() | {"BIT101TestSupport"})
-        if actual != declared:
-            errors.append(f"test consumer {name}: declared {sorted(declared)}, imports {sorted(actual)}")
-    if len(test_targets) < 2:
+    for name, info in (support | tests).items():
+        source_root = root / info["path"]
+        if not source_root.is_dir() or not info["path"].startswith("ModuleTests/"):
+            errors.append(f"test source root requires ModuleTests ownership: {name}")
+        actual = imported_modules(source_root).keys() & (modules.keys() | support.keys())
+        if actual != info["dependencies"]:
+            errors.append(f"test consumer {name}: declared {sorted(info['dependencies'])}, imports {sorted(actual)}")
+    if len(tests) < 2:
         errors.append("test consumers require independent source roots")
 
     for name in ("AppLocalDataService.swift", "SettingsRootView.swift", "SettingsCommunityViews.swift", "SettingsAccountViews.swift", "SettingsServices.swift"):
         for source in (root / "BIT101-iOS").rglob(name):
             errors.extend(ownership_errors(name, source.read_text(encoding="utf-8")))
 
-    errors.extend(native_target_errors(root))
+    errors.extend(native_target_errors(root, package, set(modules)))
 
     for name in ("BIT101-iOS", "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets"):
         for source in (root / name).rglob("*.swift"):
@@ -441,7 +451,7 @@ def main() -> int:
             print(f"module-boundary: {error}", file=sys.stderr)
         return 1
 
-    print(f"module-boundary: {len(EXPECTED)} module source roots and direct dependencies pass")
+    print(f"module-boundary: {len(modules)} module source roots and direct dependencies pass")
     return 0
 
 

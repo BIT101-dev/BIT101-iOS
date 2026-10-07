@@ -137,7 +137,7 @@ struct ExtendedSchedulePolicyTests {
         )
 
         #expect(cache.courses == holidayCourses)
-        #expect(cache.schoolCoursesByTerm[repeating.term] == originals)
+        #expect(cache.courseData.schoolCourses(for: repeating.term) == originals)
         #expect(cache.cachedCoursesByTerm[repeating.term] == originals)
         #expect(cache.termSchedulesByTerm[repeating.term]?.courses == originals)
         #expect(cache.manualCourseRulesByTerm[repeating.term]?.count == 2)
@@ -149,7 +149,7 @@ struct ExtendedSchedulePolicyTests {
 
         let decoded = try JSONDecoder().decode(ScheduleCache.self, from: JSONEncoder().encode(cache))
         #expect(Set(decoded.courses) == Set(holidayCourses))
-        #expect(decoded.schoolCoursesByTerm[repeating.term] == originals)
+        #expect(decoded.courseData.schoolCourses(for: repeating.term) == originals)
         #expect(decoded.cachedCoursesByTerm[repeating.term] == originals)
         #expect(decoded.termSchedulesByTerm[repeating.term]?.courses == originals)
     }
@@ -176,7 +176,7 @@ struct ExtendedSchedulePolicyTests {
         )
 
         #expect(cache.courses == movedCourses)
-        #expect(cache.schoolCoursesByTerm[source.term] == originals)
+        #expect(cache.courseData.schoolCourses(for: source.term) == originals)
         #expect(cache.cachedCoursesByTerm[source.term] == originals)
         #expect(cache.termSchedulesByTerm[source.term]?.courses == originals)
         let restoredMovedCourses = ScheduleCourseEditor.reconcile(
@@ -187,7 +187,7 @@ struct ExtendedSchedulePolicyTests {
 
         let decoded = try JSONDecoder().decode(ScheduleCache.self, from: JSONEncoder().encode(cache))
         #expect(Set(decoded.courses) == Set(movedCourses))
-        #expect(decoded.schoolCoursesByTerm[source.term] == originals)
+        #expect(decoded.courseData.schoolCourses(for: source.term) == originals)
         #expect(decoded.cachedCoursesByTerm[source.term] == originals)
         #expect(decoded.termSchedulesByTerm[source.term]?.courses == originals)
     }
@@ -241,8 +241,8 @@ struct ExtendedSchedulePolicyTests {
         let replacement = course(id: "course", number: "MATH-1", weeks: [1, 2, 3], weekday: 5)
         var cache = ScheduleCache()
         cache.currentTerm = original.term
-        cache.courses = [replacement]
-        cache.schoolCoursesByTerm[original.term] = [original]
+        cache.courseData.store(TermScheduleSnapshot(term: original.term, firstDayString: "",
+            courses: [original], exams: [], updatedAt: .distantPast))
         cache.manualCourseRulesByTerm[original.term] = [
             ScheduleCourseRule(
                 sourceIdentity: scheduleCourseSourceIdentity(original),
@@ -258,7 +258,7 @@ struct ExtendedSchedulePolicyTests {
 
         #expect(decoded.courses == [replacement])
         #expect(decoded.manualCourseRulesByTerm[original.term]?.count == 1)
-        #expect(decoded.schoolCoursesByTerm[original.term] == [original])
+        #expect(decoded.courseData.schoolCourses(for: original.term) == [original])
     }
 
     @Test("Course editing rejects discontinuous sections")
@@ -493,17 +493,13 @@ struct ExtendedSchedulePolicyTests {
         let term = courses[0].term
         var cache = ScheduleCache()
         cache.currentTerm = term
-        cache.firstDayString = "2026-09-07"
-        cache.courses = courses
-        cache.schoolCoursesByTerm[term] = courses
-        cache.cachedCoursesByTerm[term] = courses
-        cache.termSchedulesByTerm[term] = TermScheduleSnapshot(
+        cache.courseData.store(TermScheduleSnapshot(
             term: term,
-            firstDayString: cache.firstDayString,
+            firstDayString: "2026-09-07",
             courses: courses,
             exams: [],
             updatedAt: Date(timeIntervalSince1970: 1_700_000_000)
-        )
+        ))
         return cache
     }
 }

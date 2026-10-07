@@ -143,6 +143,7 @@ final class GalleryViewModel: ObservableObject {
         do {
             if feed.isBotFeed {
                 let batch = try await service.fetchBotFeed(startPage: 0)
+                try Task.checkCancellation()
                 guard refreshGenerations[feed] == generation else { return }
                 setState(for: feed) {
                     $0.posters = batch.posters
@@ -154,6 +155,7 @@ final class GalleryViewModel: ObservableObject {
                 if feed == .recommend {
                     // 推荐流首屏拉取一个源页，先展示结果；更多源页交给后台预取。
                     let batch = try await service.fetchRecommendPage(sourcePage: 0)
+                    try Task.checkCancellation()
                     guard refreshGenerations[feed] == generation else { return }
                     let uniquePosters = try await Self.deduplicateInBackground(batch.posters)
                     guard refreshGenerations[feed] == generation else { return }
@@ -168,6 +170,7 @@ final class GalleryViewModel: ObservableObject {
                     }
                 } else {
                     let posters = try await service.fetchFeed(kind: feed, page: nil)
+                    try Task.checkCancellation()
                     guard refreshGenerations[feed] == generation else { return }
                     let uniquePosters = try await Self.deduplicateInBackground(posters)
                     guard refreshGenerations[feed] == generation else { return }
@@ -242,6 +245,7 @@ final class GalleryViewModel: ObservableObject {
         do {
             if feed.isBotFeed {
                 let batch = try await service.fetchBotFeed(startPage: state.nextPage)
+                try Task.checkCancellation()
                 guard refreshGenerations[feed] == generation else { return }
                 let mergedPosters = try await Self.mergeUniqueInBackground(existing: state.posters, incoming: batch.posters)
                 guard refreshGenerations[feed] == generation else { return }
@@ -281,6 +285,7 @@ final class GalleryViewModel: ObservableObject {
                 }
             } else {
                 let posters = try await service.fetchFeed(kind: feed, page: state.nextPage)
+                try Task.checkCancellation()
                 guard refreshGenerations[feed] == generation else { return }
                 let mergedPosters = try await Self.mergeUniqueInBackground(existing: state.posters, incoming: posters)
                 guard refreshGenerations[feed] == generation else { return }
@@ -317,6 +322,7 @@ final class GalleryViewModel: ObservableObject {
 
         do {
             let posters = try await service.searchPosters(query: searchQuery, page: nil)
+            try Task.checkCancellation()
             guard searchGeneration == generation else { return }
             let uniquePosters = try await Self.deduplicateInBackground(posters)
             guard searchGeneration == generation else { return }
@@ -326,6 +332,10 @@ final class GalleryViewModel: ObservableObject {
             guard searchGeneration == generation else { return }
             if isGalleryCancellation(error) {
                 searchState = previousState
+                if previousState.status == .loading {
+                    searchState.status = previousState.posters.isEmpty ? .idle : .loaded
+                    searchState.isLoadingMore = false
+                }
                 return
             }
             searchState.status = .failed(error.localizedDescription)
@@ -352,6 +362,7 @@ final class GalleryViewModel: ObservableObject {
 
         do {
             let posters = try await service.searchPosters(query: searchQuery, page: searchState.nextPage)
+            try Task.checkCancellation()
             guard searchGeneration == generation else { return }
             let mergedPosters = try await Self.mergeUniqueInBackground(existing: searchState.posters, incoming: posters)
             guard searchGeneration == generation else { return }

@@ -339,6 +339,7 @@ if [[ "$MODE" == "modules" ]]; then
     CODECOV_PATH="$(xcrun swift test --show-codecov-path --package-path "$ROOT_DIR" --scratch-path "$DERIVED_ROOT" --configuration release)"
     python3 - "$CODECOV_PATH" "$DERIVED_ROOT/test-metrics.txt" "$ROOT_DIR" <<'PY'
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -372,13 +373,24 @@ for section in coverage["data"]:
         modules[module] = covered + lines["covered"], count + lines["count"]
 if not modules:
     raise SystemExit("模块覆盖率需要包含生产源码。")
-rows = ["# 模块生产源码行覆盖率", f"测试通过：{test_count} 项", *[
+covered = sum(row[0] for row in modules.values())
+count = sum(row[1] for row in modules.values())
+rows = ["# 模块生产源码行覆盖率", f"测试通过：{test_count} 项",
+    f"统计范围：macOS 可执行生产源码，共 {len(modules)} 个模块",
+    f"合计：{covered / count * 100 if count else 0:.2f}% ({covered}/{count} lines)", *[
     f"- {name}: {covered / count * 100 if count else 0:.2f}% ({covered}/{count} lines)"
     for name, (covered, count) in sorted(modules.items())
 ]]
 report_path.write_text("\n".join(rows) + "\n")
-covered = sum(row[0] for row in modules.values())
-count = sum(row[1] for row in modules.values())
+summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+if summary_path:
+    table = ["## 模块回归", f"{test_count} 项测试通过；统计范围为 macOS 可执行生产源码。",
+             "", "| 模块 | 行覆盖率 | 覆盖行 / 可执行行 |", "| --- | ---: | ---: |"]
+    table += [f"| {name} | {hit / total * 100 if total else 0:.2f}% | {hit} / {total} |"
+              for name, (hit, total) in sorted(modules.items())]
+    table += [f"| 合计 | {covered / count * 100 if count else 0:.2f}% | {covered} / {count} |"]
+    with Path(summary_path).open("a", encoding="utf-8") as summary:
+        summary.write("\n".join(table) + "\n")
 print(f"[覆盖率] {len(modules)} 个模块 · {covered}/{count} 行")
 PY
   fi

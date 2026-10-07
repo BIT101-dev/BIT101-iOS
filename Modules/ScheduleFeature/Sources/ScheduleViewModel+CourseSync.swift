@@ -78,15 +78,7 @@ extension ScheduleViewModel {
         let normalizedTerm = term.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedTerm.isEmpty, courseState.currentTerm != normalizedTerm else { return }
 
-        if let snapshot = courseState.termSchedulesByTerm[normalizedTerm] {
-            activate(snapshot)
-        } else {
-            courseState.currentTerm = normalizedTerm
-            courseState.firstDayString = ""
-            courseState.coursesUpdatedAt = .distantPast
-            courseState.courses = []
-            courseState.exams = []
-        }
+        courseState.currentTerm = normalizedTerm
         selectedWeek = resolvedAutomaticWeek()
         persist()
     }
@@ -247,9 +239,7 @@ extension ScheduleViewModel {
         let generation = accountGeneration
         let incomingCourses = payload.courses
         let now = Date()
-        let existingBaseline = courseState.schoolCoursesByTerm[payload.term]
-            ?? courseState.termSchedulesByTerm[payload.term]?.courses
-            ?? (courseState.currentTerm == payload.term ? courseState.courses : [])
+        let existingBaseline = courseState.data.schoolCourses(for: payload.term)
         let rules = courseState.manualCourseRulesByTerm[payload.term] ?? []
         let reconciliation = ScheduleCourseEditor.reconcile(
             rules: rules,
@@ -257,14 +247,10 @@ extension ScheduleViewModel {
         )
         let coursesAreIdentical = scheduleCourseSourceRecordsEqual(existingBaseline, incomingCourses)
 
-        courseState.schoolCoursesByTerm[payload.term] = incomingCourses
-        courseState.manualCourseRulesByTerm[payload.term] = reconciliation.validRules
         let snapshot = makeTermSnapshot(from: payload, now: now)
-        courseState.termSchedulesByTerm[payload.term] = snapshot
-        courseState.cachedCoursesByTerm[payload.term] = incomingCourses
+        courseState.data.store(snapshot)
 
         if courseState.currentTerm == payload.term {
-            activate(snapshot)
             selectedWeek = resolvedAutomaticWeek()
         }
         trimTermSnapshots(preserving: Set([payload.term]))
@@ -285,28 +271,6 @@ extension ScheduleViewModel {
         }
     }
 
-    /// 记录一次成功的学校响应，即使课表内容与本地缓存完全一致。
-    private func markCourseSyncSucceeded(term: String, at date: Date) {
-        var didUpdate = false
-        if courseState.currentTerm == term {
-            courseState.coursesUpdatedAt = date
-            didUpdate = true
-        }
-        if let snapshot = courseState.termSchedulesByTerm[term] {
-            courseState.termSchedulesByTerm[term] = TermScheduleSnapshot(
-                term: snapshot.term,
-                firstDayString: snapshot.firstDayString,
-                courses: snapshot.courses,
-                exams: snapshot.exams,
-                updatedAt: date
-            )
-            didUpdate = true
-        }
-        if didUpdate {
-            persist()
-        }
-    }
-
     private func makeTermSnapshot(from payload: CourseSyncPayload, now: Date) -> TermScheduleSnapshot {
         TermScheduleSnapshot(
             term: payload.term,
@@ -317,20 +281,6 @@ extension ScheduleViewModel {
         )
     }
 
-    private func activate(_ snapshot: TermScheduleSnapshot) {
-        courseState.currentTerm = snapshot.term
-        courseState.firstDayString = courseState.manualFirstDayStringsByTerm[snapshot.term] ?? snapshot.firstDayString
-        courseState.coursesUpdatedAt = snapshot.updatedAt
-        let baseline = courseState.schoolCoursesByTerm[snapshot.term] ?? snapshot.courses
-        courseState.schoolCoursesByTerm[snapshot.term] = baseline
-        courseState.courses = ScheduleCourseEditor.reconcile(
-            rules: courseState.manualCourseRulesByTerm[snapshot.term] ?? [],
-            with: baseline
-        ).courses
-        courseState.exams = snapshot.exams
-        courseState.cachedCoursesByTerm[snapshot.term] = baseline
-    }
-
     /// 将学期快照数量限制为最多两个，并保留当前显示学期与显式同步的目标学期。
     private func trimTermSnapshots(preserving terms: Set<String>) {
         guard courseState.termSchedulesByTerm.count > 2 else { return }
@@ -338,9 +288,7 @@ extension ScheduleViewModel {
             .filter { !terms.contains($0.term) && $0.term != courseState.currentTerm }
             .sorted { $0.updatedAt < $1.updatedAt }
         for snapshot in removable where courseState.termSchedulesByTerm.count > 2 {
-            courseState.termSchedulesByTerm.removeValue(forKey: snapshot.term)
-            courseState.schoolCoursesByTerm.removeValue(forKey: snapshot.term)
-            courseState.manualCourseRulesByTerm.removeValue(forKey: snapshot.term)
+            courseState.data.archive(term: snapshot.term)
         }
     }
 

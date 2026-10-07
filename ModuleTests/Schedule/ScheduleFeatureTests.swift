@@ -461,7 +461,7 @@ struct ScheduleRepositoryBoundaryTests {
         var ddl = repository.ddlState
         var classroom = repository.classroomState
 
-        repository.courseState.firstDayString = "2026-09-28"
+        repository.courseState.manualFirstDayStringsByTerm[repository.courseState.currentTerm] = "2026-09-28"
         ddl.ddlBeforeDay = 12
         repository.ddlState = ddl
         classroom.selectedCampusName = "良乡校区"
@@ -481,13 +481,13 @@ struct ScheduleRepositoryBoundaryTests {
         let repository = makeRepository(load: { _ in .missing }, save: { _, _, _ in })
         await repository.loadIfNeeded()
         repository.courseState.currentTerm = "2026-2027-1"
-        repository.courseState.firstDayString = "2026-09-28"
+        repository.courseState.manualFirstDayStringsByTerm[repository.courseState.currentTerm] = "2026-09-28"
         repository.courseState.primaryScheduleTitle = "学业"
         repository.courseState.timeTable = [TimeSlot(id: 1, start: "08:00", end: "08:45")]
-        repository.courseState.termSchedulesByTerm[repository.courseState.currentTerm] = TermScheduleSnapshot(
+        repository.courseState.data.store(TermScheduleSnapshot(
             term: repository.persistenceSnapshot.currentTerm, firstDayString: "2026-09-21",
             courses: [], exams: [], updatedAt: .distantPast
-        )
+        ))
         let viewModel = makeViewModel(
             service: ModuleSemesterStartDateService(), repository: repository,
             platformActions: ModuleRecordingSchedulePlatformActions()
@@ -510,11 +510,12 @@ struct ScheduleRepositoryBoundaryTests {
         let repository = makeRepository(load: { _ in .missing }, save: { _, _, _ in })
         await repository.loadIfNeeded()
         repository.courseState.currentTerm = "2026-2027-1"
-        repository.courseState.firstDayString = "2026-09-28"
-        repository.courseState.courses = try ScheduleCourseEditor.adding(
+        repository.courseState.manualFirstDayStringsByTerm[repository.courseState.currentTerm] = "2026-09-28"
+        let courses = try ScheduleCourseEditor.adding(
             CourseDraft(title: "边界课程", classroom: "文萃楼I203", weekday: 1, startSection: 1, endSection: 2, weeksText: "1-2"),
             to: [], term: repository.persistenceSnapshot.currentTerm, id: "boundary-course"
         )
+        repository.updateCourses(previousCourses: [], currentCourses: courses)
         let viewModel = makeViewModel(
             service: ModuleSemesterStartDateService(), repository: repository,
             platformActions: ModuleRecordingSchedulePlatformActions()
@@ -599,7 +600,7 @@ struct ScheduleRepositoryBoundaryTests {
         #expect(ddlChanges == 1)
         #expect(classroomChanges == 1)
 
-        repository.courseState.firstDayString = "2026-09-28"
+        repository.courseState.manualFirstDayStringsByTerm[repository.courseState.currentTerm] = "2026-09-28"
         #expect(courseChanges == 2)
         #expect(ddlChanges == 1)
         #expect(classroomChanges == 2)

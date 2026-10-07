@@ -453,14 +453,23 @@ struct DeveloperSuggestionPage: View {
 
     private func checkDraftOnAppear() async {
         guard !didCheckDraft else { return }
-        let hasDraft = await dependencies.drafts.loadSuggestion() != nil
+        let result = await dependencies.drafts.loadSuggestion()
         guard !Task.isCancelled else { return }
         didCheckDraft = true
-        if hasDraft { confirmation = .restoreDraft }
+        if result.snapshot != nil { confirmation = .restoreDraft }
+        if let message = result.recoveryMessage {
+            alert = AppAlert.informational(title: "建议草稿恢复需要处理", message: message)
+        }
     }
 
     private func loadSavedDraft() async {
-        guard let draft = await dependencies.drafts.loadSuggestion() else { return }
+        let result = await dependencies.drafts.loadSuggestion()
+        guard let draft = result.snapshot else {
+            if let message = result.recoveryMessage {
+                alert = AppAlert.informational(title: "建议草稿恢复需要处理", message: message)
+            }
+            return
+        }
 
         text = draft.text
         contact = draft.contact

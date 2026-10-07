@@ -30,6 +30,8 @@ final class AppAccountLifecycle: ObservableObject {
         community: AppCommunityDependencies,
         scoreService: any ScoreListServicing,
         transcriptService: any TrustedTranscriptServicing,
+        settings: AppSettingsStore,
+        stores: AppAccountStores,
         preferenceCloudSync: ExperimentalPreferenceCloudSync,
         notifications: NotificationCenter,
         scheduleChanges: AnyPublisher<AppStorageSession, Never>,
@@ -38,8 +40,6 @@ final class AppAccountLifecycle: ObservableObject {
         localData: AppLocalDataService,
         externalDisplays: any AppExternalDisplayCoordinating
     ) {
-        let settings = preferenceCloudSync.settings
-        let stores = preferenceCloudSync.stores
         self.scheduleViewModel = scheduleViewModel
         if let scoreViewModel {
             self.scoreViewModel = scoreViewModel

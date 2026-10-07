@@ -181,7 +181,7 @@ struct ExperimentalPreferenceCloudSyncTests {
         let community = AppCommunityDependencies(settings: sync.settings, session: session, checkLogin: { true },
             messages: sync.stores.communityMessages, drafts: sync.stores.composerDrafts, submitSuggestion: { _ in }, loadCourseCredits: { [] })
         return AppAccountLifecycle(scheduleViewModel: schedule, community: community, scoreService: OfflineScoreService(),
-            transcriptService: OfflineScoreService(), preferenceCloudSync: sync, notifications: center,
+            transcriptService: OfflineScoreService(), settings: sync.settings, stores: sync.stores, preferenceCloudSync: sync, notifications: center,
             scheduleChanges: changes, loadScheduleCourses: loadCourses, media: media,
             localData: AppLocalDataService(files: PreferenceMemoryFiles(), actions: LocalDataActionsSpy().actions), externalDisplays: displays)
     }

@@ -125,24 +125,17 @@ struct ScheduleCacheMigrationTests {
             category: "",
             department: ""
         )
-        var cache = ScheduleCache()
-        cache.storedCourseScheduleParserVersion = 1
-        cache.currentTerm = course.term
-        cache.courses = [course]
-        cache.cachedCoursesByTerm[course.term] = [course]
-        cache.termSchedulesByTerm[course.term] = TermScheduleSnapshot(
-            term: course.term,
-            firstDayString: "2026-08-31",
-            courses: [course],
-            exams: [],
-            updatedAt: Date(timeIntervalSince1970: 1_700_000_000)
-        )
-
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
+        let object: [String: Any] = [
+            "storedCourseScheduleParserVersion": 1,
+            "currentTerm": course.term,
+            "firstDayString": "2026-08-31",
+            "courses": try JSONSerialization.jsonObject(with: encoder.encode([course]))
+        ]
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        let decoded = try decoder.decode(ScheduleCache.self, from: encoder.encode(cache))
+        let decoded = try decoder.decode(ScheduleCache.self, from: JSONSerialization.data(withJSONObject: object))
 
         #expect(decoded.courses.first?.weeks == [-1])
         #expect(decoded.cachedCoursesByTerm[course.term]?.first?.weeks == [-1])
@@ -242,7 +235,8 @@ struct ScheduleCacheMigrationTests {
         let original = ScheduleCache()
         var refreshed = original
         refreshed.currentTerm = "2026-2027-1"
-        refreshed.coursesUpdatedAt = Date()
+        refreshed.courseData.store(TermScheduleSnapshot(term: refreshed.currentTerm, firstDayString: "",
+            courses: [], exams: [], updatedAt: Date()))
         refreshed.updatedAt = Date()
         refreshed.cloudSyncBaselineAt = Date()
         refreshed.cloudSyncBaselineRecordTag = "confirmed-record"

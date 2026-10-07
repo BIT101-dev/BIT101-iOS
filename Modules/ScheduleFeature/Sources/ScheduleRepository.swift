@@ -155,13 +155,13 @@ public final class ScheduleRepository: ObservableObject {
 
     var courseChanges: AnyPublisher<Void, Never> {
         valueChanges(for: ScheduleCourseState.init)
-            .merge(with: valueChanges(for: SchedulePresentationPreferences.init))
+            .merge(with: valueChanges(for: { $0.presentation }))
             .merge(with: valueChanges(for: { $0.iCloudSyncEnabled }))
             .merge(with: availabilityChanges)
             .eraseToAnyPublisher()
     }
 
-    var ddlChanges: AnyPublisher<Void, Never> { changes(for: ScheduleDDLState.init) }
+    var ddlChanges: AnyPublisher<Void, Never> { changes(for: { $0.ddlData }) }
     var classroomChanges: AnyPublisher<Void, Never> { changes(for: ScheduleClassroomState.init) }
     var classroomSelection: AnyPublisher<String, Never> {
         $cache.map(\.selectedBuildingID).removeDuplicates().eraseToAnyPublisher()
@@ -204,111 +204,51 @@ extension ScheduleStateConsumer {
     }
 }
 
-/// 课表内容与偏好的场景快照，教学楼目录作为编辑上下文提供。
+/// 课程状态整体传递，教学楼目录作为只读编辑上下文提供。
+@dynamicMemberLookup
 nonisolated struct ScheduleCourseState: Equatable {
-    var primaryScheduleTitle: String
-    var currentTerm: String
-    var firstDayString: String
-    var manualFirstDayStringsByTerm: [String: String]
-    var coursesUpdatedAt: Date
-    var courses: [CourseRecord]
-    var cachedCoursesByTerm: [String: [CourseRecord]]
-    var schoolCoursesByTerm: [String: [CourseRecord]]
-    var manualCourseRulesByTerm: [String: [ScheduleCourseRule]]
-    var termSchedulesByTerm: [String: TermScheduleSnapshot]
-    var exams: [ExamRecord]
-    var customSchedules: [CustomScheduleRecord]
-    var timeTable: [TimeSlot]
-    var sharedSchedules: [SharedScheduleRecord]
-    let firstDay: Date?
+    var data: ScheduleCourseData
     let cachedClassroomBuildingsByCampusCode: [String: [BuildingRecord]]
 
     init(cache: ScheduleCache) {
-        primaryScheduleTitle = cache.primaryScheduleTitle
-        currentTerm = cache.currentTerm
-        firstDayString = cache.firstDayString
-        manualFirstDayStringsByTerm = cache.manualFirstDayStringsByTerm
-        coursesUpdatedAt = cache.coursesUpdatedAt
-        courses = cache.courses
-        cachedCoursesByTerm = cache.cachedCoursesByTerm
-        schoolCoursesByTerm = cache.schoolCoursesByTerm
-        manualCourseRulesByTerm = cache.manualCourseRulesByTerm
-        termSchedulesByTerm = cache.termSchedulesByTerm
-        exams = cache.exams
-        customSchedules = cache.customSchedules
-        timeTable = cache.timeTable
-        sharedSchedules = cache.sharedSchedules
-        firstDay = cache.firstDay
-        cachedClassroomBuildingsByCampusCode = cache.cachedClassroomBuildingsByCampusCode
+        data = cache.courseData
+        cachedClassroomBuildingsByCampusCode = cache.classroomData.cachedClassroomBuildingsByCampusCode
+    }
+
+    subscript<Value>(dynamicMember keyPath: KeyPath<ScheduleCourseData, Value>) -> Value {
+        data[keyPath: keyPath]
+    }
+    subscript<Value>(dynamicMember keyPath: WritableKeyPath<ScheduleCourseData, Value>) -> Value {
+        get { data[keyPath: keyPath] }
+        set { data[keyPath: keyPath] = newValue }
     }
 }
 
-/// DDL 内容与显示偏好的场景快照。
-struct ScheduleDDLState: Equatable {
-    var lexueCalendarURL: String
-    var ddlEvents: [DDLEventRecord]
-    var lexueDDLCompletionByID: [String: Bool]
-    var ddlUpdatedAt: Date?
-    var ddlBeforeDay: Int
-    var ddlAfterDay: Int
+typealias ScheduleDDLState = ScheduleDDLData
 
-    init(cache: ScheduleCache) {
-        lexueCalendarURL = cache.lexueCalendarURL
-        ddlEvents = cache.ddlEvents
-        lexueDDLCompletionByID = cache.lexueDDLCompletionByID
-        ddlUpdatedAt = cache.ddlUpdatedAt
-        ddlBeforeDay = cache.ddlBeforeDay
-        ddlAfterDay = cache.ddlAfterDay
-    }
-}
-
-/// 空教室选择与查询上下文的场景快照。
-struct ScheduleClassroomState: Equatable {
-    var selectedCampusName: String
-    var selectedCampusCode: String
-    var selectedBuildingID: String
-    var cachedClassroomCampuses: [CampusRecord]
-    var cachedClassroomBuildingsByCampusCode: [String: [BuildingRecord]]
-    var selectedClassroomSectionIDs: [Int]
-    var isClassroomSectionFilterCustomized: Bool
+/// 空教室状态整体传递，课程快照作为只读查询上下文提供。
+@dynamicMemberLookup
+nonisolated struct ScheduleClassroomState: Equatable {
+    var data: ScheduleClassroomData
     let currentTerm: String
     let courses: [CourseRecord]
     let firstDay: Date?
     let timeTable: [TimeSlot]
 
     init(cache: ScheduleCache) {
-        selectedCampusName = cache.selectedCampusName
-        selectedCampusCode = cache.selectedCampusCode
-        selectedBuildingID = cache.selectedBuildingID
-        cachedClassroomCampuses = cache.cachedClassroomCampuses
-        cachedClassroomBuildingsByCampusCode = cache.cachedClassroomBuildingsByCampusCode
-        selectedClassroomSectionIDs = cache.selectedClassroomSectionIDs
-        isClassroomSectionFilterCustomized = cache.isClassroomSectionFilterCustomized
+        data = cache.classroomData
         currentTerm = cache.currentTerm
         courses = cache.courses
         firstDay = cache.firstDay
         timeTable = cache.timeTable
     }
-}
 
-/// 课表展示与提醒偏好按独立投影维护。
-nonisolated struct SchedulePresentationPreferences: Equatable {
-    var showSaturday: Bool
-    var showSunday: Bool
-    var showExamInfo: Bool
-    var scheduleDisplayMode: ScheduleDisplayMode
-    var scheduleCardContentMode: ScheduleCardContentMode
-    var showCourseLiveActivityReminder: Bool
-    var courseLiveActivityLeadMinutes: Int
-
-    init(cache: ScheduleCache) {
-        showSaturday = cache.showSaturday
-        showSunday = cache.showSunday
-        showExamInfo = cache.showExamInfo
-        scheduleDisplayMode = cache.scheduleDisplayMode
-        scheduleCardContentMode = cache.scheduleCardContentMode
-        showCourseLiveActivityReminder = cache.showCourseLiveActivityReminder
-        courseLiveActivityLeadMinutes = cache.courseLiveActivityLeadMinutes
+    subscript<Value>(dynamicMember keyPath: KeyPath<ScheduleClassroomData, Value>) -> Value {
+        data[keyPath: keyPath]
+    }
+    subscript<Value>(dynamicMember keyPath: WritableKeyPath<ScheduleClassroomData, Value>) -> Value {
+        get { data[keyPath: keyPath] }
+        set { data[keyPath: keyPath] = newValue }
     }
 }
 
@@ -329,74 +269,28 @@ nonisolated struct ScheduleSyncState: Equatable {
 
 extension ScheduleRepository {
     var presentationPreferences: SchedulePresentationPreferences {
-        get { SchedulePresentationPreferences(cache: cache) }
-        set {
-            var updated = cache
-            updated.showSaturday = newValue.showSaturday
-            updated.showSunday = newValue.showSunday
-            updated.showExamInfo = newValue.showExamInfo
-            updated.scheduleDisplayMode = newValue.scheduleDisplayMode
-            updated.scheduleCardContentMode = newValue.scheduleCardContentMode
-            updated.showCourseLiveActivityReminder = newValue.showCourseLiveActivityReminder
-            updated.courseLiveActivityLeadMinutes = newValue.courseLiveActivityLeadMinutes
-            cache = updated
-        }
+        get { cache.presentation }
+        set { cache.presentation = newValue }
     }
 
     var syncState: ScheduleSyncState {
         get { ScheduleSyncState(cache: cache) }
-        set { cache.iCloudSyncEnabled = newValue.iCloudSyncEnabled }
+        set { cache.syncData.iCloudSyncEnabled = newValue.iCloudSyncEnabled }
     }
 
     var courseState: ScheduleCourseState {
         get { ScheduleCourseState(cache: cache) }
-        set {
-            var updated = cache
-            updated.primaryScheduleTitle = newValue.primaryScheduleTitle
-            updated.currentTerm = newValue.currentTerm
-            updated.firstDayString = newValue.firstDayString
-            updated.manualFirstDayStringsByTerm = newValue.manualFirstDayStringsByTerm
-            updated.coursesUpdatedAt = newValue.coursesUpdatedAt
-            updated.courses = newValue.courses
-            updated.cachedCoursesByTerm = newValue.cachedCoursesByTerm
-            updated.schoolCoursesByTerm = newValue.schoolCoursesByTerm
-            updated.manualCourseRulesByTerm = newValue.manualCourseRulesByTerm
-            updated.termSchedulesByTerm = newValue.termSchedulesByTerm
-            updated.exams = newValue.exams
-            updated.customSchedules = newValue.customSchedules
-            updated.timeTable = newValue.timeTable
-            updated.sharedSchedules = newValue.sharedSchedules
-            cache = updated
-        }
+        set { cache.courseData = newValue.data }
     }
 
     var ddlState: ScheduleDDLState {
-        get { ScheduleDDLState(cache: cache) }
-        set {
-            var updated = cache
-            updated.lexueCalendarURL = newValue.lexueCalendarURL
-            updated.ddlEvents = newValue.ddlEvents
-            updated.lexueDDLCompletionByID = newValue.lexueDDLCompletionByID
-            updated.ddlUpdatedAt = newValue.ddlUpdatedAt
-            updated.ddlBeforeDay = newValue.ddlBeforeDay
-            updated.ddlAfterDay = newValue.ddlAfterDay
-            cache = updated
-        }
+        get { cache.ddlData }
+        set { cache.ddlData = newValue }
     }
 
     var classroomState: ScheduleClassroomState {
         get { ScheduleClassroomState(cache: cache) }
-        set {
-            var updated = cache
-            updated.selectedCampusName = newValue.selectedCampusName
-            updated.selectedCampusCode = newValue.selectedCampusCode
-            updated.selectedBuildingID = newValue.selectedBuildingID
-            updated.cachedClassroomCampuses = newValue.cachedClassroomCampuses
-            updated.cachedClassroomBuildingsByCampusCode = newValue.cachedClassroomBuildingsByCampusCode
-            updated.selectedClassroomSectionIDs = newValue.selectedClassroomSectionIDs
-            updated.isClassroomSectionFilterCustomized = newValue.isClassroomSectionFilterCustomized
-            cache = updated
-        }
+        set { cache.classroomData = newValue.data }
     }
 
     func resolveCurrentTerm(_ term: String) {

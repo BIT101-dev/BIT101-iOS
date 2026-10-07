@@ -36,7 +36,12 @@ let package = Package(
         .target(name: "SchedulePorts", dependencies: ["ClientCore", "ScheduleDomain", "StorageCore"], path: "Modules/SchedulePorts/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "ScoreDomain", dependencies: ["ClientCore", "StorageCore"], path: "Modules/ScoreDomain/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "ScheduleFeature", dependencies: ["SchedulePorts", "ClientCore", "DesignSystemKit", "ScheduleDomain", "ScheduleContracts", "StorageCore", "TransportCore"], path: "Modules/ScheduleFeature/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
-        .target(name: "GalleryFeature", dependencies: ["CommunityCore", "CommunityTransport", "CommunityUI", "DesignSystemKit", "MediaKit", "TransportCore"], path: "Modules/GalleryFeature/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
+        .target(
+            name: "GalleryFeature",
+            dependencies: ["CommunityCore", "CommunityTransport", "CommunityUI", "DesignSystemKit", "MediaKit", "TransportCore"],
+            path: "Modules/GalleryFeature/Sources",
+            swiftSettings: [.defaultIsolation(MainActor.self)]
+        ),
         .target(name: "CourseFeature", dependencies: ["CommunityCore", "CommunityTransport", "CommunityUI", "DesignSystemKit", "MediaKit", "TransportCore"], path: "Modules/CourseFeature/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "PaperFeature", dependencies: ["CommunityCore", "CommunityTransport", "CommunityUI", "DesignSystemKit", "MediaKit", "TransportCore"], path: "Modules/PaperFeature/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "MineFeature", dependencies: ["CommunityCore", "CommunityTransport", "CommunityUI", "DesignSystemKit", "MediaKit", "TransportCore"], path: "Modules/MineFeature/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),

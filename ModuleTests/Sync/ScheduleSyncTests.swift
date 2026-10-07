@@ -6,6 +6,29 @@ import Testing
 
 @MainActor
 struct ScheduleSyncTests {
+    @Test func schoolRefreshAndEmptyRulesKeepTheSameCloudUserState() throws {
+        let original = ScheduleCache()
+        var refreshed = original
+        refreshed.currentTerm = "school-term"
+        let courses = try ScheduleCourseEditor.adding(CourseDraft(title: "学校课程", weeksText: "1-4"),
+            to: [], term: refreshed.currentTerm, id: "school")
+        refreshed.courseData.store(TermScheduleSnapshot(term: refreshed.currentTerm, firstDayString: "2026-09-07",
+            courses: courses, exams: [], updatedAt: Date()))
+        refreshed.updatedAt = Date()
+        refreshed.cloudSyncBaselineRecordTag = "record"
+        refreshed.manualFirstDayStringsByTerm[refreshed.currentTerm] = "2026-09-28"
+        #expect(refreshed.manualCourseRulesByTerm.isEmpty)
+        #expect(try ScheduleCloudSyncState.matches(original, refreshed))
+        refreshed.manualCourseRulesByTerm["old-term"] = []
+        #expect(try ScheduleCloudSyncState.matches(original, refreshed))
+        let restored = try JSONDecoder().decode(ScheduleCache.self, from: JSONEncoder().encode(refreshed))
+        #expect(try ScheduleCloudSyncState.matches(original, restored))
+        let edited = try ScheduleCourseEditor.adding(CourseDraft(title: "个人课程", weekday: 3, weeksText: "1"),
+            to: refreshed.courses, term: refreshed.currentTerm, id: "manual")
+        ScheduleCourseEditor.updateCacheForManualCourseChange(in: &refreshed, previousCourses: refreshed.courses, currentCourses: edited)
+        #expect(try ScheduleCloudSyncState.matches(original, refreshed) == false)
+    }
+
     @Test func schoolDDLCloudStateSharesCompletionAndPreservesLocalBodies() throws {
         var source = ScheduleCache()
         source.ddlEvents = [
@@ -147,7 +170,7 @@ struct ScheduleSyncTests {
     @Test func remoteApplyUsesTheInjectedLocalOwnerAndPreservesSchoolData() async throws {
         let local = Local()
         local.cache.currentTerm = "school-term"
-        local.cache.cachedCoursesByTerm = ["school-term": []]
+        local.cache.courseData.store(TermScheduleSnapshot(term: "school-term", firstDayString: "", courses: [], exams: [], updatedAt: .distantPast))
         let manager = local.manager(Cloud(remote: try record(title: "remote", updatedAt: 40)))
         await manager.refreshFromCloudIfNeeded()
         #expect(local.cache.primaryScheduleTitle == "remote")

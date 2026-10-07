@@ -437,20 +437,20 @@ struct AcademicTermPolicyTests {
 
     private func makeSpringToFallCache() -> ScheduleCache {
         var cache = ScheduleCache()
-        cache.termSchedulesByTerm["2025-2026-2"] = TermScheduleSnapshot(
+        cache.courseData.store(TermScheduleSnapshot(
             term: "2025-2026-2",
             firstDayString: "2026-03-02",
             courses: [],
             exams: [],
             updatedAt: shanghaiDate(2026, 3, 2)
-        )
-        cache.termSchedulesByTerm["2026-2027-1"] = TermScheduleSnapshot(
+        ))
+        cache.courseData.store(TermScheduleSnapshot(
             term: "2026-2027-1",
             firstDayString: "2026-08-31",
             courses: [],
             exams: [],
             updatedAt: shanghaiDate(2026, 8, 1)
-        )
+        ))
         return cache
     }
 }
@@ -882,8 +882,7 @@ struct ScheduleShareCodeCodecTests {
     func v3RoundTrip() throws {
         var cache = ScheduleCache()
         cache.currentTerm = "2025-2026-2"
-        cache.firstDayString = "2026-03-02"
-        cache.courses = [CourseRecord(
+        let courses = [CourseRecord(
             id: "course-1",
             term: cache.currentTerm,
             name: "编译原理",
@@ -903,6 +902,8 @@ struct ScheduleShareCodeCodecTests {
             department: "计算机学院"
         )]
 
+        cache.courseData.store(TermScheduleSnapshot(term: cache.currentTerm, firstDayString: "2026-03-02",
+            courses: courses, exams: [], updatedAt: .distantPast))
         let code = try ScheduleShareCodeCodec.encodeLatest(cache: cache)
         let decoded = try ScheduleShareCodeCodec.decode(code, using: cache)
         let coursesCode = try ScheduleShareCodeCodec.encodeLatest(courses: cache.courses)
