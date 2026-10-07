@@ -611,7 +611,7 @@ enum AppUITestBootstrap {
         AppFileDirectories.defaults.removePersistentDomain(
             forName: AppFileDirectories.uiTestDefaultsSuiteName
         )
-        LoginStorage.resetUITestCredentials()
+        AppAccountSession.resetUITestCredentials()
 
         let supportDirectory = AppFileDirectories.applicationSupportDirectoryURL(named: "BIT101-iOS")
         guard AppFileDirectories.files.fileExists(at: supportDirectory) else { return }

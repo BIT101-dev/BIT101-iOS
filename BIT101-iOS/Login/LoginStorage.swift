@@ -5,15 +5,21 @@
 
 import Foundation
 import OSLog
-import Security
+import Combine
 import ClientCore
 import CommunityTransport
+
+/// 凭据读写通过所选后端执行，账号变化由 LoginStorage 发布。
+protocol LoginCredentialsStoring {
+    func read(account: String) throws -> String
+    func save(_ value: String, account: String) throws
+    @discardableResult func delete(account: String) -> Bool
+}
 
 /// 登录状态存储。
 ///
 /// 学号、密码和 fake-cookie 存入 Keychain，安装标记存入 `UserDefaults`，学校 cookie 由系统 `HTTPCookieStorage` 管理。
 final class LoginStorage: SchoolCredentialsProviding {
-    static let shared = LoginStorage()
     private static let logger = Logger(subsystem: "BIT101", category: "LoginStorage")
 
     private enum DefaultsKey {
@@ -27,66 +33,49 @@ final class LoginStorage: SchoolCredentialsProviding {
         static let fakeCookie = "login.fakeCookie"
     }
 
-    private var keychainService: String {
-#if BIT101_UI_TESTING
-        if AppFileDirectories.isRunningUITest {
-            return Self.uiTestKeychainService
-        }
-#endif
-        return "harrybit.BIT101-iOS.login"
-    }
-    private let defaults = AppFileDirectories.defaults
+    private let defaults: UserDefaults
+    private let credentials: any LoginCredentialsStoring
+    private let clearSchoolCookies: () -> Void
     private var sessionGeneration = 0
+    private let changeSubject = PassthroughSubject<CommunitySessionIdentity, Never>()
+    var changes: AnyPublisher<CommunitySessionIdentity, Never> { changeSubject.eraseToAnyPublisher() }
 
     var communityCredentials: CommunityCredentials {
         CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: currentStudentID, generation: sessionGeneration), cookie: fakeCookie)
     }
 
-#if BIT101_UI_TESTING
-    nonisolated static var uiTestKeychainService: String {
-        "harrybit.BIT101-iOS.ui-tests.\(AppFileDirectories.uiTestRunIdentifier)"
-    }
-
-    static func resetUITestCredentials() {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: uiTestKeychainService,
-        ]
-        SecItemDelete(query as CFDictionary)
-    }
-#endif
-
-    private init() {
+    init(defaults: UserDefaults, credentials: any LoginCredentialsStoring, clearSchoolCookies: @escaping () -> Void) {
+        self.defaults = defaults
+        self.credentials = credentials
+        self.clearSchoolCookies = clearSchoolCookies
         purgePersistedCredentialsIfNeededAfterReinstall()
         migrateLegacyFakeCookieIfNeeded()
     }
 
-    /// 通知全局“当前账号相关数据已变化”。
-    ///
-    /// 账号切换时，课表缓存、小组件和设置隔离通过这条通知刷新。
+    /// 发布所选凭据存储的账号与代际，供生命周期协调器重载账号数据。
     private func notifyAccountChanged() {
-        NotificationCenter.default.post(name: .loginStorageDidChange, object: nil)
+        changeSubject.send(communityCredentials.identity)
     }
 
     /// BIT101 自有登录态使用的 fake-cookie。
     var fakeCookie: String {
-        (try? readKeychainValue(account: KeychainAccount.fakeCookie)) ?? ""
+        (try? credentials.read(account: KeychainAccount.fakeCookie)) ?? ""
     }
 
     /// 当前本地保存的学号。
     var currentStudentID: String {
-        (try? readKeychainValue(account: KeychainAccount.studentID)) ?? ""
+        (try? credentials.read(account: KeychainAccount.studentID)) ?? ""
     }
 
     /// 当前本地保存的密码。
     var currentPassword: String {
-        (try? readKeychainValue(account: KeychainAccount.password)) ?? ""
+        (try? credentials.read(account: KeychainAccount.password)) ?? ""
     }
 
     /// 读取本地保存的完整学号和密码组合。
     func loadCredentials() throws -> StoredCredentials? {
-        let studentID = try readKeychainValue(account: KeychainAccount.studentID)
-        let password = try readKeychainValue(account: KeychainAccount.password)
+        let studentID = try credentials.read(account: KeychainAccount.studentID)
+        let password = try credentials.read(account: KeychainAccount.password)
 
         guard !studentID.isEmpty, !password.isEmpty else {
             return nil
@@ -110,9 +99,9 @@ final class LoginStorage: SchoolCredentialsProviding {
         }
 
         let accountChanged = currentStudentID != normalizedStudentID || self.fakeCookie.isEmpty
-        try saveKeychainValue(normalizedStudentID, account: KeychainAccount.studentID)
-        try saveKeychainValue(password, account: KeychainAccount.password)
-        try saveKeychainValue(normalizedFakeCookie, account: KeychainAccount.fakeCookie)
+        try credentials.save(normalizedStudentID, account: KeychainAccount.studentID)
+        try credentials.save(password, account: KeychainAccount.password)
+        try credentials.save(normalizedFakeCookie, account: KeychainAccount.fakeCookie)
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
         if accountChanged {
             sessionGeneration &+= 1
@@ -126,17 +115,11 @@ final class LoginStorage: SchoolCredentialsProviding {
     func clearSession() {
         sessionGeneration &+= 1
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
-        _ = deleteKeychainValue(account: KeychainAccount.fakeCookie)
+        _ = credentials.delete(account: KeychainAccount.fakeCookie)
 
         // 清理学校身份相关域，保留 App 内其他服务和调试环境的 Cookie。
-#if BIT101_UI_TESTING
-        if !AppFileDirectories.isRunningUITest {
-            AppSchoolSession.teachingCenter.clearSchoolAuthenticationCookies()
-        }
-#else
-        AppSchoolSession.teachingCenter.clearSchoolAuthenticationCookies()
-#endif
-        _ = deleteKeychainValue(account: KeychainAccount.password)
+        clearSchoolCookies()
+        _ = credentials.delete(account: KeychainAccount.password)
         notifyAccountChanged()
     }
 
@@ -168,16 +151,10 @@ final class LoginStorage: SchoolCredentialsProviding {
     @discardableResult
     private func clearPersistedLoginData() -> Bool {
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
-        let didDeleteFakeCookie = deleteKeychainValue(account: KeychainAccount.fakeCookie)
-#if BIT101_UI_TESTING
-        if !AppFileDirectories.isRunningUITest {
-            AppSchoolSession.teachingCenter.clearSchoolAuthenticationCookies()
-        }
-#else
-        AppSchoolSession.teachingCenter.clearSchoolAuthenticationCookies()
-#endif
-        let didDeleteStudentID = deleteKeychainValue(account: KeychainAccount.studentID)
-        let didDeletePassword = deleteKeychainValue(account: KeychainAccount.password)
+        let didDeleteFakeCookie = credentials.delete(account: KeychainAccount.fakeCookie)
+        clearSchoolCookies()
+        let didDeleteStudentID = credentials.delete(account: KeychainAccount.studentID)
+        let didDeletePassword = credentials.delete(account: KeychainAccount.password)
         return didDeleteFakeCookie && didDeleteStudentID && didDeletePassword
     }
 
@@ -190,13 +167,13 @@ final class LoginStorage: SchoolCredentialsProviding {
         }
 
         do {
-            let currentFakeCookie = try readKeychainValue(account: KeychainAccount.fakeCookie)
+            let currentFakeCookie = try credentials.read(account: KeychainAccount.fakeCookie)
             if !currentFakeCookie.isEmpty {
                 defaults.removeObject(forKey: DefaultsKey.fakeCookie)
                 return
             }
 
-            try saveKeychainValue(legacyFakeCookie, account: KeychainAccount.fakeCookie)
+            try credentials.save(legacyFakeCookie, account: KeychainAccount.fakeCookie)
             defaults.removeObject(forKey: DefaultsKey.fakeCookie)
         } catch {
             // 迁移写入失败时保留来源数据，供下一次启动重试。
@@ -204,80 +181,4 @@ final class LoginStorage: SchoolCredentialsProviding {
         }
     }
 
-    private func saveKeychainValue(_ value: String, account: String) throws {
-        let data = Data(value.utf8)
-        let query = baseQuery(account: account)
-
-        let updateStatus = SecItemUpdate(
-            query as CFDictionary,
-            [
-                kSecValueData as String: data,
-                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-            ] as CFDictionary
-        )
-        if updateStatus == errSecSuccess {
-            return
-        }
-
-        if updateStatus != errSecItemNotFound {
-            throw LoginServiceError.keychainWriteFailed(updateStatus)
-        }
-
-        var addQuery = query
-        addQuery[kSecValueData as String] = data
-        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-        guard addStatus == errSecSuccess else {
-            throw LoginServiceError.keychainWriteFailed(addStatus)
-        }
-    }
-
-    private func readKeychainValue(account: String) throws -> String {
-        var query = baseQuery(account: account)
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-
-        if status == errSecItemNotFound {
-            return ""
-        }
-
-        guard status == errSecSuccess else {
-            throw LoginServiceError.keychainReadFailed(status)
-        }
-
-        guard
-            let data = item as? Data,
-            let value = String(data: data, encoding: .utf8)
-        else {
-            throw LoginServiceError.invalidServerResponse
-        }
-
-        return value
-    }
-
-    @discardableResult
-    private func deleteKeychainValue(account: String) -> Bool {
-        let query = baseQuery(account: account)
-        let status = SecItemDelete(query as CFDictionary)
-        guard Self.keychainDeleteSucceeded(status: status) else {
-            Self.logger.error("Keychain delete failed account=\(account, privacy: .public) status=\(status)")
-            return false
-        }
-        return true
-    }
-
-    nonisolated static func keychainDeleteSucceeded(status: OSStatus) -> Bool {
-        status == errSecSuccess || status == errSecItemNotFound
-    }
-
-    private func baseQuery(account: String) -> [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: account,
-        ]
-    }
 }

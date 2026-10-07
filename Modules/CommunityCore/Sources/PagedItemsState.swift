@@ -1,6 +1,6 @@
 /// 页码分页列表共享的最小状态契约。
 public protocol PagedItemsState {
-    associatedtype Item
+    associatedtype Item: Identifiable
 
     var items: [Item] { get set }
     var nextPage: Int { get set }
@@ -17,14 +17,16 @@ extension PagedItemsState {
     }
 
     public mutating func applyFirstPage(_ newItems: [Item]) {
-        items = newItems
+        var seen = Set<Item.ID>()
+        items = newItems.filter { seen.insert($0.id).inserted }
         nextPage = 1
         isLoadingMore = false
         canLoadMore = !newItems.isEmpty
     }
 
     public mutating func appendPage(_ newItems: [Item]) {
-        items.append(contentsOf: newItems)
+        var seen = Set(items.map(\.id))
+        items.append(contentsOf: newItems.filter { seen.insert($0.id).inserted })
         nextPage += 1
         isLoadingMore = false
         canLoadMore = !newItems.isEmpty

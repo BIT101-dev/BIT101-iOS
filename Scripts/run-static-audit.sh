@@ -102,7 +102,7 @@ docs_check() {
   if [[ "${BIT101_RELEASE_CHECK:-false}" == "true" ]]; then
     version_args+=(--check-app-store)
   fi
-  (cd "$ROOT_DIR" && python3 Scripts/check_stale_docs.py --all) || return 1
+  (cd "$ROOT_DIR" && python3 Scripts/check-docs.py --all) || return 1
   (cd "$ROOT_DIR" && python3 Scripts/validate_versions.py "${version_args[@]}")
 }
 checker_audit() { python3 "$ROOT_DIR/Scripts/check-code-quality.py" --combined; }
@@ -119,7 +119,6 @@ allowed_root_files = {
   ".build/extended-automation.lock",
   ".build/code-quality-report.txt",
   ".build/explanatory-text-report.txt",
-  ".build/stale-docs-report.txt",
   ".build/ui-consistency-report.txt",
   ".build/screenshot.png",
 }

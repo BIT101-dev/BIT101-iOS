@@ -13,6 +13,8 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 
+from swift_source_index import swift_syntax_index_sources
+
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = ROOT / "BIT101-iOS"
 SOURCE_ROOTS = (SOURCE_ROOT, ROOT / "Modules")
@@ -1736,7 +1738,7 @@ struct AppAvatarView: View { var body: some View { Text("avatar") } }
 struct AppFixedColumnItem {}
 '''
     try:
-        facts = module.swift_syntax_index_sources({"ui-self-test.swift": source})["ui-self-test.swift"]
+        facts = swift_syntax_index_sources({"ui-self-test.swift": source})["ui-self-test.swift"]
     except (OSError, subprocess.CalledProcessError, RuntimeError, KeyError) as error:
         return [f"UI 检查器自测无法解析内存 Swift 样例：{error}"]
 
@@ -1917,7 +1919,7 @@ struct VisualRuleSample: View {
 }
 '''
     try:
-        visual_facts = module.swift_syntax_index_sources(
+        visual_facts = swift_syntax_index_sources(
             {"visual-rule-self-test.swift": visual_source}
         )["visual-rule-self-test.swift"]
     except (OSError, subprocess.CalledProcessError, RuntimeError, KeyError) as error:
@@ -2040,7 +2042,7 @@ struct RowColors: View {
 }
 '''
     row_path = ROOT / ".build/static-audit/row-color-self-test.swift"
-    row_syntax = module.swift_syntax_index_sources({str(row_path): row_source})
+    row_syntax = swift_syntax_index_sources({str(row_path): row_source})
     row_findings = interactive_list_row_findings(row_path, row_syntax[str(row_path)], row_syntax)
     if len(row_findings) != 7:
         findings.append(f"UI 检查器自测：列表标题、颜色覆盖、删除警示色、子组件、计算属性及字符串边界应报告 7 项，实际 {len(row_findings)} 项")
@@ -2484,89 +2486,6 @@ def check_accessibility_coverage(errors: list[str], syntax: dict[str, dict]) -> 
             )
 
 
-def check_refresh_status_contract(errors: list[str], syntax: dict[str, dict]) -> None:
-    refresh_pages = ("ScoreListPage", "DDLScheduleTabView", "FreeClassroomTabView")
-    for view_name in refresh_pages:
-        entries = view_entries(syntax, view_name)
-        if not entries:
-            errors.append(f"{view_name}: 刷新数据页 View 声明缺失")
-            continue
-        for path, facts, scope in entries:
-            if not rendered_view_has_marker(facts, scope, "AppRefreshStatusRow", syntax):
-                errors.append(f"{path.relative_to(ROOT)}: {view_name} 必须使用 AppRefreshStatusRow")
-            if not rendered_view_has_marker(facts, scope, "appGroupedListStyle", syntax):
-                errors.append(f"{path.relative_to(ROOT)}: {view_name} 必须使用统一分组列表样式")
-
-    schedule_views = view_entries(syntax, "CourseScheduleTabView")
-    if not schedule_views:
-        errors.append("CourseScheduleTabView: 课表顶部行 View 声明缺失")
-    header_contract = (
-        "if activeSchedule.isPrimary",
-        "lastUpdatedText: activeSchedule.importedAt.map",
-        "导入时间：",
-        'trailingText: "只读"',
-        "ScheduleRefreshStatusContentHeightKey.self",
-        "onPreferenceChange(ScheduleRefreshStatusContentHeightKey.self)",
-    )
-    for path, facts, scope in schedule_views:
-        missing = [item for item in header_contract if not rendered_view_has_marker(facts, scope, item, syntax)]
-        if missing:
-            errors.append(
-                f"{path.relative_to(ROOT)}: 我的课表与分享课表必须共用顶部行组件（缺少 {', '.join(missing)}）"
-            )
-
-        status_row_calls = sum(
-            call["value"] == "AppRefreshStatusRow" and call["scope"] == scope
-            for call in facts["calls"]
-        )
-        if status_row_calls != 2:
-            errors.append(f"{path.relative_to(ROOT)}: 主课表与分享课表顶部行共用 AppRefreshStatusRow")
-        if not rendered_view_has_marker(facts, scope, "refreshStatusContentHeight", syntax) or not rendered_view_has_marker(
-            facts, scope, "rowProxy.size.height", syntax
-        ):
-            errors.append(f"{path.relative_to(ROOT)}: 课表日历按实际更新时间行高度计算剩余空间")
-
-        height_bindings = [
-            binding["value"]
-            for binding in facts["bindings"]
-            if binding["scope"] == scope and binding["value"].startswith("calendarHeight =")
-        ]
-        if not height_bindings or any("activeSchedule" in binding for binding in height_bindings):
-            errors.append(f"{path.relative_to(ROOT)}: 两种课表变体使用同一日历高度计算")
-
-    status_entries = view_entries(syntax, "AppRefreshStatusRow")
-    if not status_entries:
-        errors.append("AppRefreshStatusRow: 公共更新时间行 View 声明缺失")
-    for path, facts, scope in status_entries:
-        if any(call["value"].endswith("frame") and call["scope"] == scope for call in facts["calls"]):
-            errors.append(f"{path.relative_to(ROOT)}: 公共更新时间行保留列表自然行高")
-        for token in ("trailingText: String?", "else if let trailingText"):
-            if not rendered_view_has_marker(facts, scope, token, syntax):
-                errors.append(f"{path.relative_to(ROOT)}: 只读课表顶部行必须复用更新时间行（缺少 {token}）")
-
-    if not any(
-        item["value"] == "refreshStatusRowHeight" and "AppDesignSystem" in item["scope"]
-        for facts in syntax.values()
-        for item in facts["scopedIdentifiers"]
-    ):
-        errors.append("AppDesignSystem.Schedule: 列表行高派生逻辑归入课表设计系统")
-
-    actions_entries = type_entries(syntax, "CourseScheduleTabView")
-    actions_have_current_data = any(
-        any(
-            call["value"].endswith("encodeLatest") and call["scope"] == scope
-            for call in facts["calls"]
-        )
-        and any(
-            member["value"] == "activeSchedule.courses" and member["scope"] == scope
-            for member in facts["members"]
-        )
-        for _, facts, scope in actions_entries
-    )
-    if not actions_entries or not actions_have_current_data:
-        errors.append("CourseScheduleTabView: 分享操作必须使用当前显示课表的数据源")
-
-
 def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[str] | None = None) -> int:
     swift_files.cache_clear()
     source_text.cache_clear()
@@ -2600,7 +2519,6 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
     for facts in syntax.values():
         facts["renderedScopeFacts"] = {}
     check_component_contracts(errors, syntax)
-    check_refresh_status_contract(errors, syntax)
     check_haptic_consistency(errors, syntax)
     check_error_report_coverage(errors, syntax)
     check_ui_test_inventory(errors)

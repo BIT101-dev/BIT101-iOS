@@ -72,16 +72,7 @@ enum AppFileDirectories {
         return url
     }()
 
-    @MainActor static var currentSession: AppStorageSession {
-#if BIT101_UI_TESTING
-        if isRunningUITest {
-            let studentID = defaults.string(forKey: "ui-test.session.student-id") ?? ""
-            let isolatedAccount = studentID.isEmpty ? "guest" : studentID
-            return AppStorageSession(accountIdentifier: "__ui_tests__.\(uiTestRunIdentifier).\(isolatedAccount)")
-        }
-#endif
-        return AppStorageSession(accountIdentifier: LoginStorage.shared.currentStudentID)
-    }
+    @MainActor static var currentSession: AppStorageSession { AppAccountSession.currentSession }
 
     @MainActor static var scoreCacheSession: AppStorageSession {
 #if BIT101_UI_TESTING

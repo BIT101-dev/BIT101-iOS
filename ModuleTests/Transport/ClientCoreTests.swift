@@ -35,10 +35,11 @@ struct ScheduleInfrastructureTests {
         func restoreSchoolSessionIfNeeded() async throws -> String? { nil }
     }
 
-    private func service(transport: any HTTPTransport, observer: (any HTTPClientObserving & Sendable)? = nil) -> ScheduleService {
+    private func service(transport: any HTTPTransport, observer: (any HTTPClientObserving & Sendable)? = nil,
+        state: TeachingCenterSessionState? = nil, restorer: any SchoolSessionRestoring = Restorer()) -> ScheduleService {
         ScheduleService(
-            credentials: Credentials(), crypto: Crypto(), schoolSessionRestorer: Restorer(),
-            teachingCenterState: TeachingCenterSessionState(cookieStorage: .sharedCookieStorage(forGroupContainerIdentifier: "BIT101ModulesTests.infrastructure")),
+            credentials: Credentials(), crypto: Crypto(), schoolSessionRestorer: restorer,
+            teachingCenterState: state ?? TeachingCenterSessionState(cookieStorage: .sharedCookieStorage(forGroupContainerIdentifier: "BIT101ModulesTests.infrastructure")),
             transport: transport, observer: observer
         )
     }
@@ -380,5 +381,125 @@ struct ClientCoreTests {
         #expect(selected.snapshot.virtualNetworkLikely)
         #expect(!independent.isReachable)
         #expect(independent.snapshot.interfaces.isEmpty)
+    }
+}
+
+extension ScheduleInfrastructureTests {
+    @Test(arguments: ["{}", "null", "<html>gateway response</html>", #"{"datas":{"dqxnxq":{"rows":[{"DM":42}]}}}"#])
+    func malformedSchoolResponsesKeepTheirResponseClassification(_ wire: String) async {
+        let selected = service(transport: SequenceTransport([(200, Data(wire.utf8))]))
+        do {
+            let _: CurrentTermResponse = try await selected.sendJSONRequest(baseURL: AppURL.required("https://example.invalid"), path: "/term")
+            Issue.record("A malformed school payload must expose a response error")
+        } catch let error as ScheduleServiceError {
+            if case .invalidResponse = error {} else { Issue.record("Unexpected school response classification: \(error)") }
+        } catch { Issue.record("Unexpected error: \(error)") }
+    }
+
+    @Test(arguments: [401, 403])
+    func schoolAuthenticationStatusRetainsItsSessionRecoverySignal(_ status: Int) async {
+        let selected = service(transport: SequenceTransport([(status, Data(#"{"message":"expired"}"#.utf8))]))
+        do {
+            let _: CurrentTermResponse = try await selected.sendJSONRequest(baseURL: AppURL.required("https://example.invalid"), path: "/term")
+            Issue.record("An expired school session must expose its recovery signal")
+        } catch let error as ScheduleServiceError {
+            if case .teachingCenterSessionExpired = error {} else { Issue.record("Unexpected recovery signal: \(error)") }
+        } catch { Issue.record("Unexpected error: \(error)") }
+    }
+
+    @Test func schoolBusinessFailureRetainsTheServiceMessage() async {
+        let selected = service(transport: SequenceTransport([(200, Data(#"{"data":{"success":false,"msg":"学期查询失败"}}"#.utf8))]))
+        do {
+            let _: CurrentTermResponse = try await selected.sendJSONRequest(baseURL: AppURL.required("https://example.invalid"), path: "/term")
+            Issue.record("A school business failure must reach its consumer")
+        } catch let error as ScheduleServiceError {
+            if case .schoolResponse(let message) = error { #expect(message == "学期查询失败") }
+            else { Issue.record("Unexpected business classification: \(error)") }
+        } catch { Issue.record("Unexpected error: \(error)") }
+    }
+
+    @Test func schoolHTTPFailureKeepsTheStatusForDiagnosis() async {
+        let selected = service(transport: SequenceTransport([(503, Data(#"{"message":"maintenance"}"#.utf8))]))
+        do {
+            let _: CurrentTermResponse = try await selected.sendJSONRequest(baseURL: AppURL.required("https://example.invalid"), path: "/term")
+            Issue.record("A maintenance response must expose its HTTP status")
+        } catch {
+            #expect((error as NSError).code == 503)
+        }
+    }
+
+    @Test func schoolTermsDecodeThroughTheProductionTransportBoundary() async throws {
+        let transport = SequenceTransport([(200, Data(#"{"datas":{"xnxqcx":{"rows":[{"DM":"2026-2027-1"},{"DM":"2025-2026-2"}]}}}"#.utf8))])
+        let result: TermsResponse = try await service(transport: transport).sendJSONRequest(
+            baseURL: AppURL.required("http://example.invalid"), path: "/terms", method: "POST", body: [("学期", "A+B & C")])
+        #expect(result.datas.xnxqcx.rows.map(\.code) == ["2026-2027-1", "2025-2026-2"])
+        #expect(transport.requests.first?.url?.scheme == "https")
+        #expect(String(decoding: try #require(transport.requests.first?.httpBody), as: UTF8.self) == "%E5%AD%A6%E6%9C%9F=A%2BB%20%26%20C")
+    }
+
+    @Test func availableTermsAuthenticateAndPrepareTheSelectedCookieContainerOnce() async throws {
+        let cookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
+        let state = TeachingCenterSessionState(cookieStorage: cookies)
+        let terms = Data(#"{"datas":{"xnxqcx":{"rows":[{"DM":"2026-2027-1"},{"DM":"2025-2026-2"},{"DM":"2026-2027-1"},{"DM":""}]}}}"#.utf8)
+        let transport = SequenceTransport([(200, Data(#"{"data":{"wengine_vpn_ticket":"ticket"}}"#.utf8)),
+            (200, Data("{}".utf8)), (200, Data("{}".utf8)), (200, terms), (200, terms)])
+        let service = service(transport: transport, state: state)
+        #expect(try await service.fetchAvailableTerms() == ["2026-2027-1", "2025-2026-2"])
+        #expect(try await service.fetchAvailableTerms() == ["2026-2027-1", "2025-2026-2"])
+        #expect(transport.requests.count == 5)
+        #expect(state.isPrepared(for: "module-school"))
+        #expect(cookies.cookies?.contains { $0.name == "wengine_vpn_ticket" && $0.isSecure } == true)
+        let data = try #require(transport.requests.first?.httpBody)
+        let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(body == ["username": "module-school", "password": "module-password"])
+    }
+
+    @Test func teachingCenterSMSChallengePreservesItsIdentityAndExposesExpiry() async throws {
+        let cookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
+        let transport = SequenceTransport([(202, Data(#"{"detail":{"challenge_id":"sms","access_token":"token","status":"waiting_sms","masked_phone":"138****0000","expires_in":300}}"#.utf8))])
+        let service = service(transport: transport, state: TeachingCenterSessionState(cookieStorage: cookies))
+        do {
+            try await service.ensureTeachingCenterAuthentication()
+            Issue.record("Expected SMS challenge")
+        } catch let ScheduleServiceError.secondFactorRequired(challenge) {
+            #expect(challenge.challengeID == "sms" && challenge.accessToken == "token")
+            #expect(challenge.maskedPhone == "138****0000" && !challenge.isExpired)
+        }
+        let expired = BITLoginAuthenticationChallenge(challengeID: "expired", accessToken: "token",
+            status: "waiting_sms", maskedPhone: nil, expiresIn: 0, receivedAt: .distantPast)
+        do {
+            try await service.submitSMSCodeForTeachingCenterAuthentication("123456", for: expired)
+            Issue.record("Expected expired SMS challenge")
+        } catch let ScheduleServiceError.challengeInvalid(message) {
+            #expect(message.contains("验证码已过期"))
+        }
+        #expect(transport.requests.count == 1 && cookies.cookies?.isEmpty == true)
+    }
+
+    private struct AuthenticatedRestorer: SchoolSessionRestoring {
+        func restoreSchoolSessionIfNeeded() async throws -> String? { "school-session" }
+    }
+
+    @Test func lexueSubscriptionUpgradesItsURLAndKeepsCompletedEventIdentity() async throws {
+        let calendar = """
+        BEGIN:VCALENDAR
+        BEGIN:VEVENT
+        UID:homework
+        SUMMARY:作业
+        DESCRIPTION:提交报告
+        DTSTART:20300910T010000Z
+        END:VEVENT
+        END:VCALENDAR
+        """
+        let transport = SequenceTransport([(200, Data(calendar.utf8))])
+        let existing = DDLEventRecord(id: "homework", group: "lexue", title: "作业", text: "",
+            dueAt: Date(timeIntervalSince1970: 0), done: true)
+        let service = service(transport: transport, restorer: AuthenticatedRestorer())
+        let result = try await service.syncDDLEventsForPreflight(existingEvents: [existing],
+            storedURL: "http://lexue.bit.edu.cn/calendar/export_execute.php?userid=42&token=test")
+        #expect(result.events.count == 1 && result.events.first?.done == true)
+        #expect(result.events.first?.title == "作业" && result.events.first?.text == "提交报告")
+        #expect(transport.requests.first?.url?.scheme == "https")
+        #expect(transport.requests.first?.url?.query == "userid=42&token=test")
     }
 }

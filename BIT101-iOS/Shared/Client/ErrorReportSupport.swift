@@ -33,7 +33,7 @@ enum ErrorReportRedactor {
             output = output.replacingOccurrences(of: jsonPattern, with: "$1[REDACTED]$2", options: .regularExpression)
             output = output.replacingOccurrences(of: keyValuePattern, with: "$1[REDACTED]", options: .regularExpression)
         }
-        let credentials = [LoginStorage.shared.currentPassword, LoginStorage.shared.fakeCookie]
+        let credentials = [AppAccountSession.storage.currentPassword, AppAccountSession.storage.fakeCookie]
             .filter { !$0.isEmpty }
         for credential in credentials { output = output.replacingOccurrences(of: credential, with: "[REDACTED]") }
         return output
@@ -41,7 +41,7 @@ enum ErrorReportRedactor {
 
     static func sanitized(_ value: String) -> String {
         var output = forced(value)
-        let studentID = LoginStorage.shared.currentStudentID
+        let studentID = AppAccountSession.storage.currentStudentID
         if !studentID.isEmpty { output = output.replacingOccurrences(of: studentID, with: "[REDACTED]") }
         let patterns: [(pattern: String, replacement: String)] = [
             ("(?i)(\\b(?:student_?id|username|name|phone|mobile)\\s*[=:：]\\s*)[^&\\s,;]+", "$1[REDACTED]"),

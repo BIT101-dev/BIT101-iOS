@@ -105,7 +105,12 @@ struct ExperimentalPreferenceCloudSyncTests {
     private let preferenceDomain = "BIT101Tests.preference-sync"
 
     private final class Account {
-        var session = AppStorageSession(accountIdentifier: "preference-account")
+        var session = AppStorageSession(accountIdentifier: "preference-account") {
+            didSet { generation &+= 1; changes.send(identity) }
+        }
+        private var generation = 0
+        let changes = PassthroughSubject<CommunitySessionIdentity, Never>()
+        var identity: CommunitySessionIdentity { .init(accountIdentifier: session.accountIdentifier, generation: generation) }
     }
 
     private final class MemoryCloud: PreferenceCloudStoring {
@@ -169,7 +174,7 @@ struct ExperimentalPreferenceCloudSyncTests {
         }
     }
 
-    private func lifecycle(sync: ExperimentalPreferenceCloudSync, account: Account, center: NotificationCenter, displays: ExternalDisplays, changes: AnyPublisher<AppStorageSession, Never> = Empty().eraseToAnyPublisher(), loadCourses: @escaping @MainActor (AppStorageSession) async -> [String: [ScoreCourseSummary]] = { _ in [:] }) -> AppAccountLifecycle {
+    private func lifecycle(sync: ExperimentalPreferenceCloudSync, account: Account, displays: ExternalDisplays, changes: AnyPublisher<AppStorageSession, Never> = Empty().eraseToAnyPublisher(), loadCourses: @escaping @MainActor (AppStorageSession) async -> [String: [ScoreCourseSummary]] = { _ in [:] }) -> AppAccountLifecycle {
         let repository = ScheduleRepository(session: { account.session }, load: { _ in .missing }, save: { _, _, _ in })
         let service = SemesterStartDateService()
         let schedule = ScheduleViewModel(service: service, repository: repository, ddlService: service, classroomService: service, platformActions: RecordingSchedulePlatformActions(), newCustomScheduleDraft: { CustomScheduleDraft() })
@@ -181,7 +186,7 @@ struct ExperimentalPreferenceCloudSyncTests {
         let community = AppCommunityDependencies(settings: sync.settings, session: session, checkLogin: { true },
             messages: sync.stores.communityMessages, drafts: sync.stores.composerDrafts, submitSuggestion: { _ in }, loadCourseCredits: { [] })
         return AppAccountLifecycle(scheduleViewModel: schedule, community: community, scoreService: OfflineScoreService(),
-            transcriptService: OfflineScoreService(), settings: sync.settings, stores: sync.stores, preferenceCloudSync: sync, notifications: center,
+            transcriptService: OfflineScoreService(), settings: sync.settings, stores: sync.stores, preferenceCloudSync: sync, accountChanges: account.changes.eraseToAnyPublisher(), currentIdentity: { account.identity },
             scheduleChanges: changes, loadScheduleCourses: loadCourses, media: media,
             localData: AppLocalDataService(files: PreferenceMemoryFiles(), actions: LocalDataActionsSpy().actions), externalDisplays: displays)
     }
@@ -204,7 +209,7 @@ struct ExperimentalPreferenceCloudSyncTests {
         let displays = ExternalDisplays()
         var loadedSessions: [AppStorageSession] = []
         var waiter: CheckedContinuation<Void, Never>?
-        let owner = lifecycle(sync: sync, account: account, center: NotificationCenter(), displays: displays,
+        let owner = lifecycle(sync: sync, account: account, displays: displays,
             changes: changes.eraseToAnyPublisher(), loadCourses: { session in
                 loadedSessions.append(session)
                 waiter?.resume(); waiter = nil
@@ -218,7 +223,7 @@ struct ExperimentalPreferenceCloudSyncTests {
         withExtendedLifetime(owner) {}
     }
 
-    @Test func lifecycleInstancesOwnTheirNotificationsSettingsAndPlatformEffects() async throws {
+    @Test func lifecycleInstancesOwnTheirAccountEventsSettingsAndPlatformEffects() async throws {
         let firstDomain = preferenceDomain + ".first"
         let secondDomain = preferenceDomain + ".second"
         let (firstSync, firstDefaults, _, firstAccount) = try context(domain: firstDomain)
@@ -227,13 +232,11 @@ struct ExperimentalPreferenceCloudSyncTests {
             firstDefaults.removePersistentDomain(forName: firstDomain)
             secondDefaults.removePersistentDomain(forName: secondDomain)
         }
-        let firstCenter = NotificationCenter()
-        let secondCenter = NotificationCenter()
         let changes = PassthroughSubject<AppStorageSession, Never>()
         let firstDisplays = ExternalDisplays()
         let secondDisplays = ExternalDisplays()
-        let first = lifecycle(sync: firstSync, account: firstAccount, center: firstCenter, displays: firstDisplays, changes: changes.eraseToAnyPublisher())
-        let second = lifecycle(sync: secondSync, account: secondAccount, center: secondCenter, displays: secondDisplays)
+        let first = lifecycle(sync: firstSync, account: firstAccount, displays: firstDisplays, changes: changes.eraseToAnyPublisher())
+        let second = lifecycle(sync: secondSync, account: secondAccount, displays: secondDisplays)
         first.start()
         second.start()
         await firstDisplays.waitForRefreshes(1)
@@ -246,8 +249,9 @@ struct ExperimentalPreferenceCloudSyncTests {
         #expect(first.community.preferences.galleryUseWebView)
         #expect(second.community.preferences.galleryUseWebView == false)
         firstAccount.session = AppStorageSession(accountIdentifier: "changed-account")
-        firstCenter.post(name: .loginStorageDidChange, object: nil)
         await firstDisplays.waitForRefreshes(2)
+        #expect(firstDisplays.resetCount == 1)
+        firstAccount.changes.send(.init(accountIdentifier: "stale", generation: 0))
         #expect(firstDisplays.resetCount == 1)
         #expect(secondDisplays.resetCount == 0)
         #expect(firstDisplays.refreshes.last?.1 == firstAccount.session)

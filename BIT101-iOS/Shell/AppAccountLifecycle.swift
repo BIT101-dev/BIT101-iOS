@@ -1,4 +1,5 @@
 import ScoreDomain
+import CommunityTransport
 import MediaKit
 import ScoreInfrastructure
 import ScheduleDomain
@@ -33,7 +34,8 @@ final class AppAccountLifecycle: ObservableObject {
         settings: AppSettingsStore,
         stores: AppAccountStores,
         preferenceCloudSync: ExperimentalPreferenceCloudSync,
-        notifications: NotificationCenter,
+        accountChanges: AnyPublisher<CommunitySessionIdentity, Never>,
+        currentIdentity: @escaping () -> CommunitySessionIdentity,
         scheduleChanges: AnyPublisher<AppStorageSession, Never>,
         loadScheduleCourses: @escaping @MainActor (AppStorageSession) async -> [String: [ScoreCourseSummary]],
         media: MediaEnvironment,
@@ -54,8 +56,11 @@ final class AppAccountLifecycle: ObservableObject {
         self.preferenceCloudSync = preferenceCloudSync
         self.externalDisplays = externalDisplays
         self.currentSession = stores.currentSession
-        notifications.publisher(for: .loginStorageDidChange)
-            .sink { [weak self] _ in self?.accountDidChange() }
+        accountChanges
+            .sink { [weak self] identity in
+                guard identity == currentIdentity() else { return }
+                self?.accountDidChange()
+            }
             .store(in: &subscriptions)
         scheduleChanges
             .sink { [weak self] session in
@@ -78,8 +83,8 @@ final class AppAccountLifecycle: ObservableObject {
     func accountDidChange() {
         externalRefreshTask?.cancel()
         externalDisplays.resetAccountPresentation()
-        preferenceCloudSync.reloadForCurrentAccount()
         settings.reloadForCurrentAccount()
+        preferenceCloudSync.reloadForCurrentAccount()
         scheduleViewModel.resetForCurrentAccount()
         scoreViewModel.resetForCurrentAccount()
         refreshExternalDisplays(trigger: "login_storage_changed", syncWidgetSnapshot: true)

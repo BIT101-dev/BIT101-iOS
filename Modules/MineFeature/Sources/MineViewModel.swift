@@ -27,23 +27,20 @@ private func isMineNotLoggedIn(_ error: Error) -> Bool {
 /// 为第一页加载准备分页状态。
 ///
 /// 多个列表使用同一套分页状态结构，第一页刷新前统一设置加载状态并重置分页。
-private func resetMinePagedState<Item>(_ state: inout MinePagedState<Item>) {
+private func resetMinePagedState<Item: Identifiable>(_ state: inout MinePagedState<Item>) {
     state.status = .loading
     state.resetPagination()
 }
 
 /// 将第一页结果写入分页状态并标记加载完成。
 private func applyMinePagedRefreshResult<Item: Identifiable>(_ items: [Item], to state: inout MinePagedState<Item>) {
-    var identities = Set<Item.ID>()
-    state.applyFirstPage(items.filter { identities.insert($0.id).inserted })
+    state.applyFirstPage(items)
     state.status = .loaded
 }
 
 /// 将新加载的一页结果追加到现有分页状态。
 private func appendMinePagedPage<Item: Identifiable>(_ items: [Item], to state: inout MinePagedState<Item>) {
-    var identities = Set(state.items.map(\.id))
-    state.appendPage(items.filter { identities.insert($0.id).inserted })
-    state.canLoadMore = !items.isEmpty
+    state.appendPage(items)
 }
 
 /// 生成资料卡展示的帖子数摘要。
@@ -519,4 +516,3 @@ final class UserProfileViewModel: ObservableObject {
     }
 
 }
-

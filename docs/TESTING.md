@@ -26,7 +26,7 @@
 
 构建分派自测使用内存替身，UI 运行配置处理通过内存 plist 验证最新产物选择、诊断设置和业务 target 配置保留，并覆盖冷缓存中的运行配置完整性检查。
 
-构建、测试、Smoke 和报告管理入口均提供 `--help`。质量、UI、模块边界、文档新鲜度与版本检查器保留独立入口，便于针对单项问题执行；统一审计通过共享 SwiftSyntax 索引执行质量与 UI 检查，并输出解释文案审查候选。地图 fixture 生成使用 `Scripts/generate_campus_map_fixture.py <教务导出.xlsx>`，沿用既有人工审核和固定数据路径约定。
+构建、测试、Smoke 和报告管理入口均提供 `--help`。质量、UI、模块边界、文档引用与版本检查器保留独立入口，便于针对单项问题执行；统一审计通过共享 SwiftSyntax 索引执行质量与 UI 检查，并输出解释文案审查候选。地图 fixture 生成使用 `Scripts/generate_campus_map_fixture.py <教务导出.xlsx>`，沿用既有人工审核和固定数据路径约定。
 
 ## 构建、装机与截图
 
@@ -80,9 +80,9 @@ Scripts/run-extended-tests.sh extensions
 Scripts/run-extended-tests.sh catalyst
 ```
 
-包级测试由 `Package.swift` 的 Transport、Community、Schedule、Contracts、Score、Map、Sync 七个消费者 target 管理，代码位于 `ModuleTests/`，使用内存传输、文件服务、偏好和实例级变更流。覆盖话廊分页去重、预取游标与搜索代际，主页刷新、分页失败重试和账号场景隔离，日程整体格式迁移、课程编辑及权威快照，发帖编辑与上传生命周期、草稿损坏和格式版本保护、历史草稿及图片迁移、账号目录与文件保存失败保护、社区身份与恢复隔离、日程保存排队、精确版本往返与过期比较令牌、文件损坏和账号切换、生产成绩服务注入、独立成绩与消息存储端口、变更流的实例及账号归属、共享草稿图片准备和版本清理、同步冲突及地图身份规则。社区持久化测试通过 `CommunityPersistence` 的公共入口运行。测试用内存文件服务集中于 `ModuleTests/Support`，直接依赖 StorageCore。学校课表解析沿用 `BIT101-iOSTests/Fixtures/schedule-service-response.json`。MapKit 页面、UIKit、Quick Look 和可信成绩单展示通过 App 宿主验证。
+包级测试由 `Package.swift` 的 Transport、Community、Schedule、Contracts、Score、Map、Sync 七个消费者 target 管理，代码位于 `ModuleTests/`，使用内存传输、文件服务、偏好和实例级变更流。覆盖话廊分页去重、预取游标与搜索代际，主页刷新、分页失败重试和账号场景隔离，日程整体格式迁移、课程编辑及权威快照，发帖编辑与上传生命周期、草稿损坏和格式版本保护、历史草稿及图片迁移、账号目录与文件保存失败保护、社区身份与恢复隔离、日程保存排队、精确版本往返与过期比较令牌、文件损坏和账号切换、生产成绩服务注入、独立成绩与消息存储端口、变更流的实例及账号归属、共享草稿图片准备和版本清理、同步冲突及地图身份规则。社区持久化测试通过 `CommunityPersistence` 的公共入口运行。测试用内存文件服务集中于 `ModuleTests/Support`，直接依赖 StorageCore。学校课表解析沿用 `BIT101-iOSTests/Fixtures/schedule-service-response.json`。课程与文章服务契约测试覆盖分页、特殊课程号路径、Snake Case 解码、认证恢复、评论及文章写入；课程详情场景覆盖刷新代际、失败保留、评论去重、历史成绩重试、回复身份及点赞；学校响应测试覆盖业务失败、认证失效、格式变化和 HTTP 状态分类，教学中心会话覆盖认证、预热复用和短信 challenge，乐学订阅覆盖安全 URL 与已完成日程保留。云同步测试同时验收成功、待同步、失败和账号不可用状态。MapKit 页面、UIKit、Quick Look 和可信成绩单展示通过 App 宿主验证。
 
-`FeatureCompositionTests` 在 App 宿主组合不同的环境依赖，验证课程、Gallery → Paper、Paper、Mine、Profile、Schedule 的构造归属，并验证同一宿主中 Paper / Gallery 依赖替换的场景重建。`MediaDependencyTests` 验证内存存储、静态 / GIF 解码和预览字节；`SuggestionDependencyTests` 验证草稿及提交归属；同文件的 `AppLocalDataOwnershipTests` 与 `SettingsDependencyOwnershipTests` 验证清理动作顺序、失败汇总、后端隔离和设置媒体 / 账号归属。`ExperimentalPreferenceCloudSyncTests` 使用独立通知中心和平台替身验证生命周期实例隔离及所选课程源向成绩场景传递。
+`FeatureCompositionTests` 在 App 宿主组合不同的环境依赖，验证课程、Gallery → Paper、Paper、Mine、Profile、Schedule 的构造归属，并验证同一宿主中 Paper / Gallery 依赖替换的场景重建。`MediaDependencyTests` 验证内存存储、静态 / GIF 解码和预览字节；`SuggestionDependencyTests` 验证草稿及提交归属；同文件的 `AppLocalDataOwnershipTests` 与 `SettingsDependencyOwnershipTests` 验证清理动作顺序、失败汇总、后端隔离和设置媒体 / 账号归属。`PreferenceMergeTests` 使用独立设备偏好与云存储验证离线字段合并、已读并集、同版本收敛、可选字段清除与重载。`LoginStorageTests` 使用注入凭据后端验证事件代际、实例隔离、迁移和写入失败；提醒规划及同步状态呈现通过纯输入与账号事件验证。`ExperimentalPreferenceCloudSyncTests` 使用独立账号事件流和平台替身验证生命周期实例隔离及所选课程源向成绩场景传递。
 
 按现有测试类或方法选择范围，多个筛选项在同一次调用执行。Swift Testing 方法名保留 `()`，suite 名称用于整组运行；脚本按实际用例数量验收选择范围：
 
@@ -176,7 +176,7 @@ Scripts/run-static-audit.sh
 Scripts/check-module-boundaries.py
 ```
 
-统一入口汇总 SwiftSyntax 契约、UI 规则、客户端工程规范、模块依赖、文档链接、工程配置和锁定依赖检查。源码质量扫描覆盖 App、模块、扩展和 `ModuleTests/`；语法检查同时覆盖 UI 测试。客户端日志、社区日期和状态模型取消规则依据当前模块目录执行。Swift 词法扫描保留普通、原始、多行及嵌套字符串的插值表达式，全局资源访问在插值中同样接受检查。模块检查器自测导入解析、循环、依赖方向及全局资源访问约束，校验声明、实际导入、测试依赖以及 App 和扩展的直接产品依赖。规则按职责由对应检查器维护；设计系统的入口与规则见 [设计系统](DESIGN_SYSTEM.md)。
+统一入口汇总 SwiftSyntax 契约、UI 规则、客户端工程规范、模块依赖、文档链接、工程配置和锁定依赖检查。源码质量扫描覆盖 App、模块、扩展和 `ModuleTests/`；语法检查同时覆盖 UI 测试。客户端日志、社区日期和统一取消识别规则依据当前模块目录执行。Swift 词法扫描保留普通、原始、多行及嵌套字符串的插值表达式，全局资源访问在插值中同样接受检查。模块检查器自测导入解析、循环、依赖方向及全局资源访问约束，校验声明、实际导入、测试依赖以及 App 和扩展的直接产品依赖。源码事实由 `Scripts/swift_source_index.py` 提供共享 SwiftSyntax 索引。门禁维护依赖方向、资源归属、并发安全和设计系统通用规则；业务行为与同步合并由行为测试验证，文件规模进入人工审查候选。文档门禁校验仓库内引用，文档内容随永久代码变化维护。规则按职责由对应检查器维护；设计系统的入口与规则见 [设计系统](DESIGN_SYSTEM.md)。
 
 模块检查器同时校验服务实现归属，覆盖生产源码中的直接网络发送、会话及网络缓存访问、重复系统网络监听、文件读写、元数据和符号链接解析，以及偏好默认实例选择。包级 `ClientCoreTests` 验证连接断开、恢复与实例隔离；App 的 `NetworkClientTests` 验证诊断文字消费所选网络状态。
 

@@ -44,9 +44,7 @@ struct UITestLoginService: LoginServicing {
         let account = studentID.trimmingCharacters(in: .whitespacesAndNewlines)
         defaults.set(account, forKey: Key.studentID)
         defaults.set(true, forKey: Key.hasSession)
-        if AppUITestBootstrap.environment["BIT101_UI_TEST_CONTENT"] == "1" {
-            try LoginStorage.shared.saveLoginState(studentID: account, password: password, fakeCookie: "ui-test-cookie")
-        }
+        try AppAccountSession.storage.saveLoginState(studentID: account, password: password, fakeCookie: "ui-test-cookie")
         var seededAccounts = defaults.stringArray(forKey: Key.seededScheduleAccounts) ?? []
         if !seededAccounts.contains(account) {
             var cache = ScheduleCache()
@@ -77,14 +75,12 @@ struct UITestLoginService: LoginServicing {
             seededAccounts.append(account)
             defaults.set(seededAccounts, forKey: Key.seededScheduleAccounts)
         }
-        NotificationCenter.default.post(name: .loginStorageDidChange, object: nil)
         return account
     }
 
     func logout() {
-        LoginStorage.shared.clearSession()
+        AppAccountSession.storage.clearSession()
         defaults.set(false, forKey: Key.hasSession)
-        NotificationCenter.default.post(name: .loginStorageDidChange, object: nil)
     }
 }
 #endif

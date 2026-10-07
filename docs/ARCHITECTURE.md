@@ -57,7 +57,8 @@ App 入口 → 登录恢复 → AppAccountLifecycle → 各场景状态与页面
                     ↘ 网络、存储、云同步、系统能力适配
 ```
 
-- `AppAccountLifecycle` 显式接收日程实例、偏好同步、社区依赖、成绩服务、日程变更与课程加载能力、媒体、清理操作及外部展示协调器；设置与账号仓库由 App 入口显式提供，生命周期和偏好同步消费同一实例。生产日程、通知中心和外部展示实例由 App 入口选择。
+- `AppAccountLifecycle` 显式接收日程实例、偏好同步、社区依赖、成绩服务、日程变更与课程加载能力、媒体、清理操作及外部展示协调器；设置与账号仓库由 App 入口显式提供，生命周期和偏好同步消费同一实例。生产日程、凭据后端、账号事件源和外部展示实例由 App 入口选择。
+- `AppAccountSession` 选择凭据后端、学校 Cookie 清理能力和账号分区。`LoginStorage` 发布携带账号及代际的 typed 变更流；生命周期与社区请求消费同一凭据来源，事件归属在消费边界核对。Keychain 实现归 `KeychainLoginCredentials`，测试使用内存后端。
 - 设置、成绩、筛选和消息仓库通过 typed 保存 publisher 发布账号会话；偏好同步协调器在构造时持有独立订阅。
 - `AppSettingsStore` 注入偏好存储与账号会话提供器。`AppAccountStores` 持有业务仓库及会话提供器，生产默认实例在 App 组装入口选择。
 - ViewModel 通过场景化服务协议接收业务能力；View 绑定状态和操作，平台适配器负责系统副作用。
@@ -73,7 +74,7 @@ App 入口 → 登录恢复 → AppAccountLifecycle → 各场景状态与页面
 
 - 社区根页及详情页通过依赖、媒体和资源身份绑定内部场景生命周期，依赖替换会重建状态与任务。
 - 推荐分页的共享请求携带独立身份；失败清理核对请求归属，刷新后的页面复用当前代际的缓存。
-- `ScoreFeature` 消费 `ScoreCaching` 与 `ScoreFilterPreferencesStoring` 及各实例的 typed 账号变更流；缓存和筛选实现归 `ScoreInfrastructure`，刷新判断、排序与汇总归 `ScoreDomain`。本地保存流供偏好同步订阅，页面变更流按账号筛选。
+- `ScoreInfrastructure` 的服务、缓存和筛选存储分别由 `ScoreService`、`ScoreCacheStore` 和 `ScoreFilterPreferenceStore` 维护。`ScoreFeature` 消费 `ScoreCaching` 与 `ScoreFilterPreferencesStoring` 及各实例的 typed 账号变更流；缓存和筛选实现归 `ScoreInfrastructure`，刷新判断、排序与汇总归 `ScoreDomain`。本地保存流供偏好同步订阅，页面变更流按账号筛选。
 - 可信成绩单页面通过 `MediaKit` 呈现本页图片预览，预览状态和挂载点随成绩单页面生命周期管理。
 - 发帖编辑、校验、草稿恢复、上传重试和提交归 `GalleryComposerViewModel`；View 承接输入、确认和导航。页面拆除时取消在途操作，迟到结果核对账号代际与场景代际；编辑已有帖子沿所属帖子提交，新帖草稿保持独立归属。
 - 共享草稿模型、图片限制和按消费者划分的存储端口归 `CommunityCore`；原子存储与迁移归 `CommunityPersistence`，图片编辑与压缩组件归 `CommunityUI`。存储注入图片准备闭包，Foundation 路径在包级宿主运行。图片尺寸限制由存储边界校验，账号路径、元数据和资产版本保持统一契约。
@@ -85,7 +86,7 @@ App 入口 → 登录恢复 → AppAccountLifecycle → 各场景状态与页面
 
 ## 网络边界
 
-`HTTPClient` 负责 HTTP 响应和状态码；`CommunityAPIClient` 负责社区请求与业务映射；各 Service 描述 endpoint 和场景数据组合。传输通过 `HTTPTransport` 注入，请求准入与结果记录通过 `HTTPClientObserving` 注入。
+`HTTPClient` 负责 HTTP 响应和状态码；`CommunityAPIClient` 负责社区请求与业务映射；各 Service 描述 endpoint 和场景数据组合。带特殊字符的业务标识通过 `pathComponent` 作为单个路径段编码，资源路径与业务标识分别组装。传输通过 `HTTPTransport` 注入，请求准入与结果记录通过 `HTTPClientObserving` 注入。
 
 `Shell/AppNetworkClients.swift` 组装连接池、网络提示、教学中心会话与诊断。`Login/CommunitySessionSupport.swift` 提供身份快照和按会话实例合并的登录恢复动作；用户主动诊断归 `Shell/NetworkDiagnosisRunner.swift`。`ScoreInfrastructure` 的生产端点和连接池在 App 扩展构造器中选择。
 
@@ -146,12 +147,14 @@ App 入口 → 登录恢复 → AppAccountLifecycle → 各场景状态与页面
 两条同步链路分别维护开关、数据范围和冲突处理：
 
 - **课表 CloudKit**：`ScheduleCloudSyncManager` 使用私有数据库，按账号同步手动调课、放假规则、个人日程、分享课表、手动 DDL、学校 DDL 完成状态和日程偏好。学校课程、考试、DDL 正文和查询缓存保存在本机。
-- **实验性偏好 KVS**：`ExperimentalPreferenceCloudSync` 同步设置、成绩筛选、成绩缓存与消息已读状态。开关保存在当前设备并按账号隔离，默认关闭；各域分别记录修改时间。成绩快照使用 LZFSE 压缩并检查配额。
+- **实验性偏好 KVS**：`ExperimentalPreferenceCloudSync` 同步设置、成绩筛选、成绩缓存与消息已读状态。开关保存在当前设备并按账号隔离，默认关闭；设置与成绩筛选按字段记录版本，独立字段的离线编辑在重连时合并；同字段按版本选择，同版本分歧按规范编码排序收敛。消息已读记录按分类取并集，候选列表由本机服务端响应维护。成绩缓存按域时间选择完整快照，并使用 LZFSE 压缩和配额检查。字段版本与本机载荷按账号持久保存；历史同步载荷按其域时间初始化字段版本。
 - 偏好同步的待处理域和任务引用由当前批次维护；账号切换后的旧批次在恢复执行时核对取消状态。
 
-CloudKit 使用带版本的精简载荷，本地记录保留服务器基线和待上传状态；本机编辑与远端分歧时提供版本选择。历史载荷通过已有迁移入口合并，版本兼容性决定同步准入。损坏的成绩缓存暂停该域的 KVS 同步。
+CloudKit 使用带版本的精简载荷，本地记录保留服务器基线和待上传状态；本机编辑与远端分歧时提供版本选择。历史载荷通过已有迁移入口合并，版本兼容性决定同步准入。损坏的成绩缓存暂停该域的 KVS 同步。课表同步状态由协调器按账号代际发布，设置页呈现同步中、待同步、成功、账号不可用、版本冲突与失败状态。
 
 ## Widget、Watch 与 Live Activity
+
+`ScheduleReminderPlanner` 维护提醒候选、展示窗口和刷新边界的纯规则；`ScheduleReminderNotifications` 承接系统通知授权、排期与清理，Live Activity 管理器协调活动和任务生命周期。
 
 主 App 持有完整日程，导出 `ScheduleExternalSnapshot` 供外部展示消费：
 

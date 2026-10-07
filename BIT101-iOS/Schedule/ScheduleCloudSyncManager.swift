@@ -68,24 +68,25 @@ extension ScheduleCloudSyncManager {
     @MainActor static let shared = ScheduleCloudSyncManager(
         local: ScheduleCloudLocalStore(
             currentAccount: {
-                let credentials = LoginStorage.shared.communityCredentials
-                let studentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+                let credentials = AppAccountSession.storage.communityCredentials
+                let studentID = AppAccountSession.storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !studentID.isEmpty else { return nil }
                 return ScheduleCloudAccount(studentID: studentID, session: AppFileDirectories.currentSession,
                                             generation: credentials.identity.generation)
             },
             load: { await ScheduleCacheStore.loadResultAsync(for: $0) },
             save: { cache, source, account, expectedUpdatedAt in
-                guard LoginStorage.shared.communityCredentials.identity.generation == account.generation,
+                guard AppAccountSession.storage.communityCredentials.identity.generation == account.generation,
                       AppFileDirectories.currentSession == account.session else { return false }
                 return await ScheduleCacheStore.saveAndWait(cache, source: source,
                     expectedAccountIdentifier: account.accountIdentifier, expectedUpdatedAt: expectedUpdatedAt,
-                    isCurrent: { LoginStorage.shared.communityCredentials.identity.generation == account.generation
+                    isCurrent: { AppAccountSession.storage.communityCredentials.identity.generation == account.generation
                         && AppFileDirectories.currentSession == account.session })
             }
         ),
         transport: AppScheduleCloudTransport(),
-        presentConflict: appConflictPresenter(prompts: .shared)
+        presentConflict: appConflictPresenter(prompts: .shared),
+        reportStatus: { account, status in ScheduleCloudSyncPresentation.shared.receive(account: account, status: status) }
     )
 
     static func appConflictPresenter(prompts: AppPromptCoordinator) -> ScheduleCloudConflictPresenter {
@@ -108,4 +109,14 @@ extension ScheduleCloudSyncManager {
             ))
         }
     }
+}
+
+extension ScheduleCloudSyncPresentation {
+    static let shared = ScheduleCloudSyncPresentation(currentAccount: {
+        let storage = AppAccountSession.storage
+        let studentID = storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !studentID.isEmpty else { return nil }
+        return ScheduleCloudAccount(studentID: studentID, session: AppFileDirectories.currentSession,
+            generation: storage.communityCredentials.identity.generation)
+    }, accountChanges: AppAccountSession.storage.changes)
 }

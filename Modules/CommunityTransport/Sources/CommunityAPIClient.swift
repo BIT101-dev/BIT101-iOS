@@ -41,6 +41,7 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
 
     public func request<Response: Decodable & Sendable>(
         path: String,
+        pathComponent: String? = nil,
         queryItems: [URLQueryItem] = [],
         method: String = "GET",
         body: Data? = nil,
@@ -51,6 +52,7 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         let identity = authentication == .none ? nil : credentials().identity
         let response = try await send(
             path: path,
+            pathComponent: pathComponent,
             queryItems: queryItems,
             method: method,
             body: body,
@@ -129,6 +131,7 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
 
     private func send(
         path: String,
+        pathComponent: String? = nil,
         queryItems: [URLQueryItem] = [],
         method: String,
         body: Data?,
@@ -140,6 +143,14 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
             url: baseURL.appending(path: path),
             resolvingAgainstBaseURL: false
         )
+        if let pathComponent {
+            var allowed = CharacterSet.urlPathAllowed
+            allowed.remove(charactersIn: "/%?#[]@!$&'()*+,;=")
+            guard let encoded = pathComponent.addingPercentEncoding(withAllowedCharacters: allowed) else {
+                throw Failure.communityInvalidResponse
+            }
+            components?.percentEncodedPath += "/" + encoded
+        }
         components?.queryItems = queryItems.isEmpty ? nil : queryItems
         guard let rawURL = components?.url else {
             throw Failure.communityInvalidResponse

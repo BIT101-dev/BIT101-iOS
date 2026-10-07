@@ -17,7 +17,7 @@ struct AppExternalDisplayCoordinator: AppExternalDisplayCoordinating {
         guard !Task.isCancelled, session == AppFileDirectories.currentSession else { return }
         if syncWidgetSnapshot { await ScheduleWidgetExporter.syncFromCurrentCache() }
         guard !Task.isCancelled, session == AppFileDirectories.currentSession else { return }
-        let cookie = LoginStorage.shared.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cookie = AppAccountSession.storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cookie.isEmpty else {
             ScheduleReminderBackgroundRefresh.schedule(earliestBeginDate: nil)
             await ScheduleLiveActivityManager.shared.endAllActivities()

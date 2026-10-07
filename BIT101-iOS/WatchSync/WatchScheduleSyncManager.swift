@@ -107,7 +107,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     #if os(iOS)
     /// 将最新课表快照推送给已配对的 watch。
     func push(snapshot: ScheduleExternalSnapshot) {
-        let studentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let studentID = AppAccountSession.storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard snapshot.studentID == AppStorageSession(accountIdentifier: studentID).accountStorageIdentifier else {
             return
         }
@@ -128,7 +128,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     func pushCurrentSnapshotIfAvailable() {
         activateIfNeeded()
         let session = WCSession.default
-        let studentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let studentID = AppAccountSession.storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard session.isPaired,
               let data = Self.currentSnapshotDataIfAvailable(for: studentID)
         else { return }
@@ -213,7 +213,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
             Task { @MainActor in
                 guard let data = self.pendingSnapshotData else { return }
                 self.pendingSnapshotData = nil
-                let studentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+                let studentID = AppAccountSession.storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard Self.isSnapshotData(data, for: studentID) else { return }
                 Self.updateApplicationContext(withSnapshotData: data, session: WCSession.default)
             }
@@ -247,7 +247,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
         if messageData == WatchScheduleTransferProtocol.requestData {
             let studentID = DispatchQueue.main.sync {
                 MainActor.assumeIsolated {
-                    LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+                    AppAccountSession.storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
             }
             if let data = Self.currentSnapshotDataIfAvailable(for: studentID) {
@@ -276,7 +276,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
         if WatchScheduleTransferProtocol.requestsLatestSnapshot(message) {
             let studentID = DispatchQueue.main.sync {
                 MainActor.assumeIsolated {
-                    LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+                    AppAccountSession.storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
             }
             if let data = Self.currentSnapshotDataIfAvailable(for: studentID) {
@@ -336,7 +336,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
         }
 
         #if os(iOS)
-        let currentStudentID = LoginStorage.shared.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentStudentID = AppAccountSession.storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
         let accountToken = AppStorageSession(accountIdentifier: currentStudentID).accountStorageIdentifier
         guard snapshot.studentID == currentStudentID || snapshot.studentID == accountToken else {
             return .failure(.staleSnapshot)

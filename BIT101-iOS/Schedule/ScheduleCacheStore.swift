@@ -54,10 +54,10 @@ enum ScheduleCacheStore {
 
     /// 写回账号缓存并广播变更，外部展示由应用生命周期协调。
     static func save(_ cache: ScheduleCache, source: ScheduleCacheSaveSource = .local, session: AppStorageSession = AppFileDirectories.currentSession) {
-        let identity = LoginStorage.shared.communityCredentials.identity
+        let identity = AppAccountSession.storage.communityCredentials.identity
         Task {
             await saveAndWait(cache, source: source, expectedAccountIdentifier: session.accountDirectoryName,
-                isCurrent: { LoginStorage.shared.communityCredentials.identity == identity })
+                isCurrent: { AppAccountSession.storage.communityCredentials.identity == identity })
         }
     }
 
@@ -87,10 +87,10 @@ enum ScheduleCacheStore {
             return false
         }
         let legacyIdentifier = legacyAccountIdentifier()
-        let identity = LoginStorage.shared.communityCredentials.identity
+        let identity = AppAccountSession.storage.communityCredentials.identity
         let didWrite = await operations.perform(isCurrent: {
             AppFileDirectories.currentSession == session
-                && LoginStorage.shared.communityCredentials.identity == identity
+                && AppAccountSession.storage.communityCredentials.identity == identity
                 && isCurrent()
         }, operation: {
             await writeQueue.write(
@@ -113,12 +113,12 @@ enum ScheduleCacheStore {
     static func clear() async -> Bool {
         let session = AppFileDirectories.currentSession
         let urls = cacheURLs()
-        let identity = LoginStorage.shared.communityCredentials.identity
+        let identity = AppAccountSession.storage.communityCredentials.identity
         let didClear = await operations.perform(isCurrent: { true }, operation: {
             await writeQueue.clear(urls: urls)
         })
         if didClear, AppFileDirectories.currentSession == session,
-           LoginStorage.shared.communityCredentials.identity == identity {
+           AppAccountSession.storage.communityCredentials.identity == identity {
             postCacheDidChange()
         }
         return didClear

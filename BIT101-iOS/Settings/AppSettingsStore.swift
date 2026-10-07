@@ -9,13 +9,6 @@ import StorageCore
 import Combine
 import Foundation
 
-extension Notification.Name {
-    /// 登录存储变化通知。
-    ///
-    /// 多账号隔离设置、小组件和日程缓存都会用这条通知感知账号切换。
-    static let loginStorageDidChange = Notification.Name("BIT101.LoginStorageDidChange")
-}
-
 /// 持久化到 `UserDefaults` 的设置快照。
 ///
 /// 设置快照统一承接 UI 层的修改、读写、账号隔离和默认值。

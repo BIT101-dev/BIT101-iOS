@@ -38,6 +38,15 @@ public nonisolated struct GalleryMessageReadSnapshot: Codable, Equatable, Sendab
     public var seenIDsByType: [String: [Int]] = [:]
 
     public init() {}
+
+    /// 已读记录按分类取并集，候选消息由本机的服务端响应维护。
+    public func mergingReadState(_ other: Self) -> Self {
+        var merged = self
+        for (type, ids) in other.seenIDsByType {
+            merged.seenIDsByType[type] = Array(Set(merged.seenIDsByType[type] ?? []).union(ids)).sorted()
+        }
+        return merged
+    }
 }
 
 @MainActor

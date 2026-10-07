@@ -410,9 +410,9 @@ struct InfrastructureTests {
 
     @Test("Keychain deletion status accepts completed and absent items")
     func keychainDeletionStatus() {
-        #expect(LoginStorage.keychainDeleteSucceeded(status: errSecSuccess))
-        #expect(LoginStorage.keychainDeleteSucceeded(status: errSecItemNotFound))
-        #expect(!LoginStorage.keychainDeleteSucceeded(status: errSecNotAvailable))
+        #expect(KeychainLoginCredentials.keychainDeleteSucceeded(status: errSecSuccess))
+        #expect(KeychainLoginCredentials.keychainDeleteSucceeded(status: errSecItemNotFound))
+        #expect(!KeychainLoginCredentials.keychainDeleteSucceeded(status: errSecNotAvailable))
     }
 
     @Test("Paged state advances and stops on an empty page")

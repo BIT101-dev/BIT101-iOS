@@ -277,7 +277,7 @@ public nonisolated struct ScoreSummary: Sendable {
 
 
 /// 成绩页本地筛选偏好快照。
-public nonisolated struct ScoreFilterPreferenceSnapshot: Codable, Sendable {
+public nonisolated struct ScoreFilterPreferenceSnapshot: Codable, Equatable, Sendable {
     public var selectedTerms: [String] = []
     public var selectedCourseTypes: [String] = []
     public var sortIndex: String?
@@ -416,4 +416,3 @@ public nonisolated struct ScoreCacheSnapshot: Codable, Sendable {
         rows != nil || updatedAt != nil || detailedUpdatedAt != nil
     }
 }
-

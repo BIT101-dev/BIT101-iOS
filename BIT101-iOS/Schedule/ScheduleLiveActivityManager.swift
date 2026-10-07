@@ -38,16 +38,6 @@ import ActivityKit
 import os
 import UserNotifications
 
-/// 提醒计算使用的课表实例。
-private struct CourseReminderOccurrence {
-    let kindText: String
-    let title: String
-    let classroom: String
-    let teacher: String
-    let startDate: Date
-    let endDate: Date
-}
-
 private nonisolated struct ExistingActivitySnapshot: Sendable {
     let id: String
     let contentState: CourseReminderActivityAttributes.ContentState
@@ -75,15 +65,11 @@ private nonisolated struct ActivityEndingReport: Sendable {
 @MainActor
 final class ScheduleLiveActivityManager {
 
-    enum NotificationAuthorizationState {
-        case allowed
-        case notDetermined
-        case denied
-    }
+    typealias NotificationAuthorizationState = ScheduleReminderNotificationAuthorizationState
 
     private let logger = Logger(subsystem: "BIT101", category: "ScheduleLiveActivity")
     private let context: ScheduleReminderContext
-    private let notificationCenter: UNUserNotificationCenter
+    private let notifications: ScheduleReminderNotifications
     private var refreshRequestGeneration = 0
     private var refreshTask: Task<Void, Never>?
     private var scheduledRefreshTask: Task<Void, Never>?
@@ -93,7 +79,7 @@ final class ScheduleLiveActivityManager {
 
     init(context: ScheduleReminderContext, notificationCenter: UNUserNotificationCenter) {
         self.context = context
-        self.notificationCenter = notificationCenter
+        self.notifications = ScheduleReminderNotifications(center: notificationCenter)
     }
 
     /// 刷新当前课表提醒。
@@ -149,11 +135,12 @@ final class ScheduleLiveActivityManager {
         }
 
         let leadMinutes = cache.courseLiveActivityLeadMinutes
-        let occurrences = resolveOccurrences(from: cache)
-        await syncFallbackNotifications(
+        let occurrences = ScheduleReminderPlanner.resolveOccurrences(from: cache)
+        await notifications.synchronize(
             for: occurrences,
             leadMinutes: leadMinutes,
-            session: session
+            session: session,
+            isCurrent: { self.isCurrentSession(session) }
         )
 
         guard !Task.isCancelled else { return }
@@ -174,7 +161,7 @@ final class ScheduleLiveActivityManager {
         // 在“进入提醒窗口但尚未开始”的课前阶段选择一条提醒对象。
         let now = Date()
         let currentOccurrence = occurrences.first { occ in
-            let displayWindowStart = effectiveDisplayWindowStart(for: occ, among: occurrences, leadMinutes: leadMinutes)
+            let displayWindowStart = ScheduleReminderPlanner.effectiveDisplayWindowStart(for: occ, among: occurrences, leadMinutes: leadMinutes)
             return now >= displayWindowStart && now < occ.startDate
         }
 
@@ -194,52 +181,16 @@ final class ScheduleLiveActivityManager {
         await syncActivity(with: currentOccurrence, session: session)
     }
 
-    /// 首次开启提醒时申请本地通知权限。
-    ///
-    /// 本地通知作为 Activity 未启动时的兜底。授权由用户决定；授权后，app 未被唤醒时
-    /// 仍能按同一规则发送课前通知。
     func requestNotificationAuthorizationIfNeeded() async -> Bool {
-        let settings = await notificationCenter.notificationSettings()
-
-        switch settings.authorizationStatus {
-        case .authorized, .provisional, .ephemeral:
-            return true
-        case .denied:
-            return false
-        case .notDetermined:
-            do {
-                return try await notificationCenter.requestAuthorization(options: [.alert, .sound])
-            } catch {
-                logger.error("request notification authorization failed: \(error.localizedDescription, privacy: .public)")
-                return false
-            }
-        @unknown default:
-            return false
-        }
+        await notifications.requestAuthorizationIfNeeded()
     }
 
-    /// 返回课前提醒 fallback 通知的权限状态。
-    ///
-    /// 灵动岛提醒开启时检查通知权限；关闭时返回 `allowed`。
     func notificationAuthorizationStateForReminderFallback() async -> NotificationAuthorizationState {
-        guard let loaded = await context.loadCurrentCache() else { return .allowed }
-        let cache = loaded.cache
-        guard cache.showCourseLiveActivityReminder else {
-            return .allowed
-        }
-
-        let settings = await notificationCenter.notificationSettings()
-        switch settings.authorizationStatus {
-        case .authorized, .provisional, .ephemeral:
-            return .allowed
-        case .notDetermined:
-            return .notDetermined
-        case .denied:
-            return .denied
-        @unknown default:
-            return .denied
-        }
+        guard let loaded = await context.loadCurrentCache(), loaded.cache.showCourseLiveActivityReminder else { return .allowed }
+        return await notifications.authorizationState()
     }
+
+    func clearFallbackNotifications() async { await notifications.clear() }
 
     /// 将当前计算出的提醒对象同步到 ActivityKit。
     ///
@@ -280,7 +231,7 @@ final class ScheduleLiveActivityManager {
             title: occ.title,
             classroom: occ.classroom,
             teacher: occ.teacher,
-            timeRangeText: Self.timeRangeText(start: occ.startDate, end: occ.endDate),
+            timeRangeText: ScheduleReminderPlanner.timeRangeText(start: occ.startDate, end: occ.endDate),
             countdownTargetDate: occ.startDate
         )
 
@@ -328,7 +279,7 @@ final class ScheduleLiveActivityManager {
         scheduledRefreshTask?.cancel()
 
         let now = Date()
-        guard let nextDate = nextFutureRefreshPoint(for: occurrences, leadMinutes: leadMinutes, now: now) else {
+        guard let nextDate = ScheduleReminderPlanner.nextFutureRefreshPoint(for: occurrences, leadMinutes: leadMinutes, now: now) else {
             logger.debug("scheduleNextRefresh: no future refresh point")
             return
         }
@@ -449,115 +400,11 @@ final class ScheduleLiveActivityManager {
         guard cache.showCourseLiveActivityReminder else { return nil }
 
         let leadMinutes = cache.courseLiveActivityLeadMinutes
-        let occurrences = resolveOccurrences(from: cache)
+        let occurrences = ScheduleReminderPlanner.resolveOccurrences(from: cache)
         let now = Date()
-        guard let nextPoint = nextFutureRefreshPoint(for: occurrences, leadMinutes: leadMinutes, now: now) else { return nil }
+        guard let nextPoint = ScheduleReminderPlanner.nextFutureRefreshPoint(for: occurrences, leadMinutes: leadMinutes, now: now) else { return nil }
         let desiredBeginDate = nextPoint.addingTimeInterval(-5 * 60)
         return max(now.addingTimeInterval(60), desiredBeginDate)
-    }
-
-    /// 删除已排期和已送达的课前提醒 fallback 通知。
-    func clearFallbackNotifications() async {
-        let prefix = Self.notificationIdentifierPrefix
-        let pendingIdentifiers = await pendingFallbackNotificationIdentifiers(prefix: prefix)
-        if !pendingIdentifiers.isEmpty {
-            notificationCenter.removePendingNotificationRequests(withIdentifiers: pendingIdentifiers)
-        }
-
-        let deliveredIdentifiers = await deliveredFallbackNotificationIdentifiers(prefix: prefix)
-        if !deliveredIdentifiers.isEmpty {
-            notificationCenter.removeDeliveredNotifications(withIdentifiers: deliveredIdentifiers)
-        }
-    }
-
-    // MARK: - 数据解析逻辑
-
-    /// 把课表缓存解析成仍然有效的提醒候选。
-    ///
-    /// 这里同时覆盖：
-    /// - 常规课程
-    /// - 自定义日程
-    ///
-    /// 结果保留结束时间晚于当前时间的实例。
-    private func resolveOccurrences(from cache: ScheduleCache) -> [CourseReminderOccurrence] {
-        let now = Date()
-        let slotMap = Dictionary(
-            cache.timeTable.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-
-        var results: [CourseReminderOccurrence] = []
-        var seenOccurrenceKeys = Set<String>()
-
-        // 处理常规课程
-        if let firstDay = cache.firstDay {
-            for course in cache.courses {
-                for week in Set(course.weeks).sorted() {
-                    guard seenOccurrenceKeys.insert("course-\(course.id)-w\(week)").inserted else { continue }
-                    guard week > 0,
-                          (1...7).contains(course.weekday),
-                          let startSlot = slotMap[course.startSection],
-                          let endSlot = slotMap[course.endSection],
-                          let start = ScheduleSharedDateCodec.combine(firstDay: firstDay, week: week, weekday: course.weekday, time: startSlot.start),
-                          let end = ScheduleSharedDateCodec.combine(firstDay: firstDay, week: week, weekday: course.weekday, time: endSlot.end),
-                          end > start,
-                          end > now else { continue }
-
-                    results.append(CourseReminderOccurrence(
-                        kindText: "上课",
-                        title: ScheduleDisplayNormalizer.normalizeCourseTitle(course.name),
-                        classroom: ScheduleDisplayNormalizer.normalizeClassroom(course.classroom),
-                        teacher: course.teacher,
-                        startDate: start,
-                        endDate: end
-                    ))
-                }
-            }
-        }
-
-        // 处理自定义日程
-        for schedule in cache.customSchedules {
-            guard seenOccurrenceKeys.insert("custom-\(schedule.id)").inserted else { continue }
-            guard let date = ScheduleDateCodec.parseDate(schedule.dateString),
-                  let start = ScheduleSharedDateCodec.combine(date: date, time: schedule.beginTime),
-                  let end = ScheduleSharedDateCodec.combine(date: date, time: schedule.endTime),
-                  end > start,
-                  end > now else { continue }
-
-            results.append(CourseReminderOccurrence(
-                kindText: "日程",
-                title: schedule.title,
-                classroom: schedule.subtitle.trimmingCharacters(in: .whitespacesAndNewlines),
-                teacher: "",
-                startDate: start,
-                endDate: end
-            ))
-        }
-
-        return results.sorted { $0.startDate < $1.startDate }
-    }
-
-    /// 计算某条提醒的实际显示起点。
-    ///
-    /// 默认规则是“开课前 `leadMinutes` 分钟开始提醒”。如果上一条课/日程尚未结束，
-    /// 下一条已经落入提醒窗口时，起点后移到“上一条结束前 5 分钟”，避免
-    /// 用户仍在上一条课程期间收到下一条提醒。
-    private func effectiveDisplayWindowStart(
-        for occurrence: CourseReminderOccurrence,
-        among occurrences: [CourseReminderOccurrence],
-        leadMinutes: Int
-    ) -> Date {
-        let naturalStart = occurrence.startDate.addingTimeInterval(Double(-leadMinutes * 60))
-        let reminderLeadOutFromPrevious: TimeInterval = 5 * 60
-
-        guard let previous = occurrences.last(where: { candidate in
-            candidate.startDate < occurrence.startDate && candidate.endDate > naturalStart
-        }) else {
-            return naturalStart
-        }
-
-        let adjustedStart = previous.endDate.addingTimeInterval(-reminderLeadOutFromPrevious)
-        return max(naturalStart, adjustedStart)
     }
 
     /// 各分支复用同一套 activity 请求和日志。
@@ -661,147 +508,8 @@ final class ScheduleLiveActivityManager {
         "\(state.kindText) | \(state.title) | \(state.classroom) | \(state.timeRangeText) | target=\(debugDateFormatter.string(from: state.countdownTargetDate))"
     }
 
-    private static func timeRangeText(start: Date, end: Date) -> String {
-        "\(ScheduleSharedDateCodec.formatTime(start))-\(ScheduleSharedDateCodec.formatTime(end))"
-    }
-
-    /// 计算下一条刷新边界。
-    ///
-    /// 调度关注两个时刻：
-    /// 1. 某条提醒进入可展示窗口
-    /// 2. 某条提醒正式开始，现有提醒应结束
-    ///
-    /// 本地 Task.sleep 调度和 BGAppRefresh 建议时间共用这套计算。
-    private func nextFutureRefreshPoint(
-        for occurrences: [CourseReminderOccurrence],
-        leadMinutes: Int,
-        now: Date
-    ) -> Date? {
-        let earliestAllowedDate = now.addingTimeInterval(1)
-        return occurrences
-            .flatMap { occurrence in
-                [
-                    effectiveDisplayWindowStart(for: occurrence, among: occurrences, leadMinutes: leadMinutes),
-                    occurrence.startDate,
-                ]
-            }
-            .filter { $0 > earliestAllowedDate }
-            .min()
-    }
-
-    /// 按与 Live Activity 相同的规则预排本地通知。
-    ///
-    /// 本地通知作为 fallback：app 后台未被唤醒或 Activity 未按时出现时，用户仍能在同一提醒窗口收到通知。
-    private func syncFallbackNotifications(
-        for occurrences: [CourseReminderOccurrence],
-        leadMinutes: Int,
-        session: ScheduleReminderSession
-    ) async {
-        let studentID = session.studentID
-        guard !Task.isCancelled, isCurrentSession(session) else { return }
-        let settings = await notificationCenter.notificationSettings()
-        guard !Task.isCancelled, isCurrentSession(session) else { return }
-        let allowedStatuses: Set<UNAuthorizationStatus> = [.authorized, .provisional, .ephemeral]
-        guard allowedStatuses.contains(settings.authorizationStatus) else {
-            logger.debug("notifications not authorized; clearing fallback reminders")
-            await clearFallbackNotifications()
-            return
-        }
-
-        await clearFallbackNotifications()
-
-        guard !Task.isCancelled, isCurrentSession(session) else { return }
-
-        let now = Date()
-        let scheduledItems = occurrences
-            .compactMap { occurrence -> (CourseReminderOccurrence, Date)? in
-                let displayStart = effectiveDisplayWindowStart(
-                    for: occurrence,
-                    among: occurrences,
-                    leadMinutes: leadMinutes
-                )
-                guard displayStart > now.addingTimeInterval(1), displayStart < occurrence.startDate else {
-                    return nil
-                }
-                return (occurrence, displayStart)
-            }
-            .sorted { $0.1 < $1.1 }
-
-        guard !scheduledItems.isEmpty else {
-            logger.debug("no future fallback notifications to schedule")
-            return
-        }
-
-        for (index, item) in scheduledItems.prefix(64).enumerated() {
-            guard !Task.isCancelled, isCurrentSession(session) else { return }
-
-            let occurrence = item.0
-            let triggerDate = item.1
-            let request = UNNotificationRequest(
-                identifier: Self.notificationIdentifier(studentID: studentID, index: index),
-                content: fallbackNotificationContent(for: occurrence),
-                trigger: UNCalendarNotificationTrigger(
-                    dateMatching: ScheduleDateCodec.calendar.dateComponents(
-                        [.year, .month, .day, .hour, .minute, .second],
-                        from: triggerDate
-                    ),
-                    repeats: false
-                )
-            )
-
-            do {
-                try await notificationCenter.add(request)
-            } catch {
-                logger.error(
-                    "schedule fallback notification failed title=\(occurrence.title, privacy: .private) trigger=\(Self.debugDateFormatter.string(from: triggerDate), privacy: .private) error=\(error.localizedDescription, privacy: .public)"
-                )
-            }
-        }
-
-        logger.debug("scheduled fallback notifications count=\(min(scheduledItems.count, 64), privacy: .public)")
-    }
-
-    /// 构造与 Live Activity 同语义的本地通知内容。
-    private func fallbackNotificationContent(for occurrence: CourseReminderOccurrence) -> UNMutableNotificationContent {
-        let content = UNMutableNotificationContent()
-        content.title = occurrence.kindText == "日程" ? "即将开始日程" : "即将上课"
-
-        let subtitle = occurrence.classroom.trimmingCharacters(in: .whitespacesAndNewlines)
-        let teacher = occurrence.teacher.trimmingCharacters(in: .whitespacesAndNewlines)
-        let summary = [
-            occurrence.title,
-            Self.timeRangeText(start: occurrence.startDate, end: occurrence.endDate),
-            subtitle,
-            teacher.isEmpty || teacher == subtitle ? nil : teacher,
-        ]
-            .compactMap { $0 }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-
-        content.body = summary
-        content.sound = .default
-        content.threadIdentifier = "BIT101.ScheduleReminder"
-        return content
-    }
-
-    private func pendingFallbackNotificationIdentifiers(prefix: String) async -> [String] {
-        await withCheckedContinuation { continuation in
-            notificationCenter.getPendingNotificationRequests { requests in
-                continuation.resume(returning: requests.map(\.identifier).filter { $0.hasPrefix(prefix) })
-            }
-        }
-    }
-
     private func isCurrentSession(_ session: ScheduleReminderSession) -> Bool {
         context.currentSession() == session && session.signedIn
-    }
-
-    private func deliveredFallbackNotificationIdentifiers(prefix: String) async -> [String] {
-        await withCheckedContinuation { continuation in
-            notificationCenter.getDeliveredNotifications { notifications in
-                continuation.resume(returning: notifications.map(\.request.identifier).filter { $0.hasPrefix(prefix) })
-            }
-        }
     }
 
     private static let debugDateFormatter: DateFormatter = {
@@ -813,25 +521,15 @@ final class ScheduleLiveActivityManager {
         return formatter
     }()
 
-    private static let notificationIdentifierPrefix = "BIT101.ScheduleReminder"
-
-    private static func notificationIdentifier(studentID: String, index: Int) -> String {
-        "\(notificationIdentifierPrefix).\(studentID.isEmpty ? "__default__" : studentID).\(index)"
-    }
 }
 
 #else
-
 
 /// iPhone/iPad 通过 ActivityKit 展示提醒；Catalyst 提供同签名的系统适配。
 @MainActor
 final class ScheduleLiveActivityManager {
 
-    enum NotificationAuthorizationState {
-        case allowed
-        case notDetermined
-        case denied
-    }
+    typealias NotificationAuthorizationState = ScheduleReminderNotificationAuthorizationState
 
     init(context: ScheduleReminderContext) {}
 

@@ -529,7 +529,7 @@ final class ReleaseNetworkSmokeRunner {
             copySchoolSession()
             return studentID
         }
-        return ScheduleService(credentials: LoginStorage.shared, crypto: AppScheduleServiceCrypto(),
+        return ScheduleService(credentials: AppAccountSession.storage, crypto: AppScheduleServiceCrypto(),
             schoolSessionRestorer: restorer, teachingCenterState: TeachingCenterSessionState(cookieStorage: cookies),
             transport: NetworkSessionPool.teachingCenter(cookieStorage: cookies),
             observer: HTTPClient.appObserver)

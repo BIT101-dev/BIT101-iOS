@@ -10,6 +10,7 @@ import DesignSystemKit
 //
 
 import SwiftUI
+import CommunityTransport
 import BackgroundTasks
 import UIKit
 #if BIT101_UI_TESTING
@@ -76,7 +77,7 @@ enum ScheduleReminderBackgroundRefresh {
                 task.setTaskCompleted(success: !Task.isCancelled)
             }
 
-            let fakeCookie = LoginStorage.shared.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
+            let fakeCookie = AppAccountSession.storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !fakeCookie.isEmpty else {
                 schedule(earliestBeginDate: nil)
                 await ScheduleLiveActivityManager.shared.endAllActivities()
@@ -140,7 +141,8 @@ struct BIT101_iOSApp: App {
             scheduleViewModel: ScheduleServiceFactory.makeViewModel(),
             community: .app(settings: settings, stores: stores),
             scoreService: scores, transcriptService: transcripts, settings: settings, stores: stores, preferenceCloudSync: preferenceCloudSync,
-            notifications: .default,
+            accountChanges: AppAccountSession.storage.changes,
+            currentIdentity: { AppAccountSession.storage.communityCredentials.identity },
             scheduleChanges: ScheduleCacheStore.changes, loadScheduleCourses: AppAccountStores.loadScheduleCourses,
             media: AppMedia.environment, localData: .appService(settings: settings, media: AppMedia.environment),
             externalDisplays: AppExternalDisplayCoordinator()

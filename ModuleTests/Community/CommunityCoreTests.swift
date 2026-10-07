@@ -64,9 +64,12 @@ struct CommunityCoreTests {
         #expect(thread.sub == [liked])
         #expect(thread.like == comment.like)
         var state = CommunityCommentState()
-        state.applyFirstPage([thread])
+        state.applyFirstPage([thread, thread])
         #expect(state.items == [thread])
         #expect(state.nextPage == 1)
+        state.appendPage([thread, liked, liked])
+        #expect(state.items == [thread])
+        #expect(state.nextPage == 2 && state.canLoadMore)
         state.appendPage([])
         #expect(state.canLoadMore == false)
     }

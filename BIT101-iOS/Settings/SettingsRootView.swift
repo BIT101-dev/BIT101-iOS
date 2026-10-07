@@ -166,7 +166,7 @@ private struct SettingsRoutePage: View {
         case .account:
             AccountSettingsPage(dependencies: dependencies.account, studentID: studentID, onLogout: onLogout)
         case .calendar:
-            AppCalendarSettingsPage(viewModel: scheduleViewModel)
+            AppCalendarSettingsPage(viewModel: scheduleViewModel, scheduleCloudSync: .shared)
         case .ddl:
             DDLSettingsPage(viewModel: scheduleViewModel.ddl)
         case .gallery:

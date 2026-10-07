@@ -51,6 +51,7 @@ struct ScheduleSyncTests {
         var account = ScheduleCloudAccount(studentID: "A", session: AppStorageSession(accountIdentifier: "A"), generation: 1)
         var cache = ScheduleCache()
         var sources: [ScheduleCacheSaveSource] = []
+        var statuses: [ScheduleCloudSyncStatus] = []
         var failsSave = false
         private var saveWaiter: CheckedContinuation<Void, Never>?
         var resolutions: [@Sendable (ScheduleCacheConflictResolution?) async -> Void] = []
@@ -83,7 +84,8 @@ struct ScheduleSyncTests {
 
         func manager(_ transport: Cloud) -> ScheduleCloudSyncManager {
             ScheduleCloudSyncManager(local: store, transport: transport,
-                                     presentConflict: { _, resolve in self.resolutions.append(resolve) })
+                                     presentConflict: { _, resolve in self.resolutions.append(resolve) },
+                                     reportStatus: { account, status in if account == self.account { self.statuses.append(status) } })
         }
     }
 
@@ -97,17 +99,21 @@ struct ScheduleSyncTests {
         let holdRead: Bool
         let holdSave: Bool
         var conflict: ScheduleCloudRecord?
+        let available: Bool
+        let failsRead: Bool
 
         init(remote: ScheduleCloudRecord? = nil, holdRead: Bool = false, holdSave: Bool = false,
-             conflict: ScheduleCloudRecord? = nil) {
+             conflict: ScheduleCloudRecord? = nil, available: Bool = true, failsRead: Bool = false) {
             self.remote = remote
             self.holdRead = holdRead
             self.holdSave = holdSave
             self.conflict = conflict
+            self.available = available
+            self.failsRead = failsRead
         }
 
         func replaceRemote(_ record: ScheduleCloudRecord) { remote = record }
-        func accountAvailable() async throws -> Bool { true }
+        func accountAvailable() async throws -> Bool { available }
         func waitForEntry() async {
             if entered { return }
             await withCheckedContinuation { entryWaiter = $0 }
@@ -121,6 +127,7 @@ struct ScheduleSyncTests {
             entryWaiter?.resume(); entryWaiter = nil
         }
         func record(named name: String) async throws -> ScheduleCloudRecord {
+            if failsRead { throw URLError(.notConnectedToInternet) }
             if holdRead && !entered {
                 await withCheckedContinuation { readGate = $0; signal() }
             }
@@ -275,4 +282,30 @@ struct ScheduleSyncTests {
         #expect(saved.recordName == "schedule-cache-A")
         #expect(local.cache.cloudSyncBaselineRecordTag == "saved-tag")
     }
+    @Test func cloudStatusReportsSuccessAndLocalSaveDeferral() async throws {
+        let saved = Local()
+        await saved.manager(Cloud(remote: try record(title: "remote", updatedAt: 40))).refreshFromCloudIfNeeded()
+        #expect(saved.statuses == [.syncing, .synchronized])
+        let deferred = Local()
+        deferred.failsSave = true
+        await deferred.manager(Cloud(remote: try record(title: "remote", updatedAt: 40))).refreshFromCloudIfNeeded()
+        #expect(deferred.statuses.last == .pending)
+        #expect(deferred.cache.primaryScheduleTitle == "local")
+    }
+
+    @Test func cloudStatusPreservesFailureAndUnavailableAccountResults() async {
+        let local = Local()
+        await local.manager(Cloud(failsRead: true)).refreshFromCloudIfNeeded()
+        guard case .failed(let reason)? = local.statuses.last else {
+            Issue.record("A cloud transport failure must reach the status consumer")
+            return
+        }
+        #expect(!reason.isEmpty)
+        let unavailable = Local()
+        let cloud = Cloud(available: false)
+        await unavailable.manager(cloud).pushLatestLocalCacheIfNeeded()
+        #expect(unavailable.statuses == [.unavailable])
+        #expect(await cloud.saved.isEmpty)
+    }
+
 }

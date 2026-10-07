@@ -5,7 +5,7 @@ import Foundation
 /// 应用认证适配将账号身份与凭据恢复交给社区会话契约。
 extension CommunityAPIClient {
     init(
-        storage: LoginStorage = .shared,
+        storage: LoginStorage = AppAccountSession.storage,
         httpClient: HTTPClient = .community,
         baseURL: URL = AppURL.required("https://bit101.flwfdd.xyz"),
         errorDomain: String
@@ -26,7 +26,7 @@ extension CommunityAPIClient {
 }
 
 extension CommunitySession {
-    static func appSession(storage: LoginStorage = .shared, httpClient: HTTPClient = .community) -> CommunitySession {
+    static func appSession(storage: LoginStorage = AppAccountSession.storage, httpClient: HTTPClient = .community) -> CommunitySession {
         let coordinator = CommunitySessionRefreshCoordinator()
         return CommunitySession(
             httpClient: httpClient,

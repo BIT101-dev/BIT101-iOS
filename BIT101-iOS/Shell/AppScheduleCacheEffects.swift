@@ -143,7 +143,7 @@ enum ScheduleServiceFactory {
 
     static func make(transport: (any HTTPTransport)? = nil) -> ScheduleService {
         ScheduleService(
-            credentials: LoginStorage.shared,
+            credentials: AppAccountSession.storage,
             crypto: AppScheduleServiceCrypto(),
             schoolSessionRestorer: AppScheduleSchoolSessionRestorer(),
             teachingCenterState: AppSchoolSession.teachingCenter,
@@ -159,7 +159,7 @@ extension ScheduleLiveActivityManager {
     static let shared: ScheduleLiveActivityManager = {
         let context = ScheduleReminderContext(
             currentSession: {
-                let storage = LoginStorage.shared
+                let storage = AppAccountSession.storage
                 return ScheduleReminderSession(studentID: storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines),
                     storage: AppFileDirectories.currentSession, generation: storage.communityCredentials.identity.generation,
                     signedIn: !storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

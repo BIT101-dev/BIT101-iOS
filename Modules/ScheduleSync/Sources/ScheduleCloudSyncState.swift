@@ -1,6 +1,16 @@
 import ScheduleDomain
 import Foundation
 
+public nonisolated enum ScheduleCloudSyncStatus: Equatable, Sendable {
+    case idle
+    case syncing
+    case pending
+    case synchronized
+    case unavailable
+    case conflict
+    case failed(String)
+}
+
 
 /// Baseline tags identify known concurrent writes; timestamps resolve incomplete baselines.
 public nonisolated enum ScheduleCacheReconciliationDecision: Equatable {

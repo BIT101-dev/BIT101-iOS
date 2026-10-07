@@ -10,12 +10,16 @@ public actor ScheduleCloudSyncManager {
     private let local: ScheduleCloudLocalStore
     private let transport: any ScheduleCloudTransport
     private let presentConflict: ScheduleCloudConflictPresenter
+    private let reportStatus: @MainActor @Sendable (ScheduleCloudAccount, ScheduleCloudSyncStatus) -> Void
+    private var reportedStatus: (ScheduleCloudAccount, ScheduleCloudSyncStatus)?
 
     public init(local: ScheduleCloudLocalStore, transport: any ScheduleCloudTransport,
-                presentConflict: @escaping ScheduleCloudConflictPresenter) {
+                presentConflict: @escaping ScheduleCloudConflictPresenter,
+                reportStatus: @escaping @MainActor @Sendable (ScheduleCloudAccount, ScheduleCloudSyncStatus) -> Void = { _, _ in }) {
         self.local = local
         self.transport = transport
         self.presentConflict = presentConflict
+        self.reportStatus = reportStatus
     }
 
     private struct LocalCloudState {
@@ -97,18 +101,21 @@ public actor ScheduleCloudSyncManager {
         while let pendingLocalCache {
             self.pendingLocalCache = nil
             guard await isCurrentCloudState(for: pendingLocalCache.account),
-                  await hasAvailableCloudAccount()
+                  await hasAvailableCloudAccount(for: pendingLocalCache.account)
             else { continue }
             guard let latestState = await currentLocalCloudState(matching: pendingLocalCache.account) else {
                 continue
             }
+            await publishStatus(.syncing, for: pendingLocalCache.account)
             do {
-                _ = try await upsert(
+                try await uploadAndReport(
                     remoteWith: latestState.cache,
                     account: pendingLocalCache.account,
                     expectedLocalUpdatedAt: latestState.cache.updatedAt
                 )
+                await finishStatus(for: pendingLocalCache.account)
             } catch {
+                await publishStatus(.failed(error.localizedDescription), for: pendingLocalCache.account)
                 logError("push latest local cache failed: \(describe(error))")
             }
         }
@@ -139,9 +146,15 @@ public actor ScheduleCloudSyncManager {
         }
         guard localCache.iCloudSyncEnabled,
               await isCurrentCloudState(for: account),
-              await hasAvailableCloudAccount()
+              await hasAvailableCloudAccount(for: account)
         else { return }
 
+        await publishStatus(.syncing, for: account)
+        await performReconciliation(localCache: localCache, account: account, allowCloudApply: allowCloudApply)
+        await finishStatus(for: account)
+    }
+
+    private func performReconciliation(localCache: ScheduleCache, account: CloudAccountContext, allowCloudApply: Bool) async {
         logDebug(
             "reconcile start record=\(account.recordName) localUpdatedAt=\(debugDate(localCache.updatedAt)) allowCloudApply=\(allowCloudApply)"
         )
@@ -153,6 +166,7 @@ public actor ScheduleCloudSyncManager {
                 from: remoteRecord,
                 account: account
             ) else {
+                await publishStatus(.failed("云端日程数据需要更新后重试。"), for: account)
                 logError("reconcile abort: remote payload decode failed record=\(account.recordName)")
                 return
             }
@@ -210,6 +224,7 @@ public actor ScheduleCloudSyncManager {
                     account: account,
                     expectedLocalUpdatedAt: currentLocalState.cache.updatedAt
                 )
+                if !didApply { await publishStatus(.pending, for: account) }
                 if didApply, decodedRemote.requiresPayloadMigration {
                     await pushLatestLocalCacheIfNeeded()
                 }
@@ -217,24 +232,26 @@ public actor ScheduleCloudSyncManager {
             case .uploadLocal:
                 logDebug("local cache newer than remote; uploading local copy")
                 do {
-                    _ = try await upsert(
+                    try await uploadAndReport(
                         remoteWith: currentLocalState.cache,
                         account: account,
                         expectedLocalUpdatedAt: currentLocalState.cache.updatedAt
                     )
                 } catch {
+                    await publishStatus(.failed(error.localizedDescription), for: account)
                     logError("reconcile local upload failed: \(describe(error))")
                 }
             case .noChange:
                 logDebug("reconcile: timestamps match")
                 if decodedRemote.requiresPayloadMigration {
                     do {
-                        _ = try await upsert(
+                        try await uploadAndReport(
                             remoteWith: currentLocalState.cache,
                             account: account,
                             expectedLocalUpdatedAt: currentLocalState.cache.updatedAt
                         )
                     } catch {
+                        await publishStatus(.failed(error.localizedDescription), for: account)
                         logError("legacy payload migration failed: \(describe(error))")
                     }
                 }
@@ -248,18 +265,21 @@ public actor ScheduleCloudSyncManager {
                     initialUpload.updatedAt = Date()
                 }
                 do {
-                    _ = try await upsert(
+                    try await uploadAndReport(
                         remoteWith: initialUpload,
                         account: account,
                         expectedLocalUpdatedAt: currentLocalState.cache.updatedAt
                     )
                 } catch {
+                    await publishStatus(.failed(error.localizedDescription), for: account)
                     logError("initial upload after unknownItem failed: \(describe(error))")
                 }
             } else {
+                await publishStatus(.failed(error.localizedDescription), for: account)
                 logError("reconcile cloud error: \(describe(error))")
             }
         } catch {
+            await publishStatus(.failed(error.localizedDescription), for: account)
             logError("reconcile failed: \(describe(error))")
         }
     }
@@ -272,6 +292,7 @@ public actor ScheduleCloudSyncManager {
         remoteModifiedAt: Date,
         remoteRecordTag: String
     ) async {
+        await publishStatus(.conflict, for: account)
         let signature = [
             account.accountIdentifier,
             String(account.generation),
@@ -353,6 +374,7 @@ public actor ScheduleCloudSyncManager {
                 return
             }
         } catch {
+            await publishStatus(.failed(error.localizedDescription), for: conflict.account)
             logError("cloud conflict resolution could not verify the remote version: \(describe(error))")
             promptedConflictSignatures.remove(signature)
             return
@@ -389,7 +411,16 @@ public actor ScheduleCloudSyncManager {
             promptedConflictSignatures.remove(signature)
             if conflict.requiresPayloadMigration {
                 await pushLatestLocalCacheIfNeeded()
+            } else {
+                await publishStatus(.synchronized, for: conflict.account)
             }
+        }
+    }
+
+    private func uploadAndReport(remoteWith cache: ScheduleCache, account: CloudAccountContext, expectedLocalUpdatedAt: Date?) async throws {
+        let saved = try await upsert(remoteWith: cache, account: account, expectedLocalUpdatedAt: expectedLocalUpdatedAt)
+        if !saved, reportedStatus?.0 == account, reportedStatus?.1 == .syncing {
+            await publishStatus(.pending, for: account)
         }
     }
 
@@ -410,6 +441,7 @@ public actor ScheduleCloudSyncManager {
             record = try await transport.record(named: account.recordName)
             logDebug("upsert fetched existing remote record")
             guard let decodedRemote = decodeCache(from: record, account: account) else {
+                await publishStatus(.failed("云端日程数据需要更新后重试。"), for: account)
                 logError("upsert abort: remote payload decode failed record=\(account.recordName)")
                 return false
             }
@@ -599,12 +631,31 @@ public actor ScheduleCloudSyncManager {
         )
     }
 
-    private func hasAvailableCloudAccount() async -> Bool {
-        do { return try await transport.accountAvailable() }
-        catch {
+    private func hasAvailableCloudAccount(for account: CloudAccountContext) async -> Bool {
+        do {
+            let available = try await transport.accountAvailable()
+            if !available { await publishStatus(.unavailable, for: account) }
+            return available
+        } catch {
+            await publishStatus(.failed(error.localizedDescription), for: account)
             logError("cloud account status query failed: \(describe(error))")
             return false
         }
+    }
+
+    private func publishStatus(_ status: ScheduleCloudSyncStatus, for account: CloudAccountContext) async {
+        guard await local.currentAccount() == account, !Task.isCancelled else { return }
+        reportedStatus = (account, status)
+        await reportStatus(account, status)
+    }
+
+    private func finishStatus(for account: CloudAccountContext) async {
+        guard reportedStatus?.0 == account, reportedStatus?.1 == .syncing else { return }
+        guard let state = await currentLocalCloudState(matching: account) else {
+            await publishStatus(.failed("本机日程需要恢复后继续同步。"), for: account)
+            return
+        }
+        await publishStatus(state.cache.hasUnpushedCloudChanges ? .pending : .synchronized, for: account)
     }
 
     private func currentLocalCloudState() async -> LocalCloudState? {

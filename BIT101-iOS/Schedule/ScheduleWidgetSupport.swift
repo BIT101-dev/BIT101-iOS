@@ -137,7 +137,7 @@ enum ScheduleWidgetExporter {
         session: AppStorageSession
     ) -> ScheduleExternalSnapshot? {
         guard session == AppFileDirectories.currentSession else { return nil }
-        let isLoggedIn = !LoginStorage.shared.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let isLoggedIn = !AppAccountSession.storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
         return ScheduleExternalSnapshot(
             isLoggedIn: isLoggedIn,

@@ -38,11 +38,14 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
     }
 
     public func syncSnapshot() -> GalleryMessageReadSnapshot {
-        loadSnapshot()
+        var snapshot = loadSnapshot()
+        snapshot.latestIDsByType = [:]
+        snapshot.seenIDsByType = snapshot.seenIDsByType.mapValues { Array(Set($0)).sorted() }
+        return snapshot
     }
 
     public func applySyncedSnapshot(_ snapshot: GalleryMessageReadSnapshot) {
-        saveSnapshot(snapshot, shouldSync: false)
+        saveSnapshot(loadSnapshot().mergingReadState(snapshot), shouldSync: false)
     }
 
     /// 用服务端给出的未读数量，重建当前分类的“候选新消息”集合。
@@ -57,7 +60,7 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
         let existingSeen = Set(snapshot.seenIDsByType[type.rawValue] ?? [])
 
         snapshot.latestIDsByType[type.rawValue] = normalizedLatest
-        snapshot.seenIDsByType[type.rawValue] = normalizedLatest.filter { existingSeen.contains($0) }
+        snapshot.seenIDsByType[type.rawValue] = Array(existingSeen).sorted()
         saveSnapshot(snapshot)
     }
 

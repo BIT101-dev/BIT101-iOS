@@ -1,4 +1,5 @@
 import Foundation
+import CommunityTransport
 import Testing
 @testable import BIT101_iOS
 
@@ -143,5 +144,90 @@ struct ExtendedLoginTests {
         #expect(viewModel.screenState == .signedIn(studentID: "1120260001"))
         #expect(viewModel.alert == nil)
         #expect(service.checkLoginCalls == 1)
+    }
+}
+
+@MainActor
+@Suite(.serialized)
+struct LoginStorageTests {
+    private final class Credentials: LoginCredentialsStoring {
+        var values: [String: String] = [:]
+        var failsWrites = false
+        func read(account: String) throws -> String { values[account] ?? "" }
+        func save(_ value: String, account: String) throws {
+            if failsWrites { throw CocoaError(.fileWriteNoPermission) }
+            values[account] = value
+        }
+        func delete(account: String) -> Bool { values[account] = nil; return true }
+    }
+
+    @Test func credentialChangesCarryAccountGenerationsAndStayWithTheirOwner() throws {
+        let firstDomain = "BIT101Tests.login-storage.first"
+        let secondDomain = "BIT101Tests.login-storage.second"
+        let firstDefaults = try #require(UserDefaults(suiteName: firstDomain))
+        let secondDefaults = try #require(UserDefaults(suiteName: secondDomain))
+        firstDefaults.removePersistentDomain(forName: firstDomain)
+        secondDefaults.removePersistentDomain(forName: secondDomain)
+        defer {
+            firstDefaults.removePersistentDomain(forName: firstDomain)
+            secondDefaults.removePersistentDomain(forName: secondDomain)
+        }
+        let firstBackend = Credentials()
+        let secondBackend = Credentials()
+        var clearedSchools = 0
+        let first = LoginStorage(defaults: firstDefaults, credentials: firstBackend, clearSchoolCookies: { clearedSchools += 1 })
+        let second = LoginStorage(defaults: secondDefaults, credentials: secondBackend, clearSchoolCookies: {})
+        var firstChanges: [CommunitySessionIdentity] = []
+        var secondChanges: [CommunitySessionIdentity] = []
+        let subscriptions = [first.changes.sink { firstChanges.append($0) }, second.changes.sink { secondChanges.append($0) }]
+        try first.saveLoginState(studentID: " A ", password: "synthetic", fakeCookie: "cookie-A")
+        try first.saveLoginState(studentID: "A", password: "synthetic", fakeCookie: "renewed-A")
+        #expect(firstChanges == [.init(accountIdentifier: "A", generation: 1)])
+        #expect(first.communityCredentials.cookie == "renewed-A")
+        try first.saveLoginState(studentID: "B", password: "synthetic", fakeCookie: "cookie-B")
+        first.clearSession()
+        #expect(firstChanges.map(\.generation) == [1, 2, 3])
+        #expect(first.currentStudentID == "B")
+        #expect(first.currentPassword.isEmpty && first.fakeCookie.isEmpty)
+        #expect(first.clearAllLocalData())
+        #expect(firstChanges.last == .init(accountIdentifier: "", generation: 4))
+        #expect(clearedSchools == 3)
+        #expect(secondChanges.isEmpty && secondBackend.values.isEmpty)
+        withExtendedLifetime(subscriptions) {}
+    }
+
+    @Test func credentialWriteFailurePreservesThePublishedIdentity() throws {
+        let domain = "BIT101Tests.login-storage.failure"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let backend = Credentials()
+        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+        try storage.saveLoginState(studentID: "A", password: "synthetic", fakeCookie: "cookie-A")
+        let previous = storage.communityCredentials
+        var changes: [CommunitySessionIdentity] = []
+        let subscription = storage.changes.sink { changes.append($0) }
+        backend.failsWrites = true
+        #expect(throws: CocoaError.self) {
+            try storage.saveLoginState(studentID: "B", password: "synthetic", fakeCookie: "cookie-B")
+        }
+        #expect(storage.communityCredentials == previous)
+        #expect(changes.isEmpty)
+        withExtendedLifetime(subscription) {}
+    }
+
+    @Test func credentialMigrationUsesTheSelectedBackend() throws {
+        let domain = "BIT101Tests.login-storage.migration"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        defaults.set(true, forKey: "login.installationMarker")
+        defaults.set("legacy-cookie", forKey: "login.fakeCookie")
+        let backend = Credentials()
+        backend.values["login.sid"] = "A"
+        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+        #expect(storage.fakeCookie == "legacy-cookie")
+        #expect(storage.communityCredentials.identity == .init(accountIdentifier: "A"))
+        #expect(defaults.object(forKey: "login.fakeCookie") == nil)
     }
 }

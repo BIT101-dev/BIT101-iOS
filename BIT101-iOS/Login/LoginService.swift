@@ -15,7 +15,7 @@ struct LoginService {
     private let apiClient: BIT101APIClient
 
     /// 支持注入存储与 API 客户端。
-    init(storage: LoginStorage = .shared, apiClient: BIT101APIClient = .shared) {
+    init(storage: LoginStorage = AppAccountSession.storage, apiClient: BIT101APIClient = .shared) {
         self.storage = storage
         self.apiClient = apiClient
     }

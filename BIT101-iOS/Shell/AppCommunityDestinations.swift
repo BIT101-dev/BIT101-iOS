@@ -72,25 +72,25 @@ final class AppCommunityDestinations {
 }
 
 extension GalleryService {
-    init(storage: LoginStorage = .shared, httpClient: HTTPClient = .community) {
+    init(storage: LoginStorage = AppAccountSession.storage, httpClient: HTTPClient = .community) {
         self.init(session: .appSession(storage: storage, httpClient: httpClient), preferences: { AppCommunityDependencies.preferenceSnapshot })
     }
 }
 
 extension CourseService {
-    init(storage: LoginStorage = .shared, httpClient: HTTPClient = .community) {
+    init(storage: LoginStorage = AppAccountSession.storage, httpClient: HTTPClient = .community) {
         self.init(session: .appSession(storage: storage, httpClient: httpClient))
     }
 }
 
 extension PaperService {
-    init(storage: LoginStorage = .shared, httpClient: HTTPClient = .community) {
+    init(storage: LoginStorage = AppAccountSession.storage, httpClient: HTTPClient = .community) {
         self.init(session: .appSession(storage: storage, httpClient: httpClient))
     }
 }
 
 extension MineService {
-    init(storage: LoginStorage = .shared, httpClient: HTTPClient = .community) {
+    init(storage: LoginStorage = AppAccountSession.storage, httpClient: HTTPClient = .community) {
         self.init(session: .appSession(storage: storage, httpClient: httpClient), preferences: { AppCommunityDependencies.preferenceSnapshot })
     }
 }
@@ -201,7 +201,7 @@ extension AppLocalDataService {
     static func appService(settings: AppSettingsStore, media: MediaEnvironment) -> AppLocalDataService {
 #if BIT101_UI_TESTING
         return AppLocalDataService(files: AppFileDirectories.files, actions: AppLocalDataActions(
-            clearLogin: { LoginStorage.resetUITestCredentials(); return true },
+            clearLogin: { AppAccountSession.resetUITestCredentials(); return true },
             clearSchedule: { await ScheduleCacheStore.clear() },
             clearSharedSnapshot: { true },
             clearReports: { true },
@@ -214,7 +214,7 @@ extension AppLocalDataService {
         let domain = AppFileDirectories.defaultsDomain
         let webData = WKWebsiteDataStore.default()
         return AppLocalDataService(files: AppFileDirectories.files, actions: AppLocalDataActions(
-            clearLogin: { LoginStorage.shared.clearAllLocalData() },
+            clearLogin: { AppAccountSession.storage.clearAllLocalData() },
             clearSchedule: { await ScheduleCacheStore.clear() },
             clearSharedSnapshot: { await ScheduleWidgetExporter.clearSharedSnapshot() },
             clearReports: { ReleaseNetworkSmokeReportStore.clearLocalArtifacts() },
