@@ -60,6 +60,7 @@ public struct GalleryRootView: View {
 }
 
 private struct GalleryRootViewScene: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let dependencies: GalleryDependencies
     private let destinations: CommunityPaperDestination
     private let profiles: CommunityProfileDestination
@@ -350,7 +351,7 @@ private struct GalleryRootViewScene: View {
         let lastIndex = allFeeds.index(before: allFeeds.endIndex)
 
         if (currentIndex == 0 && step == -1) || (currentIndex == lastIndex && step == 1) {
-            withAnimation(.easeInOut) {
+            withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {
                 selectedSurface = .paper
             }
             return
@@ -359,7 +360,7 @@ private struct GalleryRootViewScene: View {
         let nextIndex = currentIndex + step
         guard allFeeds.indices.contains(nextIndex) else { return }
 
-        withAnimation(.easeInOut) {
+        withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {
             viewModel.selectedFeed = allFeeds[nextIndex]
         }
     }

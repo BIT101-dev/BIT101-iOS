@@ -69,18 +69,17 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
     /// 当前选中的一级分栏。
     @Published var selectedSection: ScheduleSection = .courses
     /// 是否正在同步课表/考试。
-    @Published public internal(set) var isSyncingCourses = false
+    public var isSyncingCourses: Bool { courseSyncCoordinator.isSyncingCourses }
     @Published var selectedWeek = 1
     @Published var selectedCourseScheduleIndex = 0
     @Published public internal(set) var notice: ScheduleNotice?
-    @Published public internal(set) var smsChallenge: BITLoginAuthenticationChallenge?
-    @Published public internal(set) var smsVerificationError: String?
-    @Published public internal(set) var isSubmittingSMSCode = false
-    /// 学校提供的可切换学期列表。
-    @Published public internal(set) var availableTerms: [String] = []
-    @Published public internal(set) var isLoadingTerms = false
-    @Published public internal(set) var hasLoadedAvailableTerms = false
-    @Published public internal(set) var syncingTerm: String?
+    public var smsChallenge: BITLoginAuthenticationChallenge? { courseSyncCoordinator.smsChallenge }
+    public var smsVerificationError: String? { courseSyncCoordinator.smsVerificationError }
+    public var isSubmittingSMSCode: Bool { courseSyncCoordinator.isSubmittingSMSCode }
+    public var availableTerms: [String] { courseSyncCoordinator.availableTerms }
+    public var isLoadingTerms: Bool { courseSyncCoordinator.isLoadingTerms }
+    public var hasLoadedAvailableTerms: Bool { courseSyncCoordinator.hasLoadedAvailableTerms }
+    public var syncingTerm: String? { courseSyncCoordinator.syncingTerm }
 
     public var isCacheWritable: Bool { repository.isWritable }
 
@@ -101,10 +100,9 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
 
     let virtualNetworkLikely: @MainActor () -> Bool
     let repository: ScheduleRepository
-    let service: any ScheduleCourseServicing
     public let ddl: ScheduleDDLViewModel
     let classroom: ScheduleClassroomViewModel
-    let courseSyncCoordinator = ScheduleCourseSyncCoordinator()
+    let courseSyncCoordinator: ScheduleCourseSyncCoordinator
     let platformActions: any SchedulePlatformActions
     let newCustomScheduleDraft: () -> CustomScheduleDraft
     private var subscriptions = Set<AnyCancellable>()
@@ -123,7 +121,7 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
     ) {
         self.repository = repository
         self.virtualNetworkLikely = virtualNetworkLikely
-        self.service = service
+        courseSyncCoordinator = ScheduleCourseSyncCoordinator(service: service, repository: repository, virtualNetworkLikely: virtualNetworkLikely)
         self.platformActions = platformActions
         self.newCustomScheduleDraft = newCustomScheduleDraft
         ddl = ScheduleDDLViewModel(service: ddlService, repository: repository, virtualNetworkLikely: virtualNetworkLikely, beforeSchoolRequest: beforeSchoolRequest)
@@ -132,11 +130,10 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
         repository.$notice.compactMap { $0 }.sink { [weak self] in self?.notice = $0 }.store(in: &subscriptions)
         ddl.$notice.compactMap { $0 }.sink { [weak self] in self?.notice = $0 }.store(in: &subscriptions)
         classroom.$notice.compactMap { $0 }.sink { [weak self] in self?.notice = $0 }.store(in: &subscriptions)
-        classroom.onAuthenticationRequired = { [weak self] challenge in
-            guard let self else { return }
-            self.courseSyncCoordinator.waitForClassroomAuthentication()
-            self.smsChallenge = challenge
-            self.smsVerificationError = nil
+        courseSyncCoordinator.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &subscriptions)
+        courseSyncCoordinator.$notice.compactMap { $0 }.sink { [weak self] in self?.notice = $0 }.store(in: &subscriptions)
+        classroom.onAuthenticationRequired = { [weak courseSyncCoordinator] challenge in
+            courseSyncCoordinator?.waitForClassroomAuthentication(challenge)
         }
     }
 
@@ -151,14 +148,6 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
         classroom.reset()
         ddl.reset()
         hasLoaded = false
-        isSyncingCourses = false
-        isLoadingTerms = false
-        syncingTerm = nil
-        isSubmittingSMSCode = false
-        availableTerms = []
-        hasLoadedAvailableTerms = false
-        smsChallenge = nil
-        smsVerificationError = nil
         courseSyncCoordinator.reset()
         notice = nil
         Task { @MainActor [weak self] in await self?.reloadFromDisk() }

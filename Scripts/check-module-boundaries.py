@@ -256,6 +256,8 @@ def ownership_errors(scope: str, source: str, path: str = "") -> list[str]:
         patterns.append(r"\b(?:ComposerDraftStore|GalleryMessageReadStore)\b")
     if scope == "ScoreFeature":
         patterns.append(r"\b(?:ScoreCacheStore|ScoreFilterPreferenceStore)\b")
+    if scope == "AppExternalDisplays.swift":
+        patterns.append(r"\b(?:AppFileDirectories|AppAccountSession|ScheduleWidgetExporter|ScheduleLiveActivityManager|WatchScheduleSyncManager|AppErrorPresenter)\b|\.\s*shared\b")
     if scope == "AppLocalDataService.swift":
         patterns.extend((GLOBAL_RESOURCE_PATTERN, r"\b(?:LoginStorage|ScheduleCacheStore|ScheduleWidgetExporter|AppMedia|AppSettingsStore|WKWebsiteDataStore)\b"))
     if scope in {"SettingsRootView.swift", "SettingsCommunityViews.swift", "SettingsAccountViews.swift", "SettingsServices.swift"}:
@@ -358,6 +360,8 @@ def self_test() -> None:
     assert service_boundary_errors("Modules/TransportCore/Sources/AppURL.swift", "CharacterSet.urlQueryAllowed") == []
     assert ownership_errors("TransportCore", "URLCache.shared", "Modules/TransportCore/Sources/SecureURLTransport.swift") == []
     assert ownership_errors("TransportCore", "URLCache.shared", "Modules/TransportCore/Sources/HTTPClient.swift")
+    assert ownership_errors("AppExternalDisplays.swift", "WatchScheduleSyncManager.shared.activateIfNeeded()")
+    assert ownership_errors("AppExternalDisplays.swift", "activateWatch()") == []
 
 
 def native_target_errors(root: Path, package: dict, modules: set[str]) -> list[str]:

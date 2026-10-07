@@ -89,11 +89,13 @@ final class RecordingSchedulePlatformActions: SchedulePlatformActions {
 
 @MainActor
 final class SemesterStartDateService: ScheduleServicing {
+    var authenticationChallenge: BITLoginAuthenticationChallenge?
     var firstDayString = "2026-09-07"
     var courses: [CourseRecord] = []
 
     func syncCourses(term: String?) async throws -> CourseSyncPayload {
-        CourseSyncPayload(
+        if let authenticationChallenge { throw ScheduleServiceError.secondFactorRequired(authenticationChallenge) }
+        return CourseSyncPayload(
             term: term ?? "2026-2027-1",
             firstDayString: firstDayString,
             sourceFirstDayString: firstDayString,
@@ -104,7 +106,10 @@ final class SemesterStartDateService: ScheduleServicing {
         )
     }
 
-    func fetchAvailableTerms() async throws -> [String] { throw ScheduleServiceError.invalidResponse }
+    func fetchAvailableTerms() async throws -> [String] {
+        if let authenticationChallenge { throw ScheduleServiceError.secondFactorRequired(authenticationChallenge) }
+        throw ScheduleServiceError.invalidResponse
+    }
     func fetchCurrentTermOnly() async throws -> String { throw ScheduleServiceError.invalidResponse }
     func prepareTeachingCenterAccess() async throws { throw ScheduleServiceError.invalidResponse }
     func fetchCampuses() async throws -> [CampusRecord] { throw ScheduleServiceError.invalidResponse }

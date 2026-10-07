@@ -1,4 +1,6 @@
 import ScheduleSync
+import ClientCore
+import StorageCore
 import SchedulePersistence
 @testable import GalleryFeature
 @testable import ScheduleFeature
@@ -368,28 +370,38 @@ struct ScheduleClassroomCoordinatorTests {
 @Suite("Schedule authentication continuation")
 @MainActor
 struct ScheduleCourseSyncCoordinatorTests {
-    @Test("Classroom SMS authentication has an explicit continuation")
-    func classroomAuthenticationContinuation() {
-        let coordinator = ScheduleCourseSyncCoordinator()
-
-        coordinator.waitForClassroomAuthentication()
-
-        #expect(coordinator.continuation == .classroomRefresh)
-        #expect(coordinator.courseSyncTerm == nil)
+    private func context() -> (ScheduleCourseSyncCoordinator, SemesterStartDateService, BITLoginAuthenticationChallenge) {
+        let service = SemesterStartDateService()
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "continuation") },
+            load: { _ in .missing }, save: { _, _, _ in })
+        let challenge = BITLoginAuthenticationChallenge(challengeID: "continuation", accessToken: "token",
+            status: "waiting_sms", maskedPhone: "138****0000", expiresIn: 300)
+        return (ScheduleCourseSyncCoordinator(service: service, repository: repository, virtualNetworkLikely: { false }), service, challenge)
     }
 
-    @Test("Authentication state records the suspended operation")
-    func recordsContinuationPurpose() {
-        let coordinator = ScheduleCourseSyncCoordinator()
+    @Test("Classroom SMS authentication keeps the selected challenge")
+    func classroomAuthenticationContinuation() {
+        let (coordinator, _, challenge) = context()
+        coordinator.waitForClassroomAuthentication(challenge)
+        #expect(coordinator.continuation == .classroomRefresh)
+        #expect(coordinator.smsChallenge?.challengeID == challenge.challengeID)
+        #expect(coordinator.courseSyncTerm == nil)
+        coordinator.dismissSMSChallenge()
+        #expect(coordinator.smsChallenge == nil)
+    }
 
-        coordinator.waitForCourseAuthentication(term: "2025-2026-2")
+    @Test("Service responses select the suspended operation and block overlapping requests")
+    func recordsContinuationPurpose() async {
+        let (coordinator, service, challenge) = context()
+        service.authenticationChallenge = challenge
+        await coordinator.syncCourses(term: "2025-2026-2", selectTerm: { _ in }, applyPayload: { _ in })
         #expect(coordinator.continuation == .courseSync(term: "2025-2026-2"))
+        await coordinator.loadAvailableTerms()
         #expect(coordinator.courseSyncTerm == "2025-2026-2")
-
-        coordinator.waitForAvailableTermsAuthentication()
+        coordinator.dismissSMSChallenge()
+        await coordinator.loadAvailableTerms()
         #expect(coordinator.continuation == .availableTerms)
         #expect(coordinator.courseSyncTerm == nil)
-
         coordinator.reset()
         #expect(coordinator.continuation == nil)
     }

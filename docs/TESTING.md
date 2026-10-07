@@ -106,7 +106,7 @@ Scripts/run-extended-tests.sh build icloud-smoke
 
 ## UI 自动化
 
-`BIT101-iOSUITests` 使用 `BIT101-iOS-UIAutomation` Release scheme 和真机宿主。`BIT101_UI_TESTING` 构建隔离 Keychain、偏好、账号文件和媒体缓存，使用合成会话及离线服务。测试文件归 App 内固定的 `Application Support/BIT101-UITests/` 根目录，系统日历与提醒动作使用内存端口，偏好云同步使用内存云存储。正式 App 由生产组装入口启动。UI 宿主在前台保持屏幕常亮。测试默认关闭 UIKit 动画；连续编辑、短信重试、媒体预览和多层弹窗场景启用系统动画，验证导航与输入生命周期。
+`BIT101-iOSUITests` 使用 `BIT101-iOS-UIAutomation` Release scheme 和真机宿主。`BIT101_UI_TESTING` 构建隔离 Keychain、偏好、账号文件和媒体缓存，使用合成会话及离线服务。测试文件归 App 内固定的 `Application Support/BIT101-UITests/` 根目录，系统日历与提醒动作使用内存端口，偏好云同步使用内存云存储。正式 App 由生产组装入口启动。UI 宿主在前台保持屏幕常亮。自动化控制和渲染查询归 `Login/UITestAccessibilityActions.swift`，启动配置与响应夹具归 `Login/AppUITestBootstrap.swift`。测试窗口沿用系统默认动画速度。测试默认关闭 UIKit 动画；连续编辑、短信重试、媒体预览和多层弹窗场景启用系统动画，验证导航与输入生命周期。动画场景核对实际窗口速度及动画启用状态；登录键盘提交和建议草稿往返通过原生触摸及系统键盘执行。
 
 日常 UI 复验使用 `Scripts/run-extended-tests.sh ui`，用例关键词直接接在 `ui` 后面，按测试类与方法名匹配并合并为一个批次，完整测试类/方法同样适用。例如 `ui About` 执行关于页面，`ui DDL Calendar` 合并 DDL 和日历相关流程。测试宿主编译使用 `build ui`。56 项通过 `UIAutomationTestCase` 串行复用一个 App 进程，每次场景配置校验进程 ID；完整映射见交互覆盖表。
 
@@ -241,4 +241,4 @@ GitHub Actions 的 `.github/workflows/ci.yml` 使用 `xcode-27` runner，先执�
 
 本机承接真机行为、UI、网络和 iCloud 验证；发布操作按对应授权执行。
 
-验证证据由 `Scripts/validation_evidence.py` 维护，固定保存为 `.build/extended-automation/validation-evidence.json`。每组记录源码摘要、执行范围、退出状态与实际通过用例数；源码变化后按当前内容重建证据。`Scripts/run-extended-tests.sh verify` 完整执行模块、真机行为、Catalyst、UI、网络、iCloud 和静态审计，恢复常规 App 后返回聚合结果。发布提交完成后执行 `python3 Scripts/validation_evidence.py bind`，完整通过且源码摘要一致时绑定提交；CI 将各 Job 的已执行结果写入 GitHub Job Summary。
+验证证据由 `Scripts/validation_evidence.py` 维护，固定保存为 `.build/extended-automation/validation-evidence.json`。证据文件记录源码摘要，每组保存执行范围、退出状态及独立结果摘要。测试摘要包含总数、通过、失败、跳过和逐模块覆盖率；网络摘要包含执行探针、认证和覆盖情况，iCloud 摘要包含双端阶段结果，CI 记录关联工作流。后续宿主覆盖指标文件时，各组摘要继续保留；源码变化后按当前内容重建证据。`Scripts/run-extended-tests.sh verify` 完整执行模块、真机行为、Catalyst、UI、网络、iCloud 和静态审计，恢复常规 App 后返回聚合结果。发布提交完成后执行 `python3 Scripts/validation_evidence.py bind`，完整通过且源码摘要一致时绑定提交；CI 将各 Job 的已执行结果写入 GitHub Job Summary。手动工作流开启 `release_check` 时，在 `validation_evidence` 输入粘贴绑定后的证据 JSON；`python3 Scripts/validation_evidence.py check` 核对完整分组、当前源码及发布提交。编译组与行为组在证据中分别记录执行范围和结果。

@@ -14,6 +14,7 @@ import DesignSystemKit
 import SwiftUI
 
 struct GalleryMessagesView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(GalleryDependencies.self) private var dependencies
     @Environment(MediaEnvironment.self) private var media
     @Environment(CommunityProfileDestination.self) private var profiles
@@ -196,7 +197,7 @@ struct GalleryMessagesView: View {
         let nextIndex = currentIndex + step
         guard allTypes.indices.contains(nextIndex) else { return }
 
-        withAnimation(.easeInOut) {
+        withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {
             viewModel.selectedType = allTypes[nextIndex]
         }
     }

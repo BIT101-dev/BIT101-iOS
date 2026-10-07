@@ -132,6 +132,7 @@ enum UITestSnapshotReader {
 @MainActor
 final class UIElement: NSObject {
     static var beforeNativeTap: (() -> Void)?
+    static var usesNativeInteraction = false
     let native: XCUIElement
     let path: [[String: String]]?
     private var capturedSnapshot: (any XCUIElementSnapshot)?
@@ -260,6 +261,10 @@ final class UIElement: NSObject {
 
     func tapBriefly() {
         defer { UITestSnapshotReader.invalidate() }
+        if Self.usesNativeInteraction {
+            press(forDuration: 0.01)
+            return
+        }
         var actionPath = path
         if var query = path, let index = query.lastIndex(where: { $0["type"] == "0" }),
            attributes()?["elementType"] as? Int == 9 {

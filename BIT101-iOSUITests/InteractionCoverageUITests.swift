@@ -635,6 +635,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         tap("移除原有图片")
         assertUI(!app.buttons["移除原有图片"].exists, "编辑应移除原有图片条目。")
         tap("取消")
+        assertUI(app.navigationBars["编辑帖子"].native.disappears(timeout: 5), "取消编辑应完成编辑弹窗关闭。")
         assertUI(app.buttons["图片 1"].appears(timeout: 5), "取消编辑应保留详情原图。")
         back()
         tap("发布话题")

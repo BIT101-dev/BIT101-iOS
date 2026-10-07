@@ -1,74 +1,20 @@
 import SchedulePorts
 import ScheduleDomain
-//
-//  ScheduleViewModel+CourseSync.swift
-//  BIT101-iOS
-//
-
 import Foundation
 
 extension ScheduleViewModel {
-    /// 同步课程表、考试安排和首周日期。
-    ///
-    /// 传入明确学期时先更新本地选择；后续请求失败时保留该选择。
-    /// 同步成功后会立刻更新本地缓存，从而驱动课表页、小组件和灵动岛一起刷新。
     public func syncCourses(term: String? = nil) async {
-        guard !isSyncingCourses, !isLoadingTerms, !isSubmittingSMSCode,
-              smsChallenge == nil
-        else { return }
-        let requestedTerm = term?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let syncTerm = requestedTerm?.isEmpty == true ? nil : requestedTerm
-        let generation = accountGeneration
-        if let syncTerm {
-            selectTermForSync(syncTerm)
-        }
-        isSyncingCourses = true
-        syncingTerm = syncTerm
-        defer {
-            if accountGeneration == generation {
-                isSyncingCourses = false
-                syncingTerm = nil
-            }
-        }
-
-        do {
-            let payload = try await service.syncCourses(term: syncTerm)
-            guard accountGeneration == generation, !Task.isCancelled else { return }
-            await applyCourseSyncPayload(payload)
-            guard accountGeneration == generation, !Task.isCancelled else { return }
-            courseSyncCoordinator.reset()
-        } catch ScheduleServiceError.secondFactorRequired(let challenge) {
-            guard accountGeneration == generation, !Task.isCancelled else { return }
-            courseSyncCoordinator.waitForCourseAuthentication(term: syncTerm)
-            smsChallenge = challenge
-            smsVerificationError = nil
-        } catch let error as ScheduleServiceError where error.isSchoolTransportFailure {
-            guard accountGeneration == generation, !Task.isCancelled else { return }
-            courseSyncCoordinator.reset()
-            notice = schoolFailureNotice(
-                title: "学校服务连接失败",
-                message: error.schoolTransportFailureMessage,
-                networkFailure: true
-            )
-        } catch ScheduleServiceError.challengeInvalid(let message) {
-            guard accountGeneration == generation, !Task.isCancelled else { return }
-            smsChallenge = nil
-            smsVerificationError = nil
-            courseSyncCoordinator.reset()
-            notice = ScheduleNotice.userInput(title: "验证已失效", message: message)
-        } catch let error as ScheduleServiceError where error.isUnpublishedCourseSchedule {
-            guard accountGeneration == generation, !Task.isCancelled else { return }
-            notice = ScheduleNotice.userInput(title: "课表暂未发布", message: error.localizedDescription)
-        } catch {
-            guard accountGeneration == generation, !Task.isCancelled else { return }
-            if isCancellation(error) { return }
-            notice = schoolFailureNotice(
-                title: "课表同步失败",
-                message: error.localizedDescription,
-                networkFailure: Self.isLikelySchoolTransportError(error)
-            )
-        }
+        await courseSyncCoordinator.syncCourses(term: term, selectTerm: selectTermForSync, applyPayload: applyCourseSyncPayload)
     }
+
+    public func loadAvailableTerms() async { await courseSyncCoordinator.loadAvailableTerms() }
+
+    public func submitSMSCode(_ code: String) async {
+        await courseSyncCoordinator.submitSMSCode(code, applyPayload: applyCourseSyncPayload,
+            refreshClassrooms: classroom.refreshClassroomPage)
+    }
+
+    public func dismissSMSChallenge() { courseSyncCoordinator.dismissSMSChallenge() }
 
     /// 先保存用户选择的学期，再独立请求课表。
     ///
@@ -96,143 +42,6 @@ extension ScheduleViewModel {
     var coursesLastUpdatedText: String {
         guard courseState.coursesUpdatedAt != .distantPast else { return "更新时间：暂无记录" }
         return "更新时间：\(courseState.coursesUpdatedAt.formatted(.dateTime.month().day().hour().minute()))"
-    }
-
-    /// 加载学校接口实际返回的学期列表，列表内容与接口结果保持一致。
-    public func loadAvailableTerms() async {
-        guard !isLoadingTerms, !isSyncingCourses, smsChallenge == nil
-        else { return }
-        let generation = accountGeneration
-        isLoadingTerms = true
-        defer {
-            if accountGeneration == generation {
-                isLoadingTerms = false
-            }
-        }
-
-        do {
-            let terms = try await service.fetchAvailableTerms()
-            guard accountGeneration == generation, !Task.isCancelled else { return }
-            availableTerms = terms
-            hasLoadedAvailableTerms = true
-            courseSyncCoordinator.reset()
-        } catch ScheduleServiceError.secondFactorRequired(let challenge) {
-            guard accountGeneration == generation, !Task.isCancelled else { return }
-            courseSyncCoordinator.waitForAvailableTermsAuthentication()
-            smsChallenge = challenge
-            smsVerificationError = nil
-        } catch let error as ScheduleServiceError where error.isSchoolTransportFailure {
-            guard accountGeneration == generation, !Task.isCancelled else { return }
-            courseSyncCoordinator.reset()
-            notice = schoolFailureNotice(
-                title: "学校服务连接失败",
-                message: error.schoolTransportFailureMessage,
-                networkFailure: true
-            )
-        } catch ScheduleServiceError.challengeInvalid(let message) {
-            guard accountGeneration == generation, !Task.isCancelled else { return }
-            courseSyncCoordinator.reset()
-            notice = ScheduleNotice.userInput(title: "验证已失效", message: message)
-        } catch {
-            guard accountGeneration == generation, !Task.isCancelled else { return }
-            if isCancellation(error) { return }
-            notice = schoolFailureNotice(
-                title: "学期列表加载失败",
-                message: error.localizedDescription,
-                networkFailure: Self.isLikelySchoolTransportError(error)
-            )
-        }
-    }
-
-    /// 提交短信一次性验证码，并继续已暂停的教学中心认证、课表同步或学期列表加载。
-    public func submitSMSCode(_ code: String) async {
-        guard let challenge = smsChallenge, !isSubmittingSMSCode else { return }
-        let normalizedCode = code.filter(\.isNumber)
-        guard (4 ... 8).contains(normalizedCode.count) else {
-            smsVerificationError = "请输入短信中的 4 至 8 位验证码。"
-            return
-        }
-
-        isSubmittingSMSCode = true
-        smsVerificationError = nil
-        let generation = accountGeneration
-        defer {
-            if accountGeneration == generation {
-                isSubmittingSMSCode = false
-            }
-        }
-
-        do {
-            guard let continuation = courseSyncCoordinator.continuation else {
-                smsChallenge = nil
-                smsVerificationError = nil
-                return
-            }
-
-            switch continuation {
-            case .classroomRefresh, .availableTerms:
-                try await service.submitSMSCodeForTeachingCenterAuthentication(
-                    normalizedCode,
-                    for: challenge
-                )
-                guard accountGeneration == generation, !Task.isCancelled else { return }
-                smsChallenge = nil
-                courseSyncCoordinator.reset()
-                if continuation == .classroomRefresh {
-                    await classroom.refreshClassroomPage()
-                } else {
-                    await loadAvailableTerms()
-                }
-            case let .courseSync(term):
-                let payload = try await service.submitSMSCode(
-                    normalizedCode,
-                    for: challenge,
-                    term: term
-                )
-                guard accountGeneration == generation, !Task.isCancelled else { return }
-                await applyCourseSyncPayload(payload)
-                guard accountGeneration == generation, !Task.isCancelled else { return }
-                smsChallenge = nil
-                courseSyncCoordinator.reset()
-            }
-        } catch ScheduleServiceError.secondFactorRequired(let challenge) {
-            guard accountGeneration == generation, !Task.isCancelled else { return }
-            smsChallenge = challenge
-            smsVerificationError = "请输入最新收到的短信验证码。"
-        } catch let error as ScheduleServiceError where error.isSchoolTransportFailure {
-            guard accountGeneration == generation, !Task.isCancelled else { return }
-            smsChallenge = nil
-            smsVerificationError = nil
-            courseSyncCoordinator.reset()
-            notice = schoolFailureNotice(
-                title: "学校服务连接失败",
-                message: error.schoolTransportFailureMessage,
-                networkFailure: true
-            )
-        } catch ScheduleServiceError.challengeInvalid(let message) {
-            guard accountGeneration == generation, !Task.isCancelled else { return }
-            smsChallenge = nil
-            smsVerificationError = nil
-            courseSyncCoordinator.reset()
-            notice = ScheduleNotice.userInput(title: "验证已失效", message: message)
-        } catch ScheduleServiceError.authenticationFailed(let message) {
-            guard accountGeneration == generation, !Task.isCancelled else { return }
-            smsVerificationError = "认证服务处理失败，请点击取消后重新同步课表。\n\(message)"
-        } catch let error as ScheduleServiceError where error.isUnpublishedCourseSchedule {
-            guard accountGeneration == generation, !Task.isCancelled else { return }
-            notice = ScheduleNotice.userInput(title: "课表暂未发布", message: error.localizedDescription)
-        } catch {
-            guard accountGeneration == generation, !Task.isCancelled else { return }
-            if isCancellation(error) { return }
-            smsVerificationError = error.localizedDescription
-        }
-    }
-
-    public func dismissSMSChallenge() {
-        guard !isSubmittingSMSCode else { return }
-        smsChallenge = nil
-        smsVerificationError = nil
-        courseSyncCoordinator.reset()
     }
 
     private func applyCourseSyncPayload(_ payload: CourseSyncPayload) async {

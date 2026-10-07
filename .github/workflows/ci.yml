@@ -11,6 +11,10 @@ on:
         required: false
         default: false
         type: boolean
+      validation_evidence:
+        description: Paste the bound validation-evidence.json for the release commit
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -41,6 +45,12 @@ jobs:
         run: Scripts/run-static-audit.sh
       - name: Test local Swift modules
         run: Scripts/run-extended-tests.sh modules
+
+      - name: Check release validation evidence
+        if: github.event_name == 'workflow_dispatch' && inputs.release_check
+        env:
+          BIT101_RELEASE_EVIDENCE: ${{ inputs.validation_evidence }}
+        run: python3 Scripts/validation_evidence.py check
 
       - name: Publish validation evidence
         if: always()

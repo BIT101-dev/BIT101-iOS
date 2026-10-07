@@ -479,7 +479,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
 
     @MainActor
     func testSuggestionDraftRestoreAndDiscard() {
-        app = configureApp(resetStorage: true, animations: true)
+        app = configureApp(resetStorage: true, animations: true, nativeInteraction: true)
         openSettings("suggestion")
         let text = app.textFields["建议内容"]
         assertUI(text.appears(timeout: 5), "建议页应展示内容字段。")

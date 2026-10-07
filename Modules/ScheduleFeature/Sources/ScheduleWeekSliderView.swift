@@ -4,6 +4,7 @@ import SwiftUI
 
 /// 课表顶部的周次滑动条，直接切换当前周。
 struct ScheduleInlineWeekSlider: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let weeks: [Int]
     let currentWeek: Int
     let highlightedWeek: Int
@@ -42,7 +43,7 @@ struct ScheduleInlineWeekSlider: View {
                     LazyHStack(spacing: AppDesignSystem.Schedule.WeekSlider.itemSpacing) {
                         ForEach(weeks, id: \.self) { week in
                             Button {
-                                withAnimation(.snappy) {
+                                withAnimation(AppDesignSystem.Motion.selection(reduceMotion: reduceMotion)) {
                                     selectedWeek = week
                                 }
                             } label: {
@@ -97,7 +98,7 @@ struct ScheduleInlineWeekSlider: View {
                     guard abs(value.translation.width) > abs(value.translation.height),
                           let index = dragStartIndex, !weeks.isEmpty else { return }
                     let target = weeks[min(max(index - steps, 0), weeks.count - 1)]
-                    withAnimation(.snappy) {
+                    withAnimation(AppDesignSystem.Motion.selection(reduceMotion: reduceMotion)) {
                         selectedWeek = target
                     }
                 })
@@ -143,7 +144,7 @@ struct ScheduleInlineWeekSlider: View {
 
         return Button {
             guard let targetWeek else { return }
-            withAnimation(.snappy) {
+            withAnimation(AppDesignSystem.Motion.selection(reduceMotion: reduceMotion)) {
                 selectedWeek = targetWeek
             }
         } label: {

@@ -57,6 +57,8 @@ App 入口 → 登录恢复 → AppAccountLifecycle → 各场景状态与页面
                     ↘ 网络、存储、云同步、系统能力适配
 ```
 
+- 外部展示适配器显式接收账号会话、登录判断、Watch 激活、Widget 导出、后台刷新和 Live Activity 操作；生产能力由 App 入口组装，异步恢复后核对账号及取消归属。
+- `ScheduleCourseSyncCoordinator` 持有课程同步、学期加载、短信等待和提交阶段，统一管理请求任务及账号重置取消。ViewModel 消费其展示状态，学期选择、课程编辑与持久化由日程场景承接。
 - `AppAccountLifecycle` 显式接收日程实例、偏好同步、社区依赖、成绩服务、日程变更与课程加载能力、媒体、清理操作及外部展示协调器；设置与账号仓库由 App 入口显式提供，生命周期和偏好同步消费同一实例。生产日程、凭据后端、账号事件源和外部展示实例由 App 入口选择。
 - `AppAccountSession` 选择凭据后端、学校 Cookie 清理能力和账号分区。`LoginStorage` 发布携带账号及代际的 typed 变更流；生命周期与社区请求消费同一凭据来源，事件归属在消费边界核对。Keychain 实现归 `KeychainLoginCredentials`，测试使用内存后端。
 - 设置、成绩、筛选和消息仓库通过 typed 保存 publisher 发布账号会话；偏好同步协调器在构造时持有独立订阅。

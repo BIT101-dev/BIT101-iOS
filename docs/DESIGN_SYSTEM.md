@@ -6,6 +6,8 @@
 
 同类规则共享一个入口。派生用于表达必要的几何关系；组件直接使用已有令牌。模块专用参数归所属模块，公共参数归共享层。
 
+`AppDesignSystem.Motion` 按选择变化和页面切换提供系统默认动画。页面消费 `accessibilityReduceMotion`，通过同一入口选择动画；系统导航和控件沿用原生时序。触觉反馈归 `AppHapticFeedback`，加载、空态和失败展示归 `AppStateComponents`，尺寸与间距消费已有语义令牌。
+
 客户端网络、存储、解析与并发规范见 [架构说明](ARCHITECTURE.md)。
 
 ## 文件与职责
@@ -13,7 +15,7 @@
 | 文件 | 职责 |
 | --- | --- |
 | `Modules/DesignSystemKit/Sources/DesignPrimitives.swift` | Foundation 基础值：间距、圆角、透明度刻度；定义 `AppDesignSystem` 根命名空间 |
-| `Modules/DesignSystemKit/Sources/AppDesignSystem.swift` | 主 App 尺寸、颜色、UIKit 字体桥接与形状工厂 |
+| `Modules/DesignSystemKit/Sources/AppDesignSystem.swift` | 主 App 尺寸、颜色、语义动画、UIKit 字体桥接与形状工厂 |
 | `Modules/DesignSystemKit/Sources/AppLayoutComponents.swift` | 卡片、详情操作、浮动按钮与公共 List 样式 |
 | `Modules/DesignSystemKit/Sources/AppStateComponents.swift` | 加载、空态、失败与滚动状态 |
 | `Modules/DesignSystemKit/Sources/AppCommentComponents.swift` | 评论结构、头像正文排列与回复缩进 |

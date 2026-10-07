@@ -145,7 +145,17 @@ struct BIT101_iOSApp: App {
             currentIdentity: { AppAccountSession.storage.communityCredentials.identity },
             scheduleChanges: ScheduleCacheStore.changes, loadScheduleCourses: AppAccountStores.loadScheduleCourses,
             media: AppMedia.environment, localData: .appService(settings: settings, media: AppMedia.environment),
-            externalDisplays: AppExternalDisplayCoordinator()
+            externalDisplays: AppExternalDisplayCoordinator(
+                currentSession: stores.currentSession,
+                isSignedIn: { !AppAccountSession.storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty },
+                activateWatch: WatchScheduleSyncManager.shared.activateIfNeeded,
+                resetPresentation: AppErrorPresenter.shared.reset,
+                exportWidget: ScheduleWidgetExporter.syncFromCurrentCache,
+                nextReminderRefresh: ScheduleLiveActivityManager.shared.preferredBackgroundRefreshBeginDate,
+                scheduleBackgroundRefresh: ScheduleReminderBackgroundRefresh.schedule,
+                endActivities: ScheduleLiveActivityManager.shared.endAllActivities,
+                refreshActivities: { await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(trigger: $0) }
+            )
         )
     }
 

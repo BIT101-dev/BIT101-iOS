@@ -30,6 +30,7 @@ public struct PaperRootView: View {
 }
 
 private struct PaperRootViewScene: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let dependencies: PaperDependencies
     private let media: MediaEnvironment
     @Environment(\.scenePhase) private var scenePhase
@@ -238,7 +239,7 @@ private struct PaperRootViewScene: View {
         let lastIndex = allOrders.index(before: allOrders.endIndex)
 
         if (currentIndex == 0 && step == -1) || (currentIndex == lastIndex && step == 1) {
-            withAnimation(.easeInOut) {
+            withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {
                 onShowFeed()
             }
             return
@@ -247,7 +248,7 @@ private struct PaperRootViewScene: View {
         let nextIndex = currentIndex + step
         guard allOrders.indices.contains(nextIndex) else { return }
 
-        withAnimation(.easeInOut) {
+        withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {
             viewModel.selectedOrder = allOrders[nextIndex]
         }
     }

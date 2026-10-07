@@ -17,6 +17,7 @@ import SwiftUI
 /// 顶部使用公共 segmented，正文按当前分区单独渲染。
 /// 页面正文保持独立布局，底部玻璃效果稳定，轻扫切换继续可用。
 public struct ScheduleRootView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// 壳层深链请求的目标分栏，例如从小组件点进来直接落到课表。
     @Binding var requestedSection: ScheduleSection?
     let destinations: ScheduleDestinations
@@ -140,7 +141,7 @@ public struct ScheduleRootView: View {
         let nextIndex = currentIndex + step
         guard allSections.indices.contains(nextIndex) else { return }
 
-        withAnimation(.easeInOut) {
+        withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {
             viewModel.selectedSection = allSections[nextIndex]
         }
     }
@@ -149,7 +150,7 @@ public struct ScheduleRootView: View {
     private func consumeRequestedSectionIfNeeded() {
         guard let requestedSection else { return }
 
-        withAnimation(.easeInOut) {
+        withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {
             viewModel.selectedSection = requestedSection
             if requestedSection == .courses {
                 // 从小组件、锁屏组件或灵动岛回到课表时，发一个“回首页”信号，

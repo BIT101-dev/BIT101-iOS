@@ -499,3 +499,59 @@ struct ExperimentalPreferenceCloudSyncTests {
         ))
     }
 }
+
+@MainActor
+struct AppExternalDisplayTests {
+    private final class Context {
+        var session = AppStorageSession(accountIdentifier: "selected-display")
+        var signedIn = true
+        var events: [String] = []
+        var exportAction: (() async -> Void)?
+        let refreshDate = Date(timeIntervalSince1970: 100)
+
+        func adapter() -> AppExternalDisplayCoordinator {
+            AppExternalDisplayCoordinator(currentSession: { self.session }, isSignedIn: { self.signedIn },
+                activateWatch: { self.events.append("activate") }, resetPresentation: { self.events.append("reset") },
+                exportWidget: { self.events.append("widget"); await self.exportAction?() },
+                nextReminderRefresh: { self.events.append("next"); return self.refreshDate },
+                scheduleBackgroundRefresh: { self.events.append($0 == self.refreshDate ? "schedule" : "clear") },
+                endActivities: { self.events.append("end") }, refreshActivities: { self.events.append($0) })
+        }
+    }
+
+    @Test func selectedCapabilitiesOwnSignedInAndSignedOutRefreshes() async {
+        let context = Context()
+        let adapter = context.adapter()
+        adapter.activate()
+        adapter.resetAccountPresentation()
+        await adapter.refresh(trigger: "refresh", syncWidgetSnapshot: true, session: context.session)
+        #expect(context.events == ["activate", "reset", "widget", "next", "schedule", "refresh"])
+        context.events = []
+        context.signedIn = false
+        await adapter.refresh(trigger: "refresh", syncWidgetSnapshot: false, session: context.session)
+        #expect(context.events == ["clear", "end"])
+    }
+
+    @Test func suspendedRefreshChecksAccountAndCancellationBeforeSystemEffects() async {
+        for cancel in [false, true] {
+            let context = Context()
+            var resume: CheckedContinuation<Void, Never>?
+            var started: CheckedContinuation<Void, Never>?
+            context.exportAction = {
+                await withCheckedContinuation {
+                    resume = $0
+                    started?.resume()
+                    started = nil
+                }
+            }
+            let adapter = context.adapter()
+            let owner = context.session
+            let task = Task { await adapter.refresh(trigger: "refresh", syncWidgetSnapshot: true, session: owner) }
+            if resume == nil { await withCheckedContinuation { started = $0 } }
+            if cancel { task.cancel() } else { context.session = AppStorageSession(accountIdentifier: "changed") }
+            resume?.resume()
+            await task.value
+            #expect(context.events == ["widget"])
+        }
+    }
+}

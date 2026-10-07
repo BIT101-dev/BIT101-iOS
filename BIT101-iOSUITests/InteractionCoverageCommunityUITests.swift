@@ -630,7 +630,7 @@ extension InteractionCoverageUITests {
 
     @MainActor
     @objc func testLoginSubmitButtonAndKeyboardScrollDismissal() {
-        app = configureApp(resetStorage: true, account: nil)
+        app = configureApp(resetStorage: true, account: nil, animations: true, nativeInteraction: true)
         assertUI(app.secureTextFields["login.password"].exists, "登录页应展示密码字段。")
         assertUI(!app.buttons["login.submit"].isEnabled, "空凭据应禁用登录。")
         replaceTextWithKeyboard("ui-test-student", in: app.textFields["login.student-id"])

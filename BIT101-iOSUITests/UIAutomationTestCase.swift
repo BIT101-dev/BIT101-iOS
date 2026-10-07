@@ -187,7 +187,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func replaceText(_ text: String, in field: UIElement) {
-        if text.hasSuffix("\n") {
+        if UIElement.usesNativeInteraction || text.hasSuffix("\n") {
             replaceTextWithKeyboard(text, in: field)
             return
         }
@@ -276,6 +276,13 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     @MainActor
     func dismissKeyboard() {
         guard UITestControlClient.request(["command": "keyboard-state"]) != "hidden" else { return }
+        if UIElement.usesNativeInteraction {
+            let done = app.buttons["keyboard.dismiss"]
+            assertUI(done.appears(timeout: 5), "系统键盘应呈现完成按钮。")
+            done.press(forDuration: 0.01)
+            assertUI(app.keyboards.firstMatch.disappears(timeout: 5), "原生完成按钮应关闭系统键盘。")
+            return
+        }
         let started = ProcessInfo.processInfo.systemUptime
         let deadline = Date().addingTimeInterval(2)
         var result = UITestControlClient.request(["command": "finish-input"], timeout: 5)
@@ -515,6 +522,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         ddlFixture: String? = nil,
         content: Bool = false,
         animations: Bool = false,
+        nativeInteraction: Bool = false,
         school: Bool = false,
         media: Bool = false,
         failureOnce: Bool = false,
@@ -526,6 +534,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         let started = ProcessInfo.processInfo.systemUptime
         defer { print(String(format: "UI scene preparation: %.3f", ProcessInfo.processInfo.systemUptime - started)) }
         continueAfterFailure = false
+        UIElement.usesNativeInteraction = nativeInteraction
         let application = Self.sessionApplication ?? XCUIApplication()
         application.launchEnvironment = [:]
         application.launchArguments = ["--ui-testing", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
@@ -653,6 +662,13 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             print("UI automation App process: \(process)")
         }
         Self.sessionScene = identity
+        if animations {
+            let report = UITestControlClient.request(["command": "coverage"])
+                .flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+            let speeds = report?["animationSpeeds"] as? [Double] ?? []
+            assertUI(report?["animationsEnabled"] as? Bool == true && !speeds.isEmpty && speeds.allSatisfy { $0 == 1 },
+                     "动画场景应启用系统动画并使用窗口默认速度。")
+        }
         return app
     }
 }

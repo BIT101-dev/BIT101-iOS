@@ -26,6 +26,7 @@ private enum ScoreSurface: String, CaseIterable, Identifiable, Hashable {
 ///
 /// 页面提供“成绩 / 课程”的顶部切换。
 struct ScoreRootView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(AppCommunityDestinations.self) private var destinations
     private let courses: CourseDependencies
     @EnvironmentObject private var scoreViewModel: ScoreViewModel
@@ -62,7 +63,7 @@ struct ScoreRootView: View {
                     .transition(.opacity)
             }
         }
-        .animation(.easeInOut, value: selectedSurface)
+        .animation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion), value: selectedSurface)
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             AppTopSegmentedPicker(title: "成绩内容", selection: surfaceSelection) {
                 ForEach(ScoreSurface.allCases) { surface in
@@ -134,7 +135,7 @@ struct ScoreRootView: View {
     private func switchSurface(to surface: ScoreSurface) {
         guard surface != selectedSurface else { return }
 
-        withAnimation(.easeInOut) {
+        withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {
             selectedSurface = surface
         }
     }

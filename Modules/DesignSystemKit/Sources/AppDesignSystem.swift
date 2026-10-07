@@ -6,6 +6,16 @@ import UIKit
 ///
 /// 业务页面选择语义化的间距、圆角、颜色和卡片变体，公共值由本系统统一定义。
 extension AppDesignSystem {
+    public enum Motion {
+        public static func selection(reduceMotion: Bool) -> Animation? {
+            reduceMotion ? nil : .snappy
+        }
+
+        public static func transition(reduceMotion: Bool) -> Animation? {
+            reduceMotion ? nil : .easeInOut
+        }
+    }
+
     public enum Course {
         public static let historyChartHeight: CGFloat = 240
         public static let metricSurfaceOpacity = AppDesignSystem.Opacity.subtle

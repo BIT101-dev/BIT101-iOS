@@ -10,22 +10,31 @@ protocol AppExternalDisplayCoordinating {
 
 /// 生产平台适配集中维护 Watch、Widget 和提醒生命周期。
 struct AppExternalDisplayCoordinator: AppExternalDisplayCoordinating {
-    func activate() { WatchScheduleSyncManager.shared.activateIfNeeded() }
-    func resetAccountPresentation() { AppErrorPresenter.shared.reset() }
+    let currentSession: () -> AppStorageSession
+    let isSignedIn: () -> Bool
+    let activateWatch: () -> Void
+    let resetPresentation: () -> Void
+    let exportWidget: () async -> Void
+    let nextReminderRefresh: () async -> Date?
+    let scheduleBackgroundRefresh: (Date?) -> Void
+    let endActivities: () async -> Void
+    let refreshActivities: (String) async -> Void
+
+    func activate() { activateWatch() }
+    func resetAccountPresentation() { resetPresentation() }
 
     func refresh(trigger: String, syncWidgetSnapshot: Bool, session: AppStorageSession) async {
-        guard !Task.isCancelled, session == AppFileDirectories.currentSession else { return }
-        if syncWidgetSnapshot { await ScheduleWidgetExporter.syncFromCurrentCache() }
-        guard !Task.isCancelled, session == AppFileDirectories.currentSession else { return }
-        let cookie = AppAccountSession.storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cookie.isEmpty else {
-            ScheduleReminderBackgroundRefresh.schedule(earliestBeginDate: nil)
-            await ScheduleLiveActivityManager.shared.endAllActivities()
+        guard !Task.isCancelled, session == currentSession() else { return }
+        if syncWidgetSnapshot { await exportWidget() }
+        guard !Task.isCancelled, session == currentSession() else { return }
+        guard isSignedIn() else {
+            scheduleBackgroundRefresh(nil)
+            await endActivities()
             return
         }
-        let date = await ScheduleLiveActivityManager.shared.preferredBackgroundRefreshBeginDate()
-        guard !Task.isCancelled, session == AppFileDirectories.currentSession else { return }
-        ScheduleReminderBackgroundRefresh.schedule(earliestBeginDate: date)
-        await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(trigger: trigger)
+        let date = await nextReminderRefresh()
+        guard !Task.isCancelled, session == currentSession() else { return }
+        scheduleBackgroundRefresh(date)
+        await refreshActivities(trigger)
     }
 }

@@ -52,6 +52,57 @@ struct ScheduleFeatureTests {
         #expect(saved?.currentTerm == "verified-term")
     }
 
+    @Test func requestsShareOnePhaseAndAccountResetCancelsTheirOwner() async throws {
+        var session = AppStorageSession(accountIdentifier: "first")
+        let repository = ScheduleRepository(session: { session }, load: { _ in .missing }, save: { _, _, _ in })
+        await repository.loadIfNeeded()
+        let service = ModuleScheduleService()
+        let pending = ModuleCourseRequest()
+        service.onSync = { _ in try await pending.run() }
+        let model = makeViewModel(repository: repository, actions: ModuleSchedulePlatformActions(), service: service)
+        let request = Task { await model.syncCourses(term: "first-term") }
+        await pending.waitUntilStarted()
+        #expect(model.isSyncingCourses)
+        await model.loadAvailableTerms()
+        #expect(service.termRequests == 0)
+        session = AppStorageSession(accountIdentifier: "second")
+        model.resetForCurrentAccount()
+        service.onSync = nil
+        service.challenge = BITLoginAuthenticationChallenge(challengeID: "new-account", accessToken: "token",
+            status: "waiting_sms", maskedPhone: "138****0000", expiresIn: 300)
+        await model.syncCourses(term: "second-term")
+        pending.response?.resume(returning: CourseSyncPayload(term: "first-term", firstDayString: "",
+            sourceFirstDayString: "", normalizationOffset: 0, rawWeeksByCourse: [], courses: [], exams: []))
+        await request.value
+        #expect(pending.wasCancelled)
+        #expect(model.smsChallenge?.challengeID == "new-account")
+        #expect(model.courseSyncCoordinator.courseSyncTerm == "second-term")
+        #expect(model.persistenceSnapshot.currentTerm != "first-term")
+        #expect(model.isSyncingCourses == false)
+    }
+
+    @Test func cancellingTheCallerReleasesItsRequestPhase() async {
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "cancel") },
+            load: { _ in .missing }, save: { _, _, _ in })
+        await repository.loadIfNeeded()
+        let service = ModuleScheduleService()
+        let pending = ModuleCourseRequest()
+        service.onSync = { _ in try await pending.run() }
+        let model = makeViewModel(repository: repository, actions: ModuleSchedulePlatformActions(), service: service)
+        let request = Task { await model.syncCourses() }
+        await pending.waitUntilStarted()
+        request.cancel()
+        pending.response?.resume(throwing: CancellationError())
+        await request.value
+        #expect(pending.wasCancelled)
+        #expect(model.isSyncingCourses == false)
+        #expect(model.smsChallenge == nil)
+        #expect(model.notice == nil)
+        await model.loadAvailableTerms()
+        #expect(service.termRequests == 1)
+        #expect(model.hasLoadedAvailableTerms)
+    }
+
     @Test func publicAssemblyOwnsOneRepositoryAcrossAllSubscenes() async {
         let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "assembly") },
                                             load: { _ in .missing }, save: { _, _, _ in })
@@ -212,12 +263,15 @@ private final class ModuleScheduleService: ScheduleServicing {
     var submissionError: ScheduleServiceError?
     var payload: CourseSyncPayload?
     var submittedCodes: [String] = []
+    var onSync: ((String?) async throws -> CourseSyncPayload)?
+    var termRequests = 0
 
     func syncCourses(term: String?) async throws -> CourseSyncPayload {
+        if let onSync { return try await onSync(term) }
         if let challenge { throw ScheduleServiceError.secondFactorRequired(challenge) }
         throw CancellationError()
     }
-    func fetchAvailableTerms() async throws -> [String] { [] }
+    func fetchAvailableTerms() async throws -> [String] { termRequests += 1; return [] }
     func submitSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge, term: String?) async throws -> CourseSyncPayload {
         submittedCodes.append(code)
         if let submissionError { throw submissionError }
@@ -792,5 +846,26 @@ private final class ModuleSemesterStartDateService: ScheduleServicing {
     ) async throws -> DDLSyncPayload { throw ScheduleServiceError.invalidResponse }
     func refreshLexueCalendarURL(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> String {
         throw ScheduleServiceError.invalidResponse
+    }
+}
+
+@MainActor
+private final class ModuleCourseRequest {
+    var response: CheckedContinuation<CourseSyncPayload, Error>?
+    private var started: CheckedContinuation<Void, Never>?
+    private(set) var wasCancelled = false
+
+    func run() async throws -> CourseSyncPayload {
+        defer { wasCancelled = Task.isCancelled }
+        return try await withCheckedThrowingContinuation {
+            response = $0
+            started?.resume()
+            started = nil
+        }
+    }
+
+    func waitUntilStarted() async {
+        if response != nil { return }
+        await withCheckedContinuation { started = $0 }
     }
 }
