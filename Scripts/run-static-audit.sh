@@ -34,6 +34,7 @@ if [[ -z "$SWIFT_FRONTEND" || ! -x "$SWIFT_FRONTEND" ]]; then
 fi
 LOG_DIR="$ROOT_DIR/.build/static-audit"
 AUDIT_STARTED=$SECONDS
+export BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest)"
 
 mkdir -p "$LOG_DIR"
 rm -f "$LOG_DIR"/*.log(N)
@@ -105,7 +106,11 @@ docs_check() {
   (cd "$ROOT_DIR" && python3 Scripts/check-docs.py --all) || return 1
   (cd "$ROOT_DIR" && python3 Scripts/validate_versions.py "${version_args[@]}")
 }
-checker_audit() { python3 "$ROOT_DIR/Scripts/check-code-quality.py" --combined; }
+checker_audit() {
+  python3 "$ROOT_DIR/Scripts/check-file-lengths.py" || return 1
+  python3 "$ROOT_DIR/Scripts/validation_evidence.py" self-test || return 1
+  python3 "$ROOT_DIR/Scripts/check-code-quality.py" --combined
+}
 module_boundary_audit() { python3 "$ROOT_DIR/Scripts/check-module-boundaries.py"; }
 artifact_hygiene() {
   python3 - "$ROOT_DIR" <<'PY'
@@ -198,6 +203,8 @@ for (( index = 1; index <= ${#group_names}; index++ )); do
 done
 if (( ${#failed_groups[@]} > 0 )); then
   printf '[失败汇总] %s\n' "${(j:, :)failed_groups}" >&2
+  python3 "$ROOT_DIR/Scripts/validation_evidence.py" record audit 1 || true
   exit 1
 fi
+python3 "$ROOT_DIR/Scripts/validation_evidence.py" record audit 0
 echo "静态审计通过 · 10 组 · $(( SECONDS - AUDIT_STARTED )) 秒"

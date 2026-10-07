@@ -4,6 +4,7 @@ import ScheduleDomain
 import SchedulePorts
 import StorageCore
 import Testing
+import TransportCore
 @testable import ScheduleFeature
 
 @MainActor
@@ -100,6 +101,35 @@ struct EclassDDLSyncTests {
         service.error = ScheduleServiceError.schoolSecondFactorRequired
         #expect(await model.syncDDL() == false)
         #expect(model.notice?.message.contains("短信") == true)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func staleSMSCleanupPreservesTheNextWaitAndCurrentCancellationCompletes() async throws {
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "sms") },
+            load: { _ in .missing }, save: { _, _, _ in })
+        let model = ScheduleDDLViewModel(service: Service(payload: DDLSyncPayload(url: "", events: [])), repository: repository)
+        let handler = model.makeSchoolSMSCodeHandler()
+        let first = Task { try await handler(SchoolSMSCodeRequest(maskedPhone: "first", purpose: "DDL")) }
+        while model.schoolSMSWaitID == nil { await Task.yield() }
+        let oldID = try #require(model.schoolSMSWaitID)
+        model.dismissSchoolSMSCode()
+        _ = try? await first.value
+        let request = SchoolSMSCodeRequest(maskedPhone: "second", purpose: "DDL")
+        let second = Task { try await handler(request) }
+        while model.schoolSMSWaitID == nil { await Task.yield() }
+        model.cancelSchoolSMSWait(matching: oldID)
+        #expect(model.schoolSMSCodeRequest?.id == request.id)
+        model.submitSchoolSMSCode("123456")
+        #expect(try await second.value == "123456")
+        let third = Task { try await handler(request) }
+        while model.schoolSMSWaitID == nil { await Task.yield() }
+        third.cancel()
+        do {
+            _ = try await third.value
+            Issue.record("The current SMS wait must finish with cancellation.")
+        } catch { #expect(TaskCancellation.matches(error)) }
+        #expect(model.schoolSMSWaitID == nil)
+        #expect(model.schoolSMSCodeRequest == nil)
     }
 
     private func event(_ id: String, group: String, done: Bool = false) -> DDLEventRecord {

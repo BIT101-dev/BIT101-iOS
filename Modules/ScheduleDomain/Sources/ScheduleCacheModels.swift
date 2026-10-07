@@ -339,6 +339,7 @@ public nonisolated struct ScheduleSyncData: Codable, Equatable, Sendable {
     public var iCloudSyncEnabled: Bool = true
     public var cloudSyncBaselineAt: Date = .distantPast
     public var cloudSyncBaselineRecordTag: String = ""
+    public var cloudSyncBaselineUserState: Data?
     public var hasUnpushedCloudChanges: Bool = false
     public init() {}
 }

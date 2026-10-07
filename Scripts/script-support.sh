@@ -254,7 +254,7 @@ import re
 import sys
 
 tests = []
-pattern = re.compile(r"(?m)^\s*(?:(?:private|nonisolated|final)\s+)*class\s+(\w+)|^\s*(?:@\w+\s+)*func\s+(test\w+)\s*\(")
+pattern = re.compile(r"(?m)^\s*(?:(?:private|nonisolated|final)\s+)*(?:class|extension)\s+(\w+)|^\s*(?:@\w+\s+)*func\s+(test\w+)\s*\(")
 for source in sorted(Path(sys.argv[1]).glob("*UITests.swift")):
     owner = ""
     for match in pattern.finditer(source.read_text()):

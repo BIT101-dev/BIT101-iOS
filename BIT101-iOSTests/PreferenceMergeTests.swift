@@ -26,7 +26,7 @@ struct PreferenceMergeTests {
         let cloud: Cloud
         let sync: ExperimentalPreferenceCloudSync
         func record(_ domain: ExperimentalPreferenceSyncDomain) -> String {
-            "preference-sync.v1.\(AppStorageSession(accountIdentifier: "merge-account").accountDirectoryName).\(domain.rawValue)"
+            "preference-sync.v2.\(AppStorageSession(accountIdentifier: "merge-account").accountDirectoryName).\(domain.rawValue)"
         }
     }
 
@@ -161,4 +161,73 @@ struct PreferenceMergeTests {
         #expect(value.sync.settings.galleryUseWebView)
         #expect(value.sync.settings.galleryHiddenUserIDs == [99])
     }
+    @Test func invalidAndFutureCloudRecordsKeepTheirBytesAcrossLocalEdits() async throws {
+        let value = try device("BIT101Tests.preference-protection")
+        defer { value.defaults.removePersistentDomain(forName: value.domain) }
+        for domain in ExperimentalPreferenceSyncDomain.allCases {
+            let bytes = Data("{\"schemaVersion\":99,\"updatedAt\":100,\"payload\":{}}".utf8)
+            value.cloud.set(bytes, forKey: value.record(domain))
+            if domain == .scoreCache { _ = await value.sync.stores.scoreCache.save(rows: []) }
+            value.sync.localValueDidChange(in: domain)
+            await value.sync.refreshFromCloudIfNeeded()?.value
+            #expect(value.cloud.data(forKey: value.record(domain)) == bytes)
+            #expect(value.sync.syncIssue != nil)
+        }
+        let key = value.record(.appSettings)
+        for raw in [Data("broken".utf8), Data("{\"payload\":null}".utf8)] {
+            value.cloud.set(raw, forKey: key)
+            value.sync.settings.updateGallerySettings(useWebView: true)
+            await value.sync.refreshFromCloudIfNeeded()?.value
+            #expect(value.cloud.data(forKey: key) == raw)
+        }
+        value.cloud.set("invalid stored type", forKey: key)
+        await value.sync.refreshFromCloudIfNeeded()?.value
+        #expect(value.cloud.dictionaryRepresentation[key] as? String == "invalid stored type")
+    }
+
+    @Test func additiveFieldsAndTheirVersionsSurviveMergeAndReopen() async throws {
+        let value = try device("BIT101Tests.preference-additive-fields")
+        defer { value.defaults.removePersistentDomain(forName: value.domain) }
+        let timestamp = Date(timeIntervalSince1970: 100)
+        let extra: PreferenceJSONValue = .object(["ids": .array([.number(9_007_199_254_740_993)]), "enabled": .bool(true)])
+        let remote = ExperimentalPreferenceSyncEnvelope(updatedAt: timestamp,
+            payload: AppSettingsSyncPayload(snapshot: AppSettingsSnapshot()),
+            fieldUpdatedAt: ["futureSetting": timestamp], additionalFields: ["futureSetting": extra])
+        let key = value.record(.appSettings)
+        value.cloud.set(try JSONEncoder().encode(remote), forKey: key)
+        await value.sync.refreshFromCloudIfNeeded()?.value
+        value.sync.settings.updateGallerySettings(useWebView: true)
+        let reopened = ExperimentalPreferenceCloudSync(settings: value.sync.settings, stores: value.sync.stores,
+            defaults: value.defaults, cloudStore: value.cloud, notificationCenter: NotificationCenter())
+        await reopened.refreshFromCloudIfNeeded()?.value
+        let restored = try JSONDecoder().decode(ExperimentalPreferenceSyncEnvelope<AppSettingsSyncPayload>.self,
+            from: #require(value.cloud.data(forKey: key)))
+        #expect(restored.additionalFields["futureSetting"] == extra)
+        #expect(restored.fieldUpdatedAt?["futureSetting"] == timestamp)
+        #expect(restored.payload.galleryUseWebView)
+    }
+
+    @Test func legacyMigrationUsesTheVersionedRecordAndKeepsItsSource() async throws {
+        let value = try device("BIT101Tests.preference-record-migration")
+        defer { value.defaults.removePersistentDomain(forName: value.domain) }
+        let key = value.record(.appSettings)
+        let legacyKey = key.replacingOccurrences(of: "preference-sync.v2.", with: "preference-sync.v1.")
+        var snapshot = AppSettingsSnapshot()
+        snapshot.galleryHiddenUserIDs = [42]
+        let envelope = ExperimentalPreferenceSyncEnvelope(updatedAt: Date(timeIntervalSince1970: 100),
+            payload: AppSettingsSyncPayload(snapshot: snapshot))
+        var raw = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(envelope)) as? [String: Any])
+        raw.removeValue(forKey: "schemaVersion")
+        let legacy = try JSONSerialization.data(withJSONObject: raw)
+        value.cloud.set(legacy, forKey: legacyKey)
+        await value.sync.refreshFromCloudIfNeeded()?.value
+        value.sync.settings.updateGallerySettings(useWebView: true)
+        #expect(value.cloud.data(forKey: legacyKey) == legacy)
+        #expect(value.cloud.data(forKey: key) != nil)
+        value.cloud.set(Data("older client rewrite".utf8), forKey: legacyKey)
+        await value.sync.refreshFromCloudIfNeeded()?.value
+        #expect(value.sync.settings.galleryHiddenUserIDs == [42])
+        #expect(value.sync.settings.galleryUseWebView)
+    }
+
 }

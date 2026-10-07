@@ -57,8 +57,10 @@ public actor ScheduleCloudSyncManager {
         return decoder
     }()
     private var pendingLocalCache: PendingLocalCache?
-    private var isPushingLocalCache = false
-    private var isReconciling = false
+    private enum Phase { case idle, pushing, reconciling }
+    private var phase = Phase.idle
+    private var isPushingLocalCache: Bool { phase == .pushing }
+    private var isReconciling: Bool { phase == .reconciling }
     private var needsReconciliation = false
     private var pendingCloudConflicts: [String: PendingCloudConflict] = [:]
     private var promptedConflictSignatures: Set<String> = []
@@ -93,9 +95,9 @@ public actor ScheduleCloudSyncManager {
         pendingLocalCache = PendingLocalCache(account: localState.account)
         guard !isPushingLocalCache, !isReconciling else { return }
 
-        isPushingLocalCache = true
+        phase = .pushing
         defer {
-            isPushingLocalCache = false
+            phase = .idle
             scheduleQueuedReconciliation()
         }
         while let pendingLocalCache {
@@ -136,9 +138,9 @@ public actor ScheduleCloudSyncManager {
             needsReconciliation = true
             return
         }
-        isReconciling = true
+        phase = .reconciling
         defer {
-            isReconciling = false
+            phase = .idle
             scheduleQueuedReconciliation()
             if pendingLocalCache != nil {
                 Task { await self.pushLatestLocalCacheIfNeeded() }
@@ -185,6 +187,7 @@ public actor ScheduleCloudSyncManager {
                     remoteModifiedAt,
                     recordTag: remoteRecordTag,
                     account: account,
+                    baseline: remoteCache,
                     expectedLocalUpdatedAt: currentLocalState.cache.updatedAt
                 )
                 return
@@ -197,6 +200,8 @@ public actor ScheduleCloudSyncManager {
                 localUpdatedAt: currentLocalState.cache.updatedAt,
                 remoteUpdatedAt: remoteCache.updatedAt
             ) {
+                if try await mergeConcurrentChanges(localCache: currentLocalState.cache, remoteCache: remoteCache,
+                    record: remoteRecord, account: account) { return }
                 await enqueueCloudConflict(
                     localCache: currentLocalState.cache,
                     remoteCache: remoteCache,
@@ -385,6 +390,7 @@ public actor ScheduleCloudSyncManager {
             var cache = currentLocalState.cache
             cache.cloudSyncBaselineAt = conflict.remoteModifiedAt
             cache.cloudSyncBaselineRecordTag = conflict.remoteRecordTag
+            cache.syncData.cloudSyncBaselineUserState = try? ScheduleCloudStateMerge.baseline(for: conflict.remoteCache)
             cache.hasUnpushedCloudChanges = true
             cache.updatedAt = ScheduleCacheTimestamp.next(
                 after: max(cache.updatedAt, conflict.remoteModifiedAt),
@@ -401,6 +407,7 @@ public actor ScheduleCloudSyncManager {
             var cache = currentLocalState.cache.applyingCloudSyncState(from: conflict.remoteCache)
             cache.cloudSyncBaselineAt = conflict.remoteModifiedAt
             cache.cloudSyncBaselineRecordTag = conflict.remoteRecordTag
+            cache.syncData.cloudSyncBaselineUserState = try? ScheduleCloudStateMerge.baseline(for: conflict.remoteCache)
             cache.hasUnpushedCloudChanges = false
             cache.updatedAt = max(currentLocalState.cache.updatedAt, conflict.remoteCache.updatedAt)
             guard await local.save(cache, .cloud, conflict.account, currentLocalState.cache.updatedAt) else {
@@ -457,6 +464,7 @@ public actor ScheduleCloudSyncManager {
                     remoteModifiedAt,
                     recordTag: remoteRecordTag,
                     account: account,
+                    baseline: remoteCache,
                     expectedLocalUpdatedAt: expectedLocalUpdatedAt ?? cache.updatedAt
                 )
                 return true
@@ -468,6 +476,8 @@ public actor ScheduleCloudSyncManager {
                 localUpdatedAt: cache.updatedAt,
                 remoteUpdatedAt: remoteCache.updatedAt
             ) {
+                if try await mergeConcurrentChanges(localCache: cache, remoteCache: remoteCache,
+                    record: record, account: account) { return true }
                 await enqueueCloudConflict(
                     localCache: cache,
                     remoteCache: remoteCache,
@@ -521,6 +531,7 @@ public actor ScheduleCloudSyncManager {
                     modifiedAt,
                     recordTag: savedRecord.recordChangeTag ?? "",
                     account: account,
+                    baseline: cache,
                     expectedLocalUpdatedAt: expectedLocalUpdatedAt ?? cache.updatedAt
                 )
             }
@@ -547,6 +558,7 @@ public actor ScheduleCloudSyncManager {
                     remoteModifiedAt,
                     recordTag: remoteRecordTag,
                     account: account,
+                    baseline: currentRemoteCache,
                     expectedLocalUpdatedAt: expectedLocalUpdatedAt ?? cache.updatedAt
                 )
                 return true
@@ -558,6 +570,8 @@ public actor ScheduleCloudSyncManager {
                 localUpdatedAt: cache.updatedAt,
                 remoteUpdatedAt: currentRemoteCache.updatedAt
             ) {
+                if try await mergeConcurrentChanges(localCache: cache, remoteCache: currentRemoteCache,
+                    record: currentRemoteRecord, account: account) { return true }
                 await enqueueCloudConflict(
                     localCache: cache,
                     remoteCache: currentRemoteCache,
@@ -631,6 +645,24 @@ public actor ScheduleCloudSyncManager {
         )
     }
 
+    private func mergeConcurrentChanges(localCache: ScheduleCache, remoteCache: ScheduleCache,
+                                        record: ScheduleCloudRecord, account: CloudAccountContext) async throws -> Bool {
+        guard let baseline = localCache.syncData.cloudSyncBaselineUserState,
+              let merged = try ScheduleCloudStateMerge.merge(local: ScheduleCloudSyncState(cache: localCache),
+                  remote: ScheduleCloudSyncState(cache: remoteCache), baseline: baseline) else { return false }
+        var cache = localCache
+        merged.apply(to: &cache)
+        cache.cloudSyncBaselineAt = remoteCache.cloudSyncBaselineAt
+        cache.cloudSyncBaselineRecordTag = remoteCache.cloudSyncBaselineRecordTag
+        cache.syncData.cloudSyncBaselineUserState = try ScheduleCloudStateMerge.baseline(for: remoteCache)
+        cache.hasUnpushedCloudChanges = true
+        cache.updatedAt = ScheduleCacheTimestamp.next(after: max(localCache.updatedAt, remoteCache.updatedAt), now: Date())
+        guard await local.save(cache, .cloud, account, localCache.updatedAt),
+              let current = await currentLocalCloudState(matching: account) else { return false }
+        return try await save(record, cache: current.cache, account: account,
+            expectedLocalUpdatedAt: current.cache.updatedAt, retryOnConflict: false)
+    }
+
     private func hasAvailableCloudAccount(for account: CloudAccountContext) async -> Bool {
         do {
             let available = try await transport.accountAvailable()
@@ -690,6 +722,7 @@ public actor ScheduleCloudSyncManager {
         var mergedCache = state.cache.applyingCloudSyncState(from: cache)
         mergedCache.cloudSyncBaselineAt = cache.cloudSyncBaselineAt
         mergedCache.cloudSyncBaselineRecordTag = cache.cloudSyncBaselineRecordTag
+        mergedCache.syncData.cloudSyncBaselineUserState = try? ScheduleCloudStateMerge.baseline(for: cache)
         mergedCache.hasUnpushedCloudChanges = false
         mergedCache.updatedAt = max(state.cache.updatedAt, cache.updatedAt)
         return await local.save(mergedCache, .cloud, account, expectedLocalUpdatedAt)
@@ -699,6 +732,7 @@ public actor ScheduleCloudSyncManager {
         _ serverModifiedAt: Date,
         recordTag: String,
         account: CloudAccountContext,
+        baseline: ScheduleCache,
         expectedLocalUpdatedAt: Date
     ) async {
         guard !recordTag.isEmpty,
@@ -706,6 +740,7 @@ public actor ScheduleCloudSyncManager {
         var cache = state.cache
         cache.cloudSyncBaselineAt = serverModifiedAt
         cache.cloudSyncBaselineRecordTag = recordTag
+        cache.syncData.cloudSyncBaselineUserState = try? ScheduleCloudStateMerge.baseline(for: baseline)
         let source: ScheduleCacheSaveSource
         if state.cache.updatedAt == expectedLocalUpdatedAt {
             cache.updatedAt = ScheduleCacheTimestamp.afterCloudSave(serverModifiedAt, currentDate: state.cache.updatedAt)

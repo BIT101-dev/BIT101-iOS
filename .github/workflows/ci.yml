@@ -42,8 +42,12 @@ jobs:
       - name: Test local Swift modules
         run: Scripts/run-extended-tests.sh modules
 
+      - name: Publish validation evidence
+        if: always()
+        run: python3 Scripts/validation_evidence.py summary
+
   release-build:
-    name: Release build and behavior tests
+    name: Release app and extension builds
     needs: static-audit
     runs-on: xcode-27
     timeout-minutes: 45
@@ -66,6 +70,10 @@ jobs:
       - name: Build iCloud smoke host and tests
         run: Scripts/run-extended-tests.sh build icloud-smoke
 
+      - name: Publish validation evidence
+        if: always()
+        run: python3 Scripts/validation_evidence.py summary
+
   catalyst-tests:
     name: Mac Catalyst behavior tests
     needs: static-audit
@@ -83,3 +91,7 @@ jobs:
           grep -Eq '^Xcode (2[7-9]|[3-9][0-9]|[1-9][0-9]{2,})\.' <<<"$version"
       - name: Run behavior tests on Mac Catalyst
         run: Scripts/run-extended-tests.sh catalyst
+
+      - name: Publish validation evidence
+        if: always()
+        run: python3 Scripts/validation_evidence.py summary

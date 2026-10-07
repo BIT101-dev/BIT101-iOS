@@ -169,6 +169,8 @@ Scripts/run-extended-tests.sh diagnostics
 
 `test-metrics.txt` 保存构建与运行总时长、用例耗时合计、最慢的十项、App 启动次数、进程 ID、系统交互动作、无障碍激活、输入更新和键盘完成动作，用于比较覆盖扩展后的执行成本。开发时通过多个用例关键词合并受影响的场景；完整覆盖验收运行整个 UI 组。真机专项验证承接真实照片选取、日历 / 提醒权限、外部邮件 / 浏览器交接、网页自身交互及 Widget / Watch 界面。UI Runner 的设备自动化初始化超时单独记录为环境阻塞；iOS 出现 Enable UI Automation 验证时，在手机端输入设备密码后重试，实际执行和通过数由 `.xcresult` 汇总。
 
+仓库代码、测试、脚本、配置和文档文件最多 1000 行。`Scripts/check-file-lengths.py` 在静态审计与提交钩子中校验全部维护文件，职责拆分保持原有测试类与用例选择契约。质量和 UI 入口分别委托规则、自测与语法事实模块；公共组件规则验收组件声明和通用语义，业务交互沿 UI 用例验收。
+
 ## 静态审计
 
 ```sh
@@ -238,3 +240,5 @@ Scripts/run_icloud_cross_device_smoke.sh cleanup
 GitHub Actions 的 `.github/workflows/ci.yml` 使用 `xcode-27` runner，先执行静态审计与包级测试，再并行执行 iOS 宿主构建 Job 和独立的 Catalyst 行为 Job。iOS Job 顺序编译正式 Release、UI 和两种 Smoke 的测试宿主，App 依赖图同时编译 Watch 和两种 Widget，Swift / Clang 警告按错误处理。审计自测核对两个 Job 的默认执行、静态依赖及各自必备入口。版本、plist 和 PR 基线在静态 job 校验，手动 `release_check` 校验公开版本。
 
 本机承接真机行为、UI、网络和 iCloud 验证；发布操作按对应授权执行。
+
+验证证据由 `Scripts/validation_evidence.py` 维护，固定保存为 `.build/extended-automation/validation-evidence.json`。每组记录源码摘要、执行范围、退出状态与实际通过用例数；源码变化后按当前内容重建证据。`Scripts/run-extended-tests.sh verify` 完整执行模块、真机行为、Catalyst、UI、网络、iCloud 和静态审计，恢复常规 App 后返回聚合结果。发布提交完成后执行 `python3 Scripts/validation_evidence.py bind`，完整通过且源码摘要一致时绑定提交；CI 将各 Job 的已执行结果写入 GitHub Job Summary。

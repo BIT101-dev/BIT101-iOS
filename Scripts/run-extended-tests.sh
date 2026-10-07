@@ -180,6 +180,8 @@ if ! $BUILD_ONLY && [[ $# -gt 0 ]]; then
   esac
 fi
 
+export BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest)"
+
 if [[ "$MODE" == "verify" ]]; then
   typeset -aU verification_groups
   verification_groups=("$@")
@@ -218,7 +220,10 @@ if [[ "$MODE" == "verify" ]]; then
     local label="$1"
     shift
     local started_at=$SECONDS
-    if "$@"; then
+    local step_status=0
+    "$@" || step_status=$?
+    python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$label" "$step_status" || step_status=$?
+    if (( step_status == 0 )); then
       echo "[验证通过] $label · $(( SECONDS - started_at )) 秒"
     else
       verification_failures+=("$label")
@@ -265,6 +270,18 @@ if [[ ( "$MODE" == modules || "$BUILD_ONLY" == true ) && ${#TEST_SELECTIONS[@]} 
   exit 64
 fi
 
+validation_scope=full
+if (( ${#TEST_SELECTIONS[@]} > 0 )); then validation_scope=selected; fi
+validation_group="$MODE"
+if $BUILD_ONLY; then validation_group="build-$MODE"; fi
+finish_validation() {
+  local validation_status=$?
+  trap - EXIT ZERR INT TERM
+  python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$validation_status" "$validation_scope" || validation_status=$?
+  exit "$validation_status"
+}
+trap finish_validation EXIT
+
 if [[ "$MODE" == "modules" ]]; then
   acquire_test_lock
 elif $GENERIC_BUILD; then
@@ -307,6 +324,7 @@ if [[ "$MODE" == "ui" && "$BUILD_ONLY" == false && "${BIT101_DEFER_APP_RESTORE:-
       print -r -- "UI 工作流总耗时（含恢复）：${workflow_seconds} 秒" >> "$DERIVED_ROOT/test-metrics.txt"
     fi
     echo "[UI 工作流] ${workflow_seconds} 秒（含恢复）"
+    python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$test_exit_code" "$validation_scope" || test_exit_code=$?
     exit "$test_exit_code"
   }
   trap restore_release_app EXIT ZERR

@@ -80,7 +80,7 @@ def main() -> None:
         for campus, classroom in locations
     ]
     FIXTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    FIXTURE_PATH.write_text(json.dumps(rows, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    FIXTURE_PATH.write_text("[\n" + ",\n".join("  " + json.dumps(row, ensure_ascii=False) for row in rows) + "\n]\n", encoding="utf-8")
     print(f"写入 {len(rows)} 条去重地点；新增待审核 {len(new_locations)} 条：{FIXTURE_PATH}")
 
 

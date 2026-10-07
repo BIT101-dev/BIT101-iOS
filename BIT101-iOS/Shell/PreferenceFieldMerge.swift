@@ -16,7 +16,7 @@ nonisolated enum PreferenceFieldMerge {
         }
         return ExperimentalPreferenceSyncEnvelope(
             updatedAt: max(previous?.updatedAt ?? .distantPast, versions.values.max() ?? timestamp),
-            payload: payload, fieldUpdatedAt: versions
+            payload: payload, fieldUpdatedAt: versions, additionalFields: previous?.additionalFields ?? [:]
         )
     }
 
@@ -24,8 +24,8 @@ nonisolated enum PreferenceFieldMerge {
         _ local: ExperimentalPreferenceSyncEnvelope<Payload>,
         _ remote: ExperimentalPreferenceSyncEnvelope<Payload>
     ) throws -> ExperimentalPreferenceSyncEnvelope<Payload> {
-        let localValues = try fields(local.payload)
-        let remoteValues = try fields(remote.payload)
+        let localValues = try fields(local)
+        let remoteValues = try fields(remote)
         let keys = Set(localValues.keys).union(remoteValues.keys)
             .union(local.fieldUpdatedAt?.keys.map { $0 } ?? [])
             .union(remote.fieldUpdatedAt?.keys.map { $0 } ?? [])
@@ -40,9 +40,12 @@ nonisolated enum PreferenceFieldMerge {
             versions[key] = max(localDate, remoteDate)
         }
         let data = try JSONSerialization.data(withJSONObject: values, options: [.sortedKeys])
+        let payload = try JSONDecoder().decode(Payload.self, from: data)
+        let known = try fields(payload)
+        let extras = try JSONDecoder().decode([String: PreferenceJSONValue].self, from: data).filter { known[$0.key] == nil }
         return ExperimentalPreferenceSyncEnvelope(
             updatedAt: max(local.updatedAt, remote.updatedAt),
-            payload: try JSONDecoder().decode(Payload.self, from: data), fieldUpdatedAt: versions
+            payload: payload, fieldUpdatedAt: versions, additionalFields: extras
         )
     }
 
@@ -56,6 +59,11 @@ nonisolated enum PreferenceFieldMerge {
             throw CocoaError(.coderInvalidValue)
         }
         return values
+    }
+
+    private static func fields<Payload>(_ envelope: ExperimentalPreferenceSyncEnvelope<Payload>) throws -> [String: Any] {
+        let extras = try JSONSerialization.jsonObject(with: JSONEncoder().encode(envelope.additionalFields)) as? [String: Any] ?? [:]
+        return try extras.merging(fields(envelope.payload)) { _, known in known }
     }
 
     private static func encoded(_ value: Any?) throws -> Data {

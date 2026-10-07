@@ -239,7 +239,11 @@ struct ScoreFeatureTests {
         defer { clearPreferences() }
 
         await viewModel.refresh()
+        #expect(viewModel.refreshPhase == .awaitingVerification)
+        #expect(viewModel.isSyncing == false)
         await viewModel.submitSMSCode("123456")
+        #expect(viewModel.refreshPhase == .idle)
+        #expect(viewModel.isSyncing == false)
 
         #expect(service.requestedDetailValues == [false, true])
         #expect(viewModel.rows.first?.averageScore == "82.5")

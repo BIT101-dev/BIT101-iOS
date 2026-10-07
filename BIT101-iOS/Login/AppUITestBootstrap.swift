@@ -138,12 +138,7 @@ enum UITestAccessibilityActions {
             invalidate()
             let target = element.object
             let control = control(for: target)
-            if let control, control.showsMenuAsPrimaryAction {
-                guard #available(iOS 17.4, *) else { return Data("native".utf8) }
-                control.performPrimaryAction()
-                record(element.attributes["identifier"] as? String ?? "")
-                return Data("control".utf8)
-            }
+            if control?.showsMenuAsPrimaryAction == true { return Data("native".utf8) }
             if let control, control.isEnabled,
                control.isContextMenuInteractionEnabled {
                 guard identifier(of: target) == "BackButton" else { return Data("native".utf8) }

@@ -263,7 +263,7 @@ struct ExperimentalPreferenceCloudSyncTests {
     }
 
     private func key(_ domain: ExperimentalPreferenceSyncDomain, account: Account) -> String {
-        "preference-sync.v1.\(account.session.accountDirectoryName).\(domain.rawValue)"
+        "preference-sync.v2.\(account.session.accountDirectoryName).\(domain.rawValue)"
     }
 
     @Test(.timeLimit(.minutes(1))) func guestPreferenceSwitchAndRevisionSurviveReload() async throws {

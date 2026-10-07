@@ -27,7 +27,12 @@ public final class ScoreViewModel: ObservableObject {
     /// 当前成绩列表排序方向。
     @Published private(set) var sortOrder: ScoreSortOrder = .ascending
     /// 是否正在同步基础成绩列表。
-    @Published private(set) var isSyncing = false
+    enum RefreshPhase {
+        case idle, authenticating, awaitingVerification, summary, details
+        var isSyncing: Bool { self == .authenticating || self == .summary || self == .details }
+    }
+    @Published private(set) var refreshPhase = RefreshPhase.idle
+    var isSyncing: Bool { refreshPhase.isSyncing }
     /// 两阶段查询进度使用现有同步提示区域展示，查询过程保持页面内反馈。
     @Published private(set) var syncStatusText = "同步中"
     /// 最近一次成功写入成绩缓存的时间；刷新失败时保留该时间。
@@ -35,7 +40,12 @@ public final class ScoreViewModel: ObservableObject {
     /// 已缓存课表可确认的未出分课程；对应学期课表缺失时返回 nil。
     @Published private(set) var pendingCourses: [ScoreCourseSummary]?
     /// 当前等待用户输入短信验证码的短期认证挑战。
-    @Published private(set) var smsChallenge: BITLoginAuthenticationChallenge?
+    @Published private(set) var smsChallenge: BITLoginAuthenticationChallenge? {
+        didSet {
+            if smsChallenge != nil { refreshPhase = .awaitingVerification }
+            else if refreshPhase == .awaitingVerification { refreshPhase = .idle }
+        }
+    }
     /// 短信验证码提交过程的行内错误提示。
     @Published private(set) var smsVerificationError: String?
     @Published private(set) var isSubmittingSMSCode = false
@@ -44,7 +54,7 @@ public final class ScoreViewModel: ObservableObject {
     private let service: any ScoreListServicing
     private let currentScoreCacheSession: @MainActor () -> AppStorageSession
     private let loadScheduleCourses: @MainActor (AppStorageSession) async -> [String: [ScoreCourseSummary]]
-    private var isRefreshing = false
+    private var isRefreshing: Bool { refreshPhase.isSyncing }
     /// 账号切换后递增，使此前启动的请求失去页面与缓存写入资格。
     private(set) var accountGeneration = 0
     private var activeRequestID: UUID?
@@ -128,8 +138,7 @@ public final class ScoreViewModel: ObservableObject {
         smsChallenge = nil
         smsVerificationError = nil
         isSubmittingSMSCode = false
-        isRefreshing = false
-        isSyncing = false
+        refreshPhase = .idle
         syncStatusText = "同步中"
         lastUpdatedAt = nil
         didRestoreCachedRows = false
@@ -188,9 +197,8 @@ public final class ScoreViewModel: ObservableObject {
         let hadContent = !rows.isEmpty || state == .loaded
         smsChallenge = nil
         smsVerificationError = nil
-        isRefreshing = true
         pendingRefreshForcesDetailed = forceDetailedRefresh
-        isSyncing = true
+        refreshPhase = .authenticating
         allowsDiagnostics = true
         syncStatusText = "同步简略成绩中"
         if !hadContent {
@@ -199,8 +207,7 @@ public final class ScoreViewModel: ObservableObject {
 
         defer {
             if isCurrent(session, generation: generation) {
-                isRefreshing = false
-                isSyncing = false
+                refreshPhase = smsChallenge == nil ? .idle : .awaitingVerification
             }
         }
 
@@ -293,11 +300,11 @@ public final class ScoreViewModel: ObservableObject {
             let authenticatedChallenge = try await awaitTrackedRequest(submitTask)
             guard isCurrent(session, generation: generation) else { return }
             smsChallenge = nil
-            isSyncing = true
+            refreshPhase = .summary
             syncStatusText = "同步简略成绩中"
             defer {
                 if isCurrent(session, generation: generation) {
-                    isSyncing = false
+                    refreshPhase = smsChallenge == nil ? .idle : .awaitingVerification
                 }
             }
             let forceDetailedRefresh = pendingRefreshForcesDetailed
@@ -347,6 +354,7 @@ public final class ScoreViewModel: ObservableObject {
         session: AppStorageSession,
         generation: Int
     ) async throws {
+        refreshPhase = .summary
         let cachedSnapshot = await cacheStore.loadSnapshot(for: session)
         guard isCurrent(session, generation: generation) else { return }
         let cachedRows = cachedSnapshot?.rows
@@ -388,6 +396,7 @@ public final class ScoreViewModel: ObservableObject {
             detailedRowsTask.cancel()
             return
         }
+        refreshPhase = .details
         syncStatusText = "同步详细信息中"
         do {
             let detailedRows = try await awaitTrackedRequest(detailedRowsTask)

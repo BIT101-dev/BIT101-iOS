@@ -25,6 +25,7 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
     @Published public var notice: ScheduleNotice?
     @Published var schoolSMSCodeRequest: SchoolSMSCodeRequest?
     private var schoolSMSContinuation: CheckedContinuation<String, Error>?
+    private(set) var schoolSMSWaitID: UUID?
     private var subscription: AnyCancellable?
 
     public init(service: any ScheduleDDLServicing, repository: ScheduleRepository, virtualNetworkLikely: @escaping @MainActor () -> Bool = { false }, beforeSchoolRequest: @escaping @MainActor () async -> Void = {}) {
@@ -50,6 +51,7 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
         guard (4 ... 8).contains(normalized.count) else { return }
         let continuation = schoolSMSContinuation
         schoolSMSContinuation = nil
+        schoolSMSWaitID = nil
         schoolSMSCodeRequest = nil
         continuation?.resume(returning: normalized)
     }
@@ -65,6 +67,8 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
                 throw CancellationError()
             }
             guard self.schoolSMSContinuation == nil else { throw CancellationError() }
+            let waitID = UUID()
+            self.schoolSMSWaitID = waitID
             self.schoolSMSCodeRequest = request
             return try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { continuation in
@@ -72,14 +76,16 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
                 }
             } onCancel: {
                 Task { @MainActor [weak self] in
-                    self?.cancelSchoolSMSWait()
+                    self?.cancelSchoolSMSWait(matching: waitID)
                 }
             }
         }
     }
 
-    private func cancelSchoolSMSWait() {
+    func cancelSchoolSMSWait(matching waitID: UUID? = nil) {
+        guard waitID == nil || schoolSMSWaitID == waitID else { return }
         let continuation = schoolSMSContinuation
+        schoolSMSWaitID = nil
         schoolSMSContinuation = nil
         schoolSMSCodeRequest = nil
         continuation?.resume(throwing: CancellationError())

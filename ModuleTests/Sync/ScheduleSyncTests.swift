@@ -1,6 +1,6 @@
 import Foundation
 import ScheduleDomain
-import ScheduleSync
+@testable import ScheduleSync
 import StorageCore
 import Testing
 
@@ -172,6 +172,34 @@ struct ScheduleSyncTests {
         return ScheduleCloudRecord(recordName: recordName, recordType: "ScheduleCacheSyncRecord",
             studentID: studentID, updatedAt: cache.updatedAt, payloadJSON: String(decoding: payload, as: UTF8.self),
             modificationDate: cache.updatedAt, recordChangeTag: tag, systemFields: Data("lock-token".utf8))
+    }
+
+    @Test(arguments: [false, true])
+    func concurrentIndependentDDLChangesMergeThroughBothSyncEntrypoints(push: Bool) async throws {
+        let local = Local()
+        let base = local.cache
+        local.cache.syncData.cloudSyncBaselineUserState = try ScheduleCloudStateMerge.baseline(for: base)
+        local.cache.cloudSyncBaselineRecordTag = "baseline-tag"
+        local.cache.hasUnpushedCloudChanges = true
+        local.cache.ddlEvents = [.init(id: "local", group: "main", title: "local", text: "", dueAt: Date(timeIntervalSince1970: 100), done: false)]
+        var remote = base
+        remote.updatedAt = Date(timeIntervalSince1970: 40)
+        remote.ddlEvents = [.init(id: "remote", group: "main", title: "remote", text: "", dueAt: Date(timeIntervalSince1970: 200), done: false)]
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(Envelope(schemaVersion: 2, payload: .init(updatedAt: remote.updatedAt, state: .init(cache: remote))))
+        let record = ScheduleCloudRecord(recordName: "schedule-cache-A", recordType: "ScheduleCacheSyncRecord", studentID: "A",
+            updatedAt: remote.updatedAt, payloadJSON: String(decoding: data, as: UTF8.self), modificationDate: remote.updatedAt,
+            recordChangeTag: "remote-tag")
+        let cloud = Cloud(remote: record)
+        let manager = local.manager(cloud)
+        if push { await manager.pushLatestLocalCacheIfNeeded() }
+        else { await manager.refreshFromCloudIfNeeded() }
+        #expect(Set(local.cache.ddlEvents.map(\.id)) == ["local", "remote"])
+        #expect(local.resolutions.isEmpty)
+        #expect(local.cache.hasUnpushedCloudChanges == false)
+        #expect(local.cache.syncData.cloudSyncBaselineUserState != nil)
+        #expect(await cloud.saved.count == 1)
     }
 
     @Test func remoteApplyUsesTheInjectedLocalOwnerAndPreservesSchoolData() async throws {

@@ -162,6 +162,7 @@ public actor SchedulePersistenceStore {
                let storedCache {
                 cache.cloudSyncBaselineAt = storedCache.cloudSyncBaselineAt
                 cache.cloudSyncBaselineRecordTag = storedCache.cloudSyncBaselineRecordTag
+                cache.syncData.cloudSyncBaselineUserState = storedCache.syncData.cloudSyncBaselineUserState
                 let userStateChanged = try !userStateMatches(cache, storedCache)
                 cache.hasUnpushedCloudChanges = storedCache.hasUnpushedCloudChanges
                     || (cache.iCloudSyncEnabled && userStateChanged)
