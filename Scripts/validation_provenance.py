@@ -26,3 +26,7 @@ def network_evidence_current(summary: dict, now: datetime | None = None) -> bool
         return start <= finish and timedelta() <= (now or utc_now()) - finish <= NETWORK_EVIDENCE_LIFETIME
     except (KeyError, TypeError, ValueError, AttributeError):
         return False
+
+
+def evidence_current(group: str, summary: dict) -> bool:
+    return group not in NETWORK_GROUPS or network_evidence_current(summary)

@@ -19,7 +19,7 @@ from swift_source_index import swift_syntax_index_sources
 from validation_inputs import includes_input
 from validation_test_areas import TEST_AREA_SUITES
 from validation_environment import environment_context, complete_environment, toolchain_identity
-from validation_provenance import NETWORK_GROUPS, network_evidence_current, producing_run_matches, utc_now
+from validation_provenance import NETWORK_GROUPS, evidence_current, producing_run_matches, utc_now
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / ".build/extended-automation/validation-evidence.json"
@@ -276,6 +276,10 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
                 "verifiedSMSProbes": sms_steps,
                 "requiredProbes": sorted(required), "probeInventory": sorted(executed),
                 **{name: len(value.get(name, [])) for name in ("failures", "coverageGaps", "authenticationBlockers", "skippedProbes")}}
+    if group == "icloud-cleanup":
+        cleanup = value.get("cleanup", {})
+        return {"passed": value.get("cleanupExitCode") == 0 and cleanup.get("exitCode") == 0
+                and successful_test_counts(cleanup), "cleanup": cleanup}
     stages = [{name: row.get(name, 0) for name in
                ("stage", "exitCode", "totalTestCount", "passedTests", "failedTests", "skippedTests")}
               for row in value.get("stages", [])]
@@ -288,8 +292,10 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
         and value.get("cloudKitEnvironment") == "Production" and len(stages) == 2 and {row["stage"] for row in stages} == expected and all(
         row["exitCode"] == 0 and row["totalTestCount"] == row["passedTests"] > 0
         and row["failedTests"] == row["skippedTests"] == 0 for row in stages)
+    cleanup_evidence = dict(cleanup, kind="standalone") if cleanup is not None else dict(
+        next((row for row in stages if row["stage"] == "testPhoneRoundTrip"), {}), kind="round-trip")
     return {"passed": passed, "stages": stages, "validatedDomains": value.get("validatedDomains", []),
-            "cloudKitEnvironment": value.get("cloudKitEnvironment")}
+            "cloudKitEnvironment": value.get("cloudKitEnvironment"), "cleanup": cleanup_evidence}
 
 
 def successful_test_counts(summary: dict) -> bool:
@@ -375,9 +381,13 @@ def complete_summary(group: str, summary: dict) -> bool:
             summary.get(name) == 0 for name in ("failures", "coverageGaps", "authenticationBlockers", "skippedProbes"))
     if group == "icloud":
         stages = summary.get("stages", [])
+        cleanup = summary.get("cleanup", {})
         return set(summary.get("validatedDomains", [])) == ICLOUD_DOMAINS and summary.get("cloudKitEnvironment") == "Production" \
+            and cleanup.get("exitCode") == 0 and successful_test_counts(cleanup) \
             and len(stages) == 2 and {row.get("stage") for row in stages} == {"testPhoneRoundTrip", "testMacReceiveAndRestore"} and all(
             row.get("exitCode") == 0 and successful_test_counts(row) for row in stages)
+    if group == "icloud-cleanup":
+        return summary.get("cleanup", {}).get("exitCode") == 0 and successful_test_counts(summary.get("cleanup", {}))
     if group == "manual-device":
         checks = summary.get("checks", {})
         return set(checks) == MANUAL_DEVICE_CHECKS and all(isinstance(note, str) and note.strip() for note in checks.values())
@@ -396,7 +406,7 @@ def release_findings(report: dict, digest: str, *, recorded_environment: bool = 
             errors.append(f"{name} 的验证输入已变化，请重新执行该组。")
         if not complete_environment(name, row.get("environment", {})):
             errors.append(f"{name} 需要保留执行环境及设备系统身份。")
-        if name in NETWORK_GROUPS and not network_evidence_current(row.get("summary", {})):
+        if not evidence_current(name, row.get("summary", {})):
             errors.append(f"{name} 的网络采样需要在发布检查前 24 小时内完成，请重新验收。")
         if row.get("exitCode") != 0 or row.get("scope") != "full" or not complete_summary(name, row.get("summary", {})):
             errors.append(f"{name} 需要完整执行并通过，并保留结果摘要。")
@@ -434,8 +444,8 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
             except ValueError:
                 if status == 0:
                     raise
-    elif group in {"network", "ddl", "school-sms", "icloud", "community-writes", "community-cleanup"}:
-        row["report"] = ".build/icloud-cross-device-smoke/report.json" if group == "icloud" else ".build/release-network-smoke/report/release-network-smoke.json"
+    elif group in {"network", "ddl", "school-sms", "icloud", "icloud-cleanup", "community-writes", "community-cleanup"}:
+        row["report"] = ".build/icloud-cross-device-smoke/report.json" if group.startswith("icloud") else ".build/release-network-smoke/report/release-network-smoke.json"
         if (ROOT / row["report"]).is_file():
             result = json.loads((ROOT / row["report"]).read_text())
             if status == 0 and not producing_run_matches(result, started_digest, run_id):
@@ -563,7 +573,8 @@ def main() -> int:
             report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
             row = report.get("groups", {}).get(args.group, {})
         if row.get("exitCode") == 0 and row.get("scope") == "full" and row.get("runID") \
-                and row.get("inputDigest") == source_digest(args.group) and complete_summary(args.group, row.get("summary", {})):
+                and row.get("inputDigest") == source_digest(args.group) and evidence_current(args.group, row.get("summary", {})) \
+                and complete_summary(args.group, row.get("summary", {})):
             return 0
         print(f"{args.group} 需要完整子流程结果并匹配当前验证输入。", file=sys.stderr)
         return 1
@@ -800,6 +811,8 @@ def main() -> int:
             assert smoke_summary("school-sms", dict(sms, verifiedSMSProbes=sms["verifiedSMSProbes"][:1]))["passed"] is False
             summaries["icloud"] = icloud_summary({"exitCode": 0, "stages": [
                 dict(test, stage=name, totalTestCount=1, exitCode=0) for name in ("testPhoneRoundTrip", "testMacReceiveAndRestore")]})
+            assert summaries["icloud"]["cleanup"]["kind"] == "round-trip"
+            assert not complete_summary("icloud", dict(summaries["icloud"], cleanup={"exitCode": 1}))
             groups = {name: {"exitCode": 0, "scope": "full", "summary": summary, "inputDigest": source_digest(name), "environment": environment_context(name)} for name, summary in summaries.items()}
             for name in NETWORK_GROUPS & groups.keys():
                 groups[name]["summary"].update(startedAt=utc_now().isoformat(), finishedAt=utc_now().isoformat())
@@ -845,6 +858,9 @@ def main() -> int:
             assert icloud_summary({"exitCode": 0, "stages": stages, "cleanup": cleanup, "cleanupExitCode": 1})["passed"] is False
             cleanup["passedTests"] = 0
             assert icloud_summary({"exitCode": 0, "stages": stages, "cleanup": cleanup})["passed"] is False
+            assert not smoke_summary("icloud-cleanup", {"cleanup": cleanup, "cleanupExitCode": 0})["passed"]
+            cleanup["passedTests"] = 1
+            assert smoke_summary("icloud-cleanup", {"exitCode": 1, "cleanup": cleanup, "cleanupExitCode": 0})["passed"]
             stages[1]["passedTests"] = 0
             assert icloud_summary({"exitCode": 0, "stages": stages})["passed"] is False
             return 0
@@ -876,7 +892,7 @@ def inspect_report(args) -> int:
         passed = row.get("exitCode") == 0 and result.get("passed") is True
         count = result.get("passedTests", result.get("executedProbes", sum(stage["passedTests"] for stage in result.get("stages", []))))
         environment = row.get("environment", {}) if args.recorded_environment else None
-        current = row.get("inputDigest") == source_digest(name, environment=environment)
+        current = row.get("inputDigest") == source_digest(name, environment=environment) and evidence_current(name, result)
         label = "待复验" if not current else "通过" if passed else "待处理"
         rows.append(f"| {name} | {row.get('scope', '?')} | {label} | {count} | {len(result.get('coverage', {}))} |")
     if report.get("releaseCommit"):

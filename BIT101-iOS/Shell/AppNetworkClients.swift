@@ -137,7 +137,11 @@ enum NetworkSessionPool {
     static let schoolCASManualRedirects = schoolCASTransport(followsRedirects: false)
 
     private static func schoolCASTransport(followsRedirects: Bool) -> any HTTPTransport {
-        SchoolCookieTransport(state: AppSchoolSession.teachingCenter) { cookies in
+        schoolCASTransport(state: AppSchoolSession.teachingCenter, followsRedirects: followsRedirects)
+    }
+
+    static func schoolCASTransport(state: TeachingCenterSessionState, followsRedirects: Bool) -> any HTTPTransport {
+        SchoolCookieTransport(state: state) { cookies in
             let configuration = URLSessionConfiguration.ephemeral
             configuration.httpCookieAcceptPolicy = .always
             configuration.httpCookieStorage = cookies
@@ -182,7 +186,11 @@ enum AppMedia {
 
 /// 学校会话的生产实例在应用组装入口选择。
 enum AppSchoolSession {
-    static let teachingCenter = TeachingCenterSessionState(cookieStorage: makeCookieStorage())
+    static let teachingCenter = isolatedState()
+
+    static func isolatedState() -> TeachingCenterSessionState {
+        TeachingCenterSessionState(cookieStorage: makeCookieStorage())
+    }
 
     static func clearSchoolAuthenticationCookies() {
         teachingCenter.clearSchoolAuthenticationCookies()

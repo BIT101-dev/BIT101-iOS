@@ -102,4 +102,17 @@ def interaction_inventory_boundary_findings() -> list[str]:
     if not source_runtime_interaction_findings(unrelated, unrelated_manifest,
             [dict(evidence[0], identifier="shared", instance="shared", actions=["input", "tap"])]):
         findings.append("UI 容器自测：不同控件继续要求独立身份")
+    for modifier, action in [('accessibilityAction(named: "打开") { open() }', 'accessibility:打开'),
+            ('keyboardShortcut(.defaultAction)', 'keyboard')]:
+        source = 'struct Screen: View { var body: some View { Button("打开") {}.accessibilityIdentifier("carrier").' + modifier + ' } }'
+        control = swift_syntax_index_sources({path: source})
+        contract = {key: (controls, {"ExampleUITests/testScreen"}) for key, controls in interaction_source_inventory(control).items()}
+        row = dict(evidence[0], identifier="carrier", instance="carrier", actions=["tap"])
+        if not source_runtime_interaction_findings(control, contract, [row]):
+            findings.append("UI 辅助交互自测：点击证据需要补齐独立入口")
+        if source_runtime_interaction_findings(control, contract, [dict(row, actions=["tap", action])]):
+            findings.append("UI 辅助交互自测：同一控件的独立动作共同进入证据")
+        if action.startswith("accessibility:") and not source_runtime_interaction_findings(control, contract,
+                [dict(row, actions=["tap", "accessibility:其他"])]):
+            findings.append("UI 辅助交互自测：自定义动作核对名称")
     return findings

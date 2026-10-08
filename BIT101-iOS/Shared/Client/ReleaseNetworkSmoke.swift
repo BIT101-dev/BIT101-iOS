@@ -340,14 +340,14 @@ final class ReleaseNetworkSmokeRunner {
         }
 
         // 可信成绩单探针位于学校相关探针的首段，模拟用户手动点击“申请可信成绩单”的路径。
-        let scoreService = dependencies.makeScores()
+        let transcriptService = dependencies.makeScores()
         _ = await probe("可信成绩单接口", area: .transcript, scope: scope) {
             let pages: [Data]
-            do { pages = try await scoreService.fetchTrustedTranscriptPages() }
+            do { pages = try await transcriptService.fetchTrustedTranscriptPages() }
             catch ScoreServiceError.secondFactorRequired(let challenge) {
                 guard let handler = self.schoolSMSHandler else { throw ScoreServiceError.secondFactorRequired(challenge) }
                 let code = try await handler(SchoolSMSCodeRequest(maskedPhone: challenge.maskedPhone ?? "", purpose: "jwb_cjd"))
-                pages = try await scoreService.submitTranscriptSMSCode(code, for: challenge)
+                pages = try await transcriptService.submitTranscriptSMSCode(code, for: challenge)
             }
             return try Self.validateTrustedTranscriptPages(pages)
         }
@@ -446,6 +446,7 @@ final class ReleaseNetworkSmokeRunner {
 
         // 成绩页与可信成绩单同属学校网络链路；短信二次验证时记录为 AUTH_BLOCKED，
         // 区分认证阻塞与网络故障。
+        let scoreService = dependencies.makeScores()
         let scoreChallenge = await probe("成绩认证接口", area: .school, scope: scope) {
             do { return try await scoreService.startScoreChallenge() }
             catch ScoreServiceError.secondFactorRequired(let challenge) {
@@ -639,24 +640,23 @@ final class ReleaseNetworkSmokeRunner {
     }
 
     static func freshEclassService() throws -> ScheduleService {
-        guard let cookies = URLSessionConfiguration.ephemeral.httpCookieStorage else {
-            throw ScheduleServiceError.invalidResponse
-        }
-        let copySchoolSession: @MainActor @Sendable () -> Void = {
-            for cookie in AppSchoolSession.teachingCenter.cookieStorage.cookies ?? []
-                where cookie.domain.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased() == "sso.bit.edu.cn" {
-                cookies.setCookie(cookie)
-            }
-        }
-        copySchoolSession()
-        let restorer = AppScheduleSchoolSessionRestorer {
-            let studentID = try await LoginService().restoreSchoolSessionIfNeeded()
-            copySchoolSession()
-            return studentID
-        }
+        freshSchoolService(rawCourseResponseHandler: nil)
+    }
+
+    static func freshScoreService() -> ScoreService {
+        ScoreService(authenticationHTTPClient: HTTPClient(transport: NetworkSessionPool.schoolCASTransport(
+            state: AppSchoolSession.isolatedState(), followsRedirects: true)))
+    }
+
+    static func freshSchoolService(rawCourseResponseHandler: ((Data) -> Void)?) -> ScheduleService {
+        let state = AppSchoolSession.isolatedState()
+        let api = BIT101APIClient(
+            httpClient: HTTPClient(transport: NetworkSessionPool.schoolCASTransport(state: state, followsRedirects: true)),
+            noRedirectHTTPClient: HTTPClient(transport: NetworkSessionPool.schoolCASTransport(state: state, followsRedirects: false)))
+        let restorer = AppScheduleSchoolSessionRestorer { try await LoginService(apiClient: api).restoreSchoolSessionIfNeeded() }
         return ScheduleService(credentials: AppAccountSession.storage, crypto: AppScheduleServiceCrypto(),
-            schoolSessionRestorer: restorer, teachingCenterState: TeachingCenterSessionState(cookieStorage: cookies),
-            transport: NetworkSessionPool.teachingCenter(cookieStorage: cookies),
+            schoolSessionRestorer: restorer, teachingCenterState: state, rawCourseResponseHandler: rawCourseResponseHandler,
+            transport: NetworkSessionPool.teachingCenter(state: state),
             observer: HTTPClient.appObserver)
     }
 

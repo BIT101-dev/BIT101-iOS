@@ -87,6 +87,16 @@ private nonisolated final class DelayedSchoolCookieServer: Sendable {
 
 @MainActor
 struct SchoolCookieIsolationTests {
+    @Test func smokeAuthenticationStartsWithIndependentCookieContainers() throws {
+        let first = AppSchoolSession.isolatedState()
+        let second = AppSchoolSession.isolatedState()
+        let cookie = try #require(HTTPCookie(properties: [.domain: "sso.bit.edu.cn", .path: "/",
+            .name: "smoke-fixture", .value: "first"] ))
+        first.cookieStorage.setCookie(cookie)
+        #expect(first.cookieStorage !== second.cookieStorage)
+        #expect(second.cookieStorage.cookies?.contains(where: { $0.name == cookie.name }) == false)
+        #expect(first.cookieStorage !== AppSchoolSession.teachingCenter.cookieStorage)
+    }
     @Test(.timeLimit(.minutes(1)))
     func delayedSessionCookieWritesRemainInTheRetiredAccountContainer() async throws {
         let retiredCookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)

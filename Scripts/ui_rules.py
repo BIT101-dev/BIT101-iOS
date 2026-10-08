@@ -516,7 +516,7 @@ INTERACTION_KINDS = {
     "TextField", "SecureField", "TextEditor", "Slider", "Stepper", "ScrollView", "List", "TabView",
     "onTapGesture", "onLongPressGesture", "gesture", "simultaneousGesture", "highPriorityGesture",
     "refreshable", "onSubmit", "onDelete", "onMove", "searchable", "contextMenu", "swipeActions", "DragGesture",
-    "MagnificationGesture", "TapGesture", "LongPressGesture", "ShareLink",
+    "MagnificationGesture", "TapGesture", "LongPressGesture", "ShareLink", "accessibilityAction", "keyboardShortcut",
 }
 
 
@@ -581,7 +581,7 @@ def interaction_selector(control: dict, syntax: dict) -> tuple[str, tuple[str, .
         return "identifier", tuple(sorted(names))
     label = re.search(r'\.accessibilityLabel\(\s*' + literal + r'\s*\)', modifiers)
     if ".accessibilityLabel(" in modifiers and not label: return None
-    title = re.match(r'\w+\(\s*' + literal, control["invocation"]) if control.get("hasTextTitle") else None
+    title = re.match(r'\w+\(\s*' + literal, control.get("carrierInvocation", control["invocation"])) if control.get("hasTextTitle") else None
     label_content = re.search(r'\b(?:Text|Label|LabeledContent)\(\s*' + literal, control["label"])
     prompt = re.search(r'AppInputPrompt\.text\(\s*' + literal + r'\s*\)', control["invocation"])
     selector = label or title or label_content or prompt
@@ -590,7 +590,7 @@ def interaction_selector(control: dict, syntax: dict) -> tuple[str, tuple[str, .
 
 def source_runtime_interaction_findings(syntax: dict[str, dict], documented: dict[str, tuple[dict, set]], evidence: list[dict]) -> list[str]:
     from validation_evidence import active_swift_source
-    actions = {"refreshable": "refresh", "onSubmit": "submit", "onDelete": "delete", "onMove": "move", "searchable": "search", "contextMenu": "press", "swipeActions": "gesture", "ShareLink": "tap"}
+    actions = {"refreshable": "refresh", "onSubmit": "submit", "onDelete": "delete", "onMove": "move", "searchable": "search", "contextMenu": "press", "swipeActions": "gesture", "ShareLink": "tap", "accessibilityAction": "accessibility", "keyboardShortcut": "keyboard"}
     native_actions = {"Button": "tap", "NavigationLink": "tap", "Menu": "tap", "Link": "tap", "PhotosPicker": "tap",
         "Toggle": "tap", "Picker": "selection", "DatePicker": "selection", "TextField": "input",
         "SecureField": "input", "TextEditor": "input", "Slider": "gesture", "Stepper": "tap",
@@ -616,13 +616,17 @@ def source_runtime_interaction_findings(syntax: dict[str, dict], documented: dic
                 continue
             kind, names = selector
             action = "tap" if control["name"] == "onTapGesture" else "press" if control["name"] == "onLongPressGesture" else "gesture" if control["name"] in gestures else actions.get(control["name"], native_actions.get(control["name"], ""))
+            if control["name"] == "accessibilityAction":
+                named = re.search(r'accessibilityAction\(\s*named:\s*"((?:[^"\\]|\\.)+)"', control["invocation"])
+                if named: action += ":" + named[1]
             key = (source, kind, names, action)
             selectors[key] += 1
             contracts[key] = tests
             expressions.setdefault(key, set()).add(control["expression"])
     def shares_carrier(key, other):
         return key[0] == other[0] and key[1:3] == other[1:3] and key[3] != other[3] \
-            and "scroll" in {key[3], other[3]} and len(expressions[key]) == 1 and expressions[key] == expressions[other]
+            and any(action in {"scroll", "keyboard"} or action.startswith("accessibility") for action in (key[3], other[3])) \
+            and len(expressions[key]) == 1 and expressions[key] == expressions[other]
     demands = []
     for (source, kind, names, action), count in selectors.items():
         key = (source, kind, names, action)

@@ -51,9 +51,9 @@ enum UITestAccessibilityActions {
         }
     }
 
-    private static func record(_ attributes: [String: Any]) {
+    private static func record(_ attributes: [String: Any], action: String = "activate") {
         record(attributes["identifier"] as? String ?? "", label: attributes["label"] as? String ?? "",
-               type: attributes["elementType"] as? Int ?? 0, scope: attributes["scope"] as? String, instance: attributes["instance"] as? String)
+               type: attributes["elementType"] as? Int ?? 0, scope: attributes["scope"] as? String, instance: attributes["instance"] as? String, action: action)
     }
 
     static func checkDisabled(_ identifier: String, label: String, type: Int, scope: String?, instance: String?) {
@@ -189,6 +189,25 @@ enum UITestAccessibilityActions {
             } else if step["first"] != nil {
                 elements = Array(elements.prefix(1))
             }
+        }
+        if parameters["command"] == "query-accessibility-action" {
+            guard let element = elements.first, element.attributes["enabled"] as? Bool == true,
+                  let name = parameters["name"],
+                  let action = element.object.accessibilityCustomActions?.first(where: { $0.name == name }) else {
+                return Data("action missing".utf8)
+            }
+            let attributes = element.attributes
+            let performed: Bool
+            if let handler = action.actionHandler {
+                performed = handler(action)
+            } else if let target = action.target {
+                performed = UIApplication.shared.sendAction(action.selector, to: target, from: action, for: nil)
+            } else {
+                performed = false
+            }
+            invalidate()
+            if performed { record(attributes, action: "accessibility:\(name)") }
+            return Data((performed ? "performed" : "action failed").utf8)
         }
         if parameters["command"] == "query-activate" {
             guard let element = elements.first, parameters["hittable"] == "1",

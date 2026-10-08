@@ -370,8 +370,8 @@ struct ReleaseNetworkSmokeDependencies {
     var aasaHTTPClient = HTTPClient(transport: NetworkSessionPool.appLinkAssociation)
     var feedbackProbe: @MainActor (String) async throws -> Void = { try await FeedbackSubmissionClient.submitNetworkSmoke(runID: $0) }
     var loadScheduleCache: @MainActor () async -> ScheduleCache = { await ScheduleCacheStore.loadAsync() }
-    var makeScores: @MainActor () -> any ScoreListServicing & TrustedTranscriptServicing = { ScoreService() }
-    var makeSchedule: @MainActor (((Data) -> Void)?) -> any NetworkSmokeScheduleServicing = { ScheduleServiceFactory.make(rawCourseResponseHandler: $0) }
+    var makeScores: @MainActor () -> any ScoreListServicing & TrustedTranscriptServicing = ReleaseNetworkSmokeRunner.freshScoreService
+    var makeSchedule: @MainActor (((Data) -> Void)?) -> any NetworkSmokeScheduleServicing = ReleaseNetworkSmokeRunner.freshSchoolService
     var makeEclassSchedule: @MainActor () throws -> any NetworkSmokeScheduleServicing = ReleaseNetworkSmokeRunner.freshEclassService
 }
 #endif

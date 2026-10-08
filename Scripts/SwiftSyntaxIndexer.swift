@@ -89,6 +89,7 @@ struct AccessibilityControlFact: Encodable {
     let expression: String
     let modifiers: String
     let callback: String
+    let carrierInvocation: String
 }
 
 struct AlertModifierFact: Encodable {
@@ -398,7 +399,7 @@ final class FactVisitor: SyntaxVisitor {
                 containers: listContainers
             ))
         }
-        if ["Button", "NavigationLink", "Menu", "Picker", "Toggle", "DatePicker", "Link", "PhotosPicker", "LabeledContent", "TextField", "SecureField", "TextEditor", "Slider", "Stepper", "ScrollView", "List", "TabView", "ShareLink", "refreshable", "onSubmit", "onDelete", "onMove", "searchable", "contextMenu", "swipeActions", "onTapGesture", "onLongPressGesture", "gesture", "simultaneousGesture", "highPriorityGesture"].contains(calledName)
+        if ["Button", "NavigationLink", "Menu", "Picker", "Toggle", "DatePicker", "Link", "PhotosPicker", "LabeledContent", "TextField", "SecureField", "TextEditor", "Slider", "Stepper", "ScrollView", "List", "TabView", "ShareLink", "refreshable", "onSubmit", "onDelete", "onMove", "searchable", "contextMenu", "swipeActions", "onTapGesture", "onLongPressGesture", "gesture", "simultaneousGesture", "highPriorityGesture", "accessibilityAction", "keyboardShortcut"].contains(calledName)
             && (!["refreshable", "onSubmit", "onDelete", "onMove", "searchable", "contextMenu", "swipeActions"].contains(calledName) || node.calledExpression.is(MemberAccessExprSyntax.self))
             && !(calledName == "onTapGesture" && node.arguments.isEmpty && node.trailingClosure?.statements.isEmpty == true) {
             let labelArgument = node.arguments.first(where: { $0.label?.text == "label" })
@@ -434,6 +435,16 @@ final class FactVisitor: SyntaxVisitor {
             let titleArgument = node.arguments.first(where: { $0.label == nil })?.expression
             var styledExpression = Syntax(node)
             var modifiers: [String] = []
+            var carrier = node
+            if ["accessibilityAction", "keyboardShortcut"].contains(calledName) {
+                while let member = carrier.calledExpression.as(MemberAccessExprSyntax.self),
+                      let base = member.base?.as(FunctionCallExprSyntax.self) {
+                    carrier = base
+                    if let modifier = base.calledExpression.as(MemberAccessExprSyntax.self) {
+                        modifiers.insert("." + modifier.declName.baseName.text + "(" + base.arguments.trimmedDescription + ")", at: 0)
+                    }
+                }
+            }
             while let parent = styledExpression.parent {
                 if parent.is(MemberAccessExprSyntax.self) || parent.is(FunctionCallExprSyntax.self) {
                     if let call = parent.as(FunctionCallExprSyntax.self), let member = call.calledExpression.as(MemberAccessExprSyntax.self) {
@@ -456,7 +467,8 @@ final class FactVisitor: SyntaxVisitor {
                 containers: listContainers,
                 expression: styledExpression.trimmedDescription,
                 modifiers: modifiers.joined(),
-                callback: node.trailingClosure?.trimmedDescription ?? ""
+                callback: node.trailingClosure?.trimmedDescription ?? "",
+                carrierInvocation: carrier.trimmedDescription
             ))
 
             switch calledName {

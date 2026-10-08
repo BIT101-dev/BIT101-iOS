@@ -10,6 +10,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     @MainActor private static var sessionScene: String?
     @MainActor private static let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
     @MainActor private var checkingScrollContainers = false
+    @MainActor private var preparingScene = false
     @MainActor private var checkedScrollContainers = Set<String>()
     private let runIdentifier = "ui"
 
@@ -449,7 +450,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func checkScrollContainers() {
-        guard !checkingScrollContainers, app.state == .runningForeground else { return }
+        guard !preparingScene, !checkingScrollContainers, app.state == .runningForeground else { return }
         checkingScrollContainers = true
         defer { checkingScrollContainers = false }
         guard let response = UITestControlClient.request(["command": "scroll-inventory"]),
@@ -458,11 +459,13 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             return
         }
         for container in containers {
-            guard let instance = container["instance"] as? String, !checkedScrollContainers.contains(instance),
+            guard let instance = container["instance"] as? String,
                   let identifier = container["identifier"] as? String,
                   let offset = container["offset"] as? [Double], offset.count == 2,
                   let range = container["range"] as? [Double], range.count == 2,
                   let remaining = container["remaining"] as? [Double], remaining.count == 2 else { continue }
+            let checkIdentity = instance + ":" + range.map { String($0.rounded(.up)) }.joined(separator: ",")
+            guard !checkedScrollContainers.contains(checkIdentity) else { continue }
             let parameters = ["instance": instance, "offsetX": String(offset[0]), "offsetY": String(offset[1])]
             if range.allSatisfy({ $0 == 0 }) {
                 XCTAssertEqual(UITestControlClient.request(parameters.merging(["command": "scroll-check"]) { _, value in value }), "fit",
@@ -480,7 +483,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                     "容器验收应恢复起始位置：\(identifier)。")
                 UITestSnapshotReader.invalidate()
             }
-            checkedScrollContainers.insert(instance)
+            checkedScrollContainers.insert(checkIdentity)
         }
     }
 
@@ -581,6 +584,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         initialTab: String = "schedule",
         initialSettings: String? = nil
     ) -> UIElement {
+        preparingScene = true
+        checkedScrollContainers.removeAll()
+        defer { preparingScene = false }
         let started = ProcessInfo.processInfo.systemUptime
         defer { print(String(format: "UI scene preparation: %.3f", ProcessInfo.processInfo.systemUptime - started)) }
         continueAfterFailure = false
@@ -737,6 +743,8 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             assertUI(report?["animationsEnabled"] as? Bool == true && !speeds.isEmpty && speeds.allSatisfy { $0 == 1 },
                      "动画场景应启用系统动画并使用窗口默认速度。")
         }
+        preparingScene = false
+        checkScrollContainers()
         return app
     }
 }

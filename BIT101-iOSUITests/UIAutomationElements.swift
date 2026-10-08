@@ -298,6 +298,22 @@ final class UIElement: NSObject {
         _ = UITestControlClient.request(identity.merging(["command": "record", "action": action]) { _, command in command })
     }
 
+    func performAccessibilityAction(named name: String) -> Bool {
+        Self.beforeNativeTap?()
+        defer { UITestSnapshotReader.invalidate() }
+        guard let path, let data = try? JSONSerialization.data(withJSONObject: path) else { return false }
+        return UITestControlClient.request(["command": "query-accessibility-action", "name": name,
+            "query": String(decoding: data, as: UTF8.self)]) == "performed"
+    }
+
+    func pressReturnKey() {
+        Self.beforeNativeTap?()
+        let identity = interactionIdentity
+        native.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+        recordInteraction(identity, action: "keyboard")
+        UITestSnapshotReader.invalidate()
+    }
+
     func tapBriefly() {
         if !Self.usesNativeInteraction { Self.beforeNativeTap?() }
         defer { UITestSnapshotReader.invalidate() }

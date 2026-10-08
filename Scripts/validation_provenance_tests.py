@@ -1,11 +1,12 @@
 """Exercise workflow ownership and bounded network evidence using memory IO substitutes."""
-from contextlib import nullcontext, redirect_stderr
+from contextlib import nullcontext, redirect_stderr, redirect_stdout
 from datetime import timedelta
 from io import StringIO
 import json
 import os
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 from unittest.mock import patch
 from validation_provenance import network_evidence_current, utc_now
 
@@ -49,3 +50,16 @@ def run_self_test(recorder) -> None:
     assert not network_evidence_current(dict(fresh, startedAt=now.isoformat()), now)
     assert not network_evidence_current({"startedAt": "invalid", "finishedAt": "invalid"}, now)
     assert not network_evidence_current({}, now)
+    for summary, expected, label in ((fresh, 0, "通过"),
+            (dict(fresh, finishedAt=(now - timedelta(days=2)).isoformat()), 1, "待复验")):
+        row = dict(group_row, summary=dict(summary, passed=True))
+        report = json.dumps({"groups": {"network": row}})
+        with patch.object(module, "source_digest", return_value="current"), \
+                patch.object(module, "report_lock", side_effect=nullcontext), patch.object(module, "complete_summary", return_value=True), \
+                patch.object(Path, "is_file", return_value=True), patch.object(Path, "read_text", return_value=report), \
+                patch.object(sys, "argv", ["validation_evidence.py", "check-group", "network"]), redirect_stderr(StringIO()):
+            assert module.main() == expected
+            output = StringIO()
+            with redirect_stdout(output), patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": ""}):
+                assert module.inspect_report(SimpleNamespace(action="summary", recorded_environment=False)) == 0
+            assert f"| network | full | {label} |" in output.getvalue()

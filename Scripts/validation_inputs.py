@@ -14,7 +14,7 @@ def includes_input(name: str, group: str) -> bool:
     if not group or group == "audit":
         return True
     host = group.removeprefix("build-")
-    host = {"release": "all", "network-smoke": "network", "icloud-smoke": "icloud"}.get(host, host)
+    host = {"release": "all", "network-smoke": "network", "icloud-smoke": "icloud", "icloud-cleanup": "icloud"}.get(host, host)
     path = PurePosixPath(name)
     root = path.parts[0]
     product = name in PRODUCT_FILES or root in PRODUCT_ROOTS and path.suffix != ".md"
@@ -35,7 +35,7 @@ def includes_input(name: str, group: str) -> bool:
         scripts = TEST_SCRIPTS | {"release-network-smoke.sh"}
     elif host == "icloud":
         tests = name == "BIT101-iOSTests/ManualICloudCrossDeviceSmokeTests.swift"
-        scripts = TEST_SCRIPTS | {"run_icloud_cross_device_smoke.sh"}
+        scripts = TEST_SCRIPTS | {"run_icloud_cross_device_smoke.sh", "icloud-smoke-support.sh"}
     elif host in {"restore", "archive", "manual-device"}:
         tests = False
         scripts = BUILD_SCRIPTS | VALIDATION_SCRIPTS

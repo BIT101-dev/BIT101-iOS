@@ -19,6 +19,14 @@ from code_quality_rules import (
 
 def checker_boundary_findings() -> list[str]:
     findings: list[str] = []
+    from code_quality_rules import scheme_inventory_findings
+    scheme = '<Scheme LastUpgradeVersion="2700"><BuildAction buildImplicitDependencies="YES" /></Scheme>'
+    if scheme_inventory_findings({"App": scheme}):
+        findings.append("Scheme 库存自测：单一共享合同进入验收")
+    if not scheme_inventory_findings({"App": scheme, "Copy": scheme.replace("2700", "2630")}):
+        findings.append("Scheme 库存自测：元数据差异保留重复合同判定")
+    if scheme_inventory_findings({"App": scheme, "Independent": scheme.replace("YES", "NO")}):
+        findings.append("Scheme 库存自测：独立构建合同保持不同入口")
     from validate_versions import app_store_request_self_test
     findings.extend(app_store_request_self_test())
     from validation_evidence import community_recovery_self_test, test_inventory
@@ -755,7 +763,7 @@ def smoke_script_boundary_findings() -> list[str]:
             raise RuntimeError(f"Smoke 自测需要 {name} 函数")
         return match[0]
 
-    phone_function = shell_function("run_phone_test")
+    phone_function = shell_function("run_phone_test", (SCRIPT_ROOT / "icloud-smoke-support.sh").read_text())
     stub = r'''
 set -euo pipefail
 DERIVED_ROOT=/smoke
@@ -768,7 +776,7 @@ bit101_run_logged() { print -r -- "RUN $*"; }
 record_result() { print -r -- "RECORD $*"; }
 '''
     cleanup = subprocess.run(["zsh", "-c", stub + phone_function + "\nrun_phone_test testCleanup"], capture_output=True, text=True)
-    if cleanup.returncode or "DELETE" in cleanup.stdout or "-resultBundlePath" in cleanup.stdout:
+    if cleanup.returncode or "DELETE -rf /smoke/test-results.xcresult" in cleanup.stdout or "-resultBundlePath" in cleanup.stdout:
         findings.append("Smoke 恢复自测失败：清理覆盖业务阶段结果包")
     business = subprocess.run(["zsh", "-c", stub + phone_function + "\nrun_phone_test testPhoneRoundTrip"], capture_output=True, text=True)
     if business.returncode or "-resultBundlePath" not in business.stdout:
@@ -777,7 +785,7 @@ record_result() { print -r -- "RECORD $*"; }
     worker = re.search(r"<<'PYWORKER'\n(.*?)^PYWORKER$", source, re.MULTILINE | re.DOTALL)
     handlers = {}
     child = type("Worker", (), {"pid": 42, "wait": lambda self: (handlers[signal.SIGTERM](signal.SIGTERM, None), -signal.SIGTERM)[1]})()
-    with patch.object(sys, "argv", ["worker", source, "/root", "/derived", "/bundle", "/report", "device", "suite"]), \
+    with patch.object(sys, "argv", ["worker", "/root", "/derived", "/bundle", "/report", "device", "suite"]), \
          patch.object(subprocess, "Popen", return_value=child) as launch, \
          patch.object(signal, "signal", side_effect=lambda signum, handler: handlers.update({signum: handler})), \
          patch.object(os, "killpg") as cancel:
@@ -804,6 +812,7 @@ PHONE_CLEANED_UP=false
 PHONE_TEST_PID=""
 CLEANUP_ONLY=false
 SUMMARY_PATH=/smoke/report.json
+validation_group=icloud
 DEVICE_ID=device
 ROOT_DIR=/audit
 BIT101_DEFER_APP_RESTORE=0
@@ -904,20 +913,26 @@ exit {initial}
                 if result.returncode != initial or "restore\n" in result.stdout:
                     findings.append(f"UI 编译失败恢复自测失败：状态 {initial}")
 
-    match = re.search(r"(?ms)^record_result\(\).*?<<'PY'\n(.*?)^PY$", source)
+    stage_source = (SCRIPT_ROOT / "icloud-smoke-support.sh").read_text()
+    match = re.search(r"(?ms)^record_result\(\).*?<<'PY'\n(.*?)^PY$", stage_source)
     if match is None:
         return [*findings, "Smoke 自测需要阶段结果记录器"]
     state = {}
     def read(path: Path, *args, **kwargs) -> str:
-        return state.get(str(path), "Test case 'ICloudCrossDeviceSmokeTests.testCleanup()' passed on 'device' (0.01 seconds)\n")
+        return state[str(path)]
     def write(path: Path, value: str, *args, **kwargs) -> int:
         state[str(path)] = value
         return len(value)
     summary = {"totalTestCount": 1, "passedTests": 0, "failedTests": 1, "skippedTests": 0,
                "testFailures": [{"failureText": "business failure"}]}
+    completed = {"totalTestCount": 1, "passedTests": 1, "failedTests": 0, "skippedTests": 0}
+    def result_response(*args, **kwargs):
+        result = summary if sys.argv[3] == "testPhoneRoundTrip" else completed
+        return subprocess.CompletedProcess([], 0, json.dumps(result))
     with patch.object(Path, "is_file", lambda path: str(path) in state), patch.object(Path, "is_dir", return_value=True), \
+         patch.object(Path, "glob", side_effect=lambda *args: iter([Path("/smoke/generated.xcresult")])), patch.object(shutil, "rmtree"), \
          patch.object(Path, "read_text", read), patch.object(Path, "write_text", write), \
-         patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(summary))) as result_tool:
+         patch.object(subprocess, "run", side_effect=result_response) as result_tool:
         for stage, process_status, expected in (("testPhoneRoundTrip", "65", 65), ("testCleanup", "0", 0)):
             with patch.object(sys, "argv", ["record", "/smoke/report.json", "/smoke/results.xcresult", stage, process_status, "/smoke/log"]), redirect_stdout(StringIO()):
                 try:
@@ -927,10 +942,12 @@ exit {initial}
                         findings.append("Smoke 结果自测失败：阶段状态码传播")
         report = json.loads(state["/smoke/report.json"])
         if report["stages"][0].get("testFailures") != summary["testFailures"] or len(report["stages"]) != 1 \
-                or report.get("cleanup", {}).get("passedTests") != 1 or result_tool.call_count != 1:
+                or report.get("cleanup", {}).get("passedTests") != 1 or result_tool.call_count != 2:
             findings.append("Smoke 结果自测失败：失败阶段与清理阶段的证据归属")
         for log, expected in (("", 1), ("skipped", 1), ("failed", 1), ("passed", 0)):
-            state["/smoke/log"] = f"Test case 'ICloudCrossDeviceSmokeTests.testCleanup()' {log} on 'device' (0.01 seconds)\n" if log else ""
+            completed = {"totalTestCount": int(bool(log)), "passedTests": int(log == "passed"),
+                         "failedTests": int(log == "failed"), "skippedTests": int(log == "skipped")}
+            result_tool.side_effect = result_response
             with patch.object(sys, "argv", ["record", "/smoke/report.json", "/smoke/results.xcresult", "testCleanup", "0", "/smoke/log"]), redirect_stdout(StringIO()):
                 try:
                     exec(compile(match[1], "smoke-cleanup-record", "exec"), {})

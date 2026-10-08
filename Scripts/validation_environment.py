@@ -8,7 +8,7 @@ from functools import cache
 from pathlib import Path
 
 DEVICE_GROUPS = {"all", "release-runtime", "ui", "schedule", "infrastructure", "login", "extensions",
-                 "network", "ddl", "school-sms", "community-writes", "community-cleanup", "icloud", "restore", "manual-device"}
+                 "network", "ddl", "school-sms", "community-writes", "community-cleanup", "icloud", "icloud-cleanup", "restore", "manual-device"}
 
 
 def complete_environment(group: str, context: dict) -> bool:

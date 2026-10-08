@@ -7,6 +7,10 @@ import Testing
 
 /// 同步证据同时核对完整载荷和本次业务域版本。
 nonisolated enum ICloudSmokeEvidence {
+    static func accountIdentifier(runID: String) throws -> String {
+        guard let identifier = UUID(uuidString: runID) else { throw URLError(.badURL) }
+        return "__bit101_icloud_smoke__." + identifier.uuidString
+    }
     static func returningPayload(_ payload: ScoreCacheSyncPayload, token: String) throws -> ScoreCacheSyncPayload {
         guard let row = payload.rows.first, !row.values.isEmpty else { throw URLError(.cannotParseResponse) }
         var result = payload
@@ -34,6 +38,13 @@ nonisolated enum ICloudSmokeEvidence {
 
 @Suite("iCloud smoke evidence")
 struct ICloudSmokeEvidenceTests {
+    @Test("Concurrent smoke runs have separate cloud account identities")
+    func runAccountsAreIsolated() throws {
+        let first = "00000000-0000-0000-0000-000000000001"
+        let second = "00000000-0000-0000-0000-000000000002"
+        #expect(try ICloudSmokeEvidence.accountIdentifier(runID: first) != ICloudSmokeEvidence.accountIdentifier(runID: second))
+        #expect(throws: URLError.self) { try ICloudSmokeEvidence.accountIdentifier(runID: "") }
+    }
     @Test("A prior cache requires the newly received business version")
     func priorCacheRequiresCurrentVersion() throws {
         let version = Date(timeIntervalSince1970: 100)
@@ -92,15 +103,16 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     }
 
     @MainActor private var cloud: NSUbiquitousKeyValueStore { .default }
-    @MainActor private var smokeSession: AppStorageSession { AppStorageSession(accountIdentifier: "__bit101_icloud_smoke__") }
+    @MainActor private var smokeSession: AppStorageSession {
+        get throws { AppStorageSession(accountIdentifier: try ICloudSmokeEvidence.accountIdentifier(runID: runID())) }
+    }
     private let preferenceDomain = "BIT101Tests.icloud-cross-device-smoke"
     @MainActor private var phoneSchedule: ScheduleSmokeStore?
     @MainActor private var propagationDeadline: Date?
 
     @MainActor
     private final class ScheduleSmokeStore {
-        let account = ScheduleCloudAccount(studentID: "__bit101_icloud_smoke__",
-            session: AppStorageSession(accountIdentifier: "__bit101_icloud_smoke__"), generation: 1)
+        let account: ScheduleCloudAccount
         private(set) var cache = ScheduleCache()
         var status = ScheduleCloudSyncStatus.idle
         let transport = AppScheduleCloudTransport()
@@ -124,7 +136,8 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         ), transport: transport, presentConflict: { _, _ in XCTFail("验收数据应按版本往返并保留真实记录锁") },
             reportStatus: { _, status in self.status = status })
 
-        init() async throws {
+        init(session: AppStorageSession) async throws {
+            account = ScheduleCloudAccount(studentID: session.accountIdentifier, session: session, generation: 1)
             cache.iCloudSyncEnabled = true
             try await replaceCache(cache, source: .cloudBaseline, expected: nil)
         }
@@ -152,7 +165,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
             values: ["功能验收", "95", "选修", "1", "验收学期"])],
             updatedAt: timestamp, detailedUpdatedAt: timestamp)
         try await restorePhoneState()
-        let schedule = try await ScheduleSmokeStore()
+        let schedule = try await ScheduleSmokeStore(session: smokeSession)
         try await schedule.replaceCache(scheduleFixture(stage: "phone"), source: .cloudBaseline)
         await schedule.manager.pushLatestLocalCacheIfNeeded()
         XCTAssertEqual(schedule.status, .synchronized, "CloudKit Production 应保存生产日程载荷")
@@ -163,8 +176,8 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         XCTAssertTrue(prepared)
         configurePreferences(stage: "phone", coordinator: manager)
         var coordination = Coordination(
-            token: try runID(), account: smokeSession.accountDirectoryName,
-            accountIdentifier: smokeSession.accountIdentifier, stage: .preparing,
+            token: try runID(), account: try smokeSession.accountDirectoryName,
+            accountIdentifier: try smokeSession.accountIdentifier, stage: .preparing,
             scoreFingerprint: try ICloudSmokeEvidence.fingerprint(payload)
         )
         try save(coordination)
@@ -195,7 +208,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
             XCTFail("Mac 接收本次成绩载荷和业务版本超时")
             return
         }
-        let schedule = try await ScheduleSmokeStore()
+        let schedule = try await ScheduleSmokeStore(session: smokeSession)
         await schedule.manager.refreshFromCloudIfNeeded()
         XCTAssertEqual(schedule.status, .synchronized)
         XCTAssertEqual(schedule.cache.primaryScheduleTitle, try runID() + "-phone")
@@ -267,7 +280,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
 
     @MainActor
     private func smokeCoordinator() throws -> ExperimentalPreferenceCloudSync {
-        let session = smokeSession
+        let session = try smokeSession
         let defaults = try XCTUnwrap(UserDefaults(suiteName: preferenceDomain))
         guard ScoreCacheSyncEncryption.production(defaults: defaults).removeActiveKey(account: session.accountDirectoryName) else {
             throw NSError(domain: "BIT101.ICloudSmoke", code: 1,
@@ -331,11 +344,12 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     @MainActor
     private func publishPreferences(coordinator: ExperimentalPreferenceCloudSync) async throws -> [String: Date] {
         let domains: [ExperimentalPreferenceSyncDomain] = [.appSettings, .scoreFilters, .galleryMessageRead]
+        let account = try smokeSession.accountDirectoryName
         var versions: [String: Date] = [:]
         struct Version: Decodable { let updatedAt: Date }
         let uploaded = await waitUntil {
             for domain in domains {
-                let key = "preference-sync.v2.\(self.smokeSession.accountDirectoryName).\(domain.rawValue)"
+                let key = "preference-sync.v2.\(account).\(domain.rawValue)"
                 guard let data = self.cloud.data(forKey: key), let remote = try? JSONDecoder().decode(Version.self, from: data),
                     remote.updatedAt == coordinator.synchronizedVersion(for: domain) else { return false }
                 versions[domain.rawValue] = remote.updatedAt
@@ -403,13 +417,13 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
 
     @MainActor
     private func restorePhoneState() async throws {
-        let account = smokeSession.accountDirectoryName
+        let account = try smokeSession.accountDirectoryName
         for domain in ExperimentalPreferenceSyncDomain.allCases {
             cloud.removeObject(forKey: "preference-sync.v2.\(account).\(domain.rawValue)")
         }
         try removeCoordination(account: account)
         clearLocalSmokePreferences()
-        let name = ScheduleCloudAccount(studentID: smokeSession.accountIdentifier, session: smokeSession, generation: 1).recordName
+        let name = try ScheduleCloudAccount(studentID: smokeSession.accountIdentifier, session: smokeSession, generation: 1).recordName
         do {
             _ = try await CKContainer.default().privateCloudDatabase.deleteRecord(withID: CKRecord.ID(recordName: name))
         } catch let error as CKError where error.code == .unknownItem {
@@ -421,7 +435,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
 
     @MainActor
     private func cloudRecordWasDeleted() async throws -> Bool {
-        let name = ScheduleCloudAccount(studentID: smokeSession.accountIdentifier, session: smokeSession, generation: 1).recordName
+        let name = try ScheduleCloudAccount(studentID: smokeSession.accountIdentifier, session: smokeSession, generation: 1).recordName
         do {
             _ = try await CKContainer.default().privateCloudDatabase.record(for: CKRecord.ID(recordName: name))
             return false
@@ -437,7 +451,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
 
     @MainActor
     private func requireCoordination(stage: Stage, selectPhoneAccount: Bool = false) async throws -> Coordination {
-        let account = smokeSession.accountDirectoryName
+        let account = try smokeSession.accountDirectoryName
         guard selectPhoneAccount || (account != "guest" && account != "__default__") else {
             throw NSError(domain: "ICloudCrossDeviceSmokeTests", code: 2,
                           userInfo: [NSLocalizedDescriptionKey: "请先在真机登录 BIT101 账号"])
@@ -491,8 +505,8 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
 
     @MainActor
     private func clearLocalSmokePreferences() {
-        guard let defaults = UserDefaults(suiteName: preferenceDomain) else { return }
-        let deleted = ScoreCacheSyncEncryption.production(defaults: defaults).removeActiveKey(account: smokeSession.accountDirectoryName)
+        guard let defaults = UserDefaults(suiteName: preferenceDomain), let session = try? smokeSession else { return }
+        let deleted = ScoreCacheSyncEncryption.production(defaults: defaults).removeActiveKey(account: session.accountDirectoryName)
         XCTAssertTrue(deleted, "验收成绩密钥应从 iCloud 钥匙串删除")
         if deleted { defaults.removePersistentDomain(forName: preferenceDomain) }
     }

@@ -7,6 +7,11 @@ extension InteractionCoverageUITests {
         app = configureApp(resetStorage: true, content: true, animations: true, media: true, initialTab: "gallery")
         tapHeader(app.segmentedControls.buttons["文章"])
         tap("自动化测试文章")
+        assertUI(app.navigationBars["文章详情"].appears(timeout: 5), "点击卡片应打开文章。")
+        back()
+        let summary = app.descendants(matching: .any)["paper.summary.1"]
+        assertUI(summary.performAccessibilityAction(named: "打开文章"), "文章卡片应提供可执行的 VoiceOver 动作。")
+        assertUI(app.navigationBars["文章详情"].appears(timeout: 5), "VoiceOver 动作应打开文章详情。")
         let link = app.links.matching(identifier: "正文链接").firstMatch
         reveal(link)
         link.tapBriefly()
@@ -207,6 +212,10 @@ extension InteractionCoverageUITests {
             tap(action)
             if action == "前往 App Store" { assertOpenedURL("apps.apple.com/cn/app/bit101/id6761147125") }
         }
+        tap("检查更新")
+        assertUI(app.alerts["发现新版本 999.0"].appears(timeout: 5), "键盘验收应展示更新提示。")
+        app.alerts.buttons["ui.app-prompt-host-modifier.default-action"].pressReturnKey()
+        assertOpenedURL("apps.apple.com/cn/app/bit101/id6761147125")
         app = configureApp(resetStorage: true, animations: true, update: "current", initialSettings: "about")
         tap("检查更新")
         assertUI(app.alerts["已是最新版本"].appears(timeout: 5), "当前版本响应应展示检查结果。")
@@ -556,7 +565,8 @@ extension InteractionCoverageUITests {
         tap("标记为未完成")
         let todo = app.staticTexts["带详情的待办"]
         reveal(todo)
-        todo.tapBriefly()
+        let card = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "ddl.event.")).firstMatch
+        assertUI(card.performAccessibilityAction(named: "打开详情"), "待办卡片应提供可执行的 VoiceOver 动作。")
         assertUI(textElement("待办详细说明").appears(timeout: 5), "待办详情应恢复输入正文。")
         tap("编辑")
         replaceText("取消的待办修改", in: app.textFields["ddl.editor.title"])
@@ -592,6 +602,10 @@ extension InteractionCoverageUITests {
         assertUI(code.value as? String == "BIT101SCH99:test", "取消更新应保留编码输入。")
         tap("导入")
         tap("前往 App Store")
+        assertOpenedURL("apps.apple.com/cn/app/bit101/id6761147125")
+        tap("导入")
+        assertUI(app.alerts["需要更新 BIT101"].appears(timeout: 5), "键盘验收应展示导入版本提示。")
+        app.alerts.buttons["前往 App Store"].pressReturnKey()
         assertOpenedURL("apps.apple.com/cn/app/bit101/id6761147125")
         tap("取消")
     }

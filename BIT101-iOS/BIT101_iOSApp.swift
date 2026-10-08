@@ -355,9 +355,9 @@ final class UITestSceneState: ObservableObject {
                             reply(Data(UITestAccessibilityActions.occlude(environment).utf8))
                             return
                         }
-                        if ["query", "query-activate", "query-input", "query-reveal"].contains(environment["command"] ?? "") {
+                        if ["query", "query-activate", "query-input", "query-reveal", "query-accessibility-action"].contains(environment["command"] ?? "") {
                             let response = try UITestAccessibilityActions.read(environment)
-                            if ["activated", "control", "entered", "revealed"].contains(String(decoding: response, as: UTF8.self)) {
+                            if ["activated", "control", "entered", "revealed", "performed"].contains(String(decoding: response, as: UTF8.self)) {
                                 let frameRate = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
                                     .first?.screen.maximumFramesPerSecond ?? 60
                                 try await Task.sleep(for: .seconds(2 / Double(frameRate)))

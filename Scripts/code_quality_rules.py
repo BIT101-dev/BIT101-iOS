@@ -567,6 +567,8 @@ def audit_wiring_findings() -> list[str]:
     project = json.loads(subprocess.check_output([
         "plutil", "-convert", "json", "-o", "-", str(ROOT / "BIT101-iOS.xcodeproj/project.pbxproj"),
     ], text=True))
+    errors.extend(scheme_inventory_findings({path.name: path.read_text() for path in
+        (ROOT / "BIT101-iOS.xcodeproj/xcshareddata/xcschemes").glob("*.xcscheme")}))
     errors.extend(extension_dependency_findings(project))
     for configuration in project["objects"].values():
         if configuration.get("isa") == "XCBuildConfiguration" and "SWIFT_COMPILATION_MODE" in configuration.get("buildSettings", {}):
@@ -654,6 +656,25 @@ def extension_dependency_findings(project: dict) -> list[str]:
                 edge = objects[dependency]
                 if edge.get("target") == targets.get(child) and edge.get("platformFilter") != "ios":
                     errors.append(f"project.pbxproj: {child} 的 App 依赖应限定为 iOS 平台")
+    return errors
+
+
+def scheme_inventory_findings(schemes: dict[str, str]) -> list[str]:
+    from xml.etree import ElementTree
+    def signature(node):
+        return (node.tag, tuple(sorted((key, value) for key, value in node.attrib.items() if key != "LastUpgradeVersion")),
+                (node.text or "").strip(), tuple(signature(child) for child in node))
+    errors, owners = [], {}
+    for name, content in sorted(schemes.items()):
+        try:
+            key = signature(ElementTree.fromstring(content))
+        except ElementTree.ParseError:
+            errors.append(f"{name}: 共享 Scheme 需要有效 XML")
+            continue
+        if key in owners:
+            errors.append(f"{name}: 共享 Scheme 与 {owners[key]} 的运行合同重复")
+        else:
+            owners[key] = name
     return errors
 
 
