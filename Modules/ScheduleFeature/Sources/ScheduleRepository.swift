@@ -13,6 +13,10 @@ public final class ScheduleRepository: ObservableObject {
     @Published private(set) var isWritable = false
     @Published private(set) var isLoading = true
     @Published var notice: ScheduleNotice?
+    @Published private(set) var hasPersistenceConflict = false
+    @Published private(set) var isResolvingPersistenceConflict = false
+    private var loadedCache: ScheduleCache?
+    private var loadedRevision = 0
     private(set) var accountGeneration = 0
     private var revision = 0
     private var loadGeneration = 0
@@ -52,6 +56,9 @@ public final class ScheduleRepository: ObservableObject {
         persistenceTask = nil
         persistenceGeneration &+= 1
         reloadAfterPersistence = false
+        hasPersistenceConflict = false
+        isResolvingPersistenceConflict = false
+        loadedCache = nil
         ownerSession = session()
         accountGeneration &+= 1
         loadGeneration &+= 1
@@ -84,13 +91,11 @@ public final class ScheduleRepository: ObservableObject {
               request == loadGeneration, localRevision == revision else { return }
         switch result {
         case .loaded(let value):
-            cache = value
+            _ = reconcile(with: value)
             isWritable = true
-            notice = nil
         case .missing:
-            cache = ScheduleCache()
+            _ = reconcile(with: ScheduleCache())
             isWritable = true
-            notice = nil
         case .unreadable:
             isWritable = false
             notice = .informational(
@@ -123,7 +128,7 @@ public final class ScheduleRepository: ObservableObject {
     }
 
     private func enqueuePersistence(source: ScheduleCacheSaveSource) -> Task<Bool, Never>? {
-        guard isWritable, ownerSession == session() else { return nil }
+        guard isWritable, !hasPersistenceConflict, ownerSession == session() else { return nil }
         let account = ownerSession
         let generation = accountGeneration
         let snapshot = cache
@@ -141,10 +146,12 @@ public final class ScheduleRepository: ObservableObject {
             do {
                 try await save(snapshot, source, account)
                 guard self.accountGeneration == generation, account == self.session() else { return false }
+                self.loadedCache = snapshot
+                self.loadedRevision = localRevision
                 if self.persistenceGeneration == operation, self.reloadAfterPersistence {
                     self.reloadAfterPersistence = false
                     self.persistenceTask = nil
-                    if self.revision == localRevision { await self.reload() }
+                    await self.reload()
                 }
                 guard self.accountGeneration == generation, account == self.session() else { return false }
                 return true
@@ -152,12 +159,95 @@ public final class ScheduleRepository: ObservableObject {
                 if TaskCancellation.matches(error) { return false }
                 guard self.accountGeneration == generation, account == self.session(),
                       !Task.isCancelled else { return false }
+                if self.persistenceGeneration == operation,
+                   source == .local || source == .localWithoutCloudPush,
+                   case .loaded(let remote) = await self.load(account) {
+                    guard self.accountGeneration == generation, account == self.session(),
+                          self.persistenceGeneration == operation, !Task.isCancelled else { return false }
+                    self.reloadAfterPersistence = false
+                    if remote.cloudSyncBaselineAt != snapshot.cloudSyncBaselineAt
+                        || remote.cloudSyncBaselineRecordTag != snapshot.cloudSyncBaselineRecordTag
+                        || remote.syncData.cloudSyncBaselineUserState != snapshot.syncData.cloudSyncBaselineUserState {
+                        guard self.reconcile(with: remote) else { return false }
+                        let rebased = self.cache
+                        let rebasedRevision = self.revision
+                        do {
+                            try await save(rebased, source, account)
+                            guard self.accountGeneration == generation, account == self.session() else { return false }
+                            self.loadedCache = rebased
+                            self.loadedRevision = rebasedRevision
+                            self.notice = nil
+                            if self.persistenceGeneration == operation, self.reloadAfterPersistence {
+                                self.reloadAfterPersistence = false
+                                self.persistenceTask = nil
+                                await self.reload()
+                            }
+                            return true
+                        } catch {
+                            if TaskCancellation.matches(error) { return false }
+                            guard self.accountGeneration == generation, account == self.session() else { return false }
+                            self.notice = ScheduleNotice(title: "日程保存失败", message: error.localizedDescription)
+                            return false
+                        }
+                    }
+                }
                 self.notice = ScheduleNotice(title: "日程保存失败", message: error.localizedDescription)
                 return false
             }
         }
         persistenceTask = task
         return task
+    }
+
+    /// 合并时沿用本机学校数据，同步版本提供用户状态及持久化基线。
+    private func reconcile(with remote: ScheduleCache, resolution: ScheduleCacheConflictResolution? = nil) -> Bool {
+        do {
+            if let loadedCache, revision != loadedRevision || hasPersistenceConflict {
+                let baseline = try ScheduleCloudStateMerge.baseline(for: loadedCache)
+                guard let state = try ScheduleCloudStateMerge.merge(local: .init(cache: cache),
+                    remote: .init(cache: remote), baseline: baseline, resolution: resolution) else {
+                    hasPersistenceConflict = true
+                    return false
+                }
+                var merged = cache
+                state.apply(to: &merged)
+                merged.cloudSyncBaselineAt = remote.cloudSyncBaselineAt
+                merged.cloudSyncBaselineRecordTag = remote.cloudSyncBaselineRecordTag
+                merged.syncData.cloudSyncBaselineUserState = remote.syncData.cloudSyncBaselineUserState
+                let userStateChanged = try !ScheduleCloudSyncState.matches(merged, remote)
+                merged.hasUnpushedCloudChanges = remote.hasUnpushedCloudChanges
+                    || (merged.iCloudSyncEnabled && userStateChanged)
+                merged.updatedAt = max(merged.updatedAt, remote.updatedAt)
+                loadedRevision = revision
+                cache = merged
+            } else {
+                cache = remote
+                loadedRevision = revision
+            }
+            self.loadedCache = remote
+            hasPersistenceConflict = false
+            notice = nil
+            return true
+        } catch {
+            notice = ScheduleNotice(title: "日程合并失败", message: error.localizedDescription)
+            return false
+        }
+    }
+
+    func resolvePersistenceConflict(_ resolution: ScheduleCacheConflictResolution) async {
+        guard hasPersistenceConflict, !isResolvingPersistenceConflict, persistenceTask == nil else { return }
+        let account = ownerSession
+        let generation = accountGeneration
+        isResolvingPersistenceConflict = true
+        defer { if generation == accountGeneration { isResolvingPersistenceConflict = false } }
+        let result = await load(account)
+        guard generation == accountGeneration, account == session(), hasPersistenceConflict else { return }
+        guard let remote = result.cacheIfReadable else {
+            notice = .informational(title: "日程版本读取失败", message: "本机编辑已保留，请恢复缓存后重新选择版本。")
+            return
+        }
+        guard reconcile(with: remote, resolution: resolution) else { return }
+        _ = await persistAndWait()
     }
 
     var persistenceSnapshot: ScheduleCache { cache }

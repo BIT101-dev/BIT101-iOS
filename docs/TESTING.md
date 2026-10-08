@@ -268,3 +268,5 @@ GitHub Actions 的 `.github/workflows/ci.yml` 使用 `xcode-27` runner，先执�
 执行 `Scripts/build-install-device.sh archive-signed` 生成固定签名归档，再沿 Xcode 的 App Store 导出流程取得最终分发产物，从导出载荷中选择 `.app` 目录执行 `python3 Scripts/validate_distribution.py 导出应用路径`。签名检查核对 App、Watch 和两种 Widget 的签名完整性、团队、版本、嵌套归属、App Group、CloudKit Production 与 KVS 标识，签名归档及编译归档共用固定路径，归档保存源码摘要、运行标识与各可执行文件的 Mach-O UUID；导出签名证据核对同一归档身份及 UUID，保存各 bundle 的 SHA-256 及签名权限到固定 `build/DeviceInstall/distribution-signing.json`。沿 `python3 Scripts/validation_evidence.py manual distribution-signing --operation "导出与核对分发签名" --result "实际检查结果" --evidence build/DeviceInstall/distribution-signing.json` 纳入发布证据。分发签名与人工专项共同遵循有效期，发布使用对应摘要的最终产物。通用归档编译与最终分发签名分别提供构建及分发验收证据。
 
 人工专项输入摘要同时覆盖 Cloudflare Worker 实现及部署配置，反馈邮件、网页及外部交接流程的实现变更触发重新验收。学校自动请求检测沿协议符合关系连接具体实现，并保留用户操作与生命周期之间的调用边界。
+
+`MinePagingRecoveryTests`、课程详情合同与服务消费者合同覆盖完整重复页推进、停滞后重试及刷新失败的分页保留。`ScheduleTimeTableTests` 在缓存、分享和设置边界核对节次规则；`ScheduleRepositoryReconciliationTests` 连接实际持久化仓库，在保存队列期间注入同步写入并验证合并、冲突选择和继续保存。共享快照仓库测试覆盖手机恢复后按 Watch 已接受版本推进，媒体依赖测试核对正文链接和展示预算。

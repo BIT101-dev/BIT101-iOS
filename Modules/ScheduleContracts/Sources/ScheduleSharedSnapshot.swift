@@ -124,6 +124,15 @@ public nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable 
         )
     }
 
+    /// 接收端携带已接受版本，主端恢复后继续推进共享快照序列。
+    public func advancingRevision(after knownRevision: UInt64) -> ScheduleExternalSnapshot? {
+        guard knownRevision >= revision else { return self }
+        guard knownRevision < UInt64.max else { return nil }
+        return ScheduleExternalSnapshot(generatedAt: generatedAt, revision: knownRevision + 1,
+            isLoggedIn: isLoggedIn, studentID: studentID, firstDayString: firstDayString,
+            timeTable: timeTable, courses: courses)
+    }
+
     private enum CodingKeys: String, CodingKey {
         case generatedAt
         case revision
@@ -180,14 +189,19 @@ public nonisolated enum ScheduleExternalSnapshotCodec {
 public enum WatchScheduleTransferProtocol {
     public nonisolated static let snapshotDataKey = "schedule_external_snapshot_data"
     public nonisolated static let requestLatestSnapshotKey = "request_latest_schedule_snapshot"
-    public nonisolated static let requestData = Data(requestLatestSnapshotKey.utf8)
+    public nonisolated static let knownRevisionKey = "known_schedule_revision"
 
     public nonisolated static func snapshotContext(_ data: Data) -> [String: Any] {
         [snapshotDataKey: data]
     }
 
-    public nonisolated static var requestContext: [String: Any] {
-        [requestLatestSnapshotKey: true]
+    public nonisolated static func requestContext(knownRevision: UInt64 = 0) -> [String: Any] {
+        [requestLatestSnapshotKey: true, knownRevisionKey: String(knownRevision)]
+    }
+
+    public nonisolated static func knownRevision(from context: [String: Any]) -> UInt64? {
+        guard requestsLatestSnapshot(context), let value = context[knownRevisionKey] as? String else { return nil }
+        return UInt64(value)
     }
 
     public nonisolated static func snapshotData(from context: [String: Any]) -> Data? {

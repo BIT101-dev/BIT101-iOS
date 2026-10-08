@@ -193,7 +193,7 @@ struct ScheduleContractsTests {
         let data = try ScheduleExternalSnapshotCodec.encode(makeSnapshot())
         let context = WatchScheduleTransferProtocol.snapshotContext(data)
         #expect(WatchScheduleTransferProtocol.snapshotData(from: context) == data)
-        #expect(WatchScheduleTransferProtocol.requestsLatestSnapshot(WatchScheduleTransferProtocol.requestContext))
+        #expect(WatchScheduleTransferProtocol.requestsLatestSnapshot(WatchScheduleTransferProtocol.requestContext()))
     }
 
     @Test func occurrenceAndRefreshBoundaries() throws {
@@ -272,6 +272,25 @@ struct ScheduleContractsTests {
 
 @MainActor
 struct ScheduleSharedStoreTests {
+    @Test(arguments: ["same-account", "new-account"])
+    func restoredPhoneSnapshotsAdvancePastTheWatchHead(account: String) throws {
+        let store = ScheduleExternalSnapshotStore(files: ModuleScoreFiles(), containerURL: URL(fileURLWithPath: "/watch-recovery"))
+        func snapshot(_ revision: UInt64, _ identifier: String, _ seconds: Double) -> ScheduleExternalSnapshot {
+            .init(generatedAt: Date(timeIntervalSince1970: seconds), revision: revision,
+                isLoggedIn: true, studentID: identifier, firstDayString: "", timeTable: [], courses: [])
+        }
+        try store.write(snapshot(1_000, "same-account", 1_000))
+        let phone = snapshot(10, account, 10)
+        let request = WatchScheduleTransferProtocol.requestContext(knownRevision: try #require(store.load()).revision)
+        let knownRevision = try #require(WatchScheduleTransferProtocol.knownRevision(from: request))
+        let recovered = try #require(phone.advancingRevision(after: knownRevision))
+        #expect(try store.writeIfNewer(recovered))
+        #expect(store.load()?.studentID == AccountStorageIdentity.stableToken(for: account) && store.load()?.revision == 1_001)
+        #expect(recovered.advancingRevision(after: 10) == recovered)
+        #expect(phone.advancingRevision(after: UInt64.max) == nil)
+        #expect(WatchScheduleTransferProtocol.knownRevision(from: [WatchScheduleTransferProtocol.requestLatestSnapshotKey: true]) == nil)
+    }
+
     @Test func outOfOrderSnapshotsPreserveTheNewAccountAndLogout() throws {
         let store = ScheduleExternalSnapshotStore(files: ModuleScoreFiles(), containerURL: URL(fileURLWithPath: "/module-shared-order"))
         func value(_ revision: UInt64, _ account: String, loggedIn: Bool = true) -> ScheduleExternalSnapshot {

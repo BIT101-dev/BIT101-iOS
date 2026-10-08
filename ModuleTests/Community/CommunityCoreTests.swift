@@ -9,6 +9,20 @@ import Testing
 
 @MainActor
 struct CommunityCoreTests {
+    @Test func displayBudgetsRetainValidMultibyteTextAndTheOriginal() {
+        for text in [String(repeating: "A", count: 100_000), String(repeating: "中", count: 100_000),
+                     String(repeating: "👨‍👩‍👧‍👦é", count: 10_000)] {
+            let preview = CommunityTextLimits.displayText(text, preview: true)
+            let full = CommunityTextLimits.displayText(text)
+            #expect(preview.utf8.count <= CommunityTextLimits.maximumPreviewBytes && preview.hasSuffix("…"))
+            #expect(full.utf8.count <= CommunityTextLimits.maximumDisplayBytes && full.hasSuffix("…"))
+            #expect(String(data: Data(preview.utf8), encoding: .utf8) == preview)
+            #expect(text.utf8.count > CommunityTextLimits.maximumDisplayBytes)
+        }
+        let boundary = String(repeating: "A", count: CommunityTextLimits.maximumPreviewBytes)
+        #expect(CommunityTextLimits.displayText(boundary, preview: true) == boundary)
+    }
+
     @Test func unreadCandidatesSurviveNewNotificationsManualReadsAndReload() throws {
         let domain = "BIT101ModulesTests.unread-candidates"
         let defaults = try #require(UserDefaults(suiteName: domain))

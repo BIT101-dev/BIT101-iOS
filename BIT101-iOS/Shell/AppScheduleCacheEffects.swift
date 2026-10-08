@@ -109,6 +109,9 @@ enum ScheduleServiceFactory {
             session: { AppFileDirectories.currentSession },
             load: { await ScheduleCacheStore.loadResultAsync(for: $0) },
             save: { cache, source, session in
+                #if BIT101_UI_TESTING
+                try await AppUITestBootstrap.prepareScheduleConflictIfRequested(cache: cache, session: session)
+                #endif
                 guard await ScheduleCacheStore.saveAndWait(cache, source: source, expectedAccountIdentifier: session.accountDirectoryName) else {
                     throw CocoaError(.fileWriteUnknown)
                 }

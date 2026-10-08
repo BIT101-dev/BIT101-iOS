@@ -5,6 +5,7 @@ const MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024;
 const MAX_REPORT_METADATA_BYTES = 1024 * 1024;
 const MAX_BODY_BYTES = MAX_ATTACHMENTS * 4 * Math.ceil(MAX_ATTACHMENT_BYTES / 3) + MAX_REPORT_METADATA_BYTES;
 const MAX_REPORTS_PER_DAY = 1000;
+const REPORT_RETENTION_SECONDS = 30 * 24 * 60 * 60;
 const MAX_REPORTS_PER_SOURCE_PER_DAY = 100;
 
 async function readReportBody(request) {
@@ -304,7 +305,7 @@ export default {
     await env.ERROR_REPORTS.put(
       `report:${receivedAt}:${id}`,
       serializedRecord,
-      { metadata: recordMetadata }
+      { metadata: recordMetadata, expirationTtl: REPORT_RETENTION_SECONDS }
     );
 
     if (env.REPORT_EMAIL) {

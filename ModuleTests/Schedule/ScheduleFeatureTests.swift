@@ -253,7 +253,7 @@ struct ScheduleFeatureTests {
 }
 
 @MainActor
-private final class ModuleSchedulePlatformActions: SchedulePlatformActions {
+final class ModuleSchedulePlatformActions: SchedulePlatformActions {
     var content: ScheduleSystemCalendarContent?
     var term: String?
     var markerIDs: Set<String>?
@@ -287,7 +287,7 @@ private final class ModuleSchedulePlatformActions: SchedulePlatformActions {
 }
 
 @MainActor
-private final class ModuleScheduleService: ScheduleServicing {
+final class ModuleScheduleService: ScheduleServicing {
     var challenge: BITLoginAuthenticationChallenge?
     var submissionError: ScheduleServiceError?
     var payload: CourseSyncPayload?

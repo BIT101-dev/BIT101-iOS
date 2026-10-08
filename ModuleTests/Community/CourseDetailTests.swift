@@ -5,6 +5,24 @@ import Testing
 
 @MainActor
 struct CourseDetailTests {
+    @Test(arguments: [false, true])
+    func repeatedCommentPagesAdvanceOrPreserveTheRetryCursor(stalled: Bool) async {
+        let service = Service()
+        service.commentResult = .success([Self.comment(1)])
+        service.pages = [1: [Self.comment(1)], 2: [Self.comment(1)], 3: [Self.comment(stalled ? 1 : 2)]]
+        let viewModel = model(service)
+        await viewModel.refresh()
+        await viewModel.loadMoreCommentsIfNeeded(currentComment: viewModel.commentState.items.last)
+        #expect(viewModel.commentState.items.map(\.id) == (stalled ? [1] : [1, 2]))
+        #expect(viewModel.commentState.nextPage == 4 && !viewModel.commentState.isLoadingMore)
+        #expect((viewModel.alert != nil) == stalled)
+        if stalled {
+            service.pages[4] = [Self.comment(2)]
+            await viewModel.loadMoreCommentsIfNeeded(currentComment: viewModel.commentState.items.last)
+            #expect(viewModel.commentState.items.map(\.id) == [1, 2])
+        }
+    }
+
     private static let detail = CourseDetail(id: 42, name: "操作系统", number: "CS101", credit: 3.5,
         likeNum: 1, commentNum: 2, rate: 8, teachersName: " 教师 ", teachersNumber: " T1 ", like: false)
 

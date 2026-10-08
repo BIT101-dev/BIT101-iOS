@@ -153,7 +153,7 @@ private struct GalleryPosterDetailViewScene: View {
                     .foregroundStyle(AppDesignSystem.Palette.Accent.primary)
                 }
 
-                Text(communityLinkifiedText(viewModel.poster.text))
+                CommunityLinkedText(viewModel.poster.text)
                     .font(AppDesignSystem.Typography.body)
                     .frame(maxWidth: .infinity, alignment: .leading)
 

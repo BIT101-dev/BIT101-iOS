@@ -1,7 +1,7 @@
 import BIT101TestSupport
 import SchedulePersistence
 import Foundation
-import ScheduleDomain
+@testable import ScheduleDomain
 @testable import ScheduleSync
 import StorageCore
 import Testing

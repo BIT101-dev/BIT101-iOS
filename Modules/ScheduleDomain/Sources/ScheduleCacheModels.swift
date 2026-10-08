@@ -75,9 +75,13 @@ public nonisolated struct ScheduleCache: Codable, Sendable {
     }
 
     private func validateTimeTable(codingPath: [any CodingKey]) throws {
-        guard TimeSlot.hasUniqueIDs(timeTable) else {
-            throw DecodingError.dataCorrupted(.init(codingPath: codingPath, debugDescription: "Time table requires unique section IDs."))
+        guard hasValidTimeTables else {
+            throw DecodingError.dataCorrupted(.init(codingPath: codingPath, debugDescription: "Time table requires ordered section IDs and valid, ordered time ranges."))
         }
+    }
+
+    public var hasValidTimeTables: Bool {
+        TimeSlot.isValidTable(timeTable) && sharedSchedules.allSatisfy { TimeSlot.isValidTable($0.timeTable) }
     }
 
     public func encode(to encoder: Encoder) throws {

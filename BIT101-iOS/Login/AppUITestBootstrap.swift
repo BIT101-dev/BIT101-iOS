@@ -72,6 +72,20 @@ final class UITestSceneConfiguration {
 
 enum AppUITestBootstrap {
     static var environment: [String: String] { UITestSceneConfiguration.shared.snapshot.environment }
+    private static var injectedScheduleConflictScene: Int?
+
+    static func prepareScheduleConflictIfRequested(cache: ScheduleCache, session: AppStorageSession) async throws {
+        let scene = UITestSceneConfiguration.shared.snapshot
+        guard scene.environment["BIT101_UI_TEST_SCHEDULE_CONFLICT"] == "1",
+              cache.primaryScheduleTitle == "本机标题", injectedScheduleConflictScene != scene.revision else { return }
+        injectedScheduleConflictScene = scene.revision
+        var remote = await ScheduleCacheStore.loadResultAsync(for: session).cacheIfReadable ?? ScheduleCache()
+        remote.primaryScheduleTitle = "同步标题"
+        remote.cloudSyncBaselineRecordTag = "ui-test-cloud-version"
+        remote.syncData.cloudSyncBaselineUserState = try ScheduleCloudStateMerge.baseline(for: remote)
+        guard await ScheduleCacheStore.saveAndWait(remote, source: .cloud,
+            expectedAccountIdentifier: session.accountDirectoryName) else { throw CocoaError(.fileWriteUnknown) }
+    }
 
     static func prepareSessionIfNeeded() async {
         let environment = Self.environment

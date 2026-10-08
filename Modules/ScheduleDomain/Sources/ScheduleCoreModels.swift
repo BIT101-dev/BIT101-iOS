@@ -48,8 +48,28 @@ public nonisolated struct TimeSlot: Codable, Hashable, Identifiable, Sendable {
     public let start: String
     public let end: String
 
-    public static func hasUniqueIDs(_ slots: [TimeSlot]) -> Bool {
-        Set(slots.map(\.id)).count == slots.count
+    /// 节次身份、时间顺序与日界点规则供缓存、分享和设置共用。
+    public static func isValidTable(_ slots: [TimeSlot]) -> Bool {
+        guard !slots.isEmpty, slots.count <= ScheduleCourseConstraints.maximumSection else { return false }
+        var previousID = 0
+        var previousEnd = -1
+        for slot in slots {
+            guard (1...ScheduleCourseConstraints.maximumSection).contains(slot.id), slot.id > previousID,
+                  let start = validMinutes(slot.start), let end = validMinutes(slot.end),
+                  start > previousEnd, end > start else { return false }
+            previousID = slot.id
+            previousEnd = end
+        }
+        return true
+    }
+
+    public static func supports(_ courses: [CourseRecord], in slots: [TimeSlot]) -> Bool {
+        let ids = Set(slots.map(\.id))
+        return courses.allSatisfy { course in
+            course.startSection > 0 && course.endSection >= course.startSection
+                && course.endSection <= ScheduleCourseConstraints.maximumSection
+                && (course.startSection...course.endSection).allSatisfy(ids.contains)
+        }
     }
 
     /// 节次开始时间对应的分钟数，便于当前时间线比较。
@@ -86,6 +106,10 @@ public nonisolated struct TimeSlot: Codable, Hashable, Identifiable, Sendable {
 
     /// 把 `HH:mm` 字符串解析成分钟数，支持 `24:00` 作为日界点。
     public static func parseMinutes(_ string: String) -> Int {
+        validMinutes(string) ?? 0
+    }
+
+    public static func validMinutes(_ string: String) -> Int? {
         let parts = string.split(separator: ":", omittingEmptySubsequences: false)
         guard
             parts.count == 2,
@@ -94,7 +118,7 @@ public nonisolated struct TimeSlot: Codable, Hashable, Identifiable, Sendable {
             (0 ... 23).contains(hour) || (hour == 24 && minute == 0),
             (0 ... 59).contains(minute)
         else {
-            return 0
+            return nil
         }
         return hour * 60 + minute
     }

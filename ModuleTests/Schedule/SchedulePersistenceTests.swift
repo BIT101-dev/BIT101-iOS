@@ -97,7 +97,7 @@ struct SchedulePersistenceTests {
         repository.courseState = local
         #expect(await repository.persistAndWait(source: source) == false)
         #expect(repository.persistenceSnapshot.primaryScheduleTitle == "本机修改")
-        #expect(repository.notice?.title == "日程保存失败")
+        #expect(repository.hasPersistenceConflict)
         let saved = await persistence.load(for: account).cacheIfReadable
         #expect(saved?.primaryScheduleTitle == "云端新增" && saved?.cloudSyncBaselineRecordTag == "remote")
     }

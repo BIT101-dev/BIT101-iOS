@@ -707,8 +707,8 @@ struct ExternalScheduleInfrastructureTests {
         let data = try ScheduleExternalSnapshotCodec.encode(makeSnapshot())
         let context = WatchScheduleTransferProtocol.snapshotContext(data)
 
-        #expect(WatchScheduleTransferProtocol.requestData == Data("request_latest_schedule_snapshot".utf8))
-        #expect(WatchScheduleTransferProtocol.requestsLatestSnapshot(WatchScheduleTransferProtocol.requestContext))
+        #expect(WatchScheduleTransferProtocol.knownRevision(from: WatchScheduleTransferProtocol.requestContext(knownRevision: 42)) == 42)
+        #expect(WatchScheduleTransferProtocol.requestsLatestSnapshot(WatchScheduleTransferProtocol.requestContext()))
         #expect(WatchScheduleTransferProtocol.snapshotData(from: context) == data)
         #expect(!WatchScheduleTransferProtocol.requestsLatestSnapshot(context))
     }

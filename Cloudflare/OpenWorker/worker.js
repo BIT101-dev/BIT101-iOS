@@ -178,7 +178,8 @@ export default {
     }
 
     const match = url.pathname.match(/^\/(gallery|course|paper)\/(\d+)\/?$/);
-    if (match) {
+    const normalizedID = match?.[2].replace(/^0+/, "") ?? "";
+    if (match && normalizedID.length > 0 && normalizedID.length <= 19 && BigInt(normalizedID) <= 9223372036854775807n) {
       return new Response(landingPage(url, match[1], match[2]), {
         headers: {
           "Cache-Control": "public, max-age=300",

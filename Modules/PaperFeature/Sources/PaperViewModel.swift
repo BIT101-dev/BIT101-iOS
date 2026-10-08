@@ -452,7 +452,6 @@ final class PaperDetailViewModel: ObservableObject {
         else { return }
 
         let order = commentOrder
-        let nextPage = commentState.nextPage
         let likeRevisionAtStart = commentState.likeRevision
         commentState.isLoadingMore = true
         defer {
@@ -462,11 +461,16 @@ final class PaperDetailViewModel: ObservableObject {
         }
 
         let result = await loadResult { [self] in
-            try await self.service.fetchComments(
-                paperID: self.initialPaper.id,
-                order: order,
-                page: nextPage
-            )
+            let knownIDs = Set(commentState.items.map(\.id))
+            var progress = CommunityPageProgress(knownIDs: knownIDs)
+            while true {
+                let comments = try await self.service.fetchComments(paperID: self.initialPaper.id, order: order, page: commentState.nextPage)
+                try Task.checkCancellation()
+                guard commentRefreshGeneration == generation else { throw CancellationError() }
+                try progress.record(comments.map(\.id))
+                if comments.isEmpty || comments.contains(where: { !knownIDs.contains($0.id) }) { return comments }
+                commentState.nextPage += 1
+            }
         }
 
         switch result {

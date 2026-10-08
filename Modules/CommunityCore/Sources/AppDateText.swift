@@ -11,27 +11,32 @@ public enum AppDateText {
         "yyyy-MM-dd'T'HH:mm:ssZ",
     ]
 
+    private static let inputFormatters = inputFormats.map { makeInputFormatter($0) }
+    private static let isoFormatter = ISO8601DateFormatter()
+    private static let dayFormatter = makeOutputFormatter("yyyy-MM-dd")
+    private static let timestampFormatter = makeOutputFormatter("yyyy-MM-dd HH:mm")
+    private static let relativeFormatter = makeRelativeFormatter()
+
     public static func date(from raw: String) -> Date? {
-        for format in inputFormats {
-            let formatter = makeInputFormatter(format)
+        for formatter in inputFormatters {
             if let date = formatter.date(from: raw) {
                 return date
             }
         }
-        return ISO8601DateFormatter().date(from: raw)
+        return isoFormatter.date(from: raw)
     }
 
     public static func relativeText(from raw: String, fallback: String) -> String {
         guard let date = date(from: raw) else { return fallback }
-        return makeRelativeFormatter().localizedString(for: date, relativeTo: Date())
+        return relativeFormatter.localizedString(for: date, relativeTo: Date())
     }
 
     public static func dayText(from raw: String) -> String {
-        formattedText(from: raw, using: makeOutputFormatter("yyyy-MM-dd"))
+        formattedText(from: raw, using: dayFormatter)
     }
 
     public static func timestampText(from raw: String) -> String {
-        formattedText(from: raw, using: makeOutputFormatter("yyyy-MM-dd HH:mm"))
+        formattedText(from: raw, using: timestampFormatter)
     }
 
     private static func formattedText(from raw: String, using formatter: DateFormatter) -> String {
@@ -63,4 +68,3 @@ public enum AppDateText {
         return formatter
     }
 }
-

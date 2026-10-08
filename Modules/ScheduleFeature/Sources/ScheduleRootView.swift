@@ -120,6 +120,13 @@ public struct ScheduleRootView: View {
             )
         }
         .scheduleSchoolVerification(viewModel: viewModel.ddl)
+        .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
+            if viewModel.hasPersistenceConflict {
+                SchedulePersistenceConflictView(viewModel: viewModel)
+                    .padding(AppDesignSystem.Spacing.content)
+                    .background(AppDesignSystem.Palette.Background.grouped)
+            }
+        }
         .environmentObject(viewModel)
         .environmentObject(viewModel.ddl)
     }
@@ -183,6 +190,25 @@ public struct ScheduleRootView: View {
         }
 
         self.requestedSection = nil
+    }
+}
+
+/// 页面与设置共用版本选择，保留待处理编辑及独立同步修改。
+public struct SchedulePersistenceConflictView: View {
+    @ObservedObject private var viewModel: ScheduleViewModel
+
+    public init(viewModel: ScheduleViewModel) { self.viewModel = viewModel }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
+            Text("日程版本发生变化").font(AppDesignSystem.Typography.title)
+            Text("本机与同步版本修改了相同内容。独立修改将共同保留，请选择冲突内容的版本。")
+            Button("保留本机冲突内容") { Task { await viewModel.resolvePersistenceConflict(.keepLocal) } }
+                .accessibilityIdentifier("schedule.conflict.keep-local")
+            Button("采用同步冲突内容") { Task { await viewModel.resolvePersistenceConflict(.useCloud) } }
+                .accessibilityIdentifier("schedule.conflict.use-cloud")
+        }
+        .disabled(viewModel.isResolvingPersistenceConflict)
     }
 }
 

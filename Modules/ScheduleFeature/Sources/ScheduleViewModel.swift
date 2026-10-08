@@ -89,6 +89,12 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
     public var syncingTerm: String? { courseSyncCoordinator.syncingTerm }
 
     public var isCacheWritable: Bool { repository.isWritable }
+    public var hasPersistenceConflict: Bool { repository.hasPersistenceConflict }
+    public var isResolvingPersistenceConflict: Bool { repository.isResolvingPersistenceConflict }
+
+    public func resolvePersistenceConflict(_ resolution: ScheduleCacheConflictResolution) async {
+        await repository.resolvePersistenceConflict(resolution)
+    }
 
     var persistenceSnapshot: ScheduleCache { repository.persistenceSnapshot }
     var presentationPreferences: SchedulePresentationPreferences {
@@ -134,6 +140,8 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
         ddl = ScheduleDDLViewModel(service: ddlService, repository: repository, virtualNetworkLikely: virtualNetworkLikely, beforeSchoolRequest: beforeSchoolRequest)
         classroom = ScheduleClassroomViewModel(service: classroomService, repository: repository, virtualNetworkLikely: virtualNetworkLikely)
         repository.courseChanges.sink { [weak self] in self?.objectWillChange.send() }.store(in: &subscriptions)
+        repository.$hasPersistenceConflict.dropFirst().sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &subscriptions)
+        repository.$isResolvingPersistenceConflict.dropFirst().sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &subscriptions)
         repository.$notice.compactMap { $0 }.sink { [weak self] in self?.notice = $0 }.store(in: &subscriptions)
         ddl.$notice.compactMap { $0 }.sink { [weak self] in self?.notice = $0 }.store(in: &subscriptions)
         classroom.$notice.compactMap { $0 }.sink { [weak self] in self?.notice = $0 }.store(in: &subscriptions)

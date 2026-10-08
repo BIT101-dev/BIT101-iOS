@@ -613,10 +613,10 @@ public actor ScheduleCloudSyncManager {
         let cache: ScheduleCache
         let requiresPayloadMigration: Bool
         if let envelope = try? decoder.decode(ScheduleCloudSyncEnvelope.self, from: payloadData) {
-            guard envelope.schemaVersion == ScheduleCloudSyncEnvelope.currentSchemaVersion,
-                  TimeSlot.hasUniqueIDs(envelope.payload.state.timeTable) else { return nil }
+            guard envelope.schemaVersion == ScheduleCloudSyncEnvelope.currentSchemaVersion else { return nil }
             var projectedCache = ScheduleCache()
             envelope.payload.state.apply(to: &projectedCache)
+            guard projectedCache.hasValidTimeTables else { return nil }
             projectedCache.updatedAt = envelope.payload.updatedAt
             cache = projectedCache
             requiresPayloadMigration = false

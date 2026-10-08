@@ -4,6 +4,23 @@ import Testing
 @testable import ScheduleSync
 
 struct ScheduleCloudMergeTests {
+    @Test(arguments: [ScheduleCacheConflictResolution.keepLocal, .useCloud])
+    func resolvingDeletionVersusEditRetainsIndependentRecords(resolution: ScheduleCacheConflictResolution) throws {
+        var base = ScheduleCache()
+        base.ddlEvents = [event("shared")]
+        var local = base
+        local.ddlEvents = [event("local")]
+        var remote = base
+        remote.ddlEvents = [event("shared", title: "remote edit"), event("remote")]
+        let state = try #require(try ScheduleCloudStateMerge.merge(local: .init(cache: local), remote: .init(cache: remote),
+            baseline: ScheduleCloudStateMerge.baseline(for: base), resolution: resolution))
+        var result = local
+        state.apply(to: &result)
+        let expected: Set<String> = resolution == .keepLocal ? ["local", "remote"] : ["shared", "local", "remote"]
+        #expect(Set(result.ddlEvents.map(\.id)) == expected)
+        if resolution == .useCloud { #expect(result.ddlEvents.first { $0.id == "shared" }?.title == "remote edit") }
+    }
+
     private func event(_ id: String, title: String = "DDL") -> DDLEventRecord {
         .init(id: id, group: "main", title: title, text: "", dueAt: Date(timeIntervalSince1970: 100), done: false)
     }

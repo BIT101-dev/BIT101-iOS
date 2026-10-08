@@ -212,16 +212,13 @@ private struct GalleryCommentRow: View {
     @ViewBuilder
     private func commentText(for comment: CommunityComment) -> some View {
         if comment.replyUser.id != 0, !comment.replyUser.nickname.isEmpty {
-            (
-                Text("回复 @\(comment.replyUser.nickname)：")
-                    .foregroundStyle(AppDesignSystem.Foreground.secondary) +
-                    Text(communityLinkifiedText(comment.text))
-            )
+            CommunityLinkedText(comment.text, prefix: Text("回复 @\(comment.replyUser.nickname)：")
+                .foregroundStyle(AppDesignSystem.Foreground.secondary))
             .font(AppDesignSystem.Typography.body)
             .lineSpacing(AppDesignSystem.Comment.bodyLineSpacing)
             .frame(maxWidth: .infinity, alignment: .leading)
         } else {
-            Text(communityLinkifiedText(comment.text))
+            CommunityLinkedText(comment.text)
                 .font(AppDesignSystem.Typography.body)
                 .lineSpacing(AppDesignSystem.Comment.bodyLineSpacing)
                 .frame(maxWidth: .infinity, alignment: .leading)

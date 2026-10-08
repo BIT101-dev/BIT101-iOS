@@ -174,6 +174,13 @@ final class MineViewModel: ObservableObject {
                 requiresLogin = true
                 return
             }
+            if previousState.status == .loaded || !previousState.items.isEmpty {
+                followerState = previousState
+                followerState.isLoadingMore = false
+                followerState.status = .loaded
+                alert = AppAlert(title: "刷新粉丝失败", message: error.localizedDescription)
+                return
+            }
             followerState.status = .failed(error.localizedDescription)
             followerState.canLoadMore = false
             alert = AppAlert(title: "加载粉丝失败", message: error.localizedDescription)
@@ -188,10 +195,19 @@ final class MineViewModel: ObservableObject {
         let generation = followerGeneration
         followerState.isLoadingMore = true
         do {
-            let users = try await service.fetchFollowers(page: followerState.nextPage)
-            try Task.checkCancellation()
-            guard followerGeneration == generation else { return }
-            appendMinePagedPage(users, to: &followerState)
+            let knownIDs = Set(followerState.items.map(\.id))
+            var progress = CommunityPageProgress(knownIDs: knownIDs)
+            while true {
+                let users = try await service.fetchFollowers(page: followerState.nextPage)
+                try Task.checkCancellation()
+                guard followerGeneration == generation else { return }
+                try progress.record(users.map(\.id))
+                if users.isEmpty || users.contains(where: { !knownIDs.contains($0.id) }) {
+                    appendMinePagedPage(users, to: &followerState)
+                    break
+                }
+                followerState.nextPage += 1
+            }
         } catch {
             guard followerGeneration == generation else { return }
             if isMineCancellation(error) {
@@ -234,6 +250,13 @@ final class MineViewModel: ObservableObject {
                 requiresLogin = true
                 return
             }
+            if previousState.status == .loaded || !previousState.items.isEmpty {
+                followingState = previousState
+                followingState.isLoadingMore = false
+                followingState.status = .loaded
+                alert = AppAlert(title: "刷新关注失败", message: error.localizedDescription)
+                return
+            }
             followingState.status = .failed(error.localizedDescription)
             followingState.canLoadMore = false
             alert = AppAlert(title: "加载关注失败", message: error.localizedDescription)
@@ -248,10 +271,19 @@ final class MineViewModel: ObservableObject {
         let generation = followingGeneration
         followingState.isLoadingMore = true
         do {
-            let users = try await service.fetchFollowings(page: followingState.nextPage)
-            try Task.checkCancellation()
-            guard followingGeneration == generation else { return }
-            appendMinePagedPage(users, to: &followingState)
+            let knownIDs = Set(followingState.items.map(\.id))
+            var progress = CommunityPageProgress(knownIDs: knownIDs)
+            while true {
+                let users = try await service.fetchFollowings(page: followingState.nextPage)
+                try Task.checkCancellation()
+                guard followingGeneration == generation else { return }
+                try progress.record(users.map(\.id))
+                if users.isEmpty || users.contains(where: { !knownIDs.contains($0.id) }) {
+                    appendMinePagedPage(users, to: &followingState)
+                    break
+                }
+                followingState.nextPage += 1
+            }
         } catch {
             guard followingGeneration == generation else { return }
             if isMineCancellation(error) {
@@ -320,10 +352,19 @@ final class MineViewModel: ObservableObject {
         let generation = posterGeneration
         posterState.isLoadingMore = true
         do {
-            let posters = try await service.fetchMyPosters(page: posterState.nextPage)
-            try Task.checkCancellation()
-            guard posterGeneration == generation else { return }
-            appendMinePagedPage(posters, to: &posterState)
+            let knownIDs = Set(posterState.items.map(\.id))
+            var progress = CommunityPageProgress(knownIDs: knownIDs)
+            while true {
+                let posters = try await service.fetchMyPosters(page: posterState.nextPage)
+                try Task.checkCancellation()
+                guard posterGeneration == generation else { return }
+                try progress.record(posters.map(\.id))
+                if posters.isEmpty || posters.contains(where: { !knownIDs.contains($0.id) }) {
+                    appendMinePagedPage(posters, to: &posterState)
+                    break
+                }
+                posterState.nextPage += 1
+            }
         } catch {
             guard posterGeneration == generation else { return }
             if isMineCancellation(error) {
@@ -510,10 +551,19 @@ final class UserProfileViewModel: ObservableObject {
         let generation = posterGeneration
         posterState.isLoadingMore = true
         do {
-            let posters = try await service.fetchUserPosters(userID: userID, page: posterState.nextPage)
-            try Task.checkCancellation()
-            guard posterGeneration == generation else { return }
-            appendMinePagedPage(posters, to: &posterState)
+            let knownIDs = Set(posterState.items.map(\.id))
+            var progress = CommunityPageProgress(knownIDs: knownIDs)
+            while true {
+                let posters = try await service.fetchUserPosters(userID: userID, page: posterState.nextPage)
+                try Task.checkCancellation()
+                guard posterGeneration == generation else { return }
+                try progress.record(posters.map(\.id))
+                if posters.isEmpty || posters.contains(where: { !knownIDs.contains($0.id) }) {
+                    appendMinePagedPage(posters, to: &posterState)
+                    break
+                }
+                posterState.nextPage += 1
+            }
         } catch {
             guard posterGeneration == generation else { return }
             if isMineCancellation(error) {

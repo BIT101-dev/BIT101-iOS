@@ -11,7 +11,7 @@ npx wrangler deploy --config ../ErrorReportWorker/wrangler.jsonc
 
 Worker 提供 `POST https://feedback.aihelpme.dev/api/error-reports` 接口。
 
-UTC 日配额由 SQLite Durable Object 在事务内预留，正式报告与网络探针分别保留每日 1000 次预算，每个来源在各自预算中每日最多提交 100 次。来源采用 Cloudflare `CF-Connecting-IP` 与 UTC 日期的 SHA-256 摘要，日计数更新时替换来源集合；共享出口的请求共用来源限额。报告正文继续存入 KV。部署配置同时登记配额 binding 与存储迁移。浏览器预检返回空响应体的 204 和接口 CORS 头。
+UTC 日配额由 SQLite Durable Object 在事务内预留，正式报告与网络探针分别保留每日 1000 次预算，每个来源在各自预算中每日最多提交 100 次。来源采用 Cloudflare `CF-Connecting-IP` 与 UTC 日期的 SHA-256 摘要，日计数更新时替换来源集合；共享出口的请求共用来源限额。正式报告正文与附件在 KV 保留 30 天，到期自动清理；本地收件箱继续保存已拉取内容。部署配置同时登记配额 binding 与存储迁移。浏览器预检返回空响应体的 204 和接口 CORS 头。
 
 请求体逐块读取，累计字节超过请求体上限时终止读取。报告类型、业务正文、附件和网络探针标记在配额预留前验证；有效报告进入持久化流程。
 

@@ -273,6 +273,9 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
 
     public var body: some View {
         List {
+            if viewModel.hasPersistenceConflict {
+                Section { SchedulePersistenceConflictView(viewModel: viewModel) }
+            }
             dataSettingsSection
             scheduleNamesSection
                 .disabled(!viewModel.isCacheWritable)

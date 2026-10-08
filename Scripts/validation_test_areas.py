@@ -18,6 +18,7 @@ TEST_AREA_SUITES = {
         "ExternalScheduleInfrastructureTests", "FeatureCompositionTests", "GalleryContentFilterTests",
         "GalleryRecommendationPrefetchTests", "ICloudSmokeEvidenceTests", "ImageCacheDiskQuotaTests",
         "InfrastructureTests", "MediaDependencyTests", "NetworkClientTests", "NetworkSmokeSMSPromptTests",
+        "PaperCommentPagingTests",
         "PreferenceCloudPayloadTests", "PreferenceMergeTests", "ReleaseNetworkSmokeLifecycleTests",
         "SchoolCookieIsolationTests", "ScoreCacheDiskRepositoryTests", "ScorePresentationTests",
         "SettingsDependencyOwnershipTests", "SuggestionDependencyTests",

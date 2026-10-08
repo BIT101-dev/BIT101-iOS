@@ -1,6 +1,7 @@
 @testable import BIT101_iOS
 import Foundation
 import CommunityUI
+import CommunityCore
 import ImageIO
 @testable import MediaKit
 import StorageCore
@@ -11,6 +12,15 @@ import UniformTypeIdentifiers
 
 @MainActor
 struct MediaDependencyTests {
+    @Test func linkifiedTextPreservesLinksWithinTheDisplayBudget() async {
+        let source = "阅读 https://bit101.cn/paper/42 与正文"
+        let rendered = await communityLinkifiedText(source)
+        #expect(String(rendered.characters) == source)
+        #expect(rendered.runs.compactMap(\.link).map(\.absoluteString) == ["https://bit101.cn/paper/42"])
+        let oversized = await communityLinkifiedText(String(repeating: "中", count: 100_000))
+        #expect(String(oversized.characters).utf8.count <= CommunityTextLimits.maximumDisplayBytes)
+    }
+
     @Test func displaySizedImagesShareAndReleaseTheActiveBitmapBudget() async throws {
         let files = PreferenceMemoryFiles()
         let file = files.temporaryDirectoryURL.appending(path: "display-budget.png")

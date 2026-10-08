@@ -9,6 +9,23 @@ import TransportCore
 
 @MainActor
 struct ServiceContractTests {
+    @Test func repeatedCommentPagesAdvanceUntilNewContent() async throws {
+        func comment(_ id: Int) -> String {
+            #"{"id":\#(id),"obj":"poster1","images":[],"user":\#(user),"anonymous":false,"create_time":"","update_time":"","like":false,"like_num":0,"comment_num":0,"own":true,"rate":0,"reply_user":\#(user),"reply_obj":"","text":"评论","sub":[]}"#
+        }
+        let transport = Transport([1, 1, 1, 2].map { (200, "[" + comment($0) + "]") })
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let model = GalleryPosterDetailViewModel(initialPoster: try decoder.decode(CommunityPoster.self, from: Data(poster(id: 1).utf8)),
+            service: GalleryService(session: session(transport), preferences: {
+                .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+            }))
+        await model.refreshComments()
+        await model.loadMoreCommentsIfNeeded(currentComment: model.commentState.items.last)
+        #expect(model.commentState.items.map(\.id) == [1, 2] && model.commentState.nextPage == 4 && !model.commentState.isLoadingMore)
+        #expect(try transport.requests.map { try query($0)["page"] } == [nil, "1", "2", "3"])
+    }
+
     @Test func galleryWebCredentialsUseTheTrustedHTTPSOrigin() {
         for address in ["https://bit101.cn/gallery", "https://BIT101.cn:443/paper/42"] {
             #expect(GalleryWebRequestFactory.isTrustedPage(URL(string: address)))

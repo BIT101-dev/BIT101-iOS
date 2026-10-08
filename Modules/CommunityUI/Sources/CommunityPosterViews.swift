@@ -88,7 +88,7 @@ public struct CommunityPosterCard: View {
                     }
                 }
 
-                Text(communityLinkifiedText(poster.text))
+                CommunityLinkedText(poster.text, preview: true)
                     .font(AppDesignSystem.Typography.body)
                     .lineLimit(poster.images.count <= 2 ? 4 : 3)
                     .frame(maxWidth: .infinity, alignment: .leading)

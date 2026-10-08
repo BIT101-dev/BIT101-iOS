@@ -582,6 +582,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         reportFailureOnce: Bool = false,
         update: String? = nil,
         schoolSMS: Bool = false,
+        scheduleConflict: Bool = false,
         initialTab: String = "schedule",
         initialSettings: String? = nil
     ) -> UIElement {
@@ -624,6 +625,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         application.launchEnvironment["BIT101_UI_TEST_SETTINGS"] = initialSettings
         application.launchEnvironment["OS_ACTIVITY_MODE"] = "disable"
         application.launchEnvironment["BIT101_UI_TEST_CONTENT"] = content ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_SCHEDULE_CONFLICT"] = scheduleConflict ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_ANIMATIONS"] = animations ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_SCHOOL"] = school ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_MEDIA"] = media ? "1" : "0"

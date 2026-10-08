@@ -99,7 +99,7 @@ export class QuotaFixture extends ReportQuota {
   const { default: feedback, readReportBody, MAX_BODY_BYTES, forceRedact, PROTECTED_NAMES } = await import("data:text/javascript;base64," + Buffer.from(bodySource).toString("base64"));
   let notification, saved = 0;
   const accepted = await feedback.fetch(new Request("https://feedback.invalid/api/error-reports", { method: "POST", headers: { "CF-Connecting-IP": "192.0.2.1" }, body: JSON.stringify({ mode: "suggestion", comment: "fixture" }) }), {
-    ERROR_REPORTS: { async put() { saved += 1; } }, REPORT_QUOTA: { idFromName() {}, get() { return { async fetch() { return Response.json({ allowed: true }); } }; } },
+    ERROR_REPORTS: { async put(key, value, options) { saved += 1; assert.equal(options.expirationTtl, 30 * 24 * 60 * 60); } }, REPORT_QUOTA: { idFromName() {}, get() { return { async fetch() { return Response.json({ allowed: true }); } }; } },
     REPORT_EMAIL: { send() { throw new Error("offline"); } }
   }, { waitUntil(task) { notification = task; } });
   assert.equal(accepted.status, 201); await notification; assert.equal(saved, 1);
@@ -144,6 +144,12 @@ export class QuotaFixture extends ReportQuota {
     assert.equal(response.status, 200);
     const html = await response.text();
     assert(html.includes(`href="bit101://${route}/42"`) && html.includes(`href="https://bit101.cn/${route}/42"`));
+  }
+  for (const route of ["gallery", "course", "paper"]) {
+    for (const id of ["0", "9223372036854775808", "9".repeat(100)]) {
+      assert.equal((await worker.fetch(new Request(`https://open.invalid/${route}/${id}`))).status, 302);
+    }
+    assert.equal((await worker.fetch(new Request(`https://open.invalid/${route}/9223372036854775807`))).status, 200);
   }
   for (const [status, type, expected] of [[404, "text/html", 404], [200, "text/html", 502], [200, "image/jpeg", 200], [200, "image/png", 200]]) {
     global.fetch = async url => String(url).startsWith("https://itunes.apple.com/")

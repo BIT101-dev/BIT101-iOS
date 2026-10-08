@@ -201,40 +201,25 @@ extension ScheduleViewModel {
 
             let start = parts[0]
             let end = parts[1]
-            guard let startMinutes = validTimeTableMinutes(start),
-                  let endMinutes = validTimeTableMinutes(end)
-            else {
-                throw scheduleValidationError("时间表格式错误。")
-            }
-            guard endMinutes > startMinutes else {
-                throw scheduleValidationError("时间表格式错误。")
-            }
-            if let last = timeTable.last, startMinutes <= last.endMinutes {
-                throw scheduleValidationError("时间表格式错误。")
-            }
-
             timeTable.append(TimeSlot(id: index + 1, start: start, end: end))
         }
 
-        guard !timeTable.isEmpty else {
+        guard TimeSlot.isValidTable(timeTable) else {
             throw scheduleValidationError("时间表格式错误。")
         }
 
+        let data = courseState.data
+        let terms = Set(data.schedulesByTerm.keys).subtracting(data.archivedTerms)
+            .union(data.manualCourseRulesByTerm.keys)
+        let courses = terms.flatMap { term in
+            ScheduleCourseEditor.reconcile(rules: data.manualCourseRulesByTerm[term] ?? [],
+                with: data.archivedTerms.contains(term) ? [] : data.schoolCourses(for: term)).courses
+        }
+        guard TimeSlot.supports(courses, in: timeTable) else {
+            throw scheduleValidationError("已有课程使用了超出新时间表的节次，请先调整课程节次。")
+        }
         courseState.timeTable = timeTable
         persist()
-    }
-
-    private func validTimeTableMinutes(_ value: String) -> Int? {
-        let parts = value.split(separator: ":", omittingEmptySubsequences: false)
-        guard parts.count == 2,
-              let hour = Int(parts[0]),
-              let minute = Int(parts[1]),
-              (0 ... 23).contains(hour),
-              (0 ... 59).contains(minute)
-        else {
-            return nil
-        }
-        return hour * 60 + minute
     }
 
 }

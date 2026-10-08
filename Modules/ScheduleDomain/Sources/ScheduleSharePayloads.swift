@@ -33,15 +33,9 @@ public struct ScheduleExportPayload {
     }
 
     public func validate() throws {
-        guard !timeTable.isEmpty, timeTable.count <= ScheduleCourseConstraints.maximumSection,
+        guard TimeSlot.isValidTable(timeTable),
               courses.count <= ScheduleShareCodeCodec.maximumCourseCount else { throw ScheduleShareCodeError.invalidFormat }
         let slots = Set(timeTable.map(\.id))
-        guard slots.count == timeTable.count, timeTable.allSatisfy({
-            (1...ScheduleCourseConstraints.maximumSection).contains($0.id)
-                && ScheduleSharedDateCodec.combine(date: Date(timeIntervalSince1970: 0), time: $0.start) != nil
-                && ScheduleSharedDateCodec.combine(date: Date(timeIntervalSince1970: 0), time: $0.end) != nil
-                && $0.startMinutes < $0.endMinutes
-        }) else { throw ScheduleShareCodeError.invalidFormat }
         try ScheduleShareCodeCodec.validateCourses(courses, slots: slots)
     }
 }

@@ -96,12 +96,13 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     }
 
     /// 从共享仓库读取并编码当前快照。
-    private nonisolated static func currentSnapshotDataIfAvailable(for studentID: String) -> Data? {
+    private nonisolated static func currentSnapshotDataIfAvailable(for studentID: String, knownRevision: UInt64 = 0) -> Data? {
         let accountToken = AppStorageSession(accountIdentifier: studentID).accountStorageIdentifier
         guard let snapshot = PlatformScheduleSnapshotStorage.store.load(),
               snapshot.studentID == studentID || snapshot.studentID == accountToken
         else { return nil }
-        let normalizedSnapshot = snapshot.replacingStudentID(with: accountToken)
+        guard let normalizedSnapshot = snapshot.replacingStudentID(with: accountToken)
+            .advancingRevision(after: knownRevision) else { return nil }
         do {
             if normalizedSnapshot != snapshot {
                 try PlatformScheduleSnapshotStorage.store.write(normalizedSnapshot)
@@ -148,11 +149,11 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     }
 
     /// 从当前共享快照重新推送一次。
-    func pushCurrentSnapshotIfAvailable() {
+    func pushCurrentSnapshotIfAvailable(knownRevision: UInt64 = 0) {
         activateIfNeeded()
         let session = WCSession.default
         let studentID = AppAccountSession.storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let data = Self.currentSnapshotDataIfAvailable(for: studentID) else { return }
+        guard let data = Self.currentSnapshotDataIfAvailable(for: studentID, knownRevision: knownRevision) else { return }
         guard session.activationState == .activated else {
             pendingSnapshotData = data
             return
@@ -184,10 +185,12 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
 
     private func sendRequest(generation: UInt64, completion: @escaping WatchScheduleRequestQueue.Completion) {
         let session = WCSession.default
+        let knownRevision = PlatformScheduleSnapshotStorage.store.load()?.revision ?? 0
         if session.isReachable {
-            session.sendMessageData(
-                WatchScheduleTransferProtocol.requestData,
-                replyHandler: { @Sendable data in
+            session.sendMessage(
+                WatchScheduleTransferProtocol.requestContext(knownRevision: knownRevision),
+                replyHandler: { @Sendable context in
+                    let data = WatchScheduleTransferProtocol.snapshotData(from: context) ?? Data()
                     Task { @MainActor in
                         guard self.requestQueue.generation == generation else { return }
                         completion(self.persistSnapshotData(data))
@@ -198,7 +201,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
                         guard self.requestQueue.generation == generation else { return }
                         Self.logger.notice("Immediate watch sync failed; queueing a context request: \(String(describing: error), privacy: .public)")
                         do {
-                            try WCSession.default.updateApplicationContext(WatchScheduleTransferProtocol.requestContext)
+                            try WCSession.default.updateApplicationContext(WatchScheduleTransferProtocol.requestContext(knownRevision: knownRevision))
                             completion(.success(.requested))
                         } catch {
                             Self.logger.error("Failed to queue the watch schedule request: \(String(describing: error), privacy: .public)")
@@ -211,7 +214,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
         }
 
         do {
-            try session.updateApplicationContext(WatchScheduleTransferProtocol.requestContext)
+            try session.updateApplicationContext(WatchScheduleTransferProtocol.requestContext(knownRevision: knownRevision))
             completion(.success(.requested))
         } catch {
             Self.logger.error("Failed to queue the watch schedule request: \(String(describing: error), privacy: .public)")
@@ -278,33 +281,6 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     }
     #endif
 
-    /// 处理 `sendMessageData` 的前台即时请求。
-    ///
-    /// 该回调服务 watch -> iPhone 的“拉最新课表”请求。
-    /// 账号读取与快照发布沿主线程临界区完成，回调回复携带该快照的单调版本。
-    nonisolated func session(
-        _ session: WCSession,
-        didReceiveMessageData messageData: Data,
-        replyHandler: @escaping (Data) -> Void
-    ) {
-        #if os(iOS)
-        if messageData == WatchScheduleTransferProtocol.requestData {
-            let data: Data? = DispatchQueue.main.sync {
-                MainActor.assumeIsolated {
-                    let studentID = AppAccountSession.storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard let data = Self.currentSnapshotDataIfAvailable(for: studentID) else { return nil }
-                    Self.updateApplicationContext(withSnapshotData: data, session: WCSession.default)
-                    return data
-                }
-            }
-            replyHandler(data ?? Data())
-            return
-        }
-        #endif
-
-        replyHandler(Data())
-    }
-
     /// 处理字典形式的请求与回复。
     ///
     /// 该方法承载 `requestLatestSnapshot` 语义字段，并让它与
@@ -315,11 +291,11 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
         replyHandler: @escaping ([String: Any]) -> Void
     ) {
         #if os(iOS)
-        if WatchScheduleTransferProtocol.requestsLatestSnapshot(message) {
+        if let knownRevision = WatchScheduleTransferProtocol.knownRevision(from: message) {
             let data: Data? = DispatchQueue.main.sync {
                 MainActor.assumeIsolated {
                     let studentID = AppAccountSession.storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard let data = Self.currentSnapshotDataIfAvailable(for: studentID) else { return nil }
+                    guard let data = Self.currentSnapshotDataIfAvailable(for: studentID, knownRevision: knownRevision) else { return nil }
                     Self.updateApplicationContext(withSnapshotData: data, session: WCSession.default)
                     return data
                 }
@@ -341,9 +317,9 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
         didReceiveApplicationContext applicationContext: [String: Any]
     ) {
         #if os(iOS)
-        if WatchScheduleTransferProtocol.requestsLatestSnapshot(applicationContext) {
+        if let knownRevision = WatchScheduleTransferProtocol.knownRevision(from: applicationContext) {
             Task { @MainActor in
-                self.pushCurrentSnapshotIfAvailable()
+                self.pushCurrentSnapshotIfAvailable(knownRevision: knownRevision)
             }
             return
         }
