@@ -300,6 +300,36 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(world.contents["poster77"]?.text == "原有内容" && world.pending == nil)
     }
 
+    @Test func historicalJournalRecoversCourseCommentsAndReplies() async throws {
+        let world = CommunityWorld(stage: "success")
+        let comment = try await world.operations.comment("course1", "功能验收 legacy")
+        let reply = try await world.operations.comment("comment\(comment.id)", "功能验收 legacy")
+        world.pending = Data("""
+        {"marker":"功能验收 legacy","account":1,"targets":[{"kind":"course","id":1}],"comments":[\(comment.id),\(reply.id)]}
+        """.utf8)
+        _ = try await world.smoke.run(marker: "fixture", cleanupOnly: true)
+        #expect(world.pending == nil)
+        #expect(world.rows.values.allSatisfy { $0.isEmpty })
+        #expect(world.commentDeletionRequests == [reply.id, comment.id])
+        #expect(world.contents["course1"]?.liked == true)
+    }
+
+    @Test func unmappedCommentRemainsRecoverableUntilServerConfirmsAbsence() async throws {
+        let world = CommunityWorld(stage: "silent-comment-delete")
+        let comment = try await world.operations.comment("course1", "功能验收 fixture")
+        var journal = CommunityWriteSmoke.Journal(marker: "功能验收 fixture", account: 1)
+        journal.comments = [comment.id]
+        world.pending = try JSONEncoder().encode(journal)
+        await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture", cleanupOnly: true) }
+        let pending = try #require(world.pending)
+        #expect(try JSONDecoder().decode(CommunityWriteSmoke.Journal.self, from: pending).comments == [comment.id])
+        #expect(world.rows["course1"]?.count == 1)
+        world.rows = [:]
+        world.stage = "missing-comment"
+        _ = try await world.smoke.run(marker: "fixture", cleanupOnly: true)
+        #expect(world.pending == nil)
+    }
+
     private final class CommunityWorld {
         var account = 1
         var nextID = 100
@@ -377,6 +407,8 @@ struct ReleaseNetworkSmokeLifecycleTests {
             }, deleteComment: { id in
                 try Task.checkCancellation()
                 self.commentDeletionRequests.append(id)
+                if self.stage == "silent-comment-delete" { return }
+                if self.stage == "missing-comment" { throw NSError(domain: "fixture", code: 404) }
                 if self.switchAccount(during: "comment-delete") { throw NSError(domain: "fixture", code: 404) }
                 for parent in self.rows.keys { self.rows[parent]?.removeAll { $0.id == id } }
                 if self.stage == "lost-delete-response" && !self.injected {
@@ -588,7 +620,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
         func fetchMessageUnreadCounts() async throws -> GalleryMessageUnreadCounts { GalleryMessageUnreadCounts() }
         func fetchMessages(type: GalleryMessageType, lastID: Int?) async throws -> [GalleryMessage] { [] }
         func fetchPoster(id: Int) async throws -> GalleryPosterDetail {
-            GalleryPosterDetail(anonymous: false, claim: poster.claim, commentNum: 0, createTime: "", editTime: "", id: id, images: poster.images,
+            GalleryPosterDetail(anonymous: false, claim: poster.claim, commentNum: 0, createTime: "", editTime: "", id: stage == "entity-identity-failure" ? id + 1 : id, images: poster.images,
                 like: false, likeNum: 0, own: false, plugins: "", public: true, tags: [], text: "fixture", title: "fixture", updateTime: "", user: user)
         }
         func fetchComments(objectID: String, order: CommunityCommentOrder, page: Int?) async throws -> GalleryPageBatch<CommunityComment> {
@@ -601,7 +633,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
         func fetchCourse(id: Int) async throws -> CourseDetail {
             observed.insert("course-detail")
             if stage == "community-failure" { throw URLError(.timedOut) }
-            return CourseDetail(id: id, name: "fixture", number: "COURSE", credit: 1, likeNum: 0, commentNum: 0, rate: 0, teachersName: "", teachersNumber: "", like: false)
+            return CourseDetail(id: stage == "entity-identity-failure" ? id + 1 : id, name: "fixture", number: "COURSE", credit: 1, likeNum: 0, commentNum: 0, rate: 0, teachersName: "", teachersNumber: "", like: false)
         }
         func fetchCourseHistories(number: String) async throws -> [CourseHistoryGrade] { [] }
         func fetchComments(courseID: Int, page: Int?) async throws -> [CommunityComment] { [] }
@@ -610,7 +642,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
             return [PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")]
         }
         func fetchPaper(id: Int) async throws -> PaperDetail {
-            PaperDetail(id: id, title: "fixture", intro: "", content: "fixture", createTime: "", updateTime: "", updateUser: user,
+            PaperDetail(id: stage == "entity-identity-failure" ? id + 1 : id, title: "fixture", intro: "", content: "fixture", createTime: "", updateTime: "", updateUser: user,
                 anonymous: false, likeNum: 0, commentNum: 0, publicEdit: false, like: false, own: false)
         }
         func fetchComments(paperID: Int, order: CommunityCommentOrder, page: Int?) async throws -> [CommunityComment] { [] }
@@ -708,7 +740,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
     @Test("Full smoke orchestration preserves success, intermediate failures and subsequent scopes", arguments:
         ["all-success", "community-failure", "schedule-success", "ddl-success", "ddl-failure", "ddl-invalid-calendar-failure", "raw-write-failure",
          "app-store-redirect-failure", "emergency-redirect-failure", "aasa-redirect-failure", "aasa-followed-redirect-failure",
-         "aasa-mime-failure", "aasa-exclusion-failure", "image-budget-failure"])
+         "aasa-mime-failure", "aasa-exclusion-failure", "image-budget-failure", "entity-identity-failure"])
     func completeOrchestration(stage: String) async throws {
         let image = try #require(UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { $0.fill(CGRect(x: 0, y: 0, width: 1, height: 1)) }.pngData())
         let services = Services(stage: stage, image: image)
@@ -729,7 +761,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
             feedbackProbe: { _ in feedback += 1 },
             loadScheduleCache: { ScheduleCache() }, makeScores: { services }, makeSchedule: { handler in services.rawResponse = handler; return services },
             makeEclassSchedule: { services })
-        let scope: NetworkSmokeScope = stage == "all-success" || redirectHost != nil || stage.hasPrefix("aasa") ? .all : stage == "community-failure" || stage == "image-budget-failure" ? .bit101 : stage.hasPrefix("ddl") ? .ddl : .schedule
+        let scope: NetworkSmokeScope = stage == "all-success" || redirectHost != nil || stage.hasPrefix("aasa") ? .all : stage == "community-failure" || stage == "image-budget-failure" || stage == "entity-identity-failure" ? .bit101 : stage.hasPrefix("ddl") ? .ddl : .schedule
         let runner = ReleaseNetworkSmokeRunner(dependencies: dependencies)
         let report = await runner.run(scope: scope, runID: stage, capture: stage == "raw-write-failure" ? .rawCourseResponse : .none)
         #expect(report.passed == !stage.hasSuffix("failure"))
@@ -740,6 +772,10 @@ extension ReleaseNetworkSmokeLifecycleTests {
         #expect(external.requests.allSatisfy { $0.url?.path.hasSuffix("apple-app-site-association") == false })
         if scope.includes(.bit101) {
             #expect(!external.imageBudgets.isEmpty && external.imageBudgets.allSatisfy { $0 == RemoteImageResourceLimits.maximumEncodedBytes })
+        }
+        if stage == "entity-identity-failure" {
+            #expect(report.failures.count == 3)
+            for name in ["话廊帖子详情", "学业课程详情", "文章详情"] { #expect(report.failures.contains { $0.contains(name) }) }
         }
         if stage.hasPrefix("aasa") { #expect(report.failures.count == 1 && report.failures[0].contains("App 链接关联配置")) }
         if scope.includes(.schedule) { #expect(services.observed.contains("schedule")) }

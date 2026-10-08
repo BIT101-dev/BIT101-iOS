@@ -4,10 +4,11 @@ on:
   pull_request:
   push:
     branches: [main]
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       release_check:
-        description: Confirm that the local version is newer than the App Store version
+        description: Run release acceptance against the public version and bound device evidence
         required: false
         default: false
         type: boolean
@@ -44,23 +45,10 @@ jobs:
       - name: Run static audit
         env:
           BIT101_VERSION_BASE_REF: ${{ github.base_ref && format('origin/{0}', github.base_ref) || '' }}
-          BIT101_RELEASE_CHECK: ${{ github.event_name == 'workflow_dispatch' && inputs.release_check }}
+          BIT101_RELEASE_CHECK: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && inputs.release_check }}
         run: Scripts/run-static-audit.sh
       - name: Test local Swift modules
         run: Scripts/run-extended-tests.sh modules
-
-      - name: Download release validation evidence
-        if: github.event_name == 'workflow_dispatch' && inputs.release_check
-        env:
-          BIT101_RELEASE_EVIDENCE_URL: ${{ inputs.validation_evidence }}
-        run: |
-          [[ "$BIT101_RELEASE_EVIDENCE_URL" == https://* ]] || { echo 'Release evidence requires an HTTPS URL.' >&2; exit 64; }
-          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
-            --output .build/extended-automation/validation-evidence.json "$BIT101_RELEASE_EVIDENCE_URL"
-
-      - name: Check release validation evidence
-        if: github.event_name == 'workflow_dispatch' && inputs.release_check
-        run: python3 Scripts/validation_evidence.py check --recorded-environment
 
       - name: Publish validation evidence
         if: always()
@@ -171,3 +159,27 @@ jobs:
             .build/extended-automation/*.txt
             .build/extended-automation/validation-evidence.json
             .build/extended-automation/test-results.xcresult
+
+  release-acceptance:
+    name: Release acceptance with bound device evidence
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && inputs.release_check
+    needs: [static-audit, release-build, catalyst-tests]
+    runs-on: xcode-27
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Download release validation evidence
+        env:
+          BIT101_RELEASE_EVIDENCE_URL: ${{ inputs.validation_evidence || vars.BIT101_RELEASE_EVIDENCE_URL }}
+        run: |
+          [[ "$BIT101_RELEASE_EVIDENCE_URL" == https://* ]] || { echo 'Release evidence requires an HTTPS URL.' >&2; exit 64; }
+          mkdir -p .build/extended-automation
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+            --output .build/extended-automation/validation-evidence.json "$BIT101_RELEASE_EVIDENCE_URL"
+      - name: Check release validation evidence
+        run: python3 Scripts/validation_evidence.py check --recorded-environment
+      - name: Publish validation evidence
+        if: always()
+        run: python3 Scripts/validation_evidence.py summary

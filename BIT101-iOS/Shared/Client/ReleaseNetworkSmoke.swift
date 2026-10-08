@@ -189,7 +189,9 @@ final class ReleaseNetworkSmokeRunner {
             await runInParallel([
                 {
                     _ = await self.probe("话廊帖子详情", area: .bit101, scope: scope) {
-                        try await gallery.fetchPoster(id: poster.id)
+                        let detail = try await gallery.fetchPoster(id: poster.id)
+                        try Self.validateEntityIdentity(expected: poster.id, actual: detail.id)
+                        return detail
                     }
                 },
                 {
@@ -251,7 +253,9 @@ final class ReleaseNetworkSmokeRunner {
             await runInParallel([
                 {
                     _ = await self.probe("学业课程详情", area: .bit101, scope: scope) {
-                        try await courses.fetchCourse(id: course.id)
+                        let detail = try await courses.fetchCourse(id: course.id)
+                        try Self.validateEntityIdentity(expected: course.id, actual: detail.id)
+                        return detail
                     }
                 },
                 {
@@ -289,7 +293,9 @@ final class ReleaseNetworkSmokeRunner {
             await runInParallel([
                 {
                     _ = await self.probe("文章详情", area: .bit101, scope: scope) {
-                        try await papers.fetchPaper(id: paper.id)
+                        let detail = try await papers.fetchPaper(id: paper.id)
+                        try Self.validateEntityIdentity(expected: paper.id, actual: detail.id)
+                        return detail
                     }
                 },
                 {
@@ -328,7 +334,7 @@ final class ReleaseNetworkSmokeRunner {
         if let myInfo {
             await runInParallel([
                 {
-                    _ = await self.probe("用户资料详情", area: .bit101, scope: scope) { try await mine.fetchUserInfo(id: myInfo.user.id) }
+                    _ = await self.probe("用户资料详情", area: .bit101, scope: scope) { let detail = try await mine.fetchUserInfo(id: myInfo.user.id); try Self.validateEntityIdentity(expected: myInfo.user.id, actual: detail.user.id); return detail }
                 },
                 {
                     _ = await self.probe("用户帖子", area: .bit101, scope: scope) { try await mine.fetchUserPosters(userID: myInfo.user.id, page: 0) }
@@ -797,6 +803,10 @@ final class ReleaseNetworkSmokeRunner {
             expectedPath: initialHost == nil ? url.path : "/gallery/",
             expectedAppURL: expectedHost == "open.aihelpme.dev" ? "bit101:/" + url.path : nil
         )
+    }
+
+    nonisolated static func validateEntityIdentity(expected: Int, actual: Int) throws {
+        guard expected > 0, actual == expected else { throw URLError(.badServerResponse) }
     }
 
     nonisolated static func validateHTMLResponse(

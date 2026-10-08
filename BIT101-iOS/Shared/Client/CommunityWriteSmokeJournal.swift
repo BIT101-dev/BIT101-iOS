@@ -41,6 +41,10 @@ extension CommunityWriteSmoke {
                 targets = try values.decodeIfPresent([Target].self, forKey: .targets) ?? []
                 parents = try values.decodeIfPresent([String].self, forKey: .parents) ?? []
                 comments = try values.decodeIfPresent([Int].self, forKey: .comments) ?? []
+                for target in targets {
+                    let parent = target.kind.rawValue + String(target.id)
+                    if !parents.contains(parent) { parents.append(parent) }
+                }
                 likes = try values.decodeIfPresent([Like].self, forKey: .likes) ?? []
                 evidence = try values.decodeIfPresent([String].self, forKey: .evidence) ?? []
             } else {

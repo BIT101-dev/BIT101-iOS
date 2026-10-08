@@ -381,9 +381,14 @@ def normalized_resource_source(source: str) -> str:
 
 
 @cache
+def resource_facts(source: str) -> dict:
+    return swift_syntax_index_sources({"resource-source": source})["resource-source"]
+
+
+@cache
 def file_member_accesses(source: str) -> list[int]:
     if not re.search(r"\.\s*(?:write|read|matchesContents)\s*\(\s*(?:to|toFile|from|of)\s*:", swift_code(source)): return []
-    facts = swift_syntax_index_sources({"file-writes": source})["file-writes"]
+    facts = resource_facts(source)
     encoded = source.encode()
     file_types = {"Data", "NSData", "NSMutableData", "String", "NSString", "NSMutableString", "FileWrapper", "NSFileWrapper"}
     def normalized_type(value: str) -> str:
@@ -476,7 +481,7 @@ def file_member_accesses(source: str) -> list[int]:
 def implicit_file_accesses(source: str, functions: str = POSIX_FILE_FUNCTIONS) -> list[int]:
     code = swift_code(source)
     if not re.search((r"\.\s*init\s*\(|" if functions == POSIX_FILE_FUNCTIONS else "") + r"(?<![.\w])(?:" + functions + r")\b|\b(?:Darwin|Glibc)\s*\.", code): return []
-    facts = swift_syntax_index_sources({"file-access": source})["file-access"]
+    facts = resource_facts(source)
     encoded = source.encode()
     hits = set()
     def own_value(reference: dict, name: str) -> bool:
@@ -523,7 +528,7 @@ def implicit_file_accesses(source: str, functions: str = POSIX_FILE_FUNCTIONS) -
 def implicit_resource_accesses(source: str, resource: str = "UserDefaults", properties: tuple = ()) -> list[int]:
     code = swift_code(source)
     if not re.search(r"\.\s*(?:standard\b|init\s*\()", code): return []
-    facts = swift_syntax_index_sources({"preferences": source})["preferences"]
+    facts = resource_facts(source)
     facts["typedVariables"] = facts["typedVariables"] + [dict(scope=list(scope), name=name, type=kind, start=-1, lexicalScope=[])
         for scope, name, kind in properties]
     encoded = source.encode()

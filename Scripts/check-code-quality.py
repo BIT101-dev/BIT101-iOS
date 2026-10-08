@@ -4,6 +4,99 @@ import sys
 sys.dont_write_bytecode = True
 from code_quality_rules import *
 
+def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[str] | None = None) -> int:
+    from code_quality_tests import checker_boundary_findings
+    if sys.argv[1:] == ["--swift-syntax-index"]:
+        try:
+            print(json.dumps(swift_syntax_index(swift_files()), ensure_ascii=False))
+            return 0
+        except (OSError, subprocess.CalledProcessError, RuntimeError) as error:
+            print(f"SwiftSyntax 索引失败：{error}", file=sys.stderr)
+            return 1
+
+    if sys.argv[1:] == ["--self-test"]:
+        findings = checker_boundary_findings()
+        if findings:
+            print("[失败] 代码质量检查器自测：", file=sys.stderr)
+            print("\n".join(findings), file=sys.stderr)
+            return 1
+        print("[通过] 代码质量检查器自测")
+        return 0
+
+    errors: list[str] = []
+    if shared_syntax is None:
+        try:
+            syntax_index = swift_syntax_index(swift_files())
+        except (OSError, subprocess.CalledProcessError, RuntimeError) as error:
+            syntax_index = {}
+            errors.append(f"SwiftSyntax 索引失败：{error}")
+    else:
+        syntax_index = shared_syntax
+    source_errors, review = source_findings(syntax_index or None)
+    errors.extend(source_errors)
+    errors.extend(checker_boundary_findings() if boundary_findings is None else boundary_findings)
+    errors.extend(script_findings())
+    if syntax_index:
+        errors.extend(automatic_school_fetch_findings(syntax_index))
+    errors.extend(audit_wiring_findings())
+
+    report_lines = [
+        "# 逐份源码质量审查",
+        "",
+        f"扫描 Swift 文件：{len(swift_files())} 个",
+        "",
+        "## 需要修复",
+        *(errors or ["无"]),
+        "",
+        "## 人工审查候选",
+        *(review or ["无"]),
+        "",
+    ]
+    report = "\n".join(report_lines)
+    REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    REPORT_PATH.write_text(report, encoding="utf-8")
+    findings = [*errors, *review]
+    if len(findings) <= 1000:
+        if findings:
+            print("\n".join(findings))
+    else:
+        print(f"代码质量检查共 {len(findings)} 项 · {relative(REPORT_PATH)}")
+
+    if errors:
+        return 1
+    return 0
+
+
+
+
+def combined_main() -> int:
+    from code_quality_tests import checker_boundary_findings
+    try:
+        syntax_index = swift_syntax_index(swift_files())
+    except (OSError, subprocess.CalledProcessError, RuntimeError) as error:
+        print(f"[失败] SwiftSyntax 索引：{error}", file=sys.stderr)
+        return 1
+    ui_path = SCRIPT_ROOT / "check-ui-consistency.py"
+    spec = importlib.util.spec_from_file_location("check_ui_consistency", ui_path)
+    if spec is None or spec.loader is None:
+        print(f"[失败] UI 检查器加载：{ui_path}", file=sys.stderr)
+        return 1
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    quality_boundaries = checker_boundary_findings()
+    ui_boundaries = [
+        *module.ast_marker_boundary_findings(),
+        *module.source_boundary_findings(),
+        *module.map_theme_color_contract_findings(),
+        *module.interaction_inventory_boundary_findings(),
+    ]
+    ui_status = module.main(syntax_index, ui_boundaries)
+    quality_status = main(syntax_index, quality_boundaries)
+    explanatory_text_report()
+    return int(ui_status != 0 or quality_status != 0)
+
+
 if __name__ == "__main__":
     with static_audit_lock():
         raise SystemExit(combined_main() if "--combined" in sys.argv else main())

@@ -47,10 +47,7 @@ swift_parse() {
 }
 
 shell_parse() {
-  find "$ROOT_DIR/Scripts" "$ROOT_DIR/Cloudflare" "$ROOT_DIR/.githooks" \
-    -path '*/node_modules' -prune -o \
-    -type f \( -name '*.sh' -o -path '*/.githooks/*' \) -print0 \
-    | xargs -0 -n 1 zsh -n
+  python3 "$ROOT_DIR/Scripts/check-shell-syntax.py"
 }
 python_parse() {
   python3 - "$ROOT_DIR" <<'PY'

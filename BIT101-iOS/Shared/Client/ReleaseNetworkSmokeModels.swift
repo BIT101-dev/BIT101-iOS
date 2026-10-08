@@ -772,11 +772,18 @@ final class CommunityWriteSmoke {
             }
             try persist(journal)
         }
-        for parent in journal.parents {
+        var parentIndex = 0
+        while parentIndex < journal.parents.count {
+            let parent = journal.parents[parentIndex]
+            parentIndex += 1
             _ = try await recoverOperation("查找评论 " + parent, failures: &failures, operation: {
                 for comment in try await operations.comments(parent) where comment.own && comment.text == journal.marker {
                     if !journal.comments.contains(comment.id) { journal.comments.append(comment.id) }
                     commentParents[comment.id] = parent
+                    if !parent.hasPrefix("comment") {
+                        let replies = "comment\(comment.id)"
+                        if !journal.parents.contains(replies) { journal.parents.append(replies) }
+                    }
                 }
             })
         }
@@ -784,7 +791,6 @@ final class CommunityWriteSmoke {
         try persist(journal)
         let commentIDs = journal.comments
         for id in journal.comments.reversed() {
-            guard commentParents[id] != nil else { continue }
             if try await recoverOperation("删除 comment\(id)", failures: &failures, operation: {
                 let replies = "comment\(id)"
                 if journal.parents.contains(replies) {
@@ -794,9 +800,11 @@ final class CommunityWriteSmoke {
                     try persist(journal)
                 }
                 do { try await operations.deleteComment(id) }
-                catch let error as NSError where error.code == 404 { journal.evidence.append("已清理 comment\(id)") }
+                catch let error as NSError where error.code == 404 {
+                    journal.comments.removeAll { $0 == id }
+                    journal.evidence.append("服务端确认删除 comment\(id)")
+                }
             }) {
-                journal.comments.removeAll { $0 == id }
                 journal.evidence.append("删除 comment\(id)")
             }
             try persist(journal)
@@ -810,12 +818,7 @@ final class CommunityWriteSmoke {
             }
             try persist(journal)
         }
-        if journal.parents.isEmpty {
-            journal.comments.removeAll()
-            for id in commentIDs where !journal.evidence.contains("服务端确认删除 comment\(id)") {
-                journal.evidence.append("服务端确认删除 comment\(id)")
-            }
-        }
+        if !journal.comments.isEmpty { failures.append("验收评论需要服务端删除确认") }
         for target in journal.targets.reversed() where target.kind != .course {
             if try await recoverOperation("删除 " + target.kind.rawValue, failures: &failures, operation: {
                 guard !journal.parents.contains(target.kind.rawValue + String(target.id)) else { throw failure("验收评论清理待完成") }

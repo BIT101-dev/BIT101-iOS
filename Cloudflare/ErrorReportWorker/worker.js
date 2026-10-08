@@ -262,14 +262,13 @@ export default {
 
     const id = crypto.randomUUID();
     const receivedAt = new Date().toISOString();
-    let serializedReport, serializedRecord;
+    let serializedRecord;
     try {
       const { attachments, ...metadata } = report;
       if (new TextEncoder().encode(JSON.stringify(metadata)).byteLength > MAX_REPORT_METADATA_BYTES) {
         return json({ error: "metadata_too_large" }, 413);
       }
       report = forceRedact(report);
-      serializedReport = JSON.stringify(report);
       serializedRecord = JSON.stringify({ id, receivedAt, report });
     } catch { return json({ error: "invalid_report" }, 400); }
 
@@ -285,24 +284,27 @@ export default {
     })).json();
     if (!reservation.allowed) return json({ error: reservation.error }, 429);
 
+    const recordMetadata = { mode: report.mode, title: listText(report.errorTitle, 100),
+      version: listText(report.appVersion, 24), build: listText(report.build, 16) };
+
     if (
       report.mode === "network-smoke"
       && request.headers.get("x-bit101-network-smoke") === "1"
     ) {
       const runID = report.runID;
       const smokeKey = `smoke:${runID}:${crypto.randomUUID()}`;
-      await env.ERROR_REPORTS.put(smokeKey, serializedReport, { expirationTtl: 60 });
-      const stored = await env.ERROR_REPORTS.get(smokeKey);
+      await env.ERROR_REPORTS.put(smokeKey, serializedRecord, { metadata: recordMetadata, expirationTtl: 60 });
+      const stored = await env.ERROR_REPORTS.getWithMetadata(smokeKey);
       await env.ERROR_REPORTS.delete(smokeKey);
-      return stored ? json({ ok: true, temporaryRecordRemoved: true, quotaReserved: true }, 201) : json({ error: "smoke_write_failed" }, 500);
+      return stored.value === serializedRecord && JSON.stringify(stored.metadata) === JSON.stringify(recordMetadata)
+        ? json({ ok: true, recordVerified: true, temporaryRecordRemoved: true, quotaReserved: true }, 201) : json({ error: "smoke_write_failed" }, 500);
     }
 
     const category = report.mode === "suggestion" ? "用户建议" : "错误报告";
     await env.ERROR_REPORTS.put(
       `report:${receivedAt}:${id}`,
       serializedRecord,
-      { metadata: { mode: report.mode, title: listText(report.errorTitle, 100),
-        version: listText(report.appVersion, 24), build: listText(report.build, 16) } }
+      { metadata: recordMetadata }
     );
 
     if (env.REPORT_EMAIL) {

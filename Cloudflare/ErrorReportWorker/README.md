@@ -15,7 +15,7 @@ UTC 日配额由 SQLite Durable Object 在事务内预留，正式报告与网�
 
 请求体逐块读取，累计字节超过请求体上限时终止读取。报告类型、业务正文、附件和网络探针标记在配额预留前验证；有效报告进入持久化流程。
 
-网络冒烟会向同一接口发送 `mode: "network-smoke"` 的临时请求。Worker 写入、读取并删除临时 KV 键，响应分别以 `temporaryRecordRemoved` 和 `quotaReserved` 标明清理结果与配额预留，邮件通知保持关闭。
+网络冒烟会向同一接口发送 `mode: "network-smoke"` 的临时请求。Worker 沿正式记录的序列化和列表元数据结构写入、读取、核对并删除临时 KV 键，响应以 `recordVerified`、`temporaryRecordRemoved` 和 `quotaReserved` 标明正式记录结构核对、清理结果与配额预留；App 验收入口要求这三个字段，部署 Worker 后执行配套网络验收，邮件送达由发布验收的 `feedback-delivery` 专项核对正式 App 报告、持久化存储键及维护者收件证据。
 
 请求体上限按六张最大附件的完整 Base64 长度，加上 1 MiB 报告元数据空间计算。建议页最多上传 6 张图片。App 内将每张图片以约 1 MB 为目标压缩，Worker 单张上限为 2 MB，并校验 Base64 字符、填充及末尾编码位，再将图片存入 KV。建议报告使用 `mode: "suggestion"`，与错误报告共用 KV。拉取脚本按“错误报告 / 用户建议”分目录保存，并将图片解码为独立文件。
 

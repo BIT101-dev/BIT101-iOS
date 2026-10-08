@@ -19,6 +19,16 @@ def run_self_test(rules: dict) -> None:
     swift_syntax_index_sources = rules["swift_syntax_index_sources"]
     type_aliases = rules["type_aliases"]
 
+    from unittest.mock import patch
+    module = rules["resource_facts"].__module__
+    rules["resource_facts"].cache_clear()
+    source = "func probe() { let data = Data(); try data.write(to: url); _ = Darwin.open(path, 0); let defaults: UserDefaults = .standard }"
+    with patch(f"{module}.swift_syntax_index_sources", wraps=swift_syntax_index_sources) as indexer:
+        rules["file_member_accesses"](source)
+        rules["implicit_file_accesses"](source)
+        rules["implicit_resource_accesses"](source)
+        assert indexer.call_count == 1
+
     for operation in ("open", "read", "write"):
         source = f"func execute({operation}: @Sendable () throws -> Data) throws -> Data {{ try {operation}() }}"
         assert service_boundary_errors("BIT101-iOS/Payload.swift", source) == []

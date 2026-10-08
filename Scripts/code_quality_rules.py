@@ -754,6 +754,14 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         executed = {command for command, _ in commands.get(name, [])}
         for marker, message in rules:
             if marker not in executed: errors.append(f".github/workflows/ci.yml: {message}")
+    if not isinstance(workflow.get("on"), dict) or "v*" not in mapping(workflow["on"].get("push")).get("tags", []):
+        errors.append(".github/workflows/ci.yml: 发布版本标签需要触发验收")
+    acceptance = mapping(jobs.get("release-acceptance"))
+    condition = "startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && inputs.release_check"
+    if acceptance.get("if") != condition or set(acceptance.get("needs", [])) != {"static-audit", "release-build", "catalyst-tests"}:
+        errors.append(".github/workflows/ci.yml: 发布验收需要承接完整编译和行为 Job")
+    if not any(command == "python3 Scripts/validation_evidence.py check --recorded-environment" for command, _ in run_commands(acceptance)):
+        errors.append(".github/workflows/ci.yml: 发布验收需要默认核对提交绑定证据")
     return errors
 
 
@@ -837,95 +845,3 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     if not any("Catalyst 行为 Job 需要执行" in item for item in ci_wiring_findings(skipped_catalyst)):
         findings.append("代码质量规则边界自检失败：并行 Catalyst 行为用例执行门禁")
     return findings
-
-
-def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[str] | None = None) -> int:
-    from code_quality_tests import checker_boundary_findings
-    if sys.argv[1:] == ["--swift-syntax-index"]:
-        try:
-            print(json.dumps(swift_syntax_index(swift_files()), ensure_ascii=False))
-            return 0
-        except (OSError, subprocess.CalledProcessError, RuntimeError) as error:
-            print(f"SwiftSyntax 索引失败：{error}", file=sys.stderr)
-            return 1
-
-    if sys.argv[1:] == ["--self-test"]:
-        findings = checker_boundary_findings()
-        if findings:
-            print("[失败] 代码质量检查器自测：", file=sys.stderr)
-            print("\n".join(findings), file=sys.stderr)
-            return 1
-        print("[通过] 代码质量检查器自测")
-        return 0
-
-    errors: list[str] = []
-    if shared_syntax is None:
-        try:
-            syntax_index = swift_syntax_index(swift_files())
-        except (OSError, subprocess.CalledProcessError, RuntimeError) as error:
-            syntax_index = {}
-            errors.append(f"SwiftSyntax 索引失败：{error}")
-    else:
-        syntax_index = shared_syntax
-    source_errors, review = source_findings(syntax_index or None)
-    errors.extend(source_errors)
-    errors.extend(checker_boundary_findings() if boundary_findings is None else boundary_findings)
-    errors.extend(script_findings())
-    if syntax_index:
-        errors.extend(automatic_school_fetch_findings(syntax_index))
-    errors.extend(audit_wiring_findings())
-
-    report_lines = [
-        "# 逐份源码质量审查",
-        "",
-        f"扫描 Swift 文件：{len(swift_files())} 个",
-        "",
-        "## 需要修复",
-        *(errors or ["无"]),
-        "",
-        "## 人工审查候选",
-        *(review or ["无"]),
-        "",
-    ]
-    report = "\n".join(report_lines)
-    REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    REPORT_PATH.write_text(report, encoding="utf-8")
-    findings = [*errors, *review]
-    if len(findings) <= 1000:
-        if findings:
-            print("\n".join(findings))
-    else:
-        print(f"代码质量检查共 {len(findings)} 项 · {relative(REPORT_PATH)}")
-
-    if errors:
-        return 1
-    return 0
-
-
-
-
-def combined_main() -> int:
-    from code_quality_tests import checker_boundary_findings
-    try:
-        syntax_index = swift_syntax_index(swift_files())
-    except (OSError, subprocess.CalledProcessError, RuntimeError) as error:
-        print(f"[失败] SwiftSyntax 索引：{error}", file=sys.stderr)
-        return 1
-    ui_path = SCRIPT_ROOT / "check-ui-consistency.py"
-    spec = importlib.util.spec_from_file_location("check_ui_consistency", ui_path)
-    if spec is None or spec.loader is None:
-        print(f"[失败] UI 检查器加载：{ui_path}", file=sys.stderr)
-        return 1
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    quality_boundaries = checker_boundary_findings()
-    ui_boundaries = [
-        *module.ast_marker_boundary_findings(),
-        *module.source_boundary_findings(),
-        *module.map_theme_color_contract_findings(),
-    ]
-    ui_status = module.main(syntax_index, ui_boundaries)
-    quality_status = main(syntax_index, quality_boundaries)
-    explanatory_text_report()
-    return int(ui_status != 0 or quality_status != 0)

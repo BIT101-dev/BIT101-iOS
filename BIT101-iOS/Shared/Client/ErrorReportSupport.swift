@@ -255,6 +255,7 @@ private struct NetworkSmokePayload: Encodable {
 
 private struct NetworkSmokeResponse: Decodable {
     let ok: Bool
+    let recordVerified: Bool
     let temporaryRecordRemoved: Bool
     let quotaReserved: Bool
 }
@@ -300,7 +301,7 @@ struct FeedbackSubmissionClient {
             )
         }
         let result = try JSONDecoder().decode(NetworkSmokeResponse.self, from: data)
-        guard result.ok, result.temporaryRecordRemoved, result.quotaReserved else {
+        guard result.ok, result.recordVerified, result.temporaryRecordRemoved, result.quotaReserved else {
             throw URLError(.dataNotAllowed)
         }
     }

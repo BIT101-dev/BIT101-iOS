@@ -2,6 +2,7 @@
 """Validate repository Markdown links using the current document contents."""
 from __future__ import annotations
 import argparse
+import fcntl
 import re
 import subprocess
 import posixpath
@@ -37,6 +38,14 @@ def findings(staged: bool = False, root: Path = ROOT) -> list[str]:
 
 
 def staged_self_test() -> None:
+    lock_path = ROOT / ".build/static-audit/staged-content-self-test.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        staged_content_fixture()
+
+
+def staged_content_fixture() -> None:
     fixture = ROOT / ".build/static-audit/staged-content-self-test"
     shutil.rmtree(fixture, ignore_errors=True)
     fixture.mkdir(parents=True)
