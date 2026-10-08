@@ -13,6 +13,7 @@ import ClientCore
 import GalleryFeature
 import CourseFeature
 import ScoreDomain
+import ScorePorts
 import ScoreInfrastructure
 import ScheduleInfrastructure
 

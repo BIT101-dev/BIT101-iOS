@@ -1,6 +1,7 @@
 import CommunityPersistence
 import CommunityUI
 import ScoreDomain
+import ScorePorts
 import ScoreInfrastructure
 import GalleryFeature
 import StorageCore

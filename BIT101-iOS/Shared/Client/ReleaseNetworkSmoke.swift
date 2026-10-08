@@ -1,6 +1,7 @@
 import SchedulePorts
 import ClientCore
 import ScoreDomain
+import ScorePorts
 import ScoreInfrastructure
 import MineFeature
 import PaperFeature

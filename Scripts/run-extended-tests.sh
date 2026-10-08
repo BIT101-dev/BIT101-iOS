@@ -376,7 +376,10 @@ if [[ "$MODE" == "modules" ]]; then
         --package-path "$ROOT_DIR" \
         --scratch-path "$DERIVED_ROOT" \
         --configuration release
-    CODECOV_PATH="$(xcrun swift test --show-codecov-path --package-path "$ROOT_DIR" --scratch-path "$DERIVED_ROOT" --configuration release)"
+    if ! CODECOV_PATH="$(xcrun swift test --show-codecov-path --package-path "$ROOT_DIR" --scratch-path "$DERIVED_ROOT" --configuration release 2>> "$DERIVED_ROOT/$validation_group.log")"; then
+      echo "[失败] 模块覆盖率路径 · $DERIVED_ROOT/$validation_group.log" >&2
+      exit 1
+    fi
     python3 - "$CODECOV_PATH" "$DERIVED_ROOT/test-metrics.txt" "$ROOT_DIR" <<'PY'
 import json
 import os
@@ -630,7 +633,7 @@ lines = [
 ]
 if coverage is None:
     if mode == "ui":
-        lines.append("交互覆盖依据 docs/UI_INTERACTION_COVERAGE.md；复用同一 App 进程，独立重置场景数据并验证业务结果。")
+        lines.append("交互覆盖依据 docs/UI_INTERACTION_COVERAGE.md；常规场景复用 App 进程，核心持久化场景结束进程后验证冷启动恢复。")
         diagnostics = Path(report_path).parent / "diagnostics"
         shutil.rmtree(diagnostics, ignore_errors=True)
         try:

@@ -9,9 +9,10 @@ from swift_source_index import swift_syntax_index_sources
 
 def run_self_test(subject) -> int:
     module_name = subject.__name__
+    original_is_file = Path.is_file
     from unittest.mock import patch
     from validation_inputs import self_test as input_self_test
-    fixture_environment = {'host': {'system': 'fixture'}, 'developer': '/fixture', 'xcode': {'version': 'fixture'}, 'compiler': {'modified': 1}, 'sdks': {'fixture': {'Version': '1'}}, 'device': {'identifier': 'fixture-phone', 'systemVersion': 'fixture-os', 'systemBuild': 'fixture-build'}}
+    fixture_environment = {'host': {'system': 'fixture'}, 'developer': '/fixture', 'xcode': {'version': 'fixture'}, 'compiler': {'path': '/fixture/swift-frontend', 'modified': 1, 'size': 100, 'sha256': 'a' * 64}, 'sdks': {'fixture': {'Version': '1'}}, 'device': {'identifier': 'fixture-phone', 'systemVersion': 'fixture-os', 'systemBuild': 'fixture-build'}}
     with patch(f'{module_name}.environment_context', return_value=fixture_environment):
         from validation_provenance_tests import run_self_test as provenance_self_test
         from validation_test_areas import inventory_findings
@@ -27,6 +28,11 @@ def run_self_test(subject) -> int:
             assert subject.main() == 7
             recorder.assert_called_once_with('audit', 7, 'full', 'fixture-input')
         input_self_test()
+        from validation_environment import toolchain_identity
+        compiler = fixture_environment['compiler']
+        relocated = dict(compiler, path='/other-host/swift-frontend', modified=2)
+        assert toolchain_identity(fixture_environment) == toolchain_identity(dict(fixture_environment, compiler=relocated))
+        assert toolchain_identity(fixture_environment) != toolchain_identity(dict(fixture_environment, compiler=dict(compiler, sha256='b' * 64)))
         from contextlib import redirect_stdout
         from io import StringIO
         output = StringIO()
@@ -265,13 +271,15 @@ def run_self_test(subject) -> int:
                 for recorded, expected in ((False, '待复验'), (True, '通过')):
                     output = StringIO()
                     arguments = ['validation_evidence.py', 'summary'] + (['--recorded-environment'] if recorded else [])
-                    with patch.object(subject, 'report_lock', side_effect=nullcontext), patch.object(Path, 'is_file', return_value=True), \
+                    with patch.object(subject, 'report_lock', side_effect=nullcontext), patch.object(Path, 'is_file', lambda path: path == subject.REPORT or original_is_file(path)), \
                             patch.object(Path, 'read_text', return_value=json.dumps({'groups': {'modules': groups['modules']}})), \
                             patch.object(sys, 'argv', arguments), patch.dict(os.environ, GITHUB_STEP_SUMMARY=''), redirect_stdout(output):
                         assert subject.main() == 0
                     assert f'| modules | full | {expected} |' in output.getvalue()
             with patch(f'{module_name}.environment_context', return_value=dict(fixture_environment, xcode={'version': 'changed'})):
                 assert subject.release_findings(report, 'source', recorded_environment=True)
+            with patch(f'{module_name}.environment_context', return_value=dict(fixture_environment, compiler=dict(compiler, sha256='b' * 64))):
+                assert any('编译工具链' in error for error in subject.release_findings(report, 'source', recorded_environment=True))
         assert subject.release_findings(report, 'changed')
         groups['ui']['scope'] = 'selected'
         assert subject.release_findings(report, 'source')

@@ -1,6 +1,7 @@
 import SchedulePorts
 import CommunityTransport
 import ScoreDomain
+import ScorePorts
 @testable import ScheduleFeature
 @testable import ScheduleInfrastructure
 @testable import ScoreFeature

@@ -246,7 +246,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         dismissKeyboard()
         tap("确定")
         assertUI(app.buttons["自定义日程，详细测试日程"].appears(timeout: 5), "保存编辑应更新课表中的日程标题。")
-        app = configureApp(resetStorage: false)
+        app = configureApp(resetStorage: false, restartProcess: true)
         tap("自定义日程，详细测试日程")
         assertUI(textElement("测试地点").exists, "重新装载应恢复日程地点。")
         assertUI(textElement("测试描述").appears(timeout: 5), "详情应恢复描述。")

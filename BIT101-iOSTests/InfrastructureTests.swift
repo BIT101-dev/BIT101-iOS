@@ -1,5 +1,6 @@
 import Combine
 import ScoreDomain
+import ScorePorts
 import ScheduleDomain
 import SchedulePorts
 @testable import ScoreInfrastructure
@@ -646,6 +647,16 @@ struct ComposerDraftStorageTests {
 
 @Suite("Score presentation logic", .serialized)
 struct ScorePresentationTests {
+    @Test func serviceFailuresProvidePresentationDetails() {
+        let challenge = BITLoginAuthenticationChallenge(challengeID: "fixture", accessToken: "token",
+            status: "sms_required", maskedPhone: nil, expiresIn: 120)
+        for error in [ScoreServiceError.missingCredentials, .invalidResponse, .requestTimedOut, .secondFactorRequired(challenge)] {
+            #expect(error.errorDescription?.isEmpty == false)
+        }
+        #expect(ScoreServiceError.challengeInvalid("认证上下文已变化").errorDescription == "认证上下文已变化")
+        #expect(ScoreServiceError.queryFailed("课程查询失败").errorDescription == "课程查询失败")
+    }
+
     @Test("Successful empty score response returns an empty result")
     func successfulEmptyScoreResponse() throws {
         let response = Data(#"{"msg":"查询成功OvO","data":[]}"#.utf8)

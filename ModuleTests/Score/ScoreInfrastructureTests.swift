@@ -2,6 +2,7 @@ import BIT101TestSupport
 import Combine
 import StorageCore
 import ScoreDomain
+import ScorePorts
 import ClientCore
 import Foundation
 @testable import ScoreFeature
@@ -12,6 +13,16 @@ import os
 
 @MainActor
 struct ScoreInfrastructureBoundaryTests {
+    @Test func serviceFailuresProvidePresentationDetails() {
+        let challenge = BITLoginAuthenticationChallenge(challengeID: "fixture", accessToken: "token",
+            status: "sms_required", maskedPhone: nil, expiresIn: 120)
+        for error in [ScoreServiceError.missingCredentials, .invalidResponse, .requestTimedOut, .secondFactorRequired(challenge)] {
+            #expect(error.errorDescription?.isEmpty == false)
+        }
+        #expect(ScoreServiceError.challengeInvalid("认证上下文已变化").errorDescription == "认证上下文已变化")
+        #expect(ScoreServiceError.queryFailed("课程查询失败").errorDescription == "课程查询失败")
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func clearingFilesDuringAnOwnedWriteRetainsTheCleanupBoundary() async throws {
         let defaults = try #require(UserDefaults(suiteName: "BIT101ModulesTests.score.cleanup-write"))

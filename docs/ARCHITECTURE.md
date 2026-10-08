@@ -21,7 +21,8 @@
 | `CommunityPersistence` | 注入式共享草稿与消息已读持久化、迁移和账号变更流 |
 | `CommunityUI` | 公共社区展示、跨场景目标工厂和图片编辑组件 |
 | `DesignSystemKit`、`MediaKit` | 公共视觉组件、图片展示与缓存 |
-| `ScoreDomain` | 成绩行、课程摘要、刷新 / 排序 / 汇总规则及服务与存储端口 |
+| `ScoreDomain` | 成绩行、课程摘要、刷新 / 排序 / 汇总规则 |
+| `ScorePorts` | 成绩与可信成绩单服务、学校认证 challenge、缓存及筛选存储与同步合同 |
 | `ScoreInfrastructure` | 注入式成绩 / 可信成绩单服务、成绩缓存与账号筛选存储 |
 | `ScoreFeature`、`MapFeature` | 成绩与校园地图场景 |
 | `GalleryFeature`、`CourseFeature`、`PaperFeature`、`MineFeature` | 话廊、课程、文章与个人主页场景 |
@@ -41,8 +42,11 @@ flowchart TD
     SchedulePersistence --> ScheduleDomain
     ScheduleDomain --> ScheduleContracts
     ScheduleSync --> ScheduleDomain
+    ScoreFeature --> ScorePorts
+    ScorePorts --> ScoreDomain
     ScoreFeature --> ScoreDomain
     ScoreFeature --> MediaKit
+    ScoreInfrastructure --> ScorePorts
     ScoreInfrastructure --> ScoreDomain
 ```
 
@@ -82,7 +86,7 @@ App 入口 → 登录恢复 → AppAccountLifecycle → 各场景状态与页面
 - 推荐分页的共享请求携带独立身份；失败清理核对请求归属，刷新后的页面复用当前代际的缓存。源页标识随过滤结果传递，重复检查在过滤前执行。分页状态共用增量 ID 索引，追加仅访问新页；整体替换重建索引。系统内存压力回收话廊闲置分栏，当前分栏保留内容和阅读游标。
 - 课程、文章、话廊列表 / 推荐 / 机器人 / 评论与社区验收共用源页进度合同：连续四个非空页缺少新标识时结束当前批次，保留已加载内容与重试位置。验收查找和评论采集按服务端标识去重，清理失败继续保留恢复记录。
 - 话廊页面退出时取消交互请求并结束推荐预取；预取链在等待网络时保持弱持有。帖子深链发布结果与错误前核对当前链接和任务取消状态。
-- `ScoreInfrastructure` 的服务、缓存和筛选存储分别由 `ScoreService`、`ScoreCacheStore` 和 `ScoreFilterPreferenceStore` 维护。`ScoreFeature` 消费 `ScoreCaching` 与 `ScoreFilterPreferencesStoring` 及各实例的 typed 账号变更流；缓存和筛选实现归 `ScoreInfrastructure`，刷新判断、排序与汇总归 `ScoreDomain`。本地保存流供偏好同步订阅，页面变更流按账号筛选。筛选偏好端口提供读取受阻状态与保存结果，成绩页呈现受阻提示并保留原始损坏快照。
+- `ScoreInfrastructure` 的服务、缓存和筛选存储分别由 `ScoreService`、`ScoreCacheStore` 和 `ScoreFilterPreferenceStore` 维护。`ScoreFeature` 消费 `ScoreCaching` 与 `ScoreFilterPreferencesStoring` 及各实例的 typed 账号变更流；缓存和筛选实现归 `ScoreInfrastructure`，认证、账号事件及存储合同归 `ScorePorts`，刷新判断、排序与汇总归 `ScoreDomain`。成绩领域通过 Foundation 模型保持独立编译边界。本地保存流供偏好同步订阅，页面变更流按账号筛选。筛选偏好端口提供读取受阻状态与保存结果，成绩页呈现受阻提示并保留原始损坏快照。
 - 成绩查询依次读取简略与详细字段，接口先验证业务状态、必要表头和行宽；缓存恢复核对账号及展示代际，空快照同步清空列表。账号切换恢复各自排序。学期候选合并成绩与课表缓存，完整待出分学期参与选择。未出分估算按所选学期核对完整课表缓存，课程身份优先匹配编号，缺号记录按名称匹配；课程性质筛选管理已出分成绩的展示与统计。
 - 可信成绩单页面通过 `MediaKit` 呈现本页图片预览，预览状态和挂载点随成绩单页面生命周期管理。首次申请与手动重试共享页面任务，退出页面取消在途操作。客户端资源预算为 64 页、32 MiB 图片传输和 48 MiB 全部页面位图；结果页读取同样受传输预算约束。生产会话按流读取并在超限时取消下载，后台 ImageIO 解码按页分配位图预算，完成后发布整组页面。
 - 发帖编辑、校验、草稿恢复、上传重试和提交归 `GalleryComposerViewModel`；View 承接输入、确认和导航。页面拆除时取消在途操作，迟到结果核对账号代际与场景代际；编辑已有帖子沿所属帖子提交，并原样保留服务端插件载荷；新帖草稿保持独立归属。举报分类采用服务端结果，空列表暂停提交，加载失败呈现重试；弹层状态模型持有加载及提交任务，页面退出取消任务并过滤迟到完成。

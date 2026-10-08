@@ -1,4 +1,5 @@
 import ScoreDomain
+import ScorePorts
 import CommunityTransport
 import MediaKit
 import ScoreInfrastructure

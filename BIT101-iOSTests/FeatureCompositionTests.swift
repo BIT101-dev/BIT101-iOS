@@ -19,6 +19,7 @@ import UIKit
 import Combine
 import ClientCore
 import ScoreDomain
+import ScorePorts
 @testable import ScoreFeature
 
 @MainActor

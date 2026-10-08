@@ -345,20 +345,6 @@ public nonisolated enum ScoreSortOrder: String, CaseIterable, Identifiable, Send
     }
 }
 
-/// 可信成绩单按页数、传输字节和完整页面集合的位图预算准备。
-public nonisolated struct TrustedTranscriptResourceLimits: Sendable {
-    public let maximumPageCount: Int
-    public let maximumEncodedBytes: Int
-    public let maximumDecodedBytes: Int
-
-    public init(maximumPageCount: Int = 64, maximumEncodedBytes: Int = 32 * 1_024 * 1_024,
-                maximumDecodedBytes: Int = 48 * 1_024 * 1_024) {
-        self.maximumPageCount = maximumPageCount
-        self.maximumEncodedBytes = maximumEncodedBytes
-        self.maximumDecodedBytes = maximumDecodedBytes
-    }
-}
-
 /// 成绩 iCloud 同步快照，保留详细字段和本地新鲜度，使新设备直接复用已有数据。
 public nonisolated struct ScoreCacheSyncPayload: Codable, Equatable, Sendable {
     public var rows: [ScoreRow]

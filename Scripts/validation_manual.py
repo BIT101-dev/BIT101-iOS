@@ -9,8 +9,11 @@ import zlib
 from validation_provenance import sampling_evidence_current, utc_now
 from pathlib import Path
 from validate_distribution import valid_archive_provenance
+from validation_media import media_complete
 
-MANUAL_DEVICE_CHECKS = {"system-autofill", "photos", "calendar-permissions", "notifications", "external-handoff", "web-interactions", "widget", "watch", "feedback-delivery", "distribution-signing"}
+MANUAL_DEVICE_CHECKS = {"system-autofill", "photos", "calendar-permissions", "notifications", "external-handoff", "web-interactions", "widget", "watch", "feedback-delivery", "distribution-signing", "minimum-platforms"}
+BASELINE_CHECKS = {'iOS': {'cold-start-session', 'offline-persistence', 'media-and-navigation'},
+    'watchOS': {'snapshot-receive', 'timeline-render', 'clear-and-retry'}}
 
 
 def capture(operation: str, result: str, evidence: Path, check: str) -> dict:
@@ -51,6 +54,9 @@ def png_complete(data: bytes) -> bool:
 
 def evidence_content_complete(check: str, data: bytes) -> bool:
     if check not in MANUAL_DEVICE_CHECKS: return False
+    if check == 'minimum-platforms':
+        try: return baseline_complete(json.loads(data))
+        except (ValueError, TypeError, KeyError, OSError): return False
     if check == 'distribution-signing':
         from validate_distribution import distribution_complete
         try:
@@ -70,9 +76,30 @@ def evidence_content_complete(check: str, data: bytes) -> bool:
                 and bool(re.fullmatch(r'<[^\s<>@]+@[^\s<>@]+>', proof['emailMessageID'])) \
                 and report in proof['emailBody']
         except (ValueError, TypeError, KeyError, AttributeError): return False
-    return png_complete(data) or data.startswith(b'\xff\xd8\xff') and data.endswith(b'\xff\xd9') \
+    recognized = png_complete(data) or data.startswith(b'\xff\xd8\xff') and data.endswith(b'\xff\xd9') \
         or data.startswith(b'%PDF-') and data.rstrip().endswith(b'%%EOF') \
         or len(data) >= 16 and data[4:8] == b'ftyp' and b'moov' in data
+    return recognized and media_complete(data)
+
+
+def baseline_complete(proof: dict) -> bool:
+    from validate_distribution import distribution_contracts
+    if not isinstance(proof, dict) or proof.get('schemaVersion') != 1 or not isinstance(proof.get('platforms'), dict) \
+            or set(proof['platforms']) != set(BASELINE_CHECKS): return False
+    contracts = distribution_contracts()
+    for platform, required in BASELINE_CHECKS.items():
+        row = proof['platforms'][platform]
+        minimum = min(int(contract['minimumOSVersion'].split('.')[0]) for contract in contracts.values() if contract['platform'] == platform)
+        if not isinstance(row, dict) or not all(isinstance(row.get(key), str) and row[key].strip() for key in
+                ('deviceIdentifier', 'deviceModel', 'systemVersion', 'systemBuild', 'capturedAt')) \
+                or not re.fullmatch(r'\d+\.\d+(?:\.\d+)?', row['systemVersion']) \
+                or int(row['systemVersion'].split('.')[0]) != minimum \
+                or not sampling_evidence_current({'startedAt': row['capturedAt'], 'finishedAt': row['capturedAt']}) \
+                or not isinstance(row.get('checks'), dict) or set(row['checks']) != required \
+                or not all(isinstance(check, dict) and all(isinstance(check.get(key), str) and check[key].strip()
+                    for key in ('operation', 'result')) for check in row['checks'].values()) \
+                or not isinstance(row.get('evidence'), dict) or not artifact_complete(row['evidence'], 'photos'): return False
+    return True
 
 
 def complete(checks: dict) -> bool:

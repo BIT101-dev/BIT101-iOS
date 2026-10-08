@@ -1,4 +1,5 @@
 import ScoreDomain
+import ScorePorts
 import CommunityPersistence
 import CommunityCore
 import StorageCore

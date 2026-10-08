@@ -875,7 +875,7 @@ def school_lifecycle_boundary_findings() -> list[str]:
     path = str(ROOT / "BIT101-iOS/LifecycleExample.swift")
     ports = {str(source): source.read_text() for source in (
         ROOT / "Modules/SchedulePorts/Sources/ScheduleServicing.swift",
-        ROOT / "Modules/ScoreDomain/Sources/ScoreServicing.swift")}
+        ROOT / "Modules/ScorePorts/Sources/ScoreServicing.swift")}
     findings = []
     for source in (
         "struct RenamedApp: App { var body: some Scene { WindowGroup { Text(\"x\").task { await schedule.syncCourses() } } } }",

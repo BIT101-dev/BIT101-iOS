@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.iOS(.v17), .watchOS(.v10), .macOS(.v14)],
     products: [
         .library(name: "ScoreDomain", targets: ["ScoreDomain"]),
+        .library(name: "ScorePorts", targets: ["ScorePorts"]),
         .library(name: "SchedulePorts", targets: ["SchedulePorts"]),
         .library(name: "ScheduleFeature", targets: ["ScheduleFeature"]),
         .library(name: "GalleryFeature", targets: ["GalleryFeature"]),
@@ -34,7 +35,8 @@ let package = Package(
     ],
     targets: [
         .target(name: "SchedulePorts", dependencies: ["ClientCore", "ScheduleDomain", "StorageCore"], path: "Modules/SchedulePorts/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
-        .target(name: "ScoreDomain", dependencies: ["ClientCore", "StorageCore"], path: "Modules/ScoreDomain/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
+        .target(name: "ScorePorts", dependencies: ["ScoreDomain", "ClientCore", "StorageCore"], path: "Modules/ScorePorts/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
+        .target(name: "ScoreDomain", dependencies: [], path: "Modules/ScoreDomain/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "ScheduleFeature", dependencies: ["SchedulePorts", "ClientCore", "DesignSystemKit", "ScheduleDomain", "ScheduleContracts", "StorageCore", "TransportCore"], path: "Modules/ScheduleFeature/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(
             name: "GalleryFeature",
@@ -47,8 +49,8 @@ let package = Package(
         .target(name: "MineFeature", dependencies: ["CommunityCore", "CommunityTransport", "CommunityUI", "DesignSystemKit", "MediaKit", "TransportCore"], path: "Modules/MineFeature/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "CommunityUI", dependencies: ["CommunityCore", "DesignSystemKit", "MediaKit"], path: "Modules/CommunityUI/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "MediaKit", dependencies: ["DesignSystemKit", "StorageCore", "TransportCore"], path: "Modules/MediaKit/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
-        .target(name: "ScoreInfrastructure", dependencies: ["ClientCore", "ScoreDomain", "StorageCore", "TransportCore"], path: "Modules/ScoreInfrastructure/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
-        .target(name: "ScoreFeature", dependencies: ["ScoreDomain", "ClientCore", "DesignSystemKit", "MediaKit", "StorageCore", "TransportCore"], path: "Modules/ScoreFeature/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
+        .target(name: "ScoreInfrastructure", dependencies: ["ClientCore", "ScoreDomain", "ScorePorts", "StorageCore", "TransportCore"], path: "Modules/ScoreInfrastructure/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
+        .target(name: "ScoreFeature", dependencies: ["ScoreDomain", "ScorePorts", "ClientCore", "DesignSystemKit", "MediaKit", "StorageCore", "TransportCore"], path: "Modules/ScoreFeature/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "MapFeature", dependencies: ["DesignSystemKit", "ScheduleContracts", "TransportCore"], path: "Modules/MapFeature/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "ScheduleSync", dependencies: ["ScheduleDomain", "StorageCore"], path: "Modules/ScheduleSync/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "SchedulePersistence", dependencies: ["ScheduleDomain", "StorageCore"], path: "Modules/SchedulePersistence/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
@@ -69,7 +71,7 @@ let package = Package(
         .testTarget(name: "CommunityModuleTests", dependencies: ["BIT101TestSupport", "CommunityCore", "CommunityPersistence", "CommunityTransport", "CommunityUI", "CourseFeature", "DesignSystemKit", "GalleryFeature", "MediaKit", "MineFeature", "PaperFeature", "StorageCore", "TransportCore"], path: "ModuleTests/Community", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .testTarget(name: "ScheduleModuleTests", dependencies: ["BIT101TestSupport", "ClientCore", "ScheduleContracts", "ScheduleDomain", "ScheduleFeature", "SchedulePersistence", "SchedulePorts", "StorageCore", "TransportCore"], path: "ModuleTests/Schedule", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .testTarget(name: "ContractsModuleTests", dependencies: ["BIT101TestSupport", "ScheduleContracts", "ScheduleDomain", "ScheduleSharedStore", "StorageCore"], path: "ModuleTests/Contracts", swiftSettings: [.defaultIsolation(MainActor.self)]),
-        .testTarget(name: "ScoreModuleTests", dependencies: ["BIT101TestSupport", "ClientCore", "CommunityCore", "DesignSystemKit", "ScoreDomain", "ScoreFeature", "ScoreInfrastructure", "StorageCore", "TransportCore"], path: "ModuleTests/Score", swiftSettings: [.defaultIsolation(MainActor.self)]),
+        .testTarget(name: "ScoreModuleTests", dependencies: ["BIT101TestSupport", "ClientCore", "CommunityCore", "DesignSystemKit", "ScoreDomain", "ScoreFeature", "ScoreInfrastructure", "ScorePorts", "StorageCore", "TransportCore"], path: "ModuleTests/Score", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .testTarget(name: "MapModuleTests", dependencies: ["MapFeature"], path: "ModuleTests/Map", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .testTarget(name: "SyncModuleTests", dependencies: ["BIT101TestSupport", "ScheduleDomain", "SchedulePersistence", "ScheduleSync", "StorageCore"], path: "ModuleTests/Sync", swiftSettings: [.defaultIsolation(MainActor.self)]),
     ]

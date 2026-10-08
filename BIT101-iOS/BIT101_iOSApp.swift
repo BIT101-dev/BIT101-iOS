@@ -1,5 +1,6 @@
 import ScoreInfrastructure
 import ScoreDomain
+import ScorePorts
 import ScheduleFeature
 import ScheduleSync
 import ClientCore

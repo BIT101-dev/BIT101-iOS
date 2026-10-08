@@ -35,6 +35,17 @@ def distribution_fixture() -> tuple[dict, dict]:
 
 def evidence_fixture(check: str) -> bytes:
     if check == 'distribution-signing': return json.dumps(distribution_fixture()[1]).encode()
+    if check == 'minimum-platforms':
+        from validation_manual import BASELINE_CHECKS
+        contracts = distribution.distribution_contracts()
+        platforms = {}
+        for platform, checks in BASELINE_CHECKS.items():
+            version = min(value['minimumOSVersion'] for value in contracts.values() if value['platform'] == platform)
+            platforms[platform] = {'deviceIdentifier': platform + '-fixture', 'deviceModel': platform + '-device',
+                'systemVersion': version, 'systemBuild': 'fixture-build', 'capturedAt': utc_now().isoformat(),
+                'checks': {name: {'operation': '实际操作', 'result': '观察结果'} for name in checks},
+                'evidence': captured_fixture('photos')['evidence']}
+        return json.dumps({'schemaVersion': 1, 'platforms': platforms}).encode()
     if check == 'feedback-delivery':
         identifier = '00000000-0000-4000-8000-000000000001'
         return json.dumps({'reportID': identifier, 'storageKey': 'report:received:' + identifier,
@@ -59,6 +70,10 @@ def captured_fixture(check: str, provenance: dict | None = None) -> dict:
 
 
 def run_self_test() -> None:
+    from validation_media import run_probe
+    assert run_probe(b'', self_test=True)
+    for malformed in (bytes.fromhex('ffd8ffffd9'), b'%PDF-\n%%EOF', b'\0\0\0\x18ftypisom\0\0\0\0moov'):
+        assert not evidence_content_complete('widget', malformed)
     contracts, report = distribution_fixture()
     assert len(contracts) == 4 and distribution.distribution_complete(report, contracts)
     for index, row in enumerate(report['bundles']):
@@ -132,6 +147,13 @@ def run_self_test() -> None:
     assert not distribution_matches_archive(checks['distribution-signing'], changed)
     duplicated = {name: copy.deepcopy(checks['photos']) for name in checks}
     assert not complete(duplicated)
+    baseline = json.loads(evidence_fixture('minimum-platforms'))
+    for platform in baseline['platforms']:
+        for key, value in [('systemVersion', '99.0'), ('systemVersion', 'invalid'), ('systemBuild', ''),
+                ('deviceIdentifier', ''), ('checks', {}), ('evidence', {}), ('capturedAt', '2000-01-01T00:00:00+00:00')]:
+            changed = copy.deepcopy(baseline)
+            changed['platforms'][platform][key] = value
+            assert not evidence_content_complete('minimum-platforms', json.dumps(changed).encode()), (platform, key)
     feedback = json.loads(evidence_fixture('feedback-delivery'))
     for field in feedback:
         changed = dict(feedback)

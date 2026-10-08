@@ -568,6 +568,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     @MainActor
     func configureApp(
         resetStorage: Bool,
+        restartProcess: Bool = false,
         account: String? = "ui-test-student",
         accessibilityTextSize: Bool = false,
         userInterfaceStyle: String? = nil,
@@ -591,6 +592,18 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         defer { print(String(format: "UI scene preparation: %.3f", ProcessInfo.processInfo.systemUptime - started)) }
         continueAfterFailure = false
         UIElement.usesNativeInteraction = nativeInteraction
+        let previousProcess = Self.sessionProcess
+        if restartProcess {
+            guard !resetStorage, let previousApplication = Self.sessionApplication, previousProcess != nil else {
+                assertUI(false, "冷启动验收需要已运行的 App 及已保存的隔离数据。")
+                return app
+            }
+            previousApplication.terminate()
+            assertUI(previousApplication.state == .notRunning, "冷启动前应结束所属 App 进程。")
+            Self.sessionApplication = nil
+            Self.sessionProcess = nil
+            Self.sessionScene = nil
+        }
         let application = Self.sessionApplication ?? XCUIApplication()
         application.launchEnvironment = [:]
         application.launchArguments = ["--ui-testing", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
@@ -732,6 +745,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         if Self.sessionProcess == nil {
             let process = String(identity.prefix(while: { $0 != ":" }))
             assertUI(!process.isEmpty, "场景身份应包含 App 进程。")
+            if restartProcess {
+                assertUI(process != previousProcess, "冷启动应由新的 App 进程恢复会话与持久化数据。")
+                print("UI persistence App restart: \(previousProcess ?? "") -> \(process)")
+            }
             Self.sessionProcess = process
             print("UI automation App process: \(process)")
         }

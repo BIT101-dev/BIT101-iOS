@@ -1,3 +1,4 @@
+import ScoreDomain
 import StorageCore
 import ClientCore
 import Combine
@@ -81,4 +82,18 @@ public protocol ScoreFilterPreferencesStoring: AnyObject {
     func load() -> ScoreFilterPreferenceSnapshot?
     @discardableResult
     func save(selectedTerms: Set<String>, selectedCourseTypes: Set<String>, sortIndex: ScoreSortIndex, sortOrder: ScoreSortOrder) -> Bool
+}
+
+/// 可信成绩单按页数、传输字节和完整页面集合的位图预算准备。
+public nonisolated struct TrustedTranscriptResourceLimits: Sendable {
+    public let maximumPageCount: Int
+    public let maximumEncodedBytes: Int
+    public let maximumDecodedBytes: Int
+
+    public init(maximumPageCount: Int = 64, maximumEncodedBytes: Int = 32 * 1_024 * 1_024,
+                maximumDecodedBytes: Int = 48 * 1_024 * 1_024) {
+        self.maximumPageCount = maximumPageCount
+        self.maximumEncodedBytes = maximumEncodedBytes
+        self.maximumDecodedBytes = maximumDecodedBytes
+    }
 }

@@ -72,8 +72,10 @@ def distribution_contracts() -> dict:
         path = re.sub(r"\$\((\w+)\)", lambda match: configuration[match[1]], path)
         entitlements = plistlib.loads((ROOT / path).read_bytes())
         identifier = configuration["PRODUCT_BUNDLE_IDENTIFIER"]
+        platform = "watchOS" if configuration.get("SDKROOT") == "watchos" else "iOS"
         contracts[identifier] = {"team": configuration["DEVELOPMENT_TEAM"], "version": version,
-            "build": str(build), "entitlements": entitlements, "extension": target["productType"].endswith("app-extension")}
+            "build": str(build), "entitlements": entitlements, "extension": target["productType"].endswith("app-extension"),
+            "platform": platform, "minimumOSVersion": configuration[platform.upper() + "_DEPLOYMENT_TARGET" if platform == "watchOS" else "IPHONEOS_DEPLOYMENT_TARGET"]}
     return contracts
 
 

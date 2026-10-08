@@ -1,4 +1,5 @@
 import ScoreDomain
+import ScorePorts
 import MediaKit
 #if os(iOS)
 import TransportCore

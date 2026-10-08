@@ -5,6 +5,7 @@ import CommunityTransport
 import Foundation
 import ScheduleSync
 import ScoreDomain
+import ScorePorts
 import ScoreInfrastructure
 import StorageCore
 import Testing

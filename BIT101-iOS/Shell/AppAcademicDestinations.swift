@@ -1,4 +1,5 @@
 import ScoreDomain
+import ScorePorts
 import CourseFeature
 import MediaKit
 import ScoreFeature

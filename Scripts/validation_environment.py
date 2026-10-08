@@ -1,8 +1,10 @@
 """Capture the toolchain and host/device inputs used by validation workflows."""
 import json
+import hashlib
 import os
 import platform
 import plistlib
+import re
 import subprocess
 from functools import cache
 from pathlib import Path
@@ -13,8 +15,12 @@ DEVICE_GROUPS = {"all", "release-runtime", "ui", "schedule", "infrastructure", "
 
 
 def complete_environment(group: str, context: dict) -> bool:
+    compiler = context.get("compiler", {})
     if not (context.get("host") and context.get("developer") and context.get("xcode")
-            and context.get("compiler", {}).get("modified") and context.get("sdks")
+            and isinstance(compiler, dict) and compiler.get("modified") and type(compiler.get("size")) is int
+            and compiler["size"] > 0 and isinstance(compiler.get("sha256"), str)
+            and re.fullmatch(r"[0-9a-f]{64}", compiler["sha256"])
+            and context.get("sdks")
             and all(sdk.get("Version") for sdk in context["sdks"].values())):
         return False
     if group in DEVICE_GROUPS:
@@ -25,6 +31,7 @@ def complete_environment(group: str, context: dict) -> bool:
 
 def toolchain_identity(context: dict) -> dict:
     return {"xcode": context.get("xcode"), "toolchains": context.get("toolchains"),
+            "compiler": {key: context.get("compiler", {}).get(key) for key in ("size", "sha256")},
             "sdks": {name: {key: value for key, value in sdk.items() if key != "path"}
                      for name, sdk in context.get("sdks", {}).items()}}
 
@@ -49,6 +56,8 @@ def host_environment() -> dict:
     if frontend.is_file():
         stat = frontend.stat()
         compiler.update(size=stat.st_size, modified=stat.st_mtime_ns)
+        with frontend.open("rb") as stream:
+            compiler["sha256"] = hashlib.file_digest(stream, "sha256").hexdigest()
     return {
         "host": dict(system=platform.system(), architecture=platform.machine(),
                      **plist_values(Path("/System/Library/CoreServices/SystemVersion.plist"), ("ProductVersion", "ProductBuildVersion"))),

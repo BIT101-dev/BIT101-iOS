@@ -14,7 +14,7 @@ MODULE_COVERAGE_FLOORS = {
     "MapFeature": 34, "MediaKit": 100, "MineFeature": 77, "PaperFeature": 42,
     "ScheduleContracts": 83, "ScheduleDomain": 64, "ScheduleFeature": 40, "ScheduleInfrastructure": 48,
     "SchedulePersistence": 74, "SchedulePorts": 33, "ScheduleSharedStore": 97, "ScheduleSync": 76,
-    "ScoreDomain": 73, "ScoreFeature": 52, "ScoreInfrastructure": 34, "StorageCore": 71, "TransportCore": 55,
+    "ScorePorts": 73, "ScoreDomain": 73, "ScoreFeature": 52, "ScoreInfrastructure": 34, "StorageCore": 71, "TransportCore": 55,
 }
 IOS_MODULE_COVERAGE_FLOORS = {
     "ClientCore": 48, "CommunityCore": 47, "CommunityPersistence": 67, "CommunityTransport": 67,
@@ -23,7 +23,7 @@ IOS_MODULE_COVERAGE_FLOORS = {
     "ScheduleActivityContracts": 100, "ScheduleContracts": 88, "ScheduleDomain": 79,
     "ScheduleFeature": 30, "ScheduleInfrastructure": 26, "SchedulePersistence": 27,
     "SchedulePorts": 64, "ScheduleSharedStore": 52, "ScheduleSync": 5,
-    "ScoreDomain": 45, "ScoreFeature": 7, "ScoreInfrastructure": 31, "StorageCore": 75, "TransportCore": 77,
+    "ScorePorts": 45, "ScoreDomain": 45, "ScoreFeature": 7, "ScoreInfrastructure": 31, "StorageCore": 75, "TransportCore": 77,
 }
 
 

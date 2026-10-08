@@ -348,7 +348,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         closeAlertIfPresent()
         replaceTextWithKeyboard("12,34\n", in: ids)
         dismissKeyboard()
-        app = configureApp(resetStorage: false, initialSettings: "gallery")
+        app = configureApp(resetStorage: false, restartProcess: true, initialSettings: "gallery")
         assertUI(app.textFields["屏蔽用户 UID（逗号分隔）"].value as? String == "12,34", "重新装载应保留屏蔽 UID。")
         for (title, value) in values {
             assertUI(app.switches.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch.value as? String == value,
@@ -589,7 +589,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         assertUI(app.staticTexts["课程中心"].exists, "详情应显示中文来源。")
         assertUI(!app.buttons["编辑"].exists && !app.buttons["删除"].exists, "学校作业应按同步来源展示。")
         tapHeader(app.buttons["取消"])
-        app = configureApp(resetStorage: false)
+        app = configureApp(resetStorage: false, restartProcess: true)
         tapHeader(app.segmentedControls.buttons["DDL"])
         let restored = app.buttons["ddl.done.eclass:ui"]
         assertUI(restored.appears(timeout: 5), "重新启动后应恢复课程中心作业。")

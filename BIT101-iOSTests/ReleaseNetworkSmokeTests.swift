@@ -38,6 +38,7 @@ import Foundation
 import Testing
 import ClientCore
 import ScoreDomain
+import ScorePorts
 import CommunityCore
 import CommunityTransport
 import ScheduleDomain

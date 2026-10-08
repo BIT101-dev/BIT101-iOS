@@ -2,6 +2,7 @@ import SchedulePorts
 import CommunityTransport
 import ClientCore
 import ScoreDomain
+import ScorePorts
 import ScoreInfrastructure
 import ScheduleDomain
 import PaperFeature

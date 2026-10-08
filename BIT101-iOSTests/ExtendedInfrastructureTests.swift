@@ -2,6 +2,7 @@ import CommunityPersistence
 import Combine
 import ClientCore
 import ScoreDomain
+import ScorePorts
 @testable import ScoreInfrastructure
 import CommunityTransport
 @testable import GalleryFeature
