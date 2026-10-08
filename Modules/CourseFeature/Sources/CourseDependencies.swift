@@ -1,5 +1,4 @@
 import CommunityCore
-import CommunityTransport
 import Observation
 
 /// 课程页面消费列表、详情、课程偏好与学分查询。

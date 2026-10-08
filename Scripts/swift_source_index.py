@@ -82,12 +82,15 @@ def _run_swift_syntax_index(request: dict) -> dict[str, dict]:
     parse_failures = [path for path, facts in index.items() if facts["hasParseErrors"]]
     if parse_failures:
         raise RuntimeError("SwiftSyntax parse errors: " + ", ".join(parse_failures))
-    conformances = declaration_conformances(index)
-    test_classes = {canonical_type_scope(declaration["scope"] + [declaration["name"]])
-        for facts in index.values() for declaration in facts["declarations"] if declaration["kind"] == "class"
-        and any(base.rsplit(".", 1)[-1] == "XCTestCase" for base in
-            conformances[canonical_type_scope(declaration["scope"] + [declaration["name"]])])}
-    for facts in index.values():
+    from swift_type_index import SwiftTypeIndex
+    types = SwiftTypeIndex(index)
+    class_ids = {types.resolve(path, '.'.join(canonical_type_scope(declaration['scope'] + [declaration['name']])), aliases=False)
+        for path, facts in index.items() for declaration in facts['declarations'] if declaration['kind'] == 'class'}
+    for path, facts in index.items():
+        conformances = types.conformances(path)
+        test_classes = {owner for owner, bases in conformances.items()
+            if types.resolve(path, '.'.join(owner), aliases=False) in class_ids
+            and any(base.rsplit(".", 1)[-1] == "XCTestCase" for base in bases)}
         facts["tests"] = [test for test in facts["tests"] if test.get("isTestingTest")
                           or canonical_type_scope(test["scope"]) in test_classes]
     return index
@@ -135,28 +138,12 @@ def canonical_type_scope(names: list[str]) -> tuple[str, ...]:
     return tuple(part for name in names for part in re.sub(r"\s+", "", name).split("."))
 
 
-def declaration_conformances(index: dict[str, dict]) -> dict[tuple[str, ...], set[str]]:
-    result: dict[tuple[str, ...], set[str]] = {}
-    for facts in index.values():
-        for declaration in facts.get("declarations", []):
-            owner = canonical_type_scope(declaration.get("scope", []) + [declaration["name"]])
-            result.setdefault(owner, set()).update(re.sub(r"\s+", "", base) for base in declaration.get("inheritedTypes", []))
-        for alias in facts.get("typeAliases", []):
-            owner = canonical_type_scope(alias["scope"] + [alias["name"]])
-            result.setdefault(owner, set()).add(re.sub(r"\s+", "", alias["type"]))
-    while True:
-        changed = False
-        for owner, bases in result.items():
-            inherited = set(bases)
-            for base in bases:
-                key = canonical_type_scope([base])
-                parent = next((result[owner[:depth] + key] for depth in range(len(owner) - 1, -1, -1)
-                               if owner[:depth] + key in result), set())
-                inherited.update(parent)
-            if inherited != bases:
-                result[owner] = inherited
-                changed = True
-        if not changed: return result
+def declaration_conformances(index: dict[str, dict], path: str | None = None) -> dict[tuple[str, ...], set[str]]:
+    from swift_type_index import SwiftTypeIndex
+    types = SwiftTypeIndex(index)
+    if path is not None: return types.conformances(path)
+    if len(set(types.units.values())) == 1: return types.conformances(next(iter(index))) if index else {}
+    return types.all_conformances()
 
 
 def scope_contains_type(scope: list[str], owners) -> bool:
@@ -203,14 +190,20 @@ def matching_functions(facts: dict, name: str, call: dict) -> list[dict]:
         and matches(function["parameters"], call.get("argumentLabels", []))]
 
 
-def compilation_type_context(index: dict) -> tuple:
-    owners = declaration_conformances(index)
+def compilation_type_context(index: dict, path: str | None = None) -> tuple:
+    from swift_type_index import SwiftTypeIndex
+    types = SwiftTypeIndex(index)
+    path = path or next(iter(index), '')
+    owners = types.conformances(path) if path else {}
+    def visible(source, value):
+        name = '.'.join(value['scope'])
+        return types.resolve(source, name, aliases=False) == types.resolve(path, name, aliases=False)
     properties = {(canonical_type_scope(value["scope"]), value["name"], value["type"])
-        for facts in index.values() for value in facts["typedVariables"]
-        if not value.get("lexicalScope") and canonical_type_scope(value["scope"]) in owners}
+        for source, facts in index.items() for value in facts["typedVariables"]
+        if not value.get("lexicalScope") and canonical_type_scope(value["scope"]) in owners and visible(source, value)}
     methods = {(canonical_type_scope(value["scope"]), value["name"])
-        for facts in index.values() for value in facts["functionRanges"]
-        if not value.get("lexicalScope") and canonical_type_scope(value["scope"]) in owners}
+        for source, facts in index.items() for value in facts["functionRanges"]
+        if not value.get("lexicalScope") and canonical_type_scope(value["scope"]) in owners and visible(source, value)}
     for owner, bases in owners.items():
         for base in bases:
             target = next((owner[:depth] + canonical_type_scope([base]) for depth in range(len(owner) - 1, -1, -1)

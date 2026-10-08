@@ -530,7 +530,9 @@ NATIVE_INTERACTION_KINDS = {
 
 def native_interaction_inventory(syntax: dict[str, dict]) -> dict[str, dict[str, int]]:
     from swift_source_index import canonical_type_scope, declaration_conformances, expected_argument_types
-    owners = declaration_conformances(syntax)
+    from swift_type_index import SwiftTypeIndex
+    types = SwiftTypeIndex(syntax)
+    owners = {}
     def kind(type_name, scope):
         name = canonical_type_scope([type_name.rstrip("?!")])
         if not name: return None
@@ -541,6 +543,7 @@ def native_interaction_inventory(syntax: dict[str, dict]) -> dict[str, dict[str,
             if base.removeprefix("UIKit.") in NATIVE_INTERACTION_KINDS), None)
     inventory = {}
     for path, facts in syntax.items():
+        owners = types.conformances(path)
         if "Tests/" in path or "UITest" in Path(path).name: continue
         for call in facts["invocations"]:
             called = call["value"].split("(", 1)[0].strip()

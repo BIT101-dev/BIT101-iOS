@@ -168,20 +168,45 @@ public nonisolated enum WatchScheduleSyncOutcome: Equatable, Sendable {
 /// 磁盘快照和 WatchConnectivity 采用相同的日期策略。每次调用创建独立的
 /// encoder / decoder，隔离并发消费方的可变 Foundation 编码器。
 public nonisolated enum ScheduleExternalSnapshotCodec {
+    public static let maximumEncodedBytes = 1_048_576
+    public static let maximumCourseCount = 4_096
+    public static let maximumFieldBytes = 4_096
+
+    private static func validate(_ snapshot: ScheduleExternalSnapshot) throws {
+        guard snapshot.revision < UInt64.max,
+              snapshot.courses.count <= maximumCourseCount,
+              snapshot.timeTable.count <= ScheduleCourseConstraints.maximumSection,
+              [snapshot.studentID, snapshot.firstDayString].allSatisfy({ $0.utf8.count <= maximumFieldBytes }),
+              snapshot.timeTable.allSatisfy({ $0.start.utf8.count <= maximumFieldBytes && $0.end.utf8.count <= maximumFieldBytes }),
+              snapshot.courses.allSatisfy({ course in
+                  course.weeks.count <= ScheduleCourseConstraints.maximumWeek * 2 &&
+                  [course.id, course.name, course.classroom, course.teacher].allSatisfy { $0.utf8.count <= maximumFieldBytes }
+              }) else { throw CocoaError(.coderInvalidValue) }
+        let fields = [snapshot.studentID, snapshot.firstDayString] + snapshot.timeTable.flatMap { [$0.start, $0.end] }
+            + snapshot.courses.flatMap { [$0.id, $0.name, $0.classroom, $0.teacher] }
+        guard fields.reduce(0, { $0 + $1.utf8.count }) <= maximumEncodedBytes else { throw CocoaError(.fileReadTooLarge) }
+    }
+
     public nonisolated static func encode(
         _ snapshot: ScheduleExternalSnapshot,
         outputFormatting: JSONEncoder.OutputFormatting = []
     ) throws -> Data {
+        try validate(snapshot)
         let encoder = JSONEncoder()
         encoder.outputFormatting = outputFormatting
         encoder.dateEncodingStrategy = .iso8601
-        return try encoder.encode(snapshot)
+        let data = try encoder.encode(snapshot)
+        guard data.count <= maximumEncodedBytes else { throw CocoaError(.fileReadTooLarge) }
+        return data
     }
 
     public nonisolated static func decode(_ data: Data) throws -> ScheduleExternalSnapshot {
+        guard data.count <= maximumEncodedBytes else { throw CocoaError(.fileReadTooLarge) }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(ScheduleExternalSnapshot.self, from: data)
+        let snapshot = try decoder.decode(ScheduleExternalSnapshot.self, from: data)
+        try validate(snapshot)
+        return snapshot
     }
 }
 
@@ -201,7 +226,8 @@ public enum WatchScheduleTransferProtocol {
 
     public nonisolated static func knownRevision(from context: [String: Any]) -> UInt64? {
         guard requestsLatestSnapshot(context), let value = context[knownRevisionKey] as? String else { return nil }
-        return UInt64(value)
+        guard let revision = UInt64(value), revision < UInt64.max else { return nil }
+        return revision
     }
 
     public nonisolated static func snapshotData(from context: [String: Any]) -> Data? {

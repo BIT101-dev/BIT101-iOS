@@ -262,10 +262,11 @@ def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[s
     def unit(path):
         parts = Path(path).relative_to(ROOT).parts
         return parts[:2] if parts[0] in {"Modules", "ModuleTests"} else parts[:1]
-    unit_facts: dict[tuple, dict] = {}
-    for path, facts in (syntax_index or {}).items():
-        unit_facts.setdefault(unit(path), {})[path] = facts
-    type_indexes = {owner: declaration_conformances(facts) for owner, facts in unit_facts.items()}
+    from swift_type_index import SwiftTypeIndex
+    types = SwiftTypeIndex(syntax_index or {})
+    unit_facts = {}
+    for path, facts in (syntax_index or {}).items(): unit_facts.setdefault(unit(path), {})[path] = facts
+    type_indexes = {path: types.conformances(path) for path in (syntax_index or {})}
     for path in swift_files():
         source = path.read_text(encoding="utf-8")
         masked_source = mask_literals_and_comments(source)
@@ -305,7 +306,7 @@ def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[s
         for clause in (facts or {}).get("emptyCatchClauses", []):
             line = source.encode()[:clause["start"]].count(b"\n") + 1
             errors.append(f"{name}:{line}: 禁止静默吞掉异常；请记录诊断或显式处理错误")
-        if facts and ast_has_view_request(facts, type_indexes.get(unit(path)), unit_facts.get(unit(path))):
+        if facts and ast_has_view_request(facts, type_indexes.get(str(path)), unit_facts.get(unit(path))):
             errors.append(f"{name}: View 不应直接构造 URLRequest；请求移到 Service")
         elif facts is None:
             for match in view_request_matches(masked_source):
@@ -385,34 +386,32 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
     functions = {}
     callable_names = {function["name"] for facts in syntax_index.values()
         for category in ("callableRanges", "functionRanges") for function in facts.get(category, [])}
-    return_types = {(tuple(function["scope"]), function["name"]): function["returnType"]
-        for facts in syntax_index.values() for function in facts.get("functionRanges", []) if function.get("returnType")}
+    from swift_type_index import SwiftTypeIndex
+    types = SwiftTypeIndex(syntax_index)
+    type_ids = {namespace + "." + ".".join(owner): (namespace, owner) for namespace, owner in types.records}
+    return_types = {(types.function_scope(path, function["scope"]), function["name"]): (function["returnType"], path)
+        for path, facts in syntax_index.items() for function in facts.get("functionRanges", []) if function.get("returnType")}
     reference_paths = {id(node): path for path, facts in syntax_index.items()
         for node in facts["calls"] + facts.get("members", []) + facts.get("scopedIdentifiers", [])}
     call_ids = {id(call) for facts in syntax_index.values() for call in facts["calls"]}
 
     def variable_scope(path, node):
-        return tuple(node["scope"]) + tuple(f"@{path}:{start}" for start in node.get("lexicalScope", []))
+        owner = (node["ownerNamespace"],) + tuple(node["scope"]) if node.get("ownerNamespace") else types.function_scope(path, node["scope"])
+        return owner + tuple(f"@{path}:{start}" for start in node.get("lexicalScope", []))
 
     aliases = [(path, alias, variable_scope(path, alias)) for path, facts in syntax_index.items()
         for alias in facts.get("typeAliases", [])]
-    conformances = declaration_conformances(syntax_index)
-
     def canonical_type(value, scope, path):
-        visited = set()
-        while value not in visited:
-            visited.add(value)
-            value = re.sub(r"\s+", "", value.replace("any ", "")).replace("?", "").split("<", 1)[0]
-            parts = value.split(".")
-            matching = [(owner, alias, alias_scope) for owner, alias, alias_scope in aliases
-                if alias["name"] == parts[-1]
-                and (tuple(alias["scope"]) == tuple(parts[:-1]) if len(parts) > 1 else scope[:len(alias_scope)] == alias_scope)
-                and (not alias.get("isFilePrivate") or owner == path)
-                and (not alias.get("lexicalScope") or owner == path)]
-            if not matching: return parts[-1]
-            _, alias, scope = max(matching, key=lambda item: (item[0] == path, len(item[2])))
-            value = alias["type"]
-        return value.rsplit(".", 1)[-1]
+        if value in type_ids: return value
+        owner_scope = tuple(part for part in scope[1:] if not part.startswith("@"))
+        key = types.resolve(path, value, owner_scope)
+        return key[0] + "." + ".".join(key[1]) if key else value.rsplit(".", 1)[-1].rstrip("?!")
+
+    def method_return(path, owner, name):
+        key = types.resolve(path, ".".join(owner)) if owner else None
+        scope = (key[0],) + key[1] if key else types.function_scope(path, owner)
+        result = return_types.get((scope, name))
+        return canonical_type(result[0], scope, result[1]) if result else None
 
     variable_types = {}
     for path, facts in syntax_index.items():
@@ -423,8 +422,8 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
             initializer = re.match(r"(\w+)\s*=\s*(?:try\??\s+)?(?:await\s+)?([A-Z]\w*)[.(]", binding["value"])
             if initializer: variable_types[(scope, initializer[1])] = initializer[2]
             returned = re.match(r"(\w+)\s*=\s*(?:try\??\s+)?(?:await\s+)?(\w+)\.(\w+)\(", binding["value"])
-            if returned and ((returned[2],), returned[3]) in return_types:
-                variable_types[(scope, returned[1])] = return_types[((returned[2],), returned[3])]
+            if returned and (returned_type := method_return(path, (returned[2],), returned[3])):
+                variable_types[(scope, returned[1])] = returned_type
             decoded = re.match(r"(\w+)\s*=.*?\.decode\(\s*(\w+)\.self", binding["value"])
             if decoded: variable_types[(scope, decoded[1])] = decoded[2]
 
@@ -437,27 +436,32 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
                 return canonical_type(constructor, scope, path)
             owner, _, method = constructor.rpartition(".")
             owners = [tuple(owner.split("."))] if owner else [tuple(call["scope"][:length]) for length in range(len(call["scope"]), -1, -1)]
-            returned = next((return_types[(owner, method or constructor)] for owner in owners
-                if (owner, method or constructor) in return_types), None)
-            return canonical_type(returned, scope, path) if returned else None
+            return next((returned for owner in owners if (returned := method_return(path, owner, method or constructor))), None)
         parts = call["value"].replace("?", "").split(".")[:-1]
         if parts and parts[0] == "self":
             parts.pop(0)
-            scope = tuple(call["scope"])
+            scope = types.function_scope(path, call["scope"])
         resolved = None
+        for length in range(len(parts), 0, -1):
+            if types.resolve(path, ".".join(parts[:length])) is not None:
+                resolved = canonical_type(".".join(parts[:length]), scope, path)
+                parts = parts[length:]
+                break
         for part in parts:
             if part == "shared" and resolved: continue
             if resolved is None and part[:1].isupper():
-                resolved = part
+                resolved = canonical_type(part, scope, path)
                 continue
-            lookup_scopes = [scope[:length] for length in range(len(scope), -1, -1)] if resolved is None \
-                else [owner for owner, field in variable_types if owner and owner[-1] == resolved and field == part]
+            identity = type_ids.get(resolved)
+            owned_type = (identity[0],) + identity[1] if identity else None
+            lookup_scopes = [scope[:length] for length in range(len(scope), 0, -1)] if resolved is None \
+                else [owner for owner, field in variable_types if owner == owned_type and field == part]
             resolved = next((variable_types[(owner, part)] for owner in lookup_scopes if (owner, part) in variable_types), None)
             if resolved is None: return None
             resolved = canonical_type(resolved, scope, reference_paths.get(id(call), ""))
         return resolved
 
-    explicit_initializers = {tuple(function["scope"]) for facts in syntax_index.values()
+    explicit_initializers = {types.function_scope(path, function["scope"]) for path, facts in syntax_index.items()
         for function in facts.get("initializers", []) if function.get("isExplicitInitializer")}
     callback_declarations = [function for facts in syntax_index.values()
         for category in ("functionRanges", "initializers") for function in facts.get(category, [])]
@@ -480,18 +484,22 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
             if call is None: continue
             scope = variable_scope(path, call)
             value = call["value"].removesuffix(".init")
-            owner = tuple(value.split("."))
+            identity = types.resolve(path, value, call["scope"])
+            owner = (identity[0],) + identity[1] if identity else types.function_scope(path, value.split("."))
             signature = next((variable_types[(scope[:length], value.removeprefix("self."))]
                 for length in range(len(scope), -1, -1) if (scope[:length], value.removeprefix("self.")) in variable_types), None)
             escaping = set().union(*(set(alias.get("escapingParameters", [])) for alias_path, alias, alias_scope in aliases
                 if signature == alias["name"] and (not alias.get("isFilePrivate") or alias_path == path)
                 and scope[:len(alias_scope)] == alias_scope))
             receiver = receiver_type(call)
+            receiver_id = type_ids.get(receiver)
+            receiver_owner = (receiver_id[0],) + receiver_id[1] if receiver_id else None
             method = value.rsplit(".", 1)[-1]
             declarations = [function for function in callback_declarations_by_name.get("init" if method[:1].isupper() else method, [])
-                if (tuple(function["scope"]) == owner if method[:1].isupper()
-                    else receiver in function["scope"] if receiver
-                    else tuple(call["scope"][:len(function["scope"])]) == tuple(function["scope"]))]
+                if (types.function_scope(function_paths[id(function)], function["scope"]) == owner if method[:1].isupper()
+                    else types.function_scope(function_paths[id(function)], function["scope"]) == receiver_owner if receiver
+                    else variable_scope(path, call)[:len(types.function_scope(function_paths[id(function)], function["scope"]))]
+                        == types.function_scope(function_paths[id(function)], function["scope"]))]
             arguments = list(invocation.get("closureArguments", []))
             arguments += [[index, *bounds] for index, (argument, bounds) in enumerate(zip(
                 invocation.get("arguments", []), invocation.get("argumentRanges", [])))
@@ -510,7 +518,7 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
                     for function, parameter in parameters)
                 if parameters and not held: executed.append((start, end))
                 if memberwise or index in escaping or held:
-                    callback = {"name": label, "scope": list(owner), "lexicalScope": [], "start": start, "end": end}
+                    callback = {"name": label, "scope": list(owner[1:]), "ownerNamespace": owner[0], "lexicalScope": [], "start": start, "end": end}
                     registered.append(callback)
                     if memberwise: stored.append(callback)
         return registered, stored, executed
@@ -573,18 +581,28 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
                 if lifecycle["start"] <= reference["start"] < lifecycle["end"]
                 and not any(deferred["start"] <= reference["start"] < deferred["end"] for deferred in deferred_ranges))
 
+    implementations_by_receiver = {}
+    for identity in types.records:
+        namespace, owner = identity
+        for base in types.bases(identity):
+            receiver = canonical_type(base, (namespace,) + owner, types.paths[identity])
+            implementations_by_receiver.setdefault(receiver, set()).add((namespace,) + owner)
+
     def targets(call):
         name = call["value"].rsplit(".", 1)[-1]
         candidates = functions.get(name, [])
         if name[:1].isupper():
             if id(call) not in call_ids: return []
             constructed = canonical_type(call["value"], variable_scope(reference_paths.get(id(call), ""), call), reference_paths.get(id(call), ""))
-            return [entry for entry in functions.get("init", []) if constructed in entry[0][0]]
+            identity = type_ids.get(constructed)
+            owner = (identity[0],) + identity[1] if identity else None
+            return [entry for entry in functions.get("init", []) if entry[0][0] == owner]
         receiver = receiver_type(call)
         if receiver:
-            implementations = {owner for owner, bases in conformances.items()
-                if any(canonical_type(base, owner, reference_paths.get(id(call), "")) == receiver for base in bases)}
-            return [entry for entry in candidates if receiver in entry[0][0]
+            identity = type_ids.get(receiver)
+            receiver_owner = (identity[0],) + identity[1] if identity else None
+            implementations = implementations_by_receiver.get(receiver, ())
+            return [entry for entry in candidates if receiver_owner and entry[0][0][:len(receiver_owner)] == receiver_owner
                 or any(entry[0][0][:len(owner)] == owner for owner in implementations)]
         if call["value"] == ".init":
             path = reference_paths[id(call)]
@@ -593,14 +611,17 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
             contexts.extend(match[1] for binding in facts.get("bindings", [])
                 if binding["start"] <= call["start"] < binding["start"] + len(binding["value"].encode())
                 and (match := re.match(r"\w+\s*:\s*([^={]+)", binding["value"])))
-            owners = {canonical_type(context, variable_scope(path, call), path) for context in contexts}
-            return [entry for entry in candidates if owners.intersection(entry[0][0])]
+            identities = [type_ids.get(canonical_type(context, variable_scope(path, call), path)) for context in contexts]
+            owners = {(identity[0],) + identity[1] for identity in identities if identity}
+            return [entry for entry in candidates if entry[0][0] in owners]
         scope = variable_scope(reference_paths.get(id(call), ""), call)
         owned = [entry for entry in candidates if scope[:len(entry[0][0])] == entry[0][0]]
         if owned: return [entry for entry in owned if len(entry[0][0]) == max(len(item[0][0]) for item in owned)]
         receiver_name = call["value"].replace("?", "").split(".")[0]
+        visible_units = {types.units[reference_paths[id(call)]], *syntax_index[reference_paths[id(call)]].get("imports", [])}
+        candidates = [entry for entry in candidates if entry[0][0][0].split("@", 1)[0] in visible_units]
         named = [entry for entry in candidates if any(receiver_name.lower() in owner.lower() for owner in entry[0][0])]
-        return named or candidates if "." in call["value"] else [entry for entry in candidates if not entry[0][0]]
+        return named or candidates if "." in call["value"] else [entry for entry in candidates if len(entry[0][0]) == 1]
 
     reasons = {}
     predecessors = {}
@@ -609,7 +630,8 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
         operation = call["value"].rsplit(".", 1)[-1].strip()
         if operation in school_operations: return True
         if operation != cloud_operation: return False
-        preference = receiver_type(call) == "ExperimentalPreferenceCloudSync" or "ExperimentalPreferenceCloudSync" in call["scope"]
+        preference = receiver_type(call) in {"BIT101-iOS.ExperimentalPreferenceCloudSync", "fixture.ExperimentalPreferenceCloudSync"} \
+            or "ExperimentalPreferenceCloudSync" in call["scope"] and types.units[reference_paths[id(call)]] in {"BIT101-iOS", "fixture"}
         return not preference
     for entries in functions.values():
         for key, children in entries:

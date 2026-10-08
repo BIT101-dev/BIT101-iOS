@@ -272,6 +272,37 @@ struct ScheduleContractsTests {
 
 @MainActor
 struct ScheduleSharedStoreTests {
+    @Test(arguments: ["bytes", "courses", "weeks", "field", "aggregate", "revision"])
+    func invalidSharedSnapshotsPreserveTheirSourceAndAllowReplacementAndClear(kind: String) throws {
+        let files = ModuleScoreFiles()
+        let store = ScheduleExternalSnapshotStore(files: files, containerURL: URL(fileURLWithPath: "/shared-budget"))
+        let url = try #require(store.fileURL)
+        let course = ScheduleExternalCourseSnapshot(id: "fixture", name: kind == "field" ? String(repeating: "课", count: 1_366)
+            : kind == "aggregate" ? String(repeating: "n", count: ScheduleExternalSnapshotCodec.maximumFieldBytes) : "fixture",
+            classroom: "", teacher: "", weeks: kind == "weeks" ? Array(repeating: 1, count: ScheduleCourseConstraints.maximumWeek * 2 + 1) : [1],
+            weekday: 1, startSection: 1, endSection: 1)
+        let invalid = ScheduleExternalSnapshot(generatedAt: Date(timeIntervalSince1970: 0),
+            revision: kind == "revision" ? UInt64.max : 1, isLoggedIn: true, studentID: "budget-owner",
+            firstDayString: "", timeTable: [], courses: kind == "courses" ? Array(repeating: course, count: ScheduleExternalSnapshotCodec.maximumCourseCount + 1)
+                : kind == "aggregate" ? Array(repeating: course, count: ScheduleExternalSnapshotCodec.maximumEncodedBytes / ScheduleExternalSnapshotCodec.maximumFieldBytes + 1) : [course])
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let raw = kind == "bytes" ? Data(count: ScheduleExternalSnapshotCodec.maximumEncodedBytes + 1) : try encoder.encode(invalid)
+        #expect(throws: CocoaError.self) { try ScheduleExternalSnapshotCodec.decode(raw) }
+        if kind != "bytes" { #expect(throws: CocoaError.self) { try ScheduleExternalSnapshotCodec.encode(invalid) } }
+        try files.writeData(raw, to: url, options: [])
+        let reads = files.readCount(at: url)
+        #expect(store.load() == nil && files.storedData[url] == raw)
+        if kind == "bytes" { #expect(files.readCount(at: url) == reads) }
+        let recovered = ScheduleExternalSnapshot(generatedAt: Date(timeIntervalSince1970: 0), revision: 2,
+            isLoggedIn: true, studentID: "budget-owner", firstDayString: "", timeTable: [], courses: [])
+        #expect(try store.writeIfNewer(recovered))
+        #expect(store.load()?.revision == 2)
+        #expect(store.clear() && store.load() == nil)
+        if kind == "revision" {
+            #expect(WatchScheduleTransferProtocol.knownRevision(from: WatchScheduleTransferProtocol.requestContext(knownRevision: .max)) == nil)
+        }
+    }
+
     @Test(arguments: ["same-account", "new-account"])
     func restoredPhoneSnapshotsAdvancePastTheWatchHead(account: String) throws {
         let store = ScheduleExternalSnapshotStore(files: ModuleScoreFiles(), containerURL: URL(fileURLWithPath: "/watch-recovery"))

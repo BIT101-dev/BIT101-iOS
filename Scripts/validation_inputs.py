@@ -6,6 +6,7 @@ from validation_policy import APP_TEST_GROUPS, TEST_GROUPS, NETWORK_GROUPS, RELE
 PRODUCT_ROOTS = {"Modules", "BIT101-iOS", "BIT101-iOS.xcodeproj", "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets"}
 PRODUCT_FILES = {"Package.swift", "AppInfo.plist"}
 VALIDATION_SCRIPTS = {"validation_evidence.py", "validation_inputs.py", "validation_policy.py", "validation_coverage.py", "validation_merge.py", "validation_environment.py", "validation_provenance.py", "validation_test_areas.py", "validation_manual.py", "validation_restore.py", "validation_media.py", "ManualEvidenceProbe.swift", "validate_distribution.py", "validate_versions.py", "swift_source_index.py", "SwiftSyntaxIndexer.swift", "code_quality_rules.py", "audit_callback_rules.py", "ci_wiring_rules.py", "check-module-boundaries.py"}
+VALIDATION_SCRIPTS.add("swift_type_index.py")
 BUILD_SCRIPTS = {"script-support.sh", "build-install-device.sh", "ci_evidence.py"}
 TEST_SCRIPTS = BUILD_SCRIPTS | VALIDATION_SCRIPTS | {"run-extended-tests.sh"}
 
@@ -62,6 +63,7 @@ def self_test() -> None:
         assert includes_input("Modules/StorageCore/Sources/AppFileService.swift", group)
         assert includes_input("Scripts/validation_inputs.py", group)
         assert includes_input("Scripts/check-module-boundaries.py", group)
+        assert includes_input("Scripts/swift_type_index.py", group)
     assert includes_input("ModuleTests/Sync/ScheduleSyncTests.swift", "modules")
     assert includes_input("BIT101-iOSTests/Fixtures/schedule-service-response.json", "modules")
     assert not includes_input("BIT101-iOS/ContentView.swift", "modules")

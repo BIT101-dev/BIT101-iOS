@@ -4,6 +4,7 @@ import SwiftParser
 
 struct FileFacts: Encodable {
     let hasParseErrors: Bool
+    let imports: [String]
     let identifiers: [String]
     let scopedIdentifiers: [ScopedFact]
     let stringSegments: [ScopedFact]
@@ -43,6 +44,8 @@ struct DeclarationFact: Encodable {
     let name: String
     let inheritedTypes: [String]
     let scope: [String]
+    let isFilePrivate: Bool
+    let isExported: Bool
 }
 
 struct EnumCaseFact: Encodable {
@@ -201,8 +204,16 @@ final class FactVisitor: SyntaxVisitor {
     private var functionStack: [(name: String, scope: [String], closureDepth: Int)] = []
     private var closureDepth = 0
 
-    private func enter(_ kind: String, _ name: String, _ inherited: [String]) -> SyntaxVisitorContinueKind {
-        declarations.append(DeclarationFact(kind: kind, name: name, inheritedTypes: inherited, scope: scope))
+    private(set) var imports: [String] = []
+    override func visit(_ node: ImportDeclSyntax) -> SyntaxVisitorContinueKind {
+        if let module = node.path.first?.name.text { imports.append(module) }
+        return .skipChildren
+    }
+
+    private func enter(_ kind: String, _ name: String, _ inherited: [String], _ modifiers: DeclModifierListSyntax) -> SyntaxVisitorContinueKind {
+        declarations.append(DeclarationFact(kind: kind, name: name, inheritedTypes: inherited, scope: scope,
+            isFilePrivate: modifiers.contains { ["private", "fileprivate"].contains($0.name.text) },
+            isExported: modifiers.contains { ["public", "package", "open"].contains($0.name.text) }))
         scope.append(name)
         return .visitChildren
     }
@@ -240,12 +251,12 @@ final class FactVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
-        enter("struct", node.name.text, node.inheritanceClause?.inheritedTypes.map { $0.type.trimmedDescription } ?? [])
+        enter("struct", node.name.text, node.inheritanceClause?.inheritedTypes.map { $0.type.trimmedDescription } ?? [], node.modifiers)
     }
     override func visitPost(_ node: StructDeclSyntax) { leave() }
 
     override func visit(_ node: ProtocolDeclSyntax) -> SyntaxVisitorContinueKind {
-        enter("protocol", node.name.text, node.inheritanceClause?.inheritedTypes.map { $0.type.trimmedDescription } ?? [])
+        enter("protocol", node.name.text, node.inheritanceClause?.inheritedTypes.map { $0.type.trimmedDescription } ?? [], node.modifiers)
     }
     override func visitPost(_ node: ProtocolDeclSyntax) { leave() }
 
@@ -337,12 +348,12 @@ final class FactVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
-        enter("class", node.name.text, node.inheritanceClause?.inheritedTypes.map { $0.type.trimmedDescription } ?? [])
+        enter("class", node.name.text, node.inheritanceClause?.inheritedTypes.map { $0.type.trimmedDescription } ?? [], node.modifiers)
     }
     override func visitPost(_ node: ClassDeclSyntax) { leave() }
 
     override func visit(_ node: EnumDeclSyntax) -> SyntaxVisitorContinueKind {
-        enter("enum", node.name.text, node.inheritanceClause?.inheritedTypes.map { $0.type.trimmedDescription } ?? [])
+        enter("enum", node.name.text, node.inheritanceClause?.inheritedTypes.map { $0.type.trimmedDescription } ?? [], node.modifiers)
     }
 
     override func visit(_ node: EnumCaseDeclSyntax) -> SyntaxVisitorContinueKind {
@@ -354,12 +365,12 @@ final class FactVisitor: SyntaxVisitor {
     override func visitPost(_ node: EnumDeclSyntax) { leave() }
 
     override func visit(_ node: ActorDeclSyntax) -> SyntaxVisitorContinueKind {
-        enter("actor", node.name.text, node.inheritanceClause?.inheritedTypes.map { $0.type.trimmedDescription } ?? [])
+        enter("actor", node.name.text, node.inheritanceClause?.inheritedTypes.map { $0.type.trimmedDescription } ?? [], node.modifiers)
     }
     override func visitPost(_ node: ActorDeclSyntax) { leave() }
 
     override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
-        enter("extension", node.extendedType.trimmedDescription, node.inheritanceClause?.inheritedTypes.map { $0.type.trimmedDescription } ?? [])
+        enter("extension", node.extendedType.trimmedDescription, node.inheritanceClause?.inheritedTypes.map { $0.type.trimmedDescription } ?? [], node.modifiers)
     }
     override func visitPost(_ node: ExtensionDeclSyntax) { leave() }
 
@@ -766,6 +777,7 @@ func indexSource(_ source: String, as key: String) {
     }
     output[key] = FileFacts(
         hasParseErrors: tree.hasError,
+        imports: visitor.imports,
         identifiers: identifiers,
         scopedIdentifiers: visitor.scopedIdentifiers,
         stringSegments: visitor.stringSegments,

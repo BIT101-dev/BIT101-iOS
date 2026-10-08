@@ -248,7 +248,8 @@ actor ScheduleExternalSnapshotWriteQueue {
 
     private func reserve(_ snapshot: ScheduleExternalSnapshot) -> ScheduleExternalSnapshot? {
         let normalized = snapshot.replacingStudentID(with: AccountStorageIdentity.stableToken(for: snapshot.studentID))
-        guard let advanced = normalized.advancingRevision(after: max(latestRevision, store.load()?.revision ?? 0)) else { return nil }
+        guard let advanced = normalized.advancingRevision(after: max(latestRevision, store.load()?.revision ?? 0)),
+              advanced.revision < UInt64.max else { return nil }
         latestRevision = advanced.revision
         return advanced
     }

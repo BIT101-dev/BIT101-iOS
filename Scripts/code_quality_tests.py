@@ -19,6 +19,8 @@ from code_quality_rules import (
 
 
 def checker_boundary_findings() -> list[str]:
+    from swift_type_index_tests import self_test as type_index_self_test
+    type_index_self_test()
     from audit_callback_rules import self_test as audit_delegate_self_test
     audit_delegate_self_test()
     findings: list[str] = []

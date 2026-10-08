@@ -483,9 +483,9 @@ public enum ScheduleShareCodeError: LocalizedError, Equatable {
 
 /// 课表分享码统一由此编解码；导出入口使用 V3，导入兼容 V2 至 V4。
 public enum ScheduleShareCodeCodec {
-    public static let maximumDecodedBytes = 1_048_576
+    public static let maximumDecodedBytes = ScheduleExternalSnapshotCodec.maximumEncodedBytes
     public static let maximumEncodedBytes = maximumDecodedBytes * 4 / 3 + 128
-    public static let maximumCourseCount = 4_096
+    public static let maximumCourseCount = ScheduleExternalSnapshotCodec.maximumCourseCount
     fileprivate static func validateCourses(_ courses: [CourseRecord], slots: Set<Int>? = nil) throws {
         guard courses.count <= maximumCourseCount else { throw ScheduleShareCodeError.invalidFormat }
         for course in courses {

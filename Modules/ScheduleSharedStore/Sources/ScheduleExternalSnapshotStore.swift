@@ -74,7 +74,7 @@ public nonisolated struct ScheduleExternalSnapshotStore: Sendable {
             return nil
         }
 
-        guard let data = try? files.readData(at: fileURL) else { return nil }
+        guard let data = try? files.readData(at: fileURL, maximumBytes: ScheduleExternalSnapshotCodec.maximumEncodedBytes) else { return nil }
         guard let snapshot = try? ScheduleExternalSnapshotCodec.decode(data) else { return nil }
         let accountToken = AccountStorageIdentity.stableToken(for: snapshot.studentID)
         guard snapshot.studentID != accountToken else { return snapshot }

@@ -1,5 +1,4 @@
 import CommunityCore
-import CommunityTransport
 import Observation
 
 /// 个人主页消费账号概览与用户资料服务。
