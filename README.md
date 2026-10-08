@@ -44,6 +44,7 @@ Scripts/run-extended-tests.sh ui About
 
 `build` 编译 App 与扩展；`modules` 运行本机模块测试；`ui` 后可直接填写多个用例关键词，合并为一个真机批次。
 
+- [新电脑开发环境](docs/SETUP.md)：外部工具安装、账号签名和首次构建装机。
 - [架构与数据边界](docs/ARCHITECTURE.md)：模块职责、依赖注入、网络、存储与扩展协作。
 - [设计系统](docs/DESIGN_SYSTEM.md)：公共令牌、组件和界面规范。
 - [构建与测试](docs/TESTING.md)：真机流程、测试分组、固定产物和 CI。
