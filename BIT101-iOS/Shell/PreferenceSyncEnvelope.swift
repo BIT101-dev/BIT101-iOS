@@ -29,6 +29,10 @@ final class ScoreCacheSyncEncryption {
     static func isEncrypted(_ data: Data) -> Bool { data.starts(with: magic) }
 
     func seal(_ data: Data, account: String) throws -> Data {
+        try prepareSeal(account: account)(data)
+    }
+
+    func prepareSeal(account: String) throws -> @Sendable (Data) throws -> Data {
         let activeKey = "experimental.preference-cloud-sync.score-key.\(account)"
         let id: String
         let key: SymmetricKey
@@ -42,15 +46,22 @@ final class ScoreCacheSyncEncryption {
             try credentials.save(bytes.base64EncodedString(), account: keyAccount(id: id, account: account))
             defaults.set(id, forKey: activeKey)
         }
-        let sealed = try AES.GCM.seal(data, using: key, authenticating: Data(account.utf8))
-        guard let combined = sealed.combined else { throw PreferenceSyncRecordError.invalidStoredValue }
         let identifier = Data(id.utf8)
         guard identifier.count <= Int(UInt8.max) else { throw PreferenceSyncRecordError.invalidStoredValue }
-        return Self.magic + Data([1, UInt8(identifier.count)]) + identifier + combined
+        let header = Self.magic + Data([1, UInt8(identifier.count)]) + identifier
+        return { data in
+            let sealed = try AES.GCM.seal(data, using: key, authenticating: Data(account.utf8))
+            guard let combined = sealed.combined else { throw PreferenceSyncRecordError.invalidStoredValue }
+            return header + combined
+        }
     }
 
     func open(_ data: Data, account: String) throws -> Data {
-        guard Self.isEncrypted(data) else { return data }
+        try prepareOpen(data, account: account)()
+    }
+
+    func prepareOpen(_ data: Data, account: String) throws -> @Sendable () throws -> Data {
+        guard Self.isEncrypted(data) else { return { data } }
         let header = data.startIndex + Self.magic.count
         guard data.endIndex >= header + 2 else { throw PreferenceSyncRecordError.invalidStoredValue }
         let version = Int(data[header])
@@ -59,7 +70,8 @@ final class ScoreCacheSyncEncryption {
         guard end < data.endIndex, let id = String(data: data[(header + 2)..<end], encoding: .utf8),
               UUID(uuidString: id) != nil else { throw PreferenceSyncRecordError.invalidStoredValue }
         let key = try readKey(id: id, account: account)
-        return try AES.GCM.open(AES.GCM.SealedBox(combined: Data(data[end...])), using: key, authenticating: Data(account.utf8))
+        let payload = Data(data[end...])
+        return { try AES.GCM.open(AES.GCM.SealedBox(combined: payload), using: key, authenticating: Data(account.utf8)) }
     }
 
     @discardableResult
@@ -94,7 +106,7 @@ nonisolated enum PreferenceSyncRecordError: LocalizedError {
 }
 
 /// 字段值随载荷往返保存，维护跨客户端的新增偏好。
-nonisolated enum PreferenceJSONValue: Codable, Equatable {
+nonisolated enum PreferenceJSONValue: Codable, Equatable, Sendable {
     case null, bool(Bool), number(Decimal), string(String)
     case array([Self]), object([String: Self])
 
@@ -162,3 +174,5 @@ nonisolated struct ExperimentalPreferenceSyncEnvelope<Payload: Codable>: Codable
         try values.encode(additionalFields.merging(known) { _, current in current }, forKey: .payload)
     }
 }
+
+extension ExperimentalPreferenceSyncEnvelope: Sendable where Payload: Sendable {}

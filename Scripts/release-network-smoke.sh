@@ -41,8 +41,6 @@ case "$SMOKE_CAPTURE" in
   *) echo "BIT101_NETWORK_SMOKE_CAPTURE 参数无效。" >&2; exit 64 ;;
 esac
 bit101_acquire_workflow_lock "$0" "$@"
-BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest)"
-export BIT101_VALIDATION_SOURCE_DIGEST
 validation_group=network
 validation_scope=full
 if [[ "$SMOKE_SCOPE" == community-writes ]]; then
@@ -55,6 +53,8 @@ elif [[ "$SMOKE_SCOPE" != all ]]; then
   validation_scope=selected
 fi
 if [[ "$SMS_MODE" == sms ]]; then validation_group=school-sms; validation_scope=full; fi
+BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest "$validation_group")"
+export BIT101_VALIDATION_SOURCE_DIGEST
 
 mkdir -p "$DERIVED_DATA" "$REPORT_DIR"
 

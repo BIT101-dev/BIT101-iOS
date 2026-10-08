@@ -7,6 +7,17 @@ import ScheduleDomain
 import Testing
 
 struct ScheduleContractsTests {
+    @Test func guestSnapshotIdentityStaysStableAcrossStorageBoundaries() throws {
+        let files = ModuleScoreFiles()
+        let store = ScheduleExternalSnapshotStore(files: files, containerURL: files.temporaryDirectoryURL, notificationCenter: NotificationCenter())
+        let snapshot = ScheduleExternalSnapshot(generatedAt: Date(timeIntervalSince1970: 100), isLoggedIn: false,
+            studentID: AppStorageSession(accountIdentifier: "").accountStorageIdentifier, firstDayString: "", timeTable: [], courses: [])
+        #expect(AccountStorageIdentity.stableToken(for: snapshot.studentID) == snapshot.studentID)
+        try store.write(snapshot)
+        #expect(store.load() == snapshot)
+        #expect(try store.writeIfNewer(snapshot) == false)
+    }
+
     @Test func extremeCourseFieldsAndShareExpansionAreRejectedBeforeAllocation() throws {
         for input in ["1-1000000000", String(Int.max), String(Int.min), "-1000000000-1"] {
             #expect(throws: Error.self) { try ScheduleCourseEditor.parseWeeks(input) }

@@ -397,6 +397,7 @@ struct ExperimentalPreferenceCloudSyncTests {
         sync.localValueDidChange(in: .appSettings)
         let recordKey = key(.appSettings, account: account)
         let envelopeType = ExperimentalPreferenceSyncEnvelope<AppSettingsSyncPayload>.self
+        await sync.refreshFromCloudIfNeeded()?.value
         let revision = try JSONDecoder().decode(envelopeType, from: #require(cloud.data(forKey: recordKey))).updatedAt
         cloud.set(nil, forKey: recordKey)
 
@@ -421,6 +422,8 @@ struct ExperimentalPreferenceCloudSyncTests {
             notificationCenter: NotificationCenter())
         first.settings.updateGallerySettings(hiddenUserIDs: [42])
         let recordKey = key(.appSettings, account: account)
+        await first.refreshFromCloudIfNeeded()?.value
+        await second.refreshFromCloudIfNeeded()?.value
         #expect(firstCloud.data(forKey: recordKey) != nil)
         #expect(secondCloud.data(forKey: recordKey) != nil)
         withExtendedLifetime(second) {}
@@ -430,6 +433,7 @@ struct ExperimentalPreferenceCloudSyncTests {
         let (sync, defaults, cloud, account) = try context()
         defer { defaults.removePersistentDomain(forName: preferenceDomain) }
         sync.settings.updateGallerySettings(hideBotPosterInSearch: false, hiddenUserIDs: [42], useWebView: true)
+        await sync.refreshFromCloudIfNeeded()?.value
         let settings = try JSONDecoder().decode(
             ExperimentalPreferenceSyncEnvelope<AppSettingsSyncPayload>.self,
             from: try #require(cloud.data(forKey: key(.appSettings, account: account)))
@@ -438,16 +442,18 @@ struct ExperimentalPreferenceCloudSyncTests {
         #expect(settings.payload.galleryHideBotPosterInSearch == false)
         #expect(settings.payload.galleryUseWebView)
         sync.stores.scoreFilterPreferences.save(selectedTerms: ["2026-2027-1"], selectedCourseTypes: [], sortIndex: .score, sortOrder: .descending)
+        await sync.refreshFromCloudIfNeeded()?.value
         let filters = try JSONDecoder().decode(
             ExperimentalPreferenceSyncEnvelope<ScoreFilterPreferenceSnapshot>.self,
             from: try #require(cloud.data(forKey: key(.scoreFilters, account: account)))
         )
         #expect(filters.payload.selectedTerms == ["2026-2027-1"])
         sync.stores.communityMessages.markSeen(ids: [42], for: .comment)
+        await sync.refreshFromCloudIfNeeded()?.value
         #expect(cloud.data(forKey: key(.galleryMessageRead, account: account)) != nil)
         let rows = [ScoreRow(index: 0, headers: ["课程名称", "成绩"], values: ["注入课程", "95"])]
         _ = try #require(await sync.stores.scoreCache.save(rows: rows, for: nil))
-        await cloud.waitForWrite(to: key(.scoreCache, account: account))
+        await sync.refreshFromCloudIfNeeded()?.value
         let scores = try sync.decodeScoreCloudEnvelope(
             ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload>.self,
             from: try #require(cloud.data(forKey: key(.scoreCache, account: account)))

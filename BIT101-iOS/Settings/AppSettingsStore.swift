@@ -53,7 +53,7 @@ struct AppSettingsSnapshot: Codable, Equatable {
 }
 
 /// 同步载荷包含用户偏好字段；首次打开时间和一次性提示状态保留在本机。
-struct AppSettingsSyncPayload: Codable, Equatable {
+nonisolated struct AppSettingsSyncPayload: Codable, Equatable, Sendable {
     var galleryHideBotPosterInSearch: Bool
     var galleryHiddenUserIDs: [Int]
     var galleryHideAnonymousContent: Bool

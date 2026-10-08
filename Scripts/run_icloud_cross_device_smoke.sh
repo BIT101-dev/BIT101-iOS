@@ -65,7 +65,7 @@ if [[ "${1:-}" == cleanup ]]; then
   CLEANUP_ONLY=true
   shift
 fi
-BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest)"
+BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest icloud)"
 export BIT101_VALIDATION_SOURCE_DIGEST
 finish_early_validation() {
   local smoke_status=$?

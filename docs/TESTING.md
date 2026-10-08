@@ -6,7 +6,7 @@
 
 - 构建使用 Xcode 27.x、有效签名和已连接并受信任的真机，默认完成 Release 构建、装机与启动。
 - 本机构建、装机和启动统一使用 `Scripts/build-install-device.sh`；脚本封装所需 Xcode 流程。
-- iOS / watchOS 验收与日常 UI 复验使用真机；包级逻辑测试使用 macOS 原生宿主，Catalyst 行为测试使用 macOS runtime。
+- iOS / watchOS 验收与日常 UI 复验使用真机；包级逻辑测试使用 macOS 原生宿主，Catalyst 行为与正式组装测试使用 macOS runtime，测试宿主采用本机免签名构建。
 - 测试、静态审计、网络 Smoke 和 iCloud Smoke 按用户明确授权的范围执行。失败修复后重跑受影响的分组。
 - 界面验证使用既有 UI 测试、截图脚本与命令行流程。设备自动化授权由 iOS 管理，系统要求时由用户在设备上输入密码，设备继续保留密码保护。
 - `BIT101-iOSTests/Fixtures/` 和测试 target 内的样例、fixture、校准及人工准备数据属于长期资产，沿用固定路径。清理或改写前确认来源、用途和恢复方式，并取得用户明确同意。
@@ -74,6 +74,7 @@ Catalyst 安装路径为 `~/Applications/BIT101-iOS.app`。截图固定覆盖 `.
 | `login` | 登录恢复、CAS、学校认证与短信 challenge |
 | `extensions` | Widget / Watch 共用快照、传输、状态与时间线 |
 | `catalyst` | Mac Catalyst 行为测试 |
+| `catalyst-release-runtime` | Mac Catalyst 正式编译条件下的生产组装合同 |
 | `release-runtime` | 真机正式编译条件；生产账号会话、网络状态、警告中心与反馈环境组装 |
 
 ```sh
@@ -84,6 +85,7 @@ Scripts/run-extended-tests.sh infrastructure
 Scripts/run-extended-tests.sh login
 Scripts/run-extended-tests.sh extensions
 Scripts/run-extended-tests.sh catalyst
+Scripts/run-extended-tests.sh catalyst-release-runtime
 Scripts/run-extended-tests.sh release-runtime
 ```
 
@@ -190,7 +192,7 @@ Scripts/check-module-boundaries.py
 
 模块检查器同时校验服务实现归属，覆盖生产源码中的直接网络发送、会话及网络缓存访问、重复系统网络监听、文件读写、元数据和符号链接解析，以及偏好默认实例选择。包级 `ClientCoreTests` 验证连接断开、恢复与实例隔离；App 的 `NetworkClientTests` 验证诊断文字消费所选网络状态。
 
-SwiftSyntax 共享索引入口通过 `.build/static-audit/swift-syntax-indexer.lock` 串行使用源码及可执行产物，代码质量和 UI 检查器共用同一入口。源码更新、编译和索引读取在同一次锁内完成。
+`Scripts/SwiftSyntaxIndexer.swift` 维护编译器提供的 SwiftSyntax 事实采集，`swift_source_index.py` 承接编译缓存与事实查询，模块边界的回归样例归 `module_boundary_tests.py`。SwiftSyntax 共享索引入口通过 `.build/static-audit/swift-syntax-indexer.lock` 串行使用源码及可执行产物，代码质量和 UI 检查器共用同一入口。源码更新、编译和索引读取在同一次锁内完成。
 
 静态审计入口通过 `.build/static-audit/audit.lock` 串行维护固定日志；产物检查完成后，独立检查组并行执行并统一汇总失败。SwiftUI 规则共用语法树和已解析的渲染范围，词法扫描直接跳转到字符串、正则或注释，三元表达式正则参与自测。学校生命周期请求图覆盖实例属性初始化，保存的手动回调沿实际调用接入执行图；解释文案候选归 UI 源码事实模块维护。
 
@@ -251,10 +253,10 @@ Scripts/run_icloud_cross_device_smoke.sh cleanup
 完整测试输出写入对应固定日志，终端显示汇总和失败摘要；模块日志保留 Swift Testing 的 suite、用例及参数执行记录。模块测试汇总七个消费者二进制，采集逐模块生产源码行覆盖率，真机测试采集逐 target 行覆盖率，并通过 LLVM 汇总 App 及嵌入框架的生产模块覆盖率；设备 profile 在测试前清理并由本批运行重新生成，指标固定覆盖 `test-metrics.txt`。模块覆盖率统计 macOS 宿主编译的可执行源码，iOS 界面由真机行为与 UI 用例补充。模块报告记录统计范围及总覆盖行数，CI 将逐模块指标写入 GitHub Job Summary，沿工作流执行记录保留覆盖率趋势。各 Job 使用 [upload-artifact](https://github.com/actions/upload-artifact) 的零压缩级别保存完整日志、指标与结果包，采用仓库默认保留周期。覆盖率采集异常进入失败状态；Catalyst 使用 runtime 提供的测试汇总。
 测试入口通过 `.build/extended-automation.lock` 串行使用固定产物目录，聚合验证内的分组继承同一次执行锁和设备快照，结束时统一恢复常规 App。聚合验证与独立真机行为流程的恢复钩子覆盖函数内部错误和执行中断，并保留原始失败状态码。完整测试、领域专项、正式组装与 UI 的直接入口从测试执行阶段开始恢复常规 App，恢复结果记录为独立证据。UI 宿主编译失败时直接结束。编译宿主时保留既有测试结果包、指标和运行日志，编译日志使用固定 `<分组>-build.log`。长流程从入口读取完整脚本到内存后执行，加锁等待结束时读取当前版本，保证执行期间的文件编辑与当前流程各自稳定。SwiftSyntax 索引器在 `.build/static-audit/` 编译并复用，源码或工具链变化时覆盖重编译，编译与调用共用文件锁。
 
-GitHub Actions 的 `.github/workflows/ci.yml` 使用 `xcode-27` runner，先执行静态审计与包级测试，再并行执行 iOS 宿主构建 Job 和独立的 Catalyst 行为 Job。iOS Job 顺序编译正式 Release、UI 和两种 Smoke 的测试宿主，App 依赖图同时编译 Watch 和两种 Widget，Swift / Clang 警告按错误处理。工作流通过系统 Ruby YAML 解析器核对 pull_request 和 push 自动触发、三个 Job 的默认执行、bash shell 继承、静态依赖及各自必备入口。版本、plist 和 PR 基线在静态 job 校验，手动 `release_check` 校验公开版本。
+GitHub Actions 的 `.github/workflows/ci.yml` 使用 `xcode-27` runner，先执行静态审计与包级测试，再并行执行 iOS 宿主构建 Job 和独立的 Catalyst 行为 Job。Catalyst Job 执行行为用例及正式编译条件下的生产组装合同；iOS Job 顺序编译正式 Release、UI 和两种 Smoke 的测试宿主，App 依赖图同时编译 Watch 和两种 Widget，Swift / Clang 警告按错误处理。工作流通过系统 Ruby YAML 解析器核对 pull_request 和 push 自动触发、三个 Job 的默认执行、bash shell 继承、静态依赖及各自必备入口。版本、plist 和 PR 基线在静态 job 校验，手动 `release_check` 校验公开版本。
 
 本机承接真机行为、UI、网络和 iCloud 验证；发布操作按对应授权执行。
 
-验证证据由 `Scripts/validation_evidence.py` 维护，固定保存为 `.build/extended-automation/validation-evidence.json`。证据文件记录源码摘要，每组保存执行范围、退出状态及独立结果摘要。测试摘要包含总数、通过、失败、跳过、实际用例集合和逐模块覆盖率；完整分组与当前源码用例清单核对。UI 摘要要求已挂载的可交互控件全部访问，并记录禁用状态断言；源码交互清单核对各作用域的声明及有效验收归属。Swift 条件编译过滤按实际换行拆分，保留 CRLF 和 UTF-8 字节位置，Unicode 注释中的分隔字符参与库存回归验证。网络摘要核对当前范围的必需探针集合、认证和覆盖情况，iCloud 摘要包含双端阶段及清理结果，CI 记录关联工作流。模块执行通过 Swift Testing 事件流保存实际用例。独立 Smoke 同样更新证据，源码摘要包含脚本执行权限；记录、读取与提交绑定共用锁和原子替换。后续宿主覆盖指标文件时，各组摘要继续保留；源码变化后按当前内容重建证据。`Scripts/run-extended-tests.sh verify` 完整执行模块、真机行为、正式运行组装、Catalyst、UI、网络、社区写入、iCloud、正式归档和静态审计；学校短信专项通过独立入口执行，恢复常规 App 后返回聚合结果。正式归档编译结果作为 `build-archive` 证据参与绑定，恢复正式 App 的状态作为独立 `restore` 证据参与绑定。专项真机证据逐项记录系统自动填充、真实照片、日历权限与写入、通知权限与投递、外部 App 交接、网页交互、Widget 和 Watch；执行 `python3 Scripts/validation_evidence.py manual 检查项 --observation "操作、观察结果及证据位置"` 保存实际验收说明。检查项为 `system-autofill`、`photos`、`calendar-permissions`、`notifications`、`external-handoff`、`web-interactions`、`widget`、`watch`，全部完成后形成 `manual-device` 证据。授权与设备条件由用户确认，源码变更后重新验收。发布提交完成后执行 `python3 Scripts/validation_evidence.py bind`，仓库内容已完整提交、完整通过且源码摘要一致时绑定提交；CI 将各 Job 的已执行结果写入 GitHub Job Summary。手动工作流开启 `release_check` 时，在 `validation_evidence` 输入填写绑定后证据文件的 HTTPS 下载地址，CI 下载到同一固定证据路径；`python3 Scripts/validation_evidence.py check` 核对完整分组、当前源码及发布提交。编译组与行为组在证据中分别记录执行范围和结果。
+验证证据由 `Scripts/validation_evidence.py` 维护，固定保存为 `.build/extended-automation/validation-evidence.json`。证据文件记录源码摘要，每组保存执行范围、退出状态及独立结果摘要。测试摘要包含总数、通过、失败、跳过、实际用例集合和逐模块覆盖率；完整分组与当前源码用例清单核对。UI 摘要要求已挂载的可交互控件全部访问，并记录禁用状态断言；源码交互清单核对各作用域的声明及有效验收归属。Swift 条件编译过滤按实际换行拆分，保留 CRLF 和 UTF-8 字节位置，Unicode 注释中的分隔字符参与库存回归验证。网络摘要核对当前范围的必需探针集合、认证和覆盖情况，iCloud 摘要包含双端阶段及清理结果，CI 记录关联工作流。模块执行通过 Swift Testing 事件流保存实际用例。独立 Smoke 同样更新证据，源码摘要包含脚本执行权限；记录、读取与提交绑定共用锁和原子替换。后续宿主覆盖指标文件时，各组摘要继续保留；各组保存实际输入摘要，产品源码、对应测试及执行脚本的变化使所属组进入复验；文档和协作约定的变化由静态审计承接。人工验收沿产品与安装输入保留，UI 交互文档同时属于 UI 组输入。仓库整体摘要继续维护提交追溯。`Scripts/run-extended-tests.sh verify` 完整执行模块、真机行为、正式运行组装、Catalyst 行为与正式组装、UI、网络、社区写入、iCloud、正式归档和静态审计；学校短信专项通过独立入口执行，恢复常规 App 后返回聚合结果。正式归档编译结果作为 `build-archive` 证据参与绑定，恢复正式 App 的状态作为独立 `restore` 证据参与绑定。专项真机证据逐项记录系统自动填充、真实照片、日历权限与写入、通知权限与投递、外部 App 交接、网页交互、Widget 和 Watch；执行 `python3 Scripts/validation_evidence.py manual 检查项 --observation "操作、观察结果及证据位置"` 保存实际验收说明。检查项为 `system-autofill`、`photos`、`calendar-permissions`、`notifications`、`external-handoff`、`web-interactions`、`widget`、`watch`，全部完成后形成 `manual-device` 证据。授权与设备条件由用户确认，源码变更后重新验收。发布提交完成后执行 `python3 Scripts/validation_evidence.py bind`，仓库内容已完整提交、完整通过且源码摘要一致时绑定提交；CI 将各 Job 的已执行结果写入 GitHub Job Summary。手动工作流开启 `release_check` 时，在 `validation_evidence` 输入填写绑定后证据文件的 HTTPS 下载地址，CI 下载到同一固定证据路径；`python3 Scripts/validation_evidence.py check` 核对完整分组、当前源码及发布提交。编译组与行为组在证据中分别记录执行范围和结果。
 
 社区线上写入通过 `Scripts/release-network-smoke.sh community-writes` 执行，使用用户授权的当前账号和“功能验收”中性文案。创建独立帖子、文章及三个业务域的评论和回复，验证内容编辑、点赞及恢复，点赞与评论写入按服务端一秒冷却推进；课程采用当前可用列表的首个目标。文章探针复用编辑器的 Editor.js 正文序列化与纯文本读取，业务失败报告标注创建、编辑、点赞、评论或回复步骤。每次写入前将账号和清理标记原子保存到 Application Support 下的 `NetworkSmoke/community-write-journal.json`，保存成功后提交线上请求，创建后登记服务端标识。宿主入口按进程串行执行验收，社区恢复直接读取专用记录。失败或取消时继续清理；脚本异常时调用 `community-cleanup` 恢复待清理记录，原始失败与清理结果共同保存到同一固定报告，控制台保留两个阶段的诊断。删除后重新读取服务端，帖子与文章的明确资源缺失响应沿所属业务域判定，其他返回保留失败。确认全部验收内容清理和点赞恢复后记录 `community-writes` 证据。请求前后核对账号身份与代际，清理过程的账号变化保留恢复记录。回复先删除并在父评论可读时确认，再删除父评论与所属内容。清理按独立对象推进并保存成功进度，单个对象持续失败时继续清理其他对象，账号变化沿身份边界结束。清理异常保留待清理记录，连接恢复后执行 `Scripts/release-network-smoke.sh community-cleanup`。恢复清理沿独立 `community-cleanup` 范围记录结果，完整写入验收证据继续保留。固定报告保存创建标识、写入结果与服务端删除确认，发布门禁核对三个域的点赞恢复、六个不同评论标识的删除、评论及回复的创建关系，以及帖子和文章删除。

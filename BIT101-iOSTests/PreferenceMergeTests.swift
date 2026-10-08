@@ -103,6 +103,8 @@ struct PreferenceMergeTests {
         }
         first.sync.settings.updateGallerySettings(hiddenUserIDs: [42])
         second.sync.settings.updateGallerySettings(hideAnonymousContent: true)
+        await first.sync.refreshFromCloudIfNeeded()?.value
+        await second.sync.refreshFromCloudIfNeeded()?.value
         let firstValue = try #require(first.cloud.data(forKey: first.record(.appSettings)))
         let secondValue = try #require(second.cloud.data(forKey: second.record(.appSettings)))
         first.cloud.set(secondValue, forKey: first.record(.appSettings))
@@ -134,6 +136,8 @@ struct PreferenceMergeTests {
         }
         first.sync.stores.scoreFilterPreferences.save(selectedTerms: ["term"], selectedCourseTypes: [], sortIndex: .score, sortOrder: .descending)
         second.sync.stores.scoreFilterPreferences.save(selectedTerms: [], selectedCourseTypes: ["必修"], sortIndex: .score, sortOrder: .descending)
+        await first.sync.refreshFromCloudIfNeeded()?.value
+        await second.sync.refreshFromCloudIfNeeded()?.value
         let firstValue = try #require(first.cloud.data(forKey: first.record(.scoreFilters)))
         let secondValue = try #require(second.cloud.data(forKey: second.record(.scoreFilters)))
         first.cloud.set(secondValue, forKey: first.record(.scoreFilters))
@@ -157,6 +161,8 @@ struct PreferenceMergeTests {
         first.sync.stores.communityMessages.markSeen(ids: [1], for: .comment)
         second.sync.stores.communityMessages.markSeen(ids: [2], for: .comment)
         second.sync.stores.communityMessages.markSeen(ids: [8], for: .like)
+        await first.sync.refreshFromCloudIfNeeded()?.value
+        await second.sync.refreshFromCloudIfNeeded()?.value
         let firstValue = try #require(first.cloud.data(forKey: first.record(.galleryMessageRead)))
         let secondValue = try #require(second.cloud.data(forKey: second.record(.galleryMessageRead)))
         first.cloud.set(secondValue, forKey: first.record(.galleryMessageRead))
@@ -311,7 +317,7 @@ struct PreferenceMergeTests {
         #expect(restored.additionalFields == local.additionalFields)
     }
 
-    @Test(arguments: [false, true])
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func legacyMigrationRetainsItsSourceUntilTheReplacementFitsAndIsStored(rejectWrite: Bool) async throws {
         let value = try device("BIT101Tests.preference-record-migration")
         defer { value.defaults.removePersistentDomain(forName: value.domain) }

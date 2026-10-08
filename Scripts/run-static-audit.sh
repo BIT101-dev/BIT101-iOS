@@ -17,7 +17,7 @@ if [[ -z "$SWIFT_FRONTEND" || ! -x "$SWIFT_FRONTEND" ]]; then
 fi
 LOG_DIR="$ROOT_DIR/.build/static-audit"
 AUDIT_STARTED=$SECONDS
-BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest)"
+BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest audit)"
 export BIT101_VALIDATION_SOURCE_DIGEST
 
 mkdir -p "$LOG_DIR"

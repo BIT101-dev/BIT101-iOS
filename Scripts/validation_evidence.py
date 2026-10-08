@@ -16,12 +16,13 @@ from functools import cache
 from contextlib import contextmanager
 sys.dont_write_bytecode = True
 from swift_source_index import swift_syntax_index_sources
+from validation_inputs import includes_input
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / ".build/extended-automation/validation-evidence.json"
-RELEASE_GROUPS = {"modules", "all", "release-runtime", "catalyst", "ui", "network", "school-sms", "icloud", "audit", "restore", "manual-device", "build-archive", "community-writes"}
+RELEASE_GROUPS = {"modules", "all", "release-runtime", "catalyst", "catalyst-release-runtime", "ui", "network", "school-sms", "icloud", "audit", "restore", "manual-device", "build-archive", "community-writes"}
 MANUAL_DEVICE_CHECKS = {"system-autofill", "photos", "calendar-permissions", "notifications", "external-handoff", "web-interactions", "widget", "watch"}
-TEST_GROUPS = {"modules", "all", "release-runtime", "catalyst", "ui", "schedule", "infrastructure", "login", "extensions"}
+TEST_GROUPS = {"modules", "all", "release-runtime", "catalyst", "catalyst-release-runtime", "ui", "schedule", "infrastructure", "login", "extensions"}
 ICLOUD_DOMAINS = {"score-kvs", "schedule-cloudkit"}
 SCHOOL_SMS_PROBES = {
     "webvpn": {"当前学期", "切换学期列表", "课表、考试与首周同步", "空教室校区列表", "空教室教学楼列表", "空教室占用数据"},
@@ -72,12 +73,12 @@ def write_report(report: dict) -> None:
 def compilation_condition(condition: str, group: str) -> bool:
     enabled = {"DEBUG", "EXTENDED_AUTOMATION", "BIT101_AUTOMATED_TESTING"} if group in {"all", "catalyst"} else {"EXTENDED_AUTOMATION", "BIT101_AUTOMATED_TESTING", "BIT101_UI_TESTING"} if group == "ui" else set()
     platform = "macOS" if group == "modules" else "iOS"
-    architecture = os.uname().machine if group in {"modules", "catalyst"} else "arm64"
+    architecture = os.uname().machine if group in {"modules", "catalyst", "catalyst-release-runtime"} else "arm64"
     def predicate(match):
         name, value = match.groups()
         value = value.strip()
         if name == "os": result = value == platform
-        elif name == "targetEnvironment": result = value == "macCatalyst" and group == "catalyst"
+        elif name == "targetEnvironment": result = value == "macCatalyst" and group in {"catalyst", "catalyst-release-runtime"}
         elif name == "arch": result = value == architecture
         elif name == "canImport":
             shared = {"Foundation", "Testing", "XCTest", "Swift", "Combine", "CryptoKit", "CloudKit", "SwiftUI", "EventKit", "UserNotifications",
@@ -87,7 +88,7 @@ def compilation_condition(condition: str, group: str) -> bool:
             if value in shared or (ROOT / "Modules" / value).is_dir(): result = True
             elif value == "UIKit": result = platform == "iOS"
             elif value == "AppKit": result = platform == "macOS"
-            elif value == "ActivityKit": result = platform == "iOS" and group != "catalyst"
+            elif value == "ActivityKit": result = platform == "iOS" and group not in {"catalyst", "catalyst-release-runtime"}
             else: raise ValueError(f"测试清单需要登记框架可用性：canImport({value})")
         else: raise ValueError(f"测试清单需要支持编译谓词：{name}({value})")
         return str(result)
@@ -134,7 +135,7 @@ def test_inventory(group: str) -> set[str]:
     for path in directory.rglob("*.swift"):
         sources[str(path)] = active_swift_source(path.read_text(), group)
     tests = {test["value"] for facts in swift_syntax_index_sources(sources).values() for test in facts["tests"]}
-    return {test for test in tests if test.startswith("ReleaseRuntimeContractTests/")} if group == "release-runtime" else tests
+    return {test for test in tests if test.startswith("ReleaseRuntimeContractTests/")} if group in {"release-runtime", "catalyst-release-runtime"} else tests
 
 
 def normalized_test_id(identifier: str) -> str:
@@ -201,14 +202,14 @@ def network_inventory(scope: str = "all") -> set[str]:
     return set().union(*(areas[area] for area in included))
 
 
-def source_digest() -> str:
+def source_digest(group: str = "") -> str:
     names = subprocess.check_output([
         "git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"
     ], cwd=ROOT).decode().split("\0")
-    digest = hashlib.sha256()
+    digest = hashlib.sha256(group.encode() + b"\0")
     for name in sorted(set(names) - {""}):
         path = ROOT / name
-        if path.is_file():
+        if path.is_file() and includes_input(name, group):
             executable = b"x" if path.stat().st_mode & 0o111 else b"-"
             digest.update(name.encode() + b"\0" + executable + path.read_bytes() + b"\0")
     return digest.hexdigest()
@@ -390,6 +391,8 @@ def release_findings(report: dict, digest: str) -> list[str]:
         errors.append("验证源码摘要与当前仓库内容存在差异。")
     for name in sorted(RELEASE_GROUPS):
         row = report.get("groups", {}).get(name, {})
+        if row.get("inputDigest") != source_digest(name):
+            errors.append(f"{name} 的验证输入已变化，请重新执行该组。")
         if row.get("exitCode") != 0 or row.get("scope") != "full" or not complete_summary(name, row.get("summary", {})):
             errors.append(f"{name} 需要完整执行并通过，并保留结果摘要。")
     return errors
@@ -397,10 +400,11 @@ def release_findings(report: dict, digest: str) -> list[str]:
 
 def record(group: str, status: int, scope: str, started_digest: str) -> int:
     digest = source_digest()
-    if started_digest and digest != started_digest:
+    input_digest = source_digest(group)
+    if started_digest and input_digest != started_digest:
         status = status or 1
         print("验证期间源码变更，请按当前源码重新执行该组。", file=sys.stderr)
-    row = {"exitCode": status, "scope": scope}
+    row = {"exitCode": status, "scope": scope, "inputDigest": input_digest}
     if group in TEST_GROUPS:
         row["report"] = ".build/extended-automation/test-metrics.txt"
         metrics = ROOT / row["report"]
@@ -433,8 +437,8 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
         row["ciRun"] = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
     with report_lock():
         report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
-        if report.get("sourceDigest") != digest:
-            report = {"sourceDigest": digest, "groups": {}}
+        report.setdefault("groups", {})
+        report["sourceDigest"] = digest
         report.pop("releaseCommit", None)
         report["groups"][group] = row
         report["testedCommit"] = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
@@ -528,16 +532,19 @@ def main() -> int:
         digest = source_digest()
         with report_lock():
             report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
-            if report.get("sourceDigest") != digest: report = {"sourceDigest": digest, "groups": {}}
+            report.setdefault("groups", {})
+            report["sourceDigest"] = digest
             report.pop("releaseCommit", None)
-            summary = report["groups"].get("manual-device", {}).get("summary", {"checks": {}})
+            previous = report["groups"].get("manual-device", {})
+            input_digest = source_digest("manual-device")
+            summary = previous.get("summary", {"checks": {}}) if previous.get("inputDigest") == input_digest else {"checks": {}}
             summary["checks"][args.group] = args.observation.strip()
             summary["passed"] = set(summary["checks"]) == MANUAL_DEVICE_CHECKS
-            report["groups"]["manual-device"] = {"exitCode": 0 if summary["passed"] else 2, "scope": "full", "summary": summary}
+            report["groups"]["manual-device"] = {"exitCode": 0 if summary["passed"] else 2, "scope": "full", "summary": summary, "inputDigest": input_digest}
             write_report(report)
         return 0
     if args.action == "digest":
-        print(source_digest())
+        print(source_digest(args.group))
         return 0
     if args.action == "suites":
         if args.group not in TEST_AREA_MARKERS:
@@ -546,6 +553,8 @@ def main() -> int:
         return 0
     if args.action == "self-test":
         from unittest.mock import patch
+        from validation_inputs import self_test as input_self_test
+        input_self_test()
         assert compilation_condition("os(macOS) && !canImport(UIKit)", "modules")
         assert compilation_condition("canImport(SwiftUI) && canImport(AppKit)", "modules")
         for group in ("modules", "all", "catalyst", "ui"):
@@ -613,6 +622,23 @@ def main() -> int:
                 assert source_digest() != original
         finally:
             fixture.unlink(missing_ok=True)
+        from types import SimpleNamespace
+        inputs = {"README.md": b"documentation", "Modules/StorageCore/Sources/AppFileService.swift": b"product",
+                  "ModuleTests/Sync/ScheduleSyncTests.swift": b"test"}
+        with patch.object(subprocess, "check_output", return_value="\0".join(inputs).encode()), \
+                patch.object(Path, "is_file", return_value=True), \
+                patch.object(Path, "read_bytes", lambda path: inputs[path.relative_to(ROOT).as_posix()]), \
+                patch.object(Path, "stat", return_value=SimpleNamespace(st_mode=0o644)):
+            before = {group: source_digest(group) for group in ("audit", "modules", "manual-device")}
+            inputs["README.md"] = b"updated documentation"
+            assert source_digest("audit") != before["audit"]
+            assert source_digest("modules") == before["modules"]
+            assert source_digest("manual-device") == before["manual-device"]
+            inputs["ModuleTests/Sync/ScheduleSyncTests.swift"] = b"updated test"
+            assert source_digest("modules") != before["modules"]
+            assert source_digest("manual-device") == before["manual-device"]
+            inputs["Modules/StorageCore/Sources/AppFileService.swift"] = b"updated product"
+            assert source_digest("manual-device") != before["manual-device"]
         def icloud_summary(value):
             return smoke_summary("icloud", dict(validatedDomains=sorted(ICLOUD_DOMAINS), cloudKitEnvironment="Production", **value))
         test = {"passed": True, "totalTests": 1, "passedTests": 1, "failedTests": 0, "skippedTests": 0}
@@ -634,7 +660,7 @@ def main() -> int:
             for identifier in ("Package.Outer/Inner/works()", "Package.Outer/Inner/works()/Example.swift:1:1"):
                 assert complete_summary("schedule", dict(test, executedTests=[identifier]))
         summaries = {name: dict(test, totalTests=len(test_inventory(name)), passedTests=len(test_inventory(name)),
-            executedTests=sorted(test_inventory(name))) for name in ("modules", "all", "release-runtime", "catalyst", "ui")}
+            executedTests=sorted(test_inventory(name))) for name in ("modules", "all", "release-runtime", "catalyst", "catalyst-release-runtime", "ui")}
         summaries["modules"]["coverage"] = {name: {"coveredLines": floor, "executableLines": 100}
                                             for name, floor in MODULE_COVERAGE_FLOORS.items()}
         summaries["all"]["coverage"] = {"BIT101-iOS.app": {"coveredLines": 35, "executableLines": 100}}
@@ -703,7 +729,7 @@ def main() -> int:
         assert smoke_summary("school-sms", dict(sms, verifiedSMSProbes=sms["verifiedSMSProbes"][:1]))["passed"] is False
         summaries["icloud"] = icloud_summary({"exitCode": 0, "stages": [
             dict(test, stage=name, totalTestCount=1, exitCode=0) for name in ("testPhoneRoundTrip", "testMacReceiveAndRestore")]})
-        groups = {name: {"exitCode": 0, "scope": "full", "summary": summary} for name, summary in summaries.items()}
+        groups = {name: {"exitCode": 0, "scope": "full", "summary": summary, "inputDigest": source_digest(name)} for name, summary in summaries.items()}
         report = {"sourceDigest": "source", "groups": groups}
         with patch("ui_rules.source_runtime_interaction_findings", return_value=[]):
             assert release_findings(report, "source") == []
@@ -771,7 +797,9 @@ def inspect_report(args) -> int:
         result = row.get("summary", {})
         passed = row.get("exitCode") == 0 and result.get("passed") is True
         count = result.get("passedTests", result.get("executedProbes", sum(stage["passedTests"] for stage in result.get("stages", []))))
-        rows.append(f"| {name} | {row.get('scope', '?')} | {'通过' if passed else '待处理'} | {count} | {len(result.get('coverage', {}))} |")
+        current = row.get("inputDigest") == source_digest(name)
+        label = "待复验" if not current else "通过" if passed else "待处理"
+        rows.append(f"| {name} | {row.get('scope', '?')} | {label} | {count} | {len(result.get('coverage', {}))} |")
     if report.get("releaseCommit"):
         rows.append(f"\n发布提交：{report['releaseCommit']}")
     text = "\n".join(rows)

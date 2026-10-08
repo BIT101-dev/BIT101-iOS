@@ -8,7 +8,7 @@ public nonisolated enum AccountStorageIdentity {
 
     public static func stableToken(for accountIdentifier: String) -> String {
         let normalizedIdentifier = accountIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedIdentifier.isEmpty else { return "__default__" }
+        guard !normalizedIdentifier.isEmpty, normalizedIdentifier != "__default__" else { return "__default__" }
         guard !isStableToken(normalizedIdentifier) else { return normalizedIdentifier }
 
         let digest = SHA256.hash(data: Data(normalizedIdentifier.utf8))

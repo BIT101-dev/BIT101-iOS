@@ -122,13 +122,14 @@ fi
 if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
   echo "Scripts/run-extended-tests.sh                    自动选机、运行完整行为测试"
   echo "Scripts/run-extended-tests.sh modules            本机模块测试"
-  echo "Scripts/run-extended-tests.sh release-runtime    正式编译条件下的组装合同"
+  echo "Scripts/run-extended-tests.sh release-runtime    正式编译条件下的真机组装合同"
+  echo "Scripts/run-extended-tests.sh catalyst-release-runtime  正式编译条件下的 Catalyst 组装合同"
   echo "Scripts/run-extended-tests.sh ui [用例关键词]...  真机 UI 测试，多个筛选合并执行"
   echo "Scripts/run-extended-tests.sh build [宿主]        编译测试宿主，默认 release"
   echo "Scripts/run-extended-tests.sh report [json|coverage] 读取测试结果、用例树或覆盖率"
   echo "Scripts/run-extended-tests.sh cache               整理共享构建缓存"
-  echo "分组：release-runtime、schedule、infrastructure、login、extensions、catalyst；组后可直接填写测试类/方法。"
-  echo "宿主：release、release-runtime、ui、network-smoke、icloud-smoke、modules、catalyst。"
+  echo "分组：release-runtime、catalyst-release-runtime、schedule、infrastructure、login、extensions、catalyst；组后可直接填写测试类/方法。"
+  echo "宿主：release、release-runtime、ui、network-smoke、icloud-smoke、modules、catalyst、catalyst-release-runtime。"
   echo "专项：verify [分组]...；diagnostics；report|screenshot|activities 测试类/方法。"
   exit 0
 fi
@@ -155,34 +156,33 @@ if [[ "${1:-}" == build ]]; then
   if (( $# > 0 )); then shift; fi
   case "$MODE" in
     release|release-runtime|ui|network-smoke|icloud-smoke) GENERIC_BUILD=true ;;
-    modules|catalyst) ;;
-    *) echo "编译宿主：release、release-runtime、ui、network-smoke、icloud-smoke、modules、catalyst。" >&2; exit 64 ;;
+    modules|catalyst|catalyst-release-runtime) ;;
+    *) echo "编译宿主：release、release-runtime、ui、network-smoke、icloud-smoke、modules、catalyst、catalyst-release-runtime。" >&2; exit 64 ;;
   esac
 fi
 if ! $BUILD_ONLY && [[ $# -gt 0 ]]; then
   case "$1" in
-    all|release-runtime|schedule|infrastructure|login|extensions|ui|catalyst|modules|verify)
+    all|release-runtime|schedule|infrastructure|login|extensions|ui|catalyst|catalyst-release-runtime|modules|verify)
       MODE="$1"
       shift
       ;;
   esac
 fi
 
-BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest)"
 export BIT101_VALIDATION_SOURCE_DIGEST
 
 if [[ "$MODE" == "verify" ]]; then
   typeset -aU verification_groups
   verification_groups=("$@")
   if (( ${#verification_groups[@]} == 0 )); then
-    verification_groups=(modules all release-runtime catalyst ui network community-writes icloud build-archive audit)
+    verification_groups=(modules all release-runtime catalyst catalyst-release-runtime ui network community-writes icloud build-archive audit)
   fi
   verification_needs_device=false
   for group in "${verification_groups[@]}"; do
     case "$group" in
       all|release-runtime|ui|network|community-writes|ddl|icloud) verification_needs_device=true ;;
-      modules|catalyst|build-archive|audit) ;;
-      *) echo "验证组：modules all release-runtime catalyst ui network community-writes ddl icloud build-archive audit" >&2; exit 64 ;;
+      modules|catalyst|catalyst-release-runtime|build-archive|audit) ;;
+      *) echo "验证组：modules all release-runtime catalyst catalyst-release-runtime ui network community-writes ddl icloud build-archive audit" >&2; exit 64 ;;
     esac
   done
   acquire_test_lock
@@ -224,7 +224,7 @@ if [[ "$MODE" == "verify" ]]; then
   }
   for group in "${verification_groups[@]}"; do
     case "$group" in
-      modules|catalyst) verify_step "$group" "$0" "$group" ;;
+      modules|catalyst|catalyst-release-runtime) verify_step "$group" "$0" "$group" ;;
       all|release-runtime|ui) verify_step "$group" "$0" "$group" ;;
       network) verify_step network "$ROOT_DIR/Scripts/release-network-smoke.sh" ;;
       community-writes) verify_step community-writes "$ROOT_DIR/Scripts/release-network-smoke.sh" community-writes ;;
@@ -288,6 +288,7 @@ if [[ "$MODE" == schedule || "$MODE" == infrastructure || "$MODE" == login || "$
 fi
 validation_group="$MODE"
 if $BUILD_ONLY; then validation_group="build-$MODE"; fi
+BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest "$validation_group")"
 finish_validation() {
   local validation_status=$?
   trap - EXIT ZERR INT TERM
@@ -302,14 +303,10 @@ elif $GENERIC_BUILD; then
   acquire_test_lock
   TEST_DESTINATION="generic/platform=iOS"
   SIGNING_ARGS=(CODE_SIGNING_ALLOWED=NO)
-elif [[ "$MODE" == "catalyst" ]]; then
+elif [[ "$MODE" == catalyst || "$MODE" == catalyst-release-runtime ]]; then
   acquire_test_lock
   TEST_DESTINATION="platform=macOS,variant=Mac Catalyst"
-  if [[ "${GITHUB_ACTIONS:-false}" == "true" ]]; then
-    SIGNING_ARGS=(CODE_SIGNING_ALLOWED=NO)
-  else
-    SIGNING_ARGS=(-allowProvisioningUpdates)
-  fi
+  SIGNING_ARGS=(CODE_SIGNING_ALLOWED=NO)
 else
   acquire_test_lock
   bit101_require_device || exit 1
@@ -321,7 +318,7 @@ if [[ "$MODE" == ui && ${#TEST_SELECTIONS[@]} -gt 0 ]]; then
   echo "[筛选] ${#TEST_SELECTIONS[@]} 项 UI 用例 · 同一批次执行"
 fi
 
-if [[ "$BUILD_ONLY" == false && "$MODE" != modules && "$MODE" != catalyst && "${BIT101_DEFER_APP_RESTORE:-0}" != "1" ]]; then
+if [[ "$BUILD_ONLY" == false && "$MODE" != modules && "$MODE" != catalyst && "$MODE" != catalyst-release-runtime && "${BIT101_DEFER_APP_RESTORE:-0}" != "1" ]]; then
   DEVICE_TEST_EXECUTION_STARTED=false
   restore_release_app() {
     local test_exit_code=$?
@@ -475,7 +472,7 @@ run_tests() {
     test_action=build-for-testing
   else
     execution_args+=(-resultBundlePath "$RESULT_BUNDLE")
-    if [[ "$MODE" != catalyst && "$MODE" != ui ]]; then
+    if [[ "$MODE" != catalyst && "$MODE" != catalyst-release-runtime && "$MODE" != ui ]]; then
       rm -f "$DERIVED_ROOT/Build/ProfileData/$BIT101_XCODE_DEVICE_ID/"*.profdata(N)
     fi
   fi
@@ -507,7 +504,7 @@ run_tests() {
     project_args=(-xctestrun "$ui_plan_path")
     test_action=test-without-building
   fi
-  if [[ "$BUILD_ONLY" == false && "$MODE" != catalyst ]]; then DEVICE_TEST_EXECUTION_STARTED=true; fi
+  if [[ "$BUILD_ONLY" == false && "$MODE" != catalyst && "$MODE" != catalyst-release-runtime ]]; then DEVICE_TEST_EXECUTION_STARTED=true; fi
   echo "[$test_action] $group"
   if bit101_run_logged "$log" "$group 输出" xcodebuild "$test_action" -quiet \
     "${project_args[@]}" \
@@ -595,7 +592,7 @@ if summary.get("totalTestCount", 0) == 0:
 
 coverage = None
 coverage_error = None
-if mode not in {"catalyst", "ui"}:
+if mode not in {"catalyst", "catalyst-release-runtime", "ui"}:
     coverage_result = subprocess.run([
         "xcrun", "xccov", "view", "--report", "--json", result_bundle,
     ], capture_output=True, text=True)
@@ -701,7 +698,7 @@ if coverage is None:
         preparations = [float(value) for value in re.findall(r"UI scene preparation: ([\d.]+)", output)]
         if preparations:
             lines.append(f"场景准备：{len(preparations)} 次；累计 {sum(preparations):.1f} 秒")
-    elif mode == "catalyst":
+    elif mode in {"catalyst", "catalyst-release-runtime"}:
         lines.append("Mac Catalyst runtime does not provide an xccov archive.")
     else:
         lines.append("设备测试汇总已采集；Xcode 覆盖率归档诊断如下。")
@@ -763,7 +760,7 @@ if len(coverage_lines) <= 1000:
         print("\n".join(coverage_lines))
 else:
     print(f"覆盖率指标共 {len(coverage_lines)} 行 · {report_path}")
-if mode not in {"catalyst", "ui"} and coverage is None:
+if mode not in {"catalyst", "catalyst-release-runtime", "ui"} and coverage is None:
     if coverage_error:
         print(coverage_error)
     raise SystemExit("覆盖率采集失败。")
@@ -774,7 +771,7 @@ case "$MODE" in
   release)
     run_tests all-tests ""
     ;;
-  release-runtime)
+  release-runtime|catalyst-release-runtime)
     run_tests ReleaseRuntimeContractTests ""
     ;;
   network-smoke)

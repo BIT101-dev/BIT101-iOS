@@ -50,7 +50,7 @@ fi
 
 bit101_acquire_workflow_lock "$0" "$@"
 if [[ "$ACTION" == install ]]; then
-  BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest)"
+  BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest restore)"
   export BIT101_VALIDATION_SOURCE_DIGEST
   finish_install() {
     local install_status=$?
@@ -105,7 +105,7 @@ fi
 if [[ "$ACTION" == archive ]]; then
   BUILD_ACTION=archive
   BUILD_OVERRIDES+=(-archivePath "$DERIVED_DATA/BIT101-iOS.xcarchive")
-  BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest)"
+  BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest build-archive)"
   export BIT101_VALIDATION_SOURCE_DIGEST
   rm -rf "$DERIVED_DATA/BIT101-iOS.xcarchive"
   finish_archive() {
