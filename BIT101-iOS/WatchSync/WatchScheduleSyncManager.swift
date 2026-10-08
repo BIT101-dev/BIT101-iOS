@@ -5,12 +5,39 @@ import ScheduleSharedStore
 
 import Foundation
 import OSLog
+import os
 // WCSessionDelegate callbacks enter through SDK nonisolated methods; state is
 // handed back to the MainActor manager before mutation.
 import WatchConnectivity
 #if canImport(WidgetKit)
 import WidgetKit
 #endif
+
+/// SDK 回复闭包由锁保护，并在取得快照后消费一次。
+private nonisolated final class WatchScheduleReply: Sendable {
+    private let reply: OSAllocatedUnfairLock<(([String: Any]) -> Void)?>
+    init(_ reply: @escaping ([String: Any]) -> Void) { self.reply = OSAllocatedUnfairLock(uncheckedState: reply) }
+    func send(_ data: Data?) {
+        reply.withLock {
+            $0?(data.map(WatchScheduleTransferProtocol.snapshotContext) ?? [:])
+            $0 = nil
+        }
+    }
+}
+
+/// 镜像传输保留已编码的最高版本，迟到的读取沿当前镜像回复。
+nonisolated struct WatchSnapshotDeliveryBuffer {
+    private var revision: UInt64?
+    private var data: Data?
+
+    mutating func accept(_ snapshot: ScheduleExternalSnapshot) throws -> Data {
+        if let revision, snapshot.revision <= revision, let data { return data }
+        let encoded = try ScheduleExternalSnapshotCodec.encode(snapshot)
+        revision = snapshot.revision
+        data = encoded
+        return encoded
+    }
+}
 
 /// App 与 Watch 入口组装当前进程的共享快照仓库。
 nonisolated enum PlatformScheduleSnapshotStorage {
@@ -63,6 +90,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
 
     #if os(iOS)
     private var pendingSnapshotData: Data?
+    private var deliveryBuffer = WatchSnapshotDeliveryBuffer()
     #elseif os(watchOS)
     private let requestQueue = WatchScheduleRequestQueue()
     private var lastSnapshotClear: ContinuousClock.Instant?
@@ -88,7 +116,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     /// 为 iPhone -> watch 同步链路编码课表快照。
     private func encodedSnapshotData(_ snapshot: ScheduleExternalSnapshot) -> Data? {
         do {
-            return try ScheduleExternalSnapshotCodec.encode(snapshot)
+            return try deliveryBuffer.accept(snapshot)
         } catch {
             Self.logger.error("Failed to encode the watch schedule snapshot: \(String(describing: error), privacy: .public)")
             return nil
@@ -96,18 +124,11 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     }
 
     /// 从共享仓库读取并编码当前快照。
-    private nonisolated static func currentSnapshotDataIfAvailable(for studentID: String, knownRevision: UInt64 = 0) -> Data? {
-        let accountToken = AppStorageSession(accountIdentifier: studentID).accountStorageIdentifier
-        guard let snapshot = PlatformScheduleSnapshotStorage.store.load(),
-              snapshot.studentID == studentID || snapshot.studentID == accountToken
-        else { return nil }
-        guard let normalizedSnapshot = snapshot.replacingStudentID(with: accountToken)
-            .advancingRevision(after: knownRevision) else { return nil }
+    private func currentSnapshotDataIfAvailable(for studentID: String, isLoggedIn: Bool, knownRevision: UInt64 = 0) async -> Data? {
+        guard let snapshot = await ScheduleExternalSnapshotWriteQueue.shared.snapshot(
+            for: studentID, isLoggedIn: isLoggedIn, knownRevision: knownRevision) else { return nil }
         do {
-            if normalizedSnapshot != snapshot {
-                try PlatformScheduleSnapshotStorage.store.write(normalizedSnapshot)
-            }
-            return try ScheduleExternalSnapshotCodec.encode(normalizedSnapshot)
+            return try deliveryBuffer.accept(snapshot)
         } catch {
             Self.logger.error("Failed to encode the watch schedule snapshot: \(String(describing: error), privacy: .public)")
             return nil
@@ -152,14 +173,19 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     func pushCurrentSnapshotIfAvailable(knownRevision: UInt64 = 0) {
         activateIfNeeded()
         let session = WCSession.default
+        let credentials = AppAccountSession.storage.communityCredentials
         let studentID = AppAccountSession.storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let data = Self.currentSnapshotDataIfAvailable(for: studentID, knownRevision: knownRevision) else { return }
-        guard session.activationState == .activated else {
-            pendingSnapshotData = data
-            return
+        let isLoggedIn = !AppAccountSession.storage.fakeCookie.isEmpty
+        Task {
+            guard let data = await self.currentSnapshotDataIfAvailable(for: studentID, isLoggedIn: isLoggedIn, knownRevision: knownRevision),
+                  credentials == AppAccountSession.storage.communityCredentials else { return }
+            guard session.activationState == .activated else {
+                pendingSnapshotData = data
+                return
+            }
+            guard session.isPaired else { return }
+            Self.updateApplicationContext(withSnapshotData: data, session: session)
         }
-        guard session.isPaired else { return }
-        Self.updateApplicationContext(withSnapshotData: data, session: session)
     }
     #endif
 
@@ -292,15 +318,16 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     ) {
         #if os(iOS)
         if let knownRevision = WatchScheduleTransferProtocol.knownRevision(from: message) {
-            let data: Data? = DispatchQueue.main.sync {
-                MainActor.assumeIsolated {
-                    let studentID = AppAccountSession.storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard let data = Self.currentSnapshotDataIfAvailable(for: studentID, knownRevision: knownRevision) else { return nil }
-                    Self.updateApplicationContext(withSnapshotData: data, session: WCSession.default)
-                    return data
-                }
+            let reply = WatchScheduleReply(replyHandler)
+            Task { @MainActor in
+                let credentials = AppAccountSession.storage.communityCredentials
+                let studentID = AppAccountSession.storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+                let data = await self.currentSnapshotDataIfAvailable(for: studentID,
+                    isLoggedIn: !AppAccountSession.storage.fakeCookie.isEmpty, knownRevision: knownRevision)
+                guard credentials == AppAccountSession.storage.communityCredentials else { reply.send(nil); return }
+                if let data { Self.updateApplicationContext(withSnapshotData: data, session: WCSession.default) }
+                reply.send(data)
             }
-            replyHandler(data.map(WatchScheduleTransferProtocol.snapshotContext) ?? [:])
             return
         }
         #endif

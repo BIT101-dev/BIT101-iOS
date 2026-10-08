@@ -113,6 +113,12 @@ final class LoginStorage: SchoolCredentialsProviding {
         return StoredCredentials(studentID: studentID, password: password)
     }
 
+    func retrySessionReadIfNeeded() {
+        guard sessionReadError != nil, defaults.object(forKey: DefaultsKey.revokedSession) == nil else { return }
+        do { try restoreSession() }
+        catch { Self.logger.error("Session credentials await a successful read") }
+    }
+
     /// 保存登录成功后的本地会话。
     ///
     /// 这里保存可长期复用的账号密码和当前 fake-cookie。
@@ -129,6 +135,7 @@ final class LoginStorage: SchoolCredentialsProviding {
 
         let accountChanged = currentStudentID != normalizedStudentID || self.fakeCookie.isEmpty
         try saveSession(Session(studentID: normalizedStudentID, password: password, fakeCookie: normalizedFakeCookie))
+        defaults.set(true, forKey: DefaultsKey.installationMarker)
         defaults.removeObject(forKey: DefaultsKey.revokedSession)
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
         retireLegacyCredentials()
@@ -288,10 +295,12 @@ final class LoginStorage: SchoolCredentialsProviding {
         if !cleared { Self.logger.error("Legacy credential cleanup remains pending") }
     }
 
-    func preservingCredentialRevocation(_ clearPreferences: () -> Void) {
+    func preservingLoginMarkers(_ clearPreferences: () -> Void) {
         let revoked = defaults.string(forKey: DefaultsKey.revokedSession)
+        let installed = defaults.object(forKey: DefaultsKey.installationMarker) as? Bool
         clearPreferences()
         if let revoked { defaults.set(revoked, forKey: DefaultsKey.revokedSession) }
+        if let installed { defaults.set(installed, forKey: DefaultsKey.installationMarker) }
     }
 
 }

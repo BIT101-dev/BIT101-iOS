@@ -226,7 +226,7 @@ enum AppLocalDataComposition {
             clearReports: { ReleaseNetworkSmokeReportStore.clearLocalArtifacts() },
             clearDiagnostics: { await NetworkDiagnosticStore.shared.clear() },
             clearPreferences: {
-                AppAccountSession.storage.preservingCredentialRevocation { defaults.removePersistentDomain(forName: domain) }
+                AppAccountSession.storage.preservingLoginMarkers { defaults.removePersistentDomain(forName: domain) }
             },
             clearURLCache: { URLSessionTransport.clearSharedCache() },
             clearWebData: {

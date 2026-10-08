@@ -66,6 +66,7 @@ final class ReleaseNetworkSmokeRunner {
     private let dependencies: ReleaseNetworkSmokeDependencies
     private var failures: [String] = []
     private var communityWriteEvidence: [String] = []
+    private var productionSessionEvidence: [String] = []
     private var authenticationBlockers: [String] = []
     private var scheduleCache: ScheduleCacheAuditSnapshot?
     private var eclassDDL: EclassDDLAudit?
@@ -103,6 +104,7 @@ final class ReleaseNetworkSmokeRunner {
         defer { Self.executionGate.release() }
         failures = []
         communityWriteEvidence = []
+        productionSessionEvidence = []
         authenticationBlockers = []
         scheduleCache = nil
         eclassDDL = nil
@@ -334,7 +336,9 @@ final class ReleaseNetworkSmokeRunner {
         })
 
         let mine = dependencies.makeMine()
-        _ = await probe("生产共享会话", area: .bit101, scope: scope) { try await self.dependencies.productionSessionProbe() }
+        productionSessionEvidence = await probe("生产共享会话", area: .bit101, scope: scope) {
+            try await self.dependencies.productionSessionProbe()
+        } ?? []
         let myInfo = await probe("我的资料", area: .bit101, scope: scope) { try await mine.fetchMyInfo() }
         await runInParallel([
             { _ = await self.probe("我的关注", area: .bit101, scope: scope) { try await NetworkSmokePaging.arrayPage { try await mine.fetchFollowings(page: $0) } } },
@@ -546,6 +550,7 @@ final class ReleaseNetworkSmokeRunner {
         report.authenticatedSchoolProbes = authenticatedSchoolProbes
         report.requestedSMSPurposes = requestedSMSPurposes
         report.communityWriteEvidence = communityWriteEvidence
+        report.productionSessionEvidence = productionSessionEvidence
         do {
             try dependencies.writeReport(report)
         } catch {

@@ -54,14 +54,14 @@ enum ScheduleWidgetExporter {
             lastPublishedContent = nil
             guard let emptySnapshot = makeSnapshot(courses: ScheduleCache().courseSnapshot, session: session) else { return }
             // 账号切换先更新共享展示的身份，再读取当前账号缓存。
-            let didWriteEmptySnapshot = await ScheduleExternalSnapshotWriteQueue.shared.write(emptySnapshot, generation: generation)
+            let written = await ScheduleExternalSnapshotWriteQueue.shared.write(emptySnapshot, generation: generation)
             guard isCurrent(session: session, generation: generation) else { return }
-            if didWriteEmptySnapshot {
-                publish(emptySnapshot)
+            if let written {
+                publish(written)
             } else {
-                _ = await ScheduleExternalSnapshotWriteQueue.shared.clear(generation: generation)
+                let cleared = await ScheduleExternalSnapshotWriteQueue.shared.clear(emptySnapshot, generation: generation)
                 guard isCurrent(session: session, generation: generation) else { return }
-                WatchScheduleSyncManager.shared.push(snapshot: emptySnapshot)
+                if let snapshot = cleared.snapshot { WatchScheduleSyncManager.shared.push(snapshot: snapshot) }
                 WidgetCenter.shared.reloadAllTimelines()
             }
         } else {
@@ -101,26 +101,26 @@ enum ScheduleWidgetExporter {
     @discardableResult
     static func clearSharedSnapshot() async -> Bool {
         await clearSharedSnapshot(
-            clearSnapshot: { await ScheduleExternalSnapshotWriteQueue.shared.clear(generation: $0) },
+            clearSnapshot: { await ScheduleExternalSnapshotWriteQueue.shared.clear($0, generation: $1) },
             publishSnapshot: publish
         )
     }
 
     @discardableResult
     static func clearSharedSnapshot(
-        clearSnapshot: @MainActor (UInt64) async -> Bool,
+        clearSnapshot: @MainActor (ScheduleExternalSnapshot, UInt64) async -> (didClear: Bool, snapshot: ScheduleExternalSnapshot?),
         publishSnapshot: @MainActor (ScheduleExternalSnapshot) -> Void
     ) async -> Bool {
         let session = AppFileDirectories.currentSession
         let generation = nextExportGeneration()
         guard let emptySnapshot = makeSnapshot(courses: ScheduleCache().courseSnapshot, session: session) else { return false }
         lastPublishedContent = nil
-        let didClear = await clearSnapshot(generation)
-        guard isCurrent(session: session, generation: generation) else { return didClear }
-        if didClear {
-            publishSnapshot(emptySnapshot)
+        let result = await clearSnapshot(emptySnapshot, generation)
+        guard isCurrent(session: session, generation: generation) else { return result.didClear }
+        if result.didClear, let snapshot = result.snapshot {
+            publishSnapshot(snapshot)
         }
-        return didClear
+        return result.didClear
     }
 
     private static func export(
@@ -136,12 +136,12 @@ enum ScheduleWidgetExporter {
             WatchScheduleSyncManager.shared.pushCurrentSnapshotIfAvailable()
             return
         }
-        let didSave = await ScheduleExternalSnapshotWriteQueue.shared.write(
+        let written = await ScheduleExternalSnapshotWriteQueue.shared.write(
             snapshot,
             generation: generation
         )
-        guard didSave, isCurrent(session: session, generation: generation) else { return }
-        publish(snapshot)
+        guard let written, isCurrent(session: session, generation: generation) else { return }
+        publish(written)
     }
 
     private static func content(of snapshot: ScheduleExternalSnapshot) -> ScheduleExternalSnapshot {
@@ -165,7 +165,9 @@ enum ScheduleWidgetExporter {
         let isLoggedIn = !AppAccountSession.storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let storedRevision = PlatformScheduleSnapshotStorage.store.load()?.revision ?? 0
         let clockRevision = UInt64(max(Date().timeIntervalSince1970 * 1_000_000, 0))
-        snapshotRevision = max(snapshotRevision, storedRevision, clockRevision) + 1
+        let previousRevision = max(snapshotRevision, storedRevision, clockRevision)
+        guard previousRevision < UInt64.max else { return nil }
+        snapshotRevision = previousRevision + 1
 
         return ScheduleExternalSnapshot(
             revision: snapshotRevision,
@@ -206,26 +208,48 @@ enum ScheduleWidgetExporter {
 }
 
 /// 串行写入 App Group 快照，并丢弃迟到的旧账号导出。
-private actor ScheduleExternalSnapshotWriteQueue {
+actor ScheduleExternalSnapshotWriteQueue {
     static let shared = ScheduleExternalSnapshotWriteQueue()
 
     private var latestGeneration: UInt64 = 0
+    private var latestRevision: UInt64 = 0
+    private let store: ScheduleExternalSnapshotStore
 
-    func write(_ snapshot: ScheduleExternalSnapshot, generation: UInt64) -> Bool {
+    init(store: ScheduleExternalSnapshotStore = PlatformScheduleSnapshotStorage.store) { self.store = store }
+
+    func write(_ snapshot: ScheduleExternalSnapshot, generation: UInt64) -> ScheduleExternalSnapshot? {
         guard ScheduleSnapshotExportPolicy.acceptsWrite(
             generation: generation,
             latestGeneration: latestGeneration
-        ) else { return false }
+        ) else { return nil }
         latestGeneration = generation
-        return PlatformScheduleSnapshotStorage.store.save(snapshot)
+        guard let snapshot = reserve(snapshot), store.save(snapshot) else { return nil }
+        return snapshot
     }
 
-    func clear(generation: UInt64) -> Bool {
+    func clear(_ snapshot: ScheduleExternalSnapshot, generation: UInt64) -> (didClear: Bool, snapshot: ScheduleExternalSnapshot?) {
         guard ScheduleSnapshotExportPolicy.acceptsWrite(
             generation: generation,
             latestGeneration: latestGeneration
-        ) else { return false }
+        ) else { return (false, nil) }
         latestGeneration = generation
-        return PlatformScheduleSnapshotStorage.store.clear()
+        let snapshot = reserve(snapshot)
+        return (store.clear(), snapshot)
+    }
+
+    func snapshot(for studentID: String, isLoggedIn: Bool, knownRevision: UInt64) -> ScheduleExternalSnapshot? {
+        let account = AppStorageSession(accountIdentifier: studentID).accountStorageIdentifier
+        guard let snapshot = store.load(), snapshot.studentID == account, snapshot.isLoggedIn == isLoggedIn else { return nil }
+        guard knownRevision >= snapshot.revision || latestRevision > snapshot.revision else { return snapshot }
+        guard let advanced = snapshot.advancingRevision(after: max(knownRevision, latestRevision)), store.save(advanced) else { return nil }
+        latestRevision = advanced.revision
+        return advanced
+    }
+
+    private func reserve(_ snapshot: ScheduleExternalSnapshot) -> ScheduleExternalSnapshot? {
+        let normalized = snapshot.replacingStudentID(with: AccountStorageIdentity.stableToken(for: snapshot.studentID))
+        guard let advanced = normalized.advancingRevision(after: max(latestRevision, store.load()?.revision ?? 0)) else { return nil }
+        latestRevision = advanced.revision
+        return advanced
     }
 }

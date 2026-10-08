@@ -114,7 +114,7 @@ enum NetworkSessionPool {
 
     static let appLinkAssociation = make(configuration: .ephemeral, followsRedirects: false)
 
-    /// BIT101 社区接口共享连接池、Cookie 容器和 URLCache，供各 Service 复用 TLS 连接。
+    /// 社区服务共享连接池与公共 URLCache；认证请求由会话快照提供凭据。
     static let community = communityTransport(productionPolicy: false)
 
     private static func communityTransport(productionPolicy: Bool) -> any HTTPTransport {

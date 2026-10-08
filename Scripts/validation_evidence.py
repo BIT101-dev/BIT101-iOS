@@ -287,6 +287,7 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
                 "startedAt": value.get("startedAt"), "finishedAt": value.get("finishedAt"),
                 "schoolSMSCoverage": value.get("schoolSMSCoverage"),
                 "communityWriteEvidence": value.get("communityWriteEvidence", []),
+                "productionSessionEvidence": value.get("productionSessionEvidence", []),
                 "diagnostics": {name: value.get(name, []) for name in ("failures", "coverageGaps", "authenticationBlockers", "skippedProbes")},
                 "runID": value.get("runID"), "inputDigest": value.get("inputDigest"),
                 "verifiedSMSProbes": sms_steps,

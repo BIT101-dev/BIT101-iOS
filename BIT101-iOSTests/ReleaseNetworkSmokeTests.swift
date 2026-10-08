@@ -876,13 +876,14 @@ extension ReleaseNetworkSmokeLifecycleTests {
         var reports: [ReleaseNetworkSmokeReport] = []
         var feedback = 0
         var rawWrites = 0
+        let sessionEvidence = ["初始账号资料 ID：1", "无效凭据切换：认证拒绝", "恢复账号资料 ID：1"]
         let dependencies = ReleaseNetworkSmokeDependencies(checkLogin: { "fixture" }, writeReport: { reports.append($0) },
             clearRawCourseResponse: {}, writeRawCourseResponse: { _, runID in
                 rawWrites += 1
                 #expect(runID == stage)
                 if stage == "raw-write-failure" { throw CocoaError(.fileWriteNoPermission) }
             }, makeGallery: { services }, makeCourses: { services }, makePapers: { services }, makeMine: { services },
-            productionSessionProbe: {}, externalHTTPClient: HTTPClient(transport: external, observer: nil), aasaHTTPClient: HTTPClient(transport: association, observer: nil),
+            productionSessionProbe: { sessionEvidence }, externalHTTPClient: HTTPClient(transport: external, observer: nil), aasaHTTPClient: HTTPClient(transport: association, observer: nil),
             feedbackProbe: { _ in feedback += 1 },
             loadScheduleCache: { ScheduleCache() }, makeScores: { services }, makeSchedule: { handler in services.rawResponse = handler; return services },
             makeProductionSchedule: { productionServices }, makeEclassSchedule: { services })
@@ -892,6 +893,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
         let report = await runner.run(scope: scope, runID: stage, capture: stage == "raw-write-failure" ? .rawCourseResponse : .none,
             schoolSMSCodeHandler: stage.hasPrefix("all-sms-") ? smsHandler : nil)
         #expect(report.passed == !stage.hasSuffix("failure"))
+        #expect(report.productionSessionEvidence == (scope.includes(.bit101) ? sessionEvidence : []))
         if stage == "all-sms-success" {
             #expect(report.schoolSMSCoverage == "verified")
             #expect(services.webvpnVerified && productionServices.webvpnVerified)

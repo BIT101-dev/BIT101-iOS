@@ -158,6 +158,7 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         let url = HTTPSURLUpgrade.upgradedURL(from: rawURL)
 
         var request = URLRequest(url: url)
+        request.httpShouldHandleCookies = false
         request.httpMethod = method
         request.httpBody = body
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -180,6 +181,9 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
             }
         case .none:
             break
+        }
+        if request.value(forHTTPHeaderField: "fake-cookie") != nil {
+            request.cachePolicy = .reloadIgnoringLocalCacheData
         }
 
         do {

@@ -42,7 +42,7 @@ public struct MineService {
 
     /// 初始化社区 API 客户端。
     ///
-    /// “我的”页和话题页共用同一份登录存储，因此这里沿用系统 cookie 容器。
+    /// 资料请求通过注入会话取得当前账号凭据，并复用社区连接池。
     public init(session: CommunitySession, preferences: @escaping () -> CommunityPreferenceSnapshot) {
         api = session.client(errorDomain: "BIT101.Mine")
         self.preferences = preferences

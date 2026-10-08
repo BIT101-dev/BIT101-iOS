@@ -27,6 +27,25 @@ struct CommunitySessionIsolationTests {
         return (Data(), try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)))
     }
 
+    @Test func authenticatedRequestsUseExplicitCredentialsAndFreshResponses() async throws {
+        let credentials = Credentials()
+        var captured: [URLRequest] = []
+        let transport = Transport { request in
+            captured.append(request)
+            return try response(request, status: 200)
+        }
+        let client = CommunityAPIClient<Failure>(httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"), errorDomain: "test", credentials: { credentials.snapshot })
+        _ = try await client.requestData(path: "private")
+        _ = try await client.requestData(path: "optional", authentication: .optional)
+        _ = try await client.requestData(path: "public", authentication: .none)
+        credentials.cookie = ""
+        _ = try await client.requestData(path: "guest", authentication: .optional)
+        #expect(captured.map(\.httpShouldHandleCookies) == [false, false, false, false])
+        #expect(captured.map(\.cachePolicy) == [.reloadIgnoringLocalCacheData, .reloadIgnoringLocalCacheData, .useProtocolCachePolicy, .useProtocolCachePolicy])
+        #expect(captured.map { $0.value(forHTTPHeaderField: "fake-cookie") } == ["cookie-a", "cookie-a", nil, nil])
+    }
+
     @Test func accountSwitchStopsWriteRetry() async {
         let credentials = Credentials()
         var requests = 0

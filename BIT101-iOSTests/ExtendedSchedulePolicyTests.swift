@@ -254,6 +254,23 @@ struct ExternalScheduleWatchStatusTests {
 
 @Suite("Extended schedule invariants")
 struct ExtendedSchedulePolicyTests {
+    @Test func delayedWatchDeliveryKeepsTheNewContentAndClearedMirror() throws {
+        var buffer = WatchSnapshotDeliveryBuffer()
+        let old = ScheduleExternalSnapshot(revision: 1, isLoggedIn: true, studentID: "watch-owner",
+            firstDayString: "2026-01-01", timeTable: [], courses: [])
+        let newer = ScheduleExternalSnapshot(revision: 2, isLoggedIn: true, studentID: "watch-owner",
+            firstDayString: "2026-02-01", timeTable: [], courses: [])
+        let empty = ScheduleExternalSnapshot(revision: 3, isLoggedIn: false, studentID: "watch-owner",
+            firstDayString: "", timeTable: [], courses: [])
+        _ = try buffer.accept(old)
+        let current = try buffer.accept(newer)
+        #expect(try buffer.accept(old) == current)
+        let cleared = try buffer.accept(empty)
+        #expect(try buffer.accept(newer) == cleared)
+        let received = try ScheduleExternalSnapshotCodec.decode(buffer.accept(old))
+        #expect(received.revision == empty.revision && received.isLoggedIn == false && received.firstDayString.isEmpty)
+    }
+
     @Test @MainActor
     func sharedSnapshotClearPublishesEmptyStateAndRejectsAnEarlierCompletion() async {
         var released: CheckedContinuation<Bool, Never>?
@@ -261,26 +278,58 @@ struct ExtendedSchedulePolicyTests {
         var published: [ScheduleExternalSnapshot] = []
         var generations: [UInt64] = []
         let pending = Task {
-            await ScheduleWidgetExporter.clearSharedSnapshot(clearSnapshot: { generation in
+            await ScheduleWidgetExporter.clearSharedSnapshot(clearSnapshot: { snapshot, generation in
                 generations.append(generation)
-                return await withCheckedContinuation {
+                let cleared = await withCheckedContinuation {
                     released = $0
                     started?.resume(); started = nil
                 }
+                return (cleared, snapshot)
             }, publishSnapshot: { published.append($0) })
         }
         await withCheckedContinuation { started = $0 }
-        let cleared = await ScheduleWidgetExporter.clearSharedSnapshot(clearSnapshot: { generation in
+        let cleared = await ScheduleWidgetExporter.clearSharedSnapshot(clearSnapshot: { snapshot, generation in
             generations.append(generation)
-            return true
+            return (true, snapshot)
         }, publishSnapshot: { published.append($0) })
         released?.resume(returning: true)
         #expect(await pending.value)
         #expect(cleared && generations.count == 2 && generations[0] < generations[1])
         #expect(published.count == 1 && published[0].courses.isEmpty && published[0].firstDayString.isEmpty)
-        let failed = await ScheduleWidgetExporter.clearSharedSnapshot(clearSnapshot: { _ in false },
+        let failed = await ScheduleWidgetExporter.clearSharedSnapshot(clearSnapshot: { _, _ in (false, nil) },
             publishSnapshot: { _ in Issue.record("清理失败需要保留外部发布状态") })
         #expect(failed == false)
+    }
+
+    @Test(arguments: [false, true]) @MainActor
+    func watchRepliesAndPreparedWidgetExportsShareRevisionAndClearOwnership(watchFirst: Bool) async throws {
+        let files = PreferenceMemoryFiles()
+        let store = ScheduleExternalSnapshotStore(files: files, containerURL: files.temporaryDirectoryURL)
+        let writer = ScheduleExternalSnapshotWriteQueue(store: store)
+        let old = ScheduleExternalSnapshot(revision: 1, isLoggedIn: true, studentID: "snapshot-owner",
+            firstDayString: "2026-01-01", timeTable: [], courses: [])
+        let prepared = ScheduleExternalSnapshot(revision: 2, isLoggedIn: true, studentID: "snapshot-owner",
+            firstDayString: "2026-02-01", timeTable: [], courses: [])
+        _ = try #require(await writer.write(old, generation: 1))
+        if watchFirst {
+            let reply = try #require(await writer.snapshot(for: "snapshot-owner", isLoggedIn: true, knownRevision: 100))
+            let saved = try #require(await writer.write(prepared, generation: 2))
+            #expect(saved.revision > reply.revision)
+        } else {
+            _ = try #require(await writer.write(prepared, generation: 2))
+            let reply = try #require(await writer.snapshot(for: "snapshot-owner", isLoggedIn: true, knownRevision: 100))
+            #expect(reply.firstDayString == prepared.firstDayString)
+        }
+        let current = try #require(store.load())
+        #expect(current.firstDayString == prepared.firstDayString && current.revision > 100)
+        #expect(await writer.snapshot(for: "other-owner", isLoggedIn: true, knownRevision: 100) == nil)
+        #expect(await writer.snapshot(for: "snapshot-owner", isLoggedIn: false, knownRevision: 100) == nil)
+        let empty = ScheduleExternalSnapshot(isLoggedIn: false, studentID: "snapshot-owner",
+            firstDayString: "", timeTable: [], courses: [])
+        let cleared = await writer.clear(empty, generation: 3)
+        #expect(cleared.didClear && (cleared.snapshot?.revision ?? 0) > current.revision)
+        #expect(store.load() == nil)
+        #expect(await writer.write(old, generation: 2) == nil)
     }
 
     @Test("External schedule exports discard stale accounts and generations")

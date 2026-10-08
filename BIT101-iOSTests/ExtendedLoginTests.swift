@@ -471,8 +471,7 @@ struct LoginStorageTests {
         storage.clearSession()
         #expect(storage.fakeCookie.isEmpty && storage.currentPassword.isEmpty)
         #expect(try storage.loadCredentials() == nil)
-        storage.preservingCredentialRevocation { defaults.removePersistentDomain(forName: domain) }
-        defaults.set(true, forKey: "login.installationMarker")
+        storage.preservingLoginMarkers { defaults.removePersistentDomain(forName: domain) }
         let reopened = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
         #expect(reopened.currentStudentID == "B")
         #expect(reopened.fakeCookie.isEmpty && reopened.currentPassword.isEmpty)
@@ -499,5 +498,46 @@ struct LoginStorageTests {
         #expect(storage.fakeCookie == "legacy-cookie")
         #expect(storage.communityCredentials.identity == .init(accountIdentifier: "A"))
         #expect(defaults.object(forKey: "login.fakeCookie") == nil)
+    }
+
+    @Test func clearingPreferencesAndSigningInAgainKeepsTheNewSessionAcrossLaunch() throws {
+        let domain = "BIT101Tests.login-storage.clear-and-login"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let backend = Credentials()
+        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+        try storage.saveLoginState(studentID: "A", password: "password-A", fakeCookie: "cookie-A")
+        #expect(storage.clearAllLocalData())
+        storage.preservingLoginMarkers { defaults.removePersistentDomain(forName: domain) }
+        #expect(defaults.bool(forKey: "login.installationMarker"))
+        #expect(defaults.string(forKey: "login.session.revoked") == "all")
+        try storage.saveLoginState(studentID: "B", password: "password-B", fakeCookie: "cookie-B")
+        let reopened = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+        #expect(reopened.currentStudentID == "B" && reopened.currentPassword == "password-B" && reopened.fakeCookie == "cookie-B")
+    }
+
+    @Test func foregroundAndProtectedDataRecoveryRestoreTheExistingLoginPresentation() async throws {
+        let domain = "BIT101Tests.login-storage.lifecycle-recovery"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        for protectedDataEvent in [false, true] {
+            defaults.removePersistentDomain(forName: domain)
+            let backend = Credentials()
+            let stored = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+            try stored.saveLoginState(studentID: "A", password: "fixture", fakeCookie: "cookie-A")
+            backend.failsReads = true
+            let reopened = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+            let model = LoginViewModel(service: LoginService(storage: reopened))
+            await model.bootstrapIfNeeded()
+            #expect(model.screenState == .signedOut && reopened.credentialReadIssue != nil)
+            let delegate = AppDelegate()
+            delegate.restoreLoginSession = { reopened.retrySessionReadIfNeeded() }
+            backend.failsReads = false
+            if protectedDataEvent { delegate.applicationProtectedDataDidBecomeAvailable(.shared) }
+            else { delegate.restoreLoginSession() }
+            #expect(model.screenState == .signedIn(studentID: "A"))
+            #expect(reopened.fakeCookie == "cookie-A" && reopened.credentialReadIssue == nil)
+        }
     }
 }

@@ -9,14 +9,29 @@ import TransportCore
 #if DEBUG || RELEASE_NETWORK_SMOKE
 @MainActor
 enum NetworkSmokeProductionSession {
-    static func run() async throws {
-        let identity = AppAccountSession.storage.communityCredentials.identity
+    static func run() async throws -> [String] {
+        let original = AppAccountSession.storage.communityCredentials
+        var selected = original
         let client = HTTPClient(transport: NetworkSessionPool.productionCommunity)
-        let mine = MineService(httpClient: client)
+        let session = CommunitySession(httpClient: client, baseURL: AppURL.required("https://bit101.flwfdd.xyz"),
+            credentials: { selected }, refresh: { _ in throw MineServiceError.notLoggedIn })
+        let mine = MineService(session: session, preferences: { AppCommunityDependencies.preferenceSnapshot })
         let first = try await mine.fetchMyInfo()
-        let restored = try await MineService(httpClient: client).fetchMyInfo()
-        guard first.own, restored.own, first.user.id == restored.user.id,
-              identity == AppAccountSession.storage.communityCredentials.identity else { throw URLError(.cannotParseResponse) }
+        guard first.own, first.user.id > 0 else { throw URLError(.cannotParseResponse) }
+        var evidence = ["初始账号资料 ID：\(first.user.id)"]
+        selected = CommunityCredentials(identity: .init(accountIdentifier: "community-smoke-invalid", generation: 1),
+            cookie: "bit101-smoke-invalid-session")
+        do {
+            _ = try await mine.fetchMyInfo()
+            throw URLError(.userAuthenticationRequired)
+        } catch MineServiceError.notLoggedIn { evidence.append("无效凭据切换：认证拒绝") }
+        selected = CommunityCredentials(identity: .init(accountIdentifier: original.identity.accountIdentifier, generation: 2),
+            cookie: original.cookie)
+        let restored = try await MineService(session: session, preferences: { AppCommunityDependencies.preferenceSnapshot }).fetchMyInfo()
+        guard restored.own, first.user.id == restored.user.id,
+              original.identity == AppAccountSession.storage.communityCredentials.identity else { throw URLError(.cannotParseResponse) }
+        evidence.append("恢复账号资料 ID：\(restored.user.id)")
+        return evidence
     }
 
     static func school() -> ScheduleService {

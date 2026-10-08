@@ -222,6 +222,7 @@ struct ReleaseNetworkSmokeReport: Codable {
     var authenticatedSchoolProbes: [SchoolSMSProbeEvidence] = []
     var requestedSMSPurposes: [String] = []
     var communityWriteEvidence: [String] = []
+    var productionSessionEvidence: [String] = []
 
     var elapsed: TimeInterval {
         finishedAt.timeIntervalSince(startedAt)
@@ -373,7 +374,7 @@ struct ReleaseNetworkSmokeDependencies {
     var communityWriteProbe: @MainActor (String, Bool, Int?, Int?) async throws -> [String] = {
         try await CommunityWriteSmoke(operations: .production(followTarget: $2)).run(marker: $0, cleanupOnly: $1, expectedAccount: $3)
     }
-    var productionSessionProbe: @MainActor () async throws -> Void = NetworkSmokeProductionSession.run
+    var productionSessionProbe: @MainActor () async throws -> [String] = NetworkSmokeProductionSession.run
     var externalHTTPClient: HTTPClient = .shared
     var aasaHTTPClient = HTTPClient(transport: NetworkSessionPool.appLinkAssociation)
     var feedbackProbe: @MainActor (String) async throws -> Void = { try await FeedbackSubmissionClient.submitNetworkSmoke(runID: $0) }

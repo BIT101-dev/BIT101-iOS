@@ -21,6 +21,12 @@ import Combine
 #endif
 
 final class AppDelegate: NSObject, UIApplicationDelegate {
+    var restoreLoginSession: @MainActor () -> Void = { AppAccountSession.storage.retrySessionReadIfNeeded() }
+
+    func applicationProtectedDataDidBecomeAvailable(_: UIApplication) {
+        restoreLoginSession()
+    }
+
     func application(
         _: UIApplication,
         didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil
@@ -299,6 +305,7 @@ struct BIT101_iOSApp: App {
                 guard !AppFileDirectories.isRunningUITest else { return }
 #endif
                 // 回到前台时导出本地快照并刷新时间线；学校请求由用户显式操作触发。
+                appDelegate.restoreLoginSession()
                 lifecycle.sceneBecameActive()
                 AppRestoreReadiness.recordIfReady()
             }
