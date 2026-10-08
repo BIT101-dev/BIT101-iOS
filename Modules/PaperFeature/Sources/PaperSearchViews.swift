@@ -102,6 +102,7 @@ private struct PaperSearchScene: View {
             }
             .padding(.vertical, AppDesignSystem.Spacing.content)
         }
+        .accessibilityIdentifier("interaction.PaperSearchScene.scroll")
         .background(AppDesignSystem.Palette.Background.grouped)
         .refreshable {
                     interactionEvidence?("interaction.PaperSearchScene.refreshable", "refresh")

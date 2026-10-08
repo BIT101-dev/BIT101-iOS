@@ -285,6 +285,7 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
                 }
             }
         }
+        .accessibilityIdentifier("interaction.AppMultiSelectionList.list")
         .appGroupedListStyle()
         .appSelectionFeedback(trigger: selectedItems)
         .navigationTitle(title)

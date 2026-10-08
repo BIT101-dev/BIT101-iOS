@@ -205,6 +205,7 @@ private struct GalleryPosterDetailViewScene: View {
                                 }
                             }
                         }
+                        .accessibilityIdentifier("interaction.GalleryPosterDetailViewScene.tags")
                         .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
                         Spacer(minLength: AppDesignSystem.Spacing.tiny)
@@ -258,6 +259,7 @@ private struct GalleryPosterDetailViewScene: View {
             .padding(.horizontal, AppDesignSystem.Spacing.section)
             .padding(.top, AppDesignSystem.Spacing.section)
         }
+        .accessibilityIdentifier("interaction.GalleryPosterDetailViewScene.content")
         .refreshable {
                     interactionEvidence?("interaction.GalleryPosterDetailViewScene.refreshable", "refresh")
 

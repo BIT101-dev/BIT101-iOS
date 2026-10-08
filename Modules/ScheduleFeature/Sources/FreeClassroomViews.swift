@@ -137,6 +137,7 @@ struct FreeClassroomTabView: View {
                 }
             }
         }
+        .accessibilityIdentifier("interaction.FreeClassroomTabView.list")
         .appGroupedListStyle()
     }
 

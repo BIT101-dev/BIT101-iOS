@@ -266,6 +266,7 @@ struct ScheduleWeekdaySelectionSheet: View {
                 .appInteractiveListRow()
                     .accessibilityIdentifier("ui.schedule-weekday-selection-sheet.weekday")
             }
+            .accessibilityIdentifier("interaction.ScheduleWeekdaySelectionSheet.list")
             .appGroupedListStyle()
             .navigationTitle("星期")
             .navigationBarTitleDisplayMode(.inline)

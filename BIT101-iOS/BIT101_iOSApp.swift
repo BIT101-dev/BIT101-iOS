@@ -334,6 +334,10 @@ final class UITestSceneState: ObservableObject {
                             reply(Data(UITestAccessibilityActions.identity(environment).utf8))
                             return
                         }
+                        if ["scroll-inventory", "scroll-check", "scroll-restore"].contains(environment["command"] ?? "") {
+                            reply(try UITestAccessibilityActions.scroll(environment))
+                            return
+                        }
                         if environment["command"] == "record" {
                             UITestAccessibilityActions.invalidate()
                             UITestAccessibilityActions.record(environment["identifier"] ?? "", label: environment["label"] ?? "",

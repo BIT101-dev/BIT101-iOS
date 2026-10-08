@@ -60,6 +60,7 @@ public struct DDLSettingsPage: View {
                     .accessibilityIdentifier("ui.ddl-settings-page.after-day")
             }
         }
+        .accessibilityIdentifier("interaction.DDLSettingsPage.list")
         .appGroupedListStyle()
         .task { await viewModel.loadIfNeeded() }
         .scheduleSchoolVerification(viewModel: viewModel)

@@ -287,3 +287,5 @@ SwiftSyntax 清点每个源码作用域的控件、输入、滚动和手势声�
 | `Modules/ScoreFeature/Sources/ScoreRootView.swift:ScoreDetailView` | `{"Button":1,"List":1}` | `InteractionCoverageUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` |
 | `Modules/ScoreFeature/Sources/ScoreRootView.swift:ScoreListPage` | `{"AppEmptyState":1,"AppFailureState":1,"AppRefreshStatusRow":1,"AppSMSVerificationSheet":1,"List":1,"NavigationLink":6}` | `InteractionCoverageUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail,InteractionCoverageUITests/testTrustedTranscriptSMSRetryPreviewAndCancellation` |
 | `Modules/ScoreFeature/Sources/ScoreRootView.swift:TrustedTranscriptPage` | `{"AppEmptyState":1,"AppFailureState":1,"AppSMSVerificationSheet":1,"Button":1,"ScrollView":1}` | `InteractionCoverageUITests/testTrustedTranscriptSMSRetryPreviewAndCancellation` |
+
+滚动容器使用稳定身份参与源码与运行证据核对。UI 用例在操作前验收当前容器：可滚动内容通过原生滑动核对位置变化并恢复起始位置，完整显示的内容核对边界并记录 `scroll-fit`；容器动作与子控件动作分别核对。底栏选中项变化记录 `tab-switch`，用于 TabView 的独立切换证据。

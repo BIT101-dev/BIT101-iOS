@@ -123,6 +123,8 @@ struct GallerySettingsPage: View {
             }
 
         }
+
+        .accessibilityIdentifier("interaction.GallerySettingsPage.list")
         .appGroupedListStyle()
         .diagnosticAlert(item: $hiddenUserIDsAlert)
         .diagnosticAlert(item: $diagnosisAlert)
@@ -219,6 +221,7 @@ struct AboutSettingsPage: View {
                             .padding(AppDesignSystem.Spacing.section)
                             .textSelection(.enabled)
                     }
+                    .accessibilityIdentifier("interaction.AboutSettingsPage.scroll")
                     .navigationTitle("开源声明")
                 }
                 .appInteractiveListRow()
@@ -282,6 +285,7 @@ struct AboutSettingsPage: View {
                 .appInteractiveListRow(isDestructive: true)
             }
         }
+        .accessibilityIdentifier("interaction.AboutSettingsPage.list")
         .appGroupedListStyle()
         .diagnosticAlert(item: $alert)
         .alert("删除所有文稿与数据", isPresented: $isShowingResetConfirmation) {

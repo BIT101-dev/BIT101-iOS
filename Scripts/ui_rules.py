@@ -435,7 +435,7 @@ def interactive_list_row_findings(path: Path, facts: dict, syntax: dict[str, dic
         return False
 
     for row in facts.get("accessibilityControls", []):
-        if row["name"] in {"TextField", "SecureField", "TextEditor", "Slider", "Stepper", "onTapGesture", "onLongPressGesture", "gesture", "simultaneousGesture", "highPriorityGesture", "refreshable", "onSubmit", "onDelete", "onMove", "searchable", "contextMenu", "swipeActions"}: continue
+        if row["name"] in {"TextField", "SecureField", "TextEditor", "Slider", "Stepper", "ScrollView", "List", "TabView", "onTapGesture", "onLongPressGesture", "gesture", "simultaneousGesture", "highPriorityGesture", "refreshable", "onSubmit", "onDelete", "onMove", "searchable", "contextMenu", "swipeActions"}: continue
         if not is_interactive_list_row(row, facts):
             continue
         suffix = mask_literals_and_comments(row["expression"][len(row["invocation"]):])
@@ -593,16 +593,18 @@ def source_runtime_interaction_findings(syntax: dict[str, dict], documented: dic
     actions = {"refreshable": "refresh", "onSubmit": "submit", "onDelete": "delete", "onMove": "move", "searchable": "search", "contextMenu": "press", "swipeActions": "gesture", "ShareLink": "tap"}
     native_actions = {"Button": "tap", "NavigationLink": "tap", "Menu": "tap", "Link": "tap", "PhotosPicker": "tap",
         "Toggle": "tap", "Picker": "selection", "DatePicker": "selection", "TextField": "input",
-        "SecureField": "input", "TextEditor": "input", "Slider": "gesture", "Stepper": "tap"}
+        "SecureField": "input", "TextEditor": "input", "Slider": "gesture", "Stepper": "tap",
+        "ScrollView": "scroll", "List": "scroll", "TabView": "tab-switch"}
     gestures = {"onTapGesture", "onLongPressGesture", "gesture", "simultaneousGesture", "highPriorityGesture"}
     errors = []
     selectors = Counter()
     contracts = {}
+    expressions = {}
     for path, facts in syntax.items():
         if "Tests/" in path or "UITest" in Path(path).name: continue
         active = active_swift_source(Path(path).read_text(), "ui").encode() if Path(path).is_file() else None
         for control in facts.get("accessibilityControls", []):
-            if control["name"] not in {"Button", "NavigationLink", "Menu", "Link", "PhotosPicker", "Toggle", "Picker", "DatePicker", "TextField", "SecureField", "TextEditor", "Slider", "Stepper"} | gestures | actions.keys(): continue
+            if control["name"] not in native_actions.keys() | gestures | actions.keys(): continue
             if active is not None and active[control["start"]:control["start"] + 1] == b" ": continue
             source = Path(path).relative_to(ROOT).as_posix() + ":" + (".".join(control["scope"]) or "global")
             journeys = documented.get(source, ({}, set()))[1]
@@ -617,9 +619,14 @@ def source_runtime_interaction_findings(syntax: dict[str, dict], documented: dic
             key = (source, kind, names, action)
             selectors[key] += 1
             contracts[key] = tests
+            expressions.setdefault(key, set()).add(control["expression"])
+    def shares_carrier(key, other):
+        return key[0] == other[0] and key[1:3] == other[1:3] and key[3] != other[3] \
+            and "scroll" in {key[3], other[3]} and len(expressions[key]) == 1 and expressions[key] == expressions[other]
     demands = []
     for (source, kind, names, action), count in selectors.items():
-        overlaps = any(other != (source, kind, names, action) and other[1:3] == (kind, names)
+        key = (source, kind, names, action)
+        overlaps = any(other != key and other[1:3] == (kind, names) and not shares_carrier(key, other)
             and contracts[other] & contracts[(source, kind, names, action)] for other in selectors)
         if count > 1 or overlaps:
             errors.append(f"源码交互需要明确的标识区分分支：{source} · {' | '.join(names)}")
@@ -628,9 +635,11 @@ def source_runtime_interaction_findings(syntax: dict[str, dict], documented: dic
             scoped = any(all(re.search(r"(?<!\w)" + re.escape(part) + r"(?!\w)", row.get("scope", ""))
                 for part in journey.split("/")) for journey in contracts[(source, kind, names, action)])
             value = row.get(kind, "").strip()
-            return scoped and bool(({"tap", "gesture"} if action == "selection" else {action}) & set(row.get("actions", []))) and any(re.fullmatch(pattern, value) is not None
+            accepted_actions = {"tap", "gesture"} if action == "selection" else {"scroll", "scroll-fit"} if action == "scroll" else {action}
+            return scoped and bool(accepted_actions & set(row.get("actions", []))) and any(re.fullmatch(pattern, value) is not None
                 or kind == "label" and re.match(pattern + r",\s", value) is not None for pattern in patterns)
-        visited = {row.get("instance") or json.dumps(row, sort_keys=True) for row in evidence if matches(row)}
+        shared = any(shares_carrier(key, other) for other in selectors)
+        visited = {(row.get("instance") or json.dumps(row, sort_keys=True), action if shared else "") for row in evidence if matches(row)}
         demands.extend(((source, names), visited) for _ in range(count))
     owners = {}
     def assign(index, seen):

@@ -9,6 +9,8 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     @MainActor private static var sessionProcess: String?
     @MainActor private static var sessionScene: String?
     @MainActor private static let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    @MainActor private var checkingScrollContainers = false
+    @MainActor private var checkedScrollContainers = Set<String>()
     private let runIdentifier = "ui"
 
     override func tearDown() async throws {
@@ -446,13 +448,50 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     }
 
     @MainActor
+    func checkScrollContainers() {
+        guard !checkingScrollContainers, app.state == .runningForeground else { return }
+        checkingScrollContainers = true
+        defer { checkingScrollContainers = false }
+        guard let response = UITestControlClient.request(["command": "scroll-inventory"]),
+              let containers = try? JSONSerialization.jsonObject(with: Data(response.utf8)) as? [[String: Any]] else {
+            XCTFail("滚动容器应提供当前布局与身份。")
+            return
+        }
+        for container in containers {
+            guard let instance = container["instance"] as? String, !checkedScrollContainers.contains(instance),
+                  let identifier = container["identifier"] as? String,
+                  let offset = container["offset"] as? [Double], offset.count == 2,
+                  let range = container["range"] as? [Double], range.count == 2,
+                  let remaining = container["remaining"] as? [Double], remaining.count == 2 else { continue }
+            let parameters = ["instance": instance, "offsetX": String(offset[0]), "offsetY": String(offset[1])]
+            if range.allSatisfy({ $0 == 0 }) {
+                XCTAssertEqual(UITestControlClient.request(parameters.merging(["command": "scroll-check"]) { _, value in value }), "fit",
+                    "完整显示的容器应核对内容边界：\(identifier)。")
+            } else {
+                let element = app.descendants(matching: .any)[identifier]
+                if range[1] > 0 {
+                    if remaining[1] > 0 { element.swipeUp() } else { element.swipeDown() }
+                } else {
+                    if remaining[0] > 0 { element.swipeLeft() } else { element.swipeRight() }
+                }
+                let outcome = UITestControlClient.request(parameters.merging(["command": "scroll-check"]) { _, value in value })
+                XCTAssertEqual(outcome, "scrolled", "滚动手势应改变内容位置：\(identifier)。")
+                XCTAssertEqual(UITestControlClient.request(parameters.merging(["command": "scroll-restore"]) { _, value in value }), "restored",
+                    "容器验收应恢复起始位置：\(identifier)。")
+                UITestSnapshotReader.invalidate()
+            }
+            checkedScrollContainers.insert(instance)
+        }
+    }
+
+    @MainActor
     func assertUI(
         _ condition: @autoclosure () -> Bool,
         _ message: @autoclosure () -> String,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        guard !condition() else { return }
+        guard !condition() else { checkScrollContainers(); return }
         var diagnostics = ""
         let application = app
         let state = application.state
@@ -585,6 +624,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         UIElement.beforeNativeTap = { [weak self] in
             self?.dismissNotificationBanner()
             _ = UITestControlClient.request(["command": "observe"])
+            self?.checkScrollContainers()
         }
         var expectedScene: String?
         if Self.sessionApplication == nil {

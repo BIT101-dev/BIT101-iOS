@@ -255,6 +255,7 @@ struct CourseScheduleTabView: View {
                         }
                     }
                 }
+                .accessibilityIdentifier("interaction.CourseScheduleTabView.list")
                 .appGroupedListStyle()
                 .scrollContentBackground(.hidden)
                 .scrollDisabled(calendarAxisMode == .quantized)

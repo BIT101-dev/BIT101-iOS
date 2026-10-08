@@ -41,6 +41,7 @@ case "$SMOKE_CAPTURE" in
   *) echo "BIT101_NETWORK_SMOKE_CAPTURE 参数无效。" >&2; exit 64 ;;
 esac
 bit101_acquire_workflow_lock "$0" "$@"
+bit101_require_device || exit 1
 validation_group=network
 validation_scope=full
 if [[ "$SMOKE_SCOPE" == community-writes ]]; then
@@ -53,12 +54,13 @@ elif [[ "$SMOKE_SCOPE" != all ]]; then
   validation_scope=selected
 fi
 if [[ "$SMS_MODE" == sms ]]; then validation_group=school-sms; validation_scope=full; fi
+RUN_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+BIT101_VALIDATION_RUN_ID="$RUN_ID"
 BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest "$validation_group")"
-export BIT101_VALIDATION_SOURCE_DIGEST
+export BIT101_VALIDATION_SOURCE_DIGEST BIT101_VALIDATION_RUN_ID
 
 mkdir -p "$DERIVED_DATA" "$REPORT_DIR"
 
-RUN_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
 REMOTE_REPORT_PATH="Library/NetworkSmoke/release-network-smoke.json"
 REMOTE_RAW_COURSE_PATH="Library/NetworkSmoke/raw-course-response.json"
 LOCAL_REPORT_PATH="$REPORT_DIR/release-network-smoke.json"
@@ -103,7 +105,6 @@ PY
       echo "恢复正常 App 失败，当前设备可能仍运行网络采样宿主。" >&2
       [[ $smoke_status -eq 0 ]] && smoke_status=1
     fi
-    python3 "$ROOT_DIR/Scripts/validation_evidence.py" record restore "$restore_status" || smoke_status=$?
   fi
   python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$smoke_status" "$validation_scope" || smoke_status=$?
   exit "$smoke_status"
@@ -111,7 +112,6 @@ PY
 trap restore_normal_app EXIT ZERR
 trap 'exit 130' INT
 trap 'exit 143' TERM
-bit101_require_device || exit 1
 DEVICE_ID="$BIT101_XCODE_DEVICE_ID"
 DEVICETCL_DEVICE_ID="$BIT101_DEVICETCL_DEVICE_ID"
 

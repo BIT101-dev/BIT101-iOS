@@ -161,6 +161,7 @@ public struct ScoreListPage: View {
                         }
                     }
                 }
+                .accessibilityIdentifier("interaction.ScoreListPage.list")
                 .appGroupedListStyle()
                 .background(AppDesignSystem.Palette.Background.grouped)
             }
@@ -270,6 +271,7 @@ private struct TrustedTranscriptPage: View {
                             }
                             .padding(AppDesignSystem.Spacing.section)
                     }
+                    .accessibilityIdentifier("interaction.TrustedTranscriptPage.scroll")
                     .background(AppDesignSystem.Palette.Background.secondary)
                 }
             }
@@ -481,6 +483,7 @@ private struct PendingScoreDetailView: View {
             .padding(.top, AppDesignSystem.Spacing.section)
             .padding(.bottom, AppDesignSystem.Spacing.section)
         }
+        .accessibilityIdentifier("interaction.PendingScoreDetailView.scroll")
         .background(AppDesignSystem.Palette.Background.grouped)
         .navigationTitle("成绩详情")
         .navigationBarTitleDisplayMode(.inline)
@@ -544,6 +547,7 @@ private struct ScoreDetailView: View {
                 }
             }
         }
+        .accessibilityIdentifier("interaction.ScoreDetailView.list")
         .appGroupedListStyle()
         .navigationTitle("成绩详情")
         .navigationBarTitleDisplayMode(.inline)

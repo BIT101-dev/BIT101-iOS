@@ -245,12 +245,15 @@ def fetch(key):
     if result.returncode:
         detail = result.stderr.strip()
         print(f"读取报告失败：{key}{f'：{detail}' if detail else ''}", file=sys.stderr)
-        sys.exit(result.returncode or 1)
+        return key, False
     try:
         item = json.loads(result.stdout)
-        report = item.get("report", {})
-    except json.JSONDecodeError:
-        raise SystemExit(f"报告 JSON 解析失败：{key}")
+        report = item["report"]
+        if not isinstance(report, dict):
+            raise ValueError("report 需要对象结构")
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        print(f"报告 JSON 解析失败：{key}", file=sys.stderr)
+        return key, False
     category = "用户建议" if report.get("mode") == "suggestion" else "错误报告"
     development = report.get("isDevelopmentBuild")
     source = "开发版" if development is True else "正式版" if development is False else "来源未知"
@@ -301,6 +304,7 @@ with ThreadPoolExecutor(max_workers=4) as executor:
     for key, complete in executor.map(fetch, keys_to_fetch):
         (completed if complete else incomplete).add(key)
 
+downloaded_reports = sum(1 for _ in staging_dir.glob("*/*/report_*.json"))
 for path in staging_dir.rglob("*"):
     if path.is_file():
         destination = output_dir / path.relative_to(staging_dir)
@@ -310,9 +314,9 @@ processed_path.write_text(
     "\n".join(sorted(processed.union(completed) - incomplete)) + ("\n" if processed or completed else ""),
     encoding="utf-8",
 )
-print(len(keys_to_fetch))
+print(downloaded_reports)
 if incomplete:
-    print(f"附件处理待修复：{len(incomplete)} 份报告，已保留正文及附件错误。", file=sys.stderr)
+    print(f"报告处理待重试：{len(incomplete)} 份，成功内容已归档，附件错误随正文保存。", file=sys.stderr)
     sys.exit(1)
 PY
 )"; then

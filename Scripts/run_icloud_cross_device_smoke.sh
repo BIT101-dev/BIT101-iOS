@@ -65,8 +65,10 @@ if [[ "${1:-}" == cleanup ]]; then
   CLEANUP_ONLY=true
   shift
 fi
+bit101_require_device || exit 1
+BIT101_VALIDATION_RUN_ID="$RUN_ID"
 BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest icloud)"
-export BIT101_VALIDATION_SOURCE_DIGEST
+export BIT101_VALIDATION_SOURCE_DIGEST BIT101_VALIDATION_RUN_ID
 finish_early_validation() {
   local smoke_status=$?
   trap - EXIT ZERR INT TERM
@@ -74,7 +76,6 @@ finish_early_validation() {
   exit "$smoke_status"
 }
 trap finish_early_validation EXIT
-bit101_require_device || exit 1
 DEVICE_ID="$BIT101_XCODE_DEVICE_ID"
 mkdir -p "$DERIVED_ROOT"
 python3 - "$ROOT_DIR/BIT101-iOS/BIT101-iOS.entitlements" "$DERIVED_ROOT/signing.entitlements" <<'PY'
@@ -91,6 +92,7 @@ if ! $CLEANUP_ONLY; then rm -f "$SUMMARY_PATH"; fi
 record_result() {
   python3 - "$SUMMARY_PATH" "$RESULT_BUNDLE" "$1" "$2" "$3" <<'PY'
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -121,6 +123,7 @@ path = Path(report_path)
 report = json.loads(path.read_text()) if path.is_file() else {"stages": []}
 report["validatedDomains"] = ["score-kvs", "schedule-cloudkit"]
 report["cloudKitEnvironment"] = "Production"
+report["runID"] = os.environ.get("BIT101_VALIDATION_RUN_ID", "")
 if stage == "testCleanup":
     report["cleanup"] = row
 else:
@@ -175,7 +178,6 @@ finish_smoke() {
       restore_status=1
       if (( smoke_status == 0 )); then smoke_status=1; fi
     fi
-    python3 "$ROOT_DIR/Scripts/validation_evidence.py" record restore "$restore_status" || smoke_status=$?
   fi
   python3 - "$SUMMARY_PATH" "$smoke_status" "$CLEANUP_ONLY" <<'PY'
 import json

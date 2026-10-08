@@ -56,6 +56,7 @@ public struct CoursePageContent: View {
                         courseSection
                     }
                 }
+                .accessibilityIdentifier("interaction.CoursePageContent.list")
                 .appGroupedListStyle()
                 .background(AppDesignSystem.Palette.Background.grouped)
             }

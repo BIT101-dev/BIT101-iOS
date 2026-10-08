@@ -280,6 +280,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 .disabled(!viewModel.isCacheWritable)
             iCloudSyncSection
         }
+        .accessibilityIdentifier("interaction.CalendarSettingsPage.list")
         .appGroupedListStyle()
         .allowsHitTesting(!viewModel.isLoadingCache)
         .overlay {

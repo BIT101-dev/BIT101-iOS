@@ -87,6 +87,7 @@ private struct MineRootViewScene: View {
                 settingsSection
             }
         }
+        .accessibilityIdentifier("interaction.MineRootViewScene.list")
         .appGroupedListStyle()
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(item: $route) { destination in
@@ -257,6 +258,7 @@ private struct UserProfileRootViewScene: View {
                 posterSection
             }
         }
+        .accessibilityIdentifier("interaction.UserProfileRootViewScene.list")
         .appGroupedListStyle()
         .navigationTitle(navigationTitle)
         .navigationBarTitleDisplayMode(.inline)
@@ -549,6 +551,7 @@ private struct MineUserListView: View {
                         AppInlineLoadingState()
                     }
                 }
+                .accessibilityIdentifier("interaction.MineUserListView.list")
                 .appGroupedListStyle()
                 .refreshable {
                     interactionEvidence?("interaction.MineUserListView.refreshable", "refresh")
@@ -638,6 +641,7 @@ private struct MinePosterListView: View {
                         }
                     }
                 }
+                .accessibilityIdentifier("interaction.MinePosterListView.scroll")
                 .refreshable {
                     interactionEvidence?("interaction.MinePosterListView.refreshable", "refresh")
 

@@ -50,8 +50,10 @@ fi
 
 bit101_acquire_workflow_lock "$0" "$@"
 if [[ "$ACTION" == install ]]; then
+  bit101_require_device || exit 1
   BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest restore)"
-  export BIT101_VALIDATION_SOURCE_DIGEST
+  BIT101_VALIDATION_RUN_ID="$(uuidgen)"
+  export BIT101_VALIDATION_SOURCE_DIGEST BIT101_VALIDATION_RUN_ID
   finish_install() {
     local install_status=$?
     trap - EXIT
@@ -106,7 +108,8 @@ if [[ "$ACTION" == archive ]]; then
   BUILD_ACTION=archive
   BUILD_OVERRIDES+=(-archivePath "$DERIVED_DATA/BIT101-iOS.xcarchive")
   BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest build-archive)"
-  export BIT101_VALIDATION_SOURCE_DIGEST
+  BIT101_VALIDATION_RUN_ID="$(uuidgen)"
+  export BIT101_VALIDATION_SOURCE_DIGEST BIT101_VALIDATION_RUN_ID
   rm -rf "$DERIVED_DATA/BIT101-iOS.xcarchive"
   finish_archive() {
     local archive_status=$?

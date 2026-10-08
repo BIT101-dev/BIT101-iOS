@@ -172,6 +172,7 @@ struct PaperCommentComposerSheet: View {
                     .accessibilityIdentifier("ui.paper-comment-composer-sheet.input")
             }
         }
+        .accessibilityIdentifier("interaction.PaperCommentComposerSheet.list")
         .appGroupedListStyle()
         .navigationTitle(target.title)
         .navigationBarTitleDisplayMode(.inline)

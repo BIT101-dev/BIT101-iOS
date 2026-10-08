@@ -624,18 +624,6 @@ final class CommunityWriteSmoke {
             })
         }
     }
-    private struct Target: Codable, Hashable { let kind: Kind; let id: Int }
-    private struct Like: Codable { let target: Target; let original: Bool }
-    private struct Journal: Codable {
-        let marker: String
-        let account: Int
-        var attempts: [Kind] = []
-        var targets: [Target] = []
-        var parents: [String] = []
-        var comments: [Int] = []
-        var likes: [Like] = []
-        var evidence: [String] = []
-    }
     private let operations: Operations
     private let load: () throws -> Data?
     private let save: (Data?) throws -> Void
@@ -646,11 +634,17 @@ final class CommunityWriteSmoke {
         legacyData: Data? = AppFileDirectories.defaults.data(forKey: journalKey),
         removeLegacy: () -> Void = { AppFileDirectories.defaults.removeObject(forKey: journalKey) }) throws -> Data? {
         let url = directory.appendingPathComponent("community-write-journal.json")
-        if files.fileExists(at: url) { return try files.readData(at: url) }
+        if files.fileExists(at: url) {
+            let data = try files.readData(at: url)
+            let normalized = try normalizedJournalData(data)
+            if normalized != data { try saveJournal(normalized, files: files, directory: directory) }
+            return normalized
+        }
         if let legacyData {
-            try saveJournal(legacyData, files: files, directory: directory)
+            let normalized = try normalizedJournalData(legacyData)
+            try saveJournal(normalized, files: files, directory: directory)
             removeLegacy()
-            return legacyData
+            return normalized
         }
         return nil
     }

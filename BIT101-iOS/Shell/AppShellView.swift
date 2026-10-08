@@ -108,6 +108,7 @@ struct AppShellView: View {
     let onLogout: () -> Void
 
     @Environment(\.openURL) private var openURL
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var settings: AppSettingsStore
     @EnvironmentObject private var scheduleViewModel: ScheduleViewModel
@@ -188,6 +189,9 @@ struct AppShellView: View {
         .accessibilityIdentifier("app.shell")
         .tint(selectedTab.tintColor)
         .appSelectionFeedback(trigger: selectedTab.rawValue)
+        .onChange(of: selectedTab) { _, _ in
+            interactionEvidence?("app.shell", "tab-switch")
+        }
         .onAppear {
 #if BIT101_UI_TESTING
             guard !AppFileDirectories.isRunningUITest else { return }

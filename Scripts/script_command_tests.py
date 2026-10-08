@@ -99,7 +99,7 @@ xcrun() {
         source = path.read_text().replace('source "$ROOT_DIR/Scripts/script-support.sh"',
                                          f"source {shlex.quote(str(support))}\n" + frame)
         stop = "exit 86" if expected == 86 else "return 0"
-        source = source.replace(frame, frame + f'\nbit101_run_logged() {{ print -r -- "BUILD $*"; {stop}; }}\n' + '\npython3() { if [[ "$*" == *"/signing.entitlements"* ]]; then return 0; fi; if [[ "$*" == *"validation_evidence.py digest"* ]]; then print self-test-inputs; return 0; fi; command python3 "$@"; }\n')
+        source = source.replace(frame, frame + f'\nbit101_run_logged() {{ print -r -- "BUILD $*"; {stop}; }}\n' + '\npython3() { if [[ "$*" == *"/signing.entitlements"* ]]; then return 0; fi; if [[ "$*" == *"validation_evidence.py digest"* ]]; then case "$3" in all|release-runtime|ui|schedule|infrastructure|login|extensions|network|ddl|school-sms|community-writes|community-cleanup|icloud|restore) [[ "${BIT101_XCODE_DEVICE_ID:-}" == udid ]] || return 78 ;; esac; print self-test-inputs; return 0; fi; command python3 "$@"; }\n')
         source = re.sub(r"(?ms)^ui_test_plan\(\) \{\n.*?^\}$",
                         'ui_test_plan() { print -r -- /audit/ui.xctestrun; }', source, count=1)
         source = re.sub(r"(?ms)^report_result\(\) \{\n.*?^\}$", 'report_result() { print REPORT; }', source, count=1)

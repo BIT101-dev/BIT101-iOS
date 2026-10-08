@@ -18,7 +18,8 @@ fi
 LOG_DIR="$ROOT_DIR/.build/static-audit"
 AUDIT_STARTED=$SECONDS
 BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest audit)"
-export BIT101_VALIDATION_SOURCE_DIGEST
+BIT101_VALIDATION_RUN_ID="$(uuidgen)"
+export BIT101_VALIDATION_SOURCE_DIGEST BIT101_VALIDATION_RUN_ID
 
 mkdir -p "$LOG_DIR"
 rm -f "$LOG_DIR"/*.log(N)

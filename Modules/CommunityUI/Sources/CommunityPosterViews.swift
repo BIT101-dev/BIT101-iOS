@@ -117,6 +117,7 @@ public struct CommunityPosterCard: View {
                             }
                         }
                     }
+                    .accessibilityIdentifier("interaction.CommunityPosterCard.scroll")
                     .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     Spacer(minLength: AppDesignSystem.Spacing.tiny)

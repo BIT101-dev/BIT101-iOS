@@ -142,20 +142,15 @@ struct ServiceContractTests {
         let service = GalleryService(session: session(transport), preferences: {
             CommunityPreferenceSnapshot(hideBots: false, hiddenUserIDs: [], hideAnonymous: true, useWebView: false, hideMakeupOutliers: false)
         })
-#if os(iOS)
-        let initial = try JSONDecoder().decode(CommunityPoster.self, from: Data(poster(id: 1).utf8))
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let initial = try decoder.decode(CommunityPoster.self, from: Data(poster(id: 1).utf8))
         let model = GalleryPosterDetailViewModel(initialPoster: initial, service: service)
         await model.refreshComments()
         #expect(model.commentState.items.map(\.id) == [5])
         #expect(model.commentState.nextPage == 2 && model.commentState.canLoadMore)
         await model.loadMoreCommentsIfNeeded(currentComment: model.commentState.items.last)
         #expect(model.commentState.nextPage == 3 && model.commentState.canLoadMore == false)
-#else
-        let batch = try await service.fetchComments(objectID: "poster1", order: .newest, page: nil)
-        #expect(batch.items.map(\.id) == [5] && batch.nextSourcePage == 2 && batch.canLoadMore)
-        let end = try await service.fetchComments(objectID: "poster1", order: .newest, page: batch.nextSourcePage)
-        #expect(end.nextSourcePage == 3 && end.canLoadMore == false)
-#endif
         let raw = try await service.fetchRawComments(objectID: "poster1", order: .newest, page: nil)
         #expect(raw.first?.anonymous == true)
         #expect(try query(transport.requests[2])["page"] == "2")

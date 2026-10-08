@@ -201,7 +201,6 @@ if [[ "$MODE" == "verify" ]]; then
         restore_status=1
         if (( verification_status == 0 )); then verification_status=1; fi
       fi
-      python3 "$ROOT_DIR/Scripts/validation_evidence.py" record restore "$restore_status" || verification_status=$?
     fi
     exit "$verification_status"
   }
@@ -214,7 +213,9 @@ if [[ "$MODE" == "verify" ]]; then
     local started_at=$SECONDS
     local step_status=0
     "$@" || step_status=$?
-    python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$label" "$step_status" || step_status=$?
+    if (( step_status == 0 )); then
+      python3 "$ROOT_DIR/Scripts/validation_evidence.py" check-group "$label" || step_status=$?
+    fi
     if (( step_status == 0 )); then
       echo "[验证通过] $label · $(( SECONDS - started_at )) 秒"
     else
@@ -288,15 +289,6 @@ if [[ "$MODE" == schedule || "$MODE" == infrastructure || "$MODE" == login || "$
 fi
 validation_group="$MODE"
 if $BUILD_ONLY; then validation_group="build-$MODE"; fi
-BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest "$validation_group")"
-finish_validation() {
-  local validation_status=$?
-  trap - EXIT ZERR INT TERM
-  python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$validation_status" "$validation_scope" || validation_status=$?
-  exit "$validation_status"
-}
-trap finish_validation EXIT
-
 if [[ "$MODE" == "modules" ]]; then
   acquire_test_lock
 elif $GENERIC_BUILD; then
@@ -313,6 +305,16 @@ else
   TEST_DESTINATION="platform=iOS,id=$BIT101_XCODE_DEVICE_ID"
   SIGNING_ARGS=(-allowProvisioningUpdates)
 fi
+BIT101_VALIDATION_RUN_ID="$(uuidgen)"
+BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest "$validation_group")"
+export BIT101_VALIDATION_RUN_ID BIT101_VALIDATION_SOURCE_DIGEST
+finish_validation() {
+  local validation_status=$?
+  trap - EXIT ZERR INT TERM
+  python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$validation_status" "$validation_scope" || validation_status=$?
+  exit "$validation_status"
+}
+trap finish_validation EXIT
 
 if [[ "$MODE" == ui && ${#TEST_SELECTIONS[@]} -gt 0 ]]; then
   echo "[筛选] ${#TEST_SELECTIONS[@]} 项 UI 用例 · 同一批次执行"
@@ -329,9 +331,6 @@ if [[ "$BUILD_ONLY" == false && "$MODE" != modules && "$MODE" != catalyst && "$M
       if ! "$ROOT_DIR/Scripts/build-install-device.sh"; then
         restore_status=1
         echo "常规 Release App 恢复失败，请运行 Scripts/build-install-device.sh" >&2
-        if (( test_exit_code == 0 )); then test_exit_code=1; fi
-      fi
-      if ! python3 "$ROOT_DIR/Scripts/validation_evidence.py" record restore "$restore_status"; then
         if (( test_exit_code == 0 )); then test_exit_code=1; fi
       fi
     fi
@@ -418,6 +417,7 @@ if not modules:
 covered = sum(row[0] for row in modules.values())
 count = sum(row[1] for row in modules.values())
 rows = ["# 模块生产源码行覆盖率", f"测试通过：{test_count} 项",
+    "验证输入：" + os.environ["BIT101_VALIDATION_SOURCE_DIGEST"], "验证运行：" + os.environ["BIT101_VALIDATION_RUN_ID"],
     f"统计范围：macOS 可执行生产源码，共 {len(modules)} 个模块",
     f"合计：{covered / count * 100 if count else 0:.2f}% ({covered}/{count} lines)", *[
     f"- {name}: {covered / count * 100 if count else 0:.2f}% ({covered}/{count} lines)"
@@ -572,6 +572,7 @@ PY
 record_metrics() {
   python3 - "$RESULT_BUNDLE" "$DERIVED_ROOT/test-metrics.txt" "$MODE" "$TEST_DURATION_SECONDS" "${BIT101_XCODE_DEVICE_ID:-}" "$ROOT_DIR" <<'PY'
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -750,6 +751,7 @@ if durations:
         f"- {name}: {duration}" for _, name, duration in sorted(durations, reverse=True)[:10]
     ]]
 
+lines += ["验证输入：" + os.environ["BIT101_VALIDATION_SOURCE_DIGEST"], "验证运行：" + os.environ["BIT101_VALIDATION_RUN_ID"]]
 report = "\n".join(lines) + "\n"
 Path(report_path).write_text(report, encoding="utf-8")
 print(lines[4])

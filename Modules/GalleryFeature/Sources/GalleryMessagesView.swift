@@ -91,6 +91,7 @@ struct GalleryMessagesView: View {
                             }
                         }
                     }
+                    .accessibilityIdentifier("interaction.GalleryMessagesView.list")
                     .listStyle(.plain)
                     .scrollContentBackground(.hidden)
                     .refreshable {

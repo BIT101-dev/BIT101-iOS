@@ -149,6 +149,7 @@ private struct SettingsIndexPage: View {
             }
             .padding(AppDesignSystem.Spacing.section)
         }
+        .accessibilityIdentifier("interaction.SettingsIndexPage.scroll")
         .background(AppDesignSystem.Palette.Background.grouped)
         .sheet(isPresented: $isShowingSuggestion) {
             NavigationStack {
@@ -310,6 +311,7 @@ struct DeveloperSuggestionPage: View {
                         }
                         .padding(.vertical, AppDesignSystem.Spacing.tiny)
                     }
+                    .accessibilityIdentifier("interaction.DeveloperSuggestionPage.scroll")
                 }
             }
         }

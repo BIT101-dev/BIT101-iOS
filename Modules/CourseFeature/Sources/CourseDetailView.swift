@@ -98,6 +98,7 @@ private struct CourseDetailViewScene: View {
             .padding(.horizontal, AppDesignSystem.Spacing.section)
             .padding(.top, AppDesignSystem.Spacing.section)
         }
+        .accessibilityIdentifier("interaction.CourseDetailViewScene.scroll")
         .background(AppDesignSystem.Palette.Background.grouped)
         .navigationTitle("课程详情")
         .navigationBarTitleDisplayMode(.inline)

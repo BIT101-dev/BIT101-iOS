@@ -299,6 +299,7 @@ final class UIElement: NSObject {
     }
 
     func tapBriefly() {
+        if !Self.usesNativeInteraction { Self.beforeNativeTap?() }
         defer { UITestSnapshotReader.invalidate() }
         if Self.usesNativeInteraction {
             press(forDuration: 0.01)

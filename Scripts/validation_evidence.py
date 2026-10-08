@@ -17,7 +17,9 @@ from contextlib import contextmanager
 sys.dont_write_bytecode = True
 from swift_source_index import swift_syntax_index_sources
 from validation_inputs import includes_input
+from validation_test_areas import TEST_AREA_SUITES
 from validation_environment import environment_context, complete_environment, toolchain_identity
+from validation_provenance import NETWORK_GROUPS, network_evidence_current, producing_run_matches, utc_now
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / ".build/extended-automation/validation-evidence.json"
@@ -47,12 +49,6 @@ IOS_MODULE_COVERAGE_FLOORS = {
     "ScheduleFeature": 30, "ScheduleInfrastructure": 26, "SchedulePersistence": 27,
     "SchedulePorts": 64, "ScheduleSharedStore": 52, "ScheduleSync": 5,
     "ScoreDomain": 45, "ScoreFeature": 7, "ScoreInfrastructure": 31, "StorageCore": 75, "TransportCore": 77,
-}
-TEST_AREA_MARKERS = {
-    "schedule": ("Schedule", "Reminder", "AcademicTerm", "SmallTermWeek", "CourseLookup", "Classroom", "CloudPrompt", "CloudSyncPresentation"),
-    "infrastructure": ("Infrastructure", "Storage", "DiskRepository", "DiskQuota", "Settings", "Dependency", "Preference", "NetworkClient", "NetworkSmoke", "AppDeepLink", "FeatureComposition", "AppUpdate", "AppLocalData", "CampusMap"),
-    "login": ("Login",),
-    "extensions": ("ExternalSchedule", "AppExternalDisplay"),
 }
 
 
@@ -128,9 +124,9 @@ def active_swift_source(source: str, group: str) -> str:
 
 @cache
 def test_inventory(group: str) -> set[str]:
-    if group in TEST_AREA_MARKERS:
+    if group in TEST_AREA_SUITES:
         return {test for test in test_inventory("all")
-                if any(marker in test.split("/", 1)[0] for marker in TEST_AREA_MARKERS[group])}
+                if test.split("/", 1)[0] in TEST_AREA_SUITES[group]}
     directory = ROOT / ("ModuleTests" if group == "modules" else "BIT101-iOSUITests" if group == "ui" else "BIT101-iOSTests")
     sources = {}
     for path in directory.rglob("*.swift"):
@@ -146,7 +142,7 @@ def normalized_test_id(identifier: str) -> str:
 
 
 def selected_test_inventory(group: str, selections: list[str]) -> set[str]:
-    group = "all" if group in TEST_AREA_MARKERS else group
+    group = "all" if group in TEST_AREA_SUITES else group
     available = {normalized_test_id(test) for test in test_inventory(group)}
     expected = set()
     for selection in selections:
@@ -274,6 +270,7 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
                             and step.get("probe") in SCHOOL_SMS_PROBES.get(step.get("purpose"), set()) for step in sms_steps))
                 and not any(value.get(name) for name in ("failures", "coverageGaps", "authenticationBlockers", "skippedProbes")),
                 "scope": value.get("scope"), "executedProbes": len(value.get("executedProbes", [])),
+                "startedAt": value.get("startedAt"), "finishedAt": value.get("finishedAt"),
                 "schoolSMSCoverage": value.get("schoolSMSCoverage"),
                 "communityWriteEvidence": value.get("communityWriteEvidence", []),
                 "verifiedSMSProbes": sms_steps,
@@ -399,6 +396,8 @@ def release_findings(report: dict, digest: str, *, recorded_environment: bool = 
             errors.append(f"{name} 的验证输入已变化，请重新执行该组。")
         if not complete_environment(name, row.get("environment", {})):
             errors.append(f"{name} 需要保留执行环境及设备系统身份。")
+        if name in NETWORK_GROUPS and not network_evidence_current(row.get("summary", {})):
+            errors.append(f"{name} 的网络采样需要在发布检查前 24 小时内完成，请重新验收。")
         if row.get("exitCode") != 0 or row.get("scope") != "full" or not complete_summary(name, row.get("summary", {})):
             errors.append(f"{name} 需要完整执行并通过，并保留结果摘要。")
     if recorded_environment and toolchain_identity(report.get("groups", {}).get("build-archive", {}).get("environment", {})) \
@@ -410,10 +409,15 @@ def release_findings(report: dict, digest: str, *, recorded_environment: bool = 
 def record(group: str, status: int, scope: str, started_digest: str) -> int:
     digest = source_digest()
     input_digest = source_digest(group)
+    run_id = os.getenv("BIT101_VALIDATION_RUN_ID", "")
+    if status == 0 and (not started_digest or not run_id):
+        status = 1
+        print("验证记录需要所属工作流的开始摘要及运行标识。", file=sys.stderr)
     if started_digest and input_digest != started_digest:
         status = status or 1
         print("验证期间输入变更，请按当前输入重新执行该组。", file=sys.stderr)
-    row = {"exitCode": status, "scope": scope, "inputDigest": input_digest, "environment": environment_context(group)}
+    row = {"exitCode": status, "scope": scope, "inputDigest": input_digest, "runID": run_id,
+           "recordedAt": utc_now().isoformat(), "environment": environment_context(group)}
     if status == 0 and not complete_environment(group, row["environment"]):
         status = row["exitCode"] = 1
         print(f"{group} 需要完整执行环境身份。", file=sys.stderr)
@@ -421,15 +425,23 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
         row["report"] = ".build/extended-automation/test-metrics.txt"
         metrics = ROOT / row["report"]
         if metrics.is_file():
+            text = metrics.read_text()
+            if status == 0 and not producing_run_matches(text, started_digest, run_id):
+                status = row["exitCode"] = 1
+                print("测试指标需要来自本次验证运行。", file=sys.stderr)
             try:
-                row["summary"] = test_summary(metrics.read_text())
+                row["summary"] = test_summary(text)
             except ValueError:
                 if status == 0:
                     raise
     elif group in {"network", "ddl", "school-sms", "icloud", "community-writes", "community-cleanup"}:
         row["report"] = ".build/icloud-cross-device-smoke/report.json" if group == "icloud" else ".build/release-network-smoke/report/release-network-smoke.json"
         if (ROOT / row["report"]).is_file():
-            row["summary"] = smoke_summary(group, json.loads((ROOT / row["report"]).read_text()), full=scope == "full")
+            result = json.loads((ROOT / row["report"]).read_text())
+            if status == 0 and not producing_run_matches(result, started_digest, run_id):
+                status = row["exitCode"] = 1
+                print("Smoke 结果需要来自本次验证运行。", file=sys.stderr)
+            row["summary"] = smoke_summary(group, result, full=scope == "full")
     else:
         row["summary"] = {"passed": status == 0, "kind": "build" if group.startswith("build-") else "restore" if group == "restore" else "audit"}
     selected_complete = True
@@ -517,7 +529,7 @@ def community_recovery_self_test() -> list[str]:
     from contextlib import nullcontext
     from io import StringIO
     from contextlib import redirect_stderr
-    cleanup = {"scope": "community-cleanup", "passed": True, "requiredProbes": ["cleanup"], "executedProbes": ["cleanup"]}
+    cleanup = {"runID": "fixture-run", "scope": "community-cleanup", "passed": True, "requiredProbes": ["cleanup"], "executedProbes": ["cleanup"]}
     write_row = {"exitCode": 0, "scope": "full", "summary": {"passed": True}}
     previous = {"sourceDigest": "source", "groups": {"community-writes": write_row}}
     cleanup_environment = {"host": {"system": "fixture"}, "developer": "/fixture", "xcode": {"version": "fixture"},
@@ -525,6 +537,7 @@ def community_recovery_self_test() -> list[str]:
         "identifier": "fixture-phone", "systemVersion": "fixture-os", "systemBuild": "fixture-build"}}
     with patch(f"{__name__}.source_digest", return_value="source"), patch(f"{__name__}.network_inventory", return_value={"cleanup"}), \
             patch(f"{__name__}.environment_context", return_value=cleanup_environment), \
+            patch.dict(os.environ, BIT101_VALIDATION_RUN_ID="fixture-run"), \
             patch(f"{__name__}.report_lock", side_effect=nullcontext), patch(f"{__name__}.write_report") as saved, \
             patch.object(Path, "is_file", return_value=True), patch.object(Path, "read_text", side_effect=[json.dumps(cleanup), json.dumps(previous)]), \
             patch.object(subprocess, "check_output", return_value="head"), redirect_stderr(StringIO()):
@@ -536,7 +549,7 @@ def community_recovery_self_test() -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["digest", "record", "bind", "check", "summary", "suites", "self-test", "manual"])
+    parser.add_argument("action", choices=["digest", "record", "bind", "check", "check-group", "summary", "suites", "self-test", "manual"])
     parser.add_argument("group", nargs="?", default="")
     parser.add_argument("status", nargs="?", type=int, default=0)
     parser.add_argument("--observation", default="", help="专项真机操作、观察结果及证据位置")
@@ -545,6 +558,15 @@ def main() -> int:
     args = parser.parse_args()
     if args.recorded_environment and args.action != "check":
         parser.error("记录环境检查用于已绑定证据的 check 操作。")
+    if args.action == "check-group":
+        with report_lock():
+            report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
+            row = report.get("groups", {}).get(args.group, {})
+        if row.get("exitCode") == 0 and row.get("scope") == "full" and row.get("runID") \
+                and row.get("inputDigest") == source_digest(args.group) and complete_summary(args.group, row.get("summary", {})):
+            return 0
+        print(f"{args.group} 需要完整子流程结果并匹配当前验证输入。", file=sys.stderr)
+        return 1
     if args.action == "manual":
         if args.group not in MANUAL_DEVICE_CHECKS or not args.observation.strip():
             parser.error("真机专项需要有效检查项及操作、观察结果和证据位置。")
@@ -569,7 +591,7 @@ def main() -> int:
         print(source_digest(args.group))
         return 0
     if args.action == "suites":
-        if args.group not in TEST_AREA_MARKERS:
+        if args.group not in TEST_AREA_SUITES:
             parser.error("测试领域：schedule、infrastructure、login、extensions")
         print("\n".join(sorted({test.split("/", 1)[0] for test in test_inventory(args.group)})))
         return 0
@@ -580,6 +602,14 @@ def main() -> int:
             "compiler": {"modified": 1}, "sdks": {"fixture": {"Version": "1"}}, "device": {
             "identifier": "fixture-phone", "systemVersion": "fixture-os", "systemBuild": "fixture-build"}}
         with patch(f"{__name__}.environment_context", return_value=fixture_environment):
+            from validation_provenance_tests import run_self_test as provenance_self_test
+            from validation_test_areas import inventory_findings
+            provenance_self_test(record)
+            all_suites = {test.split("/", 1)[0] for test in test_inventory("all")}
+            assert inventory_findings(all_suites) == []
+            assert inventory_findings(all_suites | {"NewFeatureTests"})
+            for group in ("infrastructure", "login"):
+                assert any(test.startswith("SchoolCookieIsolationTests/") for test in test_inventory(group))
             with patch.object(sys, "argv", ["validation_evidence.py", "record", "audit", "7"]), \
                     patch.dict(os.environ, BIT101_VALIDATION_SOURCE_DIGEST="fixture-input"), \
                     patch(f"{__name__}.record", return_value=7) as recorder:
@@ -771,6 +801,8 @@ def main() -> int:
             summaries["icloud"] = icloud_summary({"exitCode": 0, "stages": [
                 dict(test, stage=name, totalTestCount=1, exitCode=0) for name in ("testPhoneRoundTrip", "testMacReceiveAndRestore")]})
             groups = {name: {"exitCode": 0, "scope": "full", "summary": summary, "inputDigest": source_digest(name), "environment": environment_context(name)} for name, summary in summaries.items()}
+            for name in NETWORK_GROUPS & groups.keys():
+                groups[name]["summary"].update(startedAt=utc_now().isoformat(), finishedAt=utc_now().isoformat())
             report = {"sourceDigest": "source", "groups": groups}
             with patch("ui_rules.source_runtime_interaction_findings", return_value=[]):
                 assert release_findings(report, "source") == []

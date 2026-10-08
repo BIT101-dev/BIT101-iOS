@@ -89,6 +89,7 @@ struct GalleryFeedView: View {
                     .scrollTargetLayout()
                 }
             }
+            .accessibilityIdentifier("interaction.GalleryFeedView.scroll")
             // 系统滚动定位在顶部目标发生变化时更新一次；卡片复用统一定位状态。
             .scrollPosition(id: $currentTopPosterID, anchor: .top)
             .background(AppDesignSystem.Palette.Background.grouped)

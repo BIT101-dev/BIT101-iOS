@@ -21,7 +21,9 @@ def checker_boundary_findings() -> list[str]:
     findings: list[str] = []
     from validate_versions import app_store_request_self_test
     findings.extend(app_store_request_self_test())
-    from validation_evidence import community_recovery_self_test
+    from validation_evidence import community_recovery_self_test, test_inventory
+    from validation_test_areas import inventory_findings
+    findings.extend(inventory_findings({test.split("/", 1)[0] for test in test_inventory("all")}))
     findings.extend(community_recovery_self_test())
     findings.extend(script_output_boundary_findings())
     markers = mask_literals_and_comments('// TODO\n/* FIXME /* HACK */ */\nlet text = "TODO"', keep_comments=True)
@@ -419,9 +421,10 @@ def report_inbox_boundary_findings() -> list[str]:
     live_results = weakref.WeakSet()
     calls = []
     findings = []
+    fetch_failures = {}
     def fetch(arguments, **_):
         calls.append(arguments)
-        result = subprocess.CompletedProcess(arguments, 0, json.dumps(reports[arguments[4]]), "")
+        result = subprocess.CompletedProcess(arguments, *fetch_failures.get(arguments[4], (0, json.dumps(reports[arguments[4]]), "")))
         live_results.add(result)
         assert len(live_results) <= 4, "整批报告正文驻留内存"
         return result
@@ -463,6 +466,19 @@ def report_inbox_boundary_findings() -> list[str]:
         reports["report:invalid-attachment"] = {"report": {"attachments": []}}
         assert execute() == 1
         assert "report:invalid-attachment" in processed_path.read_text()
+        reports.update({"report:partial-success": {"report": {"comment": "archived"}},
+                        "report:request-failure": {}, "report:json-failure": {}})
+        fetch_failures.update({"report:request-failure": (17, "", "fixture failure"), "report:json-failure": (0, "{partial", "")})
+        with redirect_stderr(StringIO()):
+            try: execute()
+            except SystemExit as error: assert error.code == 1
+            else: raise AssertionError("单份失败需要传播部分失败")
+        assert next(fixture.glob("*/*/report_partial-success.json")).is_file()
+        assert "report:partial-success" in processed_path.read_text()
+        assert "report:request-failure" not in processed_path.read_text() and "report:json-failure" not in processed_path.read_text()
+        fetch_failures.clear()
+        reports["report:request-failure"] = reports["report:json-failure"] = {"report": {"comment": "recovered"}}
+        assert execute() == 2
         import shlex
         tool_dir = fixture / "bin"
         tool_dir.mkdir(exist_ok=True)

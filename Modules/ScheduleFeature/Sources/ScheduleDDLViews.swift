@@ -66,6 +66,7 @@ struct DDLScheduleTabView: View {
                     }
                 }
             }
+            .accessibilityIdentifier("interaction.DDLScheduleTabView.list")
             .appGroupedListStyle()
             .scrollContentBackground(.hidden)
 
@@ -255,6 +256,7 @@ private struct DDLEventDetailSheet: View {
                     }
                 }
             }
+            .accessibilityIdentifier("interaction.DDLEventDetailSheet.list")
             .appGroupedListStyle()
             .navigationTitle("DDL 详情")
             .navigationBarTitleDisplayMode(.inline)

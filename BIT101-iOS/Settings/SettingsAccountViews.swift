@@ -128,6 +128,7 @@ struct AccountSettingsPage: View {
                 .appInteractiveListRow(isDestructive: true)
             }
         }
+        .accessibilityIdentifier("interaction.AccountSettingsPage.list")
         .appGroupedListStyle()
         .task {
             guard !dependencies.credentials().cookie.isEmpty else {

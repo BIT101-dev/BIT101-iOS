@@ -45,6 +45,7 @@ public struct ScheduleTermPickerPage: View {
                 }
             }
         }
+        .accessibilityIdentifier("interaction.ScheduleTermPickerPage.list")
         .appGroupedListStyle()
         .appSelectionFeedback(trigger: selectionFeedbackToken)
         .navigationTitle("切换学期")
@@ -186,6 +187,7 @@ public struct ScheduleExportCodeSheet: View {
                         .padding(AppDesignSystem.Spacing.content)
                         .background(AppDesignSystem.Palette.Background.secondaryGrouped, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
                 }
+                .accessibilityIdentifier("interaction.ScheduleExportCodeSheet.scroll")
 
                 Button {
                     UIPasteboard.general.string = code

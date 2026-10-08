@@ -115,6 +115,7 @@ struct ScheduleEntryDetailSheet: View {
                     }
                 }
             }
+            .accessibilityIdentifier("interaction.ScheduleEntryDetailSheet.list")
             .appGroupedListStyle()
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)

@@ -64,6 +64,7 @@ struct ScoreFilterPage: View {
                 }
             }
         }
+        .accessibilityIdentifier("interaction.ScoreFilterPage.list")
         .appGroupedListStyle()
         .appSelectionFeedback(trigger: selectedValues)
         .navigationTitle(title)
@@ -136,6 +137,7 @@ struct ScoreSortPage: View {
                 AppListSectionHeader("排序方向")
             }
         }
+        .accessibilityIdentifier("interaction.ScoreSortPage.list")
         .appGroupedListStyle()
         .appSelectionFeedback(trigger: sortIndex)
         .appSelectionFeedback(trigger: sortOrder)

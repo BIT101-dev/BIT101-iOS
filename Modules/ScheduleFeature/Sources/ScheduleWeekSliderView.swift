@@ -82,6 +82,7 @@ struct ScheduleInlineWeekSlider: View {
                     .scrollTargetLayout()
                     .frame(minHeight: AppDesignSystem.Schedule.WeekSlider.itemHeight)
                 }
+                .accessibilityIdentifier("interaction.ScheduleInlineWeekSlider.scroll")
                 .scrollIndicators(.hidden)
                 .contentMargins(.horizontal, horizontalPadding, for: .scrollContent)
                 .scrollTargetBehavior(weekScrollTargetBehavior)

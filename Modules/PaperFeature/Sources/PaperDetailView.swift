@@ -178,6 +178,7 @@ private struct PaperDetailViewScene: View {
             .padding(.horizontal, AppDesignSystem.Spacing.section)
             .padding(.vertical, AppDesignSystem.Spacing.section)
         }
+        .accessibilityIdentifier("interaction.PaperDetailViewScene.scroll")
         .background(AppDesignSystem.Palette.Background.grouped)
         .refreshable {
                     interactionEvidence?("interaction.PaperDetailViewScene.refreshable", "refresh")

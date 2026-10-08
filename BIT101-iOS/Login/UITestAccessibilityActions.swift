@@ -81,6 +81,44 @@ enum UITestAccessibilityActions {
     @discardableResult
     static func observe() -> String { _ = tree(); return currentScope }
 
+    static func scroll(_ parameters: [String: String]) throws -> Data {
+        invalidate()
+        let elements = tree()?.descendants.filter {
+            [26, 32, 46].contains($0.attributes["elementType"] as? Int ?? 0)
+                && !($0.attributes["instance"] as? String ?? "").isEmpty && $0.object is UIScrollView
+        } ?? []
+        if parameters["command"] == "scroll-inventory" {
+            return try JSONSerialization.data(withJSONObject: elements.compactMap { element -> [String: Any]? in
+                guard let scroll = element.object as? UIScrollView, scroll.isScrollEnabled,
+                      let window = scroll.window, scroll.convert(scroll.bounds, to: window).intersects(window.bounds)
+                else { return nil }
+                var values = element.attributes
+                values["offset"] = [Double(scroll.contentOffset.x), Double(scroll.contentOffset.y)]
+                values["range"] = [Double(max(0, scroll.contentSize.width + scroll.adjustedContentInset.left + scroll.adjustedContentInset.right - scroll.bounds.width)),
+                    Double(max(0, scroll.contentSize.height + scroll.adjustedContentInset.top + scroll.adjustedContentInset.bottom - scroll.bounds.height))]
+                values["remaining"] = [Double(max(0, scroll.contentSize.width + scroll.adjustedContentInset.right - scroll.bounds.width - scroll.contentOffset.x)),
+                    Double(max(0, scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height - scroll.contentOffset.y))]
+                return values
+            })
+        }
+        guard let element = elements.first(where: { $0.attributes["instance"] as? String == parameters["instance"] }),
+              let scroll = element.object as? UIScrollView,
+              let x = parameters["offsetX"].flatMap(Double.init), let y = parameters["offsetY"].flatMap(Double.init)
+        else { return Data("target missing".utf8) }
+        if parameters["command"] == "scroll-restore" {
+            scroll.setContentOffset(CGPoint(x: x, y: y), animated: false)
+            invalidate()
+            return Data("restored".utf8)
+        }
+        let fits = scroll.contentSize.width + scroll.adjustedContentInset.left + scroll.adjustedContentInset.right <= scroll.bounds.width
+            && scroll.contentSize.height + scroll.adjustedContentInset.top + scroll.adjustedContentInset.bottom <= scroll.bounds.height
+        guard fits || scroll.contentOffset != CGPoint(x: x, y: y) else { return Data("unchanged".utf8) }
+        record(element.attributes["identifier"] as? String ?? "", label: element.attributes["label"] as? String ?? "",
+            type: element.attributes["elementType"] as? Int ?? 0, scope: element.attributes["scope"] as? String,
+            instance: element.attributes["instance"] as? String, action: fits ? "scroll-fit" : "scroll")
+        return Data((fits ? "fit" : "scrolled").utf8)
+    }
+
     static func occlude(_ parameters: [String: String]) -> String {
         occlusionView?.removeFromSuperview()
         invalidate()
@@ -315,7 +353,8 @@ enum UITestAccessibilityActions {
                 } else { container = (element as? UIAccessibilityElement)?.accessibilityContainer }
             }
             var instance = ""
-            if object.isAccessibilityElement && [9, 33, 37, 40, 41, 42, 45, 49, 50, 52, 79].contains(type) {
+            let scrollContainer = [26, 32, 46].contains(type) && !id.isEmpty
+            if scrollContainer || object.isAccessibilityElement && [9, 33, 37, 40, 41, 42, 45, 49, 50, 52, 79].contains(type) {
                 if id.isEmpty && label.isEmpty { unidentified.insert("\(currentScope):\(type)") }
                 else {
                     let key = currentScope + ":" + (id.isEmpty ? "\(type):\(label)" : id)

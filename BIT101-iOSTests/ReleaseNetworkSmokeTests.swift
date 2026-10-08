@@ -185,7 +185,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
     @Test func journalSurvivesRestartAndRetainsTheRecoveryRecordOnStorageFailure() throws {
         let files = PreferenceMemoryFiles(requireExistingParentDirectories: true)
         let directory = files.temporaryDirectoryURL.appendingPathComponent("NetworkSmoke", isDirectory: true)
-        let original = Data("recovery".utf8)
+        let original = try JSONEncoder().encode(CommunityWriteSmoke.Journal(marker: "recovery", account: 1))
         var legacyRemoved = false
         #expect(try CommunityWriteSmoke.loadJournal(files: files, directory: directory, legacyData: original,
             removeLegacy: { legacyRemoved = true }) == original)
@@ -253,6 +253,51 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(runs == ["first", "second"])
         #expect(loginCalls == 2 && reports == ["first", "second"])
         #expect(rawCleanupCalls == 0)
+    }
+
+    @Test(arguments: [false, true])
+    func historicalJournalMigratesItsRecoveryIdentifiers(legacyPreferences: Bool) throws {
+        let files = PreferenceMemoryFiles(requireExistingParentDirectories: true)
+        let directory = files.temporaryDirectoryURL.appendingPathComponent("NetworkSmoke", isDirectory: true)
+        let original = Data(#"{"marker":"fixture","account":1,"targets":[{"kind":"poster","id":101}],"comments":[201]}"#.utf8)
+        if !legacyPreferences { try CommunityWriteSmoke.saveJournal(original, files: files, directory: directory) }
+        var removed = false
+        let loaded = try CommunityWriteSmoke.loadJournal(files: files, directory: directory,
+            legacyData: legacyPreferences ? original : nil, removeLegacy: { removed = true })
+        let migrated = try #require(loaded)
+        let payload = try #require(JSONSerialization.jsonObject(with: migrated) as? [String: Any])
+        #expect(payload["schemaVersion"] as? Int == 1)
+        #expect((payload["targets"] as? [[String: Any]])?.first?["id"] as? Int == 101)
+        #expect(payload["comments"] as? [Int] == [201])
+        #expect((payload["likes"] as? [Any])?.isEmpty == true)
+        #expect(removed == legacyPreferences)
+        #expect(try CommunityWriteSmoke.loadJournal(files: files, directory: directory, legacyData: nil) == migrated)
+    }
+
+    @Test func futureJournalKeepsTheOriginalRecoveryState() throws {
+        let files = PreferenceMemoryFiles(requireExistingParentDirectories: true)
+        let directory = files.temporaryDirectoryURL.appendingPathComponent("NetworkSmoke", isDirectory: true)
+        let original = Data(#"{"schemaVersion":2,"marker":"fixture","account":1}"#.utf8)
+        var removed = false
+        #expect(throws: DecodingError.self) {
+            try CommunityWriteSmoke.loadJournal(files: files, directory: directory, legacyData: original,
+                removeLegacy: { removed = true })
+        }
+        #expect(removed == false)
+        try CommunityWriteSmoke.saveJournal(original, files: files, directory: directory)
+        #expect(throws: DecodingError.self) {
+            try CommunityWriteSmoke.loadJournal(files: files, directory: directory, legacyData: nil)
+        }
+        #expect(try files.readData(at: directory.appendingPathComponent("community-write-journal.json")) == original)
+    }
+
+    @Test func historicalJournalRecoversItsCreatedObject() async throws {
+        let world = CommunityWorld(stage: "success")
+        world.contents["poster101"] = .init(text: "fixture", owned: true, liked: false)
+        world.pending = Data(#"{"marker":"fixture","account":1,"targets":[{"kind":"poster","id":101}]}"#.utf8)
+        _ = try await world.smoke.run(marker: "fixture", cleanupOnly: true)
+        #expect(world.contents["poster101"] == nil)
+        #expect(world.contents["poster77"]?.text == "原有内容" && world.pending == nil)
     }
 
     private final class CommunityWorld {
