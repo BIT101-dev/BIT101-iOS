@@ -11,7 +11,7 @@ source "$ROOT_DIR/Scripts/script-support.sh"
 
 ACTION="${1:-install}"
 if [[ $# -gt 1 ]]; then
-  echo "用法：Scripts/build-install-device.sh [build|archive|mac|screenshot|info]" >&2
+  echo "用法：Scripts/build-install-device.sh [build|archive|archive-signed|mac|screenshot|info]" >&2
   exit 64
 fi
 case "$ACTION" in
@@ -19,13 +19,14 @@ case "$ACTION" in
     echo "Scripts/build-install-device.sh              自动选机、构建、安装并启动"
     echo "Scripts/build-install-device.sh build        编译 iOS App 与扩展"
     echo "Scripts/build-install-device.sh archive      编译正式归档及 dSYM"
+    echo "Scripts/build-install-device.sh archive-signed 归档并签名，供 App Store 导出"
     echo "Scripts/build-install-device.sh mac          构建并安装到本机 Mac"
     echo "Scripts/build-install-device.sh screenshot   真机截图"
     echo "Scripts/build-install-device.sh info         真机连接与锁定状态"
     exit 0
     ;;
-  install|build|archive|mac|screenshot|info) ;;
-  *) echo "操作：build、archive、mac、screenshot、info；直接运行自动装机。" >&2; exit 64 ;;
+  install|build|archive|archive-signed|mac|screenshot|info) ;;
+  *) echo "操作：build、archive、archive-signed、mac、screenshot、info；直接运行自动装机。" >&2; exit 64 ;;
 esac
 
 if [[ "$ACTION" == screenshot || "$ACTION" == info ]]; then
@@ -97,19 +98,20 @@ fi
 
 BUILD_OVERRIDES=()
 BUILD_ACTION=build
-if [[ "$ACTION" == build || "$ACTION" == archive ]]; then
+if [[ "$ACTION" == build || "$ACTION" == archive || "$ACTION" == archive-signed ]]; then
   BUILD_DESTINATION="generic/platform=iOS"
-  BUILD_OVERRIDES=(CODE_SIGNING_ALLOWED=NO)
+  if [[ "$ACTION" != archive-signed ]]; then BUILD_OVERRIDES=(CODE_SIGNING_ALLOWED=NO); fi
 else
   bit101_require_device || exit 1
   BUILD_DESTINATION="platform=iOS,id=$BIT101_XCODE_DEVICE_ID"
 fi
-if [[ "$ACTION" == archive ]]; then
+if [[ "$ACTION" == archive || "$ACTION" == archive-signed ]]; then
   BUILD_ACTION=archive
   BUILD_OVERRIDES+=(-archivePath "$DERIVED_DATA/BIT101-iOS.xcarchive")
   BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest build-archive)"
   BIT101_VALIDATION_RUN_ID="$(uuidgen)"
   export BIT101_VALIDATION_SOURCE_DIGEST BIT101_VALIDATION_RUN_ID
+  BUILD_OVERRIDES+=("BIT101_ARCHIVE_INPUT_DIGEST=$BIT101_VALIDATION_SOURCE_DIGEST" "BIT101_ARCHIVE_RUN_ID=$BIT101_VALIDATION_RUN_ID")
   rm -rf "$DERIVED_DATA/BIT101-iOS.xcarchive"
   finish_archive() {
     local archive_status=$?
@@ -131,7 +133,7 @@ bit101_run_logged "$DERIVED_DATA/build.log" "iOS Release 编译" xcodebuild "$BU
   "${BUILD_OVERRIDES[@]}" \
     -allowProvisioningUpdates
 
-if [[ "$ACTION" == build || "$ACTION" == archive ]]; then
+if [[ "$ACTION" == build || "$ACTION" == archive || "$ACTION" == archive-signed ]]; then
   exit 0
 fi
 

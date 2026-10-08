@@ -892,12 +892,21 @@ def school_lifecycle_boundary_findings() -> list[str]:
         'struct ScheduleRootView: View { func startClassroomPageRefresh() { service.fetchCampuses(); service.syncCourses() }; var body: some View { Text("x").task { startClassroomPageRefresh() } } }',
         'struct ScheduleTermPickerPage: View { func loadAvailableTerms() { service.fetchAvailableTerms(); service.syncCourses() }; var body: some View { Text("x").task { loadAvailableTerms() } } }',
         'struct TrustedTranscriptPage: View { func applyIfNeeded() { service.fetchTrustedTranscriptPages(); service.fetchScores() }; var body: some View { Text("x").task { applyIfNeeded() } } }',
+        'protocol Loading { func load() async }; struct Loader: Loading { let service: any ScoreListServicing; func load() async { await service.fetchScores() } }; struct Screen: View { let loader: any Loading; var body: some View { Text("x").task { await loader.load() } } }',
+        'protocol Loading { func load() async }; protocol SchoolLoading: Loading {}; struct Loader: SchoolLoading { let service: any ScoreListServicing; func load() async { await service.fetchScores() } }; struct Screen: View { let loader: any Loading; var body: some View { Text("x").task { await loader.load() } } }',
     ):
         if not automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: source}))):
             findings.append("学校生命周期自测：重命名入口、包装方法与跨类型调用链")
     manual = "struct ManualPage: View { var body: some View { Button(\"刷新\") { Task { await service.syncCourses() } } } }"
     if automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: manual}))):
         findings.append("学校生命周期自测：用户操作保持独立调用边界")
+    loader = 'protocol Loading { func load() async }; struct Loader: Loading { let service: any ScoreListServicing; func load() async { await service.fetchScores() } };'
+    screen = 'struct Screen: View { let loader: any Loading; var body: some View { Text("x").task { await loader.load() } } }'
+    if not automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: screen, str(ROOT / 'BIT101-iOS/Loader.swift'): loader}))):
+        findings.append("学校生命周期自测：跨文件协议转发需要连接具体实现")
+    manual_loader = screen.replace('Text("x").task', 'Button("刷新")')
+    if automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: manual_loader, str(ROOT / 'BIT101-iOS/Loader.swift'): loader}))):
+        findings.append("学校生命周期自测：协议转发的用户操作保持独立边界")
     manual = 'struct Screen: View { let service: any ScheduleCourseServicing; var action: () async throws -> Void { { _ = try await service.syncCourses(term: nil) } }; var body: some View { Button("刷新") { Task { try? await action() } } } }'
     if automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: manual}))):
         findings.append("学校生命周期自测：计算属性动作保持用户操作边界")

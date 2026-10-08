@@ -39,6 +39,7 @@ def includes_input(name: str, group: str) -> bool:
     elif host in {"restore", "archive", "manual-device"}:
         tests = False
         scripts = BUILD_SCRIPTS | VALIDATION_SCRIPTS
+        if host == "manual-device": product = product or root == "Cloudflare" and path.suffix != ".md"
     else:
         raise ValueError(f"需要登记验证组的输入范围：{group}")
     return product or tests or root == "Scripts" and path.name in scripts
@@ -67,3 +68,5 @@ def self_test() -> None:
     assert includes_input("docs/UI_INTERACTION_COVERAGE.md", "ui")
     assert includes_input("Cloudflare/OpenWorker/worker.js", "network")
     assert not includes_input("Cloudflare/README.md", "network")
+    for name in ("Cloudflare/ErrorReportWorker/worker.js", "Cloudflare/ErrorReportWorker/wrangler.jsonc", "Cloudflare/OpenWorker/worker.js"):
+        assert includes_input(name, "manual-device")

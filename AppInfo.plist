@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>BIT101ArchiveInputDigest</key>
+	<string>$(BIT101_ARCHIVE_INPUT_DIGEST)</string>
+	<key>BIT101ArchiveRunIdentifier</key>
+	<string>$(BIT101_ARCHIVE_RUN_ID)</string>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).schedule-refresh</string>

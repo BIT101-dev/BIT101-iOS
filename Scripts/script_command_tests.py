@@ -55,6 +55,7 @@ xcrun() {
         ("build-install-device.sh", [], 0, "platform=iOS,id=udid", "DEVICE"),
         ("build-install-device.sh", ["build"], 0, "generic/platform=iOS", ""),
         ("build-install-device.sh", ["archive"], 0, "xcodebuild archive", ""),
+        ("build-install-device.sh", ["archive-signed"], 0, "xcodebuild archive", ""),
         ("build-install-device.sh", ["mac"], 0, "variant=Mac Catalyst", ""),
         ("build-install-device.sh", ["info"], 0, "phone", "DEVICE"),
         ("build-install-device.sh", ["screenshot"], 0, "截图已保存", "DEVICE"),

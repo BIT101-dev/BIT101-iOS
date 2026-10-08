@@ -8,11 +8,50 @@ import plistlib
 import re
 import subprocess
 import sys
+import uuid
 from validate_versions import extract_versions
 from validation_provenance import sampling_evidence_current, utc_now
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / "build/DeviceInstall/distribution-signing.json"
+
+
+def archive_provenance(info: dict) -> dict:
+    return {"inputDigest": info.get("BIT101ArchiveInputDigest", ""), "runID": info.get("BIT101ArchiveRunIdentifier", "")}
+
+
+def valid_archive_provenance(provenance: dict) -> bool:
+    return isinstance(provenance, dict) and isinstance(provenance.get("inputDigest"), str) \
+        and re.fullmatch(r"[0-9a-f]{64}", provenance["inputDigest"]) is not None \
+        and isinstance(provenance.get("runID"), str) and bool(provenance["runID"].strip())
+
+
+def valid_executable_uuids(rows: list) -> bool:
+    if not isinstance(rows, list) or not rows: return False
+    try:
+        return all(isinstance(row, dict) and isinstance(row.get("architecture"), str) and row["architecture"].strip()
+            and isinstance(row.get("uuid"), str) and str(uuid.UUID(row["uuid"])).upper() == row["uuid"] for row in rows) \
+            and len({row["architecture"] for row in rows}) == len(rows)
+    except (ValueError, TypeError, KeyError): return False
+
+
+def executable_uuids(path: Path, info: dict) -> list:
+    output = subprocess.check_output(["xcrun", "dwarfdump", "--uuid", str(path / info["CFBundleExecutable"])], text=True)
+    rows = [{"uuid": identifier.upper(), "architecture": architecture} for identifier, architecture in
+        re.findall(r"(?m)^UUID: ([0-9A-Fa-f-]+) \(([^)]+)\)", output)]
+    if not valid_executable_uuids(rows): raise ValueError("应用可执行文件需要有效的 Mach-O UUID")
+    return sorted(rows, key=lambda row: row["architecture"])
+
+
+def application_infos(application: Path) -> dict:
+    bundles = [application] + sorted(path for path in application.rglob("*") if path.suffix in {".app", ".appex"} and path.is_dir())
+    return {path: plistlib.loads((path / "Info.plist").read_bytes()) for path in bundles}
+
+
+def archive_build_summary(application: Path) -> dict:
+    infos = application_infos(application)
+    return {"passed": True, "kind": "build", "archiveProvenance": archive_provenance(infos[application]),
+        "executables": {info["CFBundleIdentifier"]: executable_uuids(path, info) for path, info in infos.items()}}
 
 
 def distribution_contracts() -> dict:
@@ -41,7 +80,8 @@ def distribution_contracts() -> dict:
 def distribution_complete(report: dict, contracts: dict | None = None) -> bool:
     contracts = distribution_contracts() if contracts is None else contracts
     rows = report.get("bundles", [])
-    if report.get("schemaVersion") != 1 or not isinstance(rows, list) or len(rows) != len(contracts) \
+    if report.get("schemaVersion") != 1 or not valid_archive_provenance(report.get("archiveProvenance")) \
+            or not isinstance(rows, list) or len(rows) != len(contracts) \
             or any(not isinstance(row, dict) or not isinstance(row.get("identifier"), str) for row in rows): return False
     if {row["identifier"] for row in rows} != set(contracts) \
             or not sampling_evidence_current({"startedAt": report.get("verifiedAt"), "finishedAt": report.get("verifiedAt")}): return False
@@ -53,7 +93,7 @@ def distribution_complete(report: dict, contracts: dict | None = None) -> bool:
                 or row.get("team") != contract["team"] or entitlements.get("com.apple.developer.team-identifier") != contract["team"] \
                 or entitlements.get("get-task-allow", False) is not False or row.get("version") != contract["version"] \
                 or row.get("build") != contract["build"] or not isinstance(row.get("sha256"), str) \
-                or not re.fullmatch(r"[0-9a-f]{64}", row["sha256"]):
+                or not re.fullmatch(r"[0-9a-f]{64}", row["sha256"]) or not valid_executable_uuids(row.get("executableUUIDs")):
             return False
         application = entitlements.get("application-identifier", "")
         suffix = "." + row["identifier"]
@@ -86,8 +126,7 @@ def bundle_digest(path: Path) -> str:
 def inspect_application(application: Path) -> dict:
     if application.suffix != ".app" or not application.is_dir():
         raise ValueError("签名验收需要最终导出产物中的 .app 目录")
-    bundles = [application] + sorted(path for path in application.rglob("*") if path.suffix in {".app", ".appex"} and path.is_dir())
-    infos = {path: plistlib.loads((path / "Info.plist").read_bytes()) for path in bundles}
+    infos = application_infos(application)
     rows = []
     for path, info in infos.items():
         subprocess.run(["codesign", "--verify", "--deep", "--strict", str(path)], check=True, capture_output=True)
@@ -99,9 +138,10 @@ def inspect_application(application: Path) -> dict:
         rows.append({"identifier": info["CFBundleIdentifier"], "version": info["CFBundleShortVersionString"],
             "build": info["CFBundleVersion"], "team": team[1] if team else "", "entitlements": entitlements,
             "signatureVerified": True, "sha256": bundle_digest(path),
+            "executableUUIDs": executable_uuids(path, info),
             "containerIdentifier": infos[container]["CFBundleIdentifier"] if container else "",
             "companionIdentifier": info.get("WKCompanionAppBundleIdentifier", "")})
-    report = {"schemaVersion": 1, "verifiedAt": utc_now().isoformat(), "bundles": rows}
+    report = {"schemaVersion": 1, "verifiedAt": utc_now().isoformat(), "archiveProvenance": archive_provenance(infos[application]), "bundles": rows}
     if not distribution_complete(report): raise ValueError("分发签名需要匹配正式版本、团队、扩展归属、App Group 和 Production iCloud 权限")
     return report
 

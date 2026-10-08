@@ -8,6 +8,7 @@ import uuid
 import zlib
 from validation_provenance import sampling_evidence_current, utc_now
 from pathlib import Path
+from validate_distribution import valid_archive_provenance
 
 MANUAL_DEVICE_CHECKS = {"system-autofill", "photos", "calendar-permissions", "notifications", "external-handoff", "web-interactions", "widget", "watch", "feedback-delivery", "distribution-signing"}
 
@@ -80,3 +81,19 @@ def complete(checks: dict) -> bool:
         and all(isinstance(row.get(field), str) and row[field].strip() for field in ("operation", "result", "capturedAt"))
         and isinstance(row.get("evidence"), dict) and artifact_complete(row["evidence"], check)
         and sampling_evidence_current({"startedAt": row["capturedAt"], "finishedAt": row["capturedAt"]}) for check, row in checks.items())
+
+
+def distribution_matches_archive(observation: dict, archive: dict) -> bool:
+    try:
+        proof = json.loads(base64.b64decode(observation['evidence']['dataBase64'], validate=True))
+        summary = archive['summary']
+        provenance = summary['archiveProvenance']
+        expected = {'inputDigest': archive['inputDigest'], 'runID': archive['runID']}
+        if archive.get('exitCode') != 0 or archive.get('scope') != 'full' or summary.get('passed') is not True \
+                or provenance != expected or not valid_archive_provenance(provenance) or proof.get('archiveProvenance') != provenance:
+            return False
+        rows = proof['bundles']
+        executables = summary['executables']
+        if {row['identifier'] for row in rows} != set(executables): return False
+        return all(row['executableUUIDs'] and all(item in executables[row['identifier']] for item in row['executableUUIDs']) for row in rows)
+    except (KeyError, ValueError, TypeError, AttributeError): return False

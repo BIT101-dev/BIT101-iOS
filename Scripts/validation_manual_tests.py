@@ -8,6 +8,7 @@ import subprocess
 from types import SimpleNamespace
 from unittest.mock import patch
 import zlib
+import uuid
 from validation_manual import MANUAL_DEVICE_CHECKS, capture, complete, evidence_content_complete
 from validation_provenance import utc_now
 import validate_distribution as distribution
@@ -26,8 +27,10 @@ def distribution_fixture() -> tuple[dict, dict]:
         parents = [key for key, contract in contracts.items() if not contract['extension'] and identifier.startswith(key + '.')]
         rows.append({'identifier': identifier, 'team': value['team'], 'version': value['version'], 'build': value['build'],
             'entitlements': entitlements, 'signatureVerified': True, 'sha256': 'a' * 64,
+            'executableUUIDs': [{'architecture': 'arm64', 'uuid': str(uuid.uuid5(uuid.NAMESPACE_URL, identifier)).upper()}],
             'containerIdentifier': max(parents, key=len) if parents else '', 'companionIdentifier': main if identifier != main and not value['extension'] else ''})
-    return contracts, {'schemaVersion': 1, 'verifiedAt': utc_now().isoformat(), 'bundles': rows}
+    return contracts, {'schemaVersion': 1, 'verifiedAt': utc_now().isoformat(),
+        'archiveProvenance': {'inputDigest': 'a' * 64, 'runID': 'fixture-run'}, 'bundles': rows}
 
 
 def evidence_fixture(check: str) -> bytes:
@@ -43,8 +46,12 @@ def evidence_fixture(check: str) -> bytes:
         + chunk(b'IDAT', zlib.compress(b'\0\0\0\0')) + chunk(b'IEND', b'')
 
 
-def captured_fixture(check: str) -> dict:
+def captured_fixture(check: str, provenance: dict | None = None) -> dict:
     data = evidence_fixture(check)
+    if check == 'distribution-signing' and provenance is not None:
+        proof = json.loads(data)
+        proof['archiveProvenance'] = provenance
+        data = json.dumps(proof).encode()
     path = Path('/evidence/' + check)
     original = Path.read_bytes
     with patch.object(Path, 'read_bytes', lambda value: data if value == path else original(value)):
@@ -56,7 +63,7 @@ def run_self_test() -> None:
     assert len(contracts) == 4 and distribution.distribution_complete(report, contracts)
     for index, row in enumerate(report['bundles']):
         for key, value in [('signatureVerified', False), ('version', '0.0.0'), ('build', '0'), ('team', 'other'),
-                ('containerIdentifier', 'wrong'), ('sha256', 'invalid')]:
+                ('containerIdentifier', 'wrong'), ('sha256', 'invalid'), ('executableUUIDs', [])]:
             if key == 'containerIdentifier' and not row['containerIdentifier']: continue
             changed = copy.deepcopy(report)
             changed['bundles'][index][key] = value
@@ -85,14 +92,22 @@ def run_self_test() -> None:
     def read(path):
         row = by_path[path.parent]
         return plistlib.dumps({'CFBundleIdentifier': row['identifier'], 'CFBundleShortVersionString': row['version'],
-            'CFBundleVersion': row['build'], 'WKCompanionAppBundleIdentifier': row['companionIdentifier']})
+            'CFBundleVersion': row['build'], 'WKCompanionAppBundleIdentifier': row['companionIdentifier'], 'CFBundleExecutable': 'application',
+            'BIT101ArchiveInputDigest': report['archiveProvenance']['inputDigest'], 'BIT101ArchiveRunIdentifier': report['archiveProvenance']['runID']})
     def signed(command, **kwargs):
-        row = by_path[Path(command[-1])]
+        path = Path(command[-1])
+        if command[:2] == ['xcrun', 'dwarfdump']:
+            row = by_path[path.parent]
+            return SimpleNamespace(stdout='UUID: ' + row['executableUUIDs'][0]['uuid'] + ' (arm64) application', stderr='')
+        row = by_path[path]
         return SimpleNamespace(stdout=plistlib.dumps(row['entitlements']) if '--entitlements' in command else b'', stderr='TeamIdentifier=' + row['team'])
     with patch.object(Path, 'is_dir', return_value=True), patch.object(Path, 'rglob', return_value=list(by_path)[1:]), \
             patch.object(Path, 'read_bytes', read), patch.object(distribution, 'bundle_digest', return_value='a' * 64), \
             patch.object(distribution, 'distribution_contracts', return_value=contracts), patch.object(subprocess, 'run', side_effect=signed) as commands:
         assert distribution.distribution_complete(distribution.inspect_application(root), contracts)
+        build = distribution.archive_build_summary(root)
+        assert build['archiveProvenance'] == report['archiveProvenance']
+        assert build['executables'] == {row['identifier']: row['executableUUIDs'] for row in report['bundles']}
         assert sum('--verify' in call.args[0] and '--deep' in call.args[0] and '--strict' in call.args[0] for call in commands.call_args_list) == 4
         commands.side_effect = subprocess.CalledProcessError(1, 'codesign')
         try: distribution.inspect_application(root)
@@ -105,6 +120,16 @@ def run_self_test() -> None:
         assert not evidence_content_complete(name, b'x')
         checks[name] = captured_fixture(name)
     assert complete(checks)
+    from validation_manual import distribution_matches_archive
+    archive = {'exitCode': 0, 'scope': 'full', 'summary': build, **report['archiveProvenance']}
+    assert distribution_matches_archive(checks['distribution-signing'], archive)
+    changed = copy.deepcopy(archive)
+    changed['inputDigest'] = 'b' * 64
+    changed['summary']['archiveProvenance']['inputDigest'] = 'b' * 64
+    assert not distribution_matches_archive(checks['distribution-signing'], changed)
+    changed = copy.deepcopy(archive)
+    changed['summary']['executables'][main['identifier']][0]['uuid'] = str(uuid.uuid4()).upper()
+    assert not distribution_matches_archive(checks['distribution-signing'], changed)
     duplicated = {name: copy.deepcopy(checks['photos']) for name in checks}
     assert not complete(duplicated)
     feedback = json.loads(evidence_fixture('feedback-delivery'))

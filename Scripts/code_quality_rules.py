@@ -404,6 +404,7 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
 
     aliases = [(path, alias, variable_scope(path, alias)) for path, facts in syntax_index.items()
         for alias in facts.get("typeAliases", [])]
+    conformances = declaration_conformances(syntax_index)
 
     def canonical_type(value, scope, path):
         visited = set()
@@ -491,7 +492,11 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
             constructed = canonical_type(call["value"], variable_scope(reference_paths.get(id(call), ""), call), reference_paths.get(id(call), ""))
             return [entry for entry in functions.get("init", []) if constructed in entry[0][0]]
         receiver = receiver_type(call)
-        if receiver: return [entry for entry in candidates if receiver in entry[0][0]]
+        if receiver:
+            implementations = {owner for owner, bases in conformances.items()
+                if any(canonical_type(base, owner, reference_paths.get(id(call), "")) == receiver for base in bases)}
+            return [entry for entry in candidates if receiver in entry[0][0]
+                or any(entry[0][0][:len(owner)] == owner for owner in implementations)]
         if call["value"] == ".init":
             path = reference_paths[id(call)]
             facts = syntax_index[path]

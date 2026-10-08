@@ -19,7 +19,8 @@ from swift_source_index import swift_syntax_index_sources
 from validation_inputs import includes_input
 from validation_policy import TEST_GROUPS, RELEASE_GROUPS, DEFAULT_VERIFY_GROUPS, FORMAL_RUNTIME_SUITES, MODULE_COVERAGE_FLOORS, IOS_MODULE_COVERAGE_FLOORS
 from validation_test_areas import TEST_AREA_SUITES
-from validation_manual import MANUAL_DEVICE_CHECKS, capture as capture_manual, complete as manual_complete
+from validation_manual import MANUAL_DEVICE_CHECKS, capture as capture_manual, complete as manual_complete, distribution_matches_archive
+from validate_distribution import archive_build_summary, valid_archive_provenance, valid_executable_uuids, distribution_contracts
 from validation_environment import environment_context, complete_environment, toolchain_identity
 from validation_provenance import LIVE_GROUPS, NETWORK_GROUPS, evidence_current, producing_run_matches, utc_now
 
@@ -389,6 +390,11 @@ def complete_summary(group: str, summary: dict) -> bool:
     if group == "manual-device":
         checks = summary.get("checks", {})
         return manual_complete(checks)
+    if group == "build-archive":
+        executables = summary.get("executables", {})
+        return summary.get("kind") == "build" and valid_archive_provenance(summary.get("archiveProvenance")) \
+            and isinstance(executables, dict) and set(executables) == set(distribution_contracts()) \
+            and all(valid_executable_uuids(rows) for rows in executables.values())
     if group.startswith("build-"): return summary.get("kind") == "build"
     return summary.get("kind") == ("restore" if group == "restore" else "audit")
 
@@ -411,6 +417,10 @@ def release_findings(report: dict, digest: str, *, recorded_environment: bool = 
     if recorded_environment and toolchain_identity(report.get("groups", {}).get("build-archive", {}).get("environment", {})) \
             != toolchain_identity(environment_context("build-archive")):
         errors.append("发布编译工具链及 SDK 与已绑定证据存在差异，请重新验收。")
+    groups = report.get("groups", {})
+    observation = groups.get("manual-device", {}).get("summary", {}).get("checks", {}).get("distribution-signing", {})
+    if not distribution_matches_archive(observation, groups.get("build-archive", {})):
+        errors.append("最终分发签名需要对应已验证归档的源码摘要、运行标识与可执行文件 UUID。")
     return errors
 
 
@@ -452,6 +462,11 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
             row["summary"] = smoke_summary(group, result, full=scope == "full")
     else:
         row["summary"] = {"passed": status == 0, "kind": "build" if group.startswith("build-") else "restore" if group == "restore" else "audit"}
+        if group == "build-archive" and status == 0:
+            try:
+                row["summary"] = archive_build_summary(ROOT / "build/DeviceInstall/BIT101-iOS.xcarchive/Products/Applications/BIT101-iOS.app")
+                row["summary"]["passed"] = row["summary"]["archiveProvenance"] == {"inputDigest": started_digest, "runID": run_id}
+            except (OSError, ValueError, KeyError, subprocess.CalledProcessError): row["summary"]["passed"] = False
     selected_complete = True
     if scope == "selected" and group in TEST_GROUPS:
         try:
@@ -594,6 +609,8 @@ def main() -> int:
         digest = source_digest()
         with report_lock():
             report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
+            if args.group == "distribution-signing" and not distribution_matches_archive(observation, report.get("groups", {}).get("build-archive", {})):
+                parser.error("分发产物需要来自当前已验证的归档，请执行 archive-signed 并导出该归档。")
             report.setdefault("groups", {})
             report["sourceDigest"] = digest
             report.pop("releaseCommit", None)

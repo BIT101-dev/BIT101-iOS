@@ -16,7 +16,7 @@ def run_self_test(subject) -> int:
         from validation_provenance_tests import run_self_test as provenance_self_test
         from validation_test_areas import inventory_findings
         provenance_self_test(subject.record)
-        from validation_manual_tests import run_self_test as manual_self_test, captured_fixture
+        from validation_manual_tests import run_self_test as manual_self_test, captured_fixture, distribution_fixture
         manual_self_test()
         all_suites = {test.split('/', 1)[0] for test in subject.test_inventory('all')}
         assert inventory_findings(all_suites) == []
@@ -169,10 +169,13 @@ def run_self_test(subject) -> int:
         summaries['ui']['uiInventory'] = {'observed': 1, 'visited': 1, 'pending': [], 'scope': 'mounted-controls', 'unidentifiedControls': 0, 'pendingDisabled': [], 'identityScope': 'testCaseNavigationPresentationAndOccurrence'}
         summaries['audit'] = {'passed': True, 'kind': 'audit'}
         summaries['restore'] = {'passed': True, 'kind': 'restore'}
-        summaries['build-archive'] = {'passed': True, 'kind': 'build'}
+        provenance = {'inputDigest': subject.source_digest('build-archive'), 'runID': 'fixture-run'}
+        distribution_proof = distribution_fixture()[1]
+        summaries['build-archive'] = {'passed': True, 'kind': 'build', 'archiveProvenance': provenance,
+            'executables': {row['identifier']: row['executableUUIDs'] for row in distribution_proof['bundles']}}
         from validation_manual import capture, complete
         checks = {}
-        for name in subject.MANUAL_DEVICE_CHECKS: checks[name] = captured_fixture(name)
+        for name in subject.MANUAL_DEVICE_CHECKS: checks[name] = captured_fixture(name, provenance)
         summaries['manual-device'] = {'passed': True, 'checks': checks}
         assert complete(checks)
         stale = json.loads(json.dumps(checks))
@@ -244,11 +247,16 @@ def run_self_test(subject) -> int:
         assert summaries['icloud']['cleanup']['kind'] == 'round-trip'
         assert not subject.complete_summary('icloud', dict(summaries['icloud'], cleanup={'exitCode': 1}))
         groups = {name: {'exitCode': 0, 'scope': 'full', 'summary': summary, 'inputDigest': subject.source_digest(name), 'environment': subject.environment_context(name)} for name, summary in summaries.items()}
+        groups['build-archive']['runID'] = provenance['runID']
         for name in subject.LIVE_GROUPS & groups.keys():
             groups[name]['summary'].update(startedAt=subject.utc_now().isoformat(), finishedAt=subject.utc_now().isoformat())
         report = {'sourceDigest': 'source', 'groups': groups}
         with patch('ui_rules.source_runtime_interaction_findings', return_value=[]):
             assert subject.release_findings(report, 'source') == []
+            older = json.loads(json.dumps(report))
+            first = next(iter(older['groups']['build-archive']['summary']['executables'].values()))
+            first[0]['uuid'] = '00000000-0000-4000-8000-000000000001'
+            assert any('可执行文件 UUID' in error for error in subject.release_findings(older, 'source'))
             with patch(f'{module_name}.environment_context', return_value=dict(fixture_environment, host={'system': 'changed'})):
                 assert subject.release_findings(report, 'source')
                 assert subject.release_findings(report, 'source', recorded_environment=True) == []

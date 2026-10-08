@@ -767,12 +767,6 @@ lines += ["验证输入：" + os.environ["BIT101_VALIDATION_SOURCE_DIGEST"], "�
 report = "\n".join(lines) + "\n"
 Path(report_path).write_text(report, encoding="utf-8")
 print(lines[4])
-coverage_lines = [line for line in lines[7:] if line.startswith("- ") and "符号合并" not in line]
-if len(coverage_lines) <= 1000:
-    if coverage_lines:
-        print("\n".join(coverage_lines))
-else:
-    print(f"覆盖率指标共 {len(coverage_lines)} 行 · {report_path}")
 if mode not in {"catalyst", "catalyst-release-runtime", "ui"} and coverage is None:
     if coverage_error:
         print(coverage_error)
