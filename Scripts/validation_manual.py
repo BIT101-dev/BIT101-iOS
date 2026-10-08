@@ -10,6 +10,7 @@ from validation_provenance import sampling_evidence_current, utc_now
 from pathlib import Path
 from validate_distribution import valid_archive_provenance
 from validation_media import media_complete
+from validation_policy import MAXIMUM_ATTACHMENT_BYTES, MAXIMUM_REPORT_BYTES
 
 MANUAL_DEVICE_CHECKS = {"system-autofill", "photos", "calendar-permissions", "notifications", "external-handoff", "web-interactions", "widget", "watch", "feedback-delivery", "distribution-signing", "minimum-platforms"}
 BASELINE_CHECKS = {'iOS': {'cold-start-session', 'offline-persistence', 'media-and-navigation'},
@@ -21,7 +22,8 @@ def capture(operation: str, result: str, evidence: Path, check: str, outcome: st
         raise ValueError("人工验收需要实际操作和观察结果")
     if outcome not in {"passed", "failed"} or not sampling_evidence_current({"startedAt": observed_at, "finishedAt": observed_at}):
         raise ValueError("人工验收需要明确结果状态和实际观察时间")
-    data = evidence.read_bytes()
+    with evidence.open('rb') as stream: data = stream.read(MAXIMUM_ATTACHMENT_BYTES + 1)
+    if len(data) > MAXIMUM_ATTACHMENT_BYTES: raise ValueError('人工附件需要控制在 32 MiB 以内。')
     if not (failed_evidence_complete(data) if outcome == "failed" else evidence_content_complete(check, data)):
         raise ValueError("验收附件需要有效影像、PDF 或所属专项的结构化证据")
     return {"check": check, "operation": operation.strip(), "result": result.strip(), "outcome": outcome, "capturedAt": observed_at, "registeredAt": utc_now().isoformat(),
@@ -29,6 +31,7 @@ def capture(operation: str, result: str, evidence: Path, check: str, outcome: st
 
 
 def failed_evidence_complete(data: bytes) -> bool:
+    if not data or len(data) > MAXIMUM_ATTACHMENT_BYTES: return False
     if evidence_content_complete('photos', data): return True
     try:
         value = json.loads(data)
@@ -38,6 +41,9 @@ def failed_evidence_complete(data: bytes) -> bool:
 
 def artifact_complete(artifact: dict, check: str) -> bool:
     try:
+        if type(artifact.get('byteCount')) is not int or not 0 < artifact['byteCount'] <= MAXIMUM_ATTACHMENT_BYTES \
+                or not isinstance(artifact.get('dataBase64'), str) \
+                or len(artifact['dataBase64']) > 4 * ((MAXIMUM_ATTACHMENT_BYTES + 2) // 3): return False
         data = base64.b64decode(artifact["dataBase64"], validate=True)
         return evidence_content_complete(check, data) and type(artifact["byteCount"]) is int and len(data) == artifact["byteCount"] \
             and hashlib.sha256(data).hexdigest() == artifact["sha256"] \
@@ -63,6 +69,7 @@ def png_complete(data: bytes) -> bool:
 
 
 def evidence_content_complete(check: str, data: bytes) -> bool:
+    if not data or len(data) > MAXIMUM_ATTACHMENT_BYTES: return False
     if check not in MANUAL_DEVICE_CHECKS: return False
     if check == 'minimum-platforms':
         try: return baseline_complete(json.loads(data))
@@ -113,6 +120,10 @@ def baseline_complete(proof: dict) -> bool:
 
 
 def complete(checks: dict) -> bool:
+    if not isinstance(checks, dict): return False
+    encoded = [row.get('evidence', {}).get('dataBase64', '') for row in checks.values()
+        if isinstance(row, dict) and isinstance(row.get('evidence'), dict)]
+    if any(not isinstance(value, str) for value in encoded) or sum(map(len, encoded)) > MAXIMUM_REPORT_BYTES: return False
     return set(checks) == MANUAL_DEVICE_CHECKS and all(
         isinstance(row, dict) and row.get('check') == check and row.get('outcome') == 'passed'
         and all(isinstance(row.get(field), str) and row[field].strip() for field in ("operation", "result", "capturedAt"))
@@ -122,6 +133,7 @@ def complete(checks: dict) -> bool:
 
 def distribution_matches_archive(observation: dict, archive: dict) -> bool:
     try:
+        if not artifact_complete(observation.get('evidence', {}), 'distribution-signing'): return False
         proof = json.loads(base64.b64decode(observation['evidence']['dataBase64'], validate=True))
         summary = archive['summary']
         provenance = summary['archiveProvenance']

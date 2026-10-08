@@ -370,8 +370,8 @@ struct ReleaseNetworkSmokeDependencies {
     var makeCourses: @MainActor () -> any NetworkSmokeCourseServicing = { CourseService() }
     var makePapers: @MainActor () -> any NetworkSmokePaperServicing = { PaperService() }
     var makeMine: @MainActor () -> any NetworkSmokeMineServicing = { MineService() }
-    var communityWriteProbe: @MainActor (String, Bool, Int?) async throws -> [String] = {
-        try await CommunityWriteSmoke(operations: .production(followTarget: $2)).run(marker: $0, cleanupOnly: $1)
+    var communityWriteProbe: @MainActor (String, Bool, Int?, Int?) async throws -> [String] = {
+        try await CommunityWriteSmoke(operations: .production(followTarget: $2)).run(marker: $0, cleanupOnly: $1, expectedAccount: $3)
     }
     var productionSessionProbe: @MainActor () async throws -> Void = NetworkSmokeProductionSession.run
     var externalHTTPClient: HTTPClient = .shared
@@ -393,6 +393,7 @@ struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
     let term: String?
     var interactiveSMS: Bool? = nil
     var communityFollowTarget: Int? = nil
+    var communityExpectedAccount: Int? = nil
 
     private static var pendingFileURL: URL? {
         AppFileDirectories.documentFileURL(named: "network-smoke-request.json")
@@ -431,6 +432,7 @@ struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
         }
 
         self.communityFollowTarget = components?.queryItems?.first(where: { $0.name == "follow-target" })?.value.flatMap(Int.init)
+        self.communityExpectedAccount = components?.queryItems?.first(where: { $0.name == "expected-account" })?.value.flatMap(Int.init)
         self.scope = pathScope
         self.capture = capture
         self.term = term?.isEmpty == true ? nil : term

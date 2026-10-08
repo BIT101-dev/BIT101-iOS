@@ -44,9 +44,20 @@ def report_lock():
 
 
 def write_report(report: dict) -> None:
+    from validation_policy import MAXIMUM_REPORT_BYTES
     incoming = REPORT.with_suffix(".incoming")
-    incoming.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
-    incoming.replace(REPORT)
+    size = 1
+    try:
+        with incoming.open('wb') as stream:
+            for chunk in json.JSONEncoder(ensure_ascii=False, indent=2).iterencode(report):
+                data = chunk.encode()
+                size += len(data)
+                if size > MAXIMUM_REPORT_BYTES: raise ValueError('聚合验收证据需要控制在 128 MiB 以内。')
+                stream.write(data)
+            stream.write(b'\n')
+        incoming.replace(REPORT)
+    finally:
+        incoming.unlink(missing_ok=True)
 
 
 @cache
@@ -222,6 +233,7 @@ def test_summary(text: str) -> dict:
 def community_writes_complete(evidence: list) -> bool:
     if not all(isinstance(item, str) for item in evidence):
         return False
+    if sum(bool(re.fullmatch(r"验收账号 user[1-9]\d*", item)) for item in evidence) != 1: return False
     deleted = [match[1] for item in evidence if (match := re.fullmatch(r"服务端确认删除 comment([1-9]\d*)", item))]
     created = [(match[1], match[2]) for item in evidence
                if (match := re.fullmatch(r"创建 comment([1-9]\d*) 目标 ((?:poster|paper|course|comment)[1-9]\d*)", item))]
@@ -509,19 +521,23 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
         report["sourceDigest"] = digest
         report.pop("releaseCommit", None)
         report.pop("mergeCommit", None)
-        if group in {"modules", "all"} and scope == "full":
+        previous = report["groups"].get(group, {})
+        if scope == "selected" and group in TEST_GROUPS:
+            full = previous if previous.get("scope") == "full" else previous.get("lastFullRun")
+            if full: row["lastFullRun"] = full
+        if group in {"modules", "all"}:
             from validation_coverage import regressions, advance
-            previous = report["groups"].get(group, {})
             baseline = previous.get("coverageBaseline", {})
-            if previous.get("exitCode") == 0: baseline = advance(previous.get("summary", {}).get("coverage", {}), baseline)
-            problems = regressions(row.get("summary", {}).get("coverage", {}), baseline)
+            if previous.get("scope") == "full" and previous.get("exitCode") == 0:
+                baseline = advance(previous.get("summary", {}).get("coverage", {}), baseline)
+            problems = regressions(row.get("summary", {}).get("coverage", {}), baseline) if scope == "full" else []
             row["coverageBaseline"] = baseline
             if problems:
                 status = row["exitCode"] = 1
                 row["summary"]["passed"] = False
                 row["summary"]["coverageRegressions"] = problems
                 print("覆盖率退化：" + "；".join(problems), file=sys.stderr)
-            elif status == 0:
+            elif status == 0 and scope == "full":
                 row["coverageBaseline"] = advance(row["summary"].get("coverage", {}), baseline)
         report["groups"][group] = row
         report["testedCommit"] = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
@@ -701,7 +717,8 @@ def inspect_report(args) -> int:
         from validation_merge import findings as merge_findings
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
         candidate = dict(report, mergeCommit=commit) if args.action == "bind-merge" else report
-        errors = merge_findings(candidate, digest=source_digest, complete=complete_summary, commit=commit)
+        errors = merge_findings(candidate, digest=source_digest, complete=complete_summary, commit=commit,
+            recorded_environment=args.recorded_environment)
         if args.action == "bind-merge" and subprocess.check_output(["git", "status", "--porcelain=v1"], cwd=ROOT).strip():
             errors.append("合并验证证据需要对应已完整提交的仓库内容。")
         if errors:

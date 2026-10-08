@@ -236,14 +236,26 @@ struct ReleaseNetworkSmokeLifecycleTests {
     @Test func savingFailureStopsOnlineCreation() async {
         let world = CommunityWorld(stage: "success")
         let smoke = CommunityWriteSmoke(operations: world.operations, load: { nil }, save: { _ in throw CocoaError(.fileWriteNoPermission) })
-        await #expect(throws: (any Error).self) { try await smoke.run(marker: "fixture") }
+        await #expect(throws: (any Error).self) { try await smoke.run(marker: "fixture", expectedAccount: 1) }
         #expect(world.nextID == 100)
         #expect(Set(world.contents.keys) == ["poster77", "course1"])
     }
 
+    @Test func declaredSmokeAccountIsCheckedBeforeRecoveryAndOnlineWrites() async throws {
+        let world = CommunityWorld(stage: "success")
+        let original = try JSONEncoder().encode(CommunityWriteSmoke.Journal(marker: "fixture", account: 1))
+        world.pending = original
+        for account in [nil, 2] as [Int?] {
+            await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture", expectedAccount: account) }
+            #expect(world.pending == original && world.nextID == 100 && world.followsTarget)
+        }
+        let evidence = try await world.smoke.run(marker: "fixture", expectedAccount: 1)
+        #expect(evidence.contains("验收账号 user1") && world.nextID > 100 && world.pending == nil)
+    }
+
     @Test func followInterruptionRetainsItsTargetUntilTheOriginalRelationshipIsConfirmed() async throws {
         let world = CommunityWorld(stage: "persistent-follow")
-        await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture") }
+        await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture", expectedAccount: 1) }
         let pending = try #require(world.pending)
         #expect(try JSONDecoder().decode(CommunityWriteSmoke.Journal.self, from: pending).followTarget == 2)
         world.stage = "success"
@@ -261,7 +273,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         var rawCleanupCalls = 0
         let dependencies = ReleaseNetworkSmokeDependencies(checkLogin: { loginCalls += 1; return "fixture" }, writeReport: { reports.append($0.runID) },
             clearRawCourseResponse: { rawCleanupCalls += 1; throw CocoaError(.fileWriteNoPermission) },
-            communityWriteProbe: { id, _, _ in
+            communityWriteProbe: { id, _, _, _ in
                 runs.append(id)
                 if id == "first" {
                     await withCheckedContinuation { waiting = $0; entered = true; reached?.resume(); reached = nil }
@@ -527,7 +539,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
 
     @Test func confirmedCommentAbsenceRetiresALostDeletionResponseBeforeRecovery() async throws {
         let world = CommunityWorld(stage: "lost-delete-response")
-        await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture") }
+        await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture", expectedAccount: 1) }
         let data = try #require(world.pending)
         let journal = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect((journal["comments"] as? [Int])?.isEmpty == true)
@@ -542,7 +554,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
     @Test(arguments: ["persistent-find", "persistent-like", "persistent-delete"])
     func independentObjectsAreCleanedWhileOneRecoveryOperationKeepsFailing(stage: String) async throws {
         let world = CommunityWorld(stage: stage)
-        await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture") }
+        await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture", expectedAccount: 1) }
         #expect(world.pending != nil)
         #expect(world.contents.keys.filter { $0.hasPrefix("poster") } == ["poster77"])
         #expect(world.contents.keys.filter { $0.hasPrefix("paper") }.count == (stage == "persistent-delete" ? 1 : 0))
@@ -571,7 +583,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
 
     @Test func repliesAreConfirmedWhileTheirParentCommentsRemainReadable() async throws {
         let world = CommunityWorld(stage: "deleted-parent-read")
-        let evidence = try await world.smoke.run(marker: "fixture")
+        let evidence = try await world.smoke.run(marker: "fixture", expectedAccount: 1)
         #expect(evidence.filter { $0.hasPrefix("服务端确认删除 comment") }.count == 6)
         #expect(world.pending == nil)
         #expect(Set(world.contents.keys) == ["poster77", "course1"])
@@ -581,7 +593,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
     @Test(arguments: ["success", "lost-poster", "lost-reply", "cancelled", "cleanup-failure", "duplicate-comments", "invalid-paper"])
     func communityWritesCleanAfterLostResponsesCancellationAndResume(stage: String) async throws {
         let world = CommunityWorld(stage: stage)
-        let task = Task { try await world.smoke.run(marker: "fixture") }
+        let task = Task { try await world.smoke.run(marker: "fixture", expectedAccount: 1) }
         world.cancel = { task.cancel() }
         let result = await task.result
         if stage == "success" {

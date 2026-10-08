@@ -374,10 +374,6 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
             if any(term in literal["value"] for literal in facts["stringSegments"]):
                 errors.append(f"{relative(path)}: 不得重新引入学校/WebVPN 自动请求：{term}")
 
-    if owner_has_call(syntax_index, "BIT101_iOSApp", "refreshFromCloudIfNeeded"):
-        errors.append("BIT101_iOSApp: 启动生命周期不得自动拉取 iCloud 数据")
-    if owner_has_call(syntax_index, "ScheduleViewModel", "refreshFromCloudIfNeeded"):
-        errors.append("ScheduleViewModel: 日程页面本地恢复不得自动拉取 iCloud")
     if owner_has_call(syntax_index, "ScoreListPage", "bootstrapIfNeeded"):
         errors.append("ScoreListPage: 成绩页不得自动触发学校查询")
 
@@ -433,8 +429,18 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
             if decoded: variable_types[(scope, decoded[1])] = decoded[2]
 
     def receiver_type(call):
+        path = reference_paths.get(id(call), "")
+        scope = variable_scope(path, call)
+        if constructor := call.get("receiverCall"):
+            constructor = constructor.removesuffix(".init")
+            if constructor.rsplit(".", 1)[-1][:1].isupper():
+                return canonical_type(constructor, scope, path)
+            owner, _, method = constructor.rpartition(".")
+            owners = [tuple(owner.split("."))] if owner else [tuple(call["scope"][:length]) for length in range(len(call["scope"]), -1, -1)]
+            returned = next((return_types[(owner, method or constructor)] for owner in owners
+                if (owner, method or constructor) in return_types), None)
+            return canonical_type(returned, scope, path) if returned else None
         parts = call["value"].replace("?", "").split(".")[:-1]
-        scope = variable_scope(reference_paths.get(id(call), ""), call)
         if parts and parts[0] == "self":
             parts.pop(0)
             scope = tuple(call["scope"])
@@ -451,34 +457,121 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
             resolved = canonical_type(resolved, scope, reference_paths.get(id(call), ""))
         return resolved
 
+    explicit_initializers = {tuple(function["scope"]) for facts in syntax_index.values()
+        for function in facts.get("initializers", []) if function.get("isExplicitInitializer")}
+    callback_declarations = [function for facts in syntax_index.values()
+        for category in ("functionRanges", "initializers") for function in facts.get(category, [])]
+    function_paths = {id(function): path for path, facts in syntax_index.items()
+        for category in ("functionRanges", "initializers") for function in facts.get(category, [])}
+    callback_declarations_by_name = {}
+    for function in callback_declarations:
+        callback_declarations_by_name.setdefault(function["name"], []).append(function)
+    execution_calls = {}
+    for path, facts in syntax_index.items():
+        for call in facts["calls"]:
+            execution_calls.setdefault((path, tuple(call["scope"]), call["value"]), []).append((facts, call))
+    eager_parameters = set()
+
+    def registered_callbacks(path, facts):
+        registered, stored, executed = [], [], []
+        calls = {(call["start"], call["value"]): call for call in facts["calls"]}
+        for invocation in facts.get("invocations", []):
+            call = calls.get((invocation["start"], invocation.get("calledExpression")))
+            if call is None: continue
+            scope = variable_scope(path, call)
+            value = call["value"].removesuffix(".init")
+            owner = tuple(value.split("."))
+            signature = next((variable_types[(scope[:length], value.removeprefix("self."))]
+                for length in range(len(scope), -1, -1) if (scope[:length], value.removeprefix("self.")) in variable_types), None)
+            escaping = set().union(*(set(alias.get("escapingParameters", [])) for alias_path, alias, alias_scope in aliases
+                if signature == alias["name"] and (not alias.get("isFilePrivate") or alias_path == path)
+                and scope[:len(alias_scope)] == alias_scope))
+            receiver = receiver_type(call)
+            method = value.rsplit(".", 1)[-1]
+            declarations = [function for function in callback_declarations_by_name.get("init" if method[:1].isupper() else method, [])
+                if (tuple(function["scope"]) == owner if method[:1].isupper()
+                    else receiver in function["scope"] if receiver
+                    else tuple(call["scope"][:len(function["scope"])]) == tuple(function["scope"]))]
+            arguments = list(invocation.get("closureArguments", []))
+            arguments += [[index, *bounds] for index, (argument, bounds) in enumerate(zip(
+                invocation.get("arguments", []), invocation.get("argumentRanges", [])))
+                if re.fullmatch(r"(?:[\w?$]+\.)*\w+", argument)]
+            for index, start, end in arguments:
+                labels = invocation.get("argumentLabels", [])
+                label = labels[index] if index < len(labels) else ""
+                property_type = variable_types.get((owner, label), "")
+                memberwise = owner not in explicit_initializers and "->" in property_type
+                parameters = [(function, parameter) for function in declarations
+                    for parameter_index, parameter in enumerate(function["parameters"])
+                    if (parameter["label"] == label if label else parameter_index == index)
+                    and "@escaping" in parameter["type"]]
+                held = parameters and all(function.get("bodyStart") is not None
+                    and (id(function), parameter.get("name", parameter["label"])) not in eager_parameters
+                    for function, parameter in parameters)
+                if parameters and not held: executed.append((start, end))
+                if memberwise or index in escaping or held:
+                    callback = {"name": label, "scope": list(owner), "lexicalScope": [], "start": start, "end": end}
+                    registered.append(callback)
+                    if memberwise: stored.append(callback)
+        return registered, stored, executed
+
+    while True:
+        callback_ranges = {path: registered_callbacks(path, facts) for path, facts in syntax_index.items()}
+        observed = set(eager_parameters)
+        for function in callback_declarations:
+            path = function_paths[id(function)]
+            facts = syntax_index[path]
+            deferred = facts.get("callableRanges", []) + callback_ranges[path][0]
+            for parameter in function["parameters"]:
+                name = parameter.get("name", parameter["label"])
+                calls = execution_calls.get((path, tuple(function["scope"]), name), [])
+                references = [reference for reference in facts.get("scopedIdentifiers", [])
+                    if reference["value"] == name and reference["scope"] == function["scope"]
+                    and any(start <= reference["start"] < end for start, end in callback_ranges[path][2])]
+                if any(function.get("bodyStart", function["start"]) <= reference["start"] < function["end"]
+                        and not any(boundary["start"] <= reference["start"] < boundary["end"] for boundary in deferred)
+                        for reference in [call for _, call in calls] + references):
+                    observed.add((id(function), name))
+        if observed == eager_parameters: break
+        eager_parameters = observed
+
     roots = []
     for path, facts in syntax_index.items():
         if "Tests/" in path or "UITest" in Path(path).name or "ReleaseNetworkSmoke" in Path(path).name: continue
+        identifier_ids = {id(reference) for reference in facts.get("scopedIdentifiers", [])}
+        member_ranges = [(member["start"], member["start"] + len(member["value"].encode())) for member in facts.get("members", [])]
         assignments = [(expression["start"], expression["start"] + len(match[1].encode()))
             for expression in facts.get("expressions", [])
             if (match := re.match(r"((?:self\.)?\w+\s*)=(?!=)", expression["value"]))]
+        discarded = [(expression["start"], expression["start"] + len(expression["value"].encode()))
+            for expression in facts.get("expressions", []) if re.fullmatch(r"_\s*=(?!=)\s*[\w?.]+", expression["value"])]
         references = [reference for reference in facts["calls"] + facts.get("members", []) + facts.get("scopedIdentifiers", [])
-            if (re.fullmatch(r"(?:[\w?$]+\.)*\w+", reference["value"]) or reference["value"] == ".init")
+            if (re.fullmatch(r"(?:[\w?$]+\.)*\w+", reference["value"]) or reference["value"] == ".init" or reference.get("receiverCall"))
+            and not (id(reference) in identifier_ids and any(start <= reference["start"] < end for start, end in member_ranges))
+            and not any(start <= reference["start"] < end for start, end in discarded)
             and not any(start <= reference["start"] < end for start, end in assignments)
             and ("." in reference["value"] or reference["value"] in callable_names
                 or (variable_scope(path, reference), reference["value"]) not in variable_types)]
-        for category in ("functionRanges", "callableRanges", "initializers"):
-            for function in facts.get(category, []):
+        registered, stored, _ = callback_ranges[path]
+        deferred_ranges = facts.get("callableRanges", []) + registered
+        range_sets = [facts.get(category, []) for category in ("functionRanges", "callableRanges", "initializers")] + [stored]
+        for ranges in range_sets:
+            for function in ranges:
                 key = (variable_scope(path, function), function["name"])
                 functions.setdefault(function["name"], []).append((key, [reference for reference in references
-                    if function["start"] <= reference["start"] < function["end"]
+                    if function.get("bodyStart", function["start"]) <= reference["start"] < function["end"]
                     and not any(deferred["start"] <= reference["start"] < deferred["end"]
-                        and deferred is not function for deferred in facts.get("callableRanges", []))]))
+                        and deferred is not function for deferred in deferred_ranges)]))
         for declaration in facts["declarations"]:
             if "App" in {value.rsplit(".", 1)[-1] for value in declaration["inheritedTypes"]} \
                     or declaration["name"].endswith("Lifecycle") or declaration["name"] == "ScheduleReminderBackgroundRefresh":
                 scope = declaration["scope"] + [declaration["name"]]
                 roots.extend(call for call in references if call["scope"][:len(scope)] == scope
-                    and not any(deferred["start"] <= call["start"] < deferred["end"] for deferred in facts.get("callableRanges", [])))
+                    and not any(deferred["start"] <= call["start"] < deferred["end"] for deferred in deferred_ranges))
         for lifecycle in facts.get("lifecycleRanges", []):
             roots.extend(reference for reference in references
                 if lifecycle["start"] <= reference["start"] < lifecycle["end"]
-                and not any(deferred["start"] <= reference["start"] < deferred["end"] for deferred in facts.get("callableRanges", [])))
+                and not any(deferred["start"] <= reference["start"] < deferred["end"] for deferred in deferred_ranges))
 
     def targets(call):
         name = call["value"].rsplit(".", 1)[-1]
@@ -511,11 +604,18 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
 
     reasons = {}
     predecessors = {}
+    cloud_operation = "refreshFromCloudIfNeeded"
+    def restricted(call):
+        operation = call["value"].rsplit(".", 1)[-1].strip()
+        if operation in school_operations: return True
+        if operation != cloud_operation: return False
+        preference = receiver_type(call) == "ExperimentalPreferenceCloudSync" or "ExperimentalPreferenceCloudSync" in call["scope"]
+        return not preference
     for entries in functions.values():
         for key, children in entries:
             for child in children:
                 operation = child["value"].rsplit(".", 1)[-1].strip()
-                if operation in school_operations:
+                if restricted(child):
                     reasons.setdefault(key, {})[operation] = [child["value"]]
                 for target, _ in targets(child):
                     predecessors.setdefault(target, set()).add(key)
@@ -533,8 +633,8 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
         name = call["value"].rsplit(".", 1)[-1].strip()
         allowed = set().union(*(operations for (owner, entry), operations in exceptions.items() if owner in call["scope"] and entry == name))
         routes = [reason for key, _ in targets(call) for operation, reason in reasons.get(key, {}).items() if operation not in allowed]
-        if name in school_operations - allowed or routes:
-            errors.append(f"{'/'.join(call['scope'])}: 生命周期调用链触发学校请求：{call['value']}" + (" → " + " → ".join(routes[0]) if routes else ""))
+        if restricted(call) and name not in allowed or routes:
+            errors.append(f"{'/'.join(call['scope'])}: 生命周期业务拉取需要明确用户操作：{call['value']}" + (" → " + " → ".join(routes[0]) if routes else ""))
 
     return list(dict.fromkeys(errors))
 
@@ -695,6 +795,43 @@ def cross_file_view_request_self_test() -> list[str]:
         "Other.swift": "extension Namespace.Helper { func load() { _ = URLRequest(url: url) } }",
     }
     index = swift_syntax_index_sources(sources)
+    for action in ('await cloud.refreshFromCloudIfNeeded()', 'await Bootstrap().start()', 'await Bootstrap.init().start()',
+            'await Bootstrap.make().start()', 'await makeBootstrap().start()', 'let work = Bootstrap().start; await work()'):
+        cloud = swift_syntax_index_sources({
+            'App.swift': 'struct BIT101_iOSApp: App { let cloud: ScheduleCloudSyncManager; var body: some Scene { WindowGroup { Text("sample").task { ACTION } } } }'.replace('ACTION', action),
+            'Bootstrap.swift': 'struct Bootstrap { let cloud: ScheduleCloudSyncManager; static func make() -> Bootstrap { Bootstrap() }; func start() async { await cloud.refreshFromCloudIfNeeded() } }; func makeBootstrap() -> Bootstrap { Bootstrap() }',
+            'Cloud.swift': 'class ScheduleCloudSyncManager { func refreshFromCloudIfNeeded() async {} }'})
+        if not automatic_school_fetch_findings(cloud):
+            return ['代码质量规则边界自检失败：云拉取的生命周期传递调用']
+    cloud['App.swift'] = swift_syntax_index_sources({'App.swift':
+        'struct SampleApp: App { var body: some Scene { WindowGroup { Text("sample").task { let work = Bootstrap().start; _ = work } } } }'})['App.swift']
+    if automatic_school_fetch_findings(cloud):
+        return ['代码质量规则边界自检失败：待用户操作的方法引用']
+    for action, invoked in (('_ = actions', False), ('await actions.start()', True)):
+        stored = swift_syntax_index_sources({'App.swift':
+            'class ScheduleCloudSyncManager { func refreshFromCloudIfNeeded() async {} }; struct Actions { let refresh: () async -> Void; func start() async { await refresh() } }; struct SampleApp: App { let cloud: ScheduleCloudSyncManager; var body: some Scene { WindowGroup { Text("sample").task { let actions = Actions(refresh: { await cloud.refreshFromCloudIfNeeded() }); ACTION } } } }'.replace('ACTION', action)})
+        if bool(automatic_school_fetch_findings(stored)) != invoked:
+            return ['代码质量规则边界自检失败：成员构造器保存闭包与后续调用']
+    registered = swift_syntax_index_sources({'App.swift':
+        'typealias Presenter = (_ resolve: @escaping () async -> Void) -> Void; class ScheduleCloudSyncManager { func refreshFromCloudIfNeeded() async {} }; struct Bootstrap { let cloud: ScheduleCloudSyncManager; let present: Presenter; func start() { present { await cloud.refreshFromCloudIfNeeded() } } }; struct SampleApp: App { var body: some Scene { WindowGroup { Text("sample").task { Bootstrap().start() } } } }'})
+    if automatic_school_fetch_findings(registered):
+        return ['代码质量规则边界自检失败：交互回调的登记边界']
+    for operation, executed in (('_ = action', False), ('await action()', True), ('await forward(action)', True),
+            ('_ = Actions(refresh: action)', False)):
+        callbacks = swift_syntax_index_sources({'App.swift':
+            'class ScheduleCloudSyncManager { func refreshFromCloudIfNeeded() async {} }; struct Actions { let refresh: () async -> Void }; func forward(_ action: @escaping () async -> Void) async { await action() }; struct Bootstrap { func run(action: @escaping () async -> Void) async { OPERATION } }; struct SampleApp: App { let cloud: ScheduleCloudSyncManager; var body: some Scene { WindowGroup { Text("sample").task { await Bootstrap().run(action: cloud.refreshFromCloudIfNeeded) } } } }'.replace('OPERATION', operation)})
+        if bool(automatic_school_fetch_findings(callbacks)) != executed:
+            return ['代码质量规则边界自检失败：回调保存、直接执行与传递执行']
+    for method, restricted in (('preferences', False), ('business', True)):
+        isolated = swift_syntax_index_sources({'App.swift':
+            'class ExperimentalPreferenceCloudSync { func refreshFromCloudIfNeeded() async {} }; class ScheduleCloudSyncManager { func refreshFromCloudIfNeeded() async {} }; struct Bootstrap { let pref: ExperimentalPreferenceCloudSync; let cloud: ScheduleCloudSyncManager; func perform(operation: @escaping () async -> Void) async { await operation() }; func preferences() async { await perform(operation: { await pref.refreshFromCloudIfNeeded() }) }; func business() async { await perform(operation: { await cloud.refreshFromCloudIfNeeded() }) } }; struct SampleApp: App { var body: some Scene { WindowGroup { Text("sample").task { await Bootstrap().METHOD() } } } }'.replace('METHOD', method)})
+        if bool(automatic_school_fetch_findings(isolated)) != restricted:
+            return ['代码质量规则边界自检失败：同名执行参数的调用归属']
+    preference = swift_syntax_index_sources({
+        'App.swift': 'struct SampleApp: App { let bootstrap: Bootstrap; var body: some Scene { WindowGroup { Text("sample").task { await bootstrap.start() } } } }',
+        'Bootstrap.swift': 'struct Bootstrap { let cloud: ExperimentalPreferenceCloudSync; func start() async { await cloud.refreshFromCloudIfNeeded() } }; class ExperimentalPreferenceCloudSync { func refreshFromCloudIfNeeded() async {} }'})
+    if automatic_school_fetch_findings(preference):
+        return ['代码质量规则边界自检失败：已启用偏好同步的生命周期协调']
     types = declaration_conformances(index)
     if not ast_has_view_request(index["Actions.swift"], types, index) or ast_has_view_request(index["Other.swift"], types, index):
         return ["代码质量规则边界自检失败：跨文件 View 扩展与完整类型作用域"]

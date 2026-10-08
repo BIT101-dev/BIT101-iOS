@@ -60,6 +60,9 @@ struct ScopedFact: Encodable {
     var arguments: [String]? = nil
     var argumentRanges: [[Int]]? = nil
     var isTestingTest: Bool? = nil
+    var receiverCall: String? = nil
+    var closureArguments: [[Int]]? = nil
+    var calledExpression: String? = nil
 }
 
 struct SelectionControlFact: Encodable {
@@ -116,6 +119,7 @@ struct TypeAliasFact: Encodable {
     let lexicalScope: [Int]
     let isFilePrivate: Bool
     let isExported: Bool
+    var escapingParameters: [Int] = []
 }
 
 struct ListIconFact: Encodable {
@@ -134,6 +138,8 @@ struct FunctionRangeFact: Encodable {
     let end: Int
     let lexicalScope: [Int]
     let parameters: [FunctionParameterFact]
+    var isExplicitInitializer: Bool = false
+    var bodyStart: Int? = nil
 }
 
 struct FunctionParameterFact: Encodable {
@@ -141,6 +147,7 @@ struct FunctionParameterFact: Encodable {
     let type: String
     let hasDefault: Bool
     let variadic: Bool
+    var name: String = ""
 }
 
 struct FunctionReturnFact: Encodable {
@@ -214,6 +221,15 @@ final class FactVisitor: SyntaxVisitor {
     private func fact(_ value: String, start: Int) -> ScopedFact {
         ScopedFact(value: value, scope: scope, start: start, lexicalScope: lexicalScope)
     }
+    private func escapingParameters(_ type: TypeSyntax) -> [Int] {
+        if let attributed = type.as(AttributedTypeSyntax.self) { return escapingParameters(attributed.baseType) }
+        guard let function = type.as(FunctionTypeSyntax.self) else { return [] }
+        return function.parameters.enumerated().compactMap { index, parameter in
+            parameter.type.as(AttributedTypeSyntax.self)?.attributes.contains(where: {
+                $0.as(AttributeSyntax.self)?.attributeName.trimmedDescription == "escaping"
+            }) == true ? index : nil
+        }
+    }
     private func excludeFromRenderedContent(_ closure: ClosureExprSyntax?) {
         guard let closure else { return }
         nonRenderedRanges.append(ScopedRangeFact(
@@ -256,8 +272,8 @@ final class FactVisitor: SyntaxVisitor {
             lexicalScope: lexicalScope,
             parameters: node.signature.parameterClause.parameters.map {
                 FunctionParameterFact(label: $0.firstName.text == "_" ? "" : $0.firstName.text, type: $0.type.trimmedDescription,
-                    hasDefault: $0.defaultValue != nil, variadic: $0.ellipsis != nil)
-            }
+                    hasDefault: $0.defaultValue != nil, variadic: $0.ellipsis != nil, name: ($0.secondName ?? $0.firstName).text)
+            }, bodyStart: node.body?.positionAfterSkippingLeadingTrivia.utf8Offset
         ))
         functionStack.append((node.name.text, scope, closureDepth))
         if let body = node.body, body.statements.count == 1,
@@ -275,8 +291,8 @@ final class FactVisitor: SyntaxVisitor {
             start: node.positionAfterSkippingLeadingTrivia.utf8Offset, end: node.endPositionBeforeTrailingTrivia.utf8Offset,
             lexicalScope: lexicalScope, parameters: node.signature.parameterClause.parameters.map {
                 FunctionParameterFact(label: $0.firstName.text == "_" ? "" : $0.firstName.text, type: $0.type.trimmedDescription,
-                    hasDefault: $0.defaultValue != nil, variadic: $0.ellipsis != nil)
-            }))
+                    hasDefault: $0.defaultValue != nil, variadic: $0.ellipsis != nil, name: ($0.secondName ?? $0.firstName).text)
+            }, isExplicitInitializer: true, bodyStart: node.body?.positionAfterSkippingLeadingTrivia.utf8Offset))
         return .visitChildren
     }
 
@@ -300,7 +316,8 @@ final class FactVisitor: SyntaxVisitor {
         typeAliases.append(TypeAliasFact(name: node.name.text, type: node.initializer.value.trimmedDescription,
             scope: scope, start: node.name.positionAfterSkippingLeadingTrivia.utf8Offset, lexicalScope: lexicalScope,
             isFilePrivate: node.modifiers.contains { ["private", "fileprivate"].contains($0.name.text) },
-            isExported: node.modifiers.contains { ["public", "package"].contains($0.name.text) }))
+            isExported: node.modifiers.contains { ["public", "package"].contains($0.name.text) },
+            escapingParameters: escapingParameters(node.initializer.value)))
         return .visitChildren
     }
 
@@ -348,12 +365,28 @@ final class FactVisitor: SyntaxVisitor {
 
     override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
         let calledExpression = node.calledExpression.tokens(viewMode: .sourceAccurate).map(\.text).joined()
-        calls.append(fact(calledExpression, start: node.calledExpression.positionAfterSkippingLeadingTrivia.utf8Offset))
+        var call = fact(calledExpression, start: node.calledExpression.positionAfterSkippingLeadingTrivia.utf8Offset)
+        call.receiverCall = node.calledExpression.as(MemberAccessExprSyntax.self)?.base?
+            .as(FunctionCallExprSyntax.self)?.calledExpression.trimmedDescription
+        calls.append(call)
         var invocation = fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset)
+        invocation.calledExpression = calledExpression
         invocation.argumentLabels = node.arguments.map { $0.label?.text ?? "" }
         invocation.arguments = node.arguments.map { $0.expression.trimmedDescription }
         invocation.argumentRanges = node.arguments.map {
             [$0.expression.positionAfterSkippingLeadingTrivia.utf8Offset, $0.expression.endPositionBeforeTrailingTrivia.utf8Offset]
+        }
+        invocation.closureArguments = node.arguments.enumerated().compactMap { index, argument in
+            guard let closure = argument.expression.as(ClosureExprSyntax.self) else { return nil }
+            return [index, closure.positionAfterSkippingLeadingTrivia.utf8Offset, closure.endPositionBeforeTrailingTrivia.utf8Offset]
+        }
+        if let closure = node.trailingClosure {
+            invocation.closureArguments?.append([node.arguments.count, closure.positionAfterSkippingLeadingTrivia.utf8Offset,
+                closure.endPositionBeforeTrailingTrivia.utf8Offset])
+        }
+        for (index, argument) in node.additionalTrailingClosures.enumerated() {
+            invocation.closureArguments?.append([node.arguments.count + index + 1,
+                argument.closure.positionAfterSkippingLeadingTrivia.utf8Offset, argument.closure.endPositionBeforeTrailingTrivia.utf8Offset])
         }
         invocations.append(invocation)
         let calledName = calledExpression.split(separator: ".").last.map(String.init) ?? calledExpression
@@ -580,7 +613,9 @@ final class FactVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
-        members.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
+        var member = fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset)
+        member.receiverCall = node.base?.as(FunctionCallExprSyntax.self)?.calledExpression.trimmedDescription
+        members.append(member)
         return .visitChildren
     }
 

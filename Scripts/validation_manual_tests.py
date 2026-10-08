@@ -1,5 +1,6 @@
 """Contracts for physical observations and final distribution signature evidence."""
 import copy
+from io import BytesIO
 import json
 from pathlib import Path
 import plistlib
@@ -64,14 +65,29 @@ def captured_fixture(check: str, provenance: dict | None = None) -> dict:
         proof['archiveProvenance'] = provenance
         data = json.dumps(proof).encode()
     path = Path('/evidence/' + check)
-    original = Path.read_bytes
-    with patch.object(Path, 'read_bytes', lambda value: data if value == path else original(value)):
+    original = Path.open
+    with patch.object(Path, 'open', lambda value, *args, **kwargs: BytesIO(data) if value == path else original(value, *args, **kwargs)):
         return capture('实际操作', '观察结果', path, check, 'passed', utc_now().isoformat())
 
 
 def run_self_test() -> None:
     from validation_media import run_probe
     assert run_probe(b'', self_test=True)
+    from validation_media import decode_probe
+    with patch.object(subprocess, 'run', side_effect=subprocess.TimeoutExpired('fixture', 30)), patch.object(Path, 'unlink') as cleanup:
+        assert not decode_probe(Path('/fixture/evidence-media-probe'), [], b'data')
+        cleanup.assert_called_once_with(missing_ok=True)
+    from validation_manual import artifact_complete
+    with patch('validation_manual.MAXIMUM_ATTACHMENT_BYTES', 16), patch.object(Path, 'open', return_value=BytesIO(b'x' * 17)), \
+            patch('validation_manual.media_complete') as decoder:
+        try: capture('操作', '结果', Path('/fixture'), 'photos', 'passed', utc_now().isoformat())
+        except ValueError: pass
+        else: raise AssertionError('附件读取需要字节预算')
+        decoder.assert_not_called()
+        with patch('validation_manual.base64.b64decode') as decode:
+            assert not artifact_complete({'byteCount': 17, 'dataBase64': 'x' * 24}, 'photos')
+            assert not artifact_complete({'byteCount': 16, 'dataBase64': 'x' * 25}, 'photos')
+            decode.assert_not_called()
     for malformed in (bytes.fromhex('ffd8ffffd9'), b'%PDF-\n%%EOF', b'\0\0\0\x18ftypisom\0\0\0\0moov'):
         assert not evidence_content_complete('widget', malformed)
     contracts, report = distribution_fixture()
@@ -135,6 +151,7 @@ def run_self_test() -> None:
         assert not evidence_content_complete(name, b'x')
         checks[name] = captured_fixture(name)
     assert complete(checks)
+    with patch('validation_manual.MAXIMUM_REPORT_BYTES', 1): assert not complete(checks)
     failed = copy.deepcopy(checks)
     for row in failed.values(): row["outcome"] = "failed"
     assert not complete(failed)

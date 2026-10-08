@@ -1,7 +1,7 @@
 """Exercise workflow ownership and bounded network evidence using memory IO substitutes."""
 from contextlib import nullcontext, redirect_stderr, redirect_stdout
 from datetime import timedelta
-from io import StringIO
+from io import BytesIO, StringIO
 import ast
 import json
 import subprocess
@@ -45,6 +45,8 @@ def run_self_test(recorder) -> None:
                 patch.object(Path, "read_text", return_value=json.dumps({"groups": {"all": group_row}})), redirect_stderr(StringIO()):
             assert module.main() == expected
     artifact_lock_self_test(module)
+    selected_coverage_self_test(module)
+    report_budget_self_test(module)
     now = utc_now()
     fresh = {"startedAt": (now - timedelta(minutes=2)).isoformat(), "finishedAt": (now - timedelta(minutes=1)).isoformat()}
     assert sampling_evidence_current(fresh, now)
@@ -91,3 +93,39 @@ def artifact_lock_self_test(module) -> None:
             incoming.unlink()
     output, error = child.communicate(timeout=10)
     assert child.returncode == 0 and output.strip() == "committed", error
+
+
+def selected_coverage_self_test(module) -> None:
+    full = {"scope": "full", "exitCode": 0, "inputDigest": "digest", "runID": "full",
+        "summary": {"passed": True, "coverage": {"Feature": {"coveredLines": 95, "executableLines": 100}}}}
+    report = {"groups": {"all": full}}
+    for scope, expected in (("selected", 0), ("selected", 0), ("full", 1)):
+        summary = {"passed": True, "totalTests": 1, "passedTests": 1, "failedTests": 0, "skippedTests": 0,
+            "executedTests": ["Suite/testRun"], "coverage": {"Feature": {"coveredLines": 94, "executableLines": 100}}}
+        with patch.object(module, "source_digest", return_value="digest"), patch.object(module, "complete_environment", return_value=True), \
+                patch.object(module, "report_lock", side_effect=nullcontext), patch.object(module, "write_report") as saved, \
+                patch.object(module, "test_summary", return_value=summary), patch.object(module, "complete_summary", return_value=True), \
+                patch.object(Path, "is_file", return_value=True), \
+                patch.object(Path, "read_text", side_effect=['验证输入：digest\n验证运行：run\n', json.dumps(report)]), \
+                patch.object(subprocess, "check_output", return_value="head"), \
+                patch.dict(os.environ, BIT101_VALIDATION_RUN_ID="run", BIT101_VALIDATION_EXPECTED_TESTS='["Suite/testRun"]'), redirect_stderr(StringIO()):
+            assert module.record("all", 0, scope, "digest") == expected
+        report = saved.call_args.args[0]
+        row = report['groups']['all']
+        assert row['coverageBaseline'] == {'Feature': 95}
+        if scope == 'selected': assert row['lastFullRun'] == full
+        else: assert row['summary']['coverageRegressions'] and row['summary']['passed'] is False
+
+
+def report_budget_self_test(module) -> None:
+    for limit, accepted in ((16, False), (64, True)):
+        stream = BytesIO()
+        with patch('validation_policy.MAXIMUM_REPORT_BYTES', limit), patch.object(Path, 'open', return_value=nullcontext(stream)), \
+                patch.object(Path, 'replace') as committed, patch.object(Path, 'unlink') as cleanup:
+            try: module.write_report({'evidence': 'x' * 17})
+            except ValueError: assert not accepted
+            else:
+                assert accepted and json.loads(stream.getvalue()) == {'evidence': 'x' * 17}
+            assert committed.called == accepted
+            assert stream.tell() <= limit
+            cleanup.assert_called_once_with(missing_ok=True)

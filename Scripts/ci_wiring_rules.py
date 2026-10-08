@@ -22,6 +22,10 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     def mapping(value):
         return value if isinstance(value, dict) else {}
 
+    def shell(step):
+        value = mapping(step).get('run', '')
+        return value if isinstance(value, str) else ''
+
     events = workflow.get("on", {})
     events = {events} if isinstance(events, str) else events if isinstance(events, (list, dict)) else {}
     if not {"pull_request", "push"}.issubset(events):
@@ -42,6 +46,9 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         for step in steps if isinstance(steps, list) else []:
             step = mapping(step)
             if "run" not in step: continue
+            if not isinstance(step['run'], str):
+                errors.append('.github/workflows/ci.yml: 执行步骤需要 shell 文本')
+                continue
             step = dict(step, **{"working-directory": step.get("working-directory", directory)})
             expected_directory = "Cloudflare/EmergencyUpdateWorker" if step["run"].strip() == "npm ci" else "."
             if step["working-directory"] != expected_directory:
@@ -104,7 +111,8 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     if not any(command == "python3 Scripts/validation_evidence.py summary --recorded-environment" for command, _ in run_commands(acceptance, include_always=True)):
         errors.append(".github/workflows/ci.yml: 发布汇总需要沿用验收的记录环境")
     merge = mapping(jobs.get("merge-acceptance"))
-    if merge.get("if") != "github.event_name == 'pull_request'" or set(merge.get("needs", [])) != {"static-audit", "release-build", "catalyst-tests"} \
+    if merge.get("if") != "always() && github.event_name == 'pull_request'" \
+            or set(merge.get("needs", [])) != {"static-audit", "release-build", "catalyst-tests", "physical-device"} \
             or merge.get("continue-on-error", False) is not False:
         errors.append(".github/workflows/ci.yml: 合并验收需要核心真机行为与完整编译 Job")
     if not any(command == "python3 Scripts/validation_evidence.py check-merge --recorded-environment" for command, _ in run_commands(merge)):
@@ -113,44 +121,72 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         if isinstance(step, dict) and step.get("name") == "Load target branch coverage baseline"]
     if len(baseline_steps) != 1 or baseline_steps[0].get("if") != "github.event_name == 'pull_request'" \
             or baseline_steps[0].get("continue-on-error", False) is not False \
-            or 'python3 Scripts/validation_evidence.py baseline "$BIT101_BASE_COMMIT"' not in baseline_steps[0].get("run", ""):
+            or 'python3 Scripts/validation_evidence.py baseline "$BIT101_BASE_COMMIT"' not in shell(baseline_steps[0]):
         errors.append(".github/workflows/ci.yml: PR 模块测试需要目标分支提交绑定的覆盖率基准")
     static_steps = mapping(jobs.get("static-audit")).get("steps", [])
     baseline_index = next((index for index, step in enumerate(static_steps) if isinstance(step, dict) and step.get("name") == "Load target branch coverage baseline"), -1)
     audit_step_index = next((index for index, step in enumerate(static_steps) if isinstance(step, dict) and step.get("run") == "Scripts/run-static-audit.sh"), -1)
     if baseline_index < 0 or audit_step_index < 0 or baseline_index >= audit_step_index:
         errors.append(".github/workflows/ci.yml: 基准载入需要先于当前分组记录，保留本次审计证据")
-    for job, step_name, url_key, commit_key, commit_expression in (
-            (acceptance, "Download release validation evidence", "BIT101_RELEASE_EVIDENCE_URL", "BIT101_RELEASE_COMMIT", "${{ github.sha }}"),
-            (merge, "Download merge validation evidence", "BIT101_MERGE_EVIDENCE_URL", "BIT101_MERGE_COMMIT", "${{ github.sha }}"),
-            (mapping(jobs.get("static-audit")), "Load target branch coverage baseline",
-                "BIT101_COVERAGE_BASELINE_URL", "BIT101_BASE_COMMIT", "${{ github.event.pull_request.base.sha }}")):
+    physical = mapping(jobs.get("physical-device"))
+    trusted = "github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository"
+    if physical.get("if") != trusted or physical.get("needs") != "static-audit" \
+            or physical.get("runs-on") != ["self-hosted", "macOS", "xcode-27", "bit101-device"] \
+            or physical.get("continue-on-error", False) is not False:
+        errors.append(".github/workflows/ci.yml: 真机 Job 需要受信仓库来源、实体设备运行器与静态审计依赖")
+    physical_commands = {command for command, _ in run_commands(physical)}
+    if not {"Scripts/run-extended-tests.sh verify modules all ui", "python3 Scripts/validation_evidence.py bind-merge"} <= physical_commands:
+        errors.append(".github/workflows/ci.yml: 真机 Job 需要执行、恢复并绑定完整验收")
+    publishers = [step for step in physical.get("steps", []) if isinstance(step, dict)
+        and step.get("uses") == "actions/upload-artifact@v7" and mapping(step.get("with")).get("name") == "validation-evidence"]
+    if len(publishers) != 1 or publishers[0].get("if") != "always()" \
+            or mapping(publishers[0].get("with")) != {"name": "validation-evidence",
+                "path": ".build/extended-automation/validation-evidence.json", "compression-level": 0,
+                "overwrite": True, "if-no-files-found": "error", "include-hidden-files": True}:
+        errors.append(".github/workflows/ci.yml: 真机证据需要固定产物发布与完整诊断保留")
+    if mapping(workflow.get("permissions")).get("actions") != "read":
+        errors.append(".github/workflows/ci.yml: 提交证据读取需要 Actions 读取权限")
+    baseline_command = 'python3 Scripts/ci_evidence.py baseline "$BIT101_BASE_COMMIT"'
+    for job, step_name, key, expression, expected in (
+            (acceptance, "Download release validation evidence", "BIT101_RELEASE_TAG", "${{ inputs.validation_tag || github.ref_name }}",
+                ["Scripts/ci_evidence.py", "release", "fixture"]),
+            (merge, "Download merge validation evidence", "BIT101_REQUIRED_RESULTS", "${{ join(needs.*.result, ',') }}",
+                ["Scripts/ci_evidence.py", "current", "--results", "fixture"]),
+            (mapping(jobs.get("static-audit")), "Load target branch coverage baseline", "BIT101_BASE_COMMIT", "${{ github.event.pull_request.base.sha }}",
+                ["Scripts/ci_evidence.py", "baseline", "fixture", "Scripts/validation_evidence.py", "baseline", "fixture"]),
+            (physical, "Load target branch coverage baseline", "BIT101_BASE_COMMIT", "${{ github.event.pull_request.base.sha }}",
+                ["Scripts/ci_evidence.py", "baseline", "fixture", "Scripts/validation_evidence.py", "baseline", "fixture"])):
         candidates = [step for step in job.get("steps", []) if isinstance(step, dict) and step.get("name") == step_name]
-        if len(candidates) != 1 or mapping(candidates[0].get("env")).get(commit_key) != commit_expression:
+        if len(candidates) != 1 or mapping(candidates[0].get("env")).get(key) != expression \
+                or mapping(candidates[0].get("env")).get("GH_TOKEN") != "${{ github.token }}":
             errors.append(".github/workflows/ci.yml: 合并与覆盖率证据请求需要所属提交身份")
             continue
         step = candidates[0]
-        expected_condition = "github.event_name == 'pull_request'" if commit_key == "BIT101_BASE_COMMIT" else None
+        expected_condition = "github.event_name == 'pull_request'" if key == "BIT101_BASE_COMMIT" else None
         if step.get("continue-on-error", False) is not False or step.get("if") != expected_condition:
             errors.append(".github/workflows/ci.yml: 提交证据读取失败需要传播")
-        errors.extend(evidence_request_findings(step.get("run", ""), url_key, commit_key))
+        errors.extend(evidence_execution_findings(shell(step), key, expected))
+    steps = physical.get("steps", [])
+    load = next((i for i, step in enumerate(steps) if baseline_command in shell(step)), -1)
+    verify = next((i for i, step in enumerate(steps) if isinstance(step, dict) and step.get("run") == "Scripts/run-extended-tests.sh verify modules all ui"), -1)
+    bind = next((i for i, step in enumerate(steps) if isinstance(step, dict) and step.get("run") == "python3 Scripts/validation_evidence.py bind-merge"), -1)
+    if not 0 <= load < verify < bind:
+        errors.append(".github/workflows/ci.yml: 真机证据需要沿基准、执行和提交绑定顺序生成")
     return errors
 
 
-def evidence_request_findings(command: str, url_key: str, commit_key: str) -> list[str]:
-    harness = 'mkdir() { :; }; python3() { :; }; curl() { printf "%s\\0" "$@"; };\n'
-    environment = dict(os.environ, **{url_key: "https://evidence.invalid/validation-evidence.json", commit_key: "fixture-commit"})
+def evidence_execution_findings(command: str, key: str, expected: list[str]) -> list[str]:
+    harness = 'call=0; python3() { ((call+=1)); printf "%s\\0" "$@"; [[ "$call" != "$fail_at" ]] || return 73; return 0; };\n'
+    environment = dict(os.environ, **{key: "fixture", "fail_at": "0"})
     result = subprocess.run(["bash", "-eo", "pipefail", "-c", harness + command], env=environment, capture_output=True, text=True)
-    arguments = result.stdout.split("\0")
-    pairs = set(zip(arguments, arguments[1:]))
-    if result.returncode or "--get" not in arguments \
-            or ("--data-urlencode", "commit=fixture-commit") not in pairs \
-            or ("--output", ".build/extended-automation/validation-evidence.json") not in pairs \
-            or "https://evidence.invalid/validation-evidence.json" not in arguments:
-        return [".github/workflows/ci.yml: 证据服务需要按提交查询并保存固定工作区文件"]
-    failed = subprocess.run(["bash", "-eo", "pipefail", "-c", harness.replace('printf "%s\\0" "$@"', 'return 73') + command],
-        env=environment, capture_output=True, text=True)
-    return [] if failed.returncode == 73 else [".github/workflows/ci.yml: 证据服务失败需要结束所属步骤"]
+    if result.returncode or result.stdout.split("\0")[:-1] != expected:
+        return [".github/workflows/ci.yml: 证据交换需要所属提交或运行的完整命令"]
+    for index in range(1, sum(argument.endswith('.py') for argument in expected) + 1):
+        failed = subprocess.run(["bash", "-eo", "pipefail", "-c", harness + command],
+            env=dict(environment, fail_at=str(index)), capture_output=True, text=True)
+        if failed.returncode != 73:
+            return [".github/workflows/ci.yml: 证据交换失败需要结束所属步骤"]
+    return []
 
 
 def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
@@ -185,8 +221,11 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     skipped_catalyst = workflow_source.replace("run: Scripts/run-extended-tests.sh catalyst", "run: echo skipped", 1)
     if not any("Catalyst 行为 Job 需要执行" in item for item in ci_wiring_findings(skipped_catalyst)):
         findings.append("代码质量规则边界自检失败：并行 Catalyst 行为用例执行门禁")
-    for commit in ("BIT101_BASE_COMMIT", "BIT101_MERGE_COMMIT", "BIT101_RELEASE_COMMIT"):
-        changed = workflow_source.replace(f'--get --data-urlencode "commit=${commit}"', '')
+    for before, after in (("run: Scripts/run-extended-tests.sh verify modules all ui", "run: true"),
+            ("name: validation-evidence\n", "name: other-evidence\n"),
+            ('baseline "$BIT101_BASE_COMMIT"', 'baseline "wrong-commit"'),
+            ("catalyst-tests, physical-device]", "catalyst-tests]")):
+        changed = workflow_source.replace(before, after)
         if not ci_wiring_findings(changed):
-            findings.append("代码质量规则边界自检失败：各提交证据请求隔离")
+            findings.append("代码质量规则边界自检失败：真机证据生成、提交归属与产物发布")
     return findings

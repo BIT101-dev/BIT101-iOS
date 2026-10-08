@@ -12,13 +12,14 @@ on:
         required: false
         default: false
         type: boolean
-      validation_evidence:
-        description: HTTPS URL of the bound validation-evidence.json for the release commit
+      validation_tag:
+        description: Version tag containing the bound validation-evidence.json release asset
         required: false
         type: string
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: ios-ci-${{ github.ref }}
@@ -45,14 +46,10 @@ jobs:
       - name: Load target branch coverage baseline
         if: github.event_name == 'pull_request'
         env:
-          BIT101_COVERAGE_BASELINE_URL: ${{ vars.BIT101_COVERAGE_BASELINE_URL }}
+          GH_TOKEN: ${{ github.token }}
           BIT101_BASE_COMMIT: ${{ github.event.pull_request.base.sha }}
         run: |
-          [[ "$BIT101_COVERAGE_BASELINE_URL" == https://* ]] || { echo 'Coverage baseline requires an HTTPS URL.' >&2; exit 64; }
-          mkdir -p .build/extended-automation
-          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
-            --get --data-urlencode "commit=$BIT101_BASE_COMMIT" \
-            --output .build/extended-automation/validation-evidence.json "$BIT101_COVERAGE_BASELINE_URL"
+          python3 Scripts/ci_evidence.py baseline "$BIT101_BASE_COMMIT"
           python3 Scripts/validation_evidence.py baseline "$BIT101_BASE_COMMIT"
       - name: Run static audit
         env:
@@ -172,6 +169,38 @@ jobs:
             .build/extended-automation/validation-evidence.json
             .build/extended-automation/test-results.xcresult
 
+  physical-device:
+    name: Physical-device behavior and UI acceptance
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: static-audit
+    runs-on: [self-hosted, macOS, xcode-27, bit101-device]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Load target branch coverage baseline
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BIT101_BASE_COMMIT: ${{ github.event.pull_request.base.sha }}
+        run: |
+          python3 Scripts/ci_evidence.py baseline "$BIT101_BASE_COMMIT"
+          python3 Scripts/validation_evidence.py baseline "$BIT101_BASE_COMMIT"
+      - name: Run physical-device acceptance
+        run: Scripts/run-extended-tests.sh verify modules all ui
+      - name: Bind core validation evidence
+        run: python3 Scripts/validation_evidence.py bind-merge
+      - name: Publish core validation evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: validation-evidence
+          path: .build/extended-automation/validation-evidence.json
+          compression-level: 0
+          overwrite: true
+          if-no-files-found: error
+          include-hidden-files: true
+
   release-acceptance:
     name: Release acceptance with bound device evidence
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && inputs.release_check
@@ -184,14 +213,10 @@ jobs:
           fetch-depth: 0
       - name: Download release validation evidence
         env:
-          BIT101_RELEASE_EVIDENCE_URL: ${{ inputs.validation_evidence || vars.BIT101_RELEASE_EVIDENCE_URL }}
-          BIT101_RELEASE_COMMIT: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          BIT101_RELEASE_TAG: ${{ inputs.validation_tag || github.ref_name }}
         run: |
-          [[ "$BIT101_RELEASE_EVIDENCE_URL" == https://* ]] || { echo 'Release evidence requires an HTTPS URL.' >&2; exit 64; }
-          mkdir -p .build/extended-automation
-          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
-            --get --data-urlencode "commit=$BIT101_RELEASE_COMMIT" \
-            --output .build/extended-automation/validation-evidence.json "$BIT101_RELEASE_EVIDENCE_URL"
+          python3 Scripts/ci_evidence.py release "$BIT101_RELEASE_TAG"
       - name: Check release validation evidence
         run: python3 Scripts/validation_evidence.py check --recorded-environment
       - name: Publish validation evidence
@@ -200,8 +225,8 @@ jobs:
 
   merge-acceptance:
     name: Core physical-device acceptance
-    if: github.event_name == 'pull_request'
-    needs: [static-audit, release-build, catalyst-tests]
+    if: always() && github.event_name == 'pull_request'
+    needs: [static-audit, release-build, catalyst-tests, physical-device]
     runs-on: xcode-27
     timeout-minutes: 10
     steps:
@@ -210,13 +235,9 @@ jobs:
           fetch-depth: 0
       - name: Download merge validation evidence
         env:
-          BIT101_MERGE_EVIDENCE_URL: ${{ vars.BIT101_MERGE_EVIDENCE_URL }}
-          BIT101_MERGE_COMMIT: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          BIT101_REQUIRED_RESULTS: ${{ join(needs.*.result, ',') }}
         run: |
-          [[ "$BIT101_MERGE_EVIDENCE_URL" == https://* ]] || { echo 'Merge evidence requires an HTTPS URL.' >&2; exit 64; }
-          mkdir -p .build/extended-automation
-          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
-            --get --data-urlencode "commit=$BIT101_MERGE_COMMIT" \
-            --output .build/extended-automation/validation-evidence.json "$BIT101_MERGE_EVIDENCE_URL"
+          python3 Scripts/ci_evidence.py current --results "$BIT101_REQUIRED_RESULTS"
       - name: Check core physical-device evidence
         run: python3 Scripts/validation_evidence.py check-merge --recorded-environment

@@ -13,7 +13,8 @@ def run_self_test(subject) -> int:
     from unittest.mock import patch
     from validation_inputs import self_test as input_self_test
     fixture_environment = {'host': {'system': 'fixture'}, 'developer': '/fixture', 'xcode': {'version': 'fixture'}, 'compiler': {'path': '/fixture/swift-frontend', 'modified': 1, 'size': 100, 'sha256': 'a' * 64}, 'sdks': {'fixture': {'Version': '1'}}, 'device': {'identifier': 'fixture-phone', 'systemVersion': 'fixture-os', 'systemBuild': 'fixture-build'}}
-    with patch(f'{module_name}.environment_context', return_value=fixture_environment):
+    with patch(f'{module_name}.environment_context', return_value=fixture_environment), \
+            patch('validation_merge.environment_context', return_value=fixture_environment):
         from validation_provenance_tests import run_self_test as provenance_self_test
         from validation_test_areas import inventory_findings
         provenance_self_test(subject.record)
@@ -23,6 +24,8 @@ def run_self_test(subject) -> int:
         restore_self_test()
         from validation_coverage import self_test as coverage_self_test
         coverage_self_test()
+        from ci_evidence import self_test as ci_evidence_self_test
+        ci_evidence_self_test()
         from validation_merge import findings as merge_findings
         from validation_provenance import utc_now
         core = {'mergeCommit': 'commit', 'groups': {name: {'exitCode': 0, 'scope': 'full', 'summary': {},
@@ -36,6 +39,11 @@ def run_self_test(subject) -> int:
             assert merge_findings(broken, digest=lambda *args, **kwargs: 'digest', complete=lambda *args: True, commit='commit')
         assert merge_findings(core, digest=lambda *args, **kwargs: 'changed', complete=lambda *args: True, commit='commit')
         assert merge_findings(core, digest=lambda *args, **kwargs: 'digest', complete=lambda *args: True, commit='other')
+        current_digest = lambda group, *, environment=None: 'digest' if environment else 'new-environment'
+        assert merge_findings(core, digest=current_digest, complete=lambda *args: True, commit='commit')
+        assert not merge_findings(core, digest=current_digest, complete=lambda *args: True, commit='commit', recorded_environment=True)
+        with patch('validation_merge.environment_context', return_value=dict(fixture_environment, sdks={'fixture': {'Version': '2'}})):
+            assert merge_findings(core, digest=current_digest, complete=lambda *args: True, commit='commit', recorded_environment=True)
         from contextlib import nullcontext, redirect_stderr
         from io import StringIO
         for accepted_commit, expected in (('commit', 0), ('other', 1)):
@@ -235,7 +243,7 @@ def run_self_test(subject) -> int:
         sms = {'passed': True, 'scope': 'school', 'executedProbes': sorted(subject.network_inventory('school')), 'requiredProbes': sorted(subject.network_inventory('school')), 'schoolSMSCoverage': 'verified', 'verifiedSMSProbes': [{'purpose': purpose, 'probe': sorted(subject.SCHOOL_SMS_PROBES[purpose])[0]} for purpose in subject.school_sms_inventory()]}
         sms.update(authenticatedSchoolProbes=sms['verifiedSMSProbes'], requestedSMSPurposes=sorted(subject.school_sms_inventory()))
         assert set(subject.SCHOOL_SMS_PROBES) == subject.school_sms_inventory()
-        writes = {'passed': True, 'scope': 'community-writes', 'executedProbes': sorted(subject.network_inventory('community-writes')), 'requiredProbes': sorted(subject.network_inventory('community-writes')), 'communityWriteEvidence': ['服务端确认删除 poster1', '服务端确认删除 paper2', '点赞恢复 poster1', '点赞恢复 paper2', '点赞恢复 course3', '图片提交 poster1', '图片提交 comment10', '关注恢复 user4'] + [f'服务端确认删除 comment{id}' for id in range(10, 16)] + [f'创建 comment{id} 目标 {parent}' for id, parent in [(10, 'poster1'), (11, 'comment10'), (12, 'paper2'), (13, 'comment12'), (14, 'course3'), (15, 'comment14')]]}
+        writes = {'passed': True, 'scope': 'community-writes', 'executedProbes': sorted(subject.network_inventory('community-writes')), 'requiredProbes': sorted(subject.network_inventory('community-writes')), 'communityWriteEvidence': ['验收账号 user1', '服务端确认删除 poster1', '服务端确认删除 paper2', '点赞恢复 poster1', '点赞恢复 paper2', '点赞恢复 course3', '图片提交 poster1', '图片提交 comment10', '关注恢复 user4'] + [f'服务端确认删除 comment{id}' for id in range(10, 16)] + [f'创建 comment{id} 目标 {parent}' for id, parent in [(10, 'poster1'), (11, 'comment10'), (12, 'paper2'), (13, 'comment12'), (14, 'course3'), (15, 'comment14')]]}
         assert subject.community_writes_complete(writes['communityWriteEvidence'])
         assert not subject.community_writes_complete(writes['communityWriteEvidence'][:5] + ['服务端确认删除 comment42'] * 6)
         assert not subject.community_writes_complete([item.replace('目标 comment14', '目标 comment10') for item in writes['communityWriteEvidence']])

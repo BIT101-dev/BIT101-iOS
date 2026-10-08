@@ -226,10 +226,14 @@ final class CommunityWriteSmoke {
         self.operations = operations; self.load = load; self.save = save
     }
 
-    func run(marker: String, cleanupOnly: Bool = false) async throws -> [String] {
+    func run(marker: String, cleanupOnly: Bool = false, expectedAccount: Int? = nil) async throws -> [String] {
         let owner = self.operations.identity()
         let operations = self.operations.scoped(to: owner)
         let account = try await operations.account()
+        if !cleanupOnly {
+            guard let expectedAccount, expectedAccount > 0, account == expectedAccount
+            else { throw failure("社区写入需要与明确指定的专用验收账号一致") }
+        }
         if let data = try load() {
             var previous = try JSONDecoder().decode(Journal.self, from: data)
             guard previous.account == account else { throw failure("请登录创建验收内容的账号以完成清理") }
@@ -237,6 +241,7 @@ final class CommunityWriteSmoke {
         }
         guard !cleanupOnly else { return ["服务端清理确认完成"] }
         var journal = Journal(marker: "功能验收 " + marker, account: account)
+        journal.evidence.append("验收账号 user\(account)")
         var businessError: (any Error)?
         var operation = "创建内容"
         do {

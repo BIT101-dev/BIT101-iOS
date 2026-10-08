@@ -1,5 +1,13 @@
 """Shared workflow registration and platform coverage policy."""
 
+MAXIMUM_ATTACHMENT_BYTES = 32 * 1024 * 1024
+MAXIMUM_DECODED_MEDIA_BYTES = 48 * 1024 * 1024
+MAXIMUM_VIDEO_SECONDS = 30
+MAXIMUM_VIDEO_FRAMES = 1800
+MAXIMUM_PDF_PAGES = 16
+MAXIMUM_REPORT_BYTES = 128 * 1024 * 1024
+MEDIA_PROBE_TIMEOUT_SECONDS = 30
+
 APP_TEST_GROUPS = {"all", "release-runtime", "catalyst", "catalyst-release-runtime", "schedule", "infrastructure", "login", "extensions"}
 TEST_GROUPS = APP_TEST_GROUPS | {"modules", "ui"}
 NETWORK_GROUPS = {"network", "ddl", "school-sms", "community-writes", "community-cleanup"}
