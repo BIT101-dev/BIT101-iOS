@@ -88,27 +88,31 @@ if [[ "$ACTION" != fetch ]]; then exit 0; fi
 STAGING_DIR="$OUTPUT_DIR/.incoming"
 rm -rf "$STAGING_DIR"
 mkdir -p "$STAGING_DIR"
-rm -f "$OUTPUT_DIR/github-issues.json" "$OUTPUT_DIR/error-report-keys.json" "$OUTPUT_DIR/summary.txt" "$WRANGLER_LOG" "$CI_RUNS_PATH"
+rm -f "$OUTPUT_DIR/error-report-keys.json" "$OUTPUT_DIR/summary.txt" "$WRANGLER_LOG" "$CI_RUNS_PATH"
+FETCH_STATUS=0
+ISSUES_STATE=success
+CI_STATE=success
 
-if ! gh api \
+if gh api \
   "repos/$REPO/issues?state=open&per_page=100" --paginate --slurp \
   --jq '[.[][] | select(.pull_request == null)]' \
-  > "$OUTPUT_DIR/github-issues.json"; then
-  echo "GitHub Issues 拉取失败，继续拉取其余报告。" >&2
-  printf '[]\n' > "$OUTPUT_DIR/github-issues.json"
+  > "$STAGING_DIR/github-issues.json"; then
+  mv "$STAGING_DIR/github-issues.json" "$OUTPUT_DIR/github-issues.json"
+else
+  echo "GitHub Issues 拉取失败，保留缓存并继续拉取其余报告。" >&2
+  rm -f "$STAGING_DIR/github-issues.json"
+  ISSUES_STATE=failed
+  FETCH_STATUS=1
 fi
 
-if ! gh run list \
+if gh run list \
   --repo "$REPO" \
   --status failure \
   --limit 20 \
   --json databaseId,workflowName,displayTitle,status,conclusion,event,headBranch,headSha,createdAt,updatedAt,url \
   > "$CI_RUNS_PATH"; then
-  echo "GitHub CI 失败记录拉取失败，继续拉取 Cloudflare 报告。" >&2
-  printf '[]\n' > "$CI_RUNS_PATH"
-fi
 
-python3 - "$CI_RUNS_PATH" "$CI_REPORT_PATH" "$REPO" <<'PY'
+if python3 - "$CI_RUNS_PATH" "$CI_REPORT_PATH" "$REPO" <<'PY'
 import json
 import pathlib
 import subprocess
@@ -123,11 +127,11 @@ try:
     previous = json.loads(output_path.read_text(encoding="utf-8"))
 except (FileNotFoundError, json.JSONDecodeError):
     previous = []
-cached_runs = {item["databaseId"]: item for item in previous if "failedLogTail" in item}
+cached_runs = {item["databaseId"]: item for item in previous}
 
 def cached_log(run):
     cached = cached_runs.get(run["databaseId"])
-    if cached and all(cached.get(key) == run.get(key) for key in ("updatedAt", "headSha")):
+    if cached and "failedLogTail" in cached and all(cached.get(key) == run.get(key) for key in ("updatedAt", "headSha")):
         return cached["failedLogTail"]
     return None
 
@@ -150,6 +154,9 @@ def fetch_log(run):
         item["failedLogTail"] = result.stdout[-30000:]
     else:
         item["failedLogError"] = result.stderr.strip()
+        cached = cached_runs.get(run["databaseId"], {})
+        if "failedLogTail" in cached or "previousFailedLogTail" in cached:
+            item["previousFailedLogTail"] = cached.get("failedLogTail", cached.get("previousFailedLogTail"))
     return item
 
 with ThreadPoolExecutor(max_workers=4) as executor:
@@ -157,11 +164,26 @@ with ThreadPoolExecutor(max_workers=4) as executor:
 
 reused = sum(cached_log(run) is not None for run in runs)
 print(f"GitHub CI 日志：复用 {reused} 份，读取 {len(runs) - reused} 份")
-output_path.write_text(
+staged_output = output_path.parent / ".incoming" / output_path.name
+staged_output.write_text(
     json.dumps(enriched, ensure_ascii=False, indent=2) + "\n",
     encoding="utf-8",
 )
+staged_output.replace(output_path)
+if any("failedLogError" in item for item in enriched):
+    sys.exit(1)
 PY
+then
+  :
+else
+  CI_STATE=partial
+  FETCH_STATUS=1
+fi
+else
+  echo "GitHub CI 拉取失败，保留缓存并继续拉取 Cloudflare 报告。" >&2
+  CI_STATE=failed
+  FETCH_STATUS=1
+fi
 
 if WRANGLER_OUTPUT="$(
   (cd "$WRANGLER_DIR" && "$WRANGLER" kv key list \
@@ -177,7 +199,8 @@ else
   exit 1
 fi
 
-REPORT_COUNT="$(python3 - "$OUTPUT_DIR/error-report-keys.json" "$STAGING_DIR" "$WRANGLER_DIR" "$NAMESPACE_ID" "$OUTPUT_DIR/report-keys.txt" <<'PY'
+CLOUDFLARE_STATE=success
+if REPORT_COUNT="$(python3 - "$OUTPUT_DIR/error-report-keys.json" "$STAGING_DIR" "$WRANGLER_DIR" "$NAMESPACE_ID" "$OUTPUT_DIR/report-keys.txt" <<'PY'
 import json
 import base64
 import pathlib
@@ -234,16 +257,21 @@ def fetch(key):
     category_dir = staging_dir / source / category
     category_dir.mkdir(parents=True, exist_ok=True)
     attachments = report.get("attachments", [])
+    attachment_errors = 0
     if isinstance(attachments, list) and attachments:
         attachment_dir = category_dir / f"{pathlib.Path(filename).stem}_附件"
         attachment_dir.mkdir(parents=True, exist_ok=True)
         downloaded_attachments = []
         for index, attachment in enumerate(attachments, 1):
             if not isinstance(attachment, dict) or not isinstance(attachment.get("data"), str):
+                downloaded_attachments.append({"original": attachment, "error": "附件格式异常"})
+                attachment_errors += 1
                 continue
             try:
                 data = base64.b64decode(attachment["data"], validate=True)
-            except (ValueError, base64.binascii.Error):
+            except (ValueError, base64.binascii.Error) as error:
+                downloaded_attachments.append(dict(attachment, error=f"附件解码失败：{error}"))
+                attachment_errors += 1
                 continue
             content_type = attachment.get("contentType", "image/jpeg")
             extension = {"image/jpeg": ".jpg", "image/png": ".png", "image/heic": ".heic"}.get(content_type, ".bin") if isinstance(content_type, str) else ".bin"
@@ -253,16 +281,25 @@ def fetch(key):
             )
         report["attachments"] = downloaded_attachments
         item["report"] = report
+        if attachment_errors:
+            item["inboxAttachmentErrors"] = attachment_errors
         result_text = json.dumps(item, ensure_ascii=False, indent=2)
     else:
-        result_text = result.stdout
+        if not isinstance(attachments, list):
+            attachment_errors = 1
+            item["inboxAttachmentErrors"] = 1
+            result_text = json.dumps(item, ensure_ascii=False, indent=2)
+        else:
+            result_text = result.stdout
     destination = category_dir / filename
     destination.write_text(result_text, encoding="utf-8")
-    return key
+    return key, attachment_errors == 0
 
+completed = set()
+incomplete = set()
 with ThreadPoolExecutor(max_workers=4) as executor:
-    for _ in executor.map(fetch, keys_to_fetch):
-        pass
+    for key, complete in executor.map(fetch, keys_to_fetch):
+        (completed if complete else incomplete).add(key)
 
 for path in staging_dir.rglob("*"):
     if path.is_file():
@@ -270,23 +307,33 @@ for path in staging_dir.rglob("*"):
         destination.parent.mkdir(parents=True, exist_ok=True)
         os.replace(path, destination)
 processed_path.write_text(
-    "\n".join(sorted(processed.union(keys_to_fetch))) + ("\n" if processed or keys_to_fetch else ""),
+    "\n".join(sorted(processed.union(completed) - incomplete)) + ("\n" if processed or completed else ""),
     encoding="utf-8",
 )
 print(len(keys_to_fetch))
+if incomplete:
+    print(f"附件处理待修复：{len(incomplete)} 份报告，已保留正文及附件错误。", file=sys.stderr)
+    sys.exit(1)
 PY
-)"
+)"; then
+  :
+else
+  CLOUDFLARE_STATE=partial
+  FETCH_STATUS=1
+fi
 rm -rf "$STAGING_DIR"
 
-python3 - "$OUTPUT_DIR/github-issues.json" "$OUTPUT_DIR" "$OUTPUT_DIR/summary.txt" "$REPORT_COUNT" "$CI_REPORT_PATH" <<'PY'
+python3 - "$OUTPUT_DIR/github-issues.json" "$OUTPUT_DIR" "$OUTPUT_DIR/summary.txt" "${REPORT_COUNT:-0}" "$CI_REPORT_PATH" "$ISSUES_STATE" "$CI_STATE" "$CLOUDFLARE_STATE" <<'PY'
 import json
 import pathlib
 import sys
 
-issues = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+issues_path = pathlib.Path(sys.argv[1])
+issues = json.loads(issues_path.read_text(encoding="utf-8")) if issues_path.exists() else []
 report_dir = pathlib.Path(sys.argv[2])
 summary_path = pathlib.Path(sys.argv[3])
 new_report_count = int(sys.argv[4])
+issues_state, ci_state, cloudflare_state = sys.argv[6:9]
 ci_path = pathlib.Path(sys.argv[5])
 ci_runs = json.loads(ci_path.read_text(encoding="utf-8")) if ci_path.exists() else []
 
@@ -313,11 +360,11 @@ def source_counts(folder):
             counts[source] = len(list(source_dir.glob("*/report_*.json")))
     return counts
 
-lines = [f"GitHub Issues：{len(issues)}"]
+lines = [f"GitHub Issues：{len(issues)} · {issues_state}"]
 for issue in issues:
     lines.append(f"  #{issue['number']} [{issue['state']}] {issue['title']}  {issue['url']}")
 lines.append("")
-lines.append(f"GitHub CI：{len(ci_runs)} 条失败运行")
+lines.append(f"GitHub CI：{len(ci_runs)} 条失败运行 · {ci_state}")
 for run in ci_runs:
     lines.append(
         f"  #{run.get('databaseId')} [{run.get('workflowName')}] "
@@ -327,7 +374,7 @@ lines.append("")
 current_counts = category_counts(report_dir)
 current_sources = source_counts(report_dir)
 lines.append(
-    f"Cloudflare 报告：本次拉取 {new_report_count} 条"
+    f"Cloudflare 报告：本次拉取 {new_report_count} 条 · {cloudflare_state}"
     f"（错误报告 {current_counts['错误报告']}，用户建议 {current_counts['用户建议']}；"
     f"开发版 {current_sources['开发版']}，正式版 {current_sources['正式版']}，来源未知 {current_sources['来源未知']}）"
 )
@@ -341,3 +388,5 @@ else:
 PY
 
 rm -f "$CI_RUNS_PATH"
+
+exit "$FETCH_STATUS"

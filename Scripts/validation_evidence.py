@@ -17,6 +17,7 @@ from contextlib import contextmanager
 sys.dont_write_bytecode = True
 from swift_source_index import swift_syntax_index_sources
 from validation_inputs import includes_input
+from validation_environment import environment_context, complete_environment, toolchain_identity
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / ".build/extended-automation/validation-evidence.json"
@@ -202,11 +203,13 @@ def network_inventory(scope: str = "all") -> set[str]:
     return set().union(*(areas[area] for area in included))
 
 
-def source_digest(group: str = "") -> str:
+def source_digest(group: str = "", *, environment: dict | None = None) -> str:
     names = subprocess.check_output([
         "git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"
     ], cwd=ROOT).decode().split("\0")
     digest = hashlib.sha256(group.encode() + b"\0")
+    if group:
+        digest.update(json.dumps(environment_context(group) if environment is None else environment, sort_keys=True).encode() + b"\0")
     for name in sorted(set(names) - {""}):
         path = ROOT / name
         if path.is_file() and includes_input(name, group):
@@ -385,16 +388,22 @@ def complete_summary(group: str, summary: dict) -> bool:
     return summary.get("kind") == ("restore" if group == "restore" else "audit")
 
 
-def release_findings(report: dict, digest: str) -> list[str]:
+def release_findings(report: dict, digest: str, *, recorded_environment: bool = False) -> list[str]:
     errors = []
     if report.get("sourceDigest") != digest:
         errors.append("验证源码摘要与当前仓库内容存在差异。")
     for name in sorted(RELEASE_GROUPS):
         row = report.get("groups", {}).get(name, {})
-        if row.get("inputDigest") != source_digest(name):
+        inputs = source_digest(name, environment=row.get("environment", {})) if recorded_environment else source_digest(name)
+        if row.get("inputDigest") != inputs:
             errors.append(f"{name} 的验证输入已变化，请重新执行该组。")
+        if not complete_environment(name, row.get("environment", {})):
+            errors.append(f"{name} 需要保留执行环境及设备系统身份。")
         if row.get("exitCode") != 0 or row.get("scope") != "full" or not complete_summary(name, row.get("summary", {})):
             errors.append(f"{name} 需要完整执行并通过，并保留结果摘要。")
+    if recorded_environment and toolchain_identity(report.get("groups", {}).get("build-archive", {}).get("environment", {})) \
+            != toolchain_identity(environment_context("build-archive")):
+        errors.append("发布编译工具链及 SDK 与已绑定证据存在差异，请重新验收。")
     return errors
 
 
@@ -403,8 +412,11 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
     input_digest = source_digest(group)
     if started_digest and input_digest != started_digest:
         status = status or 1
-        print("验证期间源码变更，请按当前源码重新执行该组。", file=sys.stderr)
-    row = {"exitCode": status, "scope": scope, "inputDigest": input_digest}
+        print("验证期间输入变更，请按当前输入重新执行该组。", file=sys.stderr)
+    row = {"exitCode": status, "scope": scope, "inputDigest": input_digest, "environment": environment_context(group)}
+    if status == 0 and not complete_environment(group, row["environment"]):
+        status = row["exitCode"] = 1
+        print(f"{group} 需要完整执行环境身份。", file=sys.stderr)
     if group in TEST_GROUPS:
         row["report"] = ".build/extended-automation/test-metrics.txt"
         metrics = ROOT / row["report"]
@@ -508,7 +520,11 @@ def community_recovery_self_test() -> list[str]:
     cleanup = {"scope": "community-cleanup", "passed": True, "requiredProbes": ["cleanup"], "executedProbes": ["cleanup"]}
     write_row = {"exitCode": 0, "scope": "full", "summary": {"passed": True}}
     previous = {"sourceDigest": "source", "groups": {"community-writes": write_row}}
+    cleanup_environment = {"host": {"system": "fixture"}, "developer": "/fixture", "xcode": {"version": "fixture"},
+        "compiler": {"modified": 1}, "sdks": {"fixture": {"Version": "1"}}, "device": {
+        "identifier": "fixture-phone", "systemVersion": "fixture-os", "systemBuild": "fixture-build"}}
     with patch(f"{__name__}.source_digest", return_value="source"), patch(f"{__name__}.network_inventory", return_value={"cleanup"}), \
+            patch(f"{__name__}.environment_context", return_value=cleanup_environment), \
             patch(f"{__name__}.report_lock", side_effect=nullcontext), patch(f"{__name__}.write_report") as saved, \
             patch.object(Path, "is_file", return_value=True), patch.object(Path, "read_text", side_effect=[json.dumps(cleanup), json.dumps(previous)]), \
             patch.object(subprocess, "check_output", return_value="head"), redirect_stderr(StringIO()):
@@ -524,11 +540,16 @@ def main() -> int:
     parser.add_argument("group", nargs="?", default="")
     parser.add_argument("status", nargs="?", type=int, default=0)
     parser.add_argument("--observation", default="", help="专项真机操作、观察结果及证据位置")
+    parser.add_argument("--recorded-environment", action="store_true", help="核对已绑定证据的记录环境和当前发布工具链")
     parser.add_argument("scope", nargs="?", default="full")
     args = parser.parse_args()
+    if args.recorded_environment and args.action != "check":
+        parser.error("记录环境检查用于已绑定证据的 check 操作。")
     if args.action == "manual":
         if args.group not in MANUAL_DEVICE_CHECKS or not args.observation.strip():
             parser.error("真机专项需要有效检查项及操作、观察结果和证据位置。")
+        if not complete_environment("manual-device", environment_context("manual-device")):
+            parser.error("真机专项需要连接执行设备并读取完整系统身份。")
         digest = source_digest()
         with report_lock():
             report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
@@ -540,7 +561,8 @@ def main() -> int:
             summary = previous.get("summary", {"checks": {}}) if previous.get("inputDigest") == input_digest else {"checks": {}}
             summary["checks"][args.group] = args.observation.strip()
             summary["passed"] = set(summary["checks"]) == MANUAL_DEVICE_CHECKS
-            report["groups"]["manual-device"] = {"exitCode": 0 if summary["passed"] else 2, "scope": "full", "summary": summary, "inputDigest": input_digest}
+            report["groups"]["manual-device"] = {"exitCode": 0 if summary["passed"] else 2, "scope": "full", "summary": summary,
+                "inputDigest": input_digest, "environment": environment_context("manual-device")}
             write_report(report)
         return 0
     if args.action == "digest":
@@ -554,222 +576,246 @@ def main() -> int:
     if args.action == "self-test":
         from unittest.mock import patch
         from validation_inputs import self_test as input_self_test
-        input_self_test()
-        assert compilation_condition("os(macOS) && !canImport(UIKit)", "modules")
-        assert compilation_condition("canImport(SwiftUI) && canImport(AppKit)", "modules")
-        for group in ("modules", "all", "catalyst", "ui"):
-            assert compilation_condition("canImport(MapKit) && canImport(WidgetKit) && canImport(CoreLocation)", group)
-        try: compilation_condition("canImport(UnregisteredFramework)", "all")
-        except ValueError: pass
-        else: raise AssertionError("未知框架需要明确登记可用性")
-        assert compilation_condition("os(iOS) && targetEnvironment(macCatalyst) && canImport(UIKit)", "catalyst")
-        assert compilation_condition("os(iOS) && !targetEnvironment(macCatalyst)", "all")
-        assert compilation_condition("DEBUG || RELEASE_NETWORK_SMOKE", "all")
-        assert not compilation_condition("os(macOS) || targetEnvironment(macCatalyst)", "all")
-        assert compilation_condition("BIT101_UI_TESTING && !targetEnvironment(macCatalyst)", "ui")
-        assert compilation_condition("EXTENDED_AUTOMATION && BIT101_AUTOMATED_TESTING && BIT101_UI_TESTING && !DEBUG", "ui")
-        from ui_rules import check_ui_test_inventory
-        original_rglob, original_read = Path.rglob, Path.read_text
-        ui_root = ROOT / "BIT101-iOSUITests"
-        sample_path = ui_root / "Additional/Nested.swift"
-        for declaration in ("final class FormatUITests: XCTestCase {\n  func testAdded() {}\n}",
-                            "final\nclass FormatUITests\n: XCTestCase {\n    func testAdded() {}\n}"):
-            def sample_read(path, *args, **kwargs):
-                if path == sample_path: return declaration
-                if path == ROOT / "docs/UI_INTERACTION_COVERAGE.md": return ""
-                return original_read(path, *args, **kwargs)
-            test_inventory.cache_clear()
-            errors = []
-            with patch.object(Path, "rglob", lambda path, pattern: iter([sample_path]) if path == ui_root else original_rglob(path, pattern)), \
-                 patch.object(Path, "read_text", sample_read):
-                check_ui_test_inventory(errors, {})
-            assert "UI interaction map missing: FormatUITests/testAdded" in errors
-            selector = re.search(r"bit101_ui_test_selections\(\).*?<<'PY'\n(.*?)\nPY", (ROOT / "Scripts/script-support.sh").read_text(), re.DOTALL)[1]
-            with patch("validation_evidence.test_inventory", return_value={"FormatUITests/testAdded"}), \
-                 patch.object(sys, "argv", ["selector", str(ROOT / "Scripts"), "Added", "FormatUITests"]), patch("builtins.print") as output:
-                exec(compile(selector, "<ui selector>", "exec"), {})
-            output.assert_called_once_with("FormatUITests/testAdded")
-        test_inventory.cache_clear()
-        with patch.object(os, "uname", return_value=os.uname_result(("Darwin", "host", "release", "version", "x86_64"))):
-            compilation_condition.cache_clear()
-            for group in ("modules", "catalyst"):
-                assert compilation_condition("arch(x86_64) && !arch(arm64)", group)
-            assert compilation_condition("arch(arm64) && !arch(x86_64)", "all")
-        compilation_condition.cache_clear()
-        conditional = "#if targetEnvironment(macCatalyst)\n中文手势\n#else\niOSGesture()\n#endif\n"
-        active = active_swift_source(conditional, "ui")
-        assert len(active.encode()) == len(conditional.encode()) and "中文手势" not in active and "iOSGesture()" in active
-        unicode_sources = {}
-        for index, separator in enumerate(["\u2028", "\u2029", "\v", "\f", "\x85"]):
-            source = f"// fixture{separator}// trailing\r\n#if DEBUG\r\n@Test func mustRun() {{}}\r\n#else\r\n@Test func inactive() {{}}\r\n#endif\r\n"
-            filtered = active_swift_source(source, "catalyst")
-            assert len(filtered.encode()) == len(source.encode())
-            unicode_sources[f"unicode-inventory-{index}"] = filtered
-        for facts in swift_syntax_index_sources(unicode_sources).values():
-            assert not facts["hasParseErrors"] and [test["value"] for test in facts["tests"]] == ["mustRun"]
-        for literal in ['/*\n#if DEBUG\n*/', '/* outer /* nested */\n#if DEBUG\n*/',
-                        '\"\"\"\n#if DEBUG\n\"\"\"', '#\"\"\"\n#if DEBUG\n\"\"\"#']:
-            source = literal + "\n@Test func realTest() {}\n"
-            assert "@Test func realTest" in active_swift_source(source, "modules")
-        fixture = ROOT / ".build/static-audit/source-digest-self-test.sh"
-        fixture.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            fixture.write_text("exit 0\n")
-            with patch.object(subprocess, "check_output", return_value=fixture.relative_to(ROOT).as_posix().encode()):
-                fixture.chmod(0o600)
-                original = source_digest()
-                fixture.chmod(0o700)
-                assert source_digest() != original
-        finally:
-            fixture.unlink(missing_ok=True)
-        from types import SimpleNamespace
-        inputs = {"README.md": b"documentation", "Modules/StorageCore/Sources/AppFileService.swift": b"product",
-                  "ModuleTests/Sync/ScheduleSyncTests.swift": b"test"}
-        with patch.object(subprocess, "check_output", return_value="\0".join(inputs).encode()), \
-                patch.object(Path, "is_file", return_value=True), \
-                patch.object(Path, "read_bytes", lambda path: inputs[path.relative_to(ROOT).as_posix()]), \
-                patch.object(Path, "stat", return_value=SimpleNamespace(st_mode=0o644)):
-            before = {group: source_digest(group) for group in ("audit", "modules", "manual-device")}
-            inputs["README.md"] = b"updated documentation"
-            assert source_digest("audit") != before["audit"]
-            assert source_digest("modules") == before["modules"]
-            assert source_digest("manual-device") == before["manual-device"]
-            inputs["ModuleTests/Sync/ScheduleSyncTests.swift"] = b"updated test"
-            assert source_digest("modules") != before["modules"]
-            assert source_digest("manual-device") == before["manual-device"]
-            inputs["Modules/StorageCore/Sources/AppFileService.swift"] = b"updated product"
-            assert source_digest("manual-device") != before["manual-device"]
-        def icloud_summary(value):
-            return smoke_summary("icloud", dict(validatedDomains=sorted(ICLOUD_DOMAINS), cloudKitEnvironment="Production", **value))
-        test = {"passed": True, "totalTests": 1, "passedTests": 1, "failedTests": 0, "skippedTests": 0}
-        nested = swift_syntax_index_sources({"nested-tests": '@Suite struct Outer { @Suite struct Inner { @Testing.Test func works() {}; func testHelper() {} } }; class Base: XCTestCase {}; class Case: Base { func testActual() {}; func testArgument(_ value: Int) {}; static func testStatic() {} }; struct Ordinary { func testHelper() {} }'})["nested-tests"]
-        assert {item["value"] for item in nested["tests"]} == {"Outer/Inner/works", "Case/testActual"}
-        aliased = swift_syntax_index_sources({"base": 'typealias BehaviorBase = XCTest.XCTestCase; enum Namespace { typealias Base = BehaviorBase }; class Direct: XCTestCase {}; typealias Indirect = Direct',
-            "tests": 'class MissingTests: Namespace.Base { func testRequiredBehavior() {} }; class Derived: Indirect { func testInheritedBehavior() {} }; enum Other { typealias Base = Ordinary; class Local: Base { func testHelper() {} } }; class Ordinary {}'})["tests"]
-        assert {item["value"] for item in aliased["tests"]} == {"MissingTests/testRequiredBehavior", "Derived/testInheritedBehavior"}
-        from code_quality_rules import audit_wiring_findings
-        audit_path = ROOT / "Scripts/run-static-audit.sh"
-        audit_source, original_read = audit_path.read_text(), Path.read_text
-        for before, after in (("module_boundary_audit git_check", "swift_parse git_check"),
-                              ("run_group artifact-hygiene artifact_hygiene", "run_group artifact-hygiene swift_parse")):
-            def mutated_read(path, *arguments, **keywords):
-                return audit_source.replace(before, after) if path == audit_path else original_read(path, *arguments, **keywords)
-            with patch.object(Path, "read_text", mutated_read):
-                assert any("静态审计回调" in finding for finding in audit_wiring_findings())
-        with patch(__name__ + ".test_inventory", return_value={"Outer/Inner/works"}), patch(__name__ + ".coverage_complete", return_value=True):
-            for identifier in ("Package.Outer/Inner/works()", "Package.Outer/Inner/works()/Example.swift:1:1"):
-                assert complete_summary("schedule", dict(test, executedTests=[identifier]))
-        summaries = {name: dict(test, totalTests=len(test_inventory(name)), passedTests=len(test_inventory(name)),
-            executedTests=sorted(test_inventory(name))) for name in ("modules", "all", "release-runtime", "catalyst", "catalyst-release-runtime", "ui")}
-        summaries["modules"]["coverage"] = {name: {"coveredLines": floor, "executableLines": 100}
-                                            for name, floor in MODULE_COVERAGE_FLOORS.items()}
-        summaries["all"]["coverage"] = {"BIT101-iOS.app": {"coveredLines": 35, "executableLines": 100}}
-        summaries["all"]["coverage"].update({"iOS/" + name: {"coveredLines": floor, "executableLines": 100}
-                                            for name, floor in IOS_MODULE_COVERAGE_FLOORS.items()})
-        assert coverage_complete("all", summaries["all"])
-        ios_missing = dict(summaries["all"]["coverage"])
-        ios_missing.pop("iOS/MediaKit")
-        assert not coverage_complete("all", dict(summaries["all"], coverage=ios_missing))
-        ios_missing["iOS/MediaKit"] = {"coveredLines": 52, "executableLines": 100}
-        assert not coverage_complete("all", dict(summaries["all"], coverage=ios_missing))
-        assert coverage_complete("modules", summaries["modules"])
-        assert not coverage_complete("modules", dict(summaries["modules"], coverage={}))
-        missing = dict(summaries["modules"]["coverage"])
-        missing.pop("ScheduleSync")
-        assert not coverage_complete("modules", dict(summaries["modules"], coverage=missing))
-        missing["ScheduleSync"] = {"coveredLines": 0, "executableLines": 100}
-        assert not coverage_complete("modules", dict(summaries["modules"], coverage=missing))
-        missing["ScheduleSync"] = {"coveredLines": 75, "executableLines": 100}
-        assert not coverage_complete("modules", dict(summaries["modules"], coverage=missing))
-        summaries["ui"]["uiInventory"] = {"observed": 1, "visited": 1, "pending": [],
-                                          "scope": "mounted-controls", "unidentifiedControls": 0, "pendingDisabled": [],
-                                          "identityScope": "testCaseNavigationPresentationAndOccurrence"}
-        summaries["audit"] = {"passed": True, "kind": "audit"}
-        summaries["restore"] = {"passed": True, "kind": "restore"}
-        summaries["build-archive"] = {"passed": True, "kind": "build"}
-        summaries["manual-device"] = {"passed": True, "checks": {name: "操作结果及证据" for name in MANUAL_DEVICE_CHECKS}}
-        assert not complete_summary("manual-device", {"passed": True, "checks": {}})
-        summaries["network"] = smoke_summary("network", {"passed": True, "scope": "all", "executedProbes": sorted(network_inventory()), "requiredProbes": sorted(network_inventory())})
-        sms = {"passed": True, "scope": "school", "executedProbes": sorted(network_inventory("school")),
-               "requiredProbes": sorted(network_inventory("school")), "schoolSMSCoverage": "verified",
-               "verifiedSMSProbes": [{"purpose": purpose, "probe": sorted(SCHOOL_SMS_PROBES[purpose])[0]} for purpose in school_sms_inventory()]}
-        assert set(SCHOOL_SMS_PROBES) == school_sms_inventory()
-        writes = {"passed": True, "scope": "community-writes", "executedProbes": sorted(network_inventory("community-writes")),
-                  "requiredProbes": sorted(network_inventory("community-writes")), "communityWriteEvidence":
-                  ["服务端确认删除 poster1", "服务端确认删除 paper2", "点赞恢复 poster1", "点赞恢复 paper2", "点赞恢复 course3"]
-                  + [f"服务端确认删除 comment{id}" for id in range(10, 16)]
-                  + [f"创建 comment{id} 目标 {parent}" for id, parent in
-                     [(10, "poster1"), (11, "comment10"), (12, "paper2"), (13, "comment12"), (14, "course3"), (15, "comment14")]]}
-        assert community_writes_complete(writes["communityWriteEvidence"])
-        assert not community_writes_complete(writes["communityWriteEvidence"][:5] + ["服务端确认删除 comment42"] * 6)
-        assert not community_writes_complete([item.replace("目标 comment14", "目标 comment10") for item in writes["communityWriteEvidence"]])
-        assert not community_writes_complete([item.replace("创建 comment15", "创建 comment14") for item in writes["communityWriteEvidence"]])
-        cleanup = {"passed": True, "scope": "community-cleanup", "executedProbes": sorted(network_inventory("community-cleanup")),
-                   "requiredProbes": sorted(network_inventory("community-cleanup"))}
-        assert smoke_summary("community-cleanup", cleanup)["passed"]
-        assert not smoke_summary("community-writes", cleanup, full=False)["passed"]
-        with patch(f"{__name__}.test_inventory", return_value={"Suite/first", "Suite/second", "Other/third"}):
-            expected = selected_test_inventory("all", ["Suite", "Other/third()"])
-            assert expected == {"Suite/first", "Suite/second", "Other/third"}
-            try: selected_test_inventory("all", ["Suite", "Missing/none()"])
+        fixture_environment = {"host": {"system": "fixture"}, "developer": "/fixture", "xcode": {"version": "fixture"},
+            "compiler": {"modified": 1}, "sdks": {"fixture": {"Version": "1"}}, "device": {
+            "identifier": "fixture-phone", "systemVersion": "fixture-os", "systemBuild": "fixture-build"}}
+        with patch(f"{__name__}.environment_context", return_value=fixture_environment):
+            with patch.object(sys, "argv", ["validation_evidence.py", "record", "audit", "7"]), \
+                    patch.dict(os.environ, BIT101_VALIDATION_SOURCE_DIGEST="fixture-input"), \
+                    patch(f"{__name__}.record", return_value=7) as recorder:
+                assert main() == 7
+                recorder.assert_called_once_with("audit", 7, "full", "fixture-input")
+            input_self_test()
+            with patch.object(subprocess, "check_output", return_value=b""):
+                baseline = source_digest("ui")
+                for field, value in (("host", {"system": "changed"}), ("xcode", {"version": "changed"}),
+                                     ("sdks", {"fixture": {"Version": "2"}}), ("compiler", {"modified": 2}),
+                                     ("device", {"identifier": "changed", "systemVersion": "fixture-os", "systemBuild": "fixture-build"}),
+                                     ("device", {"identifier": "fixture-phone", "systemVersion": "changed", "systemBuild": "fixture-build"})):
+                    with patch(f"{__name__}.environment_context", return_value=dict(fixture_environment, **{field: value})):
+                        assert source_digest("ui") != baseline
+                assert not complete_environment("ui", dict(fixture_environment, device=None))
+                assert not complete_environment("audit", {})
+            assert compilation_condition("os(macOS) && !canImport(UIKit)", "modules")
+            assert compilation_condition("canImport(SwiftUI) && canImport(AppKit)", "modules")
+            for group in ("modules", "all", "catalyst", "ui"):
+                assert compilation_condition("canImport(MapKit) && canImport(WidgetKit) && canImport(CoreLocation)", group)
+            try: compilation_condition("canImport(UnregisteredFramework)", "all")
             except ValueError: pass
-            else: raise AssertionError("手选测试需要拒绝混合失效选择")
-        chosen = {"passed": True, "totalTests": 3, "passedTests": 3, "failedTests": 0, "skippedTests": 0,
-                  "executedTests": ["Suite/first()", "Suite/second()", "Other/third()"]}
-        assert selected_test_summary_complete(chosen, sorted(expected))
-        assert not selected_test_summary_complete(dict(chosen, totalTests=1, passedTests=1, executedTests=["Suite/first()"]), sorted(expected))
-        summaries["community-writes"] = smoke_summary("community-writes", writes)
-        assert summaries["community-writes"]["passed"]
-        assert not smoke_summary("community-writes", dict(writes, communityWriteEvidence=[]))["passed"]
-        summaries["school-sms"] = smoke_summary("school-sms", sms)
-        assert summaries["school-sms"]["passed"]
-        mismatched = [{"purpose": step["purpose"], "probe": "BIT101 登录状态"} for step in sms["verifiedSMSProbes"]]
-        assert not smoke_summary("school-sms", dict(sms, verifiedSMSProbes=mismatched))["passed"]
-        assert smoke_summary("school-sms", dict(sms, schoolSMSCoverage="preflight_only"))["passed"] is False
-        assert smoke_summary("school-sms", dict(sms, verifiedSMSProbes=sms["verifiedSMSProbes"][:1]))["passed"] is False
-        summaries["icloud"] = icloud_summary({"exitCode": 0, "stages": [
-            dict(test, stage=name, totalTestCount=1, exitCode=0) for name in ("testPhoneRoundTrip", "testMacReceiveAndRestore")]})
-        groups = {name: {"exitCode": 0, "scope": "full", "summary": summary, "inputDigest": source_digest(name)} for name, summary in summaries.items()}
-        report = {"sourceDigest": "source", "groups": groups}
-        with patch("ui_rules.source_runtime_interaction_findings", return_value=[]):
-            assert release_findings(report, "source") == []
-        assert release_findings(report, "changed")
-        groups["ui"]["scope"] = "selected"
-        assert release_findings(report, "source")
-        groups["ui"]["scope"] = "full"
-        groups["ui"]["summary"]["passedTests"] = 0
-        assert release_findings(report, "source")
-        module = test_summary("测试通过：3 项\n统计范围：macOS\n- ScheduleSync: 75.00% (3/4 lines)")
-        assert module["passed"] and module["coverage"]["ScheduleSync"]["coveredLines"] == 3
-        assert test_summary("总计 4；通过 3；失败 0；跳过 1")["passed"] is False
-        assert test_summary("总计 0；通过 0；失败 0；跳过 0")["passed"] is False
-        assert complete_summary("ui", dict(test, executedTests=["Fixture/example"])) is False
-        summaries["ui"]["passedTests"] = summaries["ui"]["totalTests"]
-        summaries["ui"]["uiInventory"]["pending"] = ["new-control"]
-        assert complete_summary("ui", summaries["ui"]) is False
-        network = {"passed": True, "scope": "all", "executedProbes": sorted(network_inventory()), "requiredProbes": sorted(network_inventory())}
-        assert smoke_summary("network", network)["passed"]
-        assert smoke_summary("network", {"passed": True, "scope": "all", "executedProbes": ["unrelated"]})["passed"] is False
-        network["coverageGaps"] = ["fixture"]
-        assert smoke_summary("network", network)["passed"] is False
-        ddl = {"passed": True, "scope": "ddl", "executedProbes": sorted(network_inventory("ddl")),
-               "requiredProbes": sorted(network_inventory("ddl"))}
-        assert len(network_inventory("ddl")) == 5 and smoke_summary("ddl", ddl)["passed"]
-        ddl["skippedProbes"] = ["课程中心 DDL 下载"]
-        assert smoke_summary("ddl", ddl)["passed"] is False
-        assert icloud_summary({"exitCode": 0, "stages": []})["passed"] is False
-        stages = [{"stage": name, "exitCode": 0, "totalTestCount": 1, "passedTests": 1}
-                  for name in ["testPhoneRoundTrip", "testMacReceiveAndRestore"]]
-        assert icloud_summary({"exitCode": 0, "stages": stages})["passed"]
-        assert smoke_summary("icloud", {"exitCode": 0, "stages": stages})["passed"] is False
-        cleanup = dict(stages[0], stage="testCleanup", failedTests=0, skippedTests=0)
-        assert icloud_summary({"exitCode": 0, "stages": stages, "cleanup": cleanup, "cleanupExitCode": 0})["passed"]
-        assert icloud_summary({"exitCode": 0, "stages": stages, "cleanup": cleanup, "cleanupExitCode": 1})["passed"] is False
-        cleanup["passedTests"] = 0
-        assert icloud_summary({"exitCode": 0, "stages": stages, "cleanup": cleanup})["passed"] is False
-        stages[1]["passedTests"] = 0
-        assert icloud_summary({"exitCode": 0, "stages": stages})["passed"] is False
-        return 0
+            else: raise AssertionError("未知框架需要明确登记可用性")
+            assert compilation_condition("os(iOS) && targetEnvironment(macCatalyst) && canImport(UIKit)", "catalyst")
+            assert compilation_condition("os(iOS) && !targetEnvironment(macCatalyst)", "all")
+            assert compilation_condition("DEBUG || RELEASE_NETWORK_SMOKE", "all")
+            assert not compilation_condition("os(macOS) || targetEnvironment(macCatalyst)", "all")
+            assert compilation_condition("BIT101_UI_TESTING && !targetEnvironment(macCatalyst)", "ui")
+            assert compilation_condition("EXTENDED_AUTOMATION && BIT101_AUTOMATED_TESTING && BIT101_UI_TESTING && !DEBUG", "ui")
+            from ui_rules import check_ui_test_inventory
+            original_rglob, original_read = Path.rglob, Path.read_text
+            ui_root = ROOT / "BIT101-iOSUITests"
+            sample_path = ui_root / "Additional/Nested.swift"
+            for declaration in ("final class FormatUITests: XCTestCase {\n  func testAdded() {}\n}",
+                                "final\nclass FormatUITests\n: XCTestCase {\n    func testAdded() {}\n}"):
+                def sample_read(path, *args, **kwargs):
+                    if path == sample_path: return declaration
+                    if path == ROOT / "docs/UI_INTERACTION_COVERAGE.md": return ""
+                    return original_read(path, *args, **kwargs)
+                test_inventory.cache_clear()
+                errors = []
+                with patch.object(Path, "rglob", lambda path, pattern: iter([sample_path]) if path == ui_root else original_rglob(path, pattern)), \
+                     patch.object(Path, "read_text", sample_read):
+                    check_ui_test_inventory(errors, {})
+                assert "UI interaction map missing: FormatUITests/testAdded" in errors
+                selector = re.search(r"bit101_ui_test_selections\(\).*?<<'PY'\n(.*?)\nPY", (ROOT / "Scripts/script-support.sh").read_text(), re.DOTALL)[1]
+                with patch("validation_evidence.test_inventory", return_value={"FormatUITests/testAdded"}), \
+                     patch.object(sys, "argv", ["selector", str(ROOT / "Scripts"), "Added", "FormatUITests"]), patch("builtins.print") as output:
+                    exec(compile(selector, "<ui selector>", "exec"), {})
+                output.assert_called_once_with("FormatUITests/testAdded")
+            test_inventory.cache_clear()
+            with patch.object(os, "uname", return_value=os.uname_result(("Darwin", "host", "release", "version", "x86_64"))):
+                compilation_condition.cache_clear()
+                for group in ("modules", "catalyst"):
+                    assert compilation_condition("arch(x86_64) && !arch(arm64)", group)
+                assert compilation_condition("arch(arm64) && !arch(x86_64)", "all")
+            compilation_condition.cache_clear()
+            conditional = "#if targetEnvironment(macCatalyst)\n中文手势\n#else\niOSGesture()\n#endif\n"
+            active = active_swift_source(conditional, "ui")
+            assert len(active.encode()) == len(conditional.encode()) and "中文手势" not in active and "iOSGesture()" in active
+            unicode_sources = {}
+            for index, separator in enumerate(["\u2028", "\u2029", "\v", "\f", "\x85"]):
+                source = f"// fixture{separator}// trailing\r\n#if DEBUG\r\n@Test func mustRun() {{}}\r\n#else\r\n@Test func inactive() {{}}\r\n#endif\r\n"
+                filtered = active_swift_source(source, "catalyst")
+                assert len(filtered.encode()) == len(source.encode())
+                unicode_sources[f"unicode-inventory-{index}"] = filtered
+            for facts in swift_syntax_index_sources(unicode_sources).values():
+                assert not facts["hasParseErrors"] and [test["value"] for test in facts["tests"]] == ["mustRun"]
+            for literal in ['/*\n#if DEBUG\n*/', '/* outer /* nested */\n#if DEBUG\n*/',
+                            '\"\"\"\n#if DEBUG\n\"\"\"', '#\"\"\"\n#if DEBUG\n\"\"\"#']:
+                source = literal + "\n@Test func realTest() {}\n"
+                assert "@Test func realTest" in active_swift_source(source, "modules")
+            fixture = ROOT / ".build/static-audit/source-digest-self-test.sh"
+            fixture.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                fixture.write_text("exit 0\n")
+                with patch.object(subprocess, "check_output", return_value=fixture.relative_to(ROOT).as_posix().encode()):
+                    fixture.chmod(0o600)
+                    original = source_digest()
+                    fixture.chmod(0o700)
+                    assert source_digest() != original
+            finally:
+                fixture.unlink(missing_ok=True)
+            from types import SimpleNamespace
+            inputs = {"README.md": b"documentation", "Modules/StorageCore/Sources/AppFileService.swift": b"product",
+                      "ModuleTests/Sync/ScheduleSyncTests.swift": b"test"}
+            with patch.object(subprocess, "check_output", return_value="\0".join(inputs).encode()), \
+                    patch.object(Path, "is_file", return_value=True), \
+                    patch.object(Path, "read_bytes", lambda path: inputs[path.relative_to(ROOT).as_posix()]), \
+                    patch.object(Path, "stat", return_value=SimpleNamespace(st_mode=0o644)):
+                before = {group: source_digest(group) for group in ("audit", "modules", "manual-device")}
+                inputs["README.md"] = b"updated documentation"
+                assert source_digest("audit") != before["audit"]
+                assert source_digest("modules") == before["modules"]
+                assert source_digest("manual-device") == before["manual-device"]
+                inputs["ModuleTests/Sync/ScheduleSyncTests.swift"] = b"updated test"
+                assert source_digest("modules") != before["modules"]
+                assert source_digest("manual-device") == before["manual-device"]
+                inputs["Modules/StorageCore/Sources/AppFileService.swift"] = b"updated product"
+                assert source_digest("manual-device") != before["manual-device"]
+            def icloud_summary(value):
+                return smoke_summary("icloud", dict(validatedDomains=sorted(ICLOUD_DOMAINS), cloudKitEnvironment="Production", **value))
+            test = {"passed": True, "totalTests": 1, "passedTests": 1, "failedTests": 0, "skippedTests": 0}
+            nested = swift_syntax_index_sources({"nested-tests": '@Suite struct Outer { @Suite struct Inner { @Testing.Test func works() {}; func testHelper() {} } }; class Base: XCTestCase {}; class Case: Base { func testActual() {}; func testArgument(_ value: Int) {}; static func testStatic() {} }; struct Ordinary { func testHelper() {} }'})["nested-tests"]
+            assert {item["value"] for item in nested["tests"]} == {"Outer/Inner/works", "Case/testActual"}
+            aliased = swift_syntax_index_sources({"base": 'typealias BehaviorBase = XCTest.XCTestCase; enum Namespace { typealias Base = BehaviorBase }; class Direct: XCTestCase {}; typealias Indirect = Direct',
+                "tests": 'class MissingTests: Namespace.Base { func testRequiredBehavior() {} }; class Derived: Indirect { func testInheritedBehavior() {} }; enum Other { typealias Base = Ordinary; class Local: Base { func testHelper() {} } }; class Ordinary {}'})["tests"]
+            assert {item["value"] for item in aliased["tests"]} == {"MissingTests/testRequiredBehavior", "Derived/testInheritedBehavior"}
+            from code_quality_rules import audit_wiring_findings
+            audit_path = ROOT / "Scripts/run-static-audit.sh"
+            audit_source, original_read = audit_path.read_text(), Path.read_text
+            for before, after in (("module_boundary_audit git_check", "swift_parse git_check"),
+                                  ("run_group artifact-hygiene artifact_hygiene", "run_group artifact-hygiene swift_parse")):
+                def mutated_read(path, *arguments, **keywords):
+                    return audit_source.replace(before, after) if path == audit_path else original_read(path, *arguments, **keywords)
+                with patch.object(Path, "read_text", mutated_read):
+                    assert any("静态审计回调" in finding for finding in audit_wiring_findings())
+            with patch(__name__ + ".test_inventory", return_value={"Outer/Inner/works"}), patch(__name__ + ".coverage_complete", return_value=True):
+                for identifier in ("Package.Outer/Inner/works()", "Package.Outer/Inner/works()/Example.swift:1:1"):
+                    assert complete_summary("schedule", dict(test, executedTests=[identifier]))
+            summaries = {name: dict(test, totalTests=len(test_inventory(name)), passedTests=len(test_inventory(name)),
+                executedTests=sorted(test_inventory(name))) for name in ("modules", "all", "release-runtime", "catalyst", "catalyst-release-runtime", "ui")}
+            summaries["modules"]["coverage"] = {name: {"coveredLines": floor, "executableLines": 100}
+                                                for name, floor in MODULE_COVERAGE_FLOORS.items()}
+            summaries["all"]["coverage"] = {"BIT101-iOS.app": {"coveredLines": 35, "executableLines": 100}}
+            summaries["all"]["coverage"].update({"iOS/" + name: {"coveredLines": floor, "executableLines": 100}
+                                                for name, floor in IOS_MODULE_COVERAGE_FLOORS.items()})
+            assert coverage_complete("all", summaries["all"])
+            ios_missing = dict(summaries["all"]["coverage"])
+            ios_missing.pop("iOS/MediaKit")
+            assert not coverage_complete("all", dict(summaries["all"], coverage=ios_missing))
+            ios_missing["iOS/MediaKit"] = {"coveredLines": 52, "executableLines": 100}
+            assert not coverage_complete("all", dict(summaries["all"], coverage=ios_missing))
+            assert coverage_complete("modules", summaries["modules"])
+            assert not coverage_complete("modules", dict(summaries["modules"], coverage={}))
+            missing = dict(summaries["modules"]["coverage"])
+            missing.pop("ScheduleSync")
+            assert not coverage_complete("modules", dict(summaries["modules"], coverage=missing))
+            missing["ScheduleSync"] = {"coveredLines": 0, "executableLines": 100}
+            assert not coverage_complete("modules", dict(summaries["modules"], coverage=missing))
+            missing["ScheduleSync"] = {"coveredLines": 75, "executableLines": 100}
+            assert not coverage_complete("modules", dict(summaries["modules"], coverage=missing))
+            summaries["ui"]["uiInventory"] = {"observed": 1, "visited": 1, "pending": [],
+                                              "scope": "mounted-controls", "unidentifiedControls": 0, "pendingDisabled": [],
+                                              "identityScope": "testCaseNavigationPresentationAndOccurrence"}
+            summaries["audit"] = {"passed": True, "kind": "audit"}
+            summaries["restore"] = {"passed": True, "kind": "restore"}
+            summaries["build-archive"] = {"passed": True, "kind": "build"}
+            summaries["manual-device"] = {"passed": True, "checks": {name: "操作结果及证据" for name in MANUAL_DEVICE_CHECKS}}
+            assert not complete_summary("manual-device", {"passed": True, "checks": {}})
+            summaries["network"] = smoke_summary("network", {"passed": True, "scope": "all", "executedProbes": sorted(network_inventory()), "requiredProbes": sorted(network_inventory())})
+            sms = {"passed": True, "scope": "school", "executedProbes": sorted(network_inventory("school")),
+                   "requiredProbes": sorted(network_inventory("school")), "schoolSMSCoverage": "verified",
+                   "verifiedSMSProbes": [{"purpose": purpose, "probe": sorted(SCHOOL_SMS_PROBES[purpose])[0]} for purpose in school_sms_inventory()]}
+            assert set(SCHOOL_SMS_PROBES) == school_sms_inventory()
+            writes = {"passed": True, "scope": "community-writes", "executedProbes": sorted(network_inventory("community-writes")),
+                      "requiredProbes": sorted(network_inventory("community-writes")), "communityWriteEvidence":
+                      ["服务端确认删除 poster1", "服务端确认删除 paper2", "点赞恢复 poster1", "点赞恢复 paper2", "点赞恢复 course3"]
+                      + [f"服务端确认删除 comment{id}" for id in range(10, 16)]
+                      + [f"创建 comment{id} 目标 {parent}" for id, parent in
+                         [(10, "poster1"), (11, "comment10"), (12, "paper2"), (13, "comment12"), (14, "course3"), (15, "comment14")]]}
+            assert community_writes_complete(writes["communityWriteEvidence"])
+            assert not community_writes_complete(writes["communityWriteEvidence"][:5] + ["服务端确认删除 comment42"] * 6)
+            assert not community_writes_complete([item.replace("目标 comment14", "目标 comment10") for item in writes["communityWriteEvidence"]])
+            assert not community_writes_complete([item.replace("创建 comment15", "创建 comment14") for item in writes["communityWriteEvidence"]])
+            cleanup = {"passed": True, "scope": "community-cleanup", "executedProbes": sorted(network_inventory("community-cleanup")),
+                       "requiredProbes": sorted(network_inventory("community-cleanup"))}
+            assert smoke_summary("community-cleanup", cleanup)["passed"]
+            assert not smoke_summary("community-writes", cleanup, full=False)["passed"]
+            with patch(f"{__name__}.test_inventory", return_value={"Suite/first", "Suite/second", "Other/third"}):
+                expected = selected_test_inventory("all", ["Suite", "Other/third()"])
+                assert expected == {"Suite/first", "Suite/second", "Other/third"}
+                try: selected_test_inventory("all", ["Suite", "Missing/none()"])
+                except ValueError: pass
+                else: raise AssertionError("手选测试需要拒绝混合失效选择")
+            chosen = {"passed": True, "totalTests": 3, "passedTests": 3, "failedTests": 0, "skippedTests": 0,
+                      "executedTests": ["Suite/first()", "Suite/second()", "Other/third()"]}
+            assert selected_test_summary_complete(chosen, sorted(expected))
+            assert not selected_test_summary_complete(dict(chosen, totalTests=1, passedTests=1, executedTests=["Suite/first()"]), sorted(expected))
+            summaries["community-writes"] = smoke_summary("community-writes", writes)
+            assert summaries["community-writes"]["passed"]
+            assert not smoke_summary("community-writes", dict(writes, communityWriteEvidence=[]))["passed"]
+            summaries["school-sms"] = smoke_summary("school-sms", sms)
+            assert summaries["school-sms"]["passed"]
+            mismatched = [{"purpose": step["purpose"], "probe": "BIT101 登录状态"} for step in sms["verifiedSMSProbes"]]
+            assert not smoke_summary("school-sms", dict(sms, verifiedSMSProbes=mismatched))["passed"]
+            assert smoke_summary("school-sms", dict(sms, schoolSMSCoverage="preflight_only"))["passed"] is False
+            assert smoke_summary("school-sms", dict(sms, verifiedSMSProbes=sms["verifiedSMSProbes"][:1]))["passed"] is False
+            summaries["icloud"] = icloud_summary({"exitCode": 0, "stages": [
+                dict(test, stage=name, totalTestCount=1, exitCode=0) for name in ("testPhoneRoundTrip", "testMacReceiveAndRestore")]})
+            groups = {name: {"exitCode": 0, "scope": "full", "summary": summary, "inputDigest": source_digest(name), "environment": environment_context(name)} for name, summary in summaries.items()}
+            report = {"sourceDigest": "source", "groups": groups}
+            with patch("ui_rules.source_runtime_interaction_findings", return_value=[]):
+                assert release_findings(report, "source") == []
+                with patch(f"{__name__}.environment_context", return_value=dict(fixture_environment, host={"system": "changed"})):
+                    assert release_findings(report, "source")
+                    assert release_findings(report, "source", recorded_environment=True) == []
+                with patch(f"{__name__}.environment_context", return_value=dict(fixture_environment, xcode={"version": "changed"})):
+                    assert release_findings(report, "source", recorded_environment=True)
+            assert release_findings(report, "changed")
+            groups["ui"]["scope"] = "selected"
+            assert release_findings(report, "source")
+            groups["ui"]["scope"] = "full"
+            groups["ui"]["summary"]["passedTests"] = 0
+            assert release_findings(report, "source")
+            module = test_summary("测试通过：3 项\n统计范围：macOS\n- ScheduleSync: 75.00% (3/4 lines)")
+            assert module["passed"] and module["coverage"]["ScheduleSync"]["coveredLines"] == 3
+            assert test_summary("总计 4；通过 3；失败 0；跳过 1")["passed"] is False
+            assert test_summary("总计 0；通过 0；失败 0；跳过 0")["passed"] is False
+            assert complete_summary("ui", dict(test, executedTests=["Fixture/example"])) is False
+            summaries["ui"]["passedTests"] = summaries["ui"]["totalTests"]
+            summaries["ui"]["uiInventory"]["pending"] = ["new-control"]
+            assert complete_summary("ui", summaries["ui"]) is False
+            network = {"passed": True, "scope": "all", "executedProbes": sorted(network_inventory()), "requiredProbes": sorted(network_inventory())}
+            assert smoke_summary("network", network)["passed"]
+            assert smoke_summary("network", {"passed": True, "scope": "all", "executedProbes": ["unrelated"]})["passed"] is False
+            network["coverageGaps"] = ["fixture"]
+            assert smoke_summary("network", network)["passed"] is False
+            ddl = {"passed": True, "scope": "ddl", "executedProbes": sorted(network_inventory("ddl")),
+                   "requiredProbes": sorted(network_inventory("ddl"))}
+            assert len(network_inventory("ddl")) == 5 and smoke_summary("ddl", ddl)["passed"]
+            ddl["skippedProbes"] = ["课程中心 DDL 下载"]
+            assert smoke_summary("ddl", ddl)["passed"] is False
+            assert icloud_summary({"exitCode": 0, "stages": []})["passed"] is False
+            stages = [{"stage": name, "exitCode": 0, "totalTestCount": 1, "passedTests": 1}
+                      for name in ["testPhoneRoundTrip", "testMacReceiveAndRestore"]]
+            assert icloud_summary({"exitCode": 0, "stages": stages})["passed"]
+            assert smoke_summary("icloud", {"exitCode": 0, "stages": stages})["passed"] is False
+            cleanup = dict(stages[0], stage="testCleanup", failedTests=0, skippedTests=0)
+            assert icloud_summary({"exitCode": 0, "stages": stages, "cleanup": cleanup, "cleanupExitCode": 0})["passed"]
+            assert icloud_summary({"exitCode": 0, "stages": stages, "cleanup": cleanup, "cleanupExitCode": 1})["passed"] is False
+            cleanup["passedTests"] = 0
+            assert icloud_summary({"exitCode": 0, "stages": stages, "cleanup": cleanup})["passed"] is False
+            stages[1]["passedTests"] = 0
+            assert icloud_summary({"exitCode": 0, "stages": stages})["passed"] is False
+            return 0
     if args.action == "record":
         return record(args.group, args.status, args.scope, os.getenv("BIT101_VALIDATION_SOURCE_DIGEST", ""))
     with report_lock():
@@ -779,7 +825,7 @@ def main() -> int:
 def inspect_report(args) -> int:
     report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
     if args.action in {"bind", "check"}:
-        errors = release_findings(report, source_digest())
+        errors = release_findings(report, source_digest(), recorded_environment=args.recorded_environment)
         pending = subprocess.check_output(["git", "status", "--porcelain=v1", "--untracked-files=normal"], cwd=ROOT)
         if pending.strip():
             errors.append("发布验证证据需要对应已完整提交的仓库内容。")
@@ -797,7 +843,8 @@ def inspect_report(args) -> int:
         result = row.get("summary", {})
         passed = row.get("exitCode") == 0 and result.get("passed") is True
         count = result.get("passedTests", result.get("executedProbes", sum(stage["passedTests"] for stage in result.get("stages", []))))
-        current = row.get("inputDigest") == source_digest(name)
+        environment = row.get("environment", {}) if args.recorded_environment else None
+        current = row.get("inputDigest") == source_digest(name, environment=environment)
         label = "待复验" if not current else "通过" if passed else "待处理"
         rows.append(f"| {name} | {row.get('scope', '?')} | {label} | {count} | {len(result.get('coverage', {}))} |")
     if report.get("releaseCommit"):

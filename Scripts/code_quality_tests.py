@@ -4,7 +4,7 @@ from script_command_tests import script_command_boundary_findings
 
 from pathlib import Path
 import json, os, re, subprocess, sys, shutil, signal
-from contextlib import nullcontext, redirect_stdout
+from contextlib import nullcontext, redirect_stdout, redirect_stderr
 from io import BytesIO, StringIO
 from unittest.mock import Mock, patch
 from swift_source_index import swift_syntax_index_sources
@@ -445,6 +445,64 @@ def report_inbox_boundary_findings() -> list[str]:
         assert all(arguments[3] == "get" for arguments in calls)
         reports.update({f"report:2000-01-03:batch-{index}": {"report": {"comment": "x" * 8192}} for index in range(40)})
         assert execute() == 40
+        reports["report:invalid-attachment"] = {"report": {"attachments": [
+            {"data": "invalid%base64", "contentType": "image/png", "name": "原附件"}, "legacy-invalid"]}}
+        try:
+            with redirect_stderr(StringIO()):
+                execute()
+        except SystemExit as error:
+            assert error.code == 1
+        else:
+            raise AssertionError("异常附件需要返回部分失败")
+        invalid_path = next(fixture.glob("*/*/report_invalid-attachment.json"))
+        archived = json.loads(invalid_path.read_text())
+        assert archived["inboxAttachmentErrors"] == 2
+        assert archived["report"]["attachments"][0]["data"] == "invalid%base64"
+        assert archived["report"]["attachments"][1]["original"] == "legacy-invalid"
+        assert "report:invalid-attachment" not in processed_path.read_text()
+        reports["report:invalid-attachment"] = {"report": {"attachments": []}}
+        assert execute() == 1
+        assert "report:invalid-attachment" in processed_path.read_text()
+        import shlex
+        tool_dir = fixture / "bin"
+        tool_dir.mkdir(exist_ok=True)
+        fake_gh = tool_dir / "gh"
+        fake_gh.write_text(r'''#!/bin/zsh
+if [[ "$1" == api ]]; then
+  if [[ "$INBOX_SELF_TEST_MODE" == listing-failure ]]; then print partial; exit 17; fi
+  print '[]'
+elif [[ "$2" == list ]]; then
+  if [[ "$INBOX_SELF_TEST_MODE" == listing-failure ]]; then print partial; exit 18; fi
+  if [[ "$INBOX_SELF_TEST_MODE" == log-failure ]]; then
+    print '[{"databaseId":1,"updatedAt":"new","headSha":"head"}]'
+  else print '[]'; fi
+elif [[ "$2" == view ]]; then print -ru2 'fixture log failure'; exit 19
+else exit 99; fi
+''')
+        fake_gh.chmod(0o700)
+        shell_source = source.replace('OUTPUT_DIR="$ROOT_DIR/.build/issue-report-inbox"', 'OUTPUT_DIR=' + shlex.quote(str(fixture)))
+        shell_source = shell_source.replace('source "$ROOT_DIR/Scripts/script-support.sh"', 'bit101_acquire_script_lock() { :; }\nmock_wrangler() { print \'[]\'; }')
+        shell_source = shell_source.replace('WRANGLER="$WRANGLER_DIR/node_modules/.bin/wrangler"', 'WRANGLER=mock_wrangler')
+        issue_path, ci_path = fixture / "github-issues.json", fixture / "github-ci.json"
+        old_issue = '[{"number":1,"state":"open","title":"cached issue","url":"fixture"}]'
+        old_ci = '[{"databaseId":1,"updatedAt":"old","headSha":"head","failedLogTail":"cached log"}]'
+        issue_path.write_text(old_issue)
+        ci_path.write_text(old_ci)
+        def run_fetch(mode):
+            return subprocess.run(["zsh", "-c", shell_source, str(SCRIPT_ROOT / "fetch-issues-and-reports.sh"), "fetch"],
+                env=dict(os.environ, PATH=str(tool_dir) + os.pathsep + os.environ["PATH"], INBOX_SELF_TEST_MODE=mode),
+                capture_output=True, text=True)
+        assert run_fetch("listing-failure").returncode == 1
+        assert issue_path.read_text() == old_issue and ci_path.read_text() == old_ci
+        assert "failed" in (fixture / "summary.txt").read_text()
+        assert run_fetch("log-failure").returncode == 1
+        partial = json.loads(ci_path.read_text())[0]
+        assert partial["previousFailedLogTail"] == "cached log" and "failedLogError" in partial
+        assert run_fetch("log-failure").returncode == 1
+        repeated = json.loads(ci_path.read_text())[0]
+        assert repeated["previousFailedLogTail"] == "cached log" and "failedLogError" in repeated
+        assert run_fetch("success").returncode == 0
+        assert json.loads(issue_path.read_text()) == json.loads(ci_path.read_text()) == []
     except (AssertionError, OSError) as error:
         findings.append(f"反馈收件箱自测：{error}")
     finally:
@@ -639,10 +697,10 @@ def build_cache_boundary_findings() -> list[str]:
         if not (sdk / "incomplete-map.pcm").is_file():
             findings.append("缓存自测：依赖清单受损时保留缓存")
         for action, settings, expected in (
-            ("build", [], ["DEBUG_INFORMATION_FORMAT=dwarf"]),
+            ("build", [], []),
             ("test", ["DEBUG_INFORMATION_FORMAT=dwarf-with-dsym"], ["DEBUG_INFORMATION_FORMAT=dwarf-with-dsym"]),
             ("archive", [], []),
-            ("build-for-testing", ["SWIFT_COMPILATION_MODE=wholemodule"], ["DEBUG_INFORMATION_FORMAT=dwarf"]),
+            ("build-for-testing", ["SWIFT_COMPILATION_MODE=wholemodule"], []),
             ("swift-build", [], None), ("swift-test", [], None),
         ):
             command = ["xcrun", "swift", action.removeprefix("swift-")] if expected is None else ["xcodebuild", action]
@@ -659,9 +717,9 @@ def build_cache_boundary_findings() -> list[str]:
                 continue
             if [value for value in builds[-1] if value.startswith("DEBUG_INFORMATION_FORMAT=")] != expected:
                 findings.append("缓存自测：开发 DWARF、显式符号设置和发行归档边界")
-            expected_mode = [] if action == "archive" else ["SWIFT_COMPILATION_MODE=wholemodule" if settings == ["SWIFT_COMPILATION_MODE=wholemodule"] else "SWIFT_COMPILATION_MODE=singlefile"]
+            expected_mode = [value for value in settings if value.startswith("SWIFT_COMPILATION_MODE=")]
             if [value for value in builds[-1] if value.startswith("SWIFT_COMPILATION_MODE=")] != expected_mode:
-                findings.append("缓存自测：开发增量编译、显式编译模式和发行归档边界")
+                findings.append("缓存自测：行为测试和归档沿工程默认编译模式，并保留显式设置")
             if not all(setting in builds[-1] for setting in ("SWIFT_TREAT_WARNINGS_AS_ERRORS=YES", "GCC_TREAT_WARNINGS_AS_ERRORS=YES")):
                 findings.append("编译入口自测：构建、测试与正式归档的警告门禁")
     finally:

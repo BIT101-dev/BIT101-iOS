@@ -60,7 +60,7 @@ jobs:
 
       - name: Check release validation evidence
         if: github.event_name == 'workflow_dispatch' && inputs.release_check
-        run: python3 Scripts/validation_evidence.py check
+        run: python3 Scripts/validation_evidence.py check --recorded-environment
 
       - name: Publish validation evidence
         if: always()

@@ -358,7 +358,7 @@ fi
 if [[ "$MODE" == "modules" ]]; then
   if $BUILD_ONLY; then
     echo "[编译] 模块消费者 · macOS 原生 Release"
-    bit101_run_logged "$DERIVED_ROOT/module-tests.log" "模块编译" \
+    bit101_run_logged "$DERIVED_ROOT/$validation_group.log" "模块编译" \
       xcrun swift build --build-tests -Xswiftc -enable-testing \
         --package-path "$ROOT_DIR" \
         --scratch-path "$DERIVED_ROOT" \
@@ -366,7 +366,7 @@ if [[ "$MODE" == "modules" ]]; then
   else
     echo "[测试] 模块消费者 · macOS 原生 Release"
     rm -f "$DERIVED_ROOT/module-events.jsonl"
-    bit101_run_logged "$DERIVED_ROOT/module-tests.log" "模块离线测试" \
+    bit101_run_logged "$DERIVED_ROOT/$validation_group.log" "模块离线测试" \
       xcrun swift test --enable-code-coverage \
         --event-stream-version 0 --event-stream-output-path "$DERIVED_ROOT/module-events.jsonl" \
         --package-path "$ROOT_DIR" \
@@ -382,7 +382,7 @@ import subprocess
 import sys
 
 coverage_path, report_path, root_path = map(Path, sys.argv[1:])
-test_counts = re.findall(r"Test run with (\d+) tests?", (report_path.parent / "module-tests.log").read_text())
+test_counts = re.findall(r"Test run with (\d+) tests?", (report_path.parent / "modules.log").read_text())
 test_count = sum(map(int, test_counts))
 executed = []
 for line in (report_path.parent / "module-events.jsonl").read_text().splitlines():
@@ -457,7 +457,7 @@ PY
 
 run_tests() {
   local group="$1"
-  local log="$DERIVED_ROOT/$group.log"
+  local log="$DERIVED_ROOT/$validation_group.log"
   local conditions="$2"
   local only_testing=("-only-testing:$TEST_BUNDLE")
   local failure_summary
@@ -468,7 +468,6 @@ run_tests() {
   local coverage_args=(-enableCodeCoverage YES ENABLE_CODE_COVERAGE=YES)
   local started_at=$SECONDS
   if $BUILD_ONLY; then
-    log="$DERIVED_ROOT/$group-build.log"
     test_action=build-for-testing
   else
     execution_args+=(-resultBundlePath "$RESULT_BUNDLE")

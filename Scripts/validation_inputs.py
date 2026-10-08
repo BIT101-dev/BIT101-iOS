@@ -3,7 +3,7 @@ from pathlib import PurePosixPath
 
 PRODUCT_ROOTS = {"Modules", "BIT101-iOS", "BIT101-iOS.xcodeproj", "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets"}
 PRODUCT_FILES = {"Package.swift", "AppInfo.plist"}
-VALIDATION_SCRIPTS = {"validation_evidence.py", "validation_inputs.py", "swift_source_index.py", "SwiftSyntaxIndexer.swift", "code_quality_rules.py"}
+VALIDATION_SCRIPTS = {"validation_evidence.py", "validation_inputs.py", "validation_environment.py", "swift_source_index.py", "SwiftSyntaxIndexer.swift", "code_quality_rules.py"}
 BUILD_SCRIPTS = {"script-support.sh", "build-install-device.sh"}
 TEST_SCRIPTS = BUILD_SCRIPTS | VALIDATION_SCRIPTS | {"run-extended-tests.sh"}
 APP_TEST_GROUPS = {"all", "release-runtime", "catalyst", "catalyst-release-runtime", "schedule", "infrastructure", "login", "extensions"}

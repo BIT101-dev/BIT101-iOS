@@ -65,7 +65,9 @@ xcrun() {
         ("run-extended-tests.sh", ["build", "modules"], 0, "swift build", ""),
         ("run-extended-tests.sh", ["build", "catalyst"], 0, "variant=Mac Catalyst", ""),
         ("run-extended-tests.sh", ["build", "catalyst-release-runtime"], 0, "BIT101_WORKFLOW_CONDITIONS=", ""),
+        ("run-extended-tests.sh", ["catalyst"], 86, "all-tests", ""),
         ("run-extended-tests.sh", ["catalyst-release-runtime"], 86, "ReleaseRuntimeContractTests", ""),
+        ("run-extended-tests.sh", ["release-runtime"], 86, "ReleaseRuntimeContractTests", "DEVICE"),
         ("run-extended-tests.sh", ["ui", "About", "About"], 86, "LoginAndScheduleUITests/testAboutLicenseUpdateAndResetConfirmation", "DEVICE"),
         ("run-extended-tests.sh", ["ui", "Schedule"], 86, "testScheduleWeekButtonsAndSectionSwipes", "DEVICE"),
         ("run-extended-tests.sh", ["ui", "DDLEditor"], 86, "InteractionCoverageUITests/testDDLEditorDetailsDatePickerValidationAndCancelEditing", "DEVICE"),
@@ -97,7 +99,7 @@ xcrun() {
         source = path.read_text().replace('source "$ROOT_DIR/Scripts/script-support.sh"',
                                          f"source {shlex.quote(str(support))}\n" + frame)
         stop = "exit 86" if expected == 86 else "return 0"
-        source = source.replace(frame, frame + f'\nbit101_run_logged() {{ print -r -- "BUILD $*"; {stop}; }}\n' + '\npython3() { if [[ "$*" == *"/signing.entitlements"* ]]; then return 0; fi; command python3 "$@"; }\n')
+        source = source.replace(frame, frame + f'\nbit101_run_logged() {{ print -r -- "BUILD $*"; {stop}; }}\n' + '\npython3() { if [[ "$*" == *"/signing.entitlements"* ]]; then return 0; fi; if [[ "$*" == *"validation_evidence.py digest"* ]]; then print self-test-inputs; return 0; fi; command python3 "$@"; }\n')
         source = re.sub(r"(?ms)^ui_test_plan\(\) \{\n.*?^\}$",
                         'ui_test_plan() { print -r -- /audit/ui.xctestrun; }', source, count=1)
         source = re.sub(r"(?ms)^report_result\(\) \{\n.*?^\}$", 'report_result() { print REPORT; }', source, count=1)
@@ -105,6 +107,13 @@ xcrun() {
                                 capture_output=True, text=True)
         if result.returncode != expected or marker not in result.stdout or ("DEVICE\n" in result.stdout) != bool(device):
             findings.append(f"命令自测：{filename} {' '.join(arguments)} 分派及自动选机；{result.stderr}")
+        if filename == "run-extended-tests.sh" and (not arguments or arguments[0] in {
+                "catalyst", "catalyst-release-runtime", "release-runtime", "modules", "build"}):
+            group = arguments[0] if arguments else "all"
+            if group == "build":
+                group = "build-" + (arguments[1] if len(arguments) > 1 else "release")
+            if f"/extended-automation/{group}.log" not in result.stdout:
+                findings.append(f"命令自测：{group} 保存独立验证组日志")
         needs_lock = arguments not in (["info"], ["cache"])
         if ("WORKFLOW_LOCK\n" in result.stdout) != needs_lock:
             findings.append(f"命令自测：{filename} {' '.join(arguments)} 取得工作流锁")

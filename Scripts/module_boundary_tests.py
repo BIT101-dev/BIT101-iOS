@@ -35,6 +35,20 @@ def run_self_test(rules: dict) -> None:
     for source in ("let bytes = NSMutableData(contentsOf: url)", "let text = try NSMutableString(contentsOf: url, encoding: encoding)",
                    "let bytes: NSMutableData = .init(contentsOf: url)", "let text = try NSMutableString.self.init(contentsOf: url, encoding: encoding)"):
         assert service_boundary_errors("Modules/GalleryFeature/Sources/Example.swift", source)
+    for source in (
+        "let wrapper = try FileWrapper(url: url, options: [])",
+        "let wrapper = NSFileWrapper(path: path)",
+        "let wrapper = try Foundation.FileWrapper.self.init(url: url, options: [])",
+        "let wrapper: FileWrapper = try .init(url: url, options: [])",
+        "typealias Wrapper = FileWrapper; let wrapper: Wrapper = try .init(url: url, options: [])",
+        "let wrapper = FileWrapper(regularFileWithContents: Data()); try wrapper.write(to: url, options: [], originalContentsURL: nil)",
+        "func refresh(wrapper: FileWrapper, url: URL) { try wrapper.read(from: url, options: []) }",
+        "func compare(wrapper: Foundation.FileWrapper, url: URL) { _ = wrapper.matchesContents(of: url) }",
+    ):
+        assert service_boundary_errors("Modules/GalleryFeature/Sources/Example.swift", source), source
+        assert service_boundary_errors("Modules/StorageCore/Sources/AppFileService.swift", source) == []
+    assert service_boundary_errors("Modules/GalleryFeature/Sources/Example.swift", "let wrapper = FileWrapper(regularFileWithContents: Data())") == []
+    assert service_boundary_errors("Modules/GalleryFeature/Sources/Example.swift", "struct Wrapper { func read(from item: Int) {} }; let value = Wrapper(); value.read(from: 1)") == []
     targets = manifest_targets({"targets": [
         {"name": "NewCore", "path": "Modules/NewCore/Sources", "type": "regular", "dependencies": []},
         {"name": "NewFeature", "path": "Modules/NewFeature/Sources", "type": "regular",

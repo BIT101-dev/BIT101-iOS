@@ -340,6 +340,7 @@ def service_boundary_errors(path: str, source: str, aliases: tuple = (), context
             (r"\b(?:Data|NSData|NSMutableData|String|NSString|NSMutableString)\s*(?:\.\s*init\s*)?\(\s*(?:contentsOf|contentsOfFile|contentsOfURL)\s*:", "read files through AppFileService"),
             (r"\.\s*(?:resourceValues|setResourceValues|getResourceValue|setResourceValue|resolvingSymlinksInPath|checkResourceIsReachable)\s*\(", "access file metadata through AppFileService"),
             (r"\b(?:FileHandle|NSFileHandle)\b(?!\s*\.\s*standard(?:Output|Error)\b)|\b(?:NSFileCoordinator|CGImageSourceCreateWithURL|CGImageDestinationCreateWithURL)\b", "access files through AppFileService"),
+            (r"\b(?:FileWrapper|NSFileWrapper)\s*(?:\.\s*init\s*)?\(\s*(?:url|path)\s*:", "access files through AppFileService"),
             (r"\b(?:UIImage|NSImage|InputStream|OutputStream)\s*(?:\.\s*init\s*)?\(\s*(?:contentsOfFile|contentsOf|url|fileAtPath|toFileAtPath)\s*:", "access files through AppFileService"),
         ))
     if path != "BIT101-iOS/Shared/Client/AppFileDirectories.swift":
@@ -354,8 +355,8 @@ def service_boundary_errors(path: str, source: str, aliases: tuple = (), context
     if path != "Modules/StorageCore/Sources/AppFileService.swift":
         errors.extend(f"service boundary: {path}:{line}: access files through AppFileService"
             for line in implicit_file_accesses(source))
-        errors.extend(f"service boundary: {path}:{line}: write files through AppFileService"
-            for line in file_write_accesses(source))
+        errors.extend(f"service boundary: {path}:{line}: access files through AppFileService"
+            for line in file_member_accesses(source))
     if path != "BIT101-iOS/Shared/Client/AppFileDirectories.swift":
         errors.extend(f"service boundary: {path}:{line}: select preferences through the host storage entry: UserDefaults"
             for line in implicit_resource_accesses(source, properties=context[0]))
@@ -370,21 +371,21 @@ def service_boundary_errors(path: str, source: str, aliases: tuple = (), context
 
 POSIX_FILE_FUNCTIONS = r"open|openat|creat|close|read|pread|readv|write|pwrite|writev|lseek|fopen|freopen|fread|fwrite|fclose|rename|remove|unlink|mkdir|rmdir|stat|lstat|fstat|truncate|ftruncate|fsync|fdatasync|access|opendir|readdir|closedir|mmap|munmap|readlink|readlinkat|symlink|symlinkat|link|linkat|renameat|unlinkat|mkdirat|fstatat|chmod|fchmod|fchmodat|chown|fchown|lchown|fchownat|fdopen|fflush|fseek|ftell|fgetpos|fsetpos|rewind|scandir"
 POSIX_NETWORK_FUNCTIONS = r"socket|socketpair|connect|bind|listen|accept|send|sendto|sendmsg|recv|recvfrom|recvmsg|shutdown|setsockopt|getsockopt|getpeername|getsockname"
-FILE_INITIALIZER_TYPES = r"(?:Foundation\.|UIKit\.|AppKit\.)?(?:Data|NSData|NSMutableData|String|NSString|NSMutableString|UIImage|NSImage|InputStream|OutputStream)\??"
+FILE_INITIALIZER_TYPES = r"(?:Foundation\.|UIKit\.|AppKit\.)?(?:Data|NSData|NSMutableData|String|NSString|NSMutableString|UIImage|NSImage|InputStream|OutputStream|FileWrapper|NSFileWrapper)\??"
 
 
 def normalized_resource_source(source: str) -> str:
-    resources = "Data|NSData|NSMutableData|String|NSString|NSMutableString|UIImage|NSImage|InputStream|OutputStream|UserDefaults|FileManager|URLSession|URLSessionTransport|URLCache|AppFileSystem|LocalAppFileService"
+    resources = "Data|NSData|NSMutableData|String|NSString|NSMutableString|UIImage|NSImage|InputStream|OutputStream|FileWrapper|NSFileWrapper|UserDefaults|FileManager|URLSession|URLSessionTransport|URLCache|AppFileSystem|LocalAppFileService"
     return re.sub(r"\b((?:Foundation\.)?(?:" + resources + r"))\s*\.\s*self(?=\s*\.)",
         lambda match: match[1] + "\n" * match[0].count("\n"), source)
 
 
 @cache
-def file_write_accesses(source: str) -> list[int]:
-    if not re.search(r"\.\s*write\s*\(\s*(?:to|toFile)\s*:", swift_code(source)): return []
+def file_member_accesses(source: str) -> list[int]:
+    if not re.search(r"\.\s*(?:write|read|matchesContents)\s*\(\s*(?:to|toFile|from|of)\s*:", swift_code(source)): return []
     facts = swift_syntax_index_sources({"file-writes": source})["file-writes"]
     encoded = source.encode()
-    file_types = {"Data", "NSData", "NSMutableData", "String", "NSString", "NSMutableString"}
+    file_types = {"Data", "NSData", "NSMutableData", "String", "NSString", "NSMutableString", "FileWrapper", "NSFileWrapper"}
     def normalized_type(value: str) -> str:
         value = value.strip().removeprefix("Foundation.").removesuffix("?")
         optional = re.fullmatch(r"(?:Swift\.)?Optional<(.+)>", value)
@@ -461,12 +462,12 @@ def file_write_accesses(source: str) -> list[int]:
 
     hits = []
     for call in facts["invocations"]:
-        match = re.match(r"(.+)\.\s*write\s*\(\s*(?:to|toFile)\s*:", call["value"], re.DOTALL)
+        match = re.match(r"(.+)\.\s*(write|read|matchesContents)\s*\(\s*(?:to|toFile|from|of)\s*:", call["value"], re.DOTALL)
         if match:
             receiver = value_type(match[1], call)
             arguments = call.get("arguments") or []
             target = value_type(arguments[0], call) if arguments else None
-            if receiver in file_types or (receiver is None and (target == "URL" or (target == "String" and "toFile" in call["argumentLabels"]))):
+            if (match[2] == "write" and receiver in file_types or receiver in {"FileWrapper", "NSFileWrapper"}) or (match[2] == "write" and receiver is None and (target == "URL" or (target == "String" and "toFile" in call["argumentLabels"]))):
                 hits.append(encoded[:call["start"]].count(b"\n") + 1)
     return hits
 
@@ -500,7 +501,7 @@ def implicit_file_accesses(source: str, functions: str = POSIX_FILE_FUNCTIONS) -
         if posix:
             own_function = bool(matching_functions(facts, posix[2], call)) or own_value(call, posix[2])
             forbidden = bool(posix[1]) or not own_function
-        elif functions == POSIX_FILE_FUNCTIONS and re.match(r"\.\s*init\s*\(\s*(?:contentsOf|contentsOfFile|contentsOfURL|url|fileAtPath|toFileAtPath)\s*:", value):
+        elif functions == POSIX_FILE_FUNCTIONS and re.match(r"\.\s*init\s*\(\s*(?:contentsOf|contentsOfFile|contentsOfURL|url|path|fileAtPath|toFileAtPath)\s*:", value):
             prefix = swift_code(encoded[:call["start"]].decode())
             contexts = expected_argument_types(facts, call) + [match[1] for binding in facts["bindings"]
                 if binding["start"] <= call["start"] < binding["start"] + len(binding["value"].encode())
