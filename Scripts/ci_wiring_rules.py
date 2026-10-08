@@ -167,6 +167,9 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             errors.append(".github/workflows/ci.yml: 提交证据读取失败需要传播")
         errors.extend(evidence_execution_findings(shell(step), key, expected))
     steps = physical.get("steps", [])
+    checkouts = [step for step in steps if isinstance(step, dict) and step.get('uses', '').startswith('actions/checkout@')]
+    if len(checkouts) != 1 or mapping(checkouts[0].get('with')).get('clean') is not False:
+        errors.append('.github/workflows/ci.yml: 真机工作区需要保留共享增量编译缓存')
     load = next((i for i, step in enumerate(steps) if baseline_command in shell(step)), -1)
     verify = next((i for i, step in enumerate(steps) if isinstance(step, dict) and step.get("run") == "Scripts/run-extended-tests.sh verify modules all ui"), -1)
     bind = next((i for i, step in enumerate(steps) if isinstance(step, dict) and step.get("run") == "python3 Scripts/validation_evidence.py bind-merge"), -1)
@@ -221,6 +224,8 @@ def evidence_execution_findings(command: str, key: str, expected: list[str]) -> 
 
 def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     source = workflow_source
+    if not ci_wiring_findings(source.replace('          clean: false', '          clean: true')):
+        return ['代码质量规则边界自检失败：真机共享缓存保留门禁']
     mutations = [
         re.sub(r"(?m)^  pull_request:.*\n", "", source),
         re.sub(r"(?m)^  push:\n    branches:.*\n", "", source),

@@ -58,7 +58,7 @@ class SwiftTypeIndex:
         return self._resolutions[key]
 
     def _resolve(self, path, name, scope, aliases):
-        name = re.sub(r'\s+|\bany\b', '', name).rstrip('?!').split('<', 1)[0]
+        name = re.sub(r'\s+|\bany\b', '', name).rstrip('?!')
         parts = canonical_type_scope([name])
         if not parts: return None
         module = self.units[path]

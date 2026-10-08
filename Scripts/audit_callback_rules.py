@@ -66,6 +66,13 @@ xargs() {
 def self_test() -> None:
     from pathlib import Path
     source = Path(__file__).with_name("run-static-audit.sh").read_text()
+    logger = re.search(r'(?ms)^show_group_log\(\) \{.*?^\}', source)[0]
+    for count, failed, ci in ((1000, False, False), (1001, False, True), (1001, True, False), (1001, True, True)):
+        harness = f'wc() {{ print {count}; }}; cat() {{ print diagnostics; }}; GITHUB_ACTIONS={str(ci).lower()};\n'
+        result = subprocess.run(['zsh', '-c', harness + logger + f'\nshow_group_log /dev/stdin {str(failed).lower()}'],
+            capture_output=True, text=True, input='')
+        assert result.returncode == 0
+        assert (result.stdout == 'diagnostics\n') == (count <= 1000 or failed and ci)
     assert not audit_callback_findings(source)
     for callback in ("checker_audit", "swift_parse", "worker_parse", "module_boundary_audit", "artifact_hygiene"):
         pattern = r"(?ms)^" + callback + r"\(\)\s*\{(?:[^\n]*\}|.*?^\})"

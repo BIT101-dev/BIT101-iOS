@@ -251,13 +251,13 @@ bit101_run_logged /log build xcodebuild build-for-testing
         findings.append("脚本自测：测试执行与编译缓存锁的生命周期")
     audit = (SCRIPT_ROOT / "run-static-audit.sh").read_text()
     tail = audit[audit.index("failed_groups=()"):]
-    tail = re.sub(r'  line_count="[^\n]+"', "  line_count=0", tail)
     harness = r'''
 set -euo pipefail
 LOG_DIR=/audit
 ROOT_DIR=/audit
 AUDIT_STARTED=$SECONDS
 cat() { :; }
+show_group_log() { :; }
 python3() { return 0; }
 run_group() {
     print -r -- "RAN $1"

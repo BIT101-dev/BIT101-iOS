@@ -193,6 +193,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          clean: false
       - name: Verify maintainer review commit
         id: review
         if: github.event_name == 'workflow_dispatch' && inputs.review_pr > 0

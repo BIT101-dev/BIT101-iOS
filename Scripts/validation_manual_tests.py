@@ -1,5 +1,6 @@
 """Contracts for physical observations and final distribution signature evidence."""
 import copy
+from datetime import timedelta
 from io import BytesIO
 import json
 from pathlib import Path
@@ -28,6 +29,13 @@ def distribution_fixture() -> tuple[dict, dict]:
         parents = [key for key, contract in contracts.items() if not contract['extension'] and identifier.startswith(key + '.')]
         rows.append({'identifier': identifier, 'team': value['team'], 'version': value['version'], 'build': value['build'],
             'entitlements': entitlements, 'signatureVerified': True, 'sha256': 'a' * 64,
+            'platform': 'watchos' if value['platform'] == 'watchOS' else 'iphoneos',
+            'supportedPlatforms': ['WatchOS' if value['platform'] == 'watchOS' else 'iPhoneOS'],
+            'minimumOSVersion': value['minimumOSVersion'],
+            'provisioningProfile': {'uuid': str(uuid.uuid5(uuid.NAMESPACE_URL, identifier)),
+                'teamIdentifiers': [value['team']], 'entitlements': entitlements | {'beta-reports-active': True},
+                'expirationDate': (utc_now() + timedelta(days=1)).isoformat(),
+                'hasProvisionedDevices': False, 'provisionsAllDevices': False},
             'executableUUIDs': [{'architecture': 'arm64', 'uuid': str(uuid.uuid5(uuid.NAMESPACE_URL, identifier)).upper()}],
             'containerIdentifier': max(parents, key=len) if parents else '', 'companionIdentifier': main if identifier != main and not value['extension'] else ''})
     return contracts, {'schemaVersion': 1, 'verifiedAt': utc_now().isoformat(),
@@ -99,6 +107,21 @@ def run_self_test() -> None:
             changed = copy.deepcopy(report)
             changed['bundles'][index][key] = value
             assert not distribution.distribution_complete(changed, contracts), (index, key)
+        for key, value in [('platform', 'macosx'), ('supportedPlatforms', ['iPhoneSimulator']),
+                ('minimumOSVersion', '99.0'), ('minimumOSVersion', None), ('provisioningProfile', None)]:
+            changed = copy.deepcopy(report)
+            changed['bundles'][index][key] = value
+            assert not distribution.distribution_complete(changed, contracts), (index, key)
+        for key, value in [('uuid', 'invalid'), ('teamIdentifiers', ['other']), ('hasProvisionedDevices', True),
+                ('provisionsAllDevices', True), ('expirationDate', utc_now().isoformat()), ('expirationDate', 'invalid')]:
+            changed = copy.deepcopy(report)
+            changed['bundles'][index]['provisioningProfile'][key] = value
+            assert not distribution.distribution_complete(changed, contracts), (index, key)
+        for key, value in [('application-identifier', 'wrong'), ('com.apple.developer.team-identifier', 'other'),
+                ('beta-reports-active', False), ('get-task-allow', True)]:
+            changed = copy.deepcopy(report)
+            changed['bundles'][index]['provisioningProfile']['entitlements'][key] = value
+            assert not distribution.distribution_complete(changed, contracts), (index, key)
         for key, value in [('get-task-allow', True), ('com.apple.developer.team-identifier', 'other'),
                 ('application-identifier', 'wrong'), ('com.apple.security.application-groups', [])]:
             changed = copy.deepcopy(report)
@@ -124,9 +147,17 @@ def run_self_test() -> None:
         row = by_path[path.parent]
         return plistlib.dumps({'CFBundleIdentifier': row['identifier'], 'CFBundleShortVersionString': row['version'],
             'CFBundleVersion': row['build'], 'WKCompanionAppBundleIdentifier': row['companionIdentifier'], 'CFBundleExecutable': 'application',
+            'DTPlatformName': row['platform'], 'CFBundleSupportedPlatforms': row['supportedPlatforms'], 'MinimumOSVersion': row['minimumOSVersion'],
             'BIT101ArchiveInputDigest': report['archiveProvenance']['inputDigest'], 'BIT101ArchiveRunIdentifier': report['archiveProvenance']['runID']})
     def signed(command, **kwargs):
         path = Path(command[-1])
+        if command[:3] == ['security', 'cms', '-D']:
+            profile = by_path[path.parent]['provisioningProfile']
+            payload = {'UUID': profile['uuid'], 'TeamIdentifier': profile['teamIdentifiers'], 'Entitlements': profile['entitlements'],
+                'ExpirationDate': distribution.datetime.fromisoformat(profile['expirationDate']).replace(tzinfo=None)}
+            if profile['hasProvisionedDevices']: payload['ProvisionedDevices'] = ['device']
+            if profile['provisionsAllDevices']: payload['ProvisionsAllDevices'] = True
+            return SimpleNamespace(stdout=plistlib.dumps(payload))
         if command[:2] == ['xcrun', 'dwarfdump']:
             row = by_path[path.parent]
             return SimpleNamespace(stdout='UUID: ' + row['executableUUIDs'][0]['uuid'] + ' (arm64) application', stderr='')
@@ -140,6 +171,7 @@ def run_self_test() -> None:
         assert build['archiveProvenance'] == report['archiveProvenance']
         assert build['executables'] == {row['identifier']: row['executableUUIDs'] for row in report['bundles']}
         assert sum('--verify' in call.args[0] and '--deep' in call.args[0] and '--strict' in call.args[0] for call in commands.call_args_list) == 4
+        assert sum(call.args[0][:3] == ['security', 'cms', '-D'] for call in commands.call_args_list) == 4
         commands.side_effect = subprocess.CalledProcessError(1, 'codesign')
         try: distribution.inspect_application(root)
         except subprocess.CalledProcessError: pass

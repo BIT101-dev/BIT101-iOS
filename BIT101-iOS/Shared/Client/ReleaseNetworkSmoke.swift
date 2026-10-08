@@ -589,7 +589,12 @@ final class ReleaseNetworkSmokeRunner {
 
     nonisolated static func validateCourseSyncPayload(_ payload: CourseSyncPayload) throws {
         guard payload.courses.allSatisfy(\.hasValidPlacement) else { throw URLError(.cannotParseResponse) }
-        let expectedOffset = inferredWeekOffset(for: payload)
+        let expectedOffset = SmallTermWeekNormalizer.normalize(
+            term: payload.term,
+            firstDayString: payload.sourceFirstDayString,
+            courses: payload.courses,
+            rawWeeksByCourse: payload.rawWeeksByCourse
+        ).offset
         guard payload.normalizationOffset == expectedOffset else {
             throw NSError(
                 domain: "BIT101.NetworkSmoke",
@@ -610,44 +615,6 @@ final class ReleaseNetworkSmokeRunner {
                 userInfo: [NSLocalizedDescriptionKey: "课表首周日期与周次偏移结果不一致。"]
             )
         }
-    }
-
-    private nonisolated static func inferredWeekOffset(for payload: CourseSyncPayload) -> Int {
-        guard payload.term.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("-1"),
-              payload.rawWeeksByCourse.count == payload.courses.count
-        else { return 0 }
-
-        struct Group {
-            var rawWeeks = Set<Int>()
-            var displayWeeks = Set<Int>()
-        }
-
-        var groups: [String: Group] = [:]
-        for (index, course) in payload.courses.enumerated() {
-            let key = "\(course.number)|\(course.name)|\(course.description)"
-            var group = groups[key, default: Group()]
-            group.rawWeeks.formUnion(payload.rawWeeksByCourse[index])
-            group.displayWeeks.formUnion(course.weeks)
-            groups[key] = group
-        }
-
-        var offsets = Set<Int>()
-        var evidenceCount = 0
-        for group in groups.values {
-            let raw = group.rawWeeks.sorted()
-            let display = group.displayWeeks.sorted()
-            guard raw.count == display.count,
-                  raw.count >= 2,
-                  display.allSatisfy({ $0 > 0 })
-            else { continue }
-            let differences = Set(zip(raw, display).map(-))
-            guard differences.count == 1, let offset = differences.first else { continue }
-            offsets.insert(offset)
-            evidenceCount += 1
-        }
-
-        guard offsets.count == 1, evidenceCount >= 2 else { return 0 }
-        return offsets.first ?? 0
     }
 
     private nonisolated static func scheduleDate(_ value: String) -> Date? {

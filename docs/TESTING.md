@@ -192,7 +192,7 @@ Scripts/check-module-boundaries.py
 
 模块检查器同时校验服务实现归属，覆盖生产源码中的直接网络发送、会话及网络缓存访问、重复系统网络监听、文件读写、元数据和符号链接解析，以及偏好默认实例选择。包级 `ClientCoreTests` 验证连接断开、恢复与实例隔离；App 的 `NetworkClientTests` 验证诊断文字消费所选网络状态。
 
-`Scripts/SwiftSyntaxIndexer.swift` 维护编译器提供的 SwiftSyntax 事实采集，`swift_source_index.py` 承接编译缓存与事实查询，模块边界的回归样例归 `module_boundary_tests.py`。SwiftSyntax 共享索引入口通过 `.build/static-audit/swift-syntax-indexer.lock` 串行使用源码及可执行产物，代码质量和 UI 检查器共用同一入口。源码更新、编译和索引读取在同一次锁内完成。
+`Scripts/SwiftSyntaxIndexer.swift` 维护编译器提供的 SwiftSyntax 事实采集，`swift_source_index.py` 承接编译缓存与事实查询，模块边界的回归样例归 `module_boundary_tests.py`。SwiftSyntax 共享索引入口通过 `.build/static-audit/swift-syntax-indexer.lock` 串行使用源码及可执行产物，代码质量和 UI 检查器共用同一入口。源码更新、编译和索引读取在同一次锁内完成。`swift_type_index.py` 沿模块、访问范围及完整嵌套类型解析继承、别名与调用关系，泛型实参参与语法解析后保留其后续成员路径。
 
 静态审计入口通过 `.build/static-audit/audit.lock` 串行维护固定日志；产物检查完成后，独立检查组并行执行并统一汇总失败。SwiftUI 规则共用语法树和已解析的渲染范围，词法扫描直接跳转到字符串、正则或注释，三元表达式正则参与自测。学校生命周期请求图覆盖实例属性初始化，保存的手动回调沿实际调用接入执行图；解释文案候选归 UI 源码事实模块维护。
 
@@ -212,7 +212,7 @@ Scripts/release-network-smoke.sh ddl
 
 AASA 探针使用终止重定向的独立传输，核对原始 URL、HTTP 200、JSON 内容类型、128 KB 大小上限及三个分享路径的完整配置。离线编排用例覆盖重定向、响应类型及路径排除配置错误。发布版本查询与 App 更新查询通过请求时间参数及缓存刷新头获取商店版本。
 
-消息列表探针以最大消息 ID 请求历史分页，保留服务端未读提醒。报告写入异常进入失败结果，脚本通过真机控制台错误标记及时结束；原始课表采样包含本次运行标记，清理和写入错误进入报告。登录与采样、报告持久化通过依赖端口注入，离线故障用例覆盖采样清理、认证和报告写入失败及连续运行隔离。
+消息列表探针以最大消息 ID 请求历史分页，保留服务端未读提醒。报告写入异常进入失败结果，脚本通过真机控制台错误标记及时结束；原始课表采样包含本次运行标记，清理和写入错误进入报告。登录与采样、报告持久化通过依赖端口注入，离线故障用例覆盖采样清理、认证和报告写入失败及连续运行隔离。课表 Smoke 共用 `SmallTermWeekNormalizer` 的三周校正规则，并独立核对原始响应与生产解码结果；边界用例覆盖零、二、三、四周偏移。
 
 DDL 范围覆盖社区登录、课程中心原生认证、课程中心作业读取、乐学订阅发现和 ICS 下载。原生认证探针使用独立 Cookie 容器，携带学校 SSO 会话完成课程中心认证。报告的 `eclassDDL` 记录认证结果、课程数、活动类型、有效截止时间数量、近期与未来作业数量及作业截止字段缺失数量，同时记录账号滞留天数、窗口内作业数量、课程中心缓存数量和截止时间范围。
 
@@ -248,6 +248,8 @@ Scripts/run_icloud_cross_device_smoke.sh cleanup
 
 同类产物覆盖既有路径，文件名使用稳定类别名。公共构建入口串行迁移及复用 SDK 缓存，各宿主的缓存目录链接到 `.build/compiler-cache/`，保留必要的增量中间文件。`Scripts/run-extended-tests.sh cache` 清理诊断残留及模拟器编译产物，并在依赖清单完整时清理未引用的 SDK 预编译模块；活跃平台的隐式模块缓存继续保留。文件内容和修改时间保持一致，日常构建直接复用热缓存。静态审计递归核对共享缓存链接及诊断残留，缓存自测覆盖合并、较新模块保留、重复整理、依赖引用、模块内容完整性和真机产物保留。终端直接展示测试汇总、审查候选与失败诊断，过滤重复进度、空章节和例行通过信息。终端展示必要摘要，完整输出保存在固定日志中。完整日志和报告覆盖既有路径。
 
+真机自托管 CI 的 checkout 使用 `clean: false` 保留固定工作区中的共享编译缓存和增量产物。验证输入摘要、产物审计与所属运行标识共同核对每次验收结果；CI 静态审计的失败组沿控制台完整展示诊断，详细日志继续保存到固定产物路径。
+
 缓存与诊断保持原始文件形式。CompilationCache 的 CAS 索引、动作及数据作为完整命名空间迁入共享目录，SDK 统计缓存沿当前使用的平台维护。共享编译入口统一启用 Swift / Clang 警告门禁，覆盖 SwiftPM 模块构建与测试、正式归档和独立 Smoke 构建。工作流条件宏通过 `BIT101_WORKFLOW_CONDITIONS` 限定在 App 工程，共享包模块复用同一编译配置。UI 文件隔离由 App 文件服务提供，账号摘要沿用生产存储规则。脚本开发构建使用 `DEBUG_INFORMATION_FORMAT=dwarf` 和逐文件增量编译，调试信息保留在目标文件与链接产物中；发行归档沿用工程的 dSYM 和整模块优化设置，显式构建参数优先。缓存整理清理独立 dSYM 副本，运行包内部的调试资源继续保留；通过 Clang 模块元数据识别及清理停用平台的隐式模块。真机、Mac 和平台归属待核对的模块继续保留。
 
 完整测试输出写入对应固定日志，终端显示汇总和失败摘要；模块日志保留 Swift Testing 的 suite、用例及参数执行记录。模块测试汇总七个消费者二进制，采集逐模块生产源码行覆盖率，真机测试采集逐 target 行覆盖率，并通过 LLVM 汇总 App 及嵌入框架的生产模块覆盖率；设备 profile 在测试前清理并由本批运行重新生成，指标固定覆盖 `test-metrics.txt`。模块覆盖率统计 macOS 宿主编译的可执行源码，iOS 界面由真机行为与 UI 用例补充。模块报告记录统计范围及总覆盖行数，CI 将逐模块指标写入 GitHub Job Summary，沿工作流执行记录保留覆盖率趋势。各 Job 使用 [upload-artifact](https://github.com/actions/upload-artifact) 的零压缩级别保存完整日志、指标与结果包，采用仓库默认保留周期。覆盖率采集异常进入失败状态；Catalyst 使用 runtime 提供的测试汇总。
@@ -265,7 +267,7 @@ GitHub Actions 的 `.github/workflows/ci.yml` 使用 `xcode-27` runner，先执�
 
 人工影像证据采用 PNG、JPEG、PDF 或 MP4，记录绑定所属专项；结构化反馈证据采用 JSON，必需字段为 `reportID`、`storageKey`、`storedReport`、`emailRecipient`、`emailMessageID` 与 `emailBody`。报告编号同时对应正式存储键、存储记录及收件正文，邮件 Message-ID 保存实际收件标识。
 
-执行 `Scripts/build-install-device.sh archive-signed` 生成固定签名归档，再沿 Xcode 的 App Store 导出流程取得最终分发产物，从导出载荷中选择 `.app` 目录执行 `python3 Scripts/validate_distribution.py 导出应用路径`。签名检查核对 App、Watch 和两种 Widget 的签名完整性、团队、版本、嵌套归属、App Group、CloudKit Production 与 KVS 标识，签名归档及编译归档共用固定路径，归档保存源码摘要、运行标识与各可执行文件的 Mach-O UUID；导出签名证据核对同一归档身份及 UUID，保存各 bundle 的 SHA-256 及签名权限到固定 `build/DeviceInstall/distribution-signing.json`。沿 `python3 Scripts/validation_evidence.py manual distribution-signing --operation "导出与核对分发签名" --result "实际检查结果" --outcome passed --observed-at "实际观察的 ISO 8601 时间" --evidence build/DeviceInstall/distribution-signing.json` 纳入发布证据。分发签名与人工专项共同遵循有效期，发布使用对应摘要的最终产物。通用归档编译与最终分发签名分别提供构建及分发验收证据。
+执行 `Scripts/build-install-device.sh archive-signed` 生成固定签名归档，再沿 Xcode 的 App Store 导出流程取得最终分发产物，从导出载荷中选择 `.app` 目录执行 `python3 Scripts/validate_distribution.py 导出应用路径`。签名检查核对 App、Watch 和两种 Widget 的签名完整性、App Store 描述文件类型与有效期、实际平台与最低系统版本、团队、版本、嵌套归属、App Group、CloudKit Production 与 KVS 标识，签名归档及编译归档共用固定路径，归档保存源码摘要、运行标识与各可执行文件的 Mach-O UUID；导出签名证据核对同一归档身份及 UUID，保存各 bundle 的 SHA-256 及签名权限到固定 `build/DeviceInstall/distribution-signing.json`。沿 `python3 Scripts/validation_evidence.py manual distribution-signing --operation "导出与核对分发签名" --result "实际检查结果" --outcome passed --observed-at "实际观察的 ISO 8601 时间" --evidence build/DeviceInstall/distribution-signing.json` 纳入发布证据。分发签名与人工专项共同遵循有效期，发布使用对应摘要的最终产物。通用归档编译与最终分发签名分别提供构建及分发验收证据。
 
 人工专项输入摘要同时覆盖 Cloudflare Worker 实现及部署配置，反馈邮件、网页及外部交接流程的实现变更触发重新验收。学校自动请求检测沿协议符合关系连接具体实现，并保留用户操作与生命周期之间的调用边界。
 

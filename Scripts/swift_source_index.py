@@ -135,7 +135,15 @@ def expected_argument_types(facts: dict, reference: dict) -> list[str]:
 
 
 def canonical_type_scope(names: list[str]) -> tuple[str, ...]:
-    return tuple(part for name in names for part in re.sub(r"\s+", "", name).split("."))
+    parts = []
+    for name in names:
+        nominal, depth = [], 0
+        for index, character in enumerate(name):
+            if character == "<": depth += 1
+            elif character == ">" and (index == 0 or name[index - 1] != "-"): depth -= 1
+            elif depth == 0 and not character.isspace(): nominal.append(character)
+        parts.extend("".join(nominal).split("."))
+    return tuple(parts)
 
 
 def declaration_conformances(index: dict[str, dict], path: str | None = None) -> dict[tuple[str, ...], set[str]]:

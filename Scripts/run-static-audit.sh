@@ -37,6 +37,17 @@ run_group() {
   fi
 }
 
+show_group_log() {
+  local log="$1"
+  local failed="$2"
+  local line_count="$(wc -l < "$log")"
+  if (( line_count <= 1000 )) || [[ "$failed" == true && "${GITHUB_ACTIONS:-false}" == true ]]; then
+    cat "$log"
+  else
+    echo "[输出] ${log:t:r} 共 $line_count 行 · $log"
+  fi
+}
+
 swift_parse() {
   find "$ROOT_DIR/Modules" "$ROOT_DIR/BIT101-iOS" "$ROOT_DIR/BIT101ScheduleWidgets" \
     "$ROOT_DIR/BIT101Watch" "$ROOT_DIR/BIT101WatchWidgets" \
@@ -96,18 +107,15 @@ for (( index = 1; index <= ${#group_names}; index++ )); do
 done
 for (( index = 1; index <= ${#group_names}; index++ )); do
   name="$group_names[$index]"
+  group_failed=false
   if wait "$group_processes[$index]"; then
     [[ "$name" == checkers ]] || continue
   else
     failed_groups+=($name)
+    group_failed=true
   fi
   log="$LOG_DIR/$name.log"
-  line_count="$(wc -l < "$log")"
-  if (( line_count <= 1000 )); then
-    cat "$log"
-  else
-    echo "[输出] $name 共 $line_count 行 · $log"
-  fi
+  show_group_log "$log" "$group_failed"
 done
 if (( ${#failed_groups[@]} > 0 )); then
   printf '[失败汇总] %s\n' "${(j:, :)failed_groups}" >&2

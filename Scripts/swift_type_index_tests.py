@@ -1,12 +1,28 @@
 """Regression cases for type ownership across modules and private declaration files."""
 from pathlib import Path
-from swift_source_index import ROOT, swift_syntax_index_sources, declaration_conformances
+from swift_source_index import ROOT, swift_syntax_index_sources, declaration_conformances, canonical_type_scope
 from swift_type_index import SwiftTypeIndex
 
 
 def self_test():
     from code_quality_rules import automatic_school_fetch_findings, ast_has_view_request
     from ui_rules import native_interaction_inventory
+    assert canonical_type_scope(['Module.Wrapper<(Int) -> Void>.Holder<[Other.Model]>.Control']) == ('Module', 'Wrapper', 'Holder', 'Control')
+    generic_path = str(ROOT / 'BIT101-iOS/Generic.swift')
+    generics = swift_syntax_index_sources({generic_path: '''
+class Wrapper<T> { class Control: UIButton {}; class Holder<U> { class Control: UISwitch {} } }
+typealias Native = Wrapper<(Int) -> Void>.Control
+typealias Nested = Wrapper<[Int]>.Holder<String>.Control
+struct Use { func build() { _ = Native(); _ = Nested() } }
+'''})
+    assert native_interaction_inventory(generics)['BIT101-iOS/Generic.swift:Use'] == {'UIButton': 1, 'UISwitch': 1}
+    generic_fetch = swift_syntax_index_sources({generic_path: '''
+class ScheduleCloudSyncManager { func refreshFromCloudIfNeeded() async {} }
+class Wrapper<T> { struct Service { let cloud = ScheduleCloudSyncManager(); func start() async { await cloud.refreshFromCloudIfNeeded() } } }
+typealias Service = Wrapper<(Int) -> Void>.Service
+struct GenericApp: App { var body: some Scene { WindowGroup { Text("sample").task { await Service().start() } } } }
+'''})
+    assert len(automatic_school_fetch_findings(generic_fetch)) == 1
     extensions = swift_syntax_index_sources({'TestClass.swift': 'class Journey: XCTestCase {}',
         'TestMethods.swift': 'extension Journey { func testRoute() {} }'})
     assert [test['value'] for test in extensions['TestMethods.swift']['tests']] == ['Journey/testRoute']

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check the signatures and entitlements of the exported App Store application."""
 import argparse
+from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -79,6 +80,42 @@ def distribution_contracts() -> dict:
     return contracts
 
 
+def minimum_os_version(value):
+    if not isinstance(value, str) or not re.fullmatch(r"\d+(?:\.\d+){0,2}", value): return None
+    parts = tuple(int(part) for part in value.split('.'))
+    return parts + (0,) * (3 - len(parts))
+
+
+def provisioning_profile(path: Path) -> dict:
+    result = subprocess.run(['security', 'cms', '-D', '-i', str(path / 'embedded.mobileprovision')],
+        check=True, capture_output=True)
+    profile = plistlib.loads(result.stdout)
+    expiration = profile.get('ExpirationDate')
+    if not isinstance(expiration, datetime): raise ValueError('分发描述文件需要有效期')
+    return {'uuid': profile.get('UUID'), 'teamIdentifiers': profile.get('TeamIdentifier'),
+        'entitlements': profile.get('Entitlements'),
+        'expirationDate': expiration.replace(tzinfo=timezone.utc).isoformat(),
+        'hasProvisionedDevices': 'ProvisionedDevices' in profile,
+        'provisionsAllDevices': profile.get('ProvisionsAllDevices', False)}
+
+
+def app_store_profile_complete(profile: dict, signed: dict, team: str) -> bool:
+    if not isinstance(profile, dict): return False
+    try:
+        identifier = profile['uuid']
+        if not isinstance(identifier, str) or str(uuid.UUID(identifier)).upper() != identifier.upper(): return False
+        expiration = datetime.fromisoformat(profile['expirationDate'])
+        entitlements = profile['entitlements']
+        return expiration > utc_now() and profile.get('teamIdentifiers') == [team] \
+            and profile.get('hasProvisionedDevices') is False and profile.get('provisionsAllDevices') is False \
+            and isinstance(entitlements, dict) and entitlements.get('get-task-allow') is False \
+            and entitlements.get('beta-reports-active') is True \
+            and entitlements.get('application-identifier') == signed.get('application-identifier') \
+            and entitlements.get('com.apple.developer.team-identifier') == team
+    except (KeyError, ValueError, TypeError):
+        return False
+
+
 def distribution_complete(report: dict, contracts: dict | None = None) -> bool:
     contracts = distribution_contracts() if contracts is None else contracts
     rows = report.get("bundles", [])
@@ -96,6 +133,11 @@ def distribution_complete(report: dict, contracts: dict | None = None) -> bool:
                 or entitlements.get("get-task-allow", False) is not False or row.get("version") != contract["version"] \
                 or row.get("build") != contract["build"] or not isinstance(row.get("sha256"), str) \
                 or not re.fullmatch(r"[0-9a-f]{64}", row["sha256"]) or not valid_executable_uuids(row.get("executableUUIDs")):
+            return False
+        platform, supported = ('watchos', 'WatchOS') if contract['platform'] == 'watchOS' else ('iphoneos', 'iPhoneOS')
+        if row.get('platform') != platform or row.get('supportedPlatforms') != [supported] \
+                or minimum_os_version(row.get('minimumOSVersion')) != minimum_os_version(contract['minimumOSVersion']) \
+                or not app_store_profile_complete(row.get('provisioningProfile'), entitlements, contract['team']):
             return False
         application = entitlements.get("application-identifier", "")
         suffix = "." + row["identifier"]
@@ -141,10 +183,12 @@ def inspect_application(application: Path) -> dict:
             "build": info["CFBundleVersion"], "team": team[1] if team else "", "entitlements": entitlements,
             "signatureVerified": True, "sha256": bundle_digest(path),
             "executableUUIDs": executable_uuids(path, info),
+            "platform": info.get('DTPlatformName'), "supportedPlatforms": info.get('CFBundleSupportedPlatforms'),
+            "minimumOSVersion": info.get('MinimumOSVersion'), "provisioningProfile": provisioning_profile(path),
             "containerIdentifier": infos[container]["CFBundleIdentifier"] if container else "",
             "companionIdentifier": info.get("WKCompanionAppBundleIdentifier", "")})
     report = {"schemaVersion": 1, "verifiedAt": utc_now().isoformat(), "archiveProvenance": archive_provenance(infos[application]), "bundles": rows}
-    if not distribution_complete(report): raise ValueError("分发签名需要匹配正式版本、团队、扩展归属、App Group 和 Production iCloud 权限")
+    if not distribution_complete(report): raise ValueError("分发签名需要匹配 App Store 描述文件、目标平台、最低系统、版本、团队、扩展归属和权益")
     return report
 
 

@@ -94,6 +94,30 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(throws: URLError.self) { try ReleaseNetworkSmokeRunner.validateCourseSyncPayload(payload) }
     }
 
+    @Test(arguments: [0, 2, 3, 4])
+    func smokeUsesTheSmallTermCorrectionPolicy(rawOffset: Int) throws {
+        let rows: [[String: Any]] = (1...2).map { index in
+            ["KCH": "course-\(index)", "KCM": "课程\(index)", "SKXQ": index, "KSJC": 1, "JSJC": 2,
+             "SKZC": String(repeating: "0", count: rawOffset) + "11", "ZCMC": "1-2周", "YPSJDD": "1-2周"]
+        }
+        let data = try JSONSerialization.data(withJSONObject: ["datas": ["cxxszhxqkb": ["rows": rows]]])
+        let response = try JSONDecoder().decode(CourseResponse.self, from: data)
+        let rawWeeks = response.parsedCourses.map(\.rawWeeks)
+        let normalized = SmallTermWeekNormalizer.normalize(term: "2026-2027-1", firstDayString: "2026-09-07",
+            courses: response.courseRecords, rawWeeksByCourse: rawWeeks)
+        let expectedOffset = rawOffset == 3 ? 3 : 0
+        #expect(normalized.offset == expectedOffset)
+        #expect(normalized.firstDayString == (rawOffset == 3 ? "2026-09-28" : "2026-09-07"))
+        let payload = CourseSyncPayload(term: "2026-2027-1", firstDayString: normalized.firstDayString,
+            sourceFirstDayString: "2026-09-07", normalizationOffset: normalized.offset,
+            rawWeeksByCourse: rawWeeks, courses: normalized.courses, exams: [])
+        try ReleaseNetworkSmokeRunner.validateCourseSyncPayload(payload)
+        let inconsistent = CourseSyncPayload(term: payload.term, firstDayString: payload.firstDayString,
+            sourceFirstDayString: payload.sourceFirstDayString, normalizationOffset: expectedOffset == 0 ? 3 : 0,
+            rawWeeksByCourse: rawWeeks, courses: payload.courses, exams: [])
+        #expect(throws: NSError.self) { try ReleaseNetworkSmokeRunner.validateCourseSyncPayload(inconsistent) }
+    }
+
     @Test(arguments: [#"<link rel="stylesheet" href="https://resource.invalid/style.css">"#,
         #"<span style="background-image:url(https://resource.invalid/image.png)">文字</span>"#,
         #"<body background="https://resource.invalid/image.png"><svg><image href="https://resource.invalid/a.svg"/></svg></body>"#,
