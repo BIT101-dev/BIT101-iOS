@@ -6,9 +6,10 @@ import plistlib
 import subprocess
 from functools import cache
 from pathlib import Path
+from validation_inputs import NETWORK_GROUPS
 
 DEVICE_GROUPS = {"all", "release-runtime", "ui", "schedule", "infrastructure", "login", "extensions",
-                 "network", "ddl", "school-sms", "community-writes", "community-cleanup", "icloud", "icloud-cleanup", "restore", "manual-device"}
+                 "icloud", "icloud-cleanup", "restore", "manual-device"} | NETWORK_GROUPS
 
 
 def complete_environment(group: str, context: dict) -> bool:

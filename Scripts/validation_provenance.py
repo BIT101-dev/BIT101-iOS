@@ -1,8 +1,8 @@
 """Associate workflow results with their producing run and network sampling interval."""
 from datetime import datetime, timedelta, timezone
 import re
+from validation_inputs import NETWORK_GROUPS
 
-NETWORK_GROUPS = {"network", "ddl", "school-sms", "community-writes", "community-cleanup"}
 LIVE_GROUPS = NETWORK_GROUPS | {"icloud", "icloud-cleanup", "manual-device"}
 LIVE_EVIDENCE_LIFETIME = timedelta(days=1)
 

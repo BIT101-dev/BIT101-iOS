@@ -101,18 +101,22 @@ public enum PaperEditorContentBuilder {
             .replacingOccurrences(of: ">", with: "&gt;")
     }
 
-    /// 纯文本编辑能力由原始结构决定，格式与扩展数据保持完整。
+    /// 纯文本编辑能力同时校验原始结构与正文资源预算。
     static func canEditAsPlainText(_ rawContent: String) -> Bool {
+        guard rawContent.utf8.count <= PaperContentResourceLimits.maximumBodyBytes else { return false }
         guard let data = rawContent.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) else {
             let trimmed = rawContent.trimmingCharacters(in: .whitespacesAndNewlines)
-            return !trimmed.hasPrefix("{") && !trimmed.hasPrefix("[")
+            return trimmed.utf8.count <= PaperContentResourceLimits.maximumBlockBytes
+                && !trimmed.hasPrefix("{") && !trimmed.hasPrefix("[")
         }
         guard let root = object as? [String: Any],
               Set(root.keys).isSubset(of: ["time", "version", "blocks"]),
-              let blocks = root["blocks"] as? [[String: Any]] else { return false }
+              let blocks = root["blocks"] as? [[String: Any]],
+              blocks.count <= PaperContentResourceLimits.maximumBlocks else { return false }
         return blocks.allSatisfy { block in
-            guard Set(block.keys).isSubset(of: ["id", "type", "data"]),
+            guard PaperContentResourceLimits.accepts(block),
+                  Set(block.keys).isSubset(of: ["id", "type", "data"]),
                   block["type"] as? String == "paragraph",
                   let data = block["data"] as? [String: Any], Set(data.keys) == ["text"],
                   let text = data["text"] as? String else { return false }
@@ -145,6 +149,11 @@ enum PaperContentResourceLimits {
     static let maximumBodyBytes = 256 * 1_024
     static let maximumBlockBytes = 16 * 1_024
     static let maximumBlocks = 256
+
+    static func accepts(_ block: [String: Any]) -> Bool {
+        guard let bytes = try? JSONSerialization.data(withJSONObject: block) else { return false }
+        return bytes.count <= maximumBlockBytes
+    }
 }
 
 @MainActor enum PaperContentRenderer {
@@ -171,8 +180,7 @@ enum PaperContentResourceLimits {
         }
         return rawBlocks.map { block in
             let id = (block["id"] as? String) ?? UUID().uuidString
-            guard let bytes = try? JSONSerialization.data(withJSONObject: block),
-                  bytes.count <= PaperContentResourceLimits.maximumBlockBytes else { return .requiresOriginal(id: id) }
+            guard PaperContentResourceLimits.accepts(block) else { return .requiresOriginal(id: id) }
             return makeBlock(from: block) ?? .requiresOriginal(id: id)
         }
     }

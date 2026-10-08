@@ -41,7 +41,7 @@ struct PaperComposerView: View {
                         .accessibilityLabel("正文")
                         .accessibilityIdentifier("paper.editor.content")
                 } else {
-                    Text("正文包含图片或格式，标题和摘要可在此修改。")
+                    Text("正文请在网页编辑，标题和简介可在此修改。")
                         .foregroundStyle(AppDesignSystem.Foreground.secondary)
                 }
             }

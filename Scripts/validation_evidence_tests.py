@@ -257,6 +257,11 @@ def run_self_test(subject) -> int:
         assert subject.smoke_summary('network', network)['passed'] is False
         ddl = {'passed': True, 'scope': 'ddl', 'executedProbes': sorted(subject.network_inventory('ddl')), 'requiredProbes': sorted(subject.network_inventory('ddl'))}
         assert len(subject.network_inventory('ddl')) == 5 and subject.smoke_summary('ddl', ddl)['passed']
+        ddl_summary = subject.smoke_summary('ddl', ddl)
+        assert subject.complete_summary('ddl', ddl_summary)
+        network_recording_self_test(subject, {'network': network, 'ddl': ddl, 'school-sms': sms,
+            'community-writes': writes, 'community-cleanup': cleanup})
+
         ddl['skippedProbes'] = ['课程中心 DDL 下载']
         assert subject.smoke_summary('ddl', ddl)['passed'] is False
         assert icloud_summary({'exitCode': 0, 'stages': []})['passed'] is False
@@ -274,3 +279,29 @@ def run_self_test(subject) -> int:
         stages[1]['passedTests'] = 0
         assert icloud_summary({'exitCode': 0, 'stages': stages})['passed'] is False
         return 0
+
+
+def network_recording_self_test(subject, results) -> None:
+    from contextlib import nullcontext, redirect_stderr
+    from io import StringIO
+    from unittest.mock import patch
+    from validation_environment import DEVICE_GROUPS
+    assert set(results) == subject.NETWORK_GROUPS
+    assert subject.NETWORK_GROUPS <= DEVICE_GROUPS
+    for group, result in results.items():
+        for passed in (True, False):
+            result = dict(result, passed=passed, coverageGaps=[], runID='network-run',
+                startedAt=subject.utc_now().isoformat(), finishedAt=subject.utc_now().isoformat())
+            report = {}
+            def read(path, *args, **kwargs):
+                return json.dumps(report if path == subject.REPORT else result)
+            def save(value):
+                report.update(value)
+            with patch.object(subject, 'source_digest', return_value='current'), \
+                    patch.object(subject, 'report_lock', side_effect=nullcontext), patch.object(subject, 'write_report', side_effect=save), \
+                    patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'read_text', read), \
+                    patch.object(subject.subprocess, 'check_output', return_value='head'), \
+                    patch.dict(os.environ, BIT101_VALIDATION_RUN_ID='network-run'), redirect_stderr(StringIO()):
+                assert subject.record(group, 0, 'full', 'current') == (0 if passed else 1), group
+                with patch.object(sys, 'argv', ['validation_evidence.py', 'check-group', group]):
+                    assert subject.main() == (0 if passed else 1), group

@@ -256,7 +256,7 @@ def community_writes_complete(evidence: list) -> bool:
 
 
 def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
-    if group in {"network", "ddl", "school-sms", "community-writes", "community-cleanup"}:
+    if group in NETWORK_GROUPS:
         required = set(value.get("requiredProbes", []))
         executed = set(value.get("executedProbes", []))
         sms_steps = value.get("verifiedSMSProbes", [])
@@ -376,7 +376,7 @@ def complete_summary(group: str, summary: dict) -> bool:
                 from ui_source_facts import syntax_index
                 complete = not source_runtime_interaction_findings(syntax_index(), documented_interactions(), inventory.get("visitedControls", []))
         return complete
-    if group in {"network", "school-sms", "community-writes", "community-cleanup"}:
+    if group in NETWORK_GROUPS:
         expected_scope = "all" if group == "network" else "school" if group == "school-sms" else group
         return summary.get("scope") == expected_scope and set(summary.get("requiredProbes", [])) == network_inventory(expected_scope) \
             and (group != "community-writes" or community_writes_complete(summary.get("communityWriteEvidence", []))) \
@@ -450,7 +450,7 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
             except ValueError:
                 if status == 0:
                     raise
-    elif group in {"network", "ddl", "school-sms", "icloud", "icloud-cleanup", "community-writes", "community-cleanup"}:
+    elif group in NETWORK_GROUPS | {"icloud", "icloud-cleanup"}:
         row["report"] = ".build/icloud-cross-device-smoke/report.json" if group.startswith("icloud") else ".build/release-network-smoke/report/release-network-smoke.json"
         if (ROOT / row["report"]).is_file():
             result = json.loads((ROOT / row["report"]).read_text())
@@ -470,7 +470,7 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
         row["expectedTests"] = expected
         selected_complete = selected_test_summary_complete(row.get("summary", {}), expected)
     if status == 0 and (not row.get("summary", {}).get("passed") or not selected_complete or
-        scope == "full" and group in RELEASE_GROUPS | TEST_GROUPS and not complete_summary(group, row["summary"])):
+        scope == "full" and group in RELEASE_GROUPS | TEST_GROUPS | NETWORK_GROUPS and not complete_summary(group, row["summary"])):
         status = row["exitCode"] = 1
         print(f"{group} 的执行摘要需要确认完整通过。", file=sys.stderr)
     if os.getenv("GITHUB_RUN_ID"):

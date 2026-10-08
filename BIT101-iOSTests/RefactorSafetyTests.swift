@@ -663,6 +663,33 @@ struct GalleryRecommendationPrefetchTests {
         #expect(service.versions == ["2026-10-01T08:00:00Z"])
     }
 
+    @Test(arguments: ["body", "blocks", "block", "plain"])
+    func metadataEditingPreservesResourceLimitedBody(kind: String) async {
+        let raw: String
+        switch kind {
+        case "body":
+            raw = PaperEditorContentBuilder.editorJSON(from: String(repeating: "x",
+                count: PaperContentResourceLimits.maximumBodyBytes + 1))
+        case "blocks":
+            raw = PaperEditorContentBuilder.editorJSON(from: Array(repeating: "正文",
+                count: PaperContentResourceLimits.maximumBlocks + 1).joined(separator: "\n\n"))
+        case "block":
+            raw = PaperEditorContentBuilder.editorJSON(from: "保留段落\n\n" + String(repeating: "x",
+                count: PaperContentResourceLimits.maximumBlockBytes + 1))
+        default:
+            raw = String(repeating: "x", count: PaperContentResourceLimits.maximumBlockBytes + 1)
+        }
+        let service = PaperSavingService()
+        let model = PaperComposerViewModel(editingPaper: editingPaper(raw),
+            initialContent: PaperEditorContentBuilder.plainText(from: raw))
+        #expect(model.canEditBody == false)
+        model.title = "新标题"
+        model.content = "修改剩余正文"
+        #expect(await model.submit(service: service))
+        #expect(service.bodies == [raw])
+        #expect(service.versions == ["2026-10-01T08:00:00Z"])
+    }
+
     @Test func plainBodyEditsRoundTripEscapedTextAndKeepUntouchedSource() async {
         let raw = PaperEditorContentBuilder.editorJSON(from: "正文 <内容>\n第二行")
         let service = PaperSavingService()
