@@ -356,7 +356,7 @@ def service_boundary_errors(path: str, source: str, aliases: tuple = (), context
         errors.extend(f"service boundary: {path}:{line}: access files through AppFileService"
             for line in implicit_file_accesses(source))
         errors.extend(f"service boundary: {path}:{line}: access files through AppFileService"
-            for line in file_member_accesses(source))
+            for line in file_member_accesses(source, properties=context[0]))
     if path != "BIT101-iOS/Shared/Client/AppFileDirectories.swift":
         errors.extend(f"service boundary: {path}:{line}: select preferences through the host storage entry: UserDefaults"
             for line in implicit_resource_accesses(source, properties=context[0]))
@@ -386,9 +386,11 @@ def resource_facts(source: str) -> dict:
 
 
 @cache
-def file_member_accesses(source: str) -> list[int]:
-    if not re.search(r"\.\s*(?:write|read|matchesContents)\s*\(\s*(?:to|toFile|from|of)\s*:", swift_code(source)): return []
-    facts = resource_facts(source)
+def file_member_accesses(source: str, properties: tuple = ()) -> list[int]:
+    if not re.search(r"\.\s*(?:write|read|matchesContents)\b", swift_code(source)): return []
+    facts = dict(resource_facts(source))
+    facts["typedVariables"] = facts["typedVariables"] + [dict(scope=list(scope), name=name, type=kind, start=-1, lexicalScope=[])
+        for scope, name, kind in properties]
     encoded = source.encode()
     file_types = {"Data", "NSData", "NSMutableData", "String", "NSString", "NSMutableString", "FileWrapper", "NSFileWrapper"}
     def normalized_type(value: str) -> str:
@@ -465,7 +467,7 @@ def file_member_accesses(source: str) -> list[int]:
             return value_type(binding["value"].split("=", 1)[1], binding, seen | {identity})
         return None
 
-    hits = []
+    hits = set()
     for call in facts["invocations"]:
         match = re.match(r"(.+)\.\s*(write|read|matchesContents)\s*\(\s*(?:to|toFile|from|of)\s*:", call["value"], re.DOTALL)
         if match:
@@ -473,8 +475,14 @@ def file_member_accesses(source: str) -> list[int]:
             arguments = call.get("arguments") or []
             target = value_type(arguments[0], call) if arguments else None
             if (match[2] == "write" and receiver in file_types or receiver in {"FileWrapper", "NSFileWrapper"}) or (match[2] == "write" and receiver is None and (target == "URL" or (target == "String" and "toFile" in call["argumentLabels"]))):
-                hits.append(encoded[:call["start"]].count(b"\n") + 1)
-    return hits
+                hits.add(encoded[:call["start"]].count(b"\n") + 1)
+    for reference in facts["members"]:
+        match = re.fullmatch(r"(.+)\.\s*(write|read|matchesContents)(?:\(\s*(?:\w+\s*:\s*)+\))?", reference["value"], re.DOTALL)
+        if not match: continue
+        receiver = value_type(match[1], reference) or normalized_type(match[1])
+        if match[2] == "write" and receiver in file_types or receiver in {"FileWrapper", "NSFileWrapper"}:
+            hits.add(encoded[:reference["start"]].count(b"\n") + 1)
+    return sorted(hits)
 
 
 @cache

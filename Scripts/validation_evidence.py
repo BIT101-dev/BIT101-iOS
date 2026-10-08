@@ -574,8 +574,8 @@ def main() -> int:
     parser.add_argument("--recorded-environment", action="store_true", help="核对已绑定证据的记录环境和当前发布工具链")
     parser.add_argument("scope", nargs="?", default="full")
     args = parser.parse_args()
-    if args.recorded_environment and args.action != "check":
-        parser.error("记录环境检查用于已绑定证据的 check 操作。")
+    if args.recorded_environment and args.action not in {"check", "summary"}:
+        parser.error("记录环境用于已绑定证据的 check 与 summary 操作。")
     if args.action == "check-group":
         with report_lock():
             report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}

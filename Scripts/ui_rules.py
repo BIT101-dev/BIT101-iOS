@@ -520,6 +520,48 @@ INTERACTION_KINDS = {
 }
 
 
+NATIVE_INTERACTION_KINDS = {
+    "UIAction", "UIButton", "UITextField", "UITextView", "UISwitch", "UISlider", "UIStepper",
+    "UISegmentedControl", "UIPageControl", "UIPickerView", "UIDatePicker", "UIScrollView",
+    "UITapGestureRecognizer", "UILongPressGestureRecognizer", "UIPanGestureRecognizer",
+    "UIPinchGestureRecognizer", "UISwipeGestureRecognizer", "UIRotationGestureRecognizer",
+}
+
+
+def native_interaction_inventory(syntax: dict[str, dict]) -> dict[str, dict[str, int]]:
+    from swift_source_index import canonical_type_scope, declaration_conformances, expected_argument_types
+    owners = declaration_conformances(syntax)
+    def kind(type_name, scope):
+        name = canonical_type_scope([type_name.rstrip("?!")])
+        if not name: return None
+        if name[-1] in NATIVE_INTERACTION_KINDS: return name[-1]
+        owner = next((tuple(scope[:depth]) + name for depth in range(len(scope), -1, -1)
+            if tuple(scope[:depth]) + name in owners), ())
+        return next((base.removeprefix("UIKit.") for base in sorted(owners.get(owner, []))
+            if base.removeprefix("UIKit.") in NATIVE_INTERACTION_KINDS), None)
+    inventory = {}
+    for path, facts in syntax.items():
+        if "Tests/" in path or "UITest" in Path(path).name: continue
+        for call in facts["invocations"]:
+            called = call["value"].split("(", 1)[0].strip()
+            candidates = [called.removesuffix(".init")]
+            if called == ".init":
+                candidates = expected_argument_types(facts, call)
+                returns = [value for value in facts["functionReturns"] if value["start"] == call["start"]]
+                candidates += [function.get("returnType", "") for function in facts["functionRanges"]
+                    if function["start"] <= call["start"] < function["end"]
+                    and any(value["name"] == function["name"] and value["scope"] == function["scope"] for value in returns)]
+                for binding in facts["bindings"]:
+                    if binding["start"] <= call["start"] < binding["start"] + len(binding["value"].encode()):
+                        typed = re.match(r"\w+\s*:\s*([^=]+)=", binding["value"])
+                        if typed: candidates.append(typed[1].strip())
+            control = next((value for candidate in candidates if (value := kind(candidate, call["scope"]))), None)
+            if control:
+                source = Path(path).relative_to(ROOT).as_posix() + ":" + (".".join(call["scope"]) or "global")
+                inventory.setdefault(source, Counter())[control] += 1
+    return inventory
+
+
 def interaction_source_inventory(syntax: dict[str, dict]) -> dict[str, dict[str, int]]:
     components = {scope[0] for path, facts in syntax.items()
         if "/DesignSystemKit/" in path or "/CommunityUI/" in path
@@ -534,6 +576,8 @@ def interaction_source_inventory(syntax: dict[str, dict]) -> dict[str, dict[str,
                 and call["value"] not in {"onSubmit", "onDelete", "onMove"})
             if controls:
                 inventory[Path(path).relative_to(ROOT).as_posix() + ":" + (".".join(scope) or "global")] = dict(sorted(controls.items()))
+    for source, controls in native_interaction_inventory(syntax).items():
+        inventory[source] = dict(sorted((Counter(inventory.get(source, {})) + controls).items()))
     return dict(sorted(inventory.items()))
 
 

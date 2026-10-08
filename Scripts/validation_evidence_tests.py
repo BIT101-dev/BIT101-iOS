@@ -234,6 +234,16 @@ def run_self_test(subject) -> int:
             with patch(f'{module_name}.environment_context', return_value=dict(fixture_environment, host={'system': 'changed'})):
                 assert subject.release_findings(report, 'source')
                 assert subject.release_findings(report, 'source', recorded_environment=True) == []
+                from contextlib import nullcontext, redirect_stdout
+                from io import StringIO
+                for recorded, expected in ((False, '待复验'), (True, '通过')):
+                    output = StringIO()
+                    arguments = ['validation_evidence.py', 'summary'] + (['--recorded-environment'] if recorded else [])
+                    with patch.object(subject, 'report_lock', side_effect=nullcontext), patch.object(Path, 'is_file', return_value=True), \
+                            patch.object(Path, 'read_text', return_value=json.dumps({'groups': {'modules': groups['modules']}})), \
+                            patch.object(sys, 'argv', arguments), patch.dict(os.environ, GITHUB_STEP_SUMMARY=''), redirect_stdout(output):
+                        assert subject.main() == 0
+                    assert f'| modules | full | {expected} |' in output.getvalue()
             with patch(f'{module_name}.environment_context', return_value=dict(fixture_environment, xcode={'version': 'changed'})):
                 assert subject.release_findings(report, 'source', recorded_environment=True)
         assert subject.release_findings(report, 'changed')

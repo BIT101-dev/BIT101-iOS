@@ -1,6 +1,7 @@
 #!/bin/zsh
 
 # 真机脚本共用设备快照，按有线、无线顺序选择，并提供同一设备的两种标识。
+unset PYTHONOPTIMIZE
 
 bit101_acquire_workflow_lock() {
   bit101_acquire_script_lock "$ROOT_DIR/.build/extended-automation.lock" BIT101_EXTENDED_TESTS_LOCK_HELD "$@"

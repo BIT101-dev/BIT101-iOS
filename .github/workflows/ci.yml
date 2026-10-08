@@ -182,4 +182,4 @@ jobs:
         run: python3 Scripts/validation_evidence.py check --recorded-environment
       - name: Publish validation evidence
         if: always()
-        run: python3 Scripts/validation_evidence.py summary
+        run: python3 Scripts/validation_evidence.py summary --recorded-environment

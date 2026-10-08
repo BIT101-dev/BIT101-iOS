@@ -721,7 +721,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     jobs = mapping(workflow.get("jobs"))
     default_shell = mapping(mapping(workflow.get("defaults")).get("run")).get("shell", "bash")
 
-    def run_commands(job):
+    def run_commands(job, *, include_always=False):
         commands = []
         shell = mapping(mapping(job.get("defaults")).get("run")).get("shell", default_shell)
         steps = job.get("steps", [])
@@ -731,7 +731,8 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             if step.get("shell", shell) != "bash":
                 errors.append(".github/workflows/ci.yml: CI 执行步骤需要 bash shell")
                 continue
-            if "if" in step or step.get("continue-on-error", False) is not False: continue
+            if "if" in step and not (include_always and step["if"] == "always()") \
+                    or step.get("continue-on-error", False) is not False: continue
             command = step["run"]
             if isinstance(command, str): commands.append((command.strip(), step))
         return commands
@@ -781,6 +782,8 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         errors.append(".github/workflows/ci.yml: 发布验收需要承接完整编译和行为 Job")
     if not any(command == "python3 Scripts/validation_evidence.py check --recorded-environment" for command, _ in run_commands(acceptance)):
         errors.append(".github/workflows/ci.yml: 发布验收需要默认核对提交绑定证据")
+    if not any(command == "python3 Scripts/validation_evidence.py summary --recorded-environment" for command, _ in run_commands(acceptance, include_always=True)):
+        errors.append(".github/workflows/ci.yml: 发布汇总需要沿用验收的记录环境")
     return errors
 
 

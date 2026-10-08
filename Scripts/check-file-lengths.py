@@ -4,6 +4,9 @@ from pathlib import Path
 import subprocess
 import argparse
 
+if not __debug__:
+    raise RuntimeError("验证自测需要 Python 默认优化级别；请使用 python3 -E 执行入口。")
+
 ROOT = Path(__file__).resolve().parents[1]
 LIMIT = 1000
 

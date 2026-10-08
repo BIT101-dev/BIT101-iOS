@@ -147,6 +147,7 @@ struct FunctionReturnFact: Encodable {
     let name: String
     let scope: [String]
     let value: String
+    let start: Int
 }
 
 struct ScopedRangeFact: Encodable {
@@ -259,6 +260,11 @@ final class FactVisitor: SyntaxVisitor {
             }
         ))
         functionStack.append((node.name.text, scope, closureDepth))
+        if let body = node.body, body.statements.count == 1,
+           let expression = body.statements.first?.item.as(ExprSyntax.self) {
+            functionReturns.append(FunctionReturnFact(name: node.name.text, scope: scope,
+                value: expression.trimmedDescription, start: expression.positionAfterSkippingLeadingTrivia.utf8Offset))
+        }
         return .visitChildren
     }
     override func visitPost(_ node: FunctionDeclSyntax) { _ = functionStack.popLast() }
@@ -306,7 +312,8 @@ final class FactVisitor: SyntaxVisitor {
             functionReturns.append(FunctionReturnFact(
                 name: function.name,
                 scope: function.scope,
-                value: expression.trimmedDescription
+                value: expression.trimmedDescription,
+                start: expression.positionAfterSkippingLeadingTrivia.utf8Offset
             ))
         }
         return .visitChildren

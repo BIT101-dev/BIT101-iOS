@@ -144,7 +144,7 @@
 
 ## 执行流程
 
-`Scripts/check-ui-consistency.py` 校验全部可执行方法与覆盖表一致。源码库存清点控件、手势、回调及滚动容器。运行门禁核对按钮、导航、菜单、链接、系统分享、照片入口、文本输入、开关、选择、日期、滑块、步进、手势载体与刷新、提交回调。动态文案沿稳定标识验收，共享验收流程中的同名分支使用独立标识。直接修饰器提供所属控件身份；运行证据按独立实例分配，核对文本输入、点击、选择、长按与滑动操作类型；刷新与键盘提交由实际回调执行后发布证据。iOS 编译条件下的交互进入真机门禁。测试结果、耗时和设备状态保存在固定日志与结果包中。
+`Scripts/check-ui-consistency.py` 校验全部可执行方法与覆盖表一致。源码库存清点 SwiftUI 与 UIKit 控件、菜单动作、手势、回调及滚动容器，原生控件继承及显式、隐式构造共同进入数量与用例归属门禁。运行门禁核对按钮、导航、菜单、链接、系统分享、照片入口、文本输入、开关、选择、日期、滑块、步进、手势载体与刷新、提交回调。动态文案沿稳定标识验收，共享验收流程中的同名分支使用独立标识。直接修饰器提供所属控件身份；运行证据按独立实例分配，核对文本输入、点击、选择、长按与滑动操作类型；刷新与键盘提交由实际回调执行后发布证据。iOS 编译条件下的交互进入真机门禁。测试结果、耗时和设备状态保存在固定日志与结果包中。
 
 XCTest 短按前通过 SpringBoard 的通知横幅标识检查遮挡，横幅出现时上滑收起并验证关闭；触发动作的业务提示继续由对应流程点击与断言。取消、原生提交、返回、原生分栏切换和系统预览关闭共用这条处理路径。
 
@@ -187,6 +187,7 @@ SwiftSyntax 清点每个源码作用域的控件、输入、滚动和手势声�
 | `BIT101-iOS/Shared/Client/AppErrorPresentation.swift:AppErrorReportSheet` | `{"Button":2,"Picker":1,"TextField":2}` | `InteractionCoverageUITests/testErrorReportSanitizedSubmissionAndFailureRecovery,InteractionCoverageUITests/testOfflineRecoveryRetryAndErrorReportEditor` |
 | `BIT101-iOS/Shared/Client/AppErrorPresentation.swift:DiagnosticRecoveryActions` | `{"Button":1,"Link":2}` | `InteractionCoverageUITests/testOfflineRecoveryRetryAndErrorReportEditor,InteractionCoverageUITests/testErrorReportSanitizedSubmissionAndFailureRecovery` |
 | `BIT101-iOS/Shared/Client/AppUpdateChecker.swift:AppPromptHostModifier` | `{"Button":2,"keyboardShortcut":1}` | `InteractionCoverageUITests/testManualUpdatePromptAllActionsAndCurrentVersion` |
+| `BIT101-iOS/Shared/Client/KeyboardDismissSupport.swift:KeyboardBackgroundTapInstaller.Coordinator` | `{"UITapGestureRecognizer":1}` | `InteractionCoverageUITests/testLoginSubmitButtonAndKeyboardScrollDismissal` |
 | `BIT101-iOS/Shell/AppAcademicDestinations.swift:ScoreRootScene` | `{"simultaneousGesture":2}` | `InteractionCoverageUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail,InteractionCoverageUITests/testCourseHistoryChartSelectionAndHomeSurfaceSwipes` |
 | `BIT101-iOS/Shell/AppShellView.swift:AppShellView` | `{"TabView":1}` | `LoginAndScheduleUITests/testMainTabsRemainAccessibleAtAccessibilityDynamicType` |
 | `BIT101Watch/WatchScheduleRootView.swift:WatchScheduleEmptyStateView` | `{"Button":1}` | `manual:watch` |
@@ -222,6 +223,7 @@ SwiftSyntax 清点每个源码作用域的控件、输入、滚动和手势声�
 | `Modules/DesignSystemKit/Sources/AppStateComponents.swift:AppFailureState` | `{"Button":1}` | `InteractionCoverageUITests/testCommunityFailedRequestsRetryToLoadedState` |
 | `Modules/DesignSystemKit/Sources/AppVerificationComponents.swift:AppSMSVerificationSheet` | `{"Button":2}` | `InteractionCoverageUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` |
 | `Modules/DesignSystemKit/Sources/AppVerificationComponents.swift:AppSchoolSMSVerificationSheet` | `{"AppSMSVerificationSheet":1}` | `InteractionCoverageUITests/testSchoolSSODDLVerificationCancelAndContinuation` |
+| `Modules/DesignSystemKit/Sources/AppVerificationComponents.swift:VerificationCodeField` | `{"UITextField":1}` | `InteractionCoverageUITests/testSchoolSMSCourseSyncValidationCancelAndContinuation,InteractionCoverageUITests/testTrustedTranscriptSMSRetryPreviewAndCancellation` |
 | `Modules/GalleryFeature/Sources/GalleryCommentViews.swift:GalleryCommentComposerSheet` | `{"AppCommentComposerContentSection":1,"CommunityPosterImagesView":1,"PhotosPicker":1,"TextField":1}` | `InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes,InteractionCoverageUITests/testCommunityCommentLikesRepliesSortsAndPhotoPicker` |
 | `Modules/GalleryFeature/Sources/GalleryCommentViews.swift:GalleryCommentRow` | `{"AppCommentActionBar":1,"AppCommentIdentityHeader":1,"Button":5,"CommunityPosterImagesView":1,"contextMenu":1}` | `InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes,InteractionCoverageUITests/testCommunityCommentLikesRepliesSortsAndPhotoPicker` |
 | `Modules/GalleryFeature/Sources/GalleryCommentViews.swift:GalleryPosterCommentsSection` | `{"AppFailureState":1,"CommunityCommentSortPicker":1}` | `InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes,InteractionCoverageUITests/testCommunityCommentLikesRepliesSortsAndPhotoPicker` |
@@ -247,6 +249,8 @@ SwiftSyntax 清点每个源码作用域的控件、输入、滚动和手势声�
 | `Modules/PaperFeature/Sources/PaperComposerViews.swift:PaperComposerView` | `{"Button":2,"TextField":3,"Toggle":1}` | `LoginAndScheduleUITests/testPaperPublishEditCommentAndDelete` |
 | `Modules/PaperFeature/Sources/PaperDetailView.swift:PaperContentBlockView` | `{"Button":1}` | `InteractionCoverageUITests/testPaperImagePreviewCommentsSortAndShare` |
 | `Modules/PaperFeature/Sources/PaperDetailView.swift:PaperDetailViewScene` | `{"AppDetailCircleButton":2,"AppDetailShareLink":1,"AppFailureState":1,"Button":5,"Link":1,"Menu":1,"ScrollView":1,"refreshable":1}` | `InteractionCoverageUITests/testPaperImagePreviewCommentsSortAndShare,InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes,LoginAndScheduleUITests/testPaperPublishEditCommentAndDelete` |
+| `Modules/PaperFeature/Sources/PaperDetailView.swift:PaperRichTextView` | `{"UITextView":1}` | `InteractionCoverageUITests/testPaperImagePreviewCommentsSortAndShare` |
+| `Modules/PaperFeature/Sources/PaperDetailView.swift:PaperRichTextView.Coordinator` | `{"UIAction":1}` | `InteractionCoverageUITests/testPaperImagePreviewCommentsSortAndShare` |
 | `Modules/PaperFeature/Sources/PaperRootView.swift:PaperRootViewScene` | `{"AppEmptyState":1,"AppFailureState":1,"AppFloatingActionButton":2,"ScrollView":1,"refreshable":1,"simultaneousGesture":1}` | `InteractionCoverageUITests/testPaperImagePreviewCommentsSortAndShare,InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes` |
 | `Modules/PaperFeature/Sources/PaperSearchViews.swift:PaperSearchScene` | `{"AppEmptyState":2,"AppFailureState":1,"AppOrderedSearchBar":1,"Button":1,"ScrollView":1,"refreshable":1}` | `InteractionCoverageUITests/testPaperImagePreviewCommentsSortAndShare,InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes` |
 | `Modules/PaperFeature/Sources/PaperSummaryViews.swift:PaperSummaryCard` | `{"accessibilityAction":1,"onTapGesture":1}` | `InteractionCoverageUITests/testPaperImagePreviewCommentsSortAndShare,InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes` |
@@ -258,6 +262,7 @@ SwiftSyntax 清点每个源码作用域的控件、输入、滚动和手势声�
 | `Modules/ScheduleFeature/Sources/FreeClassroomViews.swift:ClassroomSectionFilterPage` | `{"AppMultiSelectionList":1}` | `InteractionCoverageUITests/testSchoolTermsClassroomPickersRefreshAndDDLRefresh` |
 | `Modules/ScheduleFeature/Sources/FreeClassroomViews.swift:FreeClassroomTabView` | `{"AppEmptyState":1,"AppRefreshStatusRow":1,"List":1,"NavigationLink":1,"Picker":2}` | `InteractionCoverageUITests/testSchoolTermsClassroomPickersRefreshAndDDLRefresh` |
 | `Modules/ScheduleFeature/Sources/ScheduleCalendarViews.swift:CourseScheduleCalendarView` | `{"Button":1}` | `LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes` |
+| `Modules/ScheduleFeature/Sources/ScheduleCalendarViews.swift:ScheduleBlankContextMenuControl` | `{"UIAction":2,"UITapGestureRecognizer":1}` | `LoginAndScheduleUITests/testLongPressOpensScheduleContextMenuAndImportSheet,InteractionCoverageUITests/testScheduleWeekStripScrollAndCourseLongPressShare` |
 | `Modules/ScheduleFeature/Sources/ScheduleDDLViews.swift:DDLEditSheet` | `{"Button":2,"DatePicker":1,"TextField":2}` | `InteractionCoverageUITests/testDDLEditorDetailsDatePickerValidationAndCancelEditing` |
 | `Modules/ScheduleFeature/Sources/ScheduleDDLViews.swift:DDLEventCard` | `{"Button":1,"accessibilityAction":1,"onTapGesture":1}` | `InteractionCoverageUITests/testDDLEditorDetailsDatePickerValidationAndCancelEditing` |
 | `Modules/ScheduleFeature/Sources/ScheduleDDLViews.swift:DDLEventDetailSheet` | `{"Button":3,"List":1}` | `InteractionCoverageUITests/testDDLEditorDetailsDatePickerValidationAndCancelEditing` |
@@ -272,6 +277,8 @@ SwiftSyntax 清点每个源码作用域的控件、输入、滚动和手势声�
 | `Modules/ScheduleFeature/Sources/ScheduleEditorViews.swift:TimeTableEditorSheet` | `{"Button":2,"TextEditor":1}` | `LoginAndScheduleUITests/testCalendarSettingsPickersTogglesAndRenamePersist` |
 | `Modules/ScheduleFeature/Sources/ScheduleEntryDetailView.swift:ScheduleEntryDetailSheet` | `{"Button":16,"List":1}` | `InteractionCoverageUITests/testCourseAndExamSystemCalendarActions,InteractionCoverageUITests/testCustomScheduleEmptyTitleDetailsAndCalendarActions,InteractionCoverageUITests/testMapLocationAndScheduleLocationRoute,LoginAndScheduleUITests/testCourseEditorFieldsPickersSaveDetailAndDelete` |
 | `Modules/ScheduleFeature/Sources/ScheduleLinearCalendarViews.swift:LinearScheduleHeader` | `{"Button":1}` | `LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes` |
+| `Modules/ScheduleFeature/Sources/ScheduleLinearCalendarViews.swift:LinearTimelineScrollContainer` | `{"UIScrollView":1}` | `LoginAndScheduleUITests/testLinearScheduleTimelineScrollAndPinch` |
+| `Modules/ScheduleFeature/Sources/ScheduleLinearCalendarViews.swift:LinearTimelineScrollView` | `{"UIPinchGestureRecognizer":1}` | `LoginAndScheduleUITests/testLinearScheduleTimelineScrollAndPinch` |
 | `Modules/ScheduleFeature/Sources/ScheduleRootView.swift:ScheduleRootView` | `{"AppSMSVerificationSheet":1,"DragGesture":1,"simultaneousGesture":1}` | `LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes` |
 | `Modules/ScheduleFeature/Sources/ScheduleSchoolVerification.swift:ScheduleSchoolVerification` | `{"AppSchoolSMSVerificationSheet":1}` | `InteractionCoverageUITests/testSchoolSSODDLVerificationCancelAndContinuation` |
 | `Modules/ScheduleFeature/Sources/ScheduleSettingsSheets.swift:CourseLiveActivityLeadMinutesPickerPage` | `{"Button":2,"Picker":1}` | `InteractionCoverageUITests/testCalendarReminderCloudSwitchesAndLeadTimePersistence` |

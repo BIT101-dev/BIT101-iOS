@@ -32,7 +32,18 @@ def run_self_test(rules: dict) -> None:
     facts = rules["resource_facts"](source)
     original_variables = list(facts["typedVariables"])
     rules["implicit_resource_accesses"](source, properties=(((), "shared", "UserDefaults"),))
+    rules["file_member_accesses"](source, properties=(((), "shared", "Data"),))
     assert facts["typedVariables"] == original_variables
+    file_sources = {
+        "Writer.swift": "struct Writer { let payload: Data; let destination: URL }; struct Message { func write(to value: Int) {} }; struct Sender { let payload: Message; let destination: Int }",
+        "WriterActions.swift": "extension Writer { func save() throws { try payload.write(to: destination) } }",
+        "WriterReferences.swift": "extension Writer { func save() throws { let writer = self.payload.write(to:options:); try writer(destination, .atomic) } }",
+        "SenderActions.swift": "extension Sender { func send() { let writer = payload.write(to:); writer(destination) } }",
+    }
+    file_context = compilation_type_context(swift_syntax_index_sources(file_sources))
+    for name in ("WriterActions.swift", "WriterReferences.swift"):
+        assert service_boundary_errors("Modules/GalleryFeature/Sources/" + name, file_sources[name], context=file_context), name
+    assert service_boundary_errors("Modules/GalleryFeature/Sources/SenderActions.swift", file_sources["SenderActions.swift"], context=file_context) == []
     for source in (
         "let group = NWConnectionGroup(with: descriptor, using: .udp); group.send(content: data)",
         "let group = Network.NWConnectionGroup(with: descriptor, using: .udp)",
@@ -188,6 +199,12 @@ def run_self_test(rules: dict) -> None:
         "try FileHandle(forReadingFrom: url)",
         "try String.init(contentsOf: url, encoding: .utf8)",
         "func save(data: Data, url: URL) throws { try data.write(to: url) }",
+        "func save(data: Data, url: URL) throws { let writer = data.write(to:options:); try writer(url, .atomic) }",
+        "func save(data: Data, url: URL) throws { let writer = data.write; try writer(url, .atomic) }",
+        "func save(text: String, url: URL) throws { let writer = text.write(to:atomically:encoding:); try writer(url, true, .utf8) }",
+        "let writer = Foundation.Data.write(to:options:)",
+        "func read(file: FileWrapper, url: URL) throws { let reader = file.read(from:options:); try reader(url, []) }",
+        "func check(file: FileWrapper, url: URL) { let matches = file.matchesContents(of:); _ = matches(url) }",
         'try "value".write(toFile: path, atomically: true, encoding: .utf8)',
         "let data = Data(); try data.write(to: url)",
         "func bytes() -> Data { Data() }; try bytes().write(to: url)",
@@ -303,6 +320,8 @@ def run_self_test(rules: dict) -> None:
     assert service_boundary_errors(service_path, 'struct Row { init(contentsOf: [Int]) {}; static let standard = Row(contentsOf: []) }; func accept(_ row: Row) {}; accept(.standard); accept(.init(contentsOf: [1]))') == []
     assert service_boundary_errors(service_path, "struct Message { func write(to url: URL) {} }; func send(messages: [Message], url: URL) { for message in messages { message.write(to: url) } }") == []
     assert service_boundary_errors(service_path, "struct Message { func write(to target: Int) {} }; func send(message: Message) { message.write(to: 42) }") == []
+    assert service_boundary_errors(service_path, "struct Message { func write(to target: Int) {} }; func send(message: Message) { let writer = message.write(to:); writer(42) }") == []
+    assert service_boundary_errors(service_path, "struct Message { func write(to target: Int) {} }; func send(message: Message) { let writer = message.write; writer(42) }") == []
     assert service_boundary_errors("Modules/TransportCore/Sources/HTTPClient.swift", "try await transport.data(for: request)") == []
     assert service_boundary_errors(service_path, "func socket(_ value: Int) {}; socket(1); func send(_ value: Int) {}; send(1); enum Delivery { case send; case preflight }") == []
     assert service_boundary_errors("Modules/TransportCore/Sources/SecureURLTransport.swift", "URLSession(configuration: configuration)") == []

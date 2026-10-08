@@ -131,6 +131,7 @@ struct Handler { var value: String!; func read() -> String { value }; func catch
     from code_quality_rules import ci_wiring_findings
     assert ci_wiring_findings(workflow_source.replace("    tags: ['v*']\n", ""))
     assert ci_wiring_findings(workflow_source.replace("run: python3 Scripts/validation_evidence.py check --recorded-environment", "run: echo skipped"))
+    assert ci_wiring_findings(workflow_source.replace("summary --recorded-environment", "summary"))
     extension_graph = {"objects": {
         "app": {"isa": "PBXNativeTarget", "name": "BIT101-iOS", "dependencies": ["widget-edge", "watch-edge"]},
         "widget": {"isa": "PBXNativeTarget", "name": "BIT101ScheduleWidgets"},
@@ -392,6 +393,11 @@ def workflow_lock_boundary_findings() -> list[str]:
     processes = []
     findings = []
     environment = dict(os.environ)
+    optimization = subprocess.run(["zsh", "-c", 'source "$1"; python3 -c "assert False"',
+        "assertion-contract", str(SCRIPT_ROOT / "script-support.sh")],
+        env=dict(environment, PYTHONOPTIMIZE="1"), capture_output=True, text=True)
+    if optimization.returncode == 0 or "AssertionError" not in optimization.stderr:
+        findings.append("工作流环境自测：Python 自测断言沿默认优化级别执行")
     environment.pop("BIT101_EXTENDED_TESTS_LOCK_HELD", None)
     try:
         shutil.rmtree(fixture, ignore_errors=True)

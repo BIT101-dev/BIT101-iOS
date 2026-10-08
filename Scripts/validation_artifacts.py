@@ -4,6 +4,9 @@ import fcntl
 import os
 import sys
 
+if not __debug__:
+    raise RuntimeError("验证自测需要 Python 默认优化级别；请使用 python3 -E 执行入口。")
+
 cache_names = {"SDKExplicitPrecompiledModules", "ModuleCache.noindex", "SDKStatCaches.noindex", "CompilationCache.noindex"}
 derived_names = cache_names | {"Build", "Logs", "SourcePackages", "info.plist"}
 test_groups = {"all", "release-runtime", "schedule", "infrastructure", "login", "extensions", "ui", "catalyst", "catalyst-release-runtime", "modules"}
