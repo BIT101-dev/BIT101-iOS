@@ -16,14 +16,24 @@ BASELINE_CHECKS = {'iOS': {'cold-start-session', 'offline-persistence', 'media-a
     'watchOS': {'snapshot-receive', 'timeline-render', 'clear-and-retry'}}
 
 
-def capture(operation: str, result: str, evidence: Path, check: str) -> dict:
+def capture(operation: str, result: str, evidence: Path, check: str, outcome: str, observed_at: str) -> dict:
     if not operation.strip() or not result.strip():
         raise ValueError("人工验收需要实际操作和观察结果")
+    if outcome not in {"passed", "failed"} or not sampling_evidence_current({"startedAt": observed_at, "finishedAt": observed_at}):
+        raise ValueError("人工验收需要明确结果状态和实际观察时间")
     data = evidence.read_bytes()
-    if not evidence_content_complete(check, data):
+    if not (failed_evidence_complete(data) if outcome == "failed" else evidence_content_complete(check, data)):
         raise ValueError("验收附件需要有效影像、PDF 或所属专项的结构化证据")
-    return {"check": check, "operation": operation.strip(), "result": result.strip(), "capturedAt": utc_now().isoformat(),
+    return {"check": check, "operation": operation.strip(), "result": result.strip(), "outcome": outcome, "capturedAt": observed_at, "registeredAt": utc_now().isoformat(),
         "evidence": {"path": str(evidence.resolve()), "sha256": hashlib.sha256(data).hexdigest(), "byteCount": len(data), "dataBase64": base64.b64encode(data).decode("ascii")}}
+
+
+def failed_evidence_complete(data: bytes) -> bool:
+    if evidence_content_complete('photos', data): return True
+    try:
+        value = json.loads(data)
+        return isinstance(value, dict) and bool(value)
+    except (ValueError, TypeError): return False
 
 
 def artifact_complete(artifact: dict, check: str) -> bool:
@@ -96,7 +106,7 @@ def baseline_complete(proof: dict) -> bool:
                 or int(row['systemVersion'].split('.')[0]) != minimum \
                 or not sampling_evidence_current({'startedAt': row['capturedAt'], 'finishedAt': row['capturedAt']}) \
                 or not isinstance(row.get('checks'), dict) or set(row['checks']) != required \
-                or not all(isinstance(check, dict) and all(isinstance(check.get(key), str) and check[key].strip()
+                or not all(isinstance(check, dict) and check.get("outcome") == "passed" and all(isinstance(check.get(key), str) and check[key].strip()
                     for key in ('operation', 'result')) for check in row['checks'].values()) \
                 or not isinstance(row.get('evidence'), dict) or not artifact_complete(row['evidence'], 'photos'): return False
     return True
@@ -104,7 +114,7 @@ def baseline_complete(proof: dict) -> bool:
 
 def complete(checks: dict) -> bool:
     return set(checks) == MANUAL_DEVICE_CHECKS and all(
-        isinstance(row, dict) and row.get('check') == check
+        isinstance(row, dict) and row.get('check') == check and row.get('outcome') == 'passed'
         and all(isinstance(row.get(field), str) and row[field].strip() for field in ("operation", "result", "capturedAt"))
         and isinstance(row.get("evidence"), dict) and artifact_complete(row["evidence"], check)
         and sampling_evidence_current({"startedAt": row["capturedAt"], "finishedAt": row["capturedAt"]}) for check, row in checks.items())

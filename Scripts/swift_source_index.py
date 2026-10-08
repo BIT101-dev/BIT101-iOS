@@ -17,6 +17,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 
+def repository_swift_files() -> list[Path]:
+    roots = ("Modules", "BIT101-iOS", "BIT101-iOSTests", "BIT101-iOSUITests", "ModuleTests",
+        "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets")
+    return sorted(path for name in roots for path in (ROOT / name).rglob("*.swift"))
+
+
 def _run_swift_syntax_index(request: dict) -> dict[str, dict]:
     swift = os.environ.get("SWIFT")
     if not swift:

@@ -98,6 +98,8 @@ enum NetworkSmokeArea: CaseIterable, Hashable, Sendable {
                 "话廊推荐流",
                 "话廊机器人流",
                 "帖子声明列表",
+                "社区举报类型",
+                "生产共享会话",
                 "话廊搜索",
                 "消息未读数",
                 "学业课程列表",
@@ -123,6 +125,7 @@ enum NetworkSmokeArea: CaseIterable, Hashable, Sendable {
         case .schedule:
             [
                 "当前学期",
+                "生产学校会话",
                 "切换学期列表",
                 "课表、考试与首周同步",
                 "空教室校区列表",
@@ -322,6 +325,7 @@ protocol NetworkSmokeGalleryServicing: GalleryFeedServicing, GalleryMessageServi
     func fetchPoster(id: Int) async throws -> GalleryPosterDetail
     func fetchComments(objectID: String, order: CommunityCommentOrder, page: Int?) async throws -> GalleryPageBatch<CommunityComment>
     func fetchClaims() async throws -> [CommunityClaim]
+    func fetchReportTypes() async throws -> [GalleryReportType]
 }
 extension GalleryService: NetworkSmokeGalleryServicing {}
 
@@ -366,15 +370,17 @@ struct ReleaseNetworkSmokeDependencies {
     var makeCourses: @MainActor () -> any NetworkSmokeCourseServicing = { CourseService() }
     var makePapers: @MainActor () -> any NetworkSmokePaperServicing = { PaperService() }
     var makeMine: @MainActor () -> any NetworkSmokeMineServicing = { MineService() }
-    var communityWriteProbe: @MainActor (String, Bool) async throws -> [String] = {
-        try await CommunityWriteSmoke(operations: .production()).run(marker: $0, cleanupOnly: $1)
+    var communityWriteProbe: @MainActor (String, Bool, Int?) async throws -> [String] = {
+        try await CommunityWriteSmoke(operations: .production(followTarget: $2)).run(marker: $0, cleanupOnly: $1)
     }
+    var productionSessionProbe: @MainActor () async throws -> Void = NetworkSmokeProductionSession.run
     var externalHTTPClient: HTTPClient = .shared
     var aasaHTTPClient = HTTPClient(transport: NetworkSessionPool.appLinkAssociation)
     var feedbackProbe: @MainActor (String) async throws -> Void = { try await FeedbackSubmissionClient.submitNetworkSmoke(runID: $0) }
     var loadScheduleCache: @MainActor () async -> ScheduleCache = { await ScheduleCacheStore.loadAsync() }
     var makeScores: @MainActor () -> any ScoreListServicing & TrustedTranscriptServicing = ReleaseNetworkSmokeRunner.freshScoreService
     var makeSchedule: @MainActor (((Data) -> Void)?) -> any NetworkSmokeScheduleServicing = ReleaseNetworkSmokeRunner.freshSchoolService
+    var makeProductionSchedule: @MainActor () -> any NetworkSmokeScheduleServicing = NetworkSmokeProductionSession.school
     var makeEclassSchedule: @MainActor () throws -> any NetworkSmokeScheduleServicing = ReleaseNetworkSmokeRunner.freshEclassService
 }
 #endif
@@ -386,6 +392,7 @@ struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
     let capture: NetworkSmokeCapture
     let term: String?
     var interactiveSMS: Bool? = nil
+    var communityFollowTarget: Int? = nil
 
     private static var pendingFileURL: URL? {
         AppFileDirectories.documentFileURL(named: "network-smoke-request.json")
@@ -423,6 +430,7 @@ struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
             capture = .none
         }
 
+        self.communityFollowTarget = components?.queryItems?.first(where: { $0.name == "follow-target" })?.value.flatMap(Int.init)
         self.scope = pathScope
         self.capture = capture
         self.term = term?.isEmpty == true ? nil : term

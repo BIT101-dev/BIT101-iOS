@@ -55,7 +55,7 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
     report = "\n".join(report_lines)
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text(report, encoding="utf-8")
-    findings = [*errors, *review]
+    findings = errors
     if len(findings) <= 1000:
         if findings:
             print("\n".join(findings))

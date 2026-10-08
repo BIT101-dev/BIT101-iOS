@@ -47,6 +47,11 @@ xcrun() {
                                 env=dict(os.environ, BIT101_EXTENDED_TESTS_LOCK_HELD="1"), capture_output=True, text=True)
         if result.returncode != 86 or result.stdout.count("WORKFLOW_LOCK") != 1:
             findings.append(f"固定产物导出自测：{arguments[0]} 取得工作流锁")
+    for command, markers in ((["xcrun", "devicectl", "device", "process", "launch", "--help"], ["--terminate-existing", "<command-line-arguments>"]),
+            (["xcrun", "devicectl", "device", "info", "processes", "--help"], ["--json-output"])):
+        result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode or any(marker not in result.stdout for marker in markers):
+            findings.append("装机恢复自测：当前工具链需要正式启动与进程读取参数")
     ui_test_count = sum(
         len(re.findall(r"^\s*(?:@objc )?func test\w+\(", path.read_text(), re.MULTILINE))
         for path in (ROOT / "BIT101-iOSUITests").glob("*.swift")
@@ -102,7 +107,7 @@ xcrun() {
         source = path.read_text().replace('source "$ROOT_DIR/Scripts/script-support.sh"',
                                          f"source {shlex.quote(str(support))}\n" + frame)
         stop = "exit 86" if expected == 86 else "return 0"
-        source = source.replace(frame, frame + f'\nbit101_run_logged() {{ print -r -- "BUILD $*"; {stop}; }}\n' + '\npython3() { if [[ "$*" == *"/signing.entitlements"* || "$*" == *"/icloud-cross-device-smoke/report.json"* ]]; then return 0; fi; if [[ "$*" == *"validation_evidence.py digest"* ]]; then case "$3" in all|release-runtime|ui|schedule|infrastructure|login|extensions|network|ddl|school-sms|community-writes|community-cleanup|icloud|icloud-cleanup|restore) [[ "${BIT101_XCODE_DEVICE_ID:-}" == udid ]] || return 78 ;; esac; print self-test-inputs; return 0; fi; command python3 "$@"; }\n')
+        source = source.replace(frame, frame + f'\nbit101_run_logged() {{ print -r -- "BUILD $*"; {stop}; }}\n' + '\npython3() { if [[ "$*" == *"validation_restore.py"* ]]; then print -ru2 RESTORE_PROBE; return 0; fi; if [[ "$*" == *"/signing.entitlements"* || "$*" == *"/icloud-cross-device-smoke/report.json"* ]]; then return 0; fi; if [[ "$*" == *"validation_evidence.py digest"* ]]; then case "$3" in all|release-runtime|ui|schedule|infrastructure|login|extensions|network|ddl|school-sms|community-writes|community-cleanup|icloud|icloud-cleanup|restore) [[ "${BIT101_XCODE_DEVICE_ID:-}" == udid ]] || return 78 ;; esac; print self-test-inputs; return 0; fi; command python3 "$@"; }\n')
         source = re.sub(r"(?ms)^ui_test_plan\(\) \{\n.*?^\}$",
                         'ui_test_plan() { print -r -- /audit/ui.xctestrun; }', source, count=1)
         source = re.sub(r"(?ms)^report_result\(\) \{\n.*?^\}$", 'report_result() { print REPORT; }', source, count=1)
@@ -110,6 +115,8 @@ xcrun() {
                                 capture_output=True, text=True)
         if result.returncode != expected or marker not in result.stdout or ("DEVICE\n" in result.stdout) != bool(device):
             findings.append(f"命令自测：{filename} {' '.join(arguments)} 分派及自动选机；{result.stderr}")
+        if filename == "build-install-device.sh" and not arguments and ("RESTORE_PROBE" not in result.stderr or "device info processes" not in result.stderr):
+            findings.append("装机恢复自测：就绪信号与当前进程共同参与验收")
         if filename == "run-extended-tests.sh" and (not arguments or arguments[0] in {
                 "catalyst", "catalyst-release-runtime", "release-runtime", "modules", "build"}):
             group = arguments[0] if arguments else "all"

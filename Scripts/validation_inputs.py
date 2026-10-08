@@ -5,7 +5,7 @@ from validation_policy import APP_TEST_GROUPS, TEST_GROUPS, NETWORK_GROUPS, RELE
 
 PRODUCT_ROOTS = {"Modules", "BIT101-iOS", "BIT101-iOS.xcodeproj", "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets"}
 PRODUCT_FILES = {"Package.swift", "AppInfo.plist"}
-VALIDATION_SCRIPTS = {"validation_evidence.py", "validation_inputs.py", "validation_policy.py", "validation_environment.py", "validation_provenance.py", "validation_test_areas.py", "validation_manual.py", "validation_media.py", "ManualEvidenceProbe.swift", "validate_distribution.py", "validate_versions.py", "swift_source_index.py", "SwiftSyntaxIndexer.swift", "code_quality_rules.py", "check-module-boundaries.py"}
+VALIDATION_SCRIPTS = {"validation_evidence.py", "validation_inputs.py", "validation_policy.py", "validation_coverage.py", "validation_merge.py", "validation_environment.py", "validation_provenance.py", "validation_test_areas.py", "validation_manual.py", "validation_restore.py", "validation_media.py", "ManualEvidenceProbe.swift", "validate_distribution.py", "validate_versions.py", "swift_source_index.py", "SwiftSyntaxIndexer.swift", "code_quality_rules.py", "audit_callback_rules.py", "ci_wiring_rules.py", "check-module-boundaries.py"}
 BUILD_SCRIPTS = {"script-support.sh", "build-install-device.sh"}
 TEST_SCRIPTS = BUILD_SCRIPTS | VALIDATION_SCRIPTS | {"run-extended-tests.sh"}
 
@@ -29,7 +29,7 @@ def includes_input(name: str, group: str) -> bool:
         scripts = TEST_SCRIPTS
     elif host == "ui":
         tests = root == "BIT101-iOSUITests" or name == "docs/UI_INTERACTION_COVERAGE.md"
-        scripts = TEST_SCRIPTS | {"ui_source_facts.py", "ui_rules.py", "ui_design_contracts.py"}
+        scripts = TEST_SCRIPTS | {"ui_source_facts.py", "ui_explanatory_text.py", "ui_rules.py", "ui_design_contracts.py"}
     elif host in NETWORK_GROUPS:
         tests = name == "BIT101-iOSTests/ReleaseNetworkSmokeTests.swift" or root == "Cloudflare" and path.suffix != ".md"
         scripts = TEST_SCRIPTS | {"release-network-smoke.sh"}

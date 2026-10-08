@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / ".build/extended-automation/validation-evidence.json"
 ICLOUD_DOMAINS = {"score-kvs", "schedule-cloudkit"}
 SCHOOL_SMS_PROBES = {
-    "webvpn": {"当前学期", "切换学期列表", "课表、考试与首周同步", "空教室校区列表", "空教室教学楼列表", "空教室占用数据"},
+    "webvpn": {"生产学校会话", "当前学期", "切换学期列表", "课表、考试与首周同步", "空教室校区列表", "空教室教学楼列表", "空教室占用数据"},
     "jwb": {"成绩认证接口"},
     "jwb_cjd": {"可信成绩单接口"},
     "school_sso_second_factor": {"课程中心原生认证", "课程中心 DDL 下载", "乐学日历订阅地址", "乐学 DDL 下载"},
@@ -232,7 +232,11 @@ def community_writes_complete(evidence: list) -> bool:
     targets = {parent for _, parent in parents}
     likes = [match[1] for item in evidence if (match := re.fullmatch(r"点赞恢复 ((?:poster|paper|course)[1-9]\d*)", item))]
     contents = [match[1] for item in evidence if (match := re.fullmatch(r"服务端确认删除 ((?:poster|paper)[1-9]\d*)", item))]
-    return len(parents) == len(replies) == len(likes) == 3 and len(contents) == 2 \
+    images = {match[1] for item in evidence if (match := re.fullmatch(r"图片提交 ((?:poster|comment)[1-9]\d*)", item))}
+    follow = [item for item in evidence if re.fullmatch(r"关注恢复 user[1-9]\d*", item)]
+    poster = next((parent for _, parent in parents if parent.startswith("poster")), "")
+    poster_comments = {"comment" + identifier for identifier, parent in parents if parent == poster}
+    return len(follow) == 1 and images == {poster} | poster_comments and len(parents) == len(replies) == len(likes) == 3 and len(contents) == 2 \
         and {re.match(r"[a-z]+", parent)[0] for parent in targets} == {"poster", "paper", "course"} \
         and set(replies) == {"comment" + identifier for identifier, _ in parents} \
         and set(likes) == targets and set(contents) == {target for target in targets if not target.startswith("course")}
@@ -271,6 +275,8 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
                 "startedAt": value.get("startedAt"), "finishedAt": value.get("finishedAt"),
                 "schoolSMSCoverage": value.get("schoolSMSCoverage"),
                 "communityWriteEvidence": value.get("communityWriteEvidence", []),
+                "diagnostics": {name: value.get(name, []) for name in ("failures", "coverageGaps", "authenticationBlockers", "skippedProbes")},
+                "runID": value.get("runID"), "inputDigest": value.get("inputDigest"),
                 "verifiedSMSProbes": sms_steps,
                 "authenticatedSchoolProbes": value.get("authenticatedSchoolProbes", []),
                 "requestedSMSPurposes": value.get("requestedSMSPurposes", []),
@@ -396,7 +402,10 @@ def complete_summary(group: str, summary: dict) -> bool:
             and isinstance(executables, dict) and set(executables) == set(distribution_contracts()) \
             and all(valid_executable_uuids(rows) for rows in executables.values())
     if group.startswith("build-"): return summary.get("kind") == "build"
-    return summary.get("kind") == ("restore" if group == "restore" else "audit")
+    if group == "restore":
+        from validation_restore import complete as restore_complete
+        return restore_complete(summary)
+    return summary.get("kind") == "audit"
 
 
 def release_findings(report: dict, digest: str, *, recorded_environment: bool = False) -> list[str]:
@@ -412,6 +421,8 @@ def release_findings(report: dict, digest: str, *, recorded_environment: bool = 
             errors.append(f"{name} 需要保留执行环境及设备系统身份。")
         if not evidence_current(name, row.get("summary", {})):
             errors.append(f"{name} 的实际验收需要在发布检查前 24 小时内完成，请重新验收。")
+        if name == "restore" and any(row.get("summary", {}).get(key) != row.get(key) for key in ("runID", "inputDigest")):
+            errors.append("restore 的就绪信号需要对应所属运行与输入摘要。")
         if row.get("exitCode") != 0 or row.get("scope") != "full" or not complete_summary(name, row.get("summary", {})):
             errors.append(f"{name} 需要完整执行并通过，并保留结果摘要。")
     if recorded_environment and toolchain_identity(report.get("groups", {}).get("build-archive", {}).get("environment", {})) \
@@ -454,14 +465,24 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
                     raise
     elif group in NETWORK_GROUPS | {"icloud", "icloud-cleanup"}:
         row["report"] = ".build/icloud-cross-device-smoke/report.json" if group.startswith("icloud") else ".build/release-network-smoke/report/release-network-smoke.json"
+        row["summary"] = {"passed": False, "runID": run_id, "inputDigest": started_digest,
+            "diagnostics": {"failures": ["当前运行缺少对应的 Smoke 报告"]}}
         if (ROOT / row["report"]).is_file():
-            result = json.loads((ROOT / row["report"]).read_text())
-            if status == 0 and not producing_run_matches(result, started_digest, run_id):
-                status = row["exitCode"] = 1
+            try: result = json.loads((ROOT / row["report"]).read_text())
+            except (OSError, ValueError): result = {}
+            if not isinstance(result, dict): result = {}
+            if not producing_run_matches(result, started_digest, run_id):
+                status = row["exitCode"] = status or 1
                 print("Smoke 结果需要来自本次验证运行。", file=sys.stderr)
-            row["summary"] = smoke_summary(group, result, full=scope == "full")
+            else:
+                row["summary"] = smoke_summary(group, result, full=scope == "full")
+            if group in NETWORK_GROUPS: row["summary"]["inputDigest"] = started_digest
     else:
         row["summary"] = {"passed": status == 0, "kind": "build" if group.startswith("build-") else "restore" if group == "restore" else "audit"}
+        if group == "restore" and status == 0:
+            from validation_restore import summary as restore_summary
+            try: row["summary"] = restore_summary(run_id, started_digest)
+            except (OSError, ValueError, KeyError, TypeError): row["summary"]["passed"] = False
         if group == "build-archive" and status == 0:
             try:
                 row["summary"] = archive_build_summary(ROOT / "build/DeviceInstall/BIT101-iOS.xcarchive/Products/Applications/BIT101-iOS.app")
@@ -487,6 +508,21 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
         report.setdefault("groups", {})
         report["sourceDigest"] = digest
         report.pop("releaseCommit", None)
+        report.pop("mergeCommit", None)
+        if group in {"modules", "all"} and scope == "full":
+            from validation_coverage import regressions, advance
+            previous = report["groups"].get(group, {})
+            baseline = previous.get("coverageBaseline", {})
+            if previous.get("exitCode") == 0: baseline = advance(previous.get("summary", {}).get("coverage", {}), baseline)
+            problems = regressions(row.get("summary", {}).get("coverage", {}), baseline)
+            row["coverageBaseline"] = baseline
+            if problems:
+                status = row["exitCode"] = 1
+                row["summary"]["passed"] = False
+                row["summary"]["coverageRegressions"] = problems
+                print("覆盖率退化：" + "；".join(problems), file=sys.stderr)
+            elif status == 0:
+                row["coverageBaseline"] = advance(row["summary"].get("coverage", {}), baseline)
         report["groups"][group] = row
         report["testedCommit"] = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
         write_report(report)
@@ -572,11 +608,13 @@ def community_recovery_self_test() -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["digest", "record", "bind", "check", "check-group", "summary", "suites", "self-test", "manual", "verify-defaults", "runtime-suites"])
+    parser.add_argument("action", choices=["digest", "record", "bind", "check", "check-group", "summary", "suites", "self-test", "manual", "verify-defaults", "runtime-suites", "bind-merge", "check-merge", "baseline"])
     parser.add_argument("group", nargs="?", default="")
     parser.add_argument("status", nargs="?", type=int, default=0)
     parser.add_argument("--operation", default="", help="实际执行操作")
     parser.add_argument("--result", default="", help="实际观察结果")
+    parser.add_argument("--outcome", choices=("passed", "failed"), help="人工验收结果状态")
+    parser.add_argument("--observed-at", default="", help="实际观察的 ISO 8601 时间")
     parser.add_argument("--evidence", type=Path, help="本地验收附件")
     parser.add_argument("--recorded-environment", action="store_true", help="核对已绑定证据的记录环境和当前发布工具链")
     parser.add_argument("scope", nargs="?", default="full")
@@ -602,7 +640,7 @@ def main() -> int:
     if args.action == "manual":
         if args.group not in MANUAL_DEVICE_CHECKS or args.evidence is None:
             parser.error("真机专项需要有效检查项及操作、观察结果和本地附件。")
-        try: observation = capture_manual(args.operation, args.result, args.evidence, args.group)
+        try: observation = capture_manual(args.operation, args.result, args.evidence, args.group, args.outcome, args.observed_at)
         except (ValueError, OSError) as error: parser.error(str(error))
         if not complete_environment("manual-device", environment_context("manual-device")):
             parser.error("真机专项需要连接执行设备并读取完整系统身份。")
@@ -614,6 +652,7 @@ def main() -> int:
             report.setdefault("groups", {})
             report["sourceDigest"] = digest
             report.pop("releaseCommit", None)
+            report.pop("mergeCommit", None)
             previous = report["groups"].get("manual-device", {})
             input_digest = source_digest("manual-device")
             summary = previous.get("summary", {"checks": {}}) if previous.get("inputDigest") == input_digest else {"checks": {}}
@@ -644,6 +683,34 @@ def main() -> int:
 
 def inspect_report(args) -> int:
     report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
+    if args.action == "baseline":
+        from validation_coverage import advance
+        if report.get("mergeCommit", report.get("releaseCommit")) != args.group:
+            print("覆盖率基准需要绑定合并目标分支的当前提交。", file=sys.stderr)
+            return 1
+        for group in ("modules", "all"):
+            row = report.get("groups", {}).get(group, {})
+            if row.get("exitCode") != 0 or row.get("scope") != "full" or row.get("summary", {}).get("passed") is not True \
+                    or not successful_test_counts(row.get("summary", {})) or not row.get("summary", {}).get("coverage"):
+                print("覆盖率基准需要完整模块与 iOS 行为结果。", file=sys.stderr)
+                return 1
+            row["coverageBaseline"] = advance(row["summary"].get("coverage", {}), row.get("coverageBaseline", {}))
+        write_report(report)
+        return 0
+    if args.action in {"bind-merge", "check-merge"}:
+        from validation_merge import findings as merge_findings
+        commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+        candidate = dict(report, mergeCommit=commit) if args.action == "bind-merge" else report
+        errors = merge_findings(candidate, digest=source_digest, complete=complete_summary, commit=commit)
+        if args.action == "bind-merge" and subprocess.check_output(["git", "status", "--porcelain=v1"], cwd=ROOT).strip():
+            errors.append("合并验证证据需要对应已完整提交的仓库内容。")
+        if errors:
+            print("\n".join(errors), file=sys.stderr)
+            return 1
+        if args.action == "bind-merge":
+            report["mergeCommit"] = commit
+            write_report(report)
+        return 0
     if args.action in {"bind", "check"}:
         errors = release_findings(report, source_digest(), recorded_environment=args.recorded_environment)
         pending = subprocess.check_output(["git", "status", "--porcelain=v1", "--untracked-files=normal"], cwd=ROOT)

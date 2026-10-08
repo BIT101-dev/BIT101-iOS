@@ -91,15 +91,21 @@ final class SchoolCookieTransport: HTTPTransport {
 }
 
 enum NetworkSessionPool {
-    private static func make(configuration: URLSessionConfiguration, followsRedirects: Bool = true) -> any HTTPTransport {
+    private static func make(configuration: URLSessionConfiguration, followsRedirects: Bool = true, productionPolicy: Bool = false) -> any HTTPTransport {
 #if RELEASE_NETWORK_SMOKE
-        configuration.urlCache = nil
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        return UncachedHTTPTransport(base: URLSessionTransport.make(configuration: configuration, followsRedirects: followsRedirects))
-#else
-        return URLSessionTransport.make(configuration: configuration, followsRedirects: followsRedirects)
+        if !productionPolicy {
+            configuration.urlCache = nil
+            configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+            return UncachedHTTPTransport(base: URLSessionTransport.make(configuration: configuration, followsRedirects: followsRedirects))
+        }
 #endif
+        return URLSessionTransport.make(configuration: configuration, followsRedirects: followsRedirects)
     }
+
+    static let productionCommunity = communityTransport(productionPolicy: true)
+    static let productionSchoolCAS = schoolCASTransport(state: AppSchoolSession.teachingCenter, followsRedirects: true, productionPolicy: true)
+    static let productionSchoolCASManualRedirects = schoolCASTransport(state: AppSchoolSession.teachingCenter, followsRedirects: false, productionPolicy: true)
+    static let productionTeachingCenter = teachingCenter(state: AppSchoolSession.teachingCenter, productionPolicy: true)
 
     static let shared: any HTTPTransport = {
         let configuration = URLSessionConfiguration.default
@@ -109,11 +115,13 @@ enum NetworkSessionPool {
     static let appLinkAssociation = make(configuration: .ephemeral, followsRedirects: false)
 
     /// BIT101 社区接口共享连接池、Cookie 容器和 URLCache，供各 Service 复用 TLS 连接。
-    static let community: any HTTPTransport = {
+    static let community = communityTransport(productionPolicy: false)
+
+    private static func communityTransport(productionPolicy: Bool) -> any HTTPTransport {
         let configuration = URLSessionConfiguration.default
         configuration.httpCookieAcceptPolicy = .always
-        return make(configuration: configuration)
-    }()
+        return make(configuration: configuration, productionPolicy: productionPolicy)
+    }
 
     static let scoreAuthentication: any HTTPTransport = SchoolCookieTransport(state: AppSchoolSession.teachingCenter) { cookies in
         let configuration = URLSessionConfiguration.ephemeral
@@ -140,26 +148,26 @@ enum NetworkSessionPool {
         schoolCASTransport(state: AppSchoolSession.teachingCenter, followsRedirects: followsRedirects)
     }
 
-    static func schoolCASTransport(state: TeachingCenterSessionState, followsRedirects: Bool) -> any HTTPTransport {
+    static func schoolCASTransport(state: TeachingCenterSessionState, followsRedirects: Bool, productionPolicy: Bool = false) -> any HTTPTransport {
         SchoolCookieTransport(state: state) { cookies in
             let configuration = URLSessionConfiguration.ephemeral
             configuration.httpCookieAcceptPolicy = .always
             configuration.httpCookieStorage = cookies
-            return make(configuration: configuration, followsRedirects: followsRedirects)
+            return make(configuration: configuration, followsRedirects: followsRedirects, productionPolicy: productionPolicy)
         }
     }
 
-    static func teachingCenter(state: TeachingCenterSessionState) -> any HTTPTransport {
-        SchoolCookieTransport(state: state) { teachingCenter(cookieStorage: $0) }
+    static func teachingCenter(state: TeachingCenterSessionState, productionPolicy: Bool = false) -> any HTTPTransport {
+        SchoolCookieTransport(state: state) { teachingCenter(cookieStorage: $0, productionPolicy: productionPolicy) }
     }
 
-    static func teachingCenter(cookieStorage: HTTPCookieStorage) -> any HTTPTransport {
+    static func teachingCenter(cookieStorage: HTTPCookieStorage, productionPolicy: Bool = false) -> any HTTPTransport {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpCookieAcceptPolicy = .always
         configuration.httpCookieStorage = cookieStorage
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 60
-        return make(configuration: configuration)
+        return make(configuration: configuration, productionPolicy: productionPolicy)
     }
 }
 

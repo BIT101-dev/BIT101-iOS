@@ -302,6 +302,28 @@ struct ComposerRecoveryTests {
         name == "gallery" ? await store.captureGalleryCleanup() : await store.captureSuggestionCleanup()
     }
 
+    @Test(arguments: ["gallery", "suggestion"])
+    func savingAReplacementPrunesBothOldAndInterruptedImageRevisions(_ name: String) async throws {
+        let files = ModuleScoreFiles()
+        let drafts = store(files)
+        let image = ComposerImageDraftSnapshot(filename: "image.jpg", previewData: Data([7]), uploadData: nil)
+        #expect(await save(drafts, name, images: [image]))
+        let metadata = file(name)
+        let first = try #require(JSONSerialization.jsonObject(with: files.readData(at: metadata)) as? [String: Any])
+        let old = try #require(first["assetRevision"] as? String)
+        let assets = metadata.appendingPathExtension("assets")
+        let oldImage = assets.appending(path: old).appending(path: "image-0.jpg")
+        let interrupted = assets.appending(path: "interrupted", directoryHint: .isDirectory)
+        try files.createDirectory(at: interrupted)
+        let interruptedImage = interrupted.appending(path: "image-0.jpg")
+        try files.writeData(Data([1]), to: interruptedImage, options: [.atomic])
+        #expect(files.fileExists(at: assets))
+        #expect(await save(drafts, name, images: [image]))
+        #expect(!files.fileExists(at: oldImage) && !files.fileExists(at: interruptedImage))
+        #expect(await read(drafts, name) == "新草稿")
+        #expect(files.storedData.filter { $0.key.path.hasPrefix(assets.path) }.count == 1)
+    }
+
     @Test(arguments: ["gallery", "suggestion"], ["sidecar", "references", "legacyBytes", "legacyCount", "metadata"])
     func excessiveDraftResourcesPreserveFilesAndBlockFurtherWrites(_ name: String, damage: String) async throws {
         let files = ModuleScoreFiles()

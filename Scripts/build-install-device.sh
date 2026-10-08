@@ -97,6 +97,10 @@ if [[ "$ACTION" == mac ]]; then
 fi
 
 BUILD_OVERRIDES=()
+if [[ "$ACTION" == install ]]; then
+  BUILD_OVERRIDES+=("BIT101_RESTORE_INPUT_DIGEST=$BIT101_VALIDATION_SOURCE_DIGEST")
+  rm -f "$DERIVED_DATA/restore-readiness.json" "$DERIVED_DATA/restore-process.json"
+fi
 BUILD_ACTION=build
 if [[ "$ACTION" == build || "$ACTION" == archive || "$ACTION" == archive-signed ]]; then
   BUILD_DESTINATION="generic/platform=iOS"
@@ -142,7 +146,21 @@ xcrun devicectl device install app \
   --device "$BIT101_DEVICETCL_DEVICE_ID" \
   "$APP_PATH" >/dev/null
 xcrun devicectl device process launch \
-  --device "$BIT101_DEVICETCL_DEVICE_ID" \
-  BIT101-dev.BIT101-iOS >/dev/null
-
-echo "iOS Release 已安装并启动：$BIT101_DEVICE_NAME"
+  --device "$BIT101_DEVICETCL_DEVICE_ID" --terminate-existing \
+  BIT101-dev.BIT101-iOS -- --restore-run-id "$BIT101_VALIDATION_RUN_ID" >/dev/null
+restore_deadline=$(( SECONDS + 60 ))
+while (( SECONDS < restore_deadline )); do
+  if xcrun devicectl device copy from --device "$BIT101_DEVICETCL_DEVICE_ID" \
+      --domain-type appDataContainer --domain-identifier BIT101-dev.BIT101-iOS \
+      --source Documents/restore-readiness.json --destination "$DERIVED_DATA/restore-readiness.json" >/dev/null 2>&1; then
+    xcrun devicectl device info processes --device "$BIT101_DEVICETCL_DEVICE_ID" \
+      --quiet --json-output "$DERIVED_DATA/restore-process.json" >/dev/null
+    if python3 "$ROOT_DIR/Scripts/validation_restore.py" "$BIT101_VALIDATION_RUN_ID" "$BIT101_VALIDATION_SOURCE_DIGEST"; then
+      echo "iOS Release 初始化与活跃进程已确认：$BIT101_DEVICE_NAME"
+      exit 0
+    fi
+  fi
+  sleep 1
+done
+echo "正式 App 就绪验收超时；请检查 build/DeviceInstall 的构建、就绪与进程证据。" >&2
+exit 1

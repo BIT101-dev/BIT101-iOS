@@ -112,12 +112,8 @@ def relative(path: Path) -> str:
 
 
 def swift_files() -> list[Path]:
-    return sorted(
-        path
-        for source_root in SOURCE_ROOTS
-        if source_root.is_dir()
-        for path in source_root.rglob("*.swift")
-    )
+    from swift_source_index import repository_swift_files
+    return repository_swift_files()
 
 
 def line_number(source: str, position: int) -> int:
@@ -543,22 +539,8 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
     return list(dict.fromkeys(errors))
 
 
-def audit_callback_findings(source: str) -> list[str]:
-    errors = []
-    callbacks = {"module_boundary_audit": ["/audit/Scripts/check-module-boundaries.py"],
-                 "artifact_hygiene": ["/audit/Scripts/validation_artifacts.py", "/audit"]}
-    for callback, arguments in callbacks.items():
-        definition = re.search(r"(?ms)^" + callback + r"\(\)\s*\{.*?\}(?=[ \t]*(?:\n|$))", source)
-        if definition is None:
-            errors.append(f"Scripts/run-static-audit.sh: {callback} 需要保持独立审计委托")
-            continue
-        for status in (0, 7):
-            harness = 'ROOT_DIR=/audit\npython3() { printf "%s\\n" "$@"; return ' + str(status) + '; }\n'
-            harness += definition[0] + f'\nif {callback}; then exit 0; else exit $?; fi\n'
-            result = subprocess.run(["zsh", "-c", harness], capture_output=True, text=True)
-            if result.stdout.splitlines() != arguments or result.returncode != status:
-                errors.append(f"Scripts/run-static-audit.sh: {callback} 需要执行所属命令并传播结果")
-    return errors
+from audit_callback_rules import audit_callback_findings
+from ci_wiring_rules import ci_wiring_findings, ci_trigger_shell_self_test
 
 
 def audit_wiring_findings() -> list[str]:
@@ -705,99 +687,6 @@ def scheme_inventory_findings(schemes: dict[str, str]) -> list[str]:
     return errors
 
 
-def ci_wiring_findings(workflow_source: str) -> list[str]:
-    errors: list[str] = []
-    try:
-        # YAML 1.1 将裸 on 识别为布尔值；保留 GitHub 工作流的事件键。
-        source = re.sub(r'(?m)^on(?=\s*:)', '"on"', workflow_source)
-        parsed = subprocess.run(
-            ["ruby", "-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.safe_load(STDIN.read, aliases: true))"],
-            input=source, capture_output=True, text=True, check=True,
-        )
-        workflow = json.loads(parsed.stdout)
-        if not isinstance(workflow, dict): raise ValueError("工作流需要映射")
-    except (OSError, subprocess.CalledProcessError, ValueError):
-        return [".github/workflows/ci.yml: CI 工作流需要有效 YAML"]
-
-    def mapping(value):
-        return value if isinstance(value, dict) else {}
-
-    events = workflow.get("on", {})
-    events = {events} if isinstance(events, str) else events if isinstance(events, (list, dict)) else {}
-    if not {"pull_request", "push"}.issubset(events):
-        errors.append(".github/workflows/ci.yml: CI 需要 pull_request 和 push 自动触发")
-    for event in ("pull_request", "push"):
-        if {"paths", "paths-ignore"} & mapping(mapping(workflow.get("on")).get(event)).keys():
-            errors.append(f".github/workflows/ci.yml: {event} 需要覆盖全部仓库路径")
-    jobs = mapping(workflow.get("jobs"))
-    default_shell = mapping(mapping(workflow.get("defaults")).get("run")).get("shell", "bash")
-
-    def run_commands(job, *, include_always=False):
-        commands = []
-        shell = mapping(mapping(job.get("defaults")).get("run")).get("shell", default_shell)
-        steps = job.get("steps", [])
-        for step in steps if isinstance(steps, list) else []:
-            step = mapping(step)
-            if "run" not in step: continue
-            if step.get("shell", shell) != "bash":
-                errors.append(".github/workflows/ci.yml: CI 执行步骤需要 bash shell")
-                continue
-            if "if" in step and not (include_always and step["if"] == "always()") \
-                    or step.get("continue-on-error", False) is not False: continue
-            command = step["run"]
-            if isinstance(command, str): commands.append((command.strip(), step))
-        return commands
-
-    commands = {}
-    for name in ("static-audit", "release-build", "catalyst-tests"):
-        job = mapping(jobs.get(name))
-        if not job:
-            errors.append(f".github/workflows/ci.yml: CI 缺少 {name} Job")
-            continue
-        if "if" in job or job.get("continue-on-error", False) is not False:
-            errors.append(f".github/workflows/ci.yml: {name} 需要默认执行并传播失败")
-        commands[name] = run_commands(job)
-        if name != "static-audit" and job.get("needs") not in ("static-audit", ["static-audit"]):
-            label = "Release 编译 Job 必须依赖静态审计" if name == "release-build" else "Mac Catalyst 行为 Job 需要依赖静态审计"
-            errors.append(f".github/workflows/ci.yml: {label}")
-    static_commands = commands.get("static-audit", [])
-    audit_index = next((index for index, (command, _) in enumerate(static_commands) if command == "Scripts/run-static-audit.sh"), -1)
-    setup_index = next((index for index, (command, step) in enumerate(static_commands)
-                        if command == "npm ci" and step.get("working-directory") == "Cloudflare/EmergencyUpdateWorker"), -1)
-    if audit_index < 0: errors.append(".github/workflows/ci.yml: 静态审计 Job 缺少执行入口")
-    if setup_index < 0 or audit_index < 0 or setup_index >= audit_index:
-        errors.append(".github/workflows/ci.yml: Worker 锁定依赖需要在静态审计前安装并传播失败")
-    required = {
-        "static-audit": (("Scripts/run-extended-tests.sh modules", "模块行为测试需要默认执行并传播失败"),),
-        "catalyst-tests": (
-            ("Scripts/run-extended-tests.sh catalyst", "Mac Catalyst 行为 Job 需要执行行为用例"),
-            ("Scripts/run-extended-tests.sh catalyst-release-runtime", "Mac Catalyst 行为 Job 需要执行正式组装合同"),
-        ),
-        "release-build": (
-            ("Scripts/build-install-device.sh archive", "CI 需要正式归档编译模式验证"),
-            ("Scripts/run-extended-tests.sh build release", "CI 需要通用 iOS Release 测试构建"),
-            ("Scripts/run-extended-tests.sh build ui", "CI 需要 UI 宿主与测试构建"),
-            ("Scripts/run-extended-tests.sh build network-smoke", "CI 需要网络 Smoke 编译条件构建"),
-            ("Scripts/run-extended-tests.sh build icloud-smoke", "CI 需要 iCloud Smoke 编译条件构建"),
-        ),
-    }
-    for name, rules in required.items():
-        executed = {command for command, _ in commands.get(name, [])}
-        for marker, message in rules:
-            if marker not in executed: errors.append(f".github/workflows/ci.yml: {message}")
-    if not isinstance(workflow.get("on"), dict) or "v*" not in mapping(workflow["on"].get("push")).get("tags", []):
-        errors.append(".github/workflows/ci.yml: 发布版本标签需要触发验收")
-    acceptance = mapping(jobs.get("release-acceptance"))
-    condition = "startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && inputs.release_check"
-    if acceptance.get("if") != condition or set(acceptance.get("needs", [])) != {"static-audit", "release-build", "catalyst-tests"}:
-        errors.append(".github/workflows/ci.yml: 发布验收需要承接完整编译和行为 Job")
-    if not any(command == "python3 Scripts/validation_evidence.py check --recorded-environment" for command, _ in run_commands(acceptance)):
-        errors.append(".github/workflows/ci.yml: 发布验收需要默认核对提交绑定证据")
-    if not any(command == "python3 Scripts/validation_evidence.py summary --recorded-environment" for command, _ in run_commands(acceptance, include_always=True)):
-        errors.append(".github/workflows/ci.yml: 发布汇总需要沿用验收的记录环境")
-    return errors
-
-
 def cross_file_view_request_self_test() -> list[str]:
     from swift_source_index import swift_syntax_index_sources
     sources = {
@@ -843,38 +732,3 @@ def cross_file_view_request_self_test() -> list[str]:
         invoked = swift_syntax_index_sources({"School.swift": fixture.replace("ACTION", "try? await model.manualRefresh()")})
         if not automatic_school_fetch_findings(invoked): return ["代码质量规则边界自检失败：生命周期调用已保存回调"]
     return []
-
-
-def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
-    source = workflow_source
-    mutations = [
-        re.sub(r"(?m)^  pull_request:.*\n", "", source),
-        re.sub(r"(?m)^  push:\n    branches:.*\n", "", source),
-        source.replace("jobs:", "defaults:\n  run:\n    shell: echo {0}\njobs:", 1),
-        source.replace("    steps:", "    defaults:\n      run:\n        shell: echo {0}\n    steps:", 1),
-    ]
-    findings = ["代码质量规则边界自检失败：CI 自动触发与 shell 继承门禁"
-                for changed in mutations if not ci_wiring_findings(changed)]
-    if not ci_wiring_findings(workflow_source.replace("run: npm ci", "run: echo skipped", 1)):
-        findings.append("代码质量规则边界自检失败：Worker 冷启动依赖准备")
-    for command in ("Scripts/run-static-audit.sh", "Scripts/run-extended-tests.sh modules",
-                    "Scripts/run-extended-tests.sh build ui", "Scripts/run-extended-tests.sh catalyst",
-                    "Scripts/run-extended-tests.sh catalyst-release-runtime"):
-        for modifier in ("if: false", "continue-on-error: true", "shell: echo {0}"):
-            skipped = workflow_source.replace(f"        run: {command}", f"        {modifier}\n        run: {command}")
-            if not ci_wiring_findings(skipped):
-                findings.append("代码质量规则边界自检失败：CI 步骤条件与失败传播门禁")
-    detached_release = workflow_source.replace("needs: static-audit", "needs: []", 1)
-    if not any("必须依赖静态审计" in item for item in ci_wiring_findings(detached_release)):
-        findings.append("代码质量规则边界自检失败：Release Job 与静态审计依赖识别")
-    misplaced_audit = workflow_source.replace("run: Scripts/run-static-audit.sh", "run: echo skipped", 1)
-    misplaced_audit += "\n# Scripts/run-static-audit.sh\n"
-    if not any("静态审计 Job 缺少执行入口" in item for item in ci_wiring_findings(misplaced_audit)):
-        findings.append("代码质量规则边界自检失败：CI 注释中的审计标记隔离")
-    detached_catalyst = re.sub(r"(?s)(  catalyst-tests:.*?)    needs: static-audit", r"\1    needs: []", workflow_source, count=1)
-    if not any("Catalyst 行为 Job 需要依赖静态审计" in item for item in ci_wiring_findings(detached_catalyst)):
-        findings.append("代码质量规则边界自检失败：Catalyst Job 与静态审计依赖识别")
-    skipped_catalyst = workflow_source.replace("run: Scripts/run-extended-tests.sh catalyst", "run: echo skipped", 1)
-    if not any("Catalyst 行为 Job 需要执行" in item for item in ci_wiring_findings(skipped_catalyst)):
-        findings.append("代码质量规则边界自检失败：并行 Catalyst 行为用例执行门禁")
-    return findings

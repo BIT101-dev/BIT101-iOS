@@ -37,7 +37,7 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
     package func appGroupContainerURL(identifier: String) -> URL? { temporaryDirectoryURL }
     package func fileExists(at url: URL) -> Bool {
         return state.withLock { state in
-            return state.data[url] != nil || state.directories.contains(url)
+            return state.data[url] != nil || state.directories.contains { $0.path == url.path }
         }
     }
     package func readData(at url: URL) throws -> Data {
@@ -59,24 +59,28 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
     package func createDirectory(at url: URL) throws {
         beforeCreatingDirectory()
         return state.withLock { state in
-            _ = state.directories.insert(url)
+            var directory = url
+            while directory.path != "/" {
+                state.directories.insert(directory)
+                directory.deleteLastPathComponent()
+            }
         }
     }
     package func removeItem(at url: URL) throws {
         return try state.withLock { state in
             if state.failsRemoval { throw CocoaError(.fileWriteNoPermission) }
             let prefix = url.path + "/"
-            state.data = state.data.filter { $0.key != url && !$0.key.path.hasPrefix(prefix) }
-            state.dates = state.dates.filter { $0.key != url && !$0.key.path.hasPrefix(prefix) }
-            state.options = state.options.filter { $0.key != url && !$0.key.path.hasPrefix(prefix) }
-            state.directories = Set(state.directories.filter { $0 != url && !$0.path.hasPrefix(prefix) })
+            state.data = state.data.filter { $0.key.path != url.path && !$0.key.path.hasPrefix(prefix) }
+            state.dates = state.dates.filter { $0.key.path != url.path && !$0.key.path.hasPrefix(prefix) }
+            state.options = state.options.filter { $0.key.path != url.path && !$0.key.path.hasPrefix(prefix) }
+            state.directories = Set(state.directories.filter { $0.path != url.path && !$0.path.hasPrefix(prefix) })
         }
     }
     package func setPrivateFileProtection(at url: URL) throws {}
     package func setBackupExcluded(_ excluded: Bool, at url: URL, recursively: Bool) throws {}
     package func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL] {
         return state.withLock { state in
-            return Array(Set(state.data.keys).union(state.directories)).filter { $0.deletingLastPathComponent() == url }
+            return Array(Set(state.data.keys).union(state.directories)).filter { $0.deletingLastPathComponent().path == url.path }
         }
     }
     package func regularFileSize(at url: URL) -> Int? {

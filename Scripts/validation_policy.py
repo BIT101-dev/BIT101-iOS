@@ -9,12 +9,12 @@ VERIFY_GROUPS = ("modules", "all", "release-runtime", "catalyst", "catalyst-rele
 DEFAULT_VERIFY_GROUPS = tuple(group for group in VERIFY_GROUPS if group != "ddl")
 FORMAL_RUNTIME_SUITES = {"ReleaseRuntimeContractTests", "ExtendedLoginTests", "LoginStorageTests", "LoginBootstrapTests", "NetworkClientTests"}
 MODULE_COVERAGE_FLOORS = {
-    "ClientCore": 63, "CommunityCore": 76, "CommunityPersistence": 97, "CommunityTransport": 79,
-    "CommunityUI": 100, "CourseFeature": 60, "DesignSystemKit": 86, "GalleryFeature": 49,
-    "MapFeature": 34, "MediaKit": 100, "MineFeature": 77, "PaperFeature": 42,
-    "ScheduleContracts": 83, "ScheduleDomain": 64, "ScheduleFeature": 40, "ScheduleInfrastructure": 48,
-    "SchedulePersistence": 74, "SchedulePorts": 33, "ScheduleSharedStore": 97, "ScheduleSync": 76,
-    "ScorePorts": 73, "ScoreDomain": 73, "ScoreFeature": 52, "ScoreInfrastructure": 34, "StorageCore": 71, "TransportCore": 55,
+    "ClientCore": 63, "CommunityCore": 87, "CommunityPersistence": 97, "CommunityTransport": 79,
+    "CommunityUI": 100, "CourseFeature": 65, "DesignSystemKit": 86, "GalleryFeature": 75,
+    "MapFeature": 34, "MediaKit": 100, "MineFeature": 82, "PaperFeature": 79,
+    "ScheduleContracts": 86, "ScheduleDomain": 75, "ScheduleFeature": 52, "ScheduleInfrastructure": 62,
+    "SchedulePersistence": 77, "SchedulePorts": 35, "ScheduleSharedStore": 97, "ScheduleSync": 77,
+    "ScorePorts": 95, "ScoreDomain": 92, "ScoreFeature": 73, "ScoreInfrastructure": 75, "StorageCore": 71, "TransportCore": 73,
 }
 IOS_MODULE_COVERAGE_FLOORS = {
     "ClientCore": 48, "CommunityCore": 47, "CommunityPersistence": 67, "CommunityTransport": 67,

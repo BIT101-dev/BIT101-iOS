@@ -41,7 +41,10 @@ struct ContentView: View {
                     .background(.regularMaterial)
             }
         }
-        .task { await loginViewModel.bootstrapIfNeeded() }
+        .task {
+            await loginViewModel.bootstrapIfNeeded()
+            AppRestoreReadiness.restoredSession(loginViewModel.screenState)
+        }
         .diagnosticAlert(item: $loginViewModel.alert)
         .appDiagnosticRecoveryActions()
         .defaultAppStorage(AppFileDirectories.defaults)

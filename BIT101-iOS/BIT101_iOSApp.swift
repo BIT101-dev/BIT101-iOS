@@ -227,6 +227,7 @@ struct BIT101_iOSApp: App {
                         runID: smokeRequest.runID,
                         capture: smokeRequest.capture,
                         term: smokeRequest.term,
+                        communityFollowTarget: smokeRequest.communityFollowTarget,
                         schoolSMSCodeHandler: smokeRequest.interactiveSMS == true ? networkSmokeSMS.requestCode : nil
                     )
                 }
@@ -238,6 +239,7 @@ struct BIT101_iOSApp: App {
                             runID: smokeRequest.runID,
                             capture: smokeRequest.capture,
                             term: smokeRequest.term,
+                        communityFollowTarget: smokeRequest.communityFollowTarget,
                             schoolSMSCodeHandler: smokeRequest.interactiveSMS == true ? networkSmokeSMS.requestCode : nil
                         )
                     }
@@ -284,6 +286,7 @@ struct BIT101_iOSApp: App {
                 .task {
                     await AppFileDirectories.preparePersistentBackups()
                     lifecycle.start()
+                    AppRestoreReadiness.initializedScene()
                 }
             #endif
         }
@@ -295,6 +298,7 @@ struct BIT101_iOSApp: App {
 #endif
                 // 回到前台时导出本地快照并刷新时间线；学校请求由用户显式操作触发。
                 lifecycle.sceneBecameActive()
+                AppRestoreReadiness.recordIfReady()
             }
         }
         #endif

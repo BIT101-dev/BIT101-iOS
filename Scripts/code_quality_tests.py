@@ -19,9 +19,11 @@ from code_quality_rules import (
 
 
 def checker_boundary_findings() -> list[str]:
+    from audit_callback_rules import self_test as audit_delegate_self_test
+    audit_delegate_self_test()
     findings: list[str] = []
     from code_quality_rules import audit_callback_findings
-    callbacks = 'module_boundary_audit() {\n  python3 "$ROOT_DIR/Scripts/check-module-boundaries.py"\n}\nartifact_hygiene() {\n  python3 "$ROOT_DIR/Scripts/validation_artifacts.py" "$ROOT_DIR"\n}\n'
+    callbacks = Path(__file__).with_name("run-static-audit.sh").read_text()
     assert audit_callback_findings(callbacks) == []
     assert audit_callback_findings(callbacks.replace('python3 "$ROOT_DIR/Scripts/check-module-boundaries.py"', 'true'))
     from code_quality_rules import scheme_inventory_findings

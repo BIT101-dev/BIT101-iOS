@@ -87,6 +87,7 @@ final class ReleaseNetworkSmokeRunner {
         runID: String = UUID().uuidString,
         capture: NetworkSmokeCapture = .none,
         term requestedTerm: String? = nil,
+        communityFollowTarget: Int? = nil,
         schoolSMSCodeHandler: SchoolSMSCodeHandler? = nil
     ) async -> ReleaseNetworkSmokeReport {
         let startedAt = Date()
@@ -149,7 +150,7 @@ final class ReleaseNetworkSmokeRunner {
 
         if scope == .communityWrites || scope == .communityCleanup {
             communityWriteEvidence = await probe("社区写入与清理", area: .communityWrites, scope: scope) {
-                try await self.dependencies.communityWriteProbe(runID, scope == .communityCleanup)
+                try await self.dependencies.communityWriteProbe(runID, scope == .communityCleanup, communityFollowTarget)
             } ?? []
             return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
         }
@@ -189,7 +190,7 @@ final class ReleaseNetworkSmokeRunner {
             )
         }
         let posters = await probe("话廊最新列表", area: .bit101, scope: scope) {
-            try await gallery.fetchFeed(kind: .newest, page: nil).items
+            try await NetworkSmokePaging.batch { try await gallery.fetchFeed(kind: .newest, page: $0 == 0 ? nil : $0) }.items
         }
         if let poster = posters?.first {
             await runInParallel([
@@ -233,12 +234,13 @@ final class ReleaseNetworkSmokeRunner {
             recordSkip("话廊网页详情", reason, area: .bit101, scope: scope)
         }
         var galleryOperations: [@MainActor () async -> Void] = [
-            { _ = await self.probe("话廊推荐流", area: .bit101, scope: scope) { try await gallery.fetchRecommendPage(sourcePage: 0) } },
-            { _ = await self.probe("话廊机器人流", area: .bit101, scope: scope) { try await gallery.fetchBotFeed(startPage: 0) } },
+            { _ = await self.probe("话廊推荐流", area: .bit101, scope: scope) { try await NetworkSmokePaging.batch { try await gallery.fetchRecommendPage(sourcePage: $0) } } },
+            { _ = await self.probe("话廊机器人流", area: .bit101, scope: scope) { try await NetworkSmokePaging.batch { try await gallery.fetchBotFeed(startPage: $0) } } },
+            { _ = await self.probe("社区举报类型", area: .bit101, scope: scope) { try await gallery.fetchReportTypes() } },
             { _ = await self.probe("帖子声明列表", area: .bit101, scope: scope) { try await gallery.fetchClaims() } },
             {
                 _ = await self.probe("话廊搜索", area: .bit101, scope: scope) {
-                    try await gallery.searchPosters(query: GallerySearchQuery(text: "BIT101"), page: 0)
+                    try await NetworkSmokePaging.batch { try await gallery.searchPosters(query: GallerySearchQuery(text: "BIT101"), page: $0) }
                 }
             },
             { _ = await self.probe("消息未读数", area: .bit101, scope: scope) { try await gallery.fetchMessageUnreadCounts() } }
@@ -246,14 +248,14 @@ final class ReleaseNetworkSmokeRunner {
         for messageType in GalleryMessageType.allCases {
             galleryOperations.append { [messageType] in
                 _ = await self.probe("消息列表-\(messageType.rawValue)", area: .bit101, scope: scope) {
-                    try await gallery.fetchMessages(type: messageType, lastID: .max)
+                    try await NetworkSmokePaging.messages { try await gallery.fetchMessages(type: messageType, lastID: $0) }
                 }
             }
         }
         await runInParallel(galleryOperations)
 
         let courseRows = await probe("学业课程列表", area: .bit101, scope: scope) {
-            try await courses.fetchCourses(search: "", page: 0)
+            try await NetworkSmokePaging.arrayPage { try await courses.fetchCourses(search: "", page: $0) }
         }
         if let course = courseRows?.first {
             await runInParallel([
@@ -293,7 +295,7 @@ final class ReleaseNetworkSmokeRunner {
 
         let papers = dependencies.makePapers()
         let paperRows = await probe("文章列表", area: .bit101, scope: scope) {
-            try await papers.fetchPapers(search: nil, order: .newest, page: 0)
+            try await NetworkSmokePaging.arrayPage { try await papers.fetchPapers(search: nil, order: .newest, page: $0) }
         }
         if let paper = paperRows?.first {
             await runInParallel([
@@ -325,17 +327,18 @@ final class ReleaseNetworkSmokeRunner {
         await runInParallel(PaperSortOrder.allCases.map { order in
             {
                 _ = await self.probe("文章列表-\(order.title)", area: .bit101, scope: scope) {
-                    try await papers.fetchPapers(search: "BIT101", order: order, page: 0)
+                    try await NetworkSmokePaging.arrayPage { try await papers.fetchPapers(search: "BIT101", order: order, page: $0) }
                 }
             }
         })
 
         let mine = dependencies.makeMine()
+        _ = await probe("生产共享会话", area: .bit101, scope: scope) { try await self.dependencies.productionSessionProbe() }
         let myInfo = await probe("我的资料", area: .bit101, scope: scope) { try await mine.fetchMyInfo() }
         await runInParallel([
-            { _ = await self.probe("我的关注", area: .bit101, scope: scope) { try await mine.fetchFollowings(page: 0) } },
-            { _ = await self.probe("我的粉丝", area: .bit101, scope: scope) { try await mine.fetchFollowers(page: 0) } },
-            { _ = await self.probe("我的帖子", area: .bit101, scope: scope) { try await mine.fetchMyPosters(page: 0) } }
+            { _ = await self.probe("我的关注", area: .bit101, scope: scope) { try await NetworkSmokePaging.arrayPage { try await mine.fetchFollowings(page: $0) } } },
+            { _ = await self.probe("我的粉丝", area: .bit101, scope: scope) { try await NetworkSmokePaging.arrayPage { try await mine.fetchFollowers(page: $0) } } },
+            { _ = await self.probe("我的帖子", area: .bit101, scope: scope) { try await NetworkSmokePaging.arrayPage { try await mine.fetchMyPosters(page: $0) } } }
         ])
         if let myInfo {
             await runInParallel([
@@ -343,7 +346,7 @@ final class ReleaseNetworkSmokeRunner {
                     _ = await self.probe("用户资料详情", area: .bit101, scope: scope) { let detail = try await mine.fetchUserInfo(id: myInfo.user.id); try Self.validateEntityIdentity(expected: myInfo.user.id, actual: detail.user.id); return detail }
                 },
                 {
-                    _ = await self.probe("用户帖子", area: .bit101, scope: scope) { try await mine.fetchUserPosters(userID: myInfo.user.id, page: 0) }
+                    _ = await self.probe("用户帖子", area: .bit101, scope: scope) { try await NetworkSmokePaging.arrayPage { try await mine.fetchUserPosters(userID: myInfo.user.id, page: $0) } }
                 }
             ])
         } else {
@@ -372,6 +375,9 @@ final class ReleaseNetworkSmokeRunner {
             }
         }
         let schedule = dependencies.makeSchedule(rawCourseResponseHandler)
+        let productionSchedule = dependencies.makeProductionSchedule()
+        schoolSMSSchedule = productionSchedule
+        _ = await probe("生产学校会话", area: .schedule, scope: scope) { try await productionSchedule.fetchCurrentTermOnly() }
         schoolSMSSchedule = schedule
         let currentTerm = await probe("当前学期", area: .schedule, scope: scope) { try await schedule.fetchCurrentTermOnly() }
         _ = await probe("切换学期列表", area: .schedule, scope: scope) {
@@ -689,7 +695,7 @@ final class ReleaseNetworkSmokeRunner {
         do {
             let value = try await operationWithSchoolAuthentication(operation)
             verifiedSMSProbes += submittedSMSPurposes.dropFirst(smsStart).map { SchoolSMSProbeEvidence(purpose: $0, probe: name) }
-            let canonicalPurposes = ["当前学期": "webvpn", "乐学日历订阅地址": "webvpn",
+            let canonicalPurposes = ["当前学期": "webvpn", "生产学校会话": "webvpn", "乐学日历订阅地址": "webvpn",
                 "课程中心原生认证": "school_sso_second_factor", "成绩认证接口": "jwb", "可信成绩单接口": "jwb_cjd"]
             let purposes = Set(submittedSMSPurposes.dropFirst(smsStart)).union(canonicalPurposes[name].map { [$0] } ?? [])
             for purpose in purposes where !authenticatedSchoolProbes.contains(where: { $0.purpose == purpose }) {

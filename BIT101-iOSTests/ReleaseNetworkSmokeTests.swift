@@ -241,6 +241,16 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(Set(world.contents.keys) == ["poster77", "course1"])
     }
 
+    @Test func followInterruptionRetainsItsTargetUntilTheOriginalRelationshipIsConfirmed() async throws {
+        let world = CommunityWorld(stage: "persistent-follow")
+        await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture") }
+        let pending = try #require(world.pending)
+        #expect(try JSONDecoder().decode(CommunityWriteSmoke.Journal.self, from: pending).followTarget == 2)
+        world.stage = "success"
+        _ = try await world.smoke.run(marker: "fixture", cleanupOnly: true)
+        #expect(world.followsTarget && world.pending == nil)
+    }
+
     @Test func concurrentRunnerEntrypointsSerializeCommunityRecovery() async throws {
         var waiting: CheckedContinuation<Void, Never>?
         var reached: CheckedContinuation<Void, Never>?
@@ -251,7 +261,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         var rawCleanupCalls = 0
         let dependencies = ReleaseNetworkSmokeDependencies(checkLogin: { loginCalls += 1; return "fixture" }, writeReport: { reports.append($0.runID) },
             clearRawCourseResponse: { rawCleanupCalls += 1; throw CocoaError(.fileWriteNoPermission) },
-            communityWriteProbe: { id, _ in
+            communityWriteProbe: { id, _, _ in
                 runs.append(id)
                 if id == "first" {
                     await withCheckedContinuation { waiting = $0; entered = true; reached?.resume(); reached = nil }
@@ -301,7 +311,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
     @Test func futureJournalKeepsTheOriginalRecoveryState() throws {
         let files = PreferenceMemoryFiles(requireExistingParentDirectories: true)
         let directory = files.temporaryDirectoryURL.appendingPathComponent("NetworkSmoke", isDirectory: true)
-        let original = Data(#"{"schemaVersion":3,"marker":"fixture","account":1}"#.utf8)
+        let original = Data(#"{"schemaVersion":4,"marker":"fixture","account":1}"#.utf8)
         var removed = false
         #expect(throws: DecodingError.self) {
             try CommunityWriteSmoke.loadJournal(files: files, directory: directory, legacyData: original,
@@ -405,6 +415,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
     }
 
     private final class CommunityWorld {
+        var followsTarget = true
         var account = 1
         var nextID = 100
         var contents: [String: CommunityWriteSmoke.Content] = [
@@ -434,7 +445,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
                 }
                 self.nextID += 1
                 let id = self.nextID
-                self.contents[kind.rawValue + String(id)] = .init(text: text, owned: true, liked: false)
+                self.contents[kind.rawValue + String(id)] = .init(text: text, owned: true, liked: false, imageMids: ["fixture-image"])
                 if self.stage == "lost-poster" && !self.injected {
                     self.injected = true; throw URLError(.networkConnectionLost)
                 }
@@ -451,7 +462,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
                 return self.contents[kind.rawValue + String(id)]
             }, edit: { kind, id, text in
                 let key = kind.rawValue + String(id)
-                self.contents[key] = .init(text: text, owned: true, liked: false)
+                self.contents[key] = .init(text: text, owned: true, liked: false, imageMids: ["fixture-image"])
             }, delete: { kind, id in
                 try Task.checkCancellation()
                 if self.stage == "persistent-delete" && kind == .paper { throw URLError(.timedOut) }
@@ -468,7 +479,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
                 return self.rows[parent] ?? []
             }, comment: { object, text in
                 self.nextID += 1
-                @MainActor func makeComment(_ id: Int) -> CommunityComment { CommunityComment(id: id, obj: object, images: [], user: self.user, anonymous: false,
+                @MainActor func makeComment(_ id: Int) -> CommunityComment { CommunityComment(id: id, obj: object, images: [.init(mid: "fixture-image", url: "", lowUrl: "")], user: self.user, anonymous: false,
                     createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: 0, own: true, rate: 0,
                     replyUser: self.user, replyObj: "", text: text, sub: []) }
                 let value = makeComment(self.nextID)
@@ -497,12 +508,16 @@ struct ReleaseNetworkSmokeLifecycleTests {
                 if self.stage == "persistent-like" && kind == .course {
                     if !self.injected {
                         self.injected = true
-                        self.contents[key] = .init(text: old.text, owned: old.owned, liked: !old.liked)
+                        self.contents[key] = .init(text: old.text, owned: old.owned, liked: !old.liked, imageMids: old.imageMids)
                     }
                     throw URLError(.timedOut)
                 }
-                self.contents[key] = .init(text: old.text, owned: old.owned, liked: !old.liked)
+                self.contents[key] = .init(text: old.text, owned: old.owned, liked: !old.liked, imageMids: old.imageMids)
                 return !old.liked
+            }, followTarget: { 2 }, following: { _ in self.followsTarget }, follow: { _ in
+                self.followsTarget.toggle()
+                if self.stage == "persistent-follow" { throw URLError(.timedOut) }
+                return self.followsTarget
             })
         }
         var smoke: CommunityWriteSmoke {
@@ -706,6 +721,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
             .init(items: [], nextSourcePage: (page ?? 0) + 1, canLoadMore: false)
         }
         func fetchClaims() async throws -> [CommunityClaim] { [poster.claim] }
+        func fetchReportTypes() async throws -> [GalleryReportType] { [] }
         func fetchCourses(search: String, page: Int) async throws -> [CourseSummary] {
             [CourseSummary(detail: CourseDetail(id: 1, name: "fixture", number: "COURSE", credit: 1, likeNum: 0, commentNum: 0, rate: 0, teachersName: "", teachersNumber: "", like: false))]
         }
@@ -838,6 +854,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
     func completeOrchestration(stage: String) async throws {
         let image = try #require(UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { $0.fill(CGRect(x: 0, y: 0, width: 1, height: 1)) }.pngData())
         let services = Services(stage: stage, image: image)
+        let productionServices = Services(stage: stage, image: image)
         let redirectHost = stage == "app-store-redirect-failure" ? "itunes.apple.com"
             : stage == "emergency-redirect-failure" ? "update.aihelpme.dev" : nil
         let external = External(image: image, redirectHost: redirectHost, aasaStage: stage)
@@ -851,10 +868,10 @@ extension ReleaseNetworkSmokeLifecycleTests {
                 #expect(runID == stage)
                 if stage == "raw-write-failure" { throw CocoaError(.fileWriteNoPermission) }
             }, makeGallery: { services }, makeCourses: { services }, makePapers: { services }, makeMine: { services },
-            externalHTTPClient: HTTPClient(transport: external, observer: nil), aasaHTTPClient: HTTPClient(transport: association, observer: nil),
+            productionSessionProbe: {}, externalHTTPClient: HTTPClient(transport: external, observer: nil), aasaHTTPClient: HTTPClient(transport: association, observer: nil),
             feedbackProbe: { _ in feedback += 1 },
             loadScheduleCache: { ScheduleCache() }, makeScores: { services }, makeSchedule: { handler in services.rawResponse = handler; return services },
-            makeEclassSchedule: { services })
+            makeProductionSchedule: { productionServices }, makeEclassSchedule: { services })
         let scope: NetworkSmokeScope = stage.hasPrefix("all-") || redirectHost != nil || stage.hasPrefix("aasa") ? .all : stage == "community-failure" || stage == "image-budget-failure" || stage == "entity-identity-failure" ? .bit101 : stage.hasPrefix("ddl") ? .ddl : .schedule
         let runner = ReleaseNetworkSmokeRunner(dependencies: dependencies)
         let smsHandler: SchoolSMSCodeHandler = { _ in "fixture-code" }
@@ -863,6 +880,8 @@ extension ReleaseNetworkSmokeLifecycleTests {
         #expect(report.passed == !stage.hasSuffix("failure"))
         if stage == "all-sms-success" {
             #expect(report.schoolSMSCoverage == "verified")
+            #expect(services.webvpnVerified && productionServices.webvpnVerified)
+            #expect(Set(report.verifiedSMSProbes.filter { $0.purpose == "webvpn" }.map(\.probe)) == ["生产学校会话", "当前学期"])
             #expect(Set(report.verifiedSMSProbes.map(\.purpose)) == NetworkSmokeScope.all.requiredSMSPurposes)
         }
         if stage.hasPrefix("all-sms-") {

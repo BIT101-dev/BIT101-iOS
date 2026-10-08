@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import ClientCore
 import CommunityCore
 import CommunityTransport
@@ -14,7 +15,7 @@ import TransportCore
 @MainActor
 final class CommunityWriteSmoke {
     enum Kind: String, Codable, CaseIterable { case poster, paper, course }
-    struct Content { let text: String; let owned: Bool; let liked: Bool }
+    struct Content { let text: String; let owned: Bool; let liked: Bool; var imageMids: [String] = [] }
     struct Operations {
         var identity: () -> CommunitySessionIdentity
         var account: () async throws -> Int
@@ -29,6 +30,10 @@ final class CommunityWriteSmoke {
         var deleteComment: (Int) async throws -> Void
         var like: (Kind, Int) async throws -> Bool
 
+        var followTarget: () -> Int? = { nil }
+        var following: (Int) async throws -> Bool = { _ in throw URLError(.unsupportedURL) }
+        var follow: (Int) async throws -> Bool = { _ in throw URLError(.unsupportedURL) }
+
         func scoped(to owner: CommunitySessionIdentity) -> Self {
             Self(identity: identity,
                 account: { try await Self.checked(identity, owner) { try await account() } },
@@ -41,7 +46,9 @@ final class CommunityWriteSmoke {
                 comments: { object in try await Self.checked(identity, owner) { try await comments(object) } },
                 comment: { object, text in try await Self.checked(identity, owner) { try await comment(object, text) } },
                 deleteComment: { id in try await Self.checked(identity, owner) { try await deleteComment(id) } },
-                like: { kind, id in try await Self.checked(identity, owner) { try await like(kind, id) } })
+                like: { kind, id in try await Self.checked(identity, owner) { try await like(kind, id) } }, followTarget: followTarget,
+                following: { id in try await Self.checked(identity, owner) { try await following(id) } },
+                follow: { id in try await Self.checked(identity, owner) { try await follow(id) } })
         }
 
         private static func checked<Value>(_ identity: () -> CommunitySessionIdentity, _ owner: CommunitySessionIdentity,
@@ -63,15 +70,20 @@ final class CommunityWriteSmoke {
         }
 
         static func production(papers: PaperService = PaperService(), courses: CourseService = CourseService(),
-            gallery: GalleryService = GalleryService()) -> Self {
+            gallery: GalleryService = GalleryService(), followTarget: Int? = nil) -> Self {
             let mine = MineService()
             return Self(identity: { AppAccountSession.storage.communityCredentials.identity }, account: { try await mine.fetchMyInfo().user.id }, course: {
                 guard let course = try await courses.fetchCourses(search: "", page: 0).first else { throw URLError(.zeroByteResource) }
                 return course.id
             }, create: { kind, text in
                 switch kind {
-                case .poster: return try await gallery.createPoster(title: "功能验收", text: text,
-                    imageMids: [], anonymous: false, tags: [], claimID: 0, isPublic: false)
+                case .poster:
+                    let image = try await gallery.uploadImage(data: CommunityWriteMedia.jpeg(), filename: "smoke.jpg")
+                    guard !image.mid.isEmpty else { throw URLError(.cannotParseResponse) }
+                    let id = try await gallery.createPoster(title: "功能验收", text: text,
+                        imageMids: [image.mid], anonymous: false, tags: [], claimID: 0, isPublic: false)
+                    guard try await gallery.fetchPoster(id: id).images.map(\.mid) == [image.mid] else { throw URLError(.cannotParseResponse) }
+                    return id
                 case .paper: return try await papers.createPaper(title: text, intro: text,
                     content: PaperEditorContentBuilder.editorJSON(from: text), anonymous: false, publicEdit: false)
                 case .course: throw URLError(.unsupportedURL)
@@ -104,7 +116,7 @@ final class CommunityWriteSmoke {
                     switch kind {
                     case .poster:
                         let value = try await gallery.fetchPoster(id: id)
-                        return Content(text: value.text, owned: value.own, liked: value.like)
+                        return Content(text: value.text, owned: value.own, liked: value.like, imageMids: value.images.map(\.mid))
                     case .paper:
                         let value = try await papers.fetchPaper(id: id)
                         return Content(text: PaperEditorContentBuilder.plainText(from: value.content), owned: value.own, liked: value.like)
@@ -117,8 +129,11 @@ final class CommunityWriteSmoke {
                 }
             }, edit: { kind, id, text in
                 switch kind {
-                case .poster: try await gallery.updatePoster(id: id, title: "功能验收", text: text,
-                    imageMids: [], plugins: "[]", anonymous: false, tags: [], claimID: 0, isPublic: false)
+                case .poster:
+                    let current = try await gallery.fetchPoster(id: id)
+                    guard !current.images.isEmpty else { throw URLError(.cannotParseResponse) }
+                    try await gallery.updatePoster(id: id, title: "功能验收", text: text,
+                        imageMids: current.images.map(\.mid), plugins: "[]", anonymous: false, tags: [], claimID: 0, isPublic: false)
                 case .paper:
                     let current = try await papers.fetchPaper(id: id)
                     try await papers.updatePaper(id: id, title: text, intro: text,
@@ -144,7 +159,11 @@ final class CommunityWriteSmoke {
                 let value: CommunityComment
                 if object.hasPrefix("course") { value = try await courses.createComment(objectID: object, text: text, rate: 6) }
                 else if object.hasPrefix("paper") { value = try await papers.createComment(objectID: object, text: text) }
-                else { value = try await gallery.createComment(objectID: object, text: text) }
+                else {
+                    let image = try await gallery.uploadCommentImage(data: CommunityWriteMedia.jpeg(), filename: "smoke.jpg")
+                    value = try await gallery.createComment(objectID: object, text: text, imageMids: [image.mid])
+                    guard !image.mid.isEmpty, value.images.map(\.mid) == [image.mid] else { throw URLError(.cannotParseResponse) }
+                }
                 try await Task.sleep(for: .seconds(1))
                 return value
             }, deleteComment: { try await gallery.deleteComment(id: $0) }, like: { kind, id in
@@ -156,7 +175,11 @@ final class CommunityWriteSmoke {
                 }
                 try await Task.sleep(for: .seconds(1))
                 return value
-            })
+            }, followTarget: { followTarget }, following: { id in
+                let info = try await mine.fetchUserInfo(id: id)
+                guard !info.own, info.user.id == id else { throw URLError(.cannotParseResponse) }
+                return info.following
+            }, follow: { try await mine.followUser(id: $0).following })
         }
     }
     private let operations: Operations
@@ -217,6 +240,14 @@ final class CommunityWriteSmoke {
         var businessError: (any Error)?
         var operation = "创建内容"
         do {
+            guard let followTarget = operations.followTarget(), followTarget > 0,
+                  try await operations.following(followTarget) else { throw failure("关注探针需要已关注的专用验收目标") }
+            journal.followTarget = followTarget; try persist(journal)
+            _ = try await operations.follow(followTarget)
+            if try await operations.following(followTarget) == false { _ = try await operations.follow(followTarget) }
+            guard try await operations.following(followTarget) else { throw failure("验收关注恢复待完成") }
+            journal.evidence.append("关注恢复 user\(followTarget)")
+            journal.followTarget = nil; try persist(journal)
             for kind in [Kind.poster, .paper] {
                 try Task.checkCancellation()
                 journal.attempts.append(kind); try persist(journal)
@@ -228,6 +259,10 @@ final class CommunityWriteSmoke {
                 operation = "读取 " + kind.rawValue
                 guard let created = try await operations.read(kind, id), created.owned,
                       created.text == journal.marker else { throw failure("验收内容创建结果异常") }
+                if kind == .poster {
+                    guard !created.imageMids.isEmpty else { throw failure("帖子图片引用验收待完成") }
+                    journal.evidence.append("图片提交 poster\(id)")
+                }
                 let edited = journal.marker + " 编辑"
                 operation = "编辑 " + kind.rawValue
                 try await operations.edit(kind, id, edited)
@@ -254,6 +289,10 @@ final class CommunityWriteSmoke {
                 guard comment.id > 0, !journal.comments.contains(comment.id) else { throw failure("验收评论标识重复或无效") }
                 journal.comments.append(comment.id); journal.evidence.append("创建 comment\(comment.id) 目标 \(parent)")
                 journal.commentParents[comment.id] = parent
+                if target.kind == .poster {
+                    guard !comment.images.isEmpty else { throw failure("评论图片引用验收待完成") }
+                    journal.evidence.append("图片提交 comment\(comment.id)")
+                }
                 let replies = "comment\(comment.id)"
                 journal.parents.append(replies); try persist(journal)
                 guard comment.own, comment.text == journal.marker,
@@ -283,6 +322,15 @@ final class CommunityWriteSmoke {
 
     private func cleanup(_ journal: inout Journal, operations: Operations, owner: CommunitySessionIdentity) async throws {
         var failures: [String] = []
+        if let target = journal.followTarget {
+            if try await recoverOperation("恢复关注", failures: &failures, operation: {
+                if try await operations.following(target) == false { _ = try await operations.follow(target) }
+                guard try await operations.following(target) else { throw failure("验收关注恢复待完成") }
+            }) {
+                journal.followTarget = nil
+            }
+            try persist(journal)
+        }
         var discovered: Set<Kind> = []
         for kind in Set(journal.attempts) {
             if try await recoverOperation("查找 " + kind.rawValue, failures: &failures, operation: {

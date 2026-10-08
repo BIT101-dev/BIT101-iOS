@@ -19,6 +19,23 @@ def run_self_test(subject) -> int:
         provenance_self_test(subject.record)
         from validation_manual_tests import run_self_test as manual_self_test, captured_fixture, distribution_fixture
         manual_self_test()
+        from validation_restore import self_test as restore_self_test
+        restore_self_test()
+        from validation_coverage import self_test as coverage_self_test
+        coverage_self_test()
+        from validation_merge import findings as merge_findings
+        from validation_provenance import utc_now
+        core = {'mergeCommit': 'commit', 'groups': {name: {'exitCode': 0, 'scope': 'full', 'summary': {},
+            'inputDigest': 'digest', 'environment': fixture_environment, 'recordedAt': utc_now().isoformat()} for name in ('all', 'ui', 'restore')}}
+        core['groups']['restore']['summary'] = {'runID': 'run', 'inputDigest': 'digest'}
+        core['groups']['restore']['runID'] = 'run'
+        assert not merge_findings(core, digest=lambda *args, **kwargs: 'digest', complete=lambda *args: True, commit='commit')
+        for name in core['groups']:
+            broken = json.loads(json.dumps(core))
+            broken['groups'][name]['exitCode'] = 1
+            assert merge_findings(broken, digest=lambda *args, **kwargs: 'digest', complete=lambda *args: True, commit='commit')
+        assert merge_findings(core, digest=lambda *args, **kwargs: 'changed', complete=lambda *args: True, commit='commit')
+        assert merge_findings(core, digest=lambda *args, **kwargs: 'digest', complete=lambda *args: True, commit='other')
         all_suites = {test.split('/', 1)[0] for test in subject.test_inventory('all')}
         assert inventory_findings(all_suites) == []
         assert inventory_findings(all_suites | {'NewFeatureTests'})
@@ -174,7 +191,7 @@ def run_self_test(subject) -> int:
         assert not subject.coverage_complete('modules', dict(summaries['modules'], coverage=missing))
         summaries['ui']['uiInventory'] = {'observed': 1, 'visited': 1, 'pending': [], 'scope': 'mounted-controls', 'unidentifiedControls': 0, 'pendingDisabled': [], 'identityScope': 'testCaseNavigationPresentationAndOccurrence'}
         summaries['audit'] = {'passed': True, 'kind': 'audit'}
-        summaries['restore'] = {'passed': True, 'kind': 'restore'}
+        summaries['restore'] = dict(passed=True, kind='restore', initialized=True, sessionRecovered=True, active=True, processAlive=True, processIdentifier=1, runID='00000000-0000-4000-8000-000000000001', inputDigest=subject.source_digest('restore'), startedAt=subject.utc_now().isoformat(), finishedAt=subject.utc_now().isoformat())
         provenance = {'inputDigest': subject.source_digest('build-archive'), 'runID': 'fixture-run'}
         distribution_proof = distribution_fixture()[1]
         summaries['build-archive'] = {'passed': True, 'kind': 'build', 'archiveProvenance': provenance,
@@ -193,7 +210,7 @@ def run_self_test(subject) -> int:
             return original_read(path)
         with patch.object(Path, 'read_bytes', missing_artifact):
             assert complete(json.loads(json.dumps(checks)))
-            try: capture('操作', '结果', Path('/missing'), 'photos')
+            try: capture('操作', '结果', Path('/missing'), 'photos', 'passed', subject.utc_now().isoformat())
             except FileNotFoundError: pass
             else: raise AssertionError('人工证据需要已有附件')
         for field, value in [('dataBase64', ''), ('dataBase64', 'bad%base64'), ('dataBase64', 'b3RoZXI='), ('sha256', 'a' * 64), ('byteCount', 1)]:
@@ -206,7 +223,7 @@ def run_self_test(subject) -> int:
         sms = {'passed': True, 'scope': 'school', 'executedProbes': sorted(subject.network_inventory('school')), 'requiredProbes': sorted(subject.network_inventory('school')), 'schoolSMSCoverage': 'verified', 'verifiedSMSProbes': [{'purpose': purpose, 'probe': sorted(subject.SCHOOL_SMS_PROBES[purpose])[0]} for purpose in subject.school_sms_inventory()]}
         sms.update(authenticatedSchoolProbes=sms['verifiedSMSProbes'], requestedSMSPurposes=sorted(subject.school_sms_inventory()))
         assert set(subject.SCHOOL_SMS_PROBES) == subject.school_sms_inventory()
-        writes = {'passed': True, 'scope': 'community-writes', 'executedProbes': sorted(subject.network_inventory('community-writes')), 'requiredProbes': sorted(subject.network_inventory('community-writes')), 'communityWriteEvidence': ['服务端确认删除 poster1', '服务端确认删除 paper2', '点赞恢复 poster1', '点赞恢复 paper2', '点赞恢复 course3'] + [f'服务端确认删除 comment{id}' for id in range(10, 16)] + [f'创建 comment{id} 目标 {parent}' for id, parent in [(10, 'poster1'), (11, 'comment10'), (12, 'paper2'), (13, 'comment12'), (14, 'course3'), (15, 'comment14')]]}
+        writes = {'passed': True, 'scope': 'community-writes', 'executedProbes': sorted(subject.network_inventory('community-writes')), 'requiredProbes': sorted(subject.network_inventory('community-writes')), 'communityWriteEvidence': ['服务端确认删除 poster1', '服务端确认删除 paper2', '点赞恢复 poster1', '点赞恢复 paper2', '点赞恢复 course3', '图片提交 poster1', '图片提交 comment10', '关注恢复 user4'] + [f'服务端确认删除 comment{id}' for id in range(10, 16)] + [f'创建 comment{id} 目标 {parent}' for id, parent in [(10, 'poster1'), (11, 'comment10'), (12, 'paper2'), (13, 'comment12'), (14, 'course3'), (15, 'comment14')]]}
         assert subject.community_writes_complete(writes['communityWriteEvidence'])
         assert not subject.community_writes_complete(writes['communityWriteEvidence'][:5] + ['服务端确认删除 comment42'] * 6)
         assert not subject.community_writes_complete([item.replace('目标 comment14', '目标 comment10') for item in writes['communityWriteEvidence']])
@@ -254,6 +271,7 @@ def run_self_test(subject) -> int:
         assert not subject.complete_summary('icloud', dict(summaries['icloud'], cleanup={'exitCode': 1}))
         groups = {name: {'exitCode': 0, 'scope': 'full', 'summary': summary, 'inputDigest': subject.source_digest(name), 'environment': subject.environment_context(name)} for name, summary in summaries.items()}
         groups['build-archive']['runID'] = provenance['runID']
+        groups['restore']['runID'] = summaries['restore']['runID']
         for name in subject.LIVE_GROUPS & groups.keys():
             groups[name]['summary'].update(startedAt=subject.utc_now().isoformat(), finishedAt=subject.utc_now().isoformat())
         report = {'sourceDigest': 'source', 'groups': groups}
@@ -298,6 +316,11 @@ def run_self_test(subject) -> int:
         assert subject.smoke_summary('network', network)['passed']
         assert subject.smoke_summary('network', {'passed': True, 'scope': 'all', 'executedProbes': ['unrelated']})['passed'] is False
         network['coverageGaps'] = ['fixture']
+        network['failures'] = ['具体失败原因']
+        failed_summary = subject.smoke_summary('network', network)
+        assert failed_summary['diagnostics']['failures'] == ['具体失败原因']
+        assert failed_summary['diagnostics']['coverageGaps'] == ['fixture']
+        network['failures'] = []
         assert subject.smoke_summary('network', network)['passed'] is False
         ddl = {'passed': True, 'scope': 'ddl', 'executedProbes': sorted(subject.network_inventory('ddl')), 'requiredProbes': sorted(subject.network_inventory('ddl'))}
         assert len(subject.network_inventory('ddl')) == 5 and subject.smoke_summary('ddl', ddl)['passed']

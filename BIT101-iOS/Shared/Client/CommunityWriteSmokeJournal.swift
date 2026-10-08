@@ -6,7 +6,7 @@ extension CommunityWriteSmoke {
     struct Like: Codable { let target: Target; let original: Bool }
 
     struct Journal: Codable {
-        static let currentVersion = 2
+        static let currentVersion = 3
         let schemaVersion: Int
         let marker: String
         let account: Int
@@ -16,10 +16,11 @@ extension CommunityWriteSmoke {
         var comments: [Int] = []
         var commentParents: [Int: String] = [:]
         var likes: [Like] = []
+        var followTarget: Int?
         var evidence: [String] = []
 
         private enum CodingKeys: String, CodingKey {
-            case schemaVersion, marker, account, attempts, targets, parents, comments, commentParents, likes, evidence
+            case schemaVersion, marker, account, attempts, targets, parents, comments, commentParents, likes, evidence, followTarget
         }
 
         init(marker: String, account: Int) {
@@ -56,6 +57,7 @@ extension CommunityWriteSmoke {
                 likes = try values.decode([Like].self, forKey: .likes)
                 evidence = try values.decode([String].self, forKey: .evidence)
             }
+            if schemaVersion >= 3 { followTarget = try values.decodeIfPresent(Int.self, forKey: .followTarget) }
             if schemaVersion >= 2 {
                 commentParents = try values.decode([Int: String].self, forKey: .commentParents)
             } else {
@@ -80,6 +82,7 @@ extension CommunityWriteSmoke {
             try values.encode(commentParents, forKey: .commentParents)
             try values.encode(likes, forKey: .likes)
             try values.encode(evidence, forKey: .evidence)
+            try values.encodeIfPresent(followTarget, forKey: .followTarget)
         }
     }
 

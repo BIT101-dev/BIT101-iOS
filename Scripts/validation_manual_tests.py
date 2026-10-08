@@ -43,7 +43,7 @@ def evidence_fixture(check: str) -> bytes:
             version = min(value['minimumOSVersion'] for value in contracts.values() if value['platform'] == platform)
             platforms[platform] = {'deviceIdentifier': platform + '-fixture', 'deviceModel': platform + '-device',
                 'systemVersion': version, 'systemBuild': 'fixture-build', 'capturedAt': utc_now().isoformat(),
-                'checks': {name: {'operation': '实际操作', 'result': '观察结果'} for name in checks},
+                'checks': {name: {'operation': '实际操作', 'result': '观察结果', 'outcome': 'passed'} for name in checks},
                 'evidence': captured_fixture('photos')['evidence']}
         return json.dumps({'schemaVersion': 1, 'platforms': platforms}).encode()
     if check == 'feedback-delivery':
@@ -66,7 +66,7 @@ def captured_fixture(check: str, provenance: dict | None = None) -> dict:
     path = Path('/evidence/' + check)
     original = Path.read_bytes
     with patch.object(Path, 'read_bytes', lambda value: data if value == path else original(value)):
-        return capture('实际操作', '观察结果', path, check)
+        return capture('实际操作', '观察结果', path, check, 'passed', utc_now().isoformat())
 
 
 def run_self_test() -> None:
@@ -135,6 +135,15 @@ def run_self_test() -> None:
         assert not evidence_content_complete(name, b'x')
         checks[name] = captured_fixture(name)
     assert complete(checks)
+    failed = copy.deepcopy(checks)
+    for row in failed.values(): row["outcome"] = "failed"
+    assert not complete(failed)
+    old = copy.deepcopy(checks)
+    for row in old.values(): row["capturedAt"] = "2000-01-01T00:00:00+00:00"
+    assert not complete(old)
+    missing = copy.deepcopy(checks)
+    for row in missing.values(): del row["outcome"]
+    assert not complete(missing)
     from validation_manual import distribution_matches_archive
     archive = {'exitCode': 0, 'scope': 'full', 'summary': build, **report['archiveProvenance']}
     assert distribution_matches_archive(checks['distribution-signing'], archive)
@@ -154,6 +163,9 @@ def run_self_test() -> None:
             changed = copy.deepcopy(baseline)
             changed['platforms'][platform][key] = value
             assert not evidence_content_complete('minimum-platforms', json.dumps(changed).encode()), (platform, key)
+    failed_baseline = copy.deepcopy(baseline)
+    next(iter(failed_baseline['platforms']['iOS']['checks'].values()))['outcome'] = 'failed'
+    assert not evidence_content_complete('minimum-platforms', json.dumps(failed_baseline).encode())
     feedback = json.loads(evidence_fixture('feedback-delivery'))
     for field in feedback:
         changed = dict(feedback)

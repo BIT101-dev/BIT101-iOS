@@ -40,6 +40,9 @@ case "$SMOKE_CAPTURE" in
   ""|none|scheduleCache|rawCourseResponse) ;;
   *) echo "BIT101_NETWORK_SMOKE_CAPTURE 参数无效。" >&2; exit 64 ;;
 esac
+if [[ "$SMOKE_SCOPE" == community-writes ]]; then
+  python3 -c 'import sys; value=sys.argv[1]; sys.exit(0 if len(value) <= 19 and value.isascii() and value.isdecimal() and 0 < int(value) <= 2**63 - 1 else 1)' "${BIT101_COMMUNITY_FOLLOW_TARGET:-}" || { echo "社区写入需要已关注的专用目标 BIT101_COMMUNITY_FOLLOW_TARGET。" >&2; exit 64; }
+fi
 bit101_acquire_workflow_lock "$0" "$@"
 bit101_require_device || exit 1
 validation_group=network
@@ -147,11 +150,11 @@ xcrun devicectl device install app \
   --device "$DEVICETCL_DEVICE_ID" \
   "$SMOKE_APP_PATH" >/dev/null
 
-python3 - "$LOCAL_REQUEST_PATH" "$SMOKE_SCOPE" "$RUN_ID" "$SMOKE_CAPTURE" "$SMOKE_TERM" "$SMS_MODE" <<'PY'
+python3 - "$LOCAL_REQUEST_PATH" "$SMOKE_SCOPE" "$RUN_ID" "$SMOKE_CAPTURE" "$SMOKE_TERM" "$SMS_MODE" "${BIT101_COMMUNITY_FOLLOW_TARGET:-}" <<'PY'
 import json
 import sys
 
-path, scope, run_id, capture, term, sms_mode = sys.argv[1:]
+path, scope, run_id, capture, term, sms_mode, follow_target = sys.argv[1:]
 with open(path, "w", encoding="utf-8") as stream:
     json.dump({
         "scope": scope,
@@ -159,6 +162,7 @@ with open(path, "w", encoding="utf-8") as stream:
         "capture": capture or "none",
         "term": term or None,
         "interactiveSMS": sms_mode == "sms",
+        "communityFollowTarget": int(follow_target) if follow_target else None,
     }, stream)
 PY
 xcrun devicectl device copy to \

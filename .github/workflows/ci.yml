@@ -42,6 +42,17 @@ jobs:
       - name: Install Worker test dependencies
         working-directory: Cloudflare/EmergencyUpdateWorker
         run: npm ci
+      - name: Load target branch coverage baseline
+        if: github.event_name == 'pull_request'
+        env:
+          BIT101_COVERAGE_BASELINE_URL: ${{ vars.BIT101_COVERAGE_BASELINE_URL }}
+          BIT101_BASE_COMMIT: ${{ github.event.pull_request.base.sha }}
+        run: |
+          [[ "$BIT101_COVERAGE_BASELINE_URL" == https://* ]] || { echo 'Coverage baseline requires an HTTPS URL.' >&2; exit 64; }
+          mkdir -p .build/extended-automation
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+            --output .build/extended-automation/validation-evidence.json "$BIT101_COVERAGE_BASELINE_URL"
+          python3 Scripts/validation_evidence.py baseline "$BIT101_BASE_COMMIT"
       - name: Run static audit
         env:
           BIT101_VERSION_BASE_REF: ${{ github.base_ref && format('origin/{0}', github.base_ref) || '' }}
@@ -183,3 +194,24 @@ jobs:
       - name: Publish validation evidence
         if: always()
         run: python3 Scripts/validation_evidence.py summary --recorded-environment
+
+  merge-acceptance:
+    name: Core physical-device acceptance
+    if: github.event_name == 'pull_request'
+    needs: [static-audit, release-build, catalyst-tests]
+    runs-on: xcode-27
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Download merge validation evidence
+        env:
+          BIT101_MERGE_EVIDENCE_URL: ${{ vars.BIT101_MERGE_EVIDENCE_URL }}
+        run: |
+          [[ "$BIT101_MERGE_EVIDENCE_URL" == https://* ]] || { echo 'Merge evidence requires an HTTPS URL.' >&2; exit 64; }
+          mkdir -p .build/extended-automation
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+            --output .build/extended-automation/validation-evidence.json "$BIT101_MERGE_EVIDENCE_URL"
+      - name: Check core physical-device evidence
+        run: python3 Scripts/validation_evidence.py check-merge --recorded-environment
