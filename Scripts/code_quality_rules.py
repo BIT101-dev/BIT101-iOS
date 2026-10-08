@@ -718,6 +718,9 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     events = {events} if isinstance(events, str) else events if isinstance(events, (list, dict)) else {}
     if not {"pull_request", "push"}.issubset(events):
         errors.append(".github/workflows/ci.yml: CI 需要 pull_request 和 push 自动触发")
+    for event in ("pull_request", "push"):
+        if {"paths", "paths-ignore"} & mapping(mapping(workflow.get("on")).get(event)).keys():
+            errors.append(f".github/workflows/ci.yml: {event} 需要覆盖全部仓库路径")
     jobs = mapping(workflow.get("jobs"))
     default_shell = mapping(mapping(workflow.get("defaults")).get("run")).get("shell", "bash")
 

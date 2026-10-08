@@ -76,6 +76,8 @@ final class ReleaseNetworkSmokeRunner {
     private var smsSubmissions = 0
     private var submittedSMSPurposes: [String] = []
     private var verifiedSMSProbes: [SchoolSMSProbeEvidence] = []
+    private var authenticatedSchoolProbes: [SchoolSMSProbeEvidence] = []
+    private var requestedSMSPurposes: [String] = []
 
     init(dependencies: ReleaseNetworkSmokeDependencies = .init()) { self.dependencies = dependencies }
 
@@ -107,8 +109,11 @@ final class ReleaseNetworkSmokeRunner {
         smsSubmissions = 0
         submittedSMSPurposes = []
         verifiedSMSProbes = []
+        authenticatedSchoolProbes = []
+        requestedSMSPurposes = []
         if let handler = schoolSMSCodeHandler {
             schoolSMSHandler = { [weak self] request in
+                self?.requestedSMSPurposes.append(request.purpose)
                 let code = try await handler(request)
                 self?.smsSubmissions += 1
                 self?.submittedSMSPurposes.append(request.purpose)
@@ -492,7 +497,8 @@ final class ReleaseNetworkSmokeRunner {
     }
 
     private func finishReport(runID: String, scope: NetworkSmokeScope, startedAt: Date) async -> ReleaseNetworkSmokeReport {
-        let missingSMSPurposes = scope.requiredSMSPurposes.subtracting(verifiedSMSProbes.map(\.purpose))
+        let missingSMSPurposes = scope.requiredSMSPurposes.subtracting(authenticatedSchoolProbes.map(\.purpose))
+            .union(Set(requestedSMSPurposes).subtracting(verifiedSMSProbes.map(\.purpose)))
         if schoolSMSHandler != nil {
             coverageGaps += missingSMSPurposes.sorted().map { "短信专项需要完成认证与业务继续：" + $0 }
         }
@@ -504,7 +510,8 @@ final class ReleaseNetworkSmokeRunner {
 
         let schoolSMSCoverage: String
         if schoolSMSHandler != nil {
-            schoolSMSCoverage = smsSubmissions > 0 && missingSMSPurposes.isEmpty && failures.isEmpty && authenticationBlockers.isEmpty ? "verified" : "pending"
+            schoolSMSCoverage = missingSMSPurposes.isEmpty && failures.isEmpty && authenticationBlockers.isEmpty
+                ? (smsSubmissions > 0 ? "verified" : "not_required") : "pending"
         } else { switch scope {
         case .all, .school, .ddl:
             schoolSMSCoverage = "preflight_only"
@@ -528,6 +535,8 @@ final class ReleaseNetworkSmokeRunner {
         report.eclassDDL = eclassDDL
         report.requiredProbes = scope.requiredProbes
         report.verifiedSMSProbes = verifiedSMSProbes
+        report.authenticatedSchoolProbes = authenticatedSchoolProbes
+        report.requestedSMSPurposes = requestedSMSPurposes
         report.communityWriteEvidence = communityWriteEvidence
         do {
             try dependencies.writeReport(report)
@@ -679,6 +688,12 @@ final class ReleaseNetworkSmokeRunner {
         do {
             let value = try await operationWithSchoolAuthentication(operation)
             verifiedSMSProbes += submittedSMSPurposes.dropFirst(smsStart).map { SchoolSMSProbeEvidence(purpose: $0, probe: name) }
+            let canonicalPurposes = ["当前学期": "webvpn", "乐学日历订阅地址": "webvpn",
+                "课程中心原生认证": "school_sso_second_factor", "成绩认证接口": "jwb", "可信成绩单接口": "jwb_cjd"]
+            let purposes = Set(submittedSMSPurposes.dropFirst(smsStart)).union(canonicalPurposes[name].map { [$0] } ?? [])
+            for purpose in purposes where !authenticatedSchoolProbes.contains(where: { $0.purpose == purpose }) {
+                authenticatedSchoolProbes.append(SchoolSMSProbeEvidence(purpose: purpose, probe: name))
+            }
             print("NETWORK_SMOKE_PASS name=\(name) elapsed=\(Self.duration(Date().timeIntervalSince(startedAt)))")
             return value
         } catch {

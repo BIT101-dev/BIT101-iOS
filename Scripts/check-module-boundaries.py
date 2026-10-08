@@ -13,6 +13,7 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 from swift_source_index import canonical_type_scope, declaration_conformances, scope_contains_type, expected_argument_types, swift_syntax_index, swift_syntax_index_sources, resource_context_type, visible_variables, matching_functions, compilation_type_context, local_member_calls
+from validation_policy import coverage_registry_findings
 
 
 IGNORED_IMPORTS = {
@@ -662,7 +663,7 @@ def main() -> int:
     support = {name: info for name, info in targets.items()
                if info["type"] == "regular" and info["path"].startswith("ModuleTests/")}
     tests = {name: info for name, info in targets.items() if info["type"] == "test"}
-    errors: list[str] = []
+    errors: list[str] = coverage_registry_findings(set(modules))
     unknown = targets.keys() - modules.keys() - support.keys() - tests.keys()
     if unknown:
         errors.append(f"unclassified source targets: {sorted(unknown)}")

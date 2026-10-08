@@ -266,7 +266,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
             legacyData: legacyPreferences ? original : nil, removeLegacy: { removed = true })
         let migrated = try #require(loaded)
         let payload = try #require(JSONSerialization.jsonObject(with: migrated) as? [String: Any])
-        #expect(payload["schemaVersion"] as? Int == 1)
+        #expect(payload["schemaVersion"] as? Int == CommunityWriteSmoke.Journal.currentVersion)
         #expect((payload["targets"] as? [[String: Any]])?.first?["id"] as? Int == 101)
         #expect(payload["comments"] as? [Int] == [201])
         #expect((payload["likes"] as? [Any])?.isEmpty == true)
@@ -277,7 +277,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
     @Test func futureJournalKeepsTheOriginalRecoveryState() throws {
         let files = PreferenceMemoryFiles(requireExistingParentDirectories: true)
         let directory = files.temporaryDirectoryURL.appendingPathComponent("NetworkSmoke", isDirectory: true)
-        let original = Data(#"{"schemaVersion":2,"marker":"fixture","account":1}"#.utf8)
+        let original = Data(#"{"schemaVersion":3,"marker":"fixture","account":1}"#.utf8)
         var removed = false
         #expect(throws: DecodingError.self) {
             try CommunityWriteSmoke.loadJournal(files: files, directory: directory, legacyData: original,
@@ -328,6 +328,28 @@ struct ReleaseNetworkSmokeLifecycleTests {
         world.stage = "missing-comment"
         _ = try await world.smoke.run(marker: "fixture", cleanupOnly: true)
         #expect(world.pending == nil)
+    }
+
+    @Test(arguments: [false, true])
+    func restartedCleanupConfirmsAnAlreadyDeletedCommentFromItsPersistedParent(legacy: Bool) async throws {
+        let original = CommunityWorld(stage: "success")
+        let comment = try await original.operations.comment("course1", "功能验收 fixture")
+        var journal = CommunityWriteSmoke.Journal(marker: "功能验收 fixture", account: 1)
+        journal.parents = ["course1"]
+        journal.comments = [comment.id]
+        journal.commentParents = [comment.id: "course1"]
+        journal.evidence = ["创建 comment\(comment.id) 目标 course1"]
+        var payload = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(journal)) as? [String: Any])
+        if legacy { payload["schemaVersion"] = 1; payload.removeValue(forKey: "commentParents") }
+        let saved = try JSONSerialization.data(withJSONObject: payload)
+        #expect(try JSONDecoder().decode(CommunityWriteSmoke.Journal.self, from: saved).commentParents == [comment.id: "course1"])
+        try await original.operations.deleteComment(comment.id)
+        let restarted = CommunityWorld(stage: "success")
+        restarted.pending = saved
+        let evidence = try await restarted.smoke.run(marker: "fixture", cleanupOnly: true)
+        #expect(restarted.pending == nil)
+        #expect(evidence.contains("服务端清理确认完成"))
+        #expect(restarted.commentDeletionRequests == [comment.id])
     }
 
     private final class CommunityWorld {
@@ -756,7 +778,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
     }
 
     @Test("Full smoke orchestration preserves success, intermediate failures and subsequent scopes", arguments:
-        ["all-success", "all-sms-success", "community-failure", "schedule-success", "ddl-success", "ddl-failure", "ddl-invalid-calendar-failure", "raw-write-failure",
+        ["all-success", "all-sms-success", "all-sms-not-required", "community-failure", "schedule-success", "ddl-success", "ddl-failure", "ddl-invalid-calendar-failure", "raw-write-failure",
          "app-store-redirect-failure", "emergency-redirect-failure", "aasa-redirect-failure", "aasa-followed-redirect-failure",
          "aasa-mime-failure", "aasa-exclusion-failure", "image-budget-failure", "entity-identity-failure"])
     func completeOrchestration(stage: String) async throws {
@@ -779,15 +801,24 @@ extension ReleaseNetworkSmokeLifecycleTests {
             feedbackProbe: { _ in feedback += 1 },
             loadScheduleCache: { ScheduleCache() }, makeScores: { services }, makeSchedule: { handler in services.rawResponse = handler; return services },
             makeEclassSchedule: { services })
-        let scope: NetworkSmokeScope = stage == "all-success" || stage == "all-sms-success" || redirectHost != nil || stage.hasPrefix("aasa") ? .all : stage == "community-failure" || stage == "image-budget-failure" || stage == "entity-identity-failure" ? .bit101 : stage.hasPrefix("ddl") ? .ddl : .schedule
+        let scope: NetworkSmokeScope = stage.hasPrefix("all-") || redirectHost != nil || stage.hasPrefix("aasa") ? .all : stage == "community-failure" || stage == "image-budget-failure" || stage == "entity-identity-failure" ? .bit101 : stage.hasPrefix("ddl") ? .ddl : .schedule
         let runner = ReleaseNetworkSmokeRunner(dependencies: dependencies)
         let smsHandler: SchoolSMSCodeHandler = { _ in "fixture-code" }
         let report = await runner.run(scope: scope, runID: stage, capture: stage == "raw-write-failure" ? .rawCourseResponse : .none,
-            schoolSMSCodeHandler: stage == "all-sms-success" ? smsHandler : nil)
+            schoolSMSCodeHandler: stage.hasPrefix("all-sms-") ? smsHandler : nil)
         #expect(report.passed == !stage.hasSuffix("failure"))
         if stage == "all-sms-success" {
             #expect(report.schoolSMSCoverage == "verified")
             #expect(Set(report.verifiedSMSProbes.map(\.purpose)) == NetworkSmokeScope.all.requiredSMSPurposes)
+        }
+        if stage.hasPrefix("all-sms-") {
+            #expect(Set(report.authenticatedSchoolProbes.map(\.purpose)) == NetworkSmokeScope.all.requiredSMSPurposes)
+            #expect(Set(report.requestedSMSPurposes) == Set(report.verifiedSMSProbes.map(\.purpose)))
+            #expect(report.coverageComplete)
+        }
+        if stage == "all-sms-not-required" {
+            #expect(report.schoolSMSCoverage == "not_required")
+            #expect(report.verifiedSMSProbes.isEmpty && report.requestedSMSPurposes.isEmpty)
         }
         #expect(Set(report.executedProbes) == Set(scope.requiredProbes))
         #expect(reports.count == 1 && reports[0].passed == report.passed)

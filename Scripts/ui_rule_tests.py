@@ -295,6 +295,26 @@ def source_boundary_findings() -> list[str]:
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
 
+    from unittest.mock import patch
+    from ui_source_facts import swift_files as scanned_files
+    from ui_rules import check_design_token_boundaries
+    extension_probes = [ROOT / name / "VisualProbe.swift" for name in ("BIT101Watch", "BIT101ScheduleWidgets", "BIT101WatchWidgets")]
+    scanned_files.cache_clear()
+    with patch.object(Path, "rglob", lambda path, pattern: iter(probe for probe in extension_probes if probe.parent == path)):
+        observed = scanned_files()
+    scanned_files.cache_clear()
+    extension_findings = []
+    if set(observed) != set(extension_probes):
+        extension_findings.append("UI 扩展视觉自测：Watch 与两种 Widget 进入扫描范围")
+    visual_source = 'struct Screen: View { var body: some View { Text("内容").opacity(0.9) } }'
+    visual_facts = swift_syntax_index_sources({str(path): visual_source for path in observed})
+    visual_errors = []
+    with patch("ui_rules.swift_files", return_value=observed), patch("ui_rules.source_text", return_value=visual_source):
+        check_design_token_boundaries(visual_errors, visual_facts)
+    for path in extension_probes:
+        if not any(path.relative_to(ROOT).as_posix() in error for error in visual_errors):
+            extension_findings.append("UI 扩展视觉自测：新增透明度常量触发设计规则")
+
     source = r'''
 import SwiftUI
 
@@ -494,7 +514,7 @@ struct AppFixedColumnItem {}
     except (OSError, subprocess.CalledProcessError, RuntimeError, KeyError) as error:
         return [f"UI 检查器自测无法解析内存 Swift 样例：{error}"]
 
-    findings: list[str] = []
+    findings: list[str] = list(extension_findings)
     if rendered_view_has_marker(facts, ["UnrenderedHelperComponentSample"], "AppFailureState"):
         findings.append("UI 检查器自测：未引用的 View 辅助方法满足页面契约")
     if not rendered_view_has_marker(facts, ["ReachableHelperComponentSample"], "AppFailureState"):

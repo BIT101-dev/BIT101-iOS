@@ -3,14 +3,13 @@ from pathlib import Path
 import fcntl
 import os
 import sys
+from validation_policy import TEST_GROUPS, BUILD_HOSTS
 
 if not __debug__:
     raise RuntimeError("验证自测需要 Python 默认优化级别；请使用 python3 -E 执行入口。")
 
 cache_names = {"SDKExplicitPrecompiledModules", "ModuleCache.noindex", "SDKStatCaches.noindex", "CompilationCache.noindex"}
 derived_names = cache_names | {"Build", "Logs", "SourcePackages", "info.plist"}
-test_groups = {"all", "release-runtime", "schedule", "infrastructure", "login", "extensions", "ui", "catalyst", "catalyst-release-runtime", "modules"}
-build_hosts = {"release", "release-runtime", "ui", "network-smoke", "icloud-smoke", "modules", "catalyst", "catalyst-release-runtime"}
 fixed_children = {
     ".build/compiler-cache": cache_names | {"cache.lock"},
     ".build/static-audit": {"artifact-hygiene.log", "audit.lock", "checkers.log", "dependency-audit.log", "docs.log",
@@ -21,8 +20,8 @@ fixed_children = {
         "TestResults", "artifacts", "checkouts", "repositories", "debug", "release", "debug.yaml", "release.yaml",
         "out", "manifest.pif", "workspace-state.json", "module-events.jsonl", "test-metrics.txt", "test-failures.txt",
         "test-results.xcresult", "ui-tests.log", "ui-tests-build.log", "failure-hierarchy.txt", "diagnostics",
-        "validation-evidence.json", "validation-evidence.lock"} | {name + ".log" for name in test_groups}
-        | {"build-" + name + ".log" for name in build_hosts},
+        "validation-evidence.json", "validation-evidence.lock"} | {name + ".log" for name in TEST_GROUPS}
+        | {"build-" + name + ".log" for name in BUILD_HOSTS},
     ".build/icloud-cross-device-smoke": {"Phone", "Mac", "test-results.xcresult", "report.json", "signing.entitlements",
         "build.log", "mac-build.log", "mac-receive.log", "testPhoneRoundTrip.log", "testCleanup.log"},
     ".build/release-network-smoke": derived_names | {"build.log", "console.log", "report"},

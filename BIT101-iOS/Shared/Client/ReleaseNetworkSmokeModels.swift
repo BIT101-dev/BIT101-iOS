@@ -215,6 +215,8 @@ struct ReleaseNetworkSmokeReport: Codable {
     var eclassDDL: EclassDDLAudit? = nil
     var requiredProbes: [String] = []
     var verifiedSMSProbes: [SchoolSMSProbeEvidence] = []
+    var authenticatedSchoolProbes: [SchoolSMSProbeEvidence] = []
+    var requestedSMSPurposes: [String] = []
     var communityWriteEvidence: [String] = []
 
     var elapsed: TimeInterval {
@@ -718,6 +720,7 @@ final class CommunityWriteSmoke {
                 let comment = try await operations.comment(parent, journal.marker)
                 guard comment.id > 0, !journal.comments.contains(comment.id) else { throw failure("验收评论标识重复或无效") }
                 journal.comments.append(comment.id); journal.evidence.append("创建 comment\(comment.id) 目标 \(parent)")
+                journal.commentParents[comment.id] = parent
                 let replies = "comment\(comment.id)"
                 journal.parents.append(replies); try persist(journal)
                 guard comment.own, comment.text == journal.marker,
@@ -726,6 +729,7 @@ final class CommunityWriteSmoke {
                 let reply = try await operations.comment(replies, journal.marker)
                 guard reply.id > 0, !journal.comments.contains(reply.id) else { throw failure("验收回复标识重复或无效") }
                 journal.comments.append(reply.id); journal.evidence.append("创建 comment\(reply.id) 目标 \(replies)")
+                journal.commentParents[reply.id] = replies
                 try persist(journal)
                 guard reply.own, reply.text == journal.marker,
                       try await operations.comments(replies).contains(where: { $0.id == reply.id }) else { throw failure("验收回复创建结果异常") }
@@ -747,7 +751,6 @@ final class CommunityWriteSmoke {
     private func cleanup(_ journal: inout Journal, operations: Operations, owner: CommunitySessionIdentity) async throws {
         var failures: [String] = []
         var discovered: Set<Kind> = []
-        var commentParents: [Int: String] = [:]
         for kind in Set(journal.attempts) {
             if try await recoverOperation("查找 " + kind.rawValue, failures: &failures, operation: {
                 for id in try await operations.find(kind, journal.marker) {
@@ -779,7 +782,7 @@ final class CommunityWriteSmoke {
             _ = try await recoverOperation("查找评论 " + parent, failures: &failures, operation: {
                 for comment in try await operations.comments(parent) where comment.own && comment.text == journal.marker {
                     if !journal.comments.contains(comment.id) { journal.comments.append(comment.id) }
-                    commentParents[comment.id] = parent
+                    journal.commentParents[comment.id] = parent
                     if !parent.hasPrefix("comment") {
                         let replies = "comment\(comment.id)"
                         if !journal.parents.contains(replies) { journal.parents.append(replies) }
@@ -796,12 +799,13 @@ final class CommunityWriteSmoke {
                 if journal.parents.contains(replies) {
                     guard try await operations.comments(replies).allSatisfy({ !commentIDs.contains($0.id) && !($0.own && $0.text == journal.marker) })
                     else { throw failure("验收回复清理待完成") }
-                    retireComments(replies, parents: commentParents, journal: &journal)
+                    retireComments(replies, journal: &journal)
                     try persist(journal)
                 }
                 do { try await operations.deleteComment(id) }
                 catch let error as NSError where error.code == 404 {
                     journal.comments.removeAll { $0 == id }
+                    journal.commentParents.removeValue(forKey: id)
                     journal.evidence.append("服务端确认删除 comment\(id)")
                 }
             }) {
@@ -814,7 +818,7 @@ final class CommunityWriteSmoke {
                 guard try await operations.comments(parent).allSatisfy({ !commentIDs.contains($0.id) && !($0.own && $0.text == journal.marker) })
                 else { throw failure("验收评论清理待完成") }
             }) {
-                retireComments(parent, parents: commentParents, journal: &journal)
+                retireComments(parent, journal: &journal)
             }
             try persist(journal)
         }
@@ -840,9 +844,10 @@ final class CommunityWriteSmoke {
         try save(nil)
     }
 
-    private func retireComments(_ parent: String, parents: [Int: String], journal: inout Journal) {
-        let ids = parents.filter { $0.value == parent }.map(\.key)
+    private func retireComments(_ parent: String, journal: inout Journal) {
+        let ids = journal.commentParents.filter { $0.value == parent }.map(\.key)
         journal.comments.removeAll { ids.contains($0) }
+        for id in ids { journal.commentParents.removeValue(forKey: id) }
         journal.parents.removeAll { $0 == parent }
         for id in ids where !journal.evidence.contains("服务端确认删除 comment\(id)") {
             journal.evidence.append("服务端确认删除 comment\(id)")

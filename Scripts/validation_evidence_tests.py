@@ -25,6 +25,12 @@ def run_self_test(subject) -> int:
             assert subject.main() == 7
             recorder.assert_called_once_with('audit', 7, 'full', 'fixture-input')
         input_self_test()
+        from contextlib import redirect_stdout
+        from io import StringIO
+        output = StringIO()
+        with patch.object(sys, 'argv', ['validation_evidence.py', 'verify-defaults']), redirect_stdout(output):
+            assert subject.main() == 0
+        assert output.getvalue().splitlines() == list(subject.DEFAULT_VERIFY_GROUPS)
         with patch.object(subprocess, 'check_output', return_value=b''):
             baseline = subject.source_digest('ui')
             for field, value in (('host', {'system': 'changed'}), ('xcode', {'version': 'changed'}), ('sdks', {'fixture': {'Version': '2'}}), ('compiler', {'modified': 2}), ('device', {'identifier': 'changed', 'systemVersion': 'fixture-os', 'systemBuild': 'fixture-build'}), ('device', {'identifier': 'fixture-phone', 'systemVersion': 'changed', 'systemBuild': 'fixture-build'})):
@@ -184,6 +190,7 @@ def run_self_test(subject) -> int:
         assert not subject.complete_summary('manual-device', {'passed': True, 'checks': {name: 'pass' for name in subject.MANUAL_DEVICE_CHECKS}})
         summaries['network'] = subject.smoke_summary('network', {'passed': True, 'scope': 'all', 'executedProbes': sorted(subject.network_inventory()), 'requiredProbes': sorted(subject.network_inventory())})
         sms = {'passed': True, 'scope': 'school', 'executedProbes': sorted(subject.network_inventory('school')), 'requiredProbes': sorted(subject.network_inventory('school')), 'schoolSMSCoverage': 'verified', 'verifiedSMSProbes': [{'purpose': purpose, 'probe': sorted(subject.SCHOOL_SMS_PROBES[purpose])[0]} for purpose in subject.school_sms_inventory()]}
+        sms.update(authenticatedSchoolProbes=sms['verifiedSMSProbes'], requestedSMSPurposes=sorted(subject.school_sms_inventory()))
         assert set(subject.SCHOOL_SMS_PROBES) == subject.school_sms_inventory()
         writes = {'passed': True, 'scope': 'community-writes', 'executedProbes': sorted(subject.network_inventory('community-writes')), 'requiredProbes': sorted(subject.network_inventory('community-writes')), 'communityWriteEvidence': ['服务端确认删除 poster1', '服务端确认删除 paper2', '点赞恢复 poster1', '点赞恢复 paper2', '点赞恢复 course3'] + [f'服务端确认删除 comment{id}' for id in range(10, 16)] + [f'创建 comment{id} 目标 {parent}' for id, parent in [(10, 'poster1'), (11, 'comment10'), (12, 'paper2'), (13, 'comment12'), (14, 'course3'), (15, 'comment14')]]}
         assert subject.community_writes_complete(writes['communityWriteEvidence'])
@@ -210,6 +217,12 @@ def run_self_test(subject) -> int:
         assert not subject.smoke_summary('community-writes', dict(writes, communityWriteEvidence=[]))['passed']
         summaries['school-sms'] = subject.smoke_summary('school-sms', sms)
         assert summaries['school-sms']['passed']
+        authenticated = dict(sms, schoolSMSCoverage='not_required', verifiedSMSProbes=[], requestedSMSPurposes=[])
+        assert subject.complete_summary('school-sms', subject.smoke_summary('school-sms', authenticated))
+        assert not subject.smoke_summary('school-sms', dict(authenticated, requestedSMSPurposes=['webvpn']))['passed']
+        assert not subject.smoke_summary('school-sms', dict(authenticated, authenticatedSchoolProbes=[]))['passed']
+        mixed = dict(sms, requestedSMSPurposes=[sms['verifiedSMSProbes'][0]['purpose']], verifiedSMSProbes=sms['verifiedSMSProbes'][:1])
+        assert subject.smoke_summary('school-sms', mixed)['passed']
         full_sms = dict(sms, scope='all', requiredProbes=sorted(subject.network_inventory('all')), executedProbes=sorted(subject.network_inventory('all')))
         assert subject.smoke_summary('network', full_sms)['passed']
         projected = subject.smoke_summary('school-sms', full_sms)

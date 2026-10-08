@@ -1,13 +1,13 @@
-"""Select the inputs that can affect each validation workflow."""
-from pathlib import PurePosixPath
+"""Register validation groups and select their workflow inputs."""
+from pathlib import PurePosixPath, Path
+import re
+from validation_policy import APP_TEST_GROUPS, TEST_GROUPS, NETWORK_GROUPS, RELEASE_GROUPS, BUILD_HOSTS, VERIFY_GROUPS, DEFAULT_VERIFY_GROUPS
 
 PRODUCT_ROOTS = {"Modules", "BIT101-iOS", "BIT101-iOS.xcodeproj", "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets"}
 PRODUCT_FILES = {"Package.swift", "AppInfo.plist"}
-VALIDATION_SCRIPTS = {"validation_evidence.py", "validation_inputs.py", "validation_environment.py", "validation_provenance.py", "validation_test_areas.py", "validation_manual.py", "swift_source_index.py", "SwiftSyntaxIndexer.swift", "code_quality_rules.py"}
+VALIDATION_SCRIPTS = {"validation_evidence.py", "validation_inputs.py", "validation_policy.py", "validation_environment.py", "validation_provenance.py", "validation_test_areas.py", "validation_manual.py", "swift_source_index.py", "SwiftSyntaxIndexer.swift", "code_quality_rules.py"}
 BUILD_SCRIPTS = {"script-support.sh", "build-install-device.sh"}
 TEST_SCRIPTS = BUILD_SCRIPTS | VALIDATION_SCRIPTS | {"run-extended-tests.sh"}
-APP_TEST_GROUPS = {"all", "release-runtime", "catalyst", "catalyst-release-runtime", "schedule", "infrastructure", "login", "extensions"}
-NETWORK_GROUPS = {"network", "ddl", "school-sms", "community-writes", "community-cleanup"}
 
 
 def includes_input(name: str, group: str) -> bool:
@@ -45,6 +45,13 @@ def includes_input(name: str, group: str) -> bool:
 
 
 def self_test() -> None:
+    for group in RELEASE_GROUPS | TEST_GROUPS | NETWORK_GROUPS | {"build-" + host for host in BUILD_HOSTS}:
+        assert includes_input("Package.swift", group), group
+    dispatch = (Path(__file__).with_name("run-extended-tests.sh").read_text()
+        .split('for group in "${verification_groups[@]}"; do', 2)[2].split("esac", 1)[0])
+    dispatched = {group for labels in re.findall(r"(?m)^\s+([a-zA-Z0-9_|-]+)\)", dispatch) for group in labels.split("|")}
+    assert dispatched == set(VERIFY_GROUPS)
+    assert set(DEFAULT_VERIFY_GROUPS) <= set(VERIFY_GROUPS)
     assert includes_input("README.md", "audit")
     for group in APP_TEST_GROUPS | NETWORK_GROUPS | {"modules", "ui", "icloud", "restore", "manual-device", "build-archive"}:
         assert not includes_input("README.md", group)

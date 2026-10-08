@@ -132,6 +132,9 @@ struct Handler { var value: String!; func read() -> String { value }; func catch
     assert ci_wiring_findings(workflow_source.replace("    tags: ['v*']\n", ""))
     assert ci_wiring_findings(workflow_source.replace("run: python3 Scripts/validation_evidence.py check --recorded-environment", "run: echo skipped"))
     assert ci_wiring_findings(workflow_source.replace("summary --recorded-environment", "summary"))
+    for event in ("pull_request", "push"):
+        for filtering in ("paths", "paths-ignore"):
+            assert ci_wiring_findings(workflow_source.replace(event + ":\n", event + f":\n    {filtering}: ['docs/**']\n", 1))
     extension_graph = {"objects": {
         "app": {"isa": "PBXNativeTarget", "name": "BIT101-iOS", "dependencies": ["widget-edge", "watch-edge"]},
         "widget": {"isa": "PBXNativeTarget", "name": "BIT101ScheduleWidgets"},

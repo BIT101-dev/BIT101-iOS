@@ -17,6 +17,7 @@ from contextlib import contextmanager
 sys.dont_write_bytecode = True
 from swift_source_index import swift_syntax_index_sources
 from validation_inputs import includes_input
+from validation_policy import TEST_GROUPS, RELEASE_GROUPS, DEFAULT_VERIFY_GROUPS, MODULE_COVERAGE_FLOORS, IOS_MODULE_COVERAGE_FLOORS
 from validation_test_areas import TEST_AREA_SUITES
 from validation_manual import MANUAL_DEVICE_CHECKS, capture as capture_manual, complete as manual_complete
 from validation_environment import environment_context, complete_environment, toolchain_identity
@@ -24,31 +25,12 @@ from validation_provenance import LIVE_GROUPS, NETWORK_GROUPS, evidence_current,
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / ".build/extended-automation/validation-evidence.json"
-RELEASE_GROUPS = {"modules", "all", "release-runtime", "catalyst", "catalyst-release-runtime", "ui", "network", "school-sms", "icloud", "audit", "restore", "manual-device", "build-archive", "community-writes"}
-TEST_GROUPS = {"modules", "all", "release-runtime", "catalyst", "catalyst-release-runtime", "ui", "schedule", "infrastructure", "login", "extensions"}
 ICLOUD_DOMAINS = {"score-kvs", "schedule-cloudkit"}
 SCHOOL_SMS_PROBES = {
     "webvpn": {"当前学期", "切换学期列表", "课表、考试与首周同步", "空教室校区列表", "空教室教学楼列表", "空教室占用数据"},
     "jwb": {"成绩认证接口"},
     "jwb_cjd": {"可信成绩单接口"},
     "school_sso_second_factor": {"课程中心原生认证", "课程中心 DDL 下载", "乐学日历订阅地址", "乐学 DDL 下载"},
-}
-MODULE_COVERAGE_FLOORS = {
-    "ClientCore": 63, "CommunityCore": 76, "CommunityPersistence": 97, "CommunityTransport": 79,
-    "CommunityUI": 100, "CourseFeature": 60, "DesignSystemKit": 86, "GalleryFeature": 49,
-    "MapFeature": 34, "MediaKit": 100, "MineFeature": 77, "PaperFeature": 42,
-    "ScheduleContracts": 83, "ScheduleDomain": 64, "ScheduleFeature": 40, "ScheduleInfrastructure": 48,
-    "SchedulePersistence": 74, "SchedulePorts": 33, "ScheduleSharedStore": 97, "ScheduleSync": 76,
-    "ScoreDomain": 73, "ScoreFeature": 52, "ScoreInfrastructure": 34, "StorageCore": 71, "TransportCore": 55,
-}
-IOS_MODULE_COVERAGE_FLOORS = {
-    "ClientCore": 48, "CommunityCore": 47, "CommunityPersistence": 67, "CommunityTransport": 67,
-    "CommunityUI": 6, "CourseFeature": 8, "DesignSystemKit": 44, "GalleryFeature": 14,
-    "MapFeature": 21, "MediaKit": 53, "MineFeature": 25, "PaperFeature": 36,
-    "ScheduleActivityContracts": 100, "ScheduleContracts": 88, "ScheduleDomain": 79,
-    "ScheduleFeature": 30, "ScheduleInfrastructure": 26, "SchedulePersistence": 27,
-    "SchedulePorts": 64, "ScheduleSharedStore": 52, "ScheduleSync": 5,
-    "ScoreDomain": 45, "ScoreFeature": 7, "ScoreInfrastructure": 31, "StorageCore": 75, "TransportCore": 77,
 }
 
 
@@ -255,6 +237,19 @@ def community_writes_complete(evidence: list) -> bool:
         and set(likes) == targets and set(contents) == {target for target in targets if not target.startswith("course")}
 
 
+def school_authentication_complete(value: dict) -> bool:
+    executed = set(value.get("probeInventory", value.get("executedProbes", [])))
+    authenticated = value.get("authenticatedSchoolProbes", [])
+    verified = value.get("verifiedSMSProbes", [])
+    requested = set(value.get("requestedSMSPurposes", []))
+    purposes = school_sms_inventory()
+    return {step.get("purpose") for step in authenticated} == purposes \
+        and requested <= purposes and requested == {step.get("purpose") for step in verified} \
+        and value.get("schoolSMSCoverage") == ("verified" if requested else "not_required") \
+        and all(step.get("probe") in executed
+            and step.get("probe") in SCHOOL_SMS_PROBES.get(step.get("purpose"), set()) for step in authenticated + verified)
+
+
 def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
     if group in NETWORK_GROUPS:
         required = set(value.get("requiredProbes", []))
@@ -269,16 +264,15 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
                 and (not projected_sms or raw_required == network_inventory("all"))
                 and (group != "community-writes" or community_writes_complete(value.get("communityWriteEvidence", [])))
                 and required == network_inventory(expected_scope) and bool(required) and required <= executed
-                and (group != "school-sms" or value.get("schoolSMSCoverage") == "verified"
-                    and {step.get("purpose") for step in sms_steps} == school_sms_inventory()
-                    and all(step.get("probe") in executed
-                            and step.get("probe") in SCHOOL_SMS_PROBES.get(step.get("purpose"), set()) for step in sms_steps))
+                and (group != "school-sms" or school_authentication_complete(value))
                 and not any(value.get(name) for name in ("failures", "coverageGaps", "authenticationBlockers", "skippedProbes")),
                 "scope": expected_scope, "executedProbes": len(value.get("executedProbes", [])),
                 "startedAt": value.get("startedAt"), "finishedAt": value.get("finishedAt"),
                 "schoolSMSCoverage": value.get("schoolSMSCoverage"),
                 "communityWriteEvidence": value.get("communityWriteEvidence", []),
                 "verifiedSMSProbes": sms_steps,
+                "authenticatedSchoolProbes": value.get("authenticatedSchoolProbes", []),
+                "requestedSMSPurposes": value.get("requestedSMSPurposes", []),
                 "requiredProbes": sorted(required), "probeInventory": sorted(executed),
                 **{name: len(value.get(name, [])) for name in ("failures", "coverageGaps", "authenticationBlockers", "skippedProbes")}}
     if group == "icloud-cleanup":
@@ -380,9 +374,7 @@ def complete_summary(group: str, summary: dict) -> bool:
         expected_scope = "all" if group == "network" else "school" if group == "school-sms" else group
         return summary.get("scope") == expected_scope and set(summary.get("requiredProbes", [])) == network_inventory(expected_scope) \
             and (group != "community-writes" or community_writes_complete(summary.get("communityWriteEvidence", []))) \
-            and (group != "school-sms" or summary.get("schoolSMSCoverage") == "verified"
-                and {step.get("purpose") for step in summary.get("verifiedSMSProbes", [])} == school_sms_inventory()
-                and all(step.get("probe") in summary.get("probeInventory", []) for step in summary.get("verifiedSMSProbes", []))) \
+            and (group != "school-sms" or school_authentication_complete(summary)) \
             and set(summary["requiredProbes"]) <= set(summary.get("probeInventory", [])) and all(
             summary.get(name) == 0 for name in ("failures", "coverageGaps", "authenticationBlockers", "skippedProbes"))
     if group == "icloud":
@@ -565,7 +557,7 @@ def community_recovery_self_test() -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["digest", "record", "bind", "check", "check-group", "summary", "suites", "self-test", "manual"])
+    parser.add_argument("action", choices=["digest", "record", "bind", "check", "check-group", "summary", "suites", "self-test", "manual", "verify-defaults"])
     parser.add_argument("group", nargs="?", default="")
     parser.add_argument("status", nargs="?", type=int, default=0)
     parser.add_argument("--operation", default="", help="实际执行操作")
@@ -574,6 +566,9 @@ def main() -> int:
     parser.add_argument("--recorded-environment", action="store_true", help="核对已绑定证据的记录环境和当前发布工具链")
     parser.add_argument("scope", nargs="?", default="full")
     args = parser.parse_args()
+    if args.action == "verify-defaults":
+        print("\n".join(DEFAULT_VERIFY_GROUPS))
+        return 0
     if args.recorded_environment and args.action not in {"check", "summary"}:
         parser.error("记录环境用于已绑定证据的 check 与 summary 操作。")
     if args.action == "check-group":

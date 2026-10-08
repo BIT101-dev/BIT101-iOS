@@ -6,7 +6,7 @@ import plistlib
 import subprocess
 from functools import cache
 from pathlib import Path
-from validation_inputs import NETWORK_GROUPS
+from validation_policy import NETWORK_GROUPS
 
 DEVICE_GROUPS = {"all", "release-runtime", "ui", "schedule", "infrastructure", "login", "extensions",
                  "icloud", "icloud-cleanup", "restore", "manual-device"} | NETWORK_GROUPS

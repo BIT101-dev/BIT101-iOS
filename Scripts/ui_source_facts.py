@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = ROOT / "BIT101-iOS"
 
 
-SOURCE_ROOTS = (SOURCE_ROOT, ROOT / "Modules")
+SOURCE_ROOTS = tuple(ROOT / name for name in ("BIT101-iOS", "Modules", "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets"))
 
 
 DESIGN_SYSTEM = ROOT / "Modules/DesignSystemKit/Sources/AppDesignSystem.swift"

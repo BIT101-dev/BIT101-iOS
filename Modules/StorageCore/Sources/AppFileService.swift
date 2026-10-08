@@ -136,9 +136,10 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
     }
 
     private static func configureBackup(_ url: URL, excluded: Bool) throws {
-        var targetURL = url
-        targetURL.removeAllCachedResourceValues()
-        try (targetURL as NSURL).setResourceValue(excluded, forKey: .isExcludedFromBackupKey)
+        var targetURL = URL(fileURLWithPath: url.path, isDirectory: url.hasDirectoryPath)
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = excluded
+        try targetURL.setResourceValues(values)
     }
 
     public func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL] {

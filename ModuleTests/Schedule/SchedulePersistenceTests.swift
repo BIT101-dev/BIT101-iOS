@@ -17,8 +17,7 @@ struct SchedulePersistenceTests {
         let directory = root.appendingPathComponent("drafts", isDirectory: true)
         let files = LocalAppFileService()
         func exclusion(_ url: URL) throws -> Bool? {
-            var fresh = url
-            fresh.removeAllCachedResourceValues()
+            let fresh = URL(fileURLWithPath: url.path, isDirectory: url.hasDirectoryPath)
             return try fresh.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup
         }
         try files.createDirectory(at: directory)
@@ -26,13 +25,11 @@ struct SchedulePersistenceTests {
         let file = directory.appendingPathComponent("draft.json")
         let original = Data("user-created-draft".utf8)
         try files.writeData(original, to: file, options: .atomic)
-        try files.setBackupExcluded(true, at: root, recursively: true)
-        #expect(try exclusion(root) == true)
-        try files.setBackupExcluded(false, at: root, recursively: true)
-        #expect(try exclusion(root) != true)
-        #expect(try exclusion(directory) != true)
-        #expect(try exclusion(file) != true)
-        #expect(try files.readData(at: file) == original)
+        for excluded in [true, false, true, false] {
+            try files.setBackupExcluded(excluded, at: root, recursively: true)
+            for target in [root, directory, file] { #expect((try exclusion(target) == true) == excluded) }
+            #expect(try files.readData(at: file) == original)
+        }
         try files.writeData(Data("edited".utf8), to: file, options: .atomic)
         #expect(try exclusion(directory) != true)
     }

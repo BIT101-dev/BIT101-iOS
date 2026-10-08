@@ -6,7 +6,7 @@ extension CommunityWriteSmoke {
     struct Like: Codable { let target: Target; let original: Bool }
 
     struct Journal: Codable {
-        static let currentVersion = 1
+        static let currentVersion = 2
         let schemaVersion: Int
         let marker: String
         let account: Int
@@ -14,11 +14,12 @@ extension CommunityWriteSmoke {
         var targets: [Target] = []
         var parents: [String] = []
         var comments: [Int] = []
+        var commentParents: [Int: String] = [:]
         var likes: [Like] = []
         var evidence: [String] = []
 
         private enum CodingKeys: String, CodingKey {
-            case schemaVersion, marker, account, attempts, targets, parents, comments, likes, evidence
+            case schemaVersion, marker, account, attempts, targets, parents, comments, commentParents, likes, evidence
         }
 
         init(marker: String, account: Int) {
@@ -55,6 +56,16 @@ extension CommunityWriteSmoke {
                 likes = try values.decode([Like].self, forKey: .likes)
                 evidence = try values.decode([String].self, forKey: .evidence)
             }
+            if schemaVersion >= 2 {
+                commentParents = try values.decode([Int: String].self, forKey: .commentParents)
+            } else {
+                for item in evidence {
+                    let parts = item.split(separator: " ").map(String.init)
+                    guard parts.count == 4, parts[0] == "创建", parts[1].hasPrefix("comment"), parts[2] == "目标",
+                          let id = Int(parts[1].dropFirst(7)), comments.contains(id), parents.contains(parts[3]) else { continue }
+                    commentParents[id] = parts[3]
+                }
+            }
         }
 
         func encode(to encoder: Encoder) throws {
@@ -66,6 +77,7 @@ extension CommunityWriteSmoke {
             try values.encode(targets, forKey: .targets)
             try values.encode(parents, forKey: .parents)
             try values.encode(comments, forKey: .comments)
+            try values.encode(commentParents, forKey: .commentParents)
             try values.encode(likes, forKey: .likes)
             try values.encode(evidence, forKey: .evidence)
         }

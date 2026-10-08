@@ -18,6 +18,11 @@ def run_self_test(rules: dict) -> None:
     swift_code = rules["swift_code"]
     swift_syntax_index_sources = rules["swift_syntax_index_sources"]
     type_aliases = rules["type_aliases"]
+    from validation_policy import IOS_MODULE_COVERAGE_FLOORS
+    registered_modules = set(IOS_MODULE_COVERAGE_FLOORS)
+    assert rules["coverage_registry_findings"](registered_modules) == []
+    assert rules["coverage_registry_findings"](registered_modules | {"NewModule"})
+    assert rules["coverage_registry_findings"](registered_modules - {"TransportCore"})
 
     from unittest.mock import patch
     module = rules["resource_facts"].__module__

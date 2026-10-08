@@ -180,7 +180,7 @@ if [[ "$MODE" == "verify" ]]; then
   typeset -aU verification_groups
   verification_groups=("$@")
   if (( ${#verification_groups[@]} == 0 )); then
-    verification_groups=(modules all release-runtime catalyst catalyst-release-runtime ui network community-writes icloud build-archive audit)
+    verification_groups=("${(@f)$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" verify-defaults)}")
   fi
   verification_needs_device=false
   for group in "${verification_groups[@]}"; do
