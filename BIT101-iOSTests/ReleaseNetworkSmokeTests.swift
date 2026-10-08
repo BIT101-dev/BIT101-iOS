@@ -723,7 +723,8 @@ extension ReleaseNetworkSmokeLifecycleTests {
         func fetchClaims() async throws -> [CommunityClaim] { [poster.claim] }
         func fetchReportTypes() async throws -> [GalleryReportType] { [] }
         func fetchCourses(search: String, page: Int) async throws -> [CourseSummary] {
-            [CourseSummary(detail: CourseDetail(id: 1, name: "fixture", number: "COURSE", credit: 1, likeNum: 0, commentNum: 0, rate: 0, teachersName: "", teachersNumber: "", like: false))]
+            guard page == 0 || stage == "repeated-page-failure" else { return [] }
+            return [CourseSummary(detail: CourseDetail(id: 1, name: "fixture", number: "COURSE", credit: 1, likeNum: 0, commentNum: 0, rate: 0, teachersName: "", teachersNumber: "", like: false))]
         }
         func fetchCourse(id: Int) async throws -> CourseDetail {
             observed.insert("course-detail")
@@ -734,6 +735,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
         func fetchComments(courseID: Int, page: Int?) async throws -> [CommunityComment] { [] }
         func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary] {
             observed.insert("paper-list")
+            guard page == 0 else { return [] }
             return [PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")]
         }
         func fetchPaper(id: Int) async throws -> PaperDetail {
@@ -743,8 +745,8 @@ extension ReleaseNetworkSmokeLifecycleTests {
         func fetchComments(paperID: Int, order: CommunityCommentOrder, page: Int?) async throws -> [CommunityComment] { [] }
         func fetchMyInfo() async throws -> MineUserInfo { observed.insert("mine"); return try await fetchUserInfo(id: 1) }
         func fetchUserInfo(id: Int) async throws -> MineUserInfo { MineUserInfo(user: user, followingNum: 0, followerNum: 0, following: false, follower: false, own: true) }
-        func fetchUserPosters(userID: Int, page: Int) async throws -> [CommunityPoster] { [poster] }
-        func fetchMyPosters(page: Int) async throws -> [CommunityPoster] { [poster] }
+        func fetchUserPosters(userID: Int, page: Int) async throws -> [CommunityPoster] { page == 0 ? [poster] : [] }
+        func fetchMyPosters(page: Int) async throws -> [CommunityPoster] { page == 0 ? [poster] : [] }
         func fetchFollowers(page: Int) async throws -> [CommunityUser] { [] }
         func fetchFollowings(page: Int) async throws -> [CommunityUser] { [] }
         func fetchCurrentTermOnly() async throws -> String {
@@ -850,7 +852,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
     @Test("Full smoke orchestration preserves success, intermediate failures and subsequent scopes", arguments:
         ["all-success", "all-sms-success", "all-sms-not-required", "community-failure", "schedule-success", "ddl-success", "ddl-failure", "ddl-invalid-calendar-failure", "raw-write-failure",
          "app-store-redirect-failure", "emergency-redirect-failure", "aasa-redirect-failure", "aasa-followed-redirect-failure",
-         "aasa-mime-failure", "aasa-exclusion-failure", "image-budget-failure", "entity-identity-failure"])
+         "aasa-mime-failure", "aasa-exclusion-failure", "image-budget-failure", "entity-identity-failure", "repeated-page-failure"])
     func completeOrchestration(stage: String) async throws {
         let image = try #require(UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { $0.fill(CGRect(x: 0, y: 0, width: 1, height: 1)) }.pngData())
         let services = Services(stage: stage, image: image)
@@ -872,7 +874,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
             feedbackProbe: { _ in feedback += 1 },
             loadScheduleCache: { ScheduleCache() }, makeScores: { services }, makeSchedule: { handler in services.rawResponse = handler; return services },
             makeProductionSchedule: { productionServices }, makeEclassSchedule: { services })
-        let scope: NetworkSmokeScope = stage.hasPrefix("all-") || redirectHost != nil || stage.hasPrefix("aasa") ? .all : stage == "community-failure" || stage == "image-budget-failure" || stage == "entity-identity-failure" ? .bit101 : stage.hasPrefix("ddl") ? .ddl : .schedule
+        let scope: NetworkSmokeScope = stage.hasPrefix("all-") || redirectHost != nil || stage.hasPrefix("aasa") ? .all : stage == "community-failure" || stage == "image-budget-failure" || stage == "entity-identity-failure" || stage == "repeated-page-failure" ? .bit101 : stage.hasPrefix("ddl") ? .ddl : .schedule
         let runner = ReleaseNetworkSmokeRunner(dependencies: dependencies)
         let smsHandler: SchoolSMSCodeHandler = { _ in "fixture-code" }
         let report = await runner.run(scope: scope, runID: stage, capture: stage == "raw-write-failure" ? .rawCourseResponse : .none,
@@ -893,7 +895,12 @@ extension ReleaseNetworkSmokeLifecycleTests {
             #expect(report.schoolSMSCoverage == "not_required")
             #expect(report.verifiedSMSProbes.isEmpty && report.requestedSMSPurposes.isEmpty)
         }
-        #expect(Set(report.executedProbes) == Set(scope.requiredProbes))
+        if stage == "repeated-page-failure" {
+            #expect(report.failures.contains { $0.contains("学业课程列表") })
+            #expect(Set(scope.requiredProbes).subtracting(report.executedProbes)
+                == ["学业课程详情", "学业课程评论", "学业课程历史成绩", "学业课程网页详情"])
+            #expect(!report.coverageComplete)
+        } else { #expect(Set(report.executedProbes) == Set(scope.requiredProbes)) }
         #expect(reports.count == 1 && reports[0].passed == report.passed)
         if scope.includes(.bit101) { #expect(feedback == 1 && services.observed.contains("mine") && services.observed.contains("paper-list")) }
         #expect(association.requests.count == (scope.includes(.bit101) ? 1 : 0))

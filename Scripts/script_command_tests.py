@@ -1,6 +1,8 @@
 """Workflow dispatch tests use tool and filesystem substitutes."""
 import os
+import json
 import re
+import shutil
 import subprocess
 import sys
 from contextlib import redirect_stdout
@@ -166,4 +168,38 @@ xcrun() {
             findings.append("UI 计划自测：运行配置完整性检查")
 
     findings.extend(device_discovery_boundary_findings())
+    findings.extend(ui_metrics_boundary_findings())
     return findings
+
+
+def ui_metrics_boundary_findings() -> list[str]:
+    source = (SCRIPT_ROOT / "run-extended-tests.sh").read_text().split("record_metrics() {", 1)[1]
+    source = re.search(r"<<'PY'\n(.*?)^PY$", source, re.MULTILINE | re.DOTALL)[1]
+    def inventory(process, key, pending=()):
+        return {"processIdentifier": process, "scope": "mounted-controls",
+            "identityScope": "testCaseNavigationPresentationAndOccurrence",
+            "observedControls": [key, *pending], "disabledControls": [], "checkedDisabledControls": [],
+            "unidentifiedInstances": [], "visitedControls": [{"instance": key, "identifier": key,
+                "scope": f"Journey{process}/testRun", "actions": ["tap"]}]}
+    output = "\n".join(["UI automation App process: 10", "UI control inventory: " + json.dumps(inventory(10, "first", ["pending"])),
+        "UI automation App process: 20", "UI control inventory: " + json.dumps(inventory(20, "second"))])
+    summary = {"result": "Passed", "totalTestCount": 2, "passedTests": 2, "failedTests": 0, "skippedTests": 0}
+    report = {}
+    diagnostic = Path("/audit/diagnostics/StandardOutputAndStandardError.txt")
+    original_read, original_open, original_rglob = Path.read_text, Path.open, Path.rglob
+    def run(arguments, **kwargs):
+        return subprocess.CompletedProcess(arguments, 0, json.dumps(summary) if "summary" in arguments else "", "")
+    with patch.object(sys, "argv", ["metrics", "/audit/result.xcresult", "/audit/test-metrics.txt", "ui", "1", "device", str(ROOT)]), \
+            patch.object(subprocess, "run", side_effect=run), patch.object(subprocess, "check_output", return_value='[]'), \
+            patch.object(shutil, "rmtree"), patch.object(Path, "rglob", lambda path, pattern: [diagnostic]
+                if path == diagnostic.parent else original_rglob(path, pattern)), \
+            patch.object(Path, "read_text", lambda path, *args, **kwargs: output if path == diagnostic else original_read(path, *args, **kwargs)), \
+            patch.object(Path, "open", lambda path, *args, **kwargs: StringIO() if path == Path("/audit/ui-tests.log") else original_open(path, *args, **kwargs)), \
+            patch.object(Path, "write_text", lambda path, value, **kwargs: report.__setitem__(path, value)), \
+            patch.dict(os.environ, BIT101_VALIDATION_SOURCE_DIGEST="digest", BIT101_VALIDATION_RUN_ID="run"), redirect_stdout(StringIO()):
+        exec(compile(source, "ui-metrics-self-test", "exec"), {})
+    result = json.loads(next(line.split("：", 1)[1] for line in report[Path("/audit/test-metrics.txt")].splitlines() if line.startswith("控件库存：")))
+    if result["processIdentifiers"] == ["10", "20"] and result["observed"] == 3 and result["visited"] == 2 \
+            and result["pending"] == ["10:pending"] and {row["identifier"] for row in result["visitedControls"]} == {"first", "second"}:
+        return []
+    return ["UI 指标自测：冷启动前后的实际库存与待访问项共同保留"]

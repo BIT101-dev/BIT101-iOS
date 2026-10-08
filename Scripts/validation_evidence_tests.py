@@ -36,6 +36,18 @@ def run_self_test(subject) -> int:
             assert merge_findings(broken, digest=lambda *args, **kwargs: 'digest', complete=lambda *args: True, commit='commit')
         assert merge_findings(core, digest=lambda *args, **kwargs: 'changed', complete=lambda *args: True, commit='commit')
         assert merge_findings(core, digest=lambda *args, **kwargs: 'digest', complete=lambda *args: True, commit='other')
+        from contextlib import nullcontext, redirect_stderr
+        from io import StringIO
+        for accepted_commit, expected in (('commit', 0), ('other', 1)):
+            with patch.object(sys, 'argv', ['validation_evidence.py', 'check-merge', '--recorded-environment']), \
+                    patch.object(subject, 'report_lock', side_effect=nullcontext), \
+                    patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'read_text', return_value=json.dumps(core)), \
+                    patch.object(subprocess, 'check_output', return_value=accepted_commit), \
+                    patch.object(subject, 'source_digest', return_value='digest'), \
+                    patch.object(subject, 'complete_summary', return_value=True), redirect_stderr(StringIO()):
+                assert subject.main() == expected
+        from ui_inventory import self_test as ui_inventory_self_test
+        ui_inventory_self_test()
         all_suites = {test.split('/', 1)[0] for test in subject.test_inventory('all')}
         assert inventory_findings(all_suites) == []
         assert inventory_findings(all_suites | {'NewFeatureTests'})

@@ -142,11 +142,15 @@ enum UITestAccessibilityActions {
         observe()
         let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
         return try JSONSerialization.data(withJSONObject: [
+            "processIdentifier": ProcessInfo.processInfo.processIdentifier,
             "observed": observed.union(visited).count, "visited": visited.count,
+            "observedControls": observed.union(visited).sorted(),
             "pending": observed.subtracting(visited).sorted(),
             "visitedControls": Array(visitedControls.values),
             "scope": "mounted-controls", "unidentifiedControls": unidentified.count,
+            "unidentifiedInstances": unidentified.sorted(),
             "disabledObserved": disabledObserved.count,
+            "disabledControls": disabledObserved.sorted(), "checkedDisabledControls": disabledChecked.sorted(),
             "pendingDisabled": disabledObserved.subtracting(disabledChecked).sorted(),
             "identityScope": "testCaseNavigationPresentationAndOccurrence",
             "animationSpeeds": windows.filter { $0.windowLevel == .normal }.map { $0.layer.speed },

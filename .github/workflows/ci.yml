@@ -51,6 +51,7 @@ jobs:
           [[ "$BIT101_COVERAGE_BASELINE_URL" == https://* ]] || { echo 'Coverage baseline requires an HTTPS URL.' >&2; exit 64; }
           mkdir -p .build/extended-automation
           curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+            --get --data-urlencode "commit=$BIT101_BASE_COMMIT" \
             --output .build/extended-automation/validation-evidence.json "$BIT101_COVERAGE_BASELINE_URL"
           python3 Scripts/validation_evidence.py baseline "$BIT101_BASE_COMMIT"
       - name: Run static audit
@@ -184,10 +185,12 @@ jobs:
       - name: Download release validation evidence
         env:
           BIT101_RELEASE_EVIDENCE_URL: ${{ inputs.validation_evidence || vars.BIT101_RELEASE_EVIDENCE_URL }}
+          BIT101_RELEASE_COMMIT: ${{ github.sha }}
         run: |
           [[ "$BIT101_RELEASE_EVIDENCE_URL" == https://* ]] || { echo 'Release evidence requires an HTTPS URL.' >&2; exit 64; }
           mkdir -p .build/extended-automation
           curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+            --get --data-urlencode "commit=$BIT101_RELEASE_COMMIT" \
             --output .build/extended-automation/validation-evidence.json "$BIT101_RELEASE_EVIDENCE_URL"
       - name: Check release validation evidence
         run: python3 Scripts/validation_evidence.py check --recorded-environment
@@ -208,10 +211,12 @@ jobs:
       - name: Download merge validation evidence
         env:
           BIT101_MERGE_EVIDENCE_URL: ${{ vars.BIT101_MERGE_EVIDENCE_URL }}
+          BIT101_MERGE_COMMIT: ${{ github.sha }}
         run: |
           [[ "$BIT101_MERGE_EVIDENCE_URL" == https://* ]] || { echo 'Merge evidence requires an HTTPS URL.' >&2; exit 64; }
           mkdir -p .build/extended-automation
           curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+            --get --data-urlencode "commit=$BIT101_MERGE_COMMIT" \
             --output .build/extended-automation/validation-evidence.json "$BIT101_MERGE_EVIDENCE_URL"
       - name: Check core physical-device evidence
         run: python3 Scripts/validation_evidence.py check-merge --recorded-environment

@@ -625,8 +625,8 @@ def main() -> int:
     if args.action == "verify-defaults":
         print("\n".join(DEFAULT_VERIFY_GROUPS))
         return 0
-    if args.recorded_environment and args.action not in {"check", "summary"}:
-        parser.error("记录环境用于已绑定证据的 check 与 summary 操作。")
+    if args.recorded_environment and args.action not in {"check", "check-merge", "summary"}:
+        parser.error("记录环境用于已绑定证据的 check、check-merge 与 summary 操作。")
     if args.action == "check-group":
         with report_lock():
             report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}

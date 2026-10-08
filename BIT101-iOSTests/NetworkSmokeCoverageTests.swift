@@ -29,13 +29,44 @@ struct NetworkSmokeCoverageTests {
         pages = []
         let first: GalleryPageBatch<CommunityUser> = try await NetworkSmokePaging.batch { page in
             pages.append(page)
-            return .init(items: [], nextSourcePage: page == 0 ? 4 : 5, canLoadMore: page == 0, sourceIDs: [1])
+            return .init(items: [], nextSourcePage: page == 0 ? 4 : 5, canLoadMore: page == 0, sourceIDs: [page + 1])
         }
         #expect(first.items.isEmpty && pages == [0, 4])
         await #expect(throws: URLError.self) {
             let _: GalleryPageBatch<CommunityUser> = try await NetworkSmokePaging.batch { page in
                 .init(items: [user(1)], nextSourcePage: 1, canLoadMore: true)
             }
+        }
+    }
+
+    @Test func repeatedPagesFailAndPartialOverlapOrTerminalPagesAdvance() async throws {
+        for repeated in [true, false] {
+            await #expect(throws: URLError.self) {
+                _ = try await NetworkSmokePaging.arrayPage { page in
+                    [user(repeated || page == 0 ? 1 : 0)]
+                }
+            }
+            await #expect(throws: URLError.self) {
+                let _: GalleryPageBatch<CommunityUser> = try await NetworkSmokePaging.batch { page in
+                    .init(items: [], nextSourcePage: page + 1, canLoadMore: true,
+                        sourceIDs: [repeated || page == 0 ? 1 : 0])
+                }
+            }
+        }
+        for terminal in [false, true] {
+            var pages: [Int] = []
+            _ = try await NetworkSmokePaging.arrayPage { page in
+                pages.append(page)
+                return page == 0 ? [user(1), user(2)] : terminal ? [] : [user(2), user(3)]
+            }
+            #expect(pages == [0, 1])
+            pages = []
+            let _: GalleryPageBatch<CommunityUser> = try await NetworkSmokePaging.batch { page in
+                pages.append(page)
+                return .init(items: [], nextSourcePage: page + 1, canLoadMore: page == 0,
+                    sourceIDs: page == 0 ? [1, 2] : terminal ? [] : [2, 3])
+            }
+            #expect(pages == [0, 1])
         }
     }
 

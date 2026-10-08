@@ -595,6 +595,7 @@ import sys
 from pathlib import Path
 
 result_bundle, report_path, mode, elapsed_seconds, device_id, root = sys.argv[1:]
+sys.path.insert(0, str(Path(root) / "Scripts"))
 summary_result = subprocess.run([
     "xcrun", "xcresulttool", "get", "test-results", "summary",
     "--path", result_bundle,
@@ -661,7 +662,8 @@ if coverage is None:
         lines.append(f"UIKit 控件事件：{len(control_actions)} 次；累计 {sum(control_actions):.1f} 秒")
         inventories = re.findall(r"UI control inventory: (\{[^\n]+\})", output)
         if inventories:
-            inventory = json.loads(inventories[-1])
+            from ui_inventory import merge
+            inventory = merge([json.loads(value) for value in inventories], set(processes))
             lines.append("控件库存：" + json.dumps(inventory, ensure_ascii=False))
             lines.append(f"运行中发现的交互标识：{inventory['observed']}；已访问 {inventory['visited']}")
             pending = inventory.get('pending', [])

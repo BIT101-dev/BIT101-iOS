@@ -10,11 +10,11 @@ enum NetworkSmokePaging {
         let identity = AppAccountSession.storage.communityCredentials.identity
         let first = try await load(0)
         try checkIdentity(identity)
-        guard first.allSatisfy({ $0.id > 0 }) else { throw URLError(.cannotParseResponse) }
+        try checkProgress(first: [], next: first.map(\.id))
         if !first.isEmpty {
             let second = try await load(1)
             try checkIdentity(identity)
-            guard second.allSatisfy({ $0.id > 0 }) else { throw URLError(.cannotParseResponse) }
+            try checkProgress(first: first.map(\.id), next: second.map(\.id))
         }
         return first
     }
@@ -23,11 +23,15 @@ enum NetworkSmokePaging {
         let identity = AppAccountSession.storage.communityCredentials.identity
         let first = try await load(0)
         try checkIdentity(identity)
-        guard first.nextSourcePage > 0 else { throw URLError(.cannotParseResponse) }
+        try checkProgress(first: [], next: first.sourceIDs)
+        guard first.nextSourcePage > 0, !first.canLoadMore || !first.sourceIDs.isEmpty
+        else { throw URLError(.cannotParseResponse) }
         if first.canLoadMore {
             let second = try await load(first.nextSourcePage)
             try checkIdentity(identity)
-            guard second.nextSourcePage > first.nextSourcePage else { throw URLError(.cannotParseResponse) }
+            try checkProgress(first: first.sourceIDs, next: second.sourceIDs)
+            guard second.nextSourcePage > first.nextSourcePage, !second.canLoadMore || !second.sourceIDs.isEmpty
+            else { throw URLError(.cannotParseResponse) }
         }
         return first
     }
@@ -48,6 +52,11 @@ enum NetworkSmokePaging {
     private static func checkIdentity(_ identity: CommunitySessionIdentity) throws {
         try Task.checkCancellation()
         guard identity == AppAccountSession.storage.communityCredentials.identity else { throw CancellationError() }
+    }
+
+    private static func checkProgress(first: [Int], next: [Int]) throws {
+        guard next.allSatisfy({ $0 > 0 }), next.isEmpty || !Set(next).subtracting(first).isEmpty
+        else { throw URLError(.badServerResponse) }
     }
 }
 #endif

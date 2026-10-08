@@ -16,12 +16,20 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     override func tearDown() async throws {
         await MainActor.run {
-            if Self.sessionApplication?.state == .runningForeground,
-               let coverage = UITestControlClient.request(["command": "coverage"]) {
-                print("UI control inventory: \(coverage)")
-            }
+            Self.captureControlInventory()
         }
         try await super.tearDown()
+    }
+
+    @MainActor
+    private static func captureControlInventory() {
+        guard let application = Self.sessionApplication, application.state != .notRunning else { return }
+        if application.state != .runningForeground { application.activate() }
+        guard let coverage = UITestControlClient.request(["command": "coverage"]) else {
+            XCTFail("所属 App 进程应返回完整交互库存。")
+            return
+        }
+        print("UI control inventory: \(coverage)")
     }
 
     @MainActor
@@ -599,6 +607,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                 assertUI(false, "冷启动验收需要已运行的 App 及已保存的隔离数据。")
                 return app
             }
+            Self.captureControlInventory()
             previousApplication.terminate()
             assertUI(previousApplication.state == .notRunning, "冷启动前应结束所属 App 进程。")
             Self.sessionApplication = nil
