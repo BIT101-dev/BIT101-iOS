@@ -5,6 +5,7 @@ import StorageCore
 
 /// 注入式日程磁盘仓库，账号路径与串行写入归单个实例维护。
 public actor SchedulePersistenceStore {
+    public nonisolated static let maximumCacheBytes = 16 * 1_024 * 1_024
     private nonisolated let files: any AppFileService
     private nonisolated let storageRoot: URL
     private let userStateMatches: @Sendable (ScheduleCache, ScheduleCache) throws -> Bool
@@ -68,7 +69,7 @@ public actor SchedulePersistenceStore {
         guard files.fileExists(at: url) else { return .missing }
         do {
             try? files.setPrivateFileProtection(at: url)
-            let data = try files.readData(at: url)
+            let data = try files.readData(at: url, maximumBytes: Self.maximumCacheBytes)
             let result = Self.decodeCache(data)
             if result.isUnreadable {
                 Self.logger.error("课表缓存解码失败，保留原文件：\(url.lastPathComponent, privacy: .public)")
@@ -81,7 +82,8 @@ public actor SchedulePersistenceStore {
     }
 
     public nonisolated static func decodeCache(_ data: Data) -> ScheduleCacheLoadResult {
-        guard let cache = try? Self.makeDecoder().decode(ScheduleCache.self, from: data) else {
+        guard data.count <= maximumCacheBytes,
+              let cache = try? Self.makeDecoder().decode(ScheduleCache.self, from: data) else {
             return .unreadable
         }
         return .loaded(cache)
@@ -102,6 +104,7 @@ public actor SchedulePersistenceStore {
         do {
             try files.createDirectory(at: currentURL.deletingLastPathComponent())
             let data = try Self.makeEncoder().encode(cache)
+            guard data.count <= Self.maximumCacheBytes else { throw CocoaError(.fileWriteOutOfSpace) }
             try files.writeData(
                 data,
                 to: currentURL,
@@ -180,6 +183,7 @@ public actor SchedulePersistenceStore {
             }
             try files.createDirectory(at: directory)
             let data = try Self.makeEncoder().encode(cache)
+            guard data.count <= Self.maximumCacheBytes else { throw CocoaError(.fileWriteOutOfSpace) }
             try files.writeData(
                 data,
                 to: url,

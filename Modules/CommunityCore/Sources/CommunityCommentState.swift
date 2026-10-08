@@ -3,7 +3,12 @@ public struct CommunityCommentState {
     public init() {}
 
     /// 当前已加载的顶层评论列表。
-    public var items: [CommunityComment] = []
+    private var storage = CommunityPagedItems<CommunityComment>()
+    public var items: [CommunityComment] {
+        get { storage.items }
+        set { storage.replace(with: newValue) }
+    }
+    public mutating func appendUniqueItems(_ values: [CommunityComment]) { storage.append(values) }
     /// 评论区当前的整体加载状态。
     public var status: CommunityLoadStatus = .idle
     public var order: CommunityCommentOrder = .newest

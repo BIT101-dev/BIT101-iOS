@@ -23,11 +23,13 @@ struct ServiceContractTests {
 
     private final class Transport: HTTPTransport {
         var requests: [URLRequest] = []
+        var failure: (any Error)?
         private var responses: [(Int, String)]
         init(_ responses: [(Int, String)]) { self.responses = responses }
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             try Task.checkCancellation()
             requests.append(request)
+            if let failure { throw failure }
             let response = try #require(responses.first)
             responses.removeFirst()
             let url = try #require(request.url)
@@ -71,9 +73,9 @@ struct ServiceContractTests {
     }
 
     @Test func botFilteringContinuesBeyondFiveHiddenSourcePages() async throws {
-        let hidden = poster(id: 1, bot: true)
+        let hidden = (1...5).map { poster(id: $0, bot: true) }
         let visible = poster(id: 8, bot: true, userID: 2)
-        let transport = Transport(Array(repeating: (200, "[" + hidden + "]"), count: 5) + [(200, "[" + visible + "]"), (200, "[]")])
+        let transport = Transport(hidden.map { (200, "[" + $0 + "]") } + [(200, "[" + visible + "]"), (200, "[]")])
         let service = GalleryService(session: session(transport), preferences: {
             CommunityPreferenceSnapshot(hideBots: false, hiddenUserIDs: [1], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
         })
@@ -83,6 +85,54 @@ struct ServiceContractTests {
         let end = try await service.fetchBotFeed(startPage: batch.nextSourcePage)
         #expect(end.items.isEmpty && end.nextSourcePage == 7 && end.canLoadMore == false)
         #expect(transport.requests.count == 7)
+    }
+
+    @Test(arguments: ["feed", "bot", "recommend", "comments"])
+    func repeatedFilteredPagesReleaseTheirLoadingState(kind: String) async throws {
+        let hidden = poster(id: 1, anonymous: true)
+        let comment = #"{"id":5,"obj":"poster1","images":[],"user":\#(user),"anonymous":true,"create_time":"","update_time":"","like":false,"like_num":0,"comment_num":0,"own":true,"rate":0,"reply_user":\#(user),"reply_obj":"","text":"fixture","sub":[]}"#
+        let transport = Transport(Array(repeating: (200, "[" + (kind == "comments" ? comment : hidden) + "]"), count: 8))
+        let service = GalleryService(session: session(transport), preferences: {
+            CommunityPreferenceSnapshot(hideBots: false, hiddenUserIDs: [], hideAnonymous: true, useWebView: false, hideMakeupOutliers: false)
+        })
+        if kind == "recommend" {
+            let model = GalleryViewModel(service: service)
+            await model.refresh(feed: .recommend)
+            #expect(model.state(for: .recommend).status != .loading && model.alert != nil)
+        } else {
+            await #expect(throws: URLError.self) {
+                switch kind {
+                case "feed": _ = try await service.fetchFeed(kind: .newest, page: nil)
+                case "bot": _ = try await service.fetchBotFeed(startPage: 0)
+                default: _ = try await service.fetchComments(objectID: "poster1", order: .newest, page: nil)
+                }
+            }
+        }
+        #expect(transport.requests.count == 5)
+    }
+
+    @Test func posterUpdateRetainsThePluginPayloadOnTheWire() async throws {
+        let transport = Transport([(200, "")])
+        let plugins = #"[{"type":"future","data":{"text":"preserved"}}]"#
+        try await GalleryService(session: session(transport), preferences: {
+            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        }).updatePoster(id: 42, title: "编辑", text: "正文", imageMids: [], plugins: plugins,
+            anonymous: false, tags: [], claimID: 0, isPublic: true)
+        let body = try #require(transport.requests.first?.httpBody)
+        #expect((try JSONSerialization.jsonObject(with: body) as? [String: Any])?["plugins"] as? String == plugins)
+    }
+
+    @Test(arguments: [false, true])
+    func reportTransportCancellationPreservesItsClassification(urlError: Bool) async {
+        let transport = Transport([])
+        transport.failure = urlError ? URLError(.cancelled) : CancellationError()
+        let service = GalleryService(session: session(transport), preferences: {
+            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        })
+        do {
+            try await service.report(objectID: "poster1", typeID: 42, text: "说明")
+            Issue.record("Cancelled report should release its caller")
+        } catch { #expect(TaskCancellation.matches(error)) }
     }
 
     @Test func filteredCommentPagesKeepTheirSourceCursorAndRawRecoveryRemainsAvailable() async throws {

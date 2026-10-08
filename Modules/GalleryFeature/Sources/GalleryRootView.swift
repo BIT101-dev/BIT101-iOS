@@ -145,6 +145,9 @@ private struct GalleryRootViewScene: View {
         .task(id: requestedPosterID) {
             await openRequestedPosterIfNeeded()
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+            viewModel.releaseInactiveFeeds()
+        }
         .onChange(of: appSettings.snapshot.galleryHideBotPosterInSearch) { _, hidden in
             if hidden && viewModel.selectedFeed == .bot { viewModel.selectedFeed = .recommend }
         }
@@ -177,11 +180,14 @@ private struct GalleryRootViewScene: View {
             let webView = WKWebView(frame: .zero, configuration: configuration)
             webView.navigationDelegate = context.coordinator
             webView.allowsBackForwardNavigationGestures = true
+            context.coordinator.observeCredentials(in: webView)
             webView.load(GalleryWebRequestFactory.request(for: url))
             return webView
         }
 
-        func updateUIView(_ webView: WKWebView, context: Context) {}
+        func updateUIView(_ webView: WKWebView, context: Context) {
+            context.coordinator.synchronizeCredentials(in: webView)
+        }
 
         final class Coordinator: NSObject, WKNavigationDelegate {
             let session: CommunitySession
@@ -190,7 +196,14 @@ private struct GalleryRootViewScene: View {
                 self.session = session
                 self.openExternal = openExternal
             }
-            private var didInjectLoginState = false
+            private var credentialsSubscription: AnyCancellable?
+
+            func observeCredentials(in webView: WKWebView) {
+                credentialsSubscription = session.credentialsChanges.sink { [weak self, weak webView] _ in
+                    guard let webView else { return }
+                    self?.synchronizeCredentials(in: webView)
+                }
+            }
 
             func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
                 guard navigationAction.targetFrame?.isMainFrame != false,
@@ -210,14 +223,16 @@ private struct GalleryRootViewScene: View {
             }
 
             func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
-                guard !didInjectLoginState, GalleryWebRequestFactory.isTrustedPage(webView.url) else { return }
+                synchronizeCredentials(in: webView)
+            }
+
+            func synchronizeCredentials(in webView: WKWebView) {
+                guard !webView.isLoading, GalleryWebRequestFactory.isTrustedPage(webView.url) else { return }
                 let fakeCookie = session.fakeCookie
-                guard !fakeCookie.isEmpty else { return }
                 guard
                     let encodedCookieData = try? JSONEncoder().encode(fakeCookie),
                     let encodedCookie = String(data: encodedCookieData, encoding: .utf8)
                 else { return }
-                didInjectLoginState = true
                 let script = """
                 (() => {
                     if (location.origin !== 'https://bit101.cn') return;
@@ -229,12 +244,15 @@ private struct GalleryRootViewScene: View {
                             store = parsed;
                         }
                     } catch (_) {}
+                    if (store.fake_cookie === \(encodedCookie)) return false;
                     store.fake_cookie = \(encodedCookie);
                     localStorage.setItem('store', JSON.stringify(store));
-                    location.reload();
+                    return true;
                 })();
                 """
-                webView.evaluateJavaScript(script)
+                webView.evaluateJavaScript(script) { [weak webView] result, error in
+                    if error == nil, result as? Bool == true { webView?.reload() }
+                }
             }
 
             func webView(

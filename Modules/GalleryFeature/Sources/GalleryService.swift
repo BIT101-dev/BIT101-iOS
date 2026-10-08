@@ -8,6 +8,7 @@ import CommunityCore
 //
 
 import Foundation
+import TransportCore
 
 nonisolated enum GalleryWebRequestFactory {
     static func isTrustedPage(_ url: URL?) -> Bool {
@@ -63,16 +64,18 @@ enum GalleryContentFilter {
 }
 
 /// 话廊列表与搜索共享原始分页游标和可见帖子。
-public nonisolated struct GalleryPageBatch<Element: Sendable>: Sendable {
-    public init(items: [Element], nextSourcePage: Int, canLoadMore: Bool) {
+public nonisolated struct GalleryPageBatch<Element: Identifiable & Sendable>: Sendable where Element.ID == Int {
+    public init(items: [Element], nextSourcePage: Int, canLoadMore: Bool, sourceIDs: [Int]? = nil) {
         self.items = items
         self.nextSourcePage = nextSourcePage
         self.canLoadMore = canLoadMore
+        self.sourceIDs = sourceIDs ?? items.map(\.id)
     }
 
     public let items: [Element]
     public let nextSourcePage: Int
     public let canLoadMore: Bool
+    public let sourceIDs: [Int]
 }
 
 private enum GalleryBotClassifier {
@@ -224,7 +227,8 @@ public struct GalleryService {
                 applyBotFilterIfNeeded(rawPosters, hideBot: hideBot)
             ),
             nextSourcePage: sourcePage + 1,
-            canLoadMore: !rawPosters.isEmpty
+            canLoadMore: !rawPosters.isEmpty,
+            sourceIDs: rawPosters.map(\.id)
         )
     }
 
@@ -254,6 +258,7 @@ public struct GalleryService {
         var canLoadMore = true
         let maxScanCount = 5
         var scanned = 0
+        var progress = CommunityPageProgress<Int>()
 
         while canLoadMore && collected.count < 12 && (scanned < maxScanCount || collected.isEmpty) {
             try Task.checkCancellation()
@@ -266,6 +271,7 @@ public struct GalleryService {
                 hideBot: false
             )
             let visible = await applyGalleryFilters(rawPosters)
+            try progress.record(rawPosters.map(\.id))
             collected.append(contentsOf: visible.filter { GalleryBotClassifier.matches(tags: $0.tags) })
             canLoadMore = !rawPosters.isEmpty
             sourcePage += 1
@@ -396,6 +402,7 @@ public struct GalleryService {
         title: String,
         text: String,
         imageMids: [String],
+        plugins: String,
         anonymous: Bool,
         tags: [String],
         claimID: Int,
@@ -409,7 +416,7 @@ public struct GalleryService {
                     title: title,
                     text: text,
                     imageMids: imageMids,
-                    plugins: "[]",
+                    plugins: plugins,
                     anonymous: anonymous,
                     tags: tags,
                     claimID: claimID,
@@ -435,6 +442,7 @@ public struct GalleryService {
         } catch let error as GalleryServiceError {
             throw error
         } catch {
+            if TaskCancellation.matches(error) { throw error }
             throw GalleryServiceError.reportFailed
         }
     }
@@ -448,9 +456,11 @@ public struct GalleryService {
         page: Int?
     ) async throws -> GalleryPageBatch<CommunityComment> {
         var sourcePage = page ?? 0
+        var progress = CommunityPageProgress<Int>()
         while true {
             try Task.checkCancellation()
             let raw = try await fetchRawComments(objectID: objectID, order: order, page: sourcePage == 0 ? nil : sourcePage)
+            try progress.record(raw.map(\.id))
             let visible = await applyGalleryFilters(raw)
             sourcePage += 1
             if !visible.isEmpty || raw.isEmpty {
@@ -549,10 +559,12 @@ public struct GalleryService {
         hideBot: Bool
     ) async throws -> GalleryPageBatch<CommunityPoster> {
         var sourcePage = page ?? 0
+        var progress = CommunityPageProgress<Int>()
         while true {
             try Task.checkCancellation()
             let rawPosters = try await fetchRawPosters(mode: mode, order: order, search: search, uid: uid,
                 page: sourcePage == 0 ? nil : sourcePage, hideBot: hideBot)
+            try progress.record(rawPosters.map(\.id))
             let visible = await applyGalleryFilters(applyBotFilterIfNeeded(rawPosters, hideBot: hideBot))
             sourcePage += 1
             if !visible.isEmpty || rawPosters.isEmpty {

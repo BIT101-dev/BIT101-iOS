@@ -13,16 +13,10 @@ import SwiftUI
 
 struct GalleryReportSheet: View {
     let target: GalleryReportTarget
-    let service: any GalleryReportServicing
     let onFinished: () -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var reportTypes: [GalleryReportType] = []
-    @State private var selectedTypeID: Int?
-    @State private var text = ""
-    @State private var isLoading = true
-    @State private var isSubmitting = false
-    @State private var errorMessage: String?
+    @State private var model: GalleryReportViewModel
     @State private var isShowingSuccess = false
 
     init(
@@ -31,41 +25,45 @@ struct GalleryReportSheet: View {
         onFinished: @escaping () -> Void
     ) {
         self.target = target
-        self.service = service
+        _model = State(initialValue: GalleryReportViewModel(service: service))
         self.onFinished = onFinished
     }
 
     var body: some View {
+        @Bindable var model = model
         NavigationStack {
             Form {
                 Section("举报类型") {
-                    if isLoading {
+                    if model.isLoading {
                         ProgressView()
-                    } else if reportTypes.isEmpty {
+                    } else if model.reportTypes.isEmpty {
                         Text("暂无可用举报类型")
                             .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                        Button("重新加载") { Task { await model.loadReportTypes() } }
+                            .appInteractiveListRow()
+                            .accessibilityIdentifier("ui.gallery-report-sheet.reload")
                     } else {
                         Picker("类型", selection: Binding(
-                            get: { selectedTypeID ?? reportTypes.first?.id ?? 0 },
-                            set: { selectedTypeID = $0 }
+                            get: { model.selectedTypeID ?? model.reportTypes.first?.id ?? 0 },
+                            set: { model.selectedTypeID = $0 }
                         )) {
-                            ForEach(reportTypes) { reportType in
+                            ForEach(model.reportTypes) { reportType in
                                 Text(reportType.text).tag(reportType.id)
                             }
                         }
-                        .appSelectionFeedback(trigger: selectedTypeID ?? 0)
+                        .appSelectionFeedback(trigger: model.selectedTypeID ?? 0)
                         .appInteractiveListRow()
                     }
                 }
 
                 Section("补充说明") {
-                    TextField("", text: $text, prompt: AppInputPrompt.text("请描述举报原因"), axis: .vertical)
+                    TextField("", text: $model.text, prompt: AppInputPrompt.text("请描述举报原因"), axis: .vertical)
                         .lineLimit(4, reservesSpace: true)
                         .accessibilityLabel("请描述举报原因")
                         .accessibilityIdentifier("gallery.report.reason")
                 }
 
-                if let errorMessage, !errorMessage.isEmpty {
+                if let errorMessage = model.errorMessage, !errorMessage.isEmpty {
                     Section {
                         Text(errorMessage)
                             .foregroundStyle(AppDesignSystem.Palette.Status.danger)
@@ -73,11 +71,11 @@ struct GalleryReportSheet: View {
                 }
 
                 Section {
-                    Button(isSubmitting ? "提交中" : "提交举报") {
+                    Button(model.isSubmitting ? "提交中" : "提交举报") {
                         Task { await submit() }
                     }
                     .frame(maxWidth: .infinity)
-                    .disabled(isLoading || isSubmitting || selectedTypeID == nil)
+                    .disabled(model.isLoading || model.isSubmitting || model.selectedTypeID == nil)
                     .appInteractiveListRow()
                         .accessibilityIdentifier("ui.gallery-report-sheet.submit")
                 }
@@ -87,11 +85,11 @@ struct GalleryReportSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }
-                        .disabled(isSubmitting)
+                        .disabled(model.isSubmitting)
                         .accessibilityIdentifier("ui.gallery-report-sheet.cancel")
                 }
             }
-            .task { await loadReportTypes() }
+            .task { await model.loadReportTypes() }
             .alert("举报已提交", isPresented: $isShowingSuccess) {
                 Button("知道了") { dismiss() }
                     .accessibilityIdentifier("ui.gallery-report-sheet.知道了")
@@ -100,38 +98,13 @@ struct GalleryReportSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
-    }
-
-    private func loadReportTypes() async {
-        defer { isLoading = false }
-        do {
-            let remoteTypes = try await service.fetchReportTypes()
-            reportTypes = remoteTypes.isEmpty ? GalleryReportType.fallback : remoteTypes
-            selectedTypeID = reportTypes.first?.id
-        } catch {
-            if TaskCancellation.matches(error) { return }
-            reportTypes = GalleryReportType.fallback
-            selectedTypeID = reportTypes.first?.id
-        }
+        .onDisappear { model.cancel() }
     }
 
     private func submit() async {
-        guard let selectedTypeID else { return }
-        isSubmitting = true
-        errorMessage = nil
-        defer { isSubmitting = false }
-        do {
-            try await service.report(
-                objectID: target.objectID,
-                typeID: selectedTypeID,
-                text: text.trimmingCharacters(in: .whitespacesAndNewlines)
-            )
-            onFinished()
-            isShowingSuccess = true
-        } catch {
-            if TaskCancellation.matches(error) { return }
-            errorMessage = error.localizedDescription
-        }
+        guard await model.submit(objectID: target.objectID) else { return }
+        onFinished()
+        isShowingSuccess = true
     }
 }
 

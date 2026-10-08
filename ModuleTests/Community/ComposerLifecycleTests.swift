@@ -71,6 +71,7 @@ struct ComposerLifecycleTests {
             let anonymous: Bool
             let claimID: Int
             let isPublic: Bool
+            let plugins: String
         }
         var claims = [CommunityClaim(id: 3, text: "声明"), CommunityClaim(id: 0, text: "无声明")]
         var failsClaims = false
@@ -99,11 +100,11 @@ struct ComposerLifecycleTests {
             return CommunityImage(mid: "image-\(uploads.count)", url: "https://example.invalid/image.jpg", lowUrl: "")
         }
         func createPoster(title: String, text: String, imageMids: [String], anonymous: Bool, tags: [String], claimID: Int, isPublic: Bool) async throws -> Int {
-            try await send(.init(id: nil, title: title, text: text, mids: imageMids, tags: tags, anonymous: anonymous, claimID: claimID, isPublic: isPublic))
+            try await send(.init(id: nil, title: title, text: text, mids: imageMids, tags: tags, anonymous: anonymous, claimID: claimID, isPublic: isPublic, plugins: "[]"))
             return 42
         }
-        func updatePoster(id: Int, title: String, text: String, imageMids: [String], anonymous: Bool, tags: [String], claimID: Int, isPublic: Bool) async throws {
-            try await send(.init(id: id, title: title, text: text, mids: imageMids, tags: tags, anonymous: anonymous, claimID: claimID, isPublic: isPublic))
+        func updatePoster(id: Int, title: String, text: String, imageMids: [String], plugins: String, anonymous: Bool, tags: [String], claimID: Int, isPublic: Bool) async throws {
+            try await send(.init(id: id, title: title, text: text, mids: imageMids, tags: tags, anonymous: anonymous, claimID: claimID, isPublic: isPublic, plugins: plugins))
         }
         private func send(_ payload: Payload) async throws {
             submissions.append(payload)
@@ -129,9 +130,9 @@ struct ComposerLifecycleTests {
         .init(title: "草稿标题", text: "草稿正文", selectedTags: ["校园"], customTags: ["自定义"], anonymous: true,
             isPublic: false, selectedClaimID: 3, images: [.init(filename: "saved.jpg", previewData: Data([7]), uploadData: nil)])
     }
-    private func poster(images: [CommunityImage] = []) -> GalleryPosterDetail {
+    private func poster(images: [CommunityImage] = [], plugins: String = "[]") -> GalleryPosterDetail {
         .init(anonymous: true, claim: .init(id: 3, text: "声明"), commentNum: 0, createTime: "", editTime: "", id: 42,
-            images: images, like: false, likeNum: 0, own: true, plugins: "[]", public: false,
+            images: images, like: false, likeNum: 0, own: true, plugins: plugins, public: false,
             tags: ["校园", "生活"], text: "帖子正文", title: "帖子标题", updateTime: "", user: .placeholder(id: 1, nickname: "作者"))
     }
 
@@ -264,7 +265,7 @@ struct ComposerLifecycleTests {
         drafts.result = .loaded(snapshot())
         let service = Service()
         let image = CommunityImage(mid: "existing", url: "https://example.invalid/image.jpg", lowUrl: "")
-        let viewModel = model(service, drafts: drafts, editing: poster(images: [image]))
+        let viewModel = model(service, drafts: drafts, editing: poster(images: [image], plugins: #"[{"type":"future","data":{"value":"preserved"}}]"#))
         #expect(viewModel.title == "帖子标题")
         #expect(viewModel.anonymous && viewModel.isPublic == false)
         #expect(await viewModel.checkDraftOnAppear() == false)
@@ -274,6 +275,7 @@ struct ComposerLifecycleTests {
         #expect(await viewModel.submit())
         #expect(service.submissions.first?.id == 42)
         #expect(service.submissions.first?.mids == ["existing"])
+        #expect(service.submissions.first?.plugins == #"[{"type":"future","data":{"value":"preserved"}}]"#)
         #expect(drafts.cleanupCount == 0)
         #expect(drafts.result.snapshot?.title == "草稿标题")
         viewModel.removeExistingImage(id: image.id)

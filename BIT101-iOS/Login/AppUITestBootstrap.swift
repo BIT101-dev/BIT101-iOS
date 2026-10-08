@@ -181,6 +181,10 @@ final class UITestHTTPTransport: HTTPTransport {
             throw URLError(.notConnectedToInternet)
         }
         let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if AppUITestBootstrap.environment["BIT101_UI_TEST_REPORT_FAILURE_ONCE"] == "1",
+           path == "manage/report_types", failedPaths.insert(path).inserted {
+            throw URLError(.networkConnectionLost)
+        }
         if AppUITestBootstrap.environment["BIT101_UI_TEST_FAILURE_ONCE"] == "1",
            ["posters", "papers", "courses"].contains(path), failedPaths.insert(path).inserted {
             throw URLError(.networkConnectionLost)
@@ -342,7 +346,8 @@ final class UITestHTTPTransport: HTTPTransport {
           {"id":"ui-header","type":"header","data":{"text":"测试文章","level":1}},
           {"id":"ui-paragraph","type":"paragraph","data":{"text":"自动化测试文章正文"}},
           {"id":"ui-link","type":"paragraph","data":{"text":"<a href=\"https://github.com/BIT101-dev/BIT101-iOS\">正文链接</a>"}},
-          {"id":"ui-image","type":"image","data":{"file":{"url":"https://bit101.flwfdd.xyz/ui-images/image.png"},"caption":"测试图片"}}
+          {"id":"ui-image","type":"image","data":{"file":{"url":"https://bit101.flwfdd.xyz/ui-images/image.png"},"caption":"测试图片"}},
+          {"id":"ui-extended","type":"table","data":{"content":[["扩展正文"]]}}
         ]}
         """#
     }

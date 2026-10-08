@@ -7,6 +7,7 @@ struct GalleryPrefetchedPage {
     let posters: [CommunityPoster]
     let nextPage: Int
     let canLoadMore: Bool
+    let sourceIDs: [Int]
 }
 
 /// Shares source-page tasks between foreground pagination and background prefetch.
@@ -109,7 +110,8 @@ final class GalleryRecommendPrefetchCoordinator {
                 page: page,
                 posters: batch.items,
                 nextPage: batch.nextSourcePage,
-                canLoadMore: batch.canLoadMore
+                canLoadMore: batch.canLoadMore,
+                sourceIDs: batch.sourceIDs
             )
         }
         let operation = PageOperation(task: task)

@@ -36,6 +36,7 @@ final class LoginViewModel: ObservableObject {
 
     private let service: any LoginServicing
     private var sessionSubscription: AnyCancellable?
+    private var sessionRevision = 0
     /// 启动校验在视图重建期间保持单次触发。
     private var hasBootstrapped = false
 
@@ -51,6 +52,7 @@ final class LoginViewModel: ObservableObject {
         screenState = service.hasCachedSession ? .signedIn(studentID: savedStudentID) : .signedOut
         sessionSubscription = service.sessionChanges.sink { [weak self] _ in
             guard let self else { return }
+            self.sessionRevision &+= 1
             self.studentID = self.service.savedStudentID
             self.password = ""
             self.screenState = self.service.hasCachedSession ? .signedIn(studentID: self.studentID) : .signedOut
@@ -81,8 +83,11 @@ final class LoginViewModel: ObservableObject {
             return
         }
 
+        let revision = sessionRevision
         do {
-            if let studentID = try await service.checkLogin() {
+            let verifiedStudentID = try await service.checkLogin()
+            guard sessionRevision == revision else { return }
+            if let studentID = verifiedStudentID {
                 self.studentID = studentID
                 password = ""
                 screenState = .signedIn(studentID: studentID)
@@ -92,6 +97,7 @@ final class LoginViewModel: ObservableObject {
                 screenState = .signedOut
             }
         } catch {
+            guard sessionRevision == revision else { return }
             if isLoginCancellation(error) {
                 hasBootstrapped = false
                 return
@@ -112,6 +118,7 @@ final class LoginViewModel: ObservableObject {
     ///
     /// 登录成功后清空内存中的密码文本；`LoginStorage` 保存凭据，供后续静默重登学校 SSO。
     func login() async {
+        guard !isSubmitting else { return }
         let trimmedStudentID = studentID.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmedStudentID.isEmpty else {
@@ -125,14 +132,17 @@ final class LoginViewModel: ObservableObject {
         }
 
         isSubmitting = true
+        let revision = sessionRevision
         defer { isSubmitting = false }
 
         do {
             let studentID = try await service.login(studentID: trimmedStudentID, password: password)
+            guard sessionRevision == revision else { return }
             self.studentID = studentID
             self.password = ""
             screenState = .signedIn(studentID: studentID)
         } catch {
+            guard sessionRevision == revision else { return }
             if isLoginCancellation(error) {
                 return
             }
@@ -153,6 +163,7 @@ final class LoginViewModel: ObservableObject {
     ///
     /// 退出动作清除会话和内存中的密码，登录页继续显示最近一次输入的学号。
     func logout() {
+        sessionRevision &+= 1
         service.logout()
         studentID = service.savedStudentID
         password = ""

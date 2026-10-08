@@ -581,7 +581,7 @@ final class CommunityWriteSmoke {
             }, edit: { kind, id, text in
                 switch kind {
                 case .poster: try await gallery.updatePoster(id: id, title: "功能验收", text: text,
-                    imageMids: [], anonymous: false, tags: [], claimID: 0, isPublic: false)
+                    imageMids: [], plugins: "[]", anonymous: false, tags: [], claimID: 0, isPublic: false)
                 case .paper:
                     let current = try await papers.fetchPaper(id: id)
                     try await papers.updatePaper(id: id, title: text, intro: text,

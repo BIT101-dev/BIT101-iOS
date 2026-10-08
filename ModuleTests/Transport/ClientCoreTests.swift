@@ -451,6 +451,17 @@ struct ClientCoreTests {
         }
     }
 
+    @Test func HTTPErrorMessagesHaveAReadableBoundAndStructuredFallback() throws {
+        let large = String(repeating: "错误", count: 1_000)
+        let json = try JSONSerialization.data(withJSONObject: ["message": large])
+        let message = try #require(HTTPClient.errorMessage(from: json))
+        #expect(message.count == HTTPResponseResourceLimits.maximumErrorCharacters && message.hasSuffix("…"))
+        #expect(HTTPClient.errorMessage(from: Data("<html>gateway details</html>".utf8)) == nil)
+        #expect(HTTPClient.errorMessage(from: Data(#"{"unrelated":"private body"}"#.utf8)) == nil)
+        #expect(HTTPClient.errorMessage(from: Data(repeating: 65, count: HTTPResponseResourceLimits.maximumErrorBytes + 1)) == nil)
+        #expect(HTTPClient.errorMessage(from: Data("  plain response  ".utf8)) == "plain response")
+    }
+
     @Test func cancellationAndSecureRedirectRules() {
         #expect(TaskCancellation.matches(URLError(.cancelled)))
         #expect(TaskCancellation.matches(CancellationError()))

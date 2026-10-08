@@ -215,7 +215,13 @@ extension GalleryPosterDetail {
 /// 分页加载状态由 `GalleryFeedState.isLoadingMore` 管理。
 struct GalleryFeedState {
     /// 当前已经加载到客户端的帖子列表。
-    var posters: [CommunityPoster] = []
+    private var storage = CommunityPagedItems<CommunityPoster>()
+    var posters: [CommunityPoster] {
+        get { storage.items }
+        set { storage.replace(with: newValue) }
+    }
+    var posterIDs: Set<Int> { storage.ids }
+    mutating func appendUniqueItems(_ posters: [CommunityPoster]) { storage.append(posters) }
     /// 列表当前所处的加载状态。
     var status: CommunityLoadStatus = .idle
     /// 是否正在请求下一页。
@@ -237,15 +243,6 @@ public nonisolated struct GalleryReportType: Decodable, Identifiable, Hashable, 
     public let id: Int
     public let text: String
 
-    public static let fallback: [GalleryReportType] = [
-        GalleryReportType(id: 1, text: "政治敏感"),
-        GalleryReportType(id: 2, text: "色情低俗"),
-        GalleryReportType(id: 3, text: "人身攻击"),
-        GalleryReportType(id: 4, text: "侵犯隐私"),
-        GalleryReportType(id: 5, text: "散布谣言"),
-        GalleryReportType(id: 6, text: "滥用产品"),
-        GalleryReportType(id: 7, text: "其他")
-    ]
 }
 
 public enum GalleryReportTarget: Identifiable, Hashable {
@@ -475,4 +472,3 @@ extension CommunityPoster {
         )
     }
 }
-

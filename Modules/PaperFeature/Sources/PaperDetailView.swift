@@ -307,7 +307,7 @@ private struct PaperDetailViewScene: View {
                 AppInlineLoadingState("正在加载文章")
             }
         } else {
-            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.section) {
+            LazyVStack(alignment: .leading, spacing: AppDesignSystem.Spacing.section) {
                 ForEach(contentBlocks) { block in
                     PaperContentBlockView(
                         block: block,
@@ -317,6 +317,11 @@ private struct PaperDetailViewScene: View {
                             )
                         }
                     )
+                }
+                if contentBlocks.contains(where: { if case .requiresOriginal = $0 { return true }; return false }) {
+                    Link("阅读完整原文", destination: paperShareURL)
+                        .font(AppDesignSystem.Typography.body)
+                        .accessibilityIdentifier("ui.paper-content.original")
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -420,6 +425,10 @@ private struct PaperContentBlockView: View {
             .accessibilityAddTraits(.isHeader)
         case let .paragraph(_, text):
             PaperRichTextView(text: text, textStyle: AppDesignSystem.Typography.uiBody, textColor: .label)
+        case .requiresOriginal:
+            Text("此段内容请通过完整原文阅读。")
+                .font(AppDesignSystem.Typography.body)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
         case let .quote(_, text, caption):
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                     PaperRichTextView(text: text, textStyle: AppDesignSystem.Typography.uiBody, textColor: .label)

@@ -9,6 +9,7 @@ public enum PaperContentBlock: Identifiable {
     case quote(id: String, text: AttributedString, caption: AttributedString?)
     case list(id: String, items: [AttributedString], ordered: Bool)
     case image(id: String, image: PaperInlineImage)
+    case requiresOriginal(id: String)
 
     public var id: String {
         switch self {
@@ -16,7 +17,8 @@ public enum PaperContentBlock: Identifiable {
              let .paragraph(id, _),
              let .quote(id, _, _),
              let .list(id, _, _),
-             let .image(id, _):
+             let .image(id, _),
+             let .requiresOriginal(id):
             return id
         }
     }
@@ -130,7 +132,7 @@ public enum PaperEditorContentBuilder {
                 return String(text.characters)
             case let .list(_, items, _):
                 return items.map { String($0.characters) }.joined(separator: "\n")
-            case .image:
+            case .image, .requiresOriginal:
                 return nil
             }
         }
@@ -139,9 +141,18 @@ public enum PaperEditorContentBuilder {
 }
 
 /// 文章正文的块解析与富文本辅助。
+enum PaperContentResourceLimits {
+    static let maximumBodyBytes = 256 * 1_024
+    static let maximumBlockBytes = 16 * 1_024
+    static let maximumBlocks = 256
+}
+
 @MainActor enum PaperContentRenderer {
     /// 从详情接口返回的 Editor.js JSON 字符串中恢复正文块。
     static func blocks(from raw: String) -> [PaperContentBlock] {
+        guard raw.utf8.count <= PaperContentResourceLimits.maximumBodyBytes else {
+            return [.requiresOriginal(id: "body-resource-limit")]
+        }
         guard
             let data = raw.data(using: .utf8),
             let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -149,10 +160,21 @@ public enum PaperEditorContentBuilder {
         else {
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return [] }
+            guard trimmed.utf8.count <= PaperContentResourceLimits.maximumBlockBytes else {
+                return [.requiresOriginal(id: "text-resource-limit")]
+            }
             return [.paragraph(id: UUID().uuidString, text: AttributedString(trimmed))]
         }
 
-        return rawBlocks.compactMap(makeBlock(from:))
+        guard rawBlocks.count <= PaperContentResourceLimits.maximumBlocks else {
+            return [.requiresOriginal(id: "block-resource-limit")]
+        }
+        return rawBlocks.map { block in
+            let id = (block["id"] as? String) ?? UUID().uuidString
+            guard let bytes = try? JSONSerialization.data(withJSONObject: block),
+                  bytes.count <= PaperContentResourceLimits.maximumBlockBytes else { return .requiresOriginal(id: id) }
+            return makeBlock(from: block) ?? .requiresOriginal(id: id)
+        }
     }
 
     /// 把后端 HTML 片段转换成 SwiftUI 可展示的富文本。

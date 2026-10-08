@@ -9,13 +9,15 @@ import Testing
 @Suite("Extended login state transitions")
 struct ExtendedLoginTests {
     private final class ServiceStub: LoginServicing {
-        var sessionChanges: AnyPublisher<Void, Never> { Empty().eraseToAnyPublisher() }
-        let savedStudentID: String
+        let changes = PassthroughSubject<Void, Never>()
+        var sessionChanges: AnyPublisher<Void, Never> { changes.eraseToAnyPublisher() }
+        var savedStudentID: String
         let savedPassword: String
-        let hasCachedSession: Bool
+        var hasCachedSession: Bool
         let bootstrapError: Error?
         let checkLoginResult: String?
         var loginResult: Result<String, Error> = .success("1120260001")
+        var beforeLogin: (() async -> Void)?
         private(set) var checkLoginCalls = 0
         private(set) var loginCalls: [(String, String)] = []
 
@@ -43,6 +45,7 @@ struct ExtendedLoginTests {
 
         func login(studentID: String, password: String) async throws -> String {
             loginCalls.append((studentID, password))
+            await beforeLogin?()
             return try loginResult.get()
         }
 
@@ -62,6 +65,42 @@ struct ExtendedLoginTests {
         #expect(viewModel.screenState == .signedIn(studentID: "1120260001"))
         #expect(viewModel.password.isEmpty)
         #expect(service.loginCalls.map(\.0) == ["1120260001"])
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func repeatedKeyboardLoginSharesTheSubmittingOperation() async {
+        let service = ServiceStub()
+        var pending: CheckedContinuation<Void, Never>?
+        service.beforeLogin = { await withCheckedContinuation { pending = $0 } }
+        let model = LoginViewModel(service: service)
+        model.password = "secret"
+        let first = Task { await model.login() }
+        while pending == nil { await Task.yield() }
+        service.loginResult = .failure(URLError(.timedOut))
+        await model.login()
+        #expect(service.loginCalls.count == 1 && model.isSubmitting)
+        service.loginResult = .success("1120260001")
+        pending?.resume()
+        await first.value
+        #expect(model.screenState == .signedIn(studentID: "1120260001") && model.isSubmitting == false)
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func aLateLoginFailureKeepsTheNewlyPublishedSession() async {
+        let service = ServiceStub()
+        var pending: CheckedContinuation<Void, Never>?
+        service.beforeLogin = { await withCheckedContinuation { pending = $0 } }
+        let model = LoginViewModel(service: service)
+        model.password = "secret"
+        let task = Task { await model.login() }
+        while pending == nil { await Task.yield() }
+        service.savedStudentID = "B"
+        service.hasCachedSession = true
+        service.changes.send(())
+        service.loginResult = .failure(URLError(.timedOut))
+        pending?.resume()
+        await task.value
+        #expect(model.screenState == .signedIn(studentID: "B") && model.alert == nil)
     }
 
     @Test("Failed explicit login stays signed out and exposes the error")
@@ -369,17 +408,22 @@ struct LoginStorageTests {
         let second = LoginStorage(defaults: secondDefaults, credentials: secondBackend, clearSchoolCookies: {})
         var firstChanges: [CommunitySessionIdentity] = []
         var secondChanges: [CommunitySessionIdentity] = []
-        let subscriptions = [first.changes.sink { firstChanges.append($0) }, second.changes.sink { secondChanges.append($0) }]
+        var cookies: [String] = []
+        let session = CommunitySession.appSession(storage: first)
+        let subscriptions = [first.changes.sink { firstChanges.append($0) }, second.changes.sink { secondChanges.append($0) },
+            session.credentialsChanges.sink { cookies.append($0.cookie) }]
         try first.saveLoginState(studentID: " A ", password: "synthetic", fakeCookie: "cookie-A")
         try first.saveLoginState(studentID: "A", password: "synthetic", fakeCookie: "renewed-A")
         #expect(firstChanges == [.init(accountIdentifier: "A", generation: 1)])
         #expect(first.communityCredentials.cookie == "renewed-A")
+        #expect(cookies == ["cookie-A", "renewed-A"])
         #expect(clearedSchools == 2)
         try first.saveLoginState(studentID: "B", password: "synthetic", fakeCookie: "cookie-B")
         first.clearSession()
         #expect(firstChanges.map(\.generation) == [1, 2, 3])
         #expect(first.currentStudentID == "B")
         #expect(first.currentPassword.isEmpty && first.fakeCookie.isEmpty)
+        #expect(cookies == ["cookie-A", "renewed-A", "cookie-B", ""])
         #expect(first.clearAllLocalData())
         #expect(firstChanges.last == .init(accountIdentifier: "", generation: 4))
         #expect(clearedSchools == 5)

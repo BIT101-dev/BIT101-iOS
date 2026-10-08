@@ -111,7 +111,12 @@ public nonisolated struct PaperDetail: Decodable, Identifiable, Hashable, Sendab
 
 /// 文章列表分页状态。
 struct PaperListState {
-    var items: [PaperSummary] = []
+    private var storage = CommunityPagedItems<PaperSummary>()
+    var items: [PaperSummary] {
+        get { storage.items }
+        set { storage.replace(with: newValue) }
+    }
+    mutating func appendUniqueItems(_ values: [PaperSummary]) { storage.append(values) }
     var status: CommunityLoadStatus = .idle
     var isLoadingMore = false
     var nextPage = 0
@@ -211,4 +216,3 @@ nonisolated func validatedRemoteURL(from rawURL: String) -> URL? {
     else { return nil }
     return url
 }
-

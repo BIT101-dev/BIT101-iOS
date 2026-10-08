@@ -36,7 +36,8 @@ extension CommunitySession {
                 try await coordinator.refresh(observed: observed, current: { storage.communityCredentials }) {
                     try await LoginService(storage: storage).renewCommunitySession(expectedIdentity: observed.identity)
                 }
-            }
+            },
+            credentialsChanges: storage.credentialsChanges
         )
     }
 }

@@ -36,6 +36,7 @@ public nonisolated protocol AppFileService: Sendable {
     var temporaryDirectoryURL: URL { get }
     func fileExists(at url: URL) -> Bool
     func readData(at url: URL) throws -> Data
+    func readData(at url: URL, maximumBytes: Int) throws -> Data
     func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws
     func createDirectory(at url: URL) throws
     func removeItem(at url: URL) throws
@@ -52,6 +53,12 @@ public nonisolated protocol AppFileService: Sendable {
 }
 
 extension AppFileService {
+    public nonisolated func readData(at url: URL, maximumBytes: Int) throws -> Data {
+        guard let size = regularFileSize(at: url), size <= maximumBytes else { throw CocoaError(.fileReadTooLarge) }
+        let data = try readData(at: url)
+        guard data.count <= maximumBytes else { throw CocoaError(.fileReadTooLarge) }
+        return data
+    }
     public nonisolated func setBackupExcluded(_ excluded: Bool, at url: URL) throws {
         try setBackupExcluded(excluded, at: url, recursively: false)
     }
@@ -82,6 +89,19 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
     public func fileExists(at url: URL) -> Bool { manager.fileExists(atPath: url.path) }
     public func readData(at url: URL) throws -> Data {
         try Data(contentsOf: url)
+    }
+
+    public func readData(at url: URL, maximumBytes: Int) throws -> Data {
+        guard maximumBytes >= 0, maximumBytes < Int.max,
+              let size = regularFileSize(at: url), size <= maximumBytes else { throw CocoaError(.fileReadTooLarge) }
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var data = Data()
+        while let chunk = try handle.read(upToCount: maximumBytes + 1 - data.count), !chunk.isEmpty {
+            data.append(chunk)
+            guard data.count <= maximumBytes else { throw CocoaError(.fileReadTooLarge) }
+        }
+        return data
     }
 
     public func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws {

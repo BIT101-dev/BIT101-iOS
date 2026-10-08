@@ -50,6 +50,8 @@ final class LoginStorage: SchoolCredentialsProviding {
     var credentialReadIssue: String? { sessionReadError?.localizedDescription }
     private let changeSubject = PassthroughSubject<CommunitySessionIdentity, Never>()
     var changes: AnyPublisher<CommunitySessionIdentity, Never> { changeSubject.eraseToAnyPublisher() }
+    private let credentialsSubject = PassthroughSubject<CommunityCredentials, Never>()
+    var credentialsChanges: AnyPublisher<CommunityCredentials, Never> { credentialsSubject.eraseToAnyPublisher() }
 
     var schoolSessionIdentity: SchoolSessionIdentity {
         .init(accountIdentifier: currentStudentID, generation: sessionGeneration)
@@ -75,6 +77,7 @@ final class LoginStorage: SchoolCredentialsProviding {
     /// 发布所选凭据存储的账号与代际，供生命周期协调器重载账号数据。
     private func notifyAccountChanged() {
         changeSubject.send(communityCredentials.identity)
+        credentialsSubject.send(communityCredentials)
     }
 
     /// BIT101 自有登录态使用的 fake-cookie。
@@ -133,6 +136,8 @@ final class LoginStorage: SchoolCredentialsProviding {
             clearSchoolCookies()
             sessionGeneration &+= 1
             notifyAccountChanged()
+        } else {
+            credentialsSubject.send(communityCredentials)
         }
     }
 
@@ -234,6 +239,7 @@ final class LoginStorage: SchoolCredentialsProviding {
 
     private func restoreSession(publishChange: Bool = true) throws {
         do {
+            let previousCredentials = communityCredentials
             let previousAccount = currentStudentID
             session = try readSession()
             if defaults.object(forKey: DefaultsKey.revokedSession) != nil {
@@ -245,6 +251,8 @@ final class LoginStorage: SchoolCredentialsProviding {
                 sessionGeneration &+= 1
                 clearSchoolCookies()
                 notifyAccountChanged()
+            } else if publishChange, previousCredentials != communityCredentials {
+                credentialsSubject.send(communityCredentials)
             }
         } catch {
             sessionReadError = error

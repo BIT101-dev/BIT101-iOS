@@ -28,9 +28,7 @@ struct ScheduleSystemCalendarEventBuilderTests {
             CourseDraft(title: "周次边界", weekday: 1, startSection: 1, endSection: 1, weeksText: "1"),
             to: [], term: "2026-2027-1", id: "boundary"
         ).first)
-        var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any])
-        object["weeks"] = [Int.min, -54, -53, -1, 0, 1, 53, 54, Int.max]
-        let course = try JSONDecoder().decode(CourseRecord.self, from: JSONSerialization.data(withJSONObject: object))
+        let course = original.replacingWeeks([Int.min, -54, -53, -1, 0, 1, 53, 54, Int.max])
         let drafts = ScheduleSystemCalendarEventBuilder.makeDrafts(
             courses: [course], firstDay: shanghaiDate(2026, 9, 7), timeTable: TimeSlot.default
         )

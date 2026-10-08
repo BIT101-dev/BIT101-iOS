@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import TransportCore
 
 public nonisolated struct CommunitySessionIdentity: Equatable, Sendable {
@@ -31,12 +32,16 @@ public struct CommunitySession {
     private let baseURL: URL
     private let credentials: () -> CommunityCredentials
     private let refresh: (CommunityCredentials) async throws -> Void
+    public let credentialsChanges: AnyPublisher<CommunityCredentials, Never>
 
-    public init(httpClient: HTTPClient, baseURL: URL, credentials: @escaping () -> CommunityCredentials, refresh: @escaping (CommunityCredentials) async throws -> Void) {
+    public init(httpClient: HTTPClient, baseURL: URL, credentials: @escaping () -> CommunityCredentials,
+                refresh: @escaping (CommunityCredentials) async throws -> Void,
+                credentialsChanges: AnyPublisher<CommunityCredentials, Never> = Empty().eraseToAnyPublisher()) {
         self.httpClient = httpClient
         self.baseURL = baseURL
         self.credentials = credentials
         self.refresh = refresh
+        self.credentialsChanges = credentialsChanges
     }
 
     public var currentCredentials: CommunityCredentials { credentials() }

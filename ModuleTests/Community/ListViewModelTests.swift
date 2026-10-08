@@ -425,7 +425,7 @@ struct GalleryPaginationTests {
         var pages: [Int] = []
         service.recommend = { page in
             pages.append(page)
-            return .init(items: page == 6 && !emptyEnd ? [listPoster(7)] : [], nextSourcePage: page + 1, canLoadMore: page < 6)
+            return .init(items: page == 6 && !emptyEnd ? [listPoster(7)] : [], nextSourcePage: page + 1, canLoadMore: page < 6, sourceIDs: page < 6 ? [page] : [])
         }
         let model = GalleryViewModel(service: service)
         await model.refresh(feed: .recommend)
@@ -603,7 +603,7 @@ struct GalleryPaginationTests {
         service.recommend = { page in
             pages.append(page)
             let items = page >= 6 ? [listPoster(2)] : page == 0 || scenario == "duplicate" ? [listPoster(1)] : []
-            return .init(items: items, nextSourcePage: scenario == "stalled" && page == 1 ? 1 : page + 1, canLoadMore: page < 6)
+            return .init(items: items, nextSourcePage: scenario == "stalled" && page == 1 ? 1 : page + 1, canLoadMore: page < 6, sourceIDs: page < 6 ? [page] : [])
         }
         let model = GalleryViewModel(service: service)
         await model.refresh(feed: .recommend)

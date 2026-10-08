@@ -6,6 +6,7 @@ public struct CommunityPageProgress<ID: Hashable> {
     private var repeatedPages = 0
 
     public init(knownIDs: [ID] = []) { seen = Set(knownIDs) }
+    public init(knownIDs: Set<ID>) { seen = knownIDs }
 
     public mutating func record(_ ids: [ID]) throws {
         guard !ids.isEmpty else { return }
@@ -13,6 +14,17 @@ public struct CommunityPageProgress<ID: Hashable> {
         seen.formUnion(ids)
         repeatedPages = seen.count == previousCount ? repeatedPages + 1 : 0
         guard repeatedPages < 4 else { throw URLError(.badServerResponse) }
+    }
+}
+
+/// 分页追加沿增量标识索引去重，整体替换时重建索引。
+public nonisolated struct CommunityPagedItems<Item: Identifiable> {
+    public private(set) var items: [Item] = []
+    public private(set) var ids: Set<Item.ID> = []
+    public init() {}
+    public mutating func replace(with values: [Item]) { items = values; ids = Set(values.map(\.id)) }
+    public mutating func append(_ values: [Item]) {
+        items.append(contentsOf: values.filter { ids.insert($0.id).inserted })
     }
 }
 
@@ -24,9 +36,14 @@ public protocol PagedItemsState {
     var nextPage: Int { get set }
     var isLoadingMore: Bool { get set }
     var canLoadMore: Bool { get set }
+    mutating func appendUniqueItems(_ newItems: [Item])
 }
 
 extension PagedItemsState {
+    public mutating func appendUniqueItems(_ newItems: [Item]) {
+        var seen = Set(items.map(\.id))
+        items.append(contentsOf: newItems.filter { seen.insert($0.id).inserted })
+    }
     public mutating func resetPagination() {
         items = []
         nextPage = 0
@@ -43,8 +60,7 @@ extension PagedItemsState {
     }
 
     public mutating func appendPage(_ newItems: [Item]) {
-        var seen = Set(items.map(\.id))
-        items.append(contentsOf: newItems.filter { seen.insert($0.id).inserted })
+        appendUniqueItems(newItems)
         nextPage += 1
         isLoadingMore = false
         canLoadMore = !newItems.isEmpty

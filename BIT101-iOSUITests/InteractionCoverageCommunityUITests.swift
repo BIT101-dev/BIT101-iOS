@@ -15,6 +15,8 @@ extension InteractionCoverageUITests {
         reveal(image)
         image.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tapBriefly()
         closeImagePreview()
+        tapLink("阅读完整原文")
+        assertOpenedURL("paper/1")
         let footerLike = app.buttons["paper.detail.footer-like"]
         reveal(footerLike)
         footerLike.tapBriefly()
@@ -97,9 +99,12 @@ extension InteractionCoverageUITests {
 
     @MainActor
     @objc func testPosterReportSelectionCancellationAndSubmission() {
-        app = configureApp(resetStorage: true, content: true, initialTab: "gallery")
+        app = configureApp(resetStorage: true, content: true, reportFailureOnce: true, initialTab: "gallery")
         tap("更多操作")
         tap("举报帖子")
+        assertUI(app.buttons["ui.gallery-report-sheet.reload"].appears(timeout: 5), "分类读取失败应提供重新加载入口。")
+        assertUI(app.buttons["ui.gallery-report-sheet.submit"].isEnabled == false, "分类读取失败时提交等待重试。")
+        tap("重新加载")
         choose("类型", option: "其他")
         tap("取消")
         assertUI(app.buttons["发布话题"].appears(timeout: 5), "取消卡片举报应返回列表。")

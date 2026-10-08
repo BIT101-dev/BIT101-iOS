@@ -56,6 +56,32 @@ import MediaKit
 @Suite("Network smoke lifecycle")
 @MainActor
 struct ReleaseNetworkSmokeLifecycleTests {
+    @Test func articleUnknownBlocksKeepTheirPositionAndOfferTheOriginal() {
+        let raw = #"{"blocks":[{"id":"first","type":"paragraph","data":{"text":"正文"}},{"id":"future","type":"table","data":{"content":[["单元格"]]}},{"id":"last","type":"paragraph","data":{"text":"末段"}}]}"#
+        let blocks = PaperContentRenderer.blocks(from: raw)
+        #expect(blocks.map(\.id) == ["first", "future", "last"])
+        if case .requiresOriginal = blocks[1] {} else { Issue.record("Extended content should keep an original-reading placeholder") }
+        #expect(PaperEditorContentBuilder.canEditAsPlainText(raw) == false)
+    }
+
+    @Test(arguments: ["body", "blocks", "block"])
+    func articleResourceBudgetsStopBeforeRichTextImport(kind: String) throws {
+        let raw: String
+        switch kind {
+        case "body": raw = String(repeating: "x", count: PaperContentResourceLimits.maximumBodyBytes + 1)
+        case "blocks":
+            let block: [String: Any] = ["type": "paragraph", "data": ["text": "text"]]
+            raw = String(decoding: try JSONSerialization.data(withJSONObject: ["blocks": Array(repeating: block,
+                count: PaperContentResourceLimits.maximumBlocks + 1)]), as: UTF8.self)
+        default:
+            raw = String(decoding: try JSONSerialization.data(withJSONObject: ["blocks": [["type": "paragraph",
+                "data": ["text": String(repeating: "x", count: PaperContentResourceLimits.maximumBlockBytes + 1)]]]]), as: UTF8.self)
+        }
+        let blocks = PaperContentRenderer.blocks(from: raw)
+        #expect(blocks.count == 1)
+        if case .requiresOriginal = blocks[0] {} else { Issue.record("Oversized content should offer original reading") }
+    }
+
     @Test(arguments: [#"{"KCM":"课程","SKXQ":8,"KSJC":1,"JSJC":2,"ZCMC":"1周"}"#,
         #"{"KCM":"课程","SKXQ":1,"KSJC":0,"JSJC":2,"ZCMC":"1周"}"#,
         #"{"KCM":"课程","SKXQ":1,"KSJC":1,"JSJC":2}"#])

@@ -141,6 +141,36 @@ public nonisolated struct CourseRecord: Codable, Identifiable, Hashable, Sendabl
             && endSection <= ScheduleCourseConstraints.maximumSection
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case id, term, name, teacher, classroom, description, weeks, weekday, startSection, endSection
+        case campus, number, credit, hour, type, category, department
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        term = try values.decode(String.self, forKey: .term)
+        name = try values.decode(String.self, forKey: .name)
+        teacher = try values.decode(String.self, forKey: .teacher)
+        classroom = try values.decode(String.self, forKey: .classroom)
+        description = try values.decode(String.self, forKey: .description)
+        weeks = try values.decode([Int].self, forKey: .weeks)
+        weekday = try values.decode(Int.self, forKey: .weekday)
+        startSection = try values.decode(Int.self, forKey: .startSection)
+        endSection = try values.decode(Int.self, forKey: .endSection)
+        campus = try values.decode(String.self, forKey: .campus)
+        number = try values.decode(String.self, forKey: .number)
+        credit = try values.decode(Double.self, forKey: .credit)
+        hour = try values.decode(Int.self, forKey: .hour)
+        type = try values.decode(String.self, forKey: .type)
+        category = try values.decode(String.self, forKey: .category)
+        department = try values.decode(String.self, forKey: .department)
+        guard hasValidPlacement else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
+                debugDescription: "Course requires valid weeks, weekday and bounded sections."))
+        }
+    }
+
     /// 课程占用的节次文本。
     public var sectionText: String {
         "第\(startSection)-\(endSection)节"

@@ -57,6 +57,21 @@ struct SchedulePersistenceTests {
         SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: root), userStateMatches: { $0.primaryScheduleTitle == $1.primaryScheduleTitle })
     }
 
+    @Test func oversizedScheduleFilesKeepTheirBytesAndWriteGate() async throws {
+        let files = ModuleScoreFiles()
+        let persistence = store(files: files)
+        let account = AppStorageSession(accountIdentifier: "oversized")
+        let url = persistence.cacheFileURL(for: account.accountStorageIdentifier)
+        let bytes = Data(repeating: 32, count: SchedulePersistenceStore.maximumCacheBytes + 1)
+        try files.writeData(bytes, to: url, options: [])
+        #expect(await persistence.load(for: account).isUnreadable)
+        #expect(files.readCount(at: url) == 0)
+        #expect(await persistence.write(ScheduleCache(), accountIdentifier: account.accountStorageIdentifier,
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
+        #expect(files.storedData[url] == bytes)
+        #expect(SchedulePersistenceStore.decodeCache(bytes).isUnreadable)
+    }
+
     @Test(arguments: [ScheduleCacheSaveSource.local, .localWithoutCloudPush])
     func anEarlierUISnapshotPreservesCloudChangesAndItsUncommittedEdits(source: ScheduleCacheSaveSource) async throws {
         let files = ModuleScoreFiles()
@@ -379,6 +394,33 @@ struct SchedulePersistenceCoordinatorTests {
 
 @MainActor
 struct ScheduleSchemaAndEditingTests {
+    @Test(arguments: ["startSection", "endSection", "weekday", "weeks"])
+    func invalidPlacementKeepsEveryPersistentCourseSourceUnreadable(field: String) throws {
+        let valid = try course()
+        var record = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(valid)) as? [String: Any])
+        switch field {
+        case "startSection": record[field] = Int.min
+        case "endSection": record[field] = Int.max
+        case "weekday": record[field] = 8
+        default: record[field] = [0]
+        }
+        let bytes = try JSONSerialization.data(withJSONObject: record)
+        #expect(throws: DecodingError.self) { try JSONDecoder().decode(CourseRecord.self, from: bytes) }
+        var cache = ScheduleCache()
+        cache.courseData.schedulesByTerm[valid.term] = snapshot([valid])
+        cache.courseData.manualCourseRulesByTerm[valid.term] = [.init(sourceIdentity: "", sourceCourses: [], replacementCourses: [valid])]
+        cache.sharedSchedules = [.init(title: "分享", payload: .init(currentTerm: valid.term, firstDayString: "", timeTable: TimeSlot.default, courses: [valid]))]
+        let object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(cache)) as? [String: Any])
+        func corruptCourses(_ value: Any) -> Any {
+            if let values = value as? [String: Any] {
+                if values["startSection"] != nil { return record }
+                return values.mapValues(corruptCourses)
+            }
+            if let values = value as? [Any] { return values.map(corruptCourses) }
+            return value
+        }
+        #expect(SchedulePersistenceStore.decodeCache(try JSONSerialization.data(withJSONObject: corruptCourses(object))).isUnreadable)
+    }
     @Test(arguments: [Int.min, -1, 0, 1, 20, 60, 61, Int.max])
     func presentationLeadMinutesStayBoundedThroughMutationAndDiskDecode(value: Int) throws {
         let expected = value < 1 ? 1 : value > 60 ? 60 : value

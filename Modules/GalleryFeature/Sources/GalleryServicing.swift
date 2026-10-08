@@ -44,7 +44,7 @@ public protocol GalleryImageUploading {
 public protocol GalleryComposerServicing: GalleryImageUploading {
     func fetchClaims() async throws -> [CommunityClaim]
     func createPoster(title: String, text: String, imageMids: [String], anonymous: Bool, tags: [String], claimID: Int, isPublic: Bool) async throws -> Int
-    func updatePoster(id: Int, title: String, text: String, imageMids: [String], anonymous: Bool, tags: [String], claimID: Int, isPublic: Bool) async throws
+    func updatePoster(id: Int, title: String, text: String, imageMids: [String], plugins: String, anonymous: Bool, tags: [String], claimID: Int, isPublic: Bool) async throws
 }
 
 extension GalleryService: GalleryFeedServicing, GalleryMessageServicing, GalleryPosterDetailServicing, GalleryReportServicing, GalleryComposerServicing {}

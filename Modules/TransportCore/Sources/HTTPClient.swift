@@ -80,6 +80,8 @@ public extension HTTPClientObserving {
 /// 处理请求发送和 HTTP 协议层校验；业务认证规则由上层 Service 处理。
 public nonisolated enum HTTPResponseResourceLimits {
     public static let maximumStructuredBytes = 8 * 1_024 * 1_024
+    public static let maximumErrorBytes = 16 * 1_024
+    public static let maximumErrorCharacters = 512
 }
 
 public struct HTTPClient {
@@ -145,19 +147,28 @@ public struct HTTPClient {
     }
 
     public nonisolated static func errorMessage(from data: Data) -> String? {
+        guard data.count <= HTTPResponseResourceLimits.maximumErrorBytes else { return nil }
         if
             let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         {
             for key in ["message", "msg", "detail", "error"] {
-                if let value = object[key] as? String, !value.isEmpty {
-                    return value
+                if let value = object[key] as? String, let message = boundedErrorMessage(value) {
+                    return message
                 }
             }
+            return nil
         }
 
-        let text = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return text?.isEmpty == false ? text : nil
+        guard let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let first = text.first, !["<", "{", "["].contains(first) else { return nil }
+        return boundedErrorMessage(text)
+    }
+
+    private nonisolated static func boundedErrorMessage(_ value: String) -> String? {
+        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !text.hasPrefix("<") else { return nil }
+        let limit = HTTPResponseResourceLimits.maximumErrorCharacters
+        return text.count > limit ? String(text.prefix(limit - 1)) + "…" : text
     }
 }
 

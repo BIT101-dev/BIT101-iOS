@@ -301,7 +301,7 @@ final class GalleryComposerViewModel: ObservableObject {
             do {
                 if let editingPoster {
                     try await service.updatePoster(id: editingPoster.id, title: title, text: text, imageMids: mids,
-                        anonymous: anonymous, tags: tags, claimID: claimID, isPublic: isPublic)
+                        plugins: editingPoster.plugins, anonymous: anonymous, tags: tags, claimID: claimID, isPublic: isPublic)
                 } else {
                     _ = try await service.createPoster(title: title, text: text, imageMids: mids,
                         anonymous: anonymous, tags: tags, claimID: claimID, isPublic: isPublic)
