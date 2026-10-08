@@ -14,6 +14,7 @@ import DesignSystemKit
 import SwiftUI
 
 struct GalleryMessagesView: View {
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(GalleryDependencies.self) private var dependencies
     @Environment(MediaEnvironment.self) private var media
@@ -22,9 +23,7 @@ struct GalleryMessagesView: View {
     @ObservedObject var viewModel: GalleryMessageViewModel
     @Environment(\.dismiss) private var dismiss
     private var networkObserver: NetworkPathState { dependencies.networkPath }
-    @State private var selectedPoster: CommunityPoster?
-    @State private var localAlert: AppAlert?
-    private var service: any GalleryPosterDetailServicing { dependencies.posterDetail }
+    @State private var requestedMessage: GalleryMessage?
 
     var body: some View {
         ZStack {
@@ -66,9 +65,7 @@ struct GalleryMessagesView: View {
                                         message: message,
                                         isUnread: viewModel.isUnread(message, in: type),
                                         onOpenPoster: {
-                                            Task {
-                                                await openMessage(message, type: type)
-                                            }
+                                            requestedMessage = message
                                         }
                                     )
 
@@ -97,6 +94,8 @@ struct GalleryMessagesView: View {
                     .listStyle(.plain)
                     .scrollContentBackground(.hidden)
                     .refreshable {
+                    interactionEvidence?("interaction.GalleryMessagesView.refreshable", "refresh")
+
                         await viewModel.refreshSelectedType()
                     }
                 }
@@ -105,6 +104,7 @@ struct GalleryMessagesView: View {
         }
         .contentShape(Rectangle())
         .simultaneousGesture(messageSwitchGesture)
+        .accessibilityIdentifier("gallery.message-surface")
         .navigationTitle("消息")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -112,6 +112,7 @@ struct GalleryMessagesView: View {
                 Button("取消") {
                     dismiss()
                 }
+                    .accessibilityIdentifier("ui.gallery-messages-view.cancel")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("全部已读") {
@@ -143,17 +144,22 @@ struct GalleryMessagesView: View {
             }
         }
         .onChange(of: viewModel.selectedType) { _, newType in
+            requestedMessage = nil
             if viewModel.state(for: newType).status == .idle {
                 Task {
                     await viewModel.refresh(type: newType)
                 }
             }
         }
-        .navigationDestination(item: $selectedPoster) { poster in
+        .task(id: requestedMessage) {
+            guard let message = requestedMessage else { return }
+            await viewModel.openMessage(message, in: viewModel.selectedType, using: dependencies.posterDetail)
+            if requestedMessage == message { requestedMessage = nil }
+        }
+        .navigationDestination(item: $viewModel.selectedPoster) { poster in
             GalleryPosterDetailView(dependencies: dependencies, media: media, profiles: profiles, poster: poster)
         }
         .diagnosticAlert(item: $viewModel.alert)
-        .diagnosticAlert(item: $localAlert)
     }
 
     private var currentState: GalleryMessageListState {
@@ -202,24 +208,6 @@ struct GalleryMessagesView: View {
         }
     }
 
-    /// 打开单条消息。
-    ///
-    /// 先请求帖子详情；帖子详情缺失时显示本地提示并返回消息列表。
-    private func openMessage(_ message: GalleryMessage, type: GalleryMessageType) async {
-        viewModel.markMessageAsRead(message, in: type)
-
-        guard let posterID = message.linkedPosterID else { return }
-
-        do {
-            let poster = try await service.fetchPoster(id: posterID)
-            selectedPoster = poster.asPoster
-        } catch {
-            if TaskCancellation.matches(error) {
-                return
-            }
-            localAlert = AppAlert.userInput(title: "无法打开", message: "相关帖子不存在或已删除。")
-        }
-    }
 }
 
 /// 单条消息行。
@@ -291,6 +279,7 @@ private struct GalleryMessageRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityHint(canOpenPoster ? "打开关联帖子" : "标记为已读")
+        .accessibilityIdentifier("gallery.message.\(message.id)")
     }
 }
 

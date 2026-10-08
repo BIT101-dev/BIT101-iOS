@@ -90,7 +90,7 @@ public nonisolated struct ScheduleCloudSyncState: Codable, Sendable {
         manualCourseRulesByTerm = cache.manualCourseRulesByTerm.filter { !$0.value.isEmpty }
         manualDDLEvents = cache.ddlEvents.filter { !$0.isSchoolSynced }
         var completionByID = cache.lexueDDLCompletionByID
-        for event in cache.ddlEvents where event.isSchoolSynced {
+        for event in cache.ddlEvents where event.isSchoolSynced && (event.done || completionByID[event.id] != nil) {
             completionByID[event.id] = event.done
         }
         lexueDDLCompletionByID = completionByID

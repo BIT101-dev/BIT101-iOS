@@ -35,6 +35,7 @@ final class LoginViewModel: ObservableObject {
     @Published var alert: AppAlert?
 
     private let service: any LoginServicing
+    private var sessionSubscription: AnyCancellable?
     /// 启动校验在视图重建期间保持单次触发。
     private var hasBootstrapped = false
 
@@ -48,6 +49,12 @@ final class LoginViewModel: ObservableObject {
         studentID = savedStudentID
         password = ""
         screenState = service.hasCachedSession ? .signedIn(studentID: savedStudentID) : .signedOut
+        sessionSubscription = service.sessionChanges.sink { [weak self] _ in
+            guard let self else { return }
+            self.studentID = self.service.savedStudentID
+            self.password = ""
+            self.screenState = self.service.hasCachedSession ? .signedIn(studentID: self.studentID) : .signedOut
+        }
     }
 
     /// 当前输入是否满足提交条件。

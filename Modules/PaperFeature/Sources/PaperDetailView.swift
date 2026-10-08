@@ -3,7 +3,6 @@ import CommunityUI
 import TransportCore
 import MediaKit
 import CommunityCore
-import TransportCore
 import DesignSystemKit
 //
 //  PaperDetailView.swift
@@ -28,6 +27,7 @@ struct PaperDetailView: View {
 }
 
 private struct PaperDetailViewScene: View {
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     private let dependencies: PaperDependencies
     private let media: MediaEnvironment
     private let onChanged: () -> Void
@@ -83,7 +83,7 @@ private struct PaperDetailViewScene: View {
                             }
 
                             AppDetailCircleButton(
-                                accessibilityLabel: (viewModel.paper?.like ?? false) ? "取消文章点赞" : "点赞文章"
+                                accessibilityLabel: viewModel.isPaperLiked ? "取消文章点赞" : "点赞文章"
                             ) {
                                 likePaper()
                             } label: {
@@ -92,11 +92,11 @@ private struct PaperDetailViewScene: View {
                                         ProgressView()
                                             .controlSize(.small)
                                     } else {
-                                        Image(systemName: (viewModel.paper?.like ?? false) ? "hand.thumbsup.fill" : "hand.thumbsup")
+                                        Image(systemName: viewModel.isPaperLiked ? "hand.thumbsup.fill" : "hand.thumbsup")
                                             .font(AppDesignSystem.Typography.title)
                                     }
                                 }
-                                .foregroundStyle((viewModel.paper?.like ?? false) ? AppDesignSystem.Palette.Accent.primary : AppDesignSystem.Foreground.primaryColor)
+                                .foregroundStyle(viewModel.isPaperLiked ? AppDesignSystem.Palette.Accent.primary : AppDesignSystem.Foreground.primaryColor)
                             }
                             .disabled(viewModel.isLikingPaper)
                             .accessibilityIdentifier("paper.detail.header-like")
@@ -180,6 +180,8 @@ private struct PaperDetailViewScene: View {
         }
         .background(AppDesignSystem.Palette.Background.grouped)
         .refreshable {
+                    interactionEvidence?("interaction.PaperDetailViewScene.refreshable", "refresh")
+
             await viewModel.refreshAll()
         }
         .navigationTitle("文章详情")
@@ -204,6 +206,7 @@ private struct PaperDetailViewScene: View {
                             isShowingDeleteConfirmation = true
                         }
                         .accessibilityIdentifier("paper.detail.delete")
+                        .disabled(viewModel.isDeletingPaper)
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -217,13 +220,9 @@ private struct PaperDetailViewScene: View {
                     target: target,
                     isSubmitting: viewModel.isSubmittingComment
                 ) { text, anonymous in
-                    Task {
-                        let submitted = await viewModel.submitComment(text: text, anonymous: anonymous, target: target)
-                        if submitted {
-                            composerTarget = nil
-                        }
-                    }
+                    await viewModel.submitComment(text: text, anonymous: anonymous, target: target)
                 }
+                .id(target.id)
             }
             .environment(dependencies)
             .presentationDragIndicator(.visible)
@@ -248,7 +247,10 @@ private struct PaperDetailViewScene: View {
                     }
                 }
             }
+                .accessibilityIdentifier("ui.paper-detail-view-scene.delete")
+                .disabled(viewModel.isDeletingPaper)
             Button("取消", role: .cancel) {}
+                .accessibilityIdentifier("ui.paper-detail-view-scene.cancel")
         } message: {
             Text("删除后文章将从列表中移除。")
         }
@@ -322,11 +324,11 @@ private struct PaperDetailViewScene: View {
     }
 
     private var isPaperLiked: Bool {
-        viewModel.paper?.like ?? false
+        viewModel.isPaperLiked
     }
 
     private var paperLikeCount: Int {
-        viewModel.paper?.likeNum ?? initialPaper.likeNum
+        viewModel.resolvedLikeNum
     }
 
     private var paperShareURL: URL {
@@ -459,6 +461,7 @@ private struct PaperContentBlockView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(imageAccessibilityLabel(for: image))
             .accessibilityHint("打开图片预览")
+                .accessibilityIdentifier("ui.paper-content-block-view.image")
         }
     }
 

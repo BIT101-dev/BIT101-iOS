@@ -16,7 +16,30 @@ private nonisolated enum ModuleCommunityError: Error, Equatable, CommunityAPISer
 
 @MainActor
 struct ScheduleInfrastructureTests {
+    @Test func redirectAuthenticationHeadersStayBoundToTheirOrigin() throws {
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let origin = AppURL.required("https://auth.example/login")
+        let response = try #require(HTTPURLResponse(url: origin, statusCode: 302, httpVersion: nil, headerFields: nil))
+        let task = session.dataTask(with: origin)
+        let delegate = HTTPSUpgradingRedirectDelegate()
+        for sameOrigin in [true, false] {
+            var request = URLRequest(url: AppURL.required(sameOrigin ? "https://auth.example/next" : "https://other.example/next"))
+            for header in ["Authorization", "Proxy-Authorization", "Cookie", "fake-cookie", "x-challenge-token"] {
+                request.setValue("fixture-token", forHTTPHeaderField: header)
+            }
+            var result: URLRequest?
+            delegate.urlSession(session, task: task, willPerformHTTPRedirection: response,
+                newRequest: request, completionHandler: { result = $0 })
+            let redirected = try #require(result)
+            for header in ["Authorization", "Proxy-Authorization", "Cookie", "fake-cookie", "X-Challenge-Token"] {
+                #expect(redirected.value(forHTTPHeaderField: header) == (sameOrigin ? "fixture-token" : nil))
+            }
+        }
+    }
+
     private struct Credentials: SchoolCredentialsProviding {
+        var schoolSessionIdentity: SchoolSessionIdentity { .init(accountIdentifier: currentStudentID, generation: 0) }
         let currentStudentID = "module-school"
         let currentPassword = "module-password"
     }
@@ -55,6 +78,21 @@ struct ScheduleInfrastructureTests {
         #expect(try response.parsedCoursesCancellable().map(\.course) == response.courseRecords)
         #expect(response.courseRecords.count == 14)
         #expect(ScheduleService.schoolBusinessErrorMessage(from: Data(#"{"data":{"success":false,"msg":"school failure"}}"#.utf8)) == "school failure")
+    }
+
+    @Test(arguments: [(#"{"KCM":"待排课程"}"#, true),
+        (#"{"KCM":"已排课程","SKXQ":1,"KSJC":1,"JSJC":2,"ZCMC":"1-2周"}"#, true),
+        (#"{"KCM":"课程","SKXQ":8,"KSJC":1,"JSJC":2,"ZCMC":"1周"}"#, false),
+        (#"{"KCM":"课程","SKXQ":1,"KSJC":2,"JSJC":1,"ZCMC":"1周"}"#, false),
+        (#"{"KCM":"课程","SKXQ":1,"ZCMC":"1周"}"#, false),
+        (#"{"KCM":"课程","SKXQ":1,"KSJC":1,"JSJC":2}"#, false),
+        (#"{"KCM":"课程","ZCMC":"1周"}"#, false)])
+    func schoolCoursePlacementContractPreservesPendingRowsAndRejectsIncompleteSchedules(fixture: (String, Bool)) async throws {
+        let (row, valid) = fixture
+        let data = Data((#"{"datas":{"cxxszhxqkb":{"rows":["# + row + #"]}}}"#).utf8)
+        let transport = SequenceTransport([(200, data)])
+        if valid { #expect(try await service(transport: transport).fetchParsedCourses(term: "2026-2027-1").count == 1) }
+        else { await #expect(throws: ScheduleServiceError.self) { try await service(transport: transport).fetchParsedCourses(term: "2026-2027-1") } }
     }
 
     @Test func schoolTransportProjectsSecureURLsFormsAndDTOs() async throws {
@@ -201,6 +239,24 @@ private final class StubTransport: HTTPTransport {
     }
 }
 
+private nonisolated final class BoundedResponseProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let url = request.url,
+              let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
+                headerFields: url.path == "/declared" ? ["Content-Length": "16"] : [:]) else {
+            client?.urlProtocol(self, didFailWithError: HTTPClientError.invalidResponse)
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(repeating: 1, count: 8))
+        client?.urlProtocol(self, didLoad: Data(repeating: 2, count: 8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
 @MainActor
 private final class RecordingObserver: HTTPClientObserving {
     var events: [String] = []
@@ -231,6 +287,52 @@ private final class RecordingObserver: HTTPClientObserving {
 @MainActor
 struct ClientCoreTests {
     private let url = AppURL.required("https://example.invalid/module-test")
+
+    @Test(arguments: [15, 16])
+    func customTransportAndRemoteReadWrapperEnforceResponseBudgets(maximumBytes: Int) async throws {
+        let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+        let base = StubTransport(result: .success((Data(count: 16), response)))
+        let observer = RecordingObserver()
+        let client = HTTPClient(transport: UncachedHTTPTransport(base: base), observer: observer)
+        if maximumBytes == 16 {
+            let result = try await client.send(URLRequest(url: url), maximumBytes: maximumBytes)
+            #expect(result.data.count == 16)
+        } else {
+            await #expect(throws: HTTPClientError.self) {
+                try await client.send(URLRequest(url: url), maximumBytes: maximumBytes)
+            }
+            #expect(observer.sentData == nil && observer.recordedError is HTTPClientError)
+        }
+        #expect(base.requests.count == 1 && base.requests.first?.cachePolicy == .reloadIgnoringLocalCacheData)
+        #expect(observer.events == ["willSend", "didFinish"])
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["declared", "streamed"])
+    func productionSessionBoundsDeclaredAndStreamedBodies(path: String) async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [BoundedResponseProtocol.self]
+        let session = try #require(URLSessionTransport.make(configuration: configuration) as? URLSession)
+        defer { session.invalidateAndCancel() }
+        let client = HTTPClient(transport: UncachedHTTPTransport(base: session), observer: nil)
+        let request = URLRequest(url: AppURL.required("https://example.invalid/\(path)"))
+        let result = try await client.send(request, maximumBytes: 16)
+        #expect(result.data == Data(repeating: 1, count: 8) + Data(repeating: 2, count: 8))
+        await #expect(throws: HTTPClientError.self) { try await client.send(request, maximumBytes: 15) }
+    }
+
+    @Test func remoteReadPolicyPreservesFailuresAndLeavesTheCallerRequestIntact() async throws {
+        let base = StubTransport(result: .failure(URLError(.networkConnectionLost)))
+        let request = URLRequest(url: url, cachePolicy: .returnCacheDataDontLoad)
+        do {
+            _ = try await UncachedHTTPTransport(base: base).data(for: request)
+            Issue.record("Expected the remote transport failure")
+        } catch let error as URLError {
+            #expect(error.code == .networkConnectionLost)
+        }
+        #expect(base.requests.count == 1)
+        #expect(base.requests.first?.cachePolicy == .reloadIgnoringLocalCacheData)
+        #expect(request.cachePolicy == .returnCacheDataDontLoad)
+    }
 
     private struct CancellingResponseTransport: HTTPTransport {
         let response: HTTPURLResponse
@@ -454,6 +556,82 @@ extension ScheduleInfrastructureTests {
         #expect(body == ["username": "module-school", "password": "module-password"])
     }
 
+    private final class MutableSchoolCredentials: SchoolCredentialsProviding {
+        var currentStudentID = "school-a"
+        let currentPassword = "fixture-password"
+        var generation = 0
+        var schoolSessionIdentity: SchoolSessionIdentity { .init(accountIdentifier: currentStudentID, generation: generation) }
+    }
+    private final class SuspendedSchoolCookies: HTTPTransport {
+        var pending: CheckedContinuation<Void, Never>?
+        var requests = 0
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            requests += 1
+            await withCheckedContinuation { pending = $0 }
+            let url = try #require(request.url)
+            return (Data(#"{"data":{"wengine_vpn_ticket":"account-a-ticket"}}"#.utf8),
+                try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+        }
+    }
+
+    private final class RequestObserverFactory: HTTPClientObserving {
+        var generation = 0
+        var completions: [Int] = []
+        func forRequest() -> any HTTPClientObserving { RequestObserver(factory: self, generation: generation) }
+        func willSend(_ request: URLRequest) async throws {}
+        func didFinish(request: URLRequest, data: Data?, response: URLResponse?, error: Error?, elapsed: TimeInterval) async {
+            completions.append(-1)
+        }
+        private struct RequestObserver: HTTPClientObserving {
+            let factory: RequestObserverFactory
+            let generation: Int
+            func willSend(_ request: URLRequest) async throws {}
+            func didFinish(request: URLRequest, data: Data?, response: URLResponse?, error: Error?, elapsed: TimeInterval) async {
+                factory.completions.append(generation)
+            }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func transportObservationsCaptureTheRequestContextBeforeNetworkSuspension() async throws {
+        let observer = RequestObserverFactory()
+        let transport = SuspendedSchoolCookies()
+        let client = HTTPClient(transport: transport, observer: observer)
+        let task = Task { try await client.send(URLRequest(url: AppURL.required("https://example.invalid/context"))) }
+        while transport.pending == nil { await Task.yield() }
+        observer.generation = 1
+        transport.pending?.resume()
+        _ = try await task.value
+        #expect(observer.completions == [0])
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [0, 1, 2])
+    func delayedSchoolCookiesCheckAccountGenerationAndCancellation(change: Int) async throws {
+        let credentials = MutableSchoolCredentials()
+        let owner = credentials.schoolSessionIdentity
+        let transport = SuspendedSchoolCookies()
+        let cookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
+        let state = TeachingCenterSessionState(cookieStorage: cookies)
+        let service = ScheduleService(credentials: credentials, crypto: Crypto(), schoolSessionRestorer: Restorer(),
+            teachingCenterState: state, transport: transport)
+        let task = Task { try await service.ensureTeachingCenterAuthentication() }
+        while transport.pending == nil { await Task.yield() }
+        if change == 0 { credentials.currentStudentID = "school-b" }
+        if change == 1 { credentials.generation += 1 }
+        if change == 2 { task.cancel() }
+        transport.pending?.resume()
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(cookies.cookies?.isEmpty == true)
+        #expect(state.hasUsableSession(for: credentials.currentStudentID) == false)
+        if change < 2 {
+            let challenge = BITLoginAuthenticationChallenge(challengeID: "old", accessToken: "token",
+                status: "waiting_sms", maskedPhone: nil, expiresIn: 300, ownerIdentity: owner)
+            await #expect(throws: CancellationError.self) {
+                try await service.submitSMSCodeForTeachingCenterAuthentication("123456", for: challenge)
+            }
+            #expect(transport.requests == 1)
+        }
+    }
+
     @Test func teachingCenterSMSChallengePreservesItsIdentityAndExposesExpiry() async throws {
         let cookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
         let transport = SequenceTransport([(202, Data(#"{"detail":{"challenge_id":"sms","access_token":"token","status":"waiting_sms","masked_phone":"138****0000","expires_in":300}}"#.utf8))])
@@ -478,6 +656,70 @@ extension ScheduleInfrastructureTests {
 
     private struct AuthenticatedRestorer: SchoolSessionRestoring {
         func restoreSchoolSessionIfNeeded() async throws -> String? { "school-session" }
+    }
+
+    private final class SuspendedSecondFactor: HTTPTransport {
+        static let html = #"<form action="/cas/login"><input id="login-page-flowkey" value="flow"><input id="user-object-id" value="user"><div id="secondSmsLoginForm"></div></form>"#
+        let suspendedStage: String
+        var pending: CheckedContinuation<Void, Never>?
+        var requests: [URLRequest] = []
+        init(_ stage: String) { suspendedStage = stage }
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            requests.append(request)
+            let url = try #require(request.url)
+            let stage = url.path.contains("getPhoneNumber") ? "phone" : url.path.contains("sendSmsCode") ? "send"
+                : url.path.contains("checkToken") ? "verify" : request.httpMethod == "POST" ? "login" : "html"
+            if stage == suspendedStage { await withCheckedContinuation { pending = $0 } }
+            let text = stage == "phone" ? #"{"code":200,"data":{"phone":"13800000000","maskTel":"138****0000"}}"#
+                : stage == "html" ? Self.html : #"{"code":200}"#
+            return (Data(text.utf8), try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["html", "phone", "send", "input", "verify", "login"])
+    func nativeSecondFactorKeepsOneOwnerAcrossEverySuspension(stage: String) async throws {
+        for change in 0...2 {
+            let credentials = MutableSchoolCredentials()
+            let owner = credentials.schoolSessionIdentity
+            let transport = SuspendedSecondFactor(stage)
+            let service = ScheduleService(credentials: credentials, crypto: Crypto(), schoolSessionRestorer: AuthenticatedRestorer(),
+                teachingCenterState: TeachingCenterSessionState(cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)),
+                transport: transport)
+            let context = try #require(SchoolLoginHTMLParser.parseSecondFactorPage(html: SuspendedSecondFactor.html,
+                baseURL: AppURL.required("https://sso.bit.edu.cn")))
+            var input: CheckedContinuation<String, Never>?
+            let handler: SchoolSMSCodeHandler = { _ in
+                if stage == "input" { return await withCheckedContinuation { input = $0 } }
+                return "123456"
+            }
+            let task = Task<Void, any Error> {
+                if stage == "html" { _ = try await service.refreshLexueCalendarURL(schoolSMSCodeHandler: handler) }
+                else { try await service.completeSchoolSecondFactor(context, handler: handler, smsDeliveryMode: .send, owner: owner) }
+            }
+            while stage == "input" ? input == nil : transport.pending == nil { await Task.yield() }
+            let count = transport.requests.count
+            if change == 0 { credentials.currentStudentID = "school-b" }
+            if change == 1 { credentials.generation += 1 }
+            if change == 2 { task.cancel() }
+            if stage == "input" { input?.resume(returning: "123456") } else { transport.pending?.resume() }
+            await #expect(throws: CancellationError.self) { try await task.value }
+            #expect(transport.requests.count == count)
+        }
+    }
+
+    @Test func nativeSecondFactorSubmitsTheCapturedStudentAndFormContext() async throws {
+        let credentials = MutableSchoolCredentials()
+        let transport = SuspendedSecondFactor("none")
+        let service = ScheduleService(credentials: credentials, crypto: Crypto(), schoolSessionRestorer: AuthenticatedRestorer(),
+            teachingCenterState: TeachingCenterSessionState(cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)), transport: transport)
+        let context = try #require(SchoolLoginHTMLParser.parseSecondFactorPage(html: SuspendedSecondFactor.html,
+            baseURL: AppURL.required("https://sso.bit.edu.cn")))
+        try await service.completeSchoolSecondFactor(context, handler: { _ in "123456" }, smsDeliveryMode: .send,
+            owner: credentials.schoolSessionIdentity)
+        let request = try #require(transport.requests.last)
+        let body = String(decoding: try #require(request.httpBody), as: UTF8.self)
+        #expect(transport.requests.count == 4 && request.url?.path == "/cas/login")
+        #expect(body.contains("username=school-a") && body.contains("execution=flow") && body.contains("password=123456"))
     }
 
     @Test func lexueSubscriptionUpgradesItsURLAndKeepsCompletedEventIdentity() async throws {

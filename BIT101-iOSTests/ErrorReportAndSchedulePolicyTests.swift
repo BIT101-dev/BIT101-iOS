@@ -1,4 +1,5 @@
 import SchedulePorts
+import CommunityTransport
 import ScoreDomain
 @testable import ScheduleFeature
 @testable import ScheduleInfrastructure
@@ -31,6 +32,42 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertEqual(record.error, URLError(.cannotFindHost).localizedDescription)
     }
 
+    @MainActor
+    private final class DiagnosticAccount {
+        var identity = SchoolSessionIdentity(accountIdentifier: "diagnostic-a", generation: 0)
+    }
+
+    @MainActor
+    func testDiagnosticsFilterAccountsGenerationsAndLateResults() async throws {
+        let account = DiagnosticAccount()
+        let store = NetworkDiagnosticStore(currentIdentity: { account.identity })
+        let owner = account.identity
+        let url = try XCTUnwrap(URL(string: "https://sso.bit.edu.cn/cas/login"))
+        let request = URLRequest(url: url)
+        let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 500, httpVersion: nil, headerFields: nil))
+        await store.record(owner: owner, request: request, data: Data("account-a".utf8), response: response, error: nil, elapsed: 0)
+        let count1 = await store.recent().count
+        XCTAssertEqual(count1, 1)
+        account.identity = .init(accountIdentifier: "diagnostic-b", generation: 1)
+        await store.record(owner: owner, request: request, data: Data("late-account-a".utf8), response: response, error: nil, elapsed: 0)
+        let empty1 = await store.recent().isEmpty
+        XCTAssertTrue(empty1)
+        let page1 = await store.latestSchoolServicePageURL()
+        XCTAssertNil(page1)
+        await store.record(owner: account.identity, request: request, data: Data("account-b".utf8), response: response, error: nil, elapsed: 0)
+        let body1 = await store.recent().last?.responseBody
+        XCTAssertEqual(body1, "account-b")
+        let previous = account.identity
+        account.identity = .init(accountIdentifier: "diagnostic-b", generation: 2)
+        await store.record(owner: previous, request: request, data: Data("previous-generation".utf8), response: response, error: nil, elapsed: 0)
+        let empty2 = await store.recent().isEmpty
+        XCTAssertTrue(empty2)
+        await store.record(owner: account.identity, request: request, data: nil, response: response, error: nil, elapsed: 0)
+        await store.clear()
+        let empty3 = await store.recent().isEmpty
+        XCTAssertTrue(empty3)
+    }
+
     private nonisolated struct DiagnosticFailureTransport: HTTPTransport {
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             throw URLError(.cannotFindHost)
@@ -46,7 +83,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         let data = try JSONSerialization.data(withJSONObject: [
             "challenge_id": "diagnostic-challenge", "status": "failed", "error": cause
         ])
-        await store.record(request: URLRequest(url: url), data: data, response: response, error: nil, elapsed: 0)
+        await store.record(owner: AppAccountSession.storage.schoolSessionIdentity, request: URLRequest(url: url), data: data, response: response, error: nil, elapsed: 0)
         let records = await store.recent()
         let record = try XCTUnwrap(records.last)
         XCTAssertEqual(record.statusCode, 200)
@@ -70,7 +107,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         ] {
             let url = try XCTUnwrap(URL(string: address))
             let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
-            await store.record(request: URLRequest(url: url), data: data, response: response, error: nil, elapsed: 0)
+            await store.record(owner: AppAccountSession.storage.schoolSessionIdentity, request: URLRequest(url: url), data: data, response: response, error: nil, elapsed: 0)
         }
         let records = await store.recent()
         XCTAssertEqual(records.count, 3)
@@ -221,6 +258,21 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertFalse(output.contains("cookie=session"))
         XCTAssertFalse(output.contains("ST-secret"))
         XCTAssertFalse(ErrorReportRedactor.forced(#"{"accessToken":"abc","sessionID":"xyz"}"#).contains("abc"))
+        for text in ["Authorization: Bearer TEST_ONLY_SECRET", "Authorization: Basic TEST_ONLY_SECRET",
+                     "Cookie: first=TEST_ONLY_SECRET; second=TEST_ONLY_SECRET", "Proxy-Authorization: Basic TEST_ONLY_SECRET",
+                     #"{"password":"TEST_ONLY_\"SECRET"}"#,
+                     "https://example.invalid/?%70assword=TEST_ONLY_SECRET",
+                     "https://example.invalid/?%2570assword=TEST_ONLY_SECRET",
+                     "https://example.invalid/#%74oken=TEST_ONLY_SECRET",
+                     "https://example.invalid/#%2574oken=TEST_ONLY_SECRET",
+                     "https://example.invalid/#%74oken=TEST_ONLY_SECRET&note=%bad",
+                     "https://example.invalid/?service=https%3A%2F%2Fschool.invalid%2F%3Fticket%3DTEST_ONLY_SECRET",
+                     "https://example.invalid/?service=HTTPS%3A%2F%2Fschool.invalid%2F%3Fticket%3DTEST_ONLY_SECRET",
+                     "https://fixture-user:TEST_ONLY_SECRET@example.invalid/"] {
+            XCTAssertFalse(ErrorReportRedactor.forced(text).contains("TEST_ONLY"))
+            XCTAssertFalse(ErrorReportRedactor.forced(text).contains("SECRET"))
+        }
+        XCTAssertEqual(ErrorReportRedactor.forced("https://example.invalid/#section"), "https://example.invalid/#section")
         let sanitized = ErrorReportRedactor.sanitized("student_id=1120260000&name=张三&status=401")
         XCTAssertFalse(sanitized.contains("1120260000"))
         XCTAssertFalse(sanitized.contains("张三"))
@@ -293,6 +345,44 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     }
 
     @MainActor
+    func testNetworkDiagnosisStopsAtItsCapturedAccountAndCancellationBoundary() async throws {
+        for interruption in ["account", "community-generation", "school-generation", "cancel"] {
+            var owner = NetworkDiagnosisRunner.Identity(community: .init(accountIdentifier: "A"), school: .init(accountIdentifier: "A", generation: 0))
+            var waiting: CheckedContinuation<Void, Never>?
+            var shouldWait = true
+            var executed: Set<NetworkDiagnosisRunner.Step> = []
+            let runner = NetworkDiagnosisRunner(identity: { owner }, diagnose: { step in
+                executed.insert(step)
+                if step == .currentTerm, shouldWait {
+                    shouldWait = false
+                    await withCheckedContinuation { waiting = $0 }
+                }
+                return step.title + "：通过"
+            })
+            let work = Task { await runner.run() }
+            while waiting == nil || runner.completedCount < 4 { try Task.checkCancellation(); await Task.yield() }
+            switch interruption {
+            case "account": owner = .init(community: .init(accountIdentifier: "B"), school: .init(accountIdentifier: "B", generation: 0))
+            case "community-generation": owner = .init(community: .init(accountIdentifier: "A", generation: 1), school: owner.school)
+            case "school-generation": owner = .init(community: owner.community, school: .init(accountIdentifier: "A", generation: 1))
+            default: work.cancel()
+            }
+            try XCTUnwrap(waiting).resume()
+            let interrupted = await work.value
+            XCTAssertNil(interrupted)
+            XCTAssertFalse(runner.isRunning)
+            XCTAssertEqual(runner.completedCount, 4)
+            XCTAssertTrue(executed.isDisjoint(with: [.schedule, .ddl, .transcript]))
+            executed = []
+            let next = await runner.run()
+            let resumed = try XCTUnwrap(next)
+            XCTAssertEqual(resumed.results.count, runner.totalCount)
+            XCTAssertEqual(executed, Set(NetworkDiagnosisRunner.Step.allCases))
+            XCTAssertEqual(runner.completedCount, runner.totalCount)
+        }
+    }
+
+    @MainActor
     func testUserCancelledTranscriptVerificationDoesNotOfferErrorReporting() async {
         let viewModel = TrustedTranscriptViewModel(service: StubTrustedTranscriptService())
         await viewModel.apply()
@@ -341,7 +431,95 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertEqual(viewModel.images.count, 1)
     }
 
+    @MainActor
+    private final class RetryingTranscriptService: TrustedTranscriptServicing {
+        let transcriptServiceIdentity: AnyHashable = UUID()
+        let page: Data
+        let returnsChallenge: Bool
+        var requests = 0
+        var pending: CheckedContinuation<Void, Never>?
+        var cancelled = false
+        init(page: Data, returnsChallenge: Bool) { self.page = page; self.returnsChallenge = returnsChallenge }
+        func fetchTrustedTranscriptPages() async throws -> [Data] {
+            requests += 1
+            if requests == 1 { throw ScoreServiceError.queryFailed("fixture") }
+            if requests == 2 {
+                await withCheckedContinuation { pending = $0 }
+                cancelled = Task.isCancelled
+                if returnsChallenge {
+                    throw ScoreServiceError.secondFactorRequired(.init(challengeID: "fixture", accessToken: "fixture",
+                        status: "waiting_sms", maskedPhone: nil, expiresIn: 60))
+                }
+            }
+            return [page]
+        }
+        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> [Data] { [page] }
+    }
+
+    @MainActor
+    func testTranscriptRetryCancellationRetiresImagesAndLateChallengesAndCanResume() async {
+        for returnsChallenge in [false, true] {
+            let page = UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).pngData { _ in }
+            let service = RetryingTranscriptService(page: page, returnsChallenge: returnsChallenge)
+            let model = TrustedTranscriptViewModel(service: service)
+            await model.applyIfNeeded()
+            guard case .failed = model.state else { XCTFail("Expected initial failure"); continue }
+            model.prepareRetry()
+            let retry = Task { await model.applyIfNeeded() }
+            while service.pending == nil { await Task.yield() }
+            retry.cancel()
+            service.pending?.resume()
+            await retry.value
+            XCTAssertTrue(service.cancelled)
+            XCTAssertEqual(model.state, .idle)
+            XCTAssertTrue(model.images.isEmpty)
+            XCTAssertNil(model.smsChallenge)
+            await model.applyIfNeeded()
+            XCTAssertEqual(model.state, .loaded)
+            XCTAssertEqual(service.requests, 3)
+        }
+    }
+
+    private struct TranscriptPageService: TrustedTranscriptServicing {
+        let transcriptServiceIdentity: AnyHashable = UUID()
+        let pages: [Data]
+        func fetchTrustedTranscriptPages() async throws -> [Data] { pages }
+        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> [Data] { pages }
+    }
+
+    @MainActor
+    func testTranscriptPreparesEveryPageWithinTheAggregateBitmapBudget() async throws {
+        let page = UIGraphicsImageRenderer(size: CGSize(width: 256, height: 128)).pngData { context in
+            UIColor.label.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 256, height: 128))
+        }
+        let model = TrustedTranscriptViewModel(service: TranscriptPageService(pages: [page, page]),
+            limits: .init(maximumDecodedBytes: 4_096))
+        await model.apply()
+        XCTAssertEqual(model.state, .loaded)
+        XCTAssertEqual(model.images.count, 2)
+        let bitmaps = try model.images.map { try XCTUnwrap($0.cgImage) }
+        XCTAssertLessThanOrEqual(bitmaps.reduce(0) { $0 + $1.bytesPerRow * $1.height }, 4_096)
+        for bitmap in bitmaps {
+            XCTAssertLessThan(bitmap.width, 256)
+            XCTAssertEqual(Double(bitmap.width) / Double(bitmap.height), 2, accuracy: 0.2)
+        }
+    }
+
+    @MainActor
+    func testTranscriptRejectsExcessPagesEncodedBytesAndUnusableBitmapBudgets() async {
+        let page = UIGraphicsImageRenderer(size: CGSize(width: 16, height: 16)).pngData { _ in }
+        for limits in [TrustedTranscriptResourceLimits(maximumPageCount: 1),
+                       .init(maximumEncodedBytes: page.count * 2 - 1), .init(maximumDecodedBytes: 3)] {
+            let model = TrustedTranscriptViewModel(service: TranscriptPageService(pages: [page, page]), limits: limits)
+            await model.apply()
+            guard case .failed = model.state else { XCTFail("Expected transcript resource limit failure"); continue }
+            XCTAssertTrue(model.images.isEmpty)
+        }
+    }
+
     private struct StubTrustedTranscriptService: TrustedTranscriptServicing {
+        let transcriptServiceIdentity: AnyHashable = UUID()
         func fetchTrustedTranscriptPages() async throws -> [Data] {
             throw ScoreServiceError.secondFactorRequired(BITLoginAuthenticationChallenge(
                 challengeID: "test-transcript", accessToken: "test-token", status: "sms_required",

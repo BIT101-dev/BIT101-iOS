@@ -40,6 +40,7 @@ struct ScoreFilterPage: View {
                 .disabled(options.isEmpty)
                 .accessibilityValue("已选 \(selectedValues.intersection(Set(options)).count) 项，共 \(options.count) 项")
                 .appInteractiveListRow()
+                    .accessibilityIdentifier("ui.score-filter-page.toggle-all")
             }
 
             Section {
@@ -58,6 +59,7 @@ struct ScoreFilterPage: View {
                         }
                         .buttonStyle(.plain)
                         .appInteractiveListRow()
+                            .accessibilityIdentifier("ui.score-filter-page.option")
                     }
                 }
             }
@@ -107,6 +109,7 @@ struct ScoreSortPage: View {
                     }
                     .buttonStyle(.plain)
                     .appInteractiveListRow()
+                        .accessibilityIdentifier("ui.score-sort-page.index")
                 }
             }
 

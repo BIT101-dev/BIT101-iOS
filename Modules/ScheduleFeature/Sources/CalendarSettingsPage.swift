@@ -45,6 +45,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
     }
 
     @ObservedObject private var viewModel: ScheduleViewModel
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     @AppStorage("schedule.calendar.axisMode") private var storedCalendarAxisMode = ScheduleCalendarAxisMode.quantized.rawValue
     @State private var isShowingTimeTableEditor = false
     @State private var timeTableText = ""
@@ -56,6 +57,8 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
     @State private var isShowingSystemCalendarImportConfirmation = false
     @State private var isShowingSystemCalendarDeleteConfirmation = false
     @State private var isUpdatingSystemCalendar = false
+    @State private var calendarMutationTask: Task<Void, Never>?
+    @State private var calendarMutationGeneration = 0
     @State private var shouldOpenImportSheetAfterGuide = false
     @State private var exportedScheduleCode: ExportedScheduleCode?
     @State private var importSheetPresentation: ImportSheetPresentation?
@@ -63,7 +66,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
     @State private var renamingScheduleTarget: RenamingScheduleTarget?
 
     private var normalizedLeadMinutes: Int {
-        min(max(viewModel.settingsSnapshot.courseLiveActivityLeadMinutes, 1), 60)
+        SchedulePresentationPreferences.normalizedLeadMinutes(viewModel.settingsSnapshot.courseLiveActivityLeadMinutes)
     }
 
     private var iCloudSyncSection: some View {
@@ -105,6 +108,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 }
                 .disabled(viewModel.settingsSnapshot.currentTerm.isEmpty || !viewModel.isCacheWritable)
                 .appInteractiveListRow()
+                    .accessibilityIdentifier("ui.calendar-settings-page.学期起始日期")
             }
             Button("时间表") {
                 timeTableText = viewModel.settingsSnapshot.timeTableText
@@ -127,6 +131,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             }
             .disabled(isUpdatingSystemCalendar)
             .appInteractiveListRow()
+                .accessibilityIdentifier("ui.calendar-settings-page.导入到系统日历")
 
             Button("删除已导入的日历", role: .destructive) {
                 isShowingSystemCalendarDeleteConfirmation = true
@@ -164,6 +169,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 .appInteractiveListRow()
             }
             .onDelete { offsets in
+                interactionEvidence?("interaction.CalendarSettingsPage.onDelete", "delete")
                 let schedules = viewModel.settingsSnapshot.sharedSchedules
                 let ids = offsets.compactMap { index in
                     schedules.indices.contains(index) ? schedules[index].id : nil
@@ -259,6 +265,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 ? AppDesignSystem.Opacity.full
                 : AppDesignSystem.Schedule.reminderDisabledOpacity)
             .appInteractiveListRow()
+                .accessibilityIdentifier("ui.calendar-settings-page.提前显示阈值")
         } header: {
             AppListSectionHeader("显示设置")
         }
@@ -268,10 +275,18 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
         List {
             dataSettingsSection
             scheduleNamesSection
+                .disabled(!viewModel.isCacheWritable)
             displaySettingsSection
+                .disabled(!viewModel.isCacheWritable)
             iCloudSyncSection
         }
         .appGroupedListStyle()
+        .allowsHitTesting(!viewModel.isLoadingCache)
+        .overlay {
+            if viewModel.isLoadingCache {
+                AppLoadingState(title: "正在读取日程").background(.regularMaterial)
+            }
+        }
         .task {
             await viewModel.loadIfNeeded()
             if viewModel.settingsSnapshot.courseLiveActivityLeadMinutes != normalizedLeadMinutes {
@@ -363,16 +378,25 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 }
             )
         }
+        .onDisappear { cancelCalendarMutation() }
+        .onChange(of: viewModel.accountGeneration) { _, _ in
+            cancelCalendarMutation()
+            isShowingSystemCalendarImportConfirmation = false
+            isShowingSystemCalendarDeleteConfirmation = false
+        }
         .alert("当前课表为空", isPresented: $isShowingEmptyScheduleExportConfirmation) {
             Button("取消", role: .cancel) {}
+                .accessibilityIdentifier("schedule.empty-share.cancel")
             Button("确定") {
                 exportScheduleCode(allowEmptyCourseData: true)
             }
+                .accessibilityIdentifier("ui.calendar-settings-page.confirm")
         } message: {
             Text("当前课表为空，仍要分享？")
         }
         .alert("实验性功能提醒", isPresented: $isShowingLiveActivityExperimentalWarning) {
             Button("取消", role: .cancel) {}
+                .accessibilityIdentifier("schedule.reminder-warning.cancel")
             Button("继续打开") {
                 viewModel.setShowCourseLiveActivityReminder(true)
             }
@@ -384,6 +408,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 importCurrentTermToSystemCalendar()
             }
             Button("取消", role: .cancel) {}
+                .accessibilityIdentifier("schedule.calendar-import.cancel")
         } message: {
             Text("导入会创建“BIT101 课表”日历；重复导入会替换本学期中带 BIT101 标记的事件。")
         }
@@ -391,7 +416,9 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             Button("删除", role: .destructive) {
                 deleteImportedSystemCalendarEvents()
             }
+                .accessibilityIdentifier("ui.calendar-settings-page.delete")
             Button("取消", role: .cancel) {}
+                .accessibilityIdentifier("schedule.calendar-delete.cancel")
         } message: {
             Text("删除操作会移除带 BIT101 标记的事件，保留你自己创建的日程。")
         }
@@ -403,72 +430,62 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 }
                 shouldOpenImportSheetAfterGuide = false
             }
+                .accessibilityIdentifier("ui.calendar-settings-page.知道了")
             Button("取消", role: .cancel) {
                 shouldOpenImportSheetAfterGuide = false
             }
+                .accessibilityIdentifier("schedule.import-guide.cancel")
         } message: {
             Text("单击课表名称可改名，左滑可删除；在日程界面上下滑可循环切换课表；每个小组件使用自己的课表作为数据源。")
         }
     }
 
-    private func importCurrentTermToSystemCalendar() {
+    private func cancelCalendarMutation() {
+        calendarMutationTask?.cancel()
+        calendarMutationGeneration &+= 1
+        isUpdatingSystemCalendar = false
+    }
+
+    private func performCalendarMutation(failureTitle: String, operation: @escaping @MainActor () async throws -> ScheduleNotice) {
+        cancelCalendarMutation()
+        let account = viewModel.accountGeneration
+        let generation = calendarMutationGeneration
         isUpdatingSystemCalendar = true
-        Task {
-            defer { isUpdatingSystemCalendar = false }
+        calendarMutationTask = Task {
+            guard !Task.isCancelled, viewModel.accountGeneration == account else { return }
+            defer {
+                if calendarMutationGeneration == generation { isUpdatingSystemCalendar = false }
+            }
             do {
-                let count = try await viewModel.importCurrentTermToSystemCalendar()
-                viewModel.notice = ScheduleNotice.informational(
-                    title: "导入成功",
-                    message: "已向“BIT101 课表”日历写入 \(count) 节课程。"
-                )
+                let notice = try await operation()
+                guard !Task.isCancelled, viewModel.accountGeneration == account else { return }
+                viewModel.notice = notice
             } catch {
+                guard !Task.isCancelled, viewModel.accountGeneration == account else { return }
                 if let calendarError = error as? ScheduleSystemCalendarError {
-                    viewModel.notice = ScheduleNotice.userInput(
-                        title: "导入失败",
-                        message: calendarError.localizedDescription,
-                        recoveryAction: calendarError.requiresCalendarSettings ? .openAppSettings : nil
-                    )
+                    viewModel.notice = ScheduleNotice.userInput(title: failureTitle, message: calendarError.localizedDescription,
+                        recoveryAction: calendarError.requiresCalendarSettings ? .openAppSettings : nil)
                 } else {
-                    viewModel.notice = ScheduleNotice(
-                        title: "导入失败",
-                        message: error.localizedDescription
-                    )
+                    viewModel.notice = ScheduleNotice(title: failureTitle, message: error.localizedDescription)
                 }
             }
         }
     }
 
+    private func importCurrentTermToSystemCalendar() {
+        performCalendarMutation(failureTitle: "导入失败") {
+            let count = try await viewModel.importCurrentTermToSystemCalendar()
+            return ScheduleNotice.informational(title: "导入成功", message: "已向“BIT101 课表”日历写入 \(count) 节课程。")
+        }
+    }
+
     private func deleteImportedSystemCalendarEvents() {
-        isUpdatingSystemCalendar = true
-        Task {
-            defer { isUpdatingSystemCalendar = false }
-            do {
-                let result = try await viewModel.deleteImportedSystemCalendarEvents()
-                switch result {
-                case let .changed(count):
-                    viewModel.notice = ScheduleNotice.informational(
-                        title: "删除成功",
-                        message: "已删除 \(count) 条由 BIT101 导入的日历事件。"
-                    )
-                case .noOp:
-                    viewModel.notice = ScheduleNotice.informational(
-                        title: "无需删除",
-                        message: "系统日历中没有由 BIT101 导入的事件。"
-                    )
-                }
-            } catch {
-                if let calendarError = error as? ScheduleSystemCalendarError {
-                    viewModel.notice = ScheduleNotice.userInput(
-                        title: "删除失败",
-                        message: calendarError.localizedDescription,
-                        recoveryAction: calendarError.requiresCalendarSettings ? .openAppSettings : nil
-                    )
-                } else {
-                    viewModel.notice = ScheduleNotice(
-                        title: "删除失败",
-                        message: error.localizedDescription
-                    )
-                }
+        performCalendarMutation(failureTitle: "删除失败") {
+            switch try await viewModel.deleteImportedSystemCalendarEvents() {
+            case let .changed(count):
+                return ScheduleNotice.informational(title: "删除成功", message: "已删除 \(count) 条由 BIT101 导入的日历事件。")
+            case .noOp:
+                return ScheduleNotice.informational(title: "无需删除", message: "系统日历中没有由 BIT101 导入的事件。")
             }
         }
     }

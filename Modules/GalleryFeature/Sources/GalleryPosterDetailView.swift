@@ -36,6 +36,7 @@ public struct GalleryPosterDetailView: View {
 }
 
 private struct GalleryPosterDetailViewScene: View {
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     private let dependencies: GalleryDependencies
     private let destinations: CommunityProfileDestination
     private let media: MediaEnvironment
@@ -93,6 +94,7 @@ private struct GalleryPosterDetailViewScene: View {
                                 authorSummary
                             }
                             .buttonStyle(.plain)
+                                .accessibilityIdentifier("ui.gallery-poster-detail-view-scene.profile")
                         } else {
                             authorSummary
                         }
@@ -183,6 +185,7 @@ private struct GalleryPosterDetailViewScene: View {
                             .frame(maxWidth: .infinity)
                             .accessibilityLabel(imageAccessibilityLabel)
                             .accessibilityHint("轻点查看大图")
+                                .accessibilityIdentifier("ui.gallery-poster-detail-view-scene.images")
                         }
                     }
                     .onChange(of: viewModel.poster.images) { _, _ in
@@ -256,6 +259,8 @@ private struct GalleryPosterDetailViewScene: View {
             .padding(.top, AppDesignSystem.Spacing.section)
         }
         .refreshable {
+                    interactionEvidence?("interaction.GalleryPosterDetailViewScene.refreshable", "refresh")
+
             await viewModel.refreshAll()
         }
         .background(AppDesignSystem.Palette.Background.grouped)
@@ -309,18 +314,9 @@ private struct GalleryPosterDetailViewScene: View {
                 target: target,
                 isSubmitting: viewModel.isSubmittingComment
             ) { text, anonymous, images in
-                Task {
-                    let success = await viewModel.submitComment(
-                        text: text,
-                        anonymous: anonymous,
-                        imageMids: images.map(\.mid),
-                        target: target
-                    )
-                    if success {
-                        composerTarget = nil
-                    }
-                }
+                await viewModel.submitComment(text: text, anonymous: anonymous, imageMids: images.map(\.mid), target: target)
             }
+            .id(target.id)
         }
         .sheet(item: $reportTarget) { target in
             GalleryReportSheet(target: target, service: dependencies.reporting) {}
@@ -332,6 +328,7 @@ private struct GalleryPosterDetailViewScene: View {
             presenting: viewModel.poster
         ) { _ in
             Button("取消", role: .cancel) {}
+                .accessibilityIdentifier("ui.gallery-poster-detail-view-scene.cancel")
             Button("删除", role: .destructive) {
                 Task {
                     if await viewModel.deletePoster() {
@@ -340,6 +337,7 @@ private struct GalleryPosterDetailViewScene: View {
                     }
                 }
             }
+                .accessibilityIdentifier("ui.gallery-poster-detail-view-scene.delete")
         } message: { poster in
             Text("确定删除“\(poster.title.isEmpty ? "未命名帖子" : poster.title)”吗？删除后无法恢复。")
         }

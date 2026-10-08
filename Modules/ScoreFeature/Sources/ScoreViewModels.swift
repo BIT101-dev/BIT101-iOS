@@ -6,6 +6,11 @@ import DesignSystemKit
 import Combine
 import Foundation
 
+private nonisolated enum ScorePersistenceError: LocalizedError {
+    case saveFailed
+    var errorDescription: String? { "成绩已取得，本地保存失败。请重试同步。" }
+}
+
 /// 管理完整成绩查询、缓存恢复、筛选同步、统计汇总和错误提示。
 @MainActor
 public final class ScoreViewModel: ObservableObject {
@@ -57,13 +62,13 @@ public final class ScoreViewModel: ObservableObject {
     private var isRefreshing: Bool { refreshPhase.isSyncing }
     /// 账号切换后递增，使此前启动的请求失去页面与缓存写入资格。
     private(set) var accountGeneration = 0
+    private var presentationGeneration = 0
+    private var scheduleReadGeneration = 0
     private var activeRequestID: UUID?
     private var cancelActiveRequest: (() -> Void)?
     private var didRestoreCachedRows = false
     private var didInitializeTermSelection = false
     private var didInitializeCourseTypeSelection = false
-    /// 经短信验证的刷新保留用户主动要求的详细成绩刷新策略。
-    private var pendingRefreshForcesDetailed = false
     /// 初始化时读取一次已持久化的筛选快照。
     private let cacheStore: any ScoreCaching
     private let preferenceStore: any ScoreFilterPreferencesStoring
@@ -87,18 +92,7 @@ public final class ScoreViewModel: ObservableObject {
         self.preferenceSnapshot = preferenceStore.load()
         self.currentScoreCacheSession = currentScoreCacheSession
         self.loadScheduleCourses = loadScheduleCourses
-        if
-            let rawSortIndex = preferenceSnapshot?.sortIndex,
-            let persistedSortIndex = ScoreSortIndex(rawValue: rawSortIndex)
-        {
-            sortIndex = persistedSortIndex
-        }
-        if
-            let rawSortOrder = preferenceSnapshot?.sortOrder,
-            let persistedSortOrder = ScoreSortOrder(rawValue: rawSortOrder)
-        {
-            sortOrder = persistedSortOrder
-        }
+        restoreSortPreferences()
         preferenceObserver = preferenceStore.changes.sink { [weak self] session in
             guard let self, session == self.currentScoreCacheSession() else { return }
             self.applyPersistedFilterPreferences()
@@ -114,9 +108,12 @@ public final class ScoreViewModel: ObservableObject {
         scheduleCacheObserver = scheduleCoursesChanges.sink { [weak self] session in
             guard let self, session == self.currentScoreCacheSession() else { return }
             let generation = self.accountGeneration
+            self.scheduleReadGeneration &+= 1
+            let readGeneration = self.scheduleReadGeneration
             Task { @MainActor [weak self] in
-                guard let self, self.accountGeneration == generation, session == self.currentScoreCacheSession() else { return }
-                await self.refreshCachedScheduleCourses()
+                guard let self, self.accountGeneration == generation, session == self.currentScoreCacheSession(),
+                      self.scheduleReadGeneration == readGeneration else { return }
+                await self.loadCachedScheduleCourses(for: session, generation: generation, readGeneration: readGeneration)
             }
         }
     }
@@ -124,6 +121,8 @@ public final class ScoreViewModel: ObservableObject {
     /// 切换账号后重置内存状态；下一次启动按新学号恢复磁盘缓存。
     public func resetForCurrentAccount() {
         accountGeneration &+= 1
+        presentationGeneration &+= 1
+        scheduleReadGeneration &+= 1
         cancelActiveRequest?()
         cancelActiveRequest = nil
         activeRequestID = nil
@@ -144,9 +143,9 @@ public final class ScoreViewModel: ObservableObject {
         didRestoreCachedRows = false
         didInitializeTermSelection = false
         didInitializeCourseTypeSelection = false
-        pendingRefreshForcesDetailed = false
         cachedCoursesByTerm = [:]
         preferenceSnapshot = preferenceStore.load()
+        restoreSortPreferences()
         alert = nil
     }
 
@@ -155,30 +154,32 @@ public final class ScoreViewModel: ObservableObject {
     /// “查询成绩”和下拉刷新触发真实成绩查询，短信验证码在当前操作链路中展示。
     func restoreCachedDataIfNeeded() async {
         guard state == .idle else { return }
+        let presentation = presentationGeneration
         let session = currentScoreCacheSession()
         let generation = accountGeneration
         await refreshCachedScheduleCourses(for: session, generation: generation)
-        guard isCurrent(session, generation: generation) else { return }
+        guard isCurrent(session, generation: generation), presentation == presentationGeneration else { return }
         await restoreCachedRowsIfAvailable(for: session, generation: generation)
         guard isCurrent(session, generation: generation) else { return }
-        if rows.isEmpty {
-            state = .loaded
-        }
-    }
-
-    private func refreshCachedScheduleCourses() async {
-        let session = currentScoreCacheSession()
-        await refreshCachedScheduleCourses(for: session, generation: accountGeneration)
+        if state == .idle { applyRows(rows) }
     }
 
     private func refreshCachedScheduleCourses(
         for session: AppStorageSession,
         generation: Int
     ) async {
-        let courses = await loadScheduleCourses(session)
         guard isCurrent(session, generation: generation) else { return }
+        scheduleReadGeneration &+= 1
+        await loadCachedScheduleCourses(for: session, generation: generation, readGeneration: scheduleReadGeneration)
+    }
+
+    private func loadCachedScheduleCourses(for session: AppStorageSession, generation: Int, readGeneration: Int) async {
+        let courses = await loadScheduleCourses(session)
+        guard isCurrent(session, generation: generation), readGeneration == scheduleReadGeneration else { return }
         cachedCoursesByTerm = courses
-        if !rows.isEmpty {
+        if state != .idle {
+            availableTerms = uniqueNonEmptyValues(from: rows.map(\.term) + Array(courses.keys))
+            synchronizeFilters()
             pendingCourses = calculatePendingCourses()
         }
     }
@@ -186,18 +187,15 @@ public final class ScoreViewModel: ObservableObject {
     /// 刷新成绩列表。
     ///
     /// 页面已有内容时在原列表上刷新数据。
-    func refresh(
-        showErrors: Bool = true,
-        forceDetailedRefresh: Bool = true
-    ) async {
+    func refresh(showErrors: Bool = true) async {
         guard !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil else { return }
+        presentationGeneration &+= 1
 
         let session = currentScoreCacheSession()
         let generation = accountGeneration
         let hadContent = !rows.isEmpty || state == .loaded
         smsChallenge = nil
         smsVerificationError = nil
-        pendingRefreshForcesDetailed = forceDetailedRefresh
         refreshPhase = .authenticating
         allowsDiagnostics = true
         syncStatusText = "同步简略成绩中"
@@ -219,7 +217,6 @@ public final class ScoreViewModel: ObservableObject {
             guard isCurrent(session, generation: generation) else { return }
             try await synchronizeScores(
                 authenticatedBy: challenge,
-                forceDetailedRefresh: forceDetailedRefresh,
                 session: session,
                 generation: generation
             )
@@ -231,7 +228,6 @@ public final class ScoreViewModel: ObservableObject {
             guard isCurrent(session, generation: generation) else { return }
             smsChallenge = nil
             smsVerificationError = nil
-            pendingRefreshForcesDetailed = false
             if hadContent {
                 state = .loaded
                 if showErrors {
@@ -247,12 +243,16 @@ public final class ScoreViewModel: ObservableObject {
         } catch {
             guard isCurrent(session, generation: generation) else { return }
             if isCancellation(error) {
-                pendingRefreshForcesDetailed = false
                 state = hadContent ? .loaded : .idle
                 return
             }
 
-            pendingRefreshForcesDetailed = false
+            if error is ScorePersistenceError {
+                state = rows.isEmpty ? .failed(error.localizedDescription) : .loaded
+                if showErrors { alert = AppAlert(title: "成绩保存失败", message: error.localizedDescription) }
+                return
+            }
+
             if hadContent {
                 state = .loaded
                 if showErrors {
@@ -307,11 +307,8 @@ public final class ScoreViewModel: ObservableObject {
                     refreshPhase = smsChallenge == nil ? .idle : .awaitingVerification
                 }
             }
-            let forceDetailedRefresh = pendingRefreshForcesDetailed
-            pendingRefreshForcesDetailed = false
             try await synchronizeScores(
                 authenticatedBy: authenticatedChallenge,
-                forceDetailedRefresh: forceDetailedRefresh,
                 session: session,
                 generation: generation
             )
@@ -323,7 +320,6 @@ public final class ScoreViewModel: ObservableObject {
             guard isCurrent(session, generation: generation) else { return }
             smsChallenge = nil
             smsVerificationError = nil
-            pendingRefreshForcesDetailed = false
             allowsDiagnostics = false
             if rows.isEmpty {
                 state = .failed(message)
@@ -339,18 +335,17 @@ public final class ScoreViewModel: ObservableObject {
                 smsVerificationError = error.localizedDescription
             } else {
                 state = rows.isEmpty ? .failed(error.localizedDescription) : .loaded
-                alert = AppAlert(title: "成绩查询失败", message: error.localizedDescription)
+                alert = AppAlert(title: error is ScorePersistenceError ? "成绩保存失败" : "成绩查询失败", message: error.localizedDescription)
             }
         }
     }
 
-    /// 使用同一个认证会话先获取简略列表；详细缓存满足复用条件时沿用缓存，其余情况获取详细字段。
+    /// 使用同一个认证会话依次获取简略列表和完整详细字段。
     ///
-    /// 简略结果到达后立即更新页面；缓存满足复用条件时沿用缓存，详细信息需要更新时再发起请求。
+    /// 简略结果到达后立即更新页面，详细请求完成后保存完整缓存。
     /// 详细请求的状态文案至少展示半秒。
     private func synchronizeScores(
         authenticatedBy challenge: BITLoginAuthenticationChallenge,
-        forceDetailedRefresh: Bool,
         session: AppStorageSession,
         generation: Int
     ) async throws {
@@ -366,53 +361,34 @@ public final class ScoreViewModel: ObservableObject {
         applyRows(briefRows)
         syncStatusText = "简略成绩同步完成"
 
-        let detailDecision: ScoreDetailRefreshDecision = forceDetailedRefresh
-            ? .fetch
-            : ScoreDetailRefreshPolicy.decision(
-                briefRows: briefRows,
-                cachedRows: cachedRows,
-                detailedUpdatedAt: cachedSnapshot?.detailedUpdatedAt,
-                now: Date()
-            )
-        if detailDecision != .fetch, let cachedRows {
-            applyRows(cachedRows)
-            let updatedAt = await cacheStore.markChecked(for: session)
-            guard isCurrent(session, generation: generation) else { return }
-            lastUpdatedAt = updatedAt ?? cachedSnapshot?.updatedAt
-            syncStatusText = "成绩已是最新"
-            presentUnchangedNotice()
-            return
-        }
-
         let detailedRowsTask = Task { @MainActor [service = self.service] in
             try await service.fetchScores(
                 detail: true,
                 authenticatedBy: challenge
             )
         }
-        try await Task.sleep(for: .milliseconds(500))
-
-        guard isCurrent(session, generation: generation) else {
-            detailedRowsTask.cancel()
-            return
-        }
-        refreshPhase = .details
-        syncStatusText = "同步详细信息中"
         do {
-            let detailedRows = try await awaitTrackedRequest(detailedRowsTask)
+            let detailedRows = try await awaitTrackedRequest(detailedRowsTask) {
+                try await Task.sleep(for: .milliseconds(500))
+                guard self.isCurrent(session, generation: generation) else { throw CancellationError() }
+                self.refreshPhase = .details
+                self.syncStatusText = "同步详细信息中"
+            }
             guard isCurrent(session, generation: generation) else { return }
-            let scoresAreIdentical = cachedRows.map { ScoreDetailRefreshPolicy.rowsMatch(detailedRows, $0) } ?? false
+            let scoresAreIdentical = cachedRows.map { ScoreRowComparison.rowsMatch(detailedRows, $0) } ?? false
             applyRows(detailedRows)
             let updatedAt = await cacheStore.saveDetailed(rows: detailedRows, for: session)
             guard isCurrent(session, generation: generation) else { return }
-            lastUpdatedAt = updatedAt ?? cachedSnapshot?.updatedAt
+            guard let updatedAt else { throw ScorePersistenceError.saveFailed }
+            lastUpdatedAt = updatedAt
             if scoresAreIdentical {
                 presentUnchangedNotice()
             }
         } catch {
             guard isCurrent(session, generation: generation) else { return }
+            if isCancellation(error) || error is ScorePersistenceError { throw error }
             if let cachedRows,
-               ScoreDetailRefreshPolicy.briefRowsMatchCache(briefRows, cachedRows: cachedRows)
+               ScoreRowComparison.briefRowsMatchCache(briefRows, cachedRows: cachedRows)
             {
                 // 简略成绩保持一致时，详细刷新失败会继续使用缓存中的完整字段。
                 applyRows(cachedRows)
@@ -420,7 +396,8 @@ public final class ScoreViewModel: ObservableObject {
             } else {
                 let updatedAt = await cacheStore.save(rows: briefRows, for: session)
                 guard isCurrent(session, generation: generation) else { return }
-                lastUpdatedAt = updatedAt ?? cachedSnapshot?.updatedAt
+                guard let updatedAt else { throw ScorePersistenceError.saveFailed }
+                lastUpdatedAt = updatedAt
             }
             throw error
         }
@@ -438,7 +415,6 @@ public final class ScoreViewModel: ObservableObject {
         guard !isSubmittingSMSCode else { return }
         smsChallenge = nil
         smsVerificationError = nil
-        pendingRefreshForcesDetailed = false
         allowsDiagnostics = false
         if rows.isEmpty {
             state = .failed("需要完成短信验证才能查询成绩。")
@@ -493,8 +469,7 @@ public final class ScoreViewModel: ObservableObject {
     ///
     /// 对应学期缓存缺失时返回 `nil`，页面据此区分未知状态与 0。
     private func calculatePendingCourses() -> [ScoreCourseSummary]? {
-        let scoreTerms = Set(rows.map { normalizedFilterValue($0.term) }.filter { !$0.isEmpty })
-            .intersection(selectedTerms)
+        let scoreTerms = selectedTerms
         guard !scoreTerms.isEmpty else { return nil }
 
         let cachedCoursesByTerm = self.cachedCoursesByTerm.reduce(
@@ -505,7 +480,7 @@ public final class ScoreViewModel: ObservableObject {
             result[normalizedTerm, default: []].append(contentsOf: entry.value)
         }
         let coveredTerms = scoreTerms.filter { cachedCoursesByTerm[$0] != nil }
-        guard !coveredTerms.isEmpty else { return nil }
+        guard coveredTerms.count == scoreTerms.count else { return nil }
 
         let scoredNumbers = Set(rows.compactMap { row -> String? in
             let number = normalizedCourseIdentity(row.courseNumber)
@@ -517,6 +492,11 @@ public final class ScoreViewModel: ObservableObject {
             let term = normalizedFilterValue(row.term)
             return name.isEmpty || term.isEmpty ? nil : "\(term)|\(name)"
         })
+        let scoredNamesWithoutNumbers = Set(rows.compactMap { row -> String? in
+            let name = normalizedCourseIdentity(row.courseName)
+            let term = normalizedFilterValue(row.term)
+            return normalizedCourseIdentity(row.courseNumber).isEmpty && !name.isEmpty && !term.isEmpty ? "\(term)|\(name)" : nil
+        })
         var pendingByIdentity: [String: ScoreCourseSummary] = [:]
 
         for term in coveredTerms {
@@ -524,7 +504,7 @@ public final class ScoreViewModel: ObservableObject {
                 let number = normalizedCourseIdentity(course.number)
                 let name = normalizedCourseIdentity(course.name)
                 let hasScore = (!number.isEmpty && scoredNumbers.contains("\(term)|\(number)"))
-                    || (!name.isEmpty && scoredNames.contains("\(term)|\(name)"))
+                    || (!name.isEmpty && (number.isEmpty ? scoredNames : scoredNamesWithoutNumbers).contains("\(term)|\(name)"))
                 guard !hasScore else { continue }
 
                 guard !name.isEmpty || !number.isEmpty else { continue }
@@ -541,7 +521,7 @@ public final class ScoreViewModel: ObservableObject {
         }
     }
 
-    /// 当前筛选范围内尚未出分的课程数。
+    /// 所选学期尚未出分的课程数。
     var pendingCourseCount: Int? {
         pendingCourses?.count
     }
@@ -604,24 +584,28 @@ public final class ScoreViewModel: ObservableObject {
     ) async {
         guard !didRestoreCachedRows else { return }
         didRestoreCachedRows = true
+        presentationGeneration &+= 1
+        let presentation = presentationGeneration
         guard let snapshot = await cacheStore.loadSnapshot(for: session),
-              isCurrent(session, generation: generation),
-              let rows = snapshot.rows,
-              !rows.isEmpty
+              isCurrent(session, generation: generation), presentation == presentationGeneration,
+              !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil,
+              let rows = snapshot.rows
         else { return }
         lastUpdatedAt = snapshot.updatedAt
         applyRows(rows)
     }
 
     /// iCloud 成绩缓存到达时立即刷新当前页面，页面继续使用本地缓存数据。
-    private func applySyncedScoreCacheIfAvailable() async {
+    func applySyncedScoreCacheIfAvailable() async {
         guard !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil else { return }
+        presentationGeneration &+= 1
+        let presentation = presentationGeneration
         let session = currentScoreCacheSession()
         let generation = accountGeneration
         guard let snapshot = await cacheStore.loadSnapshot(for: session),
-              isCurrent(session, generation: generation),
-              let cachedRows = snapshot.rows,
-              !cachedRows.isEmpty
+              isCurrent(session, generation: generation), presentation == presentationGeneration,
+              !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil,
+              let cachedRows = snapshot.rows
         else { return }
         didRestoreCachedRows = true
         lastUpdatedAt = snapshot.updatedAt
@@ -636,8 +620,9 @@ public final class ScoreViewModel: ObservableObject {
 
     /// 应用一份成绩列表，并同步筛选项。
     private func applyRows(_ newRows: [ScoreRow]) {
+        presentationGeneration &+= 1
         rows = newRows
-        availableTerms = uniqueNonEmptyValues(from: newRows.map(\.term))
+        availableTerms = uniqueNonEmptyValues(from: newRows.map(\.term) + Array(cachedCoursesByTerm.keys))
         availableCourseTypes = uniqueNonEmptyValues(from: newRows.map(\.courseType))
         synchronizeFilters()
         pendingCourses = calculatePendingCourses()
@@ -685,12 +670,7 @@ public final class ScoreViewModel: ObservableObject {
         preferenceSnapshot = preferenceStore.load()
         guard let preferenceSnapshot else { return }
 
-        if let raw = preferenceSnapshot.sortIndex, let value = ScoreSortIndex(rawValue: raw) {
-            sortIndex = value
-        }
-        if let raw = preferenceSnapshot.sortOrder, let value = ScoreSortOrder(rawValue: raw) {
-            sortOrder = value
-        }
+        restoreSortPreferences()
         if didInitializeTermSelection {
             selectedTerms = Set(preferenceSnapshot.selectedTerms).intersection(Set(availableTerms))
             pendingCourses = calculatePendingCourses()
@@ -698,6 +678,11 @@ public final class ScoreViewModel: ObservableObject {
         if didInitializeCourseTypeSelection {
             selectedCourseTypes = Set(preferenceSnapshot.selectedCourseTypes).intersection(Set(availableCourseTypes))
         }
+    }
+
+    private func restoreSortPreferences() {
+        sortIndex = preferenceSnapshot?.sortIndex.flatMap(ScoreSortIndex.init(rawValue:)) ?? .courseName
+        sortOrder = preferenceSnapshot?.sortOrder.flatMap(ScoreSortOrder.init(rawValue:)) ?? .ascending
     }
 
     /// 提取去重后的非空字符串列表，并保留原始出现顺序。
@@ -745,7 +730,8 @@ public final class ScoreViewModel: ObservableObject {
     }
 
     private func awaitTrackedRequest<Value: Sendable>(
-        _ task: Task<Value, Error>
+        _ task: Task<Value, Error>,
+        beforeAwait: @MainActor () async throws -> Void = {}
     ) async throws -> Value {
         let requestID = UUID()
         activeRequestID = requestID
@@ -757,6 +743,14 @@ public final class ScoreViewModel: ObservableObject {
                 cancelActiveRequest = nil
             }
         }
-        return try await task.value
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            try await beforeAwait()
+            let value = try await task.value
+            try Task.checkCancellation()
+            return value
+        } onCancel: {
+            task.cancel()
+        }
     }
 }

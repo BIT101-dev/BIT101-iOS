@@ -19,6 +19,7 @@ final class AppAccountLifecycle: ObservableObject {
     let community: AppCommunityDependencies
     let communityDestinations: AppCommunityDestinations
     let settings: AppSettingsStore
+    let localData: AppLocalDataService
     let preferenceCloudSync: ExperimentalPreferenceCloudSync
     private var subscriptions = Set<AnyCancellable>()
     private var externalRefreshTask: Task<Void, Never>?
@@ -53,6 +54,7 @@ final class AppAccountLifecycle: ObservableObject {
         self.transcriptService = transcriptService
         self.communityDestinations = AppCommunityDestinations(dependencies: community, schedule: scheduleViewModel, media: media, localData: localData)
         self.settings = settings
+        self.localData = localData
         self.preferenceCloudSync = preferenceCloudSync
         self.externalDisplays = externalDisplays
         self.currentSession = stores.currentSession
@@ -77,6 +79,7 @@ final class AppAccountLifecycle: ObservableObject {
         guard !AppFileDirectories.isRunningUITest else { return }
 #endif
         externalDisplays.activate()
+        preferenceCloudSync.refreshFromCloudIfNeeded()
         refreshExternalDisplays(trigger: "app_launch_task", syncWidgetSnapshot: true)
     }
 
@@ -91,6 +94,7 @@ final class AppAccountLifecycle: ObservableObject {
     }
 
     func sceneBecameActive() {
+        preferenceCloudSync.refreshFromCloudIfNeeded()
         refreshExternalDisplays(trigger: "scene_active", syncWidgetSnapshot: true)
     }
 

@@ -99,6 +99,7 @@ public struct CoursePageContent: View {
                     await viewModel.loadMoreIfNeeded(currentCourse: course)
                 }
                 .appInteractiveListRow()
+                    .accessibilityIdentifier("ui.course-page-content.course")
             }
 
             if viewModel.state.isLoadingMore {
@@ -175,6 +176,21 @@ struct CourseEvaluationRouteResolver {
 ///
 /// 解析成功后进入后续路由，解析失败时在当前页面展示 alert。
 public struct CourseEvaluationLink: View {
+    private let scene: CourseEvaluationLinkScene
+    private let dependencyID: ObjectIdentifier
+    private let requestID: UUID
+
+    public init(dependencies: CourseDependencies, request: CourseNavigationRequest,
+        onResolved: @escaping (CourseNavigationRequest) -> Void) {
+        scene = CourseEvaluationLinkScene(dependencies: dependencies, request: request, onResolved: onResolved)
+        dependencyID = ObjectIdentifier(dependencies)
+        requestID = request.id
+    }
+
+    public var body: some View { scene.id(dependencyID).id(requestID) }
+}
+
+private struct CourseEvaluationLinkScene: View {
     private let dependencies: CourseDependencies
     let request: CourseNavigationRequest
     let onResolved: (CourseNavigationRequest) -> Void
@@ -182,7 +198,7 @@ public struct CourseEvaluationLink: View {
     @State private var alert: AppAlert?
     @State private var diagnosticAlert: AppAlert?
 
-    public init(
+    init(
         dependencies: CourseDependencies,
         request: CourseNavigationRequest,
         onResolved: @escaping (CourseNavigationRequest) -> Void
@@ -192,14 +208,19 @@ public struct CourseEvaluationLink: View {
         self.onResolved = onResolved
     }
 
-    public var body: some View {
+    var body: some View {
         Button {
-            Task { await resolveAndNavigate() }
+            isResolving = true
         } label: {
             AppCourseEvaluationRow(isLoading: isResolving)
         }
         .buttonStyle(.plain)
         .disabled(isResolving)
+        .task(id: isResolving) {
+            guard isResolving else { return }
+            await resolveAndNavigate()
+        }
+        .onDisappear { isResolving = false }
         .alert(item: $alert) { alert in
             Alert(
                 title: Text(alert.title),
@@ -208,17 +229,18 @@ public struct CourseEvaluationLink: View {
             )
         }
         .diagnosticAlert(item: $diagnosticAlert)
+            .accessibilityIdentifier("ui.course-evaluation-link.open")
     }
 
     private func resolveAndNavigate() async {
-        guard !isResolving else { return }
-        isResolving = true
         defer { isResolving = false }
 
         do {
-            onResolved(try await CourseEvaluationRouteResolver(listService: dependencies.list, detailService: dependencies.detail).resolve(request))
+            let resolved = try await CourseEvaluationRouteResolver(listService: dependencies.list, detailService: dependencies.detail).resolve(request)
+            try Task.checkCancellation()
+            onResolved(resolved)
         } catch {
-            if TaskCancellation.matches(error) { return }
+            if Task.isCancelled || TaskCancellation.matches(error) { return }
             if error is CourseEvaluationError {
                 alert = AppAlert.userInput(title: "无法打开课程评价", message: error.localizedDescription)
             } else {
@@ -341,6 +363,7 @@ private enum CourseEvaluationError: LocalizedError {
 
 /// 课程页顶部搜索栏。
 private struct CourseSearchRow: View {
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     @Binding var text: String
     let onSubmit: () -> Void
 
@@ -354,7 +377,11 @@ private struct CourseSearchRow: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
-                .onSubmit(onSubmit)
+                .onSubmit {
+                    interactionEvidence?("interaction.CourseSearchRow.onSubmit", "submit")
+
+                    onSubmit()
+                }
 
             if !text.isEmpty {
                 Button {
@@ -366,6 +393,7 @@ private struct CourseSearchRow: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("清除搜索")
+                    .accessibilityIdentifier("ui.course-search-row.清除搜索")
             }
         }
     }

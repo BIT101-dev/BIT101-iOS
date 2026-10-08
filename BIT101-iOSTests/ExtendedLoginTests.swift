@@ -1,4 +1,7 @@
+import TransportCore
+import ClientCore
 import Foundation
+import Combine
 import CommunityTransport
 import Testing
 @testable import BIT101_iOS
@@ -6,6 +9,7 @@ import Testing
 @Suite("Extended login state transitions")
 struct ExtendedLoginTests {
     private final class ServiceStub: LoginServicing {
+        var sessionChanges: AnyPublisher<Void, Never> { Empty().eraseToAnyPublisher() }
         let savedStudentID: String
         let savedPassword: String
         let hasCachedSession: Bool
@@ -153,12 +157,164 @@ struct LoginStorageTests {
     private final class Credentials: LoginCredentialsStoring {
         var values: [String: String] = [:]
         var failsWrites = false
+        var failsDeletes = false
+        var writeCount = 0
+        var failOnWrite: Int?
         func read(account: String) throws -> String { values[account] ?? "" }
         func save(_ value: String, account: String) throws {
-            if failsWrites { throw CocoaError(.fileWriteNoPermission) }
+            writeCount += 1
+            if failsWrites || failOnWrite == writeCount { throw CocoaError(.fileWriteNoPermission) }
             values[account] = value
         }
-        func delete(account: String) -> Bool { values[account] = nil; return true }
+        func delete(account: String) -> Bool {
+            guard !failsDeletes else { return false }
+            values[account] = nil
+            return true
+        }
+    }
+
+    private final class SuspendedCookieCheck: HTTPTransport {
+        let oldStatus: Int
+        var pending: CheckedContinuation<Void, Never>?
+        init(oldStatus: Int) { self.oldStatus = oldStatus }
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            let old = request.value(forHTTPHeaderField: "fake-cookie") == "old-cookie"
+            if old { await withCheckedContinuation { pending = $0 } }
+            let url = try #require(request.url)
+            return (Data(), try #require(HTTPURLResponse(url: url,
+                statusCode: old ? oldStatus : 200, httpVersion: nil, headerFields: nil)))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func remoteRevocationUpdatesTheRootPresentationAndANewSessionRestoresIt() async throws {
+        let domain = "BIT101Tests.login-presentation"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        try storage.saveLoginState(studentID: "A", password: "fixture", fakeCookie: "old-cookie")
+        let owner = storage.communityCredentials.identity
+        let transport = SuspendedCookieCheck(oldStatus: 401)
+        let service = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: HTTPClient(transport: transport, observer: nil)))
+        let model = LoginViewModel(service: service)
+        #expect(model.screenState == .signedIn(studentID: "A"))
+        let check = Task { try await service.checkLogin() }
+        while transport.pending == nil { await Task.yield() }
+        transport.pending?.resume()
+        #expect(try await check.value == nil)
+        #expect(storage.communityCredentials.identity != owner && storage.fakeCookie.isEmpty)
+        #expect(model.screenState == .signedOut && model.password.isEmpty)
+        try storage.saveLoginState(studentID: "B", password: "fixture", fakeCookie: "new-cookie")
+        #expect(model.screenState == .signedIn(studentID: "B") && model.studentID == "B")
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [200, 401])
+    func backgroundCookieValidationKeepsTheNewlyRenewedSameAccountSession(status: Int) async throws {
+        let domain = "BIT101Tests.cookie-check-renewal"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        try storage.saveLoginState(studentID: "A", password: "fixture", fakeCookie: "old-cookie")
+        let identity = storage.communityCredentials.identity
+        let transport = SuspendedCookieCheck(oldStatus: status)
+        let service = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: HTTPClient(transport: transport, observer: nil)))
+        let old = Task { try await service.checkLogin() }
+        while transport.pending == nil { await Task.yield() }
+        try storage.saveLoginState(studentID: "A", password: "fixture", fakeCookie: "renewed-cookie")
+        #expect(storage.communityCredentials.identity == identity)
+        transport.pending?.resume()
+        await #expect(throws: CancellationError.self) { try await old.value }
+        #expect(storage.fakeCookie == "renewed-cookie")
+        #expect(try await service.checkLogin() == "A")
+    }
+
+    private final class SchoolRestoreResponses: HTTPTransport {
+        let scenario: String
+        var requests = 0
+        init(_ scenario: String) { self.scenario = scenario }
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            requests += 1
+            let url = try #require(request.url)
+            let login = #"<input id="login-croypto" value="MTIzNDU2Nzg5MDEyMzQ1Ng=="><input id="login-page-flowkey" value="fixture-flow">"#
+            var status = 200
+            var headers: [String: String] = [:]
+            let html: String
+            if requests == 1 { html = login }
+            else if requests == 2, scenario.hasPrefix("redirect-") {
+                status = 302
+                headers["Location"] = scenario == "redirect-gate" ? "/gate/cas-success" : "/cas/login?retry=1"
+                html = ""
+            } else {
+                switch scenario {
+                case "empty": html = ""
+                case "english-error", "redirect-error": html = "<html>Invalid credentials</html>"
+                case "login-form", "redirect-login": html = login
+                case "spaced-login": html = #"<input name = "username"><span>注销</span>"#
+                case "redirect-gate": status = 401; html = ""
+                default: html = #"<a href="/cas/logout">退出登录</a>"#
+                }
+            }
+            return (Data(html.utf8), try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: headers)))
+        }
+    }
+
+    @Test(arguments: ["empty", "english-error", "login-form", "spaced-login", "redirect-login", "redirect-error", "direct-success", "redirect-gate"])
+    func productionSchoolRestoreRequiresPositiveAuthenticationEvidence(scenario: String) async throws {
+        let domain = "BIT101Tests.school-restore-response"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        try storage.saveLoginState(studentID: "fixture-account", password: "fixture-password", fakeCookie: "fixture-cookie")
+        let transport = SchoolRestoreResponses(scenario)
+        let client = HTTPClient(transport: transport, observer: nil)
+        let service = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: client, noRedirectHTTPClient: client))
+        if ["direct-success", "redirect-gate"].contains(scenario) {
+            #expect(try await service.restoreSchoolSessionIfNeeded() == "fixture-account")
+        } else {
+            await #expect(throws: LoginServiceError.self) { try await service.restoreSchoolSessionIfNeeded() }
+        }
+        #expect(transport.requests == (scenario.hasPrefix("redirect-") ? 3 : 2))
+        #expect(storage.fakeCookie == "fixture-cookie")
+    }
+
+    private final class SuspendedSchoolRestore: HTTPTransport {
+        let suspendedRequest: Int
+        var requests = 0
+        var pending: CheckedContinuation<Void, Never>?
+        init(suspendedRequest: Int) { self.suspendedRequest = suspendedRequest }
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            requests += 1
+            if requests == suspendedRequest { await withCheckedContinuation { pending = $0 } }
+            let url = try #require(request.url)
+            let html = requests == 1
+                ? #"<input id="login-croypto" value="MTIzNDU2Nzg5MDEyMzQ1Ng=="><input id="login-page-flowkey" value="fixture-flow">"#
+                : "cas-success"
+            return (Data(html.utf8), try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [1, 2])
+    func schoolRestoreKeepsItsCapturedAccountAcrossBothNetworkWaits(request: Int) async throws {
+        let domain = "BIT101Tests.school-restore"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        try storage.saveLoginState(studentID: "account-a", password: "fixture-password", fakeCookie: "fixture-a")
+        let transport = SuspendedSchoolRestore(suspendedRequest: request)
+        let client = HTTPClient(transport: transport, observer: nil)
+        let service = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: client, noRedirectHTTPClient: client))
+        let task = Task { try await service.restoreSchoolSessionIfNeeded() }
+        while transport.pending == nil { await Task.yield() }
+        storage.clearSession()
+        try storage.saveLoginState(studentID: "account-a", password: "fixture-password", fakeCookie: "fixture-next")
+        transport.pending?.resume()
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(storage.fakeCookie == "fixture-next")
+        #expect(transport.requests == request)
     }
 
     @Test func credentialChangesCarryAccountGenerationsAndStayWithTheirOwner() throws {
@@ -184,6 +340,7 @@ struct LoginStorageTests {
         try first.saveLoginState(studentID: "A", password: "synthetic", fakeCookie: "renewed-A")
         #expect(firstChanges == [.init(accountIdentifier: "A", generation: 1)])
         #expect(first.communityCredentials.cookie == "renewed-A")
+        #expect(clearedSchools == 2)
         try first.saveLoginState(studentID: "B", password: "synthetic", fakeCookie: "cookie-B")
         first.clearSession()
         #expect(firstChanges.map(\.generation) == [1, 2, 3])
@@ -191,7 +348,7 @@ struct LoginStorageTests {
         #expect(first.currentPassword.isEmpty && first.fakeCookie.isEmpty)
         #expect(first.clearAllLocalData())
         #expect(firstChanges.last == .init(accountIdentifier: "", generation: 4))
-        #expect(clearedSchools == 3)
+        #expect(clearedSchools == 5)
         #expect(secondChanges.isEmpty && secondBackend.values.isEmpty)
         withExtendedLifetime(subscriptions) {}
     }
@@ -214,6 +371,41 @@ struct LoginStorageTests {
         #expect(storage.communityCredentials == previous)
         #expect(changes.isEmpty)
         withExtendedLifetime(subscription) {}
+    }
+
+    @Test func atomicCredentialsAndRevocationSurviveBackendFailuresAndReopen() throws {
+        let domain = "BIT101Tests.login-storage.revocation"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let backend = Credentials()
+        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+        try storage.saveLoginState(studentID: "A", password: "password-A", fakeCookie: "cookie-A")
+        let before = backend.writeCount
+        backend.failOnWrite = before + 2
+        try storage.saveLoginState(studentID: "B", password: "password-B", fakeCookie: "cookie-B")
+        #expect(backend.writeCount == before + 1)
+        #expect(storage.currentStudentID == "B")
+        #expect(storage.currentPassword == "password-B")
+        #expect(storage.fakeCookie == "cookie-B")
+        backend.failsWrites = true
+        backend.failsDeletes = true
+        storage.clearSession()
+        #expect(storage.fakeCookie.isEmpty && storage.currentPassword.isEmpty)
+        #expect(try storage.loadCredentials() == nil)
+        storage.preservingCredentialRevocation { defaults.removePersistentDomain(forName: domain) }
+        defaults.set(true, forKey: "login.installationMarker")
+        let reopened = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+        #expect(reopened.currentStudentID == "B")
+        #expect(reopened.fakeCookie.isEmpty && reopened.currentPassword.isEmpty)
+        #expect(!reopened.clearAllLocalData())
+        reopened.clearSession()
+        #expect(reopened.currentStudentID.isEmpty && reopened.fakeCookie.isEmpty)
+        backend.failsWrites = false
+        backend.failsDeletes = false
+        backend.failOnWrite = nil
+        try reopened.saveLoginState(studentID: "C", password: "password-C", fakeCookie: "cookie-C")
+        #expect(reopened.currentStudentID == "C" && reopened.fakeCookie == "cookie-C")
     }
 
     @Test func credentialMigrationUsesTheSelectedBackend() throws {

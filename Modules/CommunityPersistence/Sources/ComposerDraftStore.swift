@@ -13,6 +13,7 @@ private nonisolated protocol StoredComposerDraft: Decodable {
     var assetRevision: String { get }
     var images: [StoredComposerDraftImage] { get }
     func snapshot(images: [ComposerImageDraftSnapshot]) -> Snapshot
+    static func images(in snapshot: Snapshot) -> [ComposerImageDraftSnapshot]
 }
 
 private nonisolated struct DraftSchemaHeader: Decodable {
@@ -41,6 +42,7 @@ private nonisolated struct StoredGalleryComposerDraft: Codable, StoredComposerDr
     let isPublic: Bool
     let selectedClaimID: Int
     let images: [StoredComposerDraftImage]
+    static func images(in snapshot: GalleryComposerDraftSnapshot) -> [ComposerImageDraftSnapshot] { snapshot.images }
 
     func snapshot(images: [ComposerImageDraftSnapshot]) -> GalleryComposerDraftSnapshot {
         GalleryComposerDraftSnapshot(title: title, text: text, selectedTags: selectedTags, customTags: customTags,
@@ -54,6 +56,7 @@ private nonisolated struct StoredDeveloperSuggestionDraft: Codable, StoredCompos
     let text: String
     let contact: String
     let images: [StoredComposerDraftImage]
+    static func images(in snapshot: DeveloperSuggestionDraftSnapshot) -> [ComposerImageDraftSnapshot] { snapshot.images }
 
     func snapshot(images: [ComposerImageDraftSnapshot]) -> DeveloperSuggestionDraftSnapshot {
         DeveloperSuggestionDraftSnapshot(text: text, images: images, contact: contact)
@@ -69,23 +72,29 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
     private let applicationSupport: URL
     private let prepareImageData: @Sendable (Data) throws -> Data
     private let currentSession: @MainActor @Sendable () -> AppStorageSession
+    private let storageOperations: StorageOperationTracker
 
-    public init(files: any AppFileService, applicationSupport: URL, session: @escaping @MainActor @Sendable () -> AppStorageSession, prepareImageData: @escaping @Sendable (Data) throws -> Data) {
+    public init(files: any AppFileService, applicationSupport: URL, session: @escaping @MainActor @Sendable () -> AppStorageSession, prepareImageData: @escaping @Sendable (Data) throws -> Data, storageOperations: StorageOperationTracker = StorageOperationTracker()) {
         self.prepareImageData = prepareImageData
         self.files = files
         self.applicationSupport = applicationSupport
         self.currentSession = session
+        self.storageOperations = storageOperations
     }
 
     @MainActor
     @discardableResult
     public func saveGallery(_ snapshot: GalleryComposerDraftSnapshot) async -> Bool {
-        await storage.saveGallery(store: self, snapshot, session: currentSession())
+        guard storageOperations.begin() else { return false }
+        defer { storageOperations.finish() }
+        return await storage.saveGallery(store: self, snapshot, session: currentSession())
     }
 
     @MainActor
     public func loadGallery() async -> ComposerDraftLoadResult<GalleryComposerDraftSnapshot> {
-        await storage.loadGallery(store: self, session: currentSession())
+        guard storageOperations.begin() else { return .missing }
+        defer { storageOperations.finish() }
+        return await storage.loadGallery(store: self, session: currentSession())
     }
 
     @discardableResult
@@ -137,12 +146,16 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
     @discardableResult
     @MainActor
     public func saveSuggestion(_ snapshot: DeveloperSuggestionDraftSnapshot) async -> Bool {
-        await storage.saveSuggestion(store: self, snapshot, session: currentSession())
+        guard storageOperations.begin() else { return false }
+        defer { storageOperations.finish() }
+        return await storage.saveSuggestion(store: self, snapshot, session: currentSession())
     }
 
     @MainActor
     public func loadSuggestion() async -> ComposerDraftLoadResult<DeveloperSuggestionDraftSnapshot> {
-        await storage.loadSuggestion(store: self, session: currentSession())
+        guard storageOperations.begin() else { return .missing }
+        defer { storageOperations.finish() }
+        return await storage.loadSuggestion(store: self, session: currentSession())
     }
 
     @discardableResult
@@ -193,6 +206,8 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
         let sources = [currentURL, legacyAccountFileURL(for: filename, session: session), directoryURL.appendingPathComponent(filename)]
         for url in sources where files.fileExists(at: url) {
             do {
+                guard let size = files.regularFileSize(at: url), size <= ComposerDraftImagePolicy.maximumLegacyMetadataBytes
+                else { throw CocoaError(.fileReadCorruptFile) }
                 try? files.setPrivateFileProtection(at: url)
                 let data = try files.readData(at: url)
                 let decoder = JSONDecoder()
@@ -202,12 +217,18 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
                     guard version == Self.currentSchemaVersion else {
                         return DraftRead(result: .unsupportedVersion(version), sourceURL: url)
                     }
+                    guard data.count <= ComposerDraftImagePolicy.maximumMetadataBytes else { throw CocoaError(.fileReadCorruptFile) }
                     let stored = try decoder.decode(type, from: data)
                     guard UUID(uuidString: stored.assetRevision) != nil else { throw CocoaError(.fileReadCorruptFile) }
                     let images = try readImages(stored.images, revision: stored.assetRevision, sourceURL: url)
                     snapshot = stored.snapshot(images: images)
                 } else {
                     snapshot = try decoder.decode(Stored.Snapshot.self, from: data)
+                    let images = Stored.images(in: snapshot)
+                    guard images.count <= ComposerDraftImagePolicy.maximumImageCount,
+                          images.allSatisfy({ $0.previewData.count <= ComposerDraftImagePolicy.maximumBytes
+                              && ($0.uploadData?.count ?? 0) <= ComposerDraftImagePolicy.maximumBytes })
+                    else { throw CocoaError(.fileReadCorruptFile) }
                 }
                 return DraftRead(result: .loaded(snapshot), sourceURL: url,
                     needsMigration: url != currentURL || header.schemaVersion == nil)
@@ -227,6 +248,8 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
 
     @MainActor
     public func removeGallery() async {
+        guard storageOperations.begin() else { return }
+        defer { storageOperations.finish() }
         await storage.removeGallery(store: self, session: currentSession())
     }
 
@@ -243,9 +266,13 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
 
     @MainActor
     private func captureCleanup(filename: String) async -> ComposerDraftCleanup {
+        guard storageOperations.begin() else { return {} }
+        defer { storageOperations.finish() }
         let session = currentSession()
         let metadata = await storage.cleanupMetadata(store: self, filename: filename, session: session)
-        return {
+        return { @MainActor in
+            guard self.storageOperations.begin() else { return }
+            defer { self.storageOperations.finish() }
             await self.storage.removeMatching(store: self, filename: filename, session: session, metadata: metadata)
         }
     }
@@ -256,6 +283,8 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
 
     @MainActor
     public func removeSuggestion() async {
+        guard storageOperations.begin() else { return }
+        defer { storageOperations.finish() }
         await storage.removeSuggestion(store: self, session: currentSession())
     }
 
@@ -271,6 +300,7 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
     private func write<T: Encodable>(_ value: T, to fileURL: URL) throws {
         try files.createDirectory(at: fileURL.deletingLastPathComponent())
         let data = try JSONEncoder().encode(value)
+        guard data.count <= ComposerDraftImagePolicy.maximumMetadataBytes else { throw CocoaError(.fileWriteOutOfSpace) }
         try files.writeData(
             data,
             to: fileURL,
@@ -283,6 +313,7 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
         filename: String,
         session: AppStorageSession
     ) throws -> (revision: String, references: [StoredComposerDraftImage]) {
+        guard images.count <= ComposerDraftImagePolicy.maximumImageCount else { throw CocoaError(.fileWriteOutOfSpace) }
         let revision = UUID().uuidString.lowercased()
         let directory = assetDirectoryURL(for: filename, revision: revision, session: session)
         try files.createDirectory(at: directory)
@@ -314,9 +345,12 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
     private func readImages(
         _ references: [StoredComposerDraftImage], revision: String, sourceURL: URL
     ) throws -> [ComposerImageDraftSnapshot] {
+        guard references.count <= ComposerDraftImagePolicy.maximumImageCount else { throw CocoaError(.fileReadCorruptFile) }
         let directory = sourceURL.appendingPathExtension("assets").appending(path: revision, directoryHint: .isDirectory)
         return try references.enumerated().map { index, reference in
             let fileURL = directory.appending(path: "image-\(index).jpg")
+            guard let size = files.regularFileSize(at: fileURL), size <= ComposerDraftImagePolicy.maximumBytes
+            else { throw CocoaError(.fileReadCorruptFile) }
             try? files.setPrivateFileProtection(at: fileURL)
             let data = try files.readData(at: fileURL)
             return ComposerImageDraftSnapshot(filename: reference.filename, previewData: data, uploadData: data)

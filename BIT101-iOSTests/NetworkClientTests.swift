@@ -5,6 +5,8 @@ import ScheduleDomain
 @testable import TransportCore
 import CommunityTransport
 import ClientCore
+import ScoreDomain
+import ScoreInfrastructure
 import Foundation
 import Testing
 @testable import BIT101_iOS
@@ -30,7 +32,7 @@ private final class StubNetworkPathProvider: NetworkPathProviding {
     }
 }
 
-private enum TestCommunityError: LocalizedError, CommunityAPIServiceError {
+private nonisolated enum TestCommunityError: LocalizedError, CommunityAPIServiceError, Equatable {
     case notLoggedIn
     case invalidResponse
 
@@ -45,6 +47,67 @@ private func makeTestURL(_ value: String) throws -> URL {
 
 @Suite("Network stack")
 struct NetworkClientTests {
+    private final class ScoreCredentials: SchoolCredentialsProviding {
+        var schoolSessionIdentity = SchoolSessionIdentity(accountIdentifier: "score-contract", generation: 0)
+        var currentStudentID: String { schoolSessionIdentity.accountIdentifier }
+        var currentPassword: String { "fixture-password" }
+    }
+
+    @Test("Score authentication preserves its owner through the host transport contract")
+    @MainActor
+    func scoreChallengeAndResultUseTheSameAccountGeneration() async throws {
+        let credentials = ScoreCredentials()
+        var requests: [URLRequest] = []
+        let client = HTTPClient(transport: MockHTTPTransport { request in
+            requests.append(request)
+            let url = try #require(request.url)
+            #expect(request.httpMethod == "POST")
+            let data: Data
+            if url.path.hasSuffix("/start") {
+                data = Data(#"{"challenge_id":"fixture","access_token":"token","status":"authenticated","expires_in":120}"#.utf8)
+            } else {
+                #expect(url.path == "/api/jwb/bit101/score")
+                #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer token")
+                let body = try #require(request.httpBody)
+                let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+                #expect(payload["challenge_id"] as? String == "fixture")
+                #expect(payload["detail"] as? Bool == false)
+                data = Data(#"{"msg":"查询成功","data":[["课程名称","成绩"],["功能验收","80"]]}"#.utf8)
+            }
+            return (data, try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+        }, observer: nil)
+        let service = ScoreService(credentials: credentials, httpClient: client, sensitiveHTTPClient: client,
+            endpointBaseURL: AppURL.required("https://example.invalid"))
+        let challenge = try await service.startScoreChallenge()
+        #expect(challenge.ownerIdentity == credentials.schoolSessionIdentity)
+        let rows = try await service.fetchScores(detail: false, authenticatedBy: challenge)
+        #expect(rows.first?.score == "80")
+        credentials.schoolSessionIdentity = .init(accountIdentifier: "score-contract", generation: 1)
+        await #expect(throws: CancellationError.self) { try await service.fetchScores(detail: true, authenticatedBy: challenge) }
+        #expect(requests.count == 2)
+    }
+
+    @Test("Network smoke overrides cache reads and preserves request authentication")
+    @MainActor
+    func smokeTransportReadsRemoteData() async throws {
+        let url = try makeTestURL("https://example.invalid/cached")
+        var captured: URLRequest?
+        let transport = UncachedHTTPTransport(base: MockHTTPTransport { request in
+            captured = request
+            return (Data("remote".utf8), try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+        })
+        var request = URLRequest(url: url, cachePolicy: .returnCacheDataDontLoad)
+        request.httpMethod = "POST"
+        request.httpBody = Data("payload".utf8)
+        request.setValue("session=fixture", forHTTPHeaderField: "Cookie")
+        let (data, _) = try await transport.data(for: request)
+        #expect(data == Data("remote".utf8))
+        #expect(captured?.cachePolicy == .reloadIgnoringLocalCacheData)
+        #expect(captured?.httpMethod == request.httpMethod && captured?.httpBody == request.httpBody)
+        #expect(captured?.value(forHTTPHeaderField: "Cookie") == "session=fixture")
+        #expect(request.cachePolicy == .returnCacheDataDontLoad)
+    }
+
     @Test("Network diagnostics follow the injected connection state")
     @MainActor
     func networkDescriptionUsesSelectedPath() {
@@ -104,7 +167,7 @@ struct NetworkClientTests {
         defer {
             task.cancel()
             if let action = coordinator.activePrompt?.actions.first {
-                coordinator.perform(action)
+                coordinator.perform(action, promptID: coordinator.activePrompt?.id)
             }
         }
 
@@ -117,10 +180,45 @@ struct NetworkClientTests {
         #expect(coordinator.activePrompt?.actions.map(\.title) == ["知道了"])
 
         let action = try #require(coordinator.activePrompt?.actions.first)
-        coordinator.perform(action)
+        coordinator.perform(action, promptID: coordinator.activePrompt?.id)
         _ = try await task.value
         #expect(transportStarted)
         #expect(await center.consider(url: URL(string: "https://open.aihelpme.dev")) == false)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func cancellingOneWarningWaiterKeepsTheOtherRequestWaitingForDismissal() async throws {
+        let provider = StubNetworkPathProvider(snapshot: .init(summary: "virtual", virtualNetworkLikely: true))
+        let coordinator = AppPromptCoordinator(advanceDelay: .zero)
+        coordinator.markHostReady()
+        let center = NetworkMagicWarningCenter(pathProvider: provider, promptCoordinator: coordinator)
+        var sends = 0
+        let transport = MockHTTPTransport { request in
+            sends += 1
+            let url = try #require(request.url)
+            let response = try #require(HTTPURLResponse(url: url, statusCode: 204,
+                httpVersion: nil, headerFields: nil))
+            return (Data(), response)
+        }
+        let client = HTTPClient(transport: transport, networkWarningCenter: center)
+        let request = URLRequest(url: AppURL.required("https://sso.bit.edu.cn/cas/login"))
+        let cancelled = Task { try await client.send(request) }
+        let continuing = Task { try await client.send(request) }
+        defer {
+            cancelled.cancel(); continuing.cancel()
+            if let action = coordinator.activePrompt?.actions.first {
+                coordinator.perform(action, promptID: coordinator.activePrompt?.id)
+            }
+        }
+        while coordinator.activePrompt == nil { await Task.yield() }
+        cancelled.cancel()
+        await #expect(throws: CancellationError.self) { try await cancelled.value }
+        #expect(sends == 0)
+        #expect(coordinator.activePrompt != nil)
+        coordinator.perform(try #require(coordinator.activePrompt?.actions.first), promptID: coordinator.activePrompt?.id)
+        _ = try await continuing.value
+        #expect(sends == 1)
     }
 
     @Test("HTTP errors preserve structured server messages")
@@ -159,7 +257,8 @@ struct NetworkClientTests {
         do {
             _ = try await HTTPClient(transport: transport).send(request)
             Issue.record("Expected a non-HTTP response error")
-        } catch HTTPClientError.invalidResponse {
+        } catch let error as HTTPClientError {
+            guard case .invalidResponse = error else { Issue.record("Unexpected HTTP client error: \(error)"); return }
         } catch {
             Issue.record("Unexpected error: \(error)")
         }
@@ -233,12 +332,8 @@ struct NetworkClientTests {
             credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "test-account"), cookie: "session-token") }
         )
 
-        do {
+        await #expect(throws: TestCommunityError.invalidResponse) {
             let _: UserPayload = try await api.request(path: "users")
-            Issue.record("Expected malformed JSON to fail")
-        } catch TestCommunityError.invalidResponse {
-        } catch {
-            Issue.record("Unexpected error: \(error)")
         }
     }
 
@@ -287,12 +382,8 @@ struct NetworkClientTests {
             credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "test-account"), cookie: "") }
         )
 
-        do {
+        await #expect(throws: TestCommunityError.notLoggedIn) {
             let _: UserPayload = try await api.request(path: "users")
-            Issue.record("Expected authentication to fail")
-        } catch TestCommunityError.notLoggedIn {
-        } catch {
-            Issue.record("Unexpected error: \(error)")
         }
     }
 
@@ -394,12 +485,8 @@ struct NetworkClientTests {
             }
         )
 
-        do {
+        await #expect(throws: TestCommunityError.notLoggedIn) {
             let _: UserPayload = try await api.request(path: "users")
-            Issue.record("Expected the repeated 401 to end in an authentication error")
-        } catch TestCommunityError.notLoggedIn {
-        } catch {
-            Issue.record("Unexpected error: \(error)")
         }
 
         #expect(state.requestCount == 2)
@@ -449,6 +536,7 @@ struct NetworkClientTests {
         var sameOriginResult: URLRequest?
         var sameOriginRequest = URLRequest(url: try #require(URL(string: "http://sso.bit.edu.cn/cas/continue")))
         sameOriginRequest.setValue("Bearer token", forHTTPHeaderField: "Authorization")
+        sameOriginRequest.setValue("challenge-token", forHTTPHeaderField: "X-Challenge-Token")
         delegate.urlSession(
             session,
             task: task,
@@ -458,6 +546,7 @@ struct NetworkClientTests {
         )
         #expect(sameOriginResult?.url?.absoluteString == "https://sso.bit.edu.cn/cas/continue")
         #expect(sameOriginResult?.value(forHTTPHeaderField: "Authorization") == "Bearer token")
+        #expect(sameOriginResult?.value(forHTTPHeaderField: "X-Challenge-Token") == "challenge-token")
 
         var manuallyHandledRedirect: URLRequest? = sameOriginRequest
         NoRedirectURLSessionDelegate().urlSession(
@@ -475,6 +564,7 @@ struct NetworkClientTests {
         crossOriginRequest.setValue("proxy-token", forHTTPHeaderField: "Proxy-Authorization")
         crossOriginRequest.setValue("session", forHTTPHeaderField: "Cookie")
         crossOriginRequest.setValue("community-session", forHTTPHeaderField: "fake-cookie")
+        crossOriginRequest.setValue("challenge-token", forHTTPHeaderField: "x-challenge-token")
         crossOriginRequest.httpBody = Data("sensitive-body".utf8)
         delegate.urlSession(
             session,
@@ -488,6 +578,7 @@ struct NetworkClientTests {
         #expect(crossOriginResult?.value(forHTTPHeaderField: "Proxy-Authorization") == nil)
         #expect(crossOriginResult?.value(forHTTPHeaderField: "Cookie") == nil)
         #expect(crossOriginResult?.value(forHTTPHeaderField: "fake-cookie") == nil)
+        #expect(crossOriginResult?.value(forHTTPHeaderField: "X-Challenge-Token") == nil)
         #expect(crossOriginResult?.httpBody == nil)
 
         var crossOriginPostResult: URLRequest? = crossOriginRequest
@@ -607,7 +698,8 @@ struct NetworkClientTests {
             accessToken: "access-token",
             status: "waiting_sms",
             maskedPhone: "138****0000",
-            expiresIn: 120
+            expiresIn: 120,
+            ownerIdentity: service.credentials.schoolSessionIdentity
         )
 
         do {
@@ -641,7 +733,8 @@ struct NetworkClientTests {
             accessToken: "access-token",
             status: "waiting_sms",
             maskedPhone: "138****0000",
-            expiresIn: 120
+            expiresIn: 120,
+            ownerIdentity: service.credentials.schoolSessionIdentity
         )
 
         do {
@@ -658,12 +751,14 @@ struct NetworkClientTests {
     func networkSmokeScopeAreaMatrix() {
         let all = Set(NetworkSmokeArea.allCases)
         let expectations: [(NetworkSmokeScope, Set<NetworkSmokeArea>)] = [
-            (.all, all),
+            (.all, all.subtracting([.communityWrites])),
             (.bit101, [.authentication, .bit101]),
             (.school, [.authentication, .schedule, .ddl, .school, .transcript]),
             (.transcript, [.authentication, .transcript]),
             (.schedule, [.authentication, .schedule]),
-            (.ddl, [.authentication, .ddl])
+            (.ddl, [.authentication, .ddl]),
+            (.communityWrites, [.authentication, .communityWrites]),
+            (.communityCleanup, [.authentication, .communityWrites])
         ]
 
         for (scope, includedAreas) in expectations {
@@ -726,6 +821,42 @@ struct NetworkClientTests {
 #if DEBUG
     @Test("Release smoke validates external content contracts")
     func releaseSmokeExternalJSONContracts() throws {
+        for date in ["", "changed-format", "2026/09/28", "2026-02-31"] {
+            let payload = CourseSyncPayload(term: "2026-2027-1", firstDayString: date, sourceFirstDayString: date,
+                normalizationOffset: 0, rawWeeksByCourse: [], courses: [], exams: [])
+            #expect(throws: URLError.self) { try ReleaseNetworkSmokeRunner.validateCourseSyncPayload(payload) }
+        }
+        let payload = CourseSyncPayload(term: "2026-2027-1", firstDayString: "2026-09-28", sourceFirstDayString: "2026-09-28",
+            normalizationOffset: 0, rawWeeksByCourse: [], courses: [], exams: [])
+        try ReleaseNetworkSmokeRunner.validateCourseSyncPayload(payload)
+        let landing = Data(#"<!doctype html><html><a href="bit101://course/42">打开</a></html>"#.utf8)
+        #expect(try ReleaseNetworkSmokeRunner.validateHTMLResponse(landing,
+            finalURL: URL(string: "https://open.aihelpme.dev/course/42"), expectedHost: "open.aihelpme.dev",
+            expectedPath: "/course/42", expectedAppURL: "bit101://course/42") > 0)
+        #expect(throws: URLError.self) {
+            try ReleaseNetworkSmokeRunner.validateHTMLResponse(landing,
+                finalURL: URL(string: "https://open.aihelpme.dev/course/7"), expectedHost: "open.aihelpme.dev",
+                expectedPath: "/course/42", expectedAppURL: "bit101://course/42")
+        }
+        #expect(throws: URLError.self) {
+            try ReleaseNetworkSmokeRunner.validateHTMLResponse(Data("<html>登录</html>".utf8),
+                finalURL: URL(string: "https://open.aihelpme.dev/course/42"), expectedHost: "open.aihelpme.dev",
+                expectedPath: "/course/42", expectedAppURL: "bit101://course/42")
+        }
+        let aasa = Data(#"{"applinks":{"details":[{"appID":"Y2T72736G3.BIT101-dev.BIT101-iOS","paths":["/gallery/*","/course/*","/paper/*"]}]}}"#.utf8)
+        let associationURL = AppURL.required("https://open.aihelpme.dev/.well-known/apple-app-site-association")
+        func association(_ data: Data, status: Int = 200, mime: String = "application/json", url: URL? = nil) throws -> HTTPResponse {
+            HTTPResponse(data: data, response: try #require(HTTPURLResponse(url: url ?? associationURL, statusCode: status,
+                httpVersion: nil, headerFields: ["Content-Type": mime])))
+        }
+        #expect(try ReleaseNetworkSmokeRunner.validateAASA(association(aasa, mime: "application/json; charset=utf-8")) == 3)
+        for response in try [association(Data("{}".utf8)), association(aasa, status: 302), association(aasa, mime: "text/plain"),
+                             association(aasa, url: AppURL.required("https://open.aihelpme.dev/redirected")),
+                             association(Data(repeating: 32, count: 128 * 1024 + 1))] {
+            #expect(throws: URLError.self) { try ReleaseNetworkSmokeRunner.validateAASA(response) }
+        }
+        let excluded = Data(String(decoding: aasa, as: UTF8.self).replacingOccurrences(of: "\"/gallery/*\"", with: "\"NOT /gallery/*\",\"/gallery/*\"").utf8)
+        #expect(throws: URLError.self) { try ReleaseNetworkSmokeRunner.validateAASA(association(excluded)) }
         #expect(throws: URLError.self) {
             try ReleaseNetworkSmokeRunner.validateTrustedTranscriptPages([])
         }
@@ -764,12 +895,12 @@ struct NetworkClientTests {
         }
 
         let lookup = Data(
-            #"{"resultCount":1,"results":[{"version":"1.2.3","bundleId":"BIT101-dev.BIT101-iOS","trackViewUrl":"https://apps.apple.com/cn/app/bit101/id6761147125"}]}"#.utf8
+            #"{"resultCount":1,"results":[{"version":"1.2.3","bundleId":"BIT101-dev.BIT101-iOS","currentVersionReleaseDate":"2026-01-01T00:00:00Z","trackViewUrl":"https://apps.apple.com/cn/app/bit101/id6761147125"}]}"#.utf8
         )
         #expect(try ReleaseNetworkSmokeRunner.validateAppStoreLookup(lookup) == 1)
 
         let wrongApp = Data(
-            #"{"resultCount":1,"results":[{"version":"1.2.3","bundleId":"other.app","trackViewUrl":"https://apps.apple.com/cn/app/other/id1234567890"}]}"#.utf8
+            #"{"resultCount":1,"results":[{"version":"1.2.3","bundleId":"other.app","currentVersionReleaseDate":"2026-01-01T00:00:00Z","trackViewUrl":"https://apps.apple.com/cn/app/other/id1234567890"}]}"#.utf8
         )
         #expect(throws: URLError.self) {
             try ReleaseNetworkSmokeRunner.validateAppStoreLookup(wrongApp)
@@ -790,3 +921,31 @@ struct NetworkClientTests {
     }
 #endif
 }
+
+#if !DEBUG && !BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING && !RELEASE_NETWORK_SMOKE && !ICLOUD_CROSS_DEVICE_SMOKE
+@Suite("Release runtime composition")
+@MainActor
+struct ReleaseRuntimeContractTests {
+    @Test func scoreStorageUsesTheCurrentAccount() {
+        #expect(AppFileDirectories.scoreCacheSession == AppFileDirectories.currentSession)
+        #expect(AppAccountStores.shared.scoreSession() == AppFileDirectories.currentSession)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func diagnosticsReceiveTheSystemNetworkPath() async throws {
+        while AppNetworkPath.state.snapshot.status == .checking { try await Task.sleep(for: .milliseconds(20)) }
+        let snapshot = AppNetworkPath.state.snapshot
+        if snapshot.status == .connected { #expect(!snapshot.interfaces.isEmpty) }
+        #expect(NetworkConnectionDescription.shared.snapshot.virtualNetworkLikely == snapshot.virtualNetworkLikely)
+        #expect(FeedbackDeviceContext.current.networkStatus == NetworkConnectionDescription.shared.current)
+    }
+
+    @Test func schoolWarningsUseTheProductionCoordinator() {
+        #expect(HTTPClient.defaultNetworkWarningCenter === NetworkMagicWarningCenter.shared)
+    }
+
+    @Test func feedbackIdentifiesTheReleaseBuild() {
+        #expect(AppBuildEnvironment.isDevelopment == false)
+    }
+}
+#endif

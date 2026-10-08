@@ -9,6 +9,8 @@ import plistlib
 import re
 import subprocess
 import sys
+import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -85,8 +87,8 @@ def validate_not_older_than_ref(ref: str, version: str, build: int) -> None:
 
 def app_store_version() -> str:
     request = urllib.request.Request(
-        APP_STORE_LOOKUP_URL,
-        headers={"Accept": "application/json", "User-Agent": "BIT101-Version-CI/1.0"},
+        APP_STORE_LOOKUP_URL + "&" + urllib.parse.urlencode({"requestTime": int(time.time())}),
+        headers={"Accept": "application/json", "User-Agent": "BIT101-Version-CI/1.0", "Cache-Control": "no-cache"},
     )
     with urllib.request.urlopen(request, timeout=15) as response:
         payload = json.load(response)
@@ -94,6 +96,22 @@ def app_store_version() -> str:
     if not results or not isinstance(results[0].get("version"), str):
         raise ValueError("Apple Lookup API 未返回 BIT101 版本")
     return results[0]["version"]
+
+
+def app_store_request_self_test() -> list[str]:
+    from io import StringIO
+    from unittest.mock import patch
+    findings = []
+    for instant in (100, 200):
+        with patch.object(time, "time", return_value=instant), patch.object(urllib.request, "urlopen",
+                return_value=StringIO('{"results":[{"version":"99.0.0"}]}')) as opener:
+            if app_store_version() != "99.0.0": findings.append("发布版本自测：商店版本解析")
+            request = opener.call_args.args[0]
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(request.full_url).query)
+            if query != {"id": ["6761147125"], "country": ["cn"], "requestTime": [str(instant)]} \
+                    or request.get_header("Cache-control") != "no-cache":
+                findings.append("发布版本自测：商店查询缓存刷新契约")
+    return findings
 
 
 def main() -> int:

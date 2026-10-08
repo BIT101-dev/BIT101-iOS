@@ -19,16 +19,16 @@ nonisolated enum BIT101AppStore {
 }
 
 /// App Store Lookup API 中与更新提醒有关的最小数据集。
-struct AppStoreRelease: Codable, Equatable, Identifiable {
+nonisolated struct AppStoreRelease: Codable, Equatable, Identifiable, Sendable {
     let version: String
     let releaseNotes: String?
-    let releaseDate: Date?
+    let currentVersionReleaseDate: Date?
     let trackViewURL: URL?
 
-    init(version: String, releaseNotes: String?, releaseDate: Date? = nil, trackViewURL: URL?) {
+    init(version: String, releaseNotes: String?, currentVersionReleaseDate: Date? = nil, trackViewURL: URL?) {
         self.version = version
         self.releaseNotes = releaseNotes
-        self.releaseDate = releaseDate
+        self.currentVersionReleaseDate = currentVersionReleaseDate
         self.trackViewURL = trackViewURL
     }
 
@@ -55,15 +55,45 @@ enum AppStoreUpdateCheckResult: Equatable {
     case current
 }
 
-private struct AppStoreLookupResponse: Decodable {
-    struct Result: Decodable {
-        let version: String
-        let releaseNotes: String?
-        let releaseDate: String?
-        let trackViewUrl: URL?
+nonisolated enum AppStoreLookup {
+    static func makeRequest(now: Date = Date()) throws -> URLRequest {
+        let url = AppURL.required("https://itunes.apple.com/lookup?id=6761147125&country=cn")
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let queryItems = components?.queryItems ?? []
+        components?.queryItems = queryItems + [
+            URLQueryItem(name: "requestTime", value: String(Int(now.timeIntervalSince1970)))
+        ]
+        guard let lookupURL = components?.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: lookupURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        return request
     }
 
-    let results: [Result]
+    private struct Response: Decodable {
+        struct Result: Decodable {
+            let version: String
+            let releaseNotes: String?
+            let currentVersionReleaseDate: String
+            let bundleId: String
+            let trackViewUrl: URL
+        }
+        let resultCount: Int
+        let results: [Result]
+    }
+
+    static func parse(_ data: Data) throws -> (release: AppStoreRelease, count: Int) {
+        let response = try JSONDecoder().decode(Response.self, from: data)
+        guard response.resultCount > 0, response.resultCount == response.results.count,
+              let result = response.results.first,
+              !result.version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              result.bundleId == "BIT101-dev.BIT101-iOS",
+              BIT101AppStore.acceptsUpdateURL(result.trackViewUrl),
+              let date = ISO8601DateFormatter().date(from: result.currentVersionReleaseDate)
+        else { throw URLError(.cannotParseResponse) }
+        return (AppStoreRelease(version: result.version, releaseNotes: result.releaseNotes,
+            currentVersionReleaseDate: date, trackViewURL: result.trackViewUrl), response.resultCount)
+    }
 }
 
 enum AppVersionComparison {
@@ -85,8 +115,6 @@ final class AppUpdateChecker {
     nonisolated static let ignoredVersionKey = "app.update-check.ignored-version"
     nonisolated static let lastPresentedAtKey = "app.update-check.last-presented-at"
     nonisolated static let lastPresentedVersionKey = "app.update-check.last-presented-version"
-
-    private static let lookupURL = AppURL.required("https://itunes.apple.com/lookup?id=6761147125&country=cn")
 
     private let defaults: UserDefaults
     private let now: () -> Date
@@ -169,42 +197,15 @@ final class AppUpdateChecker {
     }
 
     private func fetchLatestRelease() async throws -> AppStoreRelease {
-        // Apple Lookup CDN 可能按 User-Agent 返回已过期版本；每次受 24 小时门禁控制的
-        // 查询追加当前时间参数，配合缓存策略请求最新响应。
-        var components = URLComponents(url: Self.lookupURL, resolvingAgainstBaseURL: false)
-        let existingQueryItems = components?.queryItems ?? []
-        components?.queryItems = existingQueryItems + [
-            URLQueryItem(name: "requestTime", value: String(Int(now().timeIntervalSince1970)))
-        ]
-        guard let lookupURL = components?.url else {
-            throw URLError(.badURL)
-        }
-
-        var request = URLRequest(
-            url: lookupURL,
-            cachePolicy: .reloadIgnoringLocalCacheData,
-            timeoutInterval: 10
-        )
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-
+        let request = try AppStoreLookup.makeRequest(now: now())
         let (data, response) = try await loadData(request)
         guard let httpResponse = response as? HTTPURLResponse,
-              (200 ..< 300).contains(httpResponse.statusCode)
+              (200 ..< 300).contains(httpResponse.statusCode), AppURL.isSameOrigin(httpResponse.url, as: request.url)
         else {
             throw URLError(.badServerResponse)
         }
 
-        guard let result = try JSONDecoder().decode(AppStoreLookupResponse.self, from: data).results.first else {
-            throw URLError(.cannotParseResponse)
-        }
-
-        return AppStoreRelease(
-            version: result.version,
-            releaseNotes: result.releaseNotes,
-            releaseDate: result.releaseDate.flatMap { ISO8601DateFormatter().date(from: $0) },
-            trackViewURL: result.trackViewUrl
-        )
+        return try AppStoreLookup.parse(data).release
     }
 
     private func cachedRelease() -> AppStoreRelease? {
@@ -231,8 +232,8 @@ final class AppUpdateChecker {
     }
 
     private func isOldEnoughToPresent(_ release: AppStoreRelease) -> Bool {
-        guard let releaseDate = release.releaseDate else { return false }
-        return now().timeIntervalSince(releaseDate) >= Self.minimumReleaseAge
+        guard let currentVersionReleaseDate = release.currentVersionReleaseDate else { return false }
+        return now().timeIntervalSince(currentVersionReleaseDate) >= Self.minimumReleaseAge
     }
 
     private func wasRecentlyPresented(version: String) -> Bool {
@@ -370,14 +371,15 @@ final class AppPromptCoordinator: ObservableObject {
         waiter.continuation.resume()
     }
 
-    func perform(_ action: AppPromptAction) {
+    func perform(_ action: AppPromptAction, promptID: String?) {
+        guard let promptID, activePrompt?.id == promptID else { return }
         action.handler()
         finishActivePrompt()
     }
 
     /// 系统手势或其它系统级关闭路径同样必须推进队列。
-    func alertPresentationChanged(isPresented: Bool) {
-        if !isPresented {
+    func alertPresentationChanged(isPresented: Bool, promptID: String?) {
+        if !isPresented, let promptID, activePrompt?.id == promptID {
             finishActivePrompt()
         }
     }
@@ -398,16 +400,17 @@ final class AppPromptCoordinator: ObservableObject {
 
         // 等待系统完成上一条 alert 的退场动画，再交付下一项。
         advanceTask?.cancel()
+        let delay = advanceDelay
         advanceTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            try? await Task.sleep(for: advanceDelay)
-            guard !Task.isCancelled else { return }
-            presentNextIfPossible()
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self else { return }
+            self.advanceTask = nil
+            self.presentNextIfPossible()
         }
     }
 
     private func presentNextIfPossible() {
-        guard activePrompt == nil, !queue.isEmpty else { return }
+        guard activePrompt == nil, advanceTask == nil, !queue.isEmpty else { return }
         let prompt = queue.removeFirst()
         queuedIDs.remove(prompt.id)
         activePrompt = prompt
@@ -485,6 +488,7 @@ private struct AppPromptHostModifier: ViewModifier {
     func body(content: Content) -> some View {
         let _ = promptCoordinator.markHostReady()
         let _ = networkConnectionDescription
+        let presentedPromptID = promptCoordinator.activePrompt?.id
         content
             .task {
                 guard let notice = await updateCoordinator.noticeToPresentAtLaunch() else { return }
@@ -535,7 +539,7 @@ private struct AppPromptHostModifier: ViewModifier {
                 promptCoordinator.activePrompt?.title ?? "",
                 isPresented: Binding(
                     get: { promptCoordinator.activePrompt != nil },
-                    set: { promptCoordinator.alertPresentationChanged(isPresented: $0) }
+                    set: { promptCoordinator.alertPresentationChanged(isPresented: $0, promptID: presentedPromptID) }
                 ),
                 presenting: promptCoordinator.activePrompt
             ) {
@@ -543,13 +547,15 @@ private struct AppPromptHostModifier: ViewModifier {
                 ForEach(prompt.actions) { action in
                     if action.isDefault {
                         Button(action.title, role: action.role) {
-                            promptCoordinator.perform(action)
+                            promptCoordinator.perform(action, promptID: prompt.id)
                         }
                         .keyboardShortcut(.defaultAction)
+                            .accessibilityIdentifier("ui.app-prompt-host-modifier.default-action")
                     } else {
                         Button(action.title, role: action.role) {
-                            promptCoordinator.perform(action)
+                            promptCoordinator.perform(action, promptID: prompt.id)
                         }
+                            .accessibilityIdentifier("ui.app-prompt-host-modifier.action")
                     }
                 }
             } message: { prompt in

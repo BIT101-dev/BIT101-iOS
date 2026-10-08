@@ -170,6 +170,7 @@ final class ScheduleBlankContextMenuControl: UIControl {
 }
 
 struct CourseScheduleCalendarView: View {
+    @Environment(\.scheduleCurrentDate) private var currentDate
     private static let weekdayTitles = ["一", "二", "三", "四", "五", "六", "七"]
     @State private var contextMenuFeedbackToken = 0
 
@@ -248,7 +249,7 @@ struct CourseScheduleCalendarView: View {
                 )
             }
             let highlightWeekday = currentWeek == week
-                ? ScheduleDateCodec.weekdayIndex(from: Date())
+                ? ScheduleDateCodec.weekdayIndex(from: currentDate)
                 : nil
             let timeLineSection = currentWeek == week
                 ? convertMinutesToSection(minutes: currentMinute(), timeTable: timeTable)
@@ -486,7 +487,7 @@ struct CourseScheduleCalendarView: View {
     }
 
     private func currentMinute() -> Int {
-        let components = ScheduleDateCodec.calendar.dateComponents([.hour, .minute], from: Date())
+        let components = ScheduleDateCodec.calendar.dateComponents([.hour, .minute], from: currentDate)
         return min(
             max((components.hour ?? 0) * 60 + (components.minute ?? 0), 0),
             24 * 60

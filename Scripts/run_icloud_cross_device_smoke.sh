@@ -40,6 +40,8 @@ else:
     if "cleanupExitCode" in report:
         print(f"恢复流程状态码：{report['cleanupExitCode']}")
     rows = report.get("stages", [])
+    if "cleanup" in report:
+        rows = [*rows, report["cleanup"]]
 for row in rows:
     print(f"{row['stage']}：通过 {row.get('passedTests', 0)}，失败 {row.get('failedTests', 0)}，跳过 {row.get('skippedTests', 0)}，状态 {row.get('exitCode', '?')}")
     for failure in row.get("testFailures", []):
@@ -48,6 +50,12 @@ PYREPORT
 }
 
 [[ $# -le 1 ]] || { echo "操作：report、cleanup；直接运行双向同步验证。" >&2; exit 64; }
+case "${1:-}" in
+  report|cleanup|"") ;;
+  *) echo "操作：report、cleanup；直接运行双向同步验证。" >&2; exit 64 ;;
+esac
+source "$ROOT_DIR/Scripts/script-support.sh"
+bit101_acquire_workflow_lock "$0" "$@"
 if [[ "${1:-}" == report ]]; then
   report_result "$SUMMARY_PATH"
   exit $?
@@ -57,14 +65,27 @@ if [[ "${1:-}" == cleanup ]]; then
   CLEANUP_ONLY=true
   shift
 fi
-if [[ $# -gt 0 ]]; then
-  echo "操作：report、cleanup；直接运行双向同步验证。" >&2
-  exit 64
-fi
-source "$ROOT_DIR/Scripts/script-support.sh"
+BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest)"
+export BIT101_VALIDATION_SOURCE_DIGEST
+finish_early_validation() {
+  local smoke_status=$?
+  trap - EXIT ZERR INT TERM
+  python3 "$ROOT_DIR/Scripts/validation_evidence.py" record icloud "$smoke_status" || smoke_status=$?
+  exit "$smoke_status"
+}
+trap finish_early_validation EXIT
 bit101_require_device || exit 1
 DEVICE_ID="$BIT101_XCODE_DEVICE_ID"
 mkdir -p "$DERIVED_ROOT"
+python3 - "$ROOT_DIR/BIT101-iOS/BIT101-iOS.entitlements" "$DERIVED_ROOT/signing.entitlements" <<'PY'
+import plistlib
+from pathlib import Path
+import sys
+
+entitlements = plistlib.loads(Path(sys.argv[1]).read_bytes())
+entitlements["com.apple.developer.icloud-container-environment"] = "Production"
+Path(sys.argv[2]).write_bytes(plistlib.dumps(entitlements))
+PY
 if ! $CLEANUP_ONLY; then rm -f "$SUMMARY_PATH"; fi
 
 record_result() {
@@ -98,7 +119,12 @@ if row.get("totalTestCount", 0) != 1 or row.get("passedTests", 0) != 1 or row.ge
     print(f"[失败] {stage} 要求一项用例执行并通过。")
 path = Path(report_path)
 report = json.loads(path.read_text()) if path.is_file() else {"stages": []}
-report["stages"].append(row)
+report["validatedDomains"] = ["score-kvs", "schedule-cloudkit"]
+report["cloudKitEnvironment"] = "Production"
+if stage == "testCleanup":
+    report["cleanup"] = row
+else:
+    report["stages"].append(row)
 path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
 raise SystemExit(row["exitCode"])
 PY
@@ -107,6 +133,7 @@ PY
 common_args=(
   -quiet -project "$PROJECT" -scheme BIT101-iOS -configuration Release
   "BIT101_WORKFLOW_CONDITIONS=$CONDITIONS" ENABLE_TESTABILITY=YES
+  "BIT101_APP_ENTITLEMENTS=$DERIVED_ROOT/signing.entitlements"
   -collect-test-diagnostics never
 )
 
@@ -143,9 +170,12 @@ finish_smoke() {
   fi
   if [[ "${BIT101_DEFER_APP_RESTORE:-0}" != "1" ]]; then
     echo "[恢复] 安装并启动常规 Release App"
+    local restore_status=0
     if ! "$ROOT_DIR/Scripts/build-install-device.sh"; then
+      restore_status=1
       if (( smoke_status == 0 )); then smoke_status=1; fi
     fi
+    python3 "$ROOT_DIR/Scripts/validation_evidence.py" record restore "$restore_status" || smoke_status=$?
   fi
   python3 - "$SUMMARY_PATH" "$smoke_status" "$CLEANUP_ONLY" <<'PY'
 import json
@@ -162,6 +192,9 @@ else:
 path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
 PY
   report_result "$SUMMARY_PATH"
+  if ! $CLEANUP_ONLY || (( smoke_status != 0 )); then
+    python3 "$ROOT_DIR/Scripts/validation_evidence.py" record icloud "$smoke_status" || smoke_status=$?
+  fi
   if (( smoke_status == 0 )); then
     echo "iCloud Smoke 验证与恢复完成。"
   fi
@@ -188,9 +221,23 @@ echo "[构建] 准备 Mac Catalyst 测试宿主"
 bit101_run_logged "$DERIVED_ROOT/mac-build.log" "iCloud Mac 测试构建" \
   xcodebuild build-for-testing "${common_args[@]}" \
   -destination 'platform=macOS,variant=Mac Catalyst' -derivedDataPath "$DERIVED_ROOT/Mac" \
-  ONLY_ACTIVE_ARCH=YES ARCHS=arm64 "-only-testing:$TEST_CLASS/testMacReceiveAndRestore"
+  ONLY_ACTIVE_ARCH=YES "-only-testing:$TEST_CLASS/testMacReceiveAndRestore"
 
-echo "[同步] 真机与 Mac 宿主并行验证双向成绩载荷及业务版本"
+python3 - "$DERIVED_ROOT" <<'PY'
+import plistlib
+from pathlib import Path
+import subprocess
+import sys
+
+root = Path(sys.argv[1])
+for host, platform in (("Phone", "iphoneos"), ("Mac", "maccatalyst")):
+    app = root / host / "Build/Products" / f"Release-{platform}/BIT101-iOS.app"
+    result = subprocess.run(["codesign", "-d", "--entitlements", "-", "--xml", str(app)], capture_output=True, check=True)
+    entitlements = plistlib.loads(result.stdout)
+    if entitlements.get("com.apple.developer.icloud-container-environment") != "Production":
+        raise SystemExit(f"{host} 验收宿主需要 CloudKit Production 签名环境")
+PY
+echo "[同步] 真机与 Mac 宿主并行验证成绩 KVS 与课表 CloudKit"
 PHONE_TESTS_STARTED=true
 (
   trap - EXIT ZERR INT TERM
@@ -237,7 +284,7 @@ MAC_LOG="$DERIVED_ROOT/mac-receive.log"
 MAC_STATUS=0
 bit101_run_logged "$MAC_LOG" "Mac Catalyst 接收测试" xcodebuild test-without-building "${common_args[@]}" \
   -destination 'platform=macOS,variant=Mac Catalyst' -derivedDataPath "$DERIVED_ROOT/Mac" \
-  ONLY_ACTIVE_ARCH=YES ARCHS=arm64 \
+  ONLY_ACTIVE_ARCH=YES \
   "-only-testing:$TEST_CLASS/testMacReceiveAndRestore" || MAC_STATUS=$?
 PHONE_STATUS=0
 wait "$PHONE_TEST_PID" || PHONE_STATUS=$?

@@ -3,13 +3,13 @@ const AASA = {
     apps: [],
     details: [{
       appID: "Y2T72736G3.BIT101-dev.BIT101-iOS",
-      paths: ["/gallery/*", "/course/*"]
+      paths: ["/gallery/*", "/course/*", "/paper/*"]
     }]
   }
 };
 
 const APP_STORE_URL = "https://apps.apple.com/cn/app/bit101/id6761147125";
-const APP_ICON_URL = "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/0c/23/7f/0c237f6c-ddf5-b329-27ab-a3c5fc10115c/AppIcon-0-0-1x_U007epad-0-1-85-220.png/512x512bb.jpg";
+const APP_LOOKUP_URL = "https://itunes.apple.com/lookup?id=6761147125&country=cn";
 const SHARE_ICON_URL = "https://open.aihelpme.dev/share-icon.jpg";
 
 function escapeHTML(value) {
@@ -31,7 +31,7 @@ function landingPage(url, route, id) {
   const safeWebURL = escapeHTML(webURL.href);
   const safeUniversalURL = escapeHTML(url.href);
   const appURLForScript = JSON.stringify(appURL).replace(/</g, "\\u003c");
-  const contentName = route === "gallery" ? "话题" : "课程";
+  const contentName = { gallery: "话题", course: "课程", paper: "文章" }[route];
   const shareTitle = `在 BIT101 查看${contentName}`;
   const shareDescription = `打开 BIT101 查看这个${contentName}。`;
 
@@ -51,7 +51,6 @@ function landingPage(url, route, id) {
   <meta property="og:url" content="${safeUniversalURL}">
   <meta property="og:image" content="${SHARE_ICON_URL}">
   <meta property="og:image:secure_url" content="${SHARE_ICON_URL}">
-  <meta property="og:image:type" content="image/jpeg">
   <meta property="og:image:width" content="512">
   <meta property="og:image:height" content="512">
   <meta name="description" content="${shareDescription}">
@@ -150,16 +149,35 @@ export default {
     }
 
     if (url.pathname === "/share-icon.jpg") {
-      const upstream = await fetch(APP_ICON_URL);
+      let upstream;
+      try {
+        const lookup = await fetch(APP_LOOKUP_URL);
+        if (!lookup.ok) throw new Error("App metadata unavailable");
+        const metadata = await lookup.json();
+        const icon = new URL(metadata.results?.find(item => item.trackId === 6761147125)?.artworkUrl512);
+        if (icon.protocol !== "https:" || icon.port || icon.username || icon.password
+            || !(icon.hostname === "mzstatic.com" || icon.hostname.endsWith(".mzstatic.com"))) {
+          throw new Error("App artwork unavailable");
+        }
+        upstream = await fetch(icon);
+      } catch {
+        return new Response("Share icon unavailable", { status: 502, headers: { "Cache-Control": "no-store" } });
+      }
+      if (!upstream.ok || !upstream.headers.get("Content-Type")?.startsWith("image/")) {
+        return new Response("Share icon unavailable", {
+          status: upstream.ok ? 502 : upstream.status,
+          headers: { "Cache-Control": "no-store" }
+        });
+      }
       return new Response(upstream.body, {
         headers: {
           "Cache-Control": "public, max-age=604800",
-          "Content-Type": "image/jpeg"
+          "Content-Type": upstream.headers.get("Content-Type")
         }
       });
     }
 
-    const match = url.pathname.match(/^\/(gallery|course)\/(\d+)\/?$/);
+    const match = url.pathname.match(/^\/(gallery|course|paper)\/(\d+)\/?$/);
     if (match) {
       return new Response(landingPage(url, match[1], match[2]), {
         headers: {

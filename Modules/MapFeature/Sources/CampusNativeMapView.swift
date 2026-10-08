@@ -67,7 +67,7 @@ struct CampusNativeMapView: UIViewRepresentable {
         context.coordinator.syncNextCourseAnnotation(nextCourseTarget, in: mapView)
         context.coordinator.syncRequestedLocation(requestedLocation, in: mapView)
 
-        applyFocus(to: mapView, animated: false)
+        context.coordinator.focus(on: focusRequest.preset, in: mapView, animated: false)
         context.coordinator.focus(on: requestedLocation?.places.first, in: mapView, animated: false)
         context.coordinator.lastFocusID = focusRequest.id
 
@@ -84,30 +84,18 @@ struct CampusNativeMapView: UIViewRepresentable {
         context.coordinator.syncNextCourseAnnotation(nextCourseTarget, in: mapView)
         let requestedLocationChanged = context.coordinator.syncRequestedLocation(requestedLocation, in: mapView)
 
-        if context.coordinator.lastCenterOnUserRequestID != centerOnUserRequestID,
-           let centerOnUserRequestID {
-            context.coordinator.centerOnUser(in: mapView, requestID: centerOnUserRequestID)
-        }
-
         if context.coordinator.lastFocusID != focusRequest.id {
-            applyFocus(to: mapView, animated: focusRequest.animated)
+            context.coordinator.focus(on: focusRequest.preset, in: mapView, animated: focusRequest.animated)
             context.coordinator.lastFocusID = focusRequest.id
         }
 
         if requestedLocationChanged {
             context.coordinator.focus(on: requestedLocation?.places.first, in: mapView, animated: true)
         }
-    }
-
-    private func applyFocus(to mapView: MKMapView, animated: Bool) {
-        mapView.setUserTrackingMode(.none, animated: false)
-        let camera = MKMapCamera(
-            lookingAtCenter: focusRequest.preset.coordinate,
-            fromDistance: focusRequest.preset.distance,
-            pitch: 0,
-            heading: 0
-        )
-        mapView.setCamera(camera, animated: animated)
+        if context.coordinator.lastCenterOnUserRequestID != centerOnUserRequestID,
+           let centerOnUserRequestID {
+            context.coordinator.centerOnUser(in: mapView, requestID: centerOnUserRequestID)
+        }
     }
 
     final class Coordinator: NSObject, MKMapViewDelegate {
@@ -169,6 +157,7 @@ struct CampusNativeMapView: UIViewRepresentable {
         /// 聚焦到课程详情传入的第一个上课地点；没有地点时保持当前相机。
         func focus(on place: CampusMapPlace?, in mapView: MKMapView, animated: Bool) {
             guard let place else { return }
+            pendingCenterOnUserRequestID = nil
             mapView.setUserTrackingMode(.none, animated: false)
             let camera = MKMapCamera(
                 lookingAtCenter: place.coordinate,
@@ -177,6 +166,13 @@ struct CampusNativeMapView: UIViewRepresentable {
                 heading: 0
             )
             mapView.setCamera(camera, animated: animated)
+        }
+
+        func focus(on preset: CampusPreset, in mapView: MKMapView, animated: Bool) {
+            pendingCenterOnUserRequestID = nil
+            mapView.setUserTrackingMode(.none, animated: false)
+            mapView.setCamera(MKMapCamera(lookingAtCenter: preset.coordinate,
+                fromDistance: preset.distance, pitch: 0, heading: 0), animated: animated)
         }
 
         /// 为下一节课和课程详情地点提供原生地图标记。
@@ -214,11 +210,11 @@ struct CampusNativeMapView: UIViewRepresentable {
 
         /// 如果当前位置已经可用，就直接居中；否则切到 follow 等待下一次定位回调。
         func centerOnUser(in mapView: MKMapView, requestID: UUID) {
+            lastCenterOnUserRequestID = requestID
             mapView.showsUserLocation = true
             if let coordinate = validUserCoordinate(from: mapView) {
                 mapView.setUserTrackingMode(.none, animated: false)
                 mapView.setCenter(coordinate, animated: false)
-                lastCenterOnUserRequestID = requestID
                 pendingCenterOnUserRequestID = nil
                 return
             }
@@ -242,10 +238,13 @@ struct CampusNativeMapView: UIViewRepresentable {
 
         /// 过滤 `locationUnknown` 瞬时回调，将需要用户处理的定位错误交给页面提示。
         func mapView(_ mapView: MKMapView, didFailToLocateUserWithError error: Error) {
+            guard pendingCenterOnUserRequestID != nil else { return }
             if CampusLocationFailurePolicy.contains(error, code: .locationUnknown) {
                 return
             }
 
+            pendingCenterOnUserRequestID = nil
+            mapView.setUserTrackingMode(.none, animated: false)
             onLocationFailure?(error)
         }
 

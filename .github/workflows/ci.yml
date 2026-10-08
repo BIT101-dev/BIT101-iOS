@@ -12,7 +12,7 @@ on:
         default: false
         type: boolean
       validation_evidence:
-        description: Paste the bound validation-evidence.json for the release commit
+        description: HTTPS URL of the bound validation-evidence.json for the release commit
         required: false
         type: string
 
@@ -38,6 +38,9 @@ jobs:
           version="$(xcodebuild -version)"
           printf '%s\n' "$version"
           grep -Eq '^Xcode (2[7-9]|[3-9][0-9]|[1-9][0-9]{2,})\.' <<<"$version"
+      - name: Install Worker test dependencies
+        working-directory: Cloudflare/EmergencyUpdateWorker
+        run: npm ci
       - name: Run static audit
         env:
           BIT101_VERSION_BASE_REF: ${{ github.base_ref && format('origin/{0}', github.base_ref) || '' }}
@@ -46,15 +49,39 @@ jobs:
       - name: Test local Swift modules
         run: Scripts/run-extended-tests.sh modules
 
-      - name: Check release validation evidence
+      - name: Download release validation evidence
         if: github.event_name == 'workflow_dispatch' && inputs.release_check
         env:
-          BIT101_RELEASE_EVIDENCE: ${{ inputs.validation_evidence }}
+          BIT101_RELEASE_EVIDENCE_URL: ${{ inputs.validation_evidence }}
+        run: |
+          [[ "$BIT101_RELEASE_EVIDENCE_URL" == https://* ]] || { echo 'Release evidence requires an HTTPS URL.' >&2; exit 64; }
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+            --output .build/extended-automation/validation-evidence.json "$BIT101_RELEASE_EVIDENCE_URL"
+
+      - name: Check release validation evidence
+        if: github.event_name == 'workflow_dispatch' && inputs.release_check
         run: python3 Scripts/validation_evidence.py check
 
       - name: Publish validation evidence
         if: always()
         run: python3 Scripts/validation_evidence.py summary
+
+      - name: Preserve validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: validation-${{ github.job }}
+          compression-level: 0
+          include-hidden-files: true
+          path: |
+            .build/static-audit/*.log
+            .build/code-quality-report.txt
+            .build/ui-consistency-report.txt
+            .build/explanatory-text-report.txt
+            .build/extended-automation/*.log
+            .build/extended-automation/*.txt
+            .build/extended-automation/validation-evidence.json
+            .build/extended-automation/test-results.xcresult
 
   release-build:
     name: Release app and extension builds
@@ -73,6 +100,8 @@ jobs:
           grep -Eq '^Xcode (2[7-9]|[3-9][0-9]|[1-9][0-9]{2,})\.' <<<"$version"
       - name: Build iOS app, Watch, widgets and tests
         run: Scripts/run-extended-tests.sh build release
+      - name: Archive app and extensions with release compiler settings
+        run: Scripts/build-install-device.sh archive
       - name: Build UI automation host and tests
         run: Scripts/run-extended-tests.sh build ui
       - name: Build network smoke host and tests
@@ -83,6 +112,24 @@ jobs:
       - name: Publish validation evidence
         if: always()
         run: python3 Scripts/validation_evidence.py summary
+
+      - name: Preserve validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: validation-${{ github.job }}
+          compression-level: 0
+          include-hidden-files: true
+          path: |
+            .build/static-audit/*.log
+            .build/code-quality-report.txt
+            .build/ui-consistency-report.txt
+            .build/explanatory-text-report.txt
+            .build/extended-automation/*.log
+            .build/extended-automation/*.txt
+            .build/extended-automation/validation-evidence.json
+            .build/extended-automation/test-results.xcresult
+            build/DeviceInstall/build.log
 
   catalyst-tests:
     name: Mac Catalyst behavior tests
@@ -105,3 +152,20 @@ jobs:
       - name: Publish validation evidence
         if: always()
         run: python3 Scripts/validation_evidence.py summary
+
+      - name: Preserve validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: validation-${{ github.job }}
+          compression-level: 0
+          include-hidden-files: true
+          path: |
+            .build/static-audit/*.log
+            .build/code-quality-report.txt
+            .build/ui-consistency-report.txt
+            .build/explanatory-text-report.txt
+            .build/extended-automation/*.log
+            .build/extended-automation/*.txt
+            .build/extended-automation/validation-evidence.json
+            .build/extended-automation/test-results.xcresult

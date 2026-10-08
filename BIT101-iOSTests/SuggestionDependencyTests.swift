@@ -103,16 +103,25 @@ struct SuggestionDependencyTests {
 final class LocalDataActionsSpy {
     var events: [String] = []
     var succeeds = true
+    var suspendedAction: String?
+    var pending: CheckedContinuation<Void, Never>?
+    private func record(_ action: String) async {
+        events.append(action)
+        if suspendedAction == action { await withCheckedContinuation { pending = $0 } }
+    }
     var actions: AppLocalDataActions {
         AppLocalDataActions(
             clearLogin: { self.events.append("login"); return self.succeeds },
-            clearSchedule: { self.events.append("schedule"); return self.succeeds },
-            clearSharedSnapshot: { self.events.append("shared"); return self.succeeds },
+            suspendStorageOperations: { await self.record("storage") },
+            resumeStorageOperations: { self.events.append("storage-resume") },
+            clearSchedule: { await self.record("schedule"); return self.succeeds },
+            clearSharedSnapshot: { await self.record("shared"); return self.succeeds },
             clearReports: { self.events.append("reports"); return self.succeeds },
+            clearDiagnostics: { await self.record("diagnostics") },
             clearPreferences: { self.events.append("preferences") },
             clearURLCache: { self.events.append("url-cache") },
-            clearWebData: { self.events.append("web-data") },
-            clearMedia: { self.events.append("media") },
+            clearWebData: { await self.record("web-data") },
+            clearMedia: { await self.record("media") },
             resetSettings: { self.events.append("settings") }
         )
     }
@@ -120,6 +129,32 @@ final class LocalDataActionsSpy {
 
 @MainActor
 struct AppLocalDataOwnershipTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func profileMutationsKeepOneOwnerThroughSuccessFailureAndRetry(fails: Bool) async throws {
+        let mutation = AccountProfileMutation()
+        var pending: CheckedContinuation<Void, Never>?
+        var writes: [String] = []
+        let first = Task {
+            do {
+                try await mutation.perform {
+                    writes.append("first")
+                    await withCheckedContinuation { pending = $0 }
+                    if fails { throw URLError(.timedOut) }
+                }
+                return !fails
+            } catch { return fails && (error as? URLError)?.code == .timedOut }
+        }
+        while pending == nil { await Task.yield() }
+        #expect(mutation.isUpdating)
+        try await mutation.perform { writes.append("duplicate") }
+        #expect(mutation.isUpdating && writes == ["first"])
+        pending?.resume()
+        #expect(await first.value)
+        #expect(!mutation.isUpdating)
+        try await mutation.perform { writes.append("retry") }
+        #expect(writes == ["first", "retry"] && !mutation.isUpdating)
+    }
+
     @Test func resetUsesEverySelectedActionAndAggregatesFailure() async throws {
         let selected = LocalDataActionsSpy(), surrounding = LocalDataActionsSpy()
         selected.succeeds = false
@@ -129,21 +164,48 @@ struct AppLocalDataOwnershipTests {
         try surroundingFiles.writeData(Data([4]), to: url, options: [])
         let service = AppLocalDataService(files: files, actions: selected.actions)
         #expect(await service.resetAllLocalData { selected.events.append("logout") } == false)
-        #expect(selected.events == ["login", "logout", "schedule", "shared", "reports", "preferences", "url-cache", "web-data", "media", "settings"])
+        #expect(selected.events == ["login", "storage", "schedule", "shared", "reports", "diagnostics", "preferences", "media", "url-cache", "web-data", "settings", "storage-resume", "logout"])
         #expect(files.fileExists(at: url) == false)
         #expect(try surroundingFiles.readData(at: url) == Data([4]))
         #expect(surrounding.events.isEmpty)
     }
 
-    @Test func cacheCleanupUsesTheSelectedFileAndMediaOwners() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: ["storage", "schedule", "shared", "diagnostics", "media", "web-data"])
+    func resetRetainsItsAppOwnerAndOpensTheNextSessionAfterEveryCleanup(stage: String) async throws {
+        let actions = LocalDataActionsSpy()
+        actions.suspendedAction = stage
+        let files = PreferenceMemoryFiles()
+        let file = files.temporaryDirectoryURL.appending(path: "next-session.dat")
+        let service = AppLocalDataService(files: files, actions: actions.actions)
+        var loggedOut = false
+        let task = Task { await service.resetAllLocalData {
+            loggedOut = true
+            actions.events.append("logout")
+            try? files.writeData(Data([9]), to: file, options: [.atomic])
+        } }
+        while actions.pending == nil { await Task.yield() }
+        #expect(service.isCleaning && !loggedOut)
+        let previous = actions.events
+        #expect(await service.resetAllLocalData { Issue.record("Concurrent reset changed the session") } == false)
+        #expect(await service.clearCaches().succeeded == false)
+        #expect(actions.events == previous)
+        actions.pending?.resume()
+        #expect(await task.value)
+        #expect(!service.isCleaning && loggedOut)
+        #expect(try files.readData(at: file) == Data([9]))
+        #expect(actions.events.suffix(2) == ["storage-resume", "logout"])
+    }
+
+    @Test(arguments: [false, true]) func cacheCleanupUsesTheSelectedFileAndMediaOwners(removalFails: Bool) async throws {
         let selected = LocalDataActionsSpy(), surrounding = LocalDataActionsSpy()
         let files = PreferenceMemoryFiles()
         try files.writeData(Data([1, 2, 3]), to: files.temporaryDirectoryURL.appending(path: "cache.dat"), options: [])
+        files.setFailures(removal: removalFails)
         let result = await AppLocalDataService(files: files, actions: selected.actions).clearCaches()
-        #expect(result.succeeded)
-        #expect(result.reclaimedBytes == 3)
-        #expect(files.totalRegularFileSize(at: files.temporaryDirectoryURL) == 0)
-        #expect(selected.events == ["url-cache", "media"])
+        #expect(result.succeeded == !removalFails)
+        #expect(result.reclaimedBytes == (removalFails ? 0 : 3))
+        #expect(files.totalRegularFileSize(at: files.temporaryDirectoryURL) == (removalFails ? 3 : 0))
+        #expect(selected.events == ["media", "url-cache"])
         #expect(surrounding.events.isEmpty)
     }
 }
@@ -199,9 +261,20 @@ struct SettingsDependencyOwnershipTests {
         #expect(firstMedia.cacheLimitMB == 128)
         #expect(secondMedia.cacheLimitMB == originalSecondLimit)
         #expect(selected.account.credentials() == credentials)
+        var currentCredentials = credentials
+        let checks = SettingsAccountDependencies(service: selected.account.service, credentials: { currentCredentials })
+        #expect(checks.acceptsLoginCheck(true, for: credentials))
+        let renewed = CommunitySessionIdentity(accountIdentifier: credentials.identity.accountIdentifier, generation: credentials.identity.generation + 1)
+        currentCredentials = CommunityCredentials(identity: renewed, cookie: "")
+        #expect(checks.acceptsLoginCheck(false, for: credentials))
+        #expect(!checks.acceptsLoginCheck(true, for: credentials))
+        currentCredentials = CommunityCredentials(identity: renewed, cookie: "renewed")
+        #expect(!checks.acceptsLoginCheck(false, for: credentials))
+        currentCredentials = CommunityCredentials(identity: .init(accountIdentifier: "another-account"), cookie: "")
+        #expect(!checks.acceptsLoginCheck(false, for: credentials))
         #expect(try await selected.account.service.checkLogin())
         #expect(validationCount == 1)
         #expect(await selected.localData.clearCaches().succeeded)
-        #expect(effects.events == ["url-cache", "media"])
+        #expect(effects.events == ["media", "url-cache"])
     }
 }

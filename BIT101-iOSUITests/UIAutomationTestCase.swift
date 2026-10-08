@@ -4,7 +4,7 @@ import Network
 import os
 
 nonisolated class UIAutomationTestCase: XCTestCase {
-    @MainActor var app: UIElement!
+    @MainActor var app = UIElement(XCUIApplication(), path: [])
     @MainActor private static var sessionApplication: XCUIApplication?
     @MainActor private static var sessionProcess: String?
     @MainActor private static var sessionScene: String?
@@ -85,7 +85,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     @MainActor
     func reveal(_ element: UIElement, description: String = "交互控件") {
         if element.exists && element.isHittable { return }
-        if element.revealInScrollView() == "revealed", element.exists && element.isHittable {
+        if !UIElement.usesNativeInteraction, element.revealInScrollView() == "revealed", element.exists && element.isHittable {
             print("UI scroll reveal")
             return
         }
@@ -139,10 +139,12 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func back() {
-        let state = try? app.snapshot()
-        let bar = state?.snapshots(matching: .navigationBar).last(where: { !$0.frame.isEmpty && state!.frame.intersects($0.frame) })
-        assertUI(bar != nil, "返回操作应使用当前可见的导航栏。")
-        let button = app.navigationBars[bar!.identifier].buttons.firstMatch
+        guard let state = try? app.snapshot(),
+              let bar = state.snapshots(matching: .navigationBar).last(where: { !$0.frame.isEmpty && state.frame.intersects($0.frame) }) else {
+            assertUI(false, "返回操作应使用当前可见的导航栏。")
+            return
+        }
+        let button = app.navigationBars[bar.identifier].buttons.firstMatch
         assertUI(button.isHittable, "当前导航栏的返回按钮应可交互。")
         button.tapBriefly()
     }
@@ -221,7 +223,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func fillVerificationCode(_ text: String, in field: UIElement) {
-        enterText(text, in: field)
+        if UIElement.usesNativeInteraction {
+            guard let state = prepareInput(field) else { return }
+            enterWithKeyboard(text, in: field, state: state)
+        } else { enterText(text, in: field) }
     }
 
     @MainActor
@@ -449,19 +454,18 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     ) {
         guard !condition() else { return }
         var diagnostics = ""
-        if let application = app {
-            let state = application.state
-            diagnostics = "App 运行状态：\(state.rawValue)。"
-            if state == .runningForeground {
-                let description = application.native.debugDescription
-                let hierarchy = XCTAttachment(string: description)
-                hierarchy.name = "失败时的界面元素树"
-                add(hierarchy)
-                let screenshot = XCTAttachment(screenshot: application.screenshot())
-                screenshot.name = "失败时的界面截图"
-                add(screenshot)
-                diagnostics += focusedAccessibilitySnapshot(description, matching: ["Alert", "NavigationBar", "TextField"])
-            }
+        let application = app
+        let state = application.state
+        diagnostics = "App 运行状态：\(state.rawValue)。"
+        if state == .runningForeground {
+            let description = application.native.debugDescription
+            let hierarchy = XCTAttachment(string: description)
+            hierarchy.name = "失败时的界面元素树"
+            add(hierarchy)
+            let screenshot = XCTAttachment(screenshot: application.screenshot())
+            screenshot.name = "失败时的界面截图"
+            add(screenshot)
+            diagnostics += focusedAccessibilitySnapshot(description, matching: ["Alert", "NavigationBar", "TextField"])
         }
         XCTFail("\(message()) \(diagnostics)", file: file, line: line)
     }
@@ -470,7 +474,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     func assertInteractiveLabelIsColored(_ title: String) {
         let label = app.staticTexts[title]
         assertUI(label.appears(timeout: 5), "交互行应展示左侧标题：\(title)")
-        let screenshot = app.screenshot().image.cgImage!
+        guard let screenshot = app.screenshot().image.cgImage else {
+            assertUI(false, "标题颜色验收应获取截图像素。")
+            return
+        }
         let window = app.windows.firstMatch.frame
         let scale = CGFloat(screenshot.width) / window.width
         let bounds = label.frame
@@ -484,13 +491,16 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         let height = glyphs.height
         var pixels = [UInt8](repeating: 0, count: width * height * 4)
         let colored = pixels.withUnsafeMutableBytes { bytes -> Int in
-            let context = CGContext(data: bytes.baseAddress, width: width, height: height, bitsPerComponent: 8,
-                                    bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
-                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            guard let context = CGContext(data: bytes.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                          bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+                assertUI(false, "标题颜色验收应创建像素绘制上下文。")
+                return 0
+            }
             context.draw(glyphs, in: CGRect(x: 0, y: 0, width: width, height: height))
             return stride(from: 0, to: bytes.count, by: 4).filter { offset in
                 let channels = [Int(bytes[offset]), Int(bytes[offset + 1]), Int(bytes[offset + 2])]
-                return channels.max()! - channels.min()! > 50
+                return max(channels[0], max(channels[1], channels[2])) - min(channels[0], min(channels[1], channels[2])) > 50
             }.count
         }
         assertUI(colored >= 10, "\(title)的左侧字形应包含页面主题色或警示色，当前彩色像素：\(colored)。")
@@ -522,7 +532,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         ddlFixture: String? = nil,
         content: Bool = false,
         animations: Bool = false,
-        nativeInteraction: Bool = false,
+        nativeInteraction: Bool = true,
         school: Bool = false,
         media: Bool = false,
         failureOnce: Bool = false,
@@ -550,6 +560,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         application.launchEnvironment["BIT101_UI_TEST_LARGE_TEXT"] = accessibilityTextSize ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_STYLE"] = userInterfaceStyle
         application.launchEnvironment["BIT101_UI_TESTING"] = "1"
+        application.launchEnvironment["BIT101_UI_TEST_CASE"] = name
         application.launchEnvironment["BIT101_UI_TEST_TAB"] = initialTab
         application.launchEnvironment["BIT101_UI_TEST_SETTINGS"] = initialSettings
         application.launchEnvironment["OS_ACTIVITY_MODE"] = "disable"
@@ -569,7 +580,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         app = UIElement(application, path: [])
         UITestSnapshotReader.application = application
         UITestSnapshotReader.invalidate()
-        UIElement.beforeNativeTap = { [weak self] in self?.dismissNotificationBanner() }
+        UIElement.beforeNativeTap = { [weak self] in
+            self?.dismissNotificationBanner()
+            _ = UITestControlClient.request(["command": "observe"])
+        }
         var expectedScene: String?
         if Self.sessionApplication == nil {
             application.launch()
@@ -589,7 +603,11 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         let initialElement: UIElement
         let checksSelectedTab: Bool
         if let initialSettings {
-            initialElement = app.navigationBars[settingsTitles[initialSettings]!]
+            guard let title = settingsTitles[initialSettings] else {
+                assertUI(false, "初始设置页应使用已登记路由：\(initialSettings)。")
+                return app
+            }
+            initialElement = app.navigationBars[title]
             checksSelectedTab = false
         } else if account == nil {
             initialElement = app.textFields["login.student-id"]
@@ -601,7 +619,11 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             initialElement = app.alerts["加载话廊失败"]
             checksSelectedTab = false
         } else {
-            initialElement = app.tabBars.buttons[tabTitles[initialTab]!]
+            guard let title = tabTitles[initialTab] else {
+                assertUI(false, "初始分区应使用已登记路由：\(initialTab)。")
+                return app
+            }
+            initialElement = app.tabBars.buttons[title]
             checksSelectedTab = true
         }
         let marker = app.descendants(matching: .any).matching(identifier: "ui-test.scene").firstMatch
@@ -634,7 +656,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                 let ready: Bool
                 if let initialSettings {
                     ready = snapshot.firstSnapshot {
-                        $0.elementType == .navigationBar && $0.identifier == settingsTitles[initialSettings]!
+                        $0.elementType == .navigationBar && $0.identifier == settingsTitles[initialSettings]
                     } != nil
                 } else if account == nil {
                     ready = snapshot.firstSnapshot { $0.identifier == "login.student-id" } != nil
@@ -644,20 +666,24 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                     ready = snapshot.firstSnapshot { $0.elementType == .alert && $0.label == "加载话廊失败" } != nil
                 } else {
                     ready = snapshot.firstSnapshot { $0.elementType == .tabBar }?.firstSnapshot {
-                        $0.elementType == .button && $0.label == tabTitles[initialTab]! && $0.isSelected
+                        $0.elementType == .button && $0.label == tabTitles[initialTab] && $0.isSelected
                     } != nil
                 }
                 if ready { identity = currentIdentity; break }
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         } while Date() < deadline
-        assertUI(identity != nil, "同一界面快照中的场景身份与初始页面应完成加载：\(initialSettings ?? initialTab)。场景：\(String(describing: lastSnapshot?.firstSnapshot(where: { $0.identifier == "ui-test.scene" })?.value))，导航：\(lastSnapshot?.snapshots(matching: .tabBar).flatMap { $0.snapshots(matching: .button).map { "\($0.label)=\($0.isSelected)" } } ?? [])。")
+        guard let identity else {
+            assertUI(false, "同一界面快照中的场景身份与初始页面应完成加载：\(initialSettings ?? initialTab)。场景：\(String(describing: lastSnapshot?.firstSnapshot(where: { $0.identifier == "ui-test.scene" })?.value))，导航：\(lastSnapshot?.snapshots(matching: .tabBar).flatMap { $0.snapshots(matching: .button).map { "\($0.label)=\($0.isSelected)" } } ?? [])。")
+            return app
+        }
         if let lastSnapshot {
             UITestSnapshotReader.applicationOrigin = lastSnapshot.frame.origin
             UITestSnapshotReader.retain(lastSnapshot)
         }
         if Self.sessionProcess == nil {
-            let process = identity!.components(separatedBy: ":").first!
+            let process = String(identity.prefix(while: { $0 != ":" }))
+            assertUI(!process.isEmpty, "场景身份应包含 App 进程。")
             Self.sessionProcess = process
             print("UI automation App process: \(process)")
         }

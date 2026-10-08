@@ -28,7 +28,7 @@ enum GalleryCommentComposerTarget: Identifiable, Equatable {
         case .poster:
             return "发表评论"
         case let .comment(_, targetComment):
-            return "回复 @\(targetComment.user.nickname)"
+            return "回复 @\(targetCommentDisplayName(targetComment))"
         }
     }
 
@@ -38,8 +38,12 @@ enum GalleryCommentComposerTarget: Identifiable, Equatable {
         case .poster:
             return "写点什么吧"
         case let .comment(_, targetComment):
-            return "回复 @\(targetComment.user.nickname)"
+            return "回复 @\(targetCommentDisplayName(targetComment))"
         }
+    }
+
+    private func targetCommentDisplayName(_ comment: CommunityComment) -> String {
+        comment.anonymous ? AppUserPresentation.anonymousName : comment.user.nickname
     }
 
     /// 发评论接口里的目标对象 ID。
@@ -103,7 +107,11 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     /// 固定的帖子 ID。后续刷新都基于它重新请求详情。
     private let posterID: Int
     private let service: any GalleryPosterDetailServicing
+    private var likeRevision = 0
+    private var latestLikeResult: CommunityLikeResult?
     private var refreshGeneration = 0
+    private var commentRefreshGeneration = 0
+    private var hasBootstrapped = false
     /// 当前详情页对应的帖子对象 ID 字符串。
     ///
     /// 评论和帖子点赞接口都使用同一套 `poster{id}` 语义，由这个属性统一生成，
@@ -123,54 +131,53 @@ final class GalleryPosterDetailViewModel: ObservableObject {
 
     /// 首次进入详情页时并行拉取帖子详情和第一页评论。
     ///
-    /// 只有“帖子状态和评论状态都还在 idle”时才触发：
-    /// - 视图重复出现时保持单次请求
-    /// - 调用方手动刷新后保留刷新结果
+    /// 视图重复出现时保持单次请求，取消后为待加载区域恢复进入请求。
     func bootstrapIfNeeded() async {
-        guard posterStatus == .idle, commentState.status == .idle else { return }
+        guard !hasBootstrapped else { return }
+        hasBootstrapped = true
         await refreshAll()
+        if posterStatus == .idle || commentState.status == .idle { hasBootstrapped = false }
     }
 
     /// 并行刷新帖子详情和评论列表。
     func refreshAll() async {
+        let likeRevisionAtStart = likeRevision
         refreshGeneration &+= 1
+        commentRefreshGeneration &+= 1
         let generation = refreshGeneration
+        let commentsGeneration = commentRefreshGeneration
         let previousPosterStatus = posterStatus
         let previousCommentState = commentState
         posterStatus = .loading
         resetCommentStateForRefresh()
 
-        let posterTask = Task { @MainActor [self] in
-            await loadResult {
-                try await self.service.fetchPoster(id: self.posterID)
-            }
+        async let posterResult = loadResult { [self] in
+            try await self.service.fetchPoster(id: self.posterID)
         }
-        let commentTask = Task { @MainActor [self, commentOrder] in
-            await loadResult {
-                try await self.service.fetchComments(objectID: self.posterObjectID, order: commentOrder, page: nil)
-            }
+        async let commentResult = loadResult { [self, commentOrder] in
+            try await self.service.fetchComments(objectID: self.posterObjectID, order: commentOrder, page: nil)
         }
 
-        let resolvedPosterResult = await posterTask.value
+        let resolvedPosterResult = await posterResult
         guard refreshGeneration == generation else { return }
-        handlePosterResult(resolvedPosterResult, previousStatus: previousPosterStatus)
+        handlePosterResult(resolvedPosterResult, previousStatus: previousPosterStatus, likeRevisionAtStart: likeRevisionAtStart)
 
-        let resolvedCommentResult = await commentTask.value
-        guard refreshGeneration == generation else { return }
+        let resolvedCommentResult = await commentResult
+        guard commentRefreshGeneration == commentsGeneration else { return }
         handleCommentRefreshResult(resolvedCommentResult, previousState: previousCommentState)
     }
 
     /// 仅刷新评论区，不重新请求帖子正文。
     func refreshComments() async {
-        refreshGeneration &+= 1
-        let generation = refreshGeneration
+        commentRefreshGeneration &+= 1
+        let generation = commentRefreshGeneration
         let previousState = commentState
         resetCommentStateForRefresh()
 
         let result = await loadResult { [self] in
             try await self.service.fetchComments(objectID: self.posterObjectID, order: self.commentOrder, page: nil)
         }
-        guard refreshGeneration == generation else { return }
+        guard commentRefreshGeneration == generation else { return }
         handleCommentRefreshResult(result, previousState: previousState)
     }
 
@@ -179,28 +186,31 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     /// 评论分页使用“最后几条触发”策略，评论列表接近尾部时请求下一页。
     func loadMoreCommentsIfNeeded(currentComment: CommunityComment?) async {
         guard let currentComment else { return }
-        let generation = refreshGeneration
+        let generation = commentRefreshGeneration
         guard commentState.status == .loaded,
               commentState.shouldLoadMore(currentID: currentComment.id)
         else { return }
 
         commentState.isLoadingMore = true
         defer {
-            if refreshGeneration == generation {
+            if commentRefreshGeneration == generation {
                 commentState.isLoadingMore = false
             }
         }
         let nextPage = commentState.nextPage
+        let likeRevisionAtStart = commentState.likeRevision
         let result = await loadResult { [self] in
             try await self.service.fetchComments(objectID: self.posterObjectID, order: self.commentOrder, page: nextPage)
         }
 
         switch result {
-        case let .success(comments):
-            guard refreshGeneration == generation else { return }
-            commentState.appendPage(comments)
+        case let .success(batch):
+            guard commentRefreshGeneration == generation else { return }
+            commentState.appendPage(commentState.applyingLikes(to: batch.items, since: likeRevisionAtStart))
+            commentState.nextPage = batch.nextSourcePage
+            commentState.canLoadMore = batch.canLoadMore
         case let .failure(error):
-            guard refreshGeneration == generation else { return }
+            guard commentRefreshGeneration == generation else { return }
             if isCancellation(error) {
                 return
             }
@@ -227,6 +237,9 @@ final class GalleryPosterDetailViewModel: ObservableObject {
 
         do {
             let result = try await service.like(objectID: posterObjectID)
+            try Task.checkCancellation()
+            likeRevision &+= 1
+            latestLikeResult = result
             poster = poster.updatingLike(result.like, likeNum: result.likeNum)
         } catch {
             if isCancellation(error) { return }
@@ -244,7 +257,8 @@ final class GalleryPosterDetailViewModel: ObservableObject {
 
         do {
             let result = try await service.like(objectID: "comment\(comment.id)")
-            commentState.items = commentState.items.updatingLike(for: comment.id, like: result.like, likeNum: result.likeNum)
+            try Task.checkCancellation()
+            commentState.recordLike(result, for: comment.id)
         } catch {
             if isCancellation(error) { return }
             alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
@@ -271,6 +285,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
         defer { isSubmittingComment = false }
 
         do {
+            try Task.checkCancellation()
             _ = try await service.createComment(
                 objectID: target.objectID,
                 text: trimmed,
@@ -279,10 +294,12 @@ final class GalleryPosterDetailViewModel: ObservableObject {
                 anonymous: anonymous,
                 imageMids: imageMids
             )
+            try Task.checkCancellation()
             await refreshAll()
+            try Task.checkCancellation()
             return true
         } catch {
-            if isCancellation(error) { return false }
+            if Task.isCancelled || isCancellation(error) { return false }
             alert = AppAlert(title: "发送失败", message: error.localizedDescription)
             return false
         }
@@ -327,15 +344,21 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     /// 取消请求时恢复刷新前状态，页面快速切换时静默处理网络取消。
     private func handlePosterResult(
         _ result: Result<GalleryPosterDetail, Error>,
-        previousStatus: CommunityLoadStatus
+        previousStatus: CommunityLoadStatus,
+        likeRevisionAtStart: Int
     ) {
         switch result {
         case let .success(poster):
-            self.poster = poster
+            if likeRevision != likeRevisionAtStart, let latestLikeResult {
+                self.poster = poster.updatingLike(latestLikeResult.like, likeNum: latestLikeResult.likeNum)
+            } else {
+                self.poster = poster
+                latestLikeResult = nil
+            }
             posterStatus = .loaded
         case let .failure(error):
             if isCancellation(error) {
-                posterStatus = previousStatus
+                posterStatus = previousStatus == .loading ? .idle : previousStatus
                 return
             }
             posterStatus = .failed(error.localizedDescription)
@@ -345,21 +368,21 @@ final class GalleryPosterDetailViewModel: ObservableObject {
 
     /// 统一处理“刷新第一页评论”的结果。
     private func handleCommentRefreshResult(
-        _ result: Result<[CommunityComment], Error>,
+        _ result: Result<GalleryPageBatch<CommunityComment>, Error>,
         previousState: CommunityCommentState
     ) {
         switch result {
-        case let .success(comments):
-            commentState.applyFirstPage(comments)
+        case let .success(batch):
+            commentState.applyFirstPage(commentState.applyingLikes(to: batch.items, since: previousState.likeRevision))
+            commentState.order = commentOrder
+            commentState.nextPage = batch.nextSourcePage
+            commentState.canLoadMore = batch.canLoadMore
             commentState.status = .loaded
         case let .failure(error):
-            if isCancellation(error) {
-                commentState = previousState
-                return
-            }
-            commentState.status = .failed(error.localizedDescription)
-            commentState.canLoadMore = false
-            commentState.isLoadingMore = false
+            let cancelled = isCancellation(error)
+            commentState.restoreAfterRefreshFailure(previousState, failureStatus: cancelled ? nil : .failed(error.localizedDescription))
+            if !commentState.items.isEmpty { commentOrder = commentState.order }
+            if cancelled { return }
             alert = AppAlert(title: "加载评论失败", message: error.localizedDescription)
         }
     }
@@ -369,13 +392,16 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     /// 详情页初次进入和切换评论排序时都要把评论分页状态整体重置，这里集中处理相关字段。
     private func resetCommentStateForRefresh() {
         commentState.status = .loading
-        commentState.resetPagination()
+        commentState.isLoadingMore = false
     }
 
     /// 把抛错的异步操作包装为 `Result`，并行加载详情和评论时统一处理结果。
-    private func loadResult<T>(_ operation: () async throws -> T) async -> Result<T, Error> {
+    private func loadResult<T: Sendable>(_ operation: @MainActor () async throws -> T) async -> Result<T, Error> {
         do {
-            return .success(try await operation())
+            try Task.checkCancellation()
+            let value = try await operation()
+            try Task.checkCancellation()
+            return .success(value)
         } catch {
             return .failure(error)
         }
@@ -386,21 +412,3 @@ final class GalleryPosterDetailViewModel: ObservableObject {
         TaskCancellation.matches(error)
     }
 }
-
-private extension Array where Element == CommunityComment {
-    /// 递归更新评论树中的点赞状态。
-    ///
-    /// 顶层评论和子评论使用同一模型，这个数组扩展递归更新评论树，
-    /// 视图模型只调用数组扩展处理嵌套评论。
-    func updatingLike(for commentID: Int, like: Bool, likeNum: Int) -> [CommunityComment] {
-        map { comment in
-            let updatedSub = comment.sub.updatingLike(for: commentID, like: like, likeNum: likeNum)
-            let updated = comment.replacingSubComments(updatedSub)
-            if updated.id == commentID {
-                return updated.updatingLike(like, likeNum: likeNum)
-            }
-            return updated
-        }
-    }
-}
-

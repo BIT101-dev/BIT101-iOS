@@ -23,9 +23,87 @@ from ui_source_facts import (
 )
 
 from ui_rules import (
-    alert_coverage_findings, interactive_list_row_findings,
+    alert_coverage_findings, haptic_entry_findings, interactive_list_row_findings,
     is_registered_map_theme_color_definition, is_reviewed_fixed_geometry,
+    interaction_source_inventory, source_inventory_findings,
+    source_runtime_interaction_findings,
 )
+
+
+def interaction_inventory_boundary_findings() -> list[str]:
+    path = str(ROOT / "Modules/Example/Sources/Example.swift")
+    original = swift_syntax_index_sources({path: 'struct Screen: View { var body: some View { Button("入口") {} } }'})
+    manifest = {key: (controls, {"ExampleUITests/testScreen"}) for key, controls in interaction_source_inventory(original).items()}
+    findings = []
+    if source_inventory_findings(original, manifest, {"ExampleUITests/testScreen"}): findings.append("UI 清单自测：已归属交互")
+    for change in ('struct Unvisited: View { var body: some View { Button("新页面") {} } }',
+                   'extension Screen { var hiddenControl: some View { Toggle("新增", isOn: .constant(false)) } }'):
+        changed = swift_syntax_index_sources({path: 'struct Screen: View { var body: some View { Button("入口") {} } }\n' + change})
+        if not source_inventory_findings(changed, manifest, {"ExampleUITests/testScreen"}): findings.append("UI 清单自测：新增页面与交互进入门禁")
+    if not source_inventory_findings(original, manifest, set()): findings.append("UI 清单自测：验收用例删除进入门禁")
+    evidence = [{"scope": "ExampleUITests/testScreen / 页面", "label": "入口", "identifier": "", "actions": ["tap"]}]
+    if source_runtime_interaction_findings(original, manifest, evidence): findings.append("UI 清单自测：源码声明对应实际访问")
+    changed = swift_syntax_index_sources({path: 'struct Screen: View { var body: some View { Button("入口") {}; if expanded { Button("新增条件分支") {} } } }'})
+    expanded = {key: (controls, {"ExampleUITests/testScreen"}) for key, controls in interaction_source_inventory(changed).items()}
+    if not source_runtime_interaction_findings(changed, expanded, evidence): findings.append("UI 清单自测：条件分支需要独立访问证据")
+    mixed = {key: (controls, {"ExampleUITests/testScreen", "manual:watch"}) for key, controls in interaction_source_inventory(changed).items()}
+    if not source_inventory_findings(changed, mixed, {"ExampleUITests/testScreen"}): findings.append("UI 清单自测：手工归属需要匹配平台")
+    if not source_runtime_interaction_findings(changed, mixed, evidence): findings.append("UI 清单自测：手工归属保留自动访问要求")
+    if not source_runtime_interaction_findings(original, manifest, [dict(evidence[0], label="另一个入口")]): findings.append("UI 清单自测：标题按完整语义匹配")
+    duplicate = swift_syntax_index_sources({path: 'struct Screen: View { var body: some View { Button("入口") {}; if expanded { Button("入口") {} } } }'})
+    duplicate_manifest = {key: (controls, {"ExampleUITests/testScreen"}) for key, controls in interaction_source_inventory(duplicate).items()}
+    if not source_runtime_interaction_findings(duplicate, duplicate_manifest, evidence): findings.append("UI 清单自测：同名声明需要独立控件证据")
+    if not source_runtime_interaction_findings(duplicate, duplicate_manifest,
+            [dict(evidence[0], instance="presentation.first"), dict(evidence[0], instance="presentation.second")]):
+        findings.append("UI 清单自测：重复呈现对应独立源码标识")
+    for kind, action in [("refreshable", "refresh"), ("onSubmit", "submit"), ("onDelete", "delete"), ("onMove", "move")]:
+        callback = swift_syntax_index_sources({path: 'struct Screen: View { var body: some View { Color.clear.' + kind
+            + ' { interactionEvidence?("callback", "' + action + '"); run() } } }'})
+        callback_manifest = {key: (controls, {"ExampleUITests/testScreen"}) for key, controls in interaction_source_inventory(callback).items()}
+        visited = dict(evidence[0], identifier="callback", instance="callback", actions=["input"])
+        if not source_runtime_interaction_findings(callback, callback_manifest, [visited]):
+            findings.append("UI 清单自测：回调要求实际执行对应动作")
+        if source_runtime_interaction_findings(callback, callback_manifest, [dict(visited, actions=[action])]):
+            findings.append("UI 清单自测：实际回调执行进入覆盖证据")
+    dynamic = swift_syntax_index_sources({path: r'struct Screen: View { var body: some View { Button(title) {}.accessibilityIdentifier("item.\(id)") } }'})
+    dynamic_manifest = {key: (controls, {"ExampleUITests/testScreen"}) for key, controls in interaction_source_inventory(dynamic).items()}
+    if not source_runtime_interaction_findings(dynamic, dynamic_manifest, evidence): findings.append("UI 清单自测：动态标识需要匹配访问")
+    if source_runtime_interaction_findings(dynamic, dynamic_manifest, [dict(evidence[0], identifier="item.42")]): findings.append("UI 清单自测：动态标识模板接受实际访问")
+    for control in ('Toggle("启用", isOn: .constant(false))', 'Picker("校区", selection: .constant(0)) { Text("主校区").tag(0) }',
+                    'DatePicker("日期", selection: .constant(Date()))', 'TextField("输入", text: .constant(""))', 'Button(dynamicTitle) {}'):
+        hidden = swift_syntax_index_sources({path: 'struct Screen: View { var body: some View { ' + control + ' } }'})
+        hidden_manifest = {key: (controls, {"ExampleUITests/testScreen"}) for key, controls in interaction_source_inventory(hidden).items()}
+        if not source_runtime_interaction_findings(hidden, hidden_manifest, []): findings.append("UI 清单自测：输入、选择及动态标题需要实际身份合同")
+    for kind, invocation, expected in [("TextField", 'TextField("输入", text: .constant(""))', "input"),
+            ("SecureField", 'SecureField("输入", text: .constant(""))', "input"),
+            ("TextEditor", 'TextEditor(text: .constant(""))', "input"),
+            ("Toggle", 'Toggle("启用", isOn: .constant(false))', "tap"),
+            ("Slider", 'Slider(value: .constant(0.5))', "gesture"),
+            ("Stepper", 'Stepper("数值", value: .constant(1))', "tap")]:
+        control = swift_syntax_index_sources({path: 'struct Screen: View { var body: some View { ' + invocation + '.accessibilityIdentifier("control") } }'})
+        control_manifest = {key: (controls, {"ExampleUITests/testScreen"}) for key, controls in interaction_source_inventory(control).items()}
+        row = dict(evidence[0], identifier="control", instance="control", actions=["tap" if expected != "tap" else "input"])
+        if not source_runtime_interaction_findings(control, control_manifest, [row]): findings.append("UI 清单自测：控件需要对应动作类型")
+        if source_runtime_interaction_findings(control, control_manifest, [dict(row, actions=[expected])]): findings.append("UI 清单自测：实际控件动作进入证据")
+    scopes = swift_syntax_index_sources({path: 'struct FirstView: View { var body: some View { Button("取消") {} } }; struct SecondView: View { var body: some View { Button("取消") {} } }'})
+    scope_manifest = {key: (controls, {"ExampleUITests/testScreen"}) for key, controls in interaction_source_inventory(scopes).items()}
+    cancel = dict(evidence[0], label="取消", instance="cancel.first")
+    if not source_runtime_interaction_findings(scopes, scope_manifest, [cancel]): findings.append("UI 清单自测：跨作用域声明需要独立身份")
+    if not source_runtime_interaction_findings(scopes, scope_manifest, [cancel, dict(cancel, instance="cancel.second")]): findings.append("UI 清单自测：重复呈现保留跨作用域标识要求")
+    scopes = swift_syntax_index_sources({path: 'struct FirstView: View { var body: some View { Button("取消") {}.accessibilityIdentifier("first.cancel") } }; struct SecondView: View { var body: some View { Button("取消") {}.accessibilityIdentifier("second.cancel") } }'})
+    cancel = dict(cancel, identifier="first.cancel")
+    second = dict(cancel, identifier="second.cancel", instance="cancel.second")
+    if source_runtime_interaction_findings(scopes, scope_manifest, [cancel, second]): findings.append("UI 清单自测：明确标识覆盖同名作用域")
+    keys = list(scope_manifest)
+    scope_manifest[keys[0]] = (scope_manifest[keys[0]][0], {"ExampleUITests/testScreen", "ExampleUITests/testOther"})
+    if source_runtime_interaction_findings(scopes, scope_manifest, [second, dict(cancel, scope="ExampleUITests/testOther", instance="cancel.other")]): findings.append("UI 清单自测：共享流程按完整匹配分配证据")
+    gesture = swift_syntax_index_sources({path: 'struct Screen: View { var body: some View { Color.clear.onTapGesture { open() }.accessibilityIdentifier("carrier").toolbar { Button("旁路") {}.accessibilityIdentifier("child") } } }'})
+    gesture_manifest = {key: (controls, {"ExampleUITests/testScreen"}) for key, controls in interaction_source_inventory(gesture).items()}
+    child = dict(evidence[0], identifier="child", instance="child")
+    carrier = dict(evidence[0], identifier="carrier", instance="carrier", actions=["gesture"])
+    if not source_runtime_interaction_findings(gesture, gesture_manifest, [child, carrier]): findings.append("UI 清单自测：手势需要对应动作")
+    if source_runtime_interaction_findings(gesture, gesture_manifest, [child, dict(carrier, actions=["tap"])]): findings.append("UI 清单自测：手势载体与子控件分别匹配")
+    return findings
 
 
 def ast_marker_boundary_findings() -> list[str]:
@@ -44,6 +122,24 @@ def ast_marker_boundary_findings() -> list[str]:
         "stringSegments": [{"value": "课程暂未发布说明", "scope": ["SampleView"]}],
     }
     findings = []
+    haptic_path = ROOT / "Modules/DesignSystemKit/Sources/RelocatedFeedback.swift"
+    haptic_source = '''
+extension View {
+    public func appSelectionFeedback<T: Equatable>(trigger: T) -> some View {
+        sensoryFeedback(.selection, trigger: trigger)
+    }
+    public func appImpactFeedback<T: Equatable>(trigger: T) -> some View {
+        sensoryFeedback(.impact, trigger: trigger)
+    }
+}
+'''
+    haptic_syntax = swift_syntax_index_sources({str(haptic_path): haptic_source})
+    if haptic_entry_findings({haptic_path: haptic_source}, haptic_syntax)[0]:
+        findings.append("UI 契约规则边界自检失败：公共触感声明应支持文件迁移")
+    wrong_source = haptic_source.replace(".selection", ".impact")
+    wrong_syntax = swift_syntax_index_sources({str(haptic_path): wrong_source})
+    if len(haptic_entry_findings({haptic_path: wrong_source}, wrong_syntax)[0]) != 1:
+        findings.append("UI 契约规则边界自检失败：公共触感声明需要对应系统动作")
     if not ast_has_marker(facts, "AppFailureState"):
         findings.append("UI 契约规则边界自检失败：组件调用识别")
     if ast_has_marker(facts, "AppFailureStates"):
@@ -324,7 +420,7 @@ struct DiagnosticConfirmationAlertSample: View {
     }
 }
 
-struct CourseEvaluationLink: View {
+struct CourseEvaluationLinkScene: View {
     @State private var alert: AppAlert?
     @State private var diagnosticAlert: AppAlert?
     var body: some View {
@@ -513,7 +609,7 @@ struct AppFixedColumnItem {}
 
     allowed_alerts = [
         finding
-        for view_name in ("CourseEvaluationLink", "CourseEvaluationScene")
+        for view_name in ("CourseEvaluationLinkScene", "CourseEvaluationScene")
         for finding in alert_coverage_findings(
             {
                 "typedVariables": [
@@ -795,3 +891,103 @@ def map_theme_color_contract_findings() -> list[str]:
     if is_registered_map_theme_color_definition(path, source, wrong_scope_node):
         return ["UI 检查器自测：地图主题令牌例外覆盖了其它词法作用域"]
     return []
+
+
+def explanatory_text_boundary_findings() -> list[str]:
+    "验证模块界面中的 footer 与 description 进入文案审查。"
+    import ui_source_facts as rules
+    import shutil
+    from contextlib import redirect_stdout
+    from io import StringIO
+    from unittest.mock import patch
+
+    fixture = ROOT / ".build/static-audit/explanatory-self-test"
+    path = fixture / "Modules/DesignSystemKit/Sources/AppStateComponents.swift"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('Section { Text("内容") } footer: {\nText("模块提示")\n}\n'
+                    'ContentUnavailableView { Text("状态") } description: {\nText("模块说明")\n}\n')
+    try:
+        with patch.object(rules, "ROOT", fixture), redirect_stdout(StringIO()):
+            rules.explanatory_text_report()
+        report = (fixture / ".build/explanatory-text-report.txt").read_text()
+        assert '模块提示' in report and '模块说明' in report and 'Modules/DesignSystemKit' in report
+    except (AssertionError, OSError) as error:
+        return [f"解释文案范围自测：{error}"]
+    finally:
+        shutil.rmtree(fixture, ignore_errors=True)
+    return []
+
+
+def school_lifecycle_boundary_findings() -> list[str]:
+    from code_quality_rules import automatic_school_fetch_findings
+    path = str(ROOT / "BIT101-iOS/LifecycleExample.swift")
+    ports = {str(source): source.read_text() for source in (
+        ROOT / "Modules/SchedulePorts/Sources/ScheduleServicing.swift",
+        ROOT / "Modules/ScoreDomain/Sources/ScoreServicing.swift")}
+    findings = []
+    for source in (
+        "struct RenamedApp: App { var body: some Scene { WindowGroup { Text(\"x\").task { await schedule.syncCourses() } } } }",
+        "struct AccountLifecycle { func activate() { renamed() }; func renamed() { service.fetchScores() } }",
+        "func movedRefresh() { service.syncDDLEvents() }; struct RenamedApp: App { func activate() { movedRefresh() } }",
+        "protocol ScheduleCourseServicing { func renamedProbe() }; struct RenamedApp: App { func activate() { service.renamedProbe() } }",
+        "struct First { func refresh() { service.fetchScores() } }; struct Second { func refresh() {} }; struct AppEntry: App { func activate() { first.refresh() } }",
+        "struct Loader { func refresh() { service.fetchScores() } }; struct AppEntry: App { var body: some Scene { Text(\"x\").task(perform: loader.refresh) } }",
+        "struct ScoreListPage: View { var body: some View { Text(\"x\").task { await service.fetchScores() } } }",
+        'struct Screen: View { let service: any ScheduleCourseServicing; var action: () async throws -> Void { { _ = try await service.syncCourses(term: nil) } }; var body: some View { Text("x").task { try? await action() } } }',
+        'struct Screen: View { let action: () async -> Void = { await service.fetchScores() }; var body: some View { Text("x").task { await action() } } }',
+        'struct Screen: View { var body: some View { Text("x").onReceive(events) { _ in Task { await service.fetchScores() } } } }',
+        'struct Screen: View { var body: some View { Text("x").onChange(of: ready, initial: true) { Task { await service.fetchScores() } } } }',
+        'struct ScheduleRootView: View { func startClassroomPageRefresh() { service.fetchCampuses(); service.syncCourses() }; var body: some View { Text("x").task { startClassroomPageRefresh() } } }',
+        'struct ScheduleTermPickerPage: View { func loadAvailableTerms() { service.fetchAvailableTerms(); service.syncCourses() }; var body: some View { Text("x").task { loadAvailableTerms() } } }',
+        'struct TrustedTranscriptPage: View { func applyIfNeeded() { service.fetchTrustedTranscriptPages(); service.fetchScores() }; var body: some View { Text("x").task { applyIfNeeded() } } }',
+    ):
+        if not automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: source}))):
+            findings.append("学校生命周期自测：重命名入口、包装方法与跨类型调用链")
+    manual = "struct ManualPage: View { var body: some View { Button(\"刷新\") { Task { await service.syncCourses() } } } }"
+    if automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: manual}))):
+        findings.append("学校生命周期自测：用户操作保持独立调用边界")
+    manual = 'struct Screen: View { let service: any ScheduleCourseServicing; var action: () async throws -> Void { { _ = try await service.syncCourses(term: nil) } }; var body: some View { Button("刷新") { Task { try? await action() } } } }'
+    if automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: manual}))):
+        findings.append("学校生命周期自测：计算属性动作保持用户操作边界")
+    wrappers = "struct SchoolWrapper { func load() { service.fetchScores() } }; struct LocalWrapper { func load() {} }; "
+    for body in (
+        "let bridge: SchoolWrapper; func start() { bridge.load() }; func helper() { let bridge = LocalWrapper(); bridge.load() }",
+        "let bridge: SchoolWrapper; func start() { self.bridge.load() }; func helper() { let bridge: LocalWrapper = .init(); bridge.load() }",
+        "let bridge: SchoolWrapper; func start() { if ready { let bridge = LocalWrapper(); bridge.load() }; bridge.load() }",
+        "let bridge: SchoolWrapper; func start() { let action = { let bridge = LocalWrapper(); bridge.load() }; bridge.load() }",
+        "typealias Bridge = SchoolWrapper; typealias Alias = Bridge; let bridge: Alias; func start() { bridge.load() }",
+        "let bridge: LocalWrapper; func start(bridge: SchoolWrapper) { bridge.load() }",
+        "let bridge: LocalWrapper; init(bridge: SchoolWrapper) { bridge.load() }",
+    ):
+        source = wrappers + "struct FeatureLifecycle { " + body + " }"
+        if not automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: source}))):
+            findings.append("学校生命周期自测：成员、其他方法与嵌套代码块的变量归属")
+    source = wrappers + "struct ManualPage: View { let bridge: LocalWrapper; var body: some View { Text(\"x\").task { bridge.load() } }; func helper() { let bridge = SchoolWrapper(); bridge.load() } }"
+    if automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: source}))):
+        findings.append("学校生命周期自测：局部包装类型保持所属方法边界")
+    return findings
+
+
+def device_discovery_boundary_findings() -> list[str]:
+    import json
+    import shlex
+    support = ROOT / "Scripts/script-support.sh"
+    findings = []
+    def candidate(name, transport, tunnel="connected", pairing="paired", reality="physical"):
+        return {"identifier": name, "hardwareProperties": {"udid": name, "deviceType": "iPhone", "reality": reality},
+                "connectionProperties": {"transportType": transport, "tunnelState": tunnel, "pairingState": pairing},
+                "deviceProperties": {"name": name}}
+
+    for devices, expected in (
+        ([candidate("wireless", "localNetwork"), candidate("wired", "wired")], "wired"),
+        ([candidate("wireless", "localNetwork"), candidate("offline", None)], "wireless"),
+        ([candidate("pending", "wired", "disconnected"), candidate("connected", "wired")], "connected"),
+        ([candidate("unpaired", "wired", pairing="unpaired"), candidate("virtual", "wired", reality="virtual")], ""),
+    ):
+        snapshot = shlex.quote(json.dumps({"result": {"devices": devices}}))
+        code = f'source {shlex.quote(str(support))}\nunset BIT101_XCODE_DEVICE_ID BIT101_DEVICETCL_DEVICE_ID BIT101_DEVICE_TRANSPORT BIT101_DEVICE_NAME\n'
+        code += f'bit101_device_snapshot() {{ print -r -- {snapshot}; }}\nbit101_find_device || exit 1\nprint -r -- "$BIT101_DEVICE_NAME"\n'
+        result = subprocess.run(["zsh", "-c", code], capture_output=True, text=True)
+        if (expected and (result.returncode or result.stdout.strip() != expected)) or (not expected and result.returncode != 1):
+            findings.append("设备自测：有线优先、无线发现、连接状态及真实配对设备范围")
+    return findings

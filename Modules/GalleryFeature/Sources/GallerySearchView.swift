@@ -1,5 +1,6 @@
 #if os(iOS)
 import CommunityUI
+import MediaKit
 import DesignSystemKit
 //
 //  GallerySearchView.swift
@@ -13,11 +14,10 @@ import SwiftUI
 struct GallerySearchView: View {
     @ObservedObject var viewModel: GalleryViewModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(MediaEnvironment.self) private var media
 
     private func triggerSearch() {
-        Task {
-            await viewModel.performSearch()
-        }
+        viewModel.enqueueSearch()
     }
 
     var body: some View {
@@ -26,11 +26,14 @@ struct GallerySearchView: View {
             feedIdentity: "search",
             prefetchTriggerThreshold: 0,
             onRefresh: triggerSearch,
+            onPullToRefresh: {
+                media.retryFailedImages()
+                await viewModel.enqueueSearch().value
+            },
             onPrefetch: { _ in },
             onLoadMore: { poster in
-                Task {
-                    await viewModel.loadMoreSearchResultsIfNeeded(currentPoster: poster)
-                }
+                guard let poster else { return }
+                viewModel.enqueueSearchLoadMore(currentPoster: poster)
             }
         )
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
@@ -57,6 +60,7 @@ struct GallerySearchView: View {
         .onChange(of: viewModel.searchQuery.order) { _, _ in
             triggerSearch()
         }
+        .onDisappear { viewModel.cancelSearchOperations() }
         .navigationTitle("搜索")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -64,6 +68,7 @@ struct GallerySearchView: View {
                 Button("取消") {
                     dismiss()
                 }
+                    .accessibilityIdentifier("ui.gallery-search-view.cancel")
             }
         }
     }

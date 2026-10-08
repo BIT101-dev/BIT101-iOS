@@ -168,13 +168,18 @@ extension ScheduleService {
     /// 过期后，乐学请求会直接拿到 CAS 登录页，因此这里调用学校会话专用恢复入口。
     func ensureSchoolSession(
         schoolSMSCodeHandler: SchoolSMSCodeHandler? = nil,
-        smsDeliveryMode: SchoolSMSDeliveryMode = .send
+        smsDeliveryMode: SchoolSMSDeliveryMode = .send,
+        owner: SchoolSessionIdentity? = nil
     ) async throws {
+        let owner = owner ?? credentials.schoolSessionIdentity
+        try validateAuthenticationOwner(owner)
         do {
             guard try await schoolSessionRestorer.restoreSchoolSessionIfNeeded() != nil else {
                 throw ScheduleServiceError.notLoggedIn
             }
+            try validateAuthenticationOwner(owner)
         } catch let error as SchoolSessionRestorationError {
+            try validateAuthenticationOwner(owner)
             guard case let .secondFactorRequired(context) = error else { throw error }
             guard smsDeliveryMode == .preflight || schoolSMSCodeHandler != nil else {
                 throw ScheduleServiceError.schoolSecondFactorRequired
@@ -182,11 +187,13 @@ extension ScheduleService {
             try await completeSchoolSecondFactor(
                 context,
                 handler: schoolSMSCodeHandler,
-                smsDeliveryMode: smsDeliveryMode
+                smsDeliveryMode: smsDeliveryMode,
+                owner: owner
             )
             guard try await schoolSessionRestorer.restoreSchoolSessionIfNeeded() != nil else {
                 throw ScheduleServiceError.notLoggedIn
             }
+            try validateAuthenticationOwner(owner)
         }
     }
 
@@ -304,7 +311,9 @@ extension ScheduleService {
             throw ScheduleServiceError.invalidResponse
         }
 
-        return try await response.parsedCoursesInBackground()
+        let parsed = try await response.parsedCoursesInBackground()
+        guard parsed.allSatisfy({ $0.course.hasValidPlacement }) else { throw ScheduleServiceError.invalidResponse }
+        return parsed
     }
 
     /// 拉取指定目标学期的考试安排。
@@ -329,7 +338,8 @@ extension ScheduleService {
             body: [("requestParamStr", requestParam)]
         )
 
-        guard let firstDay = response.data.first(where: { $0.week == 1 })?.date else {
+        guard let firstDay = response.data.first(where: { $0.week == 1 })?.date,
+              ScheduleDateCodec.parseDate(firstDay) != nil else {
             throw ScheduleServiceError.invalidResponse
         }
 

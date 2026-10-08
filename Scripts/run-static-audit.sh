@@ -5,25 +5,8 @@ fi
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-if [[ "${BIT101_STATIC_AUDIT_LOCK_HELD:-0}" != "1" ]]; then
-  exec python3 - "$ROOT_DIR/.build/static-audit/audit.lock" "$0" "$@" <<'PY'
-import fcntl
-import os
-from pathlib import Path
-import subprocess
-import sys
-
-lock_path = Path(sys.argv[1])
-lock_path.parent.mkdir(parents=True, exist_ok=True)
-with lock_path.open("a") as lock:
-    fcntl.flock(lock, fcntl.LOCK_EX)
-    environment = dict(os.environ, BIT101_STATIC_AUDIT_LOCK_HELD="1")
-    script = Path(sys.argv[2])
-    command = ["zsh", "-c", script.read_text(), str(script), *sys.argv[3:]]
-    result = subprocess.run(command, env=environment)
-    raise SystemExit(result.returncode if result.returncode >= 0 else 128 - result.returncode)
-PY
-fi
+source "$ROOT_DIR/Scripts/script-support.sh"
+bit101_acquire_script_lock "$ROOT_DIR/.build/static-audit/audit.lock" BIT101_STATIC_AUDIT_LOCK_HELD "$0" "$@"
 
 if [[ -z "${SWIFT_FRONTEND:-}" ]]; then
   SWIFT_FRONTEND="$(xcrun --find swift-frontend 2>/dev/null || true)"
@@ -34,7 +17,8 @@ if [[ -z "$SWIFT_FRONTEND" || ! -x "$SWIFT_FRONTEND" ]]; then
 fi
 LOG_DIR="$ROOT_DIR/.build/static-audit"
 AUDIT_STARTED=$SECONDS
-export BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest)"
+BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest)"
+export BIT101_VALIDATION_SOURCE_DIGEST
 
 mkdir -p "$LOG_DIR"
 rm -f "$LOG_DIR"/*.log(N)
@@ -74,12 +58,35 @@ import re
 import sys
 
 root = Path(sys.argv[1])
+
+def compile_embedded_python(source, path):
+    headers = re.compile(r"<<(?P<tabs>-)?[ \t]*(?P<quote>['\"]?)(?P<label>PY\w*)(?P=quote)[ \t]*$", re.MULTILINE)
+    for header in headers.finditer(source):
+        body = []
+        for line in source[header.end() + 1:].splitlines(keepends=True):
+            line = line.lstrip("\t") if header["tabs"] else line
+            if line.rstrip("\r\n") == header["label"]:
+                break
+            body.append(line)
+        else:
+            raise SyntaxError(f"{path}: Python heredoc 结束标记缺失")
+        compile("".join(body), str(path), "exec")
+
+for opening in ["<<PY", "<< 'PY'", '<<"PY"', "<<'PY'", "<<-PY"]:
+    prefix = "\t" if opening == "<<-PY" else ""
+    compile_embedded_python(f"python3 - {opening}\n{prefix}pass\n{prefix}PY\n", "heredoc-self-test")
+    try:
+        compile_embedded_python(f"python3 - {opening}\n{prefix}if True\n{prefix}PY\n", "heredoc-self-test")
+    except SyntaxError:
+        pass
+    else:
+        raise AssertionError(f"Python heredoc 语法审计遗漏：{opening}")
+
 for path in sorted((root / "Scripts").glob("*.py")):
     compile(path.read_text(encoding="utf-8"), str(path), "exec")
 scripts = [*(root / "Scripts").glob("*.sh"), *(root / "Cloudflare/EmergencyUpdateWorker/Scripts").glob("*.sh")]
 for path in sorted(scripts):
-    for block in re.finditer(r"<<'(PY\w*)'\n(.*?)^\1$", path.read_text(encoding="utf-8"), re.MULTILINE | re.DOTALL):
-        compile(block[2], str(path), "exec")
+    compile_embedded_python(path.read_text(encoding="utf-8"), path)
 PY
 }
 worker_parse() {
@@ -137,6 +144,15 @@ allowed_dirs = {
     ".build/issue-report-inbox",
 }
 violations = []
+if (root / ".build/static-audit/package-build").exists():
+    violations.append("SwiftPM 构建产物应统一保存到 .build/extended-automation")
+icloud_root = root / ".build/icloud-cross-device-smoke"
+icloud_artifacts = {"Phone", "Mac", "test-results.xcresult", "report.json", "signing.entitlements",
+                   "build.log", "mac-build.log", "mac-receive.log", "testPhoneRoundTrip.log", "testCleanup.log"}
+if icloud_root.exists():
+    for child in icloud_root.iterdir():
+        if child.name != ".DS_Store" and child.name not in icloud_artifacts:
+            violations.append(f"{child.relative_to(root)}: iCloud 工作流产物应沿用固定阶段清单")
 for parent in (root / "build", root / ".build"):
     if not parent.exists():
         continue
@@ -150,7 +166,9 @@ for parent in (root / "build", root / ".build"):
         elif relative not in allowed_dirs:
             violations.append(f"{relative}: 同类产物不得创建第二个平行目录")
 shared = root / ".build/compiler-cache"
-cache_names = {"SDKExplicitPrecompiledModules", "ModuleCache.noindex", "SDKStatCaches.noindex"}
+cache_names = {"SDKExplicitPrecompiledModules", "ModuleCache.noindex", "SDKStatCaches.noindex", "CompilationCache.noindex"}
+for cache in (shared / "SDKStatCaches.noindex").glob("*simulator*.sdkstatcache"):
+    violations.append(f"{cache.relative_to(root)}: SDK 缓存应沿当前使用的平台维护")
 for parent in (root / ".build", root / "build"):
     for directory, children, files in os.walk(parent):
         for name in (set(children) | set(files)) & cache_names:

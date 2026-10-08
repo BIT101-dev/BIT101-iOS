@@ -239,14 +239,14 @@ final class AppErrorPresenter {
     }
 
     private func finishReportSheet() {
-        guard isPresenting else { return }
-        isPresenting = false
+        guard isPresenting, let presentationID = activePresentationID else { return }
         reportController = nil
         reportDelegate = nil
         let generation = presentationGeneration
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
-            guard let self, self.presentationGeneration == generation else { return }
+            guard let self, self.presentationGeneration == generation,
+                  self.activePresentationID == presentationID else { return }
             self.finishPresentedItem()
         }
     }
@@ -394,15 +394,18 @@ private struct AppErrorReportSheet: View {
                         .focused($isContactFocused)
                         .accessibilityLabel("联系方式")
                         .accessibilityHint("可填写微信、QQ、邮箱或其他联系方式")
+                        .accessibilityIdentifier("ui.app-error-report-sheet.联系方式")
                 }
             }
             .navigationTitle("分享错误信息")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { close() } }
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { close() }
+                    .accessibilityIdentifier("ui.app-error-report-sheet.cancel") }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(viewModel.isSubmitting ? "提交中" : "提交") {
                         requestSubmission()
                     }.disabled(viewModel.isSubmitting)
+                        .accessibilityIdentifier("ui.app-error-report-sheet.submit")
                 }
             }
             .task { await viewModel.load() }

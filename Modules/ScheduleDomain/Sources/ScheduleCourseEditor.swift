@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import ScheduleContracts
 
 /// 课程编辑草稿校验、周次编解码和课程记录变换。
 ///
@@ -177,8 +178,8 @@ public nonisolated enum ScheduleCourseEditor {
                 guard
                     let lower = Int(lowerText),
                     let upper = Int(upperText),
-                    lower != 0,
-                    upper != 0,
+                    ScheduleCourseConstraints.isValidWeek(lower),
+                    ScheduleCourseConstraints.isValidWeek(upper),
                     upper >= lower
                 else {
                     throw invalidWeeksError
@@ -187,7 +188,7 @@ public nonisolated enum ScheduleCourseEditor {
                 continue
             }
 
-            guard let week = Int(value), week != 0 else {
+            guard let week = Int(value), ScheduleCourseConstraints.isValidWeek(week) else {
                 throw invalidWeeksError
             }
             weeks.insert(week)
@@ -203,14 +204,15 @@ public nonisolated enum ScheduleCourseEditor {
 
         let sectionIDs: [Int]
         if draft.selectedSections.isEmpty {
-            guard draft.startSection > 0, draft.endSection >= draft.startSection else {
+            guard draft.startSection > 0, draft.endSection >= draft.startSection,
+                  draft.endSection <= ScheduleCourseConstraints.maximumSection else {
                 throw validationError("至少选择一节课。")
             }
             sectionIDs = Array(draft.startSection ... draft.endSection)
         } else {
             sectionIDs = Array(Set(draft.selectedSections)).sorted()
         }
-        guard !sectionIDs.isEmpty, sectionIDs.allSatisfy({ $0 > 0 }) else {
+        guard !sectionIDs.isEmpty, sectionIDs.allSatisfy({ (1...ScheduleCourseConstraints.maximumSection).contains($0) }) else {
             throw validationError("至少选择一节课。")
         }
         guard let firstSection = sectionIDs.first,
@@ -221,7 +223,7 @@ public nonisolated enum ScheduleCourseEditor {
 
         let weeks: [Int]
         if let fixedWeeks {
-            guard !fixedWeeks.isEmpty, fixedWeeks.allSatisfy({ $0 != 0 }) else {
+            guard !fixedWeeks.isEmpty, fixedWeeks.allSatisfy(ScheduleCourseConstraints.isValidWeek) else {
                 throw invalidWeeksError
             }
             weeks = Array(Set(fixedWeeks)).sorted()
@@ -381,7 +383,9 @@ public nonisolated enum ScheduleCourseEditor {
         toWeek: Int,
         toWeekday: Int,
         makeID: () -> String = { UUID().uuidString }
-    ) -> [CourseRecord] {
+    ) throws -> [CourseRecord] {
+        guard ScheduleCourseConstraints.isValidWeek(fromWeek), ScheduleCourseConstraints.isValidWeek(toWeek),
+              (1...7).contains(fromWeekday), (1...7).contains(toWeekday) else { throw invalidWeeksError }
         guard fromWeek != toWeek || fromWeekday != toWeekday else { return courses }
         let sourceCourses = courses.filter {
             $0.weekday == fromWeekday && $0.weeks.contains(fromWeek)

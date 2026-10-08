@@ -33,6 +33,9 @@ import json
 import sys
 
 path, notice_id, maximum_build, title, message = sys.argv[1:]
+if int(maximum_build) > 9007199254740991 or not title.strip() or not message.strip():
+    print("Build 应在 JSON 精确整数范围内，标题及正文应包含有效内容。", file=sys.stderr)
+    raise SystemExit(64)
 payload = {
     "schema_version": 1,
     "enabled": True,

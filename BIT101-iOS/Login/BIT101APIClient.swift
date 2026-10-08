@@ -154,14 +154,17 @@ struct BIT101APIClient {
             guard let location = response.value(forHTTPHeaderField: "Location") else {
                 throw LoginServiceError.invalidServerResponse
             }
-            try await finishSchoolLoginRedirectChain(from: location, relativeTo: requestURL)
-            return true
+            return try await finishSchoolLoginRedirectChain(from: location, relativeTo: requestURL)
         }
 
         guard (200 ..< 300).contains(response.statusCode) else {
             throw errorForStatusCode(response.statusCode)
         }
 
+        return try schoolLoginResult(data)
+    }
+
+    private func schoolLoginResult(_ data: Data) throws -> Bool {
         let html = String(decoding: data, as: UTF8.self)
         if let context = SchoolLoginHTMLParser.parseSecondFactorPage(
             html: html,
@@ -169,13 +172,13 @@ struct BIT101APIClient {
         ) {
             throw LoginServiceError.schoolSMSRequired(context)
         }
-        return !html.contains("用户名密码")
+        return SchoolLoginHTMLParser.parse(html: html).isLoggedIn
     }
 
     /// 手动补走学校侧 SSO 的 302 链路，确保相关学校 cookie 真正落盘。
     ///
     /// 这一步继续访问跳转链并完成学校 cookie 写入；教务和乐学接口在进入主界面后依赖这些 cookie。
-    private func finishSchoolLoginRedirectChain(from location: String, relativeTo baseURL: URL) async throws {
+    private func finishSchoolLoginRedirectChain(from location: String, relativeTo baseURL: URL) async throws -> Bool {
         guard var nextURL = HTTPSURLUpgrade.resolvedURL(from: location, relativeTo: baseURL) else {
             throw LoginServiceError.invalidServerResponse
         }
@@ -188,7 +191,7 @@ struct BIT101APIClient {
             var request = URLRequest(url: nextURL)
             request.httpMethod = "GET"
 
-            let (_, response) = try await sendRequest(request, followRedirects: false)
+            let (data, response) = try await sendRequest(request, followRedirects: false)
 
             if (300 ..< 400).contains(response.statusCode),
                let nextLocation = response.value(forHTTPHeaderField: "Location"),
@@ -209,9 +212,10 @@ struct BIT101APIClient {
                 url: nextURL,
                 schoolHost: schoolBaseURL.host
             ) {
-                return
+                return true
             }
 
+            if (200 ..< 300).contains(response.statusCode) { return try schoolLoginResult(data) }
             throw errorForStatusCode(response.statusCode)
         }
 
@@ -237,10 +241,7 @@ struct BIT101APIClient {
         url: URL,
         schoolHost: String? = "sso.bit.edu.cn"
     ) -> Bool {
-        if (200 ..< 300).contains(statusCode) {
-            return true
-        }
-        return statusCode == 401
+        ((200 ..< 300).contains(statusCode) || statusCode == 401)
             && isSchoolLoginSuccessLanding(url, schoolHost: schoolHost)
     }
 

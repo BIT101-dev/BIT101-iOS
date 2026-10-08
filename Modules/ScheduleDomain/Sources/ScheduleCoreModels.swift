@@ -1,4 +1,5 @@
 import Foundation
+import ScheduleContracts
 
 /// 课程在周视图中的排布方式。
 ///
@@ -47,6 +48,10 @@ public nonisolated struct TimeSlot: Codable, Hashable, Identifiable, Sendable {
     public let start: String
     public let end: String
 
+    public static func hasUniqueIDs(_ slots: [TimeSlot]) -> Bool {
+        Set(slots.map(\.id)).count == slots.count
+    }
+
     /// 节次开始时间对应的分钟数，便于当前时间线比较。
     public var startMinutes: Int {
         TimeSlot.parseMinutes(start)
@@ -81,7 +86,7 @@ public nonisolated struct TimeSlot: Codable, Hashable, Identifiable, Sendable {
 
     /// 把 `HH:mm` 字符串解析成分钟数，支持 `24:00` 作为日界点。
     public static func parseMinutes(_ string: String) -> Int {
-        let parts = string.split(separator: ":")
+        let parts = string.split(separator: ":", omittingEmptySubsequences: false)
         guard
             parts.count == 2,
             let hour = Int(parts[0]),
@@ -127,6 +132,14 @@ public nonisolated struct CourseRecord: Codable, Identifiable, Hashable, Sendabl
     public let type: String
     public let category: String
     public let department: String
+
+    /// 待排课程保留空坐标，已排课程携带完整周次与上课坐标。
+    public var hasValidPlacement: Bool {
+        if weeks.isEmpty && weekday == 0 && startSection == 0 && endSection == 0 { return true }
+        return !weeks.isEmpty && weeks.allSatisfy(ScheduleCourseConstraints.isValidWeek)
+            && (1...7).contains(weekday) && startSection > 0 && endSection >= startSection
+            && endSection <= ScheduleCourseConstraints.maximumSection
+    }
 
     /// 课程占用的节次文本。
     public var sectionText: String {

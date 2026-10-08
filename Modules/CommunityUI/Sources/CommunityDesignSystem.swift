@@ -21,6 +21,7 @@ public struct CommunityCommentSortPicker: View {
         }
         .appSelectionFeedback(trigger: order)
         .pickerStyle(.menu)
+            .accessibilityIdentifier("ui.community-comment-sort-picker.排序")
     }
 }
 
@@ -151,6 +152,17 @@ public struct ComposerImageTile: View {
     }
 }
 
+/// 每个编辑场景串行准备图片，压缩沿后台 actor 与既定草稿预算执行。
+public actor ComposerImagePreparer {
+    public init() {}
+    public func prepare(_ data: Data) throws -> Data {
+        try Task.checkCancellation()
+        let result = try ComposerDraftImageCompressor.compress(data)
+        try Task.checkCancellation()
+        return result
+    }
+}
+
 public enum ComposerDraftImageCompressor {
     public nonisolated static let maximumBytes = ComposerDraftImagePolicy.maximumBytes
 
@@ -196,7 +208,9 @@ public enum ComposerDraftImageCompressor {
             width: max(1, width * scale),
             height: max(1, height * scale)
         )
-        return UIGraphicsImageRenderer(size: size).jpegData(withCompressionQuality: quality) { context in
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).jpegData(withCompressionQuality: quality) { context in
             context.cgContext.interpolationQuality = .medium
             UIImage(cgImage: image).draw(in: CGRect(origin: .zero, size: size))
         }

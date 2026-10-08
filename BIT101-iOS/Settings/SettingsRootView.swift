@@ -87,14 +87,30 @@ struct SettingsRootView: View {
         .environment(dependencies.media)
         .navigationTitle(initialRoute?.title ?? "设置")
         .navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .bottom) { SettingsStorageNotice(settings: dependencies.settings) }
         .toolbar {
             if showsCloseButton {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") {
                         dismiss()
                     }
+                        .accessibilityIdentifier("ui.settings-root-view.cancel")
                 }
             }
+        }
+    }
+}
+
+private struct SettingsStorageNotice: View {
+    @ObservedObject var settings: AppSettingsStore
+    var body: some View {
+        if let issue = settings.storageIssue {
+            Text(issue)
+                .font(AppDesignSystem.Typography.caption)
+                .foregroundStyle(AppDesignSystem.Palette.Status.danger)
+                .padding(AppDesignSystem.Spacing.regular)
+                .frame(maxWidth: .infinity)
+                .background(AppDesignSystem.Palette.Background.grouped)
         }
     }
 }
@@ -119,6 +135,7 @@ private struct SettingsIndexPage: View {
                             SettingsIndexCard(route: route)
                         }
                         .buttonStyle(.plain)
+                            .accessibilityIdentifier("ui.settings-index-page.suggestion")
                     } else {
                         NavigationLink {
                             SettingsRoutePage(route: route, studentID: studentID, onLogout: onLogout, dependencies: dependencies)
@@ -126,6 +143,7 @@ private struct SettingsIndexPage: View {
                             SettingsIndexCard(route: route)
                         }
                         .buttonStyle(.plain)
+                            .accessibilityIdentifier("ui.settings-index-page.destination")
                     }
                 }
             }
@@ -236,6 +254,8 @@ struct DeveloperSuggestionPage: View {
     @State private var contact = ""
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var imageDrafts: [ComposerImageDraft] = []
+    @State private var isLoadingImages = false
+    @State private var imageTask: Task<Void, Never>?
     @State private var isSubmitting = false
     @State private var alert: AppAlert?
     @State private var confirmation: DeveloperSuggestionConfirmation?
@@ -265,14 +285,16 @@ struct DeveloperSuggestionPage: View {
                     .focused($isContactFocused)
                     .accessibilityLabel("联系方式")
                     .accessibilityHint("可填写微信、QQ、邮箱或其他联系方式")
+                    .accessibilityIdentifier("ui.developer-suggestion-page.联系方式")
             }
 
             Section("图片（可选）") {
                 PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 6, matching: .images) {
                     Text("插入图片")
                 }
-                .disabled(isSubmitting || imageDrafts.count >= 6)
+                .disabled(isSubmitting || isLoadingImages || imageDrafts.count >= 6)
                 .appInteractiveListRow()
+                    .accessibilityIdentifier("ui.developer-suggestion-page.插入图片")
 
                 if !imageDrafts.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -310,8 +332,9 @@ struct DeveloperSuggestionPage: View {
         }
         .onChange(of: selectedPhotoItems) { _, newValue in
             guard !newValue.isEmpty else { return }
-            Task { await addImages(from: newValue) }
+            startImageTask { await addImages(from: newValue) }
         }
+        .onDisappear { imageTask?.cancel() }
         .task { await checkDraftOnAppear() }
         .alert(item: $confirmation) { item in
             switch item {
@@ -343,7 +366,7 @@ struct DeveloperSuggestionPage: View {
                     title: Text("加载草稿？"),
                     message: Text("发现上次保存的建议草稿。"),
                     primaryButton: .default(Text("加载草稿"), action: {
-                        Task { await loadSavedDraft() }
+                        startImageTask { await loadSavedDraft() }
                     }),
                     secondaryButton: .cancel(Text("不加载"), action: {
                         Task { await dependencies.drafts.removeSuggestion() }
@@ -464,6 +487,7 @@ struct DeveloperSuggestionPage: View {
 
     private func loadSavedDraft() async {
         let result = await dependencies.drafts.loadSuggestion()
+        guard !Task.isCancelled else { return }
         guard let draft = result.snapshot else {
             if let message = result.recoveryMessage {
                 alert = AppAlert.informational(title: "建议草稿恢复需要处理", message: message)
@@ -483,7 +507,7 @@ struct DeveloperSuggestionPage: View {
             )
         }
         if imageDrafts.contains(where: { $0.status.isCompressing }) {
-            Task { await compressRestoredImages() }
+            await compressRestoredImages()
         }
     }
 
@@ -492,6 +516,7 @@ struct DeveloperSuggestionPage: View {
         guard !drafts.isEmpty else { return }
 
         let results = await compressImageDrafts(drafts)
+        guard !Task.isCancelled else { return }
         applyCompressionResults(results, showsFailureAlert: false)
     }
 
@@ -507,6 +532,7 @@ struct DeveloperSuggestionPage: View {
                 }
             }
             for await result in group {
+                guard !Task.isCancelled else { group.cancelAll(); return }
                 results.append(result)
                 completedCount += 1
                 let progress = Int((Double(completedCount) / Double(drafts.count) * 100).rounded())
@@ -552,7 +578,16 @@ struct DeveloperSuggestionPage: View {
     }
 
     private var hasProcessingImages: Bool {
-        imageDrafts.contains { $0.status.isCompressing }
+        isLoadingImages || imageDrafts.contains { $0.status.isCompressing }
+    }
+
+    private func startImageTask(_ operation: @escaping @MainActor () async -> Void) {
+        guard !isLoadingImages, !isSubmitting else { return }
+        isLoadingImages = true
+        imageTask = Task { @MainActor in
+            defer { isLoadingImages = false; imageTask = nil }
+            await operation()
+        }
     }
 
     private func addImages(from items: [PhotosPickerItem]) async {
@@ -574,9 +609,10 @@ struct DeveloperSuggestionPage: View {
                 }
             }
         }
+        guard !Task.isCancelled else { return }
         loaded.sort { $0.0 < $1.0 }
 
-        let drafts = loaded.map { _, data in
+        let drafts = loaded.prefix(max(0, 6 - imageDrafts.count)).map { _, data in
             ComposerImageDraft(
                 previewData: data,
                 filename: "suggestion-\(UUID().uuidString).jpg",
@@ -586,6 +622,7 @@ struct DeveloperSuggestionPage: View {
         imageDrafts.append(contentsOf: drafts)
 
         let compressed = await compressImageDrafts(drafts)
+        guard !Task.isCancelled else { return }
         applyCompressionResults(compressed, showsFailureAlert: true)
     }
 
@@ -594,7 +631,7 @@ struct DeveloperSuggestionPage: View {
     }
 
     private func retryImageDraft(id: ComposerImageDraft.ID) {
-        guard !isSubmitting,
+        guard !isSubmitting, !isLoadingImages,
               let draft = imageDrafts.first(where: { $0.id == id }),
               case .failed = draft.status else { return }
 
@@ -604,8 +641,9 @@ struct DeveloperSuggestionPage: View {
         retryingDraft.status = .compressing
         imageDrafts = imageDrafts.map { $0.id == id ? retryingDraft : $0 }
 
-        Task {
+        startImageTask {
             let results = await compressImageDrafts([retryingDraft])
+            guard !Task.isCancelled else { return }
             applyCompressionResults(results, showsFailureAlert: true)
         }
     }

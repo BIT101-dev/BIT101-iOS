@@ -20,6 +20,7 @@ enum AppLegalInfo {
 /// 应用根容器持有会话状态，组装登录页和登录后壳层。
 struct ContentView: View {
     let transcriptService: any TrustedTranscriptServicing
+    @ObservedObject var localData: AppLocalDataService
     @StateObject private var loginViewModel = LoginViewModel()
 
     var body: some View {
@@ -29,6 +30,14 @@ struct ContentView: View {
                 LoginRootView(viewModel: loginViewModel)
             case let .signedIn(studentID):
                 AppShellView(transcriptService: transcriptService, studentID: studentID, onLogout: loginViewModel.logout)
+            }
+        }
+        .disabled(localData.isCleaning)
+        .allowsHitTesting(!localData.isCleaning)
+        .overlay {
+            if localData.isCleaning {
+                AppLoadingState(title: "正在清理本机数据")
+                    .background(.regularMaterial)
             }
         }
         .task { await loginViewModel.bootstrapIfNeeded() }

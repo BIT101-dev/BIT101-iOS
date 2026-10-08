@@ -105,6 +105,15 @@ public final class ScheduleRepository: ObservableObject {
         _ = enqueuePersistence(source: source)
     }
 
+    private var acceptsEdits: Bool { isWritable && ownerSession == session() }
+
+    func requireWritable() throws {
+        guard acceptsEdits else {
+            throw NSError(domain: "ScheduleRepository", code: 1, userInfo: [NSLocalizedDescriptionKey:
+                isLoading ? "正在读取日程，请稍后重试。" : "课表缓存读取受阻，恢复后继续编辑。"])
+        }
+    }
+
     @discardableResult
     func persistAndWait(source: ScheduleCacheSaveSource = .local) async -> Bool {
         guard !Task.isCancelled else { return false }
@@ -270,35 +279,36 @@ nonisolated struct ScheduleSyncState: Equatable {
 extension ScheduleRepository {
     var presentationPreferences: SchedulePresentationPreferences {
         get { cache.presentation }
-        set { cache.presentation = newValue }
+        set { if acceptsEdits { cache.presentation = newValue } }
     }
 
     var syncState: ScheduleSyncState {
         get { ScheduleSyncState(cache: cache) }
-        set { cache.syncData.iCloudSyncEnabled = newValue.iCloudSyncEnabled }
+        set { if acceptsEdits { cache.syncData.iCloudSyncEnabled = newValue.iCloudSyncEnabled } }
     }
 
     var courseState: ScheduleCourseState {
         get { ScheduleCourseState(cache: cache) }
-        set { cache.courseData = newValue.data }
+        set { if acceptsEdits { cache.courseData = newValue.data } }
     }
 
     var ddlState: ScheduleDDLState {
         get { cache.ddlData }
-        set { cache.ddlData = newValue }
+        set { if acceptsEdits { cache.ddlData = newValue } }
     }
 
     var classroomState: ScheduleClassroomState {
         get { ScheduleClassroomState(cache: cache) }
-        set { cache.classroomData = newValue.data }
+        set { if acceptsEdits { cache.classroomData = newValue.data } }
     }
 
     func resolveCurrentTerm(_ term: String) {
-        guard cache.currentTerm.isEmpty else { return }
+        guard acceptsEdits, cache.currentTerm.isEmpty else { return }
         cache.currentTerm = term
     }
 
     func updateCourses(previousCourses: [CourseRecord], currentCourses: [CourseRecord]) {
+        guard acceptsEdits else { return }
         ScheduleCourseEditor.updateCacheForManualCourseChange(
             in: &cache,
             previousCourses: previousCourses,

@@ -1,6 +1,8 @@
 import ScoreInfrastructure
 import ScoreDomain
 import ScheduleFeature
+import ScheduleSync
+import ClientCore
 import DesignSystemKit
 //
 //  BIT101_iOSApp.swift
@@ -22,11 +24,15 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         _: UIApplication,
         didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+#if RELEASE_NETWORK_SMOKE || ICLOUD_CROSS_DEVICE_SMOKE
+        return true
+#else
 #if BIT101_UI_TESTING
         guard !AppFileDirectories.isRunningUITest else { return true }
 #endif
         ScheduleReminderBackgroundRefresh.register()
         return true
+#endif
     }
 
 }
@@ -73,25 +79,41 @@ enum ScheduleReminderBackgroundRefresh {
     /// 系统唤醒 app 后重新计算提醒，并预排下一次后台刷新。
     private static func handle(task: BGAppRefreshTask) {
         let operation = Task {
+            let identity = AppAccountSession.storage.communityCredentials.identity
+            var completed = false
             defer {
-                task.setTaskCompleted(success: !Task.isCancelled)
+                task.setTaskCompleted(success: completed)
             }
+            guard !Task.isCancelled else { return }
 
             let fakeCookie = AppAccountSession.storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !fakeCookie.isEmpty else {
                 schedule(earliestBeginDate: nil)
                 await ScheduleLiveActivityManager.shared.endAllActivities()
+                completed = !Task.isCancelled && identity == AppAccountSession.storage.communityCredentials.identity
                 return
             }
 
-            let nextBeginDate = await ScheduleLiveActivityManager.shared.preferredBackgroundRefreshBeginDate()
-            schedule(earliestBeginDate: nextBeginDate)
-            await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(trigger: "bg_app_refresh")
+            completed = await refreshIfCurrent(
+                isCurrent: { identity == AppAccountSession.storage.communityCredentials.identity },
+                nextBeginDate: { await ScheduleLiveActivityManager.shared.preferredBackgroundRefreshBeginDate() },
+                schedule: { schedule(earliestBeginDate: $0) },
+                refresh: { await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(trigger: "bg_app_refresh") })
         }
 
         task.expirationHandler = { @Sendable in
             operation.cancel()
         }
+    }
+
+    static func refreshIfCurrent(isCurrent: () -> Bool, nextBeginDate: () async -> Date?,
+        schedule: (Date?) -> Void, refresh: () async -> Void) async -> Bool {
+        guard !Task.isCancelled, isCurrent() else { return false }
+        let next = await nextBeginDate()
+        guard !Task.isCancelled, isCurrent() else { return false }
+        schedule(next)
+        await refresh()
+        return !Task.isCancelled && isCurrent()
     }
 }
 
@@ -100,6 +122,11 @@ enum ScheduleReminderBackgroundRefresh {
 /// 挂载根视图，并协调课表缓存与外部展示同步。
 @main
 struct BIT101_iOSApp: App {
+#if RELEASE_NETWORK_SMOKE
+    @StateObject private var networkSmokeSMS = ReleaseNetworkSmokeSMSPrompt()
+#endif
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+#if !RELEASE_NETWORK_SMOKE && !ICLOUD_CROSS_DEVICE_SMOKE
 #if BIT101_UI_TESTING
     @StateObject private var uiTestScene: UITestSceneState
     private var lifecycle: AppAccountLifecycle { uiTestScene.lifecycle }
@@ -107,7 +134,6 @@ struct BIT101_iOSApp: App {
     @StateObject private var lifecycle: AppAccountLifecycle
 #endif
     @Environment(\.scenePhase) private var scenePhase
-    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
 #if BIT101_UI_TESTING
@@ -123,7 +149,9 @@ struct BIT101_iOSApp: App {
         let stores = AppAccountStores.shared
         let preferenceCloudSync: ExperimentalPreferenceCloudSync
 #if BIT101_UI_TESTING
-        preferenceCloudSync = ExperimentalPreferenceCloudSync(settings: settings, stores: stores, cloudStore: UITestPreferenceCloudStore())
+        let cloud = UITestPreferenceCloudStore()
+        preferenceCloudSync = ExperimentalPreferenceCloudSync(settings: settings, stores: stores, cloudStore: cloud,
+            scoreEncryption: ScoreCacheSyncEncryption(defaults: AppFileDirectories.defaults, credentials: cloud))
 #else
         preferenceCloudSync = ExperimentalPreferenceCloudSync.shared
 #endif
@@ -138,13 +166,13 @@ struct BIT101_iOSApp: App {
         transcripts = productionScores
 #endif
         return AppAccountLifecycle(
-            scheduleViewModel: ScheduleServiceFactory.makeViewModel(),
+            scheduleViewModel: makeScheduleViewModel(),
             community: .app(settings: settings, stores: stores),
             scoreService: scores, transcriptService: transcripts, settings: settings, stores: stores, preferenceCloudSync: preferenceCloudSync,
             accountChanges: AppAccountSession.storage.changes,
             currentIdentity: { AppAccountSession.storage.communityCredentials.identity },
             scheduleChanges: ScheduleCacheStore.changes, loadScheduleCourses: AppAccountStores.loadScheduleCourses,
-            media: AppMedia.environment, localData: .appService(settings: settings, media: AppMedia.environment),
+            media: AppMedia.environment, localData: AppLocalDataComposition.appService(settings: settings, media: AppMedia.environment),
             externalDisplays: AppExternalDisplayCoordinator(
                 currentSession: stores.currentSession,
                 isSignedIn: { !AppAccountSession.storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty },
@@ -159,13 +187,36 @@ struct BIT101_iOSApp: App {
         )
     }
 
+    private static func makeScheduleViewModel() -> ScheduleViewModel {
+#if BIT101_UI_TESTING
+        return ScheduleServiceFactory.makeViewModel(platformActions: UITestSchedulePlatformActions(), didSave: { _, _, _ in })
+#else
+        let calendar = ScheduleSystemCalendarManager.shared
+        let effects = AppScheduleCacheEffects(
+            currentSession: { AppAccountSession.currentSession },
+            currentIdentity: { AppAccountSession.storage.communityCredentials.identity },
+            pushCloud: { await ScheduleCloudSyncManager.shared.pushLatestLocalCacheIfNeeded() },
+            reconcileCloud: { await ScheduleCloudSyncManager.shared.reconcileAfterEnabling() },
+            requestReminderAuthorization: { _ = await ScheduleLiveActivityManager.shared.requestNotificationAuthorizationIfNeeded() },
+            refreshReminder: { await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(trigger: $0) },
+            importCourses: { try await calendar.importCurrentTerm(from: $0, term: $1) },
+            importDrafts: { try await calendar.importDrafts($0, term: $1) },
+            deleteEntries: { try await calendar.deleteImportedEvents(markerIDs: $0, term: $1) },
+            deleteAllEntries: calendar.deleteAllImportedEvents
+        )
+        return ScheduleServiceFactory.makeViewModel(platformActions: effects, didSave: effects.didSave)
+#endif
+    }
+#endif
+
     /// 根场景定义。主题模式由设置快照驱动；登录态、课表缓存和场景状态变化时，
     /// 入口负责同步 Widget、Watch 和 Live Activity。
     var body: some Scene {
         WindowGroup {
-            #if RELEASE_NETWORK_SMOKE
-            // 冒烟模式挂载测试宿主，登录校验、首页 `.task` 和启动请求
-            // 与顺序网络探针并发。
+            #if ICLOUD_CROSS_DEVICE_SMOKE
+            Color.clear.accessibilityIdentifier("icloud-cross-device-smoke-host")
+            #elseif RELEASE_NETWORK_SMOKE
+            // 冒烟宿主通过当前登录会话执行网络探针，并承接短信验证码输入。
             Color.clear
                 .accessibilityIdentifier("release-network-smoke-host")
                 .task {
@@ -174,7 +225,8 @@ struct BIT101_iOSApp: App {
                         scope: smokeRequest.scope,
                         runID: smokeRequest.runID,
                         capture: smokeRequest.capture,
-                        term: smokeRequest.term
+                        term: smokeRequest.term,
+                        schoolSMSCodeHandler: smokeRequest.interactiveSMS == true ? networkSmokeSMS.requestCode : nil
                     )
                 }
                 .onOpenURL { url in
@@ -184,14 +236,24 @@ struct BIT101_iOSApp: App {
                             scope: smokeRequest.scope,
                             runID: smokeRequest.runID,
                             capture: smokeRequest.capture,
-                            term: smokeRequest.term
+                            term: smokeRequest.term,
+                            schoolSMSCodeHandler: smokeRequest.interactiveSMS == true ? networkSmokeSMS.requestCode : nil
                         )
                     }
                 }
+                .sheet(item: $networkSmokeSMS.request) { request in
+                    AppSMSVerificationSheet(maskedPhone: request.maskedPhone, isSubmitting: false, errorMessage: nil,
+                        submitTitle: "验证并继续", onCancel: networkSmokeSMS.cancel,
+                        onSubmit: { networkSmokeSMS.submit($0) })
+                        .interactiveDismissDisabled()
+                }
             #else
-            ContentView(transcriptService: lifecycle.transcriptService)
+            ContentView(transcriptService: lifecycle.transcriptService, localData: lifecycle.localData)
 #if BIT101_UI_TESTING
                 .uiTestExternalURLs()
+                .environment(\.appInteractionEvidence) { identifier, action in
+                    UITestAccessibilityActions.record(identifier, action: action)
+                }
 #endif
                 .environment(lifecycle.communityDestinations)
                 .environment(lifecycle.community)
@@ -221,7 +283,7 @@ struct BIT101_iOSApp: App {
                 .task { lifecycle.start() }
             #endif
         }
-        #if !RELEASE_NETWORK_SMOKE
+        #if !RELEASE_NETWORK_SMOKE && !ICLOUD_CROSS_DEVICE_SMOKE
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
 #if BIT101_UI_TESTING
@@ -257,14 +319,33 @@ final class UITestSceneState: ObservableObject {
                     guard let self else { return }
                     do {
                         let environment = try JSONDecoder().decode([String: String].self, from: data)
+                        if environment["command"] == "observe" {
+                            reply(Data(UITestAccessibilityActions.observe().utf8))
+                            return
+                        }
                         if environment["command"] == "coverage" {
                             reply(try UITestAccessibilityActions.coverage())
                             return
                         }
+                        if environment["command"] == "identity" {
+                            reply(Data(UITestAccessibilityActions.identity(environment).utf8))
+                            return
+                        }
                         if environment["command"] == "record" {
                             UITestAccessibilityActions.invalidate()
-                            UITestAccessibilityActions.record(environment["identifier"] ?? "")
+                            UITestAccessibilityActions.record(environment["identifier"] ?? "", label: environment["label"] ?? "",
+                                type: Int(environment["type"] ?? "") ?? 0, scope: environment["scope"], instance: environment["instance"], action: environment["action"] ?? "activate")
                             reply(Data("recorded".utf8))
+                            return
+                        }
+                        if environment["command"] == "state" {
+                            UITestAccessibilityActions.checkDisabled(environment["identifier"] ?? "", label: environment["label"] ?? "",
+                                type: Int(environment["type"] ?? "") ?? 0, scope: environment["scope"], instance: environment["instance"])
+                            reply(Data("checked".utf8))
+                            return
+                        }
+                        if environment["command"] == "occlusion" {
+                            reply(Data(UITestAccessibilityActions.occlude(environment).utf8))
                             return
                         }
                         if ["query", "query-activate", "query-input", "query-reveal"].contains(environment["command"] ?? "") {

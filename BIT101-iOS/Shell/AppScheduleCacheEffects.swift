@@ -12,53 +12,57 @@ import Foundation
 
 /// 应用层连接持久化、组件导出与云同步。
 struct AppScheduleCacheEffects: SchedulePlatformActions {
+    let currentSession: () -> AppStorageSession
+    let currentIdentity: () -> CommunitySessionIdentity
+    let pushCloud: () async -> Void
+    let reconcileCloud: () async -> Void
+    let requestReminderAuthorization: () async -> Void
+    let refreshReminder: (String) async -> Void
+    let importCourses: (ScheduleCourseSnapshot, String) async throws -> Int
+    let importDrafts: ([ScheduleSystemCalendarEventDraft], String) async throws -> Int
+    let deleteEntries: (Set<String>, String?) async throws -> ScheduleSystemCalendarMutationResult
+    let deleteAllEntries: () async throws -> ScheduleSystemCalendarMutationResult
+
     func didSave(session: AppStorageSession, source: ScheduleCacheSaveSource, cloudSyncEnabled: Bool) async {
-#if BIT101_UI_TESTING
-        return
-#else
-#if canImport(CloudKit)
-        if source == .local, cloudSyncEnabled {
-            Task {
-                guard AppFileDirectories.currentSession == session else { return }
-                await ScheduleCloudSyncManager.shared.pushLatestLocalCacheIfNeeded()
-            }
+        guard source == .local, cloudSyncEnabled, session == currentSession() else { return }
+        let identity = currentIdentity()
+        Task {
+            guard session == currentSession(), identity == currentIdentity() else { return }
+            await pushCloud()
         }
-#endif
-#endif
     }
 
     func enableCloudSync(session: AppStorageSession) async {
-#if canImport(CloudKit)
-        guard AppFileDirectories.currentSession == session else { return }
-        await ScheduleCloudSyncManager.shared.reconcileAfterEnabling()
-#endif
+        guard session == currentSession(), !Task.isCancelled else { return }
+        await reconcileCloud()
     }
 
     func enableCourseReminder(session: AppStorageSession) async {
-        guard AppFileDirectories.currentSession == session else { return }
-        _ = await ScheduleLiveActivityManager.shared.requestNotificationAuthorizationIfNeeded()
-        guard AppFileDirectories.currentSession == session else { return }
-        await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(trigger: "reminder_toggle_enabled")
+        guard session == currentSession(), !Task.isCancelled else { return }
+        let identity = currentIdentity()
+        await requestReminderAuthorization()
+        guard session == currentSession(), identity == currentIdentity(), !Task.isCancelled else { return }
+        await refreshReminder("reminder_toggle_enabled")
     }
 
     func importSystemCalendar(courses: ScheduleCourseSnapshot, term: String) async throws -> Int {
-        try await ScheduleSystemCalendarManager.shared.importCurrentTerm(from: courses, term: term)
+        try await importCourses(courses, term)
     }
 
     func importSystemCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws -> Int {
-        try await ScheduleSystemCalendarManager.shared.importDrafts(ScheduleSystemCalendarEventBuilder.makeDrafts(for: content), term: term)
+        try await importDrafts(ScheduleSystemCalendarEventBuilder.makeDrafts(for: content), term)
     }
 
     func deleteSystemCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws -> ScheduleSystemCalendarMutationResult {
-        try await ScheduleSystemCalendarManager.shared.deleteImportedEvents(drafts: ScheduleSystemCalendarEventBuilder.makeDrafts(for: content), term: term)
+        try await deleteEntries(Set(ScheduleSystemCalendarEventBuilder.makeDrafts(for: content).map(\.markerID)), term)
     }
 
     func deleteSystemCalendarEntries(markerIDs: Set<String>, term: String) async throws -> ScheduleSystemCalendarMutationResult {
-        try await ScheduleSystemCalendarManager.shared.deleteImportedEvents(markerIDs: markerIDs, term: term)
+        try await deleteEntries(markerIDs, term)
     }
 
     func deleteImportedSystemCalendarEvents() async throws -> ScheduleSystemCalendarMutationResult {
-        try await ScheduleSystemCalendarManager.shared.deleteAllImportedEvents()
+        try await deleteAllEntries()
     }
 }
 
@@ -90,15 +94,15 @@ struct AppScheduleSchoolSessionRestorer: SchoolSessionRestoring, Sendable {
 }
 
 enum ScheduleServiceFactory {
-    static func makeViewModel() -> ScheduleViewModel {
+    static func makeViewModel(
+        platformActions: any SchedulePlatformActions,
+        didSave: @escaping @MainActor (AppStorageSession, ScheduleCacheSaveSource, Bool) async -> Void
+    ) -> ScheduleViewModel {
         let service: any ScheduleServicing
-        let platformActions: any SchedulePlatformActions
 #if BIT101_UI_TESTING
         service = AppUITestBootstrap.environment["BIT101_UI_TEST_SCHOOL"] == "1" ? UITestSchoolService() : make()
-        platformActions = UITestSchedulePlatformActions()
 #else
         service = make()
-        platformActions = AppScheduleCacheEffects()
 #endif
         let virtualNetworkLikely: @MainActor @Sendable () -> Bool = { NetworkConnectionDescription.shared.snapshot.virtualNetworkLikely }
         let repository = ScheduleRepository(
@@ -108,7 +112,7 @@ enum ScheduleServiceFactory {
                 guard await ScheduleCacheStore.saveAndWait(cache, source: source, expectedAccountIdentifier: session.accountDirectoryName) else {
                     throw CocoaError(.fileWriteUnknown)
                 }
-                await AppScheduleCacheEffects().didSave(session: session, source: source, cloudSyncEnabled: cache.iCloudSyncEnabled)
+                await didSave(session, source, cache.iCloudSyncEnabled)
             },
             changes: ScheduleCacheStore.changes
         )
@@ -141,14 +145,17 @@ enum ScheduleServiceFactory {
         return CustomScheduleDraft(date: now, beginTime: now, endTime: end)
     }
 
-    static func make(transport: (any HTTPTransport)? = nil) -> ScheduleService {
+    static func make(
+        transport: (any HTTPTransport)? = nil,
+        rawCourseResponseHandler: ((Data) -> Void)? = nil
+    ) -> ScheduleService {
         ScheduleService(
             credentials: AppAccountSession.storage,
             crypto: AppScheduleServiceCrypto(),
             schoolSessionRestorer: AppScheduleSchoolSessionRestorer(),
             teachingCenterState: AppSchoolSession.teachingCenter,
-            rawCourseResponseHandler: ReleaseNetworkSmokeReportStore.writeRawCourseResponse,
-            transport: transport ?? NetworkSessionPool.teachingCenter(cookieStorage: AppSchoolSession.teachingCenter.cookieStorage),
+            rawCourseResponseHandler: rawCourseResponseHandler,
+            transport: transport ?? NetworkSessionPool.teachingCenter(state: AppSchoolSession.teachingCenter),
             observer: HTTPClient.appObserver
         )
     }

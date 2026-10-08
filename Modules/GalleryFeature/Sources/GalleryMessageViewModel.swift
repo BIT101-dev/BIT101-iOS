@@ -17,6 +17,7 @@ final class GalleryMessageViewModel: ObservableObject {
     /// 服务端返回的分类未读摘要。
     @Published private(set) var unreadCounts = GalleryMessageUnreadCounts()
     @Published var alert: AppAlert?
+    @Published var selectedPoster: CommunityPoster?
     /// 用于强制触发依赖本地已读仓库的视图刷新。
     @Published private var localReadVersion = 0
 
@@ -31,6 +32,8 @@ final class GalleryMessageViewModel: ObservableObject {
     private let readStore: any GalleryMessageReadStoring
     private var readStateObserver: AnyCancellable?
     private var listGenerations: [GalleryMessageType: Int] = [:]
+    private var unreadGeneration = 0
+    private var posterGeneration = 0
 
     /// 集中初始化服务和已读仓库，供构造器复用。
     init(service: any GalleryMessageServicing, readStore: any GalleryMessageReadStoring) {
@@ -74,8 +77,13 @@ final class GalleryMessageViewModel: ObservableObject {
     ///
     /// 未读摘要用于悬浮按钮角标；请求失败时保持当前状态，错误提示继续留空。
     func refreshUnreadCounts() async {
+        unreadGeneration &+= 1
+        let generation = unreadGeneration
         do {
-            unreadCounts = try await service.fetchMessageUnreadCounts()
+            let counts = try await service.fetchMessageUnreadCounts()
+            try Task.checkCancellation()
+            guard unreadGeneration == generation else { return }
+            unreadCounts = counts
         } catch {
             if isGalleryMessageCancellation(error) { return }
         }
@@ -97,8 +105,10 @@ final class GalleryMessageViewModel: ObservableObject {
 
         let generation = (listGenerations[type] ?? 0) &+ 1
         listGenerations[type] = generation
+        unreadGeneration &+= 1
 
         let serverUnreadBeforeFetch = unreadCounts.unreadCount(for: type)
+        let session = readStore.currentSession
 
         setState(for: type) {
             $0.status = .loading
@@ -106,32 +116,39 @@ final class GalleryMessageViewModel: ObservableObject {
         }
 
         do {
-            let messages = try await service.fetchMessages(type: type, lastID: nil)
-            guard listGenerations[type] == generation else { return }
-            readStore.replaceLatestIDs(messages.map(\.id), unreadCount: serverUnreadBeforeFetch, for: type)
-            setState(for: type) {
-                $0.applyFirstCursorPage(messages)
-                $0.status = .loaded
+            var page = GalleryMessageListState()
+            page.applyFirstCursorPage(try await service.fetchMessages(type: type, lastID: nil))
+            try Task.checkCancellation()
+            guard listGenerations[type] == generation, session == readStore.currentSession else { return }
+            let unreadLimit = min(serverUnreadBeforeFetch, GalleryMessageReadSnapshot.maximumHistoryIDsPerType)
+            while page.items.count < unreadLimit && page.canLoadMore {
+                let cursor = page.nextCursor
+                let messages = try await service.fetchMessages(type: type, lastID: cursor)
+                try Task.checkCancellation()
+                guard listGenerations[type] == generation, session == readStore.currentSession else { return }
+                page.appendCursorPage(messages)
+            }
+            readStore.replaceLatestIDs(page.items.map(\.id), unreadCount: unreadLimit, for: type)
+            page.status = .loaded
+            listStates[type] = page
+            switch type {
+            case .comment: unreadCounts.comment = 0
+            case .follow: unreadCounts.follow = 0
+            case .like: unreadCounts.like = 0
+            case .system: unreadCounts.system = 0
             }
             await refreshUnreadCounts()
         } catch {
-            guard listGenerations[type] == generation else { return }
-            if isGalleryMessageCancellation(error) {
-                setState(for: type) {
-                    $0.items = previousState.items
-                    $0.status = previousState.items.isEmpty ? .idle : .loaded
-                    $0.isLoadingMore = false
-                    $0.nextCursor = previousState.nextCursor
-                    $0.canLoadMore = previousState.canLoadMore
-                }
-                return
-            }
-
+            guard listGenerations[type] == generation, session == readStore.currentSession else { return }
+            let cancelled = isGalleryMessageCancellation(error)
             setState(for: type) {
-                $0.items = []
-                $0.status = .failed(error.localizedDescription)
-                $0.canLoadMore = false
+                $0.items = previousState.items
+                $0.status = previousState.items.isEmpty ? (cancelled ? .idle : .failed(error.localizedDescription)) : .loaded
+                $0.isLoadingMore = false
+                $0.nextCursor = previousState.nextCursor
+                $0.canLoadMore = previousState.canLoadMore && (cancelled || !previousState.items.isEmpty)
             }
+            if cancelled { return }
             alert = AppAlert(title: "加载消息失败", message: error.localizedDescription)
         }
     }
@@ -165,6 +182,26 @@ final class GalleryMessageViewModel: ObservableObject {
         readStore.markSeen(ids: [message.id], for: type)
     }
 
+    func openMessage(_ message: GalleryMessage, in type: GalleryMessageType,
+        using details: any GalleryPosterDetailServicing) async {
+        guard !Task.isCancelled else { return }
+        posterGeneration &+= 1
+        let generation = posterGeneration
+        let session = readStore.currentSession
+        markMessageAsRead(message, in: type)
+        guard let posterID = message.linkedPosterID else { return }
+        do {
+            let poster = try await details.fetchPoster(id: posterID)
+            try Task.checkCancellation()
+            guard generation == posterGeneration, session == readStore.currentSession else { return }
+            selectedPoster = poster.asPoster
+        } catch {
+            guard generation == posterGeneration, session == readStore.currentSession,
+                  !Task.isCancelled, !TaskCancellation.matches(error) else { return }
+            alert = AppAlert(title: "打开消息失败", message: error.localizedDescription)
+        }
+    }
+
     /// 当滚动到尾部附近时触发分页加载。
     ///
     /// 消息列表分页继续沿用 `last_id` 语义；新页追加到末尾，消息分页按需加载。
@@ -172,6 +209,7 @@ final class GalleryMessageViewModel: ObservableObject {
         guard let currentMessage else { return }
         let state = state(for: type)
         let generation = listGenerations[type] ?? 0
+        let session = readStore.currentSession
 
         guard state.status == .loaded,
               state.shouldLoadMore(currentID: currentMessage.id)
@@ -181,12 +219,13 @@ final class GalleryMessageViewModel: ObservableObject {
 
         do {
             let messages = try await service.fetchMessages(type: type, lastID: state.nextCursor)
-            guard listGenerations[type] == generation else { return }
+            try Task.checkCancellation()
+            guard listGenerations[type] == generation, session == readStore.currentSession else { return }
             setState(for: type) {
                 $0.appendCursorPage(messages)
             }
         } catch {
-            guard listGenerations[type] == generation else { return }
+            guard listGenerations[type] == generation, session == readStore.currentSession else { return }
             if isGalleryMessageCancellation(error) {
                 setState(for: type) { $0.isLoadingMore = false }
                 return

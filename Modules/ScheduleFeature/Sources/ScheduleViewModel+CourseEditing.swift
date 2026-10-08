@@ -88,6 +88,7 @@ extension ScheduleViewModel {
     ///
     /// 本地缓存保存课程修改，用于补录临时课程或手动修正。
     func addCourse(_ draft: CourseDraft) throws {
+        try repository.requireWritable()
         let previousCourses = courseState.courses
         let updatedCourses = try ScheduleCourseEditor.adding(
             draft,
@@ -100,6 +101,7 @@ extension ScheduleViewModel {
 
     /// 一次保存一门课的全部时间安排。
     func updateCourseArrangements(_ arrangements: [CourseArrangementDraft]) throws {
+        try repository.requireWritable()
         guard !arrangements.isEmpty else { return }
         let previousCourses = courseState.courses
         let anchor = previousCourses.first(where: { $0.id == arrangements[0].id })
@@ -131,6 +133,7 @@ extension ScheduleViewModel {
 
     /// 调整当前选中的多周课节，保留原安排中的其它周次。
     func updateCourseOccurrences(id: String, weeks: [Int], draft: CourseDraft) throws {
+        try repository.requireWritable()
         let previousCourses = courseState.courses
         let anchor = previousCourses.first(where: { $0.id == id })
         let updatedCourses = try ScheduleCourseEditor.updatingOccurrence(
@@ -193,9 +196,10 @@ extension ScheduleViewModel {
     /// - 覆盖目标日期已有的课程。
     /// - 移动课程，保留考试和自定义日程。
     func transferCourses(fromWeek: Int, fromWeekday: Int, to targetDate: Date) throws {
+        try repository.requireWritable()
         let previousCourses = courseState.courses
         let target = try courseDayContext(for: targetDate)
-        let updatedCourses = ScheduleCourseEditor.transferring(
+        let updatedCourses = try ScheduleCourseEditor.transferring(
             courses: courseState.courses,
             fromWeek: fromWeek,
             fromWeekday: fromWeekday,
@@ -264,9 +268,8 @@ extension ScheduleViewModel {
     /// 导入后的课表会作为一份“只读分身”追加到当前账号本地缓存中，
     /// 保留我自己的课表、DDL、自定义日程和显示设置。
     func importSharedSchedule(_ payload: ScheduleExportPayload) throws {
-        guard !payload.timeTable.isEmpty else {
-            throw scheduleValidationError("分享的课表缺少时间表。")
-        }
+        try repository.requireWritable()
+        try payload.validate()
 
         let titleBase = payload.currentTerm.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = String((titleBase.isEmpty ? "分享课表" : "\(titleBase)课表").prefix(scheduleNameCharacterLimit))
@@ -299,6 +302,7 @@ extension ScheduleViewModel {
 
     /// 新增一条自定义日程。
     func addCustomSchedule(_ draft: CustomScheduleDraft) throws {
+        try repository.requireWritable()
         try validateCustomScheduleTimeRange(draft)
 
         courseState.customSchedules.append(
@@ -317,6 +321,7 @@ extension ScheduleViewModel {
 
     /// 更新指定自定义日程。
     func updateCustomSchedule(id: String, draft: CustomScheduleDraft) throws {
+        try repository.requireWritable()
         try validateCustomScheduleTimeRange(draft)
 
         guard let index = courseState.customSchedules.firstIndex(where: { $0.id == id }) else { return }

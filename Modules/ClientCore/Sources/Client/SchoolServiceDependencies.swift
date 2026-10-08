@@ -1,5 +1,14 @@
 import Foundation
 
+public nonisolated struct SchoolSessionIdentity: Equatable, Sendable {
+    public let accountIdentifier: String
+    public let generation: Int
+    public init(accountIdentifier: String, generation: Int) {
+        self.accountIdentifier = accountIdentifier
+        self.generation = generation
+    }
+}
+
 public enum SchoolSessionRestorationError: Error {
     case secondFactorRequired(SchoolSecondFactorContext)
 }
@@ -11,6 +20,7 @@ public protocol SchoolSessionRestoring: Sendable {
 
 /// 学校认证凭据，应用层提供具体存储实现。
 public protocol SchoolCredentialsProviding {
+    var schoolSessionIdentity: SchoolSessionIdentity { get }
     var currentStudentID: String { get }
     var currentPassword: String { get }
 }

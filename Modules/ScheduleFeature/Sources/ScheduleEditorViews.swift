@@ -1,5 +1,6 @@
 #if os(iOS)
 import ScheduleDomain
+import ScheduleContracts
 import DesignSystemKit
 //
 //  ScheduleEditorViews.swift
@@ -40,6 +41,7 @@ struct AddCourseSheet: View {
                     }
                     .appSelectionFeedback(trigger: draft.weekday)
                     .appInteractiveListRow()
+                        .accessibilityIdentifier("ui.add-course-sheet.星期")
 
                     Picker("开始节次", selection: $draft.startSection) {
                         ForEach(timeTable) { slot in
@@ -64,9 +66,11 @@ struct AddCourseSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("取消", action: onDismiss)
+                        .accessibilityIdentifier("ui.add-course-sheet.cancel")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("确定", action: onSubmit)
+                        .accessibilityIdentifier("ui.add-course-sheet.confirm")
                 }
             }
         }
@@ -117,7 +121,7 @@ struct CourseArrangementEditorSheet: View {
 
                         NavigationLink {
                             ScheduleWeekSelectionSheet(
-                                weeks: weekOptions(for: arrangement),
+                                weeks: ScheduleCourseConstraints.validWeeks,
                                 selectedWeeks: weekSelectionBinding(for: $arrangement)
                             )
                         } label: {
@@ -136,6 +140,7 @@ struct CourseArrangementEditorSheet: View {
                             LabeledContent("星期", value: weekdayText(arrangement.draft.weekday))
                         }
                         .appInteractiveListRow()
+                            .accessibilityIdentifier("ui.course-arrangement-editor-sheet.星期")
 
                         NavigationLink {
                             ScheduleSectionSelectionSheet(
@@ -156,9 +161,11 @@ struct CourseArrangementEditorSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("取消", action: onDismiss)
+                        .accessibilityIdentifier("ui.course-arrangement-editor-sheet.cancel")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("确定", action: onSubmit)
+                        .accessibilityIdentifier("ui.course-arrangement-editor-sheet.confirm")
                 }
             }
         }
@@ -196,10 +203,6 @@ struct CourseArrangementEditorSheet: View {
                 }
             }
         )
-    }
-
-    private func weekOptions(for arrangement: CourseArrangementDraft) -> [Int] {
-        Array(-3 ... 16).filter { $0 != 0 }
     }
 
     private func weeksText(for draft: CourseDraft) -> String {
@@ -261,6 +264,7 @@ struct ScheduleWeekdaySelectionSheet: View {
                 }
                 .buttonStyle(.plain)
                 .appInteractiveListRow()
+                    .accessibilityIdentifier("ui.schedule-weekday-selection-sheet.weekday")
             }
             .appGroupedListStyle()
             .navigationTitle("星期")
@@ -316,12 +320,18 @@ struct AddEditCustomScheduleSheet: View {
 
                 Section("时间") {
                     DatePicker("日期", selection: $draft.date, displayedComponents: .date)
+                        .environment(\.calendar, ScheduleDateCodec.calendar)
+                        .environment(\.timeZone, ScheduleDateCodec.calendar.timeZone)
                         .accessibilityIdentifier("schedule.custom.date")
                     .appInteractiveListRow()
                     DatePicker("开始时间", selection: $draft.beginTime, displayedComponents: .hourAndMinute)
+                        .environment(\.calendar, ScheduleDateCodec.calendar)
+                        .environment(\.timeZone, ScheduleDateCodec.calendar.timeZone)
                         .accessibilityIdentifier("schedule.custom.begin")
                     .appInteractiveListRow()
                     DatePicker("结束时间", selection: $draft.endTime, displayedComponents: .hourAndMinute)
+                        .environment(\.calendar, ScheduleDateCodec.calendar)
+                        .environment(\.timeZone, ScheduleDateCodec.calendar.timeZone)
                         .accessibilityIdentifier("schedule.custom.end")
                     .appInteractiveListRow()
                 }
@@ -331,11 +341,12 @@ struct AddEditCustomScheduleSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .onChange(of: draft.beginTime) { _, newValue in
                 guard draft.endTime <= newValue else { return }
-                draft.endTime = Calendar.current.date(byAdding: .minute, value: 60, to: newValue) ?? newValue
+                draft.endTime = ScheduleDateCodec.calendar.date(byAdding: .minute, value: 60, to: newValue) ?? newValue
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("取消", action: onDismiss)
+                        .accessibilityIdentifier("ui.add-edit-custom-schedule-sheet.cancel")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("确定", action: onSubmit)
@@ -365,6 +376,7 @@ public struct TimeTableEditorSheet: View {
                     TextEditor(text: $text)
                         .font(AppDesignSystem.Typography.body.monospacedDigit())
                         .frame(minHeight: AppDesignSystem.Size.Editor.multilineMinimumHeight)
+                        .accessibilityIdentifier("ui.time-table-editor-sheet.input")
                 }
 
                 Spacer()
@@ -375,9 +387,11 @@ public struct TimeTableEditorSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("取消") { dismiss() }
+                        .accessibilityIdentifier("ui.time-table-editor-sheet.cancel")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("确定", action: onSubmit)
+                        .accessibilityIdentifier("ui.time-table-editor-sheet.confirm")
                 }
             }
         }

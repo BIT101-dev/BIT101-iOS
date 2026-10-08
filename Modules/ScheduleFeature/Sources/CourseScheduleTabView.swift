@@ -20,6 +20,7 @@ private struct ScheduleRefreshStatusContentHeightKey: PreferenceKey {
 }
 
 struct CourseScheduleTabView: View {
+    @Environment(\.scheduleCurrentDate) private var currentDate
     struct ScheduleCodePresentation: Identifiable {
         let id = UUID()
         let code: String
@@ -49,6 +50,9 @@ struct CourseScheduleTabView: View {
     @State var courseSharePresentation: CourseSharePresentation?
     @State var courseShareAlert: AppAlert?
     @State var isResolvingCourseShare = false
+    @State var calendarMutationTask: Task<Void, Never>?
+    @State var courseShareTask: Task<Void, Never>?
+    @State var courseShareGeneration = 0
     @State var prefetchedCourseID: String?
     @State var prefetchedCourseResolution: ScheduleCourseShare?
     @State var bottomTabBarOverlap: CGFloat?
@@ -178,7 +182,7 @@ struct CourseScheduleTabView: View {
                                     axisZoomScale: $calendarAxisZoomScale,
                                     firstDay: firstDay,
                                     timeTable: activeSchedule.timeTable,
-                                    currentWeek: resolvedCurrentWeek(firstDay: firstDay),
+                                    currentWeek: resolvedCurrentWeek(firstDay: firstDay, now: currentDate),
                                     showSaturday: viewModel.presentationPreferences.showSaturday,
                                     showSunday: viewModel.presentationPreferences.showSunday,
                                     onSelect: { entry in
@@ -274,6 +278,7 @@ struct CourseScheduleTabView: View {
 #endif
         }
         .simultaneousGesture(scheduleSwitchGesture)
+        .accessibilityIdentifier("schedule.variant-surface")
         .sheet(item: $selectedEntry, onDismiss: {
             if editingCustomScheduleID != nil {
                 isShowingEditSchedule = true
@@ -472,6 +477,10 @@ struct CourseScheduleTabView: View {
             )
         }
         .diagnosticAlert(item: $courseShareAlert)
+        .onDisappear { cancelPendingActions() }
+        .onChange(of: viewModel.accountGeneration) { _, _ in
+            dismissPresentedSheets()
+        }
         .onChange(of: resetSignal) { _, _ in
             dismissPresentedSheets()
         }

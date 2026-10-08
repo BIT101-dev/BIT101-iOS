@@ -1,8 +1,8 @@
 import CommunityPersistence
 import ScheduleDomain
-import ScheduleFeature
+@testable import ScheduleFeature
 import GalleryFeature
-import MineFeature
+@testable import MineFeature
 import PaperFeature
 import StorageCore
 import CommunityUI
@@ -16,10 +16,72 @@ import SwiftUI
 import Testing
 import TransportCore
 import UIKit
+import Combine
+import ClientCore
+import ScoreDomain
+@testable import ScoreFeature
 
 @MainActor
 @Suite(.serialized)
 struct FeatureCompositionTests {
+    private final class ScoreCache: ScoreCaching {
+        var changes: AnyPublisher<AppStorageSession, Never> { Empty().eraseToAnyPublisher() }
+        var loads = 0
+        func loadSnapshot(for session: AppStorageSession?) async -> ScoreCacheSnapshot? {
+            loads += 1
+            return ScoreCacheSnapshot(rows: [ScoreRow(index: 0, headers: ["课程名称", "成绩", "开课学期", "课程性质"],
+                values: ["composition-score", "90", "fixture", "必修"])], updatedAt: Date(), detailedUpdatedAt: Date())
+        }
+        func save(rows: [ScoreRow], for session: AppStorageSession?) async -> Date? { nil }
+        func saveDetailed(rows: [ScoreRow], for session: AppStorageSession?) async -> Date? { nil }
+    }
+    private final class ScorePreferences: ScoreFilterPreferencesStoring {
+        var changes: AnyPublisher<AppStorageSession, Never> { Empty().eraseToAnyPublisher() }
+        func load() -> ScoreFilterPreferenceSnapshot? { nil }
+        func save(selectedTerms: Set<String>, selectedCourseTypes: Set<String>, sortIndex: ScoreSortIndex, sortOrder: ScoreSortOrder) {}
+    }
+    private final class Scores: ScoreListServicing, TrustedTranscriptServicing {
+        var schoolRequests = 0
+        func startScoreChallenge() async throws -> BITLoginAuthenticationChallenge { schoolRequests += 1; throw URLError(.notConnectedToInternet) }
+        func fetchScores(detail: Bool, authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> [ScoreRow] { schoolRequests += 1; return [] }
+        func submitScoreSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { schoolRequests += 1; return challenge }
+        func fetchTrustedTranscriptPages() async throws -> [Data] { schoolRequests += 1; return [] }
+        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> [Data] { schoolRequests += 1; return [] }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func scoreEntryRestoresItsSelectedCacheAndLeavesSchoolRequestsToUserActions() async throws {
+        let selected = ScoreCache()
+        let service = Scores()
+        let viewModel = ScoreViewModel(service: service, cacheStore: selected, preferenceStore: ScorePreferences(),
+            currentScoreCacheSession: { AppStorageSession(accountIdentifier: "composition-score") },
+            scheduleCoursesChanges: Empty().eraseToAnyPublisher(), loadScheduleCourses: { _ in [:] })
+        try await host(ScoreListPage(viewModel: viewModel, transcriptService: service, onSearchCourse: { _ in })) {
+            while viewModel.filteredRows.isEmpty { try Task.checkCancellation(); await Task.yield() }
+            #expect(viewModel.filteredRows.first?.courseName == "composition-score")
+        }
+        #expect(selected.loads == 1)
+        #expect(service.schoolRequests == 0)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func mountedTranscriptPageUsesItsReplacementService() async throws {
+        let first = Scores(), second = Scores()
+        let selectedMedia = media()
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let controller = UIHostingController(rootView: NavigationStack { TrustedTranscriptDestination(service: first).environment(selectedMedia) })
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        while first.schoolRequests == 0 { try Task.checkCancellation(); await Task.yield() }
+        controller.rootView = NavigationStack { TrustedTranscriptDestination(service: second).environment(selectedMedia) }
+        while second.schoolRequests == 0 { try Task.checkCancellation(); await Task.yield() }
+        #expect(first.schoolRequests == 1)
+        #expect(second.schoolRequests == 1)
+        #expect(first.transcriptServiceIdentity != second.transcriptServiceIdentity)
+    }
+
     private final class CourseList: CourseListServicing {
         var requests: [String] = []
         private var waiter: CheckedContinuation<Void, Never>?
@@ -70,14 +132,21 @@ struct FeatureCompositionTests {
     }
     private final class TraceTransport: HTTPTransport {
         var requests: [URLRequest] = []
+        var response: ((URLRequest) throws -> Data)?
         private var waiter: CheckedContinuation<Void, Never>?
+        private var expectedRequests = 1
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             requests.append(request)
-            waiter?.resume(); waiter = nil
+            if requests.count >= expectedRequests { waiter?.resume(); waiter = nil }
+            if let response {
+                let url = try #require(request.url)
+                return (try response(request), try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+            }
             throw URLError(.notConnectedToInternet)
         }
-        func waitForRequest() async {
-            if !requests.isEmpty { return }
+        func waitForRequest(count: Int = 1) async {
+            if requests.count >= count { return }
+            expectedRequests = count
             await withCheckedContinuation { waiter = $0 }
         }
     }
@@ -118,14 +187,18 @@ struct FeatureCompositionTests {
         return MineDependencies(overview: service, profile: service, deletePoster: { _ in }, isRunningUITest: false)
     }
 
-    private func host<V: View>(_ view: V, operation: () async -> Void) async throws {
+    private func host<V: View>(_ view: V, operation: () async throws -> Void) async throws {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         let controller = UIHostingController(rootView: NavigationStack { view })
         window.rootViewController = controller
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil }
-        await operation()
+        try await operation()
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        window.layoutIfNeeded()
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -174,11 +247,42 @@ struct FeatureCompositionTests {
         #expect(surrounding.requests.isEmpty)
     }
 
-    @Test(.timeLimit(.minutes(1)))
-    func scheduleRootOwnsItsConstructorViewModel() async throws {
+    @Test func profileFollowUsesItsInjectedCommunitySessionAndUpdatesTheDisplayedCard() async throws {
+        let transport = TraceTransport()
+        transport.response = { request in
+            #expect(request.value(forHTTPHeaderField: "fake-cookie") == "fixture")
+            if request.url?.path == "/user/info/42" {
+                #expect(request.httpMethod == "GET")
+                return Data(#"{"user":{"id":42,"createTime":"","nickname":"profile","avatar":{"mid":"","url":"","lowUrl":""},"motto":"","identity":{"id":0,"color":"","text":"","createTime":"","updateTime":"","deleteTime":null}},"followingNum":2,"followerNum":3,"following":false,"follower":false,"own":false}"#.utf8)
+            }
+            #expect(request.url?.path == "/user/follow/42")
+            #expect(request.httpMethod == "POST")
+            return Data(#"{"following":true,"follower":true,"followingNum":4,"followerNum":5}"#.utf8)
+        }
+        let model = UserProfileViewModel(userID: 42, service: mine(transport).profile)
+        await model.refreshProfile()
+        #expect(model.profileStatus == .loaded)
+        await model.followUser()
+        #expect(model.userInfo?.user.id == 42)
+        #expect(model.userInfo?.following == true && model.userInfo?.follower == true)
+        #expect(model.userInfo?.followingNum == 4 && model.userInfo?.followerNum == 5)
+        #expect(model.isFollowingUser == false && model.alert == nil)
+        await model.followUser()
+        #expect(transport.requests.count == 2)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [ScheduleSection.courses, .ddl, .classroom])
+    func scheduleRootOwnsItsConstructorViewModel(section: ScheduleSection) async throws {
         var selectedLoads = 0
         var surroundingLoads = 0
         var continuation: CheckedContinuation<Void, Never>?
+        let term = "2026-2027-1"
+        let course = CourseRecord(id: "composition-course", term: term, name: "composition-course", teacher: "fixture", classroom: "fixture",
+            description: "", weeks: Array(1...20), weekday: 1, startSection: 1, endSection: 2, campus: "fixture", number: "fixture", credit: 1,
+            hour: 16, type: "必修", category: "fixture", department: "fixture")
+        var cache = ScheduleCache()
+        cache.courseData.currentTerm = term
+        cache.courseData.schedulesByTerm[term] = TermScheduleSnapshot(term: term, firstDayString: "2026-09-07", courses: [course], exams: [], updatedAt: Date())
         func viewModel(load: @escaping (AppStorageSession) async -> ScheduleCacheLoadResult) -> ScheduleViewModel {
             let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "composition") }, load: load, save: { _, _, _ in })
             let service = SemesterStartDateService()
@@ -188,30 +292,33 @@ struct FeatureCompositionTests {
         let selected = viewModel { _ in
             selectedLoads += 1
             continuation?.resume(); continuation = nil
-            return .missing
+            return .loaded(cache)
         }
         let surrounding = viewModel { _ in surroundingLoads += 1; return .missing }
         let destinations = ScheduleDestinations(appStoreURL: AppURL.required("https://example.invalid"),
             academicCourse: { _, _ in AnyView(Text("course")) }, openCourseLocation: { _ in true }, resolveCourseShare: { _ in nil })
-        try await host(ScheduleRootView(viewModel: selected, requestedSection: .constant(nil), destinations: destinations)
+        try await host(ScheduleRootView(viewModel: selected, requestedSection: .constant(section), destinations: destinations)
             .environmentObject(surrounding)) {
                 if selectedLoads == 0 { await withCheckedContinuation { continuation = $0 } }
+                while !selected.isCacheWritable { try Task.checkCancellation(); await Task.yield() }
+                #expect(selected.courseState.courses.map(\.id) == [course.id])
+                #expect(selected.selectedSection == section)
             }
         #expect(selectedLoads > 0)
         #expect(surroundingLoads == 0)
     }
 
-    private func replace<V: View>(_ first: V, with second: V, firstTransport: TraceTransport, secondTransport: TraceTransport) async throws {
+    private func replace<V: View>(_ first: V, with second: V, firstTransport: TraceTransport, secondTransport: TraceTransport, initialRequests: Int = 1) async throws {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         let controller = UIHostingController(rootView: NavigationStack { first })
         window.rootViewController = controller
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil }
-        await firstTransport.waitForRequest()
+        await firstTransport.waitForRequest(count: initialRequests)
         let firstCount = firstTransport.requests.count
         controller.rootView = NavigationStack { second }
-        await secondTransport.waitForRequest()
+        await secondTransport.waitForRequest(count: initialRequests)
         #expect(firstTransport.requests.count == firstCount)
         #expect(secondTransport.requests.count > 0)
     }
@@ -232,7 +339,7 @@ struct FeatureCompositionTests {
         let papers = CommunityPaperDestination { _, _ in AnyView(Text("paper")) }
         try await replace(GalleryRootView(dependencies: gallery(first), media: selectedMedia, profiles: profiles, papers: papers),
             with: GalleryRootView(dependencies: gallery(second), media: selectedMedia, profiles: profiles, papers: papers),
-            firstTransport: first, secondTransport: second)
+            firstTransport: first, secondTransport: second, initialRequests: 2)
     }
 
     @Test(.timeLimit(.minutes(1)))

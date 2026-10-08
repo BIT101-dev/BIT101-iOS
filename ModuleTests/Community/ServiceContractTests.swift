@@ -5,9 +5,22 @@ import PaperFeature
 import Foundation
 import Testing
 import TransportCore
+@testable import GalleryFeature
 
 @MainActor
 struct ServiceContractTests {
+    @Test func galleryWebCredentialsUseTheTrustedHTTPSOrigin() {
+        for address in ["https://bit101.cn/gallery", "https://BIT101.cn:443/paper/42"] {
+            #expect(GalleryWebRequestFactory.isTrustedPage(URL(string: address)))
+        }
+        for address in ["http://bit101.cn/gallery", "https://bit101.cn:444/gallery",
+                        "https://bit101.cn.example.invalid/", "https://example.invalid/?next=https://bit101.cn",
+                        "https://bit101.cn@example.invalid", "file:///gallery"] {
+            #expect(!GalleryWebRequestFactory.isTrustedPage(URL(string: address)))
+        }
+        #expect(!GalleryWebRequestFactory.isTrustedPage(nil))
+    }
+
     private final class Transport: HTTPTransport {
         var requests: [URLRequest] = []
         private var responses: [(Int, String)]
@@ -26,6 +39,87 @@ struct ServiceContractTests {
     private let course = #"{"id":42,"name":"操作系统","number":"CS101","credits":"3.5","like_num":7,"comment_num":2,"rate":9.2,"teachers_name":"教师","teachers_number":"T1"}"#
     private let paper = #"{"id":17,"title":"文章","intro":"摘要","like_num":3,"comment_num":4,"update_time":"2026-09-01T08:00:00Z"}"#
     private let user = #"{"id":1,"create_time":"","nickname":"作者","avatar":{"mid":"avatar","url":"https://example.invalid/avatar","low_url":"https://example.invalid/small"},"motto":"","identity":{"id":0,"color":"","text":"","create_time":"","update_time":""}}"#
+
+    private func poster(id: Int, anonymous: Bool = false, bot: Bool = false, userID: Int = 1) -> String {
+        let author = user.replacingOccurrences(of: "\"id\":1", with: "\"id\":\(userID)")
+        return "{\"id\":\(id),\"anonymous\":\(anonymous),\"claim\":{\"id\":0,\"text\":\"\"},\"comment_num\":0,\"create_time\":\"\",\"edit_time\":\"\",\"images\":[],\"like_num\":0,\"public\":true,\"tags\":\(bot ? "[\"bot\"]" : "[]"),\"text\":\"fixture\",\"title\":\"fixture\",\"update_time\":\"\",\"user\":\(author)}"
+    }
+
+    @Test(arguments: ["anonymous", "blocked", "bots"])
+    func filteredSourcePagesAdvanceTheFeedAndSearchCursor(setting: String) async throws {
+        let hidden = poster(id: 1, anonymous: setting == "anonymous", bot: setting == "bots")
+        let visible = poster(id: 2, userID: 2)
+        for search in [false, true] {
+            let transport = Transport([(200, "[" + hidden + "]"), (200, "[" + visible + "]"), (200, "[]")])
+            let service = GalleryService(session: session(transport), preferences: {
+                CommunityPreferenceSnapshot(hideBots: setting == "bots", hiddenUserIDs: setting == "blocked" ? [1] : [],
+                    hideAnonymous: setting == "anonymous", useWebView: false, hideMakeupOutliers: false)
+            })
+            let model = GalleryViewModel(service: service)
+            if search { await model.performSearch() }
+            else { await model.refresh(feed: .newest) }
+            let state = search ? model.searchState : model.state(for: .newest)
+            #expect(state.posters.map(\.id) == [2])
+            #expect(state.nextPage == 2 && state.canLoadMore)
+            if search { await model.loadMoreSearchResultsIfNeeded(currentPoster: state.posters.last) }
+            else { await model.loadMoreIfNeeded(for: .newest, currentPoster: state.posters.last) }
+            let end = search ? model.searchState : model.state(for: .newest)
+            #expect(end.nextPage == 3 && end.canLoadMore == false)
+            #expect(try query(transport.requests[1])["page"] == "1")
+            #expect(try query(transport.requests[2])["page"] == "2")
+        }
+    }
+
+    @Test func botFilteringContinuesBeyondFiveHiddenSourcePages() async throws {
+        let hidden = poster(id: 1, bot: true)
+        let visible = poster(id: 8, bot: true, userID: 2)
+        let transport = Transport(Array(repeating: (200, "[" + hidden + "]"), count: 5) + [(200, "[" + visible + "]"), (200, "[]")])
+        let service = GalleryService(session: session(transport), preferences: {
+            CommunityPreferenceSnapshot(hideBots: false, hiddenUserIDs: [1], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        })
+        let batch = try await service.fetchBotFeed(startPage: 0)
+        #expect(batch.items.map(\.id) == [8])
+        #expect(batch.nextSourcePage == 6 && batch.canLoadMore)
+        let end = try await service.fetchBotFeed(startPage: batch.nextSourcePage)
+        #expect(end.items.isEmpty && end.nextSourcePage == 7 && end.canLoadMore == false)
+        #expect(transport.requests.count == 7)
+    }
+
+    @Test func filteredCommentPagesKeepTheirSourceCursorAndRawRecoveryRemainsAvailable() async throws {
+        let comment = #"{"id":5,"obj":"poster1","images":[],"user":\#(user),"anonymous":false,"create_time":"","update_time":"","like":false,"like_num":0,"comment_num":0,"own":true,"rate":0,"reply_user":\#(user),"reply_obj":"","text":"fixture","sub":[]}"#
+        let hidden = comment.replacingOccurrences(of: "\"anonymous\":false", with: "\"anonymous\":true")
+        let transport = Transport([(200, "[" + hidden + "]"), (200, "[" + comment + "]"), (200, "[]"), (200, "[" + hidden + "]")])
+        let service = GalleryService(session: session(transport), preferences: {
+            CommunityPreferenceSnapshot(hideBots: false, hiddenUserIDs: [], hideAnonymous: true, useWebView: false, hideMakeupOutliers: false)
+        })
+#if os(iOS)
+        let initial = try JSONDecoder().decode(CommunityPoster.self, from: Data(poster(id: 1).utf8))
+        let model = GalleryPosterDetailViewModel(initialPoster: initial, service: service)
+        await model.refreshComments()
+        #expect(model.commentState.items.map(\.id) == [5])
+        #expect(model.commentState.nextPage == 2 && model.commentState.canLoadMore)
+        await model.loadMoreCommentsIfNeeded(currentComment: model.commentState.items.last)
+        #expect(model.commentState.nextPage == 3 && model.commentState.canLoadMore == false)
+#else
+        let batch = try await service.fetchComments(objectID: "poster1", order: .newest, page: nil)
+        #expect(batch.items.map(\.id) == [5] && batch.nextSourcePage == 2 && batch.canLoadMore)
+        let end = try await service.fetchComments(objectID: "poster1", order: .newest, page: batch.nextSourcePage)
+        #expect(end.nextSourcePage == 3 && end.canLoadMore == false)
+#endif
+        let raw = try await service.fetchRawComments(objectID: "poster1", order: .newest, page: nil)
+        #expect(raw.first?.anonymous == true)
+        #expect(try query(transport.requests[2])["page"] == "2")
+    }
+
+    @Test func messageHistoryCanStartAtTheUpperBoundAndPreserveUnreadCounts() async throws {
+        let transport = Transport([(200, "[]")])
+        let service = GalleryService(session: session(transport), preferences: {
+            CommunityPreferenceSnapshot(hideBots: false, hiddenUserIDs: [], hideAnonymous: false,
+                                        useWebView: false, hideMakeupOutliers: false)
+        })
+        #expect(try await service.fetchMessages(type: .comment, lastID: .max).isEmpty)
+        #expect(try query(transport.requests[0]) == ["type": "comment", "last_id": String(Int.max)])
+    }
 
     private func session(_ transport: Transport, cookie: String = "fixture-cookie") -> CommunitySession {
         CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil), baseURL: AppURL.required("https://example.invalid"),
@@ -119,7 +213,8 @@ struct ServiceContractTests {
         let transport = Transport([(200, #"{"id":17}"#), (204, ""), (204, "")])
         let service = PaperService(session: session(transport))
         #expect(try await service.createPaper(title: "标题", intro: "摘要", content: "正文", anonymous: true, publicEdit: false) == 17)
-        try await service.updatePaper(id: 17, title: "编辑", intro: "摘要", content: "新正文", anonymous: false, publicEdit: true)
+        try await service.updatePaper(id: 17, title: "编辑", intro: "摘要", content: "新正文", anonymous: false, publicEdit: true,
+            lastUpdatedAt: "2026-10-01T08:00:00.123456789Z")
         try await service.deletePaper(id: 17)
         #expect(transport.requests.map(\.httpMethod) == ["POST", "PUT", "DELETE"])
         #expect(transport.requests.map { $0.url?.path } == ["/papers", "/papers/17", "/papers/17"])
@@ -128,7 +223,19 @@ struct ServiceContractTests {
         #expect(created["content"] as? String == "正文")
         let updated = try body(transport.requests[1])
         #expect(updated["public_edit"] as? Bool == true && updated["title"] as? String == "编辑")
+        let lastTime = try #require(updated["last_time"] as? Double)
+        #expect(abs(lastTime - 1_790_841_600.1234567) < 0.001)
         #expect(transport.requests[0].value(forHTTPHeaderField: "Content-Type") == "application/json")
+    }
+
+    @Test func invalidArticleVersionStopsEditingBeforeSending() async {
+        let transport = Transport([])
+        let service = PaperService(session: session(transport))
+        await #expect(throws: PaperServiceError.self) {
+            try await service.updatePaper(id: 17, title: "编辑", intro: "摘要", content: "正文", anonymous: false,
+                publicEdit: true, lastUpdatedAt: "")
+        }
+        #expect(transport.requests.isEmpty)
     }
 
     @Test func courseAndPaperCommentsSendReplyIdentityAndRating() async throws {

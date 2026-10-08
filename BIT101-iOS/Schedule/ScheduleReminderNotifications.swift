@@ -1,4 +1,19 @@
 import Foundation
+import ScheduleDomain
+
+@MainActor
+enum ScheduleReminderNotificationDate {
+    static func components(for date: Date) -> DateComponents {
+        let trigger = Date(timeIntervalSinceReferenceDate: date.timeIntervalSinceReferenceDate.rounded(.up))
+        return ScheduleDateCodec.calendar.dateComponents([.calendar, .timeZone, .year, .month, .day, .hour, .minute, .second], from: trigger)
+    }
+
+    static func futureDisplayDate(for occurrence: CourseReminderOccurrence, among occurrences: [CourseReminderOccurrence],
+        leadMinutes: Int, now: Date) -> Date? {
+        let start = ScheduleReminderPlanner.effectiveDisplayWindowStart(for: occurrence, among: occurrences, leadMinutes: leadMinutes)
+        return start > now && start < occurrence.startDate ? start : nil
+    }
+}
 
 nonisolated enum ScheduleReminderNotificationAuthorizationState {
     case allowed
@@ -8,7 +23,6 @@ nonisolated enum ScheduleReminderNotificationAuthorizationState {
 
 #if canImport(ActivityKit) && !targetEnvironment(macCatalyst)
 import UserNotifications
-import ScheduleDomain
 import ScheduleContracts
 import OSLog
 
@@ -58,14 +72,11 @@ final class ScheduleReminderNotifications {
         let now = Date()
         let scheduledItems = occurrences
             .compactMap { occurrence -> (CourseReminderOccurrence, Date)? in
-                let displayStart = ScheduleReminderPlanner.effectiveDisplayWindowStart(
+                guard let displayStart = ScheduleReminderNotificationDate.futureDisplayDate(
                     for: occurrence,
                     among: occurrences,
-                    leadMinutes: leadMinutes
-                )
-                guard displayStart > now.addingTimeInterval(1), displayStart < occurrence.startDate else {
-                    return nil
-                }
+                    leadMinutes: leadMinutes, now: now
+                ) else { return nil }
                 return (occurrence, displayStart)
             }
             .sorted { $0.1 < $1.1 }
@@ -84,10 +95,7 @@ final class ScheduleReminderNotifications {
                 identifier: Self.notificationIdentifier(studentID: studentID, index: index),
                 content: fallbackNotificationContent(for: occurrence),
                 trigger: UNCalendarNotificationTrigger(
-                    dateMatching: ScheduleDateCodec.calendar.dateComponents(
-                        [.year, .month, .day, .hour, .minute, .second],
-                        from: triggerDate
-                    ),
+                    dateMatching: ScheduleReminderNotificationDate.components(for: triggerDate),
                     repeats: false
                 )
             )
@@ -103,6 +111,7 @@ final class ScheduleReminderNotifications {
 
         logger.debug("scheduled fallback notifications count=\(min(scheduledItems.count, 64), privacy: .public)")
     }
+
 
     /// 构造与 Live Activity 同语义的本地通知内容。
     private func fallbackNotificationContent(for occurrence: CourseReminderOccurrence) -> UNMutableNotificationContent {

@@ -4,6 +4,7 @@ import TransportCore
 import DesignSystemKit
 import CryptoKit
 import Foundation
+import os
 import ImageIO
 import OSLog
 import SwiftUI
@@ -40,7 +41,6 @@ struct GalleryImageCachePreferences {
 enum RemoteImageCacheVariant: String, Sendable {
     case thumbnail = "low"
     case original = "high"
-    case local
 }
 
 nonisolated enum ImageCacheDirectories {
@@ -55,24 +55,45 @@ nonisolated enum ImageCacheDirectories {
     }
 }
 
+/// Synchronizes preview-file registration with disk eviction.
+nonisolated final class PreviewFileOwnership: Sendable {
+    private let sessions = OSAllocatedUnfairLock(initialState: [UUID: Set<String>]())
+    func begin(_ owner: UUID) { sessions.withLock { $0[owner] = [] } }
+    func end(_ owner: UUID) { sessions.withLock { $0[owner] = nil } }
+    func contains(_ owner: UUID) -> Bool { sessions.withLock { $0[owner] != nil } }
+    func pin(_ file: URL, using files: any AppFileService, owner: UUID) -> Bool {
+        sessions.withLock { sessions in
+            guard sessions[owner] != nil, files.fileExists(at: file) else { return false }
+            sessions[owner]?.insert(files.canonicalFileURL(file).path)
+            return true
+        }
+    }
+    func withPaths<T: Sendable>(_ operation: @Sendable (Set<String>) -> T) -> T {
+        sessions.withLock { operation($0.values.reduce(into: []) { $0.formUnion($1) }) }
+    }
+}
+
 /// Enforces the image-cache setting across gallery media and avatar files as one LRU pool.
 actor ImageCacheDiskQuota {
 
     private let files: any AppFileService
     private let configuredDirectories: [URL]?
-    private let cacheLimitMB: @MainActor @Sendable () -> Int
+    private let cacheLimitMB: @MainActor @Sendable () async -> Int
+    private let previewOwnership: PreviewFileOwnership
     private let pruneInterval: TimeInterval
     private var lastPruneDate = Date.distantPast
 
     init(
         files: any AppFileService,
         directories: [URL]? = nil,
-        cacheLimitMB: @escaping @MainActor @Sendable () -> Int,
+        cacheLimitMB: @escaping @MainActor @Sendable () async -> Int,
+        previewOwnership: PreviewFileOwnership = PreviewFileOwnership(),
         pruneInterval: TimeInterval = 60
     ) {
         self.files = files
         configuredDirectories = directories
         self.cacheLimitMB = cacheLimitMB
+        self.previewOwnership = previewOwnership
         self.pruneInterval = pruneInterval
     }
 
@@ -95,32 +116,35 @@ actor ImageCacheDiskQuota {
         let limitMB = await cacheLimitMB()
         guard limitMB > 0 else { return }
         let limit = Int64(limitMB) * 1_024 * 1_024
-        let protectedPaths = Set(protectedURLs.map { files.canonicalFileURL($0).path })
-        let cacheFiles = directories.flatMap { directory -> [(URL, Int64, Date)] in
-            guard let children = try? files.contentsOfDirectory(at: directory, options: [.skipsHiddenFiles]) else {
-                return []
+        let cacheDirectories = directories
+        previewOwnership.withPaths { previewPaths in
+            let protectedPaths = Set(protectedURLs.map { files.canonicalFileURL($0).path }).union(previewPaths)
+            let cacheFiles = cacheDirectories.flatMap { directory -> [(URL, Int64, Date)] in
+                guard let children = try? files.contentsOfDirectory(at: directory, options: [.skipsHiddenFiles]) else {
+                    return []
+                }
+                return children.compactMap { url in
+                    guard !protectedPaths.contains(files.canonicalFileURL(url).path),
+                          url.lastPathComponent != "preview-placeholder.png",
+                          let size = files.regularFileSize(at: url)
+                    else { return nil }
+                    return (url, Int64(size), files.modificationDate(at: url) ?? .distantPast)
+                }
             }
-            return children.compactMap { url in
-                guard !protectedPaths.contains(files.canonicalFileURL(url).path),
-                      url.lastPathComponent != "preview-placeholder.png",
-                      let size = files.regularFileSize(at: url)
-                else { return nil }
-                return (url, Int64(size), files.modificationDate(at: url) ?? .distantPast)
+            var total = cacheFiles.reduce(Int64(0)) { $0 + $1.1 }
+            total += protectedPaths.reduce(Int64(0)) {
+                $0 + Int64(files.regularFileSize(at: URL(fileURLWithPath: $1)) ?? 0)
             }
-        }
-        var total = cacheFiles.reduce(Int64(0)) { $0 + $1.1 }
-        total += protectedPaths.reduce(Int64(0)) {
-            $0 + Int64(files.regularFileSize(at: URL(fileURLWithPath: $1)) ?? 0)
-        }
-        guard total > limit else { return }
+            guard total > limit else { return }
 
-        let target = Int64(Double(limit) * 0.85)
-        for (url, size, _) in cacheFiles.sorted(by: { $0.2 < $1.2 }) where total > target {
-            do {
-                try files.removeItem(at: url)
-                total -= size
-            } catch {
-                continue
+            let target = Int64(Double(limit) * 0.85)
+            for (url, size, _) in cacheFiles.sorted(by: { $0.2 < $1.2 }) where total > target {
+                do {
+                    try files.removeItem(at: url)
+                    total -= size
+                } catch {
+                    continue
+                }
             }
         }
     }
@@ -147,7 +171,8 @@ actor RemoteImageCache {
 
     private struct DownloadOperation {
         let id: UUID
-        let task: Task<DownloadResult, Error>
+        let task: Task<Void, Never>
+        var waiters: [UUID: CheckedContinuation<URL, any Error>]
     }
 
     private let files: any AppFileService
@@ -155,6 +180,8 @@ actor RemoteImageCache {
     private let httpClient: HTTPClient
     private let directory: URL
     private var downloads: [String: DownloadOperation] = [:]
+    private var generation: UInt64 = 0
+    var waitingConsumerCount: Int { downloads.values.reduce(0) { $0 + $1.waiters.count } }
     private let supportedExtensions = ["jpg", "jpeg", "png", "gif", "heic", "heif", "webp", "bin"]
     init(files: any AppFileService, quota: ImageCacheDiskQuota, httpClient: HTTPClient) {
         self.files = files
@@ -166,6 +193,7 @@ actor RemoteImageCache {
 
     /// 返回已有缓存并刷新其 LRU 时间，不发起网络请求。
     func cachedFile(for remoteURL: URL, variant: RemoteImageCacheVariant) async -> URL? {
+        let owner = generation
         let prefix = filePrefix(for: remoteURL, variant: variant)
         for extensionName in supportedExtensions {
             let file = directory.appendingPathComponent("\(prefix).\(extensionName)")
@@ -176,6 +204,7 @@ actor RemoteImageCache {
             }
             touch(file)
             await quota.enforce(protecting: Set([file]))
+            guard owner == generation, !Task.isCancelled else { return nil }
             return file
         }
         return nil
@@ -183,29 +212,46 @@ actor RemoteImageCache {
 
     /// 获取缓存文件；同一 URL 的并发请求会合并成一次下载。
     func file(for remoteURL: URL, variant: RemoteImageCacheVariant) async throws -> URL {
+        try Task.checkCancellation()
+        let owner = generation
         if let cached = await cachedFile(for: remoteURL, variant: variant) {
             return cached
         }
+        try Task.checkCancellation()
+        guard owner == generation else { throw CancellationError() }
 
         let requestKey = "\(variant.rawValue):\(remoteURL.absoluteString)"
-        let operation: DownloadOperation
-        if let running = downloads[requestKey] {
-            operation = running
-        } else {
-            let created = Task<DownloadResult, Error> {
-                let response = try await httpClient.send(URLRequest(url: remoteURL))
-                return DownloadResult(data: response.data, mimeType: response.response.mimeType)
+        let waiter = UUID()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                guard !Task.isCancelled else { continuation.resume(throwing: CancellationError()); return }
+                if var running = downloads[requestKey] {
+                    running.waiters[waiter] = continuation
+                    downloads[requestKey] = running
+                    return
+                }
+                let id = UUID()
+                let task = Task { [httpClient] in
+                    let result: Result<DownloadResult, any Error>
+                    do {
+                        let response = try await httpClient.send(URLRequest(url: remoteURL), maximumBytes: RemoteImageResourceLimits.maximumEncodedBytes)
+                        result = .success(DownloadResult(data: response.data, mimeType: response.response.mimeType))
+                    } catch { result = .failure(error) }
+                    await finishDownload(result, key: requestKey, id: id, remoteURL: remoteURL, variant: variant)
+                }
+                downloads[requestKey] = DownloadOperation(id: id, task: task, waiters: [waiter: continuation])
             }
-            let newOperation = DownloadOperation(id: UUID(), task: created)
-            downloads[requestKey] = newOperation
-            operation = newOperation
+        } onCancel: {
+            Task { await self.cancelWaiter(waiter, key: requestKey) }
         }
+    }
 
+    private func finishDownload(_ result: Result<DownloadResult, any Error>, key: String, id: UUID,
+                                remoteURL: URL, variant: RemoteImageCacheVariant) async {
+        guard downloads[key]?.id == id else { return }
+        let completed: Result<URL, any Error>
         do {
-            let result = try await operation.task.value
-            if downloads[requestKey]?.id == operation.id {
-                downloads[requestKey] = nil
-            }
+            let result = try result.get()
             guard isDecodableImage(data: result.data) else {
                 throw CocoaError(.fileReadCorruptFile)
             }
@@ -217,26 +263,30 @@ actor RemoteImageCache {
             }
             touch(target)
             await quota.enforce(protecting: Set([target]))
-            return target
-        } catch {
-            if downloads[requestKey]?.id == operation.id {
-                downloads[requestKey] = nil
-            }
-            throw error
-        }
+            completed = .success(target)
+        } catch { completed = .failure(error) }
+        guard downloads[key]?.id == id, let operation = downloads.removeValue(forKey: key) else { return }
+        for continuation in operation.waiters.values { continuation.resume(with: completed) }
     }
 
-    /// 把内存图片持久化为系统预览可读取的本地文件。
-    func localFile(data: Data, pathExtension: String = "png") async throws -> URL {
-        let digest = SHA256.hash(data: data).hexString
-        let target = directory.appendingPathComponent("local-\(digest).\(pathExtension)")
-        if !hasData(at: target) {
-            try files.createDirectory(at: directory)
-            try files.writeData(data, to: target, options: [.atomic])
+    private func cancelWaiter(_ waiter: UUID, key: String) {
+        guard var operation = downloads[key], let continuation = operation.waiters.removeValue(forKey: waiter) else { return }
+        if operation.waiters.isEmpty {
+            downloads[key] = nil
+            operation.task.cancel()
+        } else { downloads[key] = operation }
+        continuation.resume(throwing: CancellationError())
+    }
+
+    func clearAll() {
+        generation &+= 1
+        let pending = downloads.values
+        downloads.removeAll()
+        for operation in pending {
+            operation.task.cancel()
+            for continuation in operation.waiters.values { continuation.resume(throwing: CancellationError()) }
         }
-        touch(target)
-        await quota.enforce(protecting: Set([target]))
-        return target
+        _ = files.removeContents(of: directory)
     }
 
     func previewFile(at cachedURL: URL, using previewFiles: any AppFileService) throws -> URL {
@@ -301,11 +351,11 @@ actor RemoteImageCache {
 
     private func hasData(at url: URL) -> Bool {
         guard let fileSize = files.regularFileSize(at: url) else { return false }
-        return fileSize > 0
+        return fileSize > 0 && fileSize <= RemoteImageResourceLimits.maximumEncodedBytes
     }
 
     private func isDecodableImage(at url: URL) -> Bool {
-        guard let data = try? files.readData(at: url) else { return false }
+        guard let data = RemoteImageResourceLimits.cachedData(at: url, using: files) else { return false }
         return isDecodableImage(data: data)
     }
 
@@ -329,36 +379,55 @@ actor RemoteImageCache {
     }
 }
 
+public nonisolated enum BoundedStillImageDecoder {
+    public static func image(from data: Data, maximumDecodedBytes: Int = RemoteImageResourceLimits.maximumDecodedBytes) -> UIImage? {
+        guard maximumDecodedBytes >= 4, !Task.isCancelled,
+              let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary)
+        else { return nil }
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        let depth = (properties?[kCGImagePropertyDepth] as? NSNumber)?.intValue ?? 8
+        guard (1...32).contains(depth) else { return nil }
+        let bytesPerPixel = max(4, ((depth + 7) / 8) * 4)
+        let side = Int(Double(maximumDecodedBytes / bytesPerPixel).squareRoot())
+        let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: side,
+            kCGImageSourceShouldCacheImmediately: true, kCGImageSourceShouldAllowFloat: false]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
+              image.bytesPerRow * image.height <= maximumDecodedBytes, !Task.isCancelled else { return nil }
+        return UIImage(cgImage: image)
+    }
+}
+
 /// 串行后台解码话廊缩略图，避免多张图片同时进入屏幕时抢占主线程。
 ///
-/// 磁盘缓存保存的是压缩 WebP/JPEG；仅仅构造 `UIImage` 仍可能把真正的像素解压推迟到
-/// SwiftUI 绘制阶段。这里额外调用 `preparingForDisplay()`，让解压工作在 actor 执行器
-/// 上提前完成，并用较小的内存缓存复用最近浏览过的结果。
+/// ImageIO 在像素预算内生成显示位图，后台解码和内存缓存沿用同一预算。
 actor GalleryThumbnailDecoder {
     private let files: any AppFileService
+    func clear() { images.removeAllObjects() }
 
-    init(files: any AppFileService) { self.files = files }
+    init(files: any AppFileService, maximumDecodedBytes: Int = RemoteImageResourceLimits.maximumDecodedBytes) {
+        self.files = files
+        images.totalCostLimit = maximumDecodedBytes
+    }
 
     private let images: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
         cache.countLimit = 80
-        cache.totalCostLimit = 48 * 1_024 * 1_024
+        cache.totalCostLimit = RemoteImageResourceLimits.maximumDecodedBytes
         return cache
     }()
 
     func image(at file: URL) -> UIImage? {
         guard !Task.isCancelled else { return nil }
-        guard let data = try? files.readData(at: file) else { return nil }
+        guard let data = RemoteImageResourceLimits.cachedData(at: file, using: files) else { return nil }
         let key = SHA256.hash(data: data).hexString as NSString
         if let cached = images.object(forKey: key) {
             return cached
         }
 
-        guard let source = UIImage(data: data), !Task.isCancelled else { return nil }
-        let decoded = source.preparingForDisplay() ?? source
-        let pixelWidth = Int(decoded.size.width * decoded.scale)
-        let pixelHeight = Int(decoded.size.height * decoded.scale)
-        images.setObject(decoded, forKey: key, cost: pixelWidth * pixelHeight * 4)
+        guard let decoded = BoundedStillImageDecoder.image(from: data, maximumDecodedBytes: images.totalCostLimit),
+              let pixels = decoded.cgImage else { return nil }
+        images.setObject(decoded, forKey: key, cost: pixels.bytesPerRow * pixels.height)
         return decoded
     }
 }
@@ -370,6 +439,7 @@ public struct RemoteCachedStillImage: View {
     var contentMode: ContentMode = .fit
     var onAspectRatioResolved: ((CGFloat) -> Void)? = nil
     @State private var image: UIImage?
+    @State private var currentResource: MediaImageLoadIdentity?
 
     public var body: some View {
         Group {
@@ -386,8 +456,10 @@ public struct RemoteCachedStillImage: View {
                     }
             }
         }
-        .task(id: url) {
-            image = nil
+        .task(id: MediaImageLoadIdentity(urls: [url], environment: ObjectIdentifier(media), retryGeneration: media.imageRetryGeneration)) {
+            let resource = MediaImageLoadIdentity(urls: [url], environment: ObjectIdentifier(media))
+            if currentResource != resource { image = nil; currentResource = resource }
+            guard image == nil else { return }
             guard let url else { return }
             do {
                 let file = try await media.images.file(for: url, variant: .thumbnail)
@@ -399,7 +471,8 @@ public struct RemoteCachedStillImage: View {
                     onAspectRatioResolved?(decoded.size.width / decoded.size.height)
                 }
             } catch {
-                // 缩略图失败时保留占位，不弹窗干扰浏览。
+                guard !Task.isCancelled else { return }
+                // 缩略图失败时显示占位内容。
                 image = nil
             }
         }
@@ -420,6 +493,7 @@ public struct RemoteProgressiveStillImage: View {
     var contentMode: ContentMode = .fit
     var onAspectRatioResolved: ((CGFloat) -> Void)? = nil
     @State private var image: UIImage?
+    @State private var currentResource: MediaImageLoadIdentity?
 
     public var body: some View {
         Group {
@@ -436,9 +510,10 @@ public struct RemoteProgressiveStillImage: View {
                     }
             }
         }
-        .task(id: thumbnailURL?.absoluteString ?? originalURL?.absoluteString) {
-            image = nil
-            await loadThumbnail()
+        .task(id: MediaImageLoadIdentity(urls: [thumbnailURL, originalURL], environment: ObjectIdentifier(media), retryGeneration: media.imageRetryGeneration)) {
+            let resource = MediaImageLoadIdentity(urls: [thumbnailURL, originalURL], environment: ObjectIdentifier(media))
+            if currentResource != resource { image = nil; currentResource = resource }
+            if image == nil { await loadThumbnail() }
             guard !Task.isCancelled else { return }
             await loadOriginal()
         }
@@ -454,6 +529,7 @@ public struct RemoteProgressiveStillImage: View {
             image = decoded
             reportRatio(decoded)
         } catch {
+            guard !Task.isCancelled else { return }
             image = nil
         }
     }
@@ -470,6 +546,7 @@ public struct RemoteProgressiveStillImage: View {
             image = decoded
             reportRatio(decoded)
         } catch {
+            guard !Task.isCancelled else { return }
             // 详情页保留已经显示的低清图，原图失败时继续提供可读内容。
             Self.logger.debug("详情原图加载失败：\(error.localizedDescription, privacy: .public)")
         }
@@ -487,7 +564,7 @@ public struct RemoteProgressiveStillImage: View {
     }
 }
 
-private extension SHA256.Digest {
+extension SHA256.Digest {
     nonisolated var hexString: String {
         map { String(format: "%02x", $0) }.joined()
     }

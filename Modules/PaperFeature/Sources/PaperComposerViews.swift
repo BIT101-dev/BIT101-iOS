@@ -5,145 +5,156 @@ import DesignSystemKit
 //  PaperComposerViews.swift
 //  BIT101-iOS
 import SwiftUI
+import Observation
+import TransportCore
 
-/// 文章发布页。
-///
-/// 当前提供原生编辑器，支持标题、简介、正文和匿名开关。
-/// 新正文按纯文本段落包装为 Editor.js JSON，已有正文在正文保持原样时沿用服务端内容。
+/// 文章发布与编辑页；富文本正文沿用原始块结构。
 struct PaperComposerView: View {
     @Environment(PaperDependencies.self) private var dependencies
-    let onCreated: () -> Void
-    let editingPaper: PaperDetail?
-    private let originalContent: String?
-    private let originalPlainContent: String?
-
     @Environment(\.dismiss) private var dismiss
-    @State private var title = ""
-    @State private var intro = ""
-    @State private var content = ""
-    @State private var anonymous = false
-    @State private var isSubmitting = false
-    @State private var alert: AppAlert?
-
-    private var service: any PaperComposerServicing { dependencies.composer }
+    let onCreated: () -> Void
+    @State private var model: PaperComposerViewModel
+    @State private var submitTask: Task<Void, Never>?
 
     init(editingPaper: PaperDetail? = nil, initialContent: String, onCreated: @escaping () -> Void) {
-        self.editingPaper = editingPaper
         self.onCreated = onCreated
-        originalContent = editingPaper?.content
-        originalPlainContent = editingPaper == nil ? nil : initialContent
-        _title = State(initialValue: editingPaper?.title ?? "")
-        _intro = State(initialValue: editingPaper?.intro ?? "")
-        _content = State(initialValue: initialContent)
-        _anonymous = State(initialValue: editingPaper?.anonymous ?? false)
+        _model = State(initialValue: PaperComposerViewModel(editingPaper: editingPaper, initialContent: initialContent))
     }
 
     var body: some View {
+        @Bindable var model = model
         Form {
             Section("内容") {
-                TextField("", text: $title, prompt: AppInputPrompt.text("标题"))
+                TextField("", text: $model.title, prompt: AppInputPrompt.text("标题"))
                     .font(AppDesignSystem.Typography.body)
                     .accessibilityLabel("标题")
                     .accessibilityIdentifier("paper.editor.title")
-                TextField("", text: $intro, prompt: AppInputPrompt.text("简介"), axis: .vertical)
+                TextField("", text: $model.intro, prompt: AppInputPrompt.text("简介"), axis: .vertical)
                     .font(AppDesignSystem.Typography.body)
                     .lineLimit(3, reservesSpace: true)
                     .accessibilityLabel("简介")
                     .accessibilityIdentifier("paper.editor.intro")
-                TextField("", text: $content, prompt: AppInputPrompt.text("正文"), axis: .vertical)
-                    .font(AppDesignSystem.Typography.body)
-                    .lineLimit(10, reservesSpace: true)
-                    .accessibilityLabel("正文")
-                    .accessibilityIdentifier("paper.editor.content")
+                if model.canEditBody {
+                    TextField("", text: $model.content, prompt: AppInputPrompt.text("正文"), axis: .vertical)
+                        .font(AppDesignSystem.Typography.body)
+                        .lineLimit(10, reservesSpace: true)
+                        .accessibilityLabel("正文")
+                        .accessibilityIdentifier("paper.editor.content")
+                } else {
+                    Text("正文包含图片或格式，标题和摘要可在此修改。")
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                }
             }
-
             Section("发布设置") {
-                Toggle("匿名发布", isOn: $anonymous)
-                    .appSelectionFeedback(trigger: anonymous)
-                .appInteractiveListRow()
+                Toggle("匿名发布", isOn: $model.anonymous)
+                    .appSelectionFeedback(trigger: model.anonymous)
+                    .appInteractiveListRow()
+                    .accessibilityIdentifier("ui.paper-composer-view.匿名发布")
             }
         }
+        .disabled(model.isSubmitting)
         .scrollDismissesKeyboard(.immediately)
-        .navigationTitle(editingPaper == nil ? "发布文章" : "编辑文章")
+        .navigationTitle(model.editingPaper == nil ? "发布文章" : "编辑文章")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("取消") {
-                    dismiss()
-                }
+                Button("取消") { dismiss() }
+                    .disabled(model.isSubmitting)
+                    .accessibilityIdentifier("ui.paper-composer-view.cancel")
             }
-
             ToolbarItem(placement: .confirmationAction) {
-                Button(isSubmitting ? "保存中…" : editingPaper == nil ? "发布" : "保存") {
-                    Task {
-                        await submit()
+                Button(model.isSubmitting ? "保存中…" : model.editingPaper == nil ? "发布" : "保存") {
+                    guard submitTask == nil else { return }
+                    submitTask = Task {
+                        defer { submitTask = nil }
+                        if await model.submit(service: dependencies.composer), !Task.isCancelled {
+                            onCreated()
+                            dismiss()
+                        }
                     }
                 }
-                .disabled(isSubmitting)
+                .disabled(model.isSubmitting)
+                .accessibilityIdentifier("ui.paper-composer-view.submit")
             }
         }
-        .diagnosticAlert(item: $alert)
+        .interactiveDismissDisabled(model.isSubmitting)
+        .onDisappear { submitTask?.cancel() }
+        .diagnosticAlert(item: $model.alert)
+    }
+}
+
+@MainActor
+@Observable
+final class PaperComposerViewModel {
+    let editingPaper: PaperDetail?
+    let canEditBody: Bool
+    private let originalPlainContent: String
+    var title: String
+    var intro: String
+    var content: String
+    var anonymous: Bool
+    private(set) var isSubmitting = false
+    var alert: AppAlert?
+
+    init(editingPaper: PaperDetail?, initialContent: String) {
+        self.editingPaper = editingPaper
+        canEditBody = editingPaper.map { PaperEditorContentBuilder.canEditAsPlainText($0.content) } ?? true
+        originalPlainContent = initialContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        title = editingPaper?.title ?? ""
+        intro = editingPaper?.intro ?? ""
+        content = initialContent
+        anonymous = editingPaper?.anonymous ?? false
     }
 
-    private func submit() async {
-        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedIntro = intro.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !trimmedTitle.isEmpty, !trimmedIntro.isEmpty, !trimmedContent.isEmpty else {
-            alert = AppAlert.userInput(title: "发布失败", message: "标题、简介和正文都不能为空。")
-            return
+    func submit(service: any PaperComposerServicing) async -> Bool {
+        guard !isSubmitting, !Task.isCancelled else { return false }
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let intro = intro.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let serializedBody: String
+        if let editingPaper, !canEditBody || body == originalPlainContent {
+            serializedBody = editingPaper.content
+        } else {
+            guard !body.isEmpty else {
+                alert = AppAlert.userInput(title: "发布失败", message: "请填写正文。")
+                return false
+            }
+            serializedBody = PaperEditorContentBuilder.editorJSON(from: body)
         }
-
-        guard !isSubmitting else { return }
+        guard !title.isEmpty, !intro.isEmpty, !serializedBody.isEmpty else {
+            alert = AppAlert.userInput(title: "发布失败", message: "请填写标题、简介和正文。")
+            return false
+        }
         isSubmitting = true
         defer { isSubmitting = false }
-
         do {
             if let editingPaper {
-                try await service.updatePaper(
-                    id: editingPaper.id,
-                    title: trimmedTitle,
-                    intro: trimmedIntro,
-                    content: editorContent(from: trimmedContent),
-                    anonymous: anonymous,
-                    publicEdit: editingPaper.publicEdit
-                )
+                try await service.updatePaper(id: editingPaper.id, title: title, intro: intro,
+                    content: serializedBody, anonymous: anonymous, publicEdit: editingPaper.publicEdit,
+                    lastUpdatedAt: editingPaper.updateTime)
             } else {
-                _ = try await service.createPaper(
-                    title: trimmedTitle,
-                    intro: trimmedIntro,
-                    content: PaperEditorContentBuilder.editorJSON(from: trimmedContent),
-                    anonymous: anonymous,
-                    publicEdit: true
-                )
+                _ = try await service.createPaper(title: title, intro: intro, content: serializedBody,
+                    anonymous: anonymous, publicEdit: true)
             }
-            onCreated()
-            dismiss()
+            try Task.checkCancellation()
+            return true
         } catch {
+            if Task.isCancelled || TaskCancellation.matches(error) { return false }
             alert = AppAlert(title: "发布失败", message: error.localizedDescription)
+            return false
         }
-    }
-
-    private func editorContent(from trimmedContent: String) -> String {
-        guard let originalContent,
-              let originalPlainContent,
-              trimmedContent == originalPlainContent.trimmingCharacters(in: .whitespacesAndNewlines)
-        else {
-            return PaperEditorContentBuilder.editorJSON(from: trimmedContent)
-        }
-        return originalContent
     }
 }
 
 struct PaperCommentComposerSheet: View {
     let target: PaperCommentComposerTarget
     let isSubmitting: Bool
-    let onSubmit: (String, Bool) -> Void
+    let onSubmit: (String, Bool) async -> Bool
 
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var anonymous = false
+    @State private var isSubmissionRequested = false
 
     var body: some View {
         List {
@@ -158,21 +169,29 @@ struct PaperCommentComposerSheet: View {
                 .lineLimit(12, reservesSpace: true)
                 .frame(minHeight: AppDesignSystem.Size.Editor.multilineMinimumHeight)
                 .accessibilityLabel(target.placeholder)
+                    .accessibilityIdentifier("ui.paper-comment-composer-sheet.input")
             }
         }
         .appGroupedListStyle()
         .navigationTitle(target.title)
         .navigationBarTitleDisplayMode(.inline)
+        .task(id: isSubmissionRequested) {
+            guard isSubmissionRequested else { return }
+            let submitted = await onSubmit(text, anonymous)
+            guard !Task.isCancelled else { return }
+            isSubmissionRequested = false
+            if submitted { dismiss() }
+        }
         .toolbar {
             AppComposerToolbar(
-                isSubmitting: isSubmitting,
+                isSubmitting: isSubmitting || isSubmissionRequested,
                 submitTitle: "发布",
                 isSubmitDisabled: text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 onCancel: {
                     dismiss()
                 },
                 onSubmit: {
-                    onSubmit(text, anonymous)
+                    isSubmissionRequested = true
                 }
             )
         }

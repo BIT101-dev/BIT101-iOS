@@ -7,6 +7,65 @@ import ScheduleDomain
 import Testing
 
 struct ScheduleContractsTests {
+    @Test func extremeCourseFieldsAndShareExpansionAreRejectedBeforeAllocation() throws {
+        for input in ["1-1000000000", String(Int.max), String(Int.min), "-1000000000-1"] {
+            #expect(throws: Error.self) { try ScheduleCourseEditor.parseWeeks(input) }
+        }
+        #expect(try ScheduleCourseEditor.parseWeeks("-2,-1,1-3") == [-2, -1, 1, 2, 3])
+        #expect(throws: Error.self) {
+            try ScheduleCourseEditor.resolve(CourseDraft(title: "范围", startSection: 1, endSection: Int.max, weeksText: "1"))
+        }
+        let day = try #require(ScheduleSharedDateCodec.parseDate("2030-09-16"))
+        #expect(ScheduleSharedDateCodec.combine(firstDay: day, week: Int.max, weekday: 1, time: "08:00") == nil)
+        #expect(ScheduleSharedDateCodec.combine(firstDay: day, week: Int.min, weekday: 1, time: "08:00") == nil)
+        #expect(ScheduleSharedDateCodec.combine(firstDay: day, week: 1, weekday: Int.max, time: "08:00") == nil)
+        let oversized = "BIT101SCH3:" + String(repeating: "A", count: ScheduleShareCodeCodec.maximumEncodedBytes)
+        #expect(throws: ScheduleShareCodeError.invalidFormat) { try ScheduleShareCodeCodec.decode(oversized, using: ScheduleCache()) }
+        let expanded = Data(repeating: 32, count: ScheduleShareCodeCodec.maximumDecodedBytes + 1)
+        let compressed = try (expanded as NSData).compressed(using: .lzfse) as Data
+        #expect(throws: ScheduleShareCodeError.decompressionFailed) {
+            try ScheduleShareCodeCodec.decode("BIT101SCH3:" + compressed.base64EncodedString(), using: ScheduleCache())
+        }
+    }
+
+    @Test func sharePayloadValidatesCourseFieldsTimeSlotsAndCapacity() throws {
+        let slots = TimeSlot.default
+        for (weeks, weekday, first, last) in [([Int.max], 1, 1, 1), ([1], 8, 1, 1), ([1], 1, 0, 1), ([1], 1, 1, Int.max), ([1], 1, 1, slots.count + 1)] {
+            let course = sharedCourse(weeks: weeks, weekday: weekday, first: first, last: last)
+            let payload = ScheduleExportPayload(currentTerm: "", firstDayString: "", timeTable: slots, courses: [course])
+            #expect(throws: ScheduleShareCodeError.invalidFormat) { try payload.validate() }
+        }
+        let course = sharedCourse(weeks: [-2, -1, 1])
+        try ScheduleExportPayload(currentTerm: "", firstDayString: "", timeTable: slots, courses: [course]).validate()
+        #expect(throws: ScheduleShareCodeError.invalidFormat) {
+            try ScheduleShareCodeCodec.encodeLatest(courses: Array(repeating: course, count: ScheduleShareCodeCodec.maximumCourseCount + 1))
+        }
+        let midnight = ScheduleExportPayload(currentTerm: "", firstDayString: "", timeTable: [TimeSlot(id: 1, start: "23:00", end: "24:00")], courses: [course])
+        try midnight.validate()
+        let day = try #require(ScheduleSharedDateCodec.parseDate("2030-09-16"))
+        for time in ["08::00", ":08:00:", "08:00:", ":08:00", "08:", ":00"] {
+            #expect(ScheduleSharedDateCodec.combine(date: day, time: time) == nil)
+            #expect(TimeSlot.parseMinutes(time) == 0)
+            let malformed = ScheduleExportPayload(currentTerm: "", firstDayString: "", timeTable: [TimeSlot(id: 1, start: time, end: "09:00")], courses: [course])
+            #expect(throws: ScheduleShareCodeError.invalidFormat) { try malformed.validate() }
+        }
+    }
+
+    @Test func externalOccurrencesRetainCoursesBeforeTheFirstWeek() throws {
+        let snapshot = ScheduleExternalSnapshot(generatedAt: .distantPast, isLoggedIn: true, studentID: "negative-weeks",
+            firstDayString: "2030-09-16", timeTable: [.init(id: 1, start: "08:00", end: "08:45")],
+            courses: [.init(id: "negative", name: "首周前课程", classroom: "", teacher: "", weeks: [-2, -1, 1], weekday: 1, startSection: 1, endSection: 1)])
+        let now = try #require(ScheduleSharedDateCodec.parseDate("2030-09-01"))
+        let occurrences = ScheduleOccurrenceResolver.upcomingOccurrences(from: snapshot, now: now)
+        #expect(occurrences.count == 3)
+        #expect(occurrences.map { ScheduleSharedDateCodec.formatDate($0.startDate) } == ["2030-09-02", "2030-09-09", "2030-09-16"])
+    }
+
+    private func sharedCourse(weeks: [Int], weekday: Int = 1, first: Int = 1, last: Int = 1) -> CourseRecord {
+        CourseRecord(id: "share-validation", term: "", name: "课程", teacher: "", classroom: "", description: "", weeks: weeks,
+            weekday: weekday, startSection: first, endSection: last, campus: "", number: "", credit: 0, hour: 0, type: "", category: "", department: "")
+    }
+
     @Test @MainActor func scheduleDateDisplaysUseTheSharedSchoolTimeZone() throws {
         let day = try #require(ScheduleSharedDateCodec.parseDate("2026-10-01"))
         #expect(ScheduleDateCodec.formatTime(day) == "00:00")
@@ -123,6 +182,17 @@ struct ScheduleContractsTests {
             includeDisplayUntilDates: true,
             includeNextMidnight: true
         ) == occurrence.startDate)
+        for leadTime: TimeInterval in [1, 10, 29, 30] {
+            for displayDates in [true, false] {
+                #expect(ScheduleTimelineRefreshPlanner.nextRefreshDate(for: [occurrence], now: occurrence.startDate.addingTimeInterval(-leadTime),
+                    includeDisplayUntilDates: displayDates, includeNextMidnight: true) == occurrence.startDate)
+            }
+        }
+        #expect(ScheduleTimelineRefreshPlanner.nextRefreshDate(for: [occurrence], now: occurrence.displayUntilDate.addingTimeInterval(-10),
+            includeDisplayUntilDates: true, includeNextMidnight: false) == occurrence.displayUntilDate)
+        let midnight = try #require(ScheduleSharedDateCodec.calendar.date(byAdding: .day, value: 1, to: firstDay)).addingTimeInterval(1)
+        #expect(ScheduleTimelineRefreshPlanner.nextRefreshDate(for: [], now: midnight.addingTimeInterval(-10),
+            includeDisplayUntilDates: false, includeNextMidnight: true) == midnight)
     }
 
     @Test func emptyAndMissingSnapshotsHaveExplicitStates() {
@@ -155,6 +225,25 @@ struct ScheduleContractsTests {
 
 @MainActor
 struct ScheduleSharedStoreTests {
+    @Test func outOfOrderSnapshotsPreserveTheNewAccountAndLogout() throws {
+        let store = ScheduleExternalSnapshotStore(files: ModuleScoreFiles(), containerURL: URL(fileURLWithPath: "/module-shared-order"))
+        func value(_ revision: UInt64, _ account: String, loggedIn: Bool = true) -> ScheduleExternalSnapshot {
+            ScheduleExternalSnapshot(generatedAt: Date(timeIntervalSince1970: 100), revision: revision,
+                isLoggedIn: loggedIn, studentID: AccountStorageIdentity.stableToken(for: account),
+                firstDayString: "2026-09-28", timeTable: [], courses: [])
+        }
+        let current = value(2, "new-account")
+        #expect(try store.writeIfNewer(current))
+        #expect(throws: ScheduleExternalSnapshotStoreError.staleSnapshot) { try store.writeIfNewer(value(1, "old-account")) }
+        #expect(store.load() == current)
+        #expect(try store.writeIfNewer(current) == false)
+        let logout = value(3, "new-account", loggedIn: false)
+        #expect(try store.writeIfNewer(logout))
+        #expect(throws: ScheduleExternalSnapshotStoreError.staleSnapshot) { try store.writeIfNewer(current) }
+        #expect(store.load() == logout)
+        #expect(try ScheduleExternalSnapshotCodec.decode(ScheduleExternalSnapshotCodec.encode(logout)) == logout)
+    }
+
     private func snapshot(studentID: String = "shared-store-account") -> ScheduleExternalSnapshot {
         ScheduleExternalSnapshot(
             generatedAt: Date(timeIntervalSince1970: 0), isLoggedIn: true, studentID: studentID,
@@ -202,10 +291,13 @@ struct ScheduleSharedStoreTests {
             files: files, containerURL: URL(fileURLWithPath: "/module-shared-migration"), notificationCenter: center
         )
         let url = try #require(store.fileURL)
-        try files.writeData(ScheduleExternalSnapshotCodec.encode(snapshot()), to: url, options: [.atomic])
-        var migrated: ScheduleExternalSnapshot?
-        try await observeChange(on: center) { migrated = store.load() }
+        let original = try ScheduleExternalSnapshotCodec.encode(snapshot())
+        try files.writeData(original, to: url, options: [.atomic])
+        let migrated = store.load()
         #expect(migrated?.studentID == AccountStorageIdentity.stableToken(for: "shared-store-account"))
+        #expect(try files.readData(at: url) == original)
+        let sanitized = try #require(migrated)
+        try await observeChange(on: center) { try store.write(sanitized) }
         #expect(try ScheduleExternalSnapshotCodec.decode(files.readData(at: url)) == migrated)
     }
 

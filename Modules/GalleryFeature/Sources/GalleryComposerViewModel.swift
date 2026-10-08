@@ -13,7 +13,7 @@ nonisolated struct GalleryCustomTagDraft: Identifiable, Sendable {
 /// 发帖场景持有编辑、草稿与上传状态，异步结果核对账号和页面生命周期。
 @MainActor
 final class GalleryComposerViewModel: ObservableObject {
-    static let maximumImageCount = 9
+    static let maximumImageCount = ComposerDraftImagePolicy.maximumImageCount
     @Published var title: String
     @Published var text: String
     @Published var selectedTags: [String]
@@ -36,7 +36,7 @@ final class GalleryComposerViewModel: ObservableObject {
     private let drafts: any GalleryComposerDraftStoring
     private let currentIdentity: () -> CommunitySessionIdentity
     private let owner: CommunitySessionIdentity
-    private let prepareImageData: (Data) -> Data?
+    private let prepareImageData: (Data) async -> Data?
     private var generation = 0
     private var didCheckDraft = false
     private var didLoadClaims = false
@@ -47,7 +47,7 @@ final class GalleryComposerViewModel: ObservableObject {
 
     init(editingPoster: GalleryPosterDetail? = nil, service: any GalleryComposerServicing,
          images: any GalleryImageUploading, drafts: any GalleryComposerDraftStoring,
-         currentIdentity: @escaping () -> CommunitySessionIdentity, prepareImageData: @escaping (Data) -> Data?) {
+         currentIdentity: @escaping () -> CommunitySessionIdentity, prepareImageData: @escaping (Data) async -> Data?) {
         self.editingPoster = editingPoster
         self.service = service
         self.images = images
@@ -135,10 +135,16 @@ final class GalleryComposerViewModel: ObservableObject {
         anonymous = draft.anonymous
         isPublic = draft.isPublic
         selectedClaimID = draft.selectedClaimID
-        imageDrafts = draft.images.map {
-            ComposerImageDraft(previewData: $0.previewData, filename: $0.filename,
-                uploadData: $0.uploadData ?? prepareImageData($0.previewData), status: .failed("需要重新上传"))
+        var restored: [ComposerImageDraft] = []
+        for image in draft.images {
+            let uploadData: Data?
+            if let data = image.uploadData { uploadData = data }
+            else { uploadData = await prepareImageData(image.previewData) }
+            guard isCurrent(operation) else { return }
+            restored.append(ComposerImageDraft(previewData: image.previewData, filename: image.filename,
+                uploadData: uploadData, status: .failed("需要重新上传")))
         }
+        imageDrafts = restored
     }
 
     private func presentRecovery(_ result: ComposerDraftLoadResult<GalleryComposerDraftSnapshot>) {
@@ -229,8 +235,11 @@ final class GalleryComposerViewModel: ObservableObject {
                 do {
                     let sourceData = try await source()
                     guard isCurrent(operation) else { return }
-                    guard let data = sourceData, let prepared = prepareImageData(data) else { throw GalleryServiceError.uploadFailed }
-                    let draft = ComposerImageDraft(previewData: data, filename: "poster-\(UUID().uuidString).jpg", uploadData: prepared)
+                    guard let data = sourceData else { throw GalleryServiceError.uploadFailed }
+                    let prepared = await prepareImageData(data)
+                    guard isCurrent(operation) else { return }
+                    guard let prepared else { throw GalleryServiceError.uploadFailed }
+                    let draft = ComposerImageDraft(previewData: prepared, filename: "poster-\(UUID().uuidString).jpg", uploadData: prepared)
                     imageDrafts.append(draft)
                     await retryImageUpload(id: draft.id)
                 } catch {

@@ -126,9 +126,9 @@ func isRepresentableOnQuantizedAxis(
 }
 
 /// 根据首周日期计算课表页当前周次。
-func resolvedCurrentWeek(firstDay: Date) -> Int {
+func resolvedCurrentWeek(firstDay: Date, now: Date = .now) -> Int {
     let start = ScheduleDateCodec.calendar.startOfDay(for: firstDay)
-    let today = ScheduleDateCodec.calendar.startOfDay(for: Date())
+    let today = ScheduleDateCodec.calendar.startOfDay(for: now)
     let diff = ScheduleDateCodec.calendar.dateComponents([.day], from: start, to: today).day ?? 0
     return ScheduleWeekCodec.weekNumber(forDayOffset: diff)
 }

@@ -14,15 +14,185 @@ import StorageCore
 import TransportCore
 import ClientCore
 import ScheduleContracts
+import ScheduleActivityContracts
 import Foundation
+import Network
 import os
 import Security
 import Testing
 import UIKit
 @testable import BIT101_iOS
 
+private nonisolated final class DelayedSchoolCookieServer: Sendable {
+    private struct State: Sendable {
+        var connection: NWConnection?
+        var request = ""
+        var failure: NWError?
+        var port: UInt16?
+    }
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "SchoolCookieIsolationTests")
+    private let state = OSAllocatedUnfairLock(initialState: State())
+    init() throws {
+        listener = try NWListener(using: .tcp, on: .any)
+        listener.stateUpdateHandler = { [listener, state] value in
+            state.withLock {
+                if case .ready = value { $0.port = listener.port?.rawValue }
+                if case let .failed(error) = value { $0.failure = error }
+            }
+        }
+        listener.newConnectionHandler = { [self] connection in
+            connection.start(queue: queue)
+            receive(connection, buffered: Data())
+        }
+        listener.start(queue: queue)
+    }
+    private func receive(_ connection: NWConnection, buffered: Data) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 8_192) { [self] data, _, complete, error in
+            if let error { state.withLock { $0.failure = error }; return }
+            var bytes = buffered
+            if let data { bytes.append(data) }
+            let request = String(decoding: bytes, as: UTF8.self)
+            if request.contains("\r\n\r\n") { state.withLock { $0.connection = connection; $0.request = request } }
+            else if !complete { receive(connection, buffered: bytes) }
+        }
+    }
+    func url() async throws -> URL {
+        while true {
+            let snapshot = state.withLock { $0 }
+            if let failure = snapshot.failure { throw failure }
+            if let port = snapshot.port { return AppURL.required("http://127.0.0.1:\(port)/cookie-isolation") }
+            try Task.checkCancellation(); await Task.yield()
+        }
+    }
+    func waitForRequest() async throws {
+        while state.withLock({ $0.connection == nil }) {
+            if let error = state.withLock({ $0.failure }) { throw error }
+            try Task.checkCancellation(); await Task.yield()
+        }
+    }
+    func requestHasCookie() -> Bool { state.withLock { $0.request.lowercased().contains("\r\ncookie:") } }
+    func finish() {
+        let connection = state.withLock { value in let current = value.connection; value.connection = nil; return current }
+        let response = Data("HTTP/1.1 200 OK\r\nSet-Cookie: school-test=retired-session; Path=/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)
+        connection?.send(content: response, completion: .contentProcessed { _ in connection?.cancel() })
+    }
+    func stop() {
+        listener.newConnectionHandler = nil
+        listener.stateUpdateHandler = nil
+        state.withLock { $0.connection?.cancel() }
+        listener.cancel()
+    }
+}
+
+@MainActor
+struct SchoolCookieIsolationTests {
+    @Test(.timeLimit(.minutes(1)))
+    func delayedSessionCookieWritesRemainInTheRetiredAccountContainer() async throws {
+        let retiredCookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
+        let currentCookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
+        let state = TeachingCenterSessionState(cookieStorage: retiredCookies)
+        let server = try DelayedSchoolCookieServer()
+        defer { server.stop() }
+        var selections: [HTTPCookieStorage] = []
+        let transport = SchoolCookieTransport(state: state) { cookies in
+            selections.append(cookies)
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.httpCookieStorage = cookies
+            configuration.httpCookieAcceptPolicy = .always
+            return URLSessionTransport.make(configuration: configuration)
+        }
+        let request = URLRequest(url: try await server.url())
+        let oldRequest = Task { try await transport.data(for: request) }
+        defer { oldRequest.cancel() }
+        try await server.waitForRequest()
+        state.clearSchoolAuthenticationCookies()
+        state.replaceCookieStorage(with: currentCookies)
+        server.finish()
+        _ = try await oldRequest.value
+        #expect(retiredCookies.cookies?.contains(where: { $0.name == "school-test" }) == true)
+        #expect(currentCookies.cookies?.isEmpty == true)
+        #expect(state.hasUsableSession(for: "next-account") == false)
+        let newRequest = Task { try await transport.data(for: request) }
+        defer { newRequest.cancel() }
+        try await server.waitForRequest()
+        #expect(server.requestHasCookie() == false)
+        server.finish()
+        _ = try await newRequest.value
+        #expect(selections.count == 2 && selections[0] === retiredCookies && selections[1] === currentCookies)
+        currentCookies.setCookie(try #require(HTTPCookie(properties: [.domain: "webvpn.bit.edu.cn", .path: "/", .name: "school-owner", .value: "current-session"])))
+        #expect(state.hasUsableSession(for: "next-account") == false)
+        state.markAuthenticated(for: "next-account")
+        #expect(state.hasUsableSession(for: "next-account"))
+    }
+}
+
+#if DEBUG || RELEASE_NETWORK_SMOKE
+@MainActor
+struct NetworkSmokeSMSPromptTests {
+    @Test func submissionResumesTheWaitingRequestAndKeepsOverlappingRequestsIsolated() async throws {
+        let prompt = ReleaseNetworkSmokeSMSPrompt()
+        let request = SchoolSMSCodeRequest(maskedPhone: "138****0000", purpose: "jwb")
+        let waiting = Task { try await prompt.requestCode(request) }
+        while prompt.request == nil { await Task.yield() }
+        do {
+            _ = try await prompt.requestCode(SchoolSMSCodeRequest(maskedPhone: "", purpose: "webvpn"))
+            Issue.record("并行请求应保留当前验证码等待")
+        } catch { #expect(TaskCancellation.matches(error)) }
+        #expect(prompt.request?.id == request.id)
+        prompt.submit("123456")
+        #expect(try await waiting.value == "123456")
+        #expect(prompt.request == nil)
+    }
+
+    @Test func cancellationReleasesTheWaitAndAllowsTheNextChallenge() async throws {
+        let prompt = ReleaseNetworkSmokeSMSPrompt()
+        let request = SchoolSMSCodeRequest(maskedPhone: "138****0000", purpose: "jwb")
+        let waiting = Task { try await prompt.requestCode(request) }
+        while prompt.request == nil { await Task.yield() }
+        waiting.cancel()
+        do { _ = try await waiting.value; Issue.record("取消应终止验证码等待") }
+        catch { #expect(TaskCancellation.matches(error)) }
+        #expect(prompt.request == nil)
+        let next = Task { try await prompt.requestCode(request) }
+        while prompt.request == nil { await Task.yield() }
+        prompt.submit("654321")
+        #expect(try await next.value == "654321")
+        #expect(prompt.request == nil)
+    }
+}
+#endif
+
 @MainActor
 struct AppSettingsPersistenceBoundaryTests {
+    @Test(arguments: [false, true])
+    func corruptSettingsRetainTheirSourceThroughLoadEditsAndAccountReload(_ legacy: Bool) throws {
+        let domain = "BIT101AppTests.settings-corruption"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        var session = AppStorageSession(accountIdentifier: "damaged-settings")
+        let key = legacy ? session.legacyKey(AppSettingsStore.storageKeyPrefix) : session.key(AppSettingsStore.storageKeyPrefix)
+        let damaged = Data("damaged-settings".utf8)
+        defaults.set(damaged, forKey: key)
+        defaults.set(try JSONEncoder().encode(AppSettingsSnapshot()), forKey: AppSettingsStore.legacyStorageKey)
+        let settings = AppSettingsStore(defaults: defaults, session: { session })
+        #expect(settings.storageIssue != nil)
+        settings.updateGallerySettings(hideAnonymousContent: true)
+        settings.markSharedScheduleImportGuideSeen()
+        #expect(defaults.data(forKey: key) == damaged)
+        session = AppStorageSession(accountIdentifier: "valid-settings")
+        settings.reloadForCurrentAccount()
+        #expect(settings.storageIssue == nil)
+        session = AppStorageSession(accountIdentifier: "damaged-settings")
+        settings.reloadForCurrentAccount()
+        #expect(settings.storageIssue != nil)
+        #expect(defaults.data(forKey: key) == damaged)
+        settings.resetToDefaults()
+        #expect(settings.storageIssue == nil)
+        #expect(AppSettingsStore.loadSnapshotFromDefaults(for: session.accountIdentifier, defaults: defaults) != nil)
+    }
+
     @Test func settingsSnapshotsShareGuestKeysAndAccountMigrations() throws {
         let domain = "BIT101AppTests.settings-boundary"
         let defaults = try #require(UserDefaults(suiteName: domain))
@@ -161,29 +331,50 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
     private struct State {
         var data: [URL: Data] = [:]
         var directories: Set<URL> = []
+        var failsRemoval = false
+        var failsWriting = false
+        var nextRead: (@Sendable () -> Void)?
     }
     init(requireExistingParentDirectories: Bool = false) {
         self.requireExistingParentDirectories = requireExistingParentDirectories
+    }
+    func setFailures(removal: Bool = false, writing: Bool = false) {
+        state.withLock { $0.failsRemoval = removal; $0.failsWriting = writing }
     }
     var temporaryDirectoryURL: URL { URL(fileURLWithPath: "/preference-sync") }
     func directoryURL(_ directory: FileManager.SearchPathDirectory) -> URL? { temporaryDirectoryURL }
     func appGroupContainerURL(identifier: String) -> URL? { temporaryDirectoryURL }
     func fileExists(at url: URL) -> Bool { state.withLock { $0.data[url] != nil } }
     func readData(at url: URL) throws -> Data {
-        try state.withLock { state in
+        let intercept = state.withLock { state in
+            let callback = state.nextRead
+            state.nextRead = nil
+            return callback
+        }
+        intercept?()
+        return try state.withLock { state in
             guard let value = state.data[url] else { throw CocoaError(.fileReadNoSuchFile) }
             return value
         }
     }
+    func interceptNextRead(_ callback: @escaping @Sendable () -> Void) {
+        state.withLock { $0.nextRead = callback }
+    }
     func writeData(_ value: Data, to url: URL, options: Data.WritingOptions) throws {
         try state.withLock { state in
+            if state.failsWriting { throw CocoaError(.fileWriteNoPermission) }
             if requireExistingParentDirectories && !state.directories.contains(url.deletingLastPathComponent()) {
                 throw CocoaError(.fileNoSuchFile)
             }
             state.data[url] = value
         }
     }
-    func removeItem(at url: URL) throws { state.withLock { $0.data[url] = nil } }
+    func removeItem(at url: URL) throws {
+        try state.withLock { state in
+            if state.failsRemoval { throw CocoaError(.fileWriteNoPermission) }
+            state.data[url] = nil
+        }
+    }
     func createDirectory(at url: URL) throws { _ = state.withLock { $0.directories.insert(url) } }
     func setPrivateFileProtection(at url: URL) throws {}
     func setExcludedFromBackup(at url: URL) throws {}
@@ -196,6 +387,7 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
     func setModificationDate(_ date: Date, at url: URL) throws {}
     func removeContents(of directory: URL) -> Bool {
         return state.withLock { state in
+            guard !state.failsRemoval else { return false }
             state.data = state.data.filter { !$0.key.path.hasPrefix(directory.path + "/") }
             state.directories = state.directories.filter { !$0.path.hasPrefix(directory.path + "/") }
             return true
@@ -211,6 +403,7 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
 @Suite("Login bootstrap behavior")
 struct LoginBootstrapTests {
     private final class LoginServiceStub: LoginServicing {
+        var sessionChanges: AnyPublisher<Void, Never> { Empty().eraseToAnyPublisher() }
         enum CheckResult {
             case signedOut
             case failed
@@ -444,10 +637,13 @@ struct InfrastructureTests {
         #expect(state.nextCursor == 9)
         #expect(state.shouldLoadMore(currentID: 9))
 
-        state.appendCursorPage([TestItem(id: 8)])
+        state.appendCursorPage([TestItem(id: 9), TestItem(id: 8), TestItem(id: 8)])
         #expect(state.items.map(\.id) == [10, 9, 8])
         #expect(state.nextCursor == 8)
 
+        state.appendCursorPage([TestItem(id: 8)])
+        #expect(state.items.map(\.id) == [10, 9, 8])
+        #expect(!state.canLoadMore)
         state.appendCursorPage([])
         #expect(state.nextCursor == 8)
         #expect(!state.canLoadMore)
@@ -496,85 +692,24 @@ struct ScorePresentationTests {
 }
 
 @MainActor
-@Suite("Score detail refresh policy")
-struct ScoreDetailRefreshPolicyTests {
-    private let now = Date(timeIntervalSince1970: 1_800_000_000)
-
-    @Test("Unchanged completed scores reuse detailed cache")
-    func completedCacheIsReused() {
-        let brief = [makeBrief(score: "90")]
-        let cached = [makeDetailed(score: "90", completion: "是")]
-        #expect(ScoreDetailRefreshPolicy.decision(
-            briefRows: brief,
-            cachedRows: cached,
-            detailedUpdatedAt: nil,
-            now: now
-        ) == .reuseCompletedCache)
-    }
-
-    @Test("New deleted or changed brief scores require detail refresh")
-    func changedBriefRequiresDetails() {
-        let cached = [makeDetailed(score: "90", completion: "是")]
-        #expect(ScoreDetailRefreshPolicy.decision(
-            briefRows: [makeBrief(score: "91")],
-            cachedRows: cached,
-            detailedUpdatedAt: now,
-            now: now
-        ) == .fetch)
-        #expect(ScoreDetailRefreshPolicy.decision(
-            briefRows: [makeBrief(score: "90"), makeBrief(number: "NEW-1", score: "88")],
-            cachedRows: cached,
-            detailedUpdatedAt: now,
-            now: now
-        ) == .fetch)
-        #expect(ScoreDetailRefreshPolicy.decision(
-            briefRows: [],
-            cachedRows: cached,
-            detailedUpdatedAt: now,
-            now: now
-        ) == .fetch)
-    }
-
-    @Test("Incomplete unchanged details are limited to once per day")
-    func incompleteCacheIsRateLimited() {
-        let brief = [makeBrief(score: "90")]
-        let cached = [makeDetailed(score: "90", completion: "否")]
-        #expect(ScoreDetailRefreshPolicy.decision(
-            briefRows: brief,
-            cachedRows: cached,
-            detailedUpdatedAt: now.addingTimeInterval(-60 * 60),
-            now: now
-        ) == .reuseRateLimitedCache)
-        #expect(ScoreDetailRefreshPolicy.decision(
-            briefRows: brief,
-            cachedRows: cached,
-            detailedUpdatedAt: now.addingTimeInterval(-25 * 60 * 60),
-            now: now
-        ) == .fetch)
-    }
-
-    private func makeBrief(number: String = "MATH-1", score: String) -> ScoreRow {
-        ScoreRow(
-            index: 0,
-            headers: ["序号", "开课学期", "课程编号", "课程名称", "成绩", "学分", "操作栏"],
-            values: ["1", "2025-2026-2", number, "高等数学", score, "4", "查看"]
-        )
-    }
-
-    private func makeDetailed(number: String = "MATH-1", score: String, completion: String) -> ScoreRow {
-        ScoreRow(
-            index: 0,
-            headers: [
-                "序号", "开课学期", "课程编号", "课程名称", "成绩", "学分", "操作栏",
-                "平均分", "该课程所有教学班成绩录入完毕", "本人成绩在班级中占",
-            ],
-            values: ["9", "2025-2026-2", number, "高等数学", score, "4", "", "82.5", completion, "10%"]
-        )
-    }
-}
-
 @Suite("Watch and Widget shared runtime contracts")
 struct ExternalScheduleInfrastructureTests {
+    #if !targetEnvironment(macCatalyst)
+    @Test("Live Activity preserves account and course presentation across encoding")
+    func liveActivityContractRoundTrip() throws {
+        let attributes = CourseReminderActivityAttributes(studentID: "activity-account")
+        let state = CourseReminderActivityAttributes.ContentState(
+            kindText: "课程", title: "高等数学", classroom: "理教201", teacher: "张老师",
+            timeRangeText: "08:00–09:30", countdownTargetDate: Date(timeIntervalSince1970: 1_000))
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        #expect(try decoder.decode(CourseReminderActivityAttributes.self,
+            from: encoder.encode(attributes)).studentID == "activity-account")
+        #expect(try decoder.decode(CourseReminderActivityAttributes.ContentState.self,
+            from: encoder.encode(state)) == state)
+    }
+    #endif
+
     @Test("Snapshot codec preserves the shared contract")
     func snapshotCodecRoundTrip() throws {
         let snapshot = makeSnapshot()
@@ -655,6 +790,12 @@ struct ExternalScheduleInfrastructureTests {
             includeNextMidnight: false
         ) == start)
 
+        for leadTime: TimeInterval in [1, 10, 29, 30] {
+            #expect(ScheduleTimelineRefreshPlanner.nextRefreshDate(for: [occurrence], now: start.addingTimeInterval(-leadTime),
+                includeDisplayUntilDates: false, includeNextMidnight: true) == start)
+        }
+        #expect(ScheduleTimelineRefreshPlanner.nextRefreshDate(for: [occurrence], now: displayUntil.addingTimeInterval(-10),
+            includeDisplayUntilDates: true, includeNextMidnight: false) == displayUntil)
         let duringDisplayWindow = start.addingTimeInterval(60)
         #expect(ScheduleTimelineRefreshPlanner.nextRefreshDate(
             for: [occurrence],
@@ -675,6 +816,9 @@ struct ExternalScheduleInfrastructureTests {
             includeDisplayUntilDates: false,
             includeNextMidnight: true
         ) == nextMidnight)
+        let midnight = try #require(nextMidnight)
+        #expect(ScheduleTimelineRefreshPlanner.nextRefreshDate(for: [], now: midnight.addingTimeInterval(-10),
+            includeDisplayUntilDates: false, includeNextMidnight: true) == midnight)
     }
 
     private func makeSnapshot(

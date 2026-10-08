@@ -371,7 +371,11 @@ extension UITestHTTPTransport {
 }
 
 @MainActor
-final class UITestPreferenceCloudStore: PreferenceCloudStoring {
+final class UITestPreferenceCloudStore: PreferenceCloudStoring, LoginCredentialsStoring {
+    private var keys: [String: String] = [:]
+    func read(account: String) throws -> String { keys[account] ?? "" }
+    func save(_ value: String, account: String) throws { keys[account] = value }
+    func delete(account: String) -> Bool { keys[account] = nil; return true }
     private(set) var dictionaryRepresentation: [String: Any] = [:]
     func data(forKey key: String) -> Data? { dictionaryRepresentation[key] as? Data }
     func set(_ value: Any?, forKey key: String) { dictionaryRepresentation[key] = value }

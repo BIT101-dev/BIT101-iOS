@@ -22,6 +22,11 @@ public final class ScoreFilterPreferenceStore: ScoreFilterPreferencesStoring {
         store.load()
     }
 
+    public var hasUnreadableSnapshot: Bool {
+        if case .unreadable = store.read() { return true }
+        return false
+    }
+
     public func save(
         selectedTerms: Set<String>,
         selectedCourseTypes: Set<String>,
@@ -34,14 +39,14 @@ public final class ScoreFilterPreferenceStore: ScoreFilterPreferencesStoring {
             sortIndex: sortIndex.rawValue,
             sortOrder: sortOrder.rawValue
         )
-        store.save(snapshot)
+        guard store.save(snapshot) else { return }
         saveSubject.send(session())
         changeSubject.send(session())
     }
 
     /// 将 iCloud 筛选偏好写入本地存储，并发布所属账号的变更。
     public func applySynced(_ snapshot: ScoreFilterPreferenceSnapshot) {
-        store.save(snapshot)
+        guard store.save(snapshot) else { return }
         changeSubject.send(session())
     }
 }

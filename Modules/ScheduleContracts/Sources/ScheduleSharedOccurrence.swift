@@ -1,5 +1,15 @@
 import Foundation
 
+/// 排课字段覆盖首周前后的一学年，节次采用一天的分钟容量。
+public nonisolated enum ScheduleCourseConstraints {
+    public static let maximumWeek = 53
+    public static var validWeeks: [Int] { Array(-maximumWeek...maximumWeek).filter(isValidWeek) }
+    public static let maximumSection = 24 * 60
+    public static func isValidWeek(_ week: Int) -> Bool {
+        week != 0 && (-maximumWeek...maximumWeek).contains(week)
+    }
+}
+
 /// 日程相关跨 target 共用的展示规范化工具。
 ///
 /// 当前收口两类分散的展示规则：
@@ -293,6 +303,7 @@ public nonisolated enum ScheduleSharedDateCodec {
     }
 
     public static func combine(firstDay: Date, week: Int, weekday: Int, time: String) -> Date? {
+        guard ScheduleCourseConstraints.isValidWeek(week), (1...7).contains(weekday) else { return nil }
         let weekOffset = week > 0 ? week - 1 : week
         let dayOffset = weekOffset * 7 + (weekday - 1)
         guard let day = calendar.date(byAdding: .day, value: dayOffset, to: firstDay) else {
@@ -302,12 +313,12 @@ public nonisolated enum ScheduleSharedDateCodec {
     }
 
     public static func combine(date: Date, time: String) -> Date? {
-        let parts = time.split(separator: ":")
+        let parts = time.split(separator: ":", omittingEmptySubsequences: false)
         guard
             parts.count == 2,
             let hour = Int(parts[0]),
             let minute = Int(parts[1]),
-            (0...23).contains(hour),
+            (0...23).contains(hour) || hour == 24 && minute == 0,
             (0...59).contains(minute)
         else {
             return nil
@@ -416,7 +427,6 @@ public nonisolated enum ScheduleTimelineRefreshPlanner {
         includeNextMidnight: Bool,
         fallbackInterval: TimeInterval = 30 * 60
     ) -> Date {
-        let threshold = now.addingTimeInterval(30)
         var candidates = occurrences.map(\.startDate)
 
         if includeDisplayUntilDates {
@@ -433,7 +443,7 @@ public nonisolated enum ScheduleTimelineRefreshPlanner {
         }
 
         return candidates
-            .filter { $0 > threshold }
+            .filter { $0 > now }
             .min()
             ?? now.addingTimeInterval(fallbackInterval)
     }
@@ -463,7 +473,7 @@ public nonisolated enum ScheduleOccurrenceResolver {
             .flatMap { course in
                 course.weeks.compactMap { week -> ScheduleExternalOccurrence? in
                     guard
-                        week > 0,
+                        ScheduleCourseConstraints.isValidWeek(week),
                         (1...7).contains(course.weekday),
                         let startSlot = slotMap[course.startSection],
                         let endSlot = slotMap[course.endSection],

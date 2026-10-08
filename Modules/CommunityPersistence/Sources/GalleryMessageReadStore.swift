@@ -13,24 +13,44 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
     private let saveSubject = PassthroughSubject<AppStorageSession, Never>()
     public var localSaves: AnyPublisher<AppStorageSession, Never> { saveSubject.eraseToAnyPublisher() }
     private let session: () -> AppStorageSession
+    private let defaults: UserDefaults
+    private var cachedSnapshot: (session: AppStorageSession, data: Data?, snapshot: GalleryMessageReadSnapshot)?
 
     private let snapshotStore: AccountScopedCodableStore<GalleryMessageReadSnapshot>
 
     public init(defaults: UserDefaults, session: @escaping () -> AppStorageSession) {
         self.session = session
+        self.defaults = defaults
         snapshotStore = AccountScopedCodableStore(keyPrefix: "gallery.message.read.snapshot", defaults: defaults, sessionProvider: session)
+    }
+
+    public var hasUnreadableSnapshot: Bool {
+        if case .unreadable = snapshotStore.read() { return true }
+        return false
     }
 
     /// 读取当前账号对应的本地快照。
     ///
     /// 这里故意完全按账号隔离，避免切换学号后把上一个账号的消息已读状态串过来。
     private func loadSnapshot() -> GalleryMessageReadSnapshot {
-        snapshotStore.load() ?? GalleryMessageReadSnapshot()
+        let account = session()
+        let data = defaults.data(forKey: snapshotStore.storageKey)
+            ?? defaults.data(forKey: account.legacyKey("gallery.message.read.snapshot"))
+        if let cachedSnapshot, cachedSnapshot.session == account, cachedSnapshot.data == data {
+            return cachedSnapshot.snapshot
+        }
+        let loaded = snapshotStore.load() ?? GalleryMessageReadSnapshot()
+        let snapshot = loaded.compacted()
+        if snapshot != loaded { snapshotStore.save(snapshot) }
+        cachedSnapshot = (account, defaults.data(forKey: snapshotStore.storageKey), snapshot)
+        return snapshot
     }
 
     /// 回写当前账号的本地快照。
     private func saveSnapshot(_ snapshot: GalleryMessageReadSnapshot, shouldSync: Bool = true) {
-        snapshotStore.save(snapshot)
+        let bounded = snapshot.compacted()
+        guard snapshotStore.save(bounded) else { cachedSnapshot = nil; return }
+        cachedSnapshot = (session(), defaults.data(forKey: snapshotStore.storageKey), bounded)
         if shouldSync {
             saveSubject.send(session())
         }
@@ -40,7 +60,6 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
     public func syncSnapshot() -> GalleryMessageReadSnapshot {
         var snapshot = loadSnapshot()
         snapshot.latestIDsByType = [:]
-        snapshot.seenIDsByType = snapshot.seenIDsByType.mapValues { Array(Set($0)).sorted() }
         return snapshot
     }
 
@@ -48,7 +67,7 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
         saveSnapshot(loadSnapshot().mergingReadState(snapshot), shouldSync: false)
     }
 
-    /// 用服务端给出的未读数量，重建当前分类的“候选新消息”集合。
+    /// 用服务端给出的未读数量，合并当前分类的候选新消息。
     ///
     /// 当服务端未读数为 0 时保留本地结果，让用户打开列表后继续看到当前的新消息样式。
     public func replaceLatestIDs(_ ids: [Int], unreadCount: Int, for type: GalleryMessageType) {
@@ -59,7 +78,8 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
         let normalizedLatest = normalize(latestUnread)
         let existingSeen = Set(snapshot.seenIDsByType[type.rawValue] ?? [])
 
-        snapshot.latestIDsByType[type.rawValue] = normalizedLatest
+        let previousLatest = Set(snapshot.latestIDsByType[type.rawValue] ?? [])
+        snapshot.latestIDsByType[type.rawValue] = Array(previousLatest.union(normalizedLatest).subtracting(existingSeen)).sorted()
         snapshot.seenIDsByType[type.rawValue] = Array(existingSeen).sorted()
         saveSnapshot(snapshot)
     }

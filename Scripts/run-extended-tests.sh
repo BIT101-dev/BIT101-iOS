@@ -20,6 +20,7 @@ if [[ "${1:-}" == report || "${1:-}" == screenshot || "${1:-}" == activities || 
     diagnostics) [[ $# -eq 1 ]] || exit 64 ;;
     *) [[ $# -eq 2 ]] || { echo "请提供测试类/方法。" >&2; exit 64; } ;;
   esac
+  bit101_acquire_workflow_lock "$0" "$@"
   if [[ "$1" == report && $# -eq 1 && -f "$DERIVED_ROOT/test-metrics.txt" ]]; then
     cat "$DERIVED_ROOT/test-metrics.txt"
     if [[ -f "$DERIVED_ROOT/test-failures.txt" ]]; then cat "$DERIVED_ROOT/test-failures.txt"; fi
@@ -35,6 +36,14 @@ from pathlib import Path
 bundle = Path(sys.argv[1])
 if not (bundle / "database.sqlite3").is_file() or (bundle / "Staging").exists():
     raise SystemExit("测试结果可在运行结束后通过 report 读取。")
+
+if sys.argv[2] == "json":
+    print(subprocess.check_output(["xcrun", "xcresulttool", "get", "test-results", "tests", "--path", str(bundle)], text=True))
+    raise SystemExit(0)
+
+if sys.argv[2] == "coverage":
+    print(subprocess.check_output(["xcrun", "xccov", "view", "--report", "--json", str(bundle)], text=True))
+    raise SystemExit(0)
 
 if sys.argv[3] == "diagnostics":
     output = bundle.parent / "diagnostics"
@@ -113,41 +122,20 @@ fi
 if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
   echo "Scripts/run-extended-tests.sh                    自动选机、运行完整行为测试"
   echo "Scripts/run-extended-tests.sh modules            本机模块测试"
+  echo "Scripts/run-extended-tests.sh release-runtime    正式编译条件下的组装合同"
   echo "Scripts/run-extended-tests.sh ui [用例关键词]...  真机 UI 测试，多个筛选合并执行"
   echo "Scripts/run-extended-tests.sh build [宿主]        编译测试宿主，默认 release"
-  echo "Scripts/run-extended-tests.sh report              读取测试结果"
+  echo "Scripts/run-extended-tests.sh report [json|coverage] 读取测试结果、用例树或覆盖率"
   echo "Scripts/run-extended-tests.sh cache               整理共享构建缓存"
-  echo "分组：schedule、infrastructure、login、extensions、catalyst；组后可直接填写测试类/方法。"
-  echo "宿主：release、ui、network-smoke、icloud-smoke、modules、catalyst。"
+  echo "分组：release-runtime、schedule、infrastructure、login、extensions、catalyst；组后可直接填写测试类/方法。"
+  echo "宿主：release、release-runtime、ui、network-smoke、icloud-smoke、modules、catalyst。"
   echo "专项：verify [分组]...；diagnostics；report|screenshot|activities 测试类/方法。"
   exit 0
 fi
 SCRIPT_PATH="$0"
 SCRIPT_ARGS=("$@")
 acquire_test_lock() {
-  if [[ "${BIT101_EXTENDED_TESTS_LOCK_HELD:-0}" != "1" ]]; then
-    exec python3 - "$ROOT_DIR/.build/extended-automation.lock" "$SCRIPT_PATH" "${SCRIPT_ARGS[@]}" <<'PY'
-import fcntl
-import os
-from pathlib import Path
-import subprocess
-import sys
-
-lock_path = Path(sys.argv[1])
-lock_path.parent.mkdir(parents=True, exist_ok=True)
-with lock_path.open("a") as lock:
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        print("[等待] 既有测试正在使用固定产物目录。", flush=True)
-        fcntl.flock(lock, fcntl.LOCK_EX)
-    environment = dict(os.environ, BIT101_EXTENDED_TESTS_LOCK_HELD="1")
-    script = Path(sys.argv[2])
-    command = ["zsh", "-c", script.read_text(), str(script), *sys.argv[3:]]
-    result = subprocess.run(command, env=environment)
-    raise SystemExit(result.returncode if result.returncode >= 0 else 128 - result.returncode)
-PY
-  fi
+  bit101_acquire_workflow_lock "$SCRIPT_PATH" "${SCRIPT_ARGS[@]}"
 }
 TEST_BUNDLE="BIT101-iOSTests"
 TEST_SCHEME="BIT101-iOS"
@@ -166,34 +154,35 @@ if [[ "${1:-}" == build ]]; then
   MODE="${1:-release}"
   if (( $# > 0 )); then shift; fi
   case "$MODE" in
-    release|ui|network-smoke|icloud-smoke) GENERIC_BUILD=true ;;
+    release|release-runtime|ui|network-smoke|icloud-smoke) GENERIC_BUILD=true ;;
     modules|catalyst) ;;
-    *) echo "编译宿主：release、ui、network-smoke、icloud-smoke、modules、catalyst。" >&2; exit 64 ;;
+    *) echo "编译宿主：release、release-runtime、ui、network-smoke、icloud-smoke、modules、catalyst。" >&2; exit 64 ;;
   esac
 fi
 if ! $BUILD_ONLY && [[ $# -gt 0 ]]; then
   case "$1" in
-    all|schedule|infrastructure|login|extensions|ui|catalyst|modules|verify)
+    all|release-runtime|schedule|infrastructure|login|extensions|ui|catalyst|modules|verify)
       MODE="$1"
       shift
       ;;
   esac
 fi
 
-export BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest)"
+BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest)"
+export BIT101_VALIDATION_SOURCE_DIGEST
 
 if [[ "$MODE" == "verify" ]]; then
   typeset -aU verification_groups
   verification_groups=("$@")
   if (( ${#verification_groups[@]} == 0 )); then
-    verification_groups=(modules all catalyst ui network icloud audit)
+    verification_groups=(modules all release-runtime catalyst ui network community-writes icloud build-archive audit)
   fi
   verification_needs_device=false
   for group in "${verification_groups[@]}"; do
     case "$group" in
-      all|ui|network|ddl|icloud) verification_needs_device=true ;;
-      modules|catalyst|audit) ;;
-      *) echo "验证组：modules all catalyst ui network ddl icloud audit" >&2; exit 64 ;;
+      all|release-runtime|ui|network|community-writes|ddl|icloud) verification_needs_device=true ;;
+      modules|catalyst|build-archive|audit) ;;
+      *) echo "验证组：modules all release-runtime catalyst ui network community-writes ddl icloud build-archive audit" >&2; exit 64 ;;
     esac
   done
   acquire_test_lock
@@ -207,9 +196,12 @@ if [[ "$MODE" == "verify" ]]; then
     trap - EXIT ZERR INT TERM
     if $verification_needs_device; then
       echo "[恢复] 安装并启动常规 Release App"
+      local restore_status=0
       if ! "$ROOT_DIR/Scripts/build-install-device.sh"; then
+        restore_status=1
         if (( verification_status == 0 )); then verification_status=1; fi
       fi
+      python3 "$ROOT_DIR/Scripts/validation_evidence.py" record restore "$restore_status" || verification_status=$?
     fi
     exit "$verification_status"
   }
@@ -233,10 +225,12 @@ if [[ "$MODE" == "verify" ]]; then
   for group in "${verification_groups[@]}"; do
     case "$group" in
       modules|catalyst) verify_step "$group" "$0" "$group" ;;
-      all|ui) verify_step "$group" "$0" "$group" ;;
+      all|release-runtime|ui) verify_step "$group" "$0" "$group" ;;
       network) verify_step network "$ROOT_DIR/Scripts/release-network-smoke.sh" ;;
+      community-writes) verify_step community-writes "$ROOT_DIR/Scripts/release-network-smoke.sh" community-writes ;;
       ddl) verify_step ddl "$ROOT_DIR/Scripts/release-network-smoke.sh" ddl ;;
       icloud) verify_step icloud "$ROOT_DIR/Scripts/run_icloud_cross_device_smoke.sh" ;;
+      build-archive) verify_step build-archive "$ROOT_DIR/Scripts/build-install-device.sh" archive ;;
       audit) verify_step audit "$ROOT_DIR/Scripts/run-static-audit.sh" ;;
     esac
   done
@@ -271,7 +265,27 @@ if [[ ( "$MODE" == modules || "$BUILD_ONLY" == true ) && ${#TEST_SELECTIONS[@]} 
 fi
 
 validation_scope=full
-if (( ${#TEST_SELECTIONS[@]} > 0 )); then validation_scope=selected; fi
+unset BIT101_VALIDATION_EXPECTED_TESTS
+if (( ${#TEST_SELECTIONS[@]} > 0 )); then
+  validation_scope=selected
+  BIT101_VALIDATION_EXPECTED_TESTS="$(python3 - "$ROOT_DIR/Scripts" "$MODE" "${TEST_SELECTIONS[@]}" <<'PYSELECT'
+import json
+import sys
+sys.path.insert(0, sys.argv[1])
+from validation_evidence import selected_test_inventory
+try:
+    print(json.dumps(sorted(selected_test_inventory(sys.argv[2], sys.argv[3:]))))
+except ValueError as error:
+    raise SystemExit(str(error))
+PYSELECT
+)" || exit 64
+  export BIT101_VALIDATION_EXPECTED_TESTS
+fi
+if [[ "$MODE" == schedule || "$MODE" == infrastructure || "$MODE" == login || "$MODE" == extensions ]] \
+    && (( ${#TEST_SELECTIONS[@]} == 0 )); then
+  selections="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" suites "$MODE")" || exit 1
+  TEST_SELECTIONS=("${(@f)selections}")
+fi
 validation_group="$MODE"
 if $BUILD_ONLY; then validation_group="build-$MODE"; fi
 finish_validation() {
@@ -307,23 +321,28 @@ if [[ "$MODE" == ui && ${#TEST_SELECTIONS[@]} -gt 0 ]]; then
   echo "[筛选] ${#TEST_SELECTIONS[@]} 项 UI 用例 · 同一批次执行"
 fi
 
-if [[ "$MODE" == "ui" && "$BUILD_ONLY" == false && "${BIT101_DEFER_APP_RESTORE:-0}" != "1" ]]; then
-  UI_TEST_EXECUTION_STARTED=false
+if [[ "$BUILD_ONLY" == false && "$MODE" != modules && "$MODE" != catalyst && "${BIT101_DEFER_APP_RESTORE:-0}" != "1" ]]; then
+  DEVICE_TEST_EXECUTION_STARTED=false
   restore_release_app() {
     local test_exit_code=$?
     trap - EXIT ZERR INT TERM
-    if $UI_TEST_EXECUTION_STARTED; then
+    if $DEVICE_TEST_EXECUTION_STARTED; then
       echo "[恢复] 安装并启动常规 Release App"
+      local restore_status=0
       if ! "$ROOT_DIR/Scripts/build-install-device.sh"; then
+        restore_status=1
         echo "常规 Release App 恢复失败，请运行 Scripts/build-install-device.sh" >&2
+        if (( test_exit_code == 0 )); then test_exit_code=1; fi
+      fi
+      if ! python3 "$ROOT_DIR/Scripts/validation_evidence.py" record restore "$restore_status"; then
         if (( test_exit_code == 0 )); then test_exit_code=1; fi
       fi
     fi
     local workflow_seconds=$(( SECONDS - WORKFLOW_STARTED_SECONDS ))
     if [[ -f "$DERIVED_ROOT/test-metrics.txt" ]]; then
-      print -r -- "UI 工作流总耗时（含恢复）：${workflow_seconds} 秒" >> "$DERIVED_ROOT/test-metrics.txt"
+      print -r -- "$validation_group 工作流总耗时（含恢复）：${workflow_seconds} 秒" >> "$DERIVED_ROOT/test-metrics.txt"
     fi
-    echo "[UI 工作流] ${workflow_seconds} 秒（含恢复）"
+    echo "[测试工作流] ${workflow_seconds} 秒（含恢复）"
     python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$test_exit_code" "$validation_scope" || test_exit_code=$?
     exit "$test_exit_code"
   }
@@ -349,8 +368,10 @@ if [[ "$MODE" == "modules" ]]; then
         --configuration release
   else
     echo "[测试] 模块消费者 · macOS 原生 Release"
+    rm -f "$DERIVED_ROOT/module-events.jsonl"
     bit101_run_logged "$DERIVED_ROOT/module-tests.log" "模块离线测试" \
       xcrun swift test --enable-code-coverage \
+        --event-stream-version 0 --event-stream-output-path "$DERIVED_ROOT/module-events.jsonl" \
         --package-path "$ROOT_DIR" \
         --scratch-path "$DERIVED_ROOT" \
         --configuration release
@@ -366,6 +387,12 @@ import sys
 coverage_path, report_path, root_path = map(Path, sys.argv[1:])
 test_counts = re.findall(r"Test run with (\d+) tests?", (report_path.parent / "module-tests.log").read_text())
 test_count = sum(map(int, test_counts))
+executed = []
+for line in (report_path.parent / "module-events.jsonl").read_text().splitlines():
+    if line.startswith('{"'):
+        event = json.loads(line)
+        if event.get("kind") == "event" and event.get("payload", {}).get("kind") == "testEnded":
+            executed.append(event["payload"]["testID"])
 if test_count == 0:
     raise SystemExit("模块测试需要实际执行用例。")
 products = coverage_path.parent.parent
@@ -400,6 +427,8 @@ rows = ["# 模块生产源码行覆盖率", f"测试通过：{test_count} 项",
     for name, (covered, count) in sorted(modules.items())
 ]]
 report_path.write_text("\n".join(rows) + "\n")
+with report_path.open("a") as stream:
+    stream.write("已执行用例：" + json.dumps(sorted(set(executed))) + "\n")
 summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
 if summary_path:
     table = ["## 模块回归", f"{test_count} 项测试通过；统计范围为 macOS 可执行生产源码。",
@@ -417,7 +446,6 @@ fi
 
 ui_test_plan() {
   python3 - "$DERIVED_ROOT/Build/Products" <<'PY'
-import plistlib
 import sys
 from pathlib import Path
 
@@ -426,15 +454,6 @@ plans = list(products.glob("BIT101-iOS-UIAutomation_*_iphoneos*.xctestrun"))
 if not plans:
     raise SystemExit("UI 宿主编译产物需要包含 .xctestrun 运行配置。")
 plan = max(plans, key=lambda path: path.stat().st_mtime)
-with plan.open("rb") as stream:
-    configuration = plistlib.load(stream)
-for variant in configuration["TestConfigurations"]:
-    for target in variant["TestTargets"]:
-        if target.get("IsUITestBundle"):
-            target["UITargetAppMainThreadCheckerEnabled"] = False
-            target["UITargetAppPerformanceAntipatternCheckerEnabled"] = False
-with plan.open("wb") as stream:
-    plistlib.dump(configuration, stream)
 print(plan)
 PY
 }
@@ -456,6 +475,9 @@ run_tests() {
     test_action=build-for-testing
   else
     execution_args+=(-resultBundlePath "$RESULT_BUNDLE")
+    if [[ "$MODE" != catalyst && "$MODE" != ui ]]; then
+      rm -f "$DERIVED_ROOT/Build/ProfileData/$BIT101_XCODE_DEVICE_ID/"*.profdata(N)
+    fi
   fi
   if [[ "$MODE" == "ui" ]]; then
     execution_args+=(-parallel-testing-enabled NO)
@@ -484,8 +506,8 @@ run_tests() {
     ui_plan_path="$(ui_test_plan)" || return 1
     project_args=(-xctestrun "$ui_plan_path")
     test_action=test-without-building
-    UI_TEST_EXECUTION_STARTED=true
   fi
+  if [[ "$BUILD_ONLY" == false && "$MODE" != catalyst ]]; then DEVICE_TEST_EXECUTION_STARTED=true; fi
   echo "[$test_action] $group"
   if bit101_run_logged "$log" "$group 输出" xcodebuild "$test_action" -quiet \
     "${project_args[@]}" \
@@ -552,7 +574,7 @@ PY
 }
 
 record_metrics() {
-  python3 - "$RESULT_BUNDLE" "$DERIVED_ROOT/test-metrics.txt" "$MODE" "$TEST_DURATION_SECONDS" <<'PY'
+  python3 - "$RESULT_BUNDLE" "$DERIVED_ROOT/test-metrics.txt" "$MODE" "$TEST_DURATION_SECONDS" "${BIT101_XCODE_DEVICE_ID:-}" "$ROOT_DIR" <<'PY'
 import json
 import re
 import shutil
@@ -560,11 +582,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-result_bundle, report_path, mode, elapsed_seconds = sys.argv[1:]
-summary = json.loads(subprocess.check_output([
+result_bundle, report_path, mode, elapsed_seconds, device_id, root = sys.argv[1:]
+summary_result = subprocess.run([
     "xcrun", "xcresulttool", "get", "test-results", "summary",
     "--path", result_bundle,
-], text=True))
+], capture_output=True, text=True)
+if summary_result.returncode:
+    raise SystemExit("XCTest 结果包尚待生成；请检查测试运行日志及设备提示。")
+summary = json.loads(summary_result.stdout)
 if summary.get("totalTestCount", 0) == 0:
     raise SystemExit("测试未实际执行；请检查上方编译、Runner 初始化或测试选择结果。Swift Testing 方法名保留 ()。")
 
@@ -625,6 +650,7 @@ if coverage is None:
         inventories = re.findall(r"UI control inventory: (\{[^\n]+\})", output)
         if inventories:
             inventory = json.loads(inventories[-1])
+            lines.append("控件库存：" + json.dumps(inventory, ensure_ascii=False))
             lines.append(f"运行中发现的交互标识：{inventory['observed']}；已访问 {inventory['visited']}")
             pending = inventory.get('pending', [])
             lines.append(f"待补充访问的标识：{len(pending)}" + ("；" + "、".join(pending[:10]) if pending else ""))
@@ -693,6 +719,12 @@ else:
                 lines.append(f"- {target.get('name', '?')}: 符号合并到宿主范围")
             else:
                 lines.append(f"- {target.get('name', '?')}: {percentage:.2f}% ({covered}/{executable} lines)")
+    sys.path.insert(0, str(Path(root) / "Scripts"))
+    from validation_evidence import ios_module_coverage
+    build = Path(report_path).parent / "Build"
+    ios_modules = ios_module_coverage(build / "Products/Release-iphoneos", build / "ProfileData" / device_id / "Coverage.profdata")
+    for name, (covered, executable) in sorted(ios_modules.items()):
+        if executable: lines.append(f"- iOS/{name}: {covered * 100 / executable:.2f}% ({covered}/{executable} lines)")
     if not target_rows:
         lines.append(json.dumps(coverage, ensure_ascii=False, indent=2, sort_keys=True))
 
@@ -700,9 +732,11 @@ test_tree = json.loads(subprocess.check_output([
     "xcrun", "xcresulttool", "get", "test-results", "tests", "--path", result_bundle,
 ], text=True))
 durations = []
+executed = []
 def visit_tests(value):
     if isinstance(value, dict):
         if value.get("nodeType") == "Test Case":
+            executed.append(value["nodeIdentifier"])
             duration = str(value.get("duration", ""))
             units = {"毫秒": 0.001, "ms": 0.001, "分钟": 60, "min": 60, "m": 60, "秒": 1, "s": 1}
             seconds = sum(float(number) * units[unit] for number, unit in
@@ -714,6 +748,7 @@ def visit_tests(value):
         for child in value:
             visit_tests(child)
 visit_tests(test_tree)
+lines.append("已执行用例：" + json.dumps(sorted(set(executed)), ensure_ascii=False))
 if durations:
     lines += ["", "## 用例耗时", f"用例耗时合计：{sum(item[0] for item in durations):.1f} 秒", *[
         f"- {name}: {duration}" for _, name, duration in sorted(durations, reverse=True)[:10]
@@ -738,6 +773,9 @@ PY
 case "$MODE" in
   release)
     run_tests all-tests ""
+    ;;
+  release-runtime)
+    run_tests ReleaseRuntimeContractTests ""
     ;;
   network-smoke)
     run_tests ReleaseNetworkSmokeTests "RELEASE_NETWORK_SMOKE"

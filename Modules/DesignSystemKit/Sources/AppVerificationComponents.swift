@@ -207,6 +207,7 @@ public struct AppSMSVerificationSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消", action: onCancel)
                         .disabled(submissionInProgress)
+                        .accessibilityIdentifier("ui.appsms-verification-sheet.cancel")
                 }
             }
             .interactiveDismissDisabled(submissionInProgress)

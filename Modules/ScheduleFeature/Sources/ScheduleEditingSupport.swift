@@ -127,6 +127,8 @@ struct DayAdjustmentSheet: View {
 
                     if draft.mode == .transfer {
                         DatePicker("调至", selection: $draft.targetDate, displayedComponents: .date)
+                        .environment(\.calendar, ScheduleDateCodec.calendar)
+                        .environment(\.timeZone, ScheduleDateCodec.calendar.timeZone)
                         .accessibilityIdentifier("schedule.adjustment.date")
                         .appInteractiveListRow()
                     }
@@ -138,6 +140,7 @@ struct DayAdjustmentSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("取消", action: onDismiss)
+                        .accessibilityIdentifier("ui.day-adjustment-sheet.cancel")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("确定") {
@@ -147,6 +150,7 @@ struct DayAdjustmentSheet: View {
                             targetDateText: ScheduleDateCodec.formatDate(draft.targetDate)
                         )
                     }
+                        .accessibilityIdentifier("ui.day-adjustment-sheet.confirm")
                 }
             }
             .alert(item: $pendingConfirmation) { confirmation in

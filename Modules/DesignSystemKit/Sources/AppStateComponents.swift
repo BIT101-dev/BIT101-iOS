@@ -14,6 +14,18 @@ extension EnvironmentValues {
     }
 }
 
+/// 交互回调的执行观察器，由宿主按需注入。
+private struct AppInteractionEvidenceKey: EnvironmentKey {
+    static let defaultValue: ((String, String) -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    public var appInteractionEvidence: ((String, String) -> Void)? {
+        get { self[AppInteractionEvidenceKey.self] }
+        set { self[AppInteractionEvidenceKey.self] = newValue }
+    }
+}
+
 /// AppLoadingState 为页面级首屏加载状态提供统一的进度样式和可用空间约束。
 public struct AppLoadingState: View {
     public init(title: String) {
@@ -103,6 +115,7 @@ public struct AppFailureState: View {
         } actions: {
             if let onRetry {
                 Button(retryTitle, action: onRetry)
+                    .accessibilityIdentifier("ui.app-failure-state.retry")
             }
             if allowsDiagnostics, let appFailureDiagnostics {
                 appFailureDiagnostics(title, message)
@@ -143,6 +156,7 @@ public struct AppEmptyState: View {
         } actions: {
             if let onAction, let actionTitle {
                 Button(actionTitle, action: onAction)
+                    .accessibilityIdentifier("ui.app-empty-state.action")
             }
         }
     }

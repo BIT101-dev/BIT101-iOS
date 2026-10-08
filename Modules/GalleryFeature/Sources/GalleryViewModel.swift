@@ -29,6 +29,7 @@ final class GalleryViewModel: ObservableObject {
     @Published var searchQuery = GallerySearchQuery()
     /// 搜索结果列表状态。
     @Published var searchState = GalleryFeedState()
+    private var pageSearchQuery: GallerySearchQuery?
     /// 是否展示搜索页。
     @Published var isShowingSearch = false
     /// 统一错误提示。
@@ -58,9 +59,36 @@ final class GalleryViewModel: ObservableObject {
         interactionTasks.values.forEach { $0.cancel() }
     }
 
+    func cancelPendingOperations() {
+        interactionTasks.values.forEach { $0.cancel() }
+        interactionTasks.removeAll()
+        interactionTaskTokens.removeAll()
+        recommendPrefetch.reset()
+        for feed in GalleryFeedKind.allCases {
+            refreshGenerations[feed] = (refreshGenerations[feed] ?? 0) &+ 1
+            setState(for: feed) {
+                if $0.status == .loading { $0.status = $0.posters.isEmpty ? .idle : .loaded }
+                $0.isLoadingMore = false
+            }
+        }
+        cancelSearchOperations()
+    }
+
+    func cancelSearchOperations() {
+        for key in ["search", "search-load-more"] {
+            interactionTasks[key]?.cancel()
+            interactionTasks[key] = nil
+            interactionTaskTokens[key] = nil
+        }
+        searchGeneration &+= 1
+        if searchState.status == .loading { searchState.status = searchState.posters.isEmpty ? .idle : .loaded }
+        searchState.isLoadingMore = false
+    }
+
     /// 将页面回调创建的非结构化任务收归 ViewModel，避免视图销毁后遗留请求。
-    func enqueueRefresh(for feed: GalleryFeedKind) {
-        enqueueInteractionTask(key: "refresh:\(feed.rawValue)") { [weak self] in
+    @discardableResult
+    func enqueueRefresh(for feed: GalleryFeedKind) -> Task<Void, Never> {
+        return enqueueInteractionTask(key: "refresh:\(feed.rawValue)") { [weak self] in
             await self?.refresh(feed: feed)
         }
     }
@@ -71,8 +99,9 @@ final class GalleryViewModel: ObservableObject {
         }
     }
 
-    func enqueueLoadMore(for feed: GalleryFeedKind, currentPoster: CommunityPoster) {
-        enqueueInteractionTask(key: "load-more:\(feed.rawValue)") { [weak self] in
+    @discardableResult
+    func enqueueLoadMore(for feed: GalleryFeedKind, currentPoster: CommunityPoster) -> Task<Void, Never> {
+        return enqueueInteractionTask(key: "load-more:\(feed.rawValue)") { [weak self] in
             await self?.loadMoreIfNeeded(for: feed, currentPoster: currentPoster)
         }
     }
@@ -94,19 +123,37 @@ final class GalleryViewModel: ObservableObject {
         }
     }
 
+    @discardableResult
+    func enqueueSearch() -> Task<Void, Never> {
+        enqueueInteractionTask(key: "search", replacingCurrent: true) { [weak self] in
+            await self?.performSearch()
+        }
+    }
+
+    func enqueueSearchLoadMore(currentPoster: CommunityPoster) {
+        enqueueInteractionTask(key: "search-load-more") { [weak self] in
+            await self?.loadMoreSearchResultsIfNeeded(currentPoster: currentPoster)
+        }
+    }
+
+    @discardableResult
     private func enqueueInteractionTask(
         key: String,
+        replacingCurrent: Bool = false,
         operation: @escaping @MainActor () async -> Void
-    ) {
+    ) -> Task<Void, Never> {
+        if !replacingCurrent, let running = interactionTasks[key] { return running }
         interactionTasks[key]?.cancel()
         let token = UUID()
         interactionTaskTokens[key] = token
-        interactionTasks[key] = Task { @MainActor [weak self] in
+        let task = Task { @MainActor [weak self] in
             await operation()
             guard let self, self.interactionTaskTokens[key] == token else { return }
             self.interactionTasks[key] = nil
             self.interactionTaskTokens[key] = nil
         }
+        interactionTasks[key] = task
+        return task
     }
 
     /// 首次进入话题页时触发一次默认 feed 加载。
@@ -122,7 +169,7 @@ final class GalleryViewModel: ObservableObject {
 
     /// 从第一页重新拉取指定 feed。
     ///
-    /// 取消错误恢复请求开始前的快照，保持 tab 快速切换时的 UI 状态。
+    /// 刷新失败和取消恢复请求开始前的快照，保持已有内容和分页位置。
     func refresh(feed: GalleryFeedKind) async {
         let previousState = state(for: feed)
         if previousState.status == .loading {
@@ -146,18 +193,26 @@ final class GalleryViewModel: ObservableObject {
                 try Task.checkCancellation()
                 guard refreshGenerations[feed] == generation else { return }
                 setState(for: feed) {
-                    $0.posters = batch.posters
+                    $0.posters = batch.items
                     $0.status = .loaded
                     $0.nextPage = batch.nextSourcePage
                     $0.canLoadMore = batch.canLoadMore
                 }
             } else {
                 if feed == .recommend {
-                    // 推荐流首屏拉取一个源页，先展示结果；更多源页交给后台预取。
-                    let batch = try await service.fetchRecommendPage(sourcePage: 0)
+                    // 首屏沿源游标跳过过滤空页，可见内容发布后继续后台预取。
+                    var sourcePage = 0
+                    var batch = try await service.fetchRecommendPage(sourcePage: sourcePage)
+                    while batch.items.isEmpty, batch.canLoadMore {
+                        try Task.checkCancellation()
+                        guard refreshGenerations[feed] == generation else { return }
+                        guard batch.nextSourcePage > sourcePage else { throw GalleryServiceError.invalidResponse }
+                        sourcePage = batch.nextSourcePage
+                        batch = try await service.fetchRecommendPage(sourcePage: sourcePage)
+                    }
                     try Task.checkCancellation()
                     guard refreshGenerations[feed] == generation else { return }
-                    let uniquePosters = try await Self.deduplicateInBackground(batch.posters)
+                    let uniquePosters = try await Self.deduplicateInBackground(batch.items)
                     guard refreshGenerations[feed] == generation else { return }
                     setState(for: feed) {
                         $0.posters = uniquePosters
@@ -169,38 +224,30 @@ final class GalleryViewModel: ObservableObject {
                         recommendPrefetch.start(from: batch.nextSourcePage)
                     }
                 } else {
-                    let posters = try await service.fetchFeed(kind: feed, page: nil)
+                    let batch = try await service.fetchFeed(kind: feed, page: nil)
                     try Task.checkCancellation()
                     guard refreshGenerations[feed] == generation else { return }
-                    let uniquePosters = try await Self.deduplicateInBackground(posters)
+                    let uniquePosters = try await Self.deduplicateInBackground(batch.items)
                     guard refreshGenerations[feed] == generation else { return }
                     setState(for: feed) {
                         $0.posters = uniquePosters
                         $0.status = .loaded
-                        $0.nextPage = 1
-                        $0.canLoadMore = !posters.isEmpty
+                        $0.nextPage = batch.nextSourcePage
+                        $0.canLoadMore = batch.canLoadMore
                     }
                 }
             }
         } catch {
             guard refreshGenerations[feed] == generation else { return }
-            if isGalleryCancellation(error) {
-                // 列表复用、tab 切换或手动重刷时，SwiftUI/URLSession 都可能取消在途任务。
-                // 取消状态保持原列表，界面维持当前状态。
-                setState(for: feed) {
-                    $0.posters = previousState.posters
-                    $0.status = previousState.posters.isEmpty ? .idle : .loaded
-                    $0.isLoadingMore = false
-                    $0.nextPage = previousState.nextPage
-                    $0.canLoadMore = previousState.canLoadMore
-                }
-                return
-            }
+            let cancelled = isGalleryCancellation(error)
             setState(for: feed) {
-                $0.posters = []
-                $0.status = .failed(error.localizedDescription)
-                $0.canLoadMore = false
+                $0.posters = previousState.posters
+                $0.status = previousState.posters.isEmpty ? (cancelled ? .idle : .failed(error.localizedDescription)) : .loaded
+                $0.isLoadingMore = false
+                $0.nextPage = previousState.nextPage
+                $0.canLoadMore = previousState.canLoadMore && (cancelled || !previousState.posters.isEmpty)
             }
+            if cancelled { return }
             alert = AppAlert(title: "加载话廊失败", message: error.localizedDescription)
         }
     }
@@ -247,7 +294,7 @@ final class GalleryViewModel: ObservableObject {
                 let batch = try await service.fetchBotFeed(startPage: state.nextPage)
                 try Task.checkCancellation()
                 guard refreshGenerations[feed] == generation else { return }
-                let mergedPosters = try await Self.mergeUniqueInBackground(existing: state.posters, incoming: batch.posters)
+                let mergedPosters = try await Self.mergeUniqueInBackground(existing: state.posters, incoming: batch.items)
                 guard refreshGenerations[feed] == generation else { return }
                 setState(for: feed) {
                     $0.posters = mergedPosters
@@ -259,18 +306,18 @@ final class GalleryViewModel: ObservableObject {
                 var mergedPosters = state.posters
                 var nextPage = state.nextPage
                 var canLoadMore = state.canLoadMore
-                var attempt = 0
 
                 // 推荐流允许在一次分页里继续请求后续页面，直到得到可展示的新帖子。
-                while attempt < 3, canLoadMore, mergedPosters.count == state.posters.count {
+                while canLoadMore, mergedPosters.count == state.posters.count {
                     let batch: GalleryPrefetchedPage
                     batch = try await recommendPrefetch.takePage(for: nextPage)
+                    try Task.checkCancellation()
                     guard refreshGenerations[feed] == generation else { return }
+                    guard !batch.canLoadMore || batch.nextPage > nextPage else { throw GalleryServiceError.invalidResponse }
 
                     mergedPosters = try await Self.mergeUniqueInBackground(existing: mergedPosters, incoming: batch.posters)
                     nextPage = batch.nextPage
                     canLoadMore = batch.canLoadMore
-                    attempt += 1
                 }
 
                 guard refreshGenerations[feed] == generation else { return }
@@ -284,17 +331,16 @@ final class GalleryViewModel: ObservableObject {
                     recommendPrefetch.start(from: nextPage)
                 }
             } else {
-                let posters = try await service.fetchFeed(kind: feed, page: state.nextPage)
+                let batch = try await service.fetchFeed(kind: feed, page: state.nextPage)
                 try Task.checkCancellation()
                 guard refreshGenerations[feed] == generation else { return }
-                let mergedPosters = try await Self.mergeUniqueInBackground(existing: state.posters, incoming: posters)
+                let mergedPosters = try await Self.mergeUniqueInBackground(existing: state.posters, incoming: batch.items)
                 guard refreshGenerations[feed] == generation else { return }
-                let nextPage = state.nextPage + 1
                 setState(for: feed) {
                     $0.posters = mergedPosters
                     $0.isLoadingMore = false
-                    $0.nextPage = nextPage
-                    $0.canLoadMore = !posters.isEmpty
+                    $0.nextPage = batch.nextSourcePage
+                    $0.canLoadMore = batch.canLoadMore
                 }
             }
         } catch {
@@ -316,17 +362,21 @@ final class GalleryViewModel: ObservableObject {
         let generation = searchGeneration
         let trimmed = searchQuery.text.trimmingCharacters(in: .whitespacesAndNewlines)
         searchQuery.text = trimmed
+        let query = searchQuery
         let previousState = searchState
         searchState.status = .loading
         searchState.resetPagination()
 
         do {
-            let posters = try await service.searchPosters(query: searchQuery, page: nil)
+            let batch = try await service.searchPosters(query: query, page: nil)
             try Task.checkCancellation()
             guard searchGeneration == generation else { return }
-            let uniquePosters = try await Self.deduplicateInBackground(posters)
+            let uniquePosters = try await Self.deduplicateInBackground(batch.items)
             guard searchGeneration == generation else { return }
             searchState.applyFirstPage(uniquePosters)
+            pageSearchQuery = query
+            searchState.nextPage = batch.nextSourcePage
+            searchState.canLoadMore = batch.canLoadMore
             searchState.status = .loaded
         } catch {
             guard searchGeneration == generation else { return }
@@ -348,7 +398,7 @@ final class GalleryViewModel: ObservableObject {
     ///
     /// 搜索结果按需加载；无关键词时保持预取请求链路空闲。
     func loadMoreSearchResultsIfNeeded(currentPoster: CommunityPoster?) async {
-        guard let currentPoster else { return }
+        guard let currentPoster, let query = pageSearchQuery else { return }
         let generation = searchGeneration
 
         guard
@@ -361,15 +411,15 @@ final class GalleryViewModel: ObservableObject {
         searchState.isLoadingMore = true
 
         do {
-            let posters = try await service.searchPosters(query: searchQuery, page: searchState.nextPage)
+            let batch = try await service.searchPosters(query: query, page: searchState.nextPage)
             try Task.checkCancellation()
             guard searchGeneration == generation else { return }
-            let mergedPosters = try await Self.mergeUniqueInBackground(existing: searchState.posters, incoming: posters)
+            let mergedPosters = try await Self.mergeUniqueInBackground(existing: searchState.posters, incoming: batch.items)
             guard searchGeneration == generation else { return }
             searchState.posters = mergedPosters
             searchState.isLoadingMore = false
-            searchState.nextPage += 1
-            searchState.canLoadMore = !posters.isEmpty
+            searchState.nextPage = batch.nextSourcePage
+            searchState.canLoadMore = batch.canLoadMore
         } catch {
             guard searchGeneration == generation else { return }
             if isGalleryCancellation(error) {
@@ -445,4 +495,3 @@ final class GalleryViewModel: ObservableObject {
 
 
 }
-

@@ -98,6 +98,7 @@ public final class HTTPSUpgradingRedirectDelegate: NSObject, URLSessionTaskDeleg
             secureRequest.setValue(nil, forHTTPHeaderField: "Proxy-Authorization")
             secureRequest.setValue(nil, forHTTPHeaderField: "Cookie")
             secureRequest.setValue(nil, forHTTPHeaderField: "fake-cookie")
+            secureRequest.setValue(nil, forHTTPHeaderField: "X-Challenge-Token")
             secureRequest.httpBody = nil
             secureRequest.httpBodyStream = nil
         }

@@ -1,4 +1,6 @@
 import SchedulePorts
+import CommunityTransport
+import ClientCore
 import ScoreDomain
 import ScoreInfrastructure
 import ScheduleDomain
@@ -20,7 +22,11 @@ struct NetworkDiagnosisReport: Equatable, Sendable {
 
 @MainActor
 final class NetworkDiagnosisRunner: ObservableObject {
-    private enum Step: CaseIterable {
+    struct Identity: Equatable, Sendable {
+        let community: CommunitySessionIdentity
+        let school: SchoolSessionIdentity
+    }
+    enum Step: CaseIterable {
         case path
         case bit101Home
         case gallery
@@ -48,32 +54,48 @@ final class NetworkDiagnosisRunner: ObservableObject {
     @Published private(set) var completedCount = 0
     let totalCount = Step.allCases.count
     private var currentTermForDiagnosis: String?
+    private let identity: () -> Identity
+    private let diagnose: ((Step) async -> String)?
+
+    init(identity: @escaping () -> Identity = {
+        .init(community: AppAccountSession.storage.communityCredentials.identity,
+            school: AppAccountSession.storage.schoolSessionIdentity)
+    }, diagnose: ((Step) async -> String)? = nil) {
+        self.identity = identity
+        self.diagnose = diagnose
+    }
+
+    private func accepts(_ owner: Identity) -> Bool { !Task.isCancelled && identity() == owner }
 
     func run() async -> NetworkDiagnosisReport? {
-        guard !isRunning else { return nil }
+        guard !isRunning, !Task.isCancelled else { return nil }
+        let owner = identity()
         isRunning = true
         completedCount = 0
         currentTermForDiagnosis = nil
-        defer { isRunning = false }
+        defer { isRunning = false; currentTermForDiagnosis = nil }
 
         let independentSteps: [Step] = [.path, .bit101Home, .gallery, .paper, .currentTerm]
         var resultByStep: [String: String] = [:]
-        await withTaskGroup(of: (String, String).self) { group in
+        await withTaskGroup(of: (String, String?).self) { group in
             for step in independentSteps {
                 let title = step.title
                 group.addTask { [self] in
-                    let result = await run(step)
+                    let result = await run(step, owner: owner)
                     return (title, result)
                 }
             }
             for await (title, result) in group {
+                guard accepts(owner), let result else { group.cancelAll(); return }
                 resultByStep[title] = result
                 completedCount += 1
             }
         }
 
+        guard accepts(owner) else { return nil }
         for step in [Step.schedule, .ddl, .transcript] {
-            resultByStep[step.title] = await run(step)
+            guard let result = await run(step, owner: owner) else { return nil }
+            resultByStep[step.title] = result
             completedCount += 1
         }
 
@@ -82,7 +104,14 @@ final class NetworkDiagnosisRunner: ObservableObject {
         )
     }
 
-    private func run(_ step: Step) async -> String {
+    private func run(_ step: Step, owner: Identity) async -> String? {
+        guard accepts(owner) else { return nil }
+        let result = if let diagnose { await diagnose(step) } else { await runProduction(step) }
+        guard accepts(owner) else { return nil }
+        return result
+    }
+
+    private func runProduction(_ step: Step) async -> String {
         do {
             let detail: String
             switch step {

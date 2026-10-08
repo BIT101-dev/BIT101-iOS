@@ -79,6 +79,7 @@ struct GalleryReportSheet: View {
                     .frame(maxWidth: .infinity)
                     .disabled(isLoading || isSubmitting || selectedTypeID == nil)
                     .appInteractiveListRow()
+                        .accessibilityIdentifier("ui.gallery-report-sheet.submit")
                 }
             }
             .navigationTitle(target.title)
@@ -87,11 +88,13 @@ struct GalleryReportSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }
                         .disabled(isSubmitting)
+                        .accessibilityIdentifier("ui.gallery-report-sheet.cancel")
                 }
             }
             .task { await loadReportTypes() }
             .alert("举报已提交", isPresented: $isShowingSuccess) {
                 Button("知道了") { dismiss() }
+                    .accessibilityIdentifier("ui.gallery-report-sheet.知道了")
             } message: {
                 Text("感谢你的反馈，社区将继续处理这条举报。")
             }

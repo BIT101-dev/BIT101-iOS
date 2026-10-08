@@ -22,6 +22,9 @@ struct WatchScheduleRootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .scheduleExternalSnapshotDidChange)) { _ in
             model.handleSnapshotDidChange()
         }
+        .onReceive(NotificationCenter.default.publisher(for: WatchScheduleSyncManager.snapshotReceivedNotification)) { _ in
+            model.handleSnapshotDidChange()
+        }
         .confirmationDialog("清除本地课表数据？", isPresented: $isShowingClearConfirmation, titleVisibility: .visible) {
             Button("清除", role: .destructive) {
                 model.clearLocalData()

@@ -39,6 +39,9 @@ public nonisolated struct ComposerImageDraft: Identifiable, Sendable {
 
 public nonisolated enum ComposerDraftImagePolicy {
     public static let maximumBytes = 1 * 1_024 * 1_024
+    public static let maximumImageCount = 9
+    public static let maximumMetadataBytes = maximumBytes
+    public static let maximumLegacyMetadataBytes = maximumImageCount * 2 * ((maximumBytes + 2) / 3 * 4) + maximumMetadataBytes
 }
 
 public nonisolated struct ComposerImageDraftSnapshot: Codable, Sendable {

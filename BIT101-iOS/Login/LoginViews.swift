@@ -28,6 +28,7 @@ struct LoginRootView: View {
 ///
 /// 表单采用 SwiftUI 原生组件，沿用系统输入、焦点和辅助功能行为。
 private struct LoginFormView: View {
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     @ObservedObject var viewModel: LoginViewModel
     /// 学号和密码输入框共享焦点路由。
     @FocusState private var focusedField: LoginField?
@@ -53,6 +54,8 @@ private struct LoginFormView: View {
                     .accessibilityHint("输入学校统一身份认证学号")
                     .accessibilityIdentifier("login.student-id")
                     .onSubmit {
+                    interactionEvidence?("interaction.LoginFormView.onSubmit.student-id", "submit")
+
                         focusedField = .password
                     }
 
@@ -70,6 +73,8 @@ private struct LoginFormView: View {
                     .accessibilityHint("输入学校统一身份认证密码")
                     .accessibilityIdentifier("login.password")
                     .onSubmit {
+                    interactionEvidence?("interaction.LoginFormView.onSubmit.password", "submit")
+
                         submitLogin()
                     }
             }
@@ -114,6 +119,7 @@ private struct LoginFormView: View {
                     .padding(.bottom, AppDesignSystem.Spacing.regular)
                     .background(.regularMaterial)
             }
+                .accessibilityIdentifier("ui.login-form-view.icp")
         }
     }
 

@@ -3,10 +3,10 @@ import Foundation
 
 /// 话廊首页与搜索页所需的最小网络能力。
 public protocol GalleryFeedServicing {
-    func fetchFeed(kind: GalleryFeedKind, page: Int?) async throws -> [CommunityPoster]
-    func fetchRecommendPage(sourcePage: Int) async throws -> GalleryRecommendFeedBatch
-    func fetchBotFeed(startPage: Int) async throws -> GalleryBotFeedBatch
-    func searchPosters(query: GallerySearchQuery, page: Int?) async throws -> [CommunityPoster]
+    func fetchFeed(kind: GalleryFeedKind, page: Int?) async throws -> GalleryPageBatch<CommunityPoster>
+    func fetchRecommendPage(sourcePage: Int) async throws -> GalleryPageBatch<CommunityPoster>
+    func fetchBotFeed(startPage: Int) async throws -> GalleryPageBatch<CommunityPoster>
+    func searchPosters(query: GallerySearchQuery, page: Int?) async throws -> GalleryPageBatch<CommunityPoster>
 }
 
 /// 消息中心所需的网络能力。
@@ -18,7 +18,7 @@ public protocol GalleryMessageServicing {
 /// 帖子详情及评论区所需的网络能力。
 public protocol GalleryPosterDetailServicing {
     func fetchPoster(id: Int) async throws -> GalleryPosterDetail
-    func fetchComments(objectID: String, order: CommunityCommentOrder, page: Int?) async throws -> [CommunityComment]
+    func fetchComments(objectID: String, order: CommunityCommentOrder, page: Int?) async throws -> GalleryPageBatch<CommunityComment>
     func like(objectID: String) async throws -> CommunityLikeResult
     func createComment(
         objectID: String,
@@ -48,4 +48,3 @@ public protocol GalleryComposerServicing: GalleryImageUploading {
 }
 
 extension GalleryService: GalleryFeedServicing, GalleryMessageServicing, GalleryPosterDetailServicing, GalleryReportServicing, GalleryComposerServicing {}
-

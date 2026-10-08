@@ -3,15 +3,65 @@ import SchedulePorts
 import ClientCore
 import Foundation
 import ScheduleDomain
+import ScheduleContracts
 @testable import ScheduleFeature
 import SchedulePersistence
-import StorageCore
+@testable import StorageCore
 import Testing
 
 @MainActor
 struct SchedulePersistenceTests {
+    @Test func localFileMetadataFailurePreservesCommittedBytesAndReadableFiles() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("BIT101-StoragePolicy", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("snapshot.json")
+        let original = Data("retained".utf8)
+        try original.write(to: url, options: .atomic)
+        let files = LocalAppFileService(excludeFromBackup: { _ in throw CocoaError(.fileWriteNoPermission) })
+        #expect(try files.readData(at: url) == original)
+        #expect(throws: CocoaError.self) { try files.writeData(Data("edited".utf8), to: url, options: .atomic) }
+        #expect(try files.readData(at: url) == original)
+        let fresh = directory.appendingPathComponent("fresh.json")
+        #expect(throws: CocoaError.self) { try files.writeData(original, to: fresh, options: .atomic) }
+        #expect(files.fileExists(at: fresh) == false)
+    }
+
     private func store(files: ModuleScoreFiles, root: String = "/schedule") -> SchedulePersistenceStore {
         SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: root), userStateMatches: { $0.primaryScheduleTitle == $1.primaryScheduleTitle })
+    }
+
+    @Test(arguments: [ScheduleCacheSaveSource.local, .localWithoutCloudPush])
+    func anEarlierUISnapshotPreservesCloudChangesAndItsUncommittedEdits(source: ScheduleCacheSaveSource) async throws {
+        let files = ModuleScoreFiles()
+        let persistence = store(files: files)
+        let account = AppStorageSession(accountIdentifier: "concurrent-cloud-write")
+        var initial = ScheduleCache()
+        initial.cloudSyncBaselineRecordTag = "original"
+        initial.syncData.cloudSyncBaselineUserState = Data("original".utf8)
+        _ = await persistence.write(initial, accountIdentifier: account.accountStorageIdentifier,
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .cloud, expectedUpdatedAt: nil)
+        let repository = ScheduleRepository(session: { account }, load: { await persistence.load(for: $0) },
+            save: { cache, source, owner in
+                guard await persistence.write(cache, accountIdentifier: owner.accountStorageIdentifier,
+                    legacyAccountIdentifier: owner.legacyAccountDirectoryNameForMigration, source: source, expectedUpdatedAt: nil) != nil
+                else { throw CocoaError(.fileWriteUnknown) }
+            })
+        await repository.loadIfNeeded()
+        var remote = initial
+        remote.primaryScheduleTitle = "云端新增"
+        remote.cloudSyncBaselineRecordTag = "remote"
+        remote.syncData.cloudSyncBaselineUserState = Data("remote".utf8)
+        _ = await persistence.write(remote, accountIdentifier: account.accountStorageIdentifier,
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .cloud, expectedUpdatedAt: nil)
+        var local = repository.courseState
+        local.primaryScheduleTitle = "本机修改"
+        repository.courseState = local
+        #expect(await repository.persistAndWait(source: source) == false)
+        #expect(repository.persistenceSnapshot.primaryScheduleTitle == "本机修改")
+        #expect(repository.notice?.title == "日程保存失败")
+        let saved = await persistence.load(for: account).cacheIfReadable
+        #expect(saved?.primaryScheduleTitle == "云端新增" && saved?.cloudSyncBaselineRecordTag == "remote")
     }
 
     @Test func independentStoresOwnTheirPathsAndAccounts() async throws {
@@ -66,12 +116,32 @@ struct SchedulePersistenceTests {
         }
     }
 
-    @Test func corruptedSourceKeepsItsBytesAndWriteGate() async throws {
+    @Test func repeatedTimeTableIDsRejectBothDiskFormatsAndPreserveTheirBytes() async throws {
+        let files = ModuleScoreFiles()
+        let account = AppStorageSession(accountIdentifier: "repeated-sections")
+        let repository = store(files: files)
+        let url = repository.cacheFileURL(for: account.accountStorageIdentifier)
+        var cache = ScheduleCache()
+        cache.timeTable = [TimeSlot(id: 1, start: "08:00", end: "08:45"), TimeSlot(id: 1, start: "09:00", end: "09:45")]
+        let legacy = try JSONSerialization.data(withJSONObject: ["timeTable": [
+            ["id": 1, "start": "08:00", "end": "08:45"], ["id": 1, "start": "09:00", "end": "09:45"]]])
+        for bytes in [try JSONEncoder().encode(cache), legacy] {
+            #expect(SchedulePersistenceStore.decodeCache(bytes).isUnreadable)
+            try files.writeData(bytes, to: url, options: [])
+            #expect(await repository.load(for: account).isUnreadable)
+            #expect(await repository.write(ScheduleCache(), accountIdentifier: account.accountStorageIdentifier,
+                legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
+            #expect(try files.readData(at: url) == bytes)
+        }
+    }
+
+    @Test(arguments: ["corrupt-source", "{}", #"{"unrelated":1}"#, #"{"courseData":{},"updatedAt":0}"#])
+    func corruptedSourceKeepsItsBytesAndWriteGate(source: String) async throws {
         let files = ModuleScoreFiles()
         let persistence = store(files: files)
         let account = AppStorageSession(accountIdentifier: "corrupt")
         let url = persistence.cacheFileURL(for: account.accountStorageIdentifier)
-        let bytes = Data("corrupt-source".utf8)
+        let bytes = Data(source.utf8)
         try files.writeData(bytes, to: url, options: [])
         #expect(await persistence.load(for: account).isUnreadable)
         #expect(await persistence.write(ScheduleCache(), accountIdentifier: account.accountStorageIdentifier, legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
@@ -283,6 +353,21 @@ struct SchedulePersistenceCoordinatorTests {
 
 @MainActor
 struct ScheduleSchemaAndEditingTests {
+    @Test(arguments: [Int.min, -1, 0, 1, 20, 60, 61, Int.max])
+    func presentationLeadMinutesStayBoundedThroughMutationAndDiskDecode(value: Int) throws {
+        let expected = value < 1 ? 1 : value > 60 ? 60 : value
+        var cache = ScheduleCache()
+        cache.presentation.courseLiveActivityLeadMinutes = value
+        #expect(cache.presentation.courseLiveActivityLeadMinutes == expected)
+        var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(cache)) as? [String: Any])
+        var presentation = try #require(object["presentation"] as? [String: Any])
+        presentation["courseLiveActivityLeadMinutes"] = value
+        object["presentation"] = presentation
+        let restored = try JSONDecoder().decode(ScheduleCache.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(restored.presentation.courseLiveActivityLeadMinutes == expected)
+        #expect(try JSONDecoder().decode(ScheduleCache.self, from: JSONEncoder().encode(restored)).courseLiveActivityLeadMinutes == expected)
+    }
+
     private func course(id: String = "school", weekday: Int = 1, weeks: String = "1-4") throws -> CourseRecord {
         try #require(ScheduleCourseEditor.adding(
             CourseDraft(title: "课程", classroom: "文萃楼I203", weekday: weekday,
@@ -435,7 +520,7 @@ struct ScheduleSchemaAndEditingTests {
         var cache = ScheduleCache()
         cache.currentTerm = original.term
         cache.courseData.store(snapshot([original]))
-        let transferred = ScheduleCourseEditor.transferring(courses: cache.courses,
+        let transferred = try ScheduleCourseEditor.transferring(courses: cache.courses,
             fromWeek: 2, fromWeekday: 1, toWeek: 3, toWeekday: 4, makeID: { "moved" })
         ScheduleCourseEditor.updateCacheForManualCourseChange(in: &cache, previousCourses: cache.courses, currentCourses: transferred)
         #expect(cache.courses.first?.weeks == [1, 3, 4])
@@ -445,7 +530,7 @@ struct ScheduleSchemaAndEditingTests {
         ScheduleCourseEditor.updateCacheForManualCourseChange(in: &cache, previousCourses: cache.courses, currentCourses: deleted)
         #expect(cache.courses.count == 1)
         #expect(cache.courseData.schoolCourses(for: original.term) == [original])
-        #expect(ScheduleCourseEditor.transferring(courses: deleted, fromWeek: 1, fromWeekday: 1, toWeek: 1, toWeekday: 1) == deleted)
+        #expect(try ScheduleCourseEditor.transferring(courses: deleted, fromWeek: 1, fromWeekday: 1, toWeek: 1, toWeekday: 1) == deleted)
         #expect(ScheduleCourseEditor.deletingOccurrence(id: "missing", week: 1, from: deleted) == deleted)
     }
 
@@ -464,10 +549,27 @@ struct ScheduleSchemaAndEditingTests {
         for weeks in ["", "0", "3-1", "a", "1-0"] {
             #expect(throws: Error.self) { try ScheduleCourseEditor.parseWeeks(weeks) }
         }
+        #expect(ScheduleCourseConstraints.validWeeks == Array(-53 ... -1) + Array(1 ... 53))
         let original = try course()
         let overlap = try course(id: "overlap")
         #expect(ScheduleCourseEditor.conflictDescription(candidates: [original], against: [overlap])?.contains("发生冲突") == true)
         #expect(ScheduleCourseEditor.conflictDescription(candidates: [original], against: [try course(id: "other", weekday: 2)]) == nil)
         #expect(ScheduleCourseEditor.deleting(id: original.id, from: [original]).isEmpty)
+    }
+
+    @Test(arguments: [0, 54, 105, -54])
+    func outOfRangeTransfersPreserveSourceCourses(week: Int) throws {
+        let original = try course()
+        var generatedIDs = 0
+        #expect(throws: Error.self) {
+            try ScheduleCourseEditor.transferring(courses: [original], fromWeek: 1, fromWeekday: 1,
+                toWeek: week, toWeekday: 4, makeID: { generatedIDs += 1; return "moved" })
+        }
+        #expect(generatedIDs == 0)
+        for boundary in [-53, 53] {
+            let moved = try ScheduleCourseEditor.transferring(courses: [original], fromWeek: 1, fromWeekday: 1,
+                toWeek: boundary, toWeekday: 4, makeID: { "moved" })
+            #expect(moved.last?.weeks == [boundary])
+        }
     }
 }

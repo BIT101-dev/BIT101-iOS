@@ -5,6 +5,56 @@ import Testing
 @MainActor
 @Suite("App Store update reminder")
 struct AppUpdateCheckerTests {
+    @Test(arguments: ["foreign", "downgrade", "port", "credentials"])
+    func updateJSONFromAnotherOriginKeepsBothPromptsUnpublished(_ scenario: String) async throws {
+        let context = try TestContext()
+        defer { context.cleanUp() }
+        func redirected(_ url: URL) throws -> URL {
+            var components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+            switch scenario {
+            case "foreign": components.host = "foreign.invalid"
+            case "downgrade": components.scheme = "http"
+            case "port": components.port = 8443
+            default: components.user = "unexpected"
+            }
+            return try #require(components.url)
+        }
+        let store = AppUpdateChecker(defaults: context.defaults, installedVersion: { "1.0" }, loadData: { request in
+            try Self.lookupResponse(for: redirected(try #require(request.url)))
+        })
+        await #expect(throws: URLError.self) { try await store.checkManually() }
+        #expect(context.defaults.data(forKey: AppUpdateChecker.cachedReleaseKey) == nil)
+        let endpoint = try #require(URL(string: "https://example.com/emergency-update.json"))
+        let emergency = EmergencyUpdateChecker(defaults: context.defaults, installedBuild: { 1 }, endpointURL: { endpoint }, loadData: { request in
+            try Self.emergencyResponse(for: redirected(try #require(request.url)), maximumBuild: 2)
+        })
+        #expect(await emergency.noticeToPresentAtLaunch() == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func dismissalDelayAndPromptIdentityProtectTheNextPrompt() async throws {
+        let coordinator = AppPromptCoordinator()
+        var performed: [String] = []
+        func prompt(_ id: String) -> AppPrompt {
+            AppPrompt(id: id, title: id, message: id,
+                actions: [AppPromptAction(id: "confirm", title: "确定") { performed.append(id) }])
+        }
+        coordinator.enqueue(prompt("first"))
+        let first = try #require(coordinator.activePrompt?.actions.first)
+        coordinator.perform(first, promptID: "first")
+        coordinator.enqueue(prompt("second"))
+        #expect(coordinator.activePrompt == nil)
+        coordinator.alertPresentationChanged(isPresented: false, promptID: "first")
+        while coordinator.activePrompt == nil { await Task.yield() }
+        #expect(coordinator.activePrompt?.id == "second")
+        coordinator.alertPresentationChanged(isPresented: false, promptID: "first")
+        coordinator.perform(first, promptID: "first")
+        #expect(coordinator.activePrompt?.id == "second")
+        #expect(performed == ["first"])
+        coordinator.perform(try #require(coordinator.activePrompt?.actions.first), promptID: "second")
+        #expect(performed == ["first", "second"])
+    }
+
     @Test("Emergency notices target Build numbers and can only be ignored today")
     func emergencyNoticeEligibility() async throws {
         let context = try TestContext()
@@ -84,7 +134,7 @@ struct AppUpdateCheckerTests {
     func automaticReminderWaitsSevenDays() async throws {
         let context = try TestContext()
         defer { context.cleanUp() }
-        var releaseDate = context.now.addingTimeInterval(-AppUpdateChecker.minimumReleaseAge + 1)
+        var currentVersionReleaseDate = context.now.addingTimeInterval(-AppUpdateChecker.minimumReleaseAge + 1)
 
         let checker = AppUpdateChecker(
             defaults: context.defaults,
@@ -93,7 +143,7 @@ struct AppUpdateCheckerTests {
             loadData: { request in
                 try Self.lookupResponse(
                     for: try #require(request.url),
-                    releaseDate: ISO8601DateFormatter().string(from: releaseDate)
+                    currentVersionReleaseDate: ISO8601DateFormatter().string(from: currentVersionReleaseDate)
                 )
             }
         )
@@ -101,7 +151,7 @@ struct AppUpdateCheckerTests {
         #expect(await checker.releaseToPresentAtLaunch() == nil)
 
         context.now.addTimeInterval(AppUpdateChecker.queryInterval + 1)
-        releaseDate = context.now.addingTimeInterval(-AppUpdateChecker.minimumReleaseAge)
+        currentVersionReleaseDate = context.now.addingTimeInterval(-AppUpdateChecker.minimumReleaseAge)
         #expect(await checker.releaseToPresentAtLaunch()?.version == "1.7.1")
     }
 
@@ -135,14 +185,14 @@ struct AppUpdateCheckerTests {
         #expect(presented == ["first"])
 
         let firstAction = try #require(coordinator.activePrompt?.actions.first)
-        coordinator.perform(firstAction)
+        coordinator.perform(firstAction, promptID: coordinator.activePrompt?.id)
 
         #expect(coordinator.activePrompt?.id == "second")
         #expect(presented == ["first", "second"])
         #expect(performed == ["first"])
 
         let secondAction = try #require(coordinator.activePrompt?.actions.first)
-        coordinator.perform(secondAction)
+        coordinator.perform(secondAction, promptID: coordinator.activePrompt?.id)
 
         #expect(coordinator.activePrompt == nil)
         #expect(performed == ["first", "second"])
@@ -167,7 +217,7 @@ struct AppUpdateCheckerTests {
         #expect(!gate.isCancelled)
 
         let action = try #require(coordinator.activePrompt?.actions.first)
-        coordinator.perform(action)
+        coordinator.perform(action, promptID: coordinator.activePrompt?.id)
         await gate.value
         #expect(coordinator.activePrompt == nil)
     }
@@ -307,7 +357,7 @@ struct AppUpdateCheckerTests {
         #expect(result == .update(AppStoreRelease(
             version: "1.7.1",
             releaseNotes: "修复问题并优化体验。",
-            releaseDate: ISO8601DateFormatter().date(from: "2026-01-01T00:00:00Z"),
+            currentVersionReleaseDate: ISO8601DateFormatter().date(from: "2026-01-01T00:00:00Z"),
             trackViewURL: URL(string: "https://apps.apple.com/cn/app/bit101/id6761147125?uo=4")
         )))
         #expect(requestCount == 2)
@@ -330,10 +380,36 @@ struct AppUpdateCheckerTests {
         #expect(result == .current)
     }
 
+    @Test func cachedInitialStorePublicationDateRequiresARefreshBeforeAutomaticPresentation() async throws {
+        let context = try TestContext()
+        defer { context.cleanUp() }
+        let old = try JSONSerialization.data(withJSONObject: ["version": "9.0", "releaseDate": 0,
+            "trackViewURL": BIT101AppStore.url.absoluteString])
+        context.defaults.set(old, forKey: AppUpdateChecker.cachedReleaseKey)
+        context.defaults.set(context.now, forKey: AppUpdateChecker.lastAttemptKey)
+        var requests = 0
+        let checker = AppUpdateChecker(defaults: context.defaults, now: { context.now }, installedVersion: { "1.0" },
+            loadData: { request in
+                requests += 1
+                return try Self.lookupResponse(for: try #require(request.url))
+            })
+        #expect(await checker.releaseToPresentAtLaunch() == nil)
+        #expect(requests == 0)
+    }
+
+    @Test func lookupParserRequiresTheCurrentVersionDateUsedByProductionAndSmoke() throws {
+        let data = try Self.lookupResponse(for: BIT101AppStore.url).0
+        let parsed = try AppStoreLookup.parse(data)
+        #expect(parsed.release.currentVersionReleaseDate == ISO8601DateFormatter().date(from: "2026-01-01T00:00:00Z"))
+        let invalid = Data(String(decoding: data, as: UTF8.self)
+            .replacingOccurrences(of: "2026-01-01T00:00:00Z", with: "invalid-date").utf8)
+        #expect(throws: URLError.self) { try AppStoreLookup.parse(invalid) }
+    }
+
     private static func lookupResponse(
         for url: URL,
         version: String = "1.7.1",
-        releaseDate: String = "2026-01-01T00:00:00Z"
+        currentVersionReleaseDate: String = "2026-01-01T00:00:00Z"
     ) throws -> (Data, URLResponse) {
         let data = Data("""
         {
@@ -341,7 +417,9 @@ struct AppUpdateCheckerTests {
           "results": [{
             "version": "\(version)",
             "releaseNotes": "修复问题并优化体验。",
-            "releaseDate": "\(releaseDate)",
+            "releaseDate": "2025-01-01T00:00:00Z",
+            "currentVersionReleaseDate": "\(currentVersionReleaseDate)",
+            "bundleId": "BIT101-dev.BIT101-iOS",
             "trackViewUrl": "https://apps.apple.com/cn/app/bit101/id6761147125?uo=4"
           }]
         }

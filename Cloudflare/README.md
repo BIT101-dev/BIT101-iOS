@@ -9,7 +9,7 @@
 | `privacy.aihelpme.dev` | Pages | `privacy-policy` | `Cloudflare/PrivacyPolicy/` |
 | `open.aihelpme.dev` | Worker | `bit101-open` | `Cloudflare/OpenWorker/` |
 | `update.aihelpme.dev` | Worker + KV | `bit101-emergency-update` | `Cloudflare/EmergencyUpdateWorker/` |
-| `feedback.aihelpme.dev` | Worker + KV | `bit101-error-reports` | `Cloudflare/ErrorReportWorker/` |
+| `feedback.aihelpme.dev` | Worker + KV + SQLite Durable Object | `bit101-error-reports` | `Cloudflare/ErrorReportWorker/` |
 
 反馈域名提供 App 错误报告和用户建议 API。专用配置与使用方法见 [紧急更新](EmergencyUpdateWorker/README.md) 和 [反馈报告](ErrorReportWorker/README.md)。
 
@@ -17,8 +17,9 @@
 
 - 话廊分享：`https://open.aihelpme.dev/gallery/<id>`；课程分享：`https://open.aihelpme.dev/course/<id>`。
 - App 的 `bit101://` 路由支持 `schedule/courses`、`gallery/<id>`、`course/<id>` 与 `paper/<id>`，由 `AppDeepLinkCoordinator` 解析，App 壳层在登录恢复后分发。
-- 文章分享使用 `https://open.aihelpme.dev/paper/<id>`。OpenWorker 的网页路由覆盖 `gallery` 和 `course`；文章网页落地规则由部署配置管理。
-- AASA 对应 `Y2T72736G3.BIT101-dev.BIT101-iOS`，关联 `gallery/*` 和 `course/*`。具体响应与网页内容以 `OpenWorker/worker.js` 为准。
+- 文章分享使用 `https://open.aihelpme.dev/paper/<id>`。OpenWorker 的网页路由覆盖 `gallery`、`course` 与 `paper`。
+- 分享图标使用固定 `/share-icon.jpg` 路径，Worker 通过 App Store 元数据取得当前版本的图标资源。
+- AASA 对应 `Y2T72736G3.BIT101-dev.BIT101-iOS`，关联 `gallery/*`、`course/*` 与 `paper/*`。具体响应与网页内容以 `OpenWorker/worker.js` 为准。
 - `/.well-known/apple-app-site-association` 直接返回 HTTP 200 和 `application/json`。App ID 开启 Associated Domains，签名描述文件包含对应权限。
 - 配置部署后重新安装 App，从信息或备忘录等外部 App 点击链接验证。Apple CDN 的缓存影响配置生效时间。
 - 中转页保留关联域名并提供 Scheme 与网页入口，供内置浏览器等场景选择打开方式。

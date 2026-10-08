@@ -105,7 +105,7 @@ final class EmergencyUpdateChecker {
         do {
             let (data, response) = try await loadData(request)
             guard let httpResponse = response as? HTTPURLResponse,
-                  (200 ..< 300).contains(httpResponse.statusCode)
+                  (200 ..< 300).contains(httpResponse.statusCode), AppURL.isSameOrigin(httpResponse.url, as: endpointURL)
             else { return nil }
 
             let notice = try JSONDecoder().decode(EmergencyUpdateNotice.self, from: data)

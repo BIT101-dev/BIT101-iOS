@@ -94,6 +94,8 @@ final class CourseDetailViewModel: ObservableObject {
 
     private let service: any CourseDetailServicing
     private var hasBootstrapped = false
+    private var likeRevision = 0
+    private var latestLikeResult: CommunityLikeResult?
     private var refreshGeneration = 0
     private var historyGeneration = 0
     private var cachedCourseCredits: [CommunityCourseCredit] = []
@@ -176,10 +178,12 @@ final class CourseDetailViewModel: ObservableObject {
         hasBootstrapped = true
         cachedCourseCredits = await loadCourseCredits()
         await refresh()
+        if status == .idle || commentState.status == .idle { hasBootstrapped = false }
     }
 
     /// 并行刷新课程详情和评论首屏。
     func refresh() async {
+        let likeRevisionAtStart = likeRevision
         refreshGeneration &+= 1
         let generation = refreshGeneration
         let hadCourse = course != nil
@@ -190,22 +194,18 @@ final class CourseDetailViewModel: ObservableObject {
         }
         resetCommentStateForRefresh()
 
-        let courseTask = Task { @MainActor [self] in
-            await loadResult {
-                try await self.service.fetchCourse(id: self.initialCourse.id)
-            }
+        async let courseResult = loadResult { [self] in
+            try await self.service.fetchCourse(id: self.initialCourse.id)
         }
-        let commentTask = Task { @MainActor [self] in
-            await loadResult {
-                try await self.service.fetchComments(courseID: self.initialCourse.id, page: nil)
-            }
+        async let commentResult = loadResult { [self] in
+            try await self.service.fetchComments(courseID: self.initialCourse.id, page: nil)
         }
 
-        let resolvedCourseResult = await courseTask.value
+        let resolvedCourseResult = await courseResult
         guard refreshGeneration == generation else { return }
-        handleCourseResult(resolvedCourseResult, previousStatus: previousStatus)
+        handleCourseResult(resolvedCourseResult, previousStatus: previousStatus, likeRevisionAtStart: likeRevisionAtStart)
 
-        let resolvedCommentResult = await commentTask.value
+        let resolvedCommentResult = await commentResult
         guard refreshGeneration == generation else { return }
         handleCommentRefreshResult(resolvedCommentResult, previousState: previousCommentState)
     }
@@ -223,6 +223,7 @@ final class CourseDetailViewModel: ObservableObject {
         }
 
         let nextPage = commentState.nextPage
+        let likeRevisionAtStart = commentState.likeRevision
         commentState.isLoadingMore = true
         defer {
             if refreshGeneration == generation {
@@ -237,7 +238,7 @@ final class CourseDetailViewModel: ObservableObject {
         switch result {
         case let .success(comments):
             guard refreshGeneration == generation else { return }
-            commentState.appendPage(comments)
+            commentState.appendPage(commentState.applyingLikes(to: comments, since: likeRevisionAtStart))
         case let .failure(error):
             guard refreshGeneration == generation else { return }
             if isCourseDetailCancellation(error) { return }
@@ -289,20 +290,20 @@ final class CourseDetailViewModel: ObservableObject {
 
     func likeCourse() async {
         guard !isLikingCourse else { return }
-        let generation = refreshGeneration
         isLikingCourse = true
         defer { isLikingCourse = false }
 
         do {
             let result = try await service.like(objectID: "course\(initialCourse.id)")
-            guard refreshGeneration == generation else { return }
+            try Task.checkCancellation()
+            likeRevision &+= 1
+            latestLikeResult = result
             if let course {
                 self.course = course.updatingLike(result.like, likeNum: result.likeNum)
             } else {
                 self.course = fallbackCourseDetail(like: result.like, likeNum: result.likeNum)
             }
         } catch {
-            guard refreshGeneration == generation else { return }
             if isCourseDetailCancellation(error) { return }
             alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
@@ -310,16 +311,14 @@ final class CourseDetailViewModel: ObservableObject {
 
     func likeComment(_ comment: CommunityComment) async {
         guard !likingCommentIDs.contains(comment.id) else { return }
-        let generation = refreshGeneration
         likingCommentIDs.insert(comment.id)
         defer { likingCommentIDs.remove(comment.id) }
 
         do {
             let result = try await service.like(objectID: "comment\(comment.id)")
-            guard refreshGeneration == generation else { return }
-            commentState.items = commentState.items.updatingLike(for: comment.id, like: result.like, likeNum: result.likeNum)
+            try Task.checkCancellation()
+            commentState.recordLike(result, for: comment.id)
         } catch {
-            guard refreshGeneration == generation else { return }
             if isCourseDetailCancellation(error) { return }
             alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
@@ -332,11 +331,16 @@ final class CourseDetailViewModel: ObservableObject {
             return false
         }
         guard !isSubmittingComment else { return false }
+        if case .course = target, !(1 ... 10).contains(rate ?? 0) {
+            alert = AppAlert.userInput(title: "请选择评分", message: "课程评价需要选择 0.5 至 5 星评分。")
+            return false
+        }
 
         isSubmittingComment = true
         defer { isSubmittingComment = false }
 
         do {
+            try Task.checkCancellation()
             _ = try await service.createComment(
                 objectID: target.objectID,
                 text: trimmed,
@@ -345,10 +349,12 @@ final class CourseDetailViewModel: ObservableObject {
                 anonymous: anonymous,
                 rate: rate
             )
+            try Task.checkCancellation()
             await refresh()
+            try Task.checkCancellation()
             return true
         } catch {
-            if isCourseDetailCancellation(error) { return false }
+            if Task.isCancelled || isCourseDetailCancellation(error) { return false }
             alert = AppAlert(title: "发送失败", message: error.localizedDescription)
             return false
         }
@@ -370,10 +376,15 @@ final class CourseDetailViewModel: ObservableObject {
         )
     }
 
-    private func handleCourseResult(_ result: Result<CourseDetail, Error>, previousStatus: CourseDetailLoadStatus) {
+    private func handleCourseResult(_ result: Result<CourseDetail, Error>, previousStatus: CourseDetailLoadStatus, likeRevisionAtStart: Int) {
         switch result {
         case let .success(course):
-            self.course = course
+            if likeRevision != likeRevisionAtStart, let latestLikeResult {
+                self.course = course.updatingLike(latestLikeResult.like, likeNum: latestLikeResult.likeNum)
+            } else {
+                self.course = course
+                latestLikeResult = nil
+            }
             status = .loaded
         case let .failure(error):
             if isCourseDetailCancellation(error) {
@@ -405,31 +416,19 @@ final class CourseDetailViewModel: ObservableObject {
     ) {
         switch result {
         case let .success(comments):
-            commentState.applyFirstPage(comments)
+            commentState.applyFirstPage(commentState.applyingLikes(to: comments, since: previousState.likeRevision))
             commentState.status = .loaded
         case let .failure(error):
-            if isCourseDetailCancellation(error) {
-                var restoredState = previousState
-                restoredState.isLoadingMore = false
-                if !restoredState.items.isEmpty {
-                    restoredState.status = .loaded
-                } else if case .loading = restoredState.status {
-                    restoredState.status = .idle
-                }
-                commentState = restoredState
-                return
-            }
-
-            commentState.status = .failed(error.localizedDescription)
-            commentState.canLoadMore = false
-            commentState.isLoadingMore = false
+            let cancelled = isCourseDetailCancellation(error)
+            commentState.restoreAfterRefreshFailure(previousState, failureStatus: cancelled ? nil : .failed(error.localizedDescription))
+            if cancelled { return }
             alert = AppAlert(title: "加载评论失败", message: error.localizedDescription)
         }
     }
 
     private func resetCommentStateForRefresh() {
         commentState.status = .loading
-        commentState.resetPagination()
+        commentState.isLoadingMore = false
     }
 
     private func courseExternalURL() -> URL? {
@@ -447,25 +446,14 @@ final class CourseDetailViewModel: ObservableObject {
         return URL(string: "https://onedrive.bit101.cn/zh-CN/course/\(pathComponent)")
     }
 
-    private func loadResult<T>(_ operation: @escaping () async throws -> T) async -> Result<T, Error> {
+    private func loadResult<T: Sendable>(_ operation: @MainActor () async throws -> T) async -> Result<T, Error> {
         do {
-            return .success(try await operation())
+            try Task.checkCancellation()
+            let value = try await operation()
+            try Task.checkCancellation()
+            return .success(value)
         } catch {
             return .failure(error)
         }
     }
 }
-
-private extension Array where Element == CommunityComment {
-    func updatingLike(for commentID: Int, like: Bool, likeNum: Int) -> [CommunityComment] {
-        map { comment in
-            let updatedSub = comment.sub.updatingLike(for: commentID, like: like, likeNum: likeNum)
-            let updated = comment.replacingSubComments(updatedSub)
-            if updated.id == commentID {
-                return updated.updatingLike(like, likeNum: likeNum)
-            }
-            return updated
-        }
-    }
-}
-

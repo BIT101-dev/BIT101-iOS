@@ -172,6 +172,7 @@ struct ScheduleInlineWeekSlider: View {
             targetWeek.map { "第\($0)周" }
                 ?? (step < 0 ? "已到最前一周" : "已到最后一周")
         )
+            .accessibilityIdentifier("ui.schedule-inline-week-slider.step")
     }
 
     private func adjacentWeek(by step: Int) -> Int? {

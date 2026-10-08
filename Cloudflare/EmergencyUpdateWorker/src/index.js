@@ -5,26 +5,23 @@ export default {
       return new Response("Not Found", { status: 404 });
     }
 
-    let config = null;
+    const headers = { "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*", "X-Content-Type-Options": "nosniff" };
+    let config;
     try {
       config = await env.EMERGENCY_CONFIG.get("emergency-update", {
         type: "json",
         cacheTtl: 30,
       });
     } catch {
-      // 配置读取失败时保持关闭，不能让远端故障阻断 App 启动。
+      return Response.json({ error: "configuration_unavailable" }, { status: 503, headers });
     }
 
-    if (!config || typeof config.enabled !== "boolean") {
-      config = { schema_version: 1, enabled: false };
+    if (!config || config.schema_version !== 1 || typeof config.enabled !== "boolean"
+      || config.enabled && (![config.notice_id, config.title, config.message].every(value => typeof value === "string" && value.trim())
+        || !Number.isSafeInteger(config.maximum_affected_build) || config.maximum_affected_build < 0)) {
+      return Response.json({ error: "invalid_configuration" }, { status: 503, headers });
     }
 
-    return Response.json(config, {
-      headers: {
-        "Cache-Control": "no-store",
-        "Access-Control-Allow-Origin": "*",
-        "X-Content-Type-Options": "nosniff",
-      },
-    });
+    return Response.json(config, { headers });
   },
 };

@@ -1,3 +1,21 @@
+import Foundation
+
+/// 连续四个非空源页缺少新标识时终止当前分页，调用方保留已加载内容和重试位置。
+public struct CommunityPageProgress<ID: Hashable> {
+    private var seen: Set<ID>
+    private var repeatedPages = 0
+
+    public init(knownIDs: [ID] = []) { seen = Set(knownIDs) }
+
+    public mutating func record(_ ids: [ID]) throws {
+        guard !ids.isEmpty else { return }
+        let previousCount = seen.count
+        seen.formUnion(ids)
+        repeatedPages = seen.count == previousCount ? repeatedPages + 1 : 0
+        guard repeatedPages < 4 else { throw URLError(.badServerResponse) }
+    }
+}
+
 /// 页码分页列表共享的最小状态契约。
 public protocol PagedItemsState {
     associatedtype Item: Identifiable
@@ -91,16 +109,19 @@ extension CursorPagedItemsState {
     }
 
     public mutating func applyFirstCursorPage(_ newItems: [Item]) {
-        items = newItems
+        var seen = Set<Item.ID>()
+        items = newItems.filter { seen.insert($0.id).inserted }
         nextCursor = newItems.last?.id
         isLoadingMore = false
         canLoadMore = !newItems.isEmpty
     }
 
     public mutating func appendCursorPage(_ newItems: [Item]) {
-        items.append(contentsOf: newItems)
+        var seen = Set(items.map(\.id))
+        let cursorAdvanced = newItems.last.map { $0.id != nextCursor && !seen.contains($0.id) } ?? false
+        items.append(contentsOf: newItems.filter { seen.insert($0.id).inserted })
         nextCursor = newItems.last?.id ?? nextCursor
         isLoadingMore = false
-        canLoadMore = !newItems.isEmpty
+        canLoadMore = cursorAdvanced
     }
 }

@@ -44,14 +44,29 @@ public nonisolated struct SchoolLoginContext: Sendable {
 /// 认证状态属于学校网络基础设施，页面层通过服务协议消费它。
 public final class TeachingCenterSessionState {
     private let lock = NSLock()
-    public let cookieStorage: HTTPCookieStorage
+    private var selectedCookieStorage: HTTPCookieStorage
+    public var cookieStorage: HTTPCookieStorage {
+        lock.lock()
+        defer { lock.unlock() }
+        return selectedCookieStorage
+    }
     private var authenticatedStudentID: String?
     private var preparedStudentID: String?
     private var directStudentID: String?
     private var directPreferenceUntil: Date?
 
     public init(cookieStorage: HTTPCookieStorage) {
-        self.cookieStorage = cookieStorage
+        selectedCookieStorage = cookieStorage
+    }
+
+    public func replaceCookieStorage(with cookieStorage: HTTPCookieStorage) {
+        lock.lock()
+        defer { lock.unlock() }
+        selectedCookieStorage = cookieStorage
+        authenticatedStudentID = nil
+        preparedStudentID = nil
+        directStudentID = nil
+        directPreferenceUntil = nil
     }
 
     public func hasUsableSession(for studentID: String) -> Bool {
@@ -68,9 +83,6 @@ public final class TeachingCenterSessionState {
             return false
         }
 
-        if authenticatedStudentID == nil {
-            authenticatedStudentID = studentID
-        }
         return authenticatedStudentID == studentID
     }
 
@@ -153,7 +165,7 @@ public final class TeachingCenterSessionState {
 
     private var hasWebVPNCookie: Bool {
         let now = Date()
-        return cookieStorage.cookies?.contains { cookie in
+        return selectedCookieStorage.cookies?.contains { cookie in
             normalizedDomain(cookie.domain) == "webvpn.bit.edu.cn"
                 && (cookie.expiresDate.map { $0 > now } ?? true)
         } ?? false

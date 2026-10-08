@@ -71,7 +71,14 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
     /// 是否正在同步课表/考试。
     public var isSyncingCourses: Bool { courseSyncCoordinator.isSyncingCourses }
     @Published var selectedWeek = 1
-    @Published var selectedCourseScheduleIndex = 0
+    @Published private var selectedCourseScheduleID = "__primary__"
+    var selectedCourseScheduleIndex: Int {
+        get { courseSchedules.firstIndex { $0.id == selectedCourseScheduleID } ?? 0 }
+        set {
+            let variants = courseSchedules
+            selectedCourseScheduleID = variants[min(max(newValue, 0), variants.count - 1)].id
+        }
+    }
     @Published public internal(set) var notice: ScheduleNotice?
     public var smsChallenge: BITLoginAuthenticationChallenge? { courseSyncCoordinator.smsChallenge }
     public var smsVerificationError: String? { courseSyncCoordinator.smsVerificationError }
@@ -145,6 +152,7 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
         cloudSyncEnableTask?.cancel()
         cloudSyncEnableTask = nil
         repository.resetForCurrentAccount()
+        selectedCourseScheduleIndex = 0
         classroom.reset()
         ddl.reset()
         hasLoaded = false

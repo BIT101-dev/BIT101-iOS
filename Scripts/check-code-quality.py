@@ -5,4 +5,5 @@ sys.dont_write_bytecode = True
 from code_quality_rules import *
 
 if __name__ == "__main__":
-    raise SystemExit(combined_main() if "--combined" in sys.argv else main())
+    with static_audit_lock():
+        raise SystemExit(combined_main() if "--combined" in sys.argv else main())

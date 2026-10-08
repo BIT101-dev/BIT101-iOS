@@ -23,6 +23,8 @@ extension ScheduleService {
         storedURL: String,
         schoolSMSCodeHandler: SchoolSMSCodeHandler? = nil
     ) async throws -> DDLSyncPayload {
+        let owner = credentials.schoolSessionIdentity
+        try validateAuthenticationOwner(owner)
         var events: [DDLEventRecord] = []
         var groups: Set<String> = []
         var warnings: [String] = []
@@ -30,6 +32,7 @@ extension ScheduleService {
         var firstError: Error?
         do {
             events = try await fetchEclassDDLEvents(schoolSMSCodeHandler: schoolSMSCodeHandler).events
+            try validateAuthenticationOwner(owner)
             groups.insert("eclass")
         } catch {
             if TaskCancellation.matches(error) { throw error }
@@ -39,7 +42,7 @@ extension ScheduleService {
         if !storedURL.isEmpty {
             do {
                 let lexue = try await syncDDLEvents(existingEvents: existingEvents, storedURL: storedURL,
-                    schoolSMSCodeHandler: schoolSMSCodeHandler, smsDeliveryMode: .send)
+                    schoolSMSCodeHandler: schoolSMSCodeHandler, smsDeliveryMode: .send, owner: owner)
                 events.append(contentsOf: lexue.events)
                 calendarURL = lexue.url
                 groups.insert("lexue")
@@ -76,11 +79,15 @@ extension ScheduleService {
         existingEvents: [DDLEventRecord],
         storedURL: String,
         schoolSMSCodeHandler: SchoolSMSCodeHandler?,
-        smsDeliveryMode: SchoolSMSDeliveryMode
+        smsDeliveryMode: SchoolSMSDeliveryMode,
+        owner: SchoolSessionIdentity? = nil
     ) async throws -> DDLSyncPayload {
+        let owner = owner ?? credentials.schoolSessionIdentity
+        try validateAuthenticationOwner(owner)
         try await ensureSchoolSession(
             schoolSMSCodeHandler: schoolSMSCodeHandler,
-            smsDeliveryMode: smsDeliveryMode
+            smsDeliveryMode: smsDeliveryMode,
+            owner: owner
         )
 
         var lastError: Error?
@@ -90,12 +97,14 @@ extension ScheduleService {
                     storedURL: index == 0 ? storedURL : "",
                     baseURL: baseURL,
                     schoolSMSCodeHandler: schoolSMSCodeHandler,
-                    smsDeliveryMode: smsDeliveryMode
+                    smsDeliveryMode: smsDeliveryMode,
+                    owner: owner
                 )
                 let remoteEvents = try await fetchLexueEvents(
                     urlString: finalURL,
                     schoolSMSCodeHandler: schoolSMSCodeHandler,
-                    smsDeliveryMode: smsDeliveryMode
+                    smsDeliveryMode: smsDeliveryMode,
+                    owner: owner
                 )
 
                 let existingDoneMap = Dictionary(existingEvents.map { ($0.id, $0.done) }, uniquingKeysWith: { first, _ in first })
@@ -110,7 +119,7 @@ extension ScheduleService {
                     )
                 }
                 if URL(string: finalURL)?.host?.lowercased() == lexueBaseURL.host?.lowercased() {
-                    let studentID = credentials.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let studentID = owner.accountIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
                     teachingCenterState.markDirectPreferred(for: studentID)
                 }
                 return DDLSyncPayload(url: finalURL, events: merged)
@@ -142,9 +151,12 @@ extension ScheduleService {
         schoolSMSCodeHandler: SchoolSMSCodeHandler?,
         smsDeliveryMode: SchoolSMSDeliveryMode
     ) async throws -> String {
+        let owner = credentials.schoolSessionIdentity
+        try validateAuthenticationOwner(owner)
         try await ensureSchoolSession(
             schoolSMSCodeHandler: schoolSMSCodeHandler,
-            smsDeliveryMode: smsDeliveryMode
+            smsDeliveryMode: smsDeliveryMode,
+            owner: owner
         )
         var lastError: Error?
         for baseURL in lexueRouteBaseURLs(storedURL: "") {
@@ -153,7 +165,8 @@ extension ScheduleService {
                     storedURL: "",
                     baseURL: baseURL,
                     schoolSMSCodeHandler: schoolSMSCodeHandler,
-                    smsDeliveryMode: smsDeliveryMode
+                    smsDeliveryMode: smsDeliveryMode,
+                    owner: owner
                 )
             } catch {
                 lastError = error
@@ -171,6 +184,7 @@ extension ScheduleService {
         baseURL: URL,
         schoolSMSCodeHandler: SchoolSMSCodeHandler?,
         smsDeliveryMode: SchoolSMSDeliveryMode,
+        owner: SchoolSessionIdentity,
         secondFactorRetryCount: Int = 0
     ) async throws -> String {
         if !storedURL.isEmpty {
@@ -180,7 +194,8 @@ extension ScheduleService {
         let indexHTML = try await sendStringRequest(
             baseURL: baseURL,
             path: "/",
-            requiresTeachingCenterSession: false
+            requiresTeachingCenterSession: false,
+            owner: owner
         )
         guard
             let sesskey = indexHTML.captureGroups(pattern: #"[\"']sesskey[\"']:[\"']([^\"']+)[\"']"#).first,
@@ -196,13 +211,15 @@ extension ScheduleService {
                 try await completeSchoolSecondFactor(
                     context,
                     handler: schoolSMSCodeHandler,
-                    smsDeliveryMode: smsDeliveryMode
+                    smsDeliveryMode: smsDeliveryMode,
+                    owner: owner
                 )
                 return try await resolveLexueCalendarURL(
                     storedURL: "",
                     baseURL: baseURL,
                     schoolSMSCodeHandler: schoolSMSCodeHandler,
                     smsDeliveryMode: smsDeliveryMode,
+                    owner: owner,
                     secondFactorRetryCount: secondFactorRetryCount + 1
                 )
             }
@@ -220,7 +237,8 @@ extension ScheduleService {
                 ("period[timeperiod]", "recentupcoming"),
                 ("generateurl", "获取日历网址"),
             ],
-            requiresTeachingCenterSession: false
+            requiresTeachingCenterSession: false,
+            owner: owner
         )
 
         if let context = SchoolLoginHTMLParser.parseSecondFactorPage(
@@ -236,13 +254,15 @@ extension ScheduleService {
             try await completeSchoolSecondFactor(
                 context,
                 handler: schoolSMSCodeHandler,
-                smsDeliveryMode: smsDeliveryMode
+                smsDeliveryMode: smsDeliveryMode,
+                owner: owner
             )
             return try await resolveLexueCalendarURL(
                 storedURL: "",
                 baseURL: baseURL,
                 schoolSMSCodeHandler: schoolSMSCodeHandler,
                 smsDeliveryMode: smsDeliveryMode,
+                owner: owner,
                 secondFactorRetryCount: secondFactorRetryCount + 1
             )
         }
@@ -302,23 +322,27 @@ extension ScheduleService {
     func completeSchoolSecondFactor(
         _ context: SchoolSecondFactorContext,
         handler: SchoolSMSCodeHandler?,
-        smsDeliveryMode: SchoolSMSDeliveryMode
+        smsDeliveryMode: SchoolSMSDeliveryMode,
+        owner: SchoolSessionIdentity
     ) async throws {
+        try validateAuthenticationOwner(owner)
+        let studentID = credentials.currentStudentID
         guard smsDeliveryMode == .send else {
             throw ScheduleServiceError.schoolSecondFactorRequired
         }
         guard let handler else {
             throw ScheduleServiceError.schoolSecondFactorRequired
         }
-        let phone = try await fetchSecondFactorPhone(userObjectID: context.userObjectID)
-        try await sendSecondFactorCode(to: phone.phone)
+        let phone = try await fetchSecondFactorPhone(userObjectID: context.userObjectID, owner: owner)
+        try await sendSecondFactorCode(to: phone.phone, owner: owner)
         let code = try await handler(
             SchoolSMSCodeRequest(
                 maskedPhone: phone.maskedPhone,
                 purpose: "school_sso_second_factor"
             )
         )
-        try await verifySecondFactorCode(code, phone: phone.phone)
+        try validateAuthenticationOwner(owner)
+        try await verifySecondFactorCode(code, phone: phone.phone, owner: owner)
 
         var request = URLRequest(url: context.formAction)
         request.httpMethod = "POST"
@@ -327,7 +351,7 @@ extension ScheduleService {
         request.setValue(schoolSSOBaseURL.absoluteString, forHTTPHeaderField: "Origin")
         request.setValue(schoolSSOBaseURL.appending(path: "cas/").absoluteString, forHTTPHeaderField: "Referer")
         request.httpBody = HTTPFormEncoding.body([
-            ("username", credentials.currentStudentID),
+            ("username", studentID),
             ("password", code),
             ("type", "smsLogin"),
             ("_eventId", "submit"),
@@ -337,7 +361,7 @@ extension ScheduleService {
             ("trustDevice", "false"),
         ])
 
-        let (data, response) = try await sendRequest(request)
+        let (data, response) = try await sendRequest(request, owner: owner)
         let responseURL = response.url ?? context.formAction
             guard crypto.isAcceptedSchoolLoginCompletion(
             statusCode: response.statusCode,
@@ -356,7 +380,7 @@ extension ScheduleService {
         }
     }
 
-    private func fetchSecondFactorPhone(userObjectID: String) async throws -> (phone: String, maskedPhone: String) {
+    private func fetchSecondFactorPhone(userObjectID: String, owner: SchoolSessionIdentity) async throws -> (phone: String, maskedPhone: String) {
         let encrypted = try crypto.encryptSchoolURLCryptoBody(
             object: ["userId": userObjectID],
             publicKeyPEM: crypto.schoolURLCryptoPublicKey
@@ -373,7 +397,7 @@ extension ScheduleService {
         }
         request.httpBody = Data(encrypted.body.utf8)
 
-        let (data, response) = try await sendRequest(request)
+        let (data, response) = try await sendRequest(request, owner: owner)
         guard (200 ..< 300).contains(response.statusCode) else {
             throw ScheduleServiceError.schoolSMSUnavailable("无法获取短信验证手机号。")
         }
@@ -465,7 +489,7 @@ extension ScheduleService {
         return "基础值"
     }
 
-    private func sendSecondFactorCode(to phone: String) async throws {
+    private func sendSecondFactorCode(to phone: String, owner: SchoolSessionIdentity) async throws {
         var request = URLRequest(url: schoolSSOBaseURL.appending(path: "cas/api/protected/sms/publicNoToken/sendSmsCode"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -478,7 +502,7 @@ extension ScheduleService {
             "phone": phone,
             "businessNo": "0008",
         ])
-        let (data, response) = try await sendRequest(request)
+        let (data, response) = try await sendRequest(request, owner: owner)
         guard (200 ..< 300).contains(response.statusCode) else {
             throw ScheduleServiceError.schoolSMSUnavailable("短信验证码发送失败。")
         }
@@ -492,7 +516,7 @@ extension ScheduleService {
         }
     }
 
-    private func verifySecondFactorCode(_ code: String, phone: String) async throws {
+    private func verifySecondFactorCode(_ code: String, phone: String, owner: SchoolSessionIdentity) async throws {
         var request = URLRequest(url: schoolSSOBaseURL.appending(path: "cas/api/protected/sms/checkToken"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -507,7 +531,7 @@ extension ScheduleService {
             "delete": false,
             "trustDevice": false,
         ])
-        let (data, response) = try await sendRequest(request)
+        let (data, response) = try await sendRequest(request, owner: owner)
         guard (200 ..< 300).contains(response.statusCode) else {
             throw ScheduleServiceError.schoolSMSCodeInvalid(responseMessage(from: data) ?? "短信验证码错误或已失效，请重新发起验证。")
         }
@@ -541,6 +565,7 @@ extension ScheduleService {
         urlString: String,
         schoolSMSCodeHandler: SchoolSMSCodeHandler?,
         smsDeliveryMode: SchoolSMSDeliveryMode,
+        owner: SchoolSessionIdentity,
         retriedAfterSecondFactor: Bool = false
     ) async throws -> [DDLEventRecord] {
         // 订阅链接可能使用 webcal:// 或 http://，请求前统一升级为 HTTPS。
@@ -551,7 +576,7 @@ extension ScheduleService {
         }
 
         let request = URLRequest(url: url)
-        let ics = try await sendStringRequest(request)
+        let ics = try await sendStringRequest(request, owner: owner)
         if let context = SchoolLoginHTMLParser.parseSecondFactorPage(
             html: ics,
             baseURL: schoolSSOBaseURL
@@ -565,19 +590,23 @@ extension ScheduleService {
             try await completeSchoolSecondFactor(
                 context,
                 handler: schoolSMSCodeHandler,
-                smsDeliveryMode: smsDeliveryMode
+                smsDeliveryMode: smsDeliveryMode,
+                owner: owner
             )
             return try await fetchLexueEvents(
                 urlString: urlString,
                 schoolSMSCodeHandler: schoolSMSCodeHandler,
                 smsDeliveryMode: smsDeliveryMode,
+                owner: owner,
                 retriedAfterSecondFactor: true
             )
         }
         guard ics.range(of: "BEGIN:VCALENDAR", options: .caseInsensitive) != nil else {
             throw ScheduleServiceError.invalidLexuePage
         }
-        return try await Self.parseCalendar(ics)
+        let events = try await Self.parseCalendar(ics)
+        try validateAuthenticationOwner(owner)
+        return events
     }
 
     @concurrent

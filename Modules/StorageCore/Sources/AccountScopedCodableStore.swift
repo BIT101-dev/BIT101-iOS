@@ -6,6 +6,17 @@ private let accountScopedStoreLogger = Logger(
     category: "AccountScopedStore"
 )
 
+public enum AccountScopedValueRead<Value> {
+    case missing
+    case value(Value)
+    case unreadable
+
+    public var value: Value? {
+        if case .value(let value) = self { return value }
+        return nil
+    }
+}
+
 /// AccountScopedCodableStore 使用稳定前缀和账号后缀生成账号隔离的 Codable 快照存储键。
 public struct AccountScopedCodableStore<Value: Codable> {
     private let keyPrefix: String
@@ -25,20 +36,22 @@ public struct AccountScopedCodableStore<Value: Codable> {
         self.guestIdentifier = guestIdentifier
     }
 
-    public func load() -> Value? {
+    public func load() -> Value? { read().value }
+
+    public func read() -> AccountScopedValueRead<Value> {
         let key = storageKey
-        if let data = defaults.data(forKey: key) {
-            return decode(data)
+        if let stored = defaults.object(forKey: key) {
+            guard let data = stored as? Data, let value = decode(data) else { return .unreadable }
+            return .value(value)
         }
 
         let legacyKey = session().legacyKey(keyPrefix, guestIdentifier: guestIdentifier)
-        guard legacyKey != key, let data = defaults.data(forKey: legacyKey),
-              let value = decode(data)
-        else { return nil }
+        guard legacyKey != key, let stored = defaults.object(forKey: legacyKey) else { return .missing }
+        guard let data = stored as? Data, let value = decode(data) else { return .unreadable }
 
         defaults.set(data, forKey: key)
         defaults.removeObject(forKey: legacyKey)
-        return value
+        return .value(value)
     }
 
     private func decode(_ data: Data) -> Value? {
@@ -52,17 +65,23 @@ public struct AccountScopedCodableStore<Value: Codable> {
         }
     }
 
-    public func save(_ value: Value) {
+    @discardableResult
+    public func save(_ value: Value) -> Bool {
+        if case .unreadable = read() { return false }
         do {
             let data = try JSONEncoder().encode(value)
             let key = storageKey
             defaults.set(data, forKey: key)
             let legacyKey = session().legacyKey(keyPrefix, guestIdentifier: guestIdentifier)
-            if legacyKey != key { defaults.removeObject(forKey: legacyKey) }
+            if legacyKey != key, let data = defaults.data(forKey: legacyKey), decode(data) != nil {
+                defaults.removeObject(forKey: legacyKey)
+            }
+            return true
         } catch {
             accountScopedStoreLogger.error(
                 "Failed to encode account-scoped value keyPrefix=\(keyPrefix, privacy: .public) error=\(String(describing: error), privacy: .public)"
             )
+            return false
         }
     }
 
@@ -135,9 +154,10 @@ public struct AccountScopedFileCodableStore<Value: Codable> {
     @discardableResult
     public func save(_ value: Value) -> Bool {
         let targetURL = fileURL
-        if files.fileExists(at: targetURL) {
+        let existingURL = files.fileExists(at: targetURL) ? targetURL : legacyFileURL
+        if files.fileExists(at: existingURL) {
             do {
-                let existingData = try files.readData(at: targetURL)
+                let existingData = try files.readData(at: existingURL)
                 _ = try JSONDecoder().decode(Value.self, from: existingData)
             } catch {
                 accountScopedStoreLogger.error(

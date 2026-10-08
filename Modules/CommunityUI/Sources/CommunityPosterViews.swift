@@ -95,6 +95,7 @@ public struct CommunityPosterCard: View {
             }
             .contentShape(Rectangle())
             .onTapGesture(perform: onOpenPoster)
+            .accessibilityIdentifier("community.poster.\(poster.id)")
 
             if !poster.images.isEmpty {
                 CommunityPosterImagesView(images: poster.images, onOpenImage: onOpenImage)

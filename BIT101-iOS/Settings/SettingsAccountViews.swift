@@ -22,7 +22,8 @@ struct AccountSettingsPage: View {
     @State private var profile: MineUserInfo?
     @State private var isCheckingLogin = false
     @State private var isLoggedIn: Bool
-    @State private var isUpdating = false
+    @StateObject private var profileMutation = AccountProfileMutation()
+    private var isUpdating: Bool { profileMutation.isUpdating }
     @State private var showNicknameEditor = false
     @State private var showMottoEditor = false
     @State private var nicknameText = ""
@@ -143,6 +144,7 @@ struct AccountSettingsPage: View {
             SettingsTextEditSheet(
                 title: "修改昵称",
                 text: $nicknameText,
+                isSubmitting: isUpdating,
                 onSubmit: {
                     Task { await updateProfile(nickname: nicknameText, motto: nil) }
                 }
@@ -153,6 +155,7 @@ struct AccountSettingsPage: View {
                 title: "修改个性签名",
                 text: $mottoText,
                 axis: .vertical,
+                isSubmitting: isUpdating,
                 onSubmit: {
                     Task { await updateProfile(nickname: nil, motto: mottoText) }
                 }
@@ -192,9 +195,7 @@ struct AccountSettingsPage: View {
         defer { isCheckingLogin = false }
         do {
             let loginState = try await service.checkLogin()
-            guard isCurrentSession(credentials)
-                || (!loginState && dependencies.credentials().identity == credentials.identity && dependencies.credentials().cookie.isEmpty)
-            else { return }
+            guard dependencies.acceptsLoginCheck(loginState, for: credentials) else { return }
             isLoggedIn = loginState
             if !loginState {
                 profile = nil
@@ -216,19 +217,19 @@ struct AccountSettingsPage: View {
             self.profile = nil
             return
         }
-        isUpdating = true
-        defer { isUpdating = false }
         do {
-            try await service.updateUser(
-                nickname: nickname ?? profile.user.nickname,
-                motto: motto ?? profile.user.motto,
-                avatarMid: profile.user.avatar.mid
-            )
-            guard isCurrentSession(credentials) else { return }
-            await loadProfile(for: credentials)
-            guard isCurrentSession(credentials) else { return }
-            showNicknameEditor = false
-            showMottoEditor = false
+            try await profileMutation.perform {
+                try await service.updateUser(
+                    nickname: nickname ?? profile.user.nickname,
+                    motto: motto ?? profile.user.motto,
+                    avatarMid: profile.user.avatar.mid
+                )
+                guard isCurrentSession(credentials) else { return }
+                await loadProfile(for: credentials)
+                guard isCurrentSession(credentials) else { return }
+                showNicknameEditor = false
+                showMottoEditor = false
+            }
         } catch {
             guard shouldPresentError(error, for: credentials) else { return }
             alert = AppAlert(title: "更新失败", message: error.localizedDescription)
@@ -245,23 +246,22 @@ struct AccountSettingsPage: View {
             self.profile = nil
             return
         }
-        isUpdating = true
-        defer { isUpdating = false }
-
         do {
-            guard let data = try await item.loadTransferable(type: Data.self) else {
-                throw SettingsServiceError.uploadFailed
+            try await profileMutation.perform {
+                guard let data = try await item.loadTransferable(type: Data.self) else {
+                    throw SettingsServiceError.uploadFailed
+                }
+                guard isCurrentSession(credentials) else { return }
+                let image = try await service.uploadAvatar(data: data, filename: "avatar.jpg")
+                guard isCurrentSession(credentials) else { return }
+                try await service.updateUser(
+                    nickname: profile.user.nickname,
+                    motto: profile.user.motto,
+                    avatarMid: image.mid
+                )
+                guard isCurrentSession(credentials) else { return }
+                await loadProfile(for: credentials)
             }
-            guard isCurrentSession(credentials) else { return }
-            let image = try await service.uploadAvatar(data: data, filename: "avatar.jpg")
-            guard isCurrentSession(credentials) else { return }
-            try await service.updateUser(
-                nickname: profile.user.nickname,
-                motto: profile.user.motto,
-                avatarMid: image.mid
-            )
-            guard isCurrentSession(credentials) else { return }
-            await loadProfile(for: credentials)
         } catch {
             guard shouldPresentError(error, for: credentials) else { return }
             alert = AppAlert(title: "头像更新失败", message: error.localizedDescription)
@@ -315,5 +315,6 @@ private struct SettingsSensitiveValueRow: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityHint(isRevealed ? "轻点隐藏\(title)" : "轻点显示\(title)")
         .appInteractiveListRow()
+            .accessibilityIdentifier("ui.settings-sensitive-value-row.reveal")
     }
 }

@@ -25,6 +25,12 @@ nonisolated enum ScheduleSnapshotExportPolicy {
     static func acceptsWrite(generation: UInt64, latestGeneration: UInt64) -> Bool {
         generation >= latestGeneration
     }
+
+    static func requiresAccountReset(snapshot: ScheduleExternalSnapshot?, session: AppStorageSession, isLoggedIn: Bool) -> Bool {
+        guard let snapshot else { return false }
+        return AccountStorageIdentity.stableToken(for: snapshot.studentID) != session.accountStorageIdentifier
+            || snapshot.isLoggedIn != isLoggedIn
+    }
 }
 
 /// 把当前账号课表缓存导出为 `ScheduleExternalSnapshot`，供 Widget 和 Watch 读取。
@@ -34,29 +40,32 @@ nonisolated enum ScheduleSnapshotExportPolicy {
 enum ScheduleWidgetExporter {
     private static var exportGeneration: UInt64 = 0
     private static var lastPublishedContent: ScheduleExternalSnapshot?
+    private static var snapshotRevision: UInt64 = 0
 
     /// 重新读取当前账号缓存，并同步到共享容器。
     ///
     /// 应用生命周期、登录切换等需要重新读取当前缓存的场景使用此入口。
     static func syncFromCurrentCache() async {
-        lastPublishedContent = nil
         let session = AppFileDirectories.currentSession
         let generation = nextExportGeneration()
-        guard let emptySnapshot = makeSnapshot(courses: ScheduleCache().courseSnapshot, session: session) else { return }
-
-        // 先使共享容器失去旧账号的可见内容，再异步读取新账号缓存。
-        let didWriteEmptySnapshot = await ScheduleExternalSnapshotWriteQueue.shared.write(
-            emptySnapshot,
-            generation: generation
-        )
-        guard isCurrent(session: session, generation: generation) else { return }
-        if didWriteEmptySnapshot {
-            publish(emptySnapshot)
-        } else {
-            _ = await ScheduleExternalSnapshotWriteQueue.shared.clear(generation: generation)
+        let storedSnapshot = PlatformScheduleSnapshotStorage.store.load()
+        let isLoggedIn = !AppAccountSession.storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if ScheduleSnapshotExportPolicy.requiresAccountReset(snapshot: storedSnapshot, session: session, isLoggedIn: isLoggedIn) {
+            lastPublishedContent = nil
+            guard let emptySnapshot = makeSnapshot(courses: ScheduleCache().courseSnapshot, session: session) else { return }
+            // 账号切换先更新共享展示的身份，再读取当前账号缓存。
+            let didWriteEmptySnapshot = await ScheduleExternalSnapshotWriteQueue.shared.write(emptySnapshot, generation: generation)
             guard isCurrent(session: session, generation: generation) else { return }
-            WatchScheduleSyncManager.shared.push(snapshot: emptySnapshot)
-            WidgetCenter.shared.reloadAllTimelines()
+            if didWriteEmptySnapshot {
+                publish(emptySnapshot)
+            } else {
+                _ = await ScheduleExternalSnapshotWriteQueue.shared.clear(generation: generation)
+                guard isCurrent(session: session, generation: generation) else { return }
+                WatchScheduleSyncManager.shared.push(snapshot: emptySnapshot)
+                WidgetCenter.shared.reloadAllTimelines()
+            }
+        } else {
+            lastPublishedContent = storedSnapshot.map(content)
         }
 
         let result = await ScheduleCacheStore.loadResultAsync(for: session)
@@ -67,7 +76,7 @@ enum ScheduleWidgetExporter {
         case .missing:
             await export(courses: ScheduleCache().courseSnapshot, session: session, generation: generation)
         case .unreadable:
-            // 保留空快照，避免损坏的本地缓存继续通过扩展展示。
+            // 保留同账号已发布快照，账号切换沿用身份重置后的快照。
             break
         }
     }
@@ -91,12 +100,25 @@ enum ScheduleWidgetExporter {
     /// 清除外部快照并使已排队的旧账号导出失效。
     @discardableResult
     static func clearSharedSnapshot() async -> Bool {
+        await clearSharedSnapshot(
+            clearSnapshot: { await ScheduleExternalSnapshotWriteQueue.shared.clear(generation: $0) },
+            publishSnapshot: publish
+        )
+    }
+
+    @discardableResult
+    static func clearSharedSnapshot(
+        clearSnapshot: @MainActor (UInt64) async -> Bool,
+        publishSnapshot: @MainActor (ScheduleExternalSnapshot) -> Void
+    ) async -> Bool {
+        let session = AppFileDirectories.currentSession
         let generation = nextExportGeneration()
+        guard let emptySnapshot = makeSnapshot(courses: ScheduleCache().courseSnapshot, session: session) else { return false }
         lastPublishedContent = nil
-        let didClear = await ScheduleExternalSnapshotWriteQueue.shared.clear(generation: generation)
-        guard generation == exportGeneration else { return didClear }
+        let didClear = await clearSnapshot(generation)
+        guard isCurrent(session: session, generation: generation) else { return didClear }
         if didClear {
-            WidgetCenter.shared.reloadAllTimelines()
+            publishSnapshot(emptySnapshot)
         }
         return didClear
     }
@@ -138,8 +160,12 @@ enum ScheduleWidgetExporter {
     ) -> ScheduleExternalSnapshot? {
         guard session == AppFileDirectories.currentSession else { return nil }
         let isLoggedIn = !AppAccountSession.storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let storedRevision = PlatformScheduleSnapshotStorage.store.load()?.revision ?? 0
+        let clockRevision = UInt64(max(Date().timeIntervalSince1970 * 1_000_000, 0))
+        snapshotRevision = max(snapshotRevision, storedRevision, clockRevision) + 1
 
         return ScheduleExternalSnapshot(
+            revision: snapshotRevision,
             isLoggedIn: isLoggedIn,
             studentID: session.accountStorageIdentifier,
             firstDayString: courses.firstDayString,

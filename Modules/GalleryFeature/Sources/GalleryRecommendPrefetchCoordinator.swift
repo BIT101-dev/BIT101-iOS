@@ -28,25 +28,31 @@ final class GalleryRecommendPrefetchCoordinator {
         self.depth = max(depth, 0)
     }
 
+    deinit {
+        chainTask?.cancel()
+        pageTasks.values.forEach { $0.task.cancel() }
+    }
+
     func start(from startPage: Int) {
         guard chainTask == nil else { return }
         let expectedGeneration = generation
         let firstPage = max(startPage, 0)
+        let depth = depth
 
         chainTask = Task { [weak self] in
-            guard let self else { return }
             defer {
-                if generation == expectedGeneration {
-                    chainTask = nil
+                if self?.generation == expectedGeneration {
+                    self?.chainTask = nil
                 }
             }
 
             var currentPage = firstPage
             for _ in 0..<depth {
-                guard !Task.isCancelled, generation == expectedGeneration else { return }
+                guard !Task.isCancelled, self?.generation == expectedGeneration,
+                      let task = self?.operation(for: currentPage, generation: expectedGeneration).task else { return }
                 do {
-                    let page = try await operation(for: currentPage, generation: expectedGeneration).task.value
-                    guard page.canLoadMore else { return }
+                    let page = try await task.value
+                    guard !Task.isCancelled, self?.generation == expectedGeneration, page.canLoadMore else { return }
                     currentPage = page.nextPage
                 } catch {
                     return
@@ -101,7 +107,7 @@ final class GalleryRecommendPrefetchCoordinator {
             }
             return GalleryPrefetchedPage(
                 page: page,
-                posters: batch.posters,
+                posters: batch.items,
                 nextPage: batch.nextSourcePage,
                 canLoadMore: batch.canLoadMore
             )

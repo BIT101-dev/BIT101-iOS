@@ -197,17 +197,21 @@ final class AppCommunityDependencies {
 }
 
 /// 生产系统资源在 App 组装位置绑定，操作服务持有显式能力。
-extension AppLocalDataService {
+@MainActor
+enum AppLocalDataComposition {
     static func appService(settings: AppSettingsStore, media: MediaEnvironment) -> AppLocalDataService {
 #if BIT101_UI_TESTING
         return AppLocalDataService(files: AppFileDirectories.files, actions: AppLocalDataActions(
             clearLogin: { AppAccountSession.resetUITestCredentials(); return true },
+            suspendStorageOperations: AppAccountStores.suspendStorageOperations,
+            resumeStorageOperations: AppAccountStores.resumeStorageOperations,
             clearSchedule: { await ScheduleCacheStore.clear() },
             clearSharedSnapshot: { true },
             clearReports: { true },
+            clearDiagnostics: { await NetworkDiagnosticStore.shared.clear() },
             clearPreferences: { AppFileDirectories.defaults.removePersistentDomain(forName: AppFileDirectories.defaultsDomain) },
             clearURLCache: {}, clearWebData: {},
-            clearMedia: { await media.clearAvatars() }, resetSettings: { settings.resetToDefaults() }
+            clearMedia: { await media.clearCaches() }, resetSettings: { settings.resetToDefaults() }
         ))
 #else
         let defaults = AppFileDirectories.defaults
@@ -215,10 +219,15 @@ extension AppLocalDataService {
         let webData = WKWebsiteDataStore.default()
         return AppLocalDataService(files: AppFileDirectories.files, actions: AppLocalDataActions(
             clearLogin: { AppAccountSession.storage.clearAllLocalData() },
+            suspendStorageOperations: AppAccountStores.suspendStorageOperations,
+            resumeStorageOperations: AppAccountStores.resumeStorageOperations,
             clearSchedule: { await ScheduleCacheStore.clear() },
             clearSharedSnapshot: { await ScheduleWidgetExporter.clearSharedSnapshot() },
             clearReports: { ReleaseNetworkSmokeReportStore.clearLocalArtifacts() },
-            clearPreferences: { defaults.removePersistentDomain(forName: domain) },
+            clearDiagnostics: { await NetworkDiagnosticStore.shared.clear() },
+            clearPreferences: {
+                AppAccountSession.storage.preservingCredentialRevocation { defaults.removePersistentDomain(forName: domain) }
+            },
             clearURLCache: { URLSessionTransport.clearSharedCache() },
             clearWebData: {
                 await withCheckedContinuation { continuation in
@@ -227,7 +236,7 @@ extension AppLocalDataService {
                     }
                 }
             },
-            clearMedia: { await media.clearAvatars() },
+            clearMedia: { await media.clearCaches() },
             resetSettings: { settings.resetToDefaults() }
         ))
 #endif

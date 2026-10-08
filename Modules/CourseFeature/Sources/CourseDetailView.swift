@@ -123,13 +123,9 @@ private struct CourseDetailViewScene: View {
                 target: target,
                 isSubmitting: viewModel.isSubmittingComment
             ) { text, anonymous, rate in
-                Task {
-                    let success = await viewModel.submitComment(text: text, anonymous: anonymous, rate: rate, target: target)
-                    if success {
-                        composerTarget = nil
-                    }
-                }
+                await viewModel.submitComment(text: text, anonymous: anonymous, rate: rate, target: target)
             }
+            .id(target.id)
         }
         .systemImagePreview(item: $imageViewer)
         .diagnosticAlert(item: $viewModel.alert)

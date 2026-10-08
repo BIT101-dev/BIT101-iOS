@@ -14,6 +14,10 @@
       "id": "4c6402dfad4e406a93cc2518843803c6"
     }
   ],
+  "durable_objects": {
+    "bindings": [{ "name": "REPORT_QUOTA", "class_name": "ReportQuota" }]
+  },
+  "migrations": [{ "tag": "report-quota", "new_sqlite_classes": ["ReportQuota"] }],
   "send_email": [
     {
       "name": "REPORT_EMAIL",

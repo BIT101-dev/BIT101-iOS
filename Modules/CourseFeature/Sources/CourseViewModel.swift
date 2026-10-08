@@ -34,6 +34,7 @@ public final class CourseListViewModel: ObservableObject {
     private let service: any CourseListServicing
     private var hasBootstrapped = false
     private var refreshGeneration = 0
+    private var pageSearch: String?
     private var searchResetTask: Task<Void, Never>?
 
     public init(service: any CourseListServicing) {
@@ -61,6 +62,7 @@ public final class CourseListViewModel: ObservableObject {
         refreshGeneration &+= 1
         hasBootstrapped = true
         searchText = query
+        pageSearch = normalizedSearchText
         state.applyFirstPage(items)
         state.status = .loaded
         alert = nil
@@ -77,26 +79,31 @@ public final class CourseListViewModel: ObservableObject {
         guard !hasBootstrapped else { return }
         hasBootstrapped = true
         await refresh()
+        if state.status == .idle { hasBootstrapped = false }
     }
 
     func refresh() async {
         refreshGeneration &+= 1
         let generation = refreshGeneration
+        let search = normalizedSearchText
         let previousState = state
         let hadCourses = !state.items.isEmpty || state.status == .loaded
         if !hadCourses {
             state.prepareForRefresh()
         } else {
+            state.status = .loading
             state.isLoadingMore = false
         }
 
         do {
             let items = try await service.fetchCourses(
-                search: normalizedSearchText,
+                search: search,
                 page: 0
             )
+            try Task.checkCancellation()
             guard refreshGeneration == generation else { return }
             state.applyFirstPage(items)
+            pageSearch = search
             state.status = .loaded
         } catch {
             guard refreshGeneration == generation else { return }
@@ -127,12 +134,10 @@ public final class CourseListViewModel: ObservableObject {
     }
 
     func loadMoreIfNeeded(currentCourse: CourseSummary?) async {
-        guard let currentCourse else { return }
+        guard let currentCourse, let search = pageSearch else { return }
         let generation = refreshGeneration
         guard state.status == .loaded, state.shouldLoadMore(currentID: currentCourse.id) else { return }
 
-        let search = normalizedSearchText
-        let nextPage = state.nextPage
         state.isLoadingMore = true
         defer {
             if refreshGeneration == generation {
@@ -141,12 +146,17 @@ public final class CourseListViewModel: ObservableObject {
         }
 
         do {
-            let items = try await service.fetchCourses(
-                search: search,
-                page: nextPage
-            )
-            guard refreshGeneration == generation else { return }
-            state.appendPage(items)
+            let previousCount = state.items.count
+            var progress = CommunityPageProgress(knownIDs: state.items.map(\.id))
+            repeat {
+                try Task.checkCancellation()
+                state.isLoadingMore = true
+                let items = try await service.fetchCourses(search: search, page: state.nextPage)
+                try Task.checkCancellation()
+                guard refreshGeneration == generation else { return }
+                try progress.record(items.map(\.id))
+                state.appendPage(items)
+            } while state.canLoadMore && state.items.count == previousCount
         } catch {
             guard refreshGeneration == generation else { return }
             if isCourseRequestCancellation(error) {
@@ -173,4 +183,3 @@ public final class CourseListViewModel: ObservableObject {
         }
     }
 }
-

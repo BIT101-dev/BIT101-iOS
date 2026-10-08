@@ -1,9 +1,11 @@
 import ScheduleDomain
 import Foundation
+import Combine
 
 protocol LoginServicing {
     var savedStudentID: String { get }
     var hasCachedSession: Bool { get }
+    var sessionChanges: AnyPublisher<Void, Never> { get }
 
     func checkLogin() async throws -> String?
     func login(studentID: String, password: String) async throws -> String
@@ -35,6 +37,7 @@ struct UITestLoginService: LoginServicing {
 
     var savedStudentID: String { defaults.string(forKey: Key.studentID) ?? "" }
     var hasCachedSession: Bool { defaults.bool(forKey: Key.hasSession) && !savedStudentID.isEmpty }
+    var sessionChanges: AnyPublisher<Void, Never> { AppAccountSession.storage.changes.map { _ in () }.eraseToAnyPublisher() }
 
     func checkLogin() async throws -> String? {
         hasCachedSession ? savedStudentID : nil
@@ -79,8 +82,8 @@ struct UITestLoginService: LoginServicing {
     }
 
     func logout() {
-        AppAccountSession.storage.clearSession()
         defaults.set(false, forKey: Key.hasSession)
+        AppAccountSession.storage.clearSession()
     }
 }
 #endif

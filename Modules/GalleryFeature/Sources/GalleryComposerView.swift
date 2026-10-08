@@ -35,10 +35,11 @@ private struct GalleryComposerScene: View {
     init(dependencies: GalleryDependencies, editingPoster: GalleryPosterDetail?, onCreated: @escaping () -> Void) {
         self.editingPoster = editingPoster
         self.onCreated = onCreated
+        let imagePreparer = ComposerImagePreparer()
         _viewModel = StateObject(wrappedValue: GalleryComposerViewModel(editingPoster: editingPoster,
             service: dependencies.composer, images: dependencies.images, drafts: dependencies.drafts,
             currentIdentity: { dependencies.session.currentCredentials.identity },
-            prepareImageData: { UIImage(data: $0)?.jpegData(compressionQuality: 1) }))
+            prepareImageData: { try? await imagePreparer.prepare($0) }))
     }
 
     /// 内置的推荐标签。
@@ -89,6 +90,7 @@ private struct GalleryComposerScene: View {
                             }
                             .buttonStyle(.plain)
                             .appInteractiveListRow()
+                                .accessibilityIdentifier("ui.gallery-composer-scene.tag")
                         }
 
                         Button {
@@ -99,6 +101,7 @@ private struct GalleryComposerScene: View {
                         }
                         .buttonStyle(.plain)
                         .appInteractiveListRow()
+                            .accessibilityIdentifier("ui.gallery-composer-scene.add-tag")
                     }
                     .appSelectionFeedback(trigger: viewModel.selectedTags)
 
@@ -140,6 +143,7 @@ private struct GalleryComposerScene: View {
                     Toggle("匿名发布", isOn: $viewModel.anonymous)
                         .appSelectionFeedback(trigger: viewModel.anonymous)
                     .appInteractiveListRow()
+                        .accessibilityIdentifier("ui.gallery-composer-scene.匿名发布")
                     Toggle("公开显示", isOn: $viewModel.isPublic)
                         .appSelectionFeedback(trigger: viewModel.isPublic)
                     .appInteractiveListRow()
@@ -155,6 +159,7 @@ private struct GalleryComposerScene: View {
                             || viewModel.existingImages.count + viewModel.imageDrafts.count >= GalleryComposerViewModel.maximumImageCount
                     )
                     .appInteractiveListRow()
+                        .accessibilityIdentifier("ui.gallery-composer-scene.插入图片")
 
                     if !viewModel.existingImages.isEmpty {
                         LazyVGrid(
@@ -222,6 +227,7 @@ private struct GalleryComposerScene: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("取消") { requestDismiss() }
+                        .accessibilityIdentifier("ui.gallery-composer-scene.cancel")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(viewModel.isSubmitting ? "保存中" : editingPoster == nil ? "发布" : "保存") {
@@ -230,6 +236,7 @@ private struct GalleryComposerScene: View {
                         }
                     }
                     .disabled(viewModel.isSubmitting)
+                        .accessibilityIdentifier("ui.gallery-composer-scene.submit")
                 }
             }
             .task { await viewModel.loadClaimsIfNeeded() }

@@ -10,6 +10,12 @@ import CommunityCore
 import Foundation
 
 nonisolated enum GalleryWebRequestFactory {
+    static func isTrustedPage(_ url: URL?) -> Bool {
+        guard let url else { return false }
+        return url.scheme?.lowercased() == "https" && url.host?.lowercased() == "bit101.cn"
+            && (url.port == nil || url.port == 443)
+    }
+
     static func request(for url: URL) -> URLRequest {
         URLRequest(url: url)
     }
@@ -56,33 +62,15 @@ enum GalleryContentFilter {
     }
 }
 
-/// 机器人分栏的分页结果。
-///
-/// 机器人流没有对应的后端 feed。iOS 从最新流读取源页并在本地按标签筛选，
-/// 因此需要记录源分页已经推进到哪一页。
-public struct GalleryBotFeedBatch {
-    public init(posters: [CommunityPoster], nextSourcePage: Int, canLoadMore: Bool) {
-        self.posters = posters
+/// 话廊列表与搜索共享原始分页游标和可见帖子。
+public nonisolated struct GalleryPageBatch<Element: Sendable>: Sendable {
+    public init(items: [Element], nextSourcePage: Int, canLoadMore: Bool) {
+        self.items = items
         self.nextSourcePage = nextSourcePage
         self.canLoadMore = canLoadMore
     }
 
-    public let posters: [CommunityPoster]
-    public let nextSourcePage: Int
-    public let canLoadMore: Bool
-}
-
-/// 推荐分栏的分页结果。
-///
-/// 推荐流会跳过本地过滤后为空的源页，继续读取下一源页。
-public struct GalleryRecommendFeedBatch {
-    public init(posters: [CommunityPoster], nextSourcePage: Int, canLoadMore: Bool) {
-        self.posters = posters
-        self.nextSourcePage = nextSourcePage
-        self.canLoadMore = canLoadMore
-    }
-
-    public let posters: [CommunityPoster]
+    public let items: [Element]
     public let nextSourcePage: Int
     public let canLoadMore: Bool
 }
@@ -200,10 +188,9 @@ public struct GalleryService {
     /// 拉取某个 feed 的帖子列表。
     ///
     /// 普通 feed 直接映射到后端帖子接口；机器人 feed 走本地标签分页逻辑。
-    public func fetchFeed(kind: GalleryFeedKind, page: Int?) async throws -> [CommunityPoster] {
+    public func fetchFeed(kind: GalleryFeedKind, page: Int?) async throws -> GalleryPageBatch<CommunityPoster> {
         if kind.isBotFeed {
-            let batch = try await fetchBotFeed(startPage: page ?? 0)
-            return batch.posters
+            return try await fetchBotFeed(startPage: page ?? 0)
         }
 
         let hideBot = await shouldHideBotPosters()
@@ -220,8 +207,8 @@ public struct GalleryService {
 
     /// 拉取推荐流的单个源页。
     ///
-    /// 首屏只请求一页，保证话题页能尽快显示；后续由 ViewModel 在后台预取更多页。
-    public func fetchRecommendPage(sourcePage: Int) async throws -> GalleryRecommendFeedBatch {
+    /// 服务保留原始源游标，首屏过滤空页由 ViewModel 继续读取，后续页面沿后台预取准备。
+    public func fetchRecommendPage(sourcePage: Int) async throws -> GalleryPageBatch<CommunityPoster> {
         let hideBot = await shouldHideBotPosters()
         let rawPosters = try await fetchRawPosters(
             mode: nil,
@@ -232,8 +219,8 @@ public struct GalleryService {
             hideBot: hideBot
         )
 
-        return GalleryRecommendFeedBatch(
-            posters: await applyGalleryFilters(
+        return GalleryPageBatch<CommunityPoster>(
+            items: await applyGalleryFilters(
                 applyBotFilterIfNeeded(rawPosters, hideBot: hideBot)
             ),
             nextSourcePage: sourcePage + 1,
@@ -244,7 +231,7 @@ public struct GalleryService {
     /// 根据搜索关键词和排序条件查询帖子。
     ///
     /// 搜索页与其它普通帖子页面共用机器人隐藏设置。
-    public func searchPosters(query: GallerySearchQuery, page: Int?) async throws -> [CommunityPoster] {
+    public func searchPosters(query: GallerySearchQuery, page: Int?) async throws -> GalleryPageBatch<CommunityPoster> {
         let hideBot = await shouldHideBotPosters()
         return try await fetchPosters(
             mode: "search",
@@ -260,15 +247,17 @@ public struct GalleryService {
     /// 该分栏沿用独立的隐藏设置语义。
     ///
     /// 机器人帖子在整体帖子流里占比并不高，所以这里采用“多抓几页 + 本地筛”的做法。
-    /// 扫描上限主要是为了避免一次请求链拉得过深，影响滚动体验。
-    public func fetchBotFeed(startPage: Int) async throws -> GalleryBotFeedBatch {
+    /// 已取得可见内容的批次按扫描阈值结束；连续过滤页继续读取至可见内容或源流末尾。
+    public func fetchBotFeed(startPage: Int) async throws -> GalleryPageBatch<CommunityPoster> {
         var sourcePage = startPage
         var collected: [CommunityPoster] = []
         var canLoadMore = true
         let maxScanCount = 5
+        var scanned = 0
 
-        for _ in 0 ..< maxScanCount where canLoadMore && collected.count < 12 {
-            let posters = try await fetchPosters(
+        while canLoadMore && collected.count < 12 && (scanned < maxScanCount || collected.isEmpty) {
+            try Task.checkCancellation()
+            let rawPosters = try await fetchRawPosters(
                 mode: "search",
                 order: "new",
                 search: nil,
@@ -276,13 +265,15 @@ public struct GalleryService {
                 page: sourcePage == 0 ? nil : sourcePage,
                 hideBot: false
             )
-            collected.append(contentsOf: posters.filter { GalleryBotClassifier.matches(tags: $0.tags) })
-            canLoadMore = !posters.isEmpty
+            let visible = await applyGalleryFilters(rawPosters)
+            collected.append(contentsOf: visible.filter { GalleryBotClassifier.matches(tags: $0.tags) })
+            canLoadMore = !rawPosters.isEmpty
             sourcePage += 1
+            scanned += 1
         }
 
-        return GalleryBotFeedBatch(
-            posters: await applyGalleryFilters(collected),
+        return GalleryPageBatch<CommunityPoster>(
+            items: await applyGalleryFilters(collected),
             nextSourcePage: sourcePage,
             canLoadMore: canLoadMore
         )
@@ -455,7 +446,21 @@ public struct GalleryService {
         objectID: String,
         order: CommunityCommentOrder,
         page: Int?
-    ) async throws -> [CommunityComment] {
+    ) async throws -> GalleryPageBatch<CommunityComment> {
+        var sourcePage = page ?? 0
+        while true {
+            try Task.checkCancellation()
+            let raw = try await fetchRawComments(objectID: objectID, order: order, page: sourcePage == 0 ? nil : sourcePage)
+            let visible = await applyGalleryFilters(raw)
+            sourcePage += 1
+            if !visible.isEmpty || raw.isEmpty {
+                return GalleryPageBatch(items: visible, nextSourcePage: sourcePage, canLoadMore: !raw.isEmpty)
+            }
+        }
+    }
+
+    /// 清理验收内容时按服务端原始评论列表恢复创建标识。
+    public func fetchRawComments(objectID: String, order: CommunityCommentOrder, page: Int?) async throws -> [CommunityComment] {
         var queryItems = [
             URLQueryItem(name: "obj", value: objectID),
             URLQueryItem(name: "order", value: order.rawValue),
@@ -463,8 +468,7 @@ public struct GalleryService {
         if let page {
             queryItems.append(URLQueryItem(name: "page", value: String(page)))
         }
-        let comments: [CommunityComment] = try await api.request(path: "reaction/comments", queryItems: queryItems)
-        return await applyGalleryFilters(comments)
+        return try await api.request(path: "reaction/comments", queryItems: queryItems)
     }
 
     /// 对帖子或评论执行点赞操作。
@@ -543,16 +547,18 @@ public struct GalleryService {
         uid: Int?,
         page: Int?,
         hideBot: Bool
-    ) async throws -> [CommunityPoster] {
-        let posters = try await fetchRawPosters(
-            mode: mode,
-            order: order,
-            search: search,
-            uid: uid,
-            page: page,
-            hideBot: hideBot
-        )
-        return await applyGalleryFilters(applyBotFilterIfNeeded(posters, hideBot: hideBot))
+    ) async throws -> GalleryPageBatch<CommunityPoster> {
+        var sourcePage = page ?? 0
+        while true {
+            try Task.checkCancellation()
+            let rawPosters = try await fetchRawPosters(mode: mode, order: order, search: search, uid: uid,
+                page: sourcePage == 0 ? nil : sourcePage, hideBot: hideBot)
+            let visible = await applyGalleryFilters(applyBotFilterIfNeeded(rawPosters, hideBot: hideBot))
+            sourcePage += 1
+            if !visible.isEmpty || rawPosters.isEmpty {
+                return GalleryPageBatch<CommunityPoster>(items: visible, nextSourcePage: sourcePage, canLoadMore: !rawPosters.isEmpty)
+            }
+        }
     }
 
     /// 发起原始帖子流请求，供推荐流和机器人分栏复用。
@@ -593,4 +599,3 @@ public struct GalleryService {
         return try await api.request(path: "posters", queryItems: queryItems)
     }
 }
-

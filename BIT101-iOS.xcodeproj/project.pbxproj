@@ -10,6 +10,7 @@
 		0D6CC15DA5636384C904E0AD /* BIT101WatchWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 796D7A3D2666B8F0197201E6 /* BIT101WatchWidgetsBundle.swift */; };
 		31C4ED6573B18E57E68C9998 /* WatchScheduleSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72A1F6AF2FB00A16DDC8068E /* WatchScheduleSyncManager.swift */; };
 		32D8F834E87443B18CE8F6B1 /* WatchScheduleStatusModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C00AD7820D43C986738C15 /* WatchScheduleStatusModel.swift */; };
+		B10100000000000000000012 /* WatchScheduleStatusModel.swift in Tests */ = {isa = PBXBuildFile; fileRef = A7C00AD7820D43C986738C15 /* WatchScheduleStatusModel.swift */; };
 		85798F727C7A8202CDFECFA1 /* BIT101ScheduleWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E4DE63842E0A7A6C0DE9F9 /* BIT101ScheduleWidgets.swift */; };
 		86E934E59E093F63ED817276 /* BIT101WatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21A95B6C96CDD83709030EF8 /* BIT101WatchApp.swift */; };
 		8FD3C2B3B8C6D5E68B474DD7 /* BIT101WatchScheduleWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 819ECA98BC5A0A39D0B68FD5 /* BIT101WatchScheduleWidget.swift */; };
@@ -54,6 +55,7 @@
 		38722BB43B50F2548294CCA9 /* PaperFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 1570943B2CD56F864992D0B2 /* PaperFeature */; };
 		E6B86C1FBDF9D84A2CC574D9 /* MineFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 65A4F6D9CBAD7ABB099FDE48 /* MineFeature */; };
 		EAC4DEFB18B11ADC9C091518 /* CommunityUI in Frameworks */ = {isa = PBXBuildFile; productRef = 6DEEE94B44858A735EDBFC13 /* CommunityUI */; };
+		F1A1B2C3D4E5F60718293A82 /* ScheduleActivityContracts in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A82 /* ScheduleActivityContracts */; };
 		F1A1B2C3D4E5F60718293A81 /* CommunityPersistence in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A81 /* CommunityPersistence */; };
 		F1A1B2C3D4E5F60718293A4C /* ScheduleSharedStore in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A4C /* ScheduleSharedStore */; };
 		F1A1B2C3D4E5F60718293A4D /* ScheduleSharedStore in Frameworks */ = {isa = PBXBuildFile; productRef = F0A1B2C3D4E5F60718293A4D /* ScheduleSharedStore */; };
@@ -141,7 +143,7 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		111111111111111111111115 /* Frameworks */ = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = ( F1A1B2C3D4E5F60718293A55 /* CommunityTransport in Frameworks */, F1A1B2C3D4E5F60718293A54 /* TransportCore in Frameworks */, F1A1B2C3D4E5F60718293A5A /* ScheduleFeature in Frameworks */, F1A1B2C3D4E5F60718293A53 /* StorageCore in Frameworks */, BCD779F0D0C49D507B756FA4 /* GalleryFeature in Frameworks */, 2DE809F2792D43F485E93997 /* CourseFeature in Frameworks */, 38722BB43B50F2548294CCA9 /* PaperFeature in Frameworks */, E6B86C1FBDF9D84A2CC574D9 /* MineFeature in Frameworks */, EAC4DEFB18B11ADC9C091518 /* CommunityUI in Frameworks */, F1A1B2C3D4E5F60718293A81 /* CommunityPersistence in Frameworks */, B9352F74ACEC0F548F392804 /* MediaKit in Frameworks */, D8C6001CB5BA59F6C872D46D /* ScoreFeature in Frameworks */, F3D54C9D0226C94569DEE989 /* ScoreInfrastructure in Frameworks */, 8FA9C907E4D1687F506BDD6D /* ScoreDomain in Frameworks */, 24F8686B745A63E46B237A9D /* SchedulePorts in Frameworks */, EC1D2BA26957933D6BD7EB2E /* MapFeature in Frameworks */, 3E373A8566B8B1899AECBC46 /* ScheduleDomain in Frameworks */, 91364FB2EB25C51247279A10 /* SchedulePersistence in Frameworks */, 4DFB6AD7D45876E14B2224C7 /* CommunityCore in Frameworks */, 0AB18AED0E7D236E6FC50F9E /* DesignSystemKit in Frameworks */, F5ED71C2820112F5322415D5 /* ClientCore in Frameworks */, BA5C24E0BF3885EBDFF87A59 /* ScheduleContracts in Frameworks */, F1A1B2C3D4E5F60718293A4C /* ScheduleSharedStore in Frameworks */, F1A1B2C3D4E5F60718293A50 /* ScheduleInfrastructure in Frameworks */, F1A1B2C3D4E5F60718293A72 /* ScheduleSync in Frameworks */, ); runOnlyForDeploymentPostprocessing = 0; };
+		111111111111111111111115 /* Frameworks */ = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = ( F1A1B2C3D4E5F60718293A55 /* CommunityTransport in Frameworks */, F1A1B2C3D4E5F60718293A54 /* TransportCore in Frameworks */, F1A1B2C3D4E5F60718293A5A /* ScheduleFeature in Frameworks */, F1A1B2C3D4E5F60718293A53 /* StorageCore in Frameworks */, BCD779F0D0C49D507B756FA4 /* GalleryFeature in Frameworks */, 2DE809F2792D43F485E93997 /* CourseFeature in Frameworks */, 38722BB43B50F2548294CCA9 /* PaperFeature in Frameworks */, E6B86C1FBDF9D84A2CC574D9 /* MineFeature in Frameworks */, EAC4DEFB18B11ADC9C091518 /* CommunityUI in Frameworks */, F1A1B2C3D4E5F60718293A81 /* CommunityPersistence in Frameworks */, B9352F74ACEC0F548F392804 /* MediaKit in Frameworks */, D8C6001CB5BA59F6C872D46D /* ScoreFeature in Frameworks */, F3D54C9D0226C94569DEE989 /* ScoreInfrastructure in Frameworks */, 8FA9C907E4D1687F506BDD6D /* ScoreDomain in Frameworks */, 24F8686B745A63E46B237A9D /* SchedulePorts in Frameworks */, EC1D2BA26957933D6BD7EB2E /* MapFeature in Frameworks */, 3E373A8566B8B1899AECBC46 /* ScheduleDomain in Frameworks */, 91364FB2EB25C51247279A10 /* SchedulePersistence in Frameworks */, 4DFB6AD7D45876E14B2224C7 /* CommunityCore in Frameworks */, 0AB18AED0E7D236E6FC50F9E /* DesignSystemKit in Frameworks */, F5ED71C2820112F5322415D5 /* ClientCore in Frameworks */, BA5C24E0BF3885EBDFF87A59 /* ScheduleContracts in Frameworks */, F1A1B2C3D4E5F60718293A4C /* ScheduleSharedStore in Frameworks */, F1A1B2C3D4E5F60718293A50 /* ScheduleInfrastructure in Frameworks */, F1A1B2C3D4E5F60718293A72 /* ScheduleSync in Frameworks */, F1A1B2C3D4E5F60718293A82 /* ScheduleActivityContracts in Frameworks */, ); runOnlyForDeploymentPostprocessing = 0; };
 		4C472C2944238BC1477A9927 /* Frameworks */ = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = ( DDE2042B8413EE475156DB1B /* DesignSystemKit in Frameworks */, 8375A1B3DF8F6C8C218A696B /* ScheduleContracts in Frameworks */, F1A1B2C3D4E5F60718293A51 /* ScheduleSharedStore in Frameworks */, F1A1B2C3D4E5F60718293A74 /* ScheduleActivityContracts in Frameworks */, C3F802EED398BF60F18F07B1 /* StorageCore in Frameworks */, B979F16E6900E1E884772F00 /* Foundation.framework in Frameworks */, ); runOnlyForDeploymentPostprocessing = 0; };
 		BACEBF54A4CDA758F5BAEA2A /* Frameworks */ = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = ( 3EBD93356F075030A1105B4E /* DesignSystemKit in Frameworks */, 97121C8954BA2E41DB14515D /* ScheduleContracts in Frameworks */, F1A1B2C3D4E5F60718293A4D /* ScheduleSharedStore in Frameworks */, E291A3F5762E5EFC6828D630 /* StorageCore in Frameworks */, ); runOnlyForDeploymentPostprocessing = 0; };
 		D21002A704C3E4688C5217B1 /* Frameworks */ = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = ( 89AF1831DEC4D073778CCEA8 /* DesignSystemKit in Frameworks */, DA6863F36EB0F5ABF2E66E98 /* ScheduleContracts in Frameworks */, F1A1B2C3D4E5F60718293A52 /* ScheduleSharedStore in Frameworks */, 3B94E983EE81C883E38D3F35 /* StorageCore in Frameworks */, 9AF91C20457A617C9030DE46 /* Foundation.framework in Frameworks */, ); runOnlyForDeploymentPostprocessing = 0; };
@@ -245,7 +247,7 @@
 				B45DC2CE0D2B1CB09CF6739B /* MapFeature */, B9AF37FCEB945F186A0CB8B8 /* ScheduleDomain */, F0E619A1F89C757C599CDC8C /* SchedulePersistence */,
 				E48AC335EF6A17C0D70A2CBA /* CommunityCore */, D6F7FF202E439325C8F8226D /* DesignSystemKit */, 32F6F283A9673EB87FEBA638 /* ClientCore */,
 				CEF0E9D39638D26CD4BB54B8 /* ScheduleContracts */, F0A1B2C3D4E5F60718293A4C /* ScheduleSharedStore */, F0A1B2C3D4E5F60718293A50 /* ScheduleInfrastructure */,
-				F0A1B2C3D4E5F60718293A72 /* ScheduleSync */,
+				F0A1B2C3D4E5F60718293A72 /* ScheduleSync */, F0A1B2C3D4E5F60718293A82 /* ScheduleActivityContracts */,
 			);
 			buildConfigurationList = 11111111111111111111111B /* Build configuration list for PBXNativeTarget "BIT101-iOSTests" */;
 			buildPhases = ( 111111111111111111111114 /* Sources */, 111111111111111111111115 /* Frameworks */, 111111111111111111111116 /* Resources */, );
@@ -414,6 +416,7 @@
 		FB1D38BC8B55E84CDBA4F660 /* SchedulePorts */ = {isa = XCSwiftPackageProductDependency; productName = SchedulePorts; };
 		39D6896F25B63166BE422A45 /* SchedulePersistence */ = {isa = XCSwiftPackageProductDependency; productName = SchedulePersistence; };
 		F0E619A1F89C757C599CDC8C /* SchedulePersistence */ = {isa = XCSwiftPackageProductDependency; productName = SchedulePersistence; };
+		F0A1B2C3D4E5F60718293A82 /* ScheduleActivityContracts */ = {isa = XCSwiftPackageProductDependency; productName = ScheduleActivityContracts; };
 /* End XCSwiftPackageProductDependency section */
 
 /* Begin PBXProject section */
@@ -467,7 +470,7 @@
 
 /* Begin PBXSourcesBuildPhase section */
 		0EF4EDC316C0A2A17A0BF63F /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ( C8618324F1CB0A8EB9CB55F9 /* BIT101ScheduleWidgetsBundle.swift in Sources */, 85798F727C7A8202CDFECFA1 /* BIT101ScheduleWidgets.swift in Sources */, ); runOnlyForDeploymentPostprocessing = 0; };
-		111111111111111111111114 /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		111111111111111111111114 /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ( B10100000000000000000012 /* WatchScheduleStatusModel.swift in Tests */, ); runOnlyForDeploymentPostprocessing = 0; };
 		2322558692781FE16FC88427 /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ( 0D6CC15DA5636384C904E0AD /* BIT101WatchWidgetsBundle.swift in Sources */, 8FD3C2B3B8C6D5E68B474DD7 /* BIT101WatchScheduleWidget.swift in Sources */, ); runOnlyForDeploymentPostprocessing = 0; };
 		B7329DD3099B96EF917410BF /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ( 86E934E59E093F63ED817276 /* BIT101WatchApp.swift in Sources */, 32D8F834E87443B18CE8F6B1 /* WatchScheduleStatusModel.swift in Sources */, F52E9C051CAF65D91825FB7A /* WatchScheduleRootView.swift in Sources */, 31C4ED6573B18E57E68C9998 /* WatchScheduleSyncManager.swift in Sources */, ); runOnlyForDeploymentPostprocessing = 0; };
 		D2FF4C922F729DB4000FA1C1 /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
@@ -766,7 +769,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = "BIT101-iOS/BIT101-iOS.entitlements";
+				BIT101_APP_ENTITLEMENTS = "BIT101-iOS/BIT101-iOS.entitlements";
+				CODE_SIGN_ENTITLEMENTS = "$(BIT101_APP_ENTITLEMENTS)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 41;
 				DEVELOPMENT_TEAM = Y2T72736G3;
@@ -800,7 +804,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = "BIT101-iOS/BIT101-iOS.entitlements";
+				BIT101_APP_ENTITLEMENTS = "BIT101-iOS/BIT101-iOS.entitlements";
+				CODE_SIGN_ENTITLEMENTS = "$(BIT101_APP_ENTITLEMENTS)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 41;
 				DEVELOPMENT_TEAM = Y2T72736G3;

@@ -158,8 +158,15 @@ public actor SchedulePersistenceStore {
 
         do {
             var cache = cache
+            if source == .cloud { cache.hasUnpushedCloudChanges = false }
             if source == .local || source == .localWithoutCloudPush,
                let storedCache {
+                guard cache.cloudSyncBaselineAt == storedCache.cloudSyncBaselineAt,
+                      cache.cloudSyncBaselineRecordTag == storedCache.cloudSyncBaselineRecordTag,
+                      cache.syncData.cloudSyncBaselineUserState == storedCache.syncData.cloudSyncBaselineUserState else {
+                    Self.logger.error("云端基线已更新，保留磁盘数据和本机修改")
+                    return nil
+                }
                 cache.cloudSyncBaselineAt = storedCache.cloudSyncBaselineAt
                 cache.cloudSyncBaselineRecordTag = storedCache.cloudSyncBaselineRecordTag
                 cache.syncData.cloudSyncBaselineUserState = storedCache.syncData.cloudSyncBaselineUserState

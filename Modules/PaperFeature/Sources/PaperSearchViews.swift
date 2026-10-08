@@ -19,6 +19,7 @@ struct PaperSearchView: View {
 }
 
 private struct PaperSearchScene: View {
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     private let dependencies: PaperDependencies
     private let media: MediaEnvironment
     @Environment(\.dismiss) private var dismiss
@@ -84,8 +85,10 @@ private struct PaperSearchScene: View {
                                     .accessibilityAddTraits(.isButton)
                                     .accessibilityHint("打开文章详情")
                                 }
-                                .task {
+                                .task(id: viewModel.searchGeneration) {
                                     await viewModel.loadPreviewMetadataIfNeeded(for: paper)
+                                }
+                                .task {
                                     await viewModel.loadMoreIfNeeded(currentPaper: paper)
                                 }
                             }
@@ -101,6 +104,8 @@ private struct PaperSearchScene: View {
         }
         .background(AppDesignSystem.Palette.Background.grouped)
         .refreshable {
+                    interactionEvidence?("interaction.PaperSearchScene.refreshable", "refresh")
+
             await viewModel.performSearch()
         }
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
@@ -110,9 +115,7 @@ private struct PaperSearchScene: View {
                     order: $viewModel.selectedOrder,
                     selectedOrderTitle: viewModel.selectedOrder.title,
                     onSubmit: {
-                        Task {
-                            await viewModel.performSearch()
-                        }
+                        viewModel.enqueueSearch()
                     },
                     onClear: {
                         viewModel.searchText = ""
@@ -132,15 +135,14 @@ private struct PaperSearchScene: View {
         .onChange(of: viewModel.selectedOrder) { oldValue, newValue in
             guard oldValue != newValue else { return }
             guard !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-            Task {
-                await viewModel.performSearch()
-            }
+            viewModel.enqueueSearch()
         }
+        .onDisappear { viewModel.cancelSearchOperations() }
         .navigationTitle("搜索")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $selectedPaper) { paper in
             PaperDetailView(dependencies: dependencies, media: media, initialPaper: paper) {
-                Task { await viewModel.performSearch() }
+                viewModel.enqueueSearch()
             }
         }
         .toolbar {
@@ -148,6 +150,7 @@ private struct PaperSearchScene: View {
                 Button("取消") {
                     dismiss()
                 }
+                    .accessibilityIdentifier("ui.paper-search-scene.cancel")
             }
         }
         .diagnosticAlert(item: $viewModel.alert)

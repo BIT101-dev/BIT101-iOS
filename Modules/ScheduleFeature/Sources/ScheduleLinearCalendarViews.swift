@@ -6,6 +6,7 @@ import UIKit
 
 /// 线性时间轴视图。
 struct LinearScheduleCalendarView: View {
+    @Environment(\.scheduleCurrentDate) private var currentDate
     let entries: [ScheduleCalendarEntry]
     let week: Int
     let availableWeeks: [Int]
@@ -47,6 +48,7 @@ struct LinearScheduleCalendarView: View {
 
                 LinearTimelineScrollContainer(
                     configuration: LinearScheduleCalendarConfiguration(
+                        currentDate: currentDate,
                         entries: entries,
                         timeTable: timeTable,
                         displayMode: displayMode,
@@ -168,6 +170,7 @@ private struct LinearScheduleHeader: View {
 }
 
 private struct LinearScheduleCalendarConfiguration {
+    let currentDate: Date
     let entries: [ScheduleCalendarEntry]
     let timeTable: [TimeSlot]
     let displayMode: ScheduleDisplayMode
@@ -490,7 +493,7 @@ private struct LinearScheduleCanvasView: View {
     ) -> some View {
         ZStack(alignment: .topLeading) {
             if configuration.currentWeek == configuration.week,
-               let index = visibleWeekdays.firstIndex(of: ScheduleDateCodec.weekdayIndex(from: Date())) {
+               let index = visibleWeekdays.firstIndex(of: ScheduleDateCodec.weekdayIndex(from: configuration.currentDate)) {
                 Rectangle()
                     .fill(AppDesignSystem.Schedule.GridPalette.todayHighlight)
                     .frame(width: dayWidth, height: contentHeight)
@@ -527,7 +530,7 @@ private struct LinearScheduleCanvasView: View {
             }
 
             if configuration.currentWeek == configuration.week,
-               let index = visibleWeekdays.firstIndex(of: ScheduleDateCodec.weekdayIndex(from: Date())) {
+               let index = visibleWeekdays.firstIndex(of: ScheduleDateCodec.weekdayIndex(from: configuration.currentDate)) {
                 Rectangle()
                     .fill(AppDesignSystem.Palette.Accent.primary)
                     .frame(width: dayWidth, height: AppDesignSystem.Schedule.Grid.currentTimeLineHeight)
@@ -616,7 +619,7 @@ private struct LinearScheduleCanvasView: View {
     }
 
     private var currentMinute: Int {
-        let components = ScheduleDateCodec.calendar.dateComponents([.hour, .minute], from: Date())
+        let components = ScheduleDateCodec.calendar.dateComponents([.hour, .minute], from: configuration.currentDate)
         return min(max((components.hour ?? 12) * 60 + (components.minute ?? 0), 0), 24 * 60)
     }
 }

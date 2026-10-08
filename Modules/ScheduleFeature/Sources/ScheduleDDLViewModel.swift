@@ -97,8 +97,8 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
     public var afterDay: Int { min(max(cache.ddlAfterDay, 0), 30) }
 
     /// 经过时间窗口裁剪后的 DDL 列表。
-    var visibleDDLEvents: [DDLEventRecord] {
-        let threshold = Date().addingTimeInterval(TimeInterval(-afterDay * 24 * 3600))
+    func visibleDDLEvents(at now: Date = .now) -> [DDLEventRecord] {
+        let threshold = now.addingTimeInterval(TimeInterval(-afterDay * 24 * 3600))
         return cache.ddlEvents
             .filter { $0.dueAt >= threshold }
             .sorted { lhs, rhs in
@@ -137,13 +137,13 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
             )
             guard accountGeneration == generation else { return false }
             cache.lexueCalendarURL = payload.url
-            for event in cache.ddlEvents where event.isSchoolSynced {
+            for event in cache.ddlEvents where event.isSchoolSynced && (event.done || cache.lexueDDLCompletionByID[event.id] != nil) {
                 cache.lexueDDLCompletionByID[event.id] = event.done
             }
             let syncedEvents = payload.events.map { event in
                 var event = event
                 event.done = cache.lexueDDLCompletionByID[event.id] ?? event.done
-                cache.lexueDDLCompletionByID[event.id] = event.done
+                if event.done { cache.lexueDDLCompletionByID[event.id] = true }
                 return event
             }
             cache.ddlEvents = ScheduleDDLEditor.mergingSyncedEvents(
@@ -219,9 +219,10 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
             let url = try await service.refreshLexueCalendarURL(
                 schoolSMSCodeHandler: makeSchoolSMSCodeHandler(for: generation)
             )
+            try Task.checkCancellation()
             guard accountGeneration == generation else { return }
             cache.lexueCalendarURL = url
-            persist()
+            guard await persistAndWait(), accountGeneration == generation else { return }
             if showSuccessNotice {
                 notice = ScheduleNotice.informational(title: "订阅链接更新成功", message: "已重新获取乐学订阅链接。")
             }
@@ -274,12 +275,14 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
     ///
     /// 手动 DDL 与乐学同步项并存，但会用 `group` 字段区分来源。
     func addDDL(_ draft: DDLDraft) throws {
+        try repository.requireWritable()
         cache.ddlEvents = try ScheduleDDLEditor.adding(draft, to: cache.ddlEvents)
         persist()
     }
 
     /// 更新一条已有的本地 DDL。
     func updateDDL(id: String, draft: DDLDraft) throws {
+        try repository.requireWritable()
         cache.ddlEvents = try ScheduleDDLEditor.updating(id: id, with: draft, in: cache.ddlEvents)
         persist()
     }
@@ -308,8 +311,9 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
     }
 
     /// DDL 剩余/超时文案。
-    func ddlRemainingText(for event: DDLEventRecord) -> String {
-        let minutes = Int(event.dueAt.timeIntervalSinceNow / 60)
+    func ddlRemainingText(for event: DDLEventRecord, now: Date = .now) -> String {
+        let interval = event.dueAt.timeIntervalSince(now)
+        let minutes = Int(interval / 60)
         let absolute = abs(minutes)
         let day = absolute / 1440
         let hour = (absolute % 1440) / 60
@@ -324,18 +328,18 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
             body = "\(minute)分钟"
         }
 
-        return minutes < 0 ? "已过 \(body)" : "剩余 \(body)"
+        return interval <= 0 ? "已过 \(body)" : "剩余 \(body)"
     }
 
     /// DDL 颜色语义。
     ///
     /// 这里返回字符串；View 层根据业务语义选择具体颜色映射。
-    func ddlTint(for event: DDLEventRecord) -> String {
+    func ddlTint(for event: DDLEventRecord, now: Date = .now) -> String {
         if event.done {
             return "gray"
         }
 
-        let interval = event.dueAt.timeIntervalSinceNow
+        let interval = event.dueAt.timeIntervalSince(now)
         if interval <= 0 {
             return "red"
         }

@@ -26,6 +26,24 @@ final class NetworkMagicWarningCenter {
     private var lastShownAtByScope: [String: Date] = [:]
     private var lastPathSummaryByScope: [String: String] = [:]
     private var activeWarningTask: Task<Void, Never>?
+    private var warningWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+
+    deinit {
+        activeWarningTask?.cancel()
+        warningWaiters.values.forEach { $0.resume() }
+    }
+
+    private func waitForActiveWarning() async {
+        let waiterID = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled, activeWarningTask != nil else { continuation.resume(); return }
+                warningWaiters[waiterID] = continuation
+            }
+        } onCancel: { [weak self] in
+            Task { @MainActor in self?.warningWaiters.removeValue(forKey: waiterID)?.resume() }
+        }
+    }
 
     init(
         pathProvider: (any NetworkPathProviding)? = nil,
@@ -55,10 +73,12 @@ final class NetworkMagicWarningCenter {
     }
 
     func consider(url: URL?) async -> Bool {
+        guard !Task.isCancelled else { return false }
         guard let host = url?.host?.lowercased(), !Self.isBIT101Host(host) else { return false }
-        if let activeWarningTask {
-            await activeWarningTask.value
+        if activeWarningTask != nil {
+            await waitForActiveWarning()
         }
+        guard !Task.isCancelled else { return false }
         let snapshot = pathProvider.snapshot
         guard snapshot.virtualNetworkLikely else { return false }
 
@@ -90,7 +110,7 @@ final class NetworkMagicWarningCenter {
         }
         lastPathSummaryByScope[scope] = snapshot.summary
         lastShownAtByScope[scope] = currentDate
-        let dismissalTask = Task { @MainActor in
+        activeWarningTask = Task { @MainActor [weak self, promptCoordinator, errorPresenter] in
             if let promptCoordinator {
                 await promptCoordinator.enqueueAndWait(prompt)
             } else if let errorPresenter {
@@ -101,10 +121,13 @@ final class NetworkMagicWarningCenter {
                     showsRecoveryLinks: false
                 ))
             }
+            guard let self else { return }
+            self.activeWarningTask = nil
+            let waiters = self.warningWaiters.values
+            self.warningWaiters.removeAll()
+            waiters.forEach { $0.resume() }
         }
-        activeWarningTask = dismissalTask
-        await dismissalTask.value
-        activeWarningTask = nil
+        await waitForActiveWarning()
 #endif
         return true
     }
@@ -178,9 +201,15 @@ struct NetworkDiagnosticRecord: Codable, Identifiable, Sendable {
 
 actor NetworkDiagnosticStore {
     static let shared = NetworkDiagnosticStore()
-    private var records: [NetworkDiagnosticRecord] = []
+    private var records: [(owner: SchoolSessionIdentity, record: NetworkDiagnosticRecord)] = []
+    private let currentIdentity: @MainActor @Sendable () -> SchoolSessionIdentity
 
-    func record(request: URLRequest, data: Data?, response: URLResponse?, error: Error?, elapsed: TimeInterval) {
+    init(currentIdentity: @escaping @MainActor @Sendable () -> SchoolSessionIdentity = { AppAccountSession.storage.schoolSessionIdentity }) {
+        self.currentIdentity = currentIdentity
+    }
+
+    func record(owner: SchoolSessionIdentity, request: URLRequest, data: Data?, response: URLResponse?, error: Error?, elapsed: TimeInterval) async {
+        guard owner == (await currentIdentity()) else { return }
         guard request.url?.host?.lowercased() != "feedback.aihelpme.dev" else { return }
         let http = response as? HTTPURLResponse
         let headers = http?.allHeaderFields.reduce(into: [String: String]()) { result, item in
@@ -190,17 +219,25 @@ actor NetworkDiagnosticStore {
             let limited = data.prefix(256 * 1024)
             return String(data: limited, encoding: .utf8) ?? "[非文本响应，\(data.count) 字节]"
         }
-        records.append(NetworkDiagnosticRecord(
+        records.append((owner, NetworkDiagnosticRecord(
             id: UUID(), occurredAt: Date(), method: request.httpMethod ?? "GET",
             url: request.url?.absoluteString ?? "", statusCode: http?.statusCode,
             elapsedMilliseconds: Int(elapsed * 1_000),
             error: error?.localizedDescription ?? Self.authenticationFailure(in: data, url: request.url),
             responseHeaders: headers, responseBody: body
-        ))
+        )))
         records = Array(records.suffix(20))
     }
 
-    func recent() -> [NetworkDiagnosticRecord] { Array(records.suffix(10)) }
+    func clear() { records.removeAll() }
+
+    private func currentRecords() async -> [NetworkDiagnosticRecord] {
+        let owner = await currentIdentity()
+        records.removeAll { $0.owner != owner }
+        return records.map(\.record)
+    }
+
+    func recent() async -> [NetworkDiagnosticRecord] { Array(await currentRecords().suffix(10)) }
 
     /// 统一认证轮询以 HTTP 200 返回业务失败，诊断保留服务端原因。
     private static func authenticationFailure(in data: Data?, url: URL?) -> String? {
@@ -215,7 +252,7 @@ actor NetworkDiagnosticStore {
 
     /// 返回最近一次学校网页请求的安全外链；URL 移除用户信息、query 和 fragment，
     /// ticket、token 等一次性认证参数留在诊断记录中。网页入口限定为学校网页请求。
-    func latestSchoolServicePageURL() -> URL? {
+    func latestSchoolServicePageURL() async -> URL? {
         let schoolHosts = Set([
             "sso.bit.edu.cn",
             "webvpn.bit.edu.cn",
@@ -223,7 +260,7 @@ actor NetworkDiagnosticStore {
             "jxzxehallapp.bit.edu.cn"
         ])
 
-        for record in records.reversed() {
+        for record in await currentRecords().reversed() {
             let bodyIndicatesFailure = record.responseBody?.localizedCaseInsensitiveContains("error") == true
                 || record.responseBody?.localizedCaseInsensitiveContains("certificate") == true
             let failed = record.error != nil || (record.statusCode ?? 200) >= 400 || bodyIndicatesFailure

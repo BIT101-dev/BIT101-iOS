@@ -67,6 +67,7 @@ struct PaperSummaryCard: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("打开文章详情")
+        .accessibilityIdentifier("paper.summary.\(paper.id)")
         .accessibilityAction(named: "打开文章") {
             onOpen()
         }

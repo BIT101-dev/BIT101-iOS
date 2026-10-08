@@ -12,28 +12,11 @@ import CommunityCore
 import Foundation
 import ScheduleDomain
 import ScheduleInfrastructure
-import ImageIO
+import MediaKit
 
 // MARK: - Release network smoke
 
 #if DEBUG || RELEASE_NETWORK_SMOKE
-
-nonisolated private struct AppStoreNetworkSmokeResponse: Decodable {
-    nonisolated struct Result: Decodable {
-        let version: String
-        let bundleID: String?
-        let trackViewURL: URL?
-
-        enum CodingKeys: String, CodingKey {
-            case version
-            case bundleID = "bundleId"
-            case trackViewURL = "trackViewUrl"
-        }
-    }
-
-    let resultCount: Int
-    let results: [Result]
-}
 
 nonisolated private struct EmergencyUpdateSmokeEnvelope: Decodable {
     let schemaVersion: Int
@@ -47,38 +30,107 @@ nonisolated private struct EmergencyUpdateSmokeEnvelope: Decodable {
 
 /// NetworkSmokeScope 表示发布前网络冒烟执行的范围。
 ///
-/// NetworkSmokeScope 使用与脚本入口一致的名称和语义；正式 App、测试宿主和命令行脚本复用同一组探针。
+/// NetworkSmokeScope 使用与脚本入口一致的名称和语义；采样宿主、测试入口和命令行脚本复用同一组探针。
+@MainActor
+private final class NetworkSmokeExecutionGate {
+    private var isRunning = false
+    private var waiting: [(UUID, CheckedContinuation<Bool, Never>)] = []
+
+    func acquire() async -> Bool {
+        guard !Task.isCancelled else { return false }
+        guard isRunning else { isRunning = true; return true }
+        let id = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled { continuation.resume(returning: false) }
+                else { waiting.append((id, continuation)) }
+            }
+        } onCancel: {
+            Task { @MainActor in
+                guard let index = self.waiting.firstIndex(where: { $0.0 == id }) else { return }
+                self.waiting.remove(at: index).1.resume(returning: false)
+            }
+        }
+    }
+
+    func release() {
+        if waiting.isEmpty { isRunning = false }
+        else { waiting.removeFirst().1.resume(returning: true) }
+    }
+}
+
 @MainActor
 final class ReleaseNetworkSmokeRunner {
+    private static let executionGate = NetworkSmokeExecutionGate()
+    private let dependencies: ReleaseNetworkSmokeDependencies
     private var failures: [String] = []
+    private var communityWriteEvidence: [String] = []
     private var authenticationBlockers: [String] = []
     private var scheduleCache: ScheduleCacheAuditSnapshot?
     private var eclassDDL: EclassDDLAudit?
     private var executedProbes: [String] = []
     private var skippedProbes: [String] = []
     private var coverageGaps: [String] = []
+    private var schoolSMSHandler: SchoolSMSCodeHandler?
+    private var schoolSMSSchedule: (any NetworkSmokeScheduleServicing)?
+    private var smsSubmissions = 0
+    private var submittedSMSPurposes: [String] = []
+    private var verifiedSMSProbes: [SchoolSMSProbeEvidence] = []
+
+    init(dependencies: ReleaseNetworkSmokeDependencies = .init()) { self.dependencies = dependencies }
 
     func run(
         scope: NetworkSmokeScope,
         runID: String = UUID().uuidString,
         capture: NetworkSmokeCapture = .none,
-        term requestedTerm: String? = nil
+        term requestedTerm: String? = nil,
+        schoolSMSCodeHandler: SchoolSMSCodeHandler? = nil
     ) async -> ReleaseNetworkSmokeReport {
+        let startedAt = Date()
+        let acquired = await Self.executionGate.acquire()
+        guard acquired && !Task.isCancelled else {
+            if acquired { Self.executionGate.release() }
+            return ReleaseNetworkSmokeReport(runID: runID, scope: scope, startedAt: startedAt, finishedAt: Date(),
+                passed: false, failures: ["网络 Smoke 排队已取消"], authenticationBlockers: [], scheduleCache: nil,
+                executedProbes: [], skippedProbes: [], coverageGaps: ["执行已取消"], schoolSMSCoverage: "not_run",
+                requiredProbes: scope.requiredProbes)
+        }
+        defer { Self.executionGate.release() }
         failures = []
+        communityWriteEvidence = []
         authenticationBlockers = []
         scheduleCache = nil
         eclassDDL = nil
-        ReleaseNetworkSmokeReportStore.rawCourseCaptureEnabled = capture == .rawCourseResponse
-        ReleaseNetworkSmokeReportStore.clearRawCourseResponse()
         executedProbes = []
         skippedProbes = []
         coverageGaps = []
-        let startedAt = Date()
+        smsSubmissions = 0
+        submittedSMSPurposes = []
+        verifiedSMSProbes = []
+        if let handler = schoolSMSCodeHandler {
+            schoolSMSHandler = { [weak self] request in
+                let code = try await handler(request)
+                self?.smsSubmissions += 1
+                self?.submittedSMSPurposes.append(request.purpose)
+                return code
+            }
+        } else {
+            schoolSMSHandler = nil
+        }
+        defer { schoolSMSHandler = nil; schoolSMSSchedule = nil }
+
+        if scope != .communityCleanup && scope != .communityWrites {
+            do { try dependencies.clearRawCourseResponse() }
+            catch {
+                recordFailure("原始课表采样清理", error.localizedDescription, area: .authentication, scope: scope)
+                return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
+            }
+        }
 
         executedProbes.append("BIT101 登录状态")
         let loginStartedAt = Date()
         do {
-            let loginResult = try await LoginService().checkLogin()
+            let loginResult = try await dependencies.checkLogin()
             guard let signedInStudentID = loginResult, !signedInStudentID.isEmpty else {
                 recordFailure("BIT101 登录状态", "真机没有有效登录状态，无法执行发布前网络冒烟测试", area: .authentication, scope: scope)
                 return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
@@ -89,18 +141,49 @@ final class ReleaseNetworkSmokeRunner {
             return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
         }
 
-        let gallery = GalleryService()
-        let courses = CourseService()
+        if scope == .communityWrites || scope == .communityCleanup {
+            communityWriteEvidence = await probe("社区写入与清理", area: .communityWrites, scope: scope) {
+                try await self.dependencies.communityWriteProbe(runID, scope == .communityCleanup)
+            } ?? []
+            return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
+        }
+
+        let gallery = dependencies.makeGallery()
+        let courses = dependencies.makeCourses()
+        await runInParallel([
+            {
+                _ = await self.probe("App 链接关联配置", area: .bit101, scope: scope) {
+                    let request = URLRequest(url: Self.aasaURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
+                    return try Self.validateAASA(try await self.dependencies.aasaHTTPClient.send(request))
+                }
+            },
+            {
+                _ = await self.probe("分享图标下载", area: .bit101, scope: scope) {
+                    try await self.fetchImageCount(urlString: "https://open.aihelpme.dev/share-icon.jpg")
+                }
+            },
+            {
+                _ = await self.probe("反馈接口跨域预检", area: .bit101, scope: scope) {
+                    var request = URLRequest(url: AppURL.required("https://feedback.aihelpme.dev/api/error-reports"))
+                    request.httpMethod = "OPTIONS"
+                    let response = try await self.dependencies.externalHTTPClient.send(request, accepting: 200..<300)
+                    guard response.response.statusCode == 204, response.data.isEmpty,
+                          response.response.value(forHTTPHeaderField: "Access-Control-Allow-Origin") == "*"
+                    else { throw URLError(.badServerResponse) }
+                    return true
+                }
+            }
+        ])
         // The Worker root intentionally redirects to the public gallery landing page.
         _ = await probe("open.aihelpme.dev 首页跳转", area: .bit101, scope: scope) {
-            try await Self.fetchHTMLCount(
+            try await self.fetchHTMLCount(
                 urlString: "https://open.aihelpme.dev",
                 expectedHost: "bit101.cn",
                 initialHost: "open.aihelpme.dev"
             )
         }
         let posters = await probe("话廊最新列表", area: .bit101, scope: scope) {
-            try await gallery.fetchFeed(kind: .newest, page: nil)
+            try await gallery.fetchFeed(kind: .newest, page: nil).items
         }
         if let poster = posters?.first {
             await runInParallel([
@@ -125,11 +208,11 @@ final class ReleaseNetworkSmokeRunner {
                 recordSkip("话廊图片下载", "帖子没有可用图片地址", area: .bit101, scope: scope)
             } else {
                 _ = await probe("话廊图片下载", area: .bit101, scope: scope) {
-                    try await Self.fetchImageCount(urlString: imageURL)
+                    try await self.fetchImageCount(urlString: imageURL)
                 }
             }
             _ = await probe("话廊网页详情", area: .bit101, scope: scope) {
-                try await Self.fetchHTMLCount(
+                try await self.fetchHTMLCount(
                     urlString: "https://open.aihelpme.dev/gallery/\(poster.id)",
                     expectedHost: "open.aihelpme.dev"
                 )
@@ -155,7 +238,7 @@ final class ReleaseNetworkSmokeRunner {
         for messageType in GalleryMessageType.allCases {
             galleryOperations.append { [messageType] in
                 _ = await self.probe("消息列表-\(messageType.rawValue)", area: .bit101, scope: scope) {
-                    try await gallery.fetchMessages(type: messageType, lastID: nil)
+                    try await gallery.fetchMessages(type: messageType, lastID: .max)
                 }
             }
         }
@@ -183,7 +266,7 @@ final class ReleaseNetworkSmokeRunner {
                 },
                 {
                     _ = await self.probe("学业课程网页详情", area: .bit101, scope: scope) {
-                        try await Self.fetchHTMLCount(
+                        try await self.fetchHTMLCount(
                             urlString: "https://open.aihelpme.dev/course/\(course.id)",
                             expectedHost: "open.aihelpme.dev"
                         )
@@ -198,7 +281,7 @@ final class ReleaseNetworkSmokeRunner {
             recordSkip("学业课程网页详情", reason, area: .bit101, scope: scope)
         }
 
-        let papers = PaperService()
+        let papers = dependencies.makePapers()
         let paperRows = await probe("文章列表", area: .bit101, scope: scope) {
             try await papers.fetchPapers(search: nil, order: .newest, page: 0)
         }
@@ -213,12 +296,19 @@ final class ReleaseNetworkSmokeRunner {
                     _ = await self.probe("文章评论", area: .bit101, scope: scope) {
                         try await papers.fetchComments(paperID: paper.id, order: .newest, page: nil)
                     }
+                },
+                {
+                    _ = await self.probe("文章网页详情", area: .bit101, scope: scope) {
+                        try await self.fetchHTMLCount(urlString: "https://open.aihelpme.dev/paper/\(paper.id)",
+                                                     expectedHost: "open.aihelpme.dev")
+                    }
                 }
             ])
         } else {
             let reason = paperRows == nil ? "列表探针没有可用数据" : "列表为空"
             recordSkip("文章详情", reason, area: .bit101, scope: scope)
             recordSkip("文章评论", reason, area: .bit101, scope: scope)
+            recordSkip("文章网页详情", reason, area: .bit101, scope: scope)
         }
         await runInParallel(PaperSortOrder.allCases.map { order in
             {
@@ -228,7 +318,7 @@ final class ReleaseNetworkSmokeRunner {
             }
         })
 
-        let mine = MineService()
+        let mine = dependencies.makeMine()
         let myInfo = await probe("我的资料", area: .bit101, scope: scope) { try await mine.fetchMyInfo() }
         await runInParallel([
             { _ = await self.probe("我的关注", area: .bit101, scope: scope) { try await mine.fetchFollowings(page: 0) } },
@@ -250,21 +340,35 @@ final class ReleaseNetworkSmokeRunner {
         }
 
         // 可信成绩单探针位于学校相关探针的首段，模拟用户手动点击“申请可信成绩单”的路径。
-        let scoreService = ScoreService()
+        let scoreService = dependencies.makeScores()
         _ = await probe("可信成绩单接口", area: .transcript, scope: scope) {
-            let pages = try await scoreService.fetchTrustedTranscriptPages()
+            let pages: [Data]
+            do { pages = try await scoreService.fetchTrustedTranscriptPages() }
+            catch ScoreServiceError.secondFactorRequired(let challenge) {
+                guard let handler = self.schoolSMSHandler else { throw ScoreServiceError.secondFactorRequired(challenge) }
+                let code = try await handler(SchoolSMSCodeRequest(maskedPhone: challenge.maskedPhone ?? "", purpose: "jwb_cjd"))
+                pages = try await scoreService.submitTranscriptSMSCode(code, for: challenge)
+            }
             return try Self.validateTrustedTranscriptPages(pages)
         }
 
-        let schedule = ScheduleServiceFactory.make()
-        _ = await probe("当前学期", area: .schedule, scope: scope) { try await schedule.fetchCurrentTermOnly() }
-        let terms = await probe("切换学期列表", area: .schedule, scope: scope) {
+        var rawCourseResponseHandler: ((Data) -> Void)?
+        if capture == .rawCourseResponse {
+            rawCourseResponseHandler = { data in
+                do { try self.dependencies.writeRawCourseResponse(data, runID) }
+                catch { self.recordFailure("原始课表采样写入", error.localizedDescription, area: .schedule, scope: scope) }
+            }
+        }
+        let schedule = dependencies.makeSchedule(rawCourseResponseHandler)
+        schoolSMSSchedule = schedule
+        let currentTerm = await probe("当前学期", area: .schedule, scope: scope) { try await schedule.fetchCurrentTermOnly() }
+        _ = await probe("切换学期列表", area: .schedule, scope: scope) {
             try await schedule.fetchAvailableTerms()
         }
         let normalizedRequestedTerm = requestedTerm?.trimmingCharacters(in: .whitespacesAndNewlines)
         let term = normalizedRequestedTerm?.isEmpty == false
             ? normalizedRequestedTerm
-            : terms?.first
+            : currentTerm
         if let term {
             let syncPayload = await probe("课表、考试与首周同步", area: .schedule, scope: scope) {
                 let payload = try await schedule.syncCourses(term: term)
@@ -296,21 +400,23 @@ final class ReleaseNetworkSmokeRunner {
                 recordSkip("空教室占用数据", reason, area: .schedule, scope: scope)
             }
         } else {
-            let reason = terms == nil ? "学期探针没有可用数据" : "学期列表为空"
+            let reason = "当前学期探针缺少可用学期"
             recordSkip("课表、考试与首周同步", reason, area: .schedule, scope: scope)
             recordSkip("空教室校区列表", reason, area: .schedule, scope: scope)
             recordSkip("空教室教学楼列表", reason, area: .schedule, scope: scope)
             recordSkip("空教室占用数据", reason, area: .schedule, scope: scope)
         }
         let nativeEclass = await probe("课程中心原生认证", area: .ddl, scope: scope) {
-            let service = try Self.freshEclassService()
+            let service = try self.dependencies.makeEclassSchedule()
+            if let handler = self.schoolSMSHandler { return try await service.fetchEclassDDLEvents(schoolSMSCodeHandler: handler) }
             return try await service.fetchEclassDDLEventsForPreflight()
         }
         if let eclass = await probe("课程中心 DDL 下载", area: .ddl, scope: scope, operation: {
-            try await schedule.fetchEclassDDLEventsForPreflight()
+            if let handler = self.schoolSMSHandler { return try await schedule.fetchEclassDDLEvents(schoolSMSCodeHandler: handler) }
+            return try await schedule.fetchEclassDDLEventsForPreflight()
         }) {
             let now = Date()
-            let cache = await ScheduleCacheStore.loadAsync()
+            let cache = await dependencies.loadScheduleCache()
             let retentionDays = min(max(cache.ddlAfterDay, 0), 30)
             let threshold = now.addingTimeInterval(TimeInterval(-retentionDays * 24 * 3600))
             eclassDDL = EclassDDLAudit(nativeAuthenticationVerified: nativeEclass != nil,
@@ -324,7 +430,8 @@ final class ReleaseNetworkSmokeRunner {
                 earliestDeadline: eclass.events.first?.dueAt, latestDeadline: eclass.events.last?.dueAt)
         }
         let calendarURL = await probe("乐学日历订阅地址", area: .ddl, scope: scope) {
-            try await schedule.refreshLexueCalendarURLForPreflight()
+            if let handler = self.schoolSMSHandler { return try await schedule.refreshLexueCalendarURL(schoolSMSCodeHandler: handler) }
+            return try await schedule.refreshLexueCalendarURLForPreflight()
         }
         if let calendarURL {
             _ = await probe("乐学 DDL 下载", area: .ddl, scope: scope) {
@@ -340,7 +447,12 @@ final class ReleaseNetworkSmokeRunner {
         // 成绩页与可信成绩单同属学校网络链路；短信二次验证时记录为 AUTH_BLOCKED，
         // 区分认证阻塞与网络故障。
         let scoreChallenge = await probe("成绩认证接口", area: .school, scope: scope) {
-            try await scoreService.startScoreChallenge()
+            do { return try await scoreService.startScoreChallenge() }
+            catch ScoreServiceError.secondFactorRequired(let challenge) {
+                guard let handler = self.schoolSMSHandler else { throw ScoreServiceError.secondFactorRequired(challenge) }
+                let code = try await handler(SchoolSMSCodeRequest(maskedPhone: challenge.maskedPhone ?? "", purpose: "jwb"))
+                return try await scoreService.submitScoreSMSCode(code, for: challenge)
+            }
         }
         if let scoreChallenge {
             _ = await probe("成绩简略列表", area: .school, scope: scope) {
@@ -354,17 +466,17 @@ final class ReleaseNetworkSmokeRunner {
         await runInParallel([
             {
                 _ = await self.probe("App Store 更新接口", area: .bit101, scope: scope) {
-                    try await Self.fetchAppStoreLookup()
+                    try await self.fetchAppStoreLookup()
                 }
             },
             {
                 _ = await self.probe("紧急更新配置接口", area: .bit101, scope: scope) {
-                    try await Self.fetchEmergencyUpdateConfiguration()
+                    try await self.fetchEmergencyUpdateConfiguration()
                 }
             },
             {
                 _ = await self.probe("feedback.aihelpme.dev 写入恢复", area: .bit101, scope: scope) {
-                    try await FeedbackSubmissionClient.submitNetworkSmoke(runID: runID)
+                    try await self.dependencies.feedbackProbe(runID)
                 }
             }
         ])
@@ -373,6 +485,10 @@ final class ReleaseNetworkSmokeRunner {
     }
 
     private func finishReport(runID: String, scope: NetworkSmokeScope, startedAt: Date) async -> ReleaseNetworkSmokeReport {
+        let missingSMSPurposes = scope.requiredSMSPurposes.subtracting(verifiedSMSProbes.map(\.purpose))
+        if schoolSMSHandler != nil {
+            coverageGaps += missingSMSPurposes.sorted().map { "短信专项需要完成认证与业务继续：" + $0 }
+        }
         for name in scope.requiredProbes where !executedProbes.contains(name) {
             if !coverageGaps.contains(where: { $0.hasPrefix(name + "（") }) {
                 coverageGaps.append("必需探针缺失：" + name)
@@ -380,12 +496,14 @@ final class ReleaseNetworkSmokeRunner {
         }
 
         let schoolSMSCoverage: String
-        switch scope {
+        if schoolSMSHandler != nil {
+            schoolSMSCoverage = smsSubmissions > 0 && missingSMSPurposes.isEmpty && failures.isEmpty && authenticationBlockers.isEmpty ? "verified" : "pending"
+        } else { switch scope {
         case .all, .school, .ddl:
             schoolSMSCoverage = "preflight_only"
         default:
             schoolSMSCoverage = "not_run"
-        }
+        } }
         var report = ReleaseNetworkSmokeReport(
             runID: runID,
             scope: scope,
@@ -401,15 +519,18 @@ final class ReleaseNetworkSmokeRunner {
             schoolSMSCoverage: schoolSMSCoverage
         )
         report.eclassDDL = eclassDDL
-        print(report.summaryLine)
-        if !report.passed {
-            print(report.failureMessage)
-        }
+        report.requiredProbes = scope.requiredProbes
+        report.verifiedSMSProbes = verifiedSMSProbes
+        report.communityWriteEvidence = communityWriteEvidence
         do {
-            try ReleaseNetworkSmokeReportStore.write(report)
+            try dependencies.writeReport(report)
         } catch {
-            print("NETWORK_SMOKE_REPORT_WRITE_FAIL error=\(ErrorReportRedactor.sanitized(error.localizedDescription))")
+            report.passed = false
+            report.failures.append("网络 Smoke 报告写入失败：" + ErrorReportRedactor.sanitized(error.localizedDescription))
+            FileHandle.standardOutput.write(Data("NETWORK_SMOKE_REPORT_WRITE_FAIL run_id=\(runID) error=\(ErrorReportRedactor.sanitized(error.localizedDescription))\n".utf8))
         }
+        print(report.summaryLine)
+        if !report.passed { print(report.failureMessage) }
         return report
     }
 
@@ -437,7 +558,8 @@ final class ReleaseNetworkSmokeRunner {
         )
     }
 
-    private nonisolated static func validateCourseSyncPayload(_ payload: CourseSyncPayload) throws {
+    nonisolated static func validateCourseSyncPayload(_ payload: CourseSyncPayload) throws {
+        guard payload.courses.allSatisfy(\.hasValidPlacement) else { throw URLError(.cannotParseResponse) }
         let expectedOffset = inferredWeekOffset(for: payload)
         guard payload.normalizationOffset == expectedOffset else {
             throw NSError(
@@ -450,7 +572,7 @@ final class ReleaseNetworkSmokeRunner {
         let calendar = Calendar(identifier: .gregorian)
         guard let sourceDate = scheduleDate(payload.sourceFirstDayString),
               let normalizedDate = scheduleDate(payload.firstDayString)
-        else { return }
+        else { throw URLError(.cannotParseResponse) }
         let dayDelta = calendar.dateComponents([.day], from: sourceDate, to: normalizedDate).day ?? 0
         guard dayDelta == expectedOffset * 7 else {
             throw NSError(
@@ -501,19 +623,22 @@ final class ReleaseNetworkSmokeRunner {
 
     private nonisolated static func scheduleDate(_ value: String) -> Date? {
         let parts = value.split(separator: "-").compactMap { Int($0) }
-        guard parts.count == 3 else { return nil }
+        guard value.count == 10, parts.count == 3 else { return nil }
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 8 * 3600) ?? .current
-        return calendar.date(from: DateComponents(
+        guard let date = calendar.date(from: DateComponents(
             calendar: calendar,
             timeZone: calendar.timeZone,
             year: parts[0],
             month: parts[1],
             day: parts[2]
-        ))
+        )) else { return nil }
+        let resolved = calendar.dateComponents([.year, .month, .day], from: date)
+        guard resolved.year == parts[0], resolved.month == parts[1], resolved.day == parts[2] else { return nil }
+        return date
     }
 
-    private static func freshEclassService() throws -> ScheduleService {
+    static func freshEclassService() throws -> ScheduleService {
         guard let cookies = URLSessionConfiguration.ephemeral.httpCookieStorage else {
             throw ScheduleServiceError.invalidResponse
         }
@@ -541,15 +666,13 @@ final class ReleaseNetworkSmokeRunner {
         scope: NetworkSmokeScope,
         operation: () async throws -> Value
     ) async -> Value? {
-        guard scope.includes(area) else {
-            skippedProbes.append(name)
-            print("NETWORK_SMOKE_SKIP name=\(name) scope=\(scope.rawValue)")
-            return nil
-        }
+        guard scope.includes(area) else { return nil }
         executedProbes.append(name)
         let startedAt = Date()
+        let smsStart = submittedSMSPurposes.count
         do {
-            let value = try await operation()
+            let value = try await operationWithSchoolAuthentication(operation)
+            verifiedSMSProbes += submittedSMSPurposes.dropFirst(smsStart).map { SchoolSMSProbeEvidence(purpose: $0, probe: name) }
             print("NETWORK_SMOKE_PASS name=\(name) elapsed=\(Self.duration(Date().timeIntervalSince(startedAt)))")
             return value
         } catch {
@@ -560,6 +683,18 @@ final class ReleaseNetworkSmokeRunner {
                 recordFailure(name, error.localizedDescription, area: area, scope: scope, elapsed: elapsed)
             }
             return nil
+        }
+    }
+
+    private func operationWithSchoolAuthentication<Value>(_ operation: () async throws -> Value) async throws -> Value {
+        do { return try await operation() }
+        catch ScheduleServiceError.secondFactorRequired(let challenge) {
+            guard let handler = schoolSMSHandler, let schedule = schoolSMSSchedule else {
+                throw ScheduleServiceError.secondFactorRequired(challenge)
+            }
+            let code = try await handler(SchoolSMSCodeRequest(maskedPhone: challenge.maskedPhone ?? "", purpose: "webvpn"))
+            try await schedule.submitSMSCodeForTeachingCenterAuthentication(code, for: challenge)
+            return try await operation()
         }
     }
 
@@ -625,28 +760,26 @@ final class ReleaseNetworkSmokeRunner {
         }
     }
 
-    private nonisolated static func fetchDataCount(urlString: String) async throws -> Int {
+    private func fetchDataCount(urlString: String) async throws -> Int {
         guard let url = URL(string: urlString) else { throw URLError(.badURL) }
         return try await fetch(url).count
     }
 
-    private nonisolated static func fetchImageCount(urlString: String) async throws -> Int {
+    private func fetchImageCount(urlString: String) async throws -> Int {
         guard let url = URL(string: urlString) else { throw URLError(.badURL) }
-        let response = try await fetchResponse(url)
-        try validateImageData(response.data)
+        let response = try await fetchResponse(url, maximumBytes: RemoteImageResourceLimits.maximumEncodedBytes)
+        try Self.validateImageData(response.data)
         return response.data.count
     }
 
     private nonisolated static func validateImageData(_ data: Data) throws {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              CGImageSourceGetCount(source) > 0,
-              CGImageSourceCreateImageAtIndex(source, 0, nil) != nil
+        guard BoundedStillImageDecoder.image(from: data) != nil
         else {
             throw URLError(.cannotDecodeContentData)
         }
     }
 
-    private nonisolated static func fetchHTMLCount(
+    private func fetchHTMLCount(
         urlString: String,
         expectedHost: String,
         initialHost: String? = nil
@@ -657,41 +790,56 @@ final class ReleaseNetworkSmokeRunner {
             throw URLError(.badURL)
         }
         let response = try await fetchResponse(url)
-        return try validateHTMLResponse(
+        return try Self.validateHTMLResponse(
             response.data,
             finalURL: response.response.url,
-            expectedHost: expectedHost
+            expectedHost: expectedHost,
+            expectedPath: initialHost == nil ? url.path : "/gallery/",
+            expectedAppURL: expectedHost == "open.aihelpme.dev" ? "bit101:/" + url.path : nil
         )
     }
 
     nonisolated static func validateHTMLResponse(
         _ data: Data,
         finalURL: URL?,
-        expectedHost: String
+        expectedHost: String,
+        expectedPath: String? = nil,
+        expectedAppURL: String? = nil
     ) throws -> Int {
         guard finalURL?.host?.lowercased() == expectedHost else {
             throw URLError(.badServerResponse)
         }
+        if let expectedPath,
+           finalURL?.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) != expectedPath.trimmingCharacters(in: CharacterSet(charactersIn: "/")) {
+            throw URLError(.badServerResponse)
+        }
         let body = String(decoding: data, as: UTF8.self).lowercased()
+        if let expectedAppURL, !body.contains("href=\"\(expectedAppURL.lowercased())\"") {
+            throw URLError(.cannotParseResponse)
+        }
         guard body.contains("<html") || body.contains("<!doctype html") else {
             throw URLError(.cannotParseResponse)
         }
         return data.count
     }
 
+    private nonisolated static let aasaURL = AppURL.required("https://open.aihelpme.dev/.well-known/apple-app-site-association")
+
+    nonisolated static func validateAASA(_ response: HTTPResponse) throws -> Int {
+        guard response.statusCode == 200, response.response.url == aasaURL,
+              response.response.mimeType?.lowercased() == "application/json", response.data.count <= 128 * 1024,
+              let root = try JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+              let appLinks = root["applinks"] as? [String: Any],
+              let details = appLinks["details"] as? [[String: Any]],
+              let entry = details.first(where: { $0["appID"] as? String == "Y2T72736G3.BIT101-dev.BIT101-iOS" }),
+              let paths = entry["paths"] as? [String],
+              paths.count == 3, Set(paths) == Set(["/gallery/*", "/course/*", "/paper/*"])
+        else { throw URLError(.cannotParseResponse) }
+        return paths.count
+    }
+
     nonisolated static func validateAppStoreLookup(_ data: Data) throws -> Int {
-        let response = try JSONDecoder().decode(AppStoreNetworkSmokeResponse.self, from: data)
-        guard response.resultCount > 0,
-              response.resultCount == response.results.count,
-              let result = response.results.first,
-              !result.version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              result.bundleID == "BIT101-dev.BIT101-iOS",
-              let trackViewURL = result.trackViewURL,
-              BIT101AppStore.acceptsUpdateURL(trackViewURL)
-        else {
-            throw URLError(.cannotParseResponse)
-        }
-        return response.resultCount
+        try AppStoreLookup.parse(data).count
     }
 
     nonisolated static func validateEmergencyUpdateConfiguration(_ data: Data) throws -> Bool {
@@ -712,37 +860,37 @@ final class ReleaseNetworkSmokeRunner {
     nonisolated static func validateTrustedTranscriptPages(_ pages: [Data]) throws -> Int {
         guard !pages.isEmpty else { throw URLError(.zeroByteResource) }
         for page in pages {
-            try validateImageData(page)
+            try Self.validateImageData(page)
         }
         return pages.count
     }
 
-    private nonisolated static func fetchAppStoreLookup() async throws -> Int {
-        let url = AppURL.required("https://itunes.apple.com/lookup?id=6761147125&country=cn")
-        let response = try await fetchResponse(url)
-        guard response.response.url?.host?.lowercased() == "itunes.apple.com" else {
+    private func fetchAppStoreLookup() async throws -> Int {
+        let request = try AppStoreLookup.makeRequest()
+        let response = try await dependencies.externalHTTPClient.send(request)
+        guard AppURL.isSameOrigin(response.response.url, as: request.url) else {
             throw URLError(.badServerResponse)
         }
-        return try validateAppStoreLookup(response.data)
+        return try Self.validateAppStoreLookup(response.data)
     }
 
-    private nonisolated static func fetchEmergencyUpdateConfiguration() async throws -> Bool {
+    private func fetchEmergencyUpdateConfiguration() async throws -> Bool {
         let url = AppURL.required("https://update.aihelpme.dev/emergency-update.json")
         let response = try await fetchResponse(url)
-        guard response.response.url?.host?.lowercased() == "update.aihelpme.dev" else {
+        guard AppURL.isSameOrigin(response.response.url, as: url) else {
             throw URLError(.badServerResponse)
         }
-        return try validateEmergencyUpdateConfiguration(response.data)
+        return try Self.validateEmergencyUpdateConfiguration(response.data)
     }
 
-    private nonisolated static func fetch(_ url: URL) async throws -> Data {
+    private func fetch(_ url: URL) async throws -> Data {
         try await fetchResponse(url).data
     }
 
-    private nonisolated static func fetchResponse(_ url: URL) async throws -> HTTPResponse {
+    private func fetchResponse(_ url: URL, maximumBytes: Int? = nil) async throws -> HTTPResponse {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
         request.setValue("BIT101-iOS release network smoke", forHTTPHeaderField: "User-Agent")
-        let response = try await HTTPClient.shared.send(request, accepting: 200 ..< 400)
+        let response = try await self.dependencies.externalHTTPClient.send(request, accepting: 200 ..< 300, maximumBytes: maximumBytes)
         guard !response.data.isEmpty else { throw URLError(.zeroByteResource) }
         return response
     }

@@ -8,6 +8,7 @@
     "disable": "./Scripts/publish-emergency-update.sh --disable"
   },
   "devDependencies": {
+    "miniflare": "5.20260926.0-alpha",
     "wrangler": "^4.0.0"
   },
   "overrides": {

@@ -125,10 +125,12 @@ private struct GalleryCommentRow: View {
             Button("取消", role: .cancel) {
                 pendingDeleteComment = nil
             }
+                .accessibilityIdentifier("ui.gallery-comment-row.cancel")
             Button("删除", role: .destructive) {
                 pendingDeleteComment = nil
                 onDeleteComment(comment)
             }
+                .accessibilityIdentifier("ui.gallery-comment-row.delete")
         } message: { _ in
             Text("确定删除这条评论吗？删除后无法恢复。")
         }
@@ -199,6 +201,7 @@ private struct GalleryCommentRow: View {
                 onReportComment(comment)
             }
         }
+        .accessibilityIdentifier("gallery.comment-menu.\(comment.id)")
     }
 
     private func canOpenUserProfile(_ comment: CommunityComment) -> Bool {
@@ -233,11 +236,12 @@ struct GalleryCommentComposerSheet: View {
     @Environment(GalleryDependencies.self) private var dependencies
     let target: GalleryCommentComposerTarget
     let isSubmitting: Bool
-    let onSubmit: (String, Bool, [CommunityImage]) -> Void
+    let onSubmit: (String, Bool, [CommunityImage]) async -> Bool
 
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var anonymous = false
+    @State private var isSubmissionRequested = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var uploadedImages: [CommunityImage] = []
     @State private var isUploadingImages = false
@@ -252,6 +256,7 @@ struct GalleryCommentComposerSheet: View {
                 AppCommentComposerContentSection(anonymous: $anonymous) {
                     TextField("", text: $text, prompt: AppInputPrompt.text(target.placeholder), axis: .vertical)
                         .lineLimit(5, reservesSpace: true)
+                        .accessibilityIdentifier("ui.gallery-comment-composer-sheet.input")
                 }
 
                 Section("图片") {
@@ -286,16 +291,23 @@ struct GalleryCommentComposerSheet: View {
             }
             .navigationTitle(target.title)
             .navigationBarTitleDisplayMode(.inline)
+            .task(id: isSubmissionRequested) {
+                guard isSubmissionRequested else { return }
+                let submitted = await onSubmit(text, anonymous, uploadedImages)
+                guard !Task.isCancelled else { return }
+                isSubmissionRequested = false
+                if submitted { dismiss() }
+            }
             .toolbar {
                 AppComposerToolbar(
-                    isSubmitting: isSubmitting,
+                    isSubmitting: isSubmitting || isSubmissionRequested,
                     submitTitle: "发送",
                     isSubmitDisabled: isUploadingImages,
                     onCancel: {
                         dismiss()
                     },
                     onSubmit: {
-                        onSubmit(text, anonymous, uploadedImages)
+                        isSubmissionRequested = true
                     }
                 )
             }

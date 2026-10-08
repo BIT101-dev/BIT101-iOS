@@ -6,6 +6,7 @@ import Foundation
 import UIKit
 
 struct UITestScoreService: ScoreListServicing, TrustedTranscriptServicing {
+    let transcriptServiceIdentity: AnyHashable = UUID()
     private static let challenge = BITLoginAuthenticationChallenge(
         challengeID: "ui-test-score-challenge",
         accessToken: "ui-test-score-token",

@@ -63,7 +63,11 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         let chosenValues = (try? app.datePickers.firstMatch.snapshot())?.snapshots(matching: .pickerWheel)
             .compactMap { ($0.value as? String).flatMap { Int($0.filter(\.isNumber)) } } ?? []
         var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 8 * 3600)!
+        guard let timeZone = TimeZone(secondsFromGMT: 8 * 3600) else {
+            assertUI(false, "日期验收应创建学校所在时区。")
+            return
+        }
+        calendar.timeZone = timeZone
         calendar.firstWeekday = 2
         guard chosenValues.count == 3,
               let chosenDate = calendar.date(from: DateComponents(year: chosenValues[0], month: chosenValues[1], day: chosenValues[2])),
@@ -430,26 +434,38 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
     @MainActor
     @objc func testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes() {
         app = configureApp(resetStorage: true, content: true, initialTab: "gallery")
+        assertUI(!app.segmentedControls.buttons["机器人"].exists, "隐藏机器人时顶部分栏应同步隐藏。")
+        openSettings("gallery")
+        _ = toggle("隐藏机器人帖子")
+        back()
+        app.tabBars.buttons["话廊"].tapBriefly()
         for title in ["关注", "最新", "最热", "机器人", "推荐"] {
             tapHeader(app.segmentedControls.buttons[title])
             assertUI(app.segmentedControls.buttons[title].isSelected, "话题分类应选中：\(title)。")
         }
+        tapHeader(app.segmentedControls.buttons["机器人"])
+        openSettings("gallery")
+        _ = toggle("隐藏机器人帖子")
+        back()
+        app.tabBars.buttons["话廊"].tapBriefly()
+        assertUI(!app.segmentedControls.buttons["机器人"].exists && app.segmentedControls.buttons["推荐"].isSelected,
+                 "隐藏当前机器人分栏应选中推荐。")
         pullToRefresh()
         assertUI(textElement("自动化测试话题").exists, "话题列表刷新应保留服务结果。")
         assertUI(app.segmentedControls.buttons["推荐"].isSelected, "竖向刷新应保留话题分类。")
-        let list = app.scrollViews.firstMatch
-        list.swipeLeft()
+        let feed = app.descendants(matching: .any)["gallery.feed-surface"]
+        feed.swipeLeft()
         assertUI(app.segmentedControls.buttons["最新"].isSelected, "话题横滑应切换分类。")
-        list.swipeRight()
+        feed.swipeRight()
         assertUI(app.segmentedControls.buttons["推荐"].isSelected, "反向横滑应恢复分类。")
         tap("消息")
         assertUI(textElement("自动化测试消息").appears(timeout: 5), "消息面板应完成首屏加载。")
         pullToRefresh()
         assertUI(textElement("自动化测试消息").exists, "消息刷新应保留服务结果。")
-        app.collectionViews.firstMatch.swipeLeft()
+        app.descendants(matching: .any)["gallery.message-surface"].swipeLeft()
         let likes = app.segmentedControls.buttons.matching(NSPredicate(format: "label CONTAINS %@", "点赞")).firstMatch
         assertUI(likes.isSelected, "消息横滑应切换到点赞分类。")
-        app.collectionViews.firstMatch.swipeRight()
+        app.descendants(matching: .any)["gallery.message-surface"].swipeRight()
         let comments = app.segmentedControls.buttons.matching(NSPredicate(format: "label CONTAINS %@", "评论")).firstMatch
         assertUI(comments.isSelected, "消息反向横滑应恢复评论分类。")
         let message = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "自动化测试消息")).firstMatch
@@ -491,24 +507,25 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
             assertUI(app.segmentedControls.buttons[title].isSelected, "文章排序应更新选中项。")
         }
         tapHeader(app.segmentedControls.buttons["最新"])
-        list.swipeLeft()
+        let paper = app.descendants(matching: .any)["paper.sort-surface"]
+        paper.swipeLeft()
         assertUI(app.segmentedControls.buttons["高赞"].isSelected, "文章横滑应切换点赞排序。")
-        list.swipeLeft()
+        paper.swipeLeft()
         assertUI(app.segmentedControls.buttons["热评"].isSelected, "连续横滑应切换评论排序。")
-        list.swipeRight()
+        paper.swipeRight()
         assertUI(app.segmentedControls.buttons["高赞"].isSelected, "反向横滑应恢复文章排序。")
-        list.swipeRight()
+        paper.swipeRight()
         assertUI(app.segmentedControls.buttons["最新"].isSelected, "反向横滑应返回首个文章排序。")
-        list.swipeRight()
+        paper.swipeRight()
         assertUI(app.segmentedControls.buttons["话题"].isSelected, "文章首个排序向外横滑应切换话题。")
         tapHeader(app.segmentedControls.buttons["关注"])
-        list.swipeRight()
+        feed.swipeRight()
         assertUI(app.segmentedControls.buttons["文章"].isSelected, "话题首个分类向外横滑应切换文章。")
         tapHeader(app.segmentedControls.buttons["热评"])
-        list.swipeLeft()
+        paper.swipeLeft()
         assertUI(app.segmentedControls.buttons["话题"].isSelected, "文章末尾排序向外横滑应切换话题。")
-        tapHeader(app.segmentedControls.buttons["机器人"])
-        list.swipeLeft()
+        tapHeader(app.segmentedControls.buttons["最热"])
+        feed.swipeLeft()
         assertUI(app.segmentedControls.buttons["文章"].isSelected, "话题末尾分类向外横滑应切换文章。")
         tap("搜索文章")
         let paperSearch = app.textFields.firstMatch
@@ -666,10 +683,12 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         let platform = UIElement(app.native)
         let photos = platform.buttons.matching(NSPredicate(format: "label IN %@", ["照片", "Photos"])).firstMatch
         assertUI(photos.appears(timeout: 5), "图片入口应呈现系统照片选择器。")
-        let cancel = platform.buttons.matching(NSPredicate(format: "label IN %@", ["取消", "Cancel"]))
-            .allElementsBoundByIndex.last(where: { $0.isHittable })
-        assertUI(cancel != nil, "系统照片选择器应提供取消操作。")
-        cancel!.press(forDuration: 0.01)
+        guard let cancel = platform.buttons.matching(NSPredicate(format: "label IN %@", ["取消", "Cancel"]))
+            .allElementsBoundByIndex.last(where: { $0.isHittable }) else {
+            assertUI(false, "系统照片选择器应提供取消操作。")
+            return
+        }
+        cancel.press(forDuration: 0.01)
         assertUI(photos.disappears(timeout: 5), "取消图片选择应关闭系统选择器。")
     }
 

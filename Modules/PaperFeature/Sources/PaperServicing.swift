@@ -22,15 +22,15 @@ public protocol PaperDetailServicing {
         intro: String,
         content: String,
         anonymous: Bool,
-        publicEdit: Bool
+        publicEdit: Bool,
+        lastUpdatedAt: String
     ) async throws
     func deletePaper(id: Int) async throws
 }
 
 public protocol PaperComposerServicing {
     func createPaper(title: String, intro: String, content: String, anonymous: Bool, publicEdit: Bool) async throws -> Int
-    func updatePaper(id: Int, title: String, intro: String, content: String, anonymous: Bool, publicEdit: Bool) async throws
+    func updatePaper(id: Int, title: String, intro: String, content: String, anonymous: Bool, publicEdit: Bool, lastUpdatedAt: String) async throws
 }
 
 extension PaperService: PaperListServicing, PaperDetailServicing, PaperComposerServicing {}
-

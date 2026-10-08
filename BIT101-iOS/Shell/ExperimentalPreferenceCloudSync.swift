@@ -157,6 +157,8 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     let settings: AppSettingsStore
     let stores: AppAccountStores
     private let cloudStore: any PreferenceCloudStoring
+    private let scoreEncryption: ScoreCacheSyncEncryption
+    private let synchronizedDomains: Set<ExperimentalPreferenceSyncDomain>
     private var cloudObserverTask: Task<Void, Never>?
     private var reconciliationTask: Task<Void, Never>?
     private var pendingReconciliationDomains = Set<ExperimentalPreferenceSyncDomain>()
@@ -167,10 +169,14 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         stores: AppAccountStores,
         defaults: UserDefaults = AppFileDirectories.defaults,
         cloudStore: any PreferenceCloudStoring = NSUbiquitousKeyValueStore.default,
+        scoreEncryption: ScoreCacheSyncEncryption? = nil,
+        synchronizedDomains: Set<ExperimentalPreferenceSyncDomain> = Set(ExperimentalPreferenceSyncDomain.allCases),
         notificationCenter: NotificationCenter = .default
     ) {
         self.defaults = defaults
         self.cloudStore = cloudStore
+        self.scoreEncryption = scoreEncryption ?? .production(defaults: defaults)
+        self.synchronizedDomains = synchronizedDomains
         self.settings = settings
         self.stores = stores
         isEnabled = loadEnabledPreference()
@@ -213,7 +219,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
             return
         }
 
-        cloudStore.synchronize()
+        synchronizeCloudStore()
         scheduleReconciliation(for: ExperimentalPreferenceSyncDomain.allCases)
     }
 
@@ -222,8 +228,10 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         in domain: ExperimentalPreferenceSyncDomain,
         for session: AppStorageSession? = nil
     ) {
+        guard synchronizedDomains.contains(domain) else { return }
         let owner = domain == .scoreCache ? stores.scoreSession() : stores.currentSession()
         guard session == nil || session == owner else { return }
+        guard localSnapshotIsReadable(domain) else { return }
         switch domain {
         case .appSettings:
             recordPreferences(AppSettingsSyncPayload(snapshot: settings.snapshot), domain: domain,
@@ -234,7 +242,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         case .scoreCache:
             let updatedAt = nextLocalUpdatedAt(for: domain, remoteUpdatedAt: remoteUpdatedAt(for: domain))
             setLocalUpdatedAt(updatedAt, for: domain)
-            if isEnabled { Task { await uploadScoreCache(updatedAt: updatedAt, session: owner) } }
+            if isEnabled { scheduleReconciliation(for: [domain]) }
         case .galleryMessageRead:
             setLocalUpdatedAt(nextLocalUpdatedAt(for: domain), for: domain)
             if isEnabled { reconcileMessages() }
@@ -245,12 +253,19 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     @discardableResult
     func refreshFromCloudIfNeeded() -> Task<Void, Never>? {
         guard isEnabled else { return nil }
-        cloudStore.synchronize()
+        synchronizeCloudStore()
         scheduleReconciliation(for: ExperimentalPreferenceSyncDomain.allCases)
         return reconciliationTask
     }
 
 #if DEBUG || ICLOUD_CROSS_DEVICE_SMOKE
+    @discardableResult
+    func reconcileCloudSnapshot() -> Task<Void, Never>? {
+        guard isEnabled else { return nil }
+        scheduleReconciliation(for: ExperimentalPreferenceSyncDomain.allCases)
+        return reconciliationTask
+    }
+
     func synchronizedVersion(for domain: ExperimentalPreferenceSyncDomain) -> Date? {
         localUpdatedAt(for: domain)
     }
@@ -265,14 +280,14 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         isEnabled = loadEnabledPreference()
         capturePreferenceBaselines()
         guard isEnabled else { return }
-        cloudStore.synchronize()
+        synchronizeCloudStore()
         scheduleReconciliation(for: ExperimentalPreferenceSyncDomain.allCases)
     }
 
     private func handleExternalChange(changedKeys: [String]?, changeReason: Int?) {
         guard isEnabled else { return }
         if changeReason == NSUbiquitousKeyValueStoreQuotaViolationChange {
-            syncIssue = "iCloud 偏好同步空间已满。本机设置和成绩缓存继续保留；释放 iCloud 空间后重试。"
+            syncIssue = "BIT101 的 iCloud 同步记录达到应用容量上限。本机设置和成绩缓存继续保留；请关闭偏好同步，并联系维护者缩减云端同步记录后重试。"
             syncIssueDomain = changedKeys?.compactMap { key in
                 ExperimentalPreferenceSyncDomain.allCases.first { cloudKey(for: $0) == key }
             }.first
@@ -288,8 +303,9 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     /// KVS 外部变更通知由系统内部串行队列派发；必须等通知栈退出后再读写 KVS，
     /// 否则在同步应用偏好并触发另一域写回时会造成 libdispatch 递归加锁崩溃。
     private func scheduleReconciliation(for domains: [ExperimentalPreferenceSyncDomain]) {
-        guard !domains.isEmpty else { return }
-        pendingReconciliationDomains.formUnion(domains)
+        let selected = Set(domains).intersection(synchronizedDomains)
+        guard !selected.isEmpty else { return }
+        pendingReconciliationDomains.formUnion(selected)
         guard reconciliationTask == nil else { return }
 
         reconciliationTask = Task { @MainActor [weak self] in
@@ -316,6 +332,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     }
 
     private func reconcile(domain: ExperimentalPreferenceSyncDomain) async {
+        guard localSnapshotIsReadable(domain) else { return }
         switch domain {
         case .appSettings:
             reconcilePreferences(AppSettingsSyncPayload(snapshot: settings.snapshot), domain: domain,
@@ -325,9 +342,11 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
                 apply: stores.scoreFilterPreferences.applySynced)
         case .scoreCache:
             let session = stores.scoreSession()
+            let version = localUpdatedAt(for: domain)
             guard let localPayload = await stores.scoreCache.syncPayload(for: session),
                   !Task.isCancelled,
-                  stores.scoreSession() == session
+                  stores.scoreSession() == session,
+                  localUpdatedAt(for: domain) == version
             else { return }
             preserveLegacyLocalScoreCacheIfNeeded(localPayload)
             await reconcile(
@@ -335,7 +354,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
                 localPayload: localPayload,
                 scoreSession: session,
                 applyRemote: { payload in
-                    await stores.scoreCache.applySynced(payload, for: session)
+                    await stores.scoreCache.applySynced(payload, for: session, replacing: localPayload)
                 }
             )
         case .galleryMessageRead:
@@ -344,14 +363,30 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     }
 
     private func capturePreferenceBaselines() {
-        captureBaseline(AppSettingsSyncPayload(snapshot: settings.snapshot), domain: .appSettings)
-        captureBaseline(stores.scoreFilterPreferences.load() ?? ScoreFilterPreferenceSnapshot(), domain: .scoreFilters)
+        if synchronizedDomains.contains(.appSettings), localSnapshotIsReadable(.appSettings) {
+            captureBaseline(AppSettingsSyncPayload(snapshot: settings.snapshot), domain: .appSettings)
+        }
+        if synchronizedDomains.contains(.scoreFilters), localSnapshotIsReadable(.scoreFilters) {
+            captureBaseline(stores.scoreFilterPreferences.load() ?? ScoreFilterPreferenceSnapshot(), domain: .scoreFilters)
+        }
+    }
+
+    private func localSnapshotIsReadable(_ domain: ExperimentalPreferenceSyncDomain) -> Bool {
+        let failed: Bool
+        switch domain {
+        case .appSettings: failed = settings.storageIssue != nil
+        case .scoreFilters: failed = stores.scoreFilterPreferences.hasUnreadableSnapshot
+        case .galleryMessageRead: failed = stores.communityMessages.hasUnreadableSnapshot
+        case .scoreCache: failed = false
+        }
+        if failed { reportPreferenceError(PreferenceSyncRecordError.invalidStoredValue, domain: domain) }
+        return !failed
     }
 
     private func captureBaseline<Payload: Codable>(_ payload: Payload, domain: ExperimentalPreferenceSyncDomain) {
-        let previous: ExperimentalPreferenceSyncEnvelope<Payload>? = localPreferenceEnvelope(for: domain)
-        guard previous == nil else { return }
         do {
+            let previous: ExperimentalPreferenceSyncEnvelope<Payload>? = try localPreferenceEnvelope(for: domain)
+            guard previous == nil else { return }
             let baseline = try PreferenceFieldMerge.recording(payload, previous: nil, at: localUpdatedAt(for: domain) ?? .distantPast)
             try storePreferenceEnvelope(baseline, for: domain)
         } catch { reportPreferenceError(error, domain: domain) }
@@ -361,7 +396,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         _ payload: Payload, domain: ExperimentalPreferenceSyncDomain, apply: (Payload) -> Void
     ) {
         do {
-            let previous: ExperimentalPreferenceSyncEnvelope<Payload>? = localPreferenceEnvelope(for: domain)
+            let previous: ExperimentalPreferenceSyncEnvelope<Payload>? = try localPreferenceEnvelope(for: domain)
             let value = try PreferenceFieldMerge.recording(payload, previous: previous, at: nextLocalUpdatedAt(for: domain))
             try storePreferenceEnvelope(value, for: domain)
             setLocalUpdatedAt(value.updatedAt, for: domain)
@@ -374,14 +409,15 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         _ payload: Payload, domain: ExperimentalPreferenceSyncDomain, apply: (Payload) -> Void
     ) {
         do {
-            let stored: ExperimentalPreferenceSyncEnvelope<Payload>? = localPreferenceEnvelope(for: domain)
+            let stored: ExperimentalPreferenceSyncEnvelope<Payload>? = try localPreferenceEnvelope(for: domain)
             let local = try stored ?? PreferenceFieldMerge.recording(payload, previous: nil, at: localUpdatedAt(for: domain) ?? .distantPast)
             let remote: ExperimentalPreferenceSyncEnvelope<Payload>? = try remoteEnvelope(for: domain)
             let merged = try remote.map { try PreferenceFieldMerge.merging(local, $0) } ?? local
             if merged.payload != payload { apply(merged.payload) }
             try storePreferenceEnvelope(merged, for: domain)
             setLocalUpdatedAt(merged.updatedAt, for: domain)
-            if remote?.payload != merged.payload || remote?.fieldUpdatedAt != merged.fieldUpdatedAt {
+            if remote?.payload != merged.payload || remote?.fieldUpdatedAt != merged.fieldUpdatedAt
+                || remote?.additionalFields != merged.additionalFields {
                 upload(merged, domain: domain)
             }
         } catch { reportPreferenceError(error, domain: domain) }
@@ -400,9 +436,10 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         } catch { reportPreferenceError(error, domain: .galleryMessageRead) }
     }
 
-    private func localPreferenceEnvelope<Payload: Codable>(for domain: ExperimentalPreferenceSyncDomain) -> ExperimentalPreferenceSyncEnvelope<Payload>? {
-        guard let data = defaults.data(forKey: preferenceEnvelopeKey(for: domain)) else { return nil }
-        return try? JSONDecoder().decode(ExperimentalPreferenceSyncEnvelope<Payload>.self, from: data)
+    private func localPreferenceEnvelope<Payload: Codable>(for domain: ExperimentalPreferenceSyncDomain) throws -> ExperimentalPreferenceSyncEnvelope<Payload>? {
+        guard let stored = defaults.object(forKey: preferenceEnvelopeKey(for: domain)) else { return nil }
+        guard let data = stored as? Data else { throw PreferenceSyncRecordError.invalidStoredValue }
+        return try JSONDecoder().decode(ExperimentalPreferenceSyncEnvelope<Payload>.self, from: data)
     }
 
     private func storePreferenceEnvelope<Payload: Codable>(_ value: ExperimentalPreferenceSyncEnvelope<Payload>, for domain: ExperimentalPreferenceSyncDomain) throws {
@@ -414,7 +451,9 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     }
 
     private func reportPreferenceError(_ error: Error, domain: ExperimentalPreferenceSyncDomain) {
-        syncIssue = "偏好同步数据处理失败，请稍后重试。"
+        syncIssue = (error as? PreferenceSyncRecordError)?.errorDescription
+            ?? (error as? ScoreSyncEncryptionError)?.errorDescription
+            ?? "偏好同步数据处理失败，原始记录已保留。请联系维护者恢复记录后重试。"
         syncIssueDomain = domain
         Self.logger.error("Preference merge failed domain=\(domain.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
     }
@@ -450,7 +489,8 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
                 guard let remote else { return }
                 guard await applyRemote(remote.payload) else { return }
                 guard !Task.isCancelled,
-                      scoreSession == nil || stores.scoreSession() == scoreSession
+                      scoreSession == nil || stores.scoreSession() == scoreSession,
+                      self.localUpdatedAt(for: domain) == localUpdatedAt
                 else { return }
                 setLocalUpdatedAt(remote.updatedAt, for: domain)
             case .uploadLocal:
@@ -464,15 +504,6 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
                 break
             }
         } catch { reportPreferenceError(error, domain: domain) }
-    }
-
-    private func uploadScoreCache(updatedAt: Date, session: AppStorageSession) async {
-        guard stores.scoreSession() == session,
-              let payload = await stores.scoreCache.syncPayload(for: session),
-              !Task.isCancelled,
-              stores.scoreSession() == session
-        else { return }
-        upload(payload: payload, domain: .scoreCache, updatedAt: updatedAt)
     }
 
     /// 升级前已有的成绩缓存没有实验同步时间戳；云端为空时优先保留并上传本机成绩。
@@ -500,12 +531,13 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         _ envelope: ExperimentalPreferenceSyncEnvelope<Payload>,
         domain: ExperimentalPreferenceSyncDomain
     ) {
+        guard isEnabled, !Task.isCancelled else { return }
         let data: Data
         do {
             let remote: ExperimentalPreferenceSyncEnvelope<Payload>? = try remoteEnvelope(for: domain)
             var preserved = envelope
             preserved.additionalFields.merge(remote?.additionalFields ?? [:]) { local, _ in local }
-            data = try domain == .scoreCache ? ScoreCacheSyncPayloadCodec.encode(preserved) : JSONEncoder().encode(preserved)
+            data = try encodeCloudEnvelope(preserved, domain: domain)
         } catch {
             reportPreferenceError(error, domain: domain)
             Self.logger.error("iCloud payload encoding failed domain=\(domain.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
@@ -515,18 +547,46 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         let key = cloudKey(for: domain)
         guard fitsCloudStore(data, replacing: key) else {
             let label = domain == .scoreCache ? "成绩缓存" : "偏好数据"
-            syncIssue = "iCloud 空间不足，\(label)保留在本机。释放 iCloud 空间后重试。"
+            syncIssue = "BIT101 的 iCloud 同步记录达到应用容量上限，\(label)保留在本机。请关闭偏好同步，并联系维护者缩减云端同步记录后重试。"
             syncIssueDomain = domain
             Self.logger.error("iCloud payload exceeds available quota domain=\(domain.rawValue, privacy: .public) bytes=\(data.count)")
             return
         }
 
-        if syncIssueDomain == domain {
+        cloudStore.set(data, forKey: key)
+        guard cloudStore.data(forKey: key) == data else {
+            syncIssue = "iCloud 写入暂时失败，数据保留在本机。请稍后重试。"
+            syncIssueDomain = domain
+            return
+        }
+        if synchronizeCloudStore(), syncIssueDomain == domain {
             syncIssue = nil
             syncIssueDomain = nil
         }
-        cloudStore.set(data, forKey: key)
-        cloudStore.synchronize()
+    }
+
+    @discardableResult
+    private func synchronizeCloudStore() -> Bool {
+        let failure = "iCloud 同步暂时失败，数据保留在本机。请稍后重试。"
+        guard cloudStore.synchronize() else {
+            syncIssue = failure
+            syncIssueDomain = nil
+            return false
+        }
+        if syncIssue == failure { syncIssue = nil }
+        return true
+    }
+
+    private func encodeCloudEnvelope<Payload: Codable>(_ envelope: ExperimentalPreferenceSyncEnvelope<Payload>,
+        domain: ExperimentalPreferenceSyncDomain) throws -> Data {
+        if domain == .scoreCache {
+            return try scoreEncryption.seal(ScoreCacheSyncPayloadCodec.encode(envelope), account: accountIdentifier)
+        }
+        return try JSONEncoder().encode(envelope)
+    }
+
+    func decodeScoreCloudEnvelope<Payload: Codable>(_ type: Payload.Type, from data: Data) throws -> Payload {
+        try ScoreCacheSyncPayloadCodec.decode(type, from: scoreEncryption.open(data, account: accountIdentifier))
     }
 
     private func remoteEnvelope<Payload: Codable>(
@@ -537,7 +597,27 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         let selectedKey = cloudStore.dictionaryRepresentation[key] == nil ? legacyKey : key
         guard cloudStore.dictionaryRepresentation[selectedKey] != nil else { return nil }
         guard let data = cloudStore.data(forKey: selectedKey) else { throw CocoaError(.coderReadCorrupt) }
-        return try ScoreCacheSyncPayloadCodec.decode(ExperimentalPreferenceSyncEnvelope<Payload>.self, from: data)
+        let decoded = try domain == .scoreCache ? scoreEncryption.open(data, account: accountIdentifier) : data
+        let envelope = try ScoreCacheSyncPayloadCodec.decode(ExperimentalPreferenceSyncEnvelope<Payload>.self, from: decoded)
+        if syncIssueDomain == domain, syncIssue == ScoreSyncEncryptionError.keyPending.errorDescription {
+            syncIssue = nil
+            syncIssueDomain = nil
+        }
+        if selectedKey == legacyKey || (domain == .scoreCache && !ScoreCacheSyncEncryption.isEncrypted(data)) {
+            let migrated = try encodeCloudEnvelope(envelope, domain: domain)
+            if fitsCloudStore(migrated, replacing: key) {
+                cloudStore.set(migrated, forKey: key)
+                if cloudStore.data(forKey: key) == migrated, synchronizeCloudStore() {
+                    cloudStore.set(nil, forKey: legacyKey)
+                    synchronizeCloudStore()
+                }
+            }
+        } else if let legacy = cloudStore.data(forKey: legacyKey),
+                  (try? ScoreCacheSyncPayloadCodec.decode(ExperimentalPreferenceSyncEnvelope<Payload>.self, from: legacy)) != nil {
+            cloudStore.set(nil, forKey: legacyKey)
+            synchronizeCloudStore()
+        }
+        return envelope
     }
 
     private func remoteUpdatedAt(for domain: ExperimentalPreferenceSyncDomain) -> Date? {
@@ -546,7 +626,9 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         }
 
         guard let data = cloudStore.data(forKey: cloudKey(for: domain)) else { return nil }
-        return try? ScoreCacheSyncPayloadCodec.decode(TimestampEnvelope.self, from: data).updatedAt
+        let decoded = domain == .scoreCache ? try? scoreEncryption.open(data, account: accountIdentifier) : data
+        guard let decoded else { return nil }
+        return try? ScoreCacheSyncPayloadCodec.decode(TimestampEnvelope.self, from: decoded).updatedAt
     }
 
     private func fitsCloudStore(_ newValue: Data, replacing key: String) -> Bool {

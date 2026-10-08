@@ -19,7 +19,8 @@ struct LoginLogicTests {
         #expect(BIT101APIClient.isSchoolLoginSuccessLanding(reportedGateURL))
         #expect(!BIT101APIClient.isAcceptedSchoolLoginCompletion(statusCode: 401, url: otherURL))
         #expect(!BIT101APIClient.isSchoolLoginSuccessLanding(otherURL))
-        #expect(BIT101APIClient.isAcceptedSchoolLoginCompletion(statusCode: 204, url: otherURL))
+        #expect(!BIT101APIClient.isAcceptedSchoolLoginCompletion(statusCode: 204, url: otherURL))
+        #expect(BIT101APIClient.isAcceptedSchoolLoginCompletion(statusCode: 204, url: gateURL))
     }
 
     @Test("CAS fields are extracted from either quote style")

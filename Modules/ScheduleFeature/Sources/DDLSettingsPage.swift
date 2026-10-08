@@ -31,6 +31,7 @@ public struct DDLSettingsPage: View {
                 .buttonStyle(.plain)
                 .disabled(viewModel.isSyncingDDL)
                 .appInteractiveListRow()
+                    .accessibilityIdentifier("ui.ddl-settings-page.refresh-subscription")
             }
 
             Section("显示设置") {
@@ -44,6 +45,7 @@ public struct DDLSettingsPage: View {
                 }
                 .buttonStyle(.plain)
                 .appInteractiveListRow()
+                    .accessibilityIdentifier("ui.ddl-settings-page.before-day")
 
                 Button {
                     pickerRoute = .afterDay
@@ -55,6 +57,7 @@ public struct DDLSettingsPage: View {
                 }
                 .buttonStyle(.plain)
                 .appInteractiveListRow()
+                    .accessibilityIdentifier("ui.ddl-settings-page.after-day")
             }
         }
         .appGroupedListStyle()
@@ -137,6 +140,7 @@ private struct DDLSettingsNumberPickerSheet: View {
                 .labelsHidden()
                 .accessibilityLabel(title)
                 .appSelectionFeedback(trigger: value)
+                    .accessibilityIdentifier("ui.ddl-settings-number-picker-sheet.value")
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
@@ -145,12 +149,14 @@ private struct DDLSettingsNumberPickerSheet: View {
                     Button("取消") {
                         dismiss()
                     }
+                        .accessibilityIdentifier("ui.ddl-settings-number-picker-sheet.cancel")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成") {
                         onSubmit(value)
                         dismiss()
                     }
+                        .accessibilityIdentifier("ui.ddl-settings-number-picker-sheet.done")
                 }
             }
         }

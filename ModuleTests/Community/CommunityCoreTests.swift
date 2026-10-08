@@ -9,6 +9,83 @@ import Testing
 
 @MainActor
 struct CommunityCoreTests {
+    @Test func unreadCandidatesSurviveNewNotificationsManualReadsAndReload() throws {
+        let domain = "BIT101ModulesTests.unread-candidates"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let session = AppStorageSession(accountIdentifier: "unread-candidates")
+        let store = GalleryMessageReadStore(defaults: defaults, session: { session })
+        store.replaceLatestIDs([5, 4, 3], unreadCount: 3, for: .comment)
+        store.markSeen(ids: [4], for: .comment)
+        store.replaceLatestIDs([6, 5], unreadCount: 1, for: .comment)
+        let reopened = GalleryMessageReadStore(defaults: defaults, session: { session })
+        #expect(reopened.unreadCount(for: .comment) == 3)
+        #expect(reopened.isUnread(id: 3, for: .comment))
+        #expect(!reopened.isUnread(id: 4, for: .comment))
+        reopened.replaceLatestIDs([], unreadCount: 0, for: .comment)
+        #expect(reopened.unreadCount(for: .comment) == 3)
+        reopened.replaceLatestIDs(Array(1...2_000), unreadCount: 2_000, for: .like)
+        #expect(reopened.unreadCount(for: .like) == GalleryMessageReadSnapshot.maximumHistoryIDsPerType)
+    }
+
+    @Test func damagedMessageReadStatePreservesBytesAndSuppressesSaveEvents() throws {
+        let domain = "BIT101ModulesTests.message-corruption"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let session = AppStorageSession(accountIdentifier: "message-corruption")
+        let store = GalleryMessageReadStore(defaults: defaults, session: { session })
+        let key = session.key("gallery.message.read.snapshot")
+        let damaged = Data("damaged".utf8)
+        defaults.set(damaged, forKey: key)
+        #expect(store.hasUnreadableSnapshot)
+        var saves = 0
+        let subscription = store.localSaves.sink { _ in saves += 1 }
+        store.markSeen(ids: [1], for: .comment)
+        store.replaceLatestIDs([1, 2], unreadCount: 2, for: .comment)
+        var remote = GalleryMessageReadSnapshot()
+        remote.seenIDsByType = ["comment": [3]]
+        store.applySyncedSnapshot(remote)
+        #expect(defaults.data(forKey: key) == damaged)
+        #expect(saves == 0)
+        #expect(store.unreadCount(for: .comment) == 0)
+        subscription.cancel()
+    }
+
+    @Test func messageReadHistoryStaysBoundedAndItsRetirementBoundaryConverges() throws {
+        let domain = "BIT101ModulesTests.message-history"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let account = AppStorageSession(accountIdentifier: "history")
+        let store = GalleryMessageReadStore(defaults: defaults, session: { account })
+        store.replaceLatestIDs([1, 10_000, 10_001], unreadCount: 3, for: .comment)
+        store.markSeen(ids: Array(1...10_000), for: .comment)
+        let snapshot = store.syncSnapshot()
+        #expect(snapshot.seenIDsByType["comment"]?.count == GalleryMessageReadSnapshot.maximumHistoryIDsPerType)
+        #expect(snapshot.retainedFromIDByType["comment"] == 8_977)
+        #expect(store.unreadCount(for: .comment) == 1)
+        #expect(!store.isUnread(id: 1, for: .comment))
+        #expect(store.isUnread(id: 10_001, for: .comment))
+        let reopened = GalleryMessageReadStore(defaults: defaults, session: { account })
+        #expect(reopened.syncSnapshot() == snapshot)
+        reopened.markSeen(ids: [10_001], for: .comment)
+        #expect(store.unreadCount(for: .comment) == 0)
+        var older = GalleryMessageReadSnapshot()
+        older.seenIDsByType = ["comment": [1, 2, 10_002]]
+        let forward = snapshot.mergingReadState(older)
+        let backward = older.mergingReadState(snapshot)
+        #expect(forward.seenIDsByType == backward.seenIDsByType)
+        #expect(forward.retainedFromIDByType == backward.retainedFromIDByType)
+        #expect(forward.seenIDsByType["comment"]?.count == GalleryMessageReadSnapshot.maximumHistoryIDsPerType)
+        #expect(forward.retainedFromIDByType["comment"] == 8_978)
+        let legacy = try JSONDecoder().decode(GalleryMessageReadSnapshot.self,
+            from: Data(#"{"latestIDsByType":{"comment":[1]},"seenIDsByType":{"comment":[1]}}"#.utf8))
+        #expect(legacy.retainedFromIDByType.isEmpty)
+        #expect(legacy.seenIDsByType["comment"] == [1])
+    }
+
     @Test func messageStorageSeparatesAccountChangesFromLocalUploads() throws {
         let domain = "BIT101ModulesTests.message-storage"
         let defaults = try #require(UserDefaults(suiteName: domain))
@@ -175,8 +252,8 @@ struct ComposerRecoveryTests {
             .appending(path: "composer-\(name).json")
     }
 
-    private func legacyData(_ name: String, text: String = "原草稿") throws -> Data {
-        let images = [ComposerImageDraftSnapshot(filename: "image.jpg", previewData: Data([1, 2]), uploadData: nil)]
+    private func legacyData(_ name: String, text: String = "原草稿", images: [ComposerImageDraftSnapshot] = [
+        .init(filename: "image.jpg", previewData: Data([1, 2]), uploadData: nil)]) throws -> Data {
         return name == "gallery"
             ? try JSONEncoder().encode(GalleryComposerDraftSnapshot(title: "标题", text: text, selectedTags: ["校园", "生活"],
                 customTags: [], anonymous: false, isPublic: true, selectedClaimID: 0, images: images))
@@ -209,6 +286,49 @@ struct ComposerRecoveryTests {
 
     private func cleanup(_ store: ComposerDraftStore, _ name: String) async -> ComposerDraftCleanup {
         name == "gallery" ? await store.captureGalleryCleanup() : await store.captureSuggestionCleanup()
+    }
+
+    @Test(arguments: ["gallery", "suggestion"], ["sidecar", "references", "legacyBytes", "legacyCount", "metadata"])
+    func excessiveDraftResourcesPreserveFilesAndBlockFurtherWrites(_ name: String, damage: String) async throws {
+        let files = ModuleScoreFiles()
+        let drafts = store(files)
+        let metadata = file(name)
+        let image = ComposerImageDraftSnapshot(filename: "image.jpg", previewData: Data([7]), uploadData: nil)
+        #expect(await save(drafts, name, images: [image]))
+        var payload = try #require(JSONSerialization.jsonObject(with: files.readData(at: metadata)) as? [String: Any])
+        let revision = try #require(payload["assetRevision"] as? String)
+        let asset = metadata.appendingPathExtension("assets").appending(path: revision).appending(path: "image-0.jpg")
+        if damage == "sidecar" {
+            try files.writeData(Data(count: ComposerDraftImagePolicy.maximumBytes + 1), to: asset, options: [.atomic])
+        } else if damage == "references" {
+            payload["images"] = Array(repeating: ["filename": "image.jpg"], count: ComposerDraftImagePolicy.maximumImageCount + 1)
+            try files.writeData(try JSONSerialization.data(withJSONObject: payload), to: metadata, options: [.atomic])
+        } else if damage == "metadata" {
+            let text = String(repeating: "x", count: ComposerDraftImagePolicy.maximumLegacyMetadataBytes + 1)
+            try files.writeData(try legacyData(name, text: text), to: metadata, options: [.atomic])
+        } else {
+            let images = damage == "legacyCount" ? Array(repeating: image, count: ComposerDraftImagePolicy.maximumImageCount + 1)
+                : [.init(filename: "image.jpg", previewData: Data(count: ComposerDraftImagePolicy.maximumBytes + 1), uploadData: nil)]
+            try files.writeData(try legacyData(name, images: images), to: metadata, options: [.atomic])
+        }
+        let original = files.storedData
+        let reads = files.readCount(at: damage == "metadata" ? metadata : asset)
+        #expect(await read(drafts, name) == "unreadable")
+        if ["metadata", "references", "sidecar"].contains(damage) { #expect(files.readCount(at: damage == "metadata" ? metadata : asset) == reads) }
+        #expect(await save(drafts, name) == false)
+        await cleanup(drafts, name)()
+        #expect(files.storedData == original)
+    }
+
+    @Test(arguments: ["gallery", "suggestion"])
+    func attachmentCountAdmissionPreservesThePreviousDraft(_ name: String) async throws {
+        let files = ModuleScoreFiles()
+        let drafts = store(files)
+        #expect(await save(drafts, name))
+        let original = files.storedData
+        let image = ComposerImageDraftSnapshot(filename: "image.jpg", previewData: Data([7]), uploadData: nil)
+        #expect(await save(drafts, name, images: Array(repeating: image, count: ComposerDraftImagePolicy.maximumImageCount + 1)) == false)
+        #expect(files.storedData == original)
     }
 
     @Test(arguments: ["gallery", "suggestion"])
@@ -425,7 +545,11 @@ struct AccountStorageContractTests {
         #expect(defaults.data(forKey: store.storageKey) == original)
         defaults.set(Data("damaged".utf8), forKey: store.storageKey)
         #expect(store.load() == nil)
+        #expect(!store.save(.value("replacement")))
         #expect(defaults.data(forKey: store.storageKey) == Data("damaged".utf8))
+        defaults.set(true, forKey: store.storageKey)
+        #expect(!store.save(.value("replacement")))
+        #expect(defaults.object(forKey: store.storageKey) as? Bool == true)
         store.remove()
         #expect(defaults.data(forKey: store.storageKey) == nil)
     }
@@ -475,6 +599,23 @@ struct AccountStorageContractTests {
         #expect(store.load() == nil)
         #expect(store.save(["next"]) == false)
         #expect(try files.readData(at: store.fileURL) == Data("damaged".utf8))
+    }
+
+    @Test(arguments: [false, true])
+    func unreadableLegacyFilePreservesItsBytesAndKeepsTheCurrentPathAvailableForRecovery(damaged: Bool) throws {
+        let files = ModuleScoreFiles()
+        let root = URL(fileURLWithPath: "/storage-contract")
+        let old = root.appending(path: "BIT101-iOS/A/values.json")
+        let data = damaged ? Data("damaged".utf8) : try JSONEncoder().encode(["legacy"])
+        try files.writeData(data, to: old, options: [.atomic])
+        files.setFailures(reading: !damaged)
+        let store = AccountScopedFileCodableStore<[String]>(filename: "values.json", files: files,
+            session: { AppStorageSession(accountIdentifier: "A") }, directory: root)
+        #expect(store.load() == nil)
+        #expect(store.save(["next"]) == false)
+        #expect(files.fileExists(at: store.fileURL) == false)
+        files.setFailures()
+        #expect(try files.readData(at: old) == data)
     }
 
     @Test func legacyMigrationWriteFailuresRetainTheirOriginalBytes() throws {

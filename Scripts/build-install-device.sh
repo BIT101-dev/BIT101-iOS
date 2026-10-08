@@ -11,23 +11,25 @@ source "$ROOT_DIR/Scripts/script-support.sh"
 
 ACTION="${1:-install}"
 if [[ $# -gt 1 ]]; then
-  echo "用法：Scripts/build-install-device.sh [build|mac|screenshot|info]" >&2
+  echo "用法：Scripts/build-install-device.sh [build|archive|mac|screenshot|info]" >&2
   exit 64
 fi
 case "$ACTION" in
   -h|--help)
     echo "Scripts/build-install-device.sh              自动选机、构建、安装并启动"
     echo "Scripts/build-install-device.sh build        编译 iOS App 与扩展"
+    echo "Scripts/build-install-device.sh archive      编译正式归档及 dSYM"
     echo "Scripts/build-install-device.sh mac          构建并安装到本机 Mac"
     echo "Scripts/build-install-device.sh screenshot   真机截图"
     echo "Scripts/build-install-device.sh info         真机连接与锁定状态"
     exit 0
     ;;
-  install|build|mac|screenshot|info) ;;
-  *) echo "操作：build、mac、screenshot、info；直接运行自动装机。" >&2; exit 64 ;;
+  install|build|archive|mac|screenshot|info) ;;
+  *) echo "操作：build、archive、mac、screenshot、info；直接运行自动装机。" >&2; exit 64 ;;
 esac
 
 if [[ "$ACTION" == screenshot || "$ACTION" == info ]]; then
+  if [[ "$ACTION" == screenshot ]]; then bit101_acquire_workflow_lock "$0" "$@"; fi
   bit101_require_device || exit 1
   if [[ "$ACTION" == screenshot ]]; then
     mkdir -p "$ROOT_DIR/.build"
@@ -46,6 +48,18 @@ if [[ "$ACTION" == screenshot || "$ACTION" == info ]]; then
   exit 0
 fi
 
+bit101_acquire_workflow_lock "$0" "$@"
+if [[ "$ACTION" == install ]]; then
+  BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest)"
+  export BIT101_VALIDATION_SOURCE_DIGEST
+  finish_install() {
+    local install_status=$?
+    trap - EXIT
+    python3 "$ROOT_DIR/Scripts/validation_evidence.py" record restore "$install_status" || install_status=$?
+    exit "$install_status"
+  }
+  trap finish_install EXIT
+fi
 if [[ "$ACTION" == mac ]]; then
   mkdir -p "$DERIVED_DATA"
   bit101_run_logged "$DERIVED_DATA/build.log" "Catalyst Release 编译" xcodebuild build \
@@ -80,16 +94,31 @@ if [[ "$ACTION" == mac ]]; then
 fi
 
 BUILD_OVERRIDES=()
-if [[ "$ACTION" == build ]]; then
+BUILD_ACTION=build
+if [[ "$ACTION" == build || "$ACTION" == archive ]]; then
   BUILD_DESTINATION="generic/platform=iOS"
   BUILD_OVERRIDES=(CODE_SIGNING_ALLOWED=NO)
 else
   bit101_require_device || exit 1
   BUILD_DESTINATION="platform=iOS,id=$BIT101_XCODE_DEVICE_ID"
 fi
+if [[ "$ACTION" == archive ]]; then
+  BUILD_ACTION=archive
+  BUILD_OVERRIDES+=(-archivePath "$DERIVED_DATA/BIT101-iOS.xcarchive")
+  BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest)"
+  export BIT101_VALIDATION_SOURCE_DIGEST
+  rm -rf "$DERIVED_DATA/BIT101-iOS.xcarchive"
+  finish_archive() {
+    local archive_status=$?
+    trap - EXIT
+    python3 "$ROOT_DIR/Scripts/validation_evidence.py" record build-archive "$archive_status" || archive_status=$?
+    exit "$archive_status"
+  }
+  trap finish_archive EXIT
+fi
 
 mkdir -p "$DERIVED_DATA"
-bit101_run_logged "$DERIVED_DATA/build.log" "iOS Release 编译" xcodebuild build \
+bit101_run_logged "$DERIVED_DATA/build.log" "iOS Release 编译" xcodebuild "$BUILD_ACTION" \
   -quiet \
   -project "$PROJECT" \
   -scheme BIT101-iOS \
@@ -99,7 +128,7 @@ bit101_run_logged "$DERIVED_DATA/build.log" "iOS Release 编译" xcodebuild buil
   "${BUILD_OVERRIDES[@]}" \
     -allowProvisioningUpdates
 
-if [[ "$ACTION" == build ]]; then
+if [[ "$ACTION" == build || "$ACTION" == archive ]]; then
   exit 0
 fi
 

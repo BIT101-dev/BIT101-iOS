@@ -278,6 +278,6 @@ COMPONENT_INHERITANCE = {
 
 
 LOCAL_APP_ALERT_BINDINGS = {
-    ("CourseEvaluationLink", "alert"),
+    ("CourseEvaluationLinkScene", "alert"),
     ("CourseEvaluationScene", "expectedAlert"),
 }

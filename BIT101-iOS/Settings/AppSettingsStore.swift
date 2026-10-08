@@ -13,7 +13,7 @@ import Foundation
 ///
 /// 设置快照统一承接 UI 层的修改、读写、账号隔离和默认值。
 struct AppSettingsSnapshot: Codable, Equatable {
-    /// 普通帖子页面按开关隐藏机器人帖子，机器人分栏保持显示。
+    /// 机器人隐藏设置同时控制普通帖子过滤与顶部机器人分栏。
     var galleryHideBotPosterInSearch = true
     /// 话廊普通内容中需要隐藏的用户 UID。
     var galleryHiddenUserIDs: [Int] = []
@@ -112,6 +112,7 @@ final class AppSettingsStore: ObservableObject {
     @Published private(set) var snapshot = AppSettingsSnapshot()
     @Published private(set) var hidesCourseHistoryMakeupOutliers = true
     @Published private(set) var automaticUpdateChecksEnabled = true
+    @Published private(set) var storageIssue: String?
 
     private let defaults: UserDefaults
     private let session: () -> AppStorageSession
@@ -211,6 +212,7 @@ final class AppSettingsStore: ObservableObject {
 
     /// 把设置恢复到默认值。
     func resetToDefaults() {
+        snapshotStore.remove()
         snapshot = AppSettingsSnapshot()
         setHidesCourseHistoryMakeupOutliers(true)
         setAutomaticUpdateChecksEnabled(true)
@@ -228,14 +230,20 @@ final class AppSettingsStore: ObservableObject {
 
     /// 从 `UserDefaults` 加载设置快照。
     ///
-    /// 账号切换通知会重新触发这里。缺少快照或 `firstOpenDate` 时，这里补齐默认值并保存快照；
-    /// 已有快照直接恢复。
+    /// 账号切换时重新读取；缺值补齐默认值，损坏值保留源数据并暂停持久化。
     private func load() {
         migrateLegacyScopedDefaults()
         loadCourseHistoryPreference()
         loadAutomaticUpdatePreference()
+        storageIssue = nil
         let accountID = currentAccountIdentifier
-        guard let snapshot = Self.loadSnapshotFromDefaults(for: accountID, defaults: defaults)
+        let stored = snapshotStore.read()
+        if case .unreadable = stored {
+            snapshot = AppSettingsSnapshot()
+            storageIssue = "账号设置读取失败，原始数据已保留。请先恢复数据，再保存设置。"
+            return
+        }
+        guard let snapshot = stored.value
                 ?? Self.migrateLegacySnapshotIfNeeded(for: accountID, defaults: defaults) else {
             self.snapshot = AppSettingsSnapshot()
             self.snapshot.firstOpenDate = Date()
@@ -287,7 +295,11 @@ final class AppSettingsStore: ObservableObject {
 
     /// 通过公共账号仓库保存快照，并发布本地保存事件。
     private func save(syncPreferences: Bool = false) {
-        snapshotStore.save(snapshot)
+        guard snapshotStore.save(snapshot) else {
+            storageIssue = "账号设置保存受阻，原始数据已保留。请先恢复数据，再保存设置。"
+            return
+        }
+        storageIssue = nil
         if syncPreferences {
             saveSubject.send(session())
         }

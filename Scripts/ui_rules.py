@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from collections import Counter
+import json
 import re
 import subprocess
 import sys
@@ -89,24 +91,30 @@ def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> Non
     errors.extend(f"页面不得直接实现空态/失败态：{item}" for item in direct_states)
 
 
+def haptic_entry_findings(sources: dict[Path, str], syntax: dict[str, dict]) -> tuple[list[str], set[Path]]:
+    findings = []
+    owners = set()
+    for name, feedback in (("appSelectionFeedback", "selection"), ("appImpactFeedback", "impact")):
+        definitions = [(path, function) for path in sources
+            for function in syntax[str(path)].get("functionRanges", []) if function["name"] == name]
+        if len(definitions) != 1:
+            findings.append(f"公共触感接口 {name} 需要唯一声明")
+            continue
+        path, function = definitions[0]
+        code = mask_literals_and_comments(sources[path].encode()[function["start"]:function["end"]].decode())
+        if not path.is_relative_to(ROOT / "Modules/DesignSystemKit") or function["scope"] != ["View"]:
+            findings.append(f"公共触感接口 {name} 归 DesignSystemKit 的 View 扩展维护")
+        if not re.search(rf"\bsensoryFeedback\s*\(\s*\.{feedback}\s*,\s*trigger\s*:", code):
+            findings.append(f"公共触感接口 {name} 需要调用对应系统触感")
+        owners.add(path)
+    return findings, owners
+
+
 def check_haptic_consistency(errors: list[str], syntax: dict[str, dict]) -> None:
-    sources = {path: mask_literals_and_comments(source_text(path)) for path in swift_files()}
-    required = (
-        ("Modules/DesignSystemKit/Sources/AppHapticFeedback.swift", "func appSelectionFeedback"),
-        ("Modules/DesignSystemKit/Sources/AppHapticFeedback.swift", "sensoryFeedback(.selection, trigger:"),
-        ("Modules/DesignSystemKit/Sources/AppHapticFeedback.swift", "func appImpactFeedback"),
-        ("Modules/DesignSystemKit/Sources/AppHapticFeedback.swift", "sensoryFeedback(.impact, trigger:"),
-        ("Modules/DesignSystemKit/Sources/AppLayoutComponents.swift", "appImpactFeedback"),
-        ("Modules/DesignSystemKit/Sources/AppContentControlComponents.swift", "appSelectionFeedback"),
-        ("Shell/AppShellView.swift", "appSelectionFeedback"),
-        ("Modules/ScheduleFeature/Sources/ScheduleCalendarViews.swift", "appSelectionFeedback"),
-        ("Modules/ScheduleFeature/Sources/ScheduleCalendarViews.swift", "appImpactFeedback"),
-        ("Modules/MapFeature/Sources/CampusMapScreen.swift", "appImpactFeedback"),
-    )
-    for relative_path, marker in required:
-        path = source_path(relative_path)
-        if marker not in sources.get(path, ""):
-            errors.append(f"{path.relative_to(ROOT)}: 缺少系统触感入口 {marker}")
+    raw_sources = {path: source_text(path) for path in swift_files()}
+    entry_errors, haptic_sources = haptic_entry_findings(raw_sources, syntax)
+    errors.extend(entry_errors)
+    sources = {path: mask_literals_and_comments(source) for path, source in raw_sources.items()}
 
     interactive_markers = {
         "toggleTag", "selectedTags", "setRating", "selectedValues", "sortIndex",
@@ -138,24 +146,21 @@ def check_haptic_consistency(errors: list[str], syntax: dict[str, dict]) -> None
         if not rendered_view_has_marker(facts, scope, "appSelectionFeedback", syntax):
             errors.append(f"{path.relative_to(ROOT)}: AppMultiSelectionList 必须为选择变化提供公共触感")
 
-    button_components = (
-        ("Modules/DesignSystemKit/Sources/AppLayoutComponents.swift", "struct AppFloatingActionButton: View"),
-        ("Modules/MapFeature/Sources/CampusMapScreen.swift", "struct FloatingMapLabelButton: View"),
-    )
-    for relative_path, declaration in button_components:
-        source = sources.get(source_path(relative_path), "")
-        start = source.find(declaration)
-        if start < 0 or "appImpactFeedback" not in source[start:]:
-            errors.append(f"{relative_path}: 右下角操作按钮缺少公共触感")
+    for component in ("AppFloatingActionButton", "FloatingMapLabelButton"):
+        entries = view_entries(syntax, component)
+        if not entries:
+            errors.append(f"{component}: 浮动操作组件需要 View 声明")
+        for path, facts, scope in entries:
+            if not rendered_view_has_marker(facts, scope, "appImpactFeedback", syntax):
+                errors.append(f"{path.relative_to(ROOT)}: {component} 浮动操作需要公共触感")
 
     direct_patterns = re.compile(
         r"\.sensoryFeedback\(|UIFeedbackGenerator|UI(Selection|Impact|Notification)FeedbackGenerator|"
         r"impactOccurred\(|selectionChanged\(|notificationOccurred\(|AudioServicesPlaySystemSound|"
         r"kSystemSoundID_Vibrate|CHHapticEngine|NSHapticFeedbackManager|WKInterfaceDevice.*\.play"
     )
-    haptic_file = ROOT / "Modules/DesignSystemKit/Sources/AppHapticFeedback.swift"
     for path, source in sources.items():
-        if path != haptic_file and direct_patterns.search(source):
+        if path not in haptic_sources and direct_patterns.search(source):
             errors.append(f"{path.relative_to(ROOT)}: 页面不得绕过公共触感修饰器")
 
         for match in re.finditer(r"\.app[A-Za-z]+Feedback\(", source):
@@ -163,8 +168,6 @@ def check_haptic_consistency(errors: list[str], syntax: dict[str, dict]) -> None
             if name not in (".appSelectionFeedback(", ".appImpactFeedback("):
                 errors.append(f"{path.relative_to(ROOT)}: 发现未登记的公共触感调用 {name}")
 
-        if path != haptic_file and re.search(r"func app(?:Selection|Impact)Feedback", source):
-            errors.append(f"{path.relative_to(ROOT)}: 公共触感接口不得重复声明")
 
 
 def alert_coverage_findings(facts: dict, path: Path) -> list[str]:
@@ -432,6 +435,7 @@ def interactive_list_row_findings(path: Path, facts: dict, syntax: dict[str, dic
         return False
 
     for row in facts.get("accessibilityControls", []):
+        if row["name"] in {"TextField", "SecureField", "TextEditor", "Slider", "Stepper", "onTapGesture", "onLongPressGesture", "gesture", "simultaneousGesture", "highPriorityGesture", "refreshable", "onSubmit", "onDelete", "onMove", "searchable", "contextMenu", "swipeActions"}: continue
         if not is_interactive_list_row(row, facts):
             continue
         suffix = mask_literals_and_comments(row["expression"][len(row["invocation"]):])
@@ -507,17 +511,151 @@ def is_registered_map_theme_color_definition(path: Path, source: str, node: dict
     return encoded_source[line_start:line_end].decode("utf-8").strip() == MAP_THEME_COLOR_CONTRACT[1]
 
 
-def check_ui_test_inventory(errors: list[str]) -> None:
+INTERACTION_KINDS = {
+    "Button", "NavigationLink", "Menu", "Picker", "Toggle", "DatePicker", "Link", "PhotosPicker",
+    "TextField", "SecureField", "TextEditor", "Slider", "Stepper", "ScrollView", "List", "TabView",
+    "onTapGesture", "onLongPressGesture", "gesture", "simultaneousGesture", "highPriorityGesture",
+    "refreshable", "onSubmit", "onDelete", "onMove", "searchable", "contextMenu", "swipeActions", "DragGesture",
+    "MagnificationGesture", "TapGesture", "LongPressGesture", "ShareLink",
+}
+
+
+def interaction_source_inventory(syntax: dict[str, dict]) -> dict[str, dict[str, int]]:
+    components = {scope[0] for path, facts in syntax.items()
+        if "/DesignSystemKit/" in path or "/CommunityUI/" in path
+        for scope in view_scopes(facts) if any(call_name(call["value"]) in INTERACTION_KINDS
+            and call["scope"][:len(scope)] == scope for call in facts["calls"])}
+    inventory = {}
+    for path, facts in syntax.items():
+        if "Tests/" in path or "UITest" in Path(path).name: continue
+        for scope in {tuple(call["scope"]) for call in facts["calls"]}:
+            controls = Counter(call_name(call["value"]) for call in facts["calls"]
+                if tuple(call["scope"]) == scope and call_name(call["value"]) in INTERACTION_KINDS | components
+                and call["value"] not in {"onSubmit", "onDelete", "onMove"})
+            if controls:
+                inventory[Path(path).relative_to(ROOT).as_posix() + ":" + (".".join(scope) or "global")] = dict(sorted(controls.items()))
+    return dict(sorted(inventory.items()))
+
+
+def source_inventory_findings(syntax: dict[str, dict], documented: dict[str, tuple[dict, set]], tests: set[str]) -> list[str]:
+    actual = interaction_source_inventory(syntax)
+    errors = []
+    for source, controls in actual.items():
+        contract, journeys = documented.get(source, ({}, set()))
+        if controls != contract: errors.append(f"UI 源码交互清单需要同步：{source}")
+        if not journeys or any(journey not in tests | {"manual:watch", "manual:widget", "manual:web-interactions"} for journey in journeys):
+            errors.append(f"UI 源码交互需要验收归属：{source}")
+        for journey in journeys:
+            if journey.startswith("manual:") and not manual_source_matches(source, journey):
+                errors.append(f"UI 手工验收归属需要匹配平台：{source} · {journey}")
+    errors.extend(f"UI 源码交互清单需要清理：{source}" for source in documented.keys() - actual.keys())
+    return errors
+
+
+def manual_source_matches(source: str, journey: str) -> bool:
+    return journey == "manual:watch" and source.startswith("BIT101Watch/") \
+        or journey == "manual:widget" and source.startswith(("BIT101ScheduleWidgets/", "BIT101WatchWidgets/"))
+
+
+def documented_interactions() -> dict[str, tuple[dict, set]]:
+    document = (ROOT / "docs/UI_INTERACTION_COVERAGE.md").read_text()
+    return {source: (json.loads(controls), set(journeys.split(","))) for source, controls, journeys
+        in re.findall(r"^\| `([^`]+\.swift:[^`]+)` \| `(\{[^`]+\})` \| `([^`]+)` \|$", document, re.MULTILINE)}
+
+
+def interaction_selector(control: dict, syntax: dict) -> tuple[str, tuple[str, ...]] | None:
+    literal = r'"((?:[^"\\]|\\.)+)"'
+    if control["name"] in {"refreshable", "onSubmit", "onDelete", "onMove"}:
+        marker = re.search(r'interactionEvidence\??\(\s*' + literal, control.get("callback", control["invocation"]))
+        return ("identifier", (marker[1],)) if marker else None
+    modifiers = control.get("modifiers", control["expression"])
+    identifiers = re.findall(r'\.accessibilityIdentifier\(\s*' + literal + r'\s*\)', modifiers)
+    if identifiers: return "identifier", (identifiers[-1],)
+    forwarded = re.search(r'\.accessibilityIdentifier\(\s*(\w+)\s*\?\?\s*' + literal + r'\s*\)', modifiers)
+    if forwarded:
+        names = {forwarded[2]}
+        for facts in syntax.values():
+            for call in facts.get("invocations", []):
+                if control["scope"] and call_name(call["value"]) == control["scope"][-1]:
+                    names.update(re.findall(r'\b' + re.escape(forwarded[1]) + r':\s*' + literal, call["value"]))
+        return "identifier", tuple(sorted(names))
+    label = re.search(r'\.accessibilityLabel\(\s*' + literal + r'\s*\)', modifiers)
+    if ".accessibilityLabel(" in modifiers and not label: return None
+    title = re.match(r'\w+\(\s*' + literal, control["invocation"]) if control.get("hasTextTitle") else None
+    label_content = re.search(r'\b(?:Text|Label|LabeledContent)\(\s*' + literal, control["label"])
+    prompt = re.search(r'AppInputPrompt\.text\(\s*' + literal + r'\s*\)', control["invocation"])
+    selector = label or title or label_content or prompt
+    return ("label", (selector[1],)) if selector else None
+
+
+def source_runtime_interaction_findings(syntax: dict[str, dict], documented: dict[str, tuple[dict, set]], evidence: list[dict]) -> list[str]:
+    from validation_evidence import active_swift_source
+    actions = {"refreshable": "refresh", "onSubmit": "submit", "onDelete": "delete", "onMove": "move", "searchable": "search", "contextMenu": "press", "swipeActions": "gesture", "ShareLink": "tap"}
+    native_actions = {"Button": "tap", "NavigationLink": "tap", "Menu": "tap", "Link": "tap", "PhotosPicker": "tap",
+        "Toggle": "tap", "Picker": "selection", "DatePicker": "selection", "TextField": "input",
+        "SecureField": "input", "TextEditor": "input", "Slider": "gesture", "Stepper": "tap"}
+    gestures = {"onTapGesture", "onLongPressGesture", "gesture", "simultaneousGesture", "highPriorityGesture"}
+    errors = []
+    selectors = Counter()
+    contracts = {}
+    for path, facts in syntax.items():
+        if "Tests/" in path or "UITest" in Path(path).name: continue
+        active = active_swift_source(Path(path).read_text(), "ui").encode() if Path(path).is_file() else None
+        for control in facts.get("accessibilityControls", []):
+            if control["name"] not in {"Button", "NavigationLink", "Menu", "Link", "PhotosPicker", "Toggle", "Picker", "DatePicker", "TextField", "SecureField", "TextEditor", "Slider", "Stepper"} | gestures | actions.keys(): continue
+            if active is not None and active[control["start"]:control["start"] + 1] == b" ": continue
+            source = Path(path).relative_to(ROOT).as_posix() + ":" + (".".join(control["scope"]) or "global")
+            journeys = documented.get(source, ({}, set()))[1]
+            tests = {journey for journey in journeys if not journey.startswith("manual:")}
+            if not tests and journeys and all(manual_source_matches(source, journey) for journey in journeys): continue
+            selector = interaction_selector(control, syntax)
+            if selector is None:
+                errors.append(f"源码交互需要明确的标识或标签合同：{source} · {control['name']} · {control['start']}")
+                continue
+            kind, names = selector
+            action = "tap" if control["name"] == "onTapGesture" else "press" if control["name"] == "onLongPressGesture" else "gesture" if control["name"] in gestures else actions.get(control["name"], native_actions.get(control["name"], ""))
+            key = (source, kind, names, action)
+            selectors[key] += 1
+            contracts[key] = tests
+    demands = []
+    for (source, kind, names, action), count in selectors.items():
+        overlaps = any(other != (source, kind, names, action) and other[1:3] == (kind, names)
+            and contracts[other] & contracts[(source, kind, names, action)] for other in selectors)
+        if count > 1 or overlaps:
+            errors.append(f"源码交互需要明确的标识区分分支：{source} · {' | '.join(names)}")
+        patterns = [".+".join(re.escape(part) for part in re.split(r'\\\((?:[^()]|\([^()]*\))*\)', name)) for name in names]
+        def matches(row):
+            scoped = any(all(re.search(r"(?<!\w)" + re.escape(part) + r"(?!\w)", row.get("scope", ""))
+                for part in journey.split("/")) for journey in contracts[(source, kind, names, action)])
+            value = row.get(kind, "").strip()
+            return scoped and bool(({"tap", "gesture"} if action == "selection" else {action}) & set(row.get("actions", []))) and any(re.fullmatch(pattern, value) is not None
+                or kind == "label" and re.match(pattern + r",\s", value) is not None for pattern in patterns)
+        visited = {row.get("instance") or json.dumps(row, sort_keys=True) for row in evidence if matches(row)}
+        demands.extend(((source, names), visited) for _ in range(count))
+    owners = {}
+    def assign(index, seen):
+        for instance in sorted(demands[index][1] - seen):
+            seen.add(instance)
+            if instance not in owners or assign(owners[instance], seen):
+                owners[instance] = index
+                return True
+        return False
+    for index, ((source, names), _) in enumerate(demands):
+        if not assign(index, set()): errors.append(f"源码交互需要独立访问证据：{source} · {' | '.join(names)}")
+    return list(dict.fromkeys(errors))
+
+
+def check_ui_test_inventory(errors: list[str], syntax: dict[str, dict]) -> None:
     """Keep the interaction map aligned with every executable UI journey."""
-    actual: set[str] = set()
-    for path in (ROOT / "BIT101-iOSUITests").glob("*.swift"):
-        source = path.read_text()
-        suite = re.search(r"^(?:nonisolated final class |extension )(\w+UITests)(?::|\s*\{)", source, re.MULTILINE)
-        if suite:
-            actual.update(f"{suite[1]}/{name}" for name in re.findall(r"^    (?:@objc )?func (test\w+)\(", source, re.MULTILINE))
-    documented = set(re.findall(r"\b(\w+UITests/test\w+)\b", (ROOT / "docs/UI_INTERACTION_COVERAGE.md").read_text()))
+    from validation_evidence import test_inventory, normalized_test_id
+    actual = {normalized_test_id(test) for test in test_inventory("ui")}
+    document = (ROOT / "docs/UI_INTERACTION_COVERAGE.md").read_text()
+    documented = set(re.findall(r"\b(\w+UITests/test\w+)\b", document))
     errors.extend(f"UI interaction map missing: {name}" for name in sorted(actual - documented))
     errors.extend(f"UI interaction map references an absent journey: {name}" for name in sorted(documented - actual))
+    sources = documented_interactions()
+    errors.extend(source_inventory_findings(syntax, sources, actual))
+    errors.extend(error for error in source_runtime_interaction_findings(syntax, sources, []) if "明确的标识" in error)
 
 
 def check_accessibility_coverage(errors: list[str], syntax: dict[str, dict]) -> None:
@@ -532,7 +670,7 @@ def check_accessibility_coverage(errors: list[str], syntax: dict[str, dict]) -> 
 
 
 def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[str] | None = None) -> int:
-    from ui_rule_tests import ast_marker_boundary_findings, source_boundary_findings, map_theme_color_contract_findings
+    from ui_rule_tests import ast_marker_boundary_findings, source_boundary_findings, map_theme_color_contract_findings, interaction_inventory_boundary_findings
     swift_files.cache_clear()
     source_text.cache_clear()
     if sys.argv[1:] == ["--self-test"]:
@@ -540,6 +678,7 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
             *ast_marker_boundary_findings(),
             *source_boundary_findings(),
             *map_theme_color_contract_findings(),
+            *interaction_inventory_boundary_findings(),
         ]
         if findings:
             print("[失败] UI 一致性检查器自测：", file=sys.stderr)
@@ -562,12 +701,13 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
     else:
         syntax = shared_syntax
     errors.extend(ast_marker_boundary_findings() if boundary_findings is None else boundary_findings)
+    errors.extend(interaction_inventory_boundary_findings())
     for facts in syntax.values():
         facts["renderedScopeFacts"] = {}
     check_component_contracts(errors, syntax)
     check_haptic_consistency(errors, syntax)
     check_error_report_coverage(errors, syntax)
-    check_ui_test_inventory(errors)
+    check_ui_test_inventory(errors, syntax)
     check_accessibility_coverage(errors, syntax)
     check_fonts(errors, syntax)
     check_design_token_boundaries(errors, syntax)

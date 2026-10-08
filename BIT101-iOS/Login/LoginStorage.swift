@@ -25,12 +25,20 @@ final class LoginStorage: SchoolCredentialsProviding {
     private enum DefaultsKey {
         static let fakeCookie = "login.fakeCookie"
         static let installationMarker = "login.installationMarker"
+        static let revokedSession = "login.session.revoked"
     }
 
     private enum KeychainAccount {
+        static let session = "login.session"
         static let studentID = "login.sid"
         static let password = "login.password"
         static let fakeCookie = "login.fakeCookie"
+    }
+
+    private struct Session: Codable {
+        var studentID: String
+        var password: String
+        var fakeCookie: String
     }
 
     private let defaults: UserDefaults
@@ -39,6 +47,10 @@ final class LoginStorage: SchoolCredentialsProviding {
     private var sessionGeneration = 0
     private let changeSubject = PassthroughSubject<CommunitySessionIdentity, Never>()
     var changes: AnyPublisher<CommunitySessionIdentity, Never> { changeSubject.eraseToAnyPublisher() }
+
+    var schoolSessionIdentity: SchoolSessionIdentity {
+        .init(accountIdentifier: currentStudentID, generation: sessionGeneration)
+    }
 
     var communityCredentials: CommunityCredentials {
         CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: currentStudentID, generation: sessionGeneration), cookie: fakeCookie)
@@ -50,6 +62,7 @@ final class LoginStorage: SchoolCredentialsProviding {
         self.clearSchoolCookies = clearSchoolCookies
         purgePersistedCredentialsIfNeededAfterReinstall()
         migrateLegacyFakeCookieIfNeeded()
+        migrateLegacySessionIfNeeded()
     }
 
     /// 发布所选凭据存储的账号与代际，供生命周期协调器重载账号数据。
@@ -59,23 +72,28 @@ final class LoginStorage: SchoolCredentialsProviding {
 
     /// BIT101 自有登录态使用的 fake-cookie。
     var fakeCookie: String {
-        (try? credentials.read(account: KeychainAccount.fakeCookie)) ?? ""
+        guard defaults.object(forKey: DefaultsKey.revokedSession) == nil else { return "" }
+        return (try? readSession().fakeCookie) ?? ""
     }
 
     /// 当前本地保存的学号。
     var currentStudentID: String {
-        (try? credentials.read(account: KeychainAccount.studentID)) ?? ""
+        guard defaults.string(forKey: DefaultsKey.revokedSession) != "all" else { return "" }
+        return (try? readSession().studentID) ?? ""
     }
 
     /// 当前本地保存的密码。
     var currentPassword: String {
-        (try? credentials.read(account: KeychainAccount.password)) ?? ""
+        guard defaults.object(forKey: DefaultsKey.revokedSession) == nil else { return "" }
+        return (try? readSession().password) ?? ""
     }
 
     /// 读取本地保存的完整学号和密码组合。
     func loadCredentials() throws -> StoredCredentials? {
-        let studentID = try credentials.read(account: KeychainAccount.studentID)
-        let password = try credentials.read(account: KeychainAccount.password)
+        guard defaults.object(forKey: DefaultsKey.revokedSession) == nil else { return nil }
+        let saved = try readSession()
+        let studentID = saved.studentID
+        let password = saved.password
 
         guard !studentID.isEmpty, !password.isEmpty else {
             return nil
@@ -99,11 +117,12 @@ final class LoginStorage: SchoolCredentialsProviding {
         }
 
         let accountChanged = currentStudentID != normalizedStudentID || self.fakeCookie.isEmpty
-        try credentials.save(normalizedStudentID, account: KeychainAccount.studentID)
-        try credentials.save(password, account: KeychainAccount.password)
-        try credentials.save(normalizedFakeCookie, account: KeychainAccount.fakeCookie)
+        try saveSession(Session(studentID: normalizedStudentID, password: password, fakeCookie: normalizedFakeCookie))
+        defaults.removeObject(forKey: DefaultsKey.revokedSession)
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
+        retireLegacyCredentials()
         if accountChanged {
+            clearSchoolCookies()
             sessionGeneration &+= 1
             notifyAccountChanged()
         }
@@ -113,13 +132,20 @@ final class LoginStorage: SchoolCredentialsProviding {
     ///
     /// 这是“退出登录并保留学号”的语义，适用于远端会话失效后快速回到未登录态。
     func clearSession() {
+        let studentID = currentStudentID
+        let revoked = defaults.string(forKey: DefaultsKey.revokedSession) == "all" ? "all" : "logout"
+        defaults.set(revoked, forKey: DefaultsKey.revokedSession)
         sessionGeneration &+= 1
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
-        _ = credentials.delete(account: KeychainAccount.fakeCookie)
+        do {
+            try saveSession(Session(studentID: studentID, password: "", fakeCookie: ""))
+        } catch {
+            Self.logger.error("Revoked session credential cleanup remains pending")
+        }
+        retireLegacyCredentials()
 
         // 清理学校身份相关域，保留 App 内其他服务和调试环境的 Cookie。
         clearSchoolCookies()
-        _ = credentials.delete(account: KeychainAccount.password)
         notifyAccountChanged()
     }
 
@@ -150,16 +176,22 @@ final class LoginStorage: SchoolCredentialsProviding {
 
     @discardableResult
     private func clearPersistedLoginData() -> Bool {
+        defaults.set("all", forKey: DefaultsKey.revokedSession)
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
+        let didDeleteSession = credentials.delete(account: KeychainAccount.session)
         let didDeleteFakeCookie = credentials.delete(account: KeychainAccount.fakeCookie)
         clearSchoolCookies()
         let didDeleteStudentID = credentials.delete(account: KeychainAccount.studentID)
         let didDeletePassword = credentials.delete(account: KeychainAccount.password)
-        return didDeleteFakeCookie && didDeleteStudentID && didDeletePassword
+        return didDeleteSession && didDeleteFakeCookie && didDeleteStudentID && didDeletePassword
     }
 
     /// 将 `UserDefaults` 中的共享 fake-cookie 迁入账号对应的 Keychain 项。
     private func migrateLegacyFakeCookieIfNeeded() {
+        guard defaults.object(forKey: DefaultsKey.revokedSession) == nil else {
+            defaults.removeObject(forKey: DefaultsKey.fakeCookie)
+            return
+        }
         guard let legacyFakeCookie = defaults.string(forKey: DefaultsKey.fakeCookie) else { return }
         guard !legacyFakeCookie.isEmpty else {
             defaults.removeObject(forKey: DefaultsKey.fakeCookie)
@@ -179,6 +211,46 @@ final class LoginStorage: SchoolCredentialsProviding {
             // 迁移写入失败时保留来源数据，供下一次启动重试。
             Self.logger.error("Legacy fake-cookie migration failed: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    private func readSession() throws -> Session {
+        let value = try credentials.read(account: KeychainAccount.session)
+        if !value.isEmpty { return try JSONDecoder().decode(Session.self, from: Data(value.utf8)) }
+        return Session(studentID: try credentials.read(account: KeychainAccount.studentID),
+                       password: try credentials.read(account: KeychainAccount.password),
+                       fakeCookie: try credentials.read(account: KeychainAccount.fakeCookie))
+    }
+
+    private func saveSession(_ value: Session) throws {
+        let data = try JSONEncoder().encode(value)
+        guard let encoded = String(data: data, encoding: .utf8) else { throw LoginServiceError.invalidServerResponse }
+        try credentials.save(encoded, account: KeychainAccount.session)
+    }
+
+    private func migrateLegacySessionIfNeeded() {
+        guard defaults.object(forKey: DefaultsKey.revokedSession) == nil,
+              defaults.object(forKey: DefaultsKey.fakeCookie) == nil else { return }
+        do {
+            guard try credentials.read(account: KeychainAccount.session).isEmpty else { return }
+            let value = try readSession()
+            guard !value.studentID.isEmpty || !value.password.isEmpty || !value.fakeCookie.isEmpty else { return }
+            try saveSession(value)
+            retireLegacyCredentials()
+        } catch {
+            Self.logger.error("Session credential migration remains pending")
+        }
+    }
+
+    private func retireLegacyCredentials() {
+        let cleared = [KeychainAccount.studentID, KeychainAccount.password, KeychainAccount.fakeCookie]
+            .map { credentials.delete(account: $0) }.allSatisfy { $0 }
+        if !cleared { Self.logger.error("Legacy credential cleanup remains pending") }
+    }
+
+    func preservingCredentialRevocation(_ clearPreferences: () -> Void) {
+        let revoked = defaults.string(forKey: DefaultsKey.revokedSession)
+        clearPreferences()
+        if let revoked { defaults.set(revoked, forKey: DefaultsKey.revokedSession) }
     }
 
 }

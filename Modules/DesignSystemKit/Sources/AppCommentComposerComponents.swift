@@ -26,6 +26,7 @@ public struct AppCommentComposerContentSection<Content: View>: View {
             Toggle(anonymousLabel, isOn: $anonymous)
                 .appSelectionFeedback(trigger: anonymous)
             .appInteractiveListRow()
+                .accessibilityIdentifier("ui.app-comment-composer-content-section.anonymous")
         }
     }
 }
@@ -58,11 +59,13 @@ public struct AppComposerToolbar: ToolbarContent {
     public var body: some ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
             Button("取消", action: onCancel)
+                .accessibilityIdentifier("ui.app-composer-toolbar.cancel")
         }
 
         ToolbarItem(placement: .confirmationAction) {
             Button(isSubmitting ? submittingTitle : submitTitle, action: onSubmit)
                 .disabled(isSubmitting || isSubmitDisabled)
+                .accessibilityIdentifier("ui.app-composer-toolbar.submit")
         }
     }
 }

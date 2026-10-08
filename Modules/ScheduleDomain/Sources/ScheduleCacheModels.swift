@@ -49,7 +49,12 @@ public nonisolated struct ScheduleCache: Codable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         guard container.contains(.schemaVersion) else {
+            guard ![CodingKeys.courseData, .ddlData, .classroomData, .presentation, .syncData].contains(where: container.contains) else {
+                throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
+                    debugDescription: "Structured schedule cache requires its schema version."))
+            }
             self = try LegacyScheduleCache(from: decoder).migrated()
+            try validateTimeTable(codingPath: decoder.codingPath)
             return
         }
         let version = try container.decode(Int.self, forKey: .schemaVersion)
@@ -66,6 +71,13 @@ public nonisolated struct ScheduleCache: Codable, Sendable {
         syncData = try container.decode(ScheduleSyncData.self, forKey: .syncData)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
         courseData.reconcileRules()
+        try validateTimeTable(codingPath: decoder.codingPath)
+    }
+
+    private func validateTimeTable(codingPath: [any CodingKey]) throws {
+        guard TimeSlot.hasUniqueIDs(timeTable) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: codingPath, debugDescription: "Time table requires unique section IDs."))
+        }
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -331,8 +343,32 @@ public nonisolated struct SchedulePresentationPreferences: Codable, Equatable, S
     public var scheduleDisplayMode: ScheduleDisplayMode = .weekly
     public var scheduleCardContentMode: ScheduleCardContentMode = .nameAndLocation
     public var showCourseLiveActivityReminder: Bool = false
-    public var courseLiveActivityLeadMinutes: Int = 20
+    public var courseLiveActivityLeadMinutes: Int = 20 {
+        didSet { courseLiveActivityLeadMinutes = Self.normalizedLeadMinutes(courseLiveActivityLeadMinutes) }
+    }
     public init() {}
+
+    public static func normalizedLeadMinutes(_ value: Int) -> Int {
+        min(max(value, 1), 60)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case showSaturday, showSunday, showExamInfo, scheduleDisplayMode, scheduleCardContentMode
+        case showCourseLiveActivityReminder, courseLiveActivityLeadMinutes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        showSaturday = try container.decode(Bool.self, forKey: .showSaturday)
+        showSunday = try container.decode(Bool.self, forKey: .showSunday)
+        showExamInfo = try container.decode(Bool.self, forKey: .showExamInfo)
+        scheduleDisplayMode = try container.decode(ScheduleDisplayMode.self, forKey: .scheduleDisplayMode)
+        scheduleCardContentMode = try container.decode(ScheduleCardContentMode.self, forKey: .scheduleCardContentMode)
+        showCourseLiveActivityReminder = try container.decode(Bool.self, forKey: .showCourseLiveActivityReminder)
+        courseLiveActivityLeadMinutes = Self.normalizedLeadMinutes(
+            try container.decode(Int.self, forKey: .courseLiveActivityLeadMinutes)
+        )
+    }
 }
 
 public nonisolated struct ScheduleSyncData: Codable, Equatable, Sendable {
@@ -450,6 +486,10 @@ private nonisolated struct LegacyScheduleCache: Decodable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard !container.allKeys.isEmpty else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
+                debugDescription: "Legacy schedule cache requires a recognized schedule field."))
+        }
 
         currentTerm = try container.decodeIfPresent(String.self, forKey: .currentTerm) ?? ""
         let decodedCourseScheduleParserVersion = try container.decodeIfPresent(
@@ -517,9 +557,8 @@ private nonisolated struct LegacyScheduleCache: Decodable, Sendable {
         // V2 使用独立存储键，早期开发版的两态实验值按默认值处理，默认显示名称+地点。
         scheduleCardContentMode = try container.decodeIfPresent(ScheduleCardContentMode.self, forKey: .scheduleCardContentMode) ?? .nameAndLocation
         showCourseLiveActivityReminder = try container.decodeIfPresent(Bool.self, forKey: .showCourseLiveActivityReminder) ?? false
-        courseLiveActivityLeadMinutes = min(
-            max(try container.decodeIfPresent(Int.self, forKey: .courseLiveActivityLeadMinutes) ?? 20, 1),
-            60
+        courseLiveActivityLeadMinutes = SchedulePresentationPreferences.normalizedLeadMinutes(
+            try container.decodeIfPresent(Int.self, forKey: .courseLiveActivityLeadMinutes) ?? 20
         )
         timeTable = try container.decodeIfPresent([TimeSlot].self, forKey: .timeTable) ?? TimeSlot.default
         sharedSchedules = (try container.decodeIfPresent([SharedScheduleRecord].self, forKey: .sharedSchedules) ?? []).map {

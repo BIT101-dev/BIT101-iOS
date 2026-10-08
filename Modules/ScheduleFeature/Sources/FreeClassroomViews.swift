@@ -7,6 +7,7 @@ import SwiftUI
 ///
 /// 页面引导用户按“选校区 -> 手动刷新教学楼 -> 再选楼”的顺序操作，减少无效点击。
 struct FreeClassroomTabView: View {
+    @Environment(\.scheduleCurrentDate) private var currentDate
     @ObservedObject var viewModel: ScheduleClassroomViewModel
 
     private var isClassroomRefreshing: Bool {
@@ -26,6 +27,8 @@ struct FreeClassroomTabView: View {
     }
 
     var body: some View {
+        let availabilities = viewModel.classroomAvailabilities(at: currentDate)
+        let hasExpiredData = viewModel.hasExpiredClassroomData(at: currentDate)
         List {
             Section {
                 AppRefreshStatusRow(
@@ -84,15 +87,15 @@ struct FreeClassroomTabView: View {
                 .appInteractiveListRow()
             }
 
-            if viewModel.classroomAvailabilities.isEmpty, !isClassroomRefreshing {
+            if availabilities.isEmpty, !isClassroomRefreshing {
                 Section {
                     AppEmptyState(
                         title: "暂无空教室结果",
                         systemImage: "building.2.crop.circle",
                         message: emptyStateMessage,
-                        actionTitle: hasSectionFilter ? "清除节次筛选" : "刷新空教室",
+                        actionTitle: hasSectionFilter && !hasExpiredData ? "清除节次筛选" : "刷新空教室",
                         onAction: {
-                            if hasSectionFilter {
+                            if hasSectionFilter && !hasExpiredData {
                                 viewModel.setSelectedClassroomSectionIDs([])
                             } else {
                                 Task { await viewModel.refreshClassroomPage() }
@@ -104,7 +107,7 @@ struct FreeClassroomTabView: View {
             } else {
                 Section {
                     // ViewModel 已完成排序和筛选，列表在此展示可用教室结果。
-                    ForEach(viewModel.classroomAvailabilities) { classroom in
+                    ForEach(availabilities) { classroom in
                         let matchesAllSelectedSections = isExactMatch(for: classroom)
                         HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.content) {
                             Text(classroom.name)
@@ -142,7 +145,8 @@ struct FreeClassroomTabView: View {
     }
 
     private var emptyStateMessage: String {
-        hasSectionFilter ? "当前筛选条件下没有空教室。" : "先选定校区和教学楼，再刷新一次。"
+        if viewModel.hasExpiredClassroomData(at: currentDate) { return "查询日期已变化，请刷新当前教学楼。" }
+        return hasSectionFilter ? "当前筛选条件下没有空教室。" : "先选定校区和教学楼，再刷新一次。"
     }
 
     private func isExactMatch(for classroom: ClassroomAvailability) -> Bool {

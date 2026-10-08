@@ -98,6 +98,7 @@ final class MineViewModel: ObservableObject {
         async let profileTask = refreshProfile()
         async let posterTask = refreshPosters()
         _ = await (profileTask, posterTask)
+        if profileStatus == .idle || posterState.status == .idle { hasBootstrapped = false }
     }
 
     /// 资料卡里展示的帖子数摘要。
@@ -163,9 +164,9 @@ final class MineViewModel: ObservableObject {
             guard followerGeneration == generation else { return }
             if isMineCancellation(error) {
                 followerState = previousState
+                followerState.isLoadingMore = false
                 if case .loading = previousState.status {
                     followerState.status = previousState.items.isEmpty ? .idle : .loaded
-                    followerState.isLoadingMore = false
                 }
                 return
             }
@@ -223,9 +224,9 @@ final class MineViewModel: ObservableObject {
             guard followingGeneration == generation else { return }
             if isMineCancellation(error) {
                 followingState = previousState
+                followingState.isLoadingMore = false
                 if case .loading = previousState.status {
                     followingState.status = previousState.items.isEmpty ? .idle : .loaded
-                    followingState.isLoadingMore = false
                 }
                 return
             }
@@ -276,6 +277,9 @@ final class MineViewModel: ObservableObject {
         let hadPosters = !posterState.items.isEmpty || posterState.status == .loaded
         if !hadPosters {
             resetMinePagedState(&posterState)
+        } else {
+            posterState.status = .loading
+            posterState.isLoadingMore = false
         }
 
         do {
@@ -360,6 +364,8 @@ final class UserProfileViewModel: ObservableObject {
     private var hasBootstrapped = false
     private var profileGeneration = 0
     private var posterGeneration = 0
+    private var followRevision = 0
+    private var latestFollowResult: MineFollowResult?
 
     init(userID: Int, service: any UserProfileServicing) {
         self.userID = userID
@@ -374,6 +380,7 @@ final class UserProfileViewModel: ObservableObject {
         guard !hasBootstrapped else { return }
         hasBootstrapped = true
         await refreshAll()
+        if profileStatus == .idle || posterState.status == .idle { hasBootstrapped = false }
     }
 
     /// 资料卡里展示的帖子数摘要。
@@ -392,6 +399,7 @@ final class UserProfileViewModel: ObservableObject {
     func refreshProfile() async {
         profileGeneration &+= 1
         let generation = profileGeneration
+        let followRevisionAtStart = followRevision
         let hadUserInfo = userInfo != nil || profileStatus == .loaded
         if !hadUserInfo {
             profileStatus = .loading
@@ -401,7 +409,12 @@ final class UserProfileViewModel: ObservableObject {
             let info = try await service.fetchUserInfo(id: userID)
             try Task.checkCancellation()
             guard profileGeneration == generation else { return }
-            userInfo = info
+            if followRevision != followRevisionAtStart, let latestFollowResult {
+                userInfo = info.updatingFollow(latestFollowResult)
+            } else {
+                userInfo = info
+                latestFollowResult = nil
+            }
             profileStatus = .loaded
         } catch {
             guard profileGeneration == generation else { return }
@@ -428,17 +441,16 @@ final class UserProfileViewModel: ObservableObject {
 
     func followUser() async {
         guard let userInfo, !userInfo.own, !userInfo.following, !isFollowingUser else { return }
-        let generation = profileGeneration
         isFollowingUser = true
         defer { isFollowingUser = false }
 
         do {
             let result = try await service.followUser(id: userID)
             try Task.checkCancellation()
-            guard profileGeneration == generation else { return }
-            self.userInfo = userInfo.updatingFollow(result)
+            followRevision &+= 1
+            latestFollowResult = result
+            self.userInfo = (self.userInfo ?? userInfo).updatingFollow(result)
         } catch {
-            guard profileGeneration == generation else { return }
             if isMineCancellation(error) { return }
             if isMineNotLoggedIn(error) {
                 requiresLogin = true
@@ -455,6 +467,9 @@ final class UserProfileViewModel: ObservableObject {
         let hadPosters = !posterState.items.isEmpty || posterState.status == .loaded
         if !hadPosters {
             resetMinePagedState(&posterState)
+        } else {
+            posterState.status = .loading
+            posterState.isLoadingMore = false
         }
 
         do {

@@ -1,10 +1,35 @@
 import SchedulePorts
 import TransportCore
+import ClientCore
 import MapFeature
 import ScheduleDomain
 import ScheduleContracts
+import StorageCore
 import EventKit
 import Foundation
+
+enum ScheduleSystemCalendarTransaction {
+    static func run<Value>(reset: () -> Void, operation: () throws -> Value) throws -> Value {
+        do { return try operation() }
+        catch { reset(); throw error }
+    }
+}
+
+/// EventKit 每次查询覆盖的日期跨度为四年。
+nonisolated enum ScheduleSystemCalendarQuery {
+    static func intervals(start: Date, end: Date) -> [DateInterval] {
+        var ranges: [DateInterval] = []
+        var cursor = start
+        while cursor < end {
+            guard let limit = ScheduleSharedDateCodec.calendar.date(byAdding: .year, value: 4, to: cursor),
+                  limit > cursor else { return ranges }
+            let next = min(end, limit)
+            ranges.append(DateInterval(start: cursor, end: next))
+            cursor = next
+        }
+        return ranges
+    }
+}
 
 /// 系统日历可识别的校园建筑坐标。
 nonisolated struct ScheduleSystemCalendarStructuredLocation: Equatable {
@@ -62,6 +87,7 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
             guard (1 ... 7).contains(course.weekday) else { return [] }
 
             return course.weeks.compactMap { week in
+                guard ScheduleCourseConstraints.isValidWeek(week) else { return nil }
                 let weekOffset = ScheduleWeekCodec.weekOffset(forWeekNumber: week)
                 let dayOffset = weekOffset * 7 + (course.weekday - 1)
                 guard
@@ -249,6 +275,27 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
     }
 }
 
+nonisolated enum ScheduleSystemCalendarEventMarker {
+    static func url(id: String, term: String, session: AppStorageSession) -> URL? {
+        var components = URLComponents()
+        components.scheme = "bit101"
+        components.host = "calendar-course"
+        components.path = "/\(id)"
+        components.queryItems = [URLQueryItem(name: "term", value: term),
+                                 URLQueryItem(name: "account", value: session.accountStorageIdentifier)]
+        return components.url
+    }
+
+    static func matches(_ url: URL?, session: AppStorageSession, term: String? = nil) -> Bool {
+        guard let url, let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme?.lowercased() == "bit101", components.host?.lowercased() == "calendar-course",
+              components.queryItems?.first(where: { $0.name == "account" })?.value == session.accountStorageIdentifier
+        else { return false }
+        guard let term else { return true }
+        return components.queryItems?.first(where: { $0.name == "term" })?.value == term
+    }
+}
+
 /// 系统日历导入、更新与删除协调器。
 ///
 /// 每条事件保存 EventKit identifier 和 `bit101://calendar-course/...` URL 标记。
@@ -268,14 +315,20 @@ final class ScheduleSystemCalendarManager {
     private static let calendarTitle = "BIT101 课表"
     private static let batchesKey = "schedule.system-calendar.imported-batches"
     private static let calendarIdentifierKey = "schedule.system-calendar.identifier"
-    private static let legacyEventMatchTolerance: TimeInterval = 60
 
     private let eventStore: EKEventStore
     private let defaults: UserDefaults
+    private let currentIdentity: () -> SchoolSessionIdentity
+    private let requestAccess: (() async throws -> Void)?
+    private var storageSession: AppStorageSession { AppStorageSession(accountIdentifier: currentIdentity().accountIdentifier) }
 
-    init(eventStore: EKEventStore = EKEventStore(), defaults: UserDefaults = AppFileDirectories.defaults) {
+    init(eventStore: EKEventStore = EKEventStore(), defaults: UserDefaults = AppFileDirectories.defaults,
+         currentIdentity: @escaping () -> SchoolSessionIdentity = { AppAccountSession.storage.schoolSessionIdentity },
+         requestAccess: (() async throws -> Void)? = nil) {
         self.eventStore = eventStore
         self.defaults = defaults
+        self.currentIdentity = currentIdentity
+        self.requestAccess = requestAccess
     }
 
     func importDrafts(
@@ -291,59 +344,66 @@ final class ScheduleSystemCalendarManager {
             throw ScheduleSystemCalendarError.missingSchedule
         }
 
+        let owner = currentIdentity()
         try await requireFullAccess()
+        try Task.checkCancellation()
+        guard currentIdentity() == owner else { throw CancellationError() }
         do {
-            let calendar = try writableBIT101Calendar()
-            let markerIDs = Set(orderedDrafts.map(\.markerID))
-            let markerEvents = replacingTerm
-                ? events(forTerm: term)
-                : events(matchingMarkerIDs: markerIDs, term: term)
-            let legacyEvents = events(matchingDrafts: orderedDrafts, term: term)
-            let existingEvents = Dictionary(
-                uniqueKeysWithValues: (markerEvents + legacyEvents).map { ($0.eventIdentifier, $0) }
-            ).values
-            let removedIdentifiers = Set(existingEvents.map(\.eventIdentifier))
-            for event in existingEvents {
-                try eventStore.remove(event, span: .thisEvent, commit: false)
-            }
-            var savedEvents: [EKEvent] = []
-            for draft in orderedDrafts {
-                let event = EKEvent(eventStore: eventStore)
-                event.calendar = calendar
-                event.title = draft.title
-                event.location = draft.location
-                if let draftLocation = draft.structuredLocation {
-                    let structuredLocation = EKStructuredLocation(title: draftLocation.title)
-                    structuredLocation.geoLocation = CLLocation(
-                        latitude: draftLocation.latitude,
-                        longitude: draftLocation.longitude
-                    )
-                    event.structuredLocation = structuredLocation
+            return try ScheduleSystemCalendarTransaction.run(reset: eventStore.reset) {
+                let calendar = try writableBIT101Calendar()
+                let markerIDs = Set(orderedDrafts.map(\.markerID))
+                let markerEvents = replacingTerm
+                    ? events(forTerm: term)
+                    : events(matchingMarkerIDs: markerIDs, term: term)
+                let existingEvents = Dictionary(
+                    uniqueKeysWithValues: markerEvents.map { ($0.eventIdentifier, $0) }
+                ).values
+                let removedIdentifiers = Set(existingEvents.map(\.eventIdentifier))
+                for event in existingEvents {
+                    try eventStore.remove(event, span: .thisEvent, commit: false)
                 }
-                event.notes = draft.notes
-                event.startDate = draft.startDate
-                event.endDate = draft.endDate
-                event.timeZone = ScheduleSharedDateCodec.calendar.timeZone
-                event.url = markerURL(id: draft.markerID, term: term)
-                try eventStore.save(event, span: .thisEvent, commit: false)
-                savedEvents.append(event)
-            }
-            try eventStore.commit()
+                var savedEvents: [EKEvent] = []
+                for draft in orderedDrafts {
+                    let event = EKEvent(eventStore: eventStore)
+                    event.calendar = calendar
+                    event.title = draft.title
+                    event.location = draft.location
+                    if let draftLocation = draft.structuredLocation {
+                        let structuredLocation = EKStructuredLocation(title: draftLocation.title)
+                        structuredLocation.geoLocation = CLLocation(
+                            latitude: draftLocation.latitude,
+                            longitude: draftLocation.longitude
+                        )
+                        event.structuredLocation = structuredLocation
+                    }
+                    event.notes = draft.notes
+                    event.startDate = draft.startDate
+                    event.endDate = draft.endDate
+                    event.timeZone = ScheduleSharedDateCodec.calendar.timeZone
+                    event.url = ScheduleSystemCalendarEventMarker.url(id: draft.markerID, term: term, session: storageSession)
+                    try eventStore.save(event, span: .thisEvent, commit: false)
+                    savedEvents.append(event)
+                }
+                try eventStore.commit()
 
-            var batches = loadBatches().filter { $0.term != term }
-            let oldBatch = loadBatches().first(where: { $0.term == term })
-            batches.append(ImportedBatch(
-                term: term,
-                calendarIdentifier: calendar.calendarIdentifier,
-                eventIdentifiers: (oldBatch?.eventIdentifiers ?? []).filter { !removedIdentifiers.contains($0) }
-                    + savedEvents.compactMap(\.eventIdentifier),
-                startDate: min(oldBatch?.startDate ?? first.startDate, first.startDate.addingTimeInterval(-24 * 60 * 60)),
-                endDate: max(oldBatch?.endDate ?? last.endDate, last.endDate.addingTimeInterval(24 * 60 * 60))
-            ))
-            saveBatches(batches)
-            return savedEvents.count
-        } catch let error as EKError where Self.isCalendarWritePermissionError(error) {
-            throw ScheduleSystemCalendarError.permissionDenied
+                var batches = loadBatches().filter { $0.term != term }
+                let oldBatch = loadBatches().first(where: { $0.term == term })
+                batches.append(ImportedBatch(
+                    term: term,
+                    calendarIdentifier: calendar.calendarIdentifier,
+                    eventIdentifiers: (oldBatch?.eventIdentifiers ?? []).filter { !removedIdentifiers.contains($0) }
+                        + savedEvents.compactMap(\.eventIdentifier),
+                    startDate: min(oldBatch?.startDate ?? first.startDate, first.startDate.addingTimeInterval(-24 * 60 * 60)),
+                    endDate: max(oldBatch?.endDate ?? last.endDate, last.endDate.addingTimeInterval(24 * 60 * 60))
+                ))
+                saveBatches(batches)
+                return savedEvents.count
+            }
+        } catch {
+            if let calendarError = error as? EKError, Self.isCalendarWritePermissionError(calendarError) {
+                throw ScheduleSystemCalendarError.permissionDenied
+            }
+            throw error
         }
     }
 
@@ -351,34 +411,42 @@ final class ScheduleSystemCalendarManager {
         markerIDs: Set<String>,
         term: String? = nil
     ) async throws -> ScheduleSystemCalendarMutationResult {
+        let owner = currentIdentity()
         try await requireFullAccess()
+        try Task.checkCancellation()
+        guard currentIdentity() == owner else { throw CancellationError() }
         let eventsByIdentifier = Dictionary(
             uniqueKeysWithValues: events(matchingMarkerIDs: markerIDs, term: term).map { ($0.eventIdentifier, $0) }
         )
         guard !eventsByIdentifier.isEmpty else { return .noOp }
 
         do {
-            for event in eventsByIdentifier.values {
-                try eventStore.remove(event, span: .thisEvent, commit: false)
-            }
-            try eventStore.commit()
+            return try ScheduleSystemCalendarTransaction.run(reset: eventStore.reset) {
+                for event in eventsByIdentifier.values {
+                    try eventStore.remove(event, span: .thisEvent, commit: false)
+                }
+                try eventStore.commit()
 
-            let removedIdentifiers = Set(eventsByIdentifier.keys)
-            let batches = loadBatches().compactMap { batch -> ImportedBatch? in
-                let remaining = batch.eventIdentifiers.filter { !removedIdentifiers.contains($0) }
-                guard !remaining.isEmpty else { return nil }
-                return ImportedBatch(
-                    term: batch.term,
-                    calendarIdentifier: batch.calendarIdentifier,
-                    eventIdentifiers: remaining,
-                    startDate: batch.startDate,
-                    endDate: batch.endDate
-                )
+                let removedIdentifiers = Set(eventsByIdentifier.keys)
+                let batches = loadBatches().compactMap { batch -> ImportedBatch? in
+                    let remaining = batch.eventIdentifiers.filter { !removedIdentifiers.contains($0) }
+                    guard !remaining.isEmpty else { return nil }
+                    return ImportedBatch(
+                        term: batch.term,
+                        calendarIdentifier: batch.calendarIdentifier,
+                        eventIdentifiers: remaining,
+                        startDate: batch.startDate,
+                        endDate: batch.endDate
+                    )
+                }
+                saveBatches(batches)
+                return .changed(eventsByIdentifier.count)
             }
-            saveBatches(batches)
-            return .changed(eventsByIdentifier.count)
-        } catch let error as EKError where Self.isCalendarWritePermissionError(error) {
-            throw ScheduleSystemCalendarError.permissionDenied
+        } catch {
+            if let calendarError = error as? EKError, Self.isCalendarWritePermissionError(calendarError) {
+                throw ScheduleSystemCalendarError.permissionDenied
+            }
+            throw error
         }
     }
 
@@ -406,64 +474,73 @@ final class ScheduleSystemCalendarManager {
     }
 
     func deleteAllImportedEvents() async throws -> ScheduleSystemCalendarMutationResult {
+        let owner = currentIdentity()
         try await requireFullAccess()
+        try Task.checkCancellation()
+        guard currentIdentity() == owner else { throw CancellationError() }
 
         do {
-            let batches = loadBatches()
-            var eventsByIdentifier: [String: EKEvent] = [:]
+            return try ScheduleSystemCalendarTransaction.run(reset: eventStore.reset) {
+                let batches = loadBatches()
+                var eventsByIdentifier: [String: EKEvent] = [:]
 
-            for batch in batches {
-                for identifier in batch.eventIdentifiers {
-                    if let event = eventStore.event(withIdentifier: identifier), isBIT101Event(event) {
-                        eventsByIdentifier[identifier] = event
+                for batch in batches {
+                    for identifier in batch.eventIdentifiers {
+                        if let event = eventStore.event(withIdentifier: identifier), isBIT101Event(event) {
+                            eventsByIdentifier[identifier] = event
+                        }
+                    }
+                    for event in taggedEvents(
+                        calendars: calendarForBatch(batch).map { [$0] },
+                        startDate: batch.startDate,
+                        endDate: batch.endDate,
+                        term: nil
+                    ) {
+                        eventsByIdentifier[event.eventIdentifier] = event
                     }
                 }
-                for event in taggedEvents(
-                    calendars: calendarForBatch(batch).map { [$0] },
-                    startDate: batch.startDate,
-                    endDate: batch.endDate,
-                    term: nil
-                ) {
-                    eventsByIdentifier[event.eventIdentifier] = event
+
+                // 本地批次记录缺失时，专用日历中的事件 URL 仍可用于识别 BIT101 事件。
+                if let calendar = existingBIT101Calendar() {
+                    let lowerBound = ScheduleSharedDateCodec.calendar.date(
+                        byAdding: .year,
+                        value: -10,
+                        to: Date()
+                    ) ?? Date.distantPast
+                    let upperBound = ScheduleSharedDateCodec.calendar.date(
+                        byAdding: .year,
+                        value: 10,
+                        to: Date()
+                    ) ?? Date.distantFuture
+                    for event in taggedEvents(
+                        calendars: [calendar],
+                        startDate: lowerBound,
+                        endDate: upperBound,
+                        term: nil
+                    ) {
+                        eventsByIdentifier[event.eventIdentifier] = event
+                    }
                 }
-            }
 
-            // 本地批次记录缺失时，专用日历中的事件 URL 仍可用于识别 BIT101 事件。
-            if let calendar = existingBIT101Calendar() {
-                let lowerBound = ScheduleSharedDateCodec.calendar.date(
-                    byAdding: .year,
-                    value: -10,
-                    to: Date()
-                ) ?? Date.distantPast
-                let upperBound = ScheduleSharedDateCodec.calendar.date(
-                    byAdding: .year,
-                    value: 10,
-                    to: Date()
-                ) ?? Date.distantFuture
-                for event in taggedEvents(
-                    calendars: [calendar],
-                    startDate: lowerBound,
-                    endDate: upperBound,
-                    term: nil
-                ) {
-                    eventsByIdentifier[event.eventIdentifier] = event
+                guard !eventsByIdentifier.isEmpty else { return .noOp }
+
+                for event in eventsByIdentifier.values {
+                    try eventStore.remove(event, span: .thisEvent, commit: false)
                 }
+                try eventStore.commit()
+                saveBatches([])
+                return .changed(eventsByIdentifier.count)
             }
-
-            guard !eventsByIdentifier.isEmpty else { return .noOp }
-
-            for event in eventsByIdentifier.values {
-                try eventStore.remove(event, span: .thisEvent, commit: false)
+        } catch {
+            if let calendarError = error as? EKError, Self.isCalendarWritePermissionError(calendarError) {
+                throw ScheduleSystemCalendarError.permissionDenied
             }
-            try eventStore.commit()
-            saveBatches([])
-            return .changed(eventsByIdentifier.count)
-        } catch let error as EKError where Self.isCalendarWritePermissionError(error) {
-            throw ScheduleSystemCalendarError.permissionDenied
+            throw error
         }
     }
 
     private func requireFullAccess() async throws {
+        if let requestAccess { try await requestAccess(); return }
         do {
             switch EKEventStore.authorizationStatus(for: .event) {
             case .fullAccess:
@@ -545,21 +622,19 @@ final class ScheduleSystemCalendarManager {
         endDate: Date,
         term: String?
     ) -> [EKEvent] {
-        let predicate = eventStore.predicateForEvents(
-            withStart: startDate,
-            end: endDate,
-            calendars: calendars
-        )
-        return eventStore.events(matching: predicate).filter { isBIT101Event($0, term: term) }
+        calendarEvents(calendars: calendars, startDate: startDate, endDate: endDate)
+            .filter { isBIT101Event($0, term: term) }
     }
 
-    private func markerURL(id: String, term: String) -> URL? {
-        var components = URLComponents()
-        components.scheme = "bit101"
-        components.host = "calendar-course"
-        components.path = "/\(id)"
-        components.queryItems = [URLQueryItem(name: "term", value: term)]
-        return components.url
+    private func calendarEvents(calendars: [EKCalendar]?, startDate: Date, endDate: Date) -> [EKEvent] {
+        var eventsByIdentifier: [String: EKEvent] = [:]
+        for interval in ScheduleSystemCalendarQuery.intervals(start: startDate, end: endDate) {
+            let predicate = eventStore.predicateForEvents(withStart: interval.start, end: interval.end, calendars: calendars)
+            for event in eventStore.events(matching: predicate) {
+                eventsByIdentifier[event.eventIdentifier] = event
+            }
+        }
+        return Array(eventsByIdentifier.values)
     }
 
     private func markerID(from event: EKEvent) -> String {
@@ -593,70 +668,6 @@ final class ScheduleSystemCalendarManager {
         return Array(eventsByIdentifier.values)
     }
 
-    /// 兼容早期导入事件：旧事件可能缺少 marker URL，使用课程、时间和地点回收后替换。
-    private func events(
-        matchingDrafts drafts: [ScheduleSystemCalendarEventDraft],
-        term: String
-    ) -> [EKEvent] {
-        guard
-            let calendar = existingBIT101Calendar(),
-            let firstDate = drafts.map(\.startDate).min(),
-            let lastDate = drafts.map(\.endDate).max()
-        else {
-            return []
-        }
-
-        let predicate = eventStore.predicateForEvents(
-            withStart: firstDate.addingTimeInterval(-24 * 60 * 60),
-            end: lastDate.addingTimeInterval(24 * 60 * 60),
-            calendars: [calendar]
-        )
-        return eventStore.events(matching: predicate).filter { event in
-            guard
-                !isBIT101Event(event),
-                drafts.contains(where: { draft in
-                    legacyEventMatches(event, draft: draft)
-                })
-            else {
-                return false
-            }
-
-            return eventTerm(from: event) == nil || eventTerm(from: event) == term
-        }
-    }
-
-    private func legacyEventMatches(_ event: EKEvent, draft: ScheduleSystemCalendarEventDraft) -> Bool {
-        guard
-            event.title == draft.title,
-            abs(event.startDate.timeIntervalSince(draft.startDate)) <= Self.legacyEventMatchTolerance,
-            abs(event.endDate.timeIntervalSince(draft.endDate)) <= Self.legacyEventMatchTolerance
-        else {
-            return false
-        }
-
-        let eventLocation = normalizedLocation(event.location ?? "")
-        let draftLocation = normalizedLocation(draft.location)
-        guard !eventLocation.isEmpty, !draftLocation.isEmpty else { return true }
-        return eventLocation == draftLocation
-            || eventLocation.hasSuffix(draftLocation)
-            || draftLocation.hasSuffix(eventLocation)
-    }
-
-    private func normalizedLocation(_ value: String) -> String {
-        value
-            .replacingOccurrences(of: "校区", with: "")
-            .replacingOccurrences(of: "·", with: "")
-            .filter { !$0.isWhitespace }
-    }
-
-    private func eventTerm(from event: EKEvent) -> String? {
-        guard let url = event.url else { return nil }
-        return URLComponents(url: url, resolvingAgainstBaseURL: false)?
-            .queryItems?
-            .first(where: { $0.name == "term" })?
-            .value
-    }
-
     private func events(forTerm term: String) -> [EKEvent] {
         var eventsByIdentifier: [String: EKEvent] = [:]
         let batches = loadBatches().filter { $0.term == term }
@@ -686,29 +697,19 @@ final class ScheduleSystemCalendarManager {
     }
 
     private func isBIT101Event(_ event: EKEvent, term: String? = nil) -> Bool {
-        guard
-            let url = event.url,
-            url.scheme?.lowercased() == "bit101",
-            url.host?.lowercased() == "calendar-course"
-        else { return false }
-
-        guard let term else { return true }
-        return URLComponents(url: url, resolvingAgainstBaseURL: false)?
-            .queryItems?
-            .first(where: { $0.name == "term" })?
-            .value == term
+        ScheduleSystemCalendarEventMarker.matches(event.url, session: storageSession, term: term)
     }
 
     private func loadBatches() -> [ImportedBatch] {
-        guard let data = defaults.data(forKey: Self.batchesKey) else { return [] }
+        guard let data = defaults.data(forKey: storageSession.key(Self.batchesKey)) else { return [] }
         return (try? JSONDecoder().decode([ImportedBatch].self, from: data)) ?? []
     }
 
     private func saveBatches(_ batches: [ImportedBatch]) {
         if batches.isEmpty {
-            defaults.removeObject(forKey: Self.batchesKey)
+            defaults.removeObject(forKey: storageSession.key(Self.batchesKey))
         } else if let data = try? JSONEncoder().encode(batches) {
-            defaults.set(data, forKey: Self.batchesKey)
+            defaults.set(data, forKey: storageSession.key(Self.batchesKey))
         }
     }
 }

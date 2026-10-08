@@ -85,6 +85,7 @@ public struct AppSegmentedPicker<Selection: Hashable, Content: View>: View {
         .pickerStyle(.segmented)
         .frame(maxWidth: .infinity)
         .appSelectionFeedback(trigger: selection)
+            .accessibilityIdentifier("ui.app-segmented-picker.value")
     }
 }
 
@@ -138,6 +139,7 @@ public struct AppTopSegmentedPicker<Selection: Hashable, Content: View>: View {
 
 /// AppOrderedSearchBar 为话廊和文章提供带排序菜单的搜索栏。
 public struct AppOrderedSearchBar<Order: Hashable, OrderContent: View>: View {
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     @Binding var text: String
     @Binding var order: Order
     let selectedOrderTitle: String
@@ -179,7 +181,12 @@ public struct AppOrderedSearchBar<Order: Hashable, OrderContent: View>: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
-                .onSubmit(onSubmit)
+                .onSubmit {
+                    interactionEvidence?("interaction.AppOrderedSearchBar.onSubmit", "submit")
+
+                    onSubmit()
+                }
+                .accessibilityIdentifier("ui.app-ordered-search-bar.input")
 
             Button {
                 text = ""
@@ -196,6 +203,7 @@ public struct AppOrderedSearchBar<Order: Hashable, OrderContent: View>: View {
             .buttonStyle(.plain)
             .disabled(text.isEmpty)
             .accessibilityLabel("清除搜索")
+                .accessibilityIdentifier("ui.app-ordered-search-bar.清除搜索")
         }
         .padding(.horizontal, AppDesignSystem.Spacing.content)
         .padding(.vertical, AppDesignSystem.Spacing.regular)
@@ -248,6 +256,7 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
                 Section {
                     Button(toggleAllTitle) { toggleAll() }
                     .appInteractiveListRow()
+                        .accessibilityIdentifier("ui.app-multi-selection-list.toggle-all")
                 }
             }
 
@@ -272,6 +281,7 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
                     .accessibilityValue(isSelected ? "已选择" : "未选择")
                     .accessibilityAddTraits(.isButton)
                     .appInteractiveListRow()
+                        .accessibilityIdentifier("ui.app-multi-selection-list.item")
                 }
             }
         }
@@ -283,6 +293,7 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
             if showsCompletionButton {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成") { dismiss() }
+                        .accessibilityIdentifier("ui.app-multi-selection-list.done")
                 }
             }
         }

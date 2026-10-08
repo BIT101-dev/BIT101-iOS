@@ -61,11 +61,13 @@ extension InteractionCoverageUITests {
         assertUI(cleaning.value as? String != original, "数据清洗应改变历史成绩展示策略。")
         cleaning.tapBriefly()
         tap("评论课程")
+        assertUI(!app.buttons["发送"].isEnabled, "评分选择提示对应发送按钮禁用。")
         for rating in ["0.5", "1.0", "1.5", "2.0", "2.5", "3.0", "3.5", "4.0", "4.5", "5.0"] {
             tap("评分 \(rating) 星")
         }
         tap("评分 5.0 星")
-        assertUI(app.staticTexts["不评分"].appears(timeout: 5), "再次点击相同星级应清空评分。")
+        assertUI(app.staticTexts["请选择评分"].appears(timeout: 5), "再次点击相同星级应回到评分选择提示。")
+        assertUI(!app.buttons["发送"].isEnabled, "清空评分后发送按钮回到禁用状态。")
         tap("评分 3.5 星")
         toggle("匿名评论")
         replaceTextWithKeyboard("测试课程评价", in: app.textFields.firstMatch)
@@ -181,11 +183,13 @@ extension InteractionCoverageUITests {
             CGRect(x: bounds.minX, y: panel.maxY, width: bounds.width, height: bounds.maxY - panel.maxY),
         ].filter { $0.size.width > 0 && $0.size.height > 0 }
             .map { $0.intersection(bounds) }.filter { !$0.isNull && !$0.isEmpty }
-        let gap = isSourceForm ? gaps.first : gaps.max { $0.width * $0.height < $1.width * $1.height }
-        assertUI(gap != nil, "系统浮窗外应提供可点击的页面区域。")
+        guard let gap = isSourceForm ? gaps.first : gaps.max(by: { $0.width * $0.height < $1.width * $1.height }) else {
+            assertUI(false, "系统浮窗外应提供可点击的页面区域。")
+            return
+        }
         let origin = dismiss.exists ? dismiss.coordinate(withNormalizedOffset: .zero)
             : app.coordinate(withNormalizedOffset: .zero)
-        origin.withOffset(CGVector(dx: gap!.midX, dy: gap!.midY)).tapBriefly()
+        origin.withOffset(CGVector(dx: gap.midX, dy: gap.midY)).tapBriefly()
         assertUI(popover.disappears(timeout: 5), "点击浮窗外应关闭系统浮窗。")
     }
 
@@ -351,9 +355,9 @@ extension InteractionCoverageUITests {
     @MainActor
     @objc func testCourseHistoryChartSelectionAndHomeSurfaceSwipes() {
         app = configureApp(resetStorage: true, content: true, initialTab: "home")
-        app.collectionViews.firstMatch.swipeLeft()
+        app.descendants(matching: .any)["home.score-surface"].swipeLeft()
         assertUI(app.segmentedControls.buttons["课程"].isSelected, "成绩页横滑应切换课程分区。")
-        app.collectionViews.firstMatch.swipeRight()
+        app.descendants(matching: .any)["home.course-surface"].swipeRight()
         assertUI(app.segmentedControls.buttons["成绩"].isSelected, "反向横滑应恢复成绩分区。")
         tapHeader(app.segmentedControls.buttons["课程"])
         tap("自动化测试课程")
@@ -370,9 +374,10 @@ extension InteractionCoverageUITests {
 
     @MainActor
     func pullToRefresh() {
-        let frame = interactionScrollFrame()
-        assertUI(frame != nil, "刷新场景应提供可滚动区域。")
-        let bounds = frame!
+        guard let bounds = interactionScrollFrame() else {
+            assertUI(false, "刷新场景应提供可滚动区域。")
+            return
+        }
         let origin = app.coordinate(withNormalizedOffset: .zero)
         let start = origin.withOffset(CGVector(dx: bounds.minX + bounds.width * 0.03, dy: bounds.minY + bounds.height * 0.2))
         let end = origin.withOffset(CGVector(dx: bounds.minX + bounds.width * 0.03, dy: bounds.minY + bounds.height * 0.9))
@@ -497,10 +502,12 @@ extension InteractionCoverageUITests {
         back()
         tap("分享话题")
         dismissShareSheet()
-        let commentUser = app.buttons.matching(NSPredicate(format: "label == %@", "自动化测试用户")).allElementsBoundByIndex.last
-        assertUI(commentUser != nil, "评论应提供用户主页入口。")
-        reveal(commentUser!)
-        commentUser!.tapBriefly()
+        guard let commentUser = app.buttons.matching(NSPredicate(format: "label == %@", "自动化测试用户")).allElementsBoundByIndex.last else {
+            assertUI(false, "评论应提供用户主页入口。")
+            return
+        }
+        reveal(commentUser)
+        commentUser.tapBriefly()
         assertUI(app.buttons["关注"].appears(timeout: 5), "评论昵称应打开公开主页。")
     }
 
@@ -733,9 +740,11 @@ extension InteractionCoverageUITests {
         }
         month.tapBriefly()
         assertUI(app.pickerWheels.firstMatch.disappears(timeout: 5), "月份标题应返回日期网格。")
-        let selected = picker.collectionViews.buttons.allElementsBoundByIndex.first(where: { $0.isSelected })
-        assertUI(selected != nil, "日期网格应标记当前选择。")
-        selected!.tapBriefly()
+        guard let selected = picker.collectionViews.buttons.allElementsBoundByIndex.first(where: { $0.isSelected }) else {
+            assertUI(false, "日期网格应标记当前选择。")
+            return
+        }
+        selected.tapBriefly()
     }
 
 }

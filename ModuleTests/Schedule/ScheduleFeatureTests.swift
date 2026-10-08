@@ -24,6 +24,35 @@ struct ScheduleFeatureTests {
         )
     }
 
+    @Test func sharedScheduleSelectionFollowsIdentityAcrossReorderReloadAndDeletion() async {
+        let payload = ScheduleExportPayload(currentTerm: "term", firstDayString: "2026-09-07", timeTable: TimeSlot.default, courses: [])
+        var cache = ScheduleCache()
+        cache.sharedSchedules = [SharedScheduleRecord(id: "z", title: "Z", payload: payload),
+                                 SharedScheduleRecord(id: "a", title: "A", payload: payload)]
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "selection") },
+            load: { _ in .loaded(cache) }, save: { _, _, _ in })
+        await repository.loadIfNeeded()
+        let model = makeViewModel(repository: repository, actions: ModuleSchedulePlatformActions())
+        model.selectedCourseScheduleIndex = 1
+        cache.sharedSchedules.reverse()
+        await model.reloadFromDisk()
+        #expect(model.activeCourseSchedule.id == "z")
+        #expect(model.selectedCourseScheduleIndex == 2)
+        repository.courseState.sharedSchedules.reverse()
+        #expect(model.activeCourseSchedule.id == "z")
+        #expect(model.selectedCourseScheduleIndex == 1)
+        repository.courseState.sharedSchedules.removeAll { $0.id == "z" }
+        #expect(model.activeCourseSchedule.isPrimary)
+        #expect(model.selectedCourseScheduleIndex == 0)
+    }
+
+    @Test func currentWeekFollowsTheSuppliedClockAcrossTheWeekBoundary() throws {
+        let first = try #require(ScheduleDateCodec.parseDate("2026-09-07"))
+        let next = try #require(ScheduleDateCodec.parseDate("2026-09-14"))
+        #expect(resolvedCurrentWeek(firstDay: first, now: first) == 1)
+        #expect(resolvedCurrentWeek(firstDay: first, now: next) == 2)
+    }
+
     @Test func courseVerificationFailurePreservesChallengeAndRetryResumesChosenTerm() async throws {
         var saved: ScheduleCache?
         let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "verification") },
@@ -265,6 +294,7 @@ private final class ModuleScheduleService: ScheduleServicing {
     var submittedCodes: [String] = []
     var onSync: ((String?) async throws -> CourseSyncPayload)?
     var termRequests = 0
+    var classrooms: [ClassroomRecord] = []
 
     func syncCourses(term: String?) async throws -> CourseSyncPayload {
         if let onSync { return try await onSync(term) }
@@ -285,11 +315,34 @@ private final class ModuleScheduleService: ScheduleServicing {
     func prepareTeachingCenterAccess() async throws {}
     func fetchCampuses() async throws -> [CampusRecord] { [] }
     func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord] { [] }
-    func fetchClassrooms(buildingID: String, term: String) async throws -> [ClassroomRecord] { [] }
+    func fetchClassrooms(buildingID: String, term: String) async throws -> [ClassroomRecord] { classrooms }
 }
 
 @MainActor
 struct ScheduleRepositoryBoundaryTests {
+    @Test func classroomResultsFollowMinuteAndDayBoundaries() async throws {
+        var now = try #require(ScheduleDateCodec.parseDate("2026-09-07")).addingTimeInterval(7 * 3600 + 59 * 60)
+        var initial = ScheduleCache()
+        initial.currentTerm = "test-term"; initial.selectedBuildingID = "building"
+        initial.timeTable = [TimeSlot(id: 1, start: "08:00", end: "09:00")]
+        initial.selectedClassroomSectionIDs = []
+        let repository = makeRepository(load: { _ in .loaded(initial) }, save: { _, _, _ in })
+        await repository.loadIfNeeded()
+        let service = ModuleScheduleService()
+        service.classrooms = [ClassroomRecord(id: "room", name: "101", busyTimeCodes: [1])]
+        let model = ScheduleClassroomViewModel(service: service, repository: repository, now: { now })
+        await model.refreshClassrooms()
+        #expect(model.classroomAvailabilities.map(\.id) == ["room"])
+        now = now.addingTimeInterval(60)
+        #expect(model.classroomAvailabilities.isEmpty)
+        now = now.addingTimeInterval(3600)
+        #expect(model.classroomAvailabilities.map(\.id) == ["room"])
+        now = now.addingTimeInterval(24 * 3600)
+        #expect(model.hasExpiredClassroomData(at: now) && model.classroomAvailabilities.isEmpty)
+        await model.refreshClassrooms()
+        #expect(!model.hasExpiredClassroomData(at: now) && model.classroomAvailabilities.map(\.id) == ["room"])
+    }
+
     private func makeRepository(
         session: @escaping () -> AppStorageSession = { AppStorageSession(accountIdentifier: "schedule-boundary-tests") },
         load: @escaping (AppStorageSession) async -> ScheduleCacheLoadResult,
@@ -428,18 +481,22 @@ struct ScheduleRepositoryBoundaryTests {
         await loader.waitUntilStarted()
         account = AppStorageSession(accountIdentifier: "module-account-b")
         repository.resetForCurrentAccount()
-        repository.courseState.currentTerm = "account-b-term"
         var old = ScheduleCache()
         old.currentTerm = "account-a-term"
         loader.continuation?.resume(returning: .loaded(old))
         await task.value
-        #expect(repository.persistenceSnapshot.currentTerm == "account-b-term")
+        #expect(repository.persistenceSnapshot.currentTerm.isEmpty)
         #expect(repository.isWritable == false)
     }
 
     @Test func delayedReloadPreservesEditsMadeDuringRead() async {
         let loader = ModuleDeferredScheduleLoad()
-        let repository = makeRepository(load: loader.load, save: { _, _, _ in })
+        var first = true
+        let repository = makeRepository(load: { account in
+            if first { first = false; return .loaded(ScheduleCache()) }
+            return await loader.load(account)
+        }, save: { _, _, _ in })
+        await repository.loadIfNeeded()
         let task = Task { await repository.reload() }
         await loader.waitUntilStarted()
         repository.courseState.primaryScheduleTitle = "本机编辑"
@@ -450,14 +507,41 @@ struct ScheduleRepositoryBoundaryTests {
 
     @Test func unreadableCachePreservesMemoryAndWriteGate() async {
         var savedCount = 0
-        let repository = makeRepository(load: { _ in .unreadable }, save: { _, _, _ in savedCount += 1 })
+        var first = true
+        let repository = makeRepository(load: { _ in
+            if first { first = false; return .missing }
+            return .unreadable
+        }, save: { _, _, _ in savedCount += 1 })
+        await repository.loadIfNeeded()
         repository.courseState.primaryScheduleTitle = "保留内容"
         await repository.reload()
+        repository.courseState.primaryScheduleTitle = "修改内容"
         _ = await repository.persistAndWait()
         #expect(repository.persistenceSnapshot.primaryScheduleTitle == "保留内容")
         #expect(repository.isWritable == false)
         #expect(repository.notice?.title == "本地课表缓存读取失败")
         #expect(savedCount == 0)
+    }
+
+    @Test func pendingInitialReadRetainsStoredDataAndFinishesLoading() async throws {
+        let loader = ModuleDeferredScheduleLoad()
+        var savedCount = 0
+        let repository = makeRepository(load: loader.load, save: { _, _, _ in savedCount += 1 })
+        let ddl = ScheduleDDLViewModel(service: ModuleDeferredDDLService(), repository: repository)
+        let task = Task { await repository.loadIfNeeded() }
+        await loader.waitUntilStarted()
+        repository.presentationPreferences.showSaturday = false
+        repository.courseState.primaryScheduleTitle = "修改内容"
+        #expect(throws: Error.self) { try ddl.addDDL(DDLDraft()) }
+        var stored = ScheduleCache()
+        stored.primaryScheduleTitle = "原有课表"
+        loader.continuation?.resume(returning: .loaded(stored))
+        await task.value
+        #expect(repository.persistenceSnapshot.primaryScheduleTitle == stored.primaryScheduleTitle)
+        #expect(repository.persistenceSnapshot.presentation == stored.presentation)
+        #expect(repository.persistenceSnapshot.ddlEvents.isEmpty)
+        #expect(repository.isWritable && !repository.isLoading && savedCount == 0)
+        await repository.loadIfNeeded()
     }
 
     @Test func persistenceReceivesAccountAndSource() async {
@@ -488,12 +572,48 @@ struct ScheduleRepositoryBoundaryTests {
         #expect(ddl.isSyncingDDL)
         repository.resetForCurrentAccount()
         ddl.reset()
+        await repository.loadIfNeeded()
         repository.ddlState.lexueCalendarURL = "account-b-calendar"
         service.continuation?.resume(returning: "account-a-calendar")
         await task.value
         #expect(repository.persistenceSnapshot.lexueCalendarURL == "account-b-calendar")
         #expect(ddl.isSyncingDDL == false)
         #expect(ddl.notice == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["saved", "failed", "accountChanged"])
+    func subscriptionRefreshPublishesSuccessAfterItsOwnedSaveCompletes(stage: String) async {
+        var session = AppStorageSession(accountIdentifier: "subscription-save")
+        var pending: CheckedContinuation<Void, any Error>?
+        var savedURL: String?
+        let repository = ScheduleRepository(session: { session }, load: { _ in .missing }, save: { cache, _, _ in
+            try await withCheckedThrowingContinuation { pending = $0 }
+            savedURL = cache.lexueCalendarURL
+        })
+        await repository.loadIfNeeded()
+        let service = ModuleDeferredDDLService()
+        let model = ScheduleDDLViewModel(service: service, repository: repository)
+        let refresh = Task { await model.refreshLexueCalendarURL() }
+        await service.waitUntilStarted()
+        service.continuation?.resume(returning: "https://lexue.bit.edu.cn/calendar/owned.ics")
+        while pending == nil { await Task.yield() }
+        #expect(model.notice == nil && model.isSyncingDDL)
+        if stage == "accountChanged" {
+            session = AppStorageSession(accountIdentifier: "subscription-next")
+            repository.resetForCurrentAccount()
+            await repository.loadIfNeeded()
+        }
+        if stage == "failed" { pending?.resume(throwing: CocoaError(.fileWriteNoPermission)) }
+        else { pending?.resume() }
+        await refresh.value
+        if stage == "saved" {
+            #expect(savedURL == repository.persistenceSnapshot.lexueCalendarURL)
+            #expect(model.notice?.title == "订阅链接更新成功")
+        } else {
+            #expect(model.notice?.title != "订阅链接更新成功")
+            if stage == "failed" { #expect(repository.notice?.title == "日程保存失败") }
+            if stage == "accountChanged" { #expect(repository.persistenceSnapshot.lexueCalendarURL.isEmpty) }
+        }
     }
 
     @Test func ddlPreferencesUseSharedAccountRepository() async {

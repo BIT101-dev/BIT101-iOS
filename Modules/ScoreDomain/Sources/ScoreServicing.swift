@@ -16,11 +16,16 @@ public protocol ScoreListServicing {
 }
 
 public protocol TrustedTranscriptServicing {
+    var transcriptServiceIdentity: AnyHashable { get }
     func fetchTrustedTranscriptPages() async throws -> [Data]
     func submitTranscriptSMSCode(
         _ code: String,
         for challenge: BITLoginAuthenticationChallenge
     ) async throws -> [Data]
+}
+
+public extension TrustedTranscriptServicing where Self: AnyObject {
+    var transcriptServiceIdentity: AnyHashable { ObjectIdentifier(self) }
 }
 
 public enum ScoreServiceError: LocalizedError {
@@ -58,7 +63,14 @@ public protocol ScoreCaching: AnyObject {
     func loadSnapshot(for session: AppStorageSession?) async -> ScoreCacheSnapshot?
     func save(rows: [ScoreRow], for session: AppStorageSession?) async -> Date?
     func saveDetailed(rows: [ScoreRow], for session: AppStorageSession?) async -> Date?
-    func markChecked(for session: AppStorageSession?) async -> Date?
+}
+
+/// 云同步消费版本快照，并在写入时核对读取时的本地内容。
+@MainActor
+public protocol ScoreCacheSynchronizing: ScoreCaching {
+    var localSaves: AnyPublisher<AppStorageSession, Never> { get }
+    func syncPayload(for session: AppStorageSession?) async -> ScoreCacheSyncPayload?
+    func applySynced(_ payload: ScoreCacheSyncPayload, for session: AppStorageSession?, replacing expected: ScoreCacheSyncPayload?) async -> Bool
 }
 
 @MainActor

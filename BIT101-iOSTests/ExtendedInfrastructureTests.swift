@@ -30,6 +30,27 @@ struct ExtendedInfrastructureTests {
         #expect(result.contains("[REDACTED]"))
     }
 
+    @Test(arguments: [
+        #"<input id="login-page-flowkey" name="execution" value="SENSITIVE_VALUE">"#,
+        #"<input id="login-croypto" value='SENSITIVE_VALUE'>"#,
+        #"<input name=execution value=SENSITIVE_VALUE>"#,
+        #"<input value="SENSITIVE_VALUE>TAIL_VALUE" name="execution">"#,
+        #"<input name="execution" value="SENSITIVE_VALUE"#,
+        #"<textarea name="password">SENSITIVE_VALUE</textarea>"#,
+        #"<textarea name="password">SENSITIVE_VALUE"#,
+        #"{"\u0070assword":"SENSITIVE_VALUE"#,
+        #"{"access_token":{"value":"SENSITIVE_VALUE"},"status":"available"}"#,
+        #"{"captcha_payload":["SENSITIVE_VALUE"]}"#,
+        #"{"cookie_str":{"value":"SENSITIVE_VALUE"#
+    ])
+    func forcedRedactionCoversHTMLStructuredJSONAndTruncatedBodies(value: String) {
+        let result = ErrorReportRedactor.forced(value)
+        #expect(result.contains("SENSITIVE_VALUE") == false)
+        #expect(result.contains("TAIL_VALUE") == false)
+        #expect(result.contains("[REDACTED]"))
+        if value.contains("available") { #expect(result.contains("available")) }
+    }
+
     @Test("Sanitized redaction hides numeric student identifiers")
     func numericIdentifierRedaction() {
         let result = ErrorReportRedactor.sanitized("student_id=1120260001&status=401")
@@ -100,6 +121,19 @@ struct ExtendedInfrastructureTests {
 #endif
 
 @MainActor
+final class PreferenceMemoryScoreKeys: LoginCredentialsStoring {
+    var values: [String: String] = [:]
+    var allowsDeletion = true
+    func read(account: String) throws -> String { values[account] ?? "" }
+    func save(_ value: String, account: String) throws { values[account] = value }
+    func delete(account: String) -> Bool {
+        guard allowsDeletion else { return false }
+        values[account] = nil
+        return true
+    }
+}
+
+@MainActor
 @Suite("Experimental preference iCloud sync", .serialized)
 struct ExperimentalPreferenceCloudSyncTests {
     private let preferenceDomain = "BIT101Tests.preference-sync"
@@ -115,6 +149,9 @@ struct ExperimentalPreferenceCloudSyncTests {
 
     private final class MemoryCloud: PreferenceCloudStoring {
         var dictionaryRepresentation: [String: Any] = [:]
+        let scoreKeys = PreferenceMemoryScoreKeys()
+        var synchronizationSucceeds = true
+        var synchronizationCalls = 0
         var onSet: ((String) -> Void)?
         private var waiters: [String: CheckedContinuation<Void, Never>] = [:]
         func data(forKey key: String) -> Data? { dictionaryRepresentation[key] as? Data }
@@ -123,33 +160,96 @@ struct ExperimentalPreferenceCloudSyncTests {
             waiters.removeValue(forKey: key)?.resume()
             onSet?(key)
         }
-        func synchronize() -> Bool { true }
+        func synchronize() -> Bool { synchronizationCalls += 1; return synchronizationSucceeds }
         func waitForWrite(to key: String) async {
             if dictionaryRepresentation[key] != nil { return }
             await withCheckedContinuation { waiters[key] = $0 }
         }
     }
 
-    private func context(domain: String? = nil) throws -> (ExperimentalPreferenceCloudSync, UserDefaults, MemoryCloud, Account) {
+    private final class SuspendedScoreCache: ScoreCacheSynchronizing {
+        let saves = PassthroughSubject<AppStorageSession, Never>()
+        var localSaves: AnyPublisher<AppStorageSession, Never> { saves.eraseToAnyPublisher() }
+        var changes: AnyPublisher<AppStorageSession, Never> { Empty().eraseToAnyPublisher() }
+        var payload = ScoreCacheSyncPayload(rows: [ScoreRow(index: 0, headers: ["成绩"], values: ["80"])], updatedAt: nil, detailedUpdatedAt: nil)
+        var read: CheckedContinuation<ScoreCacheSyncPayload?, Never>?
+        var apply: CheckedContinuation<Void, Never>?
+        var suspendRead = true
+        var suspendApply = false
+        var applied = 0
+        func syncPayload(for session: AppStorageSession?) async -> ScoreCacheSyncPayload? {
+            if suspendRead { suspendRead = false; return await withCheckedContinuation { read = $0 } }
+            return payload
+        }
+        func applySynced(_ remote: ScoreCacheSyncPayload, for session: AppStorageSession?, replacing expected: ScoreCacheSyncPayload?) async -> Bool {
+            if suspendApply { suspendApply = false; await withCheckedContinuation { apply = $0 } }
+            guard payload == expected else { return false }
+            payload = remote; applied += 1; return true
+        }
+        func loadSnapshot(for session: AppStorageSession?) async -> ScoreCacheSnapshot? { nil }
+        func save(rows: [ScoreRow], for session: AppStorageSession?) async -> Date? { nil }
+        func saveDetailed(rows: [ScoreRow], for session: AppStorageSession?) async -> Date? { nil }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func scoreReconciliationPreservesSavesDuringReadsAndRemoteApplies(remoteApply: Bool) async throws {
+        let cache = SuspendedScoreCache()
+        cache.suspendRead = !remoteApply
+        cache.suspendApply = remoteApply
+        let (sync, defaults, cloud, account) = try context(scoreCache: cache, synchronizedDomains: [.scoreCache])
+        defer { defaults.removePersistentDomain(forName: preferenceDomain) }
+        let old = cache.payload
+        let recordKey = key(.scoreCache, account: account)
+        if remoteApply {
+            cloud.set(try ScoreCacheSyncPayloadCodec.encode(ExperimentalPreferenceSyncEnvelope(
+                updatedAt: Date(timeIntervalSince1970: 200), payload: old)), forKey: recordKey)
+        }
+        sync.localValueDidChange(in: .scoreCache)
+        if remoteApply {
+            // 远端版本高于已记录的本地版本，协调进入挂起的应用阶段。
+            cloud.set(try ScoreCacheSyncPayloadCodec.encode(ExperimentalPreferenceSyncEnvelope(
+                updatedAt: Date.distantFuture, payload: old)), forKey: recordKey)
+        }
+        let task = sync.refreshFromCloudIfNeeded()
+        while remoteApply ? cache.apply == nil : cache.read == nil { await Task.yield() }
+        cache.payload = ScoreCacheSyncPayload(rows: [ScoreRow(index: 0, headers: ["成绩"], values: ["95"])],
+            updatedAt: Date(), detailedUpdatedAt: nil)
+        cache.saves.send(account.session)
+        if remoteApply { cache.apply?.resume() } else { cache.read?.resume(returning: old) }
+        await task?.value
+        let uploaded = try sync.decodeScoreCloudEnvelope(ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload>.self,
+            from: #require(cloud.data(forKey: recordKey)))
+        #expect(uploaded.payload == cache.payload)
+        #expect(uploaded.payload.rows.first?.values.first?.value == "95")
+        #expect(cache.applied == 0)
+        let versionKey = "experimental.preference-cloud-sync.local-updated.\(account.session.accountStorageIdentifier).\(ExperimentalPreferenceSyncDomain.scoreCache.rawValue)"
+        let recordedVersion = try #require(defaults.object(forKey: versionKey) as? Date)
+        #expect(uploaded.updatedAt == recordedVersion)
+    }
+
+    private func context(domain: String? = nil, files: PreferenceMemoryFiles = PreferenceMemoryFiles(),
+        scoreCache: (any ScoreCacheSynchronizing)? = nil,
+        synchronizedDomains: Set<ExperimentalPreferenceSyncDomain> = Set(ExperimentalPreferenceSyncDomain.allCases)) throws -> (ExperimentalPreferenceCloudSync, UserDefaults, MemoryCloud, Account) {
         let domain = domain ?? preferenceDomain
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
         let account = Account()
         let center = NotificationCenter()
-        let files = PreferenceMemoryFiles()
         let root = URL(fileURLWithPath: "/preference-sync")
         let settings = AppSettingsStore(defaults: defaults, session: { account.session })
         let stores = AppAccountStores(
             communityMessages: GalleryMessageReadStore(defaults: defaults, session: { account.session }),
             composerDrafts: ComposerDraftStore(files: files, applicationSupport: root, session: { account.session }, prepareImageData: ComposerDraftImageCompressor.compress),
-            scoreCache: ScoreCacheStore(files: files, storageRoot: root, defaults: defaults, session: { account.session }),
+            scoreCache: scoreCache ?? ScoreCacheStore(files: files, storageRoot: root, defaults: defaults, session: { account.session }),
             scoreFilterPreferences: ScoreFilterPreferenceStore(defaults: defaults, session: { account.session }),
             currentSession: { account.session }, scoreSession: { account.session }
         )
         defaults.set(true, forKey: "experimental.preference-cloud-sync.enabled.\(account.session.accountStorageIdentifier)")
         let cloud = MemoryCloud()
         let sync = ExperimentalPreferenceCloudSync(
-            settings: settings, stores: stores, defaults: defaults, cloudStore: cloud, notificationCenter: center
+            settings: settings, stores: stores, defaults: defaults, cloudStore: cloud,
+            scoreEncryption: ScoreCacheSyncEncryption(defaults: defaults, credentials: cloud.scoreKeys),
+            synchronizedDomains: synchronizedDomains, notificationCenter: center
         )
         return (sync, defaults, cloud, account)
     }
@@ -195,6 +295,7 @@ struct ExperimentalPreferenceCloudSyncTests {
         func data(for request: URLRequest) async throws -> (Data, URLResponse) { throw URLError(.notConnectedToInternet) }
     }
     private struct OfflineScoreService: ScoreListServicing, TrustedTranscriptServicing {
+        let transcriptServiceIdentity: AnyHashable = UUID()
         func startScoreChallenge() async throws -> BITLoginAuthenticationChallenge { throw URLError(.notConnectedToInternet) }
         func fetchScores(detail: Bool, authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> [ScoreRow] { [] }
         func submitScoreSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
@@ -266,6 +367,27 @@ struct ExperimentalPreferenceCloudSyncTests {
         "preference-sync.v2.\(account.session.accountDirectoryName).\(domain.rawValue)"
     }
 
+    @Test(.timeLimit(.minutes(1))) func lifecycleRestoresEnabledPreferencesAtLaunchAndForeground() async throws {
+        let (sync, defaults, cloud, account) = try context(synchronizedDomains: [.appSettings])
+        defer { defaults.removePersistentDomain(forName: preferenceDomain) }
+        let owner = lifecycle(sync: sync, account: account, displays: ExternalDisplays())
+        let recordKey = key(.appSettings, account: account)
+        owner.start()
+        #expect(cloud.synchronizationCalls == 1)
+        await cloud.waitForWrite(to: recordKey)
+        #expect(cloud.data(forKey: recordKey) != nil)
+        cloud.set(nil, forKey: recordKey)
+        let foregroundCalls = cloud.synchronizationCalls
+        owner.sceneBecameActive()
+        #expect(cloud.synchronizationCalls == foregroundCalls + 1)
+        await cloud.waitForWrite(to: recordKey)
+        #expect(cloud.data(forKey: recordKey) != nil)
+        sync.setEnabled(false)
+        let calls = cloud.synchronizationCalls
+        owner.sceneBecameActive()
+        #expect(cloud.synchronizationCalls == calls)
+    }
+
     @Test(.timeLimit(.minutes(1))) func guestPreferenceSwitchAndRevisionSurviveReload() async throws {
         let (sync, defaults, cloud, account) = try context()
         defer { defaults.removePersistentDomain(forName: preferenceDomain) }
@@ -294,7 +416,9 @@ struct ExperimentalPreferenceCloudSyncTests {
         defer { defaults.removePersistentDomain(forName: preferenceDomain) }
         let secondCloud = MemoryCloud()
         let second = ExperimentalPreferenceCloudSync(settings: first.settings, stores: first.stores,
-            defaults: defaults, cloudStore: secondCloud, notificationCenter: NotificationCenter())
+            defaults: defaults, cloudStore: secondCloud,
+            scoreEncryption: ScoreCacheSyncEncryption(defaults: defaults, credentials: secondCloud.scoreKeys),
+            notificationCenter: NotificationCenter())
         first.settings.updateGallerySettings(hiddenUserIDs: [42])
         let recordKey = key(.appSettings, account: account)
         #expect(firstCloud.data(forKey: recordKey) != nil)
@@ -322,9 +446,9 @@ struct ExperimentalPreferenceCloudSyncTests {
         sync.stores.communityMessages.markSeen(ids: [42], for: .comment)
         #expect(cloud.data(forKey: key(.galleryMessageRead, account: account)) != nil)
         let rows = [ScoreRow(index: 0, headers: ["课程名称", "成绩"], values: ["注入课程", "95"])]
-        _ = try #require(await sync.stores.scoreCache.save(rows: rows))
+        _ = try #require(await sync.stores.scoreCache.save(rows: rows, for: nil))
         await cloud.waitForWrite(to: key(.scoreCache, account: account))
-        let scores = try ScoreCacheSyncPayloadCodec.decode(
+        let scores = try sync.decodeScoreCloudEnvelope(
             ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload>.self,
             from: try #require(cloud.data(forKey: key(.scoreCache, account: account)))
         )
@@ -348,6 +472,53 @@ struct ExperimentalPreferenceCloudSyncTests {
         #expect(sync.settings.galleryHideAnonymousContent)
         let restored = AppSettingsStore(defaults: defaults, session: { account.session })
         #expect(restored.galleryHiddenUserIDs == [73])
+    }
+
+    @Test(.timeLimit(.minutes(1))) func disablingSyncDuringScoreReadKeepsTheCloudRecordUnchanged() async throws {
+        let files = PreferenceMemoryFiles()
+        let (sync, defaults, cloud, account) = try context(files: files)
+        defer { defaults.removePersistentDomain(forName: preferenceDomain) }
+        let rows = [ScoreRow(index: 0, headers: ["课程名称", "成绩"], values: ["课程", "95"])]
+        _ = try #require(await sync.stores.scoreCache.save(rows: rows, for: nil))
+        await sync.refreshFromCloudIfNeeded()?.value
+        let recordKey = key(.scoreCache, account: account)
+        let original = try #require(cloud.data(forKey: recordKey))
+        let release = DispatchSemaphore(value: 0)
+        var task: Task<Void, Never>?
+        await withCheckedContinuation { started in
+            files.interceptNextRead { started.resume(); release.wait() }
+            sync.localValueDidChange(in: .scoreCache)
+            task = sync.refreshFromCloudIfNeeded()
+        }
+        sync.setEnabled(false)
+        release.signal()
+        await task?.value
+        #expect(cloud.data(forKey: recordKey) == original)
+        #expect(sync.isEnabled == false)
+        sync.setEnabled(true)
+        await sync.refreshFromCloudIfNeeded()?.value
+        let restored = try sync.decodeScoreCloudEnvelope(ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload>.self,
+            from: #require(cloud.data(forKey: recordKey)))
+        #expect(restored.payload.rows.map(\.id) == rows.map(\.id))
+    }
+
+    @Test func rawCourseCaptureBelongsToTheSelectedSmokeService() {
+        let smoke = ScheduleServiceFactory.make(rawCourseResponseHandler: { _ in })
+        #expect(smoke.rawCourseResponseHandler != nil)
+        #expect(ScheduleServiceFactory.make().rawCourseResponseHandler == nil)
+    }
+
+    @Test func selectedScoreDomainOwnsAllSyncWritesAndKeepsOtherPreferencesLocal() async throws {
+        let (sync, defaults, cloud, account) = try context(synchronizedDomains: [.scoreCache])
+        defer { defaults.removePersistentDomain(forName: preferenceDomain) }
+        sync.settings.updateGallerySettings(hiddenUserIDs: [42])
+        sync.stores.scoreFilterPreferences.save(selectedTerms: ["term"], selectedCourseTypes: [], sortIndex: .score, sortOrder: .descending)
+        sync.stores.communityMessages.markSeen(ids: [42], for: .comment)
+        await sync.refreshFromCloudIfNeeded()?.value
+        #expect(Set(cloud.dictionaryRepresentation.keys) == [key(.scoreCache, account: account)])
+        #expect(defaults.object(forKey: "experimental.preference-cloud-sync.local-envelope.\(account.session.accountStorageIdentifier).app-settings") == nil)
+        #expect(sync.settings.galleryHiddenUserIDs == [42])
+        #expect(sync.stores.scoreFilterPreferences.load()?.selectedTerms == ["term"])
     }
 
     @Test(.timeLimit(.minutes(1))) func cancelledReconciliationPreservesTheNewAccountQueue() async throws {
@@ -398,6 +569,116 @@ struct ExperimentalPreferenceCloudSyncTests {
         #expect(cloud.data(forKey: key(.appSettings, account: account)) == nil)
         let restored = AppSettingsStore(defaults: defaults, session: { account.session })
         #expect(restored.galleryHiddenUserIDs == [99])
+    }
+
+    @Test func scoreEncryptionAuthenticatesAccountAndSurvivesIndependentWriters() throws {
+        let first = try #require(UserDefaults(suiteName: preferenceDomain))
+        let secondDomain = preferenceDomain + ".keys"
+        let second = try #require(UserDefaults(suiteName: secondDomain))
+        first.removePersistentDomain(forName: preferenceDomain)
+        second.removePersistentDomain(forName: secondDomain)
+        defer {
+            first.removePersistentDomain(forName: preferenceDomain)
+            second.removePersistentDomain(forName: secondDomain)
+        }
+        let keys = PreferenceMemoryScoreKeys()
+        let phone = ScoreCacheSyncEncryption(defaults: first, credentials: keys)
+        let mac = ScoreCacheSyncEncryption(defaults: second, credentials: keys)
+        let clear = Data("课程名称：功能验收；成绩：95".utf8)
+        let phoneRecord = try phone.seal(clear, account: "account")
+        let macRecord = try mac.seal(clear, account: "account")
+        #expect(ScoreCacheSyncEncryption.isEncrypted(phoneRecord))
+        #expect(phoneRecord.range(of: clear) == nil)
+        #expect(keys.values.count == 2)
+        #expect(try mac.open(phoneRecord, account: "account") == clear)
+        #expect(try phone.open(macRecord, account: "account") == clear)
+        var damaged = phoneRecord
+        damaged[damaged.count - 1] ^= 1
+        #expect(throws: (any Error).self) { try mac.open(damaged, account: "account") }
+        #expect(throws: (any Error).self) { try mac.open(phoneRecord, account: "other-account") }
+        #expect(throws: (any Error).self) { try mac.open(Data(phoneRecord.prefix(20)), account: "account") }
+        keys.allowsDeletion = false
+        #expect(phone.removeActiveKey(account: "account") == false)
+        #expect(keys.values.count == 2)
+        #expect(try mac.open(phoneRecord, account: "account") == clear)
+        _ = try phone.seal(clear, account: "account")
+        #expect(keys.values.count == 2)
+        keys.allowsDeletion = true
+        #expect(phone.removeActiveKey(account: "account"))
+        #expect(keys.values.count == 1)
+        #expect(throws: ScoreSyncEncryptionError.self) { try mac.open(phoneRecord, account: "account") }
+        #expect(try phone.open(macRecord, account: "account") == clear)
+    }
+
+    @Test func authoritativeEmptyScoreQueryClearsTheReceivingStoreAndAdvancesItsCloudVersion() async throws {
+        let senderDomain = preferenceDomain + ".sender"
+        let (sender, senderDefaults, senderCloud, senderAccount) = try context(domain: senderDomain, synchronizedDomains: [.scoreCache])
+        let (receiver, receiverDefaults, receiverCloud, receiverAccount) = try context(synchronizedDomains: [.scoreCache])
+        defer {
+            senderDefaults.removePersistentDomain(forName: senderDomain)
+            receiverDefaults.removePersistentDomain(forName: preferenceDomain)
+        }
+        let old = ScoreCacheSyncPayload(rows: [ScoreRow(index: 0, headers: ["成绩"], values: ["95"])],
+            updatedAt: Date(timeIntervalSince1970: 100), detailedUpdatedAt: nil)
+        #expect(await receiver.stores.scoreCache.applySynced(old, for: nil, replacing: nil))
+        await receiver.refreshFromCloudIfNeeded()?.value
+        await sender.refreshFromCloudIfNeeded()?.value
+        #expect(await sender.stores.scoreCache.saveDetailed(rows: [], for: nil) != nil)
+        await sender.refreshFromCloudIfNeeded()?.value
+        let payload = try #require(await sender.stores.scoreCache.syncPayload(for: nil))
+        #expect(payload.rows.isEmpty && payload.updatedAt != nil && payload.detailedUpdatedAt != nil)
+        let encrypted = try #require(senderCloud.data(forKey: key(.scoreCache, account: senderAccount)))
+        #expect(ScoreCacheSyncEncryption.isEncrypted(encrypted))
+        receiverCloud.scoreKeys.values = senderCloud.scoreKeys.values
+        receiverCloud.set(encrypted, forKey: key(.scoreCache, account: receiverAccount))
+        await receiver.refreshFromCloudIfNeeded()?.value
+        #expect(await receiver.stores.scoreCache.syncPayload(for: nil) == payload)
+        let envelope = try sender.decodeScoreCloudEnvelope(ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload>.self, from: encrypted)
+        let versionKey = "experimental.preference-cloud-sync.local-updated.\(receiverAccount.session.accountStorageIdentifier).\(ExperimentalPreferenceSyncDomain.scoreCache.rawValue)"
+        #expect(receiverDefaults.object(forKey: versionKey) as? Date == envelope.updatedAt)
+        await receiver.refreshFromCloudIfNeeded()?.value
+        #expect(await receiver.stores.scoreCache.syncPayload(for: nil) == payload)
+    }
+
+    @Test func plaintextScoreMigrationAndDelayedKeyKeepPayloadReadable() async throws {
+        let (sync, defaults, cloud, account) = try context(synchronizedDomains: [.scoreCache])
+        defer { defaults.removePersistentDomain(forName: preferenceDomain) }
+        let recordKey = key(.scoreCache, account: account)
+        let payload = ScoreCacheSyncPayload(rows: [ScoreRow(index: 0, headers: ["成绩"], values: ["95"])],
+            updatedAt: Date(timeIntervalSince1970: 200), detailedUpdatedAt: nil)
+        let clear = try ScoreCacheSyncPayloadCodec.encode(ExperimentalPreferenceSyncEnvelope(
+            updatedAt: Date(timeIntervalSince1970: 200), payload: payload))
+        cloud.set(clear, forKey: recordKey)
+        await sync.refreshFromCloudIfNeeded()?.value
+        let encrypted = try #require(cloud.data(forKey: recordKey))
+        #expect(ScoreCacheSyncEncryption.isEncrypted(encrypted))
+        #expect(await sync.stores.scoreCache.syncPayload(for: nil) == payload)
+        let savedKeys = cloud.scoreKeys.values
+        cloud.scoreKeys.values = [:]
+        await sync.refreshFromCloudIfNeeded()?.value
+        #expect(sync.syncIssue?.contains("钥匙串") == true)
+        #expect(cloud.data(forKey: recordKey) == encrypted)
+        #expect(await sync.stores.scoreCache.syncPayload(for: nil) == payload)
+        cloud.scoreKeys.values = savedKeys
+        await sync.refreshFromCloudIfNeeded()?.value
+        #expect(sync.syncIssue == nil)
+        #expect(try sync.decodeScoreCloudEnvelope(ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload>.self,
+            from: encrypted).payload == payload)
+    }
+
+    @Test func failedCloudSynchronizationRetainsLocalChangesAndReportsUntilRetry() async throws {
+        let (sync, defaults, cloud, account) = try context(synchronizedDomains: [.appSettings])
+        defer { defaults.removePersistentDomain(forName: preferenceDomain) }
+        cloud.synchronizationSucceeds = false
+        sync.settings.updateGallerySettings(hiddenUserIDs: [42])
+        await sync.refreshFromCloudIfNeeded()?.value
+        #expect(sync.syncIssue?.contains("同步暂时失败") == true)
+        #expect(sync.settings.galleryHiddenUserIDs == [42])
+        #expect(cloud.data(forKey: key(.appSettings, account: account)) != nil)
+        cloud.synchronizationSucceeds = true
+        await sync.refreshFromCloudIfNeeded()?.value
+        #expect(sync.syncIssue == nil)
+        #expect(sync.settings.galleryHiddenUserIDs == [42])
     }
 
     @Test("Independent domain timestamps choose the newest value")

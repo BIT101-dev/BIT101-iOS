@@ -125,6 +125,7 @@ struct AppShellView: View {
     @State private var requestedCourse: CourseNavigationRequest?
     @State private var requestedMapLocation: CampusMapLocationRequest?
     @State private var didEnqueueStartupPrompts = false
+    @State private var notificationPromptTask: Task<Void, Never>?
 
     /// 登录后的应用壳层主体。
     ///
@@ -151,10 +152,12 @@ struct AppShellView: View {
                             })
                         )
                     case .map:
-                        CampusMapScreen(
-                            nextCourseTarget: UpcomingCourseMapResolver.nextTarget(in: scheduleViewModel.courseSnapshot),
-                            requestedLocation: requestedMapLocation
-                        )
+                        TimelineView(.everyMinute) { context in
+                            CampusMapScreen(
+                                nextCourseTarget: UpcomingCourseMapResolver.nextTarget(in: scheduleViewModel.courseSnapshot, now: context.date),
+                                requestedLocation: requestedMapLocation
+                            )
+                        }
                         .task { await scheduleViewModel.loadIfNeeded() }
                     case .score:
                         ScoreRootView(courses: community.course, transcriptService: transcriptService, requestedCourse: $requestedCourse)
@@ -192,8 +195,12 @@ struct AppShellView: View {
             enqueueStartupPromptsIfNeeded()
         }
         .onChange(of: scenePhase) { _, newPhase in
-            guard newPhase == .active else { return }
+            guard newPhase == .active else { notificationPromptTask?.cancel(); return }
             refreshScheduleNotificationPromptIfNeeded()
+        }
+        .onDisappear {
+            notificationPromptTask?.cancel()
+            notificationPromptTask = nil
         }
         .onReceive(ScheduleCacheStore.changes) { _ in
             refreshScheduleNotificationPromptIfNeeded()
@@ -225,19 +232,6 @@ struct AppShellView: View {
     ///
     /// 同时接收 `bit101://` 内部链接和 `https://open.aihelpme.dev` Universal Link。
     private func handleIncomingURL(_ url: URL) {
-        #if DEBUG || RELEASE_NETWORK_SMOKE
-        if let smokeRequest = ReleaseNetworkSmokeLaunchRequest(url: url) {
-            Task {
-                _ = await ReleaseNetworkSmokeRunner().run(
-                    scope: smokeRequest.scope,
-                    runID: smokeRequest.runID,
-                    capture: smokeRequest.capture
-                )
-            }
-            return
-        }
-
-        #endif
         guard let route = AppDeepLinkRoute(url: url) else { return }
 
         switch route {
@@ -268,11 +262,13 @@ struct AppShellView: View {
 #if BIT101_UI_TESTING
         guard !AppFileDirectories.isRunningUITest else { return }
 #endif
-        Task {
+        notificationPromptTask?.cancel()
+        let owner = AppAccountSession.storage.schoolSessionIdentity
+        notificationPromptTask = Task {
             let authorizationState = await ScheduleLiveActivityManager.shared.notificationAuthorizationStateForReminderFallback()
-            guard authorizationState == .denied else { return }
-
             await MainActor.run {
+                guard !Task.isCancelled, owner == AppAccountSession.storage.schoolSessionIdentity,
+                      authorizationState == .denied else { return }
                 enqueueScheduleNotificationPrompt()
             }
         }

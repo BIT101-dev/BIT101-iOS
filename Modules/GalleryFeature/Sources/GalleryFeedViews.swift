@@ -13,6 +13,7 @@ import DesignSystemKit
 import SwiftUI
 
 struct GalleryFeedView: View {
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     @Environment(GalleryDependencies.self) private var dependencies
     @Environment(MediaEnvironment.self) private var media
     @Environment(CommunityProfileDestination.self) private var profiles
@@ -20,6 +21,7 @@ struct GalleryFeedView: View {
     let feedIdentity: String
     let prefetchTriggerThreshold: Int
     let onRefresh: () -> Void
+    let onPullToRefresh: () async -> Void
     let onPrefetch: (CommunityPoster?) -> Void
     let onLoadMore: (CommunityPoster?) -> Void
     @State private var selectedPoster: CommunityPoster?
@@ -92,8 +94,10 @@ struct GalleryFeedView: View {
             .background(AppDesignSystem.Palette.Background.grouped)
             .id(feedIdentity)
             .refreshable {
+                    interactionEvidence?("interaction.GalleryFeedView.refreshable", "refresh")
+
                 pendingRestorePosterID = currentTopPosterID ?? visiblePosters.first?.id
-                onRefresh()
+                await onPullToRefresh()
             }
             .onChange(of: visiblePosterIDs) { _, newIDs in
                 restoreScrollPositionIfNeeded(with: proxy, availableIDs: newIDs)

@@ -4,6 +4,7 @@ import DesignSystemKit
 import SwiftUI
 
 public struct ScheduleTermPickerPage: View {
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     @ObservedObject var viewModel: ScheduleViewModel
     @State private var selectionFeedbackToken = 0
 
@@ -39,6 +40,7 @@ public struct ScheduleTermPickerPage: View {
                         }
                         .disabled(viewModel.isSyncingCourses || viewModel.isLoadingTerms || viewModel.settingsSnapshot.currentTerm == term)
                         .appInteractiveListRow()
+                            .accessibilityIdentifier("ui.schedule-term-picker-page.term")
                     }
                 }
             }
@@ -51,6 +53,8 @@ public struct ScheduleTermPickerPage: View {
             await viewModel.loadAvailableTerms()
         }
         .refreshable {
+                    interactionEvidence?("interaction.ScheduleTermPickerPage.refreshable", "refresh")
+
             await viewModel.loadAvailableTerms()
         }
     }
@@ -89,6 +93,7 @@ public struct ScheduleSemesterStartDatePickerPage: View {
             .environment(\.calendar, ScheduleDateCodec.calendar)
             .environment(\.timeZone, ScheduleDateCodec.calendar.timeZone)
             .appSelectionFeedback(trigger: draftDate)
+                .accessibilityIdentifier("ui.schedule-semester-start-date-picker-page.学期起始日期")
 
             if let schoolDate {
                 Button("使用学校日期") {
@@ -104,12 +109,14 @@ public struct ScheduleSemesterStartDatePickerPage: View {
                 Button("取消") {
                     dismiss()
                 }
+                    .accessibilityIdentifier("ui.schedule-semester-start-date-picker-page.cancel")
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("完成") {
                     onSubmit(usesSchoolDate ? nil : draftDate)
                     dismiss()
                 }
+                    .accessibilityIdentifier("ui.schedule-semester-start-date-picker-page.done")
             }
         }
     }
@@ -144,14 +151,17 @@ public struct CourseLiveActivityLeadMinutesPickerPage: View {
                 Button("取消") {
                     dismiss()
                 }
+                    .accessibilityIdentifier("ui.course-live-activity-lead-minutes-picker-page.cancel")
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("完成") {
                     value = draftValue
                     dismiss()
                 }
+                    .accessibilityIdentifier("ui.course-live-activity-lead-minutes-picker-page.done")
             }
         }
+            .accessibilityIdentifier("ui.course-live-activity-lead-minutes-picker-page.提前显示阈值")
     }
 }
 
@@ -194,14 +204,17 @@ public struct ScheduleExportCodeSheet: View {
                     Button("取消") {
                         dismiss()
                     }
+                        .accessibilityIdentifier("ui.schedule-export-code-sheet.cancel")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     ShareLink(item: code)
+                        .accessibilityIdentifier("schedule.share-code")
                         .accessibilityIdentifier("schedule.export.share")
                 }
             }
             .alert("已复制", isPresented: $didCopy) {
                 Button("知道了", role: .cancel) {}
+                    .accessibilityIdentifier("ui.schedule-export-code-sheet.知道了")
             } message: {
                 Text("课表已复制到剪贴板。")
             }
@@ -287,6 +300,7 @@ public struct ScheduleImportCodeSheet: View {
                     Button("取消") {
                         dismiss()
                     }
+                        .accessibilityIdentifier("schedule.import-code.cancel")
                 }
             }
             .diagnosticAlert(item: $localAlert)
@@ -302,6 +316,7 @@ public struct ScheduleImportCodeSheet: View {
                 }
                 .keyboardShortcut(.defaultAction)
                 Button("取消", role: .cancel) {}
+                    .accessibilityIdentifier("schedule.import-upgrade.cancel")
             } message: {
                 Text("该课表使用 BIT101SCH\(unsupportedFormatVersion ?? 0) 格式，请更新 BIT101 后再导入。")
             }
@@ -342,6 +357,7 @@ public struct ScheduleRenameSheet: View {
                     Button("取消") {
                         dismiss()
                     }
+                        .accessibilityIdentifier("ui.schedule-rename-sheet.cancel")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("确定") {
@@ -352,6 +368,7 @@ public struct ScheduleRenameSheet: View {
                             localAlert = AppAlert.userInput(title: "保存失败", message: error.localizedDescription)
                         }
                     }
+                        .accessibilityIdentifier("ui.schedule-rename-sheet.confirm")
                 }
             }
             .diagnosticAlert(item: $localAlert)

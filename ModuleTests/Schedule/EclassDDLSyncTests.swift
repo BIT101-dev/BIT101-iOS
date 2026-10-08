@@ -19,10 +19,30 @@ struct EclassDDLSyncTests {
             load: { _ in .loaded(cache) }, save: { _, _, _ in })
         let model = ScheduleDDLViewModel(service: Service(payload: DDLSyncPayload(url: "", events: [])), repository: repository)
         await repository.loadIfNeeded()
-        #expect(model.visibleDDLEvents.isEmpty)
+        #expect(model.visibleDDLEvents().isEmpty)
         #expect(model.ddlEmptyStateMessage.contains("1 条日程"))
         model.setDDLAfterDay(7)
-        #expect(model.visibleDDLEvents.map(\.id) == ["eclass:overdue"])
+        #expect(model.visibleDDLEvents().map(\.id) == ["eclass:overdue"])
+    }
+
+    @Test func advancingTheClockUpdatesCountdownTintAndRetention() async {
+        var cache = ScheduleCache()
+        var deadline = event("manual", group: "main")
+        deadline.dueAt = Date(timeIntervalSince1970: 1000)
+        cache.ddlEvents = [deadline]
+        cache.ddlBeforeDay = 1
+        cache.ddlAfterDay = 0
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "clock") },
+            load: { _ in .loaded(cache) }, save: { _, _, _ in })
+        let model = ScheduleDDLViewModel(service: Service(payload: DDLSyncPayload(url: "", events: [])), repository: repository)
+        await repository.loadIfNeeded()
+        let before = deadline.dueAt.addingTimeInterval(-30), after = deadline.dueAt.addingTimeInterval(30)
+        #expect(model.ddlRemainingText(for: deadline, now: before) == "剩余 0分钟")
+        #expect(model.ddlRemainingText(for: deadline, now: after) == "已过 0分钟")
+        #expect(model.ddlTint(for: deadline, now: before) == "orange")
+        #expect(model.ddlTint(for: deadline, now: after) == "red")
+        #expect(model.visibleDDLEvents(at: before).map(\.id) == [deadline.id])
+        #expect(model.visibleDDLEvents(at: after).isEmpty)
     }
 
     @Test func mergingBothSourcesKeepsCompletionManualItemsAndUniqueIDs() {
@@ -46,7 +66,7 @@ struct EclassDDLSyncTests {
 
     @Test func completedEclassStatePersistsAcrossEmptyAndRestoredSnapshots() async {
         var cache = ScheduleCache()
-        cache.ddlEvents = [event("eclass:1", group: "eclass", done: true), event("manual", group: "main")]
+        cache.ddlEvents = [event("eclass:1", group: "eclass", done: true), event("eclass:2", group: "eclass"), event("manual", group: "main")]
         var saved: ScheduleCache?
         let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "eclass") },
             load: { _ in .loaded(cache) }, save: { value, _, _ in saved = value })
@@ -56,9 +76,18 @@ struct EclassDDLSyncTests {
         #expect(await model.syncDDL())
         #expect(saved?.ddlEvents.map(\.id) == ["manual"])
         #expect(saved?.lexueDDLCompletionByID["eclass:1"] == true)
-        service.payload = DDLSyncPayload(url: "", events: [event("eclass:1", group: "eclass")], syncedGroups: ["eclass"])
+        #expect(saved?.lexueDDLCompletionByID.count == 1)
+        service.payload = DDLSyncPayload(url: "", events: (1...100).map { event("eclass:\($0)", group: "eclass") }, syncedGroups: ["eclass"])
         #expect(await model.syncDDL())
         #expect(saved?.ddlEvents.first(where: { $0.id == "eclass:1" })?.done == true)
+        #expect(saved?.lexueDDLCompletionByID.count == 1)
+        model.toggleDDLDone(model.cache.ddlEvents.first(where: { $0.id == "eclass:1" }) ?? event("eclass:1", group: "eclass"))
+        service.payload = DDLSyncPayload(url: "", events: [], syncedGroups: ["eclass"])
+        #expect(await model.syncDDL())
+        #expect(saved?.lexueDDLCompletionByID == ["eclass:1": false])
+        service.payload = DDLSyncPayload(url: "", events: [event("eclass:1", group: "eclass")], syncedGroups: ["eclass"])
+        #expect(await model.syncDDL())
+        #expect(saved?.ddlEvents.first(where: { $0.id == "eclass:1" })?.done == false)
     }
 
     @Test func sourceFailurePreservesTheOwnedCacheAndUpdateTime() async {

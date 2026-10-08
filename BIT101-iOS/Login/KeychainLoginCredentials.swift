@@ -6,14 +6,23 @@ import Security
 final class KeychainLoginCredentials: LoginCredentialsStoring {
     private static let logger = Logger(subsystem: "BIT101", category: "LoginKeychain")
     private let service: String
+    private let synchronizable: Bool
 
-    init(service: String) { self.service = service }
+    init(service: String, synchronizable: Bool = false) {
+        self.service = service
+        self.synchronizable = synchronizable
+    }
+
+    private var accessibility: CFString {
+        synchronizable ? kSecAttrAccessibleAfterFirstUnlock : kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    }
 
     @discardableResult
     func deleteAll() -> Bool {
         Self.keychainDeleteSucceeded(status: SecItemDelete([
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+                kSecAttrService as String: service,
+                kSecAttrSynchronizable as String: synchronizable,
         ] as CFDictionary))
     }
 
@@ -25,7 +34,7 @@ final class KeychainLoginCredentials: LoginCredentialsStoring {
             query as CFDictionary,
             [
                 kSecValueData as String: data,
-                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+                kSecAttrAccessible as String: accessibility,
             ] as CFDictionary
         )
         if updateStatus == errSecSuccess {
@@ -38,7 +47,7 @@ final class KeychainLoginCredentials: LoginCredentialsStoring {
 
         var addQuery = query
         addQuery[kSecValueData as String] = data
-        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        addQuery[kSecAttrAccessible as String] = accessibility
         let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
         guard addStatus == errSecSuccess else {
             throw LoginServiceError.keychainWriteFailed(addStatus)
@@ -91,6 +100,7 @@ final class KeychainLoginCredentials: LoginCredentialsStoring {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
+            kSecAttrSynchronizable as String: synchronizable,
         ]
     }
 }

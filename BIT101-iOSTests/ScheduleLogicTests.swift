@@ -22,6 +22,24 @@ private func shanghaiDate(_ year: Int, _ month: Int, _ day: Int) -> Date {
 
 @Suite("System calendar schedule export")
 struct ScheduleSystemCalendarEventBuilderTests {
+    @Test("Calendar export applies the shared week bounds before date arithmetic")
+    func calendarExportKeepsValidWeekBoundaries() throws {
+        let original = try #require(ScheduleCourseEditor.adding(
+            CourseDraft(title: "周次边界", weekday: 1, startSection: 1, endSection: 1, weeksText: "1"),
+            to: [], term: "2026-2027-1", id: "boundary"
+        ).first)
+        var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any])
+        object["weeks"] = [Int.min, -54, -53, -1, 0, 1, 53, 54, Int.max]
+        let course = try JSONDecoder().decode(CourseRecord.self, from: JSONSerialization.data(withJSONObject: object))
+        let drafts = ScheduleSystemCalendarEventBuilder.makeDrafts(
+            courses: [course], firstDay: shanghaiDate(2026, 9, 7), timeTable: TimeSlot.default
+        )
+        #expect(drafts.map(\.markerID) == ["boundary-w-53", "boundary-w-1", "boundary-w1", "boundary-w53"])
+        #expect(drafts.map { ScheduleDateCodec.formatDate($0.startDate) } == [
+            "2025-09-01", "2026-08-31", "2026-09-07", "2027-09-06"
+        ])
+    }
+
     @Test("Course weeks expand into exact class dates and timetable bounds")
     func expandsCourseOccurrences() throws {
         let course = CourseRecord(
@@ -399,62 +417,6 @@ struct CourseLookupMatcherTests {
     }
 }
 
-@Suite("Academic term policy")
-struct AcademicTermPolicyTests {
-    @Test("Adjacent terms follow the March and September fallback boundaries")
-    func adjacentTermPairs() {
-        #expect(AcademicTermPolicy.adjacentTerms(on: shanghaiDate(2026, 2, 28)) == [
-            "2025-2026-1", "2025-2026-2",
-        ])
-        #expect(AcademicTermPolicy.adjacentTerms(on: shanghaiDate(2026, 3, 1)) == [
-            "2025-2026-2", "2026-2027-1",
-        ])
-        #expect(AcademicTermPolicy.adjacentTerms(on: shanghaiDate(2026, 9, 1)) == [
-            "2026-2027-1", "2026-2027-2",
-        ])
-    }
-
-    @Test("Vacation suppresses teaching resources and ends on the next first week")
-    func academicActivityPhase() {
-        let cache = makeSpringToFallCache()
-        #expect(AcademicTermPolicy.activityPhase(
-            cache: cache,
-            on: shanghaiDate(2026, 6, 21)
-        ) == .teaching)
-        #expect(AcademicTermPolicy.activityPhase(
-            cache: cache,
-            on: shanghaiDate(2026, 6, 22)
-        ) == .vacation)
-        #expect(AcademicTermPolicy.activityPhase(
-            cache: cache,
-            on: shanghaiDate(2026, 8, 30)
-        ) == .vacation)
-        #expect(AcademicTermPolicy.activityPhase(
-            cache: cache,
-            on: shanghaiDate(2026, 8, 31)
-        ) == .teaching)
-    }
-
-    private func makeSpringToFallCache() -> ScheduleCache {
-        var cache = ScheduleCache()
-        cache.courseData.store(TermScheduleSnapshot(
-            term: "2025-2026-2",
-            firstDayString: "2026-03-02",
-            courses: [],
-            exams: [],
-            updatedAt: shanghaiDate(2026, 3, 2)
-        ))
-        cache.courseData.store(TermScheduleSnapshot(
-            term: "2026-2027-1",
-            firstDayString: "2026-08-31",
-            courses: [],
-            exams: [],
-            updatedAt: shanghaiDate(2026, 8, 1)
-        ))
-        return cache
-    }
-}
-
 @Suite("Small-term week normalization")
 struct SmallTermWeekNormalizerTests {
     @Test("First-semester small terms shift dates and labels together")
@@ -777,11 +739,11 @@ struct ScheduleCourseEditorTests {
     }
 
     @Test("Transferring a day clears target occurrences without deleting other weeks")
-    func transfersOneDay() {
+    func transfersOneDay() throws {
         let source = makeCourse(id: "source", weeks: [1, 2], weekday: 1)
         let target = makeCourse(id: "target", weeks: [1, 3], weekday: 2)
 
-        let courses = ScheduleCourseEditor.transferring(
+        let courses = try ScheduleCourseEditor.transferring(
             courses: [source, target],
             fromWeek: 1,
             fromWeekday: 1,

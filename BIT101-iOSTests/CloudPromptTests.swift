@@ -12,7 +12,7 @@ struct CloudPromptTests {
         let present = ScheduleCloudSyncManager.appConflictPresenter(prompts: prompts)
         present("same-conflict") { _ in }
         let first = try #require(prompts.activePrompt)
-        prompts.alertPresentationChanged(isPresented: false)
+        prompts.alertPresentationChanged(isPresented: false, promptID: prompts.activePrompt?.id)
         let next = Task<AppPrompt?, Never> {
             for await prompt in prompts.$activePrompt.values {
                 if let prompt, prompt.id != first.id { return prompt }

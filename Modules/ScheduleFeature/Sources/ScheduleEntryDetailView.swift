@@ -93,11 +93,13 @@ struct ScheduleEntryDetailSheet: View {
                             dismiss()
                         }
                         .appInteractiveListRow()
+                            .accessibilityIdentifier("ui.schedule-entry-detail-sheet.edit")
                         Button("删除", role: .destructive) {
                             dismiss()
                             onDeleteCustomSchedule()
                         }
                         .appInteractiveListRow(isDestructive: true)
+                            .accessibilityIdentifier("ui.schedule-entry-detail-sheet.delete")
                     }
 
                     Section {
@@ -105,6 +107,7 @@ struct ScheduleEntryDetailSheet: View {
                             onImportCustomSchedule(entry.sourceID)
                         }
                         .appInteractiveListRow()
+                            .accessibilityIdentifier("ui.schedule-entry-detail-sheet.导入到系统日历")
                         Button("移除日历事件", role: .destructive) {
                             onDeleteCalendarEntry("custom-\(entry.sourceID)", currentTerm)
                         }
@@ -118,6 +121,7 @@ struct ScheduleEntryDetailSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }
+                        .accessibilityIdentifier("ui.schedule-entry-detail-sheet.cancel")
                 }
             }
             .sheet(item: $courseArrangementEditorMode) { mode in

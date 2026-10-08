@@ -218,15 +218,16 @@ private struct CourseCommentImagesView: View {
 
 /// 课程评论输入表单。
 ///
-/// 顶层课程评论支持 0.5 星评分；回复只提交文本。
+/// 顶层课程评论提交 0.5 至 5 星评分；回复提交文本。
 struct CourseCommentComposerSheet: View {
     let target: CourseCommentComposerTarget
     let isSubmitting: Bool
-    let onSubmit: (String, Bool, Int?) -> Void
+    let onSubmit: (String, Bool, Int?) async -> Bool
 
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var anonymous = false
+    @State private var isSubmissionRequested = false
     /// 评分状态使用后端 10 分制整数；奇数值表示半星。
     @State private var rating = 0
 
@@ -236,6 +237,7 @@ struct CourseCommentComposerSheet: View {
                 AppCommentComposerContentSection(anonymous: $anonymous) {
                     TextField("", text: $text, prompt: AppInputPrompt.text(target.placeholder), axis: .vertical)
                         .lineLimit(5, reservesSpace: true)
+                        .accessibilityIdentifier("ui.course-comment-composer-sheet.input")
                 }
 
                 if supportsCourseRating {
@@ -264,6 +266,7 @@ struct CourseCommentComposerSheet: View {
                                             .buttonStyle(.plain)
                                             .accessibilityLabel(ratingAccessibilityLabel(for: value, isHalf: true))
                                             .appInteractiveListRow()
+                                                .accessibilityIdentifier("ui.course-comment-composer-sheet.rating-half")
 
                                             Button {
                                                 setRating(for: value, isHalf: false)
@@ -278,6 +281,7 @@ struct CourseCommentComposerSheet: View {
                                             .buttonStyle(.plain)
                                             .accessibilityLabel(ratingAccessibilityLabel(for: value, isHalf: false))
                                             .appInteractiveListRow()
+                                                .accessibilityIdentifier("ui.course-comment-composer-sheet.rating-full")
                                         }
                                         .frame(
                                             width: AppDesignSystem.Size.Control.touchTarget,
@@ -288,7 +292,7 @@ struct CourseCommentComposerSheet: View {
 
                                 Spacer()
 
-                                Text(rating == 0 ? "不评分" : CourseRatingText.text(from: rating, empty: "不评分"))
+                                Text(rating == 0 ? "请选择评分" : CourseRatingText.text(from: rating, empty: "请选择评分"))
                                     .font(AppDesignSystem.Typography.bodyEmphasis)
                                     .foregroundStyle(rating == 0 ? AppDesignSystem.Foreground.secondaryColor : AppDesignSystem.Course.accent)
                             }
@@ -300,15 +304,23 @@ struct CourseCommentComposerSheet: View {
             .appSelectionFeedback(trigger: rating)
             .navigationTitle(target.title)
             .navigationBarTitleDisplayMode(.inline)
+            .task(id: isSubmissionRequested) {
+                guard isSubmissionRequested else { return }
+                let submitted = await onSubmit(text, anonymous, rawRating)
+                guard !Task.isCancelled else { return }
+                isSubmissionRequested = false
+                if submitted { dismiss() }
+            }
             .toolbar {
                 AppComposerToolbar(
-                    isSubmitting: isSubmitting,
+                    isSubmitting: isSubmitting || isSubmissionRequested,
                     submitTitle: "发送",
+                    isSubmitDisabled: supportsCourseRating && rating == 0,
                     onCancel: {
                         dismiss()
                     },
                     onSubmit: {
-                        onSubmit(text, anonymous, rawRating)
+                        isSubmissionRequested = true
                     }
                 )
             }

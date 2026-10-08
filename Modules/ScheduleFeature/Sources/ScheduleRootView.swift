@@ -10,6 +10,17 @@ import DesignSystemKit
 
 import SwiftUI
 
+private struct ScheduleCurrentDateKey: EnvironmentKey {
+    static var defaultValue: Date { .now }
+}
+
+extension EnvironmentValues {
+    var scheduleCurrentDate: Date {
+        get { self[ScheduleCurrentDateKey.self] }
+        set { self[ScheduleCurrentDateKey.self] = newValue }
+    }
+}
+
 // MARK: - Schedule Root
 
 /// 日程页根视图。
@@ -32,6 +43,12 @@ public struct ScheduleRootView: View {
 
     /// 日程主页主体。
     public var body: some View {
+        TimelineView(.everyMinute) { context in
+            content.environment(\.scheduleCurrentDate, context.date)
+        }
+    }
+
+    private var content: some View {
         GeometryReader { proxy in
             ZStack {
                 selectedSectionView
@@ -45,6 +62,7 @@ public struct ScheduleRootView: View {
                         : 0
                 )
             )
+            .accessibilityIdentifier("schedule.section-surface")
         }
         .background(AppDesignSystem.Palette.Background.grouped)
         // 与成绩、话廊共用同一套 safeAreaInset 结构。列表内容从顶部切换栏之后开始，
@@ -61,11 +79,15 @@ public struct ScheduleRootView: View {
                 .frame(height: AppDesignSystem.Spacing.tiny)
         }
         .toolbar(.hidden, for: .navigationBar)
+        .allowsHitTesting(!viewModel.isLoadingCache)
+        .overlay {
+            if viewModel.isLoadingCache { AppLoadingState(title: "正在读取日程").background(.regularMaterial) }
+        }
         .task {
             await viewModel.loadIfNeeded()
         }
-        .task(id: viewModel.selectedSection) {
-            guard viewModel.selectedSection == .classroom else { return }
+        .task(id: viewModel.selectedSection == .classroom && !viewModel.isLoadingCache) {
+            guard viewModel.selectedSection == .classroom, !viewModel.isLoadingCache else { return }
             // 进入空教室分栏表示用户发起明确查询；查询从这里开始加载，
             // App 启动和回前台生命周期保持独立。
             viewModel.classroom.startClassroomPageRefresh()

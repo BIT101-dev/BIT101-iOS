@@ -2,6 +2,49 @@
 
 # 真机脚本共用设备快照，按有线、无线顺序选择，并提供同一设备的两种标识。
 
+bit101_acquire_workflow_lock() {
+  bit101_acquire_script_lock "$ROOT_DIR/.build/extended-automation.lock" BIT101_EXTENDED_TESTS_LOCK_HELD "$@"
+}
+
+bit101_acquire_script_lock() {
+  local workflow_lock="$1"
+  local workflow_flag="$2"
+  shift 2
+  if [[ "${${(P)workflow_flag}:-0}" != "1" ]]; then
+    exec python3 - "$workflow_lock" "$workflow_flag" "$@" <<'PYLOCK'
+import fcntl
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+
+lock_path = Path(sys.argv[1])
+lock_path.parent.mkdir(parents=True, exist_ok=True)
+with lock_path.open("a") as lock:
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print("[等待] 既有工作流正在使用固定产物与设备。", flush=True)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+    environment = dict(os.environ)
+    environment[sys.argv[2]] = "1"
+    script = Path(sys.argv[3])
+    command = ["zsh", "-c", script.read_text(), str(script), *sys.argv[4:]]
+    process = subprocess.Popen(command, env=environment, start_new_session=True)
+    def interrupt(signum, _frame):
+        try:
+            os.killpg(process.pid, signum)
+        except ProcessLookupError:
+            pass
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(signum, interrupt)
+    status = process.wait()
+    raise SystemExit(status if status >= 0 else 128 - status)
+PYLOCK
+  fi
+}
+
 bit101_log_command() {
   local output_path="$1"
   local label="$2"
@@ -44,6 +87,8 @@ with report_path.open("w", encoding="utf-8") as report:
                 diagnostics.append(line)
         if "Test run with" in line:
             summaries.append(line.strip())
+        if line.startswith(("Test case ", "Test Case ")) and re.search(r"\bpassed(?: on | \(|$)", line):
+            continue
         if line.startswith(("Test case ", "Test suite ", "Test Case ", "Test Suite ", "◇ ", "✔ ")) and "failed" not in line.lower():
             continue
         if line.rstrip().endswith(" seconds)") and "failed" not in line.lower():
@@ -65,6 +110,11 @@ exit_code = process.wait()
 for path in temporary_results:
     shutil.rmtree(path, ignore_errors=True)
 output = details if exit_code else diagnostics
+if not exit_code:
+    module_scans = [line for line in output if re.match(r"warning: '.+' is missing a dependency on '.+' because dependency scan of Swift module", line)]
+    output = [line for line in output if line not in module_scans]
+    if module_scans:
+        print(f"[提示] 编译器模块依赖扫描 · {len(module_scans)} 条 · {report_path}")
 if len(output) <= 40 or (exit_code and os.environ.get("GITHUB_ACTIONS") == "true"):
     sys.stdout.writelines(output)
 else:
@@ -98,11 +148,11 @@ arguments = sys.argv[2:]
 maintenance = arguments == ["--maintenance"]
 shared = root / ".build/compiler-cache"
 shared.mkdir(parents=True, exist_ok=True)
-cache_names = ("SDKExplicitPrecompiledModules", "ModuleCache.noindex", "SDKStatCaches.noindex")
+cache_names = ("SDKExplicitPrecompiledModules", "ModuleCache.noindex", "SDKStatCaches.noindex", "CompilationCache.noindex")
 derived_roots = [root / name for name in (
     ".build/extended-automation", "build/DeviceInstall", ".build/release-network-smoke",
     ".build/icloud-cross-device-smoke/Phone", ".build/icloud-cross-device-smoke/Mac",
-    ".build/extended-automation/out", ".build/static-audit/package-build/out",
+    ".build/extended-automation/out",
 )]
 
 def occupied_kib():
@@ -117,6 +167,17 @@ def share_cache(source, destination):
     if source.exists():
         if not source.is_dir():
             raise SystemExit(f"编译缓存应为目录：{source}")
+        if source.name == "CompilationCache.noindex":
+            def occupied_blocks(path):
+                return sum(item.stat().st_blocks for item in path.rglob("*") if item.is_file())
+            # CAS 的索引、动作与数据属于同一命名空间，整体保留已有内容较多的目录。
+            if occupied_blocks(source) > occupied_blocks(destination):
+                shutil.rmtree(destination)
+                source.replace(destination)
+            else:
+                shutil.rmtree(source)
+            source.symlink_to(destination, target_is_directory=True)
+            return
         for directory, children, files in os.walk(source, topdown=False):
             directory = Path(directory)
             target = destination / directory.relative_to(source)
@@ -142,11 +203,16 @@ with ((root / ".build/extended-automation.lock").open("a") if maintenance else n
     before = occupied_kib() if maintenance else 0
     if not maintenance:
         command = arguments[2:]
-        if command[0] == "xcodebuild" and any(action in command for action in ("build", "build-for-testing", "test")) \
-                and "archive" not in command:
-            for setting in ("DEBUG_INFORMATION_FORMAT=dwarf", "SWIFT_COMPILATION_MODE=singlefile"):
+        if command[0] == "xcodebuild" and any(action in command for action in ("build", "build-for-testing", "test", "archive")):
+            defaults = ["SWIFT_TREAT_WARNINGS_AS_ERRORS=YES", "GCC_TREAT_WARNINGS_AS_ERRORS=YES"]
+            if "archive" not in command:
+                defaults.extend(("DEBUG_INFORMATION_FORMAT=dwarf", "SWIFT_COMPILATION_MODE=singlefile"))
+            for setting in defaults:
                 if not any(value.startswith(setting.split("=", 1)[0] + "=") for value in command):
                     arguments.append(setting)
+        if command[:2] == ["xcrun", "swift"] and command[2:3] in (["build"], ["test"]):
+            for option, value in (("-Xswiftc", "-warnings-as-errors"), ("-Xcc", "-Werror")):
+                if value not in command: arguments.extend((option, value))
         for option in ("-derivedDataPath", "--scratch-path"):
             if option in command:
                 requested = Path(command[command.index(option) + 1])
@@ -166,10 +232,15 @@ with ((root / ".build/extended-automation.lock").open("a") if maintenance else n
         if derived.is_dir():
             for name in cache_names:
                 share_cache(derived / name, shared / name)
+    for name in ("testPhoneUpload.log", "testPhoneVerifyAndCleanup.log"):
+        (root / ".build/icloud-cross-device-smoke" / name).unlink(missing_ok=True)
     if maintenance:
+        shutil.rmtree(root / ".build/static-audit/package-build", ignore_errors=True)
         shutil.rmtree(root / ".build/ui-authorization.logarchive", ignore_errors=True)
         shutil.rmtree(root / ".build/extended-automation/diagnostics", ignore_errors=True)
         (shared / "compression-stage").unlink(missing_ok=True)
+        for cache in (shared / "SDKStatCaches.noindex").glob("*simulator*.sdkstatcache"):
+            cache.unlink()
         implicit_removed = 0
         implicit_bytes = 0
         for context in (shared / "ModuleCache.noindex").iterdir():
@@ -248,20 +319,11 @@ bit101_run_logged() {
 }
 
 bit101_ui_test_selections() {
-  python3 - "$ROOT_DIR/BIT101-iOSUITests" "$@" <<'PY'
-from pathlib import Path
-import re
+  python3 - "$ROOT_DIR/Scripts" "$@" <<'PY'
 import sys
-
-tests = []
-pattern = re.compile(r"(?m)^\s*(?:(?:private|nonisolated|final)\s+)*(?:class|extension)\s+(\w+)|^\s*(?:@\w+\s+)*func\s+(test\w+)\s*\(")
-for source in sorted(Path(sys.argv[1]).glob("*UITests.swift")):
-    owner = ""
-    for match in pattern.finditer(source.read_text()):
-        if match[1]:
-            owner = match[1]
-        else:
-            tests.append(f"{owner}/{match[2]}")
+sys.path.insert(0, sys.argv[1])
+from validation_evidence import normalized_test_id, test_inventory
+tests = sorted(normalized_test_id(test) for test in test_inventory("ui"))
 selected = []
 for keyword in sys.argv[2:]:
     name = keyword.removesuffix("()").casefold()

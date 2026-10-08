@@ -55,6 +55,8 @@ extension ScheduleService {
         guard !challenge.isExpired else {
             throw ScheduleServiceError.challengeInvalid("验证码已过期，请重新同步课表。")
         }
+        guard let owner = challenge.ownerIdentity else { throw CancellationError() }
+        try validateAuthenticationOwner(owner)
         var request = URLRequest(
             url: bitLoginBaseURL.appending(path: "api/auth/\(challenge.challengeID)/sms")
         )
@@ -64,6 +66,7 @@ extension ScheduleService {
         request.httpBody = try JSONEncoder().encode(BITLoginSMSCodeRequest(code: code))
 
         let (data, response) = try await sendRequest(request)
+        try validateAuthenticationOwner(owner)
         guard (200 ..< 300).contains(response.statusCode) else {
             let message = BITLoginChallengeSupport.errorMessage(from: data) ?? "短信验证码验证失败。"
             if [403, 404, 409].contains(response.statusCode) {
@@ -77,9 +80,10 @@ extension ScheduleService {
         let payload = try decodeBITLoginChallengePayload(data)
         let current = try await waitUntilAuthenticationActionable(
             payload,
-            accessToken: challenge.accessToken
+            accessToken: challenge.accessToken,
+            owner: owner
         )
-        try await finishTeachingCenterAuthentication(current)
+        try await finishTeachingCenterAuthentication(current, owner: owner)
     }
 
     private func fetchCourseSyncPayload(term requestedTerm: String? = nil) async throws -> CourseSyncPayload {
@@ -118,6 +122,7 @@ extension ScheduleService {
 
     /// 通过新版 bit-login challenge 获取教学中心的 WebVPN Cookie。
     func ensureTeachingCenterAuthentication(force: Bool = false) async throws {
+        let owner = credentials.schoolSessionIdentity
         let username = credentials.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
         let password = credentials.currentPassword
         guard !username.isEmpty, !password.isEmpty else {
@@ -136,24 +141,24 @@ extension ScheduleService {
             challengeID: nil
         )
         do {
-            try await requestTeachingCenterCookies(body: body, accessToken: nil)
+            try await requestTeachingCenterCookies(body: body, accessToken: nil, owner: owner)
         } catch ScheduleServiceError.authenticationFailed(let message)
             where isTransientAuthenticationFailure(message)
         {
             // bit-login 到 WebVPN 的单次请求可能被学校侧 25 秒读超时打断。
             // 认证请求等待 2 秒后重试一次，处理瞬时认证失败。
             try await Task.sleep(for: .seconds(2))
-            try await requestTeachingCenterCookies(body: body, accessToken: nil)
+            try await requestTeachingCenterCookies(body: body, accessToken: nil, owner: owner)
         } catch ScheduleServiceError.challengeInvalid(let message)
             where isTransientAuthenticationFailure(message)
         {
             // challenge 短暂失效时等待 2 秒，再次请求教学中心 Cookie。
             try await Task.sleep(for: .seconds(2))
-            try await requestTeachingCenterCookies(body: body, accessToken: nil)
+            try await requestTeachingCenterCookies(body: body, accessToken: nil, owner: owner)
         } catch {
             guard isScheduleTransientNetworkError(error) else { throw error }
             try await Task.sleep(for: .seconds(2))
-            try await requestTeachingCenterCookies(body: body, accessToken: nil)
+            try await requestTeachingCenterCookies(body: body, accessToken: nil, owner: owner)
         }
     }
 
@@ -172,8 +177,10 @@ extension ScheduleService {
 
     private func requestTeachingCenterCookies(
         body: AuthenticationCredentials,
-        accessToken: String?
+        accessToken: String?,
+        owner: SchoolSessionIdentity
     ) async throws {
+        try validateAuthenticationOwner(owner)
         var request = URLRequest(
             url: bitLoginBaseURL.appending(path: "api/jxzxehall/cookies")
         )
@@ -185,6 +192,7 @@ extension ScheduleService {
         request.httpBody = try JSONEncoder().encode(body)
 
         let (data, response) = try await sendRequest(request)
+        try validateAuthenticationOwner(owner)
         if response.statusCode == 202 {
             guard
                 let envelope = try? JSONDecoder().decode(BITLoginChallengeEnvelope.self, from: data),
@@ -195,9 +203,10 @@ extension ScheduleService {
             }
             let current = try await waitUntilAuthenticationActionable(
                 envelope.detail,
-                accessToken: accessToken
+                accessToken: accessToken,
+                owner: owner
             )
-            try await finishTeachingCenterAuthentication(current)
+            try await finishTeachingCenterAuthentication(current, owner: owner)
             return
         }
 
@@ -206,12 +215,14 @@ extension ScheduleService {
                 BITLoginChallengeSupport.errorMessage(from: data) ?? "教学中心统一认证失败。"
             )
         }
-        try installTeachingCenterCookies(from: data)
+        try installTeachingCenterCookies(from: data, owner: owner)
     }
 
     private func finishTeachingCenterAuthentication(
-        _ challenge: BITLoginAuthenticationChallenge
+        _ challenge: BITLoginAuthenticationChallenge,
+        owner: SchoolSessionIdentity
     ) async throws {
+        try validateAuthenticationOwner(owner)
         switch challenge.status {
         case "authenticated":
             try await requestTeachingCenterCookies(
@@ -220,7 +231,8 @@ extension ScheduleService {
                     password: nil,
                     challengeID: challenge.challengeID
                 ),
-                accessToken: challenge.accessToken
+                accessToken: challenge.accessToken,
+                owner: owner
             )
         case "waiting_sms":
             throw ScheduleServiceError.secondFactorRequired(challenge)
@@ -235,18 +247,21 @@ extension ScheduleService {
 
     private func waitUntilAuthenticationActionable(
         _ initialPayload: BITLoginChallengePayload,
-        accessToken: String
+        accessToken: String,
+        owner: SchoolSessionIdentity
     ) async throws -> BITLoginAuthenticationChallenge {
         let payload = try await BITLoginChallengeSupport.pollUntilActionable(
             initialPayload,
             timeout: Self.authenticationWaitSeconds,
             interval: .seconds(1)
         ) { challengeID in
+            try await validateAuthenticationOwner(owner)
             var request = URLRequest(
                 url: bitLoginBaseURL.appending(path: "api/auth/\(challengeID)")
             )
             request.setValue(accessToken, forHTTPHeaderField: "X-Challenge-Token")
             let (data, response) = try await sendRequest(request)
+            try await validateAuthenticationOwner(owner)
             guard (200 ..< 300).contains(response.statusCode) else {
                 throw ScheduleServiceError.authenticationFailed(
                     BITLoginChallengeSupport.errorMessage(from: data) ?? "无法获取统一认证状态。"
@@ -255,10 +270,11 @@ extension ScheduleService {
             return try decodeBITLoginChallengePayload(data)
         }
 
+        try validateAuthenticationOwner(owner)
         if payload.status == "failed", let error = payload.error, !error.isEmpty {
             throw ScheduleServiceError.authenticationFailed(error)
         }
-        return BITLoginChallengeSupport.challenge(from: payload, accessToken: accessToken)
+        return BITLoginChallengeSupport.challenge(from: payload, accessToken: accessToken, ownerIdentity: owner)
     }
 
     private nonisolated func decodeBITLoginChallengePayload(_ data: Data) throws -> BITLoginChallengePayload {
@@ -269,7 +285,13 @@ extension ScheduleService {
         }
     }
 
-    private func installTeachingCenterCookies(from data: Data) throws {
+    func validateAuthenticationOwner(_ owner: SchoolSessionIdentity) throws {
+        try Task.checkCancellation()
+        guard credentials.schoolSessionIdentity == owner else { throw CancellationError() }
+    }
+
+    private func installTeachingCenterCookies(from data: Data, owner: SchoolSessionIdentity) throws {
+        try validateAuthenticationOwner(owner)
         let response: CookieResponse
         do {
             response = try JSONDecoder().decode(CookieResponse.self, from: data)
@@ -295,7 +317,7 @@ extension ScheduleService {
         guard installedCookieCount > 0 else {
             throw ScheduleServiceError.invalidResponse
         }
-        let studentID = credentials.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let studentID = owner.accountIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !studentID.isEmpty else {
             teachingCenterState.invalidate()
             throw ScheduleServiceError.notLoggedIn

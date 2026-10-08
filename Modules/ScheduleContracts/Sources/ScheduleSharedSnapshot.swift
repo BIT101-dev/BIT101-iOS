@@ -85,6 +85,7 @@ public nonisolated struct ScheduleExternalCourseSnapshot: Codable, Hashable, Sen
 /// - Widget 和 Watch 依赖这份快照，与主 App 状态机保持解耦
 public nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable {
     public let generatedAt: Date
+    public let revision: UInt64
     public let isLoggedIn: Bool
     /// 跨设备账号隔离使用的稳定摘要；字段名沿用既有传输约定。
     public let studentID: String
@@ -94,6 +95,7 @@ public nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable 
 
     public init(
         generatedAt: Date = Date(),
+        revision: UInt64 = 0,
         isLoggedIn: Bool,
         studentID: String,
         firstDayString: String,
@@ -101,6 +103,7 @@ public nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable 
         courses: [ScheduleExternalCourseSnapshot]
     ) {
         self.generatedAt = generatedAt
+        self.revision = revision
         self.isLoggedIn = isLoggedIn
         self.studentID = studentID
         self.firstDayString = firstDayString
@@ -112,6 +115,7 @@ public nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable 
     public func replacingStudentID(with identifier: String) -> ScheduleExternalSnapshot {
         ScheduleExternalSnapshot(
             generatedAt: generatedAt,
+            revision: revision,
             isLoggedIn: isLoggedIn,
             studentID: identifier,
             firstDayString: firstDayString,
@@ -122,6 +126,7 @@ public nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable 
 
     private enum CodingKeys: String, CodingKey {
         case generatedAt
+        case revision
         case isLoggedIn
         case studentID
         case firstDayString
@@ -132,12 +137,21 @@ public nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         generatedAt = try container.decodeIfPresent(Date.self, forKey: .generatedAt) ?? .distantPast
+        revision = try container.decodeIfPresent(UInt64.self, forKey: .revision) ?? 0
         isLoggedIn = try container.decodeIfPresent(Bool.self, forKey: .isLoggedIn) ?? false
         studentID = try container.decodeIfPresent(String.self, forKey: .studentID) ?? ""
         firstDayString = try container.decodeIfPresent(String.self, forKey: .firstDayString) ?? ""
         timeTable = try container.decodeIfPresent([ScheduleExternalTimeSlotSnapshot].self, forKey: .timeTable) ?? []
         courses = try container.decodeIfPresent([ScheduleExternalCourseSnapshot].self, forKey: .courses) ?? []
     }
+}
+
+public nonisolated enum WatchScheduleSyncError: Error, Equatable, Sendable {
+    case notSupported, noSnapshot, invalidPayload, staleSnapshot, persistenceFailed, transferFailed
+}
+
+public nonisolated enum WatchScheduleSyncOutcome: Equatable, Sendable {
+    case received, requested
 }
 
 /// `ScheduleExternalSnapshot` 的统一传输编解码器。

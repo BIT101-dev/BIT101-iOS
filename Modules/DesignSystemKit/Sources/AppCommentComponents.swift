@@ -50,6 +50,7 @@ public struct AppCommentIdentityHeader: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                    .accessibilityIdentifier("ui.app-comment-identity-header.profile")
             } else {
                 nicknameText
             }
@@ -117,6 +118,7 @@ public struct AppCommentActionBar: View {
             .disabled(isLiking)
             .accessibilityLabel(isLiked ? "取消评论点赞" : "点赞评论")
             .accessibilityValue("\(likeCount)")
+                .accessibilityIdentifier("ui.app-comment-action-bar.like")
 
             Spacer(minLength: AppDesignSystem.Spacing.none)
         }

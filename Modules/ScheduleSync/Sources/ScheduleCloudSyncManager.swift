@@ -361,7 +361,7 @@ public actor ScheduleCloudSyncManager {
             guard let currentRemote = decodeCache(
                 from: currentRemoteRecord,
                 account: conflict.account
-            ) else { return }
+            ) else { throw CocoaError(.coderReadCorrupt) }
             let currentRemoteCache = currentRemote.cache
             let currentRemoteModifiedAt = currentRemoteRecord.modificationDate
                 ?? currentRemoteCache.cloudSyncBaselineAt
@@ -396,7 +396,7 @@ public actor ScheduleCloudSyncManager {
                 after: max(cache.updatedAt, conflict.remoteModifiedAt),
                 now: Date()
             )
-            guard await local.save(cache, .localWithoutCloudPush, conflict.account, currentLocalState.cache.updatedAt) else {
+            guard await local.save(cache, .cloudBaseline, conflict.account, currentLocalState.cache.updatedAt) else {
                 promptedConflictSignatures.remove(signature)
                 return
             }
@@ -611,7 +611,8 @@ public actor ScheduleCloudSyncManager {
         let cache: ScheduleCache
         let requiresPayloadMigration: Bool
         if let envelope = try? decoder.decode(ScheduleCloudSyncEnvelope.self, from: payloadData) {
-            guard envelope.schemaVersion == ScheduleCloudSyncEnvelope.currentSchemaVersion else { return nil }
+            guard envelope.schemaVersion == ScheduleCloudSyncEnvelope.currentSchemaVersion,
+                  TimeSlot.hasUniqueIDs(envelope.payload.state.timeTable) else { return nil }
             var projectedCache = ScheduleCache()
             envelope.payload.state.apply(to: &projectedCache)
             projectedCache.updatedAt = envelope.payload.updatedAt
@@ -657,7 +658,7 @@ public actor ScheduleCloudSyncManager {
         cache.syncData.cloudSyncBaselineUserState = try ScheduleCloudStateMerge.baseline(for: remoteCache)
         cache.hasUnpushedCloudChanges = true
         cache.updatedAt = ScheduleCacheTimestamp.next(after: max(localCache.updatedAt, remoteCache.updatedAt), now: Date())
-        guard await local.save(cache, .cloud, account, localCache.updatedAt),
+        guard await local.save(cache, .cloudBaseline, account, localCache.updatedAt),
               let current = await currentLocalCloudState(matching: account) else { return false }
         return try await save(record, cache: current.cache, account: account,
             expectedLocalUpdatedAt: current.cache.updatedAt, retryOnConflict: false)

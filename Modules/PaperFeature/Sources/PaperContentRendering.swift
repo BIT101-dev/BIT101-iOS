@@ -46,7 +46,7 @@ public struct PaperInlineImage: Identifiable, Hashable {
 ///
 /// 当前 iOS 端提供“纯文本编辑 -> 最小 Editor.js JSON”的本地转换。
 /// 网页端和 iOS 端使用同一种正文格式读取，文章发布沿用本地转换流程。
-enum PaperEditorContentBuilder {
+public enum PaperEditorContentBuilder {
     private struct Root: Encodable {
         let time: Int64
         let blocks: [Block]
@@ -64,7 +64,7 @@ enum PaperEditorContentBuilder {
     }
 
     /// 把多段纯文本包装成最小可用的 Editor.js 段落数组。
-    static func editorJSON(from plainText: String) -> String {
+    public static func editorJSON(from plainText: String) -> String {
         let paragraphs = plainText
             .components(separatedBy: "\n\n")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -99,7 +99,27 @@ enum PaperEditorContentBuilder {
             .replacingOccurrences(of: ">", with: "&gt;")
     }
 
-    static func plainText(from rawContent: String) -> String {
+    /// 纯文本编辑能力由原始结构决定，格式与扩展数据保持完整。
+    static func canEditAsPlainText(_ rawContent: String) -> Bool {
+        guard let data = rawContent.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) else {
+            let trimmed = rawContent.trimmingCharacters(in: .whitespacesAndNewlines)
+            return !trimmed.hasPrefix("{") && !trimmed.hasPrefix("[")
+        }
+        guard let root = object as? [String: Any],
+              Set(root.keys).isSubset(of: ["time", "version", "blocks"]),
+              let blocks = root["blocks"] as? [[String: Any]] else { return false }
+        return blocks.allSatisfy { block in
+            guard Set(block.keys).isSubset(of: ["id", "type", "data"]),
+                  block["type"] as? String == "paragraph",
+                  let data = block["data"] as? [String: Any], Set(data.keys) == ["text"],
+                  let text = data["text"] as? String else { return false }
+            return text.replacingOccurrences(of: #"<br\s*/?>"#, with: "", options: [.regularExpression, .caseInsensitive])
+                .range(of: #"<[^>]+>"#, options: .regularExpression) == nil
+        }
+    }
+
+    @MainActor public static func plainText(from rawContent: String) -> String {
         plainText(from: PaperContentRenderer.blocks(from: rawContent))
     }
 
@@ -119,9 +139,9 @@ enum PaperEditorContentBuilder {
 }
 
 /// 文章正文的块解析与富文本辅助。
-enum PaperContentRenderer {
+@MainActor enum PaperContentRenderer {
     /// 从详情接口返回的 Editor.js JSON 字符串中恢复正文块。
-    nonisolated static func blocks(from raw: String) -> [PaperContentBlock] {
+    static func blocks(from raw: String) -> [PaperContentBlock] {
         guard
             let data = raw.data(using: .utf8),
             let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -139,7 +159,7 @@ enum PaperContentRenderer {
     ///
     /// Editor.js 段落和列表项里会混入 `<a>`、`<b>`、`<i>`、`<br>` 等标记。
     /// 系统 HTML 解析将这些标记转换为 SwiftUI 可展示的富文本，正文沿用本地渲染路径。
-    nonisolated static func attributedText(from html: String) -> AttributedString {
+    static func attributedText(from html: String) -> AttributedString {
         let normalizedHTML = html
             .replacingOccurrences(of: "&nbsp;", with: " ")
             .replacingOccurrences(of: "<br>", with: "<br/>")
@@ -167,13 +187,13 @@ enum PaperContentRenderer {
     }
 
     /// 生成富文本的纯文本版本，用于辅助信息或可访问性文案。
-    nonisolated static func plainText(from html: String) -> String {
+    static func plainText(from html: String) -> String {
         String(attributedText(from: html).characters)
             .replacingOccurrences(of: "\u{00a0}", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private nonisolated static func makeBlock(from raw: [String: Any]) -> PaperContentBlock? {
+    private static func makeBlock(from raw: [String: Any]) -> PaperContentBlock? {
         let id = (raw["id"] as? String) ?? UUID().uuidString
         guard let type = raw["type"] as? String else { return nil }
         let data = raw["data"] as? [String: Any] ?? [:]
@@ -217,7 +237,7 @@ enum PaperContentRenderer {
         html.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
     }
 
-    private nonisolated static func sanitizedHTML(_ html: String) -> String {
+    static func sanitizedHTML(_ html: String) -> String {
         var result = html
         for tag in ["script", "style", "iframe", "object", "embed"] {
             result = result.replacingOccurrences(
@@ -226,11 +246,27 @@ enum PaperContentRenderer {
                 options: [.regularExpression, .caseInsensitive]
             )
         }
-        return result.replacingOccurrences(
-            of: "<img\\b[^>]*>",
-            with: "",
-            options: [.regularExpression, .caseInsensitive]
-        )
+        let inlineTags: Set<String> = ["a", "b", "strong", "i", "em", "u", "s", "strike", "br", "p", "ul", "ol", "li",
+            "blockquote", "h1", "h2", "h3", "h4", "h5", "h6", "sub", "sup", "code", "pre", "span", "div"]
+        for match in result.matches(of: #/<[^>]*(?:>|$)/#).reversed() {
+            let tag = String(match.output)
+            var replacement = ""
+            if let header = tag.firstMatch(of: #/<\s*(/?)\s*([a-zA-Z][a-zA-Z0-9]*)/#) {
+                let name = header.output.2.lowercased()
+                if inlineTags.contains(name) {
+                    replacement = "<\(header.output.1)\(name)>"
+                    if name == "a", header.output.1.isEmpty,
+                       let link = tag.firstMatch(of: #/(?i)\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/#),
+                       let value = link.output.1 ?? link.output.2 ?? link.output.3 {
+                        let escaped = value.replacingOccurrences(of: "\"", with: "&quot;")
+                            .replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;")
+                        replacement = "<a href=\"\(escaped)\">"
+                    }
+                }
+            }
+            result.replaceSubrange(match.range, with: replacement)
+        }
+        return result
     }
 
     private nonisolated static func sanitizeLinks(in attributed: NSMutableAttributedString) {

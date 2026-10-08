@@ -1,5 +1,34 @@
 import Foundation
 
+/// 清理前暂停新访问，等待已接收的持久化操作结束。
+@MainActor
+public final class StorageOperationTracker {
+    private var activeOperations = 0
+    private var suspensions = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    public nonisolated init() {}
+    public func begin() -> Bool {
+        guard suspensions == 0 else { return false }
+        activeOperations += 1
+        return true
+    }
+    public func finish() {
+        activeOperations -= 1
+        if activeOperations == 0 {
+            let current = waiters
+            waiters.removeAll()
+            for waiter in current { waiter.resume() }
+        }
+    }
+    public func suspendAndDrain() async {
+        suspensions += 1
+        while activeOperations > 0 {
+            await withCheckedContinuation { waiters.append($0) }
+        }
+    }
+    public func resume() { suspensions -= 1 }
+}
+
 /// 文件服务接口。业务仓库使用逻辑路径和原子读写能力。
 public nonisolated protocol AppFileService: Sendable {
     func directoryURL(_ directory: FileManager.SearchPathDirectory) -> URL?
@@ -28,7 +57,12 @@ extension AppFileService {
 
 /// 本机文件系统的默认实现。
 public nonisolated struct LocalAppFileService: AppFileService, Sendable {
-    public init() {}
+    private let excludeFromBackup: @Sendable (URL) throws -> Void
+
+    public init() { excludeFromBackup = Self.excludeFromBackup }
+    init(excludeFromBackup: @escaping @Sendable (URL) throws -> Void) {
+        self.excludeFromBackup = excludeFromBackup
+    }
 
     private var manager: FileManager { .default }
 
@@ -44,13 +78,13 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
     public func canonicalFileURL(_ url: URL) -> URL { url.resolvingSymlinksInPath().standardizedFileURL }
     public func fileExists(at url: URL) -> Bool { manager.fileExists(atPath: url.path) }
     public func readData(at url: URL) throws -> Data {
-        try setExcludedFromBackup(at: url)
-        return try Data(contentsOf: url)
+        try Data(contentsOf: url)
     }
 
     public func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws {
+        // 目录承载备份策略；元数据准备成功后提交文件内容。
+        try setExcludedFromBackup(at: url.deletingLastPathComponent())
         try data.write(to: url, options: options)
-        try setExcludedFromBackup(at: url)
     }
 
     public func createDirectory(at url: URL) throws {
@@ -66,6 +100,10 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
     }
 
     public func setExcludedFromBackup(at url: URL) throws {
+        try excludeFromBackup(url)
+    }
+
+    private static func excludeFromBackup(_ url: URL) throws {
         var resourceValues = URLResourceValues()
         resourceValues.isExcludedFromBackup = true
         var targetURL = url

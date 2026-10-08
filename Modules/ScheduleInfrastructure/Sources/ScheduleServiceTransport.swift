@@ -1,4 +1,5 @@
 import SchedulePorts
+import ClientCore
 import ScheduleDomain
 //
 //  ScheduleServiceTransport.swift
@@ -194,7 +195,8 @@ extension ScheduleService {
         path: String,
         method: String = "GET",
         body: [(String, String)] = [],
-        requiresTeachingCenterSession: Bool = true
+        requiresTeachingCenterSession: Bool = true,
+        owner: SchoolSessionIdentity? = nil
     ) async throws -> String {
         var request = URLRequest(url: buildURL(baseURL: baseURL ?? activeSchoolBaseURL, path: path))
         request.httpMethod = method
@@ -206,19 +208,21 @@ extension ScheduleService {
 
         return try await sendStringResponse(
             request,
-            requiresTeachingCenterSession: requiresTeachingCenterSession
+            requiresTeachingCenterSession: requiresTeachingCenterSession,
+            owner: owner
         )
     }
 
-    func sendStringRequest(_ request: URLRequest) async throws -> String {
-        try await sendStringResponse(request, requiresTeachingCenterSession: false)
+    func sendStringRequest(_ request: URLRequest, owner: SchoolSessionIdentity? = nil) async throws -> String {
+        try await sendStringResponse(request, requiresTeachingCenterSession: false, owner: owner)
     }
 
     private func sendStringResponse(
         _ request: URLRequest,
-        requiresTeachingCenterSession: Bool
+        requiresTeachingCenterSession: Bool,
+        owner: SchoolSessionIdentity?
     ) async throws -> String {
-        let (data, response) = try await sendRequest(request)
+        let (data, response) = try await sendRequest(request, owner: owner)
         if requiresTeachingCenterSession,
            isTeachingCenterAuthenticationFailure(data: data, response: response)
         {
@@ -231,7 +235,9 @@ extension ScheduleService {
     }
 
     /// 统一底层请求入口，并在发起前做 HTTPS 升级。
-    func sendRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+    func sendRequest(_ request: URLRequest, owner: SchoolSessionIdentity? = nil) async throws -> (Data, HTTPURLResponse) {
+        let owner = owner ?? credentials.schoolSessionIdentity
+        try validateAuthenticationOwner(owner)
         let secureRequest: URLRequest
         if let url = request.url {
             let upgradedURL = HTTPSURLUpgrade.upgradedURL(from: url)
@@ -246,8 +252,10 @@ extension ScheduleService {
                 secureRequest,
                 accepting: 100 ..< 600
             )
+            try validateAuthenticationOwner(owner)
             return (result.data, result.response)
         } catch {
+            try validateAuthenticationOwner(owner)
             if isCertificateValidationError(error) {
                 throw ScheduleServiceError.schoolTransportFailure
             }

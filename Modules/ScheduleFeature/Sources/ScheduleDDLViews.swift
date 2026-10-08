@@ -14,6 +14,7 @@ import SwiftUI
 ///
 /// DDL 页使用 `appGroupedListStyle()`，与成绩和空教室保持一致。
 struct DDLScheduleTabView: View {
+    @Environment(\.scheduleCurrentDate) private var currentDate
     @ObservedObject var viewModel: ScheduleDDLViewModel
     @State private var selectedEvent: DDLEventRecord?
     @State private var draft = DDLDraft()
@@ -38,7 +39,7 @@ struct DDLScheduleTabView: View {
                     )
                 }
 
-                if viewModel.visibleDDLEvents.isEmpty {
+                if viewModel.visibleDDLEvents(at: currentDate).isEmpty {
                     Section {
                         AppEmptyState(
                             title: "暂无 DDL",
@@ -51,12 +52,13 @@ struct DDLScheduleTabView: View {
                     }
                 } else {
                     Section {
-                        ForEach(viewModel.visibleDDLEvents) { event in
+                        ForEach(viewModel.visibleDDLEvents(at: currentDate)) { event in
                             DDLEventCard(
                                 event: event,
-                                remainText: viewModel.ddlRemainingText(for: event),
+                                remainText: viewModel.ddlRemainingText(for: event, now: currentDate),
                                 dueText: viewModel.ddlDueText(for: event),
                                 tint: color(for: event),
+                                isEditable: viewModel.isCacheWritable,
                                 onToggleDone: { viewModel.toggleDDLDone(event) },
                                 onOpenDetail: { selectedEvent = event }
                             )
@@ -73,13 +75,15 @@ struct DDLScheduleTabView: View {
                     draft = DDLDraft()
                     isShowingEditor = true
                 }
+                .disabled(!viewModel.isCacheWritable)
 
             }
         }
         .sheet(item: $selectedEvent) { event in
             DDLEventDetailSheet(
                 event: event,
-                remainText: viewModel.ddlRemainingText(for: event),
+                isEditable: viewModel.isCacheWritable,
+                remainText: { viewModel.ddlRemainingText(for: event, now: $0) },
                 onEdit: {
                     editingEventID = event.id
                     draft = viewModel.ddlDraft(for: event)
@@ -120,7 +124,7 @@ struct DDLScheduleTabView: View {
     }
 
     private func color(for event: DDLEventRecord) -> Color {
-        switch viewModel.ddlTint(for: event) {
+        switch viewModel.ddlTint(for: event, now: currentDate) {
         case "red":
             return AppDesignSystem.Palette.Status.danger
         case "orange":
@@ -141,6 +145,7 @@ private struct DDLEventCard: View {
     let remainText: String
     let dueText: String
     let tint: Color
+    let isEditable: Bool
     let onToggleDone: () -> Void
     let onOpenDetail: () -> Void
 
@@ -181,6 +186,7 @@ private struct DDLEventCard: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .disabled(!isEditable)
                 .appSelectionFeedback(trigger: event.done)
                 .accessibilityLabel(event.done ? "标记为未完成" : "标记为已完成")
                 .accessibilityValue(event.done ? "已完成" : "未完成")
@@ -206,8 +212,10 @@ private struct DDLEventCard: View {
 ///
 /// 学校同步项展示详情；手动项提供编辑和删除按钮。
 private struct DDLEventDetailSheet: View {
+    @Environment(\.scheduleCurrentDate) private var currentDate
     let event: DDLEventRecord
-    let remainText: String
+    let isEditable: Bool
+    let remainText: (Date) -> String
     let onEdit: () -> Void
     let onDelete: () -> Void
     @Environment(\.dismiss) private var dismiss
@@ -227,21 +235,23 @@ private struct DDLEventDetailSheet: View {
                 }
 
                 Section("详情") {
-                    Text(remainText)
+                    Text(remainText(currentDate))
                     Text(detailText.isEmpty ? "无详情" : detailText)
                 }
 
-                if !event.isSchoolSynced {
+                if !event.isSchoolSynced && isEditable {
                     Section {
                         Button("编辑") {
                             dismiss()
                             onEdit()
                         }
                         .appInteractiveListRow()
+                            .accessibilityIdentifier("ui.ddl-event-detail-sheet.edit")
                         Button("删除", role: .destructive) {
                             onDelete()
                         }
                         .appInteractiveListRow(isDestructive: true)
+                            .accessibilityIdentifier("ui.ddl-event-detail-sheet.delete")
                     }
                 }
             }
@@ -251,6 +261,7 @@ private struct DDLEventDetailSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }
+                        .accessibilityIdentifier("ui.ddl-event-detail-sheet.cancel")
                 }
             }
         }
@@ -277,6 +288,8 @@ private struct DDLEditSheet: View {
                     TextField("", text: $draft.title, prompt: AppInputPrompt.text("标题"))
                         .accessibilityIdentifier("ddl.editor.title")
                     DatePicker("时间", selection: $draft.dueAt, displayedComponents: [.date, .hourAndMinute])
+                        .environment(\.calendar, ScheduleDateCodec.calendar)
+                        .environment(\.timeZone, ScheduleDateCodec.calendar.timeZone)
                         .accessibilityIdentifier("ddl.editor.date")
                     .appInteractiveListRow()
                     TextField("", text: $draft.text, prompt: AppInputPrompt.text("详情"), axis: .vertical)
@@ -289,6 +302,7 @@ private struct DDLEditSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("取消", action: onDismiss)
+                        .accessibilityIdentifier("ui.ddl-edit-sheet.cancel")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("确定", action: onSubmit)

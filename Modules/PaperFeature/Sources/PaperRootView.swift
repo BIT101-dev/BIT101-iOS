@@ -30,6 +30,7 @@ public struct PaperRootView: View {
 }
 
 private struct PaperRootViewScene: View {
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let dependencies: PaperDependencies
     private let media: MediaEnvironment
@@ -78,9 +79,7 @@ private struct PaperRootViewScene: View {
                                 systemImage: "doc.text.magnifyingglass",
                                 message: message,
                                 onRetry: {
-                                    Task {
-                                        await viewModel.refresh()
-                                    }
+                                    viewModel.enqueueRefresh()
                                 }
                             )
                         }
@@ -107,8 +106,10 @@ private struct PaperRootViewScene: View {
                                     .accessibilityAddTraits(.isButton)
                                     .accessibilityHint("打开文章详情")
                                 }
-                                .task {
+                                .task(id: viewModel.refreshGeneration) {
                                     await viewModel.loadPreviewMetadataIfNeeded(for: paper)
+                                }
+                                .task {
                                     await viewModel.loadMoreIfNeeded(currentPaper: paper)
                                 }
                             }
@@ -122,9 +123,12 @@ private struct PaperRootViewScene: View {
             .padding(.bottom, AppDesignSystem.Size.Layout.floatingActionContentInset)
             }
             .refreshable {
+                    interactionEvidence?("interaction.PaperRootViewScene.refreshable", "refresh")
+
                 await viewModel.refresh()
             }
             .simultaneousGesture(sortSwitchGesture)
+            .accessibilityIdentifier("paper.sort-surface")
 
             AppFloatingActionStack {
                 AppFloatingActionButton(systemImage: "square.and.pencil", accessibilityLabel: "发布文章") {
@@ -149,20 +153,18 @@ private struct PaperRootViewScene: View {
         }
         .navigationDestination(item: $selectedPaper) { paper in
             PaperDetailView(dependencies: dependencies, media: media, initialPaper: paper) {
-                Task { await viewModel.refresh() }
+                viewModel.enqueueRefresh()
             }
         }
         .navigationDestination(item: $deepLinkedPaper) { paper in
             PaperDetailView(dependencies: dependencies, media: media, initialPaper: paper) {
-                Task { await viewModel.refresh() }
+                viewModel.enqueueRefresh()
             }
         }
         .sheet(isPresented: $isShowingComposer) {
             NavigationStack {
                 PaperComposerView(initialContent: "") {
-                    Task {
-                        await handleComposerCreated()
-                    }
+                    handleComposerCreated()
                 }
             }
         }
@@ -179,22 +181,17 @@ private struct PaperRootViewScene: View {
         }
         .onChange(of: viewModel.selectedOrder) { oldValue, newValue in
             guard oldValue != newValue else { return }
-            Task {
-                await viewModel.refresh()
-            }
+            viewModel.enqueueRefresh()
         }
         .onChange(of: networkObserver.isReachable) { oldValue, newValue in
             guard newValue, !oldValue else { return }
-            Task {
-                await retryListIfNeeded()
-            }
+            retryListIfNeeded()
         }
         .onChange(of: scenePhase) { _, newValue in
             guard newValue == .active else { return }
-            Task {
-                await retryListIfNeeded()
-            }
+            retryListIfNeeded()
         }
+        .onDisappear { viewModel.cancelRefreshOperations() }
         .diagnosticAlert(item: $viewModel.alert)
     }
 
@@ -212,18 +209,18 @@ private struct PaperRootViewScene: View {
     }
 
     /// 文章列表停在失败空态时，在网络恢复或回前台后自动补拉一次。
-    private func retryListIfNeeded() async {
+    private func retryListIfNeeded() {
         guard networkObserver.isReachable else { return }
         let state = viewModel.state
         guard case .failed = state.status, state.items.isEmpty else { return }
-        await viewModel.refresh()
+        viewModel.enqueueRefresh()
     }
 
     /// 发文成功后统一切回默认列表条件，并重新拉文章列表。
     @MainActor
-    private func handleComposerCreated() async {
+    private func handleComposerCreated() {
         viewModel.selectedOrder = .newest
-        await viewModel.refresh()
+        viewModel.enqueueRefresh()
     }
 
     /// 文章排序左右轻扫切换手势。

@@ -13,11 +13,11 @@ enum AppAccountSession {
             clearSchoolCookies = {}
         } else {
             service = "harrybit.BIT101-iOS.login"
-            clearSchoolCookies = { AppSchoolSession.teachingCenter.clearSchoolAuthenticationCookies() }
+            clearSchoolCookies = { AppSchoolSession.clearSchoolAuthenticationCookies() }
         }
 #else
         service = "harrybit.BIT101-iOS.login"
-        clearSchoolCookies = { AppSchoolSession.teachingCenter.clearSchoolAuthenticationCookies() }
+        clearSchoolCookies = { AppSchoolSession.clearSchoolAuthenticationCookies() }
 #endif
         return LoginStorage(defaults: AppFileDirectories.defaults,
             credentials: KeychainLoginCredentials(service: service), clearSchoolCookies: clearSchoolCookies)

@@ -79,10 +79,12 @@ public struct PaperService {
         let content: String
         let anonymous: Bool
         let publicEdit: Bool
+        let lastTime: TimeInterval
 
         enum CodingKeys: String, CodingKey {
             case title, intro, content, anonymous
             case publicEdit = "public_edit"
+            case lastTime = "last_time"
         }
     }
 
@@ -189,8 +191,10 @@ public struct PaperService {
         intro: String,
         content: String,
         anonymous: Bool,
-        publicEdit: Bool = true
+        publicEdit: Bool = true,
+        lastUpdatedAt: String
     ) async throws {
+        guard let version = AppDateText.date(from: lastUpdatedAt) else { throw PaperServiceError.invalidResponse }
         try await api.requestVoid(
             path: "papers/\(id)",
             method: "PUT",
@@ -200,7 +204,8 @@ public struct PaperService {
                     intro: intro,
                     content: content,
                     anonymous: anonymous,
-                    publicEdit: publicEdit
+                    publicEdit: publicEdit,
+                    lastTime: version.timeIntervalSince1970
                 )
             )
         )
@@ -211,4 +216,3 @@ public struct PaperService {
     }
 
 }
-

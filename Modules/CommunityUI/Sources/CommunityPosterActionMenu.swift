@@ -23,6 +23,7 @@ public struct CommunityPosterActionMenu: View {
                 } label: {
                     menuLabel
                 }
+                    .accessibilityIdentifier("ui.community-poster-action-menu.menu")
             } else {
                 Button {
                     isPresentingFallbackActions = true
@@ -32,7 +33,9 @@ public struct CommunityPosterActionMenu: View {
                 .confirmationDialog("", isPresented: $isPresentingFallbackActions, titleVisibility: .hidden) {
                     menuActions
                     Button("取消", role: .cancel) {}
+                        .accessibilityIdentifier("ui.community-poster-action-menu.cancel")
                 }
+                    .accessibilityIdentifier("ui.community-poster-action-menu.actions")
             }
         }
         .buttonStyle(.plain)

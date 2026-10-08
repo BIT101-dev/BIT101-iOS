@@ -58,7 +58,7 @@ public nonisolated struct ScoreField: Codable, Hashable, Sendable {
 /// 此结构表示成绩表中的一行课程记录。
 ///
 /// 模型保留原始表头和值的对应关系，并提供常用字段访问器。
-public nonisolated struct ScoreRow: Codable, Identifiable, Sendable {
+public nonisolated struct ScoreRow: Codable, Identifiable, Equatable, Sendable {
     public let id: String
     public let values: [ScoreField]
 
@@ -102,50 +102,9 @@ public nonisolated struct ScoreRow: Codable, Identifiable, Sendable {
 }
 
 
-public nonisolated enum ScoreDetailRefreshDecision: Equatable, Sendable {
-    case fetch
-    case reuseCompletedCache
-    case reuseRateLimitedCache
-}
-
-/// 成绩简略列表更新后，此策略根据缓存和录入状态决定逐课程详情查询。
-public nonisolated enum ScoreDetailRefreshPolicy {
-    public static let incompleteRetryInterval: TimeInterval = 24 * 60 * 60
+/// 对比完整成绩与简略载荷，维护缓存状态和刷新反馈。
+public nonisolated enum ScoreRowComparison {
     private static let ignoredBriefKeys: Set<String> = ["序号", "操作栏"]
-
-    public static func decision(
-        briefRows: [ScoreRow],
-        cachedRows: [ScoreRow]?,
-        detailedUpdatedAt: Date?,
-        now: Date
-    ) -> ScoreDetailRefreshDecision {
-        guard let cachedRows, !cachedRows.isEmpty,
-              briefRowsMatchCache(briefRows, cachedRows: cachedRows)
-        else { return .fetch }
-
-        guard let latestTerm = briefRows
-            .map({ normalizedTerm($0.term) })
-            .filter({ !$0.isEmpty })
-            .max()
-        else {
-            return .fetch
-        }
-        let relevantRows = cachedRows.filter { normalizedTerm($0.term) == latestTerm }
-        guard !relevantRows.isEmpty else { return .fetch }
-
-        let knownStatuses = relevantRows.map(\.teachingClassesCompletionStatus).filter { !$0.isEmpty }
-        if !knownStatuses.isEmpty,
-           knownStatuses.allSatisfy({ $0 == "是" })
-        {
-            return .reuseCompletedCache
-        }
-
-        guard knownStatuses.contains("否"),
-              let detailedUpdatedAt,
-              now.timeIntervalSince(detailedUpdatedAt) < incompleteRetryInterval
-        else { return .fetch }
-        return .reuseRateLimitedCache
-    }
 
     public static func briefRowsMatchCache(_ briefRows: [ScoreRow], cachedRows: [ScoreRow]) -> Bool {
         guard !briefRows.isEmpty, !cachedRows.isEmpty else { return false }
@@ -175,9 +134,7 @@ public nonisolated enum ScoreDetailRefreshPolicy {
         }.sorted()
     }
 
-    private static func normalizedTerm(_ value: String) -> String {
-        value.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
+
 }
 
 /// 此结构表示成绩统计摘要。
@@ -388,8 +345,22 @@ public nonisolated enum ScoreSortOrder: String, CaseIterable, Identifiable, Send
     }
 }
 
+/// 可信成绩单按页数、传输字节和完整页面集合的位图预算准备。
+public nonisolated struct TrustedTranscriptResourceLimits: Sendable {
+    public let maximumPageCount: Int
+    public let maximumEncodedBytes: Int
+    public let maximumDecodedBytes: Int
+
+    public init(maximumPageCount: Int = 64, maximumEncodedBytes: Int = 32 * 1_024 * 1_024,
+                maximumDecodedBytes: Int = 48 * 1_024 * 1_024) {
+        self.maximumPageCount = maximumPageCount
+        self.maximumEncodedBytes = maximumEncodedBytes
+        self.maximumDecodedBytes = maximumDecodedBytes
+    }
+}
+
 /// 成绩 iCloud 同步快照，保留详细字段和本地新鲜度，使新设备直接复用已有数据。
-public nonisolated struct ScoreCacheSyncPayload: Codable, Sendable {
+public nonisolated struct ScoreCacheSyncPayload: Codable, Equatable, Sendable {
     public var rows: [ScoreRow]
     public var updatedAt: Date?
     public var detailedUpdatedAt: Date?

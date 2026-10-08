@@ -26,6 +26,19 @@ private enum ScoreSurface: String, CaseIterable, Identifiable, Hashable {
 ///
 /// 页面提供“成绩 / 课程”的顶部切换。
 struct ScoreRootView: View {
+    private let scene: ScoreRootScene
+    private let identity: ObjectIdentifier
+
+    init(courses: CourseDependencies, transcriptService: any TrustedTranscriptServicing,
+         requestedCourse: Binding<CourseNavigationRequest?> = .constant(nil)) {
+        scene = ScoreRootScene(courses: courses, transcriptService: transcriptService, requestedCourse: requestedCourse)
+        identity = ObjectIdentifier(courses)
+    }
+
+    var body: some View { scene.id(identity) }
+}
+
+private struct ScoreRootScene: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(AppCommunityDestinations.self) private var destinations
     private let courses: CourseDependencies
@@ -56,10 +69,12 @@ struct ScoreRootView: View {
                     onSearchCourse: openCourseSearch
                 )
                     .simultaneousGesture(surfaceSwitchGesture)
+                    .accessibilityIdentifier("home.score-surface")
                     .transition(.opacity)
             case .course:
                 CoursePageContent(viewModel: courseViewModel, dependencies: courses, media: destinations.media, profiles: destinations.profiles)
                     .simultaneousGesture(surfaceSwitchGesture)
+                    .accessibilityIdentifier("home.course-surface")
                     .transition(.opacity)
             }
         }

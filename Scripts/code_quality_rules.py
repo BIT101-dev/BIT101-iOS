@@ -4,21 +4,28 @@ from __future__ import annotations
 from pathlib import Path
 import ast
 import importlib.util
+import fcntl
 import json
+import os
 import re
 import stat
 import subprocess
 import sys
-from swift_source_index import swift_syntax_index
-
+from swift_source_index import declaration_conformances, expected_argument_types, scope_contains_type, swift_syntax_index
+from contextlib import contextmanager
+from ui_source_facts import explanatory_text_report
 
 sys.dont_write_bytecode = True
 
 ROOT = Path(__file__).resolve().parents[1]
+PRODUCTION_ROOTS = tuple(ROOT / name for name in (
+    "Modules", "BIT101-iOS", "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets"
+))
 SOURCE_ROOTS = (
     ROOT / "Modules",
     ROOT / "BIT101-iOS",
     ROOT / "BIT101-iOSTests",
+    ROOT / "BIT101-iOSUITests",
     ROOT / "ModuleTests",
     ROOT / "BIT101ScheduleWidgets",
     ROOT / "BIT101Watch",
@@ -30,7 +37,6 @@ REPORT_PATH = ROOT / ".build/code-quality-report.txt"
 DIRECT_STDOUT_LOG = re.compile(r"\b(?:print|debugPrint|NSLog)\s*\(")
 
 DIRECT_VIEW_REQUEST = re.compile(r"\bURLRequest\s*\(")
-FORCE_UNWRAP = re.compile(r"\b[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*!(?!=)|\)\s*!(?!=)")
 
 DIRECT_DATE_FORMATTER = re.compile(
     r"\b(?:DateFormatter|ISO8601DateFormatter|RelativeDateTimeFormatter)\s*\("
@@ -39,24 +45,65 @@ DIRECT_DATE_FORMATTER = re.compile(
 STDOUT_EXCEPTIONS = {"BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift"}
 
 
+@contextmanager
+def static_audit_lock():
+    if os.environ.get("BIT101_STATIC_AUDIT_LOCK_HELD") == "1":
+        yield
+        return
+    path = ROOT / ".build/static-audit/audit.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
 def ast_has_identifier(facts: dict, name: str) -> bool:
     return name in facts["identifiers"]
 
 
-def ast_has_view_request(facts: dict) -> bool:
-    view_types = {
-        declaration["name"]
-        for declaration in facts["declarations"]
-        if any(
-            inherited.rsplit(".", 1)[-1] == "View"
-            for inherited in declaration["inheritedTypes"]
-        )
-    }
-    return any(
-        call["value"] in {"URLRequest", "Swift.URLRequest"}
-        and any(view_type in call["scope"] for view_type in view_types)
-        for call in facts["calls"]
-    )
+def ast_has_view_request(facts: dict, type_index: dict | None = None, context: dict[str, dict] | None = None) -> bool:
+    context = {"source": facts} if context is None else context
+    origin = next((path for path, entry in context.items() if entry is facts), "source")
+    aliases_by_file = [(path, alias) for path, entry in context.items() for alias in entry.get("typeAliases", [])]
+    conformances = declaration_conformances({"source": facts}) if type_index is None else type_index
+    view_types = {owner for owner, bases in conformances.items() if any(base.rsplit(".", 1)[-1] == "View" for base in bases)}
+    def canonical_type(value, reference):
+        seen = set()
+        reference_file = origin
+        while (reference_file, value) not in seen:
+            seen.add((reference_file, value))
+            value = re.sub(r"\s+", "", mask_literals_and_comments(value)).rstrip("?!")
+            if value.startswith("[") and value.endswith("]"): value = value[1:-1]
+            if match := re.fullmatch(r"(?:Swift\.)?Array<(.+)>", value): value = match[1]
+            parts = value.split(".")
+            aliases = [(path, alias) for path, alias in aliases_by_file if alias["name"] == parts[-1]
+                and (path == reference_file or not alias.get("isFilePrivate") and not alias.get("lexicalScope"))
+                and (alias["scope"] == parts[:-1] if len(parts) > 1
+                     else reference["scope"][:len(alias["scope"])] == alias["scope"])
+                and reference.get("lexicalScope", [])[:len(alias.get("lexicalScope", []))] == alias.get("lexicalScope", [])]
+            if not aliases: return value in {"URLRequest", "Foundation.URLRequest"}
+            reference_file, reference = max(aliases, key=lambda entry: (len(entry[1]["scope"]),
+                len(entry[1].get("lexicalScope", [])), entry[0] == reference_file))
+            value = reference["type"]
+        return False
+    for call in facts["calls"]:
+        if not scope_contains_type(call["scope"], view_types): continue
+        called = re.sub(r"\s+", "", mask_literals_and_comments(call["value"]))
+        if canonical_type(called.removesuffix(".init").removesuffix(".self"), call): return True
+        if called != ".init": continue
+        if any(canonical_type(value, call) for value in expected_argument_types(facts, call)): return True
+        bindings = [(binding, re.match(r"\w+\s*:\s*([\w.?!]+)", binding["value"]))
+            for binding in facts.get("bindings", [])
+            if binding["start"] <= call["start"] < binding["start"] + len(binding["value"].encode())]
+        typed = [(binding, match[1]) for binding, match in bindings if match]
+        if typed:
+            binding, value = max(typed, key=lambda entry: entry[0]["start"])
+            if canonical_type(value, binding): return True
+        else:
+            functions = [function for function in facts.get("functionRanges", [])
+                if function["start"] <= call["start"] < function["end"] and function.get("returnType")]
+            if functions and canonical_type(max(functions, key=lambda function: function["start"])["returnType"], call): return True
+    return False
 
 
 def relative(path: Path) -> str:
@@ -82,7 +129,7 @@ def _blank_segment(output: list[str], source: str, start: int, end: int) -> None
             output[index] = " "
 
 
-def mask_literals_and_comments(source: str) -> str:
+def mask_literals_and_comments(source: str, *, keep_comments: bool = False) -> str:
     """复用模块检查器的 Swift 词法扫描，保留插值表达式与源码位置。"""
     name = "check_module_boundaries_lexer"
     if name not in sys.modules:
@@ -92,7 +139,7 @@ def mask_literals_and_comments(source: str) -> str:
         module = importlib.util.module_from_spec(spec)
         sys.modules[name] = module
         spec.loader.exec_module(module)
-    return sys.modules[name].swift_code(source)
+    return sys.modules[name].swift_code(source, keep_comments=keep_comments)
 
 
 def is_view_source(path: Path, code: str) -> bool:
@@ -176,8 +223,7 @@ def uses_application_support_storage(member: dict) -> bool:
 
 
 def client_source_findings(path: Path, source: str, facts: dict | None = None) -> list[str]:
-    production_roots = (ROOT / "Modules", ROOT / "BIT101-iOS", ROOT / "BIT101ScheduleWidgets", ROOT / "BIT101Watch", ROOT / "BIT101WatchWidgets")
-    if not any(path.is_relative_to(root) for root in production_roots):
+    if not any(path.is_relative_to(root) for root in PRODUCTION_ROOTS):
         return []
     errors: list[str] = []
     name = relative(path)
@@ -190,16 +236,39 @@ def client_source_findings(path: Path, source: str, facts: dict | None = None) -
     return errors
 
 
+def cancellation_findings(path: Path, source: str, facts: dict | None) -> list[str]:
+    if not any(path.is_relative_to(root) for root in PRODUCTION_ROOTS):
+        return []
+    findings = []
+    code = mask_literals_and_comments(source)
+    for match in re.finditer(r"\b(?:is\b|as\b\s*[?!]?)\s*(?:Swift\s*\.\s*)?CancellationError\b", code):
+        start = len(source[:match.start()].encode())
+        end = len(source[:match.end()].encode())
+        owned = path.is_relative_to(ROOT / "Modules/TransportCore") and any(
+            item["value"] == "CancellationError" and item["scope"] == ["TaskCancellation"]
+            and start <= item["start"] < end
+            for item in (facts or {}).get("scopedIdentifiers", [])
+        )
+        if not owned:
+            findings.append(f"{relative(path)}:{line_number(source, match.start())}: 任务取消必须通过 TaskCancellation.matches 统一识别")
+    return findings
+
+
 def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     review: list[str] = []
-    direct_cancellation_check = re.compile(r"\berror\s+is\s+CancellationError\b")
-    empty_catch = re.compile(r"\bcatch\s*\{\s*\}")
     unsafe_concurrency_escape = re.compile(
         r"\bnonisolated\s*\(\s*unsafe\s*\)|@\s*unchecked\s+Sendable"
     )
 
     large_files: list[str] = []
+    def unit(path):
+        parts = Path(path).relative_to(ROOT).parts
+        return parts[:2] if parts[0] in {"Modules", "ModuleTests"} else parts[:1]
+    unit_facts: dict[tuple, dict] = {}
+    for path, facts in (syntax_index or {}).items():
+        unit_facts.setdefault(unit(path), {})[path] = facts
+    type_indexes = {owner: declaration_conformances(facts) for owner, facts in unit_facts.items()}
     for path in swift_files():
         source = path.read_text(encoding="utf-8")
         masked_source = mask_literals_and_comments(source)
@@ -213,27 +282,33 @@ def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[s
             errors.append(f"{name}: Swift 源码不得使用 Tab 缩进")
         if any(line.rstrip() != line for line in source.splitlines()):
             errors.append(f"{name}: 存在行尾空白")
-        import_lines = [
-            (match.start(), match.group(1), source.count("\n", 0, match.start()) + 1)
-            for match in re.finditer(r"^import\s+([^\s]+)", source, re.MULTILINE)
-        ]
-        # 同一条件分支内相邻的重复 import 通常是复制残留；#if/#else 两个分支各自
-        # 引入同一模块属于必要代码，不报告。
-        for index, (position, module, line) in enumerate(import_lines[:-1]):
-            next_position, next_module, next_line = import_lines[index + 1]
-            if module == next_module and next_line - line <= 1:
-                errors.append(f"{name}:{line}: 重复 import {module}")
+        import_branches = [set()]
+        for line, text in enumerate(masked_source.split("\n"), 1):
+            if re.match(r"\s*#if\b", text):
+                import_branches.append(set())
+            elif re.match(r"\s*#(?:else|elseif)\b", text):
+                import_branches[-1].clear()
+            elif re.match(r"\s*#endif\b", text):
+                if len(import_branches) > 1: import_branches.pop()
+            else:
+                for match in re.finditer(r"(?:^|;)\s*import\s+([^;\n]+)", text):
+                    module = " ".join(match.group(1).split())
+                    if any(module in branch for branch in import_branches):
+                        errors.append(f"{name}:{line}: 重复 import {module}")
+                    import_branches[-1].add(module)
 
         if re.search(r"^\s*#if\s+false\b", masked_source, re.MULTILINE):
             errors.append(f"{name}: 不应保留 #if false 死代码块")
-        add_matches(errors, path, masked_source, re.compile(r"\b(?:TODO|FIXME|HACK)\b"), "请清理遗留 TODO/FIXME/HACK")
+        add_matches(errors, path, mask_literals_and_comments(source, keep_comments=True),
+                    re.compile(r"\b(?:TODO|FIXME|HACK)\b"), "请清理遗留 TODO/FIXME/HACK")
 
-        if name != relative(ROOT / "BIT101-iOS/Shared/Client/TaskCancellation.swift"):
-            add_matches(errors, path, masked_source, direct_cancellation_check, "任务取消必须通过 TaskCancellation.matches 统一识别")
-        add_matches(errors, path, masked_source, empty_catch, "禁止静默吞掉异常；请记录诊断或显式处理错误")
+        errors.extend(cancellation_findings(path, source, syntax_index.get(str(path)) if syntax_index else None))
         add_matches(errors, path, masked_source, unsafe_concurrency_escape, "禁止绕过 Swift 并发安全检查：请表达真实隔离或使用锁/Actor")
         facts = syntax_index.get(str(path)) if syntax_index else None
-        if facts and ast_has_view_request(facts):
+        for clause in (facts or {}).get("emptyCatchClauses", []):
+            line = source.encode()[:clause["start"]].count(b"\n") + 1
+            errors.append(f"{name}:{line}: 禁止静默吞掉异常；请记录诊断或显式处理错误")
+        if facts and ast_has_view_request(facts, type_indexes.get(unit(path)), unit_facts.get(unit(path))):
             errors.append(f"{name}: View 不应直接构造 URLRequest；请求移到 Service")
         elif facts is None:
             for match in view_request_matches(masked_source):
@@ -242,7 +317,7 @@ def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[s
                     "View 不应直接构造 URLRequest；请求移到 Service"
                 )
 
-        force_count = len(FORCE_UNWRAP.findall(masked_source))
+        force_count = len(facts["forceUnwraps"]) if facts else 0
         if force_count:
             errors.append(f"{name}: 禁止强制解包，共 {force_count} 处；请改用 guard/if let/#require")
         source_line_count = len(source.splitlines())
@@ -280,7 +355,7 @@ def script_findings() -> list[str]:
 
 
 def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
-    """保证启动、回前台和账号切换不会重新引入学校/WebVPN 自动请求。"""
+    """核对生命周期调用链与学校业务请求入口。"""
     errors: list[str] = []
     forbidden_identifiers = (
         "SchoolDataRefreshCoordinator",
@@ -293,8 +368,8 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
         "claimAutomaticPreparation",
     )
     forbidden_literals = ("schedule.auto-refresh", "silent-refresh")
-    for path in swift_files():
-        facts = syntax_index[str(path)]
+    for name, facts in syntax_index.items():
+        path = Path(name)
         for term in forbidden_identifiers:
             if ast_has_identifier(facts, term):
                 errors.append(f"{relative(path)}: 不得重新引入学校/WebVPN 自动请求：{term}")
@@ -309,8 +384,157 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
     if owner_has_call(syntax_index, "ScoreListPage", "bootstrapIfNeeded"):
         errors.append("ScoreListPage: 成绩页不得自动触发学校查询")
 
+    school_protocols = {"ScheduleCourseServicing", "ScheduleDDLServicing", "ScheduleClassroomServicing",
+                        "ScoreListServicing", "TrustedTranscriptServicing"}
+    school_operations = {function["name"] for facts in syntax_index.values()
+        for function in facts.get("functionRanges", []) if school_protocols.intersection(function["scope"])}
+    school_operations.update({"loadAvailableTerms", "refreshSchoolDDL"})
+    functions = {}
+    callable_names = {function["name"] for facts in syntax_index.values()
+        for category in ("callableRanges", "functionRanges") for function in facts.get(category, [])}
+    return_types = {(tuple(function["scope"]), function["name"]): function["returnType"]
+        for facts in syntax_index.values() for function in facts.get("functionRanges", []) if function.get("returnType")}
+    reference_paths = {id(node): path for path, facts in syntax_index.items()
+        for node in facts["calls"] + facts.get("members", []) + facts.get("scopedIdentifiers", [])}
+    call_ids = {id(call) for facts in syntax_index.values() for call in facts["calls"]}
 
-    return errors
+    def variable_scope(path, node):
+        return tuple(node["scope"]) + tuple(f"@{path}:{start}" for start in node.get("lexicalScope", []))
+
+    aliases = [(path, alias, variable_scope(path, alias)) for path, facts in syntax_index.items()
+        for alias in facts.get("typeAliases", [])]
+
+    def canonical_type(value, scope, path):
+        visited = set()
+        while value not in visited:
+            visited.add(value)
+            value = re.sub(r"\s+", "", value.replace("any ", "")).replace("?", "").split("<", 1)[0]
+            parts = value.split(".")
+            matching = [(owner, alias, alias_scope) for owner, alias, alias_scope in aliases
+                if alias["name"] == parts[-1]
+                and (tuple(alias["scope"]) == tuple(parts[:-1]) if len(parts) > 1 else scope[:len(alias_scope)] == alias_scope)
+                and (not alias.get("isFilePrivate") or owner == path)
+                and (not alias.get("lexicalScope") or owner == path)]
+            if not matching: return parts[-1]
+            _, alias, scope = max(matching, key=lambda item: (item[0] == path, len(item[2])))
+            value = alias["type"]
+        return value.rsplit(".", 1)[-1]
+
+    variable_types = {}
+    for path, facts in syntax_index.items():
+        for variable in facts.get("typedVariables", []):
+            variable_types[(variable_scope(path, variable), variable["name"])] = variable["type"]
+        for binding in facts.get("bindings", []):
+            scope = variable_scope(path, binding)
+            initializer = re.match(r"(\w+)\s*=\s*(?:try\??\s+)?(?:await\s+)?([A-Z]\w*)[.(]", binding["value"])
+            if initializer: variable_types[(scope, initializer[1])] = initializer[2]
+            returned = re.match(r"(\w+)\s*=\s*(?:try\??\s+)?(?:await\s+)?(\w+)\.(\w+)\(", binding["value"])
+            if returned and ((returned[2],), returned[3]) in return_types:
+                variable_types[(scope, returned[1])] = return_types[((returned[2],), returned[3])]
+            decoded = re.match(r"(\w+)\s*=.*?\.decode\(\s*(\w+)\.self", binding["value"])
+            if decoded: variable_types[(scope, decoded[1])] = decoded[2]
+
+    def receiver_type(call):
+        parts = call["value"].replace("?", "").split(".")[:-1]
+        scope = variable_scope(reference_paths.get(id(call), ""), call)
+        if parts and parts[0] == "self":
+            parts.pop(0)
+            scope = tuple(call["scope"])
+        resolved = None
+        for part in parts:
+            if part == "shared" and resolved: continue
+            if resolved is None and part[:1].isupper():
+                resolved = part
+                continue
+            lookup_scopes = [scope[:length] for length in range(len(scope), -1, -1)] if resolved is None \
+                else [owner for owner, field in variable_types if owner and owner[-1] == resolved and field == part]
+            resolved = next((variable_types[(owner, part)] for owner in lookup_scopes if (owner, part) in variable_types), None)
+            if resolved is None: return None
+            resolved = canonical_type(resolved, scope, reference_paths.get(id(call), ""))
+        return resolved
+
+    roots = []
+    for path, facts in syntax_index.items():
+        if "Tests/" in path or "UITest" in Path(path).name or "ReleaseNetworkSmoke" in Path(path).name: continue
+        assignments = [(expression["start"], expression["start"] + len(match[1].encode()))
+            for expression in facts.get("expressions", [])
+            if (match := re.match(r"((?:self\.)?\w+\s*)=(?!=)", expression["value"]))]
+        references = [reference for reference in facts["calls"] + facts.get("members", []) + facts.get("scopedIdentifiers", [])
+            if (re.fullmatch(r"(?:[\w?$]+\.)*\w+", reference["value"]) or reference["value"] == ".init")
+            and not any(start <= reference["start"] < end for start, end in assignments)
+            and ("." in reference["value"] or reference["value"] in callable_names
+                or (variable_scope(path, reference), reference["value"]) not in variable_types)]
+        for category in ("functionRanges", "callableRanges", "initializers"):
+            for function in facts.get(category, []):
+                key = (variable_scope(path, function), function["name"])
+                functions.setdefault(function["name"], []).append((key, [reference for reference in references
+                    if function["start"] <= reference["start"] < function["end"]
+                    and not any(deferred["start"] <= reference["start"] < deferred["end"]
+                        and deferred is not function for deferred in facts.get("callableRanges", []))]))
+        for declaration in facts["declarations"]:
+            if "App" in {value.rsplit(".", 1)[-1] for value in declaration["inheritedTypes"]} \
+                    or declaration["name"].endswith("Lifecycle") or declaration["name"] == "ScheduleReminderBackgroundRefresh":
+                scope = declaration["scope"] + [declaration["name"]]
+                roots.extend(call for call in references if call["scope"][:len(scope)] == scope
+                    and not any(deferred["start"] <= call["start"] < deferred["end"] for deferred in facts.get("callableRanges", [])))
+        for lifecycle in facts.get("lifecycleRanges", []):
+            roots.extend(reference for reference in references
+                if lifecycle["start"] <= reference["start"] < lifecycle["end"]
+                and not any(deferred["start"] <= reference["start"] < deferred["end"] for deferred in facts.get("callableRanges", [])))
+
+    def targets(call):
+        name = call["value"].rsplit(".", 1)[-1]
+        candidates = functions.get(name, [])
+        if name[:1].isupper():
+            if id(call) not in call_ids: return []
+            constructed = canonical_type(call["value"], variable_scope(reference_paths.get(id(call), ""), call), reference_paths.get(id(call), ""))
+            return [entry for entry in functions.get("init", []) if constructed in entry[0][0]]
+        receiver = receiver_type(call)
+        if receiver: return [entry for entry in candidates if receiver in entry[0][0]]
+        if call["value"] == ".init":
+            path = reference_paths[id(call)]
+            facts = syntax_index[path]
+            contexts = expected_argument_types(facts, call)
+            contexts.extend(match[1] for binding in facts.get("bindings", [])
+                if binding["start"] <= call["start"] < binding["start"] + len(binding["value"].encode())
+                and (match := re.match(r"\w+\s*:\s*([^={]+)", binding["value"])))
+            owners = {canonical_type(context, variable_scope(path, call), path) for context in contexts}
+            return [entry for entry in candidates if owners.intersection(entry[0][0])]
+        scope = variable_scope(reference_paths.get(id(call), ""), call)
+        owned = [entry for entry in candidates if scope[:len(entry[0][0])] == entry[0][0]]
+        if owned: return [entry for entry in owned if len(entry[0][0]) == max(len(item[0][0]) for item in owned)]
+        receiver_name = call["value"].replace("?", "").split(".")[0]
+        named = [entry for entry in candidates if any(receiver_name.lower() in owner.lower() for owner in entry[0][0])]
+        return named or candidates if "." in call["value"] else [entry for entry in candidates if not entry[0][0]]
+
+    reasons = {}
+    predecessors = {}
+    for entries in functions.values():
+        for key, children in entries:
+            for child in children:
+                operation = child["value"].rsplit(".", 1)[-1].strip()
+                if operation in school_operations:
+                    reasons.setdefault(key, {})[operation] = [child["value"]]
+                for target, _ in targets(child):
+                    predecessors.setdefault(target, set()).add(key)
+    pending = [(key, operation) for key, routes in reasons.items() for operation in routes]
+    while pending:
+        target, operation = pending.pop()
+        for key in predecessors.get(target, set()):
+            if operation in reasons.setdefault(key, {}): continue
+            reasons[key][operation] = [".".join(target[0] + (target[1],))] + reasons[target][operation]
+            pending.append((key, operation))
+    exceptions = {("ScheduleTermPickerPage", "loadAvailableTerms"): {"loadAvailableTerms", "fetchAvailableTerms"},
+        ("ScheduleRootView", "startClassroomPageRefresh"): {"fetchCurrentTermOnly", "prepareTeachingCenterAccess", "fetchCampuses", "fetchBuildings", "fetchClassrooms"},
+        ("TrustedTranscriptPage", "applyIfNeeded"): {"fetchTrustedTranscriptPages"}}
+    for call in roots:
+        name = call["value"].rsplit(".", 1)[-1].strip()
+        allowed = set().union(*(operations for (owner, entry), operations in exceptions.items() if owner in call["scope"] and entry == name))
+        routes = [reason for key, _ in targets(call) for operation, reason in reasons.get(key, {}).items() if operation not in allowed]
+        if name in school_operations - allowed or routes:
+            errors.append(f"{'/'.join(call['scope'])}: 生命周期调用链触发学校请求：{call['value']}" + (" → " + " → ".join(routes[0]) if routes else ""))
+
+    return list(dict.fromkeys(errors))
 
 
 def audit_wiring_findings() -> list[str]:
@@ -321,12 +545,15 @@ def audit_wiring_findings() -> list[str]:
     groups = re.search(r"^group_names=\(([^\n]+)\)$", audit_source, re.MULTILINE)
     commands = re.search(r"^group_commands=\(([^\n]+)\)$", audit_source, re.MULTILINE)
     wiring = dict(zip(groups[1].split(), commands[1].split())) if groups and commands and len(groups[1].split()) == len(commands[1].split()) else {}
-    if wiring.get("checkers") != "checker_audit":
-        errors.append("Scripts/run-static-audit.sh: 未接入共享索引检查器审计")
+    expected = {"swift-parse": "swift_parse", "shell-parse": "shell_parse", "python-parse": "python_parse",
+        "worker-parse": "worker_parse", "dependency-audit": "dependency_audit", "module-boundary": "module_boundary_audit",
+        "git-diff": "git_check", "docs": "docs_check", "checkers": "checker_audit"}
+    if wiring != expected or len(groups[1].split()) != len(expected):
+        errors.append("Scripts/run-static-audit.sh: 静态审计回调需要逐组接入完整契约")
     if "check-docs.py --all" not in audit_source:
         errors.append("Scripts/run-static-audit.sh: 未接入文档引用检查")
-    if wiring.get("dependency-audit") != "dependency_audit":
-        errors.append("Scripts/run-static-audit.sh: 未接入锁定依赖漏洞审计")
+    if not re.search(r"(?m)^\s*run_group\s+artifact-hygiene\s+artifact_hygiene(?:\s|$)", audit_source):
+        errors.append("Scripts/run-static-audit.sh: 静态审计回调需要接入产物清理检查")
     if "npm audit --audit-level=high" not in audit_source:
         errors.append("Scripts/run-static-audit.sh: 依赖漏洞审计门槛缺失")
     if "release-network-smoke" in audit_source:
@@ -376,6 +603,39 @@ def audit_wiring_findings() -> list[str]:
     return errors
 
 
+def native_project_targets(project: dict, root: Path) -> list[tuple[str, set[str], set[Path]]]:
+    objects = project["objects"]
+    paths: dict[str, Path] = {}
+    def visit(identifier, parent):
+        item = objects[identifier]
+        tree = item.get("sourceTree", "<group>")
+        base = root if tree == "SOURCE_ROOT" else parent
+        path = base / item.get("path", "")
+        paths[identifier] = path
+        for child in item.get("children", []): visit(child, path)
+    visit(objects[project["rootObject"]]["mainGroup"], root)
+    result = []
+    for identifier, target in objects.items():
+        if target.get("isa") != "PBXNativeTarget": continue
+        declared = {objects[product]["productName"] for product in target.get("packageProductDependencies", [])}
+        sources = set()
+        for group_id in target.get("fileSystemSynchronizedGroups", []):
+            group = objects[group_id]
+            directory = paths.get(group_id, root / group["path"])
+            excluded = {name for exception in group.get("exceptions", []) if objects[exception].get("target") == identifier
+                        for name in objects[exception].get("membershipExceptions", [])}
+            sources.update(path for path in directory.rglob("*.swift") if path.relative_to(directory).as_posix() not in excluded)
+        for phase_id in target.get("buildPhases", []):
+            phase = objects[phase_id]
+            if phase.get("isa") != "PBXSourcesBuildPhase": continue
+            for build_file in phase.get("files", []):
+                reference = objects[build_file]["fileRef"]
+                if reference not in paths: raise ValueError(f"源文件需要工程路径归属：{reference}")
+                if paths[reference].suffix == ".swift": sources.add(paths[reference])
+        result.append((target["name"], declared, sources))
+    return result
+
+
 def extension_dependency_findings(project: dict) -> list[str]:
     objects = project["objects"]
     targets = {value["name"]: key for key, value in objects.items() if value.get("isa") == "PBXNativeTarget"}
@@ -399,68 +659,159 @@ def extension_dependency_findings(project: dict) -> list[str]:
 
 def ci_wiring_findings(workflow_source: str) -> list[str]:
     errors: list[str] = []
-    active_lines = [line for line in workflow_source.splitlines() if not line.lstrip().startswith("#")]
-    source = "\n".join(active_lines) + "\n"
-
-    def job_body(name: str) -> str | None:
-        match = re.search(
-            rf"(?ms)^  {re.escape(name)}:\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:|\Z)",
-            source,
+    try:
+        # YAML 1.1 将裸 on 识别为布尔值；保留 GitHub 工作流的事件键。
+        source = re.sub(r'(?m)^on(?=\s*:)', '"on"', workflow_source)
+        parsed = subprocess.run(
+            ["ruby", "-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.safe_load(STDIN.read, aliases: true))"],
+            input=source, capture_output=True, text=True, check=True,
         )
-        return match.group("body") if match else None
+        workflow = json.loads(parsed.stdout)
+        if not isinstance(workflow, dict): raise ValueError("工作流需要映射")
+    except (OSError, subprocess.CalledProcessError, ValueError):
+        return [".github/workflows/ci.yml: CI 工作流需要有效 YAML"]
 
-    def run_commands(job: str) -> list[str]:
-        commands: list[str] = []
-        lines = job.splitlines()
-        for index, line in enumerate(lines):
-            match = re.match(r"^        run:\s*(.*?)\s*$", line)
-            if match is None:
+    def mapping(value):
+        return value if isinstance(value, dict) else {}
+
+    events = workflow.get("on", {})
+    events = {events} if isinstance(events, str) else events if isinstance(events, (list, dict)) else {}
+    if not {"pull_request", "push"}.issubset(events):
+        errors.append(".github/workflows/ci.yml: CI 需要 pull_request 和 push 自动触发")
+    jobs = mapping(workflow.get("jobs"))
+    default_shell = mapping(mapping(workflow.get("defaults")).get("run")).get("shell", "bash")
+
+    def run_commands(job):
+        commands = []
+        shell = mapping(mapping(job.get("defaults")).get("run")).get("shell", default_shell)
+        steps = job.get("steps", [])
+        for step in steps if isinstance(steps, list) else []:
+            step = mapping(step)
+            if "run" not in step: continue
+            if step.get("shell", shell) != "bash":
+                errors.append(".github/workflows/ci.yml: CI 执行步骤需要 bash shell")
                 continue
-            command = match.group(1)
-            if command in {"|", "|-", ">", ">-"}:
-                body: list[str] = []
-                for following in lines[index + 1:]:
-                    if following.strip() and len(following) - len(following.lstrip()) <= 8:
-                        break
-                    body.append(following.strip())
-                command = " ".join(body)
-            commands.append(command)
+            if "if" in step or step.get("continue-on-error", False) is not False: continue
+            command = step["run"]
+            if isinstance(command, str): commands.append((command.strip(), step))
         return commands
 
-    static_job = job_body("static-audit")
-    release_job = job_body("release-build")
-    catalyst_job = job_body("catalyst-tests")
-    if static_job is None:
-        errors.append(".github/workflows/ci.yml: CI 未声明静态审计 Job")
-    elif "Scripts/run-static-audit.sh" not in run_commands(static_job):
-        errors.append(".github/workflows/ci.yml: 静态审计 Job 缺少执行入口")
-    if release_job is None:
-        errors.append(".github/workflows/ci.yml: 缺少默认 Release 编译 Job")
-        return errors
-    if re.search(r"^    if:", release_job, re.MULTILINE):
-        errors.append(".github/workflows/ci.yml: Release 编译 Job 必须默认执行")
-    if not re.search(r"^    needs:\s*static-audit\s*$", release_job, re.MULTILINE):
-        errors.append(".github/workflows/ci.yml: Release 编译 Job 必须依赖静态审计")
-    if catalyst_job is None:
-        errors.append(".github/workflows/ci.yml: CI 需要独立 Mac Catalyst 行为 Job")
-    else:
-        if re.search(r"^    if:", catalyst_job, re.MULTILINE):
-            errors.append(".github/workflows/ci.yml: Mac Catalyst 行为 Job 需要默认执行")
-        if not re.search(r"^    needs:\s*static-audit\s*$", catalyst_job, re.MULTILINE):
-            errors.append(".github/workflows/ci.yml: Mac Catalyst 行为 Job 需要依赖静态审计")
-        if "Scripts/run-extended-tests.sh catalyst" not in run_commands(catalyst_job):
-            errors.append(".github/workflows/ci.yml: Mac Catalyst 行为 Job 需要执行行为用例")
-    required_release_rules = (
-        ("Scripts/run-extended-tests.sh build release", "CI 需要通用 iOS Release 测试构建"),
-        ("Scripts/run-extended-tests.sh build ui", "CI 需要 UI 宿主与测试构建"),
-        ("Scripts/run-extended-tests.sh build network-smoke", "CI 需要网络 Smoke 编译条件构建"),
-        ("Scripts/run-extended-tests.sh build icloud-smoke", "CI 需要 iCloud Smoke 编译条件构建"),
-    )
-    release_commands = "\n".join(run_commands(release_job))
-    for marker, message in required_release_rules:
-        if marker not in release_commands:
-            errors.append(f".github/workflows/ci.yml: {message}")
+    commands = {}
+    for name in ("static-audit", "release-build", "catalyst-tests"):
+        job = mapping(jobs.get(name))
+        if not job:
+            errors.append(f".github/workflows/ci.yml: CI 缺少 {name} Job")
+            continue
+        if "if" in job or job.get("continue-on-error", False) is not False:
+            errors.append(f".github/workflows/ci.yml: {name} 需要默认执行并传播失败")
+        commands[name] = run_commands(job)
+        if name != "static-audit" and job.get("needs") not in ("static-audit", ["static-audit"]):
+            label = "Release 编译 Job 必须依赖静态审计" if name == "release-build" else "Mac Catalyst 行为 Job 需要依赖静态审计"
+            errors.append(f".github/workflows/ci.yml: {label}")
+    static_commands = commands.get("static-audit", [])
+    audit_index = next((index for index, (command, _) in enumerate(static_commands) if command == "Scripts/run-static-audit.sh"), -1)
+    setup_index = next((index for index, (command, step) in enumerate(static_commands)
+                        if command == "npm ci" and step.get("working-directory") == "Cloudflare/EmergencyUpdateWorker"), -1)
+    if audit_index < 0: errors.append(".github/workflows/ci.yml: 静态审计 Job 缺少执行入口")
+    if setup_index < 0 or audit_index < 0 or setup_index >= audit_index:
+        errors.append(".github/workflows/ci.yml: Worker 锁定依赖需要在静态审计前安装并传播失败")
+    required = {
+        "static-audit": (("Scripts/run-extended-tests.sh modules", "模块行为测试需要默认执行并传播失败"),),
+        "catalyst-tests": (("Scripts/run-extended-tests.sh catalyst", "Mac Catalyst 行为 Job 需要执行行为用例"),),
+        "release-build": (
+            ("Scripts/build-install-device.sh archive", "CI 需要正式归档编译模式验证"),
+            ("Scripts/run-extended-tests.sh build release", "CI 需要通用 iOS Release 测试构建"),
+            ("Scripts/run-extended-tests.sh build ui", "CI 需要 UI 宿主与测试构建"),
+            ("Scripts/run-extended-tests.sh build network-smoke", "CI 需要网络 Smoke 编译条件构建"),
+            ("Scripts/run-extended-tests.sh build icloud-smoke", "CI 需要 iCloud Smoke 编译条件构建"),
+        ),
+    }
+    for name, rules in required.items():
+        executed = {command for command, _ in commands.get(name, [])}
+        for marker, message in rules:
+            if marker not in executed: errors.append(f".github/workflows/ci.yml: {message}")
     return errors
+
+
+def cross_file_view_request_self_test() -> list[str]:
+    from swift_source_index import swift_syntax_index_sources
+    sources = {
+        "View.swift": "enum Namespace { struct Screen: SwiftUI.View {}; struct Helper {} }",
+        "Actions.swift": "extension Namespace.Screen { func load() { _ = URLRequest(url: url) } }",
+        "Other.swift": "extension Namespace.Helper { func load() { _ = URLRequest(url: url) } }",
+    }
+    index = swift_syntax_index_sources(sources)
+    types = declaration_conformances(index)
+    if not ast_has_view_request(index["Actions.swift"], types, index) or ast_has_view_request(index["Other.swift"], types, index):
+        return ["代码质量规则边界自检失败：跨文件 View 扩展与完整类型作用域"]
+    for target in ("Foundation.URLRequest", "Leaf"):
+        sources["Aliases.swift"] = f"private typealias Leaf = Foundation.URLRequest; typealias Request = {target}"
+        sources["Actions.swift"] = "private typealias Leaf = Model; extension Namespace.Screen { func load() { _ = Request(url: url) } }"
+        aliases = swift_syntax_index_sources(sources)
+        if not ast_has_view_request(aliases["Actions.swift"], declaration_conformances(aliases), aliases):
+            return ["代码质量规则边界自检失败：跨文件请求别名与别名声明文件归属"]
+    for method in ("fetchScores", "`fetchScores`"):
+        school = swift_syntax_index_sources({"School.swift": f"protocol ScoreListServicing {{ func fetchScores() async }}; struct Screen: View {{ let service: any ScoreListServicing; var body: some View {{ Text(\"sample\").task {{ await service.{method}() }} }} }}"})
+        if not automatic_school_fetch_findings(school):
+            return ["代码质量规则边界自检失败：生命周期学校请求的转义标识符"]
+    for setup, preparation, action in (
+        ("", "let refresh = service.syncCourses;", "try? await refresh()"),
+        ("var refresh: () async throws -> Void { service.syncCourses };", "", "try? await refresh()"),
+        ("", "", "_ = Model(service: service)"),
+        ("", "", "_ = Model.init(service: service)"),
+        ("", "", "let model: Model = .init(service: service); _ = model"),
+    ):
+        school = swift_syntax_index_sources({"School.swift": "protocol ScheduleCourseServicing { func syncCourses() async throws }; struct Model { init(service: any ScheduleCourseServicing) { Task { try? await service.syncCourses() } } }; struct Screen: View { let service: any ScheduleCourseServicing; " + setup + " var body: some View { " + preparation + " Text(\"sample\").task { " + action + " } } }"})
+        if not automatic_school_fetch_findings(school):
+            return ["代码质量规则边界自检失败：生命周期初始化器与方法引用调用链"]
+        safe = swift_syntax_index_sources({"Safe.swift": "protocol ScheduleCourseServicing { func syncCourses() async throws }; struct Screen: View { let service: any ScheduleCourseServicing; " + setup + " var body: some View { " + preparation + " Text(\"sample\").task { _ = 1 } } }"})
+        if automatic_school_fetch_findings(safe): return ["代码质量规则边界自检失败：手动调用引用作用域"]
+    safe = swift_syntax_index_sources({"Safe.swift": "protocol ScheduleCourseServicing { func syncCourses() async throws }; struct Model { init(service: any ScheduleCourseServicing) { Task { try? await service.syncCourses() } } }; struct Screen: View { var body: some View { Text(\"sample\").task { let model: Model? = nil; _ = model } } }"})
+    if automatic_school_fetch_findings(safe): return ["代码质量规则边界自检失败：类型声明与构造调用区分"]
+    for property in ("let work = Task { try? await Service().syncCourses() }", "let work = Task { try? await Service().syncCourses() }; init() {}"):
+        school = swift_syntax_index_sources({"School.swift": "protocol ScheduleCourseServicing { func syncCourses() async throws }; struct Service: ScheduleCourseServicing { func syncCourses() async throws {} }; class Model { " + property + " }; struct Screen: View { var body: some View { Text(\"sample\").task { _ = Model() } } }"})
+        if not automatic_school_fetch_findings(school): return ["代码质量规则边界自检失败：构造执行实例属性初始化"]
+    for construction in ("var manualRefresh: () async throws -> Void; init(service: any ScheduleCourseServicing) { manualRefresh = { try await service.syncCourses() } }", "let manualRefresh = Service().syncCourses", "let manualRefresh = { try await Service().syncCourses() }"):
+        fixture = "protocol ScheduleCourseServicing { func syncCourses() async throws }; struct Service: ScheduleCourseServicing { func syncCourses() async throws {} }; class Model { " + construction + " }; struct Screen: View { var body: some View { Text(\"sample\").task { let model = Model(service: Service()); ACTION } } }"
+        safe = swift_syntax_index_sources({"Safe.swift": fixture.replace("ACTION", "_ = model")})
+        if automatic_school_fetch_findings(safe): return ["代码质量规则边界自检失败：构造保存手动回调"]
+        invoked = swift_syntax_index_sources({"School.swift": fixture.replace("ACTION", "try? await model.manualRefresh()")})
+        if not automatic_school_fetch_findings(invoked): return ["代码质量规则边界自检失败：生命周期调用已保存回调"]
+    return []
+
+
+def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
+    source = workflow_source
+    mutations = [
+        re.sub(r"(?m)^  pull_request:.*\n", "", source),
+        re.sub(r"(?m)^  push:\n    branches:.*\n", "", source),
+        source.replace("jobs:", "defaults:\n  run:\n    shell: echo {0}\njobs:", 1),
+        source.replace("    steps:", "    defaults:\n      run:\n        shell: echo {0}\n    steps:", 1),
+    ]
+    findings = ["代码质量规则边界自检失败：CI 自动触发与 shell 继承门禁"
+                for changed in mutations if not ci_wiring_findings(changed)]
+    if not ci_wiring_findings(workflow_source.replace("run: npm ci", "run: echo skipped", 1)):
+        findings.append("代码质量规则边界自检失败：Worker 冷启动依赖准备")
+    for command in ("Scripts/run-static-audit.sh", "Scripts/run-extended-tests.sh modules",
+                    "Scripts/run-extended-tests.sh build ui", "Scripts/run-extended-tests.sh catalyst"):
+        for modifier in ("if: false", "continue-on-error: true", "shell: echo {0}"):
+            skipped = workflow_source.replace(f"        run: {command}", f"        {modifier}\n        run: {command}")
+            if not ci_wiring_findings(skipped):
+                findings.append("代码质量规则边界自检失败：CI 步骤条件与失败传播门禁")
+    detached_release = workflow_source.replace("needs: static-audit", "needs: []", 1)
+    if not any("必须依赖静态审计" in item for item in ci_wiring_findings(detached_release)):
+        findings.append("代码质量规则边界自检失败：Release Job 与静态审计依赖识别")
+    misplaced_audit = workflow_source.replace("run: Scripts/run-static-audit.sh", "run: echo skipped", 1)
+    misplaced_audit += "\n# Scripts/run-static-audit.sh\n"
+    if not any("静态审计 Job 缺少执行入口" in item for item in ci_wiring_findings(misplaced_audit)):
+        findings.append("代码质量规则边界自检失败：CI 注释中的审计标记隔离")
+    detached_catalyst = re.sub(r"(?s)(  catalyst-tests:.*?)    needs: static-audit", r"\1    needs: []", workflow_source, count=1)
+    if not any("Catalyst 行为 Job 需要依赖静态审计" in item for item in ci_wiring_findings(detached_catalyst)):
+        findings.append("代码质量规则边界自检失败：Catalyst Job 与静态审计依赖识别")
+    skipped_catalyst = workflow_source.replace("run: Scripts/run-extended-tests.sh catalyst", "run: echo skipped", 1)
+    if not any("Catalyst 行为 Job 需要执行" in item for item in ci_wiring_findings(skipped_catalyst)):
+        findings.append("代码质量规则边界自检失败：并行 Catalyst 行为用例执行门禁")
+    return findings
 
 
 def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[str] | None = None) -> int:
@@ -526,119 +877,6 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
     return 0
 
 
-def explanatory_text_report() -> None:
-    root = ROOT
-    source_root = root / "BIT101-iOS"
-    report = root / ".build/explanatory-text-report.txt"
-    # 用户确认的文案进入白名单，其余候选写入固定报告。
-    APPROVED_TEXTS = {
-        "使用学校统一身份认证账号密码登录。若未注册过 BIT101 账号，将自动完成注册；密码仅会经不可逆加密后传输。",
-        "本 App 尚处在开发中，不保证所有功能始终可用；如遇到问题，请联系 systemd@linux.do。开发者不对使用过程中造成的损失负责。",
-        "本 App 为了完成 Apple 的合规性审查，加入了一些风味元素，功能与安卓版有所差异。",
-        "换个关键词试试。",
-        "请稍候",
-        "先选定校区和教学楼，再刷新一次。",
-        "先获取乐学日程，或手动添加一条。",
-        "点击右上角的加号可以先新增一个。",
-        "请调整学期或种类筛选条件。",
-    }
-    APPROVED_DYNAMIC = {
-        ("Modules/DesignSystemKit/Sources/AppVerificationComponents.swift", "verificationHint"),
-    }
-
-
-    def masked(source: str) -> str:
-        """保留结构字符，维持插值所在块的边界。"""
-        def replace(match: re.Match[str]) -> str:
-            return "".join("\n" if character == "\n" else " " for character in match.group(0))
-
-        return re.sub(r'"""[\s\S]*?"""|"(?:\\.|[^"\\])*"', replace, source)
-
-
-    def block(source: str, start: int) -> str:
-        structure = masked(source)
-        opening = structure.find("{", start)
-        if opening < 0:
-            return ""
-        depth = 0
-        for index in range(opening, len(structure)):
-            if structure[index] == "{":
-                depth += 1
-            elif structure[index] == "}":
-                depth -= 1
-                if depth == 0:
-                    return source[opening + 1 : index]
-        return source[opening + 1 :]
-
-
-    def text_expressions(source: str, path: str) -> list[str]:
-        expressions: list[str] = []
-        for line in source.splitlines():
-            match = re.match(r"Text\((.*)\)\s*$", line.strip())
-            if not match:
-                continue
-            expression = match.group(1)
-            if expression.startswith('"'):
-                if expression[1:-1] not in APPROVED_TEXTS:
-                    expressions.append(expression)
-            elif expression == "verificationHint" and (path, expression) not in APPROVED_DYNAMIC:
-                expressions.append(expression)
-        return expressions
-
-
-    footer_items: list[tuple[str, int, list[str]]] = []
-    description_items: list[tuple[str, int, list[str]]] = []
-
-    for path in sorted(source_root.rglob("*.swift")):
-        source = path.read_text(encoding="utf-8")
-        relative_path = path.relative_to(root).as_posix()
-        if path.name != "ErrorReportSupport.swift":
-            for match in re.finditer(r"\bfooter\s*:\s*\{", source):
-                expressions = text_expressions(block(source, match.start()), relative_path)
-                if expressions:
-                    footer_items.append((path.relative_to(root).as_posix(), source.count("\n", 0, match.start()) + 1, expressions))
-
-        for match in re.finditer(r"\bdescription\s*:\s*\{", source):
-            expressions = text_expressions(block(source, match.start()), relative_path)
-            if expressions:
-                description_items.append((relative_path, source.count("\n", 0, match.start()) + 1, expressions))
-
-        for match in re.finditer(r"\bdescription\s*:\s*Text\((.*)\)\s*$", source, re.MULTILINE):
-            expression = match.group(1)
-            if expression.startswith('"') and expression[1:-1] in APPROVED_TEXTS:
-                continue
-            description_items.append((relative_path, source.count("\n", 0, match.start()) + 1, [expression]))
-
-
-    lines = [
-        "# List/Form 与 ContentUnavailableView 解释文案审查候选",
-        "# 扫描 Section footer 和 ContentUnavailableView description。",
-        "",
-        "## Section footer",
-    ]
-    for path, line, expressions in footer_items:
-        lines.append(f"- {path}:{line}")
-        lines.extend(f"  - Text({expression})" for expression in expressions)
-
-    lines.append("")
-    lines.append("## ContentUnavailableView description")
-    for path, line, expressions in description_items:
-        lines.append(f"- {path}:{line}")
-        lines.extend(f"  - Text({expression})" for expression in expressions)
-
-    count = sum(len(expressions) for _, _, expressions in footer_items + description_items)
-    report.parent.mkdir(parents=True, exist_ok=True)
-    report.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    findings = [
-        f"{path}:{line}: Text({expression})"
-        for path, line, expressions in footer_items + description_items
-        for expression in expressions
-    ]
-    if len(findings) <= 1000:
-        if findings:
-            print("解释文案审查候选：\n" + "\n".join(findings))
-    else:
-        print(f"解释文案审查候选共 {count} 条 · {report.relative_to(root)}")
 
 
 def combined_main() -> int:

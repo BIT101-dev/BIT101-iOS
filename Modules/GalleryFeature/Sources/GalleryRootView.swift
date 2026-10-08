@@ -145,6 +145,9 @@ private struct GalleryRootViewScene: View {
         .task(id: requestedPosterID) {
             await openRequestedPosterIfNeeded()
         }
+        .onChange(of: appSettings.snapshot.galleryHideBotPosterInSearch) { _, hidden in
+            if hidden && viewModel.selectedFeed == .bot { viewModel.selectedFeed = .recommend }
+        }
         .navigationDestination(item: $deepLinkedPoster) { poster in
             GalleryPosterDetailView(dependencies: dependencies, media: media, profiles: profiles, poster: poster)
         }
@@ -161,13 +164,16 @@ private struct GalleryRootViewScene: View {
 
     private struct GalleryWebView: UIViewRepresentable {
         @Environment(GalleryDependencies.self) private var dependencies
+        @Environment(\.openURL) private var openURL
         let url: URL
 
-        func makeCoordinator() -> Coordinator { Coordinator(session: dependencies.session) }
+        func makeCoordinator() -> Coordinator {
+            Coordinator(session: dependencies.session, openExternal: { url in openURL(url) })
+        }
 
         func makeUIView(context: Context) -> WKWebView {
             let configuration = WKWebViewConfiguration()
-            configuration.websiteDataStore = .default()
+            configuration.websiteDataStore = .nonPersistent()
             let webView = WKWebView(frame: .zero, configuration: configuration)
             webView.navigationDelegate = context.coordinator
             webView.allowsBackForwardNavigationGestures = true
@@ -179,11 +185,32 @@ private struct GalleryRootViewScene: View {
 
         final class Coordinator: NSObject, WKNavigationDelegate {
             let session: CommunitySession
-            init(session: CommunitySession) { self.session = session }
+            let openExternal: (URL) -> Void
+            init(session: CommunitySession, openExternal: @escaping (URL) -> Void) {
+                self.session = session
+                self.openExternal = openExternal
+            }
             private var didInjectLoginState = false
 
+            func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
+                guard navigationAction.targetFrame?.isMainFrame != false,
+                      !GalleryWebRequestFactory.isTrustedPage(navigationAction.request.url) else {
+                    return .allow
+                }
+                if navigationAction.navigationType == .linkActivated,
+                   let url = navigationAction.request.url, ["https", "http"].contains(url.scheme?.lowercased() ?? "") {
+                    openExternal(url)
+                }
+                return .cancel
+            }
+
+            func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse) async -> WKNavigationResponsePolicy {
+                navigationResponse.isForMainFrame
+                    && !GalleryWebRequestFactory.isTrustedPage(navigationResponse.response.url) ? .cancel : .allow
+            }
+
             func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
-                guard !didInjectLoginState else { return }
+                guard !didInjectLoginState, GalleryWebRequestFactory.isTrustedPage(webView.url) else { return }
                 let fakeCookie = session.fakeCookie
                 guard !fakeCookie.isEmpty else { return }
                 guard
@@ -193,6 +220,7 @@ private struct GalleryRootViewScene: View {
                 didInjectLoginState = true
                 let script = """
                 (() => {
+                    if (location.origin !== 'https://bit101.cn') return;
                     const current = localStorage.getItem('store');
                     let store = {};
                     try {
@@ -226,13 +254,16 @@ private struct GalleryRootViewScene: View {
     private func openRequestedPosterIfNeeded() async {
         guard let posterID = requestedPosterID else { return }
         selectedSurface = .gallery
+        deepLinkAlert = nil
         do {
-            deepLinkedPoster = try await posterService.fetchPoster(id: posterID).asPoster
+            let poster = try await posterService.fetchPoster(id: posterID).asPoster
+            guard !Task.isCancelled, requestedPosterID == posterID else { return }
+            deepLinkedPoster = poster
         } catch {
+            guard !TaskCancellation.matches(error), requestedPosterID == posterID else { return }
             deepLinkAlert = AppAlert(title: "无法打开话题", message: error.localizedDescription)
         }
-        // `.task(id:)` 会在 id 改变时取消当前任务；必须等请求完成后再消费链接，
-        // 否则这里一开始清空 binding 会立即取消刚发出的详情请求。
+        // 完成当前请求后消费链接，保持详情加载任务的生命周期。
         if requestedPosterID == posterID {
             requestedPosterID = nil
         }
@@ -248,7 +279,12 @@ private struct GalleryRootViewScene: View {
                 feedIdentity: viewModel.selectedFeed.rawValue,
                 prefetchTriggerThreshold: viewModel.selectedFeed == .recommend ? 10 : 0,
                 onRefresh: {
+                    media.retryFailedImages()
                     viewModel.enqueueRefresh(for: viewModel.selectedFeed)
+                },
+                onPullToRefresh: {
+                    media.retryFailedImages()
+                    await viewModel.enqueueRefresh(for: viewModel.selectedFeed).value
                 },
                 onPrefetch: { poster in
                     guard let poster else { return }
@@ -260,6 +296,7 @@ private struct GalleryRootViewScene: View {
                 }
             )
             .simultaneousGesture(feedSwitchGesture)
+            .accessibilityIdentifier("gallery.feed-surface")
 
             AppFloatingActionStack {
                 AppFloatingActionButton(
@@ -285,7 +322,7 @@ private struct GalleryRootViewScene: View {
                 selection: $viewModel.selectedFeed,
                 variant: .stacked
             ) {
-                ForEach(GalleryFeedKind.allCases) { feed in
+                ForEach(visibleFeeds) { feed in
                     Text(feed.title).tag(feed)
                 }
             }
@@ -302,11 +339,13 @@ private struct GalleryRootViewScene: View {
         }
         .onChange(of: networkObserver.isReachable) { oldValue, newValue in
             guard newValue, !oldValue else { return }
+            media.retryFailedImages()
             viewModel.enqueueRetry(for: viewModel.selectedFeed)
         }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active else { return }
             guard networkObserver.isReachable else { return }
+            media.retryFailedImages()
             viewModel.enqueueRetry(for: viewModel.selectedFeed)
         }
         .sheet(isPresented: $viewModel.isShowingSearch) {
@@ -326,6 +365,7 @@ private struct GalleryRootViewScene: View {
             }
         }
         .diagnosticAlert(item: $viewModel.alert)
+        .onDisappear { viewModel.cancelPendingOperations() }
     }
 
     /// 右下角消息按钮上的红点文案。
@@ -344,9 +384,13 @@ private struct GalleryRootViewScene: View {
         makeHorizontalSwitchGesture(onStep: switchFeed)
     }
 
+    private var visibleFeeds: [GalleryFeedKind] {
+        GalleryFeedKind.allCases.filter { !appSettings.snapshot.galleryHideBotPosterInSearch || $0 != .bot }
+    }
+
     /// 把当前 feed 切换到相邻分区。
     private func switchFeed(step: Int) {
-        let allFeeds = GalleryFeedKind.allCases
+        let allFeeds = visibleFeeds
         guard let currentIndex = allFeeds.firstIndex(of: viewModel.selectedFeed) else { return }
         let lastIndex = allFeeds.index(before: allFeeds.endIndex)
 

@@ -81,9 +81,9 @@ public nonisolated enum SchoolLoginHTMLParser {
 
     private static func containsLoginPageMarker(in html: String) -> Bool {
         let markers = [
-            #"id=["']login-croypto["']"#,
-            #"id=["']login-page-flowkey["']"#,
-            #"name=["']username["']"#,
+            #"id\s*=\s*["']login-croypto["']"#,
+            #"id\s*=\s*["']login-page-flowkey["']"#,
+            #"name\s*=\s*["']username["']"#,
         ]
         return markers.contains { marker in
             html.range(of: marker, options: [.regularExpression, .caseInsensitive]) != nil

@@ -66,12 +66,21 @@ nonisolated enum ScheduleCloudStateMerge {
             }
             return result
         }
-        let value = try mergeDictionary(keyed(base), keyed(lhs), keyed(rhs))
+        let baseRows = try keyed(base), localRows = try keyed(lhs), remoteRows = try keyed(rhs)
+        if case .merged(let selected) = try choose(base, lhs, rhs) { return .merged(selected) }
+        let value = try mergeDictionary(baseRows, localRows, remoteRows)
         switch value {
         case .conflict: return .conflict
         case .merged(let selected):
             let rows = selected as? [String: Any] ?? [:]
-            return .merged(rows.keys.sorted().compactMap { rows[$0] })
+            func retainedOrder(_ value: Any?) -> [String] {
+                (value as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }
+                    .filter { baseRows[$0] != nil && rows[$0] != nil }
+            }
+            guard case .merged(let order) = try choose(retainedOrder(base), retainedOrder(lhs), retainedOrder(rhs))
+            else { return .conflict }
+            let added = rows.keys.filter { baseRows[$0] == nil }.sorted()
+            return .merged(((order as? [String] ?? []) + added).compactMap { rows[$0] })
         }
     }
 

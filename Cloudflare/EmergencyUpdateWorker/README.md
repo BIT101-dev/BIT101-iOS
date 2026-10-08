@@ -33,5 +33,7 @@ npx wrangler deploy
 ./Scripts/publish-emergency-update.sh --disable
 ```
 
-配置不设过期时间。只要 `enabled` 为真且装机 Build 小于等于
+配置缺失、格式错误和 KV 读取失败返回 HTTP 503，网络 Smoke 验证该服务状态；App 按既有错误处理继续启动。配置不设过期时间。只要 `enabled` 为真且装机 Build 小于等于
 `maximum_affected_build`，App 每天最多允许用户忽略提醒到当天结束。
+
+发布入口校验标题及正文的有效内容，并将 Build 限定在 JSON 精确整数范围内。服务端对启用状态的提醒执行同一载荷校验，异常配置返回 503。

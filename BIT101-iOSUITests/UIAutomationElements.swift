@@ -55,7 +55,12 @@ enum UITestControlClient {
         let connection = NWConnection(host: "127.0.0.1", port: 19101, using: .tcp)
         let response = UITestControlReply()
         let received = XCTestExpectation(description: "本机 UI 操作")
-        let payload = try! JSONEncoder().encode(parameters) + Data([10])
+        let payload: Data
+        do { payload = try JSONEncoder().encode(parameters) + Data([10]) }
+        catch {
+            XCTFail("UI 通道应编码请求参数：\(error.localizedDescription)。")
+            return nil
+        }
         connection.stateUpdateHandler = { state in
             if case .ready = state {
                 connection.send(content: payload, completion: .contentProcessed { error in
@@ -198,18 +203,15 @@ final class UIElement: NSObject {
         if let attributes = attributes() { return attributes["value"] }
         return native.value
     }
-    @objc var isEnabled: Bool { attributes()?["enabled"] as? Bool ?? native.isEnabled }
-    @objc var isSelected: Bool { attributes()?["selected"] as? Bool ?? native.isSelected }
-    @objc var isHittable: Bool {
-        let state = attributes()
-        if state?["hittable"] as? Bool == true { return true }
-        if let state, state["hittable"] == nil {
-            guard state["exists"] as? Bool == true,
-                  let frame = state["frame"] as? [Double], frame.count == 4, frame[2] > 0, frame[3] > 0 else { return false }
-            return native.isHittable
+    @objc var isEnabled: Bool {
+        let enabled = attributes()?["enabled"] as? Bool ?? native.isEnabled
+        if !enabled {
+            _ = UITestControlClient.request(interactionIdentity.merging(["command": "state"]) { _, command in command })
         }
-        return native.isHittable
+        return enabled
     }
+    @objc var isSelected: Bool { attributes()?["selected"] as? Bool ?? native.isSelected }
+    @objc var isHittable: Bool { native.isHittable }
     var frame: CGRect {
         if let values = attributes()?["frame"] as? [Double], values.count == 4 {
             return CGRect(x: values[0], y: values[1], width: values[2], height: values[3])
@@ -220,15 +222,33 @@ final class UIElement: NSObject {
         if let type = attributes()?["elementType"] as? Int, let value = XCUIElement.ElementType(rawValue: UInt(type)) { return value }
         return native.elementType
     }
-    var state: XCUIApplication.State { (native as! XCUIApplication).state }
+    var state: XCUIApplication.State {
+        guard let application = native as? XCUIApplication else {
+            XCTFail("运行状态查询应使用 App 元素。")
+            return .unknown
+        }
+        return application.state
+    }
     func screenshot() -> XCUIScreenshot { native.screenshot() }
     func snapshot() throws -> any XCUIElementSnapshot {
         if let application = native as? XCUIApplication { return try UITestSnapshotReader.snapshot(of: application) }
         if path == nil, let state = currentNativeSnapshot() { return state }
         return try native.snapshot()
     }
-    func activate() { UITestSnapshotReader.invalidate(); (native as! XCUIApplication).activate() }
+    func activate() {
+        guard let application = native as? XCUIApplication else {
+            XCTFail("前台激活应使用 App 元素。")
+            return
+        }
+        UITestSnapshotReader.invalidate()
+        application.activate()
+    }
     func coordinate(withNormalizedOffset offset: CGVector) -> UIAutomationCoordinate {
+        if Self.usesNativeInteraction {
+            let identity = interactionIdentity
+            return UIAutomationCoordinate(native: native.coordinate(withNormalizedOffset: offset), identifier: identifier,
+                                          label: label, type: Int(elementType.rawValue), scope: identity["scope"] ?? "", instance: identity["instance"] ?? "")
+        }
         guard !(native is XCUIApplication), let application = UITestSnapshotReader.application else {
             return UIAutomationCoordinate(native: native.coordinate(withNormalizedOffset: offset))
         }
@@ -241,22 +261,41 @@ final class UIElement: NSObject {
     }
     func press(forDuration duration: TimeInterval) {
         defer { UITestSnapshotReader.invalidate() }
-        let id = path == nil ? nil : attributes()?["identifier"] as? String
+        let identity = interactionIdentity
         if duration < 0.1 { Self.beforeNativeTap?() }
         native.press(forDuration: duration)
-        if let id, !id.isEmpty { _ = UITestControlClient.request(["command": "record", "identifier": id]) }
+        recordInteraction(identity, action: duration < 0.1 ? "tap" : "press")
     }
-    func swipeLeft() { native.swipeLeft(); UITestSnapshotReader.invalidate() }
-    func swipeRight() { native.swipeRight(); UITestSnapshotReader.invalidate() }
-    func swipeUp() { native.swipeUp(); UITestSnapshotReader.invalidate() }
-    func swipeDown() { native.swipeDown(); UITestSnapshotReader.invalidate() }
-    func pinch(withScale scale: CGFloat, velocity: CGFloat) { native.pinch(withScale: scale, velocity: velocity); UITestSnapshotReader.invalidate() }
-    func adjust(toPickerWheelValue value: String) { native.adjust(toPickerWheelValue: value); UITestSnapshotReader.invalidate() }
+    func swipeLeft() { performGesture { native.swipeLeft() } }
+    func swipeRight() { performGesture { native.swipeRight() } }
+    func swipeUp() { performGesture { native.swipeUp() } }
+    func swipeDown() { performGesture { native.swipeDown() } }
+    func pinch(withScale scale: CGFloat, velocity: CGFloat) { performGesture { native.pinch(withScale: scale, velocity: velocity) } }
+    func adjust(toPickerWheelValue value: String) { performGesture { native.adjust(toPickerWheelValue: value) } }
+    private func performGesture(_ operation: () -> Void) {
+        let identity = interactionIdentity
+        operation()
+        UITestSnapshotReader.invalidate()
+        recordInteraction(identity, action: "gesture")
+    }
     func typeText(_ text: String) {
         defer { UITestSnapshotReader.invalidate() }
-        let id = path == nil ? nil : attributes()?["identifier"] as? String
+        let identity = interactionIdentity
         native.typeText(text)
-        if let id, !id.isEmpty { _ = UITestControlClient.request(["command": "record", "identifier": id]) }
+        recordInteraction(identity)
+    }
+
+    private var interactionIdentity: [String: String] {
+        let bounds = frame
+        var identity = ["identifier": identifier, "label": label, "type": String(elementType.rawValue),
+            "scope": UITestControlClient.request(["command": "observe"]) ?? "",
+            "x": String(Double(bounds.minX)), "y": String(Double(bounds.minY)), "width": String(Double(bounds.width)), "height": String(Double(bounds.height))]
+        identity["instance"] = attributes()?["instance"] as? String
+            ?? UITestControlClient.request(identity.merging(["command": "identity"]) { _, command in command }) ?? ""
+        return identity
+    }
+    private func recordInteraction(_ identity: [String: String], action: String = "input") {
+        _ = UITestControlClient.request(identity.merging(["command": "record", "action": action]) { _, command in command })
     }
 
     func tapBriefly() {
@@ -297,8 +336,10 @@ final class UIElement: NSObject {
     func tap() {
         defer { UITestSnapshotReader.invalidate() }
         if path == nil {
+            let identity = interactionIdentity
             Self.beforeNativeTap?()
             native.tap()
+            recordInteraction(identity, action: "tap")
         } else { tapBriefly() }
     }
 
@@ -306,6 +347,7 @@ final class UIElement: NSObject {
         guard let path, let data = try? JSONSerialization.data(withJSONObject: path) else { return "native" }
         return UITestControlClient.request([
             "command": "query-input", "query": String(decoding: data, as: UTF8.self), "text": text,
+            "hittable": isHittable ? "1" : "0",
         ], timeout: 5)
     }
 
@@ -358,13 +400,24 @@ final class UIElement: NSObject {
 @MainActor
 struct UIAutomationCoordinate {
     let native: XCUICoordinate
-    func withOffset(_ offset: CGVector) -> Self { Self(native: native.withOffset(offset)) }
-    func tapBriefly() { native.press(forDuration: 0.01); UITestSnapshotReader.invalidate() }
-    func press(forDuration duration: TimeInterval) { native.press(forDuration: duration); UITestSnapshotReader.invalidate() }
+    var identifier = ""
+    var label = ""
+    var type = 0
+    var scope = ""
+    var instance = ""
+    private func record(action: String) {
+        if !identifier.isEmpty || !label.isEmpty {
+            _ = UITestControlClient.request(["command": "record", "identifier": identifier, "label": label, "type": String(type), "scope": scope, "instance": instance, "action": action])
+        }
+        UITestSnapshotReader.invalidate()
+    }
+    func withOffset(_ offset: CGVector) -> Self { Self(native: native.withOffset(offset), identifier: identifier, label: label, type: type, scope: scope, instance: instance) }
+    func tapBriefly() { native.press(forDuration: 0.01); record(action: "tap") }
+    func press(forDuration duration: TimeInterval) { native.press(forDuration: duration); record(action: "press") }
     func press(forDuration duration: TimeInterval, thenDragTo coordinate: Self,
                withVelocity velocity: XCUIGestureVelocity, thenHoldForDuration hold: TimeInterval) {
         native.press(forDuration: duration, thenDragTo: coordinate.native, withVelocity: velocity, thenHoldForDuration: hold)
-        UITestSnapshotReader.invalidate()
+        record(action: "gesture")
     }
 }
 

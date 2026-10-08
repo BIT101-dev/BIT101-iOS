@@ -70,9 +70,7 @@ enum ScheduleCacheStore {
         isCurrent: @escaping @MainActor () -> Bool = { true }
     ) async -> Bool {
         var cacheToSave = cache
-        if source == .cloud {
-            cacheToSave.hasUnpushedCloudChanges = false
-        } else if source == .local || source == .localWithoutCloudPush {
+        if source == .local || source == .localWithoutCloudPush {
             cacheToSave.updatedAt = ScheduleCacheTimestamp.next(
                 after: max(cache.updatedAt, cache.cloudSyncBaselineAt),
                 now: Date()

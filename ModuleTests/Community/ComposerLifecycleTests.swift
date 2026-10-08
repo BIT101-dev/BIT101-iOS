@@ -116,7 +116,7 @@ struct ComposerLifecycleTests {
 
     private func model(_ service: Service = Service(), drafts: Drafts = Drafts(), identity: Identity = Identity(),
                        editing: GalleryPosterDetail? = nil, uploader: Service? = nil,
-                       prepare: @escaping (Data) -> Data? = { $0 }) -> GalleryComposerViewModel {
+                       prepare: @escaping (Data) async -> Data? = { $0 }) -> GalleryComposerViewModel {
         GalleryComposerViewModel(editingPoster: editing, service: service, images: uploader ?? service, drafts: drafts,
             currentIdentity: { identity.current }, prepareImageData: prepare)
     }
@@ -313,6 +313,23 @@ struct ComposerLifecycleTests {
         let full = model(editing: poster(images: (0..<9).map { .init(mid: String($0), url: "", lowUrl: "") }))
         await full.addImages(from: [{ Data([7]) }])
         #expect(full.imageDrafts.isEmpty)
+    }
+
+    @Test func suspendedImagePreparationKeepsTheEditorResponsiveAndHonorsCancellation() async {
+        let gate = Gate()
+        let service = Service()
+        let viewModel = model(service, prepare: { data in await gate.pause(); return Data([42]) + data })
+        let adding = Task { await viewModel.addImages(from: [{ Data([7]) }]) }
+        await gate.waitUntilPaused()
+        viewModel.title = "继续编辑"
+        #expect(viewModel.isAddingImages)
+        adding.cancel()
+        gate.resume()
+        await adding.value
+        #expect(viewModel.title == "继续编辑")
+        #expect(viewModel.imageDrafts.isEmpty)
+        #expect(viewModel.isAddingImages == false)
+        #expect(service.uploads.isEmpty)
     }
 
     @Test func imagePreparationFailuresAndEmptyDataKeepTheEditorReady() async {

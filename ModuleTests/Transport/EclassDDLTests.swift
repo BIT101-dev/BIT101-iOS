@@ -10,6 +10,94 @@ import TransportCore
 
 @MainActor
 struct EclassDDLTests {
+    @Test(arguments: [
+        "BEGIN:VEVENT\nUID:bad\nSUMMARY:bad\nDTSTART:invalid\nEND:VEVENT",
+        "BEGIN:VEVENT\nSUMMARY:missing uid\nDTSTART:20261008T100000Z\nEND:VEVENT",
+        "BEGIN:VEVENT\nUID:open\nSUMMARY:open\nDTSTART:20261008T100000Z",
+        "END:VEVENT",
+        "BEGIN:VEVENT\nBEGIN:VEVENT\nEND:VEVENT\nEND:VEVENT",
+        "BEGIN:VEVENT\nUID:good\nSUMMARY:good\nDTSTART:20261008T100000Z\nEND:VEVENT\nBEGIN:VEVENT\nUID:bad\nSUMMARY:bad\nDTSTART:invalid\nEND:VEVENT"
+    ])
+    func malformedCalendarEventsRejectTheCompleteSource(body: String) {
+        #expect(throws: ScheduleICSParser.ParseError.self) {
+            try ScheduleICSParser.parse("BEGIN:VCALENDAR\n\(body)\nEND:VCALENDAR")
+        }
+    }
+
+    @Test(arguments: ["Invalid/Zone", "\"Invalid/Zone\"", ""])
+    func unrecognizedCalendarTimeZonesRejectTheCompleteSource(identifier: String) {
+        let raw = "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:timezone\nSUMMARY:作业\nDTSTART;TZID=\(identifier):20261008T100000\nEND:VEVENT\nEND:VCALENDAR"
+        #expect(throws: ScheduleICSParser.ParseError.self) { try ScheduleICSParser.parse(raw) }
+    }
+
+    @Test(arguments: ["America/New_York", "\"America/New_York\""])
+    func knownCalendarTimeZonesPreserveTheCorrectInstant(identifier: String) throws {
+        let raw = "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:timezone\nSUMMARY:作业\nDTSTART;TZID=\(identifier):20261008T100000\nEND:VEVENT\nEND:VCALENDAR"
+        let events = try ScheduleICSParser.parse(raw)
+        #expect(events.first?.dueAt == (try Date.ISO8601FormatStyle().parse("2026-10-08T14:00:00Z")))
+    }
+
+    @Test(arguments: [#"{"id":0,"name":"异常课程"}"#, #"{"id":2,"name":""}"#, #"{"id":2,"name":" "}"#])
+    func mixedValidAndMalformedCoursePagesPreserveTheOwnedDeadlineSource(invalid: String) async throws {
+        let transport = EclassTransport { request in
+            request.url?.path == "/api/my-courses"
+                ? (200, "{\"courses\":[{\"id\":1,\"name\":\"正常课程\"},\(invalid)],\"pages\":1}", nil)
+                : (200, "BEGIN:VCALENDAR\nEND:VCALENDAR", nil)
+        }
+        var initial = ScheduleCache()
+        initial.lexueCalendarURL = "https://lexue.bit.edu.cn/calendar.ics"
+        let original = DDLEventRecord(id: "eclass:42", group: "eclass", title: "既有作业", text: "", dueAt: Date(), done: true)
+        initial.ddlEvents = [original]
+        var saved: ScheduleCache?
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "course-integrity") },
+            load: { _ in .loaded(initial) }, save: { value, _, _ in saved = value })
+        await repository.loadIfNeeded()
+        let model = ScheduleDDLViewModel(service: service(transport), repository: repository)
+        #expect(await model.syncDDL() == false)
+        #expect(saved?.ddlEvents == [original])
+        #expect(model.notice?.title == "DDL 部分更新")
+        #expect(transport.requests.count == 2)
+    }
+
+    @Test func calendarAlarmPropertiesKeepTheirOwnComponentScope() throws {
+        let events = try ScheduleICSParser.parse("""
+        BEGIN:VCALENDAR
+        BEGIN:VEVENT
+        UID:scoped-event
+        SUMMARY:课程作业
+        DTSTART:20261008T100000Z
+        BEGIN:VALARM
+        SUMMARY:提醒
+        TRIGGER:-PT10M
+        END:VALARM
+        END:VEVENT
+        END:VCALENDAR
+        """)
+        #expect(events.count == 1 && events.first?.title == "课程作业")
+    }
+
+    @Test(arguments: [true, false])
+    func realDDLSourceRetainsCorruptLexueDataAndClearsAValidEmptyCalendar(corrupt: Bool) async throws {
+        let calendar = corrupt ? "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:bad\nSUMMARY:bad\nDTSTART:invalid\nEND:VEVENT\nEND:VCALENDAR"
+            : "BEGIN:VCALENDAR\nEND:VCALENDAR"
+        let transport = EclassTransport { request in
+            request.url?.path == "/api/my-courses" ? (200, #"{"courses":[],"pages":0}"#, nil) : (200, calendar, nil)
+        }
+        var initial = ScheduleCache()
+        let lexue = DDLEventRecord(id: "lexue-owned", group: "lexue", title: "cached", text: "", dueAt: Date(), done: true)
+        initial.lexueCalendarURL = "https://lexue.bit.edu.cn/calendar.ics"
+        initial.ddlEvents = [lexue]
+        var saved: ScheduleCache?
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "ics-source") },
+            load: { _ in .loaded(initial) }, save: { value, _, _ in saved = value })
+        await repository.loadIfNeeded()
+        let model = ScheduleDDLViewModel(service: service(transport), repository: repository)
+        #expect(await model.syncDDL() == !corrupt)
+        #expect(saved?.ddlEvents == (corrupt ? [lexue] : []))
+        #expect(model.notice?.title == (corrupt ? "DDL 部分更新" : "DDL 同步成功"))
+        #expect(transport.requests.count == 2)
+    }
+
     @Test func productionDDLServicePersistsAndReloadsTheOwnedSourceWithCompletion() async throws {
         let transport = EclassTransport { request in
             request.url?.path == "/api/my-courses"
@@ -42,7 +130,7 @@ struct EclassDDLTests {
         let reloaded = ScheduleRepository(session: { account }, load: { _ in .loaded(decoded) }, save: { _, _, _ in })
         let reopened = ScheduleDDLViewModel(service: service(transport), repository: reloaded)
         await reloaded.loadIfNeeded()
-        #expect(reopened.visibleDDLEvents.map(\.id).contains("eclass:42"))
+        #expect(reopened.visibleDDLEvents().map(\.id).contains("eclass:42"))
         #expect(reopened.cache.lexueDDLCompletionByID["eclass:42"] == true)
     }
 
@@ -69,7 +157,7 @@ struct EclassDDLTests {
     @Test(arguments: [#""submit_times":0"#, #""late_submission_count":0"#, #""is_review_homework":false"#])
     func homeworkUsesFieldPresence(_ field: String) throws {
         let activity = try decodeActivity(#"{"id":42,"title":" 作业 ","type":"unknown","end_time":"2026-10-01 23:59:00","# + field + "}")
-        let event = try #require(activity.event(courseName: "操作系统"))
+        let event = try #require(try activity.event(courseName: "操作系统"))
         #expect(event.id == "eclass:42")
         #expect(event.group == "eclass")
         #expect(event.title == "作业")
@@ -78,22 +166,56 @@ struct EclassDDLTests {
         #expect(event.sourceTitle == "课程中心")
     }
 
+    @Test(arguments: [
+        #"{"id":1,"submit_times":1,"end_time":"invalid"}"#,
+        #"{"id":2,"submit_times":1,"end_time":"invalid","visible_end_at":"2026-10-01 23:59"}"#,
+        #"{"id":3,"submit_times":1,"visible_end_at":"2026-02-30 12:00"}"#,
+        #"{"id":0,"submit_times":1,"end_time":"2026-10-01 23:59"}"#
+    ])
+    func providedMalformedHomeworkFieldsRejectTheActivity(json: String) throws {
+        let activity = try decodeActivity(json)
+        #expect(throws: ScheduleServiceError.self) { try activity.event(courseName: "课程") }
+    }
+
+    @Test(arguments: [false, true])
+    func malformedEclassDeadlinePreservesTheCompleteOwnedSource(corrupt: Bool) async throws {
+        let deadline = corrupt ? "invalid" : "null"
+        let transport = EclassTransport { request in
+            switch request.url?.path {
+            case "/api/my-courses": return (200, #"{"courses":[{"id":1,"name":"课程"}],"pages":1}"#, nil)
+            case "/api/courses/1/activities": return (200, "{\"activities\":[{\"id\":42,\"submit_times\":1,\"end_time\":\"\(deadline)\"}]}", nil)
+            default: return (200, "BEGIN:VCALENDAR\nEND:VCALENDAR", nil)
+            }
+        }
+        var initial = ScheduleCache()
+        initial.lexueCalendarURL = "https://lexue.bit.edu.cn/calendar.ics"
+        let original = DDLEventRecord(id: "eclass:42", group: "eclass", title: "缓存作业", text: "", dueAt: Date(), done: true)
+        initial.ddlEvents = [original]
+        var saved: ScheduleCache?
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "eclass-integrity") },
+            load: { _ in .loaded(initial) }, save: { value, _, _ in saved = value })
+        await repository.loadIfNeeded()
+        let model = ScheduleDDLViewModel(service: service(transport), repository: repository)
+        #expect(await model.syncDDL() == !corrupt)
+        #expect(saved?.ddlEvents == (corrupt ? [original] : []))
+        #expect(model.notice?.title == (corrupt ? "DDL 部分更新" : "DDL 同步成功"))
+    }
+
     @Test(arguments: ["material", "MATERIAL"])
     func materialsWithDeadlinesAndHomeworkFieldsAreExcluded(_ type: String) throws {
         let activity = try decodeActivity(#"{"id":1,"type":""# + type + #"","title":"资料","submit_times":1,"end_time":"2026-10-01 23:59:00"}"#)
-        #expect(activity.event(courseName: "课名") == nil)
+        #expect(try activity.event(courseName: "课名") == nil)
     }
 
     @Test func deadlineFallbackAndBlankTitleWorkTogether() throws {
         let activity = try decodeActivity(#"{"id":7,"title":" ","submit_times":1,"end_time":"null","visible_end_at":"2026-10-01 23:59"}"#)
-        let event = try #require(activity.event(courseName: "课名"))
+        let event = try #require(try activity.event(courseName: "课名"))
         #expect(event.title == "未命名作业")
         #expect(event.dueAt == EclassActivity.parseTime("2026-10-01 23:59"))
     }
 
     @Test(arguments: [#"{"id":1,"title":"活动","end_time":"2026-10-01 23:59"}"#,
                       #"{"id":2,"submit_times":1}"#,
-                      #"{"id":0,"submit_times":1,"end_time":"2026-10-01 23:59"}"#,
                       #"{"id":3,"submit_times":null,"end_time":"2026-10-01 23:59"}"#])
     func activitiesRequireHomeworkIdentityAndDeadline(_ json: String) throws {
         #expect(try decodeActivity(json).event(courseName: "课名") == nil)
@@ -259,6 +381,7 @@ struct EclassDDLTests {
     }
 
     private struct Credentials: SchoolCredentialsProviding {
+        var schoolSessionIdentity: SchoolSessionIdentity { .init(accountIdentifier: currentStudentID, generation: 0) }
         let currentStudentID = "eclass-test"
         let currentPassword = "synthetic"
     }

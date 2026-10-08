@@ -80,6 +80,7 @@ public struct AppDetailShareLink: View {
                 )
         }
         .accessibilityLabel(accessibilityLabel)
+        .accessibilityIdentifier("detail.share")
     }
 }
 
@@ -115,6 +116,7 @@ public struct AppDetailCircleButton<Label: View>: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
+            .accessibilityIdentifier("ui.app-detail-circle-button.action")
     }
 }
 
@@ -164,6 +166,7 @@ public struct AppFloatingActionButton: View {
         .appImpactFeedback(trigger: feedbackToken)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityValue(badgeText.map { "\($0) 条未读" } ?? "")
+            .accessibilityIdentifier("ui.app-floating-action-button.action")
     }
 }
 

@@ -9,7 +9,16 @@ extension CourseScheduleTabView {
     ///
     /// 这里保留当前分栏实例，直接走各个 sheet 的正常关闭路径；系统复用原生下滑关闭动画，
     /// 关闭过程保持连续。
+    func cancelPendingActions() {
+        calendarMutationTask?.cancel()
+        courseShareTask?.cancel()
+        courseShareGeneration &+= 1
+        isResolvingCourseShare = false
+    }
+
     func dismissPresentedSheets() {
+        cancelPendingActions()
+        courseShareAlert = nil
         selectedEntry = nil
         isShowingEditSchedule = false
         isShowingCourseEditor = false
@@ -69,34 +78,51 @@ extension CourseScheduleTabView {
     }
 
     func importCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) {
-        Task {
+        let generation = viewModel.accountGeneration
+        calendarMutationTask?.cancel()
+        calendarMutationTask = Task {
+            guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
             do {
                 let count = try await viewModel.importSystemCalendarEntries(content, term: term)
+                guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
                 courseShareAlert = AppAlert.informational(
                     title: "已导入系统日历",
                     message: "已导入 \(count) 个日历事件。"
                 )
             } catch {
+                guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
                 courseShareAlert = AppAlert(title: "导入日历失败", message: error.localizedDescription)
             }
         }
     }
 
     func deleteCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) {
-        Task {
+        let generation = viewModel.accountGeneration
+        calendarMutationTask?.cancel()
+        calendarMutationTask = Task {
+            guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
             do {
-                courseShareAlert = calendarMutationAlert(try await viewModel.deleteSystemCalendarEntries(content, term: term))
+                let result = try await viewModel.deleteSystemCalendarEntries(content, term: term)
+                guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
+                courseShareAlert = calendarMutationAlert(result)
             } catch {
+                guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
                 courseShareAlert = AppAlert(title: "移除日历失败", message: error.localizedDescription)
             }
         }
     }
 
     func deleteCalendarEntries(markerIDs: Set<String>, term: String) {
-        Task {
+        let generation = viewModel.accountGeneration
+        calendarMutationTask?.cancel()
+        calendarMutationTask = Task {
+            guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
             do {
-                courseShareAlert = calendarMutationAlert(try await viewModel.deleteSystemCalendarEntries(markerIDs: markerIDs, term: term))
+                let result = try await viewModel.deleteSystemCalendarEntries(markerIDs: markerIDs, term: term)
+                guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
+                courseShareAlert = calendarMutationAlert(result)
             } catch {
+                guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
                 courseShareAlert = AppAlert(title: "移除日历失败", message: error.localizedDescription)
             }
         }
@@ -134,9 +160,11 @@ extension CourseScheduleTabView {
 
         let prefetchedResolution = prefetchedCourseID == sourceID ? prefetchedCourseResolution : nil
         let generation = viewModel.accountGeneration
+        courseShareGeneration &+= 1
+        let operation = courseShareGeneration
         isResolvingCourseShare = true
-        Task { @MainActor in
-            defer { isResolvingCourseShare = false }
+        courseShareTask = Task { @MainActor in
+            defer { if viewModel.accountGeneration == generation, courseShareGeneration == operation { isResolvingCourseShare = false } }
             guard viewModel.accountGeneration == generation else { return }
             do {
                 let resolution: ScheduleCourseShare?
@@ -145,6 +173,7 @@ extension CourseScheduleTabView {
                 } else {
                     resolution = try await destinations.resolveCourseShare(course)
                 }
+                guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
                 guard let resolution else {
                     courseShareAlert = AppAlert.userInput(
                         title: "没有找到此课程",
@@ -154,6 +183,7 @@ extension CourseScheduleTabView {
                 }
                 courseSharePresentation = CourseSharePresentation(url: resolution.url, subject: resolution.subject)
             } catch {
+                guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
                 courseShareAlert = AppAlert(title: "查找课程失败", message: error.localizedDescription)
             }
         }

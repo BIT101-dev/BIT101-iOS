@@ -3,7 +3,10 @@ import os
 import StorageCore
 
 package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
-    package init() {}
+    private let beforeCreatingDirectory: @Sendable () -> Void
+    package init(beforeCreatingDirectory: @escaping @Sendable () -> Void = {}) {
+        self.beforeCreatingDirectory = beforeCreatingDirectory
+    }
     private let state = OSAllocatedUnfairLock(initialState: State())
     private struct State {
         var data: [URL: Data] = [:]
@@ -13,6 +16,7 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
         var failsReading = false
         var failsRemoval = false
         var options: [URL: Data.WritingOptions] = [:]
+        var reads: [URL: Int] = [:]
     }
     package func setFailures(writing: Bool = false, removal: Bool = false, reading: Bool = false) {
         return state.withLock { state in
@@ -22,6 +26,7 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
         }
     }
     package var storedData: [URL: Data] { state.withLock { $0.data } }
+    package func readCount(at url: URL) -> Int { state.withLock { $0.reads[url] ?? 0 } }
     package func writingOptions(at url: URL) -> Data.WritingOptions? {
         return state.withLock { state in
             return state.options[url]
@@ -37,6 +42,7 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
     }
     package func readData(at url: URL) throws -> Data {
         return try state.withLock { state in
+            state.reads[url, default: 0] += 1
             if state.failsReading { throw CocoaError(.fileReadNoPermission) }
             guard let value = state.data[url] else { throw CocoaError(.fileReadNoSuchFile) }
             return value
@@ -51,6 +57,7 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
         }
     }
     package func createDirectory(at url: URL) throws {
+        beforeCreatingDirectory()
         return state.withLock { state in
             _ = state.directories.insert(url)
         }

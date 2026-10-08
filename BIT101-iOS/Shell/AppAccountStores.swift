@@ -10,9 +10,12 @@ import Foundation
 import Combine
 
 struct AppAccountStores {
+    private static let storageOperations = StorageOperationTracker()
+    static func suspendStorageOperations() async { await storageOperations.suspendAndDrain() }
+    static func resumeStorageOperations() { storageOperations.resume() }
     let communityMessages: GalleryMessageReadStore
     let composerDrafts: ComposerDraftStore
-    let scoreCache: ScoreCacheStore
+    let scoreCache: any ScoreCacheSynchronizing
     let scoreFilterPreferences: ScoreFilterPreferenceStore
     let currentSession: @MainActor () -> AppStorageSession
     let scoreSession: @MainActor () -> AppStorageSession
@@ -23,13 +26,14 @@ struct AppAccountStores {
         ),
         composerDrafts: ComposerDraftStore(
             files: AppFileDirectories.files, applicationSupport: AppFileDirectories.applicationSupport,
-            session: { AppFileDirectories.currentSession }, prepareImageData: ComposerDraftImageCompressor.compress
+            session: { AppFileDirectories.currentSession }, prepareImageData: ComposerDraftImageCompressor.compress,
+            storageOperations: storageOperations
         ),
         scoreCache: ScoreCacheStore(
             files: AppFileDirectories.files,
             storageRoot: AppFileDirectories.applicationSupportDirectoryURL(named: "BIT101-iOS"),
             defaults: AppFileDirectories.defaults,
-            session: { AppFileDirectories.scoreCacheSession }
+            session: { AppFileDirectories.scoreCacheSession }, storageOperations: storageOperations
         ),
         scoreFilterPreferences: ScoreFilterPreferenceStore(
             defaults: AppFileDirectories.defaults,

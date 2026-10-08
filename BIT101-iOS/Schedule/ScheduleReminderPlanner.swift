@@ -34,7 +34,7 @@ nonisolated enum ScheduleReminderPlanner {
             for course in cache.courses {
                 for week in Set(course.weeks).sorted() {
                     guard seenOccurrenceKeys.insert("course-\(course.id)-w\(week)").inserted else { continue }
-                    guard week > 0,
+                    guard ScheduleCourseConstraints.isValidWeek(week),
                           (1...7).contains(course.weekday),
                           let startSlot = slotMap[course.startSection],
                           let endSlot = slotMap[course.endSection],
@@ -80,14 +80,15 @@ nonisolated enum ScheduleReminderPlanner {
     /// 计算某条提醒的实际显示起点。
     ///
     /// 默认规则是“开课前 `leadMinutes` 分钟开始提醒”。如果上一条课/日程尚未结束，
-    /// 下一条已经落入提醒窗口时，起点后移到“上一条结束前 5 分钟”，避免
-    /// 用户仍在上一条课程期间收到下一条提醒。
+    /// 下一条已经落入提醒窗口时，起点后移到上一条结束前 5 分钟。
+    /// 重叠日程保留下一条开始前的提醒窗口。
     static func effectiveDisplayWindowStart(
         for occurrence: CourseReminderOccurrence,
         among occurrences: [CourseReminderOccurrence],
         leadMinutes: Int
     ) -> Date {
-        let naturalStart = occurrence.startDate.addingTimeInterval(Double(-leadMinutes * 60))
+        let normalizedLeadMinutes = SchedulePresentationPreferences.normalizedLeadMinutes(leadMinutes)
+        let naturalStart = occurrence.startDate.addingTimeInterval(Double(-normalizedLeadMinutes * 60))
         let reminderLeadOutFromPrevious: TimeInterval = 5 * 60
 
         guard let previous = occurrences.last(where: { candidate in
@@ -96,7 +97,7 @@ nonisolated enum ScheduleReminderPlanner {
             return naturalStart
         }
 
-        let adjustedStart = previous.endDate.addingTimeInterval(-reminderLeadOutFromPrevious)
+        let adjustedStart = min(previous.endDate, occurrence.startDate).addingTimeInterval(-reminderLeadOutFromPrevious)
         return max(naturalStart, adjustedStart)
     }
 
@@ -112,7 +113,6 @@ nonisolated enum ScheduleReminderPlanner {
         leadMinutes: Int,
         now: Date
     ) -> Date? {
-        let earliestAllowedDate = now.addingTimeInterval(1)
         return occurrences
             .flatMap { occurrence in
                 [
@@ -120,7 +120,7 @@ nonisolated enum ScheduleReminderPlanner {
                     occurrence.startDate,
                 ]
             }
-            .filter { $0 > earliestAllowedDate }
+            .filter { $0 > now }
             .min()
     }
 

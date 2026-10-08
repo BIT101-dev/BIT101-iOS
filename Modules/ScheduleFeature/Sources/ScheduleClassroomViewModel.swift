@@ -25,15 +25,18 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     @Published var notice: ScheduleNotice?
     var onAuthenticationRequired: ((BITLoginAuthenticationChallenge) -> Void)?
     private var classroomRecords: [ClassroomRecord] = []
+    private var classroomQueryDate: Date?
+    private let now: @MainActor () -> Date
     private var classroomPageTask: Task<Void, Never>?
     private var classroomPageTaskID: UUID?
     private var subscription: AnyCancellable?
     private var cacheSubscription: AnyCancellable?
 
-    public init(service: any ScheduleClassroomServicing, repository: ScheduleRepository, virtualNetworkLikely: @escaping @MainActor () -> Bool = { false }) {
+    public init(service: any ScheduleClassroomServicing, repository: ScheduleRepository, virtualNetworkLikely: @escaping @MainActor () -> Bool = { false }, now: @escaping @MainActor () -> Date = { Date() }) {
         self.service = service
         self.repository = repository
         self.virtualNetworkLikely = virtualNetworkLikely
+        self.now = now
         subscription = repository.classroomChanges.sink { [weak self] in self?.objectWillChange.send() }
         cacheSubscription = repository.classroomSelection
             .sink { [weak self] in self?.selectedBuildingID = $0 }
@@ -55,7 +58,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         campuses = []
         buildings = []
         classroomRecords = []
-        classroomAvailabilities = []
+        classroomQueryDate = nil
         selectedBuildingID = ""
         notice = nil
     }
@@ -72,7 +75,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     @Published var shouldShowInitialClassroomSpinner = false
     @Published var campuses: [CampusRecord] = []
     @Published var buildings: [BuildingRecord] = []
-    @Published var classroomAvailabilities: [ClassroomAvailability] = []
+    var classroomAvailabilities: [ClassroomAvailability] { classroomAvailabilities(at: now()) }
 
     /// 空教室页面展示的最近一次成功刷新时间。
     var classroomLastUpdatedText: String {
@@ -97,7 +100,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
             resolveSelectedBuildingIfNeeded()
         }
         classroomRecords = []
-        classroomAvailabilities = []
+        classroomQueryDate = nil
         persist()
 
         do {
@@ -122,7 +125,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         cache.selectedBuildingID = id
         isLoadingClassrooms = true
         classroomRecords = []
-        classroomAvailabilities = []
+        classroomQueryDate = nil
         persist()
 
         do {
@@ -137,7 +140,6 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         cache.selectedClassroomSectionIDs = ClassroomAvailabilityCalculator.normalizedSections(values, in: cache.timeTable)
         cache.isClassroomSectionFilterCustomized = true
         persist()
-        refreshClassroomAvailabilities()
     }
 
     /// 刷新当前教学楼的空教室状态。
@@ -177,14 +179,15 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
             }
         }
 
+        let queryDate = now()
         let records = try await withClassroomRequestTimeout { [self] in
             try await service.fetchClassrooms(buildingID: selectedBuildingID, term: cache.currentTerm)
         }
         guard isCurrentClassroomRequest(requestID) else { throw CancellationError() }
 
         classroomRecords = records
-        classroomLastUpdatedAt = Date()
-        refreshClassroomAvailabilities()
+        classroomQueryDate = queryDate
+        classroomLastUpdatedAt = now()
     }
 
     /// 供页面顶部刷新按钮使用的统一入口。
@@ -339,12 +342,18 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     }
 
     /// 按当前节次筛选把原始占用记录转换为展示模型。
-    private func refreshClassroomAvailabilities() {
-        classroomAvailabilities = ClassroomAvailabilityCalculator.availabilities(
+    func hasExpiredClassroomData(at date: Date) -> Bool {
+        guard let classroomQueryDate else { return false }
+        return !ScheduleDateCodec.calendar.isDate(classroomQueryDate, inSameDayAs: date)
+    }
+
+    func classroomAvailabilities(at date: Date) -> [ClassroomAvailability] {
+        guard classroomQueryDate != nil, !hasExpiredClassroomData(at: date) else { return [] }
+        return ClassroomAvailabilityCalculator.availabilities(
             records: classroomRecords,
             timeTable: cache.timeTable,
             selectedSections: cache.selectedClassroomSectionIDs,
-            nowMinutes: currentMinutes()
+            nowMinutes: currentMinutes(at: date)
         )
     }
 
@@ -375,8 +384,8 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     }
 
     /// 当前时间在一天中的分钟偏移。
-    private func currentMinutes() -> Int {
-        let components = ScheduleDateCodec.calendar.dateComponents([.hour, .minute], from: Date())
+    private func currentMinutes(at date: Date? = nil) -> Int {
+        let components = ScheduleDateCodec.calendar.dateComponents([.hour, .minute], from: date ?? now())
         return (components.hour ?? 0) * 60 + (components.minute ?? 0)
     }
 
@@ -561,8 +570,5 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         guard cache.selectedClassroomSectionIDs != normalized else { return }
         cache.selectedClassroomSectionIDs = normalized
         persist()
-        if !classroomRecords.isEmpty {
-            refreshClassroomAvailabilities()
-        }
     }
 }

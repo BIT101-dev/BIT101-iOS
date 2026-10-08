@@ -10,6 +10,7 @@ import CommunityCore
 //
 
 import Foundation
+import Combine
 
 /// 设置中心网络层使用的错误类型。
 enum SettingsServiceError: LocalizedError {
@@ -46,6 +47,24 @@ protocol AccountSettingsServicing {
 struct SettingsAccountDependencies {
     let service: any AccountSettingsServicing
     let credentials: () -> CommunityCredentials
+
+    func acceptsLoginCheck(_ isLoggedIn: Bool, for owner: CommunityCredentials) -> Bool {
+        let current = credentials()
+        return current.identity == owner.identity && !current.cookie.isEmpty
+            || (!isLoggedIn && current.cookie.isEmpty && current.identity.accountIdentifier == owner.identity.accountIdentifier)
+    }
+}
+
+@MainActor
+final class AccountProfileMutation: ObservableObject {
+    @Published private(set) var isUpdating = false
+    func perform(_ operation: () async throws -> Void) async throws {
+        try Task.checkCancellation()
+        guard !isUpdating else { return }
+        isUpdating = true
+        defer { isUpdating = false }
+        try await operation()
+    }
 }
 
 /// 设置中心复用的网络服务。

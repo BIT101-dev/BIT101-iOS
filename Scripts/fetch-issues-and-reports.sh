@@ -21,6 +21,8 @@ case "$ACTION" in
   show|delete) [[ $# -eq 2 ]] || { echo "请提供报告键。" >&2; exit 64; } ;;
   *) echo "报告操作：fetch、list、latest、show、delete。" >&2; exit 64 ;;
 esac
+source "$ROOT_DIR/Scripts/script-support.sh"
+bit101_acquire_script_lock "$OUTPUT_DIR/inbox.lock" BIT101_REPORT_INBOX_LOCK_HELD "$0" "$@"
 WRANGLER="$WRANGLER_DIR/node_modules/.bin/wrangler"
 mkdir -p "$OUTPUT_DIR"
 export WRANGLER_LOG_PATH="$WRANGLER_LOG"
@@ -89,8 +91,8 @@ mkdir -p "$STAGING_DIR"
 rm -f "$OUTPUT_DIR/github-issues.json" "$OUTPUT_DIR/error-report-keys.json" "$OUTPUT_DIR/summary.txt" "$WRANGLER_LOG" "$CI_RUNS_PATH"
 
 if ! gh api \
-  "repos/$REPO/issues?state=open&per_page=100" \
-  --jq '[.[] | select(.pull_request == null)]' \
+  "repos/$REPO/issues?state=open&per_page=100" --paginate --slurp \
+  --jq '[.[][] | select(.pull_request == null)]' \
   > "$OUTPUT_DIR/github-issues.json"; then
   echo "GitHub Issues 拉取失败，继续拉取其余报告。" >&2
   printf '[]\n' > "$OUTPUT_DIR/github-issues.json"
@@ -175,12 +177,11 @@ else
   exit 1
 fi
 
-python3 - "$OUTPUT_DIR/error-report-keys.json" "$STAGING_DIR" "$WRANGLER_DIR" "$NAMESPACE_ID" "$OUTPUT_DIR/report-keys.txt" <<'PY'
+REPORT_COUNT="$(python3 - "$OUTPUT_DIR/error-report-keys.json" "$STAGING_DIR" "$WRANGLER_DIR" "$NAMESPACE_ID" "$OUTPUT_DIR/report-keys.txt" <<'PY'
 import json
 import base64
-import datetime as dt
 import pathlib
-import re
+import os
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -191,14 +192,7 @@ worker_dir = pathlib.Path(sys.argv[3])
 namespace_id = sys.argv[4]
 processed_path = pathlib.Path(sys.argv[5])
 
-def key_time(key):
-    match = re.match(r"^report:(\d{4}-\d{2}-\d{2}T[^:]+Z):", key)
-    if not match:
-        return None
-    try:
-        return dt.datetime.fromisoformat(match.group(1).replace("Z", "+00:00"))
-    except ValueError:
-        return None
+output_dir = staging_dir.parent
 
 items = json.loads(keys_path.read_text(encoding="utf-8"))
 processed = {
@@ -210,15 +204,8 @@ keys = [
     item["name"] for item in items
     if item.get("name", "").startswith("report:")
 ]
-now = dt.datetime.now(dt.timezone.utc)
-cutoff = now - dt.timedelta(days=7)
-keys_to_fetch = []
-for key in keys:
-    timestamp = key_time(key)
-    if timestamp is not None and timestamp < cutoff:
-        continue
-    if key not in processed:
-        keys_to_fetch.append(key)
+local_reports = {path.name for path in output_dir.glob("*/*/report_*.json")}
+keys_to_fetch = [key for key in keys if key not in processed or key.replace(":", "_") + ".json" not in local_reports]
 
 def fetch(key):
     result = subprocess.run(
@@ -231,12 +218,6 @@ def fetch(key):
         capture_output=True,
         text=True,
     )
-    return key, result
-
-with ThreadPoolExecutor(max_workers=4) as executor:
-    fetched = list(executor.map(fetch, keys_to_fetch))
-
-for key, result in fetched:
     filename = key.replace(":", "_") + ".json"
     if result.returncode:
         detail = result.stderr.strip()
@@ -246,8 +227,7 @@ for key, result in fetched:
         item = json.loads(result.stdout)
         report = item.get("report", {})
     except json.JSONDecodeError:
-        item = {}
-        report = {}
+        raise SystemExit(f"报告 JSON 解析失败：{key}")
     category = "用户建议" if report.get("mode") == "suggestion" else "错误报告"
     development = report.get("isDevelopmentBuild")
     source = "开发版" if development is True else "正式版" if development is False else "来源未知"
@@ -266,7 +246,7 @@ for key, result in fetched:
             except (ValueError, base64.binascii.Error):
                 continue
             content_type = attachment.get("contentType", "image/jpeg")
-            extension = {"image/jpeg": ".jpg", "image/png": ".png", "image/heic": ".heic"}.get(content_type, ".bin")
+            extension = {"image/jpeg": ".jpg", "image/png": ".png", "image/heic": ".heic"}.get(content_type, ".bin") if isinstance(content_type, str) else ".bin"
             (attachment_dir / f"图片-{index:02d}{extension}").write_bytes(data)
             downloaded_attachments.append(
                 {key: value for key, value in attachment.items() if key != "data"} | {"bytes": len(data)}
@@ -278,83 +258,25 @@ for key, result in fetched:
         result_text = result.stdout
     destination = category_dir / filename
     destination.write_text(result_text, encoding="utf-8")
-
-retained_processed = []
-for key in sorted(processed.union(keys_to_fetch)):
-    timestamp = key_time(key)
-    if timestamp is None or timestamp >= cutoff:
-        retained_processed.append(key)
-processed_path.write_text(
-    "\n".join(retained_processed) + ("\n" if retained_processed else ""),
-    encoding="utf-8",
-)
-PY
-
-find "$OUTPUT_DIR" -mindepth 1 -maxdepth 1 -type d ! -name ".incoming" -exec rm -rf {} +
-REPORT_COUNT="$(find "$STAGING_DIR" -type f -name '*.json' | wc -l | tr -d ' ')"
-if [[ "$REPORT_COUNT" -gt 0 ]]; then
-  for category in "开发版" "正式版" "来源未知"; do
-    [[ -d "$STAGING_DIR/$category" ]] && mv "$STAGING_DIR/$category" "$OUTPUT_DIR/$category"
-  done
-  rm -rf "$STAGING_DIR"
-else
-  rm -rf "$STAGING_DIR"
-fi
-
-python3 - "$OUTPUT_DIR/error-report-keys.json" "$WRANGLER_DIR" "$NAMESPACE_ID" <<'PY'
-import datetime as dt
-import json
-import pathlib
-import re
-import subprocess
-import sys
-from concurrent.futures import ThreadPoolExecutor
-
-keys_path = pathlib.Path(sys.argv[1])
-worker_dir = pathlib.Path(sys.argv[2])
-namespace_id = sys.argv[3]
-
-def key_time(key):
-    match = re.match(r"^report:(\d{4}-\d{2}-\d{2}T[^:]+Z):", key)
-    if not match:
-        return None
-    try:
-        return dt.datetime.fromisoformat(match.group(1).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-
-cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=7)
-keys = []
-for item in json.loads(keys_path.read_text(encoding="utf-8")):
-    key = item.get("name", "")
-    timestamp = key_time(key)
-    if key.startswith("report:") and timestamp is not None and timestamp < cutoff:
-        keys.append(key)
-
-if keys:
-    print(f"[清理] {len(keys)} 条七天前的 Cloudflare 报告")
-
-def delete(key):
-    return key, subprocess.run(
-        [
-            str(worker_dir / "node_modules/.bin/wrangler"), "kv", "key", "delete", key,
-            "--remote", "--namespace-id", namespace_id,
-        ],
-        cwd=worker_dir,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    return key
 
 with ThreadPoolExecutor(max_workers=4) as executor:
-    deleted = list(executor.map(delete, keys))
+    for _ in executor.map(fetch, keys_to_fetch):
+        pass
 
-for key, result in deleted:
-    if result.returncode:
-        detail = result.stderr.strip()
-        print(f"清理报告失败：{key}{f'：{detail}' if detail else ''}", file=sys.stderr)
-        sys.exit(result.returncode or 1)
+for path in staging_dir.rglob("*"):
+    if path.is_file():
+        destination = output_dir / path.relative_to(staging_dir)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(path, destination)
+processed_path.write_text(
+    "\n".join(sorted(processed.union(keys_to_fetch))) + ("\n" if processed or keys_to_fetch else ""),
+    encoding="utf-8",
+)
+print(len(keys_to_fetch))
 PY
+)"
+rm -rf "$STAGING_DIR"
 
 python3 - "$OUTPUT_DIR/github-issues.json" "$OUTPUT_DIR" "$OUTPUT_DIR/summary.txt" "$REPORT_COUNT" "$CI_REPORT_PATH" <<'PY'
 import json

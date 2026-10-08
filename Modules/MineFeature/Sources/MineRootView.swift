@@ -455,6 +455,7 @@ private struct MineProfileCard: View {
                 .disabled(info.following || isFollowRequestInFlight)
                 .accessibilityLabel(info.following ? (info.follower ? "互相关注" : "已关注") : "关注")
                 .padding(.top, AppDesignSystem.Spacing.regular)
+                    .accessibilityIdentifier("ui.mine-profile-card.follow")
             }
         }
         .padding(.top, AppDesignSystem.Spacing.regular)
@@ -479,6 +480,7 @@ private struct MineProfileCard: View {
 ///
 /// 页面展示一类用户数组，刷新和分页操作由上层 ViewModel 传入。
 private struct MineUserListView: View {
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     let title: String
     let users: [CommunityUser]
     let status: MineLoadStatus
@@ -540,6 +542,7 @@ private struct MineUserListView: View {
                             await onLoadMore(user)
                         }
                         .appInteractiveListRow()
+                            .accessibilityIdentifier("ui.mine-user-list-view.user")
                     }
 
                     if isLoadingMore {
@@ -548,6 +551,8 @@ private struct MineUserListView: View {
                 }
                 .appGroupedListStyle()
                 .refreshable {
+                    interactionEvidence?("interaction.MineUserListView.refreshable", "refresh")
+
                     await onRefresh()
                 }
             }
@@ -572,6 +577,7 @@ private struct MineUserListView: View {
 ///
 /// 复用话题卡片与详情实现，统一“我的帖子”和“话题详情”的视觉和交互逻辑。
 private struct MinePosterListView: View {
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     @Environment(MineDependencies.self) private var dependencies
     @Environment(CommunityPosterDestination.self) private var destinations
     let posters: [CommunityPoster]
@@ -633,6 +639,8 @@ private struct MinePosterListView: View {
                     }
                 }
                 .refreshable {
+                    interactionEvidence?("interaction.MinePosterListView.refreshable", "refresh")
+
                     await onRefresh()
                 }
             }
@@ -670,12 +678,14 @@ private struct MinePosterListView: View {
             Button("取消", role: .cancel) {
                 deletingPoster = nil
             }
+                .accessibilityIdentifier("ui.mine-poster-list-view.cancel")
             Button("删除", role: .destructive) {
                 Task {
                     await deletePoster(poster)
                     deletingPoster = nil
                 }
             }
+                .accessibilityIdentifier("ui.mine-poster-list-view.delete")
         } message: { poster in
             Text("确定删除“\(poster.title.isEmpty ? "未命名帖子" : poster.title)”吗？删除后无法恢复。")
         }
@@ -722,6 +732,7 @@ private struct MineStatButton: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(title)
                 .accessibilityValue(number)
+                    .accessibilityIdentifier("ui.mine-stat-button.destination")
             } else {
                 content
                     .accessibilityElement(children: .combine)

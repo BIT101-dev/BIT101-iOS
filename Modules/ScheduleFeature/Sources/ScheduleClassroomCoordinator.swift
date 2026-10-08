@@ -11,9 +11,12 @@ final class ScheduleClassroomCoordinator {
     private(set) var isRequestInFlight = false
     private var didFinishInitialRequest = false
     private let timeoutNanoseconds: UInt64
+    private let waitForDeadline: @Sendable (UInt64) async throws -> Void
 
-    init(timeoutNanoseconds: UInt64 = 15 * 1_000_000_000) {
+    init(timeoutNanoseconds: UInt64 = 15 * 1_000_000_000,
+         waitForDeadline: @escaping @Sendable (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) }) {
         self.timeoutNanoseconds = timeoutNanoseconds
+        self.waitForDeadline = waitForDeadline
     }
 
     func reset() {
@@ -54,8 +57,8 @@ final class ScheduleClassroomCoordinator {
             group.addTask {
                 try await operation()
             }
-            group.addTask { [timeoutNanoseconds] in
-                try await Task.sleep(nanoseconds: timeoutNanoseconds)
+            group.addTask { [timeoutNanoseconds, waitForDeadline] in
+                try await waitForDeadline(timeoutNanoseconds)
                 throw ClassroomRequestTimeoutError()
             }
 

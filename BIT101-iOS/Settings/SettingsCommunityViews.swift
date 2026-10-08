@@ -5,6 +5,7 @@ import DesignSystemKit
 import SwiftUI
 
 struct GallerySettingsPage: View {
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     @EnvironmentObject private var settings: AppSettingsStore
     let media: MediaEnvironment
     @State private var imageCacheLimitMB: Int
@@ -14,6 +15,7 @@ struct GallerySettingsPage: View {
     @State private var hiddenUserIDsAlert: AppAlert?
     @StateObject private var networkDiagnosis = NetworkDiagnosisRunner()
     @State private var diagnosisAlert: AppAlert?
+    @State private var diagnosisTask: Task<Void, Never>?
 
     init(media: MediaEnvironment) {
         self.media = media
@@ -39,7 +41,9 @@ struct GallerySettingsPage: View {
 
                 TextField("", text: $hiddenUserIDsText, prompt: AppInputPrompt.text("屏蔽用户 UID（逗号分隔）"))
                     .keyboardType(.numbersAndPunctuation)
-                    .onSubmit { saveHiddenUserIDs() }
+                    .onSubmit {
+                    interactionEvidence?("interaction.GallerySettingsPage.onSubmit", "submit")
+ saveHiddenUserIDs() }
             }
 
             Section("显示") {
@@ -53,8 +57,11 @@ struct GallerySettingsPage: View {
 
             Section("网络诊断") {
                 Button {
-                    Task {
-                        guard let report = await networkDiagnosis.run() else {
+                    diagnosisTask = Task {
+                        defer { diagnosisTask = nil }
+                        let report = await networkDiagnosis.run()
+                        guard !Task.isCancelled else { return }
+                        guard let report else {
                             diagnosisAlert = AppAlert.informational(
                                 title: "网络诊断未完成",
                                 message: "请稍后重试。"
@@ -126,6 +133,11 @@ struct GallerySettingsPage: View {
         }
         .onChange(of: settings.galleryHiddenUserIDs) { _, newValue in
             hiddenUserIDsText = newValue.map(String.init).joined(separator: ",")
+        }
+        .onDisappear {
+            diagnosisTask?.cancel()
+            diagnosisTask = nil
+            diagnosisAlert = nil
         }
     }
 
@@ -274,9 +286,11 @@ struct AboutSettingsPage: View {
         .diagnosticAlert(item: $alert)
         .alert("删除所有文稿与数据", isPresented: $isShowingResetConfirmation) {
             Button("取消", role: .cancel) {}
+                .accessibilityIdentifier("ui.about-settings-page.cancel")
             Button("删除", role: .destructive) {
                 Task { await resetAllLocalData() }
             }
+                .accessibilityIdentifier("ui.about-settings-page.delete")
         } message: {
             Text("此操作不可撤销。应用将清空本机数据并返回登录页；已同步到 iCloud 的数据继续保留。")
         }

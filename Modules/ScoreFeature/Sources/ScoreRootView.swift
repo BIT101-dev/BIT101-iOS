@@ -53,7 +53,7 @@ public struct ScoreListPage: View {
 
                     Section {
                         NavigationLink {
-                            TrustedTranscriptPage(service: transcriptService)
+                            TrustedTranscriptDestination(service: transcriptService)
                         } label: {
                             Text("申请可信成绩单")
                         }
@@ -108,6 +108,7 @@ public struct ScoreListPage: View {
                             LabeledContent("排序", value: viewModel.sortDescription)
                         }
                         .appInteractiveListRow()
+                            .accessibilityIdentifier("ui.score-list-page.排序")
                     }
 
                     Section("统计") {
@@ -140,6 +141,7 @@ public struct ScoreListPage: View {
                                 }
                                 .buttonStyle(.plain)
                                 .appInteractiveListRow()
+                                    .accessibilityIdentifier("ui.score-list-page.score")
                             }
                         }
                     }
@@ -154,6 +156,7 @@ public struct ScoreListPage: View {
                                 }
                                 .buttonStyle(.plain)
                                 .appInteractiveListRow()
+                                    .accessibilityIdentifier("ui.score-list-page.pending-course")
                             }
                         }
                     }
@@ -207,9 +210,18 @@ public struct ScoreListPage: View {
 }
 
 /// 学校可信成绩单申请与预览页。
+struct TrustedTranscriptDestination: View {
+    let service: any TrustedTranscriptServicing
+
+    var body: some View {
+        TrustedTranscriptPage(service: service).id(service.transcriptServiceIdentity)
+    }
+}
+
 private struct TrustedTranscriptPage: View {
     @StateObject private var viewModel: TrustedTranscriptViewModel
     @State private var imageViewer: ImagePreviewRequest?
+    @State private var retryGeneration = 0
 
     init(service: any TrustedTranscriptServicing) {
         _viewModel = StateObject(wrappedValue: TrustedTranscriptViewModel(service: service))
@@ -227,7 +239,8 @@ private struct TrustedTranscriptPage: View {
                     message: message,
                     allowsDiagnostics: viewModel.allowsDiagnostics,
                     onRetry: {
-                        Task { await viewModel.apply() }
+                        viewModel.prepareRetry()
+                        retryGeneration &+= 1
                     }
                 )
             case .loaded:
@@ -266,7 +279,7 @@ private struct TrustedTranscriptPage: View {
         .toolbar(.visible, for: .navigationBar)
         .background(AppDesignSystem.Palette.Background.grouped)
         .systemImagePreview(item: $imageViewer)
-        .task {
+        .task(id: retryGeneration) {
             // 页面从成绩页进入后立即申请可信成绩单，入口直接执行申请操作。
             await viewModel.applyIfNeeded()
         }
@@ -545,6 +558,7 @@ private struct ScoreDetailView: View {
         }
         .buttonStyle(.plain)
         .appInteractiveListRow()
+            .accessibilityIdentifier("ui.score-detail-view.course-evaluation")
     }
 
     private var remainingFields: [ScoreField] {

@@ -4,6 +4,7 @@ import ScheduleContracts
 
 public enum ScheduleExternalSnapshotStoreError: Error, Equatable {
     case sharedContainerUnavailable
+    case staleSnapshot
 }
 
 /// 跨 target 共享快照的磁盘仓库。
@@ -37,8 +38,9 @@ public nonisolated struct ScheduleExternalSnapshotStore: Sendable {
         }
 
         try files.createDirectory(at: fileURL.deletingLastPathComponent())
+        let accountToken = AccountStorageIdentity.stableToken(for: snapshot.studentID)
         let data = try ScheduleExternalSnapshotCodec.encode(
-            snapshot,
+            snapshot.replacingStudentID(with: accountToken),
             outputFormatting: [.prettyPrinted, .sortedKeys]
         )
         try files.writeData(
@@ -51,6 +53,19 @@ public nonisolated struct ScheduleExternalSnapshotStore: Sendable {
         }
     }
 
+    @discardableResult
+    public func writeIfNewer(_ snapshot: ScheduleExternalSnapshot) throws -> Bool {
+        let snapshot = snapshot.replacingStudentID(with: AccountStorageIdentity.stableToken(for: snapshot.studentID))
+        if let current = load() {
+            if snapshot == current { return false }
+            let newer = snapshot.revision == 0 && current.revision == 0
+                ? snapshot.generatedAt > current.generatedAt : snapshot.revision > current.revision
+            guard newer else { throw ScheduleExternalSnapshotStoreError.staleSnapshot }
+        }
+        try write(snapshot)
+        return true
+    }
+
     public func load() -> ScheduleExternalSnapshot? {
         guard
             let fileURL,
@@ -59,14 +74,11 @@ public nonisolated struct ScheduleExternalSnapshotStore: Sendable {
             return nil
         }
 
-        try? files.setPrivateFileProtection(at: fileURL)
         guard let data = try? files.readData(at: fileURL) else { return nil }
         guard let snapshot = try? ScheduleExternalSnapshotCodec.decode(data) else { return nil }
         let accountToken = AccountStorageIdentity.stableToken(for: snapshot.studentID)
         guard snapshot.studentID != accountToken else { return snapshot }
-        let sanitizedSnapshot = snapshot.replacingStudentID(with: accountToken)
-        try? write(sanitizedSnapshot)
-        return sanitizedSnapshot
+        return snapshot.replacingStudentID(with: accountToken)
     }
 
     @discardableResult
@@ -83,8 +95,10 @@ public nonisolated struct ScheduleExternalSnapshotStore: Sendable {
                 succeeded = false
             }
         }
-        Task { @MainActor in
-            notificationCenter.post(name: .scheduleExternalSnapshotDidChange, object: nil)
+        if succeeded {
+            Task { @MainActor in
+                notificationCenter.post(name: .scheduleExternalSnapshotDidChange, object: nil)
+            }
         }
         return succeeded
     }

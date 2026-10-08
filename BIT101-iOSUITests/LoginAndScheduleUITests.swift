@@ -6,7 +6,7 @@ import os
 nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
     @MainActor
     func testAccessibilityQueryParityAndNativeButtonContract() throws {
-        app = configureApp(resetStorage: true, account: nil)
+        app = configureApp(resetStorage: true, account: nil, nativeInteraction: false)
         XCTAssertEqual(app.frame, app.native.frame)
         XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "ui-test.scene").firstMatch.value as? String,
                        app.native.descendants(matching: .any).matching(identifier: "ui-test.scene").firstMatch.value as? String)
@@ -17,7 +17,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
             XCTAssertEqual(actual["label"] as? String, expected.label)
             XCTAssertEqual(actual["elementType"] as? Int, Int(expected.elementType.rawValue))
             XCTAssertEqual(actual["enabled"] as? Bool, expected.isEnabled)
-            XCTAssertEqual(actual["hittable"] as? Bool, element.native.isHittable)
+            XCTAssertEqual(element.isHittable, element.native.isHittable)
             let frame = try XCTUnwrap(actual["frame"] as? [Double])
             for (value, reference) in zip(frame, [expected.frame.minX, expected.frame.minY, expected.frame.width, expected.frame.height]) {
                 XCTAssertEqual(value, Double(reference), accuracy: 0.5)
@@ -26,6 +26,25 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         for element in [app.textFields["login.student-id"], app.secureTextFields["login.password"], app.buttons["login.submit"]] {
             try compareWithNative(element)
         }
+        let submit = app.buttons["login.submit"]
+        XCTAssertEqual(UITestControlClient.request(["command": "occlusion", "identifier": "login.submit", "enabled": "1"]), "covered")
+        UITestSnapshotReader.invalidate()
+        XCTAssertFalse(submit.isHittable)
+        let query = try JSONSerialization.data(withJSONObject: [["type": "9"], ["predicate": "identifier == 'login.submit'"], ["first": "1"]])
+        XCTAssertEqual(UITestControlClient.request(["command": "query-activate", "query": String(decoding: query, as: UTF8.self),
+            "hittable": submit.isHittable ? "1" : "0"]), "native")
+        XCTAssertEqual(UITestControlClient.request(["command": "occlusion", "enabled": "0"]), "cleared")
+        UITestSnapshotReader.invalidate()
+        XCTAssertTrue(submit.isHittable)
+        let studentID = app.textFields["login.student-id"]
+        let previous = studentID.value as? String
+        XCTAssertEqual(UITestControlClient.request(["command": "occlusion", "identifier": "login.student-id", "enabled": "1"]), "covered")
+        UITestSnapshotReader.invalidate()
+        XCTAssertFalse(studentID.isHittable)
+        XCTAssertEqual(studentID.insertText("遮挡输入"), "native")
+        XCTAssertEqual(studentID.value as? String, previous)
+        XCTAssertEqual(UITestControlClient.request(["command": "occlusion", "enabled": "0"]), "cleared")
+        UITestSnapshotReader.invalidate()
         let missing = app.buttons["ui-test.missing-control"]
         XCTAssertFalse(missing.exists)
         XCTAssertFalse(missing.native.exists)
@@ -99,13 +118,12 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         assertSelectedWeek(1)
         tap("第3周")
         assertSelectedWeek(3)
-        let area = app.descendants(matching: .any).matching(identifier: "schedule.blank-context-menu").firstMatch
-        area.swipeLeft()
+        app.descendants(matching: .any)["schedule.section-surface"].swipeLeft()
         assertUI(app.segmentedControls.buttons["DDL"].isSelected, "横滑应切换到 DDL。")
-        app.swipeLeft()
+        app.descendants(matching: .any)["schedule.section-surface"].swipeLeft()
         assertUI(app.segmentedControls.buttons["空教室"].isSelected, "横滑应切换到空教室。")
         closeAlertIfPresent()
-        app.swipeRight()
+        app.descendants(matching: .any)["schedule.section-surface"].swipeRight()
         assertUI(app.segmentedControls.buttons["DDL"].isSelected, "反向横滑应恢复 DDL。")
         tapHeader(app.segmentedControls.buttons.element(boundBy: 0))
         assertUI(app.buttons["schedule.add-content"].exists, "分栏切换应恢复课表交互。")
@@ -276,10 +294,9 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         app.tabBars.buttons["日程"].tapBriefly()
         let sharedSegment = app.segmentedControls.buttons["测试分享课表"]
         assertUI(sharedSegment.appears(timeout: 5), "导入和改名应增加课表分栏。")
-        let area = app.descendants(matching: .any).matching(identifier: "schedule.blank-context-menu").firstMatch
-        area.swipeUp()
+        app.descendants(matching: .any)["schedule.variant-surface"].swipeUp()
         assertUI(app.segmentedControls.buttons.element(boundBy: 0).label == "课表", "向上滑动应从分享课表循环到主课表。")
-        area.swipeDown()
+        app.descendants(matching: .any)["schedule.variant-surface"].swipeDown()
         assertUI(app.segmentedControls.buttons.element(boundBy: 0).label == "测试分享课表", "向下滑动应恢复分享课表。")
         openSettings("calendar")
         reveal(shared, description: "分享课表名称")

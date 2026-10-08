@@ -287,7 +287,7 @@ final class ScheduleLiveActivityManager {
         logger.debug("scheduleNextRefresh nextDate=\(Self.debugDateFormatter.string(from: nextDate), privacy: .public)")
 
         scheduledRefreshTask = Task {
-            try? await Task.sleep(for: .seconds(nextDate.timeIntervalSince(now)))
+            try? await Task.sleep(for: .seconds(max(0, nextDate.timeIntervalSinceNow)))
             if !Task.isCancelled {
                 await refreshFromCurrentCache(trigger: "scheduled_refresh")
             }

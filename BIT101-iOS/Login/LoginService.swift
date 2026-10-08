@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import Combine
 import ClientCore
 import CommunityTransport
 
@@ -13,6 +14,7 @@ import CommunityTransport
 struct LoginService {
     private let storage: LoginStorage
     private let apiClient: BIT101APIClient
+    var sessionChanges: AnyPublisher<Void, Never> { storage.changes.map { _ in () }.eraseToAnyPublisher() }
 
     /// 支持注入存储与 API 客户端。
     init(storage: LoginStorage = AppAccountSession.storage, apiClient: BIT101APIClient = .shared) {
@@ -57,7 +59,9 @@ struct LoginService {
         let identity = storage.communityCredentials.identity
         let bit101LoggedIn = try await apiClient.checkBIT101Login(fakeCookie: fakeCookie)
         try Task.checkCancellation()
-        guard storage.communityCredentials.identity == identity else { throw CancellationError() }
+        guard storage.communityCredentials.identity == identity,
+              storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines) == fakeCookie
+        else { throw CancellationError() }
         guard bit101LoggedIn else {
             storage.clearSession()
             return nil
@@ -75,7 +79,10 @@ struct LoginService {
     ///
     /// 空教室这类纯学校接口沿学校会话路径查询，完整登录检查会增加查询等待时间。
     func restoreSchoolSessionIfNeeded() async throws -> String? {
+        let identity = storage.schoolSessionIdentity
         let schoolContext = try await apiClient.fetchSchoolLoginContext()
+        try Task.checkCancellation()
+        guard storage.schoolSessionIdentity == identity else { throw CancellationError() }
         if schoolContext.isLoggedIn {
             let studentID = savedStudentID
             if studentID.isEmpty {
@@ -109,6 +116,8 @@ struct LoginService {
             execution: execution
         )
 
+        try Task.checkCancellation()
+        guard storage.schoolSessionIdentity == identity else { throw CancellationError() }
         guard reloginSucceeded else {
             throw LoginServiceError.schoolLoginFailed
         }

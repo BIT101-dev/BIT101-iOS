@@ -12,6 +12,12 @@ import Combine
 import SwiftUI
 import UIKit
 
+nonisolated struct MediaImageLoadIdentity: Hashable {
+    let urls: [URL?]
+    let environment: ObjectIdentifier
+    var retryGeneration: UInt64 = 0
+}
+
 /// 主 App 使用的远程图片缓存视图。
 ///
 /// 在内存和 `Caches` 目录缓存图片数据，应用重启后可以复用磁盘缓存。
@@ -47,7 +53,7 @@ public struct CachedRemoteImage<Content: View, Placeholder: View>: View {
                 placeholder()
             }
         }
-        .task(id: url) {
+        .task(id: MediaImageLoadIdentity(urls: [url], environment: ObjectIdentifier(media), retryGeneration: media.imageRetryGeneration)) {
             await loader.load(url: url, media: media)
         }
     }
@@ -116,40 +122,44 @@ public struct AppAvatarView: View {
 }
 
 @MainActor
-private final class CachedRemoteImageLoader: ObservableObject {
+final class CachedRemoteImageLoader: ObservableObject {
     /// 当前用于显示的位图。
     @Published private(set) var image: UIImage?
 
     /// 当前加载任务对应的 URL，用于校验网络响应是否仍属于当前视图。
     private var currentURL: URL?
+    private weak var currentMedia: MediaEnvironment?
 
     /// 先读取本地缓存，缓存未命中时下载。URL 更新时清空当前图片状态。
     func load(url: URL?, media: MediaEnvironment) async {
-        if currentURL == url, image != nil {
+        if currentURL == url, currentMedia === media, image != nil {
             return
         }
 
+        currentMedia = media
         currentURL = url
         image = nil
 
         guard let url else { return }
 
+        let generation = await media.avatars.cacheGeneration
         if let cachedImage = await media.avatars.image(for: url) {
-            guard !Task.isCancelled, currentURL == url else { return }
+            guard !Task.isCancelled, currentURL == url, currentMedia === media, await media.avatars.cacheGeneration == generation else { return }
             image = cachedImage
             return
         }
 
         do {
-            let response = try await media.avatarHTTPClient.send(URLRequest(url: url))
+            let response = try await media.avatarHTTPClient.send(URLRequest(url: url), maximumBytes: RemoteImageResourceLimits.maximumEncodedBytes)
             let data = response.data
-            guard !Task.isCancelled, currentURL == url else { return }
-            guard let downloadedImage = await media.avatars.storeAndDecode(data, for: url) else {
+            guard !Task.isCancelled, currentURL == url, currentMedia === media, await media.avatars.cacheGeneration == generation else { return }
+            guard let downloadedImage = await media.avatars.storeAndDecode(data, for: url, generation: generation) else {
                 return
             }
-            guard !Task.isCancelled, currentURL == url else { return }
+            guard !Task.isCancelled, currentURL == url, currentMedia === media, await media.avatars.cacheGeneration == generation else { return }
             image = downloadedImage
         } catch {
+            guard !Task.isCancelled, currentURL == url, currentMedia === media, await media.avatars.cacheGeneration == generation else { return }
             // 加载失败时保留占位内容。
             image = nil
         }
@@ -171,6 +181,7 @@ actor CachedRemoteImageStore {
         cache.totalCostLimit = 24 * 1_024 * 1_024
         return cache
     }()
+    private(set) var cacheGeneration: UInt64 = 0
     private let files: any AppFileService
     private let quota: ImageCacheDiskQuota
     /// 磁盘缓存根目录。
@@ -189,56 +200,67 @@ actor CachedRemoteImageStore {
 
     /// 按“内存 -> 磁盘”顺序读取缓存数据。
     func data(for url: URL) async -> Data? {
+        let generation = cacheGeneration
         let key = cacheKey(for: url)
         let fileURL = directoryURL.appendingPathComponent(key)
 
         if let cached = memoryCache.object(forKey: key as NSString) {
             touchDiskEntry(for: key)
             await quota.enforce(protecting: Set([fileURL]))
+            guard cacheGeneration == generation else { return nil }
             return Data(referencing: cached)
         }
 
-        guard let data = try? files.readData(at: fileURL) else {
+        guard let data = RemoteImageResourceLimits.cachedData(at: fileURL, using: files) else {
             await quota.enforce()
             return nil
         }
         try? files.setModificationDate(Date(), at: fileURL)
         await quota.enforce(protecting: Set([fileURL]))
+        guard cacheGeneration == generation else { return nil }
         memoryCache.setObject(data as NSData, forKey: key as NSString, cost: data.count)
         return data
     }
 
     /// 读取缓存图片，并准备其显示位图。
     func image(for url: URL) async -> UIImage? {
+        let generation = cacheGeneration
         let key = cacheKey(for: url)
         if let cached = imageCache.object(forKey: key as NSString) {
             touchDiskEntry(for: key)
             await quota.enforce(
                 protecting: Set([directoryURL.appendingPathComponent(key)])
             )
+            guard cacheGeneration == generation else { return nil }
             return cached
         }
-        guard let data = await data(for: url), let source = UIImage(data: data) else { return nil }
-        let decoded = source.preparingForDisplay() ?? source
+        guard let data = await data(for: url),
+              let decoded = BoundedStillImageDecoder.image(from: data, maximumDecodedBytes: imageCache.totalCostLimit)
+        else { return nil }
+        guard cacheGeneration == generation else { return nil }
         imageCache.setObject(decoded, forKey: key as NSString, cost: decodedPixelCost(decoded))
         return decoded
     }
 
     /// 将图片数据写入内存缓存和磁盘。
     func store(_ data: Data, for url: URL) async {
+        guard data.count <= RemoteImageResourceLimits.maximumEncodedBytes else { return }
         let key = cacheKey(for: url)
         memoryCache.setObject(data as NSData, forKey: key as NSString, cost: data.count)
         let fileURL = directoryURL.appendingPathComponent(key)
+        try? files.createDirectory(at: directoryURL)
         try? files.writeData(data, to: fileURL, options: [.atomic])
         try? files.setModificationDate(Date(), at: fileURL)
         await quota.enforce(protecting: Set([fileURL]))
     }
 
     /// 写入下载数据，并缓存准备显示的位图。
-    func storeAndDecode(_ data: Data, for url: URL) async -> UIImage? {
+    func storeAndDecode(_ data: Data, for url: URL, generation expected: UInt64? = nil) async -> UIImage? {
+        let generation = expected ?? cacheGeneration
+        guard cacheGeneration == generation, !Task.isCancelled else { return nil }
         await store(data, for: url)
-        guard let source = UIImage(data: data) else { return nil }
-        let decoded = source.preparingForDisplay() ?? source
+        guard cacheGeneration == generation, !Task.isCancelled else { return nil }
+        guard let decoded = BoundedStillImageDecoder.image(from: data, maximumDecodedBytes: imageCache.totalCostLimit) else { return nil }
         let key = cacheKey(for: url) as NSString
         imageCache.setObject(decoded, forKey: key, cost: decodedPixelCost(decoded))
         return decoded
@@ -246,6 +268,7 @@ actor CachedRemoteImageStore {
 
     /// 清空当前进程的内存缓存和磁盘中的远程图片缓存。
     func clearAll() {
+        cacheGeneration &+= 1
         memoryCache.removeAllObjects()
         imageCache.removeAllObjects()
 

@@ -176,6 +176,8 @@ public struct CampusMapScreen: View {
               activeRequestedLocation?.id != requestedLocation.id else { return }
         activeRequestedLocation = requestedLocation
         if let place = requestedLocation.places.first {
+            pendingCenterOnUserAfterAuthorization = false
+            centerOnUserRequestID = nil
             selectedCampusID = place.campus.rawValue
             focusRequest = MapFocusRequest(preset: place.campus, animated: true)
         }
@@ -183,6 +185,8 @@ public struct CampusMapScreen: View {
 
     /// 切换到指定校区并更新本地持久化。
     private func jump(to preset: CampusPreset, animated: Bool) {
+        pendingCenterOnUserAfterAuthorization = false
+        centerOnUserRequestID = nil
         selectedCampusID = preset.rawValue
         focusRequest = MapFocusRequest(preset: preset, animated: animated)
     }
@@ -195,6 +199,8 @@ public struct CampusMapScreen: View {
 
     /// 地图首次出现或课表缓存更新后，自动切换到下一节课所在校区。
     private func focusOnNextCourseIfPossible(animated: Bool) {
+        pendingCenterOnUserAfterAuthorization = false
+        centerOnUserRequestID = nil
         guard let target = nextCourseTarget else {
             focusRequest = MapFocusRequest(preset: selectedCampus, animated: animated)
             return
@@ -264,6 +270,7 @@ private struct FloatingMapLabelButton: View {
         .appImpactFeedback(trigger: feedbackToken)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .accessibilityIdentifier("ui.floating-map-label-button.action")
     }
 }
 

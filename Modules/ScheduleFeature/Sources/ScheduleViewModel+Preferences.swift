@@ -89,6 +89,7 @@ extension ScheduleViewModel {
 
     /// 重命名当前账号自己的课表。
     public func renamePrimarySchedule(to title: String) throws {
+        try repository.requireWritable()
         let trimmed = try validatedScheduleTitle(title)
         courseState.primaryScheduleTitle = trimmed
         persist()
@@ -96,6 +97,7 @@ extension ScheduleViewModel {
 
     /// 重命名一份导入的分享课表。
     public func renameSharedSchedule(id: String, to title: String) throws {
+        try repository.requireWritable()
         let trimmed = try validatedScheduleTitle(title)
         guard let index = courseState.sharedSchedules.firstIndex(where: { $0.id == id }) else { return }
         courseState.sharedSchedules[index].title = trimmed
@@ -176,7 +178,7 @@ extension ScheduleViewModel {
 
     /// 设置灵动岛/锁屏提醒的提前显示阈值。
     public func setCourseLiveActivityLeadMinutes(_ value: Int) {
-        presentationPreferences.courseLiveActivityLeadMinutes = min(max(value, 1), 60)
+        presentationPreferences.courseLiveActivityLeadMinutes = value
         persist()
     }
 
@@ -184,6 +186,7 @@ extension ScheduleViewModel {
     ///
     /// 每行格式固定为 `开始时间,结束时间`；这里会同时校验顺序和重叠。
     public func setTimeTable(from text: String) throws {
+        try repository.requireWritable()
         let lines = text
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
