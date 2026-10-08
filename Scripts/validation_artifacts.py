@@ -27,7 +27,7 @@ fixed_children = {
     ".build/release-network-smoke": derived_names | {"build.log", "console.log", "report"},
     ".build/release-network-smoke/report": {"network-smoke-summary.txt", "release-network-smoke.json",
         "raw-course-response.json", "network-smoke-request.json"},
-    "build/DeviceInstall": derived_names | {"BIT101-iOS.xcarchive", "build.log"},
+    "build/DeviceInstall": derived_names | {"BIT101-iOS.xcarchive", "build.log", "distribution-signing.json"},
 }
 
 

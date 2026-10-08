@@ -116,6 +116,7 @@ public final class ScoreViewModel: ObservableObject {
                 await self.loadCachedScheduleCourses(for: session, generation: generation, readGeneration: readGeneration)
             }
         }
+        presentUnreadableFilterPreferences()
     }
 
     /// 切换账号后重置内存状态；下一次启动按新学号恢复磁盘缓存。
@@ -147,6 +148,7 @@ public final class ScoreViewModel: ObservableObject {
         preferenceSnapshot = preferenceStore.load()
         restoreSortPreferences()
         alert = nil
+        presentUnreadableFilterPreferences()
     }
 
     /// 进入成绩页时恢复本地缓存；学校请求由用户操作触发。
@@ -668,6 +670,7 @@ public final class ScoreViewModel: ObservableObject {
     /// iCloud 拉取完成后立即更新已存在的成绩页面。
     private func applyPersistedFilterPreferences() {
         preferenceSnapshot = preferenceStore.load()
+        presentUnreadableFilterPreferences()
         guard let preferenceSnapshot else { return }
 
         restoreSortPreferences()
@@ -711,13 +714,21 @@ public final class ScoreViewModel: ObservableObject {
 
     /// 保存当前筛选结果到本地偏好。
     private func persistFilterPreferences() {
-        guard didInitializeTermSelection, didInitializeCourseTypeSelection else { return }
-        preferenceStore.save(
-            selectedTerms: selectedTerms,
-            selectedCourseTypes: selectedCourseTypes,
+        let saved = preferenceStore.save(
+            selectedTerms: didInitializeTermSelection ? selectedTerms : Set(preferenceSnapshot?.selectedTerms ?? []),
+            selectedCourseTypes: didInitializeCourseTypeSelection ? selectedCourseTypes : Set(preferenceSnapshot?.selectedCourseTypes ?? []),
             sortIndex: sortIndex,
             sortOrder: sortOrder
         )
+        if !saved {
+            alert = AppAlert(title: "筛选偏好保存受阻", message: "当前筛选与排序在本次使用中生效。原始偏好数据已保留，请联系维护者处理存储问题。")
+        }
+    }
+
+    private func presentUnreadableFilterPreferences() {
+        if preferenceStore.hasUnreadableSnapshot {
+            alert = AppAlert(title: "筛选偏好读取受阻", message: "原始偏好数据已保留。当前使用默认筛选与排序，请联系维护者处理存储问题。")
+        }
     }
 
     /// 同时兼容 Swift Concurrency 和 URLSession 的取消错误。

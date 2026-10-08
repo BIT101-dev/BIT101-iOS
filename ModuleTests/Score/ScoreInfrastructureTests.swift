@@ -4,7 +4,7 @@ import StorageCore
 import ScoreDomain
 import ClientCore
 import Foundation
-import ScoreFeature
+@testable import ScoreFeature
 @testable import ScoreInfrastructure
 import Testing
 import TransportCore
@@ -326,10 +326,11 @@ struct ScorePublicContractTests {
         var changes: AnyPublisher<AppStorageSession, Never> { changeSubject.eraseToAnyPublisher() }
         var loads = 0
         private var waiter: CheckedContinuation<Void, Never>?
+        var rows: [ScoreRow] = []
         func loadSnapshot(for session: AppStorageSession?) async -> ScoreCacheSnapshot? {
             loads += 1
             waiter?.resume(); waiter = nil
-            return ScoreCacheSnapshot()
+            return ScoreCacheSnapshot(rows: rows)
         }
         func save(rows: [ScoreRow], for session: AppStorageSession?) async -> Date? { nil }
         func saveDetailed(rows: [ScoreRow], for session: AppStorageSession?) async -> Date? { nil }
@@ -342,13 +343,53 @@ struct ScorePublicContractTests {
         let changeSubject = PassthroughSubject<AppStorageSession, Never>()
         var changes: AnyPublisher<AppStorageSession, Never> { changeSubject.eraseToAnyPublisher() }
         var loads = 0
+        var hasUnreadableSnapshot: Bool { false }
         func load() -> ScoreFilterPreferenceSnapshot? { loads += 1; return .init() }
-        func save(selectedTerms: Set<String>, selectedCourseTypes: Set<String>, sortIndex: ScoreSortIndex, sortOrder: ScoreSortOrder) {}
+        func save(selectedTerms: Set<String>, selectedCourseTypes: Set<String>, sortIndex: ScoreSortIndex, sortOrder: ScoreSortOrder) -> Bool { true }
     }
     private struct Service: ScoreListServicing {
         func startScoreChallenge() async throws -> BITLoginAuthenticationChallenge { throw URLError(.notConnectedToInternet) }
         func fetchScores(detail: Bool, authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> [ScoreRow] { [] }
         func submitScoreSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
+    }
+
+    private final class Account {
+        var session = AppStorageSession(accountIdentifier: "damaged-filter")
+    }
+
+    @Test(.serialized, arguments: [false, true])
+    func unreadableFilterPreferencesReachThePageAndRetainTheirOriginalBytes(empty: Bool) async throws {
+        let domain = "BIT101ModulesTests.score-filter-corruption"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let account = Account()
+        let key = account.session.key("score.filter.preferences")
+        let damaged = Data("damaged".utf8)
+        defaults.set(damaged, forKey: key)
+        let preferences = ScoreFilterPreferenceStore(defaults: defaults, session: { account.session })
+        let cache = Cache()
+        cache.rows = empty ? [] : [ScoreRow(index: 0, headers: ["课程名称", "成绩", "开课学期", "课程性质"],
+            values: ["fixture", "90", "fixture", "必修"])]
+        var changes = 0
+        let observation = preferences.changes.sink { _ in changes += 1 }
+        defer { observation.cancel() }
+        let model = ScoreViewModel(service: Service(), cacheStore: cache, preferenceStore: preferences,
+            currentScoreCacheSession: { account.session }, scheduleCoursesChanges: Empty().eraseToAnyPublisher(),
+            loadScheduleCourses: { _ in [:] })
+        #expect(model.alert?.title == "筛选偏好读取受阻")
+        await model.restoreCachedDataIfNeeded()
+        model.setSortOrder(.descending)
+        #expect(model.alert?.title == "筛选偏好保存受阻")
+        #expect(model.sortOrder == .descending && changes == 0)
+        #expect(defaults.data(forKey: key) == damaged)
+        account.session = AppStorageSession(accountIdentifier: "healthy-filter")
+        model.resetForCurrentAccount()
+        #expect(model.alert == nil)
+        await model.restoreCachedDataIfNeeded()
+        model.setSortOrder(.descending)
+        #expect(preferences.load()?.sortOrder == ScoreSortOrder.descending.rawValue)
+        #expect(changes > 0 && defaults.data(forKey: key) == damaged)
     }
 
     @Test(.timeLimit(.minutes(1))) func publicAssemblyAcceptsIndependentStoragePortsAndFiltersEventSources() async {

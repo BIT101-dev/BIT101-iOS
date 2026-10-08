@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import plistlib
 import re
 import subprocess
@@ -46,6 +47,11 @@ def version_tuple(value: str) -> tuple[int, int, int]:
     if not SEMVER_PATTERN.fullmatch(value):
         raise ValueError(f"无法比较非三段数字版本号：{value}")
     return tuple(int(component) for component in value.split("."))  # type: ignore[return-value]
+
+
+def validate_release_tag(tag: str, version: str) -> None:
+    if tag != "v" + version:
+        raise ValueError(f"发布标签 {tag} 需要对应工程版本 v{version}")
 
 
 def validate_plists() -> None:
@@ -102,6 +108,11 @@ def app_store_request_self_test() -> list[str]:
     from io import StringIO
     from unittest.mock import patch
     findings = []
+    validate_release_tag("v2.0.0", "2.0.0")
+    for tag in ("v9.0.0", "v2.0", "v2.0.0-rc1"):
+        try: validate_release_tag(tag, "2.0.0")
+        except ValueError: pass
+        else: findings.append("发布版本自测：标签与工程公开版本对应")
     for instant in (100, 200):
         with patch.object(time, "time", return_value=instant), patch.object(urllib.request, "urlopen",
                 return_value=StringIO('{"results":[{"version":"99.0.0"}]}')) as opener:
@@ -117,6 +128,8 @@ def app_store_request_self_test() -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--compare-git-ref", help="拒绝相对指定 Git ref 的版本或 Build 倒退")
+    parser.add_argument("--release-tag", default=os.environ.get("GITHUB_REF", "").removeprefix("refs/tags/")
+        if os.environ.get("GITHUB_REF", "").startswith("refs/tags/") else "", help="发布标签与工程版本对应")
     parser.add_argument(
         "--check-app-store",
         action="store_true",
@@ -127,6 +140,8 @@ def main() -> int:
     try:
         version, build = extract_versions(PROJECT_PATH.read_text(encoding="utf-8"))
         validate_plists()
+        if args.release_tag:
+            validate_release_tag(args.release_tag, version)
         if args.compare_git_ref:
             validate_not_older_than_ref(args.compare_git_ref, version, build)
         if args.check_app_store:

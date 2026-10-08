@@ -455,60 +455,60 @@ def check_interactive_list_colors(errors: list[str], syntax: dict[str, dict]) ->
         errors.extend(interactive_list_row_findings(path, syntax[str(path)], syntax))
 
 
+def swift_contract_tokens(value: str) -> str:
+    return re.sub(r'"(?:\\.|[^"\\])*"|\s+', lambda match: match[0] if match[0].startswith('"') else '', mask_comments(value))
+
+
+def visual_contract_present(relative_path: str, marker: str, sources: dict[Path, str]) -> bool:
+    directory = source_path(relative_path).parent
+    expected = swift_contract_tokens(marker)
+    return any(expected in swift_contract_tokens(source) for path, source in sources.items() if path.is_relative_to(directory))
+
+
 def check_registered_visual_contracts(errors: list[str]) -> None:
     contracts = (
         *FIXED_GEOMETRY_CONTRACTS,
         *PAGE_THEME_CONTRACTS,
         MAP_THEME_COLOR_CONTRACT,
     )
+    sources = {path: source_text(path) for path in swift_files()}
     for relative_path, marker in contracts:
-        path = source_path(relative_path)
-        if not path.is_file():
-            errors.append(f"{path.relative_to(ROOT)}: 自动视觉契约引用的源码缺失")
-            continue
-        source = mask_comments(source_text(path))
-        if marker not in source:
-            errors.append(f"{path.relative_to(ROOT)}: 自动视觉契约已变化，请同步更新契约声明（{marker}）")
+        if not visual_contract_present(relative_path, marker, sources):
+            errors.append(f"{source_path(relative_path).parent.relative_to(ROOT)}: 模块视觉契约需要对应当前表达式（{marker}）")
 
 
 def is_reviewed_fixed_geometry(
     path: Path, source: str, pattern: re.Pattern[str], node: dict
 ) -> bool:
-    relative_path = source_relative(path)
     reviewed_paths = {
         "Modules/CourseFeature/Sources/CourseCommentViews.swift": DIRECT_THUMBNAIL_GEOMETRY,
         "Modules/CourseFeature/Sources/CourseHistoryGradesViews.swift": DIRECT_STROKE_GEOMETRY,
         "Modules/GalleryFeature/Sources/GalleryComposerView.swift": DIRECT_GRID_ITEM_GEOMETRY,
     }
-    expected_pattern = reviewed_paths.get(relative_path)
-    normalized_node = " ".join(node["value"].split())
-    return expected_pattern is pattern and any(
-        entry_path == relative_path
-        and " ".join(marker.split()) in " ".join(source.split())
-        and " ".join(marker.split()) in normalized_node
+    normalized_node = swift_contract_tokens(node["value"])
+    return any(
+        path.is_relative_to(source_path(entry_path).parent) and reviewed_paths.get(entry_path) is pattern
+        and swift_contract_tokens(marker) in swift_contract_tokens(source)
+        and swift_contract_tokens(marker) in normalized_node
         for entry_path, marker in FIXED_GEOMETRY_CONTRACTS
     )
 
 
 def is_registered_cgfloat_contract(path: Path, node: dict) -> bool:
-    relative_path = source_relative(path)
-    normalized_node = " ".join(node["value"].split())
+    normalized_node = swift_contract_tokens(node["value"])
     return any(
-        entry_path == relative_path and " ".join(marker.split()) in normalized_node
+        path.is_relative_to(source_path(entry_path).parent) and swift_contract_tokens(marker) in normalized_node
         for entry_path, marker in FIXED_GEOMETRY_CONTRACTS
     )
 
 
 def is_registered_map_theme_color_definition(path: Path, source: str, node: dict) -> bool:
-    relative_path = source_relative(path)
-    if relative_path != MAP_THEME_COLOR_CONTRACT[0] or node.get("scope") != ["AppDesignSystem", "Map"]:
+    if not path.is_relative_to(source_path(MAP_THEME_COLOR_CONTRACT[0]).parent) or node.get("scope") != ["AppDesignSystem", "Map"]:
         return False
     start = max(0, int(node.get("start", 0)))
-    encoded_source = source.encode("utf-8")
-    line_start = encoded_source.rfind(b"\n", 0, start) + 1
-    line_end = encoded_source.find(b"\n", start)
-    line_end = len(encoded_source) if line_end < 0 else line_end
-    return encoded_source[line_start:line_end].decode("utf-8").strip() == MAP_THEME_COLOR_CONTRACT[1]
+    pattern = r"public\s+static\s+let\s+tabAccent\s*=\s*Color\s*\.\s*green\b"
+    return any(len(source[:match.start()].encode()) <= start < len(source[:match.end()].encode())
+        for match in re.finditer(pattern, mask_comments(source)))
 
 
 INTERACTION_KINDS = {

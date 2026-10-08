@@ -1,34 +1,82 @@
 """Capture structured observations and local evidence for physical-device acceptance."""
 import base64
 import hashlib
+import json
+import re
+import struct
+import uuid
+import zlib
 from validation_provenance import sampling_evidence_current, utc_now
 from pathlib import Path
 
-MANUAL_DEVICE_CHECKS = {"system-autofill", "photos", "calendar-permissions", "notifications", "external-handoff", "web-interactions", "widget", "watch", "feedback-delivery"}
+MANUAL_DEVICE_CHECKS = {"system-autofill", "photos", "calendar-permissions", "notifications", "external-handoff", "web-interactions", "widget", "watch", "feedback-delivery", "distribution-signing"}
 
 
-def capture(operation: str, result: str, evidence: Path) -> dict:
+def capture(operation: str, result: str, evidence: Path, check: str) -> dict:
     if not operation.strip() or not result.strip():
         raise ValueError("人工验收需要实际操作和观察结果")
     data = evidence.read_bytes()
-    if not data:
-        raise ValueError("人工验收附件需要包含实际证据")
-    return {"operation": operation.strip(), "result": result.strip(), "capturedAt": utc_now().isoformat(),
+    if not evidence_content_complete(check, data):
+        raise ValueError("验收附件需要有效影像、PDF 或所属专项的结构化证据")
+    return {"check": check, "operation": operation.strip(), "result": result.strip(), "capturedAt": utc_now().isoformat(),
         "evidence": {"path": str(evidence.resolve()), "sha256": hashlib.sha256(data).hexdigest(), "byteCount": len(data), "dataBase64": base64.b64encode(data).decode("ascii")}}
 
 
-def artifact_complete(artifact: dict) -> bool:
+def artifact_complete(artifact: dict, check: str) -> bool:
     try:
         data = base64.b64decode(artifact["dataBase64"], validate=True)
-        return bool(data) and type(artifact["byteCount"]) is int and len(data) == artifact["byteCount"] \
+        return evidence_content_complete(check, data) and type(artifact["byteCount"]) is int and len(data) == artifact["byteCount"] \
             and hashlib.sha256(data).hexdigest() == artifact["sha256"] \
             and isinstance(artifact["path"], str) and bool(artifact["path"].strip())
     except (KeyError, TypeError, ValueError):
         return False
 
 
+def png_complete(data: bytes) -> bool:
+    if not data.startswith(b'\x89PNG\r\n\x1a\n'): return False
+    offset, kinds = 8, []
+    while offset + 12 <= len(data):
+        size = int.from_bytes(data[offset:offset + 4])
+        end = offset + 12 + size
+        if end > len(data): return False
+        kind = data[offset + 4:offset + 8]
+        payload = data[offset + 8:end - 4]
+        if zlib.crc32(kind + payload) != int.from_bytes(data[end - 4:end]): return False
+        if not kinds and (kind != b'IHDR' or size != 13 or 0 in struct.unpack('>II', payload[:8])): return False
+        kinds.append(kind)
+        offset = end
+    return offset == len(data) and b'IDAT' in kinds and kinds[-1:] == [b'IEND']
+
+
+def evidence_content_complete(check: str, data: bytes) -> bool:
+    if check not in MANUAL_DEVICE_CHECKS: return False
+    if check == 'distribution-signing':
+        from validate_distribution import distribution_complete
+        try:
+            proof = json.loads(data)
+            return isinstance(proof, dict) and distribution_complete(proof)
+        except (ValueError, TypeError, KeyError, OSError): return False
+    if check == 'feedback-delivery':
+        try:
+            proof = json.loads(data)
+            if not isinstance(proof, dict) or not all(isinstance(proof.get(field), str) for field in
+                    ('reportID', 'storageKey', 'emailRecipient', 'emailMessageID', 'emailBody')): return False
+            report = str(uuid.UUID(proof['reportID']))
+            return proof['reportID'] == report and proof['storageKey'].startswith('report:') \
+                and proof['storageKey'].endswith(':' + report) and proof['storedReport']['id'] == report \
+                and isinstance(proof['storedReport']['report'], dict) \
+                and bool(re.fullmatch(r'[^\s@]+@[^\s@]+', proof['emailRecipient'])) \
+                and bool(re.fullmatch(r'<[^\s<>@]+@[^\s<>@]+>', proof['emailMessageID'])) \
+                and report in proof['emailBody']
+        except (ValueError, TypeError, KeyError, AttributeError): return False
+    return png_complete(data) or data.startswith(b'\xff\xd8\xff') and data.endswith(b'\xff\xd9') \
+        or data.startswith(b'%PDF-') and data.rstrip().endswith(b'%%EOF') \
+        or len(data) >= 16 and data[4:8] == b'ftyp' and b'moov' in data
+
+
 def complete(checks: dict) -> bool:
     return set(checks) == MANUAL_DEVICE_CHECKS and all(
-        isinstance(row, dict) and all(isinstance(row.get(field), str) and row[field].strip() for field in ("operation", "result", "capturedAt"))
-        and isinstance(row.get("evidence"), dict) and artifact_complete(row["evidence"])
-        and sampling_evidence_current({"startedAt": row["capturedAt"], "finishedAt": row["capturedAt"]}) for row in checks.values())
+        isinstance(row, dict) and row.get('check') == check
+        and all(isinstance(row.get(field), str) and row[field].strip() for field in ("operation", "result", "capturedAt"))
+        and isinstance(row.get("evidence"), dict) and artifact_complete(row["evidence"], check)
+        and sampling_evidence_current({"startedAt": row["capturedAt"], "finishedAt": row["capturedAt"]}) for check, row in checks.items())

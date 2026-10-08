@@ -17,7 +17,7 @@ from contextlib import contextmanager
 sys.dont_write_bytecode = True
 from swift_source_index import swift_syntax_index_sources
 from validation_inputs import includes_input
-from validation_policy import TEST_GROUPS, RELEASE_GROUPS, DEFAULT_VERIFY_GROUPS, MODULE_COVERAGE_FLOORS, IOS_MODULE_COVERAGE_FLOORS
+from validation_policy import TEST_GROUPS, RELEASE_GROUPS, DEFAULT_VERIFY_GROUPS, FORMAL_RUNTIME_SUITES, MODULE_COVERAGE_FLOORS, IOS_MODULE_COVERAGE_FLOORS
 from validation_test_areas import TEST_AREA_SUITES
 from validation_manual import MANUAL_DEVICE_CHECKS, capture as capture_manual, complete as manual_complete
 from validation_environment import environment_context, complete_environment, toolchain_identity
@@ -114,7 +114,7 @@ def test_inventory(group: str) -> set[str]:
     for path in directory.rglob("*.swift"):
         sources[str(path)] = active_swift_source(path.read_text(), group)
     tests = {test["value"] for facts in swift_syntax_index_sources(sources).values() for test in facts["tests"]}
-    return {test for test in tests if test.startswith("ReleaseRuntimeContractTests/")} if group in {"release-runtime", "catalyst-release-runtime"} else tests
+    return {test for test in tests if test.split("/", 1)[0] in FORMAL_RUNTIME_SUITES} if group in {"release-runtime", "catalyst-release-runtime"} else tests
 
 
 def normalized_test_id(identifier: str) -> str:
@@ -557,7 +557,7 @@ def community_recovery_self_test() -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["digest", "record", "bind", "check", "check-group", "summary", "suites", "self-test", "manual", "verify-defaults"])
+    parser.add_argument("action", choices=["digest", "record", "bind", "check", "check-group", "summary", "suites", "self-test", "manual", "verify-defaults", "runtime-suites"])
     parser.add_argument("group", nargs="?", default="")
     parser.add_argument("status", nargs="?", type=int, default=0)
     parser.add_argument("--operation", default="", help="实际执行操作")
@@ -566,6 +566,9 @@ def main() -> int:
     parser.add_argument("--recorded-environment", action="store_true", help="核对已绑定证据的记录环境和当前发布工具链")
     parser.add_argument("scope", nargs="?", default="full")
     args = parser.parse_args()
+    if args.action == "runtime-suites":
+        print("\n".join(sorted(FORMAL_RUNTIME_SUITES)))
+        return 0
     if args.action == "verify-defaults":
         print("\n".join(DEFAULT_VERIFY_GROUPS))
         return 0
@@ -584,7 +587,7 @@ def main() -> int:
     if args.action == "manual":
         if args.group not in MANUAL_DEVICE_CHECKS or args.evidence is None:
             parser.error("真机专项需要有效检查项及操作、观察结果和本地附件。")
-        try: observation = capture_manual(args.operation, args.result, args.evidence)
+        try: observation = capture_manual(args.operation, args.result, args.evidence, args.group)
         except (ValueError, OSError) as error: parser.error(str(error))
         if not complete_environment("manual-device", environment_context("manual-device")):
             parser.error("真机专项需要连接执行设备并读取完整系统身份。")

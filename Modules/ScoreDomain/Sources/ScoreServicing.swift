@@ -77,6 +77,8 @@ public protocol ScoreCacheSynchronizing: ScoreCaching {
 public protocol ScoreFilterPreferencesStoring: AnyObject {
     /// 本地保存和外部导入发布同一实例的账号变更。
     var changes: AnyPublisher<AppStorageSession, Never> { get }
+    var hasUnreadableSnapshot: Bool { get }
     func load() -> ScoreFilterPreferenceSnapshot?
-    func save(selectedTerms: Set<String>, selectedCourseTypes: Set<String>, sortIndex: ScoreSortIndex, sortOrder: ScoreSortOrder)
+    @discardableResult
+    func save(selectedTerms: Set<String>, selectedCourseTypes: Set<String>, sortIndex: ScoreSortIndex, sortOrder: ScoreSortOrder) -> Bool
 }

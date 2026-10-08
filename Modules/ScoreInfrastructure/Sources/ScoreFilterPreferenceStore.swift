@@ -27,21 +27,23 @@ public final class ScoreFilterPreferenceStore: ScoreFilterPreferencesStoring {
         return false
     }
 
+    @discardableResult
     public func save(
         selectedTerms: Set<String>,
         selectedCourseTypes: Set<String>,
         sortIndex: ScoreSortIndex,
         sortOrder: ScoreSortOrder
-    ) {
+    ) -> Bool {
         let snapshot = ScoreFilterPreferenceSnapshot(
             selectedTerms: selectedTerms.sorted(),
             selectedCourseTypes: selectedCourseTypes.sorted(),
             sortIndex: sortIndex.rawValue,
             sortOrder: sortOrder.rawValue
         )
-        guard store.save(snapshot) else { return }
+        guard store.save(snapshot) else { return false }
         saveSubject.send(session())
         changeSubject.send(session())
+        return true
     }
 
     /// 将 iCloud 筛选偏好写入本地存储，并发布所属账号的变更。

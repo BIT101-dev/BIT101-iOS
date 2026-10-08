@@ -84,16 +84,6 @@ extension AccountScopedCodableStore {
     }
 }
 
-extension AccountScopedFileCodableStore {
-    init(
-        filename: String,
-        files: any AppFileService = AppFileDirectories.files,
-        session: @escaping () -> AppStorageSession = { AppFileDirectories.currentSession }
-    ) {
-        self.init(filename: filename, files: files, session: session, directory: AppFileDirectories.applicationSupport)
-    }
-}
-
 /// 将课表规则投影为成绩页面消费的文本与课程身份。
 extension ScoreCourseSummary {
     init(course: CourseRecord) {

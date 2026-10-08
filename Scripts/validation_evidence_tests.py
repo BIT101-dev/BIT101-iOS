@@ -16,6 +16,8 @@ def run_self_test(subject) -> int:
         from validation_provenance_tests import run_self_test as provenance_self_test
         from validation_test_areas import inventory_findings
         provenance_self_test(subject.record)
+        from validation_manual_tests import run_self_test as manual_self_test, captured_fixture
+        manual_self_test()
         all_suites = {test.split('/', 1)[0] for test in subject.test_inventory('all')}
         assert inventory_findings(all_suites) == []
         assert inventory_findings(all_suites | {'NewFeatureTests'})
@@ -169,17 +171,20 @@ def run_self_test(subject) -> int:
         summaries['restore'] = {'passed': True, 'kind': 'restore'}
         summaries['build-archive'] = {'passed': True, 'kind': 'build'}
         from validation_manual import capture, complete
-        with patch.object(Path, 'read_bytes', return_value=b'actual evidence'):
-            captured = capture('提交反馈', '报告持久化和邮件接收已核对', Path('/evidence.png'))
-        checks = {name: dict(captured, evidence=dict(captured['evidence'])) for name in subject.MANUAL_DEVICE_CHECKS}
+        checks = {}
+        for name in subject.MANUAL_DEVICE_CHECKS: checks[name] = captured_fixture(name)
         summaries['manual-device'] = {'passed': True, 'checks': checks}
         assert complete(checks)
         stale = json.loads(json.dumps(checks))
         next(iter(stale.values()))['capturedAt'] = '2000-01-01T00:00:00+00:00'
         assert not complete(stale)
-        with patch.object(Path, 'read_bytes', side_effect=FileNotFoundError):
+        original_read = Path.read_bytes
+        def missing_artifact(path):
+            if str(path).startswith('/evidence') or str(path) == '/missing': raise FileNotFoundError
+            return original_read(path)
+        with patch.object(Path, 'read_bytes', missing_artifact):
             assert complete(json.loads(json.dumps(checks)))
-            try: capture('操作', '结果', Path('/missing'))
+            try: capture('操作', '结果', Path('/missing'), 'photos')
             except FileNotFoundError: pass
             else: raise AssertionError('人工证据需要已有附件')
         for field, value in [('dataBase64', ''), ('dataBase64', 'bad%base64'), ('dataBase64', 'b3RoZXI='), ('sha256', 'a' * 64), ('byteCount', 1)]:

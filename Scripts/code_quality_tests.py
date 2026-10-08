@@ -20,6 +20,10 @@ from code_quality_rules import (
 
 def checker_boundary_findings() -> list[str]:
     findings: list[str] = []
+    from code_quality_rules import audit_callback_findings
+    callbacks = 'module_boundary_audit() {\n  python3 "$ROOT_DIR/Scripts/check-module-boundaries.py"\n}\nartifact_hygiene() {\n  python3 "$ROOT_DIR/Scripts/validation_artifacts.py" "$ROOT_DIR"\n}\n'
+    assert audit_callback_findings(callbacks) == []
+    assert audit_callback_findings(callbacks.replace('python3 "$ROOT_DIR/Scripts/check-module-boundaries.py"', 'true'))
     from code_quality_rules import scheme_inventory_findings
     scheme = '<Scheme LastUpgradeVersion="2700"><BuildAction buildImplicitDependencies="YES" /></Scheme>'
     if scheme_inventory_findings({"App": scheme}):

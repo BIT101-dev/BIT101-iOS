@@ -175,11 +175,34 @@ struct ReleaseNetworkSmokeLifecycleTests {
 
     @Test(arguments: [(CommunityWriteSmoke.Kind.paper, "BIT101.Paper", "文章不存在Orz", true),
         (.poster, "BIT101.Gallery", "帖子不存在Orz", true), (.paper, "BIT101.Gallery", "文章不存在Orz", false),
-        (.paper, "BIT101.Paper", "服务暂时繁忙", false), (.course, "BIT101.Paper", "文章不存在Orz", false)])
-    func knownResourceAbsenceKeepsOtherServerFailuresVisible(fixture: (CommunityWriteSmoke.Kind, String, String, Bool)) {
+        (.paper, "BIT101.Paper", "服务暂时繁忙", false), (.course, "BIT101.Paper", "文章不存在Orz", false)], [404, 500])
+    func knownResourceAbsenceKeepsOtherServerFailuresVisible(fixture: (CommunityWriteSmoke.Kind, String, String, Bool), status: Int) {
         let (kind, domain, message, missing) = fixture
-        let error = NSError(domain: domain, code: 500, userInfo: [NSLocalizedDescriptionKey: message])
+        let error = NSError(domain: domain, code: status, userInfo: [NSLocalizedDescriptionKey: message])
         #expect(CommunityWriteSmoke.Operations.isMissingContent(error, kind: kind) == missing)
+    }
+
+    private final class MissingRoute: HTTPTransport {
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            let url = try #require(request.url)
+            return (Data(#"{"message":"Not Found"}"#.utf8),
+                try #require(HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil)))
+        }
+    }
+
+    @Test func routeFailuresRemainVisibleThroughProductionReadAndCommentOperations() async {
+        let session = CommunitySession(httpClient: HTTPClient(transport: MissingRoute(), observer: nil),
+            baseURL: AppURL.required("https://example.invalid"),
+            credentials: { .init(identity: .init(accountIdentifier: "fixture"), cookie: "fixture") }, refresh: { _ in })
+        let operations = CommunityWriteSmoke.Operations.production(papers: PaperService(session: session),
+            gallery: GalleryService(session: session, preferences: {
+                CommunityPreferenceSnapshot(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+            }))
+        for kind in [CommunityWriteSmoke.Kind.paper, .poster] {
+            await #expect(throws: (any Error).self) { try await operations.read(kind, 1) }
+        }
+        await #expect(throws: (any Error).self) { try await operations.comments("poster1") }
+        await #expect(throws: (any Error).self) { try await operations.deleteComment(1) }
     }
 
     @Test func journalSurvivesRestartAndRetainsTheRecoveryRecordOnStorageFailure() throws {
@@ -314,7 +337,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(world.contents["course1"]?.liked == true)
     }
 
-    @Test func unmappedCommentRemainsRecoverableUntilServerConfirmsAbsence() async throws {
+    @Test func unmappedCommentKeepsAmbiguousFailuresUntilParentAbsenceIsConfirmed() async throws {
         let world = CommunityWorld(stage: "silent-comment-delete")
         let comment = try await world.operations.comment("course1", "功能验收 fixture")
         var journal = CommunityWriteSmoke.Journal(marker: "功能验收 fixture", account: 1)
@@ -326,8 +349,36 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(world.rows["course1"]?.count == 1)
         world.rows = [:]
         world.stage = "missing-comment"
+        await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture", cleanupOnly: true) }
+        #expect(try JSONDecoder().decode(CommunityWriteSmoke.Journal.self, from: #require(world.pending)).comments == [comment.id])
+        journal.parents = ["course1"]
+        journal.commentParents = [comment.id: "course1"]
+        world.pending = try JSONEncoder().encode(journal)
+        world.stage = "success"
         _ = try await world.smoke.run(marker: "fixture", cleanupOnly: true)
         #expect(world.pending == nil)
+    }
+
+    @Test(arguments: ["route-read", "route-comments", "missing-comment"])
+    func routeFailuresPreserveRecoveryUntilTheServerConfirmsCleanup(stage: String) async throws {
+        let world = CommunityWorld(stage: stage)
+        world.contents["poster123"] = .init(text: "功能验收 fixture", owned: true, liked: false)
+        let comment = try await world.operations.comment("poster123", "功能验收 fixture")
+        var journal = CommunityWriteSmoke.Journal(marker: "功能验收 fixture", account: 1)
+        journal.targets = [.init(kind: .poster, id: 123)]
+        journal.parents = ["poster123"]
+        journal.comments = [comment.id]
+        journal.commentParents = [comment.id: "poster123"]
+        world.pending = try JSONEncoder().encode(journal)
+        await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture", cleanupOnly: true) }
+        let pending = try JSONDecoder().decode(CommunityWriteSmoke.Journal.self, from: #require(world.pending))
+        #expect(pending.targets == journal.targets)
+        #expect(world.contents["poster123"] != nil)
+        if stage != "route-read" { #expect(pending.comments == journal.comments) }
+        world.stage = "success"
+        _ = try await world.smoke.run(marker: "fixture", cleanupOnly: true)
+        #expect(world.pending == nil && world.contents["poster123"] == nil)
+        #expect(world.rows.values.allSatisfy { $0.isEmpty })
     }
 
     @Test(arguments: [false, true])
@@ -394,6 +445,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
                     return Int(key.dropFirst(kind.rawValue.count))
                 }
             }, read: { kind, id in
+                if self.stage == "route-read" { throw NSError(domain: "BIT101.Gallery", code: 404) }
                 if self.switchAccount(during: "read") { return nil }
                 return self.contents[kind.rawValue + String(id)]
             }, edit: { kind, id, text in
@@ -406,6 +458,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
                 if self.stage == "cleanup-failure" && !self.injected { self.injected = true; throw URLError(.timedOut) }
                 self.contents[kind.rawValue + String(id)] = nil
             }, comments: { parent in
+                if self.stage == "route-comments" { throw NSError(domain: "BIT101.Gallery", code: 404) }
                 if self.switchAccount(during: "comments") { return [] }
                 if self.stage == "deleted-parent-read", parent.hasPrefix("comment"),
                    let id = Int(parent.dropFirst(7)), !self.rows.values.joined().contains(where: { $0.id == id }) {

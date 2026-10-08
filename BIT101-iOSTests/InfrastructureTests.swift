@@ -574,43 +574,6 @@ struct InfrastructureTests {
         #expect(account.accountStorageIdentifier != underscoreAccount.accountStorageIdentifier)
     }
 
-    @Test("Account-scoped file snapshots round-trip and remain isolated")
-    func accountScopedFileSnapshots() throws {
-        let files = AppFileDirectories.files
-        let firstSession = AppStorageSession(accountIdentifier: "file-store-\(UUID().uuidString)")
-        var session = firstSession
-        let store = AccountScopedFileCodableStore<[String]>(
-            filename: "snapshot-test.json",
-            session: { session }
-        )
-        let firstDirectory = store.fileURL.deletingLastPathComponent()
-        defer { try? files.removeItem(at: firstDirectory) }
-
-        #expect(store.save(["first-account"]))
-        #expect(store.load() == ["first-account"])
-        #expect(try store.fileURL.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup != true)
-
-        session = AppStorageSession(accountIdentifier: "file-store-\(UUID().uuidString)")
-        let secondDirectory = store.fileURL.deletingLastPathComponent()
-        defer { try? files.removeItem(at: secondDirectory) }
-        #expect(store.load() == nil)
-        #expect(store.save(["second-account"]))
-
-        session = firstSession
-        #expect(store.load() == ["first-account"])
-
-        #expect(AppFileSystem.protectedDataWritingOptions.contains(.atomic))
-        #expect(
-            AppFileSystem.protectedDataWritingOptions.contains(
-                .completeFileProtectionUntilFirstUserAuthentication
-            )
-        )
-        session = firstSession
-        store.remove()
-        #expect(!store.hasStoredFile)
-        #expect(store.load() == nil)
-    }
-
     @Test("Keychain deletion status accepts completed and absent items")
     func keychainDeletionStatus() {
         #expect(KeychainLoginCredentials.keychainDeleteSucceeded(status: errSecSuccess))

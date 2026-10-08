@@ -37,8 +37,9 @@ struct FeatureCompositionTests {
     }
     private final class ScorePreferences: ScoreFilterPreferencesStoring {
         var changes: AnyPublisher<AppStorageSession, Never> { Empty().eraseToAnyPublisher() }
+        var hasUnreadableSnapshot: Bool { false }
         func load() -> ScoreFilterPreferenceSnapshot? { nil }
-        func save(selectedTerms: Set<String>, selectedCourseTypes: Set<String>, sortIndex: ScoreSortIndex, sortOrder: ScoreSortOrder) {}
+        func save(selectedTerms: Set<String>, selectedCourseTypes: Set<String>, sortIndex: ScoreSortIndex, sortOrder: ScoreSortOrder) -> Bool { true }
     }
     private final class Scores: ScoreListServicing, TrustedTranscriptServicing {
         var schoolRequests = 0

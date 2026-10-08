@@ -7,6 +7,7 @@ RELEASE_GROUPS = {"modules", "all", "release-runtime", "catalyst", "catalyst-rel
 BUILD_HOSTS = {"release", "release-runtime", "ui", "network-smoke", "icloud-smoke", "modules", "catalyst", "catalyst-release-runtime"}
 VERIFY_GROUPS = ("modules", "all", "release-runtime", "catalyst", "catalyst-release-runtime", "ui", "network", "community-writes", "ddl", "icloud", "build-archive", "audit")
 DEFAULT_VERIFY_GROUPS = tuple(group for group in VERIFY_GROUPS if group != "ddl")
+FORMAL_RUNTIME_SUITES = {"ReleaseRuntimeContractTests", "ExtendedLoginTests", "LoginStorageTests", "LoginBootstrapTests", "NetworkClientTests"}
 MODULE_COVERAGE_FLOORS = {
     "ClientCore": 63, "CommunityCore": 76, "CommunityPersistence": 97, "CommunityTransport": 79,
     "CommunityUI": 100, "CourseFeature": 60, "DesignSystemKit": 86, "GalleryFeature": 49,

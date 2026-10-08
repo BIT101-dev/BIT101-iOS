@@ -8,6 +8,7 @@ import fcntl
 import json
 import os
 import re
+import shlex
 import stat
 import subprocess
 import sys
@@ -542,7 +543,7 @@ def audit_callback_findings(source: str) -> list[str]:
     callbacks = {"module_boundary_audit": ["/audit/Scripts/check-module-boundaries.py"],
                  "artifact_hygiene": ["/audit/Scripts/validation_artifacts.py", "/audit"]}
     for callback, arguments in callbacks.items():
-        definition = re.search(r"(?m)^" + callback + r"\(\)\s*\{[^\n]*\}\s*$", source)
+        definition = re.search(r"(?ms)^" + callback + r"\(\)\s*\{.*?\}(?=[ \t]*(?:\n|$))", source)
         if definition is None:
             errors.append(f"Scripts/run-static-audit.sh: {callback} 需要保持独立审计委托")
             continue
@@ -561,13 +562,15 @@ def audit_wiring_findings() -> list[str]:
     audit_path = ROOT / "Scripts/run-static-audit.sh"
     audit_source = audit_path.read_text(encoding="utf-8")
     errors.extend(audit_callback_findings(audit_source))
-    groups = re.search(r"^group_names=\(([^\n]+)\)$", audit_source, re.MULTILINE)
-    commands = re.search(r"^group_commands=\(([^\n]+)\)$", audit_source, re.MULTILINE)
-    wiring = dict(zip(groups[1].split(), commands[1].split())) if groups and commands and len(groups[1].split()) == len(commands[1].split()) else {}
+    groups = re.search(r"(?ms)^group_names=\((.*?)\)(?=[ \t]*(?:\n|$))", audit_source)
+    commands = re.search(r"(?ms)^group_commands=\((.*?)\)(?=[ \t]*(?:\n|$))", audit_source)
+    group_names = shlex.split(groups[1], comments=True) if groups else []
+    group_commands = shlex.split(commands[1], comments=True) if commands else []
+    wiring = dict(zip(group_names, group_commands)) if len(group_names) == len(group_commands) else {}
     expected = {"swift-parse": "swift_parse", "shell-parse": "shell_parse", "python-parse": "python_parse",
         "worker-parse": "worker_parse", "dependency-audit": "dependency_audit", "module-boundary": "module_boundary_audit",
         "git-diff": "git_check", "docs": "docs_check", "checkers": "checker_audit"}
-    if wiring != expected or len(groups[1].split()) != len(expected):
+    if wiring != expected or len(group_names) != len(expected):
         errors.append("Scripts/run-static-audit.sh: 静态审计回调需要逐组接入完整契约")
     if "check-docs.py --all" not in audit_source:
         errors.append("Scripts/run-static-audit.sh: 未接入文档引用检查")

@@ -26,12 +26,18 @@ from ui_source_facts import (
 
 from ui_rules import (
     alert_coverage_findings, haptic_entry_findings, interactive_list_row_findings,
-    is_registered_map_theme_color_definition, is_reviewed_fixed_geometry,
+    is_registered_map_theme_color_definition, is_reviewed_fixed_geometry, visual_contract_present,
 )
 
 
 
 def ast_marker_boundary_findings() -> list[str]:
+    marker = 'StrokeStyle(lineWidth: 2, dash: [5, 4])'
+    contract = 'Modules/CourseFeature/Sources/Original.swift'
+    moved = ROOT / 'Modules/CourseFeature/Sources/Moved.swift'
+    assert visual_contract_present(contract, marker, {moved: 'StrokeStyle(\n lineWidth: 2,\n dash: [5, 4]\n)'})
+    assert not visual_contract_present(contract, marker, {moved: '// ' + marker})
+    assert not visual_contract_present(contract, marker, {moved: marker.replace('[5, 4]', '[5, 3]')})
     facts = {
         "declarations": [{"kind": "struct", "name": "SampleView"}],
         "calls": [{"value": "AppFailureState", "scope": ["SampleView"]}],

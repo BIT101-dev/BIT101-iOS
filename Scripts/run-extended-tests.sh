@@ -491,7 +491,14 @@ run_tests() {
       only_testing+=("-only-testing:$TEST_BUNDLE/$selection")
     done
   elif [[ "$group" != "all-tests" && "$group" != "ui-tests" ]]; then
-    only_testing=("-only-testing:$TEST_BUNDLE/$group")
+    if [[ "$MODE" == release-runtime || "$MODE" == catalyst-release-runtime ]]; then
+      only_testing=()
+      for selection in ${(f)"$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" runtime-suites)"}; do
+        only_testing+=("-only-testing:$TEST_BUNDLE/$selection")
+      done
+    else
+      only_testing=("-only-testing:$TEST_BUNDLE/$group")
+    fi
   fi
 
   local project_args=(-project "$PROJECT" -scheme "$TEST_SCHEME" -configuration Release -derivedDataPath "$DERIVED_ROOT")
