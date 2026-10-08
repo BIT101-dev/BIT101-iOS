@@ -2,7 +2,7 @@ import StorageCore
 import Foundation
 import Combine
 
-struct AppCacheCleanupResult {
+nonisolated struct AppCacheCleanupResult: Sendable {
     let reclaimedBytes: Int64
     let succeeded: Bool
 }
@@ -48,7 +48,7 @@ final class AppLocalDataService: ObservableObject {
         await actions.clearDiagnostics()
         actions.clearPreferences()
         await actions.clearMedia()
-        let didClearSandboxFiles = clearSandboxFileData()
+        let didClearSandboxFiles = await clearSandboxFileData()
         actions.clearURLCache()
         await actions.clearWebData()
         actions.resetSettings()
@@ -62,26 +62,35 @@ final class AppLocalDataService: ObservableObject {
         isCleaning = true
         defer { isCleaning = false }
         let directories = Set([files.directoryURL(.cachesDirectory), files.temporaryDirectoryURL].compactMap { $0 })
-        let originalBytes = directories.reduce(Int64(0)) { $0 + files.totalRegularFileSize(at: $1) }
+        let originalBytes = await AppLocalFileCleanup.usedBytes(files: files, directories: directories)
         await actions.clearMedia()
-        var succeeded = true
-        for directory in directories { succeeded = files.removeContents(of: directory) && succeeded }
+        let succeeded = await AppLocalFileCleanup.removeContents(files: files, directories: directories)
         actions.clearURLCache()
-        let remainingBytes = directories.reduce(Int64(0)) { $0 + files.totalRegularFileSize(at: $1) }
+        let remainingBytes = await AppLocalFileCleanup.usedBytes(files: files, directories: directories)
         return AppCacheCleanupResult(reclaimedBytes: max(0, originalBytes - remainingBytes), succeeded: succeeded)
     }
 
     /// 该方法清空文稿、应用支持、缓存和临时目录中的内容。
-    private func clearSandboxFileData() -> Bool {
+    private func clearSandboxFileData() async -> Bool {
         let directories: [FileManager.SearchPathDirectory] = [
             .documentDirectory,
             .applicationSupportDirectory,
             .cachesDirectory,
         ]
         let urls = Set(directories.compactMap { files.directoryURL($0) } + [files.temporaryDirectoryURL])
-        var succeeded = true
-        for url in urls { succeeded = files.removeContents(of: url) && succeeded }
-        return succeeded
+        return await AppLocalFileCleanup.removeContents(files: files, directories: urls)
     }
 
+}
+
+nonisolated enum AppLocalFileCleanup {
+    @concurrent static func usedBytes(files: any AppFileService, directories: Set<URL>) async -> Int64 {
+        directories.reduce(Int64(0)) { $0 + files.totalRegularFileSize(at: $1) }
+    }
+
+    @concurrent static func removeContents(files: any AppFileService, directories: Set<URL>) async -> Bool {
+        var succeeded = true
+        for directory in directories { succeeded = files.removeContents(of: directory) && succeeded }
+        return succeeded
+    }
 }

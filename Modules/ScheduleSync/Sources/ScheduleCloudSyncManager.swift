@@ -522,6 +522,7 @@ public actor ScheduleCloudSyncManager {
         record.studentID = account.studentID
         record.updatedAt = cache.updatedAt
         record.payloadJSON = payloadJSON
+        try record.validatePayloadSize()
 
         do {
             let savedRecord = try await transport.save(record)
@@ -608,6 +609,7 @@ public actor ScheduleCloudSyncManager {
         else { return nil }
 
         let payloadData = Data(payloadJSON.utf8)
+        guard payloadData.count <= ScheduleCloudRecord.maximumPayloadBytes else { return nil }
         let cache: ScheduleCache
         let requiresPayloadMigration: Bool
         if let envelope = try? decoder.decode(ScheduleCloudSyncEnvelope.self, from: payloadData) {

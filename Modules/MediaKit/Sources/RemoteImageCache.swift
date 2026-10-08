@@ -177,18 +177,18 @@ actor RemoteImageCache {
 
     private let files: any AppFileService
     private let quota: ImageCacheDiskQuota
-    private let httpClient: HTTPClient
+    private let download: @Sendable (URL) async throws -> HTTPResponse
     private let directory: URL
     private var downloads: [String: DownloadOperation] = [:]
     private var generation: UInt64 = 0
     var waitingConsumerCount: Int { downloads.values.reduce(0) { $0 + $1.waiters.count } }
     private let supportedExtensions = ["jpg", "jpeg", "png", "gif", "heic", "heif", "webp", "bin"]
-    init(files: any AppFileService, quota: ImageCacheDiskQuota, httpClient: HTTPClient) {
+    init(files: any AppFileService, quota: ImageCacheDiskQuota, httpClient: HTTPClient,
+         download: (@Sendable (URL) async throws -> HTTPResponse)? = nil) {
         self.files = files
         self.quota = quota
-        self.httpClient = httpClient
+        self.download = download ?? { try await httpClient.send(URLRequest(url: $0), maximumBytes: RemoteImageResourceLimits.maximumEncodedBytes) }
         directory = ImageCacheDirectories.gallery(using: files)
-        try? files.createDirectory(at: directory)
     }
 
     /// 返回已有缓存并刷新其 LRU 时间，不发起网络请求。
@@ -231,10 +231,10 @@ actor RemoteImageCache {
                     return
                 }
                 let id = UUID()
-                let task = Task { [httpClient] in
+                let task = Task { [download] in
                     let result: Result<DownloadResult, any Error>
                     do {
-                        let response = try await httpClient.send(URLRequest(url: remoteURL), maximumBytes: RemoteImageResourceLimits.maximumEncodedBytes)
+                        let response = try await download(remoteURL)
                         result = .success(DownloadResult(data: response.data, mimeType: response.response.mimeType))
                     } catch { result = .failure(error) }
                     await finishDownload(result, key: requestKey, id: id, remoteURL: remoteURL, variant: variant)
@@ -380,7 +380,8 @@ actor RemoteImageCache {
 }
 
 public nonisolated enum BoundedStillImageDecoder {
-    public static func image(from data: Data, maximumDecodedBytes: Int = RemoteImageResourceLimits.maximumDecodedBytes) -> UIImage? {
+    public static func image(from data: Data, maximumDecodedBytes: Int = RemoteImageResourceLimits.maximumDecodedBytes,
+                             maximumPixelSize: Int? = nil) -> UIImage? {
         guard maximumDecodedBytes >= 4, !Task.isCancelled,
               let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary)
         else { return nil }
@@ -388,7 +389,9 @@ public nonisolated enum BoundedStillImageDecoder {
         let depth = (properties?[kCGImagePropertyDepth] as? NSNumber)?.intValue ?? 8
         guard (1...32).contains(depth) else { return nil }
         let bytesPerPixel = max(4, ((depth + 7) / 8) * 4)
-        let side = Int(Double(maximumDecodedBytes / bytesPerPixel).squareRoot())
+        let budgetSide = Int(Double(maximumDecodedBytes / bytesPerPixel).squareRoot())
+        let side = min(budgetSide, maximumPixelSize ?? budgetSide)
+        guard side > 0 else { return nil }
         let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: side,
             kCGImageSourceShouldCacheImmediately: true, kCGImageSourceShouldAllowFloat: false]
@@ -417,15 +420,16 @@ actor GalleryThumbnailDecoder {
         return cache
     }()
 
-    func image(at file: URL) -> UIImage? {
+    func image(at file: URL, maximumPixelSize: Int? = nil) -> UIImage? {
         guard !Task.isCancelled else { return nil }
         guard let data = RemoteImageResourceLimits.cachedData(at: file, using: files) else { return nil }
-        let key = SHA256.hash(data: data).hexString as NSString
+        let key = "\(SHA256.hash(data: data).hexString)|pixels:\(maximumPixelSize ?? 0)" as NSString
         if let cached = images.object(forKey: key) {
             return cached
         }
 
-        guard let decoded = BoundedStillImageDecoder.image(from: data, maximumDecodedBytes: images.totalCostLimit),
+        guard let decoded = BoundedStillImageDecoder.image(from: data, maximumDecodedBytes: images.totalCostLimit,
+                                                          maximumPixelSize: maximumPixelSize),
               let pixels = decoded.cgImage else { return nil }
         images.setObject(decoded, forKey: key, cost: pixels.bytesPerRow * pixels.height)
         return decoded
@@ -435,10 +439,13 @@ actor GalleryThumbnailDecoder {
 /// 静态话廊缩略图视图，确保首页显示过的低清图进入统一持久缓存。
 public struct RemoteCachedStillImage: View {
     @Environment(MediaEnvironment.self) private var media
+    @Environment(\.displayScale) private var displayScale
+    @State private var pixelSize = 0
     let url: URL?
     var contentMode: ContentMode = .fit
     var onAspectRatioResolved: ((CGFloat) -> Void)? = nil
-    @State private var image: UIImage?
+    @State private var displayed = MediaDisplayedImage()
+    private var image: UIImage? { displayed.image }
     @State private var currentResource: MediaImageLoadIdentity?
 
     public var body: some View {
@@ -456,26 +463,31 @@ public struct RemoteCachedStillImage: View {
                     }
             }
         }
-        .task(id: MediaImageLoadIdentity(urls: [url], environment: ObjectIdentifier(media), retryGeneration: media.imageRetryGeneration)) {
-            let resource = MediaImageLoadIdentity(urls: [url], environment: ObjectIdentifier(media))
-            if currentResource != resource { image = nil; currentResource = resource }
+        .onGeometryChange(for: Int.self) { [scale = displayScale] geometry in
+            Int((max(geometry.size.width, geometry.size.height) * scale).rounded(.up))
+        } action: { pixelSize = $0 }
+        .task(id: MediaImageLoadIdentity(urls: [url], environment: ObjectIdentifier(media), retryGeneration: media.imageRetryGeneration &+ media.displayBudget.releaseGeneration, pixelSize: pixelSize)) {
+            let resource = MediaImageLoadIdentity(urls: [url], environment: ObjectIdentifier(media), pixelSize: pixelSize)
+            if currentResource != resource { displayed.clear(); currentResource = resource }
+            guard pixelSize > 0 else { return }
             guard image == nil else { return }
             guard let url else { return }
             do {
                 let file = try await media.images.file(for: url, variant: .thumbnail)
                 guard !Task.isCancelled else { return }
-                let decoded = await media.stillDecoder.image(at: file)
+                let decoded = await media.stillDecoder.image(at: file, maximumPixelSize: pixelSize)
                 guard !Task.isCancelled else { return }
-                image = decoded
+                if let decoded { displayed.set(decoded, budget: media.displayBudget) }
                 if let decoded, decoded.size.height > 0 {
                     onAspectRatioResolved?(decoded.size.width / decoded.size.height)
                 }
             } catch {
                 guard !Task.isCancelled else { return }
                 // 缩略图失败时显示占位内容。
-                image = nil
+                displayed.clear()
             }
         }
+        .onDisappear { displayed.clear() }
     }
     public init(url: URL?, contentMode: ContentMode = .fit, onAspectRatioResolved: ((CGFloat) -> Void)? = nil) {
         self.url = url
@@ -487,12 +499,15 @@ public struct RemoteCachedStillImage: View {
 /// 详情页图片先显示低清缓存，再在同一视图中替换为原图。
 public struct RemoteProgressiveStillImage: View {
     @Environment(MediaEnvironment.self) private var media
+    @Environment(\.displayScale) private var displayScale
+    @State private var pixelSize = 0
     private static let logger = Logger(subsystem: "BIT101", category: "CommunityImage")
     let thumbnailURL: URL?
     let originalURL: URL?
     var contentMode: ContentMode = .fit
     var onAspectRatioResolved: ((CGFloat) -> Void)? = nil
-    @State private var image: UIImage?
+    @State private var displayed = MediaDisplayedImage()
+    private var image: UIImage? { displayed.image }
     @State private var currentResource: MediaImageLoadIdentity?
 
     public var body: some View {
@@ -510,13 +525,18 @@ public struct RemoteProgressiveStillImage: View {
                     }
             }
         }
-        .task(id: MediaImageLoadIdentity(urls: [thumbnailURL, originalURL], environment: ObjectIdentifier(media), retryGeneration: media.imageRetryGeneration)) {
-            let resource = MediaImageLoadIdentity(urls: [thumbnailURL, originalURL], environment: ObjectIdentifier(media))
-            if currentResource != resource { image = nil; currentResource = resource }
+        .onGeometryChange(for: Int.self) { [scale = displayScale] geometry in
+            Int((max(geometry.size.width, geometry.size.height) * scale).rounded(.up))
+        } action: { pixelSize = $0 }
+        .task(id: MediaImageLoadIdentity(urls: [thumbnailURL, originalURL], environment: ObjectIdentifier(media), retryGeneration: media.imageRetryGeneration &+ media.displayBudget.releaseGeneration, pixelSize: pixelSize)) {
+            let resource = MediaImageLoadIdentity(urls: [thumbnailURL, originalURL], environment: ObjectIdentifier(media), pixelSize: pixelSize)
+            if currentResource != resource { displayed.clear(); currentResource = resource }
+            guard pixelSize > 0 else { return }
             if image == nil { await loadThumbnail() }
             guard !Task.isCancelled else { return }
             await loadOriginal()
         }
+        .onDisappear { displayed.clear() }
     }
 
     private func loadThumbnail() async {
@@ -524,13 +544,13 @@ public struct RemoteProgressiveStillImage: View {
         do {
             let file = try await media.images.file(for: thumbnailURL, variant: .thumbnail)
             guard !Task.isCancelled else { return }
-            let decoded = await media.stillDecoder.image(at: file)
+            let decoded = await media.stillDecoder.image(at: file, maximumPixelSize: pixelSize)
             guard !Task.isCancelled else { return }
-            image = decoded
+            if let decoded { displayed.set(decoded, budget: media.displayBudget) }
             reportRatio(decoded)
         } catch {
             guard !Task.isCancelled else { return }
-            image = nil
+            displayed.clear()
         }
     }
 
@@ -541,9 +561,9 @@ public struct RemoteProgressiveStillImage: View {
         do {
             let file = try await media.images.file(for: originalURL, variant: .original)
             guard !Task.isCancelled else { return }
-            let decoded = await media.stillDecoder.image(at: file)
+            let decoded = await media.stillDecoder.image(at: file, maximumPixelSize: pixelSize)
             guard !Task.isCancelled, let decoded else { return }
-            image = decoded
+            displayed.set(decoded, budget: media.displayBudget)
             reportRatio(decoded)
         } catch {
             guard !Task.isCancelled else { return }

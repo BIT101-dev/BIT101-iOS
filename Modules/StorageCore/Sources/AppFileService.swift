@@ -40,7 +40,7 @@ public nonisolated protocol AppFileService: Sendable {
     func createDirectory(at url: URL) throws
     func removeItem(at url: URL) throws
     func setPrivateFileProtection(at url: URL) throws
-    func setExcludedFromBackup(at url: URL) throws
+    func setBackupExcluded(_ excluded: Bool, at url: URL, recursively: Bool) throws
     func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL]
     func regularFileSize(at url: URL) -> Int?
     func isRegularFile(at url: URL) -> Bool
@@ -52,16 +52,19 @@ public nonisolated protocol AppFileService: Sendable {
 }
 
 extension AppFileService {
+    public nonisolated func setBackupExcluded(_ excluded: Bool, at url: URL) throws {
+        try setBackupExcluded(excluded, at: url, recursively: false)
+    }
     public nonisolated func canonicalFileURL(_ url: URL) -> URL { url.standardizedFileURL }
 }
 
 /// 本机文件系统的默认实现。
 public nonisolated struct LocalAppFileService: AppFileService, Sendable {
-    private let excludeFromBackup: @Sendable (URL) throws -> Void
+    private let configureBackup: @Sendable (URL, Bool) throws -> Void
 
-    public init() { excludeFromBackup = Self.excludeFromBackup }
-    init(excludeFromBackup: @escaping @Sendable (URL) throws -> Void) {
-        self.excludeFromBackup = excludeFromBackup
+    public init() { configureBackup = Self.configureBackup }
+    init(configureBackup: @escaping @Sendable (URL, Bool) throws -> Void) {
+        self.configureBackup = configureBackup
     }
 
     private var manager: FileManager { .default }
@@ -83,13 +86,13 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
 
     public func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws {
         // 目录承载备份策略；元数据准备成功后提交文件内容。
-        try setExcludedFromBackup(at: url.deletingLastPathComponent())
+        try setBackupExcluded(false, at: url.deletingLastPathComponent())
         try data.write(to: url, options: options)
     }
 
     public func createDirectory(at url: URL) throws {
         try manager.createDirectory(at: url, withIntermediateDirectories: true)
-        try setExcludedFromBackup(at: url)
+        try setBackupExcluded(false, at: url)
     }
     public func removeItem(at url: URL) throws { try manager.removeItem(at: url) }
     public func setPrivateFileProtection(at url: URL) throws {
@@ -99,15 +102,23 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
         )
     }
 
-    public func setExcludedFromBackup(at url: URL) throws {
-        try excludeFromBackup(url)
+    public func setBackupExcluded(_ excluded: Bool, at url: URL, recursively: Bool) throws {
+        try configureBackup(url, excluded)
+        if recursively {
+            guard let entries = manager.enumerator(at: url, includingPropertiesForKeys: [.isSymbolicLinkKey]) else {
+                throw CocoaError(.fileReadUnknown)
+            }
+            for case let entry as URL in entries {
+                if try entry.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == true { continue }
+                try configureBackup(entry, excluded)
+            }
+        }
     }
 
-    private static func excludeFromBackup(_ url: URL) throws {
-        var resourceValues = URLResourceValues()
-        resourceValues.isExcludedFromBackup = true
+    private static func configureBackup(_ url: URL, excluded: Bool) throws {
         var targetURL = url
-        try targetURL.setResourceValues(resourceValues)
+        targetURL.removeAllCachedResourceValues()
+        try (targetURL as NSURL).setResourceValue(excluded, forKey: .isExcludedFromBackupKey)
     }
 
     public func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL] {

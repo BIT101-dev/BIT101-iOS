@@ -377,7 +377,7 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
     }
     func createDirectory(at url: URL) throws { _ = state.withLock { $0.directories.insert(url) } }
     func setPrivateFileProtection(at url: URL) throws {}
-    func setExcludedFromBackup(at url: URL) throws {}
+    func setBackupExcluded(_ excluded: Bool, at url: URL, recursively: Bool) throws {}
     func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL] {
         state.withLock { state in state.data.keys.filter { $0.deletingLastPathComponent() == url } }
     }
@@ -578,7 +578,7 @@ struct InfrastructureTests {
 
         #expect(store.save(["first-account"]))
         #expect(store.load() == ["first-account"])
-        #expect(try store.fileURL.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup == true)
+        #expect(try store.fileURL.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup != true)
 
         session = AppStorageSession(accountIdentifier: "file-store-\(UUID().uuidString)")
         let secondDirectory = store.fileURL.deletingLastPathComponent()

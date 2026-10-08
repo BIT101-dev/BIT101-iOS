@@ -45,6 +45,9 @@ final class LoginStorage: SchoolCredentialsProviding {
     private let credentials: any LoginCredentialsStoring
     private let clearSchoolCookies: () -> Void
     private var sessionGeneration = 0
+    private var session = Session(studentID: "", password: "", fakeCookie: "")
+    private var sessionReadError: (any Error)?
+    var credentialReadIssue: String? { sessionReadError?.localizedDescription }
     private let changeSubject = PassthroughSubject<CommunitySessionIdentity, Never>()
     var changes: AnyPublisher<CommunitySessionIdentity, Never> { changeSubject.eraseToAnyPublisher() }
 
@@ -63,6 +66,10 @@ final class LoginStorage: SchoolCredentialsProviding {
         purgePersistedCredentialsIfNeededAfterReinstall()
         migrateLegacyFakeCookieIfNeeded()
         migrateLegacySessionIfNeeded()
+        if defaults.string(forKey: DefaultsKey.revokedSession) != "all" {
+            do { try restoreSession(publishChange: false) }
+            catch { Self.logger.error("Session credentials await a successful read") }
+        }
     }
 
     /// 发布所选凭据存储的账号与代际，供生命周期协调器重载账号数据。
@@ -73,25 +80,26 @@ final class LoginStorage: SchoolCredentialsProviding {
     /// BIT101 自有登录态使用的 fake-cookie。
     var fakeCookie: String {
         guard defaults.object(forKey: DefaultsKey.revokedSession) == nil else { return "" }
-        return (try? readSession().fakeCookie) ?? ""
+        return session.fakeCookie
     }
 
     /// 当前本地保存的学号。
     var currentStudentID: String {
         guard defaults.string(forKey: DefaultsKey.revokedSession) != "all" else { return "" }
-        return (try? readSession().studentID) ?? ""
+        return session.studentID
     }
 
     /// 当前本地保存的密码。
     var currentPassword: String {
         guard defaults.object(forKey: DefaultsKey.revokedSession) == nil else { return "" }
-        return (try? readSession().password) ?? ""
+        return session.password
     }
 
     /// 读取本地保存的完整学号和密码组合。
     func loadCredentials() throws -> StoredCredentials? {
         guard defaults.object(forKey: DefaultsKey.revokedSession) == nil else { return nil }
-        let saved = try readSession()
+        if sessionReadError != nil { try restoreSession() }
+        let saved = session
         let studentID = saved.studentID
         let password = saved.password
 
@@ -135,6 +143,7 @@ final class LoginStorage: SchoolCredentialsProviding {
         let studentID = currentStudentID
         let revoked = defaults.string(forKey: DefaultsKey.revokedSession) == "all" ? "all" : "logout"
         defaults.set(revoked, forKey: DefaultsKey.revokedSession)
+        session = Session(studentID: studentID, password: "", fakeCookie: "")
         sessionGeneration &+= 1
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
         do {
@@ -176,6 +185,8 @@ final class LoginStorage: SchoolCredentialsProviding {
 
     @discardableResult
     private func clearPersistedLoginData() -> Bool {
+        session = Session(studentID: "", password: "", fakeCookie: "")
+        sessionReadError = nil
         defaults.set("all", forKey: DefaultsKey.revokedSession)
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
         let didDeleteSession = credentials.delete(account: KeychainAccount.session)
@@ -221,10 +232,32 @@ final class LoginStorage: SchoolCredentialsProviding {
                        fakeCookie: try credentials.read(account: KeychainAccount.fakeCookie))
     }
 
+    private func restoreSession(publishChange: Bool = true) throws {
+        do {
+            let previousAccount = currentStudentID
+            session = try readSession()
+            if defaults.object(forKey: DefaultsKey.revokedSession) != nil {
+                session.password = ""
+                session.fakeCookie = ""
+            }
+            sessionReadError = nil
+            if publishChange, previousAccount != currentStudentID {
+                sessionGeneration &+= 1
+                clearSchoolCookies()
+                notifyAccountChanged()
+            }
+        } catch {
+            sessionReadError = error
+            throw error
+        }
+    }
+
     private func saveSession(_ value: Session) throws {
         let data = try JSONEncoder().encode(value)
         guard let encoded = String(data: data, encoding: .utf8) else { throw LoginServiceError.invalidServerResponse }
         try credentials.save(encoded, account: KeychainAccount.session)
+        session = value
+        sessionReadError = nil
     }
 
     private func migrateLegacySessionIfNeeded() {

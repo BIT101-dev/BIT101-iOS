@@ -11,6 +11,107 @@ import UniformTypeIdentifiers
 
 @MainActor
 struct MediaDependencyTests {
+    @Test func displaySizedImagesShareAndReleaseTheActiveBitmapBudget() async throws {
+        let files = PreferenceMemoryFiles()
+        let file = files.temporaryDirectoryURL.appending(path: "display-budget.png")
+        try files.writeData(try png(width: 256, height: 256), to: file, options: [.atomic])
+        let still = GalleryThumbnailDecoder(files: files)
+        let image = try #require(await still.image(at: file, maximumPixelSize: 16))
+        let pixels = try #require(image.cgImage)
+        #expect(pixels.width == 16 && pixels.height == 16)
+        let animated = RemoteAnimatedImageDecoder(files: files)
+        #expect(await animated.image(at: file, reduceMotion: false, maximumPixelSize: 8)?.cgImage?.width == 8)
+        let budget = MediaDisplayBudget(maximumBytes: pixels.bytesPerRow * pixels.height)
+        let first = MediaDisplayedImage(), second = MediaDisplayedImage(), third = MediaDisplayedImage()
+        #expect(first.set(image, budget: budget) && second.set(image, budget: budget))
+        #expect(budget.usedBytes == budget.maximumBytes)
+        let additional = UIImage(cgImage: pixels)
+        #expect(third.set(additional, budget: budget) == false && third.image == nil)
+        first.clear()
+        #expect(budget.usedBytes == budget.maximumBytes)
+        second.clear()
+        #expect(budget.usedBytes == 0 && budget.releaseGeneration > 0)
+        #expect(third.set(additional, budget: budget))
+        third.clear()
+        let repeated = try #require(UIImage.animatedImage(with: Array(repeating: image, count: 10), duration: 1))
+        #expect(first.set(repeated, budget: budget) && budget.usedBytes == budget.maximumBytes)
+        first.clear()
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func concurrentAvatarsShareTheirRequestAndKeepTheRemainingConsumerAfterCancellation() async throws {
+        let transport = DelayedImages(bytes: try png(width: 2))
+        let files = PreferenceMemoryFiles()
+        let media = environment(files: files, previewFiles: files, transport: transport)
+        let url = AppURL.required("https://example.invalid/old.png")
+        let first = CachedRemoteImageLoader(), second = CachedRemoteImageLoader()
+        let cancelled = Task { await first.load(url: url, media: media) }
+        let remaining = Task { await second.load(url: url, media: media) }
+        while media.downloads.waitingConsumerCount < 2 { await Task.yield() }
+        while transport.pending == nil { await Task.yield() }
+        #expect(transport.requests == 1)
+        cancelled.cancel()
+        await cancelled.value
+        transport.pending?.resume()
+        await remaining.value
+        #expect(first.image == nil && second.image?.size.width == 2)
+        #expect(transport.requests == 1)
+        second.releaseDisplayImage()
+        #expect(media.displayBudget.usedBytes == 0)
+    }
+
+    private final class CountedDownloads: HTTPTransport {
+        var requests: [URL] = []
+        var pending: [URL: CheckedContinuation<Void, Never>] = [:]
+        var active = 0
+        var peak = 0
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            let url = try #require(request.url)
+            requests.append(url)
+            active += 1
+            peak = max(peak, active)
+            defer { active -= 1 }
+            await withCheckedContinuation { pending[url] = $0 }
+            try Task.checkCancellation()
+            return (Data(), try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+        }
+        func release() {
+            let retained = pending.values
+            pending.removeAll()
+            for continuation in retained { continuation.resume() }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func distinctMediaDownloadsStayWithinTheSharedLimitAndCancelQueuedWork() async throws {
+        let transport = CountedDownloads()
+        let client = HTTPClient(transport: transport, observer: nil)
+        let coordinator = MediaDownloadCoordinator(avatarClient: client, galleryClient: client)
+        let started = (0..<MediaDownloadCoordinator.maximumConcurrentDownloads).map { index in
+            Task { try await coordinator.response(for: AppURL.required("https://example.invalid/\(index)"),
+                                                  source: index.isMultiple(of: 2) ? .avatar : .gallery) }
+        }
+        while transport.requests.count < MediaDownloadCoordinator.maximumConcurrentDownloads { await Task.yield() }
+        let queued = (MediaDownloadCoordinator.maximumConcurrentDownloads..<8).map { index in
+            Task { try await coordinator.response(for: AppURL.required("https://example.invalid/\(index)"),
+                                                  source: index.isMultiple(of: 2) ? .avatar : .gallery) }
+        }
+        let tasks = started + queued
+        while coordinator.waitingConsumerCount < tasks.count { await Task.yield() }
+        while transport.requests.count < MediaDownloadCoordinator.maximumConcurrentDownloads { await Task.yield() }
+        #expect(transport.active == MediaDownloadCoordinator.maximumConcurrentDownloads)
+        tasks[7].cancel()
+        await #expect(throws: CancellationError.self) { try await tasks[7].value }
+        while transport.requests.count < tasks.count - 1 {
+            transport.release()
+            await Task.yield()
+        }
+        transport.release()
+        for task in tasks.dropLast() { _ = try await task.value }
+        #expect(transport.peak == MediaDownloadCoordinator.maximumConcurrentDownloads)
+        #expect(transport.requests.count == tasks.count - 1 && coordinator.waitingConsumerCount == 0)
+    }
+
     @Test func stillImagesDownsampleWithinTheDecodeBudgetAndPreserveAspectRatio() async throws {
         let data = try png(width: 256, height: 128)
         let files = PreferenceMemoryFiles()
@@ -348,7 +449,8 @@ struct MediaDependencyTests {
         try previewFiles.writeData(bytes, to: orphan, options: [.atomic])
         let copiedLegacy = ImageCacheDirectories.gallery(using: previewFiles).appending(path: legacy.lastPathComponent)
         try previewFiles.writeData(bytes, to: copiedLegacy, options: [.atomic])
-        _ = environment(files: files, previewFiles: previewFiles, transport: Images(bytes: Data()))
+        let reopened = environment(files: files, previewFiles: previewFiles, transport: Images(bytes: Data()))
+        await reopened.enforceCurrentLimit()
         #expect(previewFiles.fileExists(at: orphan) == false)
         #expect(previewFiles.fileExists(at: copiedLegacy) == false)
     }

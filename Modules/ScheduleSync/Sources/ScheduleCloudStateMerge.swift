@@ -28,6 +28,8 @@ nonisolated enum ScheduleCloudStateMerge {
                 value = try mergeRecords(base[key], lhs[key], rhs[key])
             case "lexueDDLCompletionByID":
                 value = try mergeDictionary(base[key], lhs[key], rhs[key])
+            case "schoolDDLCompletionRetiredAtByID":
+                value = try mergeDictionary(base[key], lhs[key], rhs[key], earliestDate: true)
             case "manualCourseRulesByTerm":
                 value = try mergeDictionary(base[key], lhs[key], rhs[key], records: true)
             default:
@@ -84,7 +86,7 @@ nonisolated enum ScheduleCloudStateMerge {
         }
     }
 
-    private static func mergeDictionary(_ base: Any?, _ lhs: Any?, _ rhs: Any?, records: Bool = false) throws -> Value {
+    private static func mergeDictionary(_ base: Any?, _ lhs: Any?, _ rhs: Any?, records: Bool = false, earliestDate: Bool = false) throws -> Value {
         let base = base as? [String: Any] ?? [:]
         let lhs = lhs as? [String: Any] ?? [:]
         let rhs = rhs as? [String: Any] ?? [:]
@@ -92,7 +94,10 @@ nonisolated enum ScheduleCloudStateMerge {
         for key in Set(base.keys).union(lhs.keys).union(rhs.keys) {
             let selected = try records ? mergeRecords(base[key], lhs[key], rhs[key]) : choose(base[key], lhs[key], rhs[key])
             switch selected {
-            case .conflict: return .conflict
+            case .conflict:
+                if earliestDate, let local = lhs[key] as? String, let remote = rhs[key] as? String {
+                    result[key] = min(local, remote)
+                } else { return .conflict }
             case .merged(let value): result[key] = value
             }
         }

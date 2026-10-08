@@ -1,6 +1,7 @@
 import StorageCore
 import ScheduleContracts
 import Foundation
+import OSLog
 
 /// App 持久化路径、当前账号会话和本地文件服务的统一入口。
 enum AppFileDirectories {
@@ -11,14 +12,15 @@ enum AppFileDirectories {
         return AppFileSystem.files
 #endif
     }()
-    private nonisolated static let backupExclusionConfiguration: Bool = {
-        for directory in [FileManager.SearchPathDirectory.libraryDirectory, .documentDirectory] {
-            if let url = files.directoryURL(directory) {
-                try? files.setExcludedFromBackup(at: url)
-            }
+    @concurrent
+    static func preparePersistentBackups() async {
+        let logger = Logger(subsystem: "BIT101", category: "PersistentBackup")
+        for directory in [FileManager.SearchPathDirectory.libraryDirectory, .documentDirectory, .applicationSupportDirectory] {
+            guard let url = files.directoryURL(directory), files.fileExists(at: url) else { continue }
+            do { try files.setBackupExcluded(false, at: url, recursively: directory != .libraryDirectory) }
+            catch { logger.error("Persistent backup metadata awaits preparation: \(error.localizedDescription, privacy: .public)") }
         }
-        return true
-    }()
+    }
 
     nonisolated static var defaultsDomain: String {
 #if BIT101_UI_TESTING
@@ -31,7 +33,6 @@ enum AppFileDirectories {
     }
 
     nonisolated static var defaults: UserDefaults {
-        _ = backupExclusionConfiguration
 #if BIT101_UI_TESTING
         if isRunningUITest {
             guard let suite = UserDefaults(suiteName: uiTestDefaultsSuiteName) else {
@@ -68,7 +69,6 @@ enum AppFileDirectories {
         guard let url = files.directoryURL(.applicationSupportDirectory) else {
             preconditionFailure("Application Support directory is unavailable")
         }
-        try? files.setExcludedFromBackup(at: url)
         return url
     }()
 
@@ -113,7 +113,6 @@ enum AppFileDirectories {
 
     nonisolated static func documentFileURL(named filename: String) -> URL? {
         guard let directory = files.directoryURL(.documentDirectory) else { return nil }
-        try? files.setExcludedFromBackup(at: directory)
         return directory.appending(path: filename)
     }
 
@@ -123,7 +122,7 @@ enum AppFileDirectories {
         named filename: String
     ) -> URL? {
         let container = files.appGroupContainerURL(identifier: groupIdentifier)
-        if let container { try? files.setExcludedFromBackup(at: container) }
+        if let container { try? files.setBackupExcluded(true, at: container) }
         return directories.reduce(container) { url, directory in
             url?.appending(path: directory, directoryHint: .isDirectory)
         }?.appending(path: filename)

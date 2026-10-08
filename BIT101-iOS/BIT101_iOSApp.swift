@@ -280,7 +280,10 @@ struct BIT101_iOSApp: App {
                 .onOpenURL { url in
                     AppDeepLinkCoordinator.shared.receive(url)
                 }
-                .task { lifecycle.start() }
+                .task {
+                    await AppFileDirectories.preparePersistentBackups()
+                    lifecycle.start()
+                }
             #endif
         }
         #if !RELEASE_NETWORK_SMOKE && !ICLOUD_CROSS_DEVICE_SMOKE

@@ -299,7 +299,6 @@ public nonisolated struct ScheduleCourseData: Codable, Equatable, Sendable {
             exams: [], updatedAt: snapshot.updatedAt
         )
         archivedTerms.insert(term)
-        manualCourseRulesByTerm.removeValue(forKey: term)
     }
 
     public mutating func setRules(_ rules: [ScheduleCourseRule], for term: String) {
@@ -319,6 +318,24 @@ public nonisolated struct ScheduleDDLData: Codable, Equatable, Sendable {
     public var lexueCalendarURL: String = ""
     public var ddlEvents: [DDLEventRecord] = []
     public var lexueDDLCompletionByID: [String: Bool] = [:]
+    public var schoolDDLCompletionRetiredAtByID: [String: Date]?
+
+    /// 成功同步的来源保留消失项目一年的完成状态，再随用户状态同步回收。
+    public mutating func reconcileCompletionHistory(currentIDs: Set<String>, syncedGroups: Set<String>, now: Date) {
+        var retired = schoolDDLCompletionRetiredAtByID ?? [:]
+        let cutoff = Calendar(identifier: .gregorian).date(byAdding: .year, value: -1, to: now) ?? .distantPast
+        for id in lexueDDLCompletionByID.keys {
+            let group = id.hasPrefix("eclass:") ? "eclass" : "lexue"
+            guard syncedGroups.contains(group) else { continue }
+            if currentIDs.contains(id) { retired[id] = nil }
+            else if let retiredAt = retired[id], retiredAt <= cutoff {
+                lexueDDLCompletionByID[id] = nil
+                retired[id] = nil
+            } else if retired[id] == nil { retired[id] = now }
+        }
+        retired = retired.filter { lexueDDLCompletionByID[$0.key] != nil }
+        schoolDDLCompletionRetiredAtByID = retired.isEmpty ? nil : retired
+    }
     public var ddlUpdatedAt: Date? = nil
     public var ddlBeforeDay: Int = 7
     public var ddlAfterDay: Int = 3

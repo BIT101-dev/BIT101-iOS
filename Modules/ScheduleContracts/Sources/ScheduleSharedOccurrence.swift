@@ -587,7 +587,7 @@ public nonisolated enum ScheduleOccurrenceResolver {
         }
 
         // 课程列表包含内容时，缺失节次表表示损坏快照。
-        guard !snapshot.timeTable.isEmpty else {
+        guard let firstDay = ScheduleSharedDateCodec.parseDate(snapshot.firstDayString), hasValidCourses(snapshot, firstDay: firstDay) else {
             return ScheduleExternalResolvedSnapshot(
                 snapshot: snapshot,
                 upcomingOccurrences: [],
@@ -612,6 +612,20 @@ public nonisolated enum ScheduleOccurrenceResolver {
             upcomingOccurrences: trimmedOccurrences,
             contentState: trimmedOccurrences.isEmpty ? .rest : .ready
         )
+    }
+
+    private static func hasValidCourses(_ snapshot: ScheduleExternalSnapshot, firstDay: Date) -> Bool {
+        let slots = Dictionary(snapshot.timeTable.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        guard slots.count == snapshot.timeTable.count else { return false }
+        return snapshot.courses.allSatisfy { course in
+            guard !course.weeks.isEmpty, course.weeks.allSatisfy(ScheduleCourseConstraints.isValidWeek),
+                  (1...7).contains(course.weekday), course.startSection > 0, course.endSection >= course.startSection,
+                  let start = slots[course.startSection], let end = slots[course.endSection],
+                  let startDate = ScheduleSharedDateCodec.combine(firstDay: firstDay, week: 1, weekday: course.weekday, time: start.start),
+                  let endDate = ScheduleSharedDateCodec.combine(firstDay: firstDay, week: 1, weekday: course.weekday, time: end.end)
+            else { return false }
+            return endDate > startDate
+        }
     }
 
 }

@@ -22,7 +22,8 @@ public final class MediaEnvironment {
 
     let images: RemoteImageCache
     let avatars: CachedRemoteImageStore
-    let avatarHTTPClient: HTTPClient
+    let downloads: MediaDownloadCoordinator
+    let displayBudget = MediaDisplayBudget()
     let stillDecoder: GalleryThumbnailDecoder
     let animatedDecoder: RemoteAnimatedImageDecoder
     private let previewQuota: ImageCacheDiskQuota
@@ -30,7 +31,7 @@ public final class MediaEnvironment {
     private let preferences: GalleryImageCachePreferences
     private let previewOwnership: PreviewFileOwnership
     private var temporaryPreviewFiles: [UUID: Set<URL>] = [:]
-    private static let logger = Logger(subsystem: "BIT101", category: "PreviewFiles")
+    private nonisolated static let logger = Logger(subsystem: "BIT101", category: "PreviewFiles")
 
     public init(
         files: any AppFileService,
@@ -46,12 +47,14 @@ public final class MediaEnvironment {
         self.preferences = preferences
         self.previewFiles = previewFiles
         previewQuota = ImageCacheDiskQuota(files: previewFiles, cacheLimitMB: { preferences.limitMB }, previewOwnership: ownership)
-        self.avatarHTTPClient = avatarHTTPClient
+        let downloads = MediaDownloadCoordinator(avatarClient: avatarHTTPClient, galleryClient: imageHTTPClient)
+        self.downloads = downloads
         stillDecoder = GalleryThumbnailDecoder(files: files)
         animatedDecoder = RemoteAnimatedImageDecoder(files: files)
-        images = RemoteImageCache(files: files, quota: quota, httpClient: imageHTTPClient)
+        images = RemoteImageCache(files: files, quota: quota, httpClient: imageHTTPClient,
+            download: { try await downloads.response(for: $0, source: .gallery) })
         avatars = CachedRemoteImageStore(files: files, quota: quota)
-        removeReleasedLocalPreviews()
+        Task { await Self.removeReleasedLocalPreviews(files: previewFiles, ownership: ownership) }
     }
 
     public static func normalizedCacheLimitMB(_ value: Int) -> Int {
@@ -91,12 +94,12 @@ public final class MediaEnvironment {
         catch { Self.logger.error("Preview cleanup failed: \(error.localizedDescription, privacy: .public)") }
     }
 
-    private func removeReleasedLocalPreviews() {
-        let directory = ImageCacheDirectories.gallery(using: previewFiles)
-        let children = (try? previewFiles.contentsOfDirectory(at: directory, options: [.skipsHiddenFiles])) ?? []
-        let files = previewFiles
+    @concurrent
+    private static func removeReleasedLocalPreviews(files: any AppFileService, ownership: PreviewFileOwnership) async {
+        let directory = ImageCacheDirectories.gallery(using: files)
+        let children = (try? files.contentsOfDirectory(at: directory, options: [.skipsHiddenFiles])) ?? []
         let logger = Self.logger
-        previewOwnership.withPaths { retained in
+        ownership.withPaths { retained in
             for file in children where file.lastPathComponent.hasPrefix("preview-local-") || file.lastPathComponent.hasPrefix("local-") {
                 guard !retained.contains(files.canonicalFileURL(file).path) else { continue }
                 do { try files.removeItem(at: file) }
@@ -120,11 +123,12 @@ public final class MediaEnvironment {
 
     public func usedBytes() async -> Int64 { await images.usedBytes() }
     public func enforceCurrentLimit() async {
-        removeReleasedLocalPreviews()
+        await Self.removeReleasedLocalPreviews(files: previewFiles, ownership: previewOwnership)
         await images.enforceCurrentLimit()
         await previewQuota.enforce(force: true)
     }
     public func clearCaches() async {
+        downloads.clear()
         await images.clearAll()
         await avatars.clearAll()
         await stillDecoder.clear()

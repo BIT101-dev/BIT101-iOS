@@ -132,7 +132,10 @@ enum ScheduleWidgetExporter {
               let snapshot = makeSnapshot(courses: courses, session: session)
         else { return }
 
-        guard content(of: snapshot) != lastPublishedContent else { return }
+        if content(of: snapshot) == lastPublishedContent {
+            WatchScheduleSyncManager.shared.pushCurrentSnapshotIfAvailable()
+            return
+        }
         let didSave = await ScheduleExternalSnapshotWriteQueue.shared.write(
             snapshot,
             generation: generation

@@ -11,6 +11,32 @@ import Testing
 
 @MainActor
 struct SchedulePersistenceTests {
+    @Test func backupEligibilityRestoresExistingUserDirectoriesAndPreservesBytes() throws {
+        let support = try #require(FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first)
+        let root = support.appendingPathComponent("BIT101Tests-BackupPolicy", isDirectory: true)
+        let directory = root.appendingPathComponent("drafts", isDirectory: true)
+        let files = LocalAppFileService()
+        func exclusion(_ url: URL) throws -> Bool? {
+            var fresh = url
+            fresh.removeAllCachedResourceValues()
+            return try fresh.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup
+        }
+        try files.createDirectory(at: directory)
+        defer { try? files.removeItem(at: root) }
+        let file = directory.appendingPathComponent("draft.json")
+        let original = Data("user-created-draft".utf8)
+        try files.writeData(original, to: file, options: .atomic)
+        try files.setBackupExcluded(true, at: root, recursively: true)
+        #expect(try exclusion(root) == true)
+        try files.setBackupExcluded(false, at: root, recursively: true)
+        #expect(try exclusion(root) != true)
+        #expect(try exclusion(directory) != true)
+        #expect(try exclusion(file) != true)
+        #expect(try files.readData(at: file) == original)
+        try files.writeData(Data("edited".utf8), to: file, options: .atomic)
+        #expect(try exclusion(directory) != true)
+    }
+
     @Test func localFileMetadataFailurePreservesCommittedBytesAndReadableFiles() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("BIT101-StoragePolicy", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -18,7 +44,7 @@ struct SchedulePersistenceTests {
         let url = directory.appendingPathComponent("snapshot.json")
         let original = Data("retained".utf8)
         try original.write(to: url, options: .atomic)
-        let files = LocalAppFileService(excludeFromBackup: { _ in throw CocoaError(.fileWriteNoPermission) })
+        let files = LocalAppFileService(configureBackup: { _, _ in throw CocoaError(.fileWriteNoPermission) })
         #expect(try files.readData(at: url) == original)
         #expect(throws: CocoaError.self) { try files.writeData(Data("edited".utf8), to: url, options: .atomic) }
         #expect(try files.readData(at: url) == original)

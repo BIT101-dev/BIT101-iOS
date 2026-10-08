@@ -288,6 +288,14 @@ private final class RecordingObserver: HTTPClientObserving {
 struct ClientCoreTests {
     private let url = AppURL.required("https://example.invalid/module-test")
 
+    @Test func ordinaryResponsesUseTheDefaultBudgetIncludingExplicitNil() async throws {
+        let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+        let base = StubTransport(result: .success((Data(count: HTTPResponseResourceLimits.maximumStructuredBytes + 1), response)))
+        let client = HTTPClient(transport: base, observer: nil)
+        await #expect(throws: HTTPClientError.self) { try await client.send(URLRequest(url: url)) }
+        await #expect(throws: HTTPClientError.self) { try await client.send(URLRequest(url: url), maximumBytes: nil) }
+    }
+
     @Test(arguments: [15, 16])
     func customTransportAndRemoteReadWrapperEnforceResponseBudgets(maximumBytes: Int) async throws {
         let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))

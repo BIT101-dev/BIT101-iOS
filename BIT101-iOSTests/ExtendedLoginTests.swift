@@ -160,7 +160,13 @@ struct LoginStorageTests {
         var failsDeletes = false
         var writeCount = 0
         var failOnWrite: Int?
-        func read(account: String) throws -> String { values[account] ?? "" }
+        var failsReads = false
+        var readCount = 0
+        func read(account: String) throws -> String {
+            readCount += 1
+            if failsReads { throw CocoaError(.fileReadNoPermission) }
+            return values[account] ?? ""
+        }
         func save(_ value: String, account: String) throws {
             writeCount += 1
             if failsWrites || failOnWrite == writeCount { throw CocoaError(.fileWriteNoPermission) }
@@ -184,6 +190,34 @@ struct LoginStorageTests {
             return (Data(), try #require(HTTPURLResponse(url: url,
                 statusCode: old ? oldStatus : 200, httpVersion: nil, headerFields: nil)))
         }
+    }
+
+    @Test func restoredCredentialsRetainTheirAtomicOwnerDuringBackendReadFailures() throws {
+        let domain = "BIT101Tests.login-storage.reads"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let backend = Credentials()
+        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+        try storage.saveLoginState(studentID: "A", password: "fixture", fakeCookie: "cookie-A")
+        let owner = storage.communityCredentials
+        let reads = backend.readCount
+        backend.failsReads = true
+        #expect(storage.communityCredentials == owner)
+        #expect(storage.currentStudentID == "A" && storage.currentPassword == "fixture")
+        #expect(try storage.loadCredentials()?.studentID == "A")
+        #expect(backend.readCount == reads)
+        let reopened = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+        #expect(reopened.credentialReadIssue != nil)
+        #expect(throws: CocoaError.self) { try reopened.loadCredentials() }
+        var recoveredOwners: [CommunitySessionIdentity] = []
+        let subscription = reopened.changes.sink { recoveredOwners.append($0) }
+        backend.failsReads = false
+        #expect(try reopened.loadCredentials()?.studentID == "A")
+        #expect(reopened.communityCredentials.identity.accountIdentifier == "A")
+        #expect(reopened.communityCredentials.cookie == owner.cookie && reopened.credentialReadIssue == nil)
+        #expect(recoveredOwners == [.init(accountIdentifier: "A", generation: 1)])
+        withExtendedLifetime(subscription) {}
     }
 
     @Test(.timeLimit(.minutes(1)))

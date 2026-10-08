@@ -151,6 +151,8 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
                 into: cache.ddlEvents,
                 syncedGroups: payload.syncedGroups
             )
+            cache.reconcileCompletionHistory(currentIDs: Set(payload.events.map(\.id)),
+                syncedGroups: payload.syncedGroups, now: Date())
             cache.ddlUpdatedAt = Date()
             guard await persistAndWait(), accountGeneration == generation else { return false }
             if showSuccessNotice {

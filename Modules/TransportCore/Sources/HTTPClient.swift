@@ -78,6 +78,10 @@ public extension HTTPClientObserving {
 }
 
 /// 处理请求发送和 HTTP 协议层校验；业务认证规则由上层 Service 处理。
+public nonisolated enum HTTPResponseResourceLimits {
+    public static let maximumStructuredBytes = 8 * 1_024 * 1_024
+}
+
 public struct HTTPClient {
     private let transport: any HTTPTransport
     private let observer: (any HTTPClientObserving)?
@@ -90,7 +94,7 @@ public struct HTTPClient {
     public func send(
         _ request: URLRequest,
         accepting statusCodes: Range<Int> = 200 ..< 300,
-        maximumBytes: Int? = nil
+        maximumBytes: Int? = HTTPResponseResourceLimits.maximumStructuredBytes
     ) async throws -> HTTPResponse {
         try Task.checkCancellation()
         let observer = observer?.forRequest()
@@ -101,7 +105,8 @@ public struct HTTPClient {
         var receivedResponse: URLResponse?
         let result: HTTPResponse
         do {
-            let (data, response) = try await transport.data(for: request, maximumBytes: maximumBytes)
+            let (data, response) = try await transport.data(for: request,
+                maximumBytes: maximumBytes ?? HTTPResponseResourceLimits.maximumStructuredBytes)
             receivedData = data
             receivedResponse = response
             try Task.checkCancellation()

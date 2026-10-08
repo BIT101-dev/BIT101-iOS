@@ -73,7 +73,7 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
         }
     }
     package func setPrivateFileProtection(at url: URL) throws {}
-    package func setExcludedFromBackup(at url: URL) throws {}
+    package func setBackupExcluded(_ excluded: Bool, at url: URL, recursively: Bool) throws {}
     package func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL] {
         return state.withLock { state in
             return Array(Set(state.data.keys).union(state.directories)).filter { $0.deletingLastPathComponent() == url }

@@ -67,6 +67,7 @@ public nonisolated struct ScheduleCloudSyncState: Codable, Sendable {
     var manualCourseRulesByTerm: [String: [ScheduleCourseRule]]
     var manualDDLEvents: [DDLEventRecord]
     var lexueDDLCompletionByID: [String: Bool]
+    var schoolDDLCompletionRetiredAtByID: [String: Date]?
     var customSchedules: [CustomScheduleRecord]
     var ddlBeforeDay: Int
     var ddlAfterDay: Int
@@ -94,6 +95,7 @@ public nonisolated struct ScheduleCloudSyncState: Codable, Sendable {
             completionByID[event.id] = event.done
         }
         lexueDDLCompletionByID = completionByID
+        schoolDDLCompletionRetiredAtByID = cache.ddlData.schoolDDLCompletionRetiredAtByID
         customSchedules = cache.customSchedules
         ddlBeforeDay = cache.ddlBeforeDay
         ddlAfterDay = cache.ddlAfterDay
@@ -124,6 +126,7 @@ public nonisolated struct ScheduleCloudSyncState: Codable, Sendable {
                 return event
             }
         cache.lexueDDLCompletionByID = lexueDDLCompletionByID
+        cache.ddlData.schoolDDLCompletionRetiredAtByID = schoolDDLCompletionRetiredAtByID
         cache.ddlEvents = (manualDDLEvents + localLexueEvents).sorted { lhs, rhs in
             if lhs.dueAt != rhs.dueAt { return lhs.dueAt < rhs.dueAt }
             return lhs.id < rhs.id

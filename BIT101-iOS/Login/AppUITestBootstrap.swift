@@ -402,7 +402,7 @@ nonisolated struct UITestAppFileService: AppFileService {
     func createDirectory(at url: URL) throws { try local.createDirectory(at: url) }
     func removeItem(at url: URL) throws { try local.removeItem(at: url) }
     func setPrivateFileProtection(at url: URL) throws { try local.setPrivateFileProtection(at: url) }
-    func setExcludedFromBackup(at url: URL) throws { try local.setExcludedFromBackup(at: url) }
+    func setBackupExcluded(_ excluded: Bool, at url: URL, recursively: Bool) throws { try local.setBackupExcluded(excluded, at: url, recursively: recursively) }
     func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL] { try local.contentsOfDirectory(at: url, options: options) }
     func regularFileSize(at url: URL) -> Int? { local.regularFileSize(at: url) }
     func isRegularFile(at url: URL) -> Bool { local.isRegularFile(at: url) }

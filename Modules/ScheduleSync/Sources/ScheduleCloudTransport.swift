@@ -20,6 +20,8 @@ public nonisolated struct ScheduleCloudAccount: Equatable, Sendable {
 
 /// Transport-neutral record; system fields preserve the provider's optimistic-lock token.
 public nonisolated struct ScheduleCloudRecord: Sendable {
+    /// CloudKit 普通字段共享 1 MB；载荷预算为身份、日期和字段元数据预留空间。
+    public static let maximumPayloadBytes = 1_000_000 - 1_024
     public let recordName: String
     public let recordType: String
     public var studentID: String?
@@ -28,6 +30,12 @@ public nonisolated struct ScheduleCloudRecord: Sendable {
     public var modificationDate: Date?
     public var recordChangeTag: String?
     public var systemFields: Data?
+
+    public func validatePayloadSize() throws {
+        guard (payloadJSON?.utf8.count ?? 0) <= Self.maximumPayloadBytes else {
+            throw ScheduleCloudTransportError.capacityExceeded
+        }
+    }
 
     public init(recordName: String, recordType: String, studentID: String? = nil,
                 updatedAt: Date? = nil, payloadJSON: String? = nil,
@@ -44,9 +52,18 @@ public nonisolated struct ScheduleCloudRecord: Sendable {
     }
 }
 
-public nonisolated enum ScheduleCloudTransportError: Error, Equatable {
+public nonisolated enum ScheduleCloudTransportError: LocalizedError, Equatable {
     case unknownItem
     case serverRecordChanged
+    case capacityExceeded
+
+    public var errorDescription: String? {
+        switch self {
+        case .unknownItem: "日程云记录尚待建立。"
+        case .serverRecordChanged: "日程云记录已更新，请重新同步。"
+        case .capacityExceeded: "日程同步内容达到容量上限。请减少已导入的分享课表或历史日程后重试，本机数据持续保留。"
+        }
+    }
 }
 
 public nonisolated protocol ScheduleCloudTransport: Sendable {

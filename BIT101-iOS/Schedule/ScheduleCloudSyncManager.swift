@@ -21,6 +21,7 @@ actor AppScheduleCloudTransport: ScheduleCloudTransport {
     }
 
     func save(_ value: ScheduleCloudRecord) async throws -> ScheduleCloudRecord {
+        try value.validatePayloadSize()
         let record: CKRecord
         if let fields = value.systemFields {
             let decoder = try NSKeyedUnarchiver(forReadingFrom: fields)

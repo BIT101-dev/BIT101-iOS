@@ -8,6 +8,42 @@ import Testing
 
 @MainActor
 struct ScheduleSyncTests {
+    @Test func oversizedUserStatePreservesLocalEditsAndReportsCloudCapacity() async {
+        let local = Local()
+        local.cache.ddlEvents = [DDLEventRecord(id: "manual", group: "main",
+            title: String(repeating: "日", count: ScheduleCloudRecord.maximumPayloadBytes / 3), text: "", dueAt: Date(), done: false)]
+        local.cache.hasUnpushedCloudChanges = true
+        let before = local.cache
+        let cloud = Cloud()
+        await local.manager(cloud).pushLatestLocalCacheIfNeeded()
+        #expect(await cloud.saved.isEmpty)
+        #expect(local.cache.ddlEvents == before.ddlEvents && local.cache.hasUnpushedCloudChanges)
+        #expect(local.cache.updatedAt == before.updatedAt && local.sources.isEmpty)
+        #expect(local.statuses.last == .failed(ScheduleCloudTransportError.capacityExceeded.localizedDescription))
+    }
+
+    @Test func absentSchoolCompletionHistoryExpiresAndMergesAcrossDevices() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        var original = ScheduleCache()
+        original.lexueDDLCompletionByID = ["eclass:gone": true, "eclass:active": false, "lexue-unavailable": true]
+        original.ddlData.reconcileCompletionHistory(currentIDs: ["eclass:active"], syncedGroups: ["eclass"], now: now)
+        #expect(original.ddlData.schoolDDLCompletionRetiredAtByID == ["eclass:gone": now])
+        let baseline = try ScheduleCloudStateMerge.baseline(for: original)
+        var retired = original
+        retired.ddlData.reconcileCompletionHistory(currentIDs: ["eclass:active"], syncedGroups: ["eclass"],
+            now: now.addingTimeInterval(2 * 366 * 24 * 3_600))
+        let merged = try #require(try ScheduleCloudStateMerge.merge(local: .init(cache: original), remote: .init(cache: retired), baseline: baseline))
+        var restored = original
+        merged.apply(to: &restored)
+        #expect(restored.lexueDDLCompletionByID == ["eclass:active": false, "lexue-unavailable": true])
+        #expect(restored.ddlData.schoolDDLCompletionRetiredAtByID?.isEmpty != false)
+        var first = original, second = original
+        first.ddlData.schoolDDLCompletionRetiredAtByID = ["eclass:gone": now.addingTimeInterval(1)]
+        second.ddlData.schoolDDLCompletionRetiredAtByID = ["eclass:gone": now.addingTimeInterval(2)]
+        let independent = try #require(try ScheduleCloudStateMerge.merge(local: .init(cache: first), remote: .init(cache: second), baseline: baseline))
+        #expect(independent.schoolDDLCompletionRetiredAtByID?["eclass:gone"] == now.addingTimeInterval(1))
+    }
+
     @Test(arguments: [Int.min, 0, 1, 60, 61, Int.max])
     func cloudLeadMinutesApplyTheSamePresentationBounds(value: Int) throws {
         var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(ScheduleCloudSyncState(cache: ScheduleCache()))) as? [String: Any])

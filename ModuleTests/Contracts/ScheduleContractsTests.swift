@@ -7,6 +7,24 @@ import ScheduleDomain
 import Testing
 
 struct ScheduleContractsTests {
+    @Test func archivingSchoolSnapshotsRetainsManualCoursesAcrossReloadAndRefresh() throws {
+        var cache = ScheduleCache()
+        cache.currentTerm = "term"
+        let school = try ScheduleCourseEditor.adding(CourseDraft(title: "学校课程", weeksText: "1-4"),
+            to: [], term: "term", id: "school")
+        let snapshot = TermScheduleSnapshot(term: "term", firstDayString: "2026-09-07", courses: school, exams: [], updatedAt: Date())
+        cache.courseData.store(snapshot)
+        let local = try ScheduleCourseEditor.adding(CourseDraft(title: "补录课程", weeksText: "1-4"),
+            to: school, term: "term", id: "manual")
+        ScheduleCourseEditor.updateCacheForManualCourseChange(in: &cache, previousCourses: school, currentCourses: local)
+        let rules = cache.manualCourseRulesByTerm
+        cache.courseData.archive(term: "term")
+        cache = try JSONDecoder().decode(ScheduleCache.self, from: JSONEncoder().encode(cache))
+        #expect(cache.manualCourseRulesByTerm == rules)
+        cache.courseData.store(snapshot)
+        #expect(cache.courses.contains { $0.name == "补录课程" })
+    }
+
     @Test func guestSnapshotIdentityStaysStableAcrossStorageBoundaries() throws {
         let files = ModuleScoreFiles()
         let store = ScheduleExternalSnapshotStore(files: files, containerURL: files.temporaryDirectoryURL, notificationCenter: NotificationCenter())
@@ -217,6 +235,24 @@ struct ScheduleContractsTests {
             courses: []
         )
         #expect(ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot).contentState == .rest)
+    }
+
+    @Test(arguments: ["weekday", "section", "time", "weeks", "duplicate"])
+    func invalidCourseStructureRemainsDistinctFromAnEndedTerm(problem: String) {
+        let valid = makeSnapshot()
+        let course = valid.courses[0]
+        let slot = valid.timeTable[0]
+        let snapshot = ScheduleExternalSnapshot(generatedAt: valid.generatedAt, isLoggedIn: true,
+            studentID: valid.studentID, firstDayString: valid.firstDayString,
+            timeTable: problem == "duplicate" ? [slot, slot] : [ScheduleExternalTimeSlotSnapshot(id: slot.id,
+                start: problem == "time" ? "25:00" : slot.start, end: slot.end)],
+            courses: [ScheduleExternalCourseSnapshot(id: course.id, name: course.name, classroom: course.classroom,
+                teacher: course.teacher, weeks: problem == "weeks" ? [Int.max] : course.weeks,
+                weekday: problem == "weekday" ? 0 : course.weekday, startSection: 1,
+                endSection: problem == "section" ? 2 : 1)])
+        let afterTerm = Date(timeIntervalSince1970: 2_000_000_000)
+        #expect(ScheduleOccurrenceResolver.resolvedSnapshot(from: valid, now: afterTerm).contentState == .rest)
+        #expect(ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: afterTerm).contentState == .invalid)
     }
 
     private func makeSnapshot() -> ScheduleExternalSnapshot {
