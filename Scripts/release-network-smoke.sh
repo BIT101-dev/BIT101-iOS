@@ -23,15 +23,15 @@ SMOKE_CAPTURE="${BIT101_NETWORK_SMOKE_CAPTURE:-none}"
 SMOKE_TERM="${BIT101_NETWORK_SMOKE_TERM:-}"
 SMS_MODE="${2:-preflight}"
 [[ $# -le 2 ]] || { echo "用法：Scripts/release-network-smoke.sh [范围] [sms]" >&2; exit 64; }
-[[ "$SMS_MODE" == preflight || "$SMS_MODE" == sms && "$SMOKE_SCOPE" == school ]] \
-  || { echo "短信专项使用 school sms。" >&2; exit 64; }
+[[ "$SMS_MODE" == preflight || "$SMS_MODE" == sms && ( "$SMOKE_SCOPE" == school || "$SMOKE_SCOPE" == all ) ]] \
+  || { echo "短信专项使用 all sms 或 school sms。" >&2; exit 64; }
 
 case "$SMOKE_SCOPE" in
   all|bit101|school|transcript|schedule|ddl|community-writes|community-cleanup) ;;
   -h|--help)
     echo "Scripts/release-network-smoke.sh   自动选机、验证全部网络探针"
     echo "指定范围：bit101、school、transcript、schedule、ddl、community-writes、community-cleanup。"
-    echo "短信专项：school sms；真实发送与验证码输入按用户授权执行。"
+    echo "短信专项：all sms、school sms；真实发送与验证码输入按用户授权执行。"
     exit 0
     ;;
   *) echo "网络范围：all、bit101、school、transcript、schedule、ddl、community-writes、community-cleanup。" >&2; exit 64 ;;
@@ -53,10 +53,14 @@ elif [[ "$SMOKE_SCOPE" == ddl ]]; then
 elif [[ "$SMOKE_SCOPE" != all ]]; then
   validation_scope=selected
 fi
-if [[ "$SMS_MODE" == sms ]]; then validation_group=school-sms; validation_scope=full; fi
+if [[ "$SMS_MODE" == sms && "$SMOKE_SCOPE" == school ]]; then validation_group=school-sms; validation_scope=full; fi
 RUN_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
 BIT101_VALIDATION_RUN_ID="$RUN_ID"
 BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest "$validation_group")"
+SCHOOL_SMS_STARTED_DIGEST=""
+if [[ "$SMS_MODE" == sms && "$SMOKE_SCOPE" == all ]]; then
+  SCHOOL_SMS_STARTED_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest school-sms)"
+fi
 export BIT101_VALIDATION_SOURCE_DIGEST BIT101_VALIDATION_RUN_ID
 
 mkdir -p "$DERIVED_DATA" "$REPORT_DIR"
@@ -107,6 +111,10 @@ PY
     fi
   fi
   python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$smoke_status" "$validation_scope" || smoke_status=$?
+  if [[ "$SMS_MODE" == sms && "$SMOKE_SCOPE" == all ]]; then
+    BIT101_VALIDATION_SOURCE_DIGEST="$SCHOOL_SMS_STARTED_DIGEST" \
+      python3 "$ROOT_DIR/Scripts/validation_evidence.py" record school-sms "$smoke_status" full || smoke_status=$?
+  fi
   exit "$smoke_status"
 }
 trap restore_normal_app EXIT ZERR

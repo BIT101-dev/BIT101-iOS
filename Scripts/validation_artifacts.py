@@ -33,6 +33,14 @@ def artifact_name_allowed(parent: str, name: str) -> bool:
     return name == ".DS_Store" or name in fixed_children[parent]
 
 
+def committed_children(folder: Path) -> list[Path]:
+    if folder.name == "extended-automation":
+        with (folder / "validation-evidence.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            return list(folder.iterdir())
+    return list(folder.iterdir())
+
+
 def compressed_artifact(name: str) -> bool:
     return name.lower().endswith((".zip", ".gz", ".tgz", ".bz2", ".xz", ".tar", ".zst", ".7z"))
 
@@ -72,7 +80,7 @@ if (root / ".build/static-audit/package-build").exists():
 for relative, names in fixed_children.items():
     folder = root / relative
     if folder.exists():
-        for child in folder.iterdir():
+        for child in committed_children(folder):
             if not artifact_name_allowed(relative, child.name):
                 violations.append(f"{child.relative_to(root)}: 工作流产物需要使用固定类别清单")
 for parent in (root / "build", root / ".build"):

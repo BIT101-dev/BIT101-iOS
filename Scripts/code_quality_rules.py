@@ -537,11 +537,30 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
     return list(dict.fromkeys(errors))
 
 
+def audit_callback_findings(source: str) -> list[str]:
+    errors = []
+    callbacks = {"module_boundary_audit": ["/audit/Scripts/check-module-boundaries.py"],
+                 "artifact_hygiene": ["/audit/Scripts/validation_artifacts.py", "/audit"]}
+    for callback, arguments in callbacks.items():
+        definition = re.search(r"(?m)^" + callback + r"\(\)\s*\{[^\n]*\}\s*$", source)
+        if definition is None:
+            errors.append(f"Scripts/run-static-audit.sh: {callback} 需要保持独立审计委托")
+            continue
+        for status in (0, 7):
+            harness = 'ROOT_DIR=/audit\npython3() { printf "%s\\n" "$@"; return ' + str(status) + '; }\n'
+            harness += definition[0] + f'\nif {callback}; then exit 0; else exit $?; fi\n'
+            result = subprocess.run(["zsh", "-c", harness], capture_output=True, text=True)
+            if result.stdout.splitlines() != arguments or result.returncode != status:
+                errors.append(f"Scripts/run-static-audit.sh: {callback} 需要执行所属命令并传播结果")
+    return errors
+
+
 def audit_wiring_findings() -> list[str]:
     """检查统一静态审计入口与 CI 门禁。"""
     errors: list[str] = []
     audit_path = ROOT / "Scripts/run-static-audit.sh"
     audit_source = audit_path.read_text(encoding="utf-8")
+    errors.extend(audit_callback_findings(audit_source))
     groups = re.search(r"^group_names=\(([^\n]+)\)$", audit_source, re.MULTILINE)
     commands = re.search(r"^group_commands=\(([^\n]+)\)$", audit_source, re.MULTILINE)
     wiring = dict(zip(groups[1].split(), commands[1].split())) if groups and commands and len(groups[1].split()) == len(commands[1].split()) else {}

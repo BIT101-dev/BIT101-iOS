@@ -681,7 +681,7 @@ python3() {{ if [[ "$1" == - ]]; then cat >/dev/null; fi; }}
         "restore_release",
     )
     network_traps = "\n".join(line.strip() for line in network_source.splitlines() if line.strip().startswith("trap "))
-    for initial, restore_status, expected in ((7, 0, 7), (7, 1, 7), (0, 1, 1), (0, 0, 0)):
+    for initial, restore_status, expected, sms in ((7, 0, 7, "preflight"), (7, 1, 7, "preflight"), (0, 1, 1, "preflight"), (0, 0, 0, "preflight"), (0, 0, 0, "sms"), (7, 0, 7, "sms")):
         harness = f'''
 set -euo pipefail
 DEVICE_ID=device
@@ -690,9 +690,12 @@ validation_group=network
 validation_scope=full
 community_started=false
 SMOKE_SCOPE=all
+SMS_MODE={sms}
+BIT101_VALIDATION_SOURCE_DIGEST=network-inputs
+SCHOOL_SMS_STARTED_DIGEST=school-inputs
 BIT101_DEFER_APP_RESTORE=0
 console_process=""
-python3() {{ return 0; }}
+python3() {{ print -r -- "$BIT101_VALIDATION_SOURCE_DIGEST $*"; return 0; }}
 restore_release() {{ print restore; return {restore_status}; }}
 {restore}
 {network_traps}
@@ -702,6 +705,9 @@ fail_command
         result = subprocess.run(["zsh", "-c", harness], capture_output=True, text=True)
         if result.returncode != expected or result.stdout.count("restore\n") != 1:
             findings.append(f"网络 Smoke 恢复自测失败：状态 {initial}/{restore_status}")
+        if sms == "sms" and (f"network-inputs /audit/Scripts/validation_evidence.py record network {expected} full" not in result.stdout
+                or f"school-inputs /audit/Scripts/validation_evidence.py record school-sms {expected} full" not in result.stdout):
+            findings.append("全量短信验收恢复自测：两个验证范围共用结果并维持各自开始摘要")
 
     extended_source = (SCRIPT_ROOT / "run-extended-tests.sh").read_text()
     restore_condition = re.search(r'(?m)^if (\[\[.*\]\]); then\n  DEVICE_TEST_EXECUTION_STARTED=false', extended_source)[1]

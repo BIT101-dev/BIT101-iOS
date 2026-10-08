@@ -24,6 +24,7 @@ fi
 report_result() {
   python3 - "$1" <<'PYREPORT'
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 import subprocess
 import sys
@@ -69,6 +70,7 @@ fi
 if ! $CLEANUP_ONLY && [[ -f "$SUMMARY_PATH" ]]; then
   pending_cleanup="$(python3 - "$SUMMARY_PATH" <<'PY'
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 import sys
 
@@ -85,6 +87,7 @@ fi
 if $CLEANUP_ONLY; then
   RUN_ID="$(python3 - "$SUMMARY_PATH" <<'PY'
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 import sys
 from uuid import UUID
@@ -123,10 +126,11 @@ PY
 if ! $CLEANUP_ONLY; then
   python3 - "$SUMMARY_PATH" "$RUN_ID" <<'PY'
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 import sys
 
-Path(sys.argv[1]).write_text(json.dumps({"runID": sys.argv[2], "stages": []}) + "\n")
+Path(sys.argv[1]).write_text(json.dumps({"runID": sys.argv[2], "startedAt": datetime.now(timezone.utc).isoformat(), "stages": []}) + "\n")
 PY
 fi
 
@@ -166,6 +170,7 @@ finish_smoke() {
   fi
   python3 - "$SUMMARY_PATH" "$smoke_status" "$CLEANUP_ONLY" <<'PY'
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 import sys
 
@@ -176,6 +181,7 @@ if sys.argv[3] == "true":
     report.setdefault("exitCode", int(sys.argv[2]))
 else:
     report["exitCode"] = int(sys.argv[2])
+    report["finishedAt"] = datetime.now(timezone.utc).isoformat()
 path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
 PY
   report_result "$SUMMARY_PATH"

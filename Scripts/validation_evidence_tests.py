@@ -122,9 +122,14 @@ def run_self_test(subject) -> int:
         assert {item['value'] for item in nested['tests']} == {'Outer/Inner/works', 'Case/testActual'}
         aliased = swift_syntax_index_sources({'base': 'typealias BehaviorBase = XCTest.XCTestCase; enum Namespace { typealias Base = BehaviorBase }; class Direct: XCTestCase {}; typealias Indirect = Direct', 'tests': 'class MissingTests: Namespace.Base { func testRequiredBehavior() {} }; class Derived: Indirect { func testInheritedBehavior() {} }; enum Other { typealias Base = Ordinary; class Local: Base { func testHelper() {} } }; class Ordinary {}'})['tests']
         assert {item['value'] for item in aliased['tests']} == {'MissingTests/testRequiredBehavior', 'Derived/testInheritedBehavior'}
-        from code_quality_rules import audit_wiring_findings
+        from code_quality_rules import audit_callback_findings, audit_wiring_findings
         audit_path = subject.ROOT / 'Scripts/run-static-audit.sh'
         audit_source, original_read = (audit_path.read_text(), Path.read_text)
+        assert audit_callback_findings(audit_source) == []
+        for callback in ('module_boundary_audit', 'artifact_hygiene'):
+            for body in ('true;', 'python3 /unrelated.py;', 'python3 "$ROOT_DIR/Scripts/check-module-boundaries.py"; true;'):
+                mutated = re.sub(r'(?m)^' + callback + r'\(\).*$', callback + '() { ' + body + ' }', audit_source)
+                assert audit_callback_findings(mutated)
         for before, after in (('module_boundary_audit git_check', 'swift_parse git_check'), ('run_group artifact-hygiene artifact_hygiene', 'run_group artifact-hygiene swift_parse')):
 
             def mutated_read(path, *arguments, **keywords):
@@ -157,20 +162,26 @@ def run_self_test(subject) -> int:
         summaries['audit'] = {'passed': True, 'kind': 'audit'}
         summaries['restore'] = {'passed': True, 'kind': 'restore'}
         summaries['build-archive'] = {'passed': True, 'kind': 'build'}
-        summaries['manual-device'] = {'passed': True, 'checks': {name: {'operation': '实际操作', 'result': '观察结果', 'evidence': {'path': '/evidence.png', 'sha256': 'a' * 64, 'byteCount': 1}} for name in subject.MANUAL_DEVICE_CHECKS}}
-        assert not subject.complete_summary('manual-device', {'passed': True, 'checks': {}})
-        assert not subject.complete_summary('manual-device', {'passed': True, 'checks': {name: 'pass' for name in subject.MANUAL_DEVICE_CHECKS}})
-        from validation_manual import capture
+        from validation_manual import capture, complete
         with patch.object(Path, 'read_bytes', return_value=b'actual evidence'):
             captured = capture('提交反馈', '报告持久化和邮件接收已核对', Path('/evidence.png'))
-            assert captured['evidence']['byteCount'] == 15
+        checks = {name: dict(captured, evidence=dict(captured['evidence'])) for name in subject.MANUAL_DEVICE_CHECKS}
+        summaries['manual-device'] = {'passed': True, 'checks': checks}
+        assert complete(checks)
+        stale = json.loads(json.dumps(checks))
+        next(iter(stale.values()))['capturedAt'] = '2000-01-01T00:00:00+00:00'
+        assert not complete(stale)
         with patch.object(Path, 'read_bytes', side_effect=FileNotFoundError):
-            try:
-                capture('操作', '结果', Path('/missing'))
-            except FileNotFoundError:
-                pass
-            else:
-                raise AssertionError('人工证据需要已有附件')
+            assert complete(json.loads(json.dumps(checks)))
+            try: capture('操作', '结果', Path('/missing'))
+            except FileNotFoundError: pass
+            else: raise AssertionError('人工证据需要已有附件')
+        for field, value in [('dataBase64', ''), ('dataBase64', 'bad%base64'), ('dataBase64', 'b3RoZXI='), ('sha256', 'a' * 64), ('byteCount', 1)]:
+            changed = json.loads(json.dumps(checks))
+            next(iter(changed.values()))['evidence'][field] = value
+            assert not complete(changed)
+        assert not subject.complete_summary('manual-device', {'passed': True, 'checks': {}})
+        assert not subject.complete_summary('manual-device', {'passed': True, 'checks': {name: 'pass' for name in subject.MANUAL_DEVICE_CHECKS}})
         summaries['network'] = subject.smoke_summary('network', {'passed': True, 'scope': 'all', 'executedProbes': sorted(subject.network_inventory()), 'requiredProbes': sorted(subject.network_inventory())})
         sms = {'passed': True, 'scope': 'school', 'executedProbes': sorted(subject.network_inventory('school')), 'requiredProbes': sorted(subject.network_inventory('school')), 'schoolSMSCoverage': 'verified', 'verifiedSMSProbes': [{'purpose': purpose, 'probe': sorted(subject.SCHOOL_SMS_PROBES[purpose])[0]} for purpose in subject.school_sms_inventory()]}
         assert set(subject.SCHOOL_SMS_PROBES) == subject.school_sms_inventory()
@@ -199,6 +210,14 @@ def run_self_test(subject) -> int:
         assert not subject.smoke_summary('community-writes', dict(writes, communityWriteEvidence=[]))['passed']
         summaries['school-sms'] = subject.smoke_summary('school-sms', sms)
         assert summaries['school-sms']['passed']
+        full_sms = dict(sms, scope='all', requiredProbes=sorted(subject.network_inventory('all')), executedProbes=sorted(subject.network_inventory('all')))
+        assert subject.smoke_summary('network', full_sms)['passed']
+        projected = subject.smoke_summary('school-sms', full_sms)
+        assert subject.complete_summary('school-sms', projected)
+        assert projected['scope'] == 'school' and set(projected['requiredProbes']) == subject.network_inventory('school')
+        assert not subject.smoke_summary('school-sms', dict(full_sms, requiredProbes=sms['requiredProbes']))['passed']
+        assert not subject.smoke_summary('school-sms', dict(full_sms, verifiedSMSProbes=[]))['passed']
+
         mismatched = [{'purpose': step['purpose'], 'probe': 'BIT101 登录状态'} for step in sms['verifiedSMSProbes']]
         assert not subject.smoke_summary('school-sms', dict(sms, verifiedSMSProbes=mismatched))['passed']
         assert subject.smoke_summary('school-sms', dict(sms, schoolSMSCoverage='preflight_only'))['passed'] is False
@@ -207,7 +226,7 @@ def run_self_test(subject) -> int:
         assert summaries['icloud']['cleanup']['kind'] == 'round-trip'
         assert not subject.complete_summary('icloud', dict(summaries['icloud'], cleanup={'exitCode': 1}))
         groups = {name: {'exitCode': 0, 'scope': 'full', 'summary': summary, 'inputDigest': subject.source_digest(name), 'environment': subject.environment_context(name)} for name, summary in summaries.items()}
-        for name in subject.NETWORK_GROUPS & groups.keys():
+        for name in subject.LIVE_GROUPS & groups.keys():
             groups[name]['summary'].update(startedAt=subject.utc_now().isoformat(), finishedAt=subject.utc_now().isoformat())
         report = {'sourceDigest': 'source', 'groups': groups}
         with patch('ui_rules.source_runtime_interaction_findings', return_value=[]):

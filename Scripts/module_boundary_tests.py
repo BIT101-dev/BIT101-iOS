@@ -29,6 +29,20 @@ def run_self_test(rules: dict) -> None:
         rules["implicit_resource_accesses"](source)
         assert indexer.call_count == 1
 
+    facts = rules["resource_facts"](source)
+    original_variables = list(facts["typedVariables"])
+    rules["implicit_resource_accesses"](source, properties=(((), "shared", "UserDefaults"),))
+    assert facts["typedVariables"] == original_variables
+    for source in (
+        "let group = NWConnectionGroup(with: descriptor, using: .udp); group.send(content: data)",
+        "let group = Network.NWConnectionGroup(with: descriptor, using: .udp)",
+        "typealias Group = NWConnectionGroup; let group = Group(with: descriptor, using: .udp)",
+        "let io = DispatchIO(type: .stream, path: path, oflag: 0, mode: 0, queue: queue) { _ in }",
+        "let io = Dispatch.DispatchIO(type: .stream, path: path, oflag: 0, mode: 0, queue: queue) { _ in }",
+    ):
+        assert service_boundary_errors("Modules/CourseFeature/Sources/Example.swift", source), source
+    assert service_boundary_errors("Modules/StorageCore/Sources/AppFileService.swift", "let io = DispatchIO(type: .stream, path: path)") == []
+
     for operation in ("open", "read", "write"):
         source = f"func execute({operation}: @Sendable () throws -> Data) throws -> Data {{ try {operation}() }}"
         assert service_boundary_errors("BIT101-iOS/Payload.swift", source) == []

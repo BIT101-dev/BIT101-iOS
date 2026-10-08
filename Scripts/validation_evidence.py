@@ -20,7 +20,7 @@ from validation_inputs import includes_input
 from validation_test_areas import TEST_AREA_SUITES
 from validation_manual import MANUAL_DEVICE_CHECKS, capture as capture_manual, complete as manual_complete
 from validation_environment import environment_context, complete_environment, toolchain_identity
-from validation_provenance import NETWORK_GROUPS, evidence_current, producing_run_matches, utc_now
+from validation_provenance import LIVE_GROUPS, NETWORK_GROUPS, evidence_current, producing_run_matches, utc_now
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / ".build/extended-automation/validation-evidence.json"
@@ -260,8 +260,13 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
         required = set(value.get("requiredProbes", []))
         executed = set(value.get("executedProbes", []))
         sms_steps = value.get("verifiedSMSProbes", [])
-        expected_scope = ("all" if full else value.get("scope")) if group == "network" else "school" if group == "school-sms" else group
-        return {"passed": value.get("passed") is True and value.get("scope") == expected_scope
+        reported_scope = value.get("scope")
+        expected_scope = ("all" if full else reported_scope) if group == "network" else "school" if group == "school-sms" else group
+        projected_sms = group == "school-sms" and reported_scope == "all"
+        raw_required = required
+        if projected_sms: required = network_inventory("school")
+        return {"passed": value.get("passed") is True and (reported_scope == expected_scope or projected_sms)
+                and (not projected_sms or raw_required == network_inventory("all"))
                 and (group != "community-writes" or community_writes_complete(value.get("communityWriteEvidence", [])))
                 and required == network_inventory(expected_scope) and bool(required) and required <= executed
                 and (group != "school-sms" or value.get("schoolSMSCoverage") == "verified"
@@ -269,7 +274,7 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
                     and all(step.get("probe") in executed
                             and step.get("probe") in SCHOOL_SMS_PROBES.get(step.get("purpose"), set()) for step in sms_steps))
                 and not any(value.get(name) for name in ("failures", "coverageGaps", "authenticationBlockers", "skippedProbes")),
-                "scope": value.get("scope"), "executedProbes": len(value.get("executedProbes", [])),
+                "scope": expected_scope, "executedProbes": len(value.get("executedProbes", [])),
                 "startedAt": value.get("startedAt"), "finishedAt": value.get("finishedAt"),
                 "schoolSMSCoverage": value.get("schoolSMSCoverage"),
                 "communityWriteEvidence": value.get("communityWriteEvidence", []),
@@ -279,7 +284,7 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
     if group == "icloud-cleanup":
         cleanup = value.get("cleanup", {})
         return {"passed": value.get("cleanupExitCode") == 0 and cleanup.get("exitCode") == 0
-                and successful_test_counts(cleanup), "cleanup": cleanup}
+                and successful_test_counts(cleanup), "cleanup": cleanup, "startedAt": cleanup.get("recordedAt"), "finishedAt": cleanup.get("recordedAt")}
     stages = [{name: row.get(name, 0) for name in
                ("stage", "exitCode", "totalTestCount", "passedTests", "failedTests", "skippedTests")}
               for row in value.get("stages", [])]
@@ -295,7 +300,8 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
     cleanup_evidence = dict(cleanup, kind="standalone") if cleanup is not None else dict(
         next((row for row in stages if row["stage"] == "testPhoneRoundTrip"), {}), kind="round-trip")
     return {"passed": passed, "stages": stages, "validatedDomains": value.get("validatedDomains", []),
-            "cloudKitEnvironment": value.get("cloudKitEnvironment"), "cleanup": cleanup_evidence}
+            "cloudKitEnvironment": value.get("cloudKitEnvironment"), "cleanup": cleanup_evidence,
+            "startedAt": value.get("startedAt"), "finishedAt": value.get("finishedAt")}
 
 
 def successful_test_counts(summary: dict) -> bool:
@@ -407,7 +413,7 @@ def release_findings(report: dict, digest: str, *, recorded_environment: bool = 
         if not complete_environment(name, row.get("environment", {})):
             errors.append(f"{name} 需要保留执行环境及设备系统身份。")
         if not evidence_current(name, row.get("summary", {})):
-            errors.append(f"{name} 的网络采样需要在发布检查前 24 小时内完成，请重新验收。")
+            errors.append(f"{name} 的实际验收需要在发布检查前 24 小时内完成，请重新验收。")
         if row.get("exitCode") != 0 or row.get("scope") != "full" or not complete_summary(name, row.get("summary", {})):
             errors.append(f"{name} 需要完整执行并通过，并保留结果摘要。")
     if recorded_environment and toolchain_identity(report.get("groups", {}).get("build-archive", {}).get("environment", {})) \
@@ -598,6 +604,8 @@ def main() -> int:
             summary = previous.get("summary", {"checks": {}}) if previous.get("inputDigest") == input_digest else {"checks": {}}
             summary["checks"][args.group] = observation
             summary["passed"] = manual_complete(summary["checks"])
+            summary["startedAt"] = min(row["capturedAt"] for row in summary["checks"].values())
+            summary["finishedAt"] = max(row["capturedAt"] for row in summary["checks"].values())
             report["groups"]["manual-device"] = {"exitCode": 0 if summary["passed"] else 2, "scope": "full", "summary": summary,
                 "inputDigest": input_digest, "environment": environment_context("manual-device")}
             write_report(report)

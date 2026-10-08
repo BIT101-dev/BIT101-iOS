@@ -326,7 +326,7 @@ def service_boundary_errors(path: str, source: str, aliases: tuple = (), context
         patterns.append((r"\.\s*(?:data|download|upload|bytes)\s*\(\s*for\s*:", "send requests through HTTPClient"))
         patterns.append((r"\.\s*(?:dataTask|downloadTask|uploadTask|webSocketTask)\s*\(", "send requests through HTTPClient"))
     if path not in {"Modules/TransportCore/Sources/NetworkPathState.swift", "BIT101-iOS/Login/AppUITestBootstrap.swift"}:
-        patterns.append((r"\b(?:NWPathMonitor|NWConnection|NWListener)\b", "use TransportCore network services"))
+        patterns.append((r"\b(?:NWPathMonitor|NWConnection|NWConnectionGroup|NWListener|NWTCPConnection|NWUDPSession)\b", "use TransportCore network services"))
     if path != "Modules/TransportCore/Sources/TaskCancellation.swift":
         patterns.append((r"\.\s*userInfo\s*\[\s*NSUnderlyingErrorKey\s*\]", "traverse underlying errors through ErrorChain"))
     if path != "Modules/TransportCore/Sources/AppURL.swift":
@@ -335,7 +335,7 @@ def service_boundary_errors(path: str, source: str, aliases: tuple = (), context
         patterns.append((r"\bDateFormatter\s*\(", "format schedule dates through ScheduleDateCodec"))
     if path != "Modules/StorageCore/Sources/AppFileService.swift":
         patterns.extend((
-            (r"\bCF(?:Read|Write)StreamCreateWithFile\b", "read and write files through AppFileService"),
+            (r"\b(?:DispatchIO|CF(?:Read|Write)StreamCreateWithFile)\b", "read and write files through AppFileService"),
             (r"\bFileManager\b(?!\s*\.\s*(?:SearchPathDirectory|DirectoryEnumerationOptions)\b)", "use AppFileService"),
             (r"\b(?:Data|NSData|NSMutableData|String|NSString|NSMutableString)\s*(?:\.\s*init\s*)?\(\s*(?:contentsOf|contentsOfFile|contentsOfURL)\s*:", "read files through AppFileService"),
             (r"\.\s*(?:resourceValues|setResourceValues|getResourceValue|setResourceValue|resolvingSymlinksInPath|checkResourceIsReachable)\s*\(", "access file metadata through AppFileService"),
@@ -528,7 +528,7 @@ def implicit_file_accesses(source: str, functions: str = POSIX_FILE_FUNCTIONS) -
 def implicit_resource_accesses(source: str, resource: str = "UserDefaults", properties: tuple = ()) -> list[int]:
     code = swift_code(source)
     if not re.search(r"\.\s*(?:standard\b|init\s*\()", code): return []
-    facts = resource_facts(source)
+    facts = dict(resource_facts(source))
     facts["typedVariables"] = facts["typedVariables"] + [dict(scope=list(scope), name=name, type=kind, start=-1, lexicalScope=[])
         for scope, name, kind in properties]
     encoded = source.encode()

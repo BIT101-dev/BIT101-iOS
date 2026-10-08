@@ -5,6 +5,7 @@ record_result() {
 import json
 import os
 from pathlib import Path
+from datetime import datetime, timezone
 import shutil
 import subprocess
 import sys
@@ -34,6 +35,7 @@ if generated_bundle is not None:
 if row.get("totalTestCount", 0) != 1 or row.get("passedTests", 0) != 1 or row.get("failedTests", 0) or row.get("skippedTests", 0):
     row["exitCode"] = exit_code or 1
     print(f"[失败] {stage} 要求一项用例执行并通过。")
+row["recordedAt"] = datetime.now(timezone.utc).isoformat()
 path = Path(report_path)
 report = json.loads(path.read_text()) if path.is_file() else {"stages": []}
 report["validatedDomains"] = ["score-kvs", "schedule-cloudkit"]

@@ -600,6 +600,9 @@ extension ReleaseNetworkSmokeLifecycleTests {
         let image: Data
         var rawResponse: ((Data) -> Void)?
         var observed = Set<String>()
+        var webvpnVerified = false
+        var ssoVerified = false
+        private var smsChallenge: BITLoginAuthenticationChallenge { .init(challengeID: "fixture", accessToken: "fixture", status: "sms_required", maskedPhone: "***", expiresIn: 60) }
         init(stage: String, image: Data) { self.stage = stage; self.image = image }
         private var user: CommunityUser {
             CommunityUser(id: 1, createTime: "", nickname: "fixture", avatar: CommunityImage(mid: "image", url: "https://image.invalid/image.png", lowUrl: ""), motto: "",
@@ -652,7 +655,10 @@ extension ReleaseNetworkSmokeLifecycleTests {
         func fetchMyPosters(page: Int) async throws -> [CommunityPoster] { [poster] }
         func fetchFollowers(page: Int) async throws -> [CommunityUser] { [] }
         func fetchFollowings(page: Int) async throws -> [CommunityUser] { [] }
-        func fetchCurrentTermOnly() async throws -> String { "fixture-1" }
+        func fetchCurrentTermOnly() async throws -> String {
+            if stage == "all-sms-success" && !webvpnVerified { throw ScheduleServiceError.secondFactorRequired(smsChallenge) }
+            return "fixture-1"
+        }
         func fetchAvailableTerms() async throws -> [String] { ["fixture-1"] }
         func syncCourses(term: String?) async throws -> CourseSyncPayload {
             observed.insert("schedule")
@@ -661,12 +667,19 @@ extension ReleaseNetworkSmokeLifecycleTests {
                 normalizationOffset: 0, rawWeeksByCourse: [], courses: [], exams: [])
         }
         func submitSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge, term: String?) async throws -> CourseSyncPayload { try await syncCourses(term: term) }
-        func submitSMSCodeForTeachingCenterAuthentication(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws {}
+        func submitSMSCodeForTeachingCenterAuthentication(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws { webvpnVerified = true }
         func prepareTeachingCenterAccess() async throws {}
         func fetchCampuses() async throws -> [CampusRecord] { [CampusRecord(id: "campus", name: "fixture", code: "campus")] }
         func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord] { [BuildingRecord(id: "building", name: "fixture", buildingCode: "building", campusName: "fixture", campusCode: "campus")] }
         func fetchClassrooms(buildingID: String, term: String) async throws -> [ClassroomRecord] { [ClassroomRecord(id: "room", name: "fixture", busyTimeCodes: [])] }
-        func fetchEclassDDLEvents(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> EclassDDLResult { try await fetchEclassDDLEventsForPreflight() }
+        func fetchEclassDDLEvents(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> EclassDDLResult {
+            if stage == "all-sms-success" && !ssoVerified {
+                let handler = try #require(schoolSMSCodeHandler)
+                _ = try await handler(.init(maskedPhone: "***", purpose: "school_sso_second_factor"))
+                ssoVerified = true
+            }
+            return try await fetchEclassDDLEventsForPreflight()
+        }
         func fetchEclassDDLEventsForPreflight() async throws -> EclassDDLResult {
             observed.insert("eclass")
             return EclassDDLResult(events: [], courseCount: 1, activityCount: 0, activityTypes: [:], homeworkWithoutDeadlineCount: 0)
@@ -679,10 +692,15 @@ extension ReleaseNetworkSmokeLifecycleTests {
             if stage == "ddl-invalid-calendar-failure" { throw ScheduleServiceError.invalidCalendarData }
             return DDLSyncPayload(url: storedURL, events: [])
         }
-        func startScoreChallenge() async throws -> BITLoginAuthenticationChallenge { BITLoginAuthenticationChallenge(challengeID: "fixture", accessToken: "fixture", status: "authenticated", maskedPhone: nil, expiresIn: 60) }
+        func startScoreChallenge() async throws -> BITLoginAuthenticationChallenge {
+            if stage == "all-sms-success" { throw ScoreServiceError.secondFactorRequired(smsChallenge) }
+            return BITLoginAuthenticationChallenge(challengeID: "fixture", accessToken: "fixture", status: "authenticated", maskedPhone: nil, expiresIn: 60) }
         func fetchScores(detail: Bool, authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> [ScoreRow] { [] }
-        func submitScoreSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { try await startScoreChallenge() }
-        func fetchTrustedTranscriptPages() async throws -> [Data] { [image] }
+        func submitScoreSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { .init(challengeID: "fixture", accessToken: "fixture", status: "authenticated", maskedPhone: nil, expiresIn: 60) }
+        func fetchTrustedTranscriptPages() async throws -> [Data] {
+            if stage == "all-sms-success" { throw ScoreServiceError.secondFactorRequired(smsChallenge) }
+            return [image]
+        }
         func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> [Data] { [image] }
     }
 
@@ -738,7 +756,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
     }
 
     @Test("Full smoke orchestration preserves success, intermediate failures and subsequent scopes", arguments:
-        ["all-success", "community-failure", "schedule-success", "ddl-success", "ddl-failure", "ddl-invalid-calendar-failure", "raw-write-failure",
+        ["all-success", "all-sms-success", "community-failure", "schedule-success", "ddl-success", "ddl-failure", "ddl-invalid-calendar-failure", "raw-write-failure",
          "app-store-redirect-failure", "emergency-redirect-failure", "aasa-redirect-failure", "aasa-followed-redirect-failure",
          "aasa-mime-failure", "aasa-exclusion-failure", "image-budget-failure", "entity-identity-failure"])
     func completeOrchestration(stage: String) async throws {
@@ -761,10 +779,16 @@ extension ReleaseNetworkSmokeLifecycleTests {
             feedbackProbe: { _ in feedback += 1 },
             loadScheduleCache: { ScheduleCache() }, makeScores: { services }, makeSchedule: { handler in services.rawResponse = handler; return services },
             makeEclassSchedule: { services })
-        let scope: NetworkSmokeScope = stage == "all-success" || redirectHost != nil || stage.hasPrefix("aasa") ? .all : stage == "community-failure" || stage == "image-budget-failure" || stage == "entity-identity-failure" ? .bit101 : stage.hasPrefix("ddl") ? .ddl : .schedule
+        let scope: NetworkSmokeScope = stage == "all-success" || stage == "all-sms-success" || redirectHost != nil || stage.hasPrefix("aasa") ? .all : stage == "community-failure" || stage == "image-budget-failure" || stage == "entity-identity-failure" ? .bit101 : stage.hasPrefix("ddl") ? .ddl : .schedule
         let runner = ReleaseNetworkSmokeRunner(dependencies: dependencies)
-        let report = await runner.run(scope: scope, runID: stage, capture: stage == "raw-write-failure" ? .rawCourseResponse : .none)
+        let smsHandler: SchoolSMSCodeHandler = { _ in "fixture-code" }
+        let report = await runner.run(scope: scope, runID: stage, capture: stage == "raw-write-failure" ? .rawCourseResponse : .none,
+            schoolSMSCodeHandler: stage == "all-sms-success" ? smsHandler : nil)
         #expect(report.passed == !stage.hasSuffix("failure"))
+        if stage == "all-sms-success" {
+            #expect(report.schoolSMSCoverage == "verified")
+            #expect(Set(report.verifiedSMSProbes.map(\.purpose)) == NetworkSmokeScope.all.requiredSMSPurposes)
+        }
         #expect(Set(report.executedProbes) == Set(scope.requiredProbes))
         #expect(reports.count == 1 && reports[0].passed == report.passed)
         if scope.includes(.bit101) { #expect(feedback == 1 && services.observed.contains("mine") && services.observed.contains("paper-list")) }
@@ -788,7 +812,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
             let probe = redirectHost == "itunes.apple.com" ? "App Store 更新接口" : "紧急更新配置接口"
             #expect(report.failures.count == 1 && report.failures[0].contains(probe))
         }
-        let next = await runner.run(scope: .transcript, runID: "next")
+        let next = await runner.run(scope: .transcript, runID: "next", schoolSMSCodeHandler: stage == "all-sms-success" ? smsHandler : nil)
         #expect(next.passed && next.failures.isEmpty && next.coverageComplete)
         #expect(reports.count == 2)
     }

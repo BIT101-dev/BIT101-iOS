@@ -130,7 +130,7 @@ if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
   echo "Scripts/run-extended-tests.sh cache               整理共享构建缓存"
   echo "分组：release-runtime、catalyst-release-runtime、schedule、infrastructure、login、extensions、catalyst；组后可直接填写测试类/方法。"
   echo "宿主：release、release-runtime、ui、network-smoke、icloud-smoke、modules、catalyst、catalyst-release-runtime。"
-  echo "专项：verify [分组]...；diagnostics；report|screenshot|activities 测试类/方法。"
+  echo "专项：verify [--sms] [分组]...；diagnostics；report|screenshot|activities 测试类/方法。"
   exit 0
 fi
 SCRIPT_PATH="$0"
@@ -172,6 +172,11 @@ fi
 export BIT101_VALIDATION_SOURCE_DIGEST
 
 if [[ "$MODE" == "verify" ]]; then
+  verification_network_args=(all)
+  if [[ "${1:-}" == --sms ]]; then
+    verification_network_args+=(sms)
+    shift
+  fi
   typeset -aU verification_groups
   verification_groups=("$@")
   if (( ${#verification_groups[@]} == 0 )); then
@@ -227,7 +232,7 @@ if [[ "$MODE" == "verify" ]]; then
     case "$group" in
       modules|catalyst|catalyst-release-runtime) verify_step "$group" "$0" "$group" ;;
       all|release-runtime|ui) verify_step "$group" "$0" "$group" ;;
-      network) verify_step network "$ROOT_DIR/Scripts/release-network-smoke.sh" ;;
+      network) verify_step network "$ROOT_DIR/Scripts/release-network-smoke.sh" "${verification_network_args[@]}" ;;
       community-writes) verify_step community-writes "$ROOT_DIR/Scripts/release-network-smoke.sh" community-writes ;;
       ddl) verify_step ddl "$ROOT_DIR/Scripts/release-network-smoke.sh" ddl ;;
       icloud) verify_step icloud "$ROOT_DIR/Scripts/run_icloud_cross_device_smoke.sh" ;;
