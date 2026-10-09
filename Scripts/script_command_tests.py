@@ -24,6 +24,15 @@ def script_command_boundary_findings() -> list[str]:
         env=dict(os.environ, BIT101_SIMULATOR_AUTHORIZED='0'), capture_output=True, text=True)
     if simulator.returncode != 64 or '显式授权' not in simulator.stderr:
         findings.append('模拟器命令自测：执行前核对用户授权标记')
+    simulator_source = (SCRIPT_ROOT / 'simulator-tests.sh').read_text()
+    restoration = 'restore_application() {' + simulator_source.split('restore_application() {', 1)[1].split(
+        'if [[ "$operation" == restore ]]', 1)[0]
+    for original, restore_result in ((0, 0), (7, 0), (0, 9), (7, 9)):
+        stub = f'bit101_run_logged() {{ print RESTORE; return {restore_result}; }}\n'
+        result = subprocess.run(['zsh', '-c', stub + restoration + '\ntrap restore_on_exit EXIT\nexit "$1"',
+            'simulator-restore-test', str(original)], capture_output=True, text=True)
+        if result.returncode != (original or restore_result) or result.stdout.count('RESTORE') != (1 if restore_result else 2):
+            findings.append('模拟器恢复自测：退出时恢复常规包并保留测试失败状态')
     support = SCRIPT_ROOT / "script-support.sh"
     report_program = (SCRIPT_ROOT / 'run-extended-tests.sh').read_text().split(
         ' <<\'PY\'\n', 1)[1].split('\nPY\n', 1)[0]
@@ -61,6 +70,13 @@ xcrun() {
 '''
     export_source = (SCRIPT_ROOT / "run-extended-tests.sh").read_text().replace('source "$ROOT_DIR/Scripts/script-support.sh"', frame)
     scope_source = (SCRIPT_ROOT / "release-network-smoke.sh").read_text().replace('source "$ROOT_DIR/Scripts/script-support.sh"', frame).split('RUN_ID="', 1)[0]
+    valid_fixture = dict(posterID=1, courseID=2, courseNumber='COURSE', paperID=3)
+    for value, valid in ((valid_fixture, True), ({}, False), (dict(valid_fixture, posterID=True), False),
+            (dict(valid_fixture, courseID=0), False), (dict(valid_fixture, courseNumber=' COURSE'), False)):
+        result = subprocess.run(['zsh', '-c', scope_source, str(SCRIPT_ROOT / 'release-network-smoke.sh'), 'bit101'],
+            env=dict(os.environ, BIT101_NETWORK_SMOKE_FIXTURES=json.dumps(value)), capture_output=True, text=True)
+        if (result.returncode == 0) != valid:
+            findings.append('网络维护对象自测：校验对象标识及课程编号')
     for arguments, term, expected in ((['all'], '', 'network full'), (['all'], 'historical', 'network selected'),
             (['school', 'sms'], '', 'school-sms full'), (['school', 'sms'], 'historical', 'school-sms selected')):
         result = subprocess.run(['zsh', '-c', scope_source + '\nprint -r -- "$validation_group $validation_scope"',

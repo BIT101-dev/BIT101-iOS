@@ -8,7 +8,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT_DIR/Scripts/script-support.sh"
 operation="${1:-info}"
 shift $(( $# > 0 ? 1 : 0 ))
-case "$operation" in info|prepare) [[ $# -eq 0 ]] || exit 64;; app|ui) [[ $# -gt 0 ]] || exit 64;; *) exit 64;; esac
+case "$operation" in info|prepare|restore) [[ $# -eq 0 ]] || exit 64;; app|ui) [[ $# -gt 0 ]] || exit 64;; *) exit 64;; esac
 bit101_acquire_workflow_lock "$0" "$operation" "$@"
 DERIVED_ROOT="$ROOT_DIR/.build/extended-automation"
 mkdir -p "$DERIVED_ROOT"
@@ -54,6 +54,31 @@ else
 fi
 if [[ "$operation" == info ]]; then print -r -- "$SIMULATOR_DEVICE"; exit 0; fi
 if [[ "$operation" == prepare ]]; then echo "项目模拟器已就绪。"; exit 0; fi
+restore_application() {
+  bit101_run_logged "$DERIVED_ROOT/build-release.log" "常规模拟器包编译" xcodebuild build -quiet \
+    -project "$ROOT_DIR/BIT101-iOS.xcodeproj" -scheme BIT101-iOS -configuration Release -derivedDataPath "$DERIVED_ROOT" \
+    -destination "platform=iOS Simulator,id=$SIMULATOR_DEVICE" BIT101_WORKFLOW_CONDITIONS= CODE_SIGN_IDENTITY=- || return $?
+  bit101_run_logged "$DERIVED_ROOT/restore.log" "常规模拟器包恢复" python3 - "$SIMULATOR_DEVICE" \
+    "$DERIVED_ROOT/Build/Products/Release-iphonesimulator/BIT101-iOS.app" <<'PYRESTORE'
+import subprocess
+import sys
+subprocess.run(['xcrun', 'simctl', 'install', sys.argv[1], sys.argv[2]], check=True)
+subprocess.run(['xcrun', 'simctl', 'launch', '--terminate-running-process', sys.argv[1], 'BIT101-dev.BIT101-iOS'],
+    check=True, stdout=subprocess.DEVNULL)
+PYRESTORE
+}
+restore_on_exit() {
+  local workflow_result=$?
+  trap - EXIT
+  if restore_application; then
+    echo "常规模拟器包已恢复。"
+  else
+    local restore_result=$?
+    if (( workflow_result == 0 )); then workflow_result=$restore_result; fi
+  fi
+  exit "$workflow_result"
+}
+if [[ "$operation" == restore ]]; then restore_application; echo "常规模拟器包已恢复。"; exit 0; fi
 mode=all
 scheme=BIT101-iOS
 bundle=BIT101-iOSTests
@@ -79,6 +104,7 @@ result="$DERIVED_ROOT/test-results.xcresult"
 bit101_run_logged "$DERIVED_ROOT/simulator.log" "模拟器测试宿主编译" xcodebuild build-for-testing -quiet \
   -project "$ROOT_DIR/BIT101-iOS.xcodeproj" -scheme "$scheme" -configuration Release -derivedDataPath "$DERIVED_ROOT" \
   -destination "$destination" "BIT101_WORKFLOW_CONDITIONS=$conditions" ENABLE_TESTABILITY=YES \
+  -enableCodeCoverage YES ENABLE_CODE_COVERAGE=YES \
   SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES CODE_SIGN_IDENTITY=- "${only_testing[@]}"
 plan="$(python3 - "$DERIVED_ROOT/Build/Products" "$scheme" <<'PYPLAN'
 from pathlib import Path
@@ -91,6 +117,7 @@ PYPLAN
 rm -rf "$result"
 rm -f "$DERIVED_ROOT/test-metrics.txt" "$DERIVED_ROOT/test-failures.txt"
 test_status=0
+trap restore_on_exit EXIT
 bit101_run_logged "$DERIVED_ROOT/simulator.log" "模拟器复验" xcodebuild test-without-building -quiet \
   -xctestrun "$plan" -destination "$destination" -resultBundlePath "$result" \
   -parallel-testing-enabled NO -test-timeouts-enabled YES "${only_testing[@]}" || test_status=$?

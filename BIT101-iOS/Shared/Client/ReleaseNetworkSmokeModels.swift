@@ -400,6 +400,19 @@ struct ReleaseNetworkSmokeDependencies {
 }
 #endif
 
+/// NetworkSmokeFixtures 指定由验收账号维护的社区详情对象。
+nonisolated struct NetworkSmokeFixtures: Codable, Sendable {
+    let posterID: Int
+    let courseID: Int
+    let courseNumber: String
+    let paperID: Int
+
+    var isValid: Bool {
+        posterID > 0 && courseID > 0 && paperID > 0 && !courseNumber.isEmpty
+            && courseNumber == courseNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 /// ReleaseNetworkSmokeLaunchRequest 解析 `bit101://network-smoke/...` 触发参数。
 struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
     let scope: NetworkSmokeScope
@@ -409,6 +422,7 @@ struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
     var interactiveSMS: Bool? = nil
     var communityFollowTarget: Int? = nil
     var communityExpectedAccount: Int? = nil
+    var fixtures: NetworkSmokeFixtures? = nil
 
     private static var pendingFileURL: URL? {
         AppFileDirectories.documentFileURL(named: "network-smoke-request.json")
@@ -448,6 +462,10 @@ struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
 
         self.communityFollowTarget = components?.queryItems?.first(where: { $0.name == "follow-target" })?.value.flatMap(Int.init)
         self.communityExpectedAccount = components?.queryItems?.first(where: { $0.name == "expected-account" })?.value.flatMap(Int.init)
+        if let value = components?.queryItems?.first(where: { $0.name == "fixtures" })?.value {
+            guard let fixtures = try? JSONDecoder().decode(NetworkSmokeFixtures.self, from: Data(value.utf8)), fixtures.isValid else { return nil }
+            self.fixtures = fixtures
+        }
         self.scope = pathScope
         self.capture = capture
         self.term = term?.isEmpty == true ? nil : term

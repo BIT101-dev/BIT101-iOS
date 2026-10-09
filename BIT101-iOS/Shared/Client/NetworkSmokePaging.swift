@@ -14,26 +14,52 @@ enum NetworkSmokePaging {
         let identity = AppAccountSession.storage.communityCredentials.identity
         let first = try await load(0)
         try checkIdentity(identity)
-        try checkProgress(first: [], next: first.map(\.id))
-        let second = try await load(1)
-        try checkIdentity(identity)
-        try checkProgress(first: first.map(\.id), next: second.map(\.id))
-        return first
+        try checkIDs(first.map(\.id))
+        var sampled = CommunityPagedItems<Value>()
+        sampled.replace(with: first)
+        var progress = CommunityPageProgress<Int>(knownIDs: sampled.ids)
+        var page = 1
+        while true {
+            let next = try await load(page)
+            try checkIdentity(identity)
+            let ids = next.map(\.id)
+            try checkIDs(ids)
+            try progress.record(ids)
+            let advances = !Set(ids).subtracting(sampled.ids).isEmpty
+            sampled.append(next)
+            if ids.isEmpty || advances { return sampled.items }
+            page += 1
+        }
     }
 
-    static func batch<Value>(load: (Int) async throws -> GalleryPageBatch<Value>) async throws -> GalleryPageBatch<Value> {
+    static func batch<Value: Identifiable>(load: (Int) async throws -> GalleryPageBatch<Value>) async throws -> GalleryPageBatch<Value> where Value.ID == Int {
         let identity = AppAccountSession.storage.communityCredentials.identity
         let first = try await load(0)
         try checkIdentity(identity)
-        try checkProgress(first: [], next: first.sourceIDs)
+        try checkIDs(first.sourceIDs)
         guard first.nextSourcePage > 0, !first.canLoadMore || !first.sourceIDs.isEmpty
         else { throw URLError(.cannotParseResponse) }
-        let second = try await load(first.nextSourcePage)
-        try checkIdentity(identity)
-        try checkProgress(first: first.sourceIDs, next: second.sourceIDs)
-        guard second.nextSourcePage > first.nextSourcePage, !second.canLoadMore || !second.sourceIDs.isEmpty
-        else { throw URLError(.cannotParseResponse) }
-        return first
+        var sampled = CommunityPagedItems<Value>()
+        sampled.replace(with: first.items)
+        var sourceIDs = Set(first.sourceIDs)
+        var progress = CommunityPageProgress<Int>(knownIDs: sourceIDs)
+        var page = first.nextSourcePage
+        while true {
+            let next = try await load(page)
+            try checkIdentity(identity)
+            try checkIDs(next.sourceIDs)
+            guard next.nextSourcePage > page, !next.canLoadMore || !next.sourceIDs.isEmpty
+            else { throw URLError(.cannotParseResponse) }
+            try progress.record(next.sourceIDs)
+            let advances = !Set(next.sourceIDs).subtracting(sourceIDs).isEmpty
+            sampled.append(next.items)
+            sourceIDs.formUnion(next.sourceIDs)
+            if !next.canLoadMore || advances {
+                return .init(items: sampled.items, nextSourcePage: next.nextSourcePage,
+                    canLoadMore: next.canLoadMore, sourceIDs: sourceIDs.sorted())
+            }
+            page = next.nextSourcePage
+        }
     }
 
     static func messages(load: (Int?) async throws -> [GalleryMessage]) async throws -> [GalleryMessage] {
@@ -53,8 +79,8 @@ enum NetworkSmokePaging {
         guard identity == AppAccountSession.storage.communityCredentials.identity else { throw CancellationError() }
     }
 
-    private static func checkProgress(first: [Int], next: [Int]) throws {
-        guard next.allSatisfy({ $0 > 0 }), next.isEmpty || !Set(next).subtracting(first).isEmpty
+    private static func checkIDs(_ ids: [Int]) throws {
+        guard ids.allSatisfy({ $0 > 0 })
         else { throw URLError(.badServerResponse) }
     }
 }

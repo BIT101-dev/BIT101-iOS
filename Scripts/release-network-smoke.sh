@@ -21,6 +21,7 @@ APP_BUNDLE_ID="BIT101-dev.BIT101-iOS"
 SMOKE_SCOPE="${1:-all}"
 SMOKE_CAPTURE="${BIT101_NETWORK_SMOKE_CAPTURE:-none}"
 SMOKE_TERM="${BIT101_NETWORK_SMOKE_TERM:-}"
+SMOKE_FIXTURES="${BIT101_NETWORK_SMOKE_FIXTURES:-}"
 SMS_MODE="${2:-preflight}"
 [[ $# -le 2 ]] || { echo "用法：Scripts/release-network-smoke.sh [范围] [sms]" >&2; exit 64; }
 [[ "$SMS_MODE" == preflight || "$SMS_MODE" == sms && ( "$SMOKE_SCOPE" == school || "$SMOKE_SCOPE" == all ) ]] \
@@ -40,6 +41,21 @@ case "$SMOKE_CAPTURE" in
   ""|none|scheduleCache|rawCourseResponse) ;;
   *) echo "BIT101_NETWORK_SMOKE_CAPTURE 参数无效。" >&2; exit 64 ;;
 esac
+if [[ -n "$SMOKE_FIXTURES" ]]; then
+  python3 - "$SMOKE_FIXTURES" <<'PYFIXTURES' || { echo "BIT101_NETWORK_SMOKE_FIXTURES 需要有效的 posterID、courseID、courseNumber 和 paperID。" >&2; exit 64; }
+import json
+import sys
+try:
+    value = json.loads(sys.argv[1])
+    valid = isinstance(value, dict) and all(type(value.get(key)) is int and 0 < value[key] <= 2**63 - 1
+        for key in ('posterID', 'courseID', 'paperID'))
+    number = value.get('courseNumber') if isinstance(value, dict) else None
+    valid = valid and isinstance(number, str) and bool(number) and number == number.strip()
+except (ValueError, TypeError):
+    valid = False
+raise SystemExit(0 if valid else 1)
+PYFIXTURES
+fi
 if [[ "$SMOKE_SCOPE" == community-writes ]]; then
   python3 -c 'import sys; value=sys.argv[1]; sys.exit(0 if len(value) <= 19 and value.isascii() and value.isdecimal() and 0 < int(value) <= 2**63 - 1 else 1)' "${BIT101_COMMUNITY_SMOKE_ACCOUNT:-}" || { echo "社区写入需要明确专用账号 BIT101_COMMUNITY_SMOKE_ACCOUNT。" >&2; exit 64; }
   python3 -c 'import sys; value=sys.argv[1]; sys.exit(0 if len(value) <= 19 and value.isascii() and value.isdecimal() and 0 < int(value) <= 2**63 - 1 else 1)' "${BIT101_COMMUNITY_FOLLOW_TARGET:-}" || { echo "社区写入需要已关注的专用目标 BIT101_COMMUNITY_FOLLOW_TARGET。" >&2; exit 64; }
@@ -152,11 +168,11 @@ xcrun devicectl device install app \
   --device "$DEVICETCL_DEVICE_ID" \
   "$SMOKE_APP_PATH" >/dev/null
 
-python3 - "$LOCAL_REQUEST_PATH" "$SMOKE_SCOPE" "$RUN_ID" "$SMOKE_CAPTURE" "$SMOKE_TERM" "$SMS_MODE" "${BIT101_COMMUNITY_FOLLOW_TARGET:-}" "${BIT101_COMMUNITY_SMOKE_ACCOUNT:-}" <<'PY'
+python3 - "$LOCAL_REQUEST_PATH" "$SMOKE_SCOPE" "$RUN_ID" "$SMOKE_CAPTURE" "$SMOKE_TERM" "$SMS_MODE" "${BIT101_COMMUNITY_FOLLOW_TARGET:-}" "${BIT101_COMMUNITY_SMOKE_ACCOUNT:-}" "$SMOKE_FIXTURES" <<'PY'
 import json
 import sys
 
-path, scope, run_id, capture, term, sms_mode, follow_target, smoke_account = sys.argv[1:]
+path, scope, run_id, capture, term, sms_mode, follow_target, smoke_account, fixtures = sys.argv[1:]
 with open(path, "w", encoding="utf-8") as stream:
     json.dump({
         "scope": scope,
@@ -166,6 +182,7 @@ with open(path, "w", encoding="utf-8") as stream:
         "interactiveSMS": sms_mode == "sms",
         "communityFollowTarget": int(follow_target) if scope == "community-writes" else None,
         "communityExpectedAccount": int(smoke_account) if scope == "community-writes" else None,
+        "fixtures": json.loads(fixtures) if fixtures else None,
     }, stream)
 PY
 xcrun devicectl device copy to \

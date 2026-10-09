@@ -21,6 +21,24 @@ import TransportCore
 @Suite("Network smoke coverage")
 @MainActor
 struct NetworkSmokeCoverageTests {
+    @Test func maintainedFixturesValidateAndTravelThroughBothLaunchEntrypoints() throws {
+        let fixture = NetworkSmokeFixtures(posterID: 41, courseID: 43, courseNumber: "COURSE", paperID: 45)
+        let encoded = try JSONEncoder().encode(fixture)
+        let payload = try JSONSerialization.data(withJSONObject: ["scope": "bit101", "runID": "fixture",
+            "capture": "none", "fixtures": try JSONSerialization.jsonObject(with: encoded)])
+        let request = try JSONDecoder().decode(ReleaseNetworkSmokeLaunchRequest.self, from: payload)
+        #expect(request.fixtures?.isValid == true && request.fixtures?.courseID == 43)
+        var components = try #require(URLComponents(string: "bit101://network-smoke/bit101"))
+        components.queryItems = [.init(name: "fixtures", value: String(decoding: encoded, as: UTF8.self))]
+        #expect(ReleaseNetworkSmokeLaunchRequest(url: try #require(components.url))?.fixtures?.posterID == 41)
+        for value in [NetworkSmokeFixtures(posterID: 0, courseID: 43, courseNumber: "COURSE", paperID: 45),
+            NetworkSmokeFixtures(posterID: 41, courseID: 43, courseNumber: " COURSE", paperID: 45)] {
+            #expect(!value.isValid)
+            components.queryItems = [.init(name: "fixtures", value: String(decoding: try JSONEncoder().encode(value), as: UTF8.self))]
+            #expect(ReleaseNetworkSmokeLaunchRequest(url: try #require(components.url)) == nil)
+        }
+    }
+
     @Test func imageProbeUsesAnAvailableResourceAcrossTheSampledList() {
         let empty = CommunityImage(mid: "empty", url: "", lowUrl: "")
         let image = CommunityImage(mid: "image", url: "https://image.invalid/full", lowUrl: "https://image.invalid/low")
@@ -85,17 +103,23 @@ struct NetworkSmokeCoverageTests {
 
     @Test func repeatedPagesFailAndPartialOverlapOrTerminalPagesAdvance() async throws {
         for repeated in [true, false] {
+            var pages: [Int] = []
             await #expect(throws: URLError.self) {
                 _ = try await NetworkSmokePaging.arrayPage { page in
-                    [user(repeated || page == 0 ? 1 : 0)]
+                    pages.append(page)
+                    return [user(repeated || page == 0 ? 1 : 0)]
                 }
             }
+            #expect(pages == (repeated ? [0, 1, 2, 3, 4] : [0, 1]))
+            pages = []
             await #expect(throws: URLError.self) {
                 let _: GalleryPageBatch<CommunityUser> = try await NetworkSmokePaging.batch { page in
-                    .init(items: [], nextSourcePage: page + 1, canLoadMore: true,
+                    pages.append(page)
+                    return .init(items: [], nextSourcePage: page + 1, canLoadMore: true,
                         sourceIDs: [repeated || page == 0 ? 1 : 0])
                 }
             }
+            #expect(pages == (repeated ? [0, 1, 2, 3, 4] : [0, 1]))
         }
         for terminal in [false, true] {
             var pages: [Int] = []
@@ -111,6 +135,29 @@ struct NetworkSmokeCoverageTests {
                     sourceIDs: page == 0 ? [1, 2] : terminal ? [] : [2, 3])
             }
             #expect(pages == [0, 1])
+        }
+    }
+
+    @Test func temporaryRepeatedPagesRecoverAndSampleContinuationImages() async throws {
+        for repeated in [1, 3] {
+            var pages: [Int] = []
+            let values = try await NetworkSmokePaging.arrayPage { page in
+                pages.append(page)
+                return [user(page <= repeated ? 1 : 2)]
+            }
+            #expect(values.map(\.id) == [1, 2] && pages == Array(0...(repeated + 1)))
+            pages = []
+            let sample: GalleryPageBatch<CommunityUser> = try await NetworkSmokePaging.batch { page in
+                pages.append(page)
+                let id = page <= repeated ? 1 : 2
+                let value = CommunityUser(id: id, createTime: "", nickname: "fixture",
+                    avatar: .init(mid: "image", url: id == 2 ? "https://image.invalid/continuation" : "", lowUrl: ""), motto: "",
+                    identity: .init(id: 1, color: "", text: "", createTime: "", updateTime: "", deleteTime: nil))
+                return .init(items: [value], nextSourcePage: page + 1, canLoadMore: true, sourceIDs: [id])
+            }
+            #expect(sample.items.map(\.id) == [1, 2] && pages == Array(0...(repeated + 1)))
+            #expect(sample.sourceIDs == [1, 2] && sample.nextSourcePage == repeated + 2)
+            #expect(NetworkSmokePaging.imageURL(in: sample.items.map(\.avatar)) == "https://image.invalid/continuation")
         }
     }
 
@@ -260,7 +307,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
         private var smsChallenge: BITLoginAuthenticationChallenge { .init(challengeID: "fixture", accessToken: "fixture", status: "sms_required", maskedPhone: "***", expiresIn: 60) }
         init(stage: String, image: Data) { self.stage = stage; self.image = image }
         private var user: CommunityUser {
-            CommunityUser(id: 1, createTime: "", nickname: "fixture", avatar: CommunityImage(mid: "image", url: "https://image.invalid/image.png", lowUrl: ""), motto: "",
+            CommunityUser(id: 1, createTime: "", nickname: "fixture", avatar: CommunityImage(mid: "image", url: stage == "continuation-image-success" ? "" : "https://image.invalid/image.png", lowUrl: ""), motto: "",
                 identity: CommunityIdentity(id: 1, color: "", text: "", createTime: "", updateTime: "", deleteTime: nil))
         }
         private var poster: CommunityPoster {
@@ -276,7 +323,13 @@ extension ReleaseNetworkSmokeLifecycleTests {
             observed.insert("gallery-\(kind.rawValue)"); return posterPage(page ?? 0)
         }
         private func posterPage(_ page: Int) -> GalleryPageBatch<CommunityPoster> {
-            .init(items: page == 0 ? [poster] : [], nextSourcePage: page + 1, canLoadMore: false)
+            if stage == "continuation-image-success" {
+                let value = CommunityPoster(anonymous: false, claim: poster.claim, commentNum: 0, createTime: "", editTime: "", id: page + 1,
+                    images: page == 1 ? [.init(mid: "continuation", url: "https://image.invalid/continuation.png", lowUrl: "")] : [],
+                    likeNum: 0, public: true, tags: [], text: "fixture", title: "fixture", updateTime: "", user: user)
+                return .init(items: page < 2 ? [value] : [], nextSourcePage: page + 1, canLoadMore: page == 0)
+            }
+            return .init(items: page == 0 ? [poster] : [], nextSourcePage: page + 1, canLoadMore: false)
         }
         func fetchRecommendPage(sourcePage: Int) async throws -> GalleryPageBatch<CommunityPoster> { posterPage(sourcePage) }
         func fetchBotFeed(startPage: Int) async throws -> GalleryPageBatch<CommunityPoster> { posterPage(startPage) }
@@ -286,7 +339,9 @@ extension ReleaseNetworkSmokeLifecycleTests {
         func fetchMessageUnreadCounts() async throws -> GalleryMessageUnreadCounts { GalleryMessageUnreadCounts() }
         func fetchMessages(type: GalleryMessageType, lastID: Int?) async throws -> [GalleryMessage] { [] }
         func fetchPoster(id: Int) async throws -> GalleryPosterDetail {
-            GalleryPosterDetail(anonymous: false, claim: poster.claim, commentNum: 0, createTime: "", editTime: "", id: stage == "entity-identity-failure" ? id + 1 : id, images: poster.images,
+            observed.insert("fixture-poster-\(id)")
+            if stage == "maintained-fixtures-success", id == 1 { throw URLError(.resourceUnavailable) }
+            return GalleryPosterDetail(anonymous: false, claim: poster.claim, commentNum: 0, createTime: "", editTime: "", id: stage == "entity-identity-failure" ? id + 1 : id, images: poster.images,
                 like: false, likeNum: 0, own: false, plugins: "", public: true, tags: [], text: "fixture", title: "fixture", updateTime: "", user: user)
         }
         func fetchComments(objectID: String, order: CommunityCommentOrder, page: Int?) async throws -> GalleryPageBatch<CommunityComment> {
@@ -303,6 +358,8 @@ extension ReleaseNetworkSmokeLifecycleTests {
         }
         func fetchCourse(id: Int) async throws -> CourseDetail {
             observed.insert("course-detail")
+            observed.insert("fixture-course-\(id)")
+            if stage == "maintained-fixtures-success", id == 1 { throw URLError(.resourceUnavailable) }
             if stage == "community-failure" { throw URLError(.timedOut) }
             return CourseDetail(id: stage == "entity-identity-failure" ? id + 1 : id, name: "fixture", number: "COURSE", credit: 1, likeNum: 0, commentNum: 0, rate: 0, teachersName: "", teachersNumber: "", like: false)
         }
@@ -318,7 +375,9 @@ extension ReleaseNetworkSmokeLifecycleTests {
             return [PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")]
         }
         func fetchPaper(id: Int) async throws -> PaperDetail {
-            PaperDetail(id: stage == "entity-identity-failure" ? id + 1 : id, title: "fixture", intro: "", content: "fixture", createTime: "", updateTime: "", updateUser: user,
+            observed.insert("fixture-paper-\(id)")
+            if stage == "maintained-fixtures-success", id == 1 { throw URLError(.resourceUnavailable) }
+            return PaperDetail(id: stage == "entity-identity-failure" ? id + 1 : id, title: "fixture", intro: "", content: "fixture", createTime: "", updateTime: "", updateUser: user,
                 anonymous: false, likeNum: 0, commentNum: 0, publicEdit: false, like: false, own: false)
         }
         func fetchPreviewMetadata(id: Int) async throws -> PaperPreviewMetadata { try await fetchPaper(id: id).previewMetadata }
@@ -443,7 +502,8 @@ extension ReleaseNetworkSmokeLifecycleTests {
          "app-store-redirect-failure", "emergency-redirect-failure", "aasa-redirect-failure", "aasa-followed-redirect-failure",
          "aasa-mime-failure", "aasa-exclusion-failure", "image-budget-failure", "entity-identity-failure", "repeated-page-failure",
          "gallery-comment-page-failure", "course-comment-page-failure", "paper-comment-page-failure", "cors-method-failure", "cors-header-failure",
-         "schedule-term-failure", "historical-term-success"])
+         "schedule-term-failure", "historical-term-success", "maintained-fixtures-success", "continuation-image-success",
+         "missing-fixtures-failure", "fixture-course-number-failure"])
     func completeOrchestration(stage: String) async throws {
         let image = try #require(UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { $0.fill(CGRect(x: 0, y: 0, width: 1, height: 1)) }.pngData())
         let services = Services(stage: stage, image: image)
@@ -466,17 +526,28 @@ extension ReleaseNetworkSmokeLifecycleTests {
             feedbackProbe: { _ in feedback += 1 },
             loadScheduleCache: { ScheduleCache() }, makeScores: { services }, makeSchedule: { handler in services.rawResponse = handler; return services },
             makeProductionSchedule: { productionServices }, makeEclassSchedule: { services })
-        let scope: NetworkSmokeScope = stage.hasPrefix("all-") || redirectHost != nil || stage.hasPrefix("aasa") ? .all : stage == "community-failure" || stage == "image-budget-failure" || stage == "entity-identity-failure" || stage == "repeated-page-failure" || stage.contains("comment-page") || stage.hasPrefix("cors") ? .bit101 : stage.hasPrefix("ddl") ? .ddl : .schedule
+        let scope: NetworkSmokeScope = stage.hasPrefix("all-") || redirectHost != nil || stage.hasPrefix("aasa") ? .all : stage == "community-failure" || stage == "image-budget-failure" || stage == "entity-identity-failure" || stage == "repeated-page-failure" || stage.contains("comment-page") || stage.hasPrefix("cors") || stage.contains("fixtures") || stage == "continuation-image-success" || stage == "fixture-course-number-failure" ? .bit101 : stage.hasPrefix("ddl") ? .ddl : .schedule
         let runner = ReleaseNetworkSmokeRunner(dependencies: dependencies)
         let smsHandler: SchoolSMSCodeHandler = { _ in "fixture-code" }
         let report = await runner.run(scope: scope, runID: stage, capture: stage == "raw-write-failure" ? .rawCourseResponse : .none,
             term: stage == "historical-term-success" ? "historical-1" : nil,
+            fixtures: stage == "missing-fixtures-failure" ? nil : NetworkSmokeFixtures(posterID: 41, courseID: 43,
+                courseNumber: stage == "fixture-course-number-failure" ? "OTHER" : "COURSE", paperID: 45),
             schoolSMSCodeHandler: stage.hasPrefix("all-sms-") ? smsHandler : nil)
         if scope.includes(.bit101) {
             #expect(services.observed.isSuperset(of: ["gallery-follow", "gallery-hot", "gallery-newest"]))
             #expect(report.executedProbes.contains("话廊关注流") && report.executedProbes.contains("话廊热门流"))
         }
-        #expect(report.passed == !stage.hasSuffix("failure"))
+        #expect(report.passed == (!stage.hasSuffix("failure") || stage == "missing-fixtures-failure"))
+        if stage == "maintained-fixtures-success" {
+            #expect(services.observed.isSuperset(of: ["fixture-poster-41", "fixture-course-43", "fixture-paper-45"]))
+        }
+        if stage == "continuation-image-success" {
+            #expect(external.requests.contains { $0.url?.path == "/continuation.png" })
+        }
+        if stage == "missing-fixtures-failure" {
+            #expect(!report.coverageComplete && report.skippedProbes.contains { $0.contains("维护对象配置") })
+        }
         #expect(report.productionSessionEvidence == (scope.includes(.bit101) ? sessionEvidence : []))
         if stage == "all-sms-success" {
             #expect(report.schoolSMSCoverage == "verified")
@@ -495,9 +566,13 @@ extension ReleaseNetworkSmokeLifecycleTests {
         }
         if stage == "repeated-page-failure" {
             #expect(report.failures.contains { $0.contains("学业课程列表") })
+            #expect(services.observed.contains("fixture-course-43"))
+            #expect(report.coverageComplete)
+        }
+        if stage == "missing-fixtures-failure" {
             #expect(Set(scope.requiredProbes).subtracting(report.executedProbes)
-                == ["学业课程详情", "学业课程评论", "学业课程历史成绩", "学业课程网页详情"])
-            #expect(!report.coverageComplete)
+                == ["话廊帖子详情", "话廊帖子评论", "话廊网页详情", "学业课程详情", "学业课程评论",
+                    "学业课程历史成绩", "学业课程网页详情", "文章详情", "文章评论", "文章网页详情"])
         } else { #expect(Set(report.executedProbes) == Set(scope.requiredProbes)) }
         #expect(reports.count == 1 && reports[0].passed == report.passed)
         if scope.includes(.bit101) { #expect(feedback == 1 && services.observed.contains("mine") && services.observed.contains("paper-list")) }
