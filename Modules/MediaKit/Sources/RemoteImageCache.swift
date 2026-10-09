@@ -68,6 +68,13 @@ nonisolated final class PreviewFileOwnership: Sendable {
             return true
         }
     }
+    func materializeAndPin(_ file: URL, using files: any AppFileService, owner: UUID, create: @Sendable () throws -> Void) throws {
+        try sessions.withLock { sessions in
+            guard sessions[owner] != nil else { throw CancellationError() }
+            try create()
+            sessions[owner]?.insert(files.canonicalFileURL(file).path)
+        }
+    }
     func withPaths<T: Sendable>(_ operation: @Sendable (Set<String>) -> T) -> T {
         sessions.withLock { operation($0.values.reduce(into: []) { $0.formUnion($1) }) }
     }

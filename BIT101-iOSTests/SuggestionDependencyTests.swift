@@ -229,7 +229,7 @@ struct SettingsDependencyOwnershipTests {
         }
         let client = HTTPClient(transport: OfflineTransport(), observer: nil)
         func media(_ defaults: UserDefaults) -> MediaEnvironment {
-            MediaEnvironment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), defaults: defaults,
+            MediaEnvironment(files: PreferenceMemoryFiles(), previewStorage: MediaPreviewStorage(files: PreferenceMemoryFiles()), defaults: defaults,
                 imageHTTPClient: client, avatarHTTPClient: client)
         }
         let firstMedia = media(firstDefaults), secondMedia = media(secondDefaults)

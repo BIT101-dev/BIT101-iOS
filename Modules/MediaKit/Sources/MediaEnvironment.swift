@@ -35,13 +35,14 @@ public final class MediaEnvironment {
 
     public init(
         files: any AppFileService,
-        previewFiles: any AppFileService,
+        previewStorage: MediaPreviewStorage,
         defaults: UserDefaults,
         imageHTTPClient: HTTPClient,
         avatarHTTPClient: HTTPClient
     ) {
         let preferences = GalleryImageCachePreferences(defaults: defaults)
-        let ownership = PreviewFileOwnership()
+        let previewFiles = previewStorage.files
+        let ownership = previewStorage.ownership
         previewOwnership = ownership
         let quota = ImageCacheDiskQuota(files: files, cacheLimitMB: { preferences.limitMB }, previewOwnership: ownership)
         self.preferences = preferences
@@ -81,17 +82,22 @@ public final class MediaEnvironment {
         guard previewOwnership.contains(owner) else { throw CancellationError() }
         let directory = ImageCacheDirectories.gallery(using: previewFiles)
         let file = directory.appendingPathComponent("preview-local-\(SHA256.hash(data: data).hexString).png")
-        try previewFiles.createDirectory(at: directory)
-        if !previewFiles.fileExists(at: file) { try previewFiles.writeData(data, to: file, options: [.atomic]) }
-        guard previewOwnership.pin(file, using: previewFiles, owner: owner) else { throw CancellationError() }
+        let files = previewFiles
+        try previewOwnership.materializeAndPin(file, using: files, owner: owner) {
+            try files.createDirectory(at: directory)
+            if !files.fileExists(at: file) { try files.writeData(data, to: file, options: [.atomic]) }
+        }
         temporaryPreviewFiles[owner, default: []].insert(file)
         return file
     }
 
     private func removePreviewFile(_ file: URL) {
-        guard previewFiles.fileExists(at: file) else { return }
-        do { try previewFiles.removeItem(at: file) }
-        catch { Self.logger.error("Preview cleanup failed: \(error.localizedDescription, privacy: .public)") }
+        let files = previewFiles
+        previewOwnership.withPaths { retained in
+            guard !retained.contains(files.canonicalFileURL(file).path), files.fileExists(at: file) else { return }
+            do { try files.removeItem(at: file) }
+            catch { Self.logger.error("Preview cleanup failed: \(error.localizedDescription, privacy: .public)") }
+        }
     }
 
     @concurrent
@@ -134,6 +140,13 @@ public final class MediaEnvironment {
         await stillDecoder.clear()
         await animatedDecoder.clear()
     }
+}
+
+/// Environments sharing preview files consume the same storage and ownership resource.
+public final class MediaPreviewStorage {
+    let files: any AppFileService
+    let ownership = PreviewFileOwnership()
+    public init(files: any AppFileService) { self.files = files }
 }
 
 #endif

@@ -63,6 +63,7 @@ def write_report(report: dict) -> None:
 @cache
 def compilation_condition(condition: str, group: str) -> bool:
     enabled = {"DEBUG", "EXTENDED_AUTOMATION", "BIT101_AUTOMATED_TESTING"} if group in {"all", "catalyst"} else {"EXTENDED_AUTOMATION", "BIT101_AUTOMATED_TESTING", "BIT101_UI_TESTING"} if group == "ui" else set()
+    if group in NETWORK_GROUPS: enabled = {"RELEASE_NETWORK_SMOKE"}
     platform = "macOS" if group == "modules" else "iOS"
     architecture = os.uname().machine if group in {"modules", "catalyst", "catalyst-release-runtime"} else "arm64"
     def predicate(match):

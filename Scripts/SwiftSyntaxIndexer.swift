@@ -145,6 +145,7 @@ struct FunctionRangeFact: Encodable {
     var isExplicitInitializer: Bool = false
     var bodyStart: Int? = nil
     var isExported: Bool = false
+    var referenceTarget: String? = nil
 }
 
 struct FunctionParameterFact: Encodable {
@@ -708,6 +709,11 @@ final class FactVisitor: SyntaxVisitor {
         return .visitChildren
     }
 
+    private func functionReference(_ value: ExprSyntax?) -> String? {
+        guard let value, value.is(MemberAccessExprSyntax.self) || value.is(DeclReferenceExprSyntax.self) else { return nil }
+        return value.tokens(viewMode: .sourceAccurate).map(\.text).joined()
+    }
+
     override func visit(_ node: SequenceExprSyntax) -> SyntaxVisitorContinueKind {
         expressions.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
         let parts = Array(node.elements)
@@ -716,7 +722,7 @@ final class FactVisitor: SyntaxVisitor {
            let name = parts[0].as(DeclReferenceExprSyntax.self)?.baseName.text ?? parts[0].as(MemberAccessExprSyntax.self)?.declName.baseName.text {
             callableRanges.append(FunctionRangeFact(name: name, returnType: nil, returnsView: false, scope: scope,
                 start: parts[2].positionAfterSkippingLeadingTrivia.utf8Offset, end: parts[2].endPositionBeforeTrailingTrivia.utf8Offset,
-                lexicalScope: lexicalScope, parameters: []))
+                lexicalScope: lexicalScope, parameters: [], referenceTarget: functionReference(parts[2])))
         }
         return .visitChildren
     }
@@ -737,7 +743,8 @@ final class FactVisitor: SyntaxVisitor {
             callableRanges.append(FunctionRangeFact(name: pattern.identifier.text,
                 returnType: node.typeAnnotation?.type.trimmedDescription, returnsView: false, scope: scope,
                 start: node.positionAfterSkippingLeadingTrivia.utf8Offset,
-                end: node.endPositionBeforeTrailingTrivia.utf8Offset, lexicalScope: lexicalScope, parameters: []))
+                end: node.endPositionBeforeTrailingTrivia.utf8Offset, lexicalScope: lexicalScope, parameters: [],
+                referenceTarget: functionReference(node.initializer?.value)))
         }
         if let pattern = node.pattern.as(IdentifierPatternSyntax.self),
            let type = node.typeAnnotation?.type

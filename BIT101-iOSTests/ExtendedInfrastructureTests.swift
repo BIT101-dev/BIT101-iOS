@@ -280,7 +280,7 @@ struct ExperimentalPreferenceCloudSyncTests {
         let service = SemesterStartDateService()
         let schedule = ScheduleViewModel(service: service, repository: repository, ddlService: service, classroomService: service, platformActions: RecordingSchedulePlatformActions(), newCustomScheduleDraft: { CustomScheduleDraft() })
         let client = HTTPClient(transport: OfflineTransport(), observer: nil)
-        let media = MediaEnvironment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), defaults: UserDefaults.standard,
+        let media = MediaEnvironment(files: PreferenceMemoryFiles(), previewStorage: MediaPreviewStorage(files: PreferenceMemoryFiles()), defaults: UserDefaults.standard,
             imageHTTPClient: client, avatarHTTPClient: client)
         let session = CommunitySession(httpClient: client, baseURL: AppURL.required("https://example.invalid"),
             credentials: { CommunityCredentials(identity: .init(accountIdentifier: account.session.accountIdentifier), cookie: "fixture") }, refresh: { _ in })

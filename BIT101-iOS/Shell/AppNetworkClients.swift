@@ -206,7 +206,7 @@ enum AppNetworkPath {
 enum AppMedia {
     static let environment = MediaEnvironment(
         files: AppFileDirectories.files,
-        previewFiles: AppFileDirectories.files,
+        previewStorage: MediaPreviewStorage(files: AppFileDirectories.files),
         defaults: AppFileDirectories.defaults,
         imageHTTPClient: .community,
         avatarHTTPClient: .shared

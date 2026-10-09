@@ -107,7 +107,7 @@ struct FeatureCompositionTests {
     private func media() -> MediaEnvironment {
         let files = PreferenceMemoryFiles()
         let client = HTTPClient(transport: OfflineTransport(), observer: nil)
-        return MediaEnvironment(files: files, previewFiles: files, defaults: UserDefaults.standard,
+        return MediaEnvironment(files: files, previewStorage: MediaPreviewStorage(files: files), defaults: UserDefaults.standard,
                                 imageHTTPClient: client, avatarHTTPClient: client)
     }
 

@@ -60,6 +60,60 @@ NETWORK_CAPABILITIES = {
 }
 
 
+def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
+    from pathlib import Path
+    from validation_evidence import active_swift_source
+    files = {'ReleaseNetworkSmoke.swift', 'ReleaseNetworkSmokeModels.swift',
+        'NetworkSmokeProductionSession.swift', 'CommunityWriteSmoke.swift'}
+    nodes, by_name, active_sources = {}, {}, {}
+    for path, facts in index.items():
+        if Path(path).name not in files: continue
+        active = active_swift_source(Path(path).read_text(), 'network').encode() if Path(path).is_file() else None
+        active_sources[path] = active
+        for function in facts.get('functionRanges', []) + facts.get('callableRanges', []):
+            if active is not None and active[function['start']:function['start'] + 1] in {b' ', b'\n', b'\r'}: continue
+            key = (path, function['start'], function['end'])
+            nodes[key] = function
+            name = '.'.join([*function['scope'], function['name']])
+            by_name.setdefault(name, set()).add(key)
+    edges = {key: set() for key in nodes}
+    calls = {key: [] for key in nodes}
+    for key, function in nodes.items():
+        if reference := function.get('referenceTarget'):
+            owner = '.'.join(function['scope'])
+            for target in {reference, owner + '.' + reference.removeprefix('Self.').removeprefix('self.')}:
+                edges[key].update(by_name.get(target, set()))
+    for path, facts in index.items():
+        if Path(path).name not in files: continue
+        active = active_sources[path]
+        for fact in facts.get('invocations', []):
+            if active is not None and active[fact['start']:fact['start'] + 1] in {b' ', b'\n', b'\r'}: continue
+            containing = [key for key in nodes if key[0] == path and key[1] <= fact['start'] < key[2]]
+            if not containing: continue
+            key = min(containing, key=lambda item: item[2] - item[1])
+            expression = fact.get('calledExpression', fact.get('value', '')).removeprefix('self.')
+            owner = '.'.join(nodes[key]['scope'])
+            candidates = {expression, owner + '.' + expression.removeprefix('Self.')}
+            if expression in {'runInParallel', 'probe', 'NetworkSmokePaging.batch', 'NetworkSmokePaging.arrayPage', 'NetworkSmokePaging.messages'}:
+                for argument in fact.get('arguments', []): candidates.update({argument, owner + '.' + argument})
+            if expression.startswith('dependencies.'):
+                candidates.add('ReleaseNetworkSmokeDependencies.' + expression.split('.', 1)[1])
+            if fact.get('receiverCall'):
+                candidates.add(fact['receiverCall'] + '.' + expression.rsplit('.', 1)[-1])
+            for target in candidates: edges[key].update(by_name.get(target, set()))
+            if 'calledExpression' in fact: calls[key].append(fact)
+    reached = set(by_name.get('ReleaseNetworkSmokeRunner.run', set()))
+    waiting = list(reached)
+    while waiting:
+        for target in edges[waiting.pop()] - reached:
+            reached.add(target); waiting.append(target)
+    result = {'network': [], 'community-writes': []}
+    for key in reached:
+        route = 'community-writes' if Path(key[0]).name == 'CommunityWriteSmoke.swift' else 'network'
+        result[route].extend(calls[key])
+    return result
+
+
 def network_capability_findings(index: dict) -> list[str]:
     from pathlib import Path
     from validation_manual import MANUAL_SCENARIOS
@@ -70,21 +124,23 @@ def network_capability_findings(index: dict) -> list[str]:
     services = {owner.split('.')[1]: owner for owner in actual}
     observed = {'network': set(), 'community-writes': set()}
     edges = {}
+    for route, calls in reachable_smoke_calls(index).items():
+        for call in calls:
+            expression = call.get('calledExpression') or ''
+            method = expression.rsplit('.', 1)[-1]
+            receiver = expression.split('.', 1)[0]
+            owner = bindings.get(receiver) or services.get(call.get('receiverCall'))
+            if owner: observed[route].add((owner, method))
+    overloads = []
     for path, facts in index.items():
         parts = Path(path).parts
-        if Path(path).name in {'ReleaseNetworkSmoke.swift', 'NetworkSmokeProductionSession.swift', 'CommunityWriteSmoke.swift'}:
-            route = 'community-writes' if Path(path).name == 'CommunityWriteSmoke.swift' else 'network'
-            for call in facts.get('invocations', []):
-                expression = call.get('calledExpression') or ''
-                method = expression.rsplit('.', 1)[-1]
-                receiver = expression.split('.', 1)[0]
-                owner = bindings.get(receiver) or services.get(call.get('receiverCall'))
-                if owner: observed[route].add((owner, method))
         if 'Modules' not in parts: continue
         module = parts[parts.index('Modules') + 1]
         for function in facts['functionRanges']:
             owner = '.'.join([module, *function['scope']])
-            if owner in actual and function.get('isExported'): actual[owner].add(function['name'])
+            if owner in actual and function.get('isExported'):
+                if function['name'] in actual[owner]: overloads.append(f'{owner}.{function["name"]}')
+                actual[owner].add(function['name'])
             elif module in {'GalleryFeature', 'CourseFeature', 'PaperFeature', 'MineFeature'} and function.get('isExported') \
                     and function['scope'] and function['scope'][-1].endswith('Service') and owner not in actual:
                 actual.setdefault(owner, set()).add(function['name'])
@@ -98,7 +154,7 @@ def network_capability_findings(index: dict) -> list[str]:
         while waiting:
             for target in edges.get(waiting.pop(), set()) - calls:
                 calls.add(target); waiting.append(target)
-    errors = []
+    errors = [f'网络能力需要唯一公开方法名称，分别登记重载能力：{name}' for name in overloads]
     for owner in actual.keys() - NETWORK_CAPABILITIES.keys():
         errors.append(f'新增生产服务需要网络能力验收归属：{owner}')
     for name, routes in NETWORK_CAPABILITIES.items():
@@ -114,18 +170,63 @@ def network_capability_findings(index: dict) -> list[str]:
 
 def network_capability_self_test() -> None:
     from unittest.mock import patch
+    from validation_evidence import compilation_condition
+    assert compilation_condition('RELEASE_NETWORK_SMOKE', 'network')
+    assert not compilation_condition('DEBUG', 'network')
     index = {f'Modules/{name.split(".")[0]}/Sources/Service.swift': {'functionRanges': [{'name': method, 'scope': [name.split(".")[1]], 'isExported': True, 'start': 0, 'end': 1}
         for method in methods]} for name, methods in NETWORK_CAPABILITIES.items()}
     bindings = {'GalleryService': 'gallery', 'CourseService': 'courses', 'PaperService': 'papers', 'MineService': 'mine'}
-    for route, file in (('network', 'ReleaseNetworkSmoke.swift'), ('community-writes', 'CommunityWriteSmoke.swift')):
-        index[file] = {'functionRanges': [], 'invocations': [{'calledExpression': bindings[owner.split('.')[1]] + '.' + method}
-            for owner, methods in NETWORK_CAPABILITIES.items() for method, target in methods.items() if target == route]}
+    entries = (('network', 'ReleaseNetworkSmoke.swift', ['ReleaseNetworkSmokeRunner'], 'run'),
+        ('community-writes', 'CommunityWriteSmoke.swift', ['CommunityWriteSmoke', 'Operations'], 'production'))
+    for route, file, scope, entry in entries:
+        calls = [{'calledExpression': bindings[owner.split('.')[1]] + '.' + method, 'start': 10}
+            for owner, methods in NETWORK_CAPABILITIES.items() for method, target in methods.items() if target == route]
+        index[file] = {'functionRanges': [{'name': entry, 'scope': scope, 'start': 0, 'end': 100}], 'invocations': calls}
+    index['ReleaseNetworkSmoke.swift']['invocations'].append({'calledExpression': 'CommunityWriteSmoke.Operations.production', 'start': 10})
     assert network_capability_findings(index) == []
+    from copy import deepcopy
+    unused = deepcopy(index)
+    unused['ReleaseNetworkSmoke.swift']['functionRanges'][0]['scope'] = ['UnusedHelper']
+    assert any('实际服务调用' in error for error in network_capability_findings(unused))
+    nested = deepcopy(index)
+    nested['ReleaseNetworkSmoke.swift']['functionRanges'].append({'name': 'unused', 'scope': ['ReleaseNetworkSmokeRunner'], 'start': 5, 'end': 20})
+    assert any('实际服务调用' in error for error in network_capability_findings(nested))
+    queued = deepcopy(index)
+    queued['ReleaseNetworkSmoke.swift']['callableRanges'] = [{'name': 'queued', 'scope': ['ReleaseNetworkSmokeRunner'], 'start': 5, 'end': 20}]
+    assert any('实际服务调用' in error for error in network_capability_findings(queued))
+    invocation = {'calledExpression': 'runInParallel', 'start': 30, 'arguments': ['queued']}
+    queued['ReleaseNetworkSmoke.swift']['invocations'].append(invocation)
+    assert not network_capability_findings(queued)
+    invocation['calledExpression'] = 'storeCallback'
+    assert any('实际服务调用' in error for error in network_capability_findings(queued))
+    from pathlib import Path
+    from swift_source_index import swift_syntax_index_sources
+    sources = {
+        'ReleaseNetworkSmoke.swift': 'struct ReleaseNetworkSmokeRunner { func run() { dependencies.productionSessionProbe() } }',
+        'ReleaseNetworkSmokeModels.swift': 'struct ReleaseNetworkSmokeDependencies { var productionSessionProbe: () -> Void = NetworkSmokeProductionSession.run }',
+        'NetworkSmokeProductionSession.swift': 'enum NetworkSmokeProductionSession { static func run() { mine.fetchMyInfo() } }',
+    }
+    def reached(expressions):
+        facts = swift_syntax_index_sources(expressions)
+        with patch.object(Path, 'is_file', lambda path: str(path) in expressions), \
+                patch.object(Path, 'read_text', lambda path, *args, **kwargs: expressions[str(path)]):
+            return {call['calledExpression'] for call in reachable_smoke_calls(facts)['network']}
+    assert 'mine.fetchMyInfo' in reached(sources)
+    inactive = dict(sources)
+    inactive['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace('dependencies.productionSessionProbe()', '\n#if DEBUG\ndependencies.productionSessionProbe()\n#endif\n')
+    assert 'mine.fetchMyInfo' not in reached(inactive)
+    unused_reference = dict(sources)
+    unused_reference['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace('dependencies.productionSessionProbe()', 'let unused = dependencies.productionSessionProbe')
+    assert 'mine.fetchMyInfo' not in reached(unused_reference)
     courses = index['Modules/CourseFeature/Sources/Service.swift']['functionRanges']
     courses.append({'name': 'newEndpoint', 'scope': ['CourseService'], 'isExported': True, 'start': 0, 'end': 1})
     assert network_capability_findings(index)
     with patch.dict(NETWORK_CAPABILITIES['CourseFeature.CourseService'], newEndpoint='network'):
         assert any('实际服务调用' in error for error in network_capability_findings(index))
+    courses.pop()
+    courses.append({'name': 'fetchComments', 'scope': ['CourseService'], 'isExported': True, 'start': 2, 'end': 3,
+        'parameters': [{'label': 'includeReplies', 'type': 'Bool'}]})
+    assert any('唯一公开方法' in error for error in network_capability_findings(index))
     courses.pop()
     courses.append({'name': 'fetchCourse', 'scope': ['NewService'], 'isExported': True, 'start': 0, 'end': 1})
     assert any('新增生产服务' in error for error in network_capability_findings(index))
@@ -143,6 +244,8 @@ CRITICAL_CONTRACTS = {
         "分页时钟与内存测量": "MaintenancePerformanceTests/testCommunityPaginationPerformance",
         "图片解码时钟与内存测量": "MaintenancePerformanceTests/testStillImageDecodingPerformance",
         "离线宿主资源与网络隔离": "InfrastructureTests/behaviorHostIsolation",
+        "共享预览存储维持活动文件": "MediaDependencyTests/sharedPreviewStorageRetainsFilesAcrossEnvironmentCleanupAndClosing",
+        "预览创建与登记阻止并发清理": "MediaDependencyTests/previewCreationAndRegistrationExcludeConcurrentCleanup",
     },
     "modules": {
         "云端冲突决策写入基线": "ScheduleSyncTests/keepingLocalConflictPersistsTheNewBaselineThroughTheProductionRepository",

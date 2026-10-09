@@ -372,7 +372,7 @@ struct ReleaseNetworkSmokeDependencies {
     var makePapers: @MainActor () -> any NetworkSmokePaperServicing = { PaperService() }
     var makeMine: @MainActor () -> any NetworkSmokeMineServicing = { MineService() }
     var communityWriteProbe: @MainActor (String, Bool, Int?, Int?) async throws -> [String] = {
-        try await CommunityWriteSmoke(operations: .production(followTarget: $2)).run(marker: $0, cleanupOnly: $1, expectedAccount: $3)
+        try await CommunityWriteSmoke(operations: CommunityWriteSmoke.Operations.production(followTarget: $2)).run(marker: $0, cleanupOnly: $1, expectedAccount: $3)
     }
     var productionSessionProbe: @MainActor () async throws -> [String] = NetworkSmokeProductionSession.run
     var externalHTTPClient: HTTPClient = .shared

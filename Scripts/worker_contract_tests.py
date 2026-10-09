@@ -99,6 +99,28 @@ export class QuotaFixture extends ReportQuota {
     assert.equal((await inspect()).count, 1);
     assert((await kv.list()).keys.every(key => key.name.startsWith("report:")));
   } finally { await mf.dispose(); }
+  for (const limit of ["150", "0", "invalid"]) {
+    const configured = new Miniflare(convertV4MiniflareOptions({ name: "worker-fixture", modules: true, script: fixture,
+      compatibilityDate: config.compatibility_date, bindings: { REPORT_SOURCE_DAILY_LIMIT: limit },
+      durableObjects: { REPORT_QUOTA: { className: "QuotaFixture", useSQLite: true } }, log: new Log(LogLevel.NONE) }));
+    try {
+      const namespace = await configured.getDurableObjectNamespace("REPORT_QUOTA");
+      const quota = namespace.get(namespace.idFromName("daily"));
+      const day = new Date().toISOString().slice(0, 10);
+      await quota.fetch("https://quota/seed", { method: "POST", body: JSON.stringify({ day, count: 149, sources: { fixture: 149 } }) });
+      const reserve = () => quota.fetch("https://quota/reserve", { method: "POST", body: JSON.stringify({ source: "fixture", smoke: false }) });
+      const first = await reserve();
+      if (limit === "150") {
+        assert.equal((await first.json()).allowed, true);
+        assert.equal((await (await reserve()).json()).error, "source_limit_reached");
+        await quota.fetch("https://quota/seed", { method: "POST", body: JSON.stringify({ day, count: 1000 }) });
+        assert.equal((await (await reserve()).json()).error, "daily_limit_reached");
+      } else {
+        assert.equal(first.status, 503);
+        assert.equal((await first.json()).error, "invalid_source_quota");
+      }
+    } finally { await configured.dispose(); }
+  }
   const bodySource = fs.readFileSync("../ErrorReportWorker/worker.js", "utf8")
     .replace('import { DurableObject } from "cloudflare:workers";', 'class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }') + "\nexport { readReportBody, MAX_BODY_BYTES, forceRedact, PROTECTED_NAMES };";
   const { default: feedback, ReportEmailDelivery, readReportBody, MAX_BODY_BYTES, forceRedact, PROTECTED_NAMES } = await import("data:text/javascript;base64," + Buffer.from(bodySource).toString("base64"));

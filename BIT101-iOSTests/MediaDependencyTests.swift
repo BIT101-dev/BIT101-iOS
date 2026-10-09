@@ -224,7 +224,7 @@ struct MediaDependencyTests {
 
     private func environment(files: PreferenceMemoryFiles, previewFiles: PreferenceMemoryFiles, transport: any HTTPTransport) -> MediaEnvironment {
         let client = HTTPClient(transport: transport, observer: nil)
-        return MediaEnvironment(files: files, previewFiles: previewFiles, defaults: AppFileDirectories.defaults,
+        return MediaEnvironment(files: files, previewStorage: MediaPreviewStorage(files: previewFiles), defaults: AppFileDirectories.defaults,
                                 imageHTTPClient: client, avatarHTTPClient: client)
     }
 
@@ -414,7 +414,7 @@ struct MediaDependencyTests {
         defer { defaults.removePersistentDomain(forName: domain) }
         let files = PreferenceMemoryFiles()
         let client = HTTPClient(transport: Images(bytes: try png(width: 2) + Data(repeating: 1, count: 700_000)), observer: nil)
-        let media = MediaEnvironment(files: files, previewFiles: files, defaults: defaults,
+        let media = MediaEnvironment(files: files, previewStorage: MediaPreviewStorage(files: files), defaults: defaults,
             imageHTTPClient: client, avatarHTTPClient: client)
         media.cacheLimitMB = 1
         let owner = UUID()
@@ -463,6 +463,54 @@ struct MediaDependencyTests {
         await reopened.enforceCurrentLimit()
         #expect(previewFiles.fileExists(at: orphan) == false)
         #expect(previewFiles.fileExists(at: copiedLegacy) == false)
+    }
+
+    @Test func sharedPreviewStorageRetainsFilesAcrossEnvironmentCleanupAndClosing() async throws {
+        let files = PreferenceMemoryFiles()
+        let storage = MediaPreviewStorage(files: files)
+        let client = HTTPClient(transport: Images(bytes: Data()), observer: nil)
+        let first = MediaEnvironment(files: files, previewStorage: storage, defaults: AppFileDirectories.defaults,
+            imageHTTPClient: client, avatarHTTPClient: client)
+        let ownerA = UUID(), ownerB = UUID(), bytes = try png(width: 2)
+        first.beginPreview(owner: ownerA)
+        let file = try first.localPreviewFile(data: bytes, owner: ownerA)
+        let second = MediaEnvironment(files: files, previewStorage: storage, defaults: AppFileDirectories.defaults,
+            imageHTTPClient: client, avatarHTTPClient: client)
+        await second.enforceCurrentLimit()
+        #expect(files.fileExists(at: file))
+        second.beginPreview(owner: ownerB)
+        #expect(try second.localPreviewFile(data: bytes, owner: ownerB) == file)
+        first.endPreview(owner: ownerA)
+        await first.enforceCurrentLimit()
+        #expect(try files.readData(at: file) == bytes)
+        second.endPreview(owner: ownerB)
+        #expect(files.fileExists(at: file) == false)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func previewCreationAndRegistrationExcludeConcurrentCleanup() throws {
+        let files = PreferenceMemoryFiles(), ownership = PreviewFileOwnership(), owner = UUID()
+        let file = files.temporaryDirectoryURL.appending(path: "preview-creation.png")
+        let ready = DispatchSemaphore(value: 0), finished = DispatchSemaphore(value: 0)
+        ownership.begin(owner)
+        defer { ownership.end(owner) }
+        try ownership.materializeAndPin(file, using: files, owner: owner) {
+            try files.writeData(Data("preview".utf8), to: file, options: [.atomic])
+            DispatchQueue.global().async {
+                ready.signal()
+                ownership.withPaths { retained in
+                    if !retained.contains(files.canonicalFileURL(file).path) {
+                        do { try files.removeItem(at: file) }
+                        catch { Issue.record(error) }
+                    }
+                }
+                finished.signal()
+            }
+            ready.wait()
+            #expect(finished.wait(timeout: .now()) == .timedOut)
+        }
+        finished.wait()
+        #expect(files.fileExists(at: file))
     }
 
     @Test func clearingMediaReleasesBothDecodedMemoryCaches() async throws {

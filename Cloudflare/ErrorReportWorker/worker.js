@@ -130,6 +130,11 @@ function json(data, status = 200) {
 export class ReportQuota extends DurableObject {
   async fetch(request) {
     const { source, smoke } = await request.json();
+    const sourceLimit = smoke ? MAX_REPORTS_PER_SOURCE_PER_DAY
+      : Number(this.env?.REPORT_SOURCE_DAILY_LIMIT ?? MAX_REPORTS_PER_SOURCE_PER_DAY);
+    if (!Number.isSafeInteger(sourceLimit) || sourceLimit < 1 || sourceLimit > MAX_REPORTS_PER_DAY) {
+      return Response.json({ allowed: false, error: "invalid_source_quota" }, { status: 503 });
+    }
     const key = smoke ? "smoke" : "daily";
     const day = new Date().toISOString().slice(0, 10);
     const result = this.ctx.storage.transactionSync(() => {
@@ -138,7 +143,7 @@ export class ReportQuota extends DurableObject {
       if (current.count >= MAX_REPORTS_PER_DAY) return { allowed: false, error: "daily_limit_reached" };
       const sources = current.sources ?? {};
       const count = sources[source] ?? 0;
-      if (count >= MAX_REPORTS_PER_SOURCE_PER_DAY) return { allowed: false, error: "source_limit_reached" };
+      if (count >= sourceLimit) return { allowed: false, error: "source_limit_reached" };
       sources[source] = count + 1;
       this.ctx.storage.kv.put(key, { day, count: current.count + 1, sources });
       return { allowed: true };
@@ -335,9 +340,11 @@ export default {
     ));
     const source = Array.from(new Uint8Array(sourceBytes), byte => byte.toString(16).padStart(2, "0")).join("");
     const quota = env.REPORT_QUOTA.get(env.REPORT_QUOTA.idFromName("daily"));
-    const reservation = await (await quota.fetch("https://quota/reserve", {
+    const quotaResponse = await quota.fetch("https://quota/reserve", {
       method: "POST", body: JSON.stringify({ source, smoke: report.mode === "network-smoke" })
-    })).json();
+    });
+    if (!quotaResponse.ok) return json({ error: "quota_unavailable" }, 503);
+    const reservation = await quotaResponse.json();
     if (!reservation.allowed) return json({ error: reservation.error }, 429);
 
     const recordMetadata = { mode: report.mode, title: listText(report.errorTitle, 100),
