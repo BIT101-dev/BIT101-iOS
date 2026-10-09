@@ -53,6 +53,13 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
     resolve_receiver = receiver_resolver(index)
     network_owners = set(NETWORK_CAPABILITIES)
     dependencies = {}
+    for target, bases in types.records.items():
+        identity = '.'.join([target[0], *target[1]])
+        if target[1][-1] not in NETWORK_TRANSPORT_TYPES and 'HTTPTransport' not in types.bases(target): continue
+        network_owners.add(identity)
+        for base in bases:
+            if inherited := types.resolve(types.paths[target], base):
+                network_owners.add('.'.join([inherited[0], *inherited[1]]))
     active_sources = {path: active_swift_source(Path(path).read_text(), 'network').encode()
         if Path(path).is_file() else None for path in index}
     def owner(path, scope): return '.'.join([compilation_unit(path), *scope])
@@ -102,7 +109,7 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
     for path, facts in index.items():
         module = compilation_unit(path)
         if module in NETWORK_FOUNDATION_MODULES or module.endswith('Tests'): continue
-        for function in facts.get('functionRanges', []):
+        for function in facts.get('functionRanges', []) + [accessor for accessor in facts.get('accessorRanges', []) if accessor.get('isAsync')]:
             scope = function['scope']
             if not scope or function.get('lexicalScope') or not active(path, function): continue
             identity = owner(path, scope)

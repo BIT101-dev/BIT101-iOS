@@ -15,8 +15,8 @@ def audit_callback_findings(source: str) -> list[str]:
         "worker_parse": ["find|/audit/Cloudflare|-path|*/node_modules|-prune|-o|-type|f|-name|*.js|-print0", "node|--check|fixture.swift"],
         "dependency_audit": ["cd|/audit/Cloudflare/EmergencyUpdateWorker", "npm|audit|--audit-level=high"],
         "git_check": ["git|-C|/audit|diff|--check", "git|-C|/audit|diff|--cached|--check"],
-        "docs_check": ["cd|/audit", "python3|Scripts/check-docs.py|--all", "cd|/audit", "python3|Scripts/validate_versions.py|--compare-git-ref|base|--check-app-store"],
-        "checker_audit": ["python3|/audit/Scripts/check-file-lengths.py", "python3|/audit/Scripts/validation_evidence.py|self-test", "python3|/audit/Scripts/check-code-quality.py|--combined"],
+        "docs_check": ["cd|/audit", "python3|Scripts/check-docs.py|--all", "cd|/audit", "python3|Scripts/check-docs.py|--staged", "cd|/audit", "python3|Scripts/validate_versions.py|--compare-git-ref|base|--check-app-store"],
+        "checker_audit": ["python3|/audit/Scripts/check-file-lengths.py", "python3|/audit/Scripts/check-file-lengths.py|--staged", "python3|/audit/Scripts/validation_evidence.py|self-test", "python3|/audit/Scripts/check-code-quality.py|--combined"],
         "module_boundary_audit": ["python3|/audit/Scripts/check-module-boundaries.py"],
         "artifact_hygiene": ["python3|/audit/Scripts/validation_artifacts.py|/audit"],
     }

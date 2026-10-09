@@ -27,6 +27,7 @@ struct FileFacts: Encodable {
     let accessibilityModifiers: [FeedbackModifierFact]
     let accessibilityControls: [AccessibilityControlFact]
     let functionRanges: [FunctionRangeFact]
+    let accessorRanges: [FunctionRangeFact]
     let callableRanges: [FunctionRangeFact]
     let initializers: [FunctionRangeFact]
     let nonRenderedRanges: [ScopedRangeFact]
@@ -204,6 +205,7 @@ final class FactVisitor: SyntaxVisitor {
     private(set) var accessibilityModifiers: [FeedbackModifierFact] = []
     private(set) var accessibilityControls: [AccessibilityControlFact] = []
     private(set) var functionRanges: [FunctionRangeFact] = []
+    private(set) var accessorRanges: [FunctionRangeFact] = []
     private(set) var callableRanges: [FunctionRangeFact] = []
     private(set) var initializers: [FunctionRangeFact] = []
     private(set) var nonRenderedRanges: [ScopedRangeFact] = []
@@ -284,13 +286,13 @@ final class FactVisitor: SyntaxVisitor {
     }
     override func visitPost(_ node: ProtocolDeclSyntax) { leave() }
 
-    private func functionIsExported(_ node: FunctionDeclSyntax) -> Bool {
+    private func declarationIsExported(_ modifiers: DeclModifierListSyntax, parent: Syntax?) -> Bool {
         let access = Set(["public", "package", "open", "internal", "fileprivate", "private"])
         let exported = Set(["public", "package", "open"])
-        if let modifier = node.modifiers.first(where: { access.contains($0.name.text) }) {
+        if let modifier = modifiers.first(where: { access.contains($0.name.text) }) {
             return exported.contains(modifier.name.text)
         }
-        var parent = node.parent
+        var parent = parent
         while let ancestor = parent {
             if let extensionNode = ancestor.as(ExtensionDeclSyntax.self) {
                 return extensionNode.modifiers.contains { exported.contains($0.name.text) }
@@ -326,7 +328,7 @@ final class FactVisitor: SyntaxVisitor {
                 FunctionParameterFact(label: $0.firstName.text == "_" ? "" : $0.firstName.text, type: $0.type.trimmedDescription,
                     hasDefault: $0.defaultValue != nil, variadic: $0.ellipsis != nil, name: ($0.secondName ?? $0.firstName).text)
             }, bodyStart: node.body?.positionAfterSkippingLeadingTrivia.utf8Offset,
-            isExported: functionIsExported(node),
+            isExported: declarationIsExported(node.modifiers, parent: node.parent),
             isPrivate: node.modifiers.contains { ["private", "fileprivate"].contains($0.name.text) },
             isAsync: node.signature.effectSpecifiers?.asyncSpecifier != nil, returnedCall: returnedCall(node.body?.statements)
         ))
@@ -775,6 +777,26 @@ final class FactVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: PatternBindingSyntax) -> SyntaxVisitorContinueKind {
+        if let name = node.pattern.as(IdentifierPatternSyntax.self)?.identifier.text,
+           let declaration = node.parent?.parent?.as(VariableDeclSyntax.self), let block = node.accessorBlock {
+            let modifiers = declaration.modifiers
+            func recordGetter(_ body: some SyntaxProtocol, isAsync: Bool, statements: CodeBlockItemListSyntax?) {
+                accessorRanges.append(FunctionRangeFact(name: name, returnType: node.typeAnnotation?.type.trimmedDescription,
+                    returnsView: false, scope: scope, start: body.positionAfterSkippingLeadingTrivia.utf8Offset,
+                    end: body.endPositionBeforeTrailingTrivia.utf8Offset, lexicalScope: lexicalScope, parameters: [],
+                    bodyStart: body.positionAfterSkippingLeadingTrivia.utf8Offset,
+                    isExported: declarationIsExported(modifiers, parent: declaration.parent),
+                    isPrivate: modifiers.contains { ["private", "fileprivate"].contains($0.name.text) },
+                    isAsync: isAsync, returnedCall: returnedCall(statements)))
+            }
+            if case .getter(let statements) = block.accessors {
+                recordGetter(block, isAsync: false, statements: statements)
+            } else if case .accessors(let accessors) = block.accessors {
+                for accessor in accessors where accessor.accessorSpecifier.text == "get" && accessor.body != nil {
+                    recordGetter(accessor, isAsync: accessor.effectSpecifiers?.asyncSpecifier != nil, statements: accessor.body?.statements)
+                }
+            }
+        }
         var binding = fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset)
         binding.bindingName = node.pattern.as(IdentifierPatternSyntax.self)?.identifier.text
         binding.bindingType = node.typeAnnotation?.type.trimmedDescription
@@ -911,6 +933,7 @@ func indexSource(_ source: String, as key: String) {
         accessibilityModifiers: visitor.accessibilityModifiers,
         accessibilityControls: visitor.accessibilityControls,
         functionRanges: visitor.functionRanges,
+        accessorRanges: visitor.accessorRanges,
         callableRanges: visitor.callableRanges,
         initializers: visitor.initializers,
         nonRenderedRanges: visitor.nonRenderedRanges,

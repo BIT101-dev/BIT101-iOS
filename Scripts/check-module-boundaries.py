@@ -381,6 +381,9 @@ def file_member_accesses(source: str, properties: tuple = ()) -> list[int]:
         member = re.fullmatch(r"(.+)\.\s*(\w+)", expression)
         if member and member[1] != "self":
             owner = value_type(member[1], point, seen)
+            if member[2] in {"first", "last"} and owner and re.fullmatch(
+                    r"\[[^:]+\]|(?:Swift\.)?Array<.+>", normalized_type(owner)):
+                return element_type(owner)
             fields = [variable for variable in facts["typedVariables"]
                 if variable["name"] == member[2] and variable["scope"] and variable["scope"][-1] == owner
                 and not variable.get("lexicalScope")]

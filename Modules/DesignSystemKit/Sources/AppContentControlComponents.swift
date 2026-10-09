@@ -281,7 +281,7 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
                     .accessibilityValue(isSelected ? "已选择" : "未选择")
                     .accessibilityAddTraits(.isButton)
                     .appInteractiveListRow()
-                        .accessibilityIdentifier("ui.app-multi-selection-list.item")
+                        .accessibilityIdentifier("ui.app-multi-selection-list.item.\(String(reflecting: item))")
                 }
             }
         }

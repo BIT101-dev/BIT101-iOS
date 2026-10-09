@@ -22,7 +22,7 @@ TEST_AREA_SUITES = {
         "MaintenancePerformanceTests",
         "PreferenceCloudPayloadTests", "PreferenceMergeTests", "ReleaseNetworkSmokeLifecycleTests",
         "SchoolCookieIsolationTests", "ScoreCacheDiskRepositoryTests", "ScorePresentationTests",
-        "SettingsDependencyOwnershipTests", "SuggestionDependencyTests",
+        "SettingsDependencyOwnershipTests", "SuggestionDependencyTests", "UIInventoryIdentityTests",
     },
     "login": {"ExtendedLoginTests", "LoginBootstrapTests", "LoginLogicTests", "LoginStorageTests", "SchoolCookieIsolationTests"},
     "extensions": {"AppExternalDisplayTests", "ExternalScheduleInfrastructureTests", "ExternalScheduleWatchStatusTests"},
@@ -158,11 +158,14 @@ def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
     from pathlib import Path
     from validation_evidence import active_swift_source
     from network_capability_rules import call_can_execute
-    files = {'ReleaseNetworkSmoke.swift', 'ReleaseNetworkSmokeModels.swift',
-        'NetworkSmokeProductionSession.swift', 'CommunityWriteSmoke.swift'}
+    from swift_type_index import compilation_unit
+    units = {compilation_unit(path) for path, facts in index.items()
+        if any(function['scope'] == ['ReleaseNetworkSmokeRunner'] and function['name'] == 'run'
+            for function in facts.get('functionRanges', []))}
+    files = {path for path in index if compilation_unit(path) in units}
     nodes, by_name, active_sources = {}, {}, {}
     for path, facts in index.items():
-        if Path(path).name not in files: continue
+        if path not in files: continue
         active = active_swift_source(Path(path).read_text(), 'network').encode() if Path(path).is_file() else None
         active_sources[path] = active
         for function in facts.get('functionRanges', []) + facts.get('callableRanges', []):
@@ -179,7 +182,7 @@ def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
             for target in {reference, owner + '.' + reference.removeprefix('Self.').removeprefix('self.')}:
                 edges[key].update(by_name.get(target, set()))
     for path, facts in index.items():
-        if Path(path).name not in files: continue
+        if path not in files: continue
         active = active_sources[path]
         for fact in facts.get('invocations', []):
             if active is not None and active[fact['start']:fact['start'] + 1] in {b' ', b'\n', b'\r'}: continue
@@ -198,14 +201,17 @@ def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
                 candidates.add(fact['receiverCall'] + '.' + expression.rsplit('.', 1)[-1])
             for target in candidates: edges[key].update(by_name.get(target, set()))
             if 'calledExpression' in fact: calls[key].append(dict(fact, path=path))
-    reached = set(by_name.get('ReleaseNetworkSmokeRunner.run', set()))
+    reached = {(key, 'network') for key in by_name.get('ReleaseNetworkSmokeRunner.run', set())}
     waiting = list(reached)
     while waiting:
-        for target in edges[waiting.pop()] - reached:
-            reached.add(target); waiting.append(target)
+        key, route = waiting.pop()
+        for target in edges[key]:
+            target_route = 'community-writes' if nodes[target]['scope'][:1] == ['CommunityWriteSmoke'] else route
+            step = (target, target_route)
+            if step not in reached:
+                reached.add(step); waiting.append(step)
     result = {'network': [], 'community-writes': []}
-    for key in reached:
-        route = 'community-writes' if Path(key[0]).name == 'CommunityWriteSmoke.swift' else 'network'
+    for key, route in reached:
         result[route].extend(calls[key])
     return result
 
@@ -372,6 +378,17 @@ def network_capability_self_test() -> None:
                 patch.object(Path, 'read_text', lambda path, *args, **kwargs: expressions[str(path)] if str(path) in expressions else original_read(path, *args, **kwargs)):
             return {call['calledExpression'] for call in reachable_smoke_calls(facts)['network']}
     assert 'mine.fetchMyInfo' in reached(sources)
+    split = dict(sources)
+    split['NetworkSmokeExtra.swift'] = split.pop('NetworkSmokeProductionSession.swift')
+    assert reached(split) == reached(sources)
+    split['BIT101Watch/NetworkSmokeExtra.swift'] = split['NetworkSmokeExtra.swift'].replace('mine.fetchMyInfo()', 'mine.fetchWatchInfo()')
+    assert 'mine.fetchWatchInfo' not in reached(split)
+    writes = {'ReleaseNetworkSmoke.swift': 'struct ReleaseNetworkSmokeRunner { func run() { CommunityWriteSmoke.run() } }',
+        'CommunityWriteSmoke.swift': 'enum CommunityWriteSmoke { static func run() { WriteProbes.send() } }',
+        'NetworkSmokeExtra.swift': 'enum WriteProbes { static func send() { service.createPaper() } }'}
+    write_facts = swift_syntax_index_sources(writes)
+    assert 'service.createPaper' in {call['calledExpression'] for call in reachable_smoke_calls(write_facts)['community-writes']}
+    assert 'service.createPaper' not in {call['calledExpression'] for call in reachable_smoke_calls(write_facts)['network']}
     inactive = dict(sources)
     inactive['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace('dependencies.productionSessionProbe()', '\n#if DEBUG\ndependencies.productionSessionProbe()\n#endif\n')
     assert 'mine.fetchMyInfo' not in reached(inactive)
@@ -504,3 +521,18 @@ struct NewService {{ private let paper{annotation} = {initializer}; func fetch(i
                 index = swift_syntax_index_sources({path: source})
                 assert f'{module}.{name}' in business_methods(index), (kind, injection)
                 assert any('新增生产服务' in error for error in network_capability_findings(index)), (kind, injection)
+    getter_path = 'Modules/NewForumFeature/Sources/ReadService.swift'
+    for access, exported in [('public', True), ('private', False), ('internal', False)]:
+        getter = f'public struct ReadService {{ let client: HTTPClient; {access} var rows: HTTPResponse {{ get async throws {{ try await client.send(request) }} }} }}'
+        index = swift_syntax_index_sources({getter_path: getter})
+        methods = business_methods(index)
+        assert ('NewForumFeature.ReadService' in methods) == exported, access
+        if exported:
+            assert methods['NewForumFeature.ReadService'][0][1]['name'] == 'rows'
+            assert any('新增生产服务' in error for error in network_capability_findings(index))
+    protocol = 'public protocol RequestSending { func send(_ request: URLRequest) async throws -> HTTPResponse }; extension HTTPClient: RequestSending {}'
+    service = 'public struct ReadService { let client: any RequestSending; public func rows(_ request: URLRequest) async throws -> HTTPResponse { try await client.send(request) } }'
+    index = swift_syntax_index_sources({getter_path: 'import TransportCore; ' + service,
+        'Modules/TransportCore/Sources/HTTPClient.swift': 'public struct HTTPClient {}; ' + protocol})
+    assert 'NewForumFeature.ReadService' in business_methods(index)
+    assert any('新增生产服务' in error for error in network_capability_findings(index))

@@ -59,7 +59,7 @@ struct ScoreFilterPage: View {
                         }
                         .buttonStyle(.plain)
                         .appInteractiveListRow()
-                            .accessibilityIdentifier("ui.score-filter-page.option")
+                            .accessibilityIdentifier("ui.score-filter-page.option.\(option)")
                     }
                 }
             }

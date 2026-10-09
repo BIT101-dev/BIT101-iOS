@@ -1,3 +1,12 @@
+#if BIT101_UI_TESTING || EXTENDED_AUTOMATION
+nonisolated enum UITestControlIdentity {
+    static func key(scope: String, ancestors: [String], identifier: String, label: String, type: Int) -> String {
+        let control = identifier.isEmpty ? "\(type):\(label)" : identifier
+        return ([scope] + ancestors + [control]).map { "\($0.utf8.count):\($0)" }.joined(separator: ":")
+    }
+}
+#endif
+
 #if BIT101_UI_TESTING
 import Foundation
 import UIKit
@@ -43,7 +52,8 @@ enum UITestAccessibilityActions {
 
     static func record(_ identifier: String, label: String = "", type: Int = 0, scope: String? = nil, instance: String? = nil, action: String = "activate") {
         let key = identifier.isEmpty && !label.isEmpty ? "\(type):\(label)" : identifier
-        let identity = instance.flatMap { $0.isEmpty ? nil : $0 } ?? (scope ?? currentScope) + ":" + key + "#0"
+        let identity = instance.flatMap { $0.isEmpty ? nil : $0 }
+            ?? UITestControlIdentity.key(scope: scope ?? currentScope, ancestors: [], identifier: identifier, label: label, type: type) + "#0"
         if !key.isEmpty {
             visited.insert(identity)
             let actions = Set(visitedControls[identity]?["actions"] as? [String] ?? []).union([action])
@@ -59,7 +69,9 @@ enum UITestAccessibilityActions {
     static func checkDisabled(_ identifier: String, label: String, type: Int, scope: String?, instance: String?) {
         let key = identifier.isEmpty && !label.isEmpty ? "\(type):\(label)" : identifier
         if let instance, !instance.isEmpty { disabledChecked.insert(instance) }
-        else if !key.isEmpty { disabledChecked.insert((scope ?? currentScope) + ":" + key + "#0") }
+        else if !key.isEmpty {
+            disabledChecked.insert(UITestControlIdentity.key(scope: scope ?? currentScope, ancestors: [], identifier: identifier, label: label, type: type) + "#0")
+        }
     }
 
     static func identity(_ parameters: [String: String]) -> String {
@@ -307,7 +319,7 @@ enum UITestAccessibilityActions {
         currentScope = ([scenario] + navigation + modal).joined(separator: " / ")
         var visited = Set<ObjectIdentifier>()
         var occurrences: [String: Int] = [:]
-        func make(_ object: NSObject, scroll inherited: UIScrollView? = nil) -> Element? {
+        func make(_ object: NSObject, scroll inherited: UIScrollView? = nil, identityPath: [String] = []) -> Element? {
             guard visited.insert(ObjectIdentifier(object)).inserted else { return nil }
             if object is UIDatePicker || object is UIPickerView { return nil }
             if object.accessibilityElementsHidden { return nil }
@@ -380,7 +392,7 @@ enum UITestAccessibilityActions {
             if scrollContainer || object.isAccessibilityElement && [9, 33, 37, 40, 41, 42, 45, 49, 50, 52, 79].contains(type) {
                 if id.isEmpty && label.isEmpty { unidentified.insert("\(currentScope):\(type)") }
                 else {
-                    let key = currentScope + ":" + (id.isEmpty ? "\(type):\(label)" : id)
+                    let key = UITestControlIdentity.key(scope: currentScope, ancestors: identityPath, identifier: id, label: label, type: type)
                     let ordinal = occurrences[key, default: 0]
                     occurrences[key] = ordinal + 1
                     instance = key + "#\(ordinal)"
@@ -397,16 +409,17 @@ enum UITestAccessibilityActions {
                 "frame": [Double(frame.minX), Double(frame.minY), Double(frame.width), Double(frame.height)],
             ]
             if let value { attributes["value"] = value }
+            let childIdentityPath = id.isEmpty ? identityPath : identityPath + [id]
             var children: [Element] = []
             let count = object.accessibilityElementCount()
             if count != NSNotFound && count > 0 && !object.accessibilityTraits.contains(.adjustable) {
                 for index in 0..<count {
                     if let child = object.accessibilityElement(at: index) as? NSObject,
-                       let element = make(child, scroll: scroll) { children.append(element) }
+                       let element = make(child, scroll: scroll, identityPath: childIdentityPath) { children.append(element) }
                 }
             }
             if let view = object as? UIView {
-                children += view.subviews.compactMap { make($0, scroll: scroll) }
+                children += view.subviews.compactMap { make($0, scroll: scroll, identityPath: childIdentityPath) }
             }
             return Element(object: object, attributes: attributes, children: children, scroll: scroll)
         }

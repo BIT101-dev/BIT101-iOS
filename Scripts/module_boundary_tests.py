@@ -249,6 +249,9 @@ def run_self_test(rules: dict) -> None:
         "func dump(_ data: [Data], _ target: URL) throws { for item in data { try item.write(to: target) } }",
         "func dump(_ data: [Data], _ target: URL) throws { try data.forEach { try $0.write(to: target) } }",
         "func save(bytes: () -> Data, target: URL) throws { try bytes().write(to: target) }",
+        "func dump(_ values: [Data], _ target: URL) throws { let writer = values.first!.write(to:options:); try writer(target, .atomic) }",
+        "func dump(_ values: Array<Data>, _ target: URL) throws { let writer = values.last!.write(to:options:); try writer(target, .atomic) }",
+        "func dump(_ values: [Data], _ target: URL) throws { try values.first?.write(to: target) }",
         "struct Snapshot { let data: Data }; func dump(_ snapshot: Snapshot, _ target: URL) throws { try snapshot.data.write(to: target) }",
         "Darwin.readlink(path, buffer, count)",
         "func read(_ message: String) {}; read(fd, buffer, count)",
@@ -356,6 +359,7 @@ def run_self_test(rules: dict) -> None:
     assert service_boundary_errors(service_path, "struct Message { func write(to target: Int) {} }; func send(message: Message) { message.write(to: 42) }") == []
     assert service_boundary_errors(service_path, "struct Message { func write(to target: Int) {} }; func send(message: Message) { let writer = message.write(to:); writer(42) }") == []
     assert service_boundary_errors(service_path, "struct Message { func write(to target: Int) {} }; func send(message: Message) { let writer = message.write; writer(42) }") == []
+    assert service_boundary_errors(service_path, "struct Message { func write(to target: Int) {} }; func send(messages: [Message]) { let writer = messages.first!.write(to:); writer(42) }") == []
     assert service_boundary_errors("Modules/TransportCore/Sources/HTTPClient.swift", "try await transport.data(for: request)") == []
     assert service_boundary_errors(service_path, "func socket(_ value: Int) {}; socket(1); func send(_ value: Int) {}; send(1); enum Delivery { case send; case preflight }") == []
     assert service_boundary_errors("Modules/TransportCore/Sources/SecureURLTransport.swift", "URLSession(configuration: configuration)") == []

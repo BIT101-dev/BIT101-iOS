@@ -131,7 +131,7 @@ public struct ScoreListPage: View {
                             )
                             .frame(maxWidth: .infinity)
                         } else {
-                            ForEach(Array(viewModel.visibleRows.enumerated()), id: \.offset) { _, row in
+                            ForEach(viewModel.visibleRows) { row in
                                 NavigationLink {
                                     ScoreDetailView(
                                         row: row,
@@ -142,7 +142,7 @@ public struct ScoreListPage: View {
                                 }
                                 .buttonStyle(.plain)
                                 .appInteractiveListRow()
-                                    .accessibilityIdentifier("ui.score-list-page.score")
+                                    .accessibilityIdentifier("ui.score-list-page.score.\(row.id)")
                             }
                         }
                     }
@@ -157,7 +157,7 @@ public struct ScoreListPage: View {
                                 }
                                 .buttonStyle(.plain)
                                 .appInteractiveListRow()
-                                    .accessibilityIdentifier("ui.score-list-page.pending-course")
+                                    .accessibilityIdentifier("ui.score-list-page.pending-course.\(course.id)")
                             }
                         }
                     }

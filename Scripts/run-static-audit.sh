@@ -85,10 +85,12 @@ docs_check() {
     version_args+=(--check-app-store)
   fi
   (cd "$ROOT_DIR" && python3 Scripts/check-docs.py --all) || return 1
+  (cd "$ROOT_DIR" && python3 Scripts/check-docs.py --staged) || return 1
   (cd "$ROOT_DIR" && python3 Scripts/validate_versions.py "${version_args[@]}")
 }
 checker_audit() {
   python3 "$ROOT_DIR/Scripts/check-file-lengths.py" || return 1
+  python3 "$ROOT_DIR/Scripts/check-file-lengths.py" --staged || return 1
   python3 "$ROOT_DIR/Scripts/validation_evidence.py" self-test || return 1
   python3 "$ROOT_DIR/Scripts/check-code-quality.py" --combined
 }
