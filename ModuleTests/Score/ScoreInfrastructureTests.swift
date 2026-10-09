@@ -13,6 +13,42 @@ import os
 
 @MainActor
 struct ScoreInfrastructureBoundaryTests {
+    @Test(arguments: [false, true])
+    func scoreCacheReadsCheckTheirByteBudgetBeforeLoading(oversized: Bool) async throws {
+        let domain = "BIT101ModulesTests.score-byte-budget"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let session = AppStorageSession(accountIdentifier: "score-byte-budget")
+        let files = ModuleScoreFiles(), root = URL(fileURLWithPath: "/score-byte-budget")
+        let file = root.appending(path: session.accountStorageIdentifier).appending(path: "score-cache.json")
+        var data = Data(#"{"rows":[]}"#.utf8)
+        data.append(Data(repeating: 32, count: ScoreCacheStore.maximumCacheBytes + (oversized ? 1 : 0) - data.count))
+        try files.writeData(data, to: file, options: [])
+        let cache = ScoreCacheStore(files: files, storageRoot: root, defaults: defaults, session: { session })
+        if oversized {
+            await #expect(throws: ScoreCacheReadError.self) { try await cache.loadSnapshot() }
+            #expect(files.readCount(at: file) == 0)
+            #expect(await cache.save(rows: []) == nil)
+            #expect(files.storedData[file] == data)
+        } else {
+            #expect(try await cache.loadSnapshot()?.rows == [])
+            #expect(files.readCount(at: file) == 1)
+        }
+    }
+
+    @Test func oversizedScoreWritesPreserveThePreviouslyCommittedSnapshot() async throws {
+        let domain = "BIT101ModulesTests.score-write-budget"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let session = AppStorageSession(accountIdentifier: "score-write-budget")
+        let cache = ScoreCacheStore(files: ModuleScoreFiles(), storageRoot: URL(fileURLWithPath: "/score-write-budget"),
+            defaults: defaults, session: { session })
+        let rows = [ScoreRow(index: 0, headers: ["成绩"], values: ["95"])]
+        #expect(await cache.save(rows: rows) != nil)
+        let oversized = [ScoreRow(index: 0, headers: ["正文"], values: [String(repeating: "a", count: ScoreCacheStore.maximumCacheBytes)])]
+        #expect(await cache.save(rows: oversized) == nil)
+        #expect(await cache.loadRows() == rows)
+    }
     @Test func serviceFailuresProvidePresentationDetails() {
         let challenge = BITLoginAuthenticationChallenge(challengeID: "fixture", accessToken: "token",
             status: "sms_required", maskedPhone: nil, expiresIn: 120)
@@ -207,8 +243,8 @@ struct ScoreInfrastructureBoundaryTests {
             defaults.set(try encoder.encode(Date()), forKey: session.key("score.detail.cache.full-updated-at"))
             defaults.set(malformedType ? "damaged" as Any : Data("damaged".utf8), forKey: session.key(prefix))
             let retained = defaults.dictionaryRepresentation() as NSDictionary
-            #expect(await cache.loadSnapshot() == nil)
-            #expect(await cache.syncPayload() == nil)
+            await #expect(throws: ScoreCacheReadError.self) { try await cache.loadSnapshot() }
+            await #expect(throws: ScoreCacheReadError.self) { try await cache.syncPayload() }
             #expect(await cache.save(rows: rows) == nil)
             #expect(await cache.applySynced(.init(rows: rows, updatedAt: Date(), detailedUpdatedAt: nil)) == false)
             #expect(defaults.dictionaryRepresentation() as NSDictionary == retained)
@@ -230,7 +266,7 @@ struct ScoreInfrastructureBoundaryTests {
         defaults.set(try encoder.encode(date), forKey: session.legacyKey("score.detail.cache.full-updated-at"))
         let cache = ScoreCacheStore(files: ModuleScoreFiles(), storageRoot: URL(fileURLWithPath: "/legacy-valid"),
             defaults: defaults, session: { session })
-        #expect(await cache.syncPayload() == .init(rows: rows, updatedAt: date, detailedUpdatedAt: date))
+        #expect(try await cache.syncPayload() == .init(rows: rows, updatedAt: date, detailedUpdatedAt: date))
         #expect(defaults.object(forKey: session.legacyKey("score.detail.cache")) == nil)
         #expect(await cache.loadRows() == rows)
     }
@@ -244,15 +280,15 @@ struct ScoreInfrastructureBoundaryTests {
         let initial = ScoreCacheSyncPayload(rows: [ScoreRow(index: 0, headers: ["成绩"], values: ["80"])],
             updatedAt: Date(timeIntervalSince1970: 100), detailedUpdatedAt: nil)
         #expect(await cache.applySynced(initial))
-        let read = try #require(await cache.syncPayload())
+        let read = try #require(try await cache.syncPayload())
         let newer = [ScoreRow(index: 0, headers: ["成绩"], values: ["95"])]
         #expect(await cache.save(rows: newer) != nil)
         let remote = ScoreCacheSyncPayload(rows: initial.rows, updatedAt: Date(timeIntervalSince1970: 200), detailedUpdatedAt: nil)
         #expect(await cache.applySynced(remote, replacing: read) == false)
-        let current = try #require(await cache.syncPayload())
+        let current = try #require(try await cache.syncPayload())
         #expect(current.rows == newer)
         #expect(await cache.applySynced(remote, replacing: current))
-        #expect(await cache.syncPayload() == remote)
+        #expect(try await cache.syncPayload() == remote)
     }
 
     @Test(arguments: [false, true])
@@ -267,12 +303,12 @@ struct ScoreInfrastructureBoundaryTests {
             updatedAt: Date(timeIntervalSince1970: 100), detailedUpdatedAt: nil)
         #expect(await cache.applySynced(initial))
         #expect(await cache.applySynced(.init(rows: [], updatedAt: nil, detailedUpdatedAt: nil), replacing: initial) == false)
-        #expect(await cache.syncPayload() == initial)
+        #expect(try await cache.syncPayload() == initial)
         let timestamp = Date(timeIntervalSince1970: 200)
         let empty = ScoreCacheSyncPayload(rows: [], updatedAt: detailed ? nil : timestamp,
             detailedUpdatedAt: detailed ? timestamp : nil)
         #expect(await cache.applySynced(empty, replacing: initial))
-        #expect(await cache.syncPayload() == empty)
+        #expect(try await cache.syncPayload() == empty)
         #expect(await cache.loadRows() == [])
     }
 
@@ -284,15 +320,15 @@ struct ScoreInfrastructureBoundaryTests {
         let cache = ScoreCacheStore(files: files, storageRoot: root, defaults: defaults, session: { session })
         let rows = [ScoreRow(index: 0, headers: ["成绩"], values: ["80"])]
         #expect(await cache.saveDetailed(rows: rows) != nil)
-        #expect(await cache.loadSnapshot()?.detailedUpdatedAt != nil)
+        #expect(try await cache.loadSnapshot()?.detailedUpdatedAt != nil)
         let url = root.appending(path: session.accountStorageIdentifier).appending(path: "score-cache.json")
         var object = try #require(JSONSerialization.jsonObject(with: files.readData(at: url)) as? [String: Any])
         #expect(object["schemaVersion"] as? Int == 1)
         object["additionalField"] = ["nested": [1, 2]]
         try files.writeData(JSONSerialization.data(withJSONObject: object), to: url, options: [])
         #expect(await cache.save(rows: rows) != nil)
-        #expect(await cache.loadSnapshot()?.detailedUpdatedAt == nil)
-        #expect(await cache.syncPayload()?.detailedUpdatedAt == nil)
+        #expect(try await cache.loadSnapshot()?.detailedUpdatedAt == nil)
+        #expect(try await cache.syncPayload()?.detailedUpdatedAt == nil)
         let written = try #require(JSONSerialization.jsonObject(with: files.readData(at: url)) as? [String: Any])
         #expect(written["additionalField"] as? NSDictionary == object["additionalField"] as? NSDictionary)
     }
@@ -308,8 +344,8 @@ struct ScoreInfrastructureBoundaryTests {
         let url = root.appending(path: session.accountStorageIdentifier).appending(path: "score-cache.json")
         let bytes = Data(json.utf8)
         try files.writeData(bytes, to: url, options: [])
-        #expect(await cache.loadSnapshot() == nil)
-        #expect(await cache.syncPayload() == nil)
+        await #expect(throws: ScoreCacheReadError.self) { try await cache.loadSnapshot() }
+        await #expect(throws: ScoreCacheReadError.self) { try await cache.syncPayload() }
         #expect(await cache.save(rows: []) == nil)
         #expect(try files.readData(at: url) == bytes)
     }

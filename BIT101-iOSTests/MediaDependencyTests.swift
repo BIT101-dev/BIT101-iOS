@@ -348,9 +348,18 @@ struct MediaDependencyTests {
         await #expect(throws: CancellationError.self) { try await second.previewFile(at: preview, owner: request.id) }
     }
 
-    @Test func composerPreparesLargeImagesWithinTheExistingPixelAndByteBudget() async throws {
-        let prepared = try await ComposerImagePreparer().prepare(png(width: 3200, height: 1600))
+    @Test(arguments: [UTType.png.identifier, UTType.heic.identifier, UTType.jpeg.identifier])
+    func composerPreparesLargeImagesWithinTheExistingPixelAndByteBudget(format: String) async throws {
+        let source = try #require(CGImageSourceCreateWithData(png(width: 3200, height: 1600) as CFData, nil))
+        let original = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        let encoded = NSMutableData()
+        let destination = try #require(CGImageDestinationCreateWithData(encoded, format as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, original, nil)
+        #expect(CGImageDestinationFinalize(destination))
+        let prepared = try await ComposerImagePreparer().prepare(encoded as Data)
         let image = try #require(UIImage(data: prepared))
+        let result = try #require(CGImageSourceCreateWithData(prepared as CFData, nil))
+        #expect(CGImageSourceGetType(result) as String? == UTType.jpeg.identifier)
         #expect(image.size.width <= 1600 && image.size.height <= 1600)
         #expect(image.size.width == image.size.height * 2)
         #expect(prepared.count <= ComposerDraftImageCompressor.maximumBytes)

@@ -16,6 +16,28 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct ScoreFeatureTests {
+    @Test func protectedCacheRestoreReportsItsReasonAndRetriesAfterReadabilityReturns() async throws {
+        let domain = "BIT101ModulesTests.score-protected-restore"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let session = AppStorageSession(accountIdentifier: "score-protected-restore")
+        let files = ModuleScoreFiles()
+        let cache = ScoreCacheStore(files: files, storageRoot: URL(fileURLWithPath: "/score-protected-restore"),
+            defaults: defaults, session: { session })
+        let rows = [ScoreRow(index: 0, headers: ["成绩"], values: ["95"])]
+        #expect(await cache.save(rows: rows) != nil)
+        let service = ScoreServiceSpy()
+        let model = ScoreViewModel(service: service, cacheStore: cache,
+            preferenceStore: ScoreFilterPreferenceStore(defaults: defaults, session: { session }),
+            currentScoreCacheSession: { session }, scheduleCoursesChanges: Empty().eraseToAnyPublisher(), loadScheduleCourses: { _ in [:] })
+        files.setFailures(reading: true)
+        await model.restoreCachedDataIfNeeded()
+        #expect(model.state == .failed(ScoreCacheReadError.unreadable.localizedDescription))
+        files.setFailures()
+        await model.restoreCachedDataIfNeeded()
+        #expect(model.state == .loaded && model.rows == rows)
+    }
+
     @Test(arguments: [("", false), ("1", false), ("123", false), ("1234", true),
                       ("12345678", true), ("123456789", false), ("12a34", false), (" 1234\n", false)])
     func sharedVerificationCodeValidation(_ sample: (String, Bool)) {
@@ -485,7 +507,7 @@ struct ScoreFeatureTests {
         } else { refresh.cancel() }
         #expect(service.cancelled.withLock { $0 })
         await refresh.value
-        #expect(await cache.loadSnapshot(for: oldSession) == nil)
+        #expect(try await cache.loadSnapshot(for: oldSession) == nil)
         #expect(model.rows.isEmpty)
         #expect(model.refreshPhase == .idle)
     }

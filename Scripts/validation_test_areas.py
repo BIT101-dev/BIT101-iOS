@@ -412,6 +412,13 @@ def critical_findings(inventories: dict[str, set[str]]) -> list[str]:
 def network_discovery_self_test() -> None:
     from swift_source_index import swift_syntax_index_sources
     from network_capability_rules import business_methods
+    utility_path = 'Modules/ClientCore/Sources/Parser.swift'
+    transport_path = 'Modules/TransportCore/Sources/HTTPClient.swift'
+    transport = 'public struct HTTPClient { public static func message(from data: Data) -> String? { nil }; public static func make() -> HTTPClient { HTTPClient() }; public static func fetch() async -> Data { Data() } }'
+    for call, expected in [('HTTPClient.message(from: data)', False), ('HTTPClient.make()', True), ('await HTTPClient.fetch()', True), ('HTTPClient.shared.send(request)', True)]:
+        source = f'import TransportCore; public struct Parser {{ public func parse(data: Data) async {{ _ = {call} }} }}'
+        facts = swift_syntax_index_sources({utility_path: source, transport_path: transport})
+        assert ('ClientCore.Parser' in business_methods(facts)) == expected, call
     from network_capability_rules import matching_api_calls
     for parameters, invocation in [('name: KIND, page: Int = 0', 'name: "hello"'),
                                    ('page: Int = 0, name: KIND', 'name: "hello"'),

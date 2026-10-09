@@ -59,7 +59,7 @@ let package = Package(
         .target(name: "CommunityPersistence", dependencies: ["CommunityCore", "StorageCore"], path: "Modules/CommunityPersistence/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "CommunityCore", dependencies: ["StorageCore"], path: "Modules/CommunityCore/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "DesignSystemKit", path: "Modules/DesignSystemKit/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
-        .target(name: "ClientCore", path: "Modules/ClientCore/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
+        .target(name: "ClientCore", dependencies: ["TransportCore"], path: "Modules/ClientCore/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "StorageCore", path: "Modules/StorageCore/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "TransportCore", path: "Modules/TransportCore/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "CommunityTransport", dependencies: ["TransportCore"], path: "Modules/CommunityTransport/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),

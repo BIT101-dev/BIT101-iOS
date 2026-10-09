@@ -250,7 +250,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
             XCTAssertEqual(error as? ScheduleCloudTransportError, .serverRecordChanged)
         }
         var completed = coordination
-        let receivedCache = await coordinator.stores.scoreCache.syncPayload(for: nil)
+        let receivedCache = try await coordinator.stores.scoreCache.syncPayload(for: nil)
         let receivedPayload = try XCTUnwrap(receivedCache)
         let returningPayload = try ICloudSmokeEvidence.returningPayload(receivedPayload, token: try runID() + "-mac")
         let applied = await coordinator.stores.scoreCache.applySynced(returningPayload, for: nil, replacing: nil)
@@ -338,8 +338,8 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         let session = try smokeSession
         let reopened = ScoreCacheStore(files: LocalAppFileService(), storageRoot: try Self.storageRoot,
             defaults: try XCTUnwrap(UserDefaults(suiteName: preferenceDomain)), session: { session })
-        let current = await coordinator.stores.scoreCache.syncPayload(for: nil)
-        let persisted = await reopened.syncPayload(for: nil)
+        let current = try await coordinator.stores.scoreCache.syncPayload(for: nil)
+        let persisted = try await reopened.syncPayload(for: nil)
         XCTAssertEqual(try ICloudSmokeEvidence.fingerprint(XCTUnwrap(persisted)),
                        try ICloudSmokeEvidence.fingerprint(XCTUnwrap(current)))
     }
@@ -447,7 +447,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
 
     @MainActor
     private func localScoresMatch(_ coordination: Coordination, version: Date, coordinator: ExperimentalPreferenceCloudSync) async -> Bool {
-        let payload = await coordinator.stores.scoreCache.syncPayload(for: nil)
+        let payload = try? await coordinator.stores.scoreCache.syncPayload(for: nil)
         return ICloudSmokeEvidence.matches(
             payload, fingerprint: coordination.scoreFingerprint,
             localVersion: coordinator.synchronizedVersion(for: .scoreCache), expectedVersion: version

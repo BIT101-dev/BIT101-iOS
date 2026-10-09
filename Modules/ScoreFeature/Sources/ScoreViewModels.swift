@@ -156,7 +156,8 @@ public final class ScoreViewModel: ObservableObject {
     ///
     /// “查询成绩”和下拉刷新触发真实成绩查询，短信验证码在当前操作链路中展示。
     func restoreCachedDataIfNeeded() async {
-        guard state == .idle else { return }
+        guard state == .idle || !didRestoreCachedRows,
+              !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil else { return }
         let presentation = presentationGeneration
         let session = currentScoreCacheSession()
         let generation = accountGeneration
@@ -353,7 +354,7 @@ public final class ScoreViewModel: ObservableObject {
         generation: Int
     ) async throws {
         refreshPhase = .summary
-        let cachedSnapshot = await cacheStore.loadSnapshot(for: session)
+        let cachedSnapshot = try await cacheStore.loadSnapshot(for: session)
         guard isCurrent(session, generation: generation) else { return }
         let cachedRows = cachedSnapshot?.rows
         let briefTask = Task { @MainActor [service = self.service] in
@@ -586,14 +587,20 @@ public final class ScoreViewModel: ObservableObject {
         generation: Int
     ) async {
         guard !didRestoreCachedRows else { return }
-        didRestoreCachedRows = true
         presentationGeneration &+= 1
         let presentation = presentationGeneration
-        guard let snapshot = await cacheStore.loadSnapshot(for: session),
-              isCurrent(session, generation: generation), presentation == presentationGeneration,
-              !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil,
-              let rows = snapshot.rows
-        else { return }
+        let snapshot: ScoreCacheSnapshot?
+        do { snapshot = try await cacheStore.loadSnapshot(for: session) }
+        catch {
+            guard isCurrent(session, generation: generation), presentation == presentationGeneration,
+                  !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil else { return }
+            state = .failed(error.localizedDescription)
+            return
+        }
+        guard isCurrent(session, generation: generation), presentation == presentationGeneration,
+              !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil else { return }
+        didRestoreCachedRows = true
+        guard let snapshot, let rows = snapshot.rows else { state = .idle; return }
         lastUpdatedAt = snapshot.updatedAt
         applyRows(rows)
     }
@@ -605,11 +612,17 @@ public final class ScoreViewModel: ObservableObject {
         let presentation = presentationGeneration
         let session = currentScoreCacheSession()
         let generation = accountGeneration
-        guard let snapshot = await cacheStore.loadSnapshot(for: session),
-              isCurrent(session, generation: generation), presentation == presentationGeneration,
-              !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil,
-              let cachedRows = snapshot.rows
-        else { return }
+        let snapshot: ScoreCacheSnapshot?
+        do { snapshot = try await cacheStore.loadSnapshot(for: session) }
+        catch {
+            guard isCurrent(session, generation: generation), presentation == presentationGeneration,
+                  !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil else { return }
+            didRestoreCachedRows = false
+            state = .failed(error.localizedDescription)
+            return
+        }
+        guard let snapshot, isCurrent(session, generation: generation), presentation == presentationGeneration,
+              !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil, let cachedRows = snapshot.rows else { return }
         didRestoreCachedRows = true
         lastUpdatedAt = snapshot.updatedAt
         applyRows(cachedRows)

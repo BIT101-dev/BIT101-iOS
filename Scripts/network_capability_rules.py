@@ -58,6 +58,20 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
     def active(path, node):
         source = active_sources[path]
         return source is None or source[node['start']:node['start'] + 1] not in {b' ', b'\n', b'\r'}
+    def value_utility(path, call):
+        expression = call.get('calledExpression', '')
+        receiver, _, name = expression.rpartition('.')
+        target = types.resolve(path, receiver, call['scope'])
+        if not target: return False
+        scope = (target[0], *target[1])
+        definitions = [(source_path, function) for source_path, facts in index.items()
+            for function in facts.get('functionRanges', []) if function['name'] == name
+            and types.function_scope(source_path, function['scope']) == scope
+            and matching_functions({'functionRanges': [function]}, name, dict(call, scope=function['scope']))]
+        return bool(definitions) and all(not function.get('isAsync') and not any(
+            types.terminal_name(source_path, kind, function['scope']).rsplit('.', 1)[-1] in NETWORK_TRANSPORT_TYPES | {'URLRequest'}
+            for kind in [function.get('returnType') or '', *[parameter['type'] for parameter in function.get('parameters', [])]])
+            for source_path, function in definitions)
     for path, facts in index.items():
         module = compilation_unit(path)
         if module in NETWORK_FOUNDATION_MODULES or module.endswith('Tests'): continue
@@ -72,7 +86,7 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
             if not call['scope'] or not active(path, call): continue
             expression = call.get('calledExpression', '')
             if expression.removesuffix('.init').rsplit('.', 1)[-1] in NETWORK_TRANSPORT_TYPES | {'URLRequest'} \
-                    or expression.split('.', 1)[0] in NETWORK_TRANSPORT_TYPES:
+                    or expression.split('.', 1)[0] in NETWORK_TRANSPORT_TYPES and not value_utility(path, call):
                 network_owners.add(owner(path, call['scope']))
     changed = True
     while changed:

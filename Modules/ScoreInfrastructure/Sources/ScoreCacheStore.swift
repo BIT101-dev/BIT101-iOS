@@ -52,6 +52,7 @@ nonisolated enum ScoreCacheDiskWriteResult: Sendable {
 ///
 /// 按学号隔离；文件读写、JSON 编解码和变更串行化均在专用 actor 执行。
 public final class ScoreCacheStore: ScoreCacheSynchronizing {
+    public nonisolated static let maximumCacheBytes = 16 * 1_024 * 1_024
     private let changeSubject = PassthroughSubject<AppStorageSession, Never>()
     public var changes: AnyPublisher<AppStorageSession, Never> { changeSubject.eraseToAnyPublisher() }
     private let saveSubject = PassthroughSubject<AppStorageSession, Never>()
@@ -69,8 +70,8 @@ public final class ScoreCacheStore: ScoreCacheSynchronizing {
         self.storageOperations = storageOperations
     }
 
-    public func loadSnapshot(for session: AppStorageSession? = nil) async -> ScoreCacheSnapshot? {
-        guard storageOperations.begin() else { return nil }
+    public func loadSnapshot(for session: AppStorageSession? = nil) async throws -> ScoreCacheSnapshot? {
+        guard storageOperations.begin() else { throw ScoreCacheReadError.unavailable }
         defer { storageOperations.finish() }
         let session = session ?? currentSession()
         let result = await repository.load(for: session, legacyData: legacyData(for: session))
@@ -78,17 +79,17 @@ public final class ScoreCacheStore: ScoreCacheSynchronizing {
         case .loaded(let snapshot, let migratedLegacy):
             if migratedLegacy { clearLegacyDefaults(for: session) }
             return snapshot
-        case .missing, .unreadable:
-            return nil
+        case .missing: return nil
+        case .unreadable: throw ScoreCacheReadError.unreadable
         }
     }
 
     public func loadRows(for session: AppStorageSession? = nil) async -> [ScoreRow]? {
-        await loadSnapshot(for: session)?.rows
+        try? await loadSnapshot(for: session)?.rows
     }
 
     public func loadUpdatedAt(for session: AppStorageSession? = nil) async -> Date? {
-        await loadSnapshot(for: session)?.updatedAt
+        try? await loadSnapshot(for: session)?.updatedAt
     }
 
     @discardableResult
@@ -117,9 +118,9 @@ public final class ScoreCacheStore: ScoreCacheSynchronizing {
         return finishWrite(result, for: session, syncPreference: true)
     }
 
-    /// 文件损坏时返回 nil，使同步协调暂停该域，避免把空快照上传覆盖云端数据。
-    public func syncPayload(for session: AppStorageSession? = nil) async -> ScoreCacheSyncPayload? {
-        guard storageOperations.begin() else { return nil }
+    /// 文件读取错误沿同步端口传递，协调器保留本机与云端载荷并提示恢复原因。
+    public func syncPayload(for session: AppStorageSession? = nil) async throws -> ScoreCacheSyncPayload? {
+        guard storageOperations.begin() else { throw ScoreCacheReadError.unavailable }
         defer { storageOperations.finish() }
         let session = session ?? currentSession()
         let result = await repository.load(for: session, legacyData: legacyData(for: session))
@@ -134,7 +135,7 @@ public final class ScoreCacheStore: ScoreCacheSynchronizing {
         case .missing:
             return ScoreCacheSyncPayload(rows: [], updatedAt: nil, detailedUpdatedAt: nil)
         case .unreadable:
-            return nil
+            throw ScoreCacheReadError.unreadable
         }
     }
 
@@ -327,7 +328,7 @@ actor ScoreCacheDiskRepository {
 
     private func readFile(at url: URL) -> ExistingFileResult {
         try? files.setPrivateFileProtection(at: url)
-        guard let data = try? files.readData(at: url),
+        guard let data = try? files.readData(at: url, maximumBytes: ScoreCacheStore.maximumCacheBytes),
               let stored = try? decodeStoredData(data)
         else {
             Self.logger.error("成绩缓存无法读取，保留原文件：\(url.lastPathComponent, privacy: .public)")
@@ -348,6 +349,8 @@ actor ScoreCacheDiskRepository {
 
     private func decodeLegacy(_ legacyData: ScoreCacheLegacyData) throws -> ScoreCacheSnapshot {
         guard !legacyData.isUnreadable else { throw CocoaError(.coderReadCorrupt) }
+        guard [legacyData.rows, legacyData.updatedAt, legacyData.detailedUpdatedAt].compactMap({ $0 })
+            .reduce(0, { $0 + $1.count }) <= ScoreCacheStore.maximumCacheBytes else { throw CocoaError(.fileReadTooLarge) }
         let decoder = JSONDecoder()
         return ScoreCacheSnapshot(
             rows: try legacyData.rows.map { try decoder.decode([ScoreRow].self, from: $0) },
@@ -360,10 +363,12 @@ actor ScoreCacheDiskRepository {
         let url = fileURL(for: session)
         try files.createDirectory(at: url.deletingLastPathComponent())
         let encoded = try JSONEncoder().encode(stored.snapshot)
+        guard encoded.count <= ScoreCacheStore.maximumCacheBytes else { throw CocoaError(.fileWriteOutOfSpace) }
         guard let snapshot = try JSONSerialization.jsonObject(with: encoded) as? [String: Any] else { throw CocoaError(.coderInvalidValue) }
         var fields = stored.fields.merging(snapshot) { _, new in new }
         fields["schemaVersion"] = 1
         let data = try JSONSerialization.data(withJSONObject: fields)
+        guard data.count <= ScoreCacheStore.maximumCacheBytes else { throw CocoaError(.fileWriteOutOfSpace) }
         try files.writeData(
             data,
             to: url,

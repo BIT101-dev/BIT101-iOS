@@ -178,7 +178,9 @@ struct ExperimentalPreferenceCloudSyncTests {
         var suspendRead = true
         var suspendApply = false
         var applied = 0
-        func syncPayload(for session: AppStorageSession?) async -> ScoreCacheSyncPayload? {
+        var failsRead = false
+        func syncPayload(for session: AppStorageSession?) async throws -> ScoreCacheSyncPayload? {
+            if failsRead { throw ScoreCacheReadError.unreadable }
             if suspendRead { suspendRead = false; return await withCheckedContinuation { read = $0 } }
             return payload
         }
@@ -253,6 +255,52 @@ struct ExperimentalPreferenceCloudSyncTests {
             synchronizedDomains: synchronizedDomains, notificationCenter: center
         )
         return (sync, defaults, cloud, account)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func unreadableScoresReportTheRecoveryReasonAndResumeTheirCloudDomain() async throws {
+        let cache = SuspendedScoreCache()
+        cache.suspendRead = false
+        cache.failsRead = true
+        let (sync, defaults, cloud, account) = try context(scoreCache: cache, synchronizedDomains: [.scoreCache])
+        defer { defaults.removePersistentDomain(forName: preferenceDomain) }
+        await sync.refreshFromCloudIfNeeded()?.value
+        #expect(sync.syncIssue == ScoreCacheReadError.unreadable.localizedDescription)
+        #expect(cloud.data(forKey: key(.scoreCache, account: account)) == nil)
+        cache.failsRead = false
+        await sync.refreshFromCloudIfNeeded()?.value
+        #expect(sync.syncIssue == nil && cloud.data(forKey: key(.scoreCache, account: account)) != nil)
+    }
+
+    @Test(arguments: [false, true])
+    func scoreMutationKeepsItsObservedRemoteBoundaryAfterReconstruction(newRemote: Bool) async throws {
+        let (sync, defaults, cloud, account) = try context(synchronizedDomains: [.scoreCache])
+        defer { defaults.removePersistentDomain(forName: preferenceDomain) }
+        sync.setEnabled(false)
+        let remoteDate = Date().addingTimeInterval(600)
+        let row = ScoreRow(index: 0, headers: ["成绩"], values: ["80"])
+        let remote = ScoreCacheSyncPayload(rows: [row], updatedAt: remoteDate, detailedUpdatedAt: nil)
+        let cloudKey = key(.scoreCache, account: account)
+        cloud.set(try ScoreCacheSyncPayloadCodec.encode(ExperimentalPreferenceSyncEnvelope(updatedAt: remoteDate, payload: remote)), forKey: cloudKey)
+        let localRows = [ScoreRow(index: 0, headers: ["成绩"], values: ["95"])]
+        #expect(await sync.stores.scoreCache.save(rows: localRows, for: account.session) != nil)
+        if newRemote {
+            var newer = remote
+            newer.rows = [ScoreRow(index: 0, headers: ["成绩"], values: ["99"])]
+            cloud.set(try ScoreCacheSyncPayloadCodec.encode(ExperimentalPreferenceSyncEnvelope(
+                updatedAt: remoteDate.addingTimeInterval(600), payload: newer)), forKey: cloudKey)
+        }
+        let restored = ExperimentalPreferenceCloudSync(settings: sync.settings, stores: sync.stores,
+            defaults: defaults, cloudStore: cloud,
+            scoreEncryption: ScoreCacheSyncEncryption(defaults: defaults, credentials: cloud.scoreKeys),
+            synchronizedDomains: [.scoreCache])
+        restored.setEnabled(true)
+        await restored.refreshFromCloudIfNeeded()?.value
+        let payload = try #require(try await restored.stores.scoreCache.syncPayload(for: account.session))
+        #expect(payload.rows.first?.values.first?.value == (newRemote ? "99" : "95"))
+        let published = try restored.decodeScoreCloudEnvelope(ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload>.self,
+            from: #require(cloud.data(forKey: cloudKey)))
+        if !newRemote { #expect(published.updatedAt > remoteDate && published.payload.rows == localRows) }
+        #expect(defaults.object(forKey: "experimental.preference-cloud-sync.pending-score.\(account.session.accountStorageIdentifier)") == nil)
     }
 
     private final class ExternalDisplays: AppExternalDisplayCoordinating {
@@ -634,19 +682,19 @@ struct ExperimentalPreferenceCloudSyncTests {
         await sender.refreshFromCloudIfNeeded()?.value
         #expect(await sender.stores.scoreCache.saveDetailed(rows: [], for: nil) != nil)
         await sender.refreshFromCloudIfNeeded()?.value
-        let payload = try #require(await sender.stores.scoreCache.syncPayload(for: nil))
+        let payload = try #require(try await sender.stores.scoreCache.syncPayload(for: nil))
         #expect(payload.rows.isEmpty && payload.updatedAt != nil && payload.detailedUpdatedAt != nil)
         let encrypted = try #require(senderCloud.data(forKey: key(.scoreCache, account: senderAccount)))
         #expect(ScoreCacheSyncEncryption.isEncrypted(encrypted))
         receiverCloud.scoreKeys.values = senderCloud.scoreKeys.values
         receiverCloud.set(encrypted, forKey: key(.scoreCache, account: receiverAccount))
         await receiver.refreshFromCloudIfNeeded()?.value
-        #expect(await receiver.stores.scoreCache.syncPayload(for: nil) == payload)
+        #expect(try await receiver.stores.scoreCache.syncPayload(for: nil) == payload)
         let envelope = try sender.decodeScoreCloudEnvelope(ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload>.self, from: encrypted)
         let versionKey = "experimental.preference-cloud-sync.local-updated.\(receiverAccount.session.accountStorageIdentifier).\(ExperimentalPreferenceSyncDomain.scoreCache.rawValue)"
         #expect(receiverDefaults.object(forKey: versionKey) as? Date == envelope.updatedAt)
         await receiver.refreshFromCloudIfNeeded()?.value
-        #expect(await receiver.stores.scoreCache.syncPayload(for: nil) == payload)
+        #expect(try await receiver.stores.scoreCache.syncPayload(for: nil) == payload)
     }
 
     @Test func plaintextScoreMigrationAndDelayedKeyKeepPayloadReadable() async throws {
@@ -661,13 +709,13 @@ struct ExperimentalPreferenceCloudSyncTests {
         await sync.refreshFromCloudIfNeeded()?.value
         let encrypted = try #require(cloud.data(forKey: recordKey))
         #expect(ScoreCacheSyncEncryption.isEncrypted(encrypted))
-        #expect(await sync.stores.scoreCache.syncPayload(for: nil) == payload)
+        #expect(try await sync.stores.scoreCache.syncPayload(for: nil) == payload)
         let savedKeys = cloud.scoreKeys.values
         cloud.scoreKeys.values = [:]
         await sync.refreshFromCloudIfNeeded()?.value
         #expect(sync.syncIssue?.contains("钥匙串") == true)
         #expect(cloud.data(forKey: recordKey) == encrypted)
-        #expect(await sync.stores.scoreCache.syncPayload(for: nil) == payload)
+        #expect(try await sync.stores.scoreCache.syncPayload(for: nil) == payload)
         cloud.scoreKeys.values = savedKeys
         await sync.refreshFromCloudIfNeeded()?.value
         #expect(sync.syncIssue == nil)

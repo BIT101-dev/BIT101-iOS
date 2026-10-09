@@ -240,6 +240,7 @@ struct GalleryCommentComposerSheet: View {
     @State private var anonymous = false
     @State private var isSubmissionRequested = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    @State private var imagePreparer = ComposerImagePreparer()
     @State private var uploadedImages: [CommunityImage] = []
     @State private var isUploadingImages = false
     @State private var uploadError: String?
@@ -328,7 +329,9 @@ struct GalleryCommentComposerSheet: View {
             do {
                 guard let data = try await item.loadTransferable(type: Data.self) else { continue }
                 guard !Task.isCancelled else { return }
-                let image = try await service.uploadImage(data: data, filename: "comment-\(UUID().uuidString).jpg")
+                let prepared = try await imagePreparer.prepare(data)
+                guard !Task.isCancelled else { return }
+                let image = try await service.uploadImage(data: prepared, filename: "comment.jpg")
                 uploadedImages.append(image)
             } catch {
                 if TaskCancellation.matches(error) { return }

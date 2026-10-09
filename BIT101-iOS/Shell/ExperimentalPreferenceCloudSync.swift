@@ -6,6 +6,7 @@ import StorageCore
 import ScoreInfrastructure
 import Combine
 import Foundation
+import CryptoKit
 import OSLog
 import TransportCore
 
@@ -105,8 +106,25 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     private let synchronizedDomains: Set<ExperimentalPreferenceSyncDomain>
     private var cloudObserverTask: Task<Void, Never>?
     private var reconciliationGeneration = 0
-    private var pendingScoreMutationAt: Date?
-    private var pendingScoreRemoteData: Data?
+    private struct PendingScoreMutation {
+        var updatedAt: Date
+        let remoteSHA256: Data?
+    }
+    private var pendingScoreMutation: PendingScoreMutation? {
+        get {
+            guard let record = defaults.dictionary(forKey: pendingScoreKey), let date = record["updatedAt"] as? Date else { return nil }
+            return PendingScoreMutation(updatedAt: date, remoteSHA256: record["remoteSHA256"] as? Data)
+        }
+        set {
+            guard let newValue else { defaults.removeObject(forKey: pendingScoreKey); return }
+            var record: [String: Any] = ["updatedAt": newValue.updatedAt]
+            record["remoteSHA256"] = newValue.remoteSHA256
+            defaults.set(record, forKey: pendingScoreKey)
+        }
+    }
+    private var pendingScoreKey: String {
+        "experimental.preference-cloud-sync.pending-score.\(localAccountIdentifier)"
+    }
     private var reconciliationTask: Task<Void, Never>?
     private var pendingReconciliationDomains = Set<ExperimentalPreferenceSyncDomain>()
     private var saveSubscriptions = Set<AnyCancellable>()
@@ -187,8 +205,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
             recordPreferences(stores.scoreFilterPreferences.load() ?? ScoreFilterPreferenceSnapshot(), domain: domain)
         case .scoreCache:
             let updatedAt = nextLocalUpdatedAt(for: domain)
-            pendingScoreMutationAt = updatedAt
-            pendingScoreRemoteData = scoreCloudData()
+            pendingScoreMutation = PendingScoreMutation(updatedAt: updatedAt, remoteSHA256: Self.scoreDigest(scoreCloudData()))
             setLocalUpdatedAt(updatedAt, for: domain)
             if isEnabled { scheduleReconciliation(for: [domain]) }
         case .galleryMessageRead:
@@ -221,8 +238,6 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
 
     func reloadForCurrentAccount() {
         reconciliationGeneration &+= 1
-        pendingScoreMutationAt = nil
-        pendingScoreRemoteData = nil
         reconciliationTask?.cancel()
         reconciliationTask = nil
         pendingReconciliationDomains.removeAll()
@@ -295,12 +310,15 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         case .scoreCache:
             let session = stores.scoreSession()
             let version = localUpdatedAt(for: domain)
-            guard let localPayload = await stores.scoreCache.syncPayload(for: session),
-                  !Task.isCancelled,
-                  stores.scoreSession() == session,
-                  localUpdatedAt(for: domain) == version
-            else { return }
-            await reconcileScore(localPayload: localPayload, session: session)
+            do {
+                guard let localPayload = try await stores.scoreCache.syncPayload(for: session),
+                      !Task.isCancelled, stores.scoreSession() == session,
+                      localUpdatedAt(for: domain) == version else { return }
+                await reconcileScore(localPayload: localPayload, session: session)
+            } catch {
+                guard stores.scoreSession() == session, localUpdatedAt(for: domain) == version else { return }
+                reportPreferenceError(error, domain: domain)
+            }
         case .galleryMessageRead:
             await reconcileMessages()
         }
@@ -410,6 +428,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         guard !TaskCancellation.matches(error), !Task.isCancelled else { return }
         syncIssue = (error as? PreferenceSyncRecordError)?.errorDescription
             ?? (error as? ScoreSyncEncryptionError)?.errorDescription
+            ?? (error as? ScoreCacheReadError)?.errorDescription
             ?? "偏好同步数据处理失败，原始记录已保留。请联系维护者恢复记录后重试。"
         syncIssueDomain = domain
         Self.logger.error("Preference merge failed domain=\(domain.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
@@ -430,12 +449,13 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
                 return
             }
             var localVersion = version
-            if pendingScoreMutationAt == version && version != nil && pendingScoreRemoteData == observedRemote
+            if pendingScoreMutation?.updatedAt == version && version != nil
+                && pendingScoreMutation?.remoteSHA256 == Self.scoreDigest(observedRemote)
                 || version == nil && (remote == nil || !localPayload.rows.isEmpty && remote?.payload.rows.isEmpty != false) {
                 let timestamp = nextLocalUpdatedAt(for: domain, remoteUpdatedAt: remote?.updatedAt)
                 localVersion = timestamp
                 setLocalUpdatedAt(timestamp, for: domain)
-                if pendingScoreMutationAt != nil { pendingScoreMutationAt = localVersion }
+                if var pending = pendingScoreMutation { pending.updatedAt = timestamp; pendingScoreMutation = pending }
             }
             switch ExperimentalPreferenceSyncPolicy.decision(localUpdatedAt: localVersion, remoteUpdatedAt: remote?.updatedAt) {
             case .applyRemote:
@@ -444,6 +464,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
                 try requireCurrent(owner: owner, generation: generation)
                 guard stores.scoreSession() == session, localUpdatedAt(for: domain) == localVersion else { return }
                 setLocalUpdatedAt(remote.updatedAt, for: domain)
+                pendingScoreMutation = nil
             case .uploadLocal:
                 guard let localVersion else { return }
                 await upload(payload: localPayload, domain: domain, updatedAt: localVersion, remote: cloud)
@@ -504,7 +525,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
             return
         }
         if synchronizeCloudStore() {
-            if domain == .scoreCache, pendingScoreMutationAt == version { pendingScoreMutationAt = nil }
+            if domain == .scoreCache, pendingScoreMutation?.updatedAt == version { pendingScoreMutation = nil }
             if syncIssueDomain == domain { syncIssue = nil; syncIssueDomain = nil }
         }
     }
@@ -607,6 +628,10 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     private func scoreCloudData() -> Data? {
         cloudStore.data(forKey: cloudKey(for: .scoreCache))
             ?? cloudStore.data(forKey: "preference-sync.v1.\(accountIdentifier).\(ExperimentalPreferenceSyncDomain.scoreCache.rawValue)")
+    }
+
+    private nonisolated static func scoreDigest(_ data: Data?) -> Data? {
+        data.map { Data(SHA256.hash(data: $0)) }
     }
 
     private func requireCurrent(owner: AppStorageSession, generation: Int) throws {

@@ -9,6 +9,34 @@ import Testing
 
 @MainActor
 struct ReminderContextTests {
+    @Test(.timeLimit(.minutes(1)))
+    func firedTimerCanRearmWhileItsRefreshContinues() async {
+        let timer = ScheduleReminderTimer()
+        var wasCancelled = true
+        await withCheckedContinuation { completed in
+            timer.schedule(after: .zero) {
+                let refresh = Task { @MainActor in
+                    timer.schedule(after: .seconds(3600)) { Issue.record("Future timer fired during the current refresh") }
+                    await Task.yield()
+                    wasCancelled = Task.isCancelled
+                }
+                await withTaskCancellationHandler { await refresh.value } onCancel: { refresh.cancel() }
+                completed.resume()
+            }
+        }
+        timer.cancel()
+        #expect(wasCancelled == false)
+    }
+
+    @Test func cancelledWaitingTimerLeavesItsActionUnexecuted() async {
+        let timer = ScheduleReminderTimer()
+        var calls = 0
+        timer.schedule(after: .zero) { calls += 1 }
+        timer.cancel()
+        await Task.yield()
+        #expect(calls == 0)
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: ["current", "cancelled", "account"])
     func backgroundRefreshRespectsTheOwnerAfterItsSuspendedRead(boundary: String) async {
         var current = true

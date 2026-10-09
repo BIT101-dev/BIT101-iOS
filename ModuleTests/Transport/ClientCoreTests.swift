@@ -494,6 +494,14 @@ struct ClientCoreTests {
         #expect(HTTPClient.errorMessage(from: Data(#"{"unrelated":"private body"}"#.utf8)) == nil)
         #expect(HTTPClient.errorMessage(from: Data(repeating: 65, count: HTTPResponseResourceLimits.maximumErrorBytes + 1)) == nil)
         #expect(HTTPClient.errorMessage(from: Data("  plain response  ".utf8)) == "plain response")
+        for data in [Data("<html>school login gateway</html>".utf8),
+                     Data(#"{"detail":{"error":"<html>gateway</html>"}}"#.utf8),
+                     Data(repeating: 65, count: HTTPResponseResourceLimits.maximumErrorBytes + 1)] {
+            #expect(BITLoginChallengeSupport.errorMessage(from: data) == nil)
+        }
+        #expect(BITLoginChallengeSupport.errorMessage(from: json) == message)
+        #expect(BITLoginChallengeSupport.errorMessage(from: Data(#""school-service""#.utf8)) == "school-service")
+        #expect(HTTPClient.errorMessage(from: Data(#"{"detail":{"error":"school-service"}}"#.utf8)) == "school-service")
     }
 
     @Test func cancellationAndSecureRedirectRules() {

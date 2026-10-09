@@ -459,7 +459,7 @@ struct PreferenceMergeTests {
         let uploaded = try value.sync.decodeScoreCloudEnvelope(ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload>.self,
             from: #require(value.cloud.data(forKey: key)))
         #expect(changed && uploaded.payload.rows == remoteRows)
-        #expect(await value.sync.stores.scoreCache.syncPayload(for: session)?.rows == remoteRows)
+        #expect(try await value.sync.stores.scoreCache.syncPayload(for: session)?.rows == remoteRows)
     }
 
     @Test func oneLargeLegacyRecordKeepsSyncingWithinTheExistingQuota() async throws {

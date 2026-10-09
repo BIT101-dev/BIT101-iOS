@@ -56,12 +56,25 @@ public enum ScoreServiceError: LocalizedError {
 }
 
 
+/// 成绩缓存读取错误保留受保护文件与清理状态的恢复原因。
+public nonisolated enum ScoreCacheReadError: LocalizedError {
+    case unreadable
+    case unavailable
+
+    public var errorDescription: String? {
+        switch self {
+        case .unreadable: "本机成绩缓存暂时无法读取，原文件已保留。请解锁设备后重试；持续异常可在设置清理成绩缓存并重新查询。"
+        case .unavailable: "本机数据清理处理中，请稍后重试。"
+        }
+    }
+}
+
 /// 成绩场景消费的缓存能力，具体持久化由应用组装层选择。
 @MainActor
 public protocol ScoreCaching: AnyObject {
     /// 成功写入本地或云端快照后发布所属账号。
     var changes: AnyPublisher<AppStorageSession, Never> { get }
-    func loadSnapshot(for session: AppStorageSession?) async -> ScoreCacheSnapshot?
+    func loadSnapshot(for session: AppStorageSession?) async throws -> ScoreCacheSnapshot?
     func save(rows: [ScoreRow], for session: AppStorageSession?) async -> Date?
     func saveDetailed(rows: [ScoreRow], for session: AppStorageSession?) async -> Date?
 }
@@ -70,7 +83,7 @@ public protocol ScoreCaching: AnyObject {
 @MainActor
 public protocol ScoreCacheSynchronizing: ScoreCaching {
     var localSaves: AnyPublisher<AppStorageSession, Never> { get }
-    func syncPayload(for session: AppStorageSession?) async -> ScoreCacheSyncPayload?
+    func syncPayload(for session: AppStorageSession?) async throws -> ScoreCacheSyncPayload?
     func applySynced(_ payload: ScoreCacheSyncPayload, for session: AppStorageSession?, replacing expected: ScoreCacheSyncPayload?) async -> Bool
 }
 

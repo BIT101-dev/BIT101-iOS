@@ -87,7 +87,9 @@ import subprocess
 import sys
 import tempfile
 import time
+import signal
 
+signal.signal(signal.SIGINT, lambda *_: sys.exit(130))
 report_path = Path(sys.argv[1])
 label = sys.argv[2]
 started = time.monotonic()
@@ -171,7 +173,9 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import signal
 
+signal.signal(signal.SIGINT, lambda *_: sys.exit(130))
 root = Path(sys.argv[1])
 arguments = sys.argv[2:]
 maintenance = arguments == ["--maintenance"]

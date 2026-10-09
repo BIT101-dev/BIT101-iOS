@@ -1,3 +1,4 @@
+import TransportCore
 import Foundation
 
 public nonisolated struct BITLoginAuthenticationChallenge: Identifiable, Equatable, Sendable {
@@ -169,43 +170,6 @@ public enum BITLoginChallengeSupport {
     }
 
     public nonisolated static func errorMessage(from data: Data) -> String? {
-        guard let value = try? JSONSerialization.jsonObject(
-            with: data,
-            options: [.fragmentsAllowed]
-        ) else {
-            return String(data: data, encoding: .utf8)
-        }
-        if let message = value as? String, !message.isEmpty {
-            return message
-        }
-        guard let json = value as? [String: Any] else {
-            return String(data: data, encoding: .utf8)
-        }
-        if let message = json["message"] as? String, !message.isEmpty {
-            return message
-        }
-        if let message = json["msg"] as? String, !message.isEmpty {
-            return message
-        }
-        if let detail = json["detail"] as? String, !detail.isEmpty {
-            return detail
-        }
-        if let detail = json["detail"] as? [String: Any] {
-            if let message = firstNonEmptyString(in: detail, keys: ["message", "error"]) {
-                return message
-            }
-        }
-        if let error = json["error"] as? String, !error.isEmpty {
-            return error
-        }
-        if let error = json["error"] as? [String: Any] {
-            if let message = firstNonEmptyString(
-                in: error,
-                keys: ["message", "msg", "detail", "error"]
-            ) {
-                return message
-            }
-        }
-        return nil
+        HTTPClient.errorMessage(from: data)
     }
 }

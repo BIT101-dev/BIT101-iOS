@@ -91,10 +91,12 @@ public final class ScheduleRepository: ObservableObject {
               request == loadGeneration, localRevision == revision else { return }
         switch result {
         case .loaded(let value):
-            _ = reconcile(with: value)
+            _ = await reconcile(with: value)
+            guard !Task.isCancelled, generation == accountGeneration, account == session(), request == loadGeneration else { return }
             isWritable = true
         case .missing:
-            _ = reconcile(with: ScheduleCache())
+            _ = await reconcile(with: ScheduleCache())
+            guard !Task.isCancelled, generation == accountGeneration, account == session(), request == loadGeneration else { return }
             isWritable = true
         case .unreadable:
             isWritable = false
@@ -168,7 +170,7 @@ public final class ScheduleRepository: ObservableObject {
                     if remote.cloudSyncBaselineAt != snapshot.cloudSyncBaselineAt
                         || remote.cloudSyncBaselineRecordTag != snapshot.cloudSyncBaselineRecordTag
                         || remote.syncData.cloudSyncBaselineUserState != snapshot.syncData.cloudSyncBaselineUserState {
-                        guard self.reconcile(with: remote) else { return false }
+                        guard await self.reconcile(with: remote) else { return false }
                         let rebased = self.cache
                         let rebasedRevision = self.revision
                         do {
@@ -200,38 +202,54 @@ public final class ScheduleRepository: ObservableObject {
     }
 
     /// 合并时沿用本机学校数据，同步版本提供用户状态及持久化基线。
-    private func reconcile(with remote: ScheduleCache, resolution: ScheduleCacheConflictResolution? = nil) -> Bool {
+    private func reconcile(with remote: ScheduleCache, resolution: ScheduleCacheConflictResolution? = nil) async -> Bool {
+        let account = ownerSession
+        let generation = accountGeneration
+        let request = loadGeneration
         do {
-            if let loadedCache, revision != loadedRevision || hasPersistenceConflict {
-                let baseline = try ScheduleCloudStateMerge.baseline(for: loadedCache)
-                guard let state = try ScheduleCloudStateMerge.merge(local: .init(cache: cache),
-                    remote: .init(cache: remote), baseline: baseline, resolution: resolution) else {
-                    hasPersistenceConflict = true
-                    return false
-                }
-                var merged = cache
-                state.apply(to: &merged)
-                merged.cloudSyncBaselineAt = remote.cloudSyncBaselineAt
-                merged.cloudSyncBaselineRecordTag = remote.cloudSyncBaselineRecordTag
-                merged.syncData.cloudSyncBaselineUserState = remote.syncData.cloudSyncBaselineUserState
-                let userStateChanged = try !ScheduleCloudSyncState.matches(merged, remote)
-                merged.hasUnpushedCloudChanges = remote.hasUnpushedCloudChanges
-                    || (merged.iCloudSyncEnabled && userStateChanged)
-                merged.updatedAt = max(merged.updatedAt, remote.updatedAt)
+            while let loadedCache, revision != loadedRevision || hasPersistenceConflict {
+                let localRevision = revision
+                let merged = try await Self.merge(local: cache, loaded: loadedCache, remote: remote, resolution: resolution)
+                guard !Task.isCancelled, account == session(), generation == accountGeneration, request == loadGeneration else { return false }
+                guard localRevision == revision else { continue }
+                guard let merged else { hasPersistenceConflict = true; return false }
                 loadedRevision = revision
                 cache = merged
-            } else {
-                cache = remote
-                loadedRevision = revision
+                self.loadedCache = remote
+                hasPersistenceConflict = false
+                notice = nil
+                return true
             }
-            self.loadedCache = remote
+            cache = remote
+            loadedRevision = revision
+            loadedCache = remote
             hasPersistenceConflict = false
             notice = nil
             return true
         } catch {
+            guard !TaskCancellation.matches(error), account == session(), generation == accountGeneration else { return false }
             notice = ScheduleNotice(title: "日程合并失败", message: error.localizedDescription)
             return false
         }
+    }
+
+    @concurrent
+    private static func merge(local: ScheduleCache, loaded: ScheduleCache, remote: ScheduleCache,
+        resolution: ScheduleCacheConflictResolution?) async throws -> ScheduleCache? {
+        try Task.checkCancellation()
+        let baseline = try ScheduleCloudStateMerge.baseline(for: loaded)
+        guard let state = try ScheduleCloudStateMerge.merge(local: .init(cache: local),
+            remote: .init(cache: remote), baseline: baseline, resolution: resolution) else { return nil }
+        var merged = local
+        state.apply(to: &merged)
+        merged.cloudSyncBaselineAt = remote.cloudSyncBaselineAt
+        merged.cloudSyncBaselineRecordTag = remote.cloudSyncBaselineRecordTag
+        merged.syncData.cloudSyncBaselineUserState = remote.syncData.cloudSyncBaselineUserState
+        let userStateChanged = try !ScheduleCloudSyncState.matches(merged, remote)
+        merged.hasUnpushedCloudChanges = remote.hasUnpushedCloudChanges || (merged.iCloudSyncEnabled && userStateChanged)
+        merged.updatedAt = max(merged.updatedAt, remote.updatedAt)
+        try Task.checkCancellation()
+        return merged
     }
 
     func resolvePersistenceConflict(_ resolution: ScheduleCacheConflictResolution) async {
@@ -246,7 +264,7 @@ public final class ScheduleRepository: ObservableObject {
             notice = .informational(title: "日程版本读取失败", message: "本机编辑已保留，请恢复缓存后重新选择版本。")
             return
         }
-        guard reconcile(with: remote, resolution: resolution) else { return }
+        guard await reconcile(with: remote, resolution: resolution) else { return }
         _ = await persistAndWait()
     }
 

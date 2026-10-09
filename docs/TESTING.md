@@ -308,7 +308,7 @@ iOS 的 `checks` 包含 `cold-start-session`、`offline-persistence`、`media-an
 
 清理按独立对象推进并保存成功进度，单个对象持续失败时继续清理其他对象，账号变化沿身份边界结束。清理异常保留待清理记录，连接恢复后执行 `Scripts/release-network-smoke.sh community-cleanup`。恢复清理沿独立 `community-cleanup` 范围记录结果，完整写入验收证据继续保留。固定报告保存关注恢复、图片引用、创建标识、写入结果与服务端删除确认，发布门禁核对三个域的点赞恢复、六个不同评论标识的删除、评论及回复的创建关系，以及帖子和文章删除。
 
-正式运行分组沿 `Scripts/validation_policy.py` 的 suite 登记执行 `ReleaseRuntimeContractTests`、`ExtendedLoginTests`、`LoginStorageTests`、`LoginBootstrapTests`、`NetworkClientTests`、`FeatureCompositionTests`、`ExperimentalPreferenceCloudSyncTests` 与 `AppExternalDisplayTests`，覆盖生产组装、登录恢复、凭据持久化、退出清理、账号代际、页面依赖、生命周期云同步、外部展示及网络请求行为；实际执行方法集合共同参与证据核对。
+正式运行分组沿 `Scripts/validation_policy.py` 的 suite 登记执行 `ReleaseRuntimeContractTests`、`ExtendedLoginTests`、`LoginStorageTests`、`LoginBootstrapTests`、`NetworkClientTests`、`FeatureCompositionTests`、`ExperimentalPreferenceCloudSyncTests` 与 `AppExternalDisplayTests` 与 `ReminderContextTests`，覆盖生产组装、登录恢复、凭据持久化、退出清理、账号代际、页面依赖、生命周期云同步、外部展示及网络请求行为；实际执行方法集合共同参与证据核对。
 
 人工影像证据采用 PNG、JPEG、PDF 或 MP4，记录绑定所属专项；结构化反馈证据采用 JSON，必需字段为 `reportID`、`storageKey`、`storedReport`、`emailRecipient`、`emailMessageID` 与 `emailBody`。报告编号同时对应正式存储键、存储记录及收件正文，邮件 Message-ID 保存实际收件标识。
 
@@ -377,3 +377,5 @@ UI 自动化同时采集交互库存及宿主与 Feature / UI 模块的行覆盖
 `Scripts/run-extended-tests.sh report performance-run` 读取当前 XCTest 结果包中实际执行的性能用例，供 Catalyst 与真机采样检查。响应聚合沿 64 KiB 块追加字节并检查取消，声明长度通过边界检查后预留存储；传输合同分别验收声明长度与实际接收长度。
 
 网络读探针沿独立话廊筛选参数采样，图片下载从采样列表的图片及头像选择有效地址。完整详情验收要求线上课程、文章和话廊各具备可读取内容及图片资源；验收账号的数据准备沿专用账号流程执行，完整报告核对各项实际成功结果。共享社区会话合同顺序核对首次成功、无效凭据的 401 拒绝及恢复成功，正式 App 的完整账号操作沿 `account-lifecycle` 专项验收。
+
+课前提醒计时器在到点时交出等待任务的归属，再执行刷新或结束；回归覆盖刷新期间再次排程与等待阶段取消。图片准备回归覆盖 PNG、HEIC、JPEG 原图，评论、头像和发帖共用后台准备器，将实际上传字节转换为既定像素及字节预算内的 JPEG。成绩仓库回归覆盖受保护读取恢复、最大文件边界、超限保存保留旧快照，以及本地保存后重建同步对象的版本选择。学校认证错误与 HTTP 错误共用字节、字符及正文类型边界。

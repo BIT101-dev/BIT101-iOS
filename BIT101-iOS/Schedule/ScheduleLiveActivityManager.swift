@@ -30,6 +30,28 @@ struct ScheduleReminderContext {
     }
 }
 
+@MainActor
+final class ScheduleReminderTimer {
+    private var waitingTask: Task<Void, Never>?
+
+    func schedule(after delay: Duration, action: @escaping @MainActor () async -> Void) {
+        cancel()
+        waitingTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: delay) } catch { return }
+            guard let self, !Task.isCancelled else { return }
+            self.waitingTask = nil
+            await action()
+        }
+    }
+
+    func cancel() {
+        waitingTask?.cancel()
+        waitingTask = nil
+    }
+
+    deinit { waitingTask?.cancel() }
+}
+
 #if canImport(ActivityKit) && !targetEnvironment(macCatalyst)
 
 // ActivityKit update/end execute concurrently; handles stay inside concurrent
@@ -72,8 +94,8 @@ final class ScheduleLiveActivityManager {
     private let notifications: ScheduleReminderNotifications
     private var refreshRequestGeneration = 0
     private var refreshTask: Task<Void, Never>?
-    private var scheduledRefreshTask: Task<Void, Never>?
-    private var scheduledEndTask: Task<Void, Never>?
+    private let refreshTimer = ScheduleReminderTimer()
+    private let endTimer = ScheduleReminderTimer()
     private var activityOperationTask: Task<Void, Never>?
     private var activityOperationID: UUID?
 
@@ -276,7 +298,7 @@ final class ScheduleLiveActivityManager {
     /// - 某条课/日程进入提醒窗口
     /// - 某条课/日程正式开始，提醒结束
     private func scheduleNextRefresh(for occurrences: [CourseReminderOccurrence], leadMinutes: Int) {
-        scheduledRefreshTask?.cancel()
+        refreshTimer.cancel()
 
         let now = Date()
         guard let nextDate = ScheduleReminderPlanner.nextFutureRefreshPoint(for: occurrences, leadMinutes: leadMinutes, now: now) else {
@@ -286,11 +308,8 @@ final class ScheduleLiveActivityManager {
 
         logger.debug("scheduleNextRefresh nextDate=\(Self.debugDateFormatter.string(from: nextDate), privacy: .public)")
 
-        scheduledRefreshTask = Task {
-            try? await Task.sleep(for: .seconds(max(0, nextDate.timeIntervalSinceNow)))
-            if !Task.isCancelled {
-                await refreshFromCurrentCache(trigger: "scheduled_refresh")
-            }
+        refreshTimer.schedule(after: .seconds(max(0, nextDate.timeIntervalSinceNow))) { [weak self] in
+            await self?.refreshFromCurrentCache(trigger: "scheduled_refresh")
         }
     }
 
@@ -298,8 +317,7 @@ final class ScheduleLiveActivityManager {
     ///
     /// 该任务与常规 refresh 并存，用于在倒计时到点时结束旧提醒。
     private func scheduleEndForDisplayedOccurrence(_ occurrence: CourseReminderOccurrence?) {
-        scheduledEndTask?.cancel()
-        scheduledEndTask = nil
+        endTimer.cancel()
 
         guard let occurrence else { return }
 
@@ -309,10 +327,8 @@ final class ScheduleLiveActivityManager {
         let expectedTarget = occurrence.startDate
         let expectedSession = context.currentSession()
 
-        scheduledEndTask = Task {
-            try? await Task.sleep(for: .seconds(expectedTarget.timeIntervalSince(now)))
-            guard !Task.isCancelled else { return }
-            await endActivityIfStillMatching(expectedTarget: expectedTarget, expectedSession: expectedSession)
+        endTimer.schedule(after: .seconds(expectedTarget.timeIntervalSince(now))) { [weak self] in
+            await self?.endActivityIfStillMatching(expectedTarget: expectedTarget, expectedSession: expectedSession)
         }
     }
 
@@ -345,10 +361,8 @@ final class ScheduleLiveActivityManager {
             refreshRequestGeneration &+= 1
             refreshTask?.cancel()
         }
-        scheduledRefreshTask?.cancel()
-        scheduledRefreshTask = nil
-        scheduledEndTask?.cancel()
-        scheduledEndTask = nil
+        refreshTimer.cancel()
+        endTimer.cancel()
         if let refreshTaskToCancel {
             await refreshTaskToCancel.value
         }

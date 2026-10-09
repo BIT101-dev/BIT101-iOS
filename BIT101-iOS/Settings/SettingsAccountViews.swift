@@ -1,4 +1,5 @@
 import MineFeature
+import CommunityUI
 import TransportCore
 import MediaKit
 import CommunityCore
@@ -31,6 +32,7 @@ struct AccountSettingsPage: View {
     @State private var isShowingStudentID = false
     @State private var isShowingUID = false
     @State private var selectedPhoto: PhotosPickerItem?
+    @State private var imagePreparer = ComposerImagePreparer()
     @State private var isShowingPhotoPicker = false
     @State private var alert: AppAlert?
 
@@ -253,7 +255,9 @@ struct AccountSettingsPage: View {
                     throw SettingsServiceError.uploadFailed
                 }
                 guard isCurrentSession(credentials) else { return }
-                let image = try await service.uploadAvatar(data: data, filename: "avatar.jpg")
+                let prepared = try await imagePreparer.prepare(data)
+                guard isCurrentSession(credentials), !Task.isCancelled else { return }
+                let image = try await service.uploadAvatar(data: prepared, filename: "avatar.jpg")
                 guard isCurrentSession(credentials) else { return }
                 try await service.updateUser(
                     nickname: profile.user.nickname,
