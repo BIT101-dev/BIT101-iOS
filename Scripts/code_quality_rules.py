@@ -61,10 +61,12 @@ def ast_has_identifier(facts: dict, name: str) -> bool:
     return name in facts["identifiers"]
 
 
-def ast_has_view_request(facts: dict, type_index: dict | None = None, context: dict[str, dict] | None = None) -> bool:
+def ast_has_view_request(facts: dict, type_index: dict | None = None, context: dict[str, dict] | None = None, *, resolver=None) -> bool:
+    from swift_type_index import SwiftTypeIndex
     context = {"source": facts} if context is None else context
     origin = next((path for path, entry in context.items() if entry is facts), "source")
-    aliases_by_file = [(path, alias) for path, entry in context.items() for alias in entry.get("typeAliases", [])]
+    resolver = resolver or SwiftTypeIndex({path: dict(entry, typeAliases=[alias for alias in entry.get('typeAliases', [])
+        if not alias.get('lexicalScope')]) for path, entry in context.items()})
     conformances = declaration_conformances({"source": facts}) if type_index is None else type_index
     view_types = {owner for owner, bases in conformances.items() if any(base.rsplit(".", 1)[-1] == "View" for base in bases)}
     def canonical_type(value, reference):
@@ -76,15 +78,20 @@ def ast_has_view_request(facts: dict, type_index: dict | None = None, context: d
             if value.startswith("[") and value.endswith("]"): value = value[1:-1]
             if match := re.fullmatch(r"(?:Swift\.)?Array<(.+)>", value): value = match[1]
             parts = value.split(".")
-            aliases = [(path, alias) for path, alias in aliases_by_file if alias["name"] == parts[-1]
-                and (path == reference_file or not alias.get("isFilePrivate") and not alias.get("lexicalScope"))
-                and (alias["scope"] == parts[:-1] if len(parts) > 1
+            aliases = [alias for alias in context[reference_file].get('typeAliases', []) if alias['name'] == parts[-1]
+                and alias.get('lexicalScope') and (alias["scope"] == parts[:-1] if len(parts) > 1
                      else reference["scope"][:len(alias["scope"])] == alias["scope"])
                 and reference.get("lexicalScope", [])[:len(alias.get("lexicalScope", []))] == alias.get("lexicalScope", [])]
-            if not aliases: return value in {"URLRequest", "Foundation.URLRequest"}
-            reference_file, reference = max(aliases, key=lambda entry: (len(entry[1]["scope"]),
-                len(entry[1].get("lexicalScope", [])), entry[0] == reference_file))
-            value = reference["type"]
+            if aliases:
+                reference = max(aliases, key=lambda alias: (len(alias['scope']), len(alias['lexicalScope'])))
+                value = reference['type']
+                continue
+            key = resolver.resolve(reference_file, value, reference['scope'], aliases=False)
+            if key is None: return value in {"URLRequest", "Foundation.URLRequest"}
+            if key not in resolver.aliases: return False
+            reference_file = resolver.paths[key]
+            reference = {'scope': list(key[1][:-1]), 'lexicalScope': []}
+            value = resolver.aliases[key]
         return False
     for call in facts["calls"]:
         if not scope_contains_type(call["scope"], view_types): continue
@@ -245,13 +252,10 @@ def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[s
     )
 
     large_files: list[str] = []
-    def unit(path):
-        parts = Path(path).relative_to(ROOT).parts
-        return parts[:2] if parts[0] in {"Modules", "ModuleTests"} else parts[:1]
     from swift_type_index import SwiftTypeIndex
     types = SwiftTypeIndex(syntax_index or {})
-    unit_facts = {}
-    for path, facts in (syntax_index or {}).items(): unit_facts.setdefault(unit(path), {})[path] = facts
+    request_types = SwiftTypeIndex({path: dict(facts, typeAliases=[alias for alias in facts.get('typeAliases', [])
+        if not alias.get('lexicalScope')]) for path, facts in (syntax_index or {}).items()})
     type_indexes = {path: types.conformances(path) for path in (syntax_index or {})}
     for path in swift_files():
         source = path.read_text(encoding="utf-8")
@@ -292,7 +296,7 @@ def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[s
         for clause in (facts or {}).get("emptyCatchClauses", []):
             line = source.encode()[:clause["start"]].count(b"\n") + 1
             errors.append(f"{name}:{line}: 禁止静默吞掉异常；请记录诊断或显式处理错误")
-        if facts and ast_has_view_request(facts, type_indexes.get(str(path)), unit_facts.get(unit(path))):
+        if facts and ast_has_view_request(facts, type_indexes.get(str(path)), syntax_index, resolver=request_types):
             errors.append(f"{name}: View 不应直接构造 URLRequest；请求移到 Service")
         elif facts is None:
             for match in view_request_matches(masked_source):

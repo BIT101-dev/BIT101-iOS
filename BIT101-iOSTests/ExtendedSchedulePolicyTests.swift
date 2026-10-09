@@ -228,6 +228,37 @@ struct ExternalScheduleWatchStatusTests {
         #expect(immediate.refreshState == .succeeded)
     }
 
+    @Test(arguments: [false, true]) func queuedRefreshAcceptsReceiptAfterTheWaitingHint(viaNotification: Bool) async {
+        let (timeouts, trigger) = AsyncStream<Void>.makeStream()
+        defer { trigger.finish() }
+        var callbacks: [@MainActor (Result<WatchScheduleSyncOutcome, WatchScheduleSyncError>) -> Void] = []
+        let model = WatchScheduleStatusModel(dependencies: WatchScheduleStatusDependencies(
+            now: Date.init, loadResolvedSnapshot: { now, _ in ScheduleOccurrenceResolver.resolvedSnapshot(from: nil, now: now) },
+            clearSnapshot: { true }, activateSync: {}, requestLatestSnapshot: { callbacks.append($0) },
+            waitForRefreshTimeout: { for await _ in timeouts { return } }
+        ))
+        let (states, stateChanges) = AsyncStream<WatchScheduleRefreshState>.makeStream()
+        let observation = model.$refreshState.sink { stateChanges.yield($0) }
+        defer { observation.cancel(); stateChanges.finish() }
+        model.requestRefresh()
+        callbacks[0](.success(.requested))
+        trigger.yield(())
+        for await state in states { if state == .waiting { break } }
+        #expect(model.refreshFeedbackText == "等待手机同步")
+        #expect(model.isRefreshing == false)
+        if viaNotification { model.handleSnapshotDidChange() }
+        else { callbacks[0](.success(.received)) }
+        #expect(model.refreshState == .succeeded)
+        callbacks[0](.failure(.transferFailed))
+        #expect(model.refreshState == .succeeded)
+        model.requestRefresh()
+        callbacks[0](.success(.received))
+        #expect(model.refreshState == .syncing)
+        model.clearLocalData()
+        callbacks[1](.success(.received))
+        #expect(model.refreshState == .idle)
+    }
+
     @Test func failedClearingPreservesTheStoredSnapshotAndReportsTheResult() {
         let now = Date()
         let snapshot = ScheduleExternalSnapshot(generatedAt: now, isLoggedIn: true,

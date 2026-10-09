@@ -76,6 +76,31 @@ struct GenericApp: App { var body: some Scene { WindowGroup { Text("sample").tas
     assert ('AlphaFeature', 'Model') in declaration_conformances(indexed)
     use = str(ROOT / 'Modules/BetaCore/Sources/Use.swift')
     assert not ast_has_view_request(indexed[use], types.conformances(use), indexed)
+    view = 'BIT101-iOS/RequestView.swift'
+    other = 'Modules/Unrelated/Sources/Local.swift'
+    for imported, exported, expected in [(False, False, True), (False, True, True), (True, False, True), (True, True, False)]:
+        request_sources = {
+            view: ('import Unrelated; ' if imported else '') + 'import Foundation; struct Screen: View { func load() { _ = URLRequest(url: url) } }',
+            other: ('public ' if exported else '') + 'typealias URLRequest = LocalModel; public struct LocalModel {}',
+        }
+        requests = swift_syntax_index_sources(request_sources)
+        assert ast_has_view_request(requests[view], context=requests) == expected, (imported, exported)
+        request_sources[view] = request_sources[view].replace('URLRequest(url:', 'Foundation.URLRequest(url:')
+        requests = swift_syntax_index_sources(request_sources)
+        assert ast_has_view_request(requests[view], context=requests)
+    for imported, exported in [(False, True), (True, False), (True, True)]:
+        requests = swift_syntax_index_sources({
+            view: ('import Unrelated; ' if imported else '') + 'struct Screen: View { func load() { _ = Request(url: url) } }',
+            other: ('public ' if exported else '') + 'typealias Request = Foundation.URLRequest',
+        })
+        assert ast_has_view_request(requests[view], context=requests) == (imported and exported)
+    for request, expected in [
+        ('func load() { typealias URLRequest = Model; _ = URLRequest() }', False),
+        ('func helper() { typealias URLRequest = Model }; func load() { _ = URLRequest(url: url) }', True),
+        ('func load() { typealias Request = Foundation.URLRequest; _ = Request(url: url) }', True),
+    ]:
+        requests = swift_syntax_index_sources({view: 'struct Model {}; struct Screen: View { ' + request + ' }'})
+        assert ast_has_view_request(requests[view], context=requests) == expected, request
     controls = native_interaction_inventory(indexed)
     assert controls['Modules/AlphaFeature/Sources/Use.swift:Use']['UIButton'] == 1
     assert controls['BIT101-iOS/PrivateA.swift:UseA']['UIButton'] == 1

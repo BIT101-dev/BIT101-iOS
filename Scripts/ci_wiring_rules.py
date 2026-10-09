@@ -5,6 +5,14 @@ import re
 import subprocess
 
 CI_RUNNER = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'xcode-27' || fromJSON('[\"self-hosted\",\"macOS\",\"bit101-xcode-27\",\"bit101-ci\"]') }}"
+DIAGNOSTIC_PATHS = {
+    'static-audit': {'.build/static-audit/*.log', '.build/code-quality-report.txt', '.build/ui-consistency-report.txt',
+        '.build/explanatory-text-report.txt', '.build/extended-automation/modules.log'},
+    'release-build': {'.build/extended-automation/build-release.log', '.build/extended-automation/build-ui.log',
+        '.build/extended-automation/build-network-smoke.log', '.build/extended-automation/build-icloud-smoke.log', 'build/DeviceInstall/build.log'},
+    'catalyst-tests': {'.build/extended-automation/catalyst.log', '.build/extended-automation/catalyst-release-runtime.log',
+        '.build/extended-automation/test-metrics.txt', '.build/extended-automation/test-failures.txt'},
+}
 
 
 def ci_wiring_findings(workflow_source: str) -> list[str]:
@@ -43,6 +51,11 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             and str(step.get('uses', '')).startswith('actions/checkout@')]
         if len(checkouts) != 1 or mapping(checkouts[0].get('with')).get('clean') is not False:
             errors.append(f'.github/workflows/ci.yml: {name} 的 checkout 需要保留公共缓存')
+        if name in DIAGNOSTIC_PATHS:
+            uploads = [step for step in mapping(job).get('steps', []) if isinstance(step, dict)
+                and str(step.get('uses', '')).startswith('actions/upload-artifact@')]
+            if len(uploads) != 1 or set(mapping(uploads[0].get('with')).get('path', '').splitlines()) != DIAGNOSTIC_PATHS[name]:
+                errors.append(f'.github/workflows/ci.yml: {name} 的诊断上传需要采用所属任务的文件清单，人工附件保留在本地')
     workflow_defaults = mapping(mapping(workflow.get("defaults")).get("run"))
     default_shell = workflow_defaults.get("shell", "bash")
 
@@ -267,6 +280,13 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     ]
     findings = ["代码质量规则边界自检失败：CI 自动触发与 shell 继承门禁"
                 for changed in mutations if not ci_wiring_findings(changed)]
+    for name in DIAGNOSTIC_PATHS:
+        for private_path in ('.build/extended-automation/validation-evidence.json', '.build/extended-automation/**',
+                             '.build/extended-automation/test-results.xcresult'):
+            exposed = re.sub(rf'(?s)(  {name}:.*?          path: \|\n)',
+                lambda match: match[1] + '            ' + private_path + '\n', workflow_source, count=1)
+            if not any('诊断上传' in item for item in ci_wiring_findings(exposed)):
+                findings.append(f'代码质量规则边界自检失败：{name} 的历史附件隔离')
     for name in ('static-audit', 'release-build', 'catalyst-tests', 'release-acceptance', 'merge-acceptance'):
         for selector in ('[self-hosted, macOS, bit101-xcode-27, bit101-ci]', 'xcode-27',
                          CI_RUNNER.replace(' != github.repository', ' == github.repository')):

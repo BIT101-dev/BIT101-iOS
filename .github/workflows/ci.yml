@@ -91,10 +91,7 @@ jobs:
             .build/code-quality-report.txt
             .build/ui-consistency-report.txt
             .build/explanatory-text-report.txt
-            .build/extended-automation/*.log
-            .build/extended-automation/*.txt
-            .build/extended-automation/validation-evidence.json
-            .build/extended-automation/test-results.xcresult
+            .build/extended-automation/modules.log
 
   release-build:
     name: Release app and extension builds
@@ -135,14 +132,10 @@ jobs:
           compression-level: 0
           include-hidden-files: true
           path: |
-            .build/static-audit/*.log
-            .build/code-quality-report.txt
-            .build/ui-consistency-report.txt
-            .build/explanatory-text-report.txt
-            .build/extended-automation/*.log
-            .build/extended-automation/*.txt
-            .build/extended-automation/validation-evidence.json
-            .build/extended-automation/test-results.xcresult
+            .build/extended-automation/build-release.log
+            .build/extended-automation/build-ui.log
+            .build/extended-automation/build-network-smoke.log
+            .build/extended-automation/build-icloud-smoke.log
             build/DeviceInstall/build.log
 
   catalyst-tests:
@@ -178,14 +171,10 @@ jobs:
           compression-level: 0
           include-hidden-files: true
           path: |
-            .build/static-audit/*.log
-            .build/code-quality-report.txt
-            .build/ui-consistency-report.txt
-            .build/explanatory-text-report.txt
-            .build/extended-automation/*.log
-            .build/extended-automation/*.txt
-            .build/extended-automation/validation-evidence.json
-            .build/extended-automation/test-results.xcresult
+            .build/extended-automation/catalyst.log
+            .build/extended-automation/catalyst-release-runtime.log
+            .build/extended-automation/test-metrics.txt
+            .build/extended-automation/test-failures.txt
 
   physical-device:
     name: Physical-device behavior and UI acceptance

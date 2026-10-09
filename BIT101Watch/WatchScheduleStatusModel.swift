@@ -6,6 +6,7 @@ import Combine
 enum WatchScheduleRefreshState: Equatable {
     case idle
     case syncing
+    case waiting
     case succeeded
     case failed
     case clearFailed
@@ -18,6 +19,8 @@ enum WatchScheduleRefreshState: Equatable {
         switch self {
         case .succeeded:
             return "已同步"
+        case .waiting:
+            return "等待手机同步"
         case .failed:
             return "同步未完成"
         case .clearFailed:
@@ -38,6 +41,9 @@ struct WatchScheduleStatusDependencies {
     var requestLatestSnapshot: @MainActor (
         @escaping @MainActor (Result<WatchScheduleSyncOutcome, WatchScheduleSyncError>) -> Void
     ) -> Void
+    var waitForRefreshTimeout: @MainActor () async -> Void = {
+        try? await Task.sleep(for: .seconds(4))
+    }
 
 #if os(watchOS)
     static let live = WatchScheduleStatusDependencies(
@@ -123,10 +129,11 @@ final class WatchScheduleStatusModel: ObservableObject {
         let generation = refreshGeneration
         refreshFeedbackTask?.cancel()
         refreshState = .syncing
+        let waitForTimeout = dependencies.waitForRefreshTimeout
         refreshFeedbackTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(4))
+            await waitForTimeout()
             guard !Task.isCancelled, let self, self.refreshGeneration == generation, self.refreshState == .syncing else { return }
-            self.finishRefresh(as: .failed)
+            self.refreshState = .waiting
         }
         requestLatestSnapshot(reportResult: true)
         reload()
@@ -134,7 +141,7 @@ final class WatchScheduleStatusModel: ObservableObject {
 
     func handleSnapshotDidChange() {
         reload()
-        guard refreshState == .syncing else { return }
+        guard acceptsRefreshResult else { return }
         finishRefresh(as: .succeeded)
     }
 
@@ -157,11 +164,12 @@ final class WatchScheduleStatusModel: ObservableObject {
     var refreshButtonTitle: String { refreshState.buttonTitle }
     var refreshFeedbackText: String? { refreshState.feedbackText }
     var isRefreshing: Bool { refreshState == .syncing }
+    private var acceptsRefreshResult: Bool { refreshState == .syncing || refreshState == .waiting }
 
     private func requestLatestSnapshot(reportResult: Bool) {
         let generation = refreshGeneration
         dependencies.requestLatestSnapshot { [weak self] result in
-            guard reportResult, let self, self.refreshGeneration == generation, self.refreshState == .syncing else { return }
+            guard reportResult, let self, self.refreshGeneration == generation, self.acceptsRefreshResult else { return }
             switch result {
             case .success(.received):
                 self.reload()
