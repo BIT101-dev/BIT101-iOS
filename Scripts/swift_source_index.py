@@ -7,6 +7,7 @@ import json
 import os
 import re
 import subprocess
+from functools import cache
 from pathlib import Path
 
 if not __debug__:
@@ -23,7 +24,7 @@ def repository_swift_files() -> list[Path]:
     return sorted(path for name in roots for path in (ROOT / name).rglob("*.swift"))
 
 
-def _run_swift_syntax_index(request: dict) -> dict[str, dict]:
+def _run_swift_syntax_index(request: dict, *, regex_only: bool = False) -> dict[str, dict]:
     swift = os.environ.get("SWIFT")
     if not swift:
         swift = subprocess.check_output(["xcrun", "--find", "swift"], text=True).strip()
@@ -79,6 +80,8 @@ def _run_swift_syntax_index(request: dict) -> dict[str, dict]:
         index = json.loads(result.stdout)
     except json.JSONDecodeError as error:
         raise RuntimeError(f"SwiftSyntax returned invalid JSON: {error}") from error
+    if regex_only:
+        return index
     parse_failures = [path for path, facts in index.items() if facts["hasParseErrors"]]
     if parse_failures:
         raise RuntimeError("SwiftSyntax parse errors: " + ", ".join(parse_failures))
@@ -108,6 +111,16 @@ def swift_syntax_index_sources(sources: dict[str, str]) -> dict[str, dict]:
             for name, source in sources.items()
         ],
     })
+
+
+@cache
+def swift_regex_ranges(source: str) -> dict[int, int]:
+    """Read literal boundaries from SwiftParser, including incomplete source fragments."""
+    if "/" not in source: return {}
+    facts = _run_swift_syntax_index({"paths": [], "sources": [{"name": "regex-source", "source": source}]}, regex_only=True)
+    encoded = source.encode()
+    return {len(encoded[:row["start"]].decode()): len(encoded[:row["end"]].decode())
+        for row in facts["regex-source"]["regexRanges"]}
 
 
 def expected_argument_types(facts: dict, reference: dict) -> list[str]:

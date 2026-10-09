@@ -701,17 +701,21 @@ def main() -> int:
 def inspect_report(args) -> int:
     report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
     if args.action == "baseline":
-        from validation_coverage import advance
-        if report.get("mergeCommit", report.get("releaseCommit")) != args.group:
+        if report.get("coverageBaseCommit") != args.group:
             print("覆盖率基准需要绑定合并目标分支的当前提交。", file=sys.stderr)
             return 1
+        if set(report.get("coveragePolicy", {})) != {"modules", "all"}:
+            print("覆盖率基准需要 macOS 与 iOS 两组阈值。", file=sys.stderr)
+            return 1
         for group in ("modules", "all"):
-            row = report.get("groups", {}).get(group, {})
-            if row.get("exitCode") != 0 or row.get("scope") != "full" or row.get("summary", {}).get("passed") is not True \
-                    or not successful_test_counts(row.get("summary", {})) or not row.get("summary", {}).get("coverage"):
-                print("覆盖率基准需要完整模块与 iOS 行为结果。", file=sys.stderr)
+            floors = report.get("coveragePolicy", {}).get(group)
+            if not isinstance(floors, dict) or not floors or any(not isinstance(name, str) or type(value) is not int
+                    or not 0 <= value <= 100 for name, value in floors.items()):
+                print("覆盖率基准需要目标提交登记的有效阈值。", file=sys.stderr)
                 return 1
-            row["coverageBaseline"] = advance(row["summary"].get("coverage", {}), row.get("coverageBaseline", {}))
+        for group, floors in report["coveragePolicy"].items():
+            row = report.setdefault("groups", {}).setdefault(group, {})
+            row["coverageBaseline"] = {name: max(value, row.get("coverageBaseline", {}).get(name, value)) for name, value in floors.items()}
         write_report(report)
         return 0
     if args.action in {"bind-merge", "check-merge"}:

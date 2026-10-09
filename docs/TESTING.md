@@ -255,7 +255,7 @@ Scripts/run_icloud_cross_device_smoke.sh cleanup
 缓存与诊断保持原始文件形式。CompilationCache 的 CAS 索引、动作及数据作为完整命名空间迁入共享目录，SDK 统计缓存沿当前使用的平台维护。共享编译入口统一启用 Swift / Clang 警告门禁，覆盖 SwiftPM 模块构建与测试、正式归档和独立 Smoke 构建。工作流条件宏通过 `BIT101_WORKFLOW_CONDITIONS` 限定在 App 工程，共享包模块复用同一编译配置。UI 文件隔离由 App 文件服务提供，账号摘要沿用生产存储规则。脚本开发构建使用 `DEBUG_INFORMATION_FORMAT=dwarf` 和逐文件增量编译，调试信息保留在目标文件与链接产物中；发行归档沿用工程的 dSYM 和整模块优化设置，显式构建参数优先。缓存整理清理独立 dSYM 副本，运行包内部的调试资源继续保留；通过 Clang 模块元数据识别及清理停用平台的隐式模块。真机、Mac 和平台归属待核对的模块继续保留。
 
 完整测试输出写入对应固定日志，终端显示汇总和失败摘要；模块日志保留 Swift Testing 的 suite、用例及参数执行记录。模块测试汇总七个消费者二进制，采集逐模块生产源码行覆盖率，真机测试采集逐 target 行覆盖率，并通过 LLVM 汇总 App 及嵌入框架的生产模块覆盖率；设备 profile 在测试前清理并由本批运行重新生成，指标固定覆盖 `test-metrics.txt`。模块覆盖率统计 macOS 宿主编译的可执行源码，iOS 界面由真机行为与 UI 用例补充。模块报告记录统计范围及总覆盖行数，CI 将逐模块指标写入 GitHub Job Summary，沿工作流执行记录保留覆盖率趋势。各 Job 使用 [upload-artifact](https://github.com/actions/upload-artifact) 的零压缩级别保存完整日志、指标与结果包，采用仓库默认保留周期。覆盖率采集异常进入失败状态；Catalyst 使用 runtime 提供的测试汇总。
-测试入口通过 `.build/extended-automation.lock` 串行使用固定产物目录，聚合验证内的分组继承同一次执行锁和设备快照，结束时统一恢复常规 App。聚合验证与独立真机行为流程的恢复钩子覆盖函数内部错误和执行中断，并保留原始失败状态码。完整测试、领域专项、正式组装与 UI 的直接入口从测试执行阶段开始恢复常规 App，恢复结果记录为独立证据。UI 宿主编译失败时直接结束。编译宿主时保留既有测试结果包、指标和运行日志，编译日志使用固定 `<分组>-build.log`。长流程从入口读取完整脚本到内存后执行，加锁等待结束时读取当前版本，保证执行期间的文件编辑与当前流程各自稳定。SwiftSyntax 索引器在 `.build/static-audit/` 编译并复用，源码或工具链变化时覆盖重编译，编译与调用共用文件锁。
+测试入口先取得用户级 `~/Library/Caches/BIT101-iOS/device-workflow.lock`，再取得工作副本内 `.build/extended-automation.lock`，串行协调同一 Mac 各工作副本中的 App 安装、启动、执行与恢复，以及固定产物目录。聚合验证内的分组继承这两级锁和设备快照，结束时统一恢复常规 App。恢复钩子覆盖函数内部错误和执行中断，保留原始失败状态码；常规 App 恢复结果记录为独立证据。编译宿主时保留既有测试结果包、指标和运行日志，编译日志使用固定 `<分组>-build.log`。长流程从入口读取完整脚本到内存后执行，加锁等待结束时读取当前版本。SwiftSyntax 索引器在 `.build/static-audit/` 编译并复用，源码或工具链变化时覆盖重编译，编译与调用共用文件锁。
 
 GitHub Actions 的 `.github/workflows/ci.yml` 使用 `xcode-27` runner，先执行静态审计与包级测试，再并行执行 iOS 宿主构建 Job 和独立的 Catalyst 行为 Job。Catalyst Job 执行行为用例及正式编译条件下的生产行为及组装合同；iOS Job 顺序编译正式 Release、UI 和两种 Smoke 的测试宿主，App 依赖图同时编译 Watch 和两种 Widget，Swift / Clang 警告按错误处理。工作流通过系统 Ruby YAML 解析器核对 pull_request 和 push 自动触发、三个 Job 的默认执行、bash shell 继承、静态依赖及各自必备入口。版本、plist 和 PR 基线在静态 job 校验，手动 `release_check` 校验公开版本。
 
@@ -277,7 +277,7 @@ GitHub Actions 的 `.github/workflows/ci.yml` 使用 `xcode-27` runner，先执�
 
 核心真机验收参与 PR 合并：完整 `all` 行为、完整 `ui` 交互与常规 `restore` 三组需要当前源码与设备输入，并在 24 小时内执行。CI 的 `physical-device` Job 在具有 `self-hosted`、`macOS`、`xcode-27`、`bit101-device` 标签的专用 Mac 与 iPhone 上执行 `verify modules all ui`，恢复常规 App 后执行 `bind-merge`。`bind-merge` 将当前提交写入本地固定 JSON，Job 通过 `upload-artifact` 发布同名 `validation-evidence` 产物。合并 Job 承接静态审计、编译、Catalyst 和真机结果，仓库内 PR 从当前工作流运行获取该产物，核对 GitHub 合并提交、实际记录环境及当前编译工具链。自托管运行器按 GitHub 队列承接工作，项目脚本共用固定工作区与编译锁。仓库内分支和维护者手动触发执行真机 Job；fork PR 由维护者审查代码后，将 GitHub 的 `refs/pull/编号/merge` 对应提交保存到仓库内 `review-validation` 分支；从该分支手动启动工作流并填写 `review_pr`。工作流核对当前 PR 合并提交，沿其目标提交载入覆盖率基准，再完成四个 Job 和真机证据绑定。维护者随后重新运行原 PR 的合并验收 Job；门禁按原合并 SHA 与 PR 编号查找仓库内成功的手动运行，核对四个实际 Job、有效产物及绑定证据。PR 或目标提交更新后沿新合并提交重新验收。运行器设置与设备自动化授权沿 [GitHub 自托管运行器文档](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/use-in-a-workflow) 和本项目真机流程配置。
 
-完整模块与 iOS 行为组按每模块已达到的整数百分比维护覆盖率基准；后续源码改动需要达到已有基准。筛选复验在同一 JSON 内保留 `coverageBaseline` 和 `lastFullRun`，本次执行范围继续决定完整验收资格。失败结果保留基准及逐模块退化诊断，成功的完整运行推进基准。PR 的静态与真机 Job 通过 `ci_evidence.py baseline` 查询目标提交成功的 `ci.yml` push 或手动工作流，下载其有效 `validation-evidence` 产物，经 `baseline` 核对绑定身份再执行测试。主分支验收自动生成并发布基准；首次配置或产物超过仓库保留期时，在目标分支重新执行工作流。覆盖率绝对下限与历史基准共同参与验收。
+完整模块与 iOS 行为组按每模块的整数百分比维护覆盖率基准。`Scripts/validation_policy.py` 保存版本化的 macOS 与 iOS 阈值；完整验收提高覆盖率后同步提高相应阈值并提交评审。PR 的静态与真机 Job 通过 `ci_evidence.py baseline` 从目标提交读取这两组字典，以 Python AST 字面量解析并核对阈值，再由 `validation_evidence.py baseline` 载入。基准随 Git 提交长期保存，读取过程独立于历史工作流、真机状态和产物保留期。筛选复验在统一 JSON 内保留 `coverageBaseline` 和 `lastFullRun`；完整运行沿历史本机基准检测退化并推进成功结果。目标提交阈值、当前版本阈值与本机历史基准共同参与验收。
 
 发布证据完成完整验收并执行 `python3 Scripts/validation_evidence.py bind` 后，通过 `python3 Scripts/ci_evidence.py publish v公开版本号` 上传到已有的对应 GitHub Release，固定附件名为 `validation-evidence.json`，同一标签的附件覆盖更新。标签需要指向当前验收提交。发布 CI 从该标签下载附件并核对发布绑定、源码、工具链和全部专项；手动 `release_check` 同时填写 `validation_tag`。发布证据上传沿用户明确授权执行。
 
@@ -288,3 +288,9 @@ GitHub Actions 的 `.github/workflows/ci.yml` 使用 `xcode-27` runner，先执�
 日常开发沿模块和场景选择定向测试。发布验收将源码、工具链和完整候选产物共同绑定，实时服务与人工观察沿一天有效期核对；完整输入范围用于维持产物与证据的对应关系。专项采集围绕同一候选产物集中完成，发布流程执行完整验收。
 
 人工附件每份编码前控制在 32 MiB 内，图像解码与视频单帧使用 48 MiB 内存预算；视频长度为 30 秒以内，最多 1800 帧，PDF 最多 16 页。附件解码工具使用 30 秒执行预算，聚合 JSON 的完整编码最多 128 MiB；超出预算时保留已提交证据并呈现验收错误。短视频和系统截图分别记录所属操作与观察结果，全部人工检查共同参与发布验收。
+
+社区网络能力沿 `Scripts/validation_test_areas.py` 登记 Gallery、Course、Paper 与 Mine 生产服务的公开方法与验收入口。模块审计沿 SwiftSyntax 导出的公开函数事实核对新增、移除及无效归属，跨文件扩展沿所属模块和类型合并。网络探针覆盖列表及三类评论的后续页，话廊评论沿真实源游标继续，课程与文章评论验收重复页和解码失败。反馈预检发送 Origin、POST 和 content-type 请求头，验收浏览器需要的允许方法及允许头字段。关注写入验收同时核对取消关注和恢复关注的接口结果与远端关系。
+
+`community-variants` 人工专项覆盖课程搜索、话廊搜索筛选、帖子与文章的三种评论排序、匿名帖子、匿名文章及创建内容恢复；场景键为 `course-search`、`gallery-search-filters`、`comment-sorting`、`anonymous-poster`、`anonymous-paper`、`restore-content`。使用已授权的专用账号，保存实际请求结果和页面证据，确认验收内容删除。`account-lifecycle` 专项在正式 App 中顺序执行 `sign-in-a`、`refresh-credentials-a`、`sign-out-a`、`sign-in-b`、`restore-a`，核对真实凭据续期、退出清理、资料与业务缓存切换、订阅更新及恢复账号。两个专项复用结构化人工场景格式与固定 `manual-scenarios.json` 附件，参与完整发布验收。
+
+社区图片探针复用 `CommunityWriteMedia` 中固定的一像素 JPEG 字节；上传返回的 MID 在创建帖子或评论前持久记录于同一事务日志，资源记录保存成功后继续创建内容。公开服务端 [ImageService.Save](https://github.com/BIT101-dev/BIT101-GO/blob/main/api/service/image.go) 按内容 MD5 生成 MID 并复用已存在图片，[路由](https://github.com/BIT101-dev/BIT101-GO/blob/main/api/router.go) 将图片作为独立共享资源提供上传。验收帖子和评论沿服务端读取与删除确认清理，共享验收图片持续复用；恢复证据保留其 MID。实际线上资源策略沿已部署服务端契约核对。

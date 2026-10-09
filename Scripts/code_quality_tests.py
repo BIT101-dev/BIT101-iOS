@@ -410,11 +410,14 @@ def workflow_lock_boundary_findings() -> list[str]:
     if optimization.returncode == 0 or "AssertionError" not in optimization.stderr:
         findings.append("工作流环境自测：Python 自测断言沿默认优化级别执行")
     environment.pop("BIT101_EXTENDED_TESTS_LOCK_HELD", None)
+    environment.pop("BIT101_DEVICE_WORKFLOW_LOCK_HELD", None)
+    environment["BIT101_LOCK_TEST_CHECKOUT"] = str(fixture)
     try:
         shutil.rmtree(fixture, ignore_errors=True)
         fixture.mkdir(parents=True, exist_ok=True); os.mkfifo(release)
-        worker.write_text(f'ROOT_DIR={shlex.quote(str(fixture))}\n'
-                         f'source {shlex.quote(str(SCRIPT_ROOT / "script-support.sh"))}\n'
+        support = (SCRIPT_ROOT / "script-support.sh").read_text().replace(
+            '"$HOME/Library/Caches/BIT101-iOS/device-workflow.lock"', shlex.quote(str(fixture / "device-workflow.lock")))
+        worker.write_text('ROOT_DIR="$BIT101_LOCK_TEST_CHECKOUT"\n' + support + '\n'
                          'bit101_acquire_workflow_lock "$0" "$@"\nprint entered\n'
                          'if [[ "${1:-}" == signal ]]; then\n'
                          '  trap \'print cleanup; read -r reply < "$ROOT_DIR/release"; exit 143\' TERM\n'
@@ -427,7 +430,8 @@ def workflow_lock_boundary_findings() -> list[str]:
         processes.append(first)
         if line(first) != "entered":
             raise ValueError("首个工作流取得锁")
-        second = subprocess.Popen(["zsh", str(worker)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=environment)
+        other_checkout = dict(environment, BIT101_LOCK_TEST_CHECKOUT=str(fixture / "other-checkout"))
+        second = subprocess.Popen(["zsh", str(worker)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=other_checkout)
         processes.append(second)
         if not line(second).startswith("[等待]"):
             raise ValueError("竞争工作流在执行前排队")
@@ -446,7 +450,7 @@ def workflow_lock_boundary_findings() -> list[str]:
         if line(first) != "cleanup":
             raise ValueError("外层信号传递到执行子进程")
         second = subprocess.Popen(["zsh", str(worker)], stdout=subprocess.PIPE,
-                                  stderr=subprocess.PIPE, text=True, env=environment)
+                                  stderr=subprocess.PIPE, text=True, env=other_checkout)
         processes.append(second)
         if not line(second).startswith("[等待]"):
             raise ValueError("子进程清理期间保持工作流锁")

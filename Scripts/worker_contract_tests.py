@@ -33,10 +33,13 @@ export class QuotaFixture extends ReportQuota {
     durableObjects: { REPORT_QUOTA: { className: "QuotaFixture", useSQLite: true } },
     log: new Log(LogLevel.NONE) }));
   try {
-    const preflight = await mf.dispatchFetch("https://feedback.invalid/api/error-reports", { method: "OPTIONS" });
+    const preflight = await mf.dispatchFetch("https://feedback.invalid/api/error-reports", { method: "OPTIONS",
+      headers: { Origin: "https://bit101.cn", "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type" } });
     assert.equal(preflight.status, 204);
     assert.equal(await preflight.text(), "");
     assert.equal(preflight.headers.get("Access-Control-Allow-Origin"), "*");
+    assert(preflight.headers.get("Access-Control-Allow-Methods").split(",").map(value => value.trim()).includes("POST"));
+    assert(preflight.headers.get("Access-Control-Allow-Headers").split(",").map(value => value.trim().toLowerCase()).includes("content-type"));
     const namespace = await mf.getDurableObjectNamespace("REPORT_QUOTA");
     const quota = namespace.get(namespace.idFromName("daily"));
     const today = new Date().toISOString().slice(0, 10);

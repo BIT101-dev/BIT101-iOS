@@ -176,9 +176,17 @@ final class ReleaseNetworkSmokeRunner {
                 _ = await self.probe("反馈接口跨域预检", area: .bit101, scope: scope) {
                     var request = URLRequest(url: AppURL.required("https://feedback.aihelpme.dev/api/error-reports"))
                     request.httpMethod = "OPTIONS"
+                    request.setValue("https://bit101.cn", forHTTPHeaderField: "Origin")
+                    request.setValue("POST", forHTTPHeaderField: "Access-Control-Request-Method")
+                    request.setValue("content-type", forHTTPHeaderField: "Access-Control-Request-Headers")
                     let response = try await self.dependencies.externalHTTPClient.send(request, accepting: 200..<300)
+                    let methods = Set((response.response.value(forHTTPHeaderField: "Access-Control-Allow-Methods") ?? "")
+                        .split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).uppercased() })
+                    let headers = Set((response.response.value(forHTTPHeaderField: "Access-Control-Allow-Headers") ?? "")
+                        .split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).lowercased() })
                     guard response.response.statusCode == 204, response.data.isEmpty,
-                          response.response.value(forHTTPHeaderField: "Access-Control-Allow-Origin") == "*"
+                          response.response.value(forHTTPHeaderField: "Access-Control-Allow-Origin") == "*",
+                          methods.contains("POST"), headers.contains("content-type")
                     else { throw URLError(.badServerResponse) }
                     return true
                 }
@@ -206,11 +214,11 @@ final class ReleaseNetworkSmokeRunner {
                 },
                 {
                     _ = await self.probe("话廊帖子评论", area: .bit101, scope: scope) {
-                        try await gallery.fetchComments(
+                        try await NetworkSmokePaging.batch { try await gallery.fetchComments(
                             objectID: "poster\(poster.id)",
                             order: .newest,
-                            page: nil
-                        )
+                            page: $0 == 0 ? nil : $0
+                        ) }
                     }
                 }
             ])
@@ -271,7 +279,7 @@ final class ReleaseNetworkSmokeRunner {
                 },
                 {
                     _ = await self.probe("学业课程评论", area: .bit101, scope: scope) {
-                        try await courses.fetchComments(courseID: course.id, page: nil)
+                        try await NetworkSmokePaging.arrayPage { try await courses.fetchComments(courseID: course.id, page: $0 == 0 ? nil : $0) }
                     }
                 },
                 {
@@ -311,7 +319,7 @@ final class ReleaseNetworkSmokeRunner {
                 },
                 {
                     _ = await self.probe("文章评论", area: .bit101, scope: scope) {
-                        try await papers.fetchComments(paperID: paper.id, order: .newest, page: nil)
+                        try await NetworkSmokePaging.arrayPage { try await papers.fetchComments(paperID: paper.id, order: .newest, page: $0 == 0 ? nil : $0) }
                     }
                 },
                 {

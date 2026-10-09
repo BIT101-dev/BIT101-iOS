@@ -57,32 +57,6 @@ import MediaKit
 @Suite("Network smoke lifecycle")
 @MainActor
 struct ReleaseNetworkSmokeLifecycleTests {
-    @Test func articleUnknownBlocksKeepTheirPositionAndOfferTheOriginal() {
-        let raw = #"{"blocks":[{"id":"first","type":"paragraph","data":{"text":"正文"}},{"id":"future","type":"table","data":{"content":[["单元格"]]}},{"id":"last","type":"paragraph","data":{"text":"末段"}}]}"#
-        let blocks = PaperContentRenderer.blocks(from: raw)
-        #expect(blocks.map(\.id) == ["first", "future", "last"])
-        if case .requiresOriginal = blocks[1] {} else { Issue.record("Extended content should keep an original-reading placeholder") }
-        #expect(PaperEditorContentBuilder.canEditAsPlainText(raw) == false)
-    }
-
-    @Test(arguments: ["body", "blocks", "block"])
-    func articleResourceBudgetsStopBeforeRichTextImport(kind: String) throws {
-        let raw: String
-        switch kind {
-        case "body": raw = String(repeating: "x", count: PaperContentResourceLimits.maximumBodyBytes + 1)
-        case "blocks":
-            let block: [String: Any] = ["type": "paragraph", "data": ["text": "text"]]
-            raw = String(decoding: try JSONSerialization.data(withJSONObject: ["blocks": Array(repeating: block,
-                count: PaperContentResourceLimits.maximumBlocks + 1)]), as: UTF8.self)
-        default:
-            raw = String(decoding: try JSONSerialization.data(withJSONObject: ["blocks": [["type": "paragraph",
-                "data": ["text": String(repeating: "x", count: PaperContentResourceLimits.maximumBlockBytes + 1)]]]]), as: UTF8.self)
-        }
-        let blocks = PaperContentRenderer.blocks(from: raw)
-        #expect(blocks.count == 1)
-        if case .requiresOriginal = blocks[0] {} else { Issue.record("Oversized content should offer original reading") }
-    }
-
     @Test(arguments: [#"{"KCM":"课程","SKXQ":8,"KSJC":1,"JSJC":2,"ZCMC":"1周"}"#,
         #"{"KCM":"课程","SKXQ":1,"KSJC":0,"JSJC":2,"ZCMC":"1周"}"#,
         #"{"KCM":"课程","SKXQ":1,"KSJC":1,"JSJC":2}"#])
@@ -168,7 +142,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
             credentials: { .init(identity: .init(accountIdentifier: "fixture"), cookie: "fixture") }, refresh: { _ in })
         let operations = CommunityWriteSmoke.Operations.production(papers: PaperService(session: session))
         let text = "功能验收 <正文> & 内容\n第二行"
-        let id = try await operations.create(.paper, text)
+        let id = try await operations.create(.paper, text, { _ in })
         #expect(try await operations.read(.paper, id)?.text == text)
         try await operations.edit(.paper, id, text + " 编辑")
         #expect(try await operations.read(.paper, id)?.text == text + " 编辑")
@@ -194,7 +168,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
             baseURL: AppURL.required("https://example.invalid"),
             credentials: { .init(identity: .init(accountIdentifier: "fixture"), cookie: "fixture") }, refresh: { _ in })
         let operations = CommunityWriteSmoke.Operations.production(courses: CourseService(session: session))
-        let comment = try await operations.comment("course42", "功能验收")
+        let comment = try await operations.comment("course42", "功能验收", { _ in })
         #expect(comment.rate == 6 && transport.comments == 1)
     }
 
@@ -287,6 +261,20 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(world.followsTarget && world.pending == nil)
     }
 
+    @Test(arguments: ["follow-noop", "follow-response-mismatch", "follow-restore-noop"])
+    func followProbeRequiresBothTransitionsAndRestoresTheRelationship(stage: String) async throws {
+        let world = CommunityWorld(stage: stage)
+        await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture", expectedAccount: 1) }
+        #expect(world.nextID == 100)
+        if stage == "follow-restore-noop" {
+            let journal = try JSONDecoder().decode(CommunityWriteSmoke.Journal.self, from: #require(world.pending))
+            #expect(journal.followTarget == 2 && !world.followsTarget)
+            world.stage = "success"
+            _ = try await world.smoke.run(marker: "fixture", cleanupOnly: true)
+        }
+        #expect(world.followsTarget && world.pending == nil)
+    }
+
     @Test func concurrentRunnerEntrypointsSerializeCommunityRecovery() async throws {
         var waiting: CheckedContinuation<Void, Never>?
         var reached: CheckedContinuation<Void, Never>?
@@ -372,8 +360,8 @@ struct ReleaseNetworkSmokeLifecycleTests {
 
     @Test func historicalJournalRecoversCourseCommentsAndReplies() async throws {
         let world = CommunityWorld(stage: "success")
-        let comment = try await world.operations.comment("course1", "功能验收 legacy")
-        let reply = try await world.operations.comment("comment\(comment.id)", "功能验收 legacy")
+        let comment = try await world.operations.comment("course1", "功能验收 legacy", { _ in })
+        let reply = try await world.operations.comment("comment\(comment.id)", "功能验收 legacy", { _ in })
         world.pending = Data("""
         {"marker":"功能验收 legacy","account":1,"targets":[{"kind":"course","id":1}],"comments":[\(comment.id),\(reply.id)]}
         """.utf8)
@@ -386,7 +374,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
 
     @Test func unmappedCommentKeepsAmbiguousFailuresUntilParentAbsenceIsConfirmed() async throws {
         let world = CommunityWorld(stage: "silent-comment-delete")
-        let comment = try await world.operations.comment("course1", "功能验收 fixture")
+        let comment = try await world.operations.comment("course1", "功能验收 fixture", { _ in })
         var journal = CommunityWriteSmoke.Journal(marker: "功能验收 fixture", account: 1)
         journal.comments = [comment.id]
         world.pending = try JSONEncoder().encode(journal)
@@ -410,7 +398,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
     func routeFailuresPreserveRecoveryUntilTheServerConfirmsCleanup(stage: String) async throws {
         let world = CommunityWorld(stage: stage)
         world.contents["poster123"] = .init(text: "功能验收 fixture", owned: true, liked: false)
-        let comment = try await world.operations.comment("poster123", "功能验收 fixture")
+        let comment = try await world.operations.comment("poster123", "功能验收 fixture", { _ in })
         var journal = CommunityWriteSmoke.Journal(marker: "功能验收 fixture", account: 1)
         journal.targets = [.init(kind: .poster, id: 123)]
         journal.parents = ["poster123"]
@@ -431,7 +419,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
     @Test(arguments: [false, true])
     func restartedCleanupConfirmsAnAlreadyDeletedCommentFromItsPersistedParent(legacy: Bool) async throws {
         let original = CommunityWorld(stage: "success")
-        let comment = try await original.operations.comment("course1", "功能验收 fixture")
+        let comment = try await original.operations.comment("course1", "功能验收 fixture", { _ in })
         var journal = CommunityWriteSmoke.Journal(marker: "功能验收 fixture", account: 1)
         journal.parents = ["course1"]
         journal.comments = [comment.id]
@@ -475,7 +463,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
                 identity: .init(id: 1, color: "", text: "", createTime: "", updateTime: "", deleteTime: nil))
         }
         var operations: CommunityWriteSmoke.Operations {
-            .init(identity: { .init(accountIdentifier: String(self.account)) }, account: { self.account }, course: { 1 }, create: { kind, text in
+            .init(identity: { .init(accountIdentifier: String(self.account)) }, account: { self.account }, course: { 1 }, create: { kind, text, _ in
                 if self.stage == "invalid-paper" && kind == .paper {
                     throw NSError(domain: "BIT101.Paper", code: 400, userInfo: [NSLocalizedDescriptionKey: "参数错误awa"])
                 }
@@ -513,7 +501,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
                     throw NSError(domain: "BIT101.Gallery", code: 500, userInfo: [NSLocalizedDescriptionKey: "获取顶级对象失败Orz"])
                 }
                 return self.rows[parent] ?? []
-            }, comment: { object, text in
+            }, comment: { object, text, _ in
                 self.nextID += 1
                 @MainActor func makeComment(_ id: Int) -> CommunityComment { CommunityComment(id: id, obj: object, images: [.init(mid: "fixture-image", url: "", lowUrl: "")], user: self.user, anonymous: false,
                     createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: 0, own: true, rate: 0,
@@ -551,9 +539,12 @@ struct ReleaseNetworkSmokeLifecycleTests {
                 self.contents[key] = .init(text: old.text, owned: old.owned, liked: !old.liked, imageMids: old.imageMids)
                 return !old.liked
             }, followTarget: { 2 }, following: { _ in self.followsTarget }, follow: { _ in
+                if self.stage == "follow-noop" || (self.stage == "follow-restore-noop" && !self.followsTarget) {
+                    return self.followsTarget
+                }
                 self.followsTarget.toggle()
                 if self.stage == "persistent-follow" { throw URLError(.timedOut) }
-                return self.followsTarget
+                return self.stage == "follow-response-mismatch" ? !self.followsTarget : self.followsTarget
             })
         }
         var smoke: CommunityWriteSmoke {
@@ -594,7 +585,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
     func interruptedCleanupRetainsPersistedJournalForItsOriginalAccount(operation: String) async throws {
         let world = CommunityWorld(stage: "switch-" + operation)
         world.contents["poster123"] = .init(text: "功能验收 fixture", owned: true, liked: false)
-        let comment = try await world.operations.comment("poster123", "功能验收 fixture")
+        let comment = try await world.operations.comment("poster123", "功能验收 fixture", { _ in })
         world.pending = Data(#"{"marker":"功能验收 fixture","account":1,"attempts":[],"targets":[{"kind":"poster","id":123}],"parents":["poster123"],"comments":[\#(comment.id)],"likes":[],"evidence":[]}"#.utf8)
         await #expect(throws: CancellationError.self) { try await world.smoke.run(marker: "fixture", cleanupOnly: true) }
         #expect(world.pending != nil)
@@ -739,6 +730,11 @@ extension ReleaseNetworkSmokeLifecycleTests {
             CommunityPoster(anonymous: false, claim: CommunityClaim(id: 1, text: "fixture"), commentNum: 0, createTime: "", editTime: "", id: 1, images: [user.avatar],
                 likeNum: 0, public: true, tags: [], text: "fixture", title: "fixture", updateTime: "", user: user)
         }
+        private var comment: CommunityComment {
+            CommunityComment(id: 1, obj: "fixture", images: [], user: user, anonymous: false,
+                createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: 0, own: false,
+                rate: 0, replyUser: user, replyObj: "", text: "fixture", sub: [])
+        }
         func fetchFeed(kind: GalleryFeedKind, page: Int?) async throws -> GalleryPageBatch<CommunityPoster> {
             observed.insert("gallery"); return .init(items: [poster], nextSourcePage: (page ?? 0) + 1, canLoadMore: false)
         }
@@ -754,7 +750,10 @@ extension ReleaseNetworkSmokeLifecycleTests {
                 like: false, likeNum: 0, own: false, plugins: "", public: true, tags: [], text: "fixture", title: "fixture", updateTime: "", user: user)
         }
         func fetchComments(objectID: String, order: CommunityCommentOrder, page: Int?) async throws -> GalleryPageBatch<CommunityComment> {
-            .init(items: [], nextSourcePage: (page ?? 0) + 1, canLoadMore: false)
+            observed.insert("gallery-comments-\(page ?? 0)")
+            if stage == "gallery-comment-page-failure", page != nil { throw URLError(.cannotParseResponse) }
+            if stage == "gallery-comment-page-failure" { return .init(items: [comment], nextSourcePage: 3, canLoadMore: true) }
+            return .init(items: [], nextSourcePage: (page ?? 0) + 1, canLoadMore: false)
         }
         func fetchClaims() async throws -> [CommunityClaim] { [poster.claim] }
         func fetchReportTypes() async throws -> [GalleryReportType] { [] }
@@ -768,7 +767,11 @@ extension ReleaseNetworkSmokeLifecycleTests {
             return CourseDetail(id: stage == "entity-identity-failure" ? id + 1 : id, name: "fixture", number: "COURSE", credit: 1, likeNum: 0, commentNum: 0, rate: 0, teachersName: "", teachersNumber: "", like: false)
         }
         func fetchCourseHistories(number: String) async throws -> [CourseHistoryGrade] { [] }
-        func fetchComments(courseID: Int, page: Int?) async throws -> [CommunityComment] { [] }
+        func fetchComments(courseID: Int, page: Int?) async throws -> [CommunityComment] {
+            observed.insert("course-comments-\(page ?? 0)")
+            if stage == "course-comment-page-failure" { return [comment] }
+            return []
+        }
         func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary] {
             observed.insert("paper-list")
             guard page == 0 else { return [] }
@@ -778,7 +781,11 @@ extension ReleaseNetworkSmokeLifecycleTests {
             PaperDetail(id: stage == "entity-identity-failure" ? id + 1 : id, title: "fixture", intro: "", content: "fixture", createTime: "", updateTime: "", updateUser: user,
                 anonymous: false, likeNum: 0, commentNum: 0, publicEdit: false, like: false, own: false)
         }
-        func fetchComments(paperID: Int, order: CommunityCommentOrder, page: Int?) async throws -> [CommunityComment] { [] }
+        func fetchComments(paperID: Int, order: CommunityCommentOrder, page: Int?) async throws -> [CommunityComment] {
+            observed.insert("paper-comments-\(page ?? 0)")
+            if stage == "paper-comment-page-failure", page != nil { throw URLError(.cannotParseResponse) }
+            return stage == "paper-comment-page-failure" ? [comment] : []
+        }
         func fetchMyInfo() async throws -> MineUserInfo { observed.insert("mine"); return try await fetchUserInfo(id: 1) }
         func fetchUserInfo(id: Int) async throws -> MineUserInfo { MineUserInfo(user: user, followingNum: 0, followerNum: 0, following: false, follower: false, own: true) }
         func fetchUserPosters(userID: Int, page: Int) async throws -> [CommunityPoster] { page == 0 ? [poster] : [] }
@@ -860,7 +867,12 @@ extension ReleaseNetworkSmokeLifecycleTests {
             var status = 200
             var headers: [String: String] = [:]
             if request.httpMethod == "OPTIONS" {
+                #expect(request.value(forHTTPHeaderField: "Origin") == "https://bit101.cn")
+                #expect(request.value(forHTTPHeaderField: "Access-Control-Request-Method") == "POST")
+                #expect(request.value(forHTTPHeaderField: "Access-Control-Request-Headers") == "content-type")
                 data = Data(); status = 204; headers["Access-Control-Allow-Origin"] = "*"
+                headers["Access-Control-Allow-Methods"] = aasaStage == "cors-method-failure" ? "OPTIONS" : "post, OPTIONS"
+                headers["Access-Control-Allow-Headers"] = aasaStage == "cors-header-failure" ? "x-custom" : "Content-Type"
             } else if url.path.hasSuffix("apple-app-site-association") {
                 let json = #"{"applinks":{"details":[{"appID":"Y2T72736G3.BIT101-dev.BIT101-iOS","paths":["/gallery/*","/course/*","/paper/*"]}]}}"#
                 data = Data((aasaStage == "aasa-exclusion-failure" ? json.replacingOccurrences(of: "\"/gallery/*\"", with: "\"NOT /gallery/*\",\"/gallery/*\"") : json).utf8)
@@ -888,7 +900,8 @@ extension ReleaseNetworkSmokeLifecycleTests {
     @Test("Full smoke orchestration preserves success, intermediate failures and subsequent scopes", arguments:
         ["all-success", "all-sms-success", "all-sms-not-required", "community-failure", "schedule-success", "ddl-success", "ddl-failure", "ddl-invalid-calendar-failure", "raw-write-failure",
          "app-store-redirect-failure", "emergency-redirect-failure", "aasa-redirect-failure", "aasa-followed-redirect-failure",
-         "aasa-mime-failure", "aasa-exclusion-failure", "image-budget-failure", "entity-identity-failure", "repeated-page-failure"])
+         "aasa-mime-failure", "aasa-exclusion-failure", "image-budget-failure", "entity-identity-failure", "repeated-page-failure",
+         "gallery-comment-page-failure", "course-comment-page-failure", "paper-comment-page-failure", "cors-method-failure", "cors-header-failure"])
     func completeOrchestration(stage: String) async throws {
         let image = try #require(UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { $0.fill(CGRect(x: 0, y: 0, width: 1, height: 1)) }.pngData())
         let services = Services(stage: stage, image: image)
@@ -911,7 +924,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
             feedbackProbe: { _ in feedback += 1 },
             loadScheduleCache: { ScheduleCache() }, makeScores: { services }, makeSchedule: { handler in services.rawResponse = handler; return services },
             makeProductionSchedule: { productionServices }, makeEclassSchedule: { services })
-        let scope: NetworkSmokeScope = stage.hasPrefix("all-") || redirectHost != nil || stage.hasPrefix("aasa") ? .all : stage == "community-failure" || stage == "image-budget-failure" || stage == "entity-identity-failure" || stage == "repeated-page-failure" ? .bit101 : stage.hasPrefix("ddl") ? .ddl : .schedule
+        let scope: NetworkSmokeScope = stage.hasPrefix("all-") || redirectHost != nil || stage.hasPrefix("aasa") ? .all : stage == "community-failure" || stage == "image-budget-failure" || stage == "entity-identity-failure" || stage == "repeated-page-failure" || stage.contains("comment-page") || stage.hasPrefix("cors") ? .bit101 : stage.hasPrefix("ddl") ? .ddl : .schedule
         let runner = ReleaseNetworkSmokeRunner(dependencies: dependencies)
         let smsHandler: SchoolSMSCodeHandler = { _ in "fixture-code" }
         let report = await runner.run(scope: scope, runID: stage, capture: stage == "raw-write-failure" ? .rawCourseResponse : .none,
@@ -950,6 +963,13 @@ extension ReleaseNetworkSmokeLifecycleTests {
             #expect(report.failures.count == 3)
             for name in ["话廊帖子详情", "学业课程详情", "文章详情"] { #expect(report.failures.contains { $0.contains(name) }) }
         }
+        if stage.contains("comment-page") {
+            let kind = String(stage.prefix { $0 != "-" })
+            let probe = kind == "gallery" ? "话廊帖子评论" : kind == "course" ? "学业课程评论" : "文章评论"
+            #expect(report.failures.count == 1 && report.failures[0].contains(probe))
+            #expect(services.observed.contains("\(kind)-comments-\(kind == "gallery" ? 3 : 1)"))
+        }
+        if stage.hasPrefix("cors") { #expect(report.failures.count == 1 && report.failures[0].contains("反馈接口跨域预检")) }
         if stage.hasPrefix("aasa") { #expect(report.failures.count == 1 && report.failures[0].contains("App 链接关联配置")) }
         if scope.includes(.schedule) { #expect(services.observed.contains("schedule")) }
         if scope.includes(.ddl) { #expect(services.observed.isSuperset(of: ["eclass", "lexue"])) }

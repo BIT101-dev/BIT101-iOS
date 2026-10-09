@@ -12,7 +12,7 @@ from functools import cache
 from pathlib import Path
 
 sys.dont_write_bytecode = True
-from swift_source_index import canonical_type_scope, declaration_conformances, scope_contains_type, expected_argument_types, swift_syntax_index, swift_syntax_index_sources, resource_context_type, visible_variables, matching_functions, compilation_type_context, local_member_calls
+from swift_source_index import canonical_type_scope, declaration_conformances, scope_contains_type, expected_argument_types, swift_syntax_index, swift_syntax_index_sources, resource_context_type, visible_variables, matching_functions, compilation_type_context, local_member_calls, swift_regex_ranges
 from validation_policy import coverage_registry_findings
 
 
@@ -90,10 +90,14 @@ def swift_code(source: str, keep_comments: bool = False) -> str:
     """Retain executable Swift, including interpolation, with stable positions."""
     result = ["\n" if char == "\n" else " " for char in source]
     string_start = re.compile(r'(#{0,})("""|")')
+    regex_ranges = swift_regex_ranges(source)
 
     def code(index: int, interpolation: bool = False) -> int:
         depth = 1
         while index < len(source):
+            if index in regex_ranges:
+                index = regex_ranges[index]
+                continue
             if source.startswith("//", index):
                 end = source.find("\n", index)
                 end = len(source) if end < 0 else end
@@ -132,24 +136,6 @@ def swift_code(source: str, keep_comments: bool = False) -> str:
                     else:
                         index += 1
                 continue
-            regex = re.match(r"(#+)/", source[index:])
-            prefix = source[:index].rstrip()
-            bare = source[index] == "/" and (not prefix or prefix[-1] in "=(:,[!{;?" or re.search(r"\b(?:return|case|throw|try|await)$", prefix))
-            if regex or bare:
-                hashes = regex[1] if regex else ""
-                cursor = index + len(hashes) + 1
-                brackets = 0
-                while cursor < len(source):
-                    if source[cursor] == "\\": cursor += 2; continue
-                    if source[cursor] == "[": brackets += 1
-                    elif source[cursor] == "]": brackets = max(0, brackets - 1)
-                    elif source.startswith("/" + hashes, cursor) and (hashes or brackets == 0):
-                        index = cursor + 1 + len(hashes)
-                        break
-                    elif source[cursor] == "\n" and not hashes: break
-                    cursor += 1
-                else: cursor = len(source)
-                if index == cursor + 1 + len(hashes): continue
             if interpolation:
                 if source[index] == "(":
                     depth += 1
@@ -227,6 +213,9 @@ def graph_errors(manifest: dict[str, set[str]]) -> list[str]:
                 errors.append(f"unknown dependency: {module} -> {dependency}")
             if source_layer and dependency_layer and dependency_layer not in LAYERS[source_layer]:
                 errors.append(f"{source_layer.lower()} boundary: {module} -> {dependency}")
+            if source_layer in {"Domain", "Infrastructure"} and dependency_layer == source_layer \
+                    and module.removesuffix(source_layer) != dependency.removesuffix(dependency_layer):
+                errors.append(f"business domain boundary: {module} -> {dependency}")
     return errors
 
 
@@ -676,6 +665,7 @@ def main() -> int:
     module_aliases = type_aliases(swift_syntax_index([path for info in modules.values()
         for path in (root / info["path"]).rglob("*.swift") if "typealias" in swift_code(path.read_text())]))
 
+    network_index = {}
     for module, info in modules.items():
         source_root = root / info["path"]
         if info["type"] != "regular" or info["path"] != f"Modules/{module}/Sources":
@@ -690,6 +680,7 @@ def main() -> int:
         unit_index = swift_syntax_index_sources({path.relative_to(root).as_posix():
             expanded_resource_source(path.read_text(), imported_aliases(path.read_text(), aliases, module_aliases), path.relative_to(root).as_posix())
             for path in source_files})
+        network_index.update(unit_index)
         for path in source_files:
             unit_context = compilation_type_context(unit_index, path.relative_to(root).as_posix())
             text = path.read_text(encoding="utf-8")
@@ -706,6 +697,8 @@ def main() -> int:
             elif imported not in info["dependencies"]:
                 errors.append(f"{module} imports undeclared {imported}: {', '.join(sorted(files))}")
 
+    from validation_test_areas import network_capability_findings
+    errors.extend(network_capability_findings(network_index))
     for name, info in (support | tests).items():
         source_root = root / info["path"]
         if not source_root.is_dir() or not info["path"].startswith("ModuleTests/"):

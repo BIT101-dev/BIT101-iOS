@@ -46,6 +46,7 @@ def run_self_test(recorder) -> None:
             assert module.main() == expected
     artifact_lock_self_test(module)
     selected_coverage_self_test(module)
+    baseline_policy_self_test(module)
     report_budget_self_test(module)
     now = utc_now()
     fresh = {"startedAt": (now - timedelta(minutes=2)).isoformat(), "finishedAt": (now - timedelta(minutes=1)).isoformat()}
@@ -93,6 +94,25 @@ def artifact_lock_self_test(module) -> None:
             incoming.unlink()
     output, error = child.communicate(timeout=10)
     assert child.returncode == 0 and output.strip() == "committed", error
+
+
+def baseline_policy_self_test(module) -> None:
+    report = {'coverageBaseCommit': 'target', 'coveragePolicy': {'modules': {'Feature': 80}, 'all': {'Feature': 70}},
+        'groups': {'modules': {'coverageBaseline': {'Feature': 85}}}}
+    for fault in ('none', 'commit', 'missing', 'value', 'extra'):
+        candidate = json.loads(json.dumps(report))
+        if fault == 'commit': candidate['coverageBaseCommit'] = 'other'
+        if fault == 'missing': candidate['coveragePolicy'].pop('all')
+        if fault == 'value': candidate['coveragePolicy']['all']['Feature'] = True
+        if fault == 'extra': candidate['coveragePolicy']['audit'] = {'Feature': 70}
+        with patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'read_text', return_value=json.dumps(candidate)), \
+                patch.object(module, 'write_report') as saved, redirect_stderr(StringIO()):
+            assert module.inspect_report(SimpleNamespace(action='baseline', group='target')) == (0 if fault == 'none' else 1)
+        if fault == 'none':
+            actual = saved.call_args.args[0]
+            assert actual['groups']['modules']['coverageBaseline'] == {'Feature': 85}
+            assert actual['groups']['all'] == {'coverageBaseline': {'Feature': 70}}
+        else: saved.assert_not_called()
 
 
 def selected_coverage_self_test(module) -> None:

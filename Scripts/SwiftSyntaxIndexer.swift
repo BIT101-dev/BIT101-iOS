@@ -8,6 +8,7 @@ struct FileFacts: Encodable {
     let identifiers: [String]
     let scopedIdentifiers: [ScopedFact]
     let stringSegments: [ScopedFact]
+    let regexRanges: [ScopedRangeFact]
     let declarations: [DeclarationFact]
     let enumCases: [EnumCaseFact]
     let calls: [ScopedFact]
@@ -143,6 +144,7 @@ struct FunctionRangeFact: Encodable {
     let parameters: [FunctionParameterFact]
     var isExplicitInitializer: Bool = false
     var bodyStart: Int? = nil
+    var isExported: Bool = false
 }
 
 struct FunctionParameterFact: Encodable {
@@ -176,6 +178,7 @@ final class FactVisitor: SyntaxVisitor {
     private(set) var functionReturns: [FunctionReturnFact] = []
     private(set) var scopedIdentifiers: [ScopedFact] = []
     private(set) var stringSegments: [ScopedFact] = []
+    private(set) var regexRanges: [ScopedRangeFact] = []
     private(set) var selectionControls: [SelectionControlFact] = []
     private(set) var feedbackModifiers: [FeedbackModifierFact] = []
     private(set) var alertModifiers: [AlertModifierFact] = []
@@ -205,6 +208,13 @@ final class FactVisitor: SyntaxVisitor {
     private var closureDepth = 0
 
     private(set) var imports: [String] = []
+    override func visit(_ node: RegexLiteralExprSyntax) -> SyntaxVisitorContinueKind {
+        regexRanges.append(ScopedRangeFact(scope: scope,
+            start: node.positionAfterSkippingLeadingTrivia.utf8Offset,
+            end: node.endPositionBeforeTrailingTrivia.utf8Offset))
+        return .skipChildren
+    }
+
     override func visit(_ node: ImportDeclSyntax) -> SyntaxVisitorContinueKind {
         if let module = node.path.first?.name.text { imports.append(module) }
         return .skipChildren
@@ -284,7 +294,8 @@ final class FactVisitor: SyntaxVisitor {
             parameters: node.signature.parameterClause.parameters.map {
                 FunctionParameterFact(label: $0.firstName.text == "_" ? "" : $0.firstName.text, type: $0.type.trimmedDescription,
                     hasDefault: $0.defaultValue != nil, variadic: $0.ellipsis != nil, name: ($0.secondName ?? $0.firstName).text)
-            }, bodyStart: node.body?.positionAfterSkippingLeadingTrivia.utf8Offset
+            }, bodyStart: node.body?.positionAfterSkippingLeadingTrivia.utf8Offset,
+            isExported: node.modifiers.contains { ["public", "package", "open"].contains($0.name.text) }
         ))
         functionStack.append((node.name.text, scope, closureDepth))
         if let body = node.body, body.statements.count == 1,
@@ -781,6 +792,7 @@ func indexSource(_ source: String, as key: String) {
         identifiers: identifiers,
         scopedIdentifiers: visitor.scopedIdentifiers,
         stringSegments: visitor.stringSegments,
+        regexRanges: visitor.regexRanges,
         declarations: visitor.declarations,
         enumCases: visitor.enumCases,
         calls: visitor.calls,

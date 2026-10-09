@@ -17,6 +17,8 @@ MANUAL_SCENARIOS = {
     'first-login': {'registered-account', 'new-account-registration'},
     'profile-writes': {'nickname-save', 'avatar-bind', 'restore-profile'},
     'gallery-report': {'submit-and-confirm'},
+    'account-lifecycle': {'sign-in-a', 'refresh-credentials-a', 'sign-out-a', 'sign-in-b', 'restore-a'},
+    'community-variants': {'course-search', 'gallery-search-filters', 'comment-sorting', 'anonymous-poster', 'anonymous-paper', 'restore-content'},
     'ipad-layout': {'portrait', 'landscape', 'split-view', 'resize'},
 }
 MANUAL_DEVICE_CHECKS.update(MANUAL_SCENARIOS)

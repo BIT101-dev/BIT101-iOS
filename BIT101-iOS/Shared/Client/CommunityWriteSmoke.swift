@@ -17,16 +17,17 @@ final class CommunityWriteSmoke {
     enum Kind: String, Codable, CaseIterable { case poster, paper, course }
     struct Content { let text: String; let owned: Bool; let liked: Bool; var imageMids: [String] = [] }
     struct Operations {
+        typealias RecordImage = @MainActor (String) throws -> Void
         var identity: () -> CommunitySessionIdentity
         var account: () async throws -> Int
         var course: () async throws -> Int
-        var create: (Kind, String) async throws -> Int
+        var create: (Kind, String, RecordImage) async throws -> Int
         var find: (Kind, String) async throws -> [Int]
         var read: (Kind, Int) async throws -> Content?
         var edit: (Kind, Int, String) async throws -> Void
         var delete: (Kind, Int) async throws -> Void
         var comments: (String) async throws -> [CommunityComment]
-        var comment: (String, String) async throws -> CommunityComment
+        var comment: (String, String, RecordImage) async throws -> CommunityComment
         var deleteComment: (Int) async throws -> Void
         var like: (Kind, Int) async throws -> Bool
 
@@ -38,13 +39,23 @@ final class CommunityWriteSmoke {
             Self(identity: identity,
                 account: { try await Self.checked(identity, owner) { try await account() } },
                 course: { try await Self.checked(identity, owner) { try await course() } },
-                create: { kind, text in try await Self.checked(identity, owner) { try await create(kind, text) } },
+                create: { kind, text, record in try await Self.checked(identity, owner) {
+                    try await create(kind, text) { mid in
+                        guard identity() == owner else { throw CancellationError() }
+                        try record(mid)
+                    }
+                } },
                 find: { kind, text in try await Self.checked(identity, owner) { try await find(kind, text) } },
                 read: { kind, id in try await Self.checked(identity, owner) { try await read(kind, id) } },
                 edit: { kind, id, text in try await Self.checked(identity, owner) { try await edit(kind, id, text) } },
                 delete: { kind, id in try await Self.checked(identity, owner) { try await delete(kind, id) } },
                 comments: { object in try await Self.checked(identity, owner) { try await comments(object) } },
-                comment: { object, text in try await Self.checked(identity, owner) { try await comment(object, text) } },
+                comment: { object, text, record in try await Self.checked(identity, owner) {
+                    try await comment(object, text) { mid in
+                        guard identity() == owner else { throw CancellationError() }
+                        try record(mid)
+                    }
+                } },
                 deleteComment: { id in try await Self.checked(identity, owner) { try await deleteComment(id) } },
                 like: { kind, id in try await Self.checked(identity, owner) { try await like(kind, id) } }, followTarget: followTarget,
                 following: { id in try await Self.checked(identity, owner) { try await following(id) } },
@@ -75,11 +86,12 @@ final class CommunityWriteSmoke {
             return Self(identity: { AppAccountSession.storage.communityCredentials.identity }, account: { try await mine.fetchMyInfo().user.id }, course: {
                 guard let course = try await courses.fetchCourses(search: "", page: 0).first else { throw URLError(.zeroByteResource) }
                 return course.id
-            }, create: { kind, text in
+            }, create: { kind, text, record in
                 switch kind {
                 case .poster:
                     let image = try await gallery.uploadImage(data: CommunityWriteMedia.jpeg(), filename: "smoke.jpg")
                     guard !image.mid.isEmpty else { throw URLError(.cannotParseResponse) }
+                    try record(image.mid)
                     let id = try await gallery.createPoster(title: "功能验收", text: text,
                         imageMids: [image.mid], anonymous: false, tags: [], claimID: 0, isPublic: false)
                     guard try await gallery.fetchPoster(id: id).images.map(\.mid) == [image.mid] else { throw URLError(.cannotParseResponse) }
@@ -155,12 +167,14 @@ final class CommunityWriteSmoke {
                     for row in rows { result[row.id] = row }
                     page += 1
                 }
-            }, comment: { object, text in
+            }, comment: { object, text, record in
                 let value: CommunityComment
                 if object.hasPrefix("course") { value = try await courses.createComment(objectID: object, text: text, rate: 6) }
                 else if object.hasPrefix("paper") { value = try await papers.createComment(objectID: object, text: text) }
                 else {
                     let image = try await gallery.uploadCommentImage(data: CommunityWriteMedia.jpeg(), filename: "smoke.jpg")
+                    guard !image.mid.isEmpty else { throw URLError(.cannotParseResponse) }
+                    try record(image.mid)
                     value = try await gallery.createComment(objectID: object, text: text, imageMids: [image.mid])
                     guard !image.mid.isEmpty, value.images.map(\.mid) == [image.mid] else { throw URLError(.cannotParseResponse) }
                 }
@@ -234,12 +248,14 @@ final class CommunityWriteSmoke {
             guard let expectedAccount, expectedAccount > 0, account == expectedAccount
             else { throw failure("社区写入需要与明确指定的专用验收账号一致") }
         }
+        var recoveredEvidence: [String] = []
         if let data = try load() {
             var previous = try JSONDecoder().decode(Journal.self, from: data)
             guard previous.account == account else { throw failure("请登录创建验收内容的账号以完成清理") }
             try await cleanup(&previous, operations: operations, owner: owner)
+            recoveredEvidence = previous.evidence
         }
-        guard !cleanupOnly else { return ["服务端清理确认完成"] }
+        guard !cleanupOnly else { return recoveredEvidence + ["服务端清理确认完成"] }
         var journal = Journal(marker: "功能验收 " + marker, account: account)
         journal.evidence.append("验收账号 user\(account)")
         var businessError: (any Error)?
@@ -248,16 +264,21 @@ final class CommunityWriteSmoke {
             guard let followTarget = operations.followTarget(), followTarget > 0,
                   try await operations.following(followTarget) else { throw failure("关注探针需要已关注的专用验收目标") }
             journal.followTarget = followTarget; try persist(journal)
-            _ = try await operations.follow(followTarget)
-            if try await operations.following(followTarget) == false { _ = try await operations.follow(followTarget) }
-            guard try await operations.following(followTarget) else { throw failure("验收关注恢复待完成") }
+            operation = "取消关注"
+            guard try await operations.follow(followTarget) == false,
+                  try await operations.following(followTarget) == false else { throw failure("验收取消关注结果异常") }
+            operation = "恢复关注"
+            guard try await operations.follow(followTarget),
+                  try await operations.following(followTarget) else { throw failure("验收关注恢复待完成") }
             journal.evidence.append("关注恢复 user\(followTarget)")
             journal.followTarget = nil; try persist(journal)
             for kind in [Kind.poster, .paper] {
                 try Task.checkCancellation()
                 journal.attempts.append(kind); try persist(journal)
                 operation = "创建 " + kind.rawValue
-                let id = try await operations.create(kind, journal.marker)
+                let id = try await operations.create(kind, journal.marker) { mid in
+                    journal.evidence.append("共享验收图片 \(mid)"); try self.persist(journal)
+                }
                 let target = Target(kind: kind, id: id)
                 journal.targets.append(target); journal.evidence.append("创建 \(kind.rawValue)\(id)")
                 try persist(journal)
@@ -290,7 +311,9 @@ final class CommunityWriteSmoke {
                 let parent = target.kind.rawValue + String(target.id)
                 journal.parents.append(parent); try persist(journal)
                 operation = "评论 " + target.kind.rawValue
-                let comment = try await operations.comment(parent, journal.marker)
+                let comment = try await operations.comment(parent, journal.marker) { mid in
+                    journal.evidence.append("共享验收图片 \(mid)"); try self.persist(journal)
+                }
                 guard comment.id > 0, !journal.comments.contains(comment.id) else { throw failure("验收评论标识重复或无效") }
                 journal.comments.append(comment.id); journal.evidence.append("创建 comment\(comment.id) 目标 \(parent)")
                 journal.commentParents[comment.id] = parent
@@ -303,7 +326,9 @@ final class CommunityWriteSmoke {
                 guard comment.own, comment.text == journal.marker,
                       try await operations.comments(parent).contains(where: { $0.id == comment.id }) else { throw failure("验收评论创建结果异常") }
                 operation = "回复 " + target.kind.rawValue
-                let reply = try await operations.comment(replies, journal.marker)
+                let reply = try await operations.comment(replies, journal.marker) { mid in
+                    journal.evidence.append("共享验收图片 \(mid)"); try self.persist(journal)
+                }
                 guard reply.id > 0, !journal.comments.contains(reply.id) else { throw failure("验收回复标识重复或无效") }
                 journal.comments.append(reply.id); journal.evidence.append("创建 comment\(reply.id) 目标 \(replies)")
                 journal.commentParents[reply.id] = replies
@@ -319,7 +344,10 @@ final class CommunityWriteSmoke {
             catch { return .failure(error) }
         }.value
         let evidence = try cleaned.get()
-        if let businessError { throw failure("写入验收待完成，服务端清理已确认：" + businessError.localizedDescription) }
+        if let businessError {
+            let images = evidence.filter { $0.hasPrefix("共享验收图片 ") }.joined(separator: "；")
+            throw failure("写入验收待完成，服务端清理已确认：" + businessError.localizedDescription + "；" + images)
+        }
         return evidence
     }
 

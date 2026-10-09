@@ -19,6 +19,11 @@ def run_self_test(rules: dict) -> None:
     swift_syntax_index_sources = rules["swift_syntax_index_sources"]
     type_aliases = rules["type_aliases"]
     from validation_policy import IOS_MODULE_COVERAGE_FLOORS
+    from validation_test_areas import network_capability_self_test
+    network_capability_self_test()
+    assert graph_errors({'CourseDomain': {'ScoreDomain'}, 'ScoreDomain': set()})
+    assert graph_errors({'ScheduleInfrastructure': {'ScoreInfrastructure'}, 'ScoreInfrastructure': set()})
+    assert graph_errors({'ScheduleInfrastructure': {'ScheduleDomain'}, 'ScheduleDomain': set()}) == []
     registered_modules = set(IOS_MODULE_COVERAGE_FLOORS)
     assert rules["coverage_registry_findings"](registered_modules) == []
     assert rules["coverage_registry_findings"](registered_modules | {"NewModule"})
@@ -173,10 +178,16 @@ def run_self_test(rules: dict) -> None:
     for source in ('LocalAppFileService.init()', 'let files: LocalAppFileService = .init()', 'let prefs: Swift.Optional<UserDefaults> = .standard', 'let prefs: Swift.Array<UserDefaults> = [.standard]', 'let prefs: Swift.Dictionary<String, UserDefaults> = ["prefs": .standard]'):
         assert ownership_errors("ScheduleFeature", source) and service_boundary_errors("Modules/ScheduleFeature/Sources/Example.swift", source), source
     assert ownership_errors("GalleryFeature", "URLSessionTransport.clearSharedCache()") and service_boundary_errors("Modules/GalleryFeature/Sources/Example.swift", "URLSessionTransport.clearSharedCache()")
-    for source in ('let regex = /FileManager.default/', 'let regex = #/UserDefaults.standard [a/b]/#', 'let regex = flag ? /URLSession.shared/ : /safe/'):
+    for source in ('let regex = /FileManager.default/', 'let regex = #/UserDefaults.standard [a/b]/#', 'let regex = flag ? /URLSession.shared/ : /safe/',
+                   'if /URLSession/.wholeMatch(in: input) != nil { consume() }',
+                   'while /UserDefaults.standard/.wholeMatch(in: input) != nil { break }',
+                   'guard /FileManager.default/.wholeMatch(in: input) != nil else { return }',
+                   'let 中文 = "文字"; if /URLSession/.wholeMatch(in: 中文) != nil { consume() }',
+                   'let regex = /a\\/\\/URLSession/; consume(regex)'):
         assert ownership_errors("GalleryFeature", source) == []
         assert service_boundary_errors(service_path, source) == []
         assert len(swift_code(source)) == len(source)
+    assert service_boundary_errors(service_path, 'let regex = /a\\/\\/safe/; let value = URLSession.shared')
     assert ownership_errors("GalleryFeature", "let result = amount / UserDefaults.standard.integer(forKey: key)")
     for source in (
         "let session = URLSession(configuration: configuration)",

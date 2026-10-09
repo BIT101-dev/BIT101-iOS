@@ -5,12 +5,39 @@ import UIKit
 import CommunityCore
 import CommunityTransport
 import GalleryFeature
+@testable import PaperFeature
 import TransportCore
 @testable import BIT101_iOS
 
 @Suite("Network smoke coverage")
 @MainActor
 struct NetworkSmokeCoverageTests {
+    @Test func articleUnknownBlocksKeepTheirPositionAndOfferTheOriginal() {
+        let raw = #"{"blocks":[{"id":"first","type":"paragraph","data":{"text":"正文"}},{"id":"future","type":"table","data":{"content":[["单元格"]]}},{"id":"last","type":"paragraph","data":{"text":"末段"}}]}"#
+        let blocks = PaperContentRenderer.blocks(from: raw)
+        #expect(blocks.map(\.id) == ["first", "future", "last"])
+        if case .requiresOriginal = blocks[1] {} else { Issue.record("Extended content should keep an original-reading placeholder") }
+        #expect(PaperEditorContentBuilder.canEditAsPlainText(raw) == false)
+    }
+
+    @Test(arguments: ["body", "blocks", "block"])
+    func articleResourceBudgetsStopBeforeRichTextImport(kind: String) throws {
+        let raw: String
+        switch kind {
+        case "body": raw = String(repeating: "x", count: PaperContentResourceLimits.maximumBodyBytes + 1)
+        case "blocks":
+            let block: [String: Any] = ["type": "paragraph", "data": ["text": "text"]]
+            raw = String(decoding: try JSONSerialization.data(withJSONObject: ["blocks": Array(repeating: block,
+                count: PaperContentResourceLimits.maximumBlocks + 1)]), as: UTF8.self)
+        default:
+            raw = String(decoding: try JSONSerialization.data(withJSONObject: ["blocks": [["type": "paragraph",
+                "data": ["text": String(repeating: "x", count: PaperContentResourceLimits.maximumBlockBytes + 1)]]]]), as: UTF8.self)
+        }
+        let blocks = PaperContentRenderer.blocks(from: raw)
+        #expect(blocks.count == 1)
+        if case .requiresOriginal = blocks[0] {} else { Issue.record("Oversized content should offer original reading") }
+    }
+
     private func user(_ id: Int) -> CommunityUser {
         .init(id: id, createTime: "", nickname: "fixture", avatar: .init(mid: "", url: "", lowUrl: ""), motto: "",
             identity: .init(id: 1, color: "", text: "", createTime: "", updateTime: "", deleteTime: nil))
@@ -90,6 +117,7 @@ struct NetworkSmokeCoverageTests {
         var calls: [(String, String)] = []
         var referenced: [[String]] = []
         var brokenReference = false
+        var onUpload: (() -> Void)?
         private var image: [String: Any] { ["mid": "uploaded", "url": "https://example.invalid/image.jpg", "low_url": ""] }
         private var user: [String: Any] {
             ["id": 1, "create_time": "", "nickname": "fixture", "avatar": image, "motto": "",
@@ -105,6 +133,7 @@ struct NetworkSmokeCoverageTests {
                 let body = try #require(request.httpBody)
                 #expect(body.range(of: Data([0xFF, 0xD8])) != nil)
                 result = image
+                onUpload?()
             } else if method == "POST" {
                 let body = try #require(request.httpBody)
                 let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
@@ -134,13 +163,34 @@ struct NetworkSmokeCoverageTests {
         let gallery = GalleryService(session: session, preferences: {
             .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
         })
-        let operations = CommunityWriteSmoke.Operations.production(gallery: gallery)
-        #expect(try await operations.create(.poster, "fixture") == 9)
-        #expect(try await operations.comment("poster9", "fixture").images.map(\.mid) == ["uploaded"])
+        var operations = CommunityWriteSmoke.Operations.production(gallery: gallery)
+        var uploads: [String] = []
+        #expect(try await operations.create(.poster, "fixture", { uploads.append($0) }) == 9)
+        #expect(try await operations.comment("poster9", "fixture", { uploads.append($0) }).images.map(\.mid) == ["uploaded"])
+        #expect(uploads == ["uploaded", "uploaded"])
+        let imageData = try CommunityWriteMedia.jpeg()
+        #expect(imageData == (try CommunityWriteMedia.jpeg()) && UIImage(data: imageData)?.size == CGSize(width: 1, height: 1))
         #expect(route.referenced == [["uploaded"], ["uploaded"]])
         #expect(route.calls.filter { $0.0 == "/upload/image" }.count == 2)
         route.brokenReference = true
-        await #expect(throws: URLError.self) { _ = try await operations.create(.poster, "fixture") }
+        await #expect(throws: URLError.self) { _ = try await operations.create(.poster, "fixture", { _ in }) }
+        let writes = route.calls.filter { $0.1 == "POST" && $0.0 != "/upload/image" }.count
+        for comment in [false, true] {
+            await #expect(throws: CocoaError.self) {
+                let record: CommunityWriteSmoke.Operations.RecordImage = { _ in throw CocoaError(.fileWriteNoPermission) }
+                if comment { _ = try await operations.comment("poster9", "fixture", record) }
+                else { _ = try await operations.create(.poster, "fixture", record) }
+            }
+        }
+        #expect(route.calls.filter { $0.1 == "POST" && $0.0 != "/upload/image" }.count == writes)
+        var identity = CommunitySessionIdentity(accountIdentifier: "fixture")
+        operations.identity = { identity }
+        let scoped = operations.scoped(to: identity)
+        route.onUpload = { identity = .init(accountIdentifier: "other") }
+        await #expect(throws: CancellationError.self) {
+            _ = try await scoped.create(.poster, "fixture") { _ in Issue.record("上传完成后沿账号归属保存资源") }
+        }
+        #expect(route.calls.filter { $0.1 == "POST" && $0.0 != "/upload/image" }.count == writes)
     }
 }
 #endif

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exchange fixed validation evidence through commit-scoped GitHub Actions and release assets."""
 import argparse
+import ast
 import json
 import os
 import re
@@ -40,16 +41,23 @@ def download_run(run: int, repo: str) -> None:
 
 def baseline(commit: str) -> None:
     if not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', commit): raise ValueError('覆盖率基准需要目标提交 SHA。')
-    repo = repository()
-    pages = api_pages(f'repos/{repo}/actions/workflows/ci.yml/runs?head_sha={commit}&status=completed')
-    runs = [run for page in pages for run in page['workflow_runs'] if run['head_sha'] == commit
-        and run['status'] == 'completed' and run['conclusion'] == 'success' and run['event'] in {'push', 'workflow_dispatch'}]
-    if not runs: raise ValueError('目标提交需要完成 iOS CI 真机验收；请在目标分支执行工作流。')
-    run = max(runs, key=lambda row: row['id'])['id']
-    artifacts = [artifact for page in api_pages(f'repos/{repo}/actions/runs/{run}/artifacts') for artifact in page['artifacts']]
-    if not any(row['name'] == ARTIFACT and row['expired'] is False for row in artifacts):
-        raise ValueError('目标提交的真机证据需要有效工作流产物；请重新执行目标分支工作流。')
-    download_run(run, repo)
+    source = subprocess.check_output(['git', 'show', f'{commit}:Scripts/validation_policy.py'], cwd=ROOT, text=True)
+    names = {'MODULE_COVERAGE_FLOORS': 'modules', 'IOS_MODULE_COVERAGE_FLOORS': 'all'}
+    policy = {}
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) \
+                and node.targets[0].id in names:
+            value = ast.literal_eval(node.value)
+            if not isinstance(value, dict) or not value or any(not isinstance(key, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9]*', key)
+                    or type(floor) is not int or not 0 <= floor <= 100 for key, floor in value.items()):
+                raise ValueError('目标提交需要有效的模块覆盖率阈值。')
+            policy[names[node.targets[0].id]] = value
+    if set(policy) != set(names.values()): raise ValueError('目标提交需要 macOS 与 iOS 两组覆盖率基准。')
+    from validation_evidence import report_lock, write_report
+    with report_lock():
+        report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
+        report.update(coverageBaseCommit=commit, coveragePolicy=policy)
+        write_report(report)
 
 
 def review_pr(number: int, commit: str | None = None) -> str:
@@ -124,26 +132,30 @@ def self_test() -> None:
     commit = 'a' * 40
     run = {'id': 7, 'head_sha': commit, 'status': 'completed', 'conclusion': 'success', 'event': 'push'}
     artifacts = [{'artifacts': [{'name': ARTIFACT, 'expired': False}]}]
-    with patch.dict(os.environ, GITHUB_REPOSITORY='owner/repo', GITHUB_RUN_ID='9', GITHUB_EVENT_NAME='push'), \
-            patch.object(module, 'api_pages', side_effect=[[{'workflow_runs': [dict(run, id=6), dict(run, id=100, head_sha='b' * 40)]},
-                {'workflow_runs': [run]}], artifacts]) as requests, patch.object(module, 'download_run') as download:
+    from contextlib import nullcontext
+    policy_source = 'MODULE_COVERAGE_FLOORS = {"Feature": 80}\nIOS_MODULE_COVERAGE_FLOORS = {"Feature": 70}\n'
+    with patch.object(subprocess, 'check_output', return_value=policy_source) as git, \
+            patch('validation_evidence.report_lock', side_effect=nullcontext), patch('validation_evidence.write_report') as save, \
+            patch.object(Path, 'is_file', return_value=False), patch.object(module, 'api_pages') as api:
         baseline(commit)
-        download.assert_called_once_with(7, 'owner/repo')
-        assert 'head_sha=' + commit in requests.call_args_list[0].args[0]
-        download.reset_mock()
+        git.assert_called_once_with(['git', 'show', f'{commit}:Scripts/validation_policy.py'], cwd=ROOT, text=True)
+        assert save.call_args.args[0] == {'coverageBaseCommit': commit, 'coveragePolicy': {'modules': {'Feature': 80}, 'all': {'Feature': 70}}}
+        api.assert_not_called()
+    with patch.dict(os.environ, GITHUB_REPOSITORY='owner/repo', GITHUB_RUN_ID='9', GITHUB_EVENT_NAME='push'), \
+            patch.object(module, 'download_run') as download:
         current('success,success,success,success')
         download.assert_called_once_with(9, 'owner/repo')
         for states in ('success,success,success', 'success,success,skipped,success', 'failure,success,success,success'):
             try: current(states)
             except ValueError: pass
             else: raise AssertionError('全部前置 Job 共同参与合并门禁')
-    for runs, items in (([], artifacts), ([run], [{'artifacts': [{'name': ARTIFACT, 'expired': True}]}])):
-        with patch.dict(os.environ, GITHUB_REPOSITORY='owner/repo'), \
-                patch.object(module, 'api_pages', side_effect=[[{'workflow_runs': runs}], items]), patch.object(module, 'download_run') as download:
+    for source in ('MODULE_COVERAGE_FLOORS = {}', policy_source.replace('80', '101'), policy_source.replace('80', 'True'),
+                   policy_source.replace('{"Feature": 80}', 'execute()')):
+        with patch.object(subprocess, 'check_output', return_value=source), patch('validation_evidence.write_report') as save:
             try: baseline(commit)
             except ValueError: pass
-            else: raise AssertionError('目标提交需要有效成功产物')
-            download.assert_not_called()
+            else: raise AssertionError('目标提交需要有效的版本化阈值')
+            save.assert_not_called()
     for fault in ('none', 'commit', 'number', 'repository', 'event', 'job', 'expired', 'stale-pr'):
         reviewed = dict(run, event='workflow_dispatch', display_title='iOS CI review PR 12', head_repository={'full_name': 'owner/repo'})
         pull = {'state': 'open', 'merge_commit_sha': commit, 'base': {'sha': 'b' * 40}}
@@ -212,7 +224,7 @@ def main() -> int:
         elif args.action == 'review-pr': print(review_pr(int(args.identity)))
         else: release(args.identity, publish=args.action == 'publish')
         return 0
-    except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as error:
+    except (ValueError, SyntaxError, KeyError, OSError, subprocess.CalledProcessError) as error:
         print(str(error), file=sys.stderr)
         return 1
 
